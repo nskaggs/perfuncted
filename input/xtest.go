@@ -1,0 +1,158 @@
+package input
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jezek/xgb"
+	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgb/xtest"
+)
+
+// XTestBackend injects keyboard and mouse events via the X11 XTEST extension.
+// It only works on X11 or XWayland sessions. Prefer UinputBackend when available.
+type XTestBackend struct {
+	conn  *xgb.Conn
+	root  xproto.Window
+	delay time.Duration
+}
+
+// NewXTestBackend connects to the named X11 display and initialises XTEST.
+// Pass an empty string to use the DISPLAY environment variable.
+func NewXTestBackend(displayName string) (*XTestBackend, error) {
+	conn, err := xgb.NewConnDisplay(displayName)
+	if err != nil {
+		return nil, fmt.Errorf("input/xtest: connect to display %q: %w", displayName, err)
+	}
+	if err := xtest.Init(conn); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("input/xtest: init XTEST: %w", err)
+	}
+	root := xproto.Setup(conn).DefaultScreen(conn).Root
+	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
+}
+
+// keysymForName maps a key name to an X11 keysym value.
+var keysymForName = map[string]xproto.Keysym{
+	"a": 0x61, "b": 0x62, "c": 0x63, "d": 0x64, "e": 0x65,
+	"f": 0x66, "g": 0x67, "h": 0x68, "i": 0x69, "j": 0x6a,
+	"k": 0x6b, "l": 0x6c, "m": 0x6d, "n": 0x6e, "o": 0x6f,
+	"p": 0x70, "q": 0x71, "r": 0x72, "s": 0x73, "t": 0x74,
+	"u": 0x75, "v": 0x76, "w": 0x77, "x": 0x78, "y": 0x79, "z": 0x7a,
+	"0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34,
+	"5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39,
+	" ": 0x20, "space": 0x20,
+	"return": 0xff0d, "enter": 0xff0d,
+	"tab":    0xff09,
+	"escape": 0xff1b, "esc": 0xff1b,
+	"up": 0xff52, "down": 0xff54, "left": 0xff51, "right": 0xff53,
+	"ctrl": 0xffe3, "shift": 0xffe1, "alt": 0xffe9, "super": 0xffeb,
+	"f1": 0xffbe, "f2": 0xffbf, "f3": 0xffc0, "f4": 0xffc1,
+	"f5": 0xffc2, "f6": 0xffc3, "f7": 0xffc4, "f8": 0xffc5,
+	"f9": 0xffc6, "f10": 0xffc7, "f11": 0xffc8, "f12": 0xffc9,
+}
+
+func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
+	sym, ok := keysymForName[strings.ToLower(key)]
+	if !ok && len(key) == 1 {
+		sym = xproto.Keysym(key[0])
+		ok = true
+	}
+	if !ok {
+		return 0, fmt.Errorf("input/xtest: unknown key %q", key)
+	}
+	km, err := xproto.GetKeyboardMapping(b.conn,
+		xproto.Setup(b.conn).MinKeycode,
+		byte(xproto.Setup(b.conn).MaxKeycode-xproto.Setup(b.conn).MinKeycode+1)).Reply()
+	if err != nil {
+		return 0, fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
+	}
+	kpk := int(km.KeysymsPerKeycode)
+	min := int(xproto.Setup(b.conn).MinKeycode)
+	for i, s := range km.Keysyms {
+		if s == sym {
+			return xproto.Keycode(min + i/kpk), nil
+		}
+	}
+	return 0, fmt.Errorf("input/xtest: keysym 0x%x for key %q not found in keymap", sym, key)
+}
+
+func (b *XTestBackend) KeyDown(key string) error {
+	kc, err := b.keycodeFor(key)
+	if err != nil {
+		return err
+	}
+	return xtest.FakeInputChecked(b.conn, xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+}
+
+func (b *XTestBackend) KeyUp(key string) error {
+	kc, err := b.keycodeFor(key)
+	if err != nil {
+		return err
+	}
+	return xtest.FakeInputChecked(b.conn, xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+}
+
+func (b *XTestBackend) KeyTap(key string) error {
+	if err := b.KeyDown(key); err != nil {
+		return err
+	}
+	time.Sleep(b.delay)
+	return b.KeyUp(key)
+}
+
+func (b *XTestBackend) Type(s string) error {
+	for _, ch := range s {
+		if err := b.KeyTap(string(ch)); err != nil {
+			return err
+		}
+		time.Sleep(b.delay)
+	}
+	return nil
+}
+
+func (b *XTestBackend) MouseMove(x, y int) error {
+	return xtest.FakeInputChecked(b.conn, xproto.MotionNotify, 0,
+		xproto.TimeCurrentTime, b.root, int16(x), int16(y), 0).Check()
+}
+
+// xButton maps button numbers to X11 button values (1=left,2=middle,3=right,4=wheelup,5=wheeldown).
+func xButton(button int) byte {
+	switch button {
+	case 1:
+		return 1
+	case 2:
+		return 2
+	case 3:
+		return 3
+	default:
+		return byte(button)
+	}
+}
+
+func (b *XTestBackend) MouseClick(x, y, button int) error {
+	if err := b.MouseMove(x, y); err != nil {
+		return err
+	}
+	if err := b.MouseDown(button); err != nil {
+		return err
+	}
+	time.Sleep(b.delay)
+	return b.MouseUp(button)
+}
+
+func (b *XTestBackend) MouseDown(button int) error {
+	return xtest.FakeInputChecked(b.conn, xproto.ButtonPress, xButton(button),
+		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+}
+
+func (b *XTestBackend) MouseUp(button int) error {
+	return xtest.FakeInputChecked(b.conn, xproto.ButtonRelease, xButton(button),
+		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+}
+
+func (b *XTestBackend) Close() error {
+	b.conn.Close()
+	return nil
+}

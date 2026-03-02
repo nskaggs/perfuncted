@@ -1,0 +1,19 @@
+# Binaries
+/pf
+/example
+/test
+*.test
+
+# Documentation (local only)
+docs/
+*.md
+!README.md
+
+# IDEs
+.vscode/
+.idea/
+
+# Test outputs
+perfuncted-screen.png
+perfuncted-menu-*.png
+/tmp/perfuncted-*

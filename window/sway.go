@@ -1,0 +1,240 @@
+package window
+
+import (
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// swayMagic is the fixed 6-byte header prefix for all sway IPC messages.
+var swayMagic = [6]byte{'i', '3', '-', 'i', 'p', 'c'}
+
+const (
+	swayMsgRunCommand = 0
+	swayMsgGetTree    = 4
+)
+
+// SwayManager implements Manager via sway's IPC socket (i3-ipc protocol).
+// It does not require any Wayland protocol machinery — it uses a simple
+// Unix socket with length-prefixed JSON messages.
+type SwayManager struct {
+	sock string
+}
+
+// NewSwayManager returns a SwayManager connected to the nearest sway IPC
+// socket. It checks $SWAYSOCK first, then globs all sway-ipc sockets in
+// $XDG_RUNTIME_DIR and tries each until one responds.
+func NewSwayManager() (*SwayManager, error) {
+	sock := os.Getenv("SWAYSOCK")
+	if sock != "" {
+		if _, err := swayQuery(sock, swayMsgGetTree, ""); err == nil {
+			return &SwayManager{sock: sock}, nil
+		}
+	}
+	rdir := os.Getenv("XDG_RUNTIME_DIR")
+	if rdir == "" {
+		return nil, fmt.Errorf("window/sway: SWAYSOCK not set and XDG_RUNTIME_DIR empty")
+	}
+	matches, _ := filepath.Glob(filepath.Join(rdir, "sway-ipc.*.sock"))
+	for _, m := range matches {
+		if _, err := swayQuery(m, swayMsgGetTree, ""); err == nil {
+			return &SwayManager{sock: m}, nil
+		}
+	}
+	return nil, fmt.Errorf("window/sway: no reachable sway IPC socket found (set SWAYSOCK or start sway)")
+}
+
+// swayNode is the recursive JSON tree node returned by GET_TREE.
+type swayNode struct {
+	ID            int64      `json:"id"`
+	Name          string     `json:"name"`
+	AppID         string     `json:"app_id"`
+	Type          string     `json:"type"`
+	Rect          swayRect   `json:"rect"`
+	Focused       bool       `json:"focused"`
+	Nodes         []swayNode `json:"nodes"`
+	FloatingNodes []swayNode `json:"floating_nodes"`
+}
+
+type swayRect struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"width"`
+	H int `json:"height"`
+}
+
+// List returns all visible windows (leaf containers) in the sway tree.
+func (m *SwayManager) List() ([]Info, error) {
+	raw, err := swayQuery(m.sock, swayMsgGetTree, "")
+	if err != nil {
+		return nil, fmt.Errorf("window/sway: get_tree: %w", err)
+	}
+	var root swayNode
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("window/sway: parse tree: %w", err)
+	}
+	var out []Info
+	collectLeaves(&root, &out)
+	return out, nil
+}
+
+// collectLeaves walks the sway tree and appends leaf containers (real windows).
+func collectLeaves(n *swayNode, out *[]Info) {
+	isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
+	if isLeaf && (n.Type == "con" || n.Type == "floating_con") && n.Name != "" {
+		*out = append(*out, Info{
+			ID:    uint64(n.ID),
+			Title: n.Name,
+			X:     n.Rect.X,
+			Y:     n.Rect.Y,
+			W:     n.Rect.W,
+			H:     n.Rect.H,
+		})
+	}
+	for i := range n.Nodes {
+		collectLeaves(&n.Nodes[i], out)
+	}
+	for i := range n.FloatingNodes {
+		collectLeaves(&n.FloatingNodes[i], out)
+	}
+}
+
+// ActiveTitle returns the title of the currently focused window.
+func (m *SwayManager) ActiveTitle() (string, error) {
+	raw, err := swayQuery(m.sock, swayMsgGetTree, "")
+	if err != nil {
+		return "", fmt.Errorf("window/sway: get_tree: %w", err)
+	}
+	var root swayNode
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return "", fmt.Errorf("window/sway: parse tree: %w", err)
+	}
+	title := findFocused(&root)
+	if title == "" {
+		return "", fmt.Errorf("window/sway: no focused window")
+	}
+	return title, nil
+}
+
+func findFocused(n *swayNode) string {
+	if n.Focused && (n.Type == "con" || n.Type == "floating_con") {
+		return n.Name
+	}
+	for i := range n.Nodes {
+		if t := findFocused(&n.Nodes[i]); t != "" {
+			return t
+		}
+	}
+	for i := range n.FloatingNodes {
+		if t := findFocused(&n.FloatingNodes[i]); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// findWindow returns the first window whose title contains substr (case-insensitive).
+func (m *SwayManager) findWindow(substr string) (Info, error) {
+	windows, err := m.List()
+	if err != nil {
+		return Info{}, err
+	}
+	lc := strings.ToLower(substr)
+	for _, w := range windows {
+		if strings.Contains(strings.ToLower(w.Title), lc) {
+			return w, nil
+		}
+	}
+	return Info{}, fmt.Errorf("window/sway: no window matching %q", substr)
+}
+
+// swayCmd runs a sway IPC command and returns an error if sway reports failure.
+func (m *SwayManager) swayCmd(cmd string) error {
+	resp, err := swayQuery(m.sock, swayMsgRunCommand, cmd)
+	if err != nil {
+		return err
+	}
+	var results []struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(resp, &results); err == nil && len(results) > 0 && !results[0].Success {
+		return fmt.Errorf("window/sway: command failed: %s", results[0].Error)
+	}
+	return nil
+}
+
+// Activate focuses the first window whose title contains substr (case-insensitive).
+func (m *SwayManager) Activate(substr string) error {
+	w, err := m.findWindow(substr)
+	if err != nil {
+		return err
+	}
+	return m.swayCmd(fmt.Sprintf("[con_id=%d] focus", int64(w.ID)))
+}
+
+// Move repositions the first window whose title contains substr.
+// The window is made floating so it can be placed at an absolute position.
+func (m *SwayManager) Move(substr string, x, y int) error {
+	w, err := m.findWindow(substr)
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("[con_id=%d] floating enable; [con_id=%d] move position %d %d",
+		int64(w.ID), int64(w.ID), x, y)
+	return m.swayCmd(cmd)
+}
+
+// Resize changes the dimensions of the first window whose title contains substr.
+func (m *SwayManager) Resize(substr string, width, height int) error {
+	w, err := m.findWindow(substr)
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("[con_id=%d] resize set %d %d", int64(w.ID), width, height)
+	return m.swayCmd(cmd)
+}
+
+// Close is a no-op; the sway IPC socket is not kept open between calls.
+func (m *SwayManager) Close() error { return nil }
+
+// swayQuery sends a single IPC request and returns the raw JSON response.
+// Each call opens and closes its own connection to avoid state management.
+func swayQuery(sock string, msgType uint32, payload string) ([]byte, error) {
+	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	// Write: magic(6) + length(4 LE) + type(4 LE) + payload
+	pb := []byte(payload)
+	msg := make([]byte, 14+len(pb))
+	copy(msg[0:6], swayMagic[:])
+	binary.LittleEndian.PutUint32(msg[6:10], uint32(len(pb)))
+	binary.LittleEndian.PutUint32(msg[10:14], msgType)
+	copy(msg[14:], pb)
+	if _, err := conn.Write(msg); err != nil {
+		return nil, err
+	}
+
+	// Read header: magic(6) + length(4 LE) + type(4 LE)
+	hdr := make([]byte, 14)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return nil, err
+	}
+	if string(hdr[0:6]) != string(swayMagic[:]) {
+		return nil, fmt.Errorf("bad magic")
+	}
+	bodyLen := binary.LittleEndian.Uint32(hdr[6:10])
+	body := make([]byte, bodyLen)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
