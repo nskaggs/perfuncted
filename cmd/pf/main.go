@@ -16,15 +16,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/png"
-	"log"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/cobra/doc"
 
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
@@ -38,13 +40,34 @@ func main() {
 		Use:   "pf",
 		Short: "perfuncted — screen automation CLI",
 	}
-	root.AddCommand(screenCmd(), inputCmd(), windowCmd(), infoCmd())
+	root.AddCommand(screenCmd(), inputCmd(), windowCmd(), findCmd(), infoCmd(), docsCmd(root))
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
 // ── info ──────────────────────────────────────────────────────────────────────
+
+func docsCmd(root *cobra.Command) *cobra.Command {
+	var dirFlag string
+	cmd := &cobra.Command{
+		Use:    "docs",
+		Short:  "Generate markdown documentation for the CLI",
+		Hidden: false,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := os.MkdirAll(dirFlag, 0755); err != nil {
+				return err
+			}
+			if err := doc.GenMarkdownTree(root, dirFlag); err != nil {
+				return err
+			}
+			fmt.Printf("Documentation generated in %s\n", dirFlag)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&dirFlag, "dir", "d", "./docs-cli", "Directory to write markdown files")
+	return cmd
+}
 
 func infoCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -153,21 +176,34 @@ func screenCmd() *cobra.Command {
 	grab := &cobra.Command{
 		Use:   "grab",
 		Short: "Capture a screen region and save as PNG",
-		Run: func(_ *cobra.Command, _ []string) {
-			sc := openScreen()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
 			defer sc.Close()
-			r := parseRect(rectFlag)
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
 			img, err := sc.Grab(r)
-			die(err)
+			if err != nil {
+				return err
+			}
 			out := outFlag
 			if out == "" {
 				out = "/tmp/pf-grab.png"
 			}
 			f, err := os.Create(out)
-			die(err)
+			if err != nil {
+				return err
+			}
 			defer f.Close()
-			die(png.Encode(f, img))
+			if err := png.Encode(f, img); err != nil {
+				return err
+			}
 			fmt.Println(out)
+			return nil
 		},
 	}
 	grab.Flags().StringVar(&rectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
@@ -176,12 +212,22 @@ func screenCmd() *cobra.Command {
 	checksum := &cobra.Command{
 		Use:   "checksum",
 		Short: "Print the CRC32 pixel checksum of a screen region",
-		Run: func(_ *cobra.Command, _ []string) {
-			sc := openScreen()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
 			defer sc.Close()
-			h, err := find.GrabHash(sc, parseRect(rectFlag), nil)
-			die(err)
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+			h, err := find.GrabHash(sc, r, nil)
+			if err != nil {
+				return err
+			}
 			fmt.Println(h)
+			return nil
 		},
 	}
 	checksum.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -190,12 +236,18 @@ func screenCmd() *cobra.Command {
 	pixel := &cobra.Command{
 		Use:   "pixel",
 		Short: "Print the RGB colour of a single pixel",
-		Run: func(_ *cobra.Command, _ []string) {
-			sc := openScreen()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
 			defer sc.Close()
 			c, err := find.FirstPixel(sc, image.Rect(px, py, px+1, py+1))
-			die(err)
+			if err != nil {
+				return err
+			}
 			fmt.Printf("R=%d G=%d B=%d\n", c.R, c.G, c.B)
+			return nil
 		},
 	}
 	pixel.Flags().IntVar(&px, "x", 0, "x coordinate")
@@ -215,11 +267,17 @@ func inputCmd() *cobra.Command {
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move mouse to absolute coordinates",
-		Run: func(_ *cobra.Command, _ []string) {
-			inp := openInput()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
 			defer inp.Close()
-			die(inp.MouseMove(mx, my))
+			if err := inp.MouseMove(mx, my); err != nil {
+				return err
+			}
 			fmt.Printf("moved to %d,%d\n", mx, my)
+			return nil
 		},
 	}
 	move.Flags().IntVar(&mx, "x", 0, "x coordinate")
@@ -228,11 +286,17 @@ func inputCmd() *cobra.Command {
 	click := &cobra.Command{
 		Use:   "click",
 		Short: "Click a mouse button at coordinates",
-		Run: func(_ *cobra.Command, _ []string) {
-			inp := openInput()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
 			defer inp.Close()
-			die(inp.MouseClick(mx, my, button))
+			if err := inp.MouseClick(mx, my, button); err != nil {
+				return err
+			}
 			fmt.Printf("clicked button %d at %d,%d\n", button, mx, my)
+			return nil
 		},
 	}
 	click.Flags().IntVar(&mx, "x", 0, "x coordinate")
@@ -243,10 +307,13 @@ func inputCmd() *cobra.Command {
 		Use:   "type <text>",
 		Short: "Type a string as keyboard events",
 		Args:  cobra.ExactArgs(1),
-		Run: func(_ *cobra.Command, args []string) {
-			inp := openInput()
+		RunE: func(_ *cobra.Command, args []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
 			defer inp.Close()
-			die(inp.Type(args[0]))
+			return inp.Type(args[0])
 		},
 	}
 
@@ -255,14 +322,108 @@ func inputCmd() *cobra.Command {
 		Use:   "key <combo>",
 		Short: "Send a key or key combination (e.g. ctrl+s, return, escape)",
 		Args:  cobra.ExactArgs(1),
-		Run: func(_ *cobra.Command, args []string) {
-			inp := openInput()
+		RunE: func(_ *cobra.Command, args []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
 			defer inp.Close()
-			die(pressCombo(inp, args[0]))
+			return pressCombo(inp, args[0])
 		},
 	}
 
-	cmd.AddCommand(move, click, typeCmd, key)
+	// New low-level bindings: keydown / keyup / mousedown / mouseup
+	keydown := &cobra.Command{
+		Use:   "keydown <key>",
+		Short: "Press and hold a key",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
+			defer inp.Close()
+			if err := inp.KeyDown(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("keydown %s\n", args[0])
+			return nil
+		},
+	}
+
+	keyup := &cobra.Command{
+		Use:   "keyup <key>",
+		Short: "Release a held key",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
+			defer inp.Close()
+			if err := inp.KeyUp(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("keyup %s\n", args[0])
+			return nil
+		},
+	}
+
+	var mdx, mdy int
+	var mdButton int
+	mousedown := &cobra.Command{
+		Use:   "mousedown",
+		Short: "Press a mouse button (optional coords)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
+			defer inp.Close()
+			if mdx != -1 && mdy != -1 {
+				if err := inp.MouseMove(mdx, mdy); err != nil {
+					return err
+				}
+			}
+			if err := inp.MouseDown(mdButton); err != nil {
+				return err
+			}
+			fmt.Printf("mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
+			return nil
+		},
+	}
+	mousedown.Flags().IntVar(&mdx, "x", -1, "x coordinate (optional)")
+	mousedown.Flags().IntVar(&mdy, "y", -1, "y coordinate (optional)")
+	mousedown.Flags().IntVar(&mdButton, "button", 1, "button number")
+
+	var muX, muY int
+	var muButton int
+	mouseup := &cobra.Command{
+		Use:   "mouseup",
+		Short: "Release a mouse button (optional coords)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			inp, err := input.Open(1920, 1080)
+			if err != nil {
+				return err
+			}
+			defer inp.Close()
+			if muX != -1 && muY != -1 {
+				if err := inp.MouseMove(muX, muY); err != nil {
+					return err
+				}
+			}
+			if err := inp.MouseUp(muButton); err != nil {
+				return err
+			}
+			fmt.Printf("mouseup button %d at %d,%d\n", muButton, muX, muY)
+			return nil
+		},
+	}
+	mouseup.Flags().IntVar(&muX, "x", -1, "x coordinate (optional)")
+	mouseup.Flags().IntVar(&muY, "y", -1, "y coordinate (optional)")
+	mouseup.Flags().IntVar(&muButton, "button", 1, "button number")
+
+	cmd.AddCommand(move, click, typeCmd, key, keydown, keyup, mousedown, mouseup)
 	return cmd
 }
 
@@ -299,14 +460,20 @@ func windowCmd() *cobra.Command {
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List all visible windows",
-		Run: func(_ *cobra.Command, _ []string) {
-			wm := openWindow()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			wm, err := window.Open()
+			if err != nil {
+				return err
+			}
 			defer wm.Close()
 			wins, err := wm.List()
-			die(err)
+			if err != nil {
+				return err
+			}
 			for _, w := range wins {
 				fmt.Printf("0x%x\t%s\n", w.ID, w.Title)
 			}
+			return nil
 		},
 	}
 
@@ -314,23 +481,35 @@ func windowCmd() *cobra.Command {
 		Use:   "activate <title>",
 		Short: "Bring a window to the foreground by title substring",
 		Args:  cobra.ExactArgs(1),
-		Run: func(_ *cobra.Command, args []string) {
-			wm := openWindow()
+		RunE: func(_ *cobra.Command, args []string) error {
+			wm, err := window.Open()
+			if err != nil {
+				return err
+			}
 			defer wm.Close()
-			die(wm.Activate(args[0]))
+			if err := wm.Activate(args[0]); err != nil {
+				return err
+			}
 			fmt.Printf("activated: %s\n", args[0])
+			return nil
 		},
 	}
 
 	active := &cobra.Command{
 		Use:   "active",
 		Short: "Print the title of the currently focused window",
-		Run: func(_ *cobra.Command, _ []string) {
-			wm := openWindow()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			wm, err := window.Open()
+			if err != nil {
+				return err
+			}
 			defer wm.Close()
 			t, err := wm.ActiveTitle()
-			die(err)
+			if err != nil {
+				return err
+			}
 			fmt.Println(t)
+			return nil
 		},
 	}
 
@@ -341,11 +520,17 @@ func windowCmd() *cobra.Command {
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move a window to absolute screen coordinates",
-		Run: func(_ *cobra.Command, _ []string) {
-			wm := openWindow()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			wm, err := window.Open()
+			if err != nil {
+				return err
+			}
 			defer wm.Close()
-			die(wm.Move(mvTitle, mvX, mvY))
+			if err := wm.Move(mvTitle, mvX, mvY); err != nil {
+				return err
+			}
 			fmt.Printf("moved %q to %d,%d\n", mvTitle, mvX, mvY)
+			return nil
 		},
 	}
 	move.Flags().StringVar(&mvTitle, "title", "", "window title substring (required)")
@@ -360,11 +545,17 @@ func windowCmd() *cobra.Command {
 	resize := &cobra.Command{
 		Use:   "resize",
 		Short: "Resize a window",
-		Run: func(_ *cobra.Command, _ []string) {
-			wm := openWindow()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			wm, err := window.Open()
+			if err != nil {
+				return err
+			}
 			defer wm.Close()
-			die(wm.Resize(rsTitle, rsW, rsH))
+			if err := wm.Resize(rsTitle, rsW, rsH); err != nil {
+				return err
+			}
 			fmt.Printf("resized %q to %dx%d\n", rsTitle, rsW, rsH)
+			return nil
 		},
 	}
 	resize.Flags().StringVar(&rsTitle, "title", "", "window title substring (required)")
@@ -376,50 +567,302 @@ func windowCmd() *cobra.Command {
 	return cmd
 }
 
-// ── backend openers ───────────────────────────────────────────────────────────
+func findCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
-// openScreen, openInput, openWindow open individual backends and exit on error.
-// Unlike perfuncted.New(), which continues when some backends fail, the CLI
-// uses fail-fast semantics: if a requested backend is unavailable, exit immediately.
+	var rectFlag string
+	var rectsFlag string
+	var wantsFlag string
+	var hashFlag string
+	var pollFlag string
+	var timeoutFlag string
+	var captureInitial bool
 
-func openScreen() screen.Screenshotter {
-	sc, err := screen.Open()
-	die(err)
-	return sc
+	// pixel-hash (alias of checksum)
+	pixelHash := &cobra.Command{
+		Use:   "pixel-hash",
+		Short: "Print the CRC32 pixel hash of a screen region",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
+			defer sc.Close()
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+			h, err := find.GrabHash(sc, r, nil)
+			if err != nil {
+				return err
+			}
+			fmt.Println(h)
+			return nil
+		},
+	}
+	pixelHash.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+
+	lastPixel := &cobra.Command{
+		Use:   "last-pixel",
+		Short: "Print the RGB colour of the bottom-right pixel of a region",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
+			defer sc.Close()
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+			c, err := find.LastPixel(sc, r)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("R=%d G=%d B=%d\n", c.R, c.G, c.B)
+			return nil
+		},
+	}
+	lastPixel.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+
+	waitFor := &cobra.Command{
+		Use:   "wait-for",
+		Short: "Wait until a region's pixel hash equals the provided hash",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
+			defer sc.Close()
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+
+			want, err := parseHash(hashFlag)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDurationOrDefault(pollFlag, 50*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDurationOrDefault(timeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			h, err := find.WaitFor(ctx, sc, r, want, poll, nil)
+			if err != nil {
+				return err
+			}
+			fmt.Println(h)
+			return nil
+		},
+	}
+	waitFor.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitFor.Flags().StringVar(&hashFlag, "hash", "", "target hash (decimal or 0xhex)")
+	waitFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval (e.g. 50ms)")
+	waitFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration (e.g. 5s)")
+	waitFor.MarkFlagRequired("hash")
+
+	waitForChange := &cobra.Command{
+		Use:   "wait-for-change",
+		Short: "Wait until a region's pixel hash changes from an initial value",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
+			defer sc.Close()
+			defer sc.Close()
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+			var initial uint32
+			if captureInitial {
+				h, err := find.GrabHash(sc, r, nil)
+				if err != nil {
+					return err
+				}
+				initial = h
+			} else {
+				initial, err = parseHash(hashFlag)
+				if err != nil {
+					return err
+				}
+			}
+			poll, err := parseDurationOrDefault(pollFlag, 50*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDurationOrDefault(timeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			h, err := find.WaitForChange(ctx, sc, r, initial, poll, nil)
+			if err != nil {
+				return err
+			}
+			fmt.Println(h)
+			return nil
+		},
+	}
+	waitForChange.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitForChange.Flags().StringVar(&hashFlag, "initial", "", "initial hash (decimal or 0xhex)")
+	waitForChange.Flags().BoolVar(&captureInitial, "capture-initial", false, "capture current region hash and wait for it to change")
+	waitForChange.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
+	waitForChange.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
+	waitForChange.MarkFlagsMutuallyExclusive("initial", "capture-initial")
+	waitForChange.MarkFlagsOneRequired("initial", "capture-initial")
+
+	scanFor := &cobra.Command{
+		Use:   "scan-for",
+		Short: "Scan multiple regions until one matches its expected hash",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			sc, err := screen.Open()
+			if err != nil {
+				return err
+			}
+			defer sc.Close()
+			defer sc.Close()
+			rects, err := parseRects(rectsFlag)
+			if err != nil {
+				return err
+			}
+			wants, err := parseWantHashes(wantsFlag)
+			if err != nil {
+				return err
+			}
+			if len(rects) != len(wants) {
+				return fmt.Errorf("len(rects)=%d != len(wants)=%d", len(rects), len(wants))
+			}
+			poll, err := parseDurationOrDefault(pollFlag, 50*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDurationOrDefault(timeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			res, err := find.ScanFor(ctx, sc, rects, wants, poll, nil)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("match %v -> %08x\n", res.Rect, res.Hash)
+			return nil
+		},
+	}
+	scanFor.Flags().StringVar(&rectsFlag, "rects", "", "semicolon-separated rects: x0,y0,x1,y1;...")
+	scanFor.Flags().StringVar(&wantsFlag, "wants", "", "comma-separated expected hashes (decimal or 0xhex)")
+	scanFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
+	scanFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
+	scanFor.MarkFlagRequired("rects")
+	scanFor.MarkFlagRequired("wants")
+
+	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, scanFor)
+	return cmd
 }
 
-func openInput() input.Inputter {
-	inp, err := input.Open(1920, 1080)
-	die(err)
-	return inp
+// parseDurationOrDefault parses a duration string or returns default.
+func parseDurationOrDefault(s string, d time.Duration) (time.Duration, error) {
+	if s == "" {
+		return d, nil
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q: %v", s, err)
+	}
+	return v, nil
 }
 
-func openWindow() window.Manager {
-	wm, err := window.Open()
-	die(err)
-	return wm
+// parseHash accepts decimal or 0x hex and returns uint32
+func parseHash(s string) (uint32, error) {
+	s = strings.TrimPrefix(s, "0x")
+
+	isHex := false
+	for _, c := range s {
+		if (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			isHex = true
+			break
+		}
+	}
+
+	if isHex {
+		v, err := strconv.ParseUint(s, 16, 32)
+		if err != nil {
+			return 0, fmt.Errorf("invalid hex hash %q: %v", s, err)
+		}
+		return uint32(v), nil
+	}
+
+	v, err := strconv.ParseUint(s, 0, 32)
+	if err != nil {
+		vHex, errHex := strconv.ParseUint(s, 16, 32)
+		if errHex == nil {
+			return uint32(vHex), nil
+		}
+		return 0, fmt.Errorf("invalid hash %q: %v", s, err)
+	}
+	return uint32(v), nil
+}
+
+// parseWantHashes parses comma-separated hashes into []uint32
+func parseWantHashes(s string) ([]uint32, error) {
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]uint32, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		h, err := parseHash(p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// parseRects parses semicolon-separated rects
+func parseRects(s string) ([]image.Rectangle, error) {
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ";")
+	out := make([]image.Rectangle, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		r, err := parseRect(p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-func parseRect(s string) image.Rectangle {
+func parseRect(s string) (image.Rectangle, error) {
 	parts := strings.Split(s, ",")
 	if len(parts) != 4 {
-		log.Fatalf("--rect must be x0,y0,x1,y1; got %q", s)
+		return image.Rectangle{}, fmt.Errorf("--rect must be x0,y0,x1,y1; got %q", s)
 	}
 	vals := make([]int, 4)
 	for i, p := range parts {
 		v, err := strconv.Atoi(strings.TrimSpace(p))
 		if err != nil {
-			log.Fatalf("--rect: invalid number %q", p)
+			return image.Rectangle{}, fmt.Errorf("--rect: invalid number %q", p)
 		}
 		vals[i] = v
 	}
-	return image.Rect(vals[0], vals[1], vals[2], vals[3])
-}
-
-func die(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
+	return image.Rect(vals[0], vals[1], vals[2], vals[3]), nil
 }

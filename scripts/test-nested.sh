@@ -99,6 +99,44 @@ run_example() {
     env $env_str go run ./cmd/integration/ 2>&1 || EXAMPLE_RC=$?
 }
 
+# test_cli ENV_VARS — runs a suite of pf CLI commands with given env overrides.
+# Returns exit code in $CLI_RC.
+test_cli() {
+    local env_str="$1"
+    CLI_RC=0
+    log "running CLI tests with $env_str"
+
+    # Screen grab
+    env $env_str /tmp/pf-bin screen grab --rect 0,0,10,10 --out /tmp/pf-test.png >/dev/null 2>&1
+    local rc=$?
+    if [ $rc -eq 0 ]; then ok "CLI: pf screen grab"; else fail "CLI: pf screen grab ($rc)"; CLI_RC=1; fi
+
+    # Find pixel-hash
+    local h
+    h=$(env $env_str /tmp/pf-bin find pixel-hash --rect 0,0,10,10 2>/dev/null)
+    if [ -n "$h" ]; then ok "CLI: pf find pixel-hash ($h)"; else fail "CLI: pf find pixel-hash"; CLI_RC=1; fi
+
+    # Find wait-for (immediately returns since hash is current)
+    env $env_str /tmp/pf-bin find wait-for --rect 0,0,10,10 --hash "$h" --timeout 1s >/dev/null 2>&1
+    rc=$?
+    if [ $rc -eq 0 ]; then ok "CLI: pf find wait-for"; else fail "CLI: pf find wait-for ($rc)"; CLI_RC=1; fi
+
+    # Find scan-for (immediately returns since hash is current)
+    env $env_str /tmp/pf-bin find scan-for --rects "0,0,10,10;10,10,20,20" --wants "$h,00000000" --timeout 1s >/dev/null 2>&1
+    rc=$?
+    if [ $rc -eq 0 ]; then ok "CLI: pf find scan-for"; else fail "CLI: pf find scan-for ($rc)"; CLI_RC=1; fi
+
+    # Input move
+    env $env_str /tmp/pf-bin input move --x 100 --y 100 >/dev/null 2>&1
+    rc=$?
+    if [ $rc -eq 0 ]; then ok "CLI: pf input move"; else fail "CLI: pf input move ($rc)"; CLI_RC=1; fi
+    
+    # Window list
+    env $env_str /tmp/pf-bin window list >/dev/null 2>&1
+    rc=$?
+    if [ $rc -eq 0 ]; then ok "CLI: pf window list"; else fail "CLI: pf window list ($rc)"; CLI_RC=1; fi
+}
+
 # ── environment sanity check ──────────────────────────────────────────────────
 
 echo ""
@@ -121,6 +159,9 @@ HOST_WL="$WAYLAND_DISPLAY"   # e.g. wayland-0 — we never touch this
 # Pre-flight: ensure the sway log directory exists
 mkdir -p /tmp/perfuncted-logs
 
+log "building pf CLI binary for tests..."
+go build -o /tmp/pf-bin ./cmd/pf/
+
 # ── SESSION 1: Nested Wayland ─────────────────────────────────────────────────
 
 echo ""
@@ -141,10 +182,11 @@ if wait_socket "$XDG_RUNTIME_DIR/$SWAY_WL" 15; then
     sleep 1  # give sway time to finish compositor init
     log "running example with WAYLAND_DISPLAY=$SWAY_WL"
     run_example "WAYLAND_DISPLAY=$SWAY_WL"
-    if [ "$EXAMPLE_RC" -eq 0 ]; then
-        ok "example exited 0"
+    test_cli "WAYLAND_DISPLAY=$SWAY_WL"
+    if [ "$EXAMPLE_RC" -eq 0 ] && [ "$CLI_RC" -eq 0 ]; then
+        ok "example & CLI exited 0"
     else
-        fail "example exited $EXAMPLE_RC"
+        fail "example ($EXAMPLE_RC) or CLI ($CLI_RC) failed"
     fi
 else
     fail "wayland socket $SWAY_WL did not appear within 15 s"
@@ -186,10 +228,11 @@ if wait_socket "$XDG_RUNTIME_DIR/$SWAY_WL" 15; then
         # kwrite uses Wayland natively (no override needed).
         log "running example with WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$SWAY_XDISP GDK_BACKEND=x11"
         run_example "WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$SWAY_XDISP GDK_BACKEND=x11"
-        if [ "$EXAMPLE_RC" -eq 0 ]; then
-            ok "example exited 0"
+        test_cli "WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$SWAY_XDISP"
+        if [ "$EXAMPLE_RC" -eq 0 ] && [ "$CLI_RC" -eq 0 ]; then
+            ok "example & CLI exited 0"
         else
-            fail "example exited $EXAMPLE_RC"
+            fail "example ($EXAMPLE_RC) or CLI ($CLI_RC) failed"
         fi
     else
         fail "XWayland socket $SWAY_XDISP did not appear within 15 s"
@@ -226,10 +269,11 @@ if wait_socket "$XDG_RUNTIME_DIR/$SWAY_WL" 15; then
     sleep 1
     log "running example with WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$DISPLAY"
     run_example "WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$DISPLAY"
-    if [ "$EXAMPLE_RC" -eq 0 ]; then
-        ok "example exited 0"
+    test_cli "WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$DISPLAY"
+    if [ "$EXAMPLE_RC" -eq 0 ] && [ "$CLI_RC" -eq 0 ]; then
+        ok "example & CLI exited 0"
     else
-        fail "example exited $EXAMPLE_RC"
+        fail "example ($EXAMPLE_RC) or CLI ($CLI_RC) failed"
     fi
 else
     fail "wayland socket $SWAY_WL did not appear within 15 s"
