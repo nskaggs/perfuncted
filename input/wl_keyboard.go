@@ -129,6 +129,8 @@ func (k *wlKeyboard) typeString(s string) error {
 		if err := k.tap(slot[r]); err != nil {
 			return err
 		}
+		// Small delay between characters for headless compositors
+		time.Sleep(10 * time.Millisecond)
 	}
 	return nil
 }
@@ -257,7 +259,7 @@ func (k *wlKeyboard) tap(keycode uint32) error {
 	if err := k.sendKey(keycode, 1); err != nil {
 		return err
 	}
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 	return k.sendKey(keycode, 0)
 }
 

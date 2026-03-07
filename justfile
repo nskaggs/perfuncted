@@ -61,8 +61,32 @@ nested-pf *args:
 
 # Run the full nested integration test suite: Wayland → XWayland → X11.
 # Each session is started fresh and fully torn down before the next.
+# The script automatically cleans up stale processes before and after running.
 test-nested:
     @bash scripts/test-nested.sh
+
+# Clean up stale nested session processes and sockets.
+# Run this manually if you need to clean up without running tests.
+cleanup-nested:
+    @echo "Cleaning up stale nested session processes..."
+    -pkill -9 -f "dbus-daemon.*perfuncted-xdg" 2>/dev/null || true
+    -pkill -9 -f "gvfsd-fuse.*perfuncted-xdg" 2>/dev/null || true
+    -pkill -9 fusermount3 2>/dev/null || true
+    -pkill -9 sway 2>/dev/null || true
+    -pkill -9 swaybg 2>/dev/null || true
+    -pkill -9 openbox 2>/dev/null || true
+    -pkill -9 Xvfb 2>/dev/null || true
+    -pkill -9 kwrite 2>/dev/null || true
+    -pkill -9 pluma 2>/dev/null || true
+    @sleep 1
+    @echo "Cleaning up stale temp files and sockets..."
+    -for dir in /tmp/perfuncted-xdg-*/gvfs; do [ -d "$$dir" ] && fusermount -u "$$dir" 2>/dev/null || true; done
+    -rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
+    -rm -f /tmp/.X11-unix/X[0-9]* 2>/dev/null || true
+    -rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
+    -rm -f /tmp/pf-test-*.png 2>/dev/null || true
+    -rm -f /tmp/*-kwrite.txt /tmp/*-pluma.txt 2>/dev/null || true
+    @echo "Cleanup complete."
 
 # Run integration suite on the primary desktop (no nested compositor).
 # Exercises KWinShot, KWinScriptManager, X11Backend, XTest — backends that
