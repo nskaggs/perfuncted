@@ -566,7 +566,7 @@ func waitForWindow(wm window.Manager, substr string, timeout time.Duration) (win
 	// GTK apps sometimes map the window before it's fully ready.
 	// Add a small initial delay to let the window fully initialize.
 	time.Sleep(100 * time.Millisecond)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	for {

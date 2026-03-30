@@ -76,8 +76,6 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           dbus-daemon --session --address=$DBUS_SESSION_BUS_ADDRESS --nofork --print-address 1 &
           DBUS_PID=$!
-          # Give it a Wayland display name anchor so test-nested.sh can discover the host socket
-          export WAYLAND_DISPLAY=wayland-0
           export DISPLAY=""
           bash scripts/test-nested.sh
           kill $DBUS_PID || true
