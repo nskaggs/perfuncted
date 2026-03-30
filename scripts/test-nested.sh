@@ -115,19 +115,11 @@ echo "════════════════════════�
 echo " perfuncted nested integration test suite"
 echo "══════════════════════════════════════════════"
 echo ""
-echo "  host WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
-echo "  host DISPLAY=$DISPLAY"
-echo "  host XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
-
-if [ -z "$WAYLAND_DISPLAY" ] || [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
-    echo "FATAL: host Wayland socket not found — cannot continue"
-    exit 1
-fi
+# Each run_session creates an isolated XDG_RUNTIME_DIR and starts its own
+# headless sway compositor, so no host Wayland socket is required.
 
 # Clean up stale processes and files before starting
 cleanup_stale
-
-HOST_WL="$WAYLAND_DISPLAY"
 mkdir -p /tmp/perfuncted-logs
 
 echo "  building integration binary for tests..."
