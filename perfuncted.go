@@ -15,9 +15,14 @@
 package perfuncted
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"image"
+	"strings"
+	"time"
 
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
@@ -30,11 +35,46 @@ type Options struct {
 	MaxX, MaxY int32
 }
 
+// ScreenBundle wraps a screen.Screenshotter with additional find utilities.
+type ScreenBundle struct {
+	screen.Screenshotter
+}
+
+// GrabHash captures a region and returns its pixel hash.
+func (s ScreenBundle) GrabHash(rect image.Rectangle) (uint32, error) {
+	return find.GrabHash(s.Screenshotter, rect, nil)
+}
+
+// WaitForChange polls rect every poll interval until its hash differs from initial.
+func (s ScreenBundle) WaitForChange(ctx context.Context, rect image.Rectangle, initial uint32, poll time.Duration) (uint32, error) {
+	return find.WaitForChange(ctx, s.Screenshotter, rect, initial, poll, nil)
+}
+
+// WindowBundle wraps a window.Manager with additional find utilities.
+type WindowBundle struct {
+	window.Manager
+}
+
+// ActivateBy focuses the first window whose title contains pattern (case-insensitive).
+func (w WindowBundle) ActivateBy(pattern string) error {
+	windows, err := w.Manager.List()
+	if err != nil {
+		return err
+	}
+	patternLower := strings.ToLower(pattern)
+	for _, win := range windows {
+		if strings.Contains(strings.ToLower(win.Title), patternLower) {
+			return w.Manager.Activate(win.Title)
+		}
+	}
+	return fmt.Errorf("window: no window title matched %q", pattern)
+}
+
 // Perfuncted bundles auto-detected screen, input, and window backends.
 type Perfuncted struct {
-	Screen screen.Screenshotter
+	Screen ScreenBundle
 	Input  input.Inputter
-	Window window.Manager
+	Window WindowBundle
 }
 
 // New opens all backends using auto-detection. Each backend is attempted
@@ -48,7 +88,7 @@ func New(opts Options) (*Perfuncted, error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("screen: %w", err))
 	} else {
-		pf.Screen = sc
+		pf.Screen = ScreenBundle{Screenshotter: sc}
 	}
 
 	maxX, maxY := opts.MaxX, opts.MaxY
@@ -69,10 +109,10 @@ func New(opts Options) (*Perfuncted, error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("window: %w", err))
 	} else {
-		pf.Window = wm
+		pf.Window = WindowBundle{Manager: wm}
 	}
 
-	if pf.Screen == nil && pf.Input == nil && pf.Window == nil {
+	if pf.Screen.Screenshotter == nil && pf.Input == nil && pf.Window.Manager == nil {
 		return nil, fmt.Errorf("perfuncted: no backend available: %w", errors.Join(errs...))
 	}
 	return pf, nil
@@ -81,7 +121,7 @@ func New(opts Options) (*Perfuncted, error) {
 // Close releases all backend resources.
 func (pf *Perfuncted) Close() error {
 	var errs []error
-	if pf.Screen != nil {
+	if pf.Screen.Screenshotter != nil {
 		if err := pf.Screen.Close(); err != nil {
 			errs = append(errs, err)
 		}
@@ -91,7 +131,7 @@ func (pf *Perfuncted) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	if pf.Window != nil {
+	if pf.Window.Manager != nil {
 		if err := pf.Window.Close(); err != nil {
 			errs = append(errs, err)
 		}
