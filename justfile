@@ -45,9 +45,24 @@ pf *args:
 install: build
     go install ./cmd/pf/
 
-# Launch a nested sway session (wlroots) inside the current KDE/Wayland desktop.
-# Sway opens as a window; automation targets WAYLAND_DISPLAY=wayland-1.
+# Launch a true isolated nested sway session (wlroots) for testing.
+# Creates a temporary XDG_RUNTIME_DIR so host processes do not leak into it.
 nested:
+    #!/usr/bin/env bash
+    set -e
+    MY_XDG=$(mktemp -d -t perfuncted-xdg-XXXXXX)
+    export XDG_RUNTIME_DIR=$MY_XDG
+    export WAYLAND_DISPLAY=wayland-1
+    echo "============================================="
+    echo "Nested Sway session starting..."
+    echo "Connect your terminal by running:"
+    echo "  export XDG_RUNTIME_DIR=$MY_XDG"
+    echo "  export WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+    echo ""
+    echo "Or simply use: pf --nested <command>"
+    echo ""
+    echo "When done, tear down with: just cleanup-nested"
+    echo "============================================="
     WLR_BACKENDS=wayland WLR_RENDERER=pixman \
       sway --unsupported-gpu -c config/sway/nested.conf &
 
