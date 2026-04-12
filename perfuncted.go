@@ -77,10 +77,54 @@ func (w WindowBundle) ActivateBy(pattern string) error {
 	return fmt.Errorf("window: no window title matched %q", pattern)
 }
 
+// InputBundle wraps an input.Inputter with higher-level workflow methods.
+type InputBundle struct {
+	input.Inputter
+}
+
+// DoubleClick moves to (x, y) and performs two quick left clicks.
+func (i InputBundle) DoubleClick(x, y int) error {
+	if i.Inputter == nil {
+		return fmt.Errorf("input: not available")
+	}
+	if err := i.MouseClick(x, y, 1); err != nil {
+		return err
+	}
+	return i.MouseClick(x, y, 1)
+}
+
+// DragAndDrop moves to (x1, y1), presses left button, moves to (x2, y2), and releases.
+func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
+	if i.Inputter == nil {
+		return fmt.Errorf("input: not available")
+	}
+	if err := i.MouseMove(x1, y1); err != nil {
+		return err
+	}
+	if err := i.MouseDown(1); err != nil {
+		return err
+	}
+	if err := i.MouseMove(x2, y2); err != nil {
+		i.MouseUp(1) // best effort release
+		return err
+	}
+	return i.MouseUp(1)
+}
+
+// ClickRectCenter moves to the center of rect and performs a left click.
+func (i InputBundle) ClickRectCenter(rect image.Rectangle) error {
+	if i.Inputter == nil {
+		return fmt.Errorf("input: not available")
+	}
+	cx := rect.Min.X + rect.Dx()/2
+	cy := rect.Min.Y + rect.Dy()/2
+	return i.MouseClick(cx, cy, 1)
+}
+
 // Perfuncted bundles auto-detected screen, input, and window backends.
 type Perfuncted struct {
 	Screen ScreenBundle
-	Input  input.Inputter
+	Input  InputBundle
 	Window WindowBundle
 }
 
@@ -109,7 +153,7 @@ func New(opts Options) (*Perfuncted, error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("input: %w", err))
 	} else {
-		pf.Input = inp
+		pf.Input = InputBundle{Inputter: inp}
 	}
 
 	wm, err := window.Open()
@@ -119,7 +163,7 @@ func New(opts Options) (*Perfuncted, error) {
 		pf.Window = WindowBundle{Manager: wm}
 	}
 
-	if pf.Screen.Screenshotter == nil && pf.Input == nil && pf.Window.Manager == nil {
+	if pf.Screen.Screenshotter == nil && pf.Input.Inputter == nil && pf.Window.Manager == nil {
 		return nil, fmt.Errorf("perfuncted: no backend available: %w", errors.Join(errs...))
 	}
 	return pf, nil
@@ -133,7 +177,7 @@ func (pf *Perfuncted) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	if pf.Input != nil {
+	if pf.Input.Inputter != nil {
 		if err := pf.Input.Close(); err != nil {
 			errs = append(errs, err)
 		}
