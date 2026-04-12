@@ -21,6 +21,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -36,14 +37,56 @@ import (
 )
 
 func main() {
+	var nested bool
 	root := &cobra.Command{
 		Use:   "pf",
 		Short: "perfuncted — screen automation CLI",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if nested {
+				return setupNestedEnv()
+			}
+			return nil
+		},
 	}
-	root.AddCommand(screenCmd(), inputCmd(), windowCmd(), findCmd(), infoCmd(), docsCmd(root))
+	root.PersistentFlags().BoolVar(&nested, "nested", false, "auto-detect and connect to a nested Wayland session in /tmp")
+	root.AddCommand(screenCmd(), inputCmd(), windowCmd(), findCmd(), infoCmd(), sessionCmd(), docsCmd(root))
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func setupNestedEnv() error {
+	matches, err := filepath.Glob("/tmp/perfuncted-xdg-*")
+	if err != nil || len(matches) == 0 {
+		return fmt.Errorf("no nested session found in /tmp")
+	}
+	if len(matches) > 1 {
+		return fmt.Errorf("multiple nested sessions found in /tmp, please specify XDG_RUNTIME_DIR manually")
+	}
+	xdgDir := matches[0]
+
+	sockets, err := filepath.Glob(filepath.Join(xdgDir, "wayland-*"))
+	if err != nil || len(sockets) == 0 {
+		return fmt.Errorf("XDG_RUNTIME_DIR %s found, but no wayland-* socket inside", xdgDir)
+	}
+	
+	var waylandDisplay string
+	for _, sock := range sockets {
+		if !strings.HasSuffix(sock, ".lock") {
+			waylandDisplay = filepath.Base(sock)
+			break
+		}
+	}
+	if waylandDisplay == "" {
+		return fmt.Errorf("no valid wayland socket in %s", xdgDir)
+	}
+
+	os.Setenv("XDG_RUNTIME_DIR", xdgDir)
+	os.Setenv("WAYLAND_DISPLAY", waylandDisplay)
+	os.Setenv("DBUS_SESSION_BUS_ADDRESS", fmt.Sprintf("unix:path=%s/bus", xdgDir))
+	
+	fmt.Fprintf(os.Stderr, "[pf --nested] Auto-detected session: XDG_RUNTIME_DIR=%s WAYLAND_DISPLAY=%s\n", xdgDir, waylandDisplay)
+	return nil
 }
 
 // ── info ──────────────────────────────────────────────────────────────────────
@@ -163,6 +206,66 @@ func infoCmd() *cobra.Command {
 			}
 		},
 	}
+	return cmd
+}
+
+// ── session ───────────────────────────────────────────────────────────────────
+
+func sessionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "session",
+		Short: "Session diagnostics and utilities",
+	}
+
+	check := &cobra.Command{
+		Use:   "check",
+		Short: "Check if the current runtime environment is ready for automation",
+		Run: func(_ *cobra.Command, _ []string) {
+			fmt.Println("── Environment Variable Checks ────────────────╮")
+			
+			xdg := os.Getenv("XDG_RUNTIME_DIR")
+			if xdg == "" {
+				fmt.Println("  [✗] XDG_RUNTIME_DIR is not set")
+			} else {
+				if info, err := os.Stat(xdg); err == nil && info.IsDir() {
+					fmt.Printf("  [✓] XDG_RUNTIME_DIR=%s (Directory exists)\n", xdg)
+				} else {
+					fmt.Printf("  [✗] XDG_RUNTIME_DIR=%s (Not found or unreachable)\n", xdg)
+				}
+			}
+
+			wd := os.Getenv("WAYLAND_DISPLAY")
+			if wd == "" {
+				fmt.Println("  [✗] WAYLAND_DISPLAY is not set")
+			} else {
+				sock := filepath.Join(xdg, wd)
+				if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
+					fmt.Printf("  [✓] WAYLAND_DISPLAY=%s (Socket reachable)\n", wd)
+				} else {
+					fmt.Printf("  [✗] WAYLAND_DISPLAY=%s (Socket missing at %s)\n", wd, sock)
+				}
+			}
+
+			dbusAddr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+			if dbusAddr == "" {
+				fmt.Println("  [✗] DBUS_SESSION_BUS_ADDRESS is not set")
+			} else {
+				fmt.Printf("  [✓] DBUS_SESSION_BUS_ADDRESS=%s\n", dbusAddr)
+			}
+
+			fmt.Println("\n── System Resource Checks  ────────────────────╮")
+
+			if info, err := os.Stat("/dev/uinput"); err == nil {
+				fmt.Printf("  [✓] /dev/uinput accessible (mode %v)\n", info.Mode())
+			} else {
+				fmt.Printf("  [✗] /dev/uinput not accessible: %v\n", err)
+			}
+			
+			fmt.Println("\n  Run `pf info` to view the comprehensive backend capability matrix.")
+		},
+	}
+
+	cmd.AddCommand(check)
 	return cmd
 }
 
