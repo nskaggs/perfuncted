@@ -42,11 +42,17 @@ type ScreenBundle struct {
 
 // GrabHash captures a region and returns its pixel hash.
 func (s ScreenBundle) GrabHash(rect image.Rectangle) (uint32, error) {
+	if s.Screenshotter == nil {
+		return 0, fmt.Errorf("screen: not available")
+	}
 	return find.GrabHash(s.Screenshotter, rect, nil)
 }
 
 // WaitForChange polls rect every poll interval until its hash differs from initial.
 func (s ScreenBundle) WaitForChange(ctx context.Context, rect image.Rectangle, initial uint32, poll time.Duration) (uint32, error) {
+	if s.Screenshotter == nil {
+		return 0, fmt.Errorf("screen: not available")
+	}
 	return find.WaitForChange(ctx, s.Screenshotter, rect, initial, poll, nil)
 }
 
@@ -56,6 +62,7 @@ type WindowBundle struct {
 }
 
 // ActivateBy focuses the first window whose title contains pattern (case-insensitive).
+// Note: This operates on a "first match wins" basis.
 func (w WindowBundle) ActivateBy(pattern string) error {
 	windows, err := w.Manager.List()
 	if err != nil {
