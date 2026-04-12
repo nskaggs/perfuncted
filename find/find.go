@@ -137,3 +137,99 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 		}
 	}
 }
+
+// Anchor represents an absolute coordinate reference point on the screen.
+type Anchor struct {
+	X, Y int
+}
+
+// Rect returns a rectangle relative to the anchor's origin.
+func (a Anchor) Rect(dx, dy, w, h int) image.Rectangle {
+	return image.Rect(a.X+dx, a.Y+dy, a.X+dx+w, a.Y+dy+h)
+}
+
+// LocateExact performs an exact byte-for-byte search of reference within the searchArea.
+// It returns the absolute image.Rectangle where it matches.
+func LocateExact(sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+	src, err := sc.Grab(searchArea)
+	if err != nil {
+		return image.Rectangle{}, fmt.Errorf("find: locate grab: %w", err)
+	}
+
+	sb := src.Bounds()
+	rb := reference.Bounds()
+
+	if rb.Dx() > sb.Dx() || rb.Dy() > sb.Dy() {
+		return image.Rectangle{}, fmt.Errorf("find: reference image larger than search area")
+	}
+
+	for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
+		for x := sb.Min.X; x <= sb.Max.X-rb.Dx(); x++ {
+			if matchAt(src, reference, x, y) {
+				return image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), nil
+			}
+		}
+	}
+	return image.Rectangle{}, fmt.Errorf("find: exact match not found")
+}
+
+func matchAt(src, ref image.Image, ox, oy int) bool {
+	rb := ref.Bounds()
+	for y := 0; y < rb.Dy(); y++ {
+		for x := 0; x < rb.Dx(); x++ {
+			cSrc := color.RGBAModel.Convert(src.At(ox+x, oy+y)).(color.RGBA)
+			cRef := color.RGBAModel.Convert(ref.At(rb.Min.X+x, rb.Min.Y+y)).(color.RGBA)
+			if cSrc != cRef {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// WaitWithTolerance pads expectedRect by radius pixels on all sides, captures the larger
+// region, and performs an exact hash search of that size within it.
+func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, targetHash uint32, radius int, poll time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
+	if newHash == nil {
+		newHash = DefaultHasher
+	}
+	searchArea := image.Rect(
+		expectedRect.Min.X-radius,
+		expectedRect.Min.Y-radius,
+		expectedRect.Max.X+radius,
+		expectedRect.Max.Y+radius,
+	)
+
+	for {
+		img, err := sc.Grab(searchArea)
+		if err != nil {
+			return 0, image.Rectangle{}, fmt.Errorf("find: tolerance grab: %w", err)
+		}
+
+		sb := img.Bounds()
+		w, h := expectedRect.Dx(), expectedRect.Dy()
+
+		if sub, ok := img.(interface {
+			SubImage(r image.Rectangle) image.Image
+		}); ok {
+			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
+				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
+					r := image.Rect(x, y, x+w, y+h)
+					subImg := sub.SubImage(r)
+					hVal := PixelHash(subImg, newHash)
+					if hVal == targetHash {
+						return targetHash, r, nil
+					}
+				}
+			}
+		} else {
+			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match")
+		case <-time.After(poll):
+		}
+	}
+}
