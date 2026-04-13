@@ -1,5 +1,7 @@
-// cmd/pf is a cobra CLI that exposes the perfuncted library for ad-hoc use.
-// Each package maps to a command group; each method maps to a subcommand.
+// cmd/pf is a thin CLI wrapper over the perfuncted library.
+// Each command group maps to a bundle (Screen, Input, Window); subcommands
+// map to bundle methods. All backend setup — including nested-session detection
+// — flows through perfuncted.New(), keeping the CLI and library in sync.
 //
 // Usage examples:
 //
@@ -11,11 +13,12 @@
 //	pf input type "hello world"
 //	pf input key ctrl+s
 //	pf window list
-//	pf window activate "kwrite"
+//	pf window activate-by "kwrite"
 //	pf window active
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
@@ -29,7 +32,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 
-	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/screen"
@@ -37,67 +40,53 @@ import (
 )
 
 func main() {
-	var nested bool
+	var (
+		nested     bool
+		maxX, maxY int32
+	)
+
 	root := &cobra.Command{
 		Use:   "pf",
 		Short: "perfuncted — screen automation CLI",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if nested {
-				return setupNestedEnv()
-			}
-			return nil
-		},
 	}
-	root.PersistentFlags().BoolVar(&nested, "nested", false, "auto-detect and connect to a nested Wayland session in /tmp")
-	root.AddCommand(screenCmd(), inputCmd(), windowCmd(), findCmd(), infoCmd(), sessionCmd(), docsCmd(root))
+	root.PersistentFlags().BoolVar(&nested, "nested", false,
+		"auto-detect and connect to a nested Wayland session in /tmp")
+	root.PersistentFlags().Int32Var(&maxX, "max-x", 0,
+		"input coordinate space width (default 1920)")
+	root.PersistentFlags().Int32Var(&maxY, "max-y", 0,
+		"input coordinate space height (default 1080)")
+
+	// openPF is the single gateway to all backends.
+	openPF := func() (*perfuncted.Perfuncted, error) {
+		return perfuncted.New(perfuncted.Options{
+			Nested: nested,
+			MaxX:   maxX,
+			MaxY:   maxY,
+		})
+	}
+
+	root.AddCommand(
+		screenCmd(openPF),
+		inputCmd(openPF),
+		windowCmd(openPF),
+		findCmd(openPF),
+		infoCmd(),
+		sessionCmd(),
+		docsCmd(root),
+	)
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func setupNestedEnv() error {
-	matches, err := filepath.Glob("/tmp/perfuncted-xdg-*")
-	if err != nil || len(matches) == 0 {
-		return fmt.Errorf("no nested session found in /tmp")
-	}
-	if len(matches) > 1 {
-		return fmt.Errorf("multiple nested sessions found in /tmp, please specify XDG_RUNTIME_DIR manually")
-	}
-	xdgDir := matches[0]
-
-	sockets, err := filepath.Glob(filepath.Join(xdgDir, "wayland-*"))
-	if err != nil || len(sockets) == 0 {
-		return fmt.Errorf("XDG_RUNTIME_DIR %s found, but no wayland-* socket inside", xdgDir)
-	}
-	
-	var waylandDisplay string
-	for _, sock := range sockets {
-		if !strings.HasSuffix(sock, ".lock") {
-			waylandDisplay = filepath.Base(sock)
-			break
-		}
-	}
-	if waylandDisplay == "" {
-		return fmt.Errorf("no valid wayland socket in %s", xdgDir)
-	}
-
-	os.Setenv("XDG_RUNTIME_DIR", xdgDir)
-	os.Setenv("WAYLAND_DISPLAY", waylandDisplay)
-	os.Setenv("DBUS_SESSION_BUS_ADDRESS", fmt.Sprintf("unix:path=%s/bus", xdgDir))
-	
-	fmt.Fprintf(os.Stderr, "[pf --nested] Auto-detected session: XDG_RUNTIME_DIR=%s WAYLAND_DISPLAY=%s\n", xdgDir, waylandDisplay)
-	return nil
-}
-
-// ── info ──────────────────────────────────────────────────────────────────────
+// ── docs ────────────────────────────────────────────────────────────────────────────
 
 func docsCmd(root *cobra.Command) *cobra.Command {
-	var dirFlag string
+	var dirFlag, readmeFlag string
 	cmd := &cobra.Command{
-		Use:    "docs",
-		Short:  "Generate markdown documentation for the CLI",
-		Hidden: false,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Use:   "docs",
+		Short: "Generate markdown documentation for the CLI",
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if err := os.MkdirAll(dirFlag, 0755); err != nil {
 				return err
 			}
@@ -105,15 +94,73 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 				return err
 			}
 			fmt.Printf("Documentation generated in %s\n", dirFlag)
+			if readmeFlag != "" {
+				if err := updateReadmeCLI(root, readmeFlag); err != nil {
+					return fmt.Errorf("update readme: %w", err)
+				}
+				fmt.Printf("README CLI section updated in %s\n", readmeFlag)
+			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&dirFlag, "dir", "d", "./docs-cli", "Directory to write markdown files")
+	cmd.Flags().StringVarP(&dirFlag, "dir", "d", "./docs-cli", "directory to write markdown files")
+	cmd.Flags().StringVar(&readmeFlag, "readme", "", "path to README.md whose CLI section to regenerate")
 	return cmd
 }
 
+// updateReadmeCLI rewrites the block between <!-- pf-cli-start --> and
+// <!-- pf-cli-end --> in the given README with a compact command listing
+// derived from the live cobra command tree.
+func updateReadmeCLI(root *cobra.Command, readmePath string) error {
+	skip := map[string]bool{"completion": true, "help": true, "docs": true}
+
+	var buf bytes.Buffer
+	buf.WriteString("```\n")
+	first := true
+	for _, grp := range root.Commands() {
+		if skip[grp.Name()] || grp.Hidden {
+			continue
+		}
+		if !grp.HasSubCommands() {
+			fmt.Fprintf(&buf, "%-40s# %s\n", "pf "+grp.Name()+"  ", grp.Short)
+			first = false
+			continue
+		}
+		if !first {
+			buf.WriteByte('\n')
+		}
+		first = false
+		for _, sub := range grp.Commands() {
+			if sub.Hidden || sub.Name() == "help" {
+				continue
+			}
+			fmt.Fprintf(&buf, "%-40s# %s\n", "pf "+grp.Name()+" "+sub.Name()+"  ", sub.Short)
+		}
+	}
+	buf.WriteString("```\n")
+
+	data, err := os.ReadFile(readmePath)
+	if err != nil {
+		return err
+	}
+	const startMarker = "<!-- pf-cli-start -->\n"
+	const endMarker = "<!-- pf-cli-end -->"
+	start := bytes.Index(data, []byte(startMarker))
+	end := bytes.Index(data, []byte(endMarker))
+	if start < 0 || end < 0 || end <= start {
+		return fmt.Errorf("README missing <!-- pf-cli-start --> / <!-- pf-cli-end --> sentinels")
+	}
+	var out bytes.Buffer
+	out.Write(data[:start+len(startMarker)])
+	out.Write(buf.Bytes())
+	out.Write(data[end:])
+	return os.WriteFile(readmePath, out.Bytes(), 0644)
+}
+
+// ── info ────────────────────────────────────────────────────────────────────────────
+
 func infoCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "info",
 		Short: "Probe and display supported backends for this environment",
 		Run: func(_ *cobra.Command, _ []string) {
@@ -133,83 +180,66 @@ func infoCmd() *cobra.Command {
 
 			fmt.Println("\n── Screen ──────────────────────────────────────────")
 			for _, r := range screen.Probe() {
-				mark := "  [ ]"
-				if r.Selected {
-					mark = "  [✓]"
-				} else if r.Available {
-					mark = "  [·]"
-				}
-				fmt.Printf("%s %-26s %s\n", mark, r.Name, r.Reason)
+				fmt.Printf("%s %-26s %s\n", probeMarker(r.Selected, r.Available), r.Name, r.Reason)
 			}
 
 			fmt.Println("\n── Window ──────────────────────────────────────────")
 			for _, r := range window.Probe() {
-				mark := "  [ ]"
-				if r.Selected {
-					mark = "  [✓]"
-				} else if r.Available {
-					mark = "  [·]"
-				}
-				fmt.Printf("%s %-26s %s\n", mark, r.Name, r.Reason)
+				fmt.Printf("%s %-26s %s\n", probeMarker(r.Selected, r.Available), r.Name, r.Reason)
 			}
 
 			fmt.Println("\n── Input ───────────────────────────────────────────")
 			for _, r := range input.Probe() {
-				mark := "  [ ]"
-				if r.Selected {
-					mark = "  [✓]"
-				} else if r.Available {
-					mark = "  [·]"
-				}
-				fmt.Printf("%s %-26s %s\n", mark, r.Name, r.Reason)
+				fmt.Printf("%s %-26s %s\n", probeMarker(r.Selected, r.Available), r.Name, r.Reason)
 			}
 
 			fmt.Println("\n── Capability matrix ───────────────────────────────")
 			switch kind {
 			case compositor.KDE:
-				fmt.Println("  screen capture   ✓  KWin.ScreenShot2, portal fallback (one-time consent)")
-				fmt.Println("  window list      ✓  KWin scripting (workspace.windowList)")
-				fmt.Println("  window control   ✓  KWin scripting (activate, geometry)")
-				fmt.Println("  input injection  ✓  /dev/uinput (kernel-level, universal)")
+				fmt.Println("  screen capture   ✓  KWin.ScreenShot2, portal fallback")
+				fmt.Println("  window list      ✓  KWin scripting")
+				fmt.Println("  window control   ✓  KWin scripting")
+				fmt.Println("  input injection  ✓  /dev/uinput")
 				fmt.Println("  pixel scanning   ✓")
-				fmt.Println("  global hotkeys   ✗  not yet implemented")
-				fmt.Println("  virtual keyboard ✗  KDE does not expose zwp_virtual_keyboard_manager_v1")
 			case compositor.Wlroots:
 				fmt.Println("  screen capture   ✓  wlr-screencopy / ext-image-copy-capture")
 				fmt.Println("  window list      ✓  wlr-foreign-toplevel")
-				fmt.Println("  window control   ✓  wlr-foreign-toplevel (activate)")
-				fmt.Println("  input injection  ✓  wl-virtual (zwlr_virtual_pointer + zwp_virtual_keyboard)")
+				fmt.Println("  window control   ✓  wlr-foreign-toplevel")
+				fmt.Println("  input injection  ✓  wl-virtual")
 				fmt.Println("  pixel scanning   ✓")
-				fmt.Println("  global hotkeys   ✗  not yet implemented")
 			case compositor.GNOME:
-				fmt.Println("  screen capture   ~  portal only (one-time consent dialog)")
+				fmt.Println("  screen capture   ~  portal only (one-time consent)")
 				fmt.Println("  window list      ✗  impossible on GNOME Wayland")
 				fmt.Println("  window control   ✗  impossible on GNOME Wayland")
 				fmt.Println("  input injection  ✓  /dev/uinput")
-				fmt.Println("  pixel scanning   ✗  requires window list")
-				fmt.Println("  global hotkeys   ✗  not exposed by GNOME")
 				fmt.Println("")
-				fmt.Println("  → Run inside a nested sway session for full automation:")
-				fmt.Println("    sway --unsupported-gpu &")
-				fmt.Println("    WAYLAND_DISPLAY=wayland-1 pf info")
+				fmt.Println("  -> Run inside a nested sway session for full automation:")
+				fmt.Println("     just nested")
 			case compositor.X11:
-				fmt.Println("  screen capture   ✓  XGetImage (X11/XWayland)")
-				fmt.Println("  window list      ✓  EWMH (X11/XWayland)")
+				fmt.Println("  screen capture   ✓  XGetImage")
+				fmt.Println("  window list      ✓  EWMH")
 				fmt.Println("  window control   ✓  EWMH")
 				fmt.Println("  input injection  ✓  XTEST")
 				fmt.Println("  pixel scanning   ✓")
-				fmt.Println("")
-				fmt.Println("  Note: X11 is secondary target. Primary target is Wayland.")
 			default:
-				fmt.Println("  Unknown compositor — capabilities not determined.")
-				fmt.Println("  Run inside a nested sway session for known-good automation.")
+				fmt.Println("  Unknown compositor — run inside a nested sway session.")
 			}
 		},
 	}
-	return cmd
 }
 
-// ── session ───────────────────────────────────────────────────────────────────
+func probeMarker(selected, available bool) string {
+	switch {
+	case selected:
+		return "  [✓]"
+	case available:
+		return "  [·]"
+	default:
+		return "  [ ]"
+	}
+}
+
+// ── session ───────────────────────────────────────────────────────────────────────────
 
 func sessionCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -217,21 +247,31 @@ func sessionCmd() *cobra.Command {
 		Short: "Session diagnostics and utilities",
 	}
 
+	typeCmd := &cobra.Command{
+		Use:   "type",
+		Short: "Print whether the current session is nested or host",
+		Run: func(_ *cobra.Command, _ []string) {
+			kind, details := perfuncted.DetectSession()
+			fmt.Printf("session: %s\n", kind)
+			for k, v := range details {
+				fmt.Printf("  %s: %s\n", k, v)
+			}
+		},
+	}
+
 	check := &cobra.Command{
 		Use:   "check",
 		Short: "Check if the current runtime environment is ready for automation",
 		Run: func(_ *cobra.Command, _ []string) {
-			fmt.Println("── Environment Variable Checks ────────────────╮")
-			
+			fmt.Println("── Environment Variable Checks ──────────────────")
+
 			xdg := os.Getenv("XDG_RUNTIME_DIR")
 			if xdg == "" {
 				fmt.Println("  [✗] XDG_RUNTIME_DIR is not set")
+			} else if info, err := os.Stat(xdg); err == nil && info.IsDir() {
+				fmt.Printf("  [✓] XDG_RUNTIME_DIR=%s\n", xdg)
 			} else {
-				if info, err := os.Stat(xdg); err == nil && info.IsDir() {
-					fmt.Printf("  [✓] XDG_RUNTIME_DIR=%s (Directory exists)\n", xdg)
-				} else {
-					fmt.Printf("  [✗] XDG_RUNTIME_DIR=%s (Not found or unreachable)\n", xdg)
-				}
+				fmt.Printf("  [✗] XDG_RUNTIME_DIR=%s (not found)\n", xdg)
 			}
 
 			wd := os.Getenv("WAYLAND_DISPLAY")
@@ -240,38 +280,36 @@ func sessionCmd() *cobra.Command {
 			} else {
 				sock := filepath.Join(xdg, wd)
 				if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
-					fmt.Printf("  [✓] WAYLAND_DISPLAY=%s (Socket reachable)\n", wd)
+					fmt.Printf("  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd)
 				} else {
-					fmt.Printf("  [✗] WAYLAND_DISPLAY=%s (Socket missing at %s)\n", wd, sock)
+					fmt.Printf("  [✗] WAYLAND_DISPLAY=%s (socket missing at %s)\n", wd, sock)
 				}
 			}
 
-			dbusAddr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
-			if dbusAddr == "" {
-				fmt.Println("  [✗] DBUS_SESSION_BUS_ADDRESS is not set")
+			if addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); addr != "" {
+				fmt.Printf("  [✓] DBUS_SESSION_BUS_ADDRESS=%s\n", addr)
 			} else {
-				fmt.Printf("  [✓] DBUS_SESSION_BUS_ADDRESS=%s\n", dbusAddr)
+				fmt.Println("  [✗] DBUS_SESSION_BUS_ADDRESS is not set")
 			}
 
-			fmt.Println("\n── System Resource Checks  ────────────────────╮")
-
+			fmt.Println("\n── System Resource Checks ────────────────────────")
 			if info, err := os.Stat("/dev/uinput"); err == nil {
 				fmt.Printf("  [✓] /dev/uinput accessible (mode %v)\n", info.Mode())
 			} else {
 				fmt.Printf("  [✗] /dev/uinput not accessible: %v\n", err)
 			}
-			
-			fmt.Println("\n  Run `pf info` to view the comprehensive backend capability matrix.")
+
+			fmt.Println("\n  Run `pf info` for the full backend capability matrix.")
 		},
 	}
 
-	cmd.AddCommand(check)
+	cmd.AddCommand(typeCmd, check)
 	return cmd
 }
 
-// ── screen ────────────────────────────────────────────────────────────────────
+// ── screen ────────────────────────────────────────────────────────────────────────────
 
-func screenCmd() *cobra.Command {
+func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
 	var rectFlag, outFlag string
@@ -280,16 +318,16 @@ func screenCmd() *cobra.Command {
 		Use:   "grab",
 		Short: "Capture a screen region and save as PNG",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
+			defer pf.Close()
 			r, err := parseRect(rectFlag)
 			if err != nil {
 				return err
 			}
-			img, err := sc.Grab(r)
+			img, err := pf.Screen.Grab(r)
 			if err != nil {
 				return err
 			}
@@ -316,16 +354,16 @@ func screenCmd() *cobra.Command {
 		Use:   "checksum",
 		Short: "Print the CRC32 pixel checksum of a screen region",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
+			defer pf.Close()
 			r, err := parseRect(rectFlag)
 			if err != nil {
 				return err
 			}
-			h, err := find.GrabHash(sc, r, nil)
+			h, err := pf.Screen.GrabHash(r)
 			if err != nil {
 				return err
 			}
@@ -340,12 +378,12 @@ func screenCmd() *cobra.Command {
 		Use:   "pixel",
 		Short: "Print the RGB colour of a single pixel",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
-			c, err := find.FirstPixel(sc, image.Rect(px, py, px+1, py+1))
+			defer pf.Close()
+			c, err := pf.Screen.FirstPixel(image.Rect(px, py, px+1, py+1))
 			if err != nil {
 				return err
 			}
@@ -360,9 +398,9 @@ func screenCmd() *cobra.Command {
 	return cmd
 }
 
-// ── input ─────────────────────────────────────────────────────────────────────
+// ── input ────────────────────────────────────────────────────────────────────────────
 
-func inputCmd() *cobra.Command {
+func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
 
 	var mx, my, button int
@@ -371,12 +409,12 @@ func inputCmd() *cobra.Command {
 		Use:   "move",
 		Short: "Move mouse to absolute coordinates",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			if err := inp.MouseMove(mx, my); err != nil {
+			defer pf.Close()
+			if err := pf.Input.MouseMove(mx, my); err != nil {
 				return err
 			}
 			fmt.Printf("moved to %d,%d\n", mx, my)
@@ -390,12 +428,12 @@ func inputCmd() *cobra.Command {
 		Use:   "click",
 		Short: "Click a mouse button at coordinates",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			if err := inp.MouseClick(mx, my, button); err != nil {
+			defer pf.Close()
+			if err := pf.Input.MouseClick(mx, my, button); err != nil {
 				return err
 			}
 			fmt.Printf("clicked button %d at %d,%d\n", button, mx, my)
@@ -406,47 +444,109 @@ func inputCmd() *cobra.Command {
 	click.Flags().IntVar(&my, "y", 0, "y coordinate")
 	click.Flags().IntVar(&button, "button", 1, "1=left 2=middle 3=right")
 
+	doubleClick := &cobra.Command{
+		Use:   "double-click",
+		Short: "Double-click at coordinates",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.DoubleClick(mx, my); err != nil {
+				return err
+			}
+			fmt.Printf("double-clicked at %d,%d\n", mx, my)
+			return nil
+		},
+	}
+	doubleClick.Flags().IntVar(&mx, "x", 0, "x coordinate")
+	doubleClick.Flags().IntVar(&my, "y", 0, "y coordinate")
+
+	var x1, y1, x2, y2 int
+	drag := &cobra.Command{
+		Use:   "drag",
+		Short: "Drag from one coordinate to another (press, move, release)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.DragAndDrop(x1, y1, x2, y2); err != nil {
+				return err
+			}
+			fmt.Printf("dragged %d,%d to %d,%d\n", x1, y1, x2, y2)
+			return nil
+		},
+	}
+	drag.Flags().IntVar(&x1, "x1", 0, "start x")
+	drag.Flags().IntVar(&y1, "y1", 0, "start y")
+	drag.Flags().IntVar(&x2, "x2", 0, "end x")
+	drag.Flags().IntVar(&y2, "y2", 0, "end y")
+
+	var crRect string
+	clickCenter := &cobra.Command{
+		Use:   "click-center",
+		Short: "Click the center of a rectangle",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(crRect)
+			if err != nil {
+				return err
+			}
+			if err := pf.Input.ClickRectCenter(r); err != nil {
+				return err
+			}
+			fmt.Printf("clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
+			return nil
+		},
+	}
+	clickCenter.Flags().StringVar(&crRect, "rect", "0,0,100,100", "x0,y0,x1,y1")
+
 	typeCmd := &cobra.Command{
 		Use:   "type <text>",
 		Short: "Type a string as keyboard events",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			return inp.Type(args[0])
+			defer pf.Close()
+			return pf.Input.Type(args[0])
 		},
 	}
 
-	// key accepts "ctrl+s" style combos: hold modifiers, tap the final key.
 	key := &cobra.Command{
 		Use:   "key <combo>",
 		Short: "Send a key or key combination (e.g. ctrl+s, return, escape)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			return pressCombo(inp, args[0])
+			defer pf.Close()
+			return pressCombo(pf.Input.Inputter, args[0])
 		},
 	}
 
-	// New low-level bindings: keydown / keyup / mousedown / mouseup
 	keydown := &cobra.Command{
 		Use:   "keydown <key>",
 		Short: "Press and hold a key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			if err := inp.KeyDown(args[0]); err != nil {
+			defer pf.Close()
+			if err := pf.Input.KeyDown(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("keydown %s\n", args[0])
@@ -459,12 +559,12 @@ func inputCmd() *cobra.Command {
 		Short: "Release a held key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			if err := inp.KeyUp(args[0]); err != nil {
+			defer pf.Close()
+			if err := pf.Input.KeyUp(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("keyup %s\n", args[0])
@@ -472,23 +572,22 @@ func inputCmd() *cobra.Command {
 		},
 	}
 
-	var mdx, mdy int
-	var mdButton int
+	var mdx, mdy, mdButton int
 	mousedown := &cobra.Command{
 		Use:   "mousedown",
 		Short: "Press a mouse button (optional coords)",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
+			defer pf.Close()
 			if mdx != -1 && mdy != -1 {
-				if err := inp.MouseMove(mdx, mdy); err != nil {
+				if err := pf.Input.MouseMove(mdx, mdy); err != nil {
 					return err
 				}
 			}
-			if err := inp.MouseDown(mdButton); err != nil {
+			if err := pf.Input.MouseDown(mdButton); err != nil {
 				return err
 			}
 			fmt.Printf("mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
@@ -499,34 +598,34 @@ func inputCmd() *cobra.Command {
 	mousedown.Flags().IntVar(&mdy, "y", -1, "y coordinate (optional)")
 	mousedown.Flags().IntVar(&mdButton, "button", 1, "button number")
 
-	var muX, muY int
-	var muButton int
+	var mux, muy, muButton int
 	mouseup := &cobra.Command{
 		Use:   "mouseup",
 		Short: "Release a mouse button (optional coords)",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			inp, err := input.Open(1920, 1080)
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer inp.Close()
-			if muX != -1 && muY != -1 {
-				if err := inp.MouseMove(muX, muY); err != nil {
+			defer pf.Close()
+			if mux != -1 && muy != -1 {
+				if err := pf.Input.MouseMove(mux, muy); err != nil {
 					return err
 				}
 			}
-			if err := inp.MouseUp(muButton); err != nil {
+			if err := pf.Input.MouseUp(muButton); err != nil {
 				return err
 			}
-			fmt.Printf("mouseup button %d at %d,%d\n", muButton, muX, muY)
+			fmt.Printf("mouseup button %d at %d,%d\n", muButton, mux, muy)
 			return nil
 		},
 	}
-	mouseup.Flags().IntVar(&muX, "x", -1, "x coordinate (optional)")
-	mouseup.Flags().IntVar(&muY, "y", -1, "y coordinate (optional)")
+	mouseup.Flags().IntVar(&mux, "x", -1, "x coordinate (optional)")
+	mouseup.Flags().IntVar(&muy, "y", -1, "y coordinate (optional)")
 	mouseup.Flags().IntVar(&muButton, "button", 1, "button number")
 
-	cmd.AddCommand(move, click, typeCmd, key, keydown, keyup, mousedown, mouseup)
+	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
+		typeCmd, key, keydown, keyup, mousedown, mouseup)
 	return cmd
 }
 
@@ -541,7 +640,6 @@ func pressCombo(inp input.Inputter, combo string) error {
 		}
 	}
 	if err := inp.KeyTap(final); err != nil {
-		// release already-held modifiers before returning error
 		for _, m := range modifiers {
 			inp.KeyUp(m) //nolint:errcheck
 		}
@@ -555,21 +653,21 @@ func pressCombo(inp input.Inputter, combo string) error {
 	return nil
 }
 
-// ── window ────────────────────────────────────────────────────────────────────
+// ── window ────────────────────────────────────────────────────────────────────────────
 
-func windowCmd() *cobra.Command {
+func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
 
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List all visible windows",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			wm, err := window.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer wm.Close()
-			wins, err := wm.List()
+			defer pf.Close()
+			wins, err := pf.Window.List()
 			if err != nil {
 				return err
 			}
@@ -585,12 +683,30 @@ func windowCmd() *cobra.Command {
 		Short: "Bring a window to the foreground by title substring",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			wm, err := window.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer wm.Close()
-			if err := wm.Activate(args[0]); err != nil {
+			defer pf.Close()
+			if err := pf.Window.Activate(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("activated: %s\n", args[0])
+			return nil
+		},
+	}
+
+	activateBy := &cobra.Command{
+		Use:   "activate-by <pattern>",
+		Short: "Bring a window to the foreground by title substring (case-insensitive, library-guaranteed)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Window.ActivateBy(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("activated: %s\n", args[0])
@@ -602,12 +718,12 @@ func windowCmd() *cobra.Command {
 		Use:   "active",
 		Short: "Print the title of the currently focused window",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			wm, err := window.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer wm.Close()
-			t, err := wm.ActiveTitle()
+			defer pf.Close()
+			t, err := pf.Window.ActiveTitle()
 			if err != nil {
 				return err
 			}
@@ -616,20 +732,18 @@ func windowCmd() *cobra.Command {
 		},
 	}
 
-	var (
-		mvTitle  string
-		mvX, mvY int
-	)
+	var mvTitle string
+	var mvX, mvY int
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move a window to absolute screen coordinates",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			wm, err := window.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer wm.Close()
-			if err := wm.Move(mvTitle, mvX, mvY); err != nil {
+			defer pf.Close()
+			if err := pf.Window.Move(mvTitle, mvX, mvY); err != nil {
 				return err
 			}
 			fmt.Printf("moved %q to %d,%d\n", mvTitle, mvX, mvY)
@@ -641,20 +755,18 @@ func windowCmd() *cobra.Command {
 	move.Flags().IntVar(&mvY, "y", 0, "y coordinate")
 	_ = move.MarkFlagRequired("title")
 
-	var (
-		rsTitle  string
-		rsW, rsH int
-	)
+	var rsTitle string
+	var rsW, rsH int
 	resize := &cobra.Command{
 		Use:   "resize",
 		Short: "Resize a window",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			wm, err := window.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer wm.Close()
-			if err := wm.Resize(rsTitle, rsW, rsH); err != nil {
+			defer pf.Close()
+			if err := pf.Window.Resize(rsTitle, rsW, rsH); err != nil {
 				return err
 			}
 			fmt.Printf("resized %q to %dx%d\n", rsTitle, rsW, rsH)
@@ -666,36 +778,40 @@ func windowCmd() *cobra.Command {
 	resize.Flags().IntVar(&rsH, "h", 600, "height in pixels")
 	_ = resize.MarkFlagRequired("title")
 
-	cmd.AddCommand(list, activate, active, move, resize)
+	cmd.AddCommand(list, activate, activateBy, active, move, resize)
 	return cmd
 }
 
-func findCmd() *cobra.Command {
+// ── find ──────────────────────────────────────────────────────────────────────────────
+
+func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
-	var rectFlag string
-	var rectsFlag string
-	var wantsFlag string
-	var hashFlag string
-	var pollFlag string
-	var timeoutFlag string
-	var captureInitial bool
+	var (
+		rectFlag       string
+		rectsFlag      string
+		wantsFlag      string
+		hashFlag       string
+		pollFlag       string
+		timeoutFlag    string
+		captureInitial bool
+		stableCount    int
+	)
 
-	// pixel-hash (alias of checksum)
 	pixelHash := &cobra.Command{
 		Use:   "pixel-hash",
 		Short: "Print the CRC32 pixel hash of a screen region",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
+			defer pf.Close()
 			r, err := parseRect(rectFlag)
 			if err != nil {
 				return err
 			}
-			h, err := find.GrabHash(sc, r, nil)
+			h, err := pf.Screen.GrabHash(r)
 			if err != nil {
 				return err
 			}
@@ -709,16 +825,16 @@ func findCmd() *cobra.Command {
 		Use:   "last-pixel",
 		Short: "Print the RGB colour of the bottom-right pixel of a region",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
+			defer pf.Close()
 			r, err := parseRect(rectFlag)
 			if err != nil {
 				return err
 			}
-			c, err := find.LastPixel(sc, r)
+			c, err := pf.Screen.LastPixel(r)
 			if err != nil {
 				return err
 			}
@@ -732,107 +848,142 @@ func findCmd() *cobra.Command {
 		Use:   "wait-for",
 		Short: "Wait until a region's pixel hash equals the provided hash",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
+			defer pf.Close()
 			r, err := parseRect(rectFlag)
 			if err != nil {
 				return err
 			}
-
 			want, err := parseHash(hashFlag)
 			if err != nil {
 				return err
 			}
-			poll, err := parseDurationOrDefault(pollFlag, 50*time.Millisecond)
+			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDurationOrDefault(timeoutFlag, 5*time.Second)
+			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
 			if err != nil {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := find.WaitFor(ctx, sc, r, want, poll, nil)
+			h, err := pf.Screen.WaitFor(ctx, r, want, poll)
 			if err != nil {
 				return err
 			}
-			fmt.Println(h)
+			fmt.Printf("%08x\n", h)
 			return nil
 		},
 	}
 	waitFor.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
 	waitFor.Flags().StringVar(&hashFlag, "hash", "", "target hash (decimal or 0xhex)")
-	waitFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval (e.g. 50ms)")
-	waitFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration (e.g. 5s)")
-	waitFor.MarkFlagRequired("hash")
+	waitFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
+	waitFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
+	_ = waitFor.MarkFlagRequired("hash")
 
 	waitForChange := &cobra.Command{
 		Use:   "wait-for-change",
 		Short: "Wait until a region's pixel hash changes from an initial value",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
-			defer sc.Close()
+			defer pf.Close()
 			r, err := parseRect(rectFlag)
 			if err != nil {
 				return err
 			}
 			var initial uint32
 			if captureInitial {
-				h, err := find.GrabHash(sc, r, nil)
-				if err != nil {
+				if initial, err = pf.Screen.GrabHash(r); err != nil {
 					return err
 				}
-				initial = h
 			} else {
-				initial, err = parseHash(hashFlag)
-				if err != nil {
+				if initial, err = parseHash(hashFlag); err != nil {
 					return err
 				}
 			}
-			poll, err := parseDurationOrDefault(pollFlag, 50*time.Millisecond)
+			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDurationOrDefault(timeoutFlag, 5*time.Second)
+			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
 			if err != nil {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := find.WaitForChange(ctx, sc, r, initial, poll, nil)
+			h, err := pf.Screen.WaitForChange(ctx, r, initial, poll)
 			if err != nil {
 				return err
 			}
-			fmt.Println(h)
+			fmt.Printf("%08x\n", h)
 			return nil
 		},
 	}
 	waitForChange.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
 	waitForChange.Flags().StringVar(&hashFlag, "initial", "", "initial hash (decimal or 0xhex)")
-	waitForChange.Flags().BoolVar(&captureInitial, "capture-initial", false, "capture current region hash and wait for it to change")
+	waitForChange.Flags().BoolVar(&captureInitial, "capture-initial", false,
+		"capture current region hash and wait for it to change")
 	waitForChange.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
 	waitForChange.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
 	waitForChange.MarkFlagsMutuallyExclusive("initial", "capture-initial")
 	waitForChange.MarkFlagsOneRequired("initial", "capture-initial")
 
+	waitForNoChange := &cobra.Command{
+		Use:   "wait-for-no-change",
+		Short: "Wait until a region's pixel hash is stable for N consecutive samples",
+		Long: `Polls a screen region until its pixel hash is unchanged for --stable consecutive
+samples. Pairs with wait-for-change: use wait-for-change to detect when something
+starts (e.g. navigation begins), then wait-for-no-change to detect when it finishes.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(pollFlag, 200*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(timeoutFlag, 30*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			h, err := pf.Screen.WaitForNoChange(ctx, r, stableCount, poll)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	waitForNoChange.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitForNoChange.Flags().IntVar(&stableCount, "stable", 5,
+		"consecutive identical samples required")
+	waitForNoChange.Flags().StringVar(&pollFlag, "poll", "200ms", "poll interval")
+	waitForNoChange.Flags().StringVar(&timeoutFlag, "timeout", "30s", "timeout duration")
+
 	scanFor := &cobra.Command{
 		Use:   "scan-for",
 		Short: "Scan multiple regions until one matches its expected hash",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			sc, err := screen.Open()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
-			defer sc.Close()
-			defer sc.Close()
+			defer pf.Close()
 			rects, err := parseRects(rectsFlag)
 			if err != nil {
 				return err
@@ -844,17 +995,17 @@ func findCmd() *cobra.Command {
 			if len(rects) != len(wants) {
 				return fmt.Errorf("len(rects)=%d != len(wants)=%d", len(rects), len(wants))
 			}
-			poll, err := parseDurationOrDefault(pollFlag, 50*time.Millisecond)
+			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDurationOrDefault(timeoutFlag, 5*time.Second)
+			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
 			if err != nil {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			res, err := find.ScanFor(ctx, sc, rects, wants, poll, nil)
+			res, err := pf.Screen.ScanFor(ctx, rects, wants, poll)
 			if err != nil {
 				return err
 			}
@@ -863,20 +1014,21 @@ func findCmd() *cobra.Command {
 		},
 	}
 	scanFor.Flags().StringVar(&rectsFlag, "rects", "", "semicolon-separated rects: x0,y0,x1,y1;...")
-	scanFor.Flags().StringVar(&wantsFlag, "wants", "", "comma-separated expected hashes (decimal or 0xhex)")
+	scanFor.Flags().StringVar(&wantsFlag, "wants", "", "comma-separated expected hashes")
 	scanFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
 	scanFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
-	scanFor.MarkFlagRequired("rects")
-	scanFor.MarkFlagRequired("wants")
+	_ = scanFor.MarkFlagRequired("rects")
+	_ = scanFor.MarkFlagRequired("wants")
 
-	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, scanFor)
+	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, waitForNoChange, scanFor)
 	return cmd
 }
 
-// parseDurationOrDefault parses a duration string or returns default.
-func parseDurationOrDefault(s string, d time.Duration) (time.Duration, error) {
+// ── helpers ───────────────────────────────────────────────────────────────────────────
+
+func parseDuration(s string, def time.Duration) (time.Duration, error) {
 	if s == "" {
-		return d, nil
+		return def, nil
 	}
 	v, err := time.ParseDuration(s)
 	if err != nil {
@@ -885,10 +1037,8 @@ func parseDurationOrDefault(s string, d time.Duration) (time.Duration, error) {
 	return v, nil
 }
 
-// parseHash accepts decimal or 0x hex and returns uint32
 func parseHash(s string) (uint32, error) {
 	s = strings.TrimPrefix(s, "0x")
-
 	isHex := false
 	for _, c := range s {
 		if (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
@@ -896,7 +1046,6 @@ func parseHash(s string) (uint32, error) {
 			break
 		}
 	}
-
 	if isHex {
 		v, err := strconv.ParseUint(s, 16, 32)
 		if err != nil {
@@ -904,19 +1053,16 @@ func parseHash(s string) (uint32, error) {
 		}
 		return uint32(v), nil
 	}
-
 	v, err := strconv.ParseUint(s, 0, 32)
 	if err != nil {
-		vHex, errHex := strconv.ParseUint(s, 16, 32)
-		if errHex == nil {
-			return uint32(vHex), nil
+		if v2, err2 := strconv.ParseUint(s, 16, 32); err2 == nil {
+			return uint32(v2), nil
 		}
 		return 0, fmt.Errorf("invalid hash %q: %v", s, err)
 	}
 	return uint32(v), nil
 }
 
-// parseWantHashes parses comma-separated hashes into []uint32
 func parseWantHashes(s string) ([]uint32, error) {
 	if s == "" {
 		return nil, nil
@@ -924,8 +1070,7 @@ func parseWantHashes(s string) ([]uint32, error) {
 	parts := strings.Split(s, ",")
 	out := make([]uint32, 0, len(parts))
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		h, err := parseHash(p)
+		h, err := parseHash(strings.TrimSpace(p))
 		if err != nil {
 			return nil, err
 		}
@@ -934,7 +1079,6 @@ func parseWantHashes(s string) ([]uint32, error) {
 	return out, nil
 }
 
-// parseRects parses semicolon-separated rects
 func parseRects(s string) ([]image.Rectangle, error) {
 	if s == "" {
 		return nil, nil
@@ -942,8 +1086,7 @@ func parseRects(s string) ([]image.Rectangle, error) {
 	parts := strings.Split(s, ";")
 	out := make([]image.Rectangle, 0, len(parts))
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		r, err := parseRect(p)
+		r, err := parseRect(strings.TrimSpace(p))
 		if err != nil {
 			return nil, err
 		}
@@ -951,8 +1094,6 @@ func parseRects(s string) ([]image.Rectangle, error) {
 	}
 	return out, nil
 }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 func parseRect(s string) (image.Rectangle, error) {
 	parts := strings.Split(s, ",")

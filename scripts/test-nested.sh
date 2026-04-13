@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # scripts/test-nested.sh — nested integration test suite
 #
-# Runs cmd/integration against 6 isolated sessions concurrently:
-#   x11-kwrite, x11-pluma              (pure X11 with Openbox)
+# Runs cmd/integration against 7 isolated sessions concurrently:
+#   x11-kwrite, x11-pluma                      (pure X11 with Openbox)
 #   wlroots-wayland-kwrite, wlroots-wayland-pluma  (Sway headless, Wayland apps)
+#   wlroots-wayland-firefox                    (Sway headless, Firefox browser)
 #   wlroots-xwayland-kwrite, wlroots-xwayland-pluma (Sway headless + XWayland, X11 apps)
 
 set -euo pipefail
@@ -11,60 +12,113 @@ cd "$(dirname "$0")/.."
 
 # ── cleanup helpers ───────────────────────────────────────────────────────────
 
-# cleanup_stale: remove stale processes, sockets, and temp files from previous runs
+# kill_perfuncted_procs: kill all processes whose XDG_RUNTIME_DIR is under
+# /tmp/perfuncted-xdg-* (i.e. spawned by a previous test run).
+# Scans /proc/*/environ so only perfuncted-test processes are affected —
+# never any process from the host desktop.
+kill_perfuncted_procs() {
+    local env_file pid
+    for env_file in /proc/[0-9]*/environ; do
+        [ -r "$env_file" ] || continue
+        if tr '\0' '\n' < "$env_file" 2>/dev/null \
+                | grep -q '^XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-'; then
+            pid="${env_file%/environ}"
+            pid="${pid#/proc/}"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+}
+
+# kill_session_procs XDG_DIR: kill processes scoped to a specific session's XDG dir.
+kill_session_procs() {
+    local xdg="$1" env_file pid
+    for env_file in /proc/[0-9]*/environ; do
+        [ -r "$env_file" ] || continue
+        if tr '\0' '\n' < "$env_file" 2>/dev/null \
+                | grep -q "^XDG_RUNTIME_DIR=${xdg}$"; then
+            pid="${env_file%/environ}"
+            pid="${pid#/proc/}"
+            kill -TERM "$pid" 2>/dev/null || true
+        fi
+    done
+}
+
+# next_x_display START: echo the first free X11 display number >= :START.
+next_x_display() {
+    local n="${1:-10}"
+    while [ "$n" -lt 100 ]; do
+        if [ ! -S "/tmp/.X11-unix/X${n}" ] && [ ! -e "/tmp/.X${n}-lock" ]; then
+            echo ":${n}"
+            return 0
+        fi
+        n=$((n+1))
+    done
+    echo "ERROR: no free X11 display in :${1:-10}–:99" >&2
+    return 1
+}
+
+# get_xwayland_display MY_XDG [TIMEOUT_SECS]
+# Reliably finds the X11 display that sway's XWayland is providing for the
+# given isolated session, by reading XWayland's command-line directly from
+# /proc. Avoids the race condition where concurrent Xvfb sessions create
+# sockets before XWayland does.
+get_xwayland_display() {
+    local my_xdg="$1" secs="${2:-30}" i=0
+    while [ $i -lt $((secs*10)) ]; do
+        for cmdfile in /proc/[0-9]*/cmdline; do
+            [ -r "$cmdfile" ] || continue
+            local cmd
+            cmd=$(tr '\0' ' ' < "$cmdfile" 2>/dev/null)
+            case "$cmd" in Xwayland\ *) ;; *) continue ;; esac
+            local envfile="${cmdfile%cmdline}environ"
+            tr '\0' '\n' < "$envfile" 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=${my_xdg}" || continue
+            local disp
+            disp=$(echo "$cmd" | grep -oE ':[0-9]+' | head -1)
+            [ -n "$disp" ] && echo "$disp" && return 0
+        done
+        sleep 0.1
+        i=$((i+1))
+    done
+    return 1
+}
+
+# cleanup_stale: remove stale processes and temp files from previous runs
 cleanup_stale() {
     echo "Cleaning up stale processes from previous runs..."
-    # Kill any stale test processes
-    pkill -9 -f "dbus-daemon.*perfuncted-xdg" 2>/dev/null || true
-    pkill -9 -f "gvfsd-fuse.*perfuncted-xdg" 2>/dev/null || true
-    pkill -9 fusermount3 2>/dev/null || true
-    pkill -9 sway 2>/dev/null || true
-    pkill -9 swaybg 2>/dev/null || true
-    pkill -9 openbox 2>/dev/null || true
-    pkill -9 Xvfb 2>/dev/null || true
-    pkill -9 kwrite 2>/dev/null || true
-    pkill -9 pluma 2>/dev/null || true
+    kill_perfuncted_procs
     sleep 1
-    
+
     # Unmount any remaining gvfs mounts
     for dir in /tmp/perfuncted-xdg-*/gvfs; do
         [ -d "$dir" ] && fusermount -u "$dir" 2>/dev/null || true
     done
-    
-    # Remove stale temp directories and sockets
-    echo "Cleaning up stale temp files and sockets..."
+
+    echo "Cleaning up stale temp files..."
     rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
-    rm -f /tmp/.X11-unix/X[0-9]* 2>/dev/null || true
     rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
     rm -f /tmp/pf-test-*.png 2>/dev/null || true
     rm -f /tmp/*-kwrite.txt /tmp/*-pluma.txt 2>/dev/null || true
+    rm -f /tmp/*-firefox-before.png /tmp/*-firefox-after.png 2>/dev/null || true
 }
 
-# cleanup_session: clean up after a single test session
+# cleanup_session: clean up stray processes from the current session on retry
 cleanup_session() {
-    local prefix="$1"
-    # Kill any app processes with this prefix
-    pkill -TERM -f "kwrite.*${prefix}" 2>/dev/null || true
-    pkill -TERM -f "pluma.*${prefix}" 2>/dev/null || true
+    kill_session_procs "$MY_XDG"
 }
 
 # cleanup_all: final cleanup after all tests complete
 cleanup_all() {
     echo ""
     echo "Cleaning up after test suite..."
-    pkill -9 -f "dbus-daemon.*perfuncted-xdg" 2>/dev/null || true
-    pkill -9 -f "gvfsd-fuse.*perfuncted-xdg" 2>/dev/null || true
-    pkill -9 fusermount3 2>/dev/null || true
+    kill_perfuncted_procs
     sleep 1
-    
+
     # Unmount gvfs
     for dir in /tmp/perfuncted-xdg-*/gvfs; do
         [ -d "$dir" ] && fusermount -u "$dir" 2>/dev/null || true
     done
-    
-    # Remove temp directories
+
     rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
-    rm -f /tmp/.X11-unix/X[0-9]* 2>/dev/null || true
 }
 
 # ── environment sanity check ──────────────────────────────────────────────────
@@ -85,14 +139,14 @@ check_deps() {
 
     # Optional but highly recommended for full verification
     local opt_missing=()
-    for cmd in wl-copy wl-paste xdotool; do
+    for cmd in wl-copy wl-paste xdotool firefox; do
         if ! command -v "$cmd" &>/dev/null; then
             opt_missing+=("$cmd")
         fi
     done
     if [ ${#opt_missing[@]} -gt 0 ]; then
         echo "WARNING: Optional dependencies missing: ${opt_missing[*]}"
-        echo "Clipboard and focus-injection tests may be limited."
+        echo "Clipboard/focus tests and the Firefox browser session may be skipped."
     fi
 }
 
@@ -202,25 +256,6 @@ wait_no_socket() {
     return 1
 }
 
-# wait_new_x11_socket BEFORE_SNAPSHOT TIMEOUT_SECS
-# Polls until a new /tmp/.X11-unix/X* socket appears that was not in BEFORE_SNAPSHOT.
-# Prints the display string (e.g. ":1") on success.
-wait_new_x11_socket() {
-    local before="$1" secs="$2" i=0
-    while [ $i -lt $((secs*10)) ]; do
-        for f in /tmp/.X11-unix/X*; do
-            [ -S "$f" ] || continue
-            local base; base=$(basename "$f")
-            echo "$before" | grep -qx "$base" && continue
-            echo ":${base#X}"
-            return 0
-        done
-        sleep 0.1
-        i=$((i+1))
-    done
-    return 1
-}
-
 # clean_run: executes a command with a whitelist-only environment to prevent leaks from host
 # Usage: clean_run [VAR=VAL ...] command [args...]
 clean_run() {
@@ -268,6 +303,10 @@ test_cli() {
     clean_run $env_str bash -c "/tmp/pf-bin find wait-for --rect 0,0,10,10 --hash '$h' --timeout 1s >/dev/null 2>&1"
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf find wait-for"; else fail "CLI: pf find wait-for ($rc)"; CLI_RC=1; fi
+
+    clean_run $env_str bash -c "/tmp/pf-bin find wait-for-no-change --rect 0,0,10,10 --stable 3 --poll 100ms --timeout 3s >/dev/null 2>&1"
+    rc=$?
+    if [ $rc -eq 0 ]; then ok "CLI: pf find wait-for-no-change"; else fail "CLI: pf find wait-for-no-change ($rc)"; CLI_RC=1; fi
 
     clean_run $env_str bash -c "/tmp/pf-bin find scan-for --rects '0,0,10,10;10,10,20,20' --wants '$h,00000000' --timeout 1s >/dev/null 2>&1"
     rc=$?
@@ -319,10 +358,6 @@ run_session() {
         return
     fi
 
-    # Snapshot X11 sockets before starting any compositor (used for XWayland display detection).
-    local X11_BEFORE
-    X11_BEFORE=$(ls /tmp/.X11-unix/ 2>/dev/null || true)
-
     case "$SESSION_TYPE" in
         x11)
             # X11 session: run Xvfb + Openbox for EWMH window management
@@ -366,13 +401,13 @@ run_session() {
         sleep 1
         run_example "$ENV_STR" "$APP"
         test_cli "$ENV_STR" "$PREFIX"
-        pkill -TERM -f "${APP}.*$PF_TEST_PREFIX" 2>/dev/null || true
         if [ "$EXAMPLE_RC" -eq 0 ] && [ "$CLI_RC" -eq 0 ]; then
             ok "example & CLI exited 0"
         else
             fail "example ($EXAMPLE_RC) or CLI ($CLI_RC) failed"
         fi
     elif wait_socket "$MY_XDG/$SWAY_WL" 60; then
+
         export WAYLAND_DISPLAY="$SWAY_WL"
 
         # Determine the test environment string based on session type.
@@ -383,9 +418,10 @@ run_session() {
                 ENV_STR="WAYLAND_DISPLAY=$SWAY_WL DISPLAY= GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland"
                 ;;
             wlroots-xwayland)
-                # XWayland: force both GTK and Qt to use X11 backend
+                # XWayland: read display from XWayland's cmdline to avoid races
+                # with concurrent Xvfb sessions creating sockets at the same time.
                 local XDISP
-                XDISP=$(wait_new_x11_socket "$X11_BEFORE" 60) || { fail "XWayland socket did not appear within 60 s"; SKIP=1; }
+                XDISP=$(get_xwayland_display "$MY_XDG" 60) || { fail "XWayland display did not appear within 60 s"; SKIP=1; }
                 if [ "$SKIP" -eq 0 ]; then
                     ENV_STR="WAYLAND_DISPLAY=$SWAY_WL DISPLAY=$XDISP GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb"
                 fi
@@ -398,7 +434,6 @@ run_session() {
             sleep 2
             run_example "$ENV_STR" "$APP"
             test_cli "$ENV_STR" "$PREFIX"
-            pkill -TERM -f "${APP}.*$PF_TEST_PREFIX" 2>/dev/null || true
             if [ "$EXAMPLE_RC" -eq 0 ] && [ "$CLI_RC" -eq 0 ]; then
                 ok "example & CLI exited 0"
             else
@@ -432,13 +467,19 @@ run_session() {
 
 # ── execute concurrently ──────────────────────────────────────────────────────
 
-echo "  launching 6 isolated sessions concurrently..."
-# X11 sessions: pure Xvfb, no compositor (use displays :10, :11)
-( run_session x11              kwrite :10 > /tmp/perfuncted-logs/x11-kwrite-test.log     2>&1 ) &
-( run_session x11              pluma  :11 > /tmp/perfuncted-logs/x11-pluma-test.log      2>&1 ) &
+echo "  launching 7 isolated sessions concurrently..."
+# Allocate X11 displays before forking to avoid races between concurrent sessions.
+X11_D1=$(next_x_display 10)
+X11_D2=$(next_x_display $(( ${X11_D1#:} + 1 )))
+# X11 sessions: pure Xvfb, no compositor
+( run_session x11              kwrite "$X11_D1" > /tmp/perfuncted-logs/x11-kwrite-test.log     2>&1 ) &
+( run_session x11              pluma  "$X11_D2" > /tmp/perfuncted-logs/x11-pluma-test.log      2>&1 ) &
 # wlroots-wayland sessions: Sway headless with Wayland apps
 ( run_session wlroots-wayland  kwrite     > /tmp/perfuncted-logs/wlroots-wayland-kwrite-test.log  2>&1 ) &
 ( run_session wlroots-wayland  pluma      > /tmp/perfuncted-logs/wlroots-wayland-pluma-test.log   2>&1 ) &
+# wlroots-wayland firefox session: proves perfuncted works with a real browser
+# (uses WaitForChange + WaitForNoChange for page-load detection)
+( run_session wlroots-wayland  firefox    > /tmp/perfuncted-logs/wlroots-wayland-firefox-test.log 2>&1 ) &
 # wlroots-xwayland sessions: Sway headless + XWayland with X11 apps (run sequentially to avoid X display races)
 (
     run_session wlroots-xwayland kwrite > /tmp/perfuncted-logs/wlroots-xwayland-kwrite-test.log 2>&1
@@ -453,7 +494,7 @@ TOTAL_PASS=0
 TOTAL_FAIL=0
 
 echo ""
-for key in x11-kwrite x11-pluma wlroots-wayland-kwrite wlroots-wayland-pluma wlroots-xwayland-kwrite wlroots-xwayland-pluma; do
+for key in x11-kwrite x11-pluma wlroots-wayland-kwrite wlroots-wayland-pluma wlroots-wayland-firefox wlroots-xwayland-kwrite wlroots-xwayland-pluma; do
     echo "── SESSION: $key ────────────────────────────────────────"
     cat /tmp/perfuncted-logs/${key}-test.log
     if [ -f /tmp/perfuncted-logs/${key}.res ]; then
