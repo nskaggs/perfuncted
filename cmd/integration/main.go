@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/screen"
@@ -97,24 +98,14 @@ func main() {
 
 	r := &results{}
 
-	sc, err := screen.Open()
+	pf, err := perfuncted.New(perfuncted.Options{MaxX: 1920, MaxY: 1080})
 	if err != nil {
-		log.Fatalf("screen.Open: %v", err)
+		log.Fatalf("perfuncted.New: %v", err)
 	}
-	defer sc.Close()
-
-	inp, err := input.Open(1920, 1080)
-	if err != nil {
-		log.Fatalf("input.Open: %v", err)
-	}
-	defer inp.Close()
-
-	wm, err := window.Open()
-	if err != nil {
-		log.Fatalf("window.Open: %v", err)
-	}
-	defer wm.Close()
-
+	defer pf.Close()
+	sc := pf.Screen.Screenshotter
+	inp := pf.Input.Inputter
+	wm := pf.Window.Manager
 	fmt.Printf("screen: %T\ninput:  %T\nwindow: %T\n\n", sc, inp, wm)
 
 	// ── 1. Screen ────────────────────────────────────────────────────────────
@@ -209,9 +200,9 @@ func main() {
 	}
 	for _, app := range apps {
 		if app.isBrowser {
-			testBrowser(r, sc, inp, wm, app)
+			testBrowser(r, pf, app)
 		} else {
-			testApp(r, sc, inp, wm, app)
+			testApp(r, pf, app)
 		}
 	}
 
@@ -219,7 +210,10 @@ func main() {
 }
 
 // testApp runs WINDOW, MOUSE, TEXT INPUT and E2E SAVE sections for one app.
-func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.Manager, app appSpec) {
+func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
+	sc := pf.Screen.Screenshotter
+	inp := pf.Input.Inputter
+	wm := pf.Window.Manager
 	pfx := os.Getenv("PF_TEST_PREFIX")
 	if pfx == "" {
 		pfx = "perfuncted"
@@ -247,7 +241,9 @@ func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.
 	}
 	defer proc.Process.Kill() //nolint:errcheck
 
-	info, err := waitForWindow(wm, app.winMatch, 60*time.Second)
+	ctx60, cancel60 := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel60()
+	info, err := pf.Window.WaitFor(ctx60, app.winMatch, 300*time.Millisecond)
 	r.check("window appeared in list", err)
 	if err != nil {
 		return
@@ -422,7 +418,14 @@ func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.
 	inp.KeyUp("ctrl")   //nolint:errcheck
 	time.Sleep(500 * time.Millisecond)
 
-	r.pass("keyboard markers typed (clipboard verification skipped)")
+	clipOut, clipErr := exec.Command("wl-paste").Output()
+	if clipErr != nil {
+		r.pass("clipboard: wl-paste unavailable (%v)", clipErr)
+	} else if got := strings.TrimSpace(string(clipOut)); got == kbMarker {
+		r.pass("clipboard: verified %q via wl-paste", got)
+	} else {
+		r.fail("clipboard: wl-paste returned %q, want %q", got, kbMarker)
+	}
 
 	// ── Find ─────────────────────────────────────────────────────────────────
 	// Tests the remaining find package APIs: WaitForChange timeout path,
@@ -523,7 +526,14 @@ func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.
 	inp.KeyUp("ctrl")   //nolint:errcheck
 	time.Sleep(500 * time.Millisecond)
 
-	r.pass("E2E markers typed (clipboard verification skipped)")
+	clipOut2, clipErr2 := exec.Command("wl-paste").Output()
+	if clipErr2 != nil {
+		r.pass("clipboard: wl-paste unavailable (%v)", clipErr2)
+	} else if got := strings.TrimSpace(string(clipOut2)); got == e2eMarker {
+		r.pass("clipboard: E2E verified %q via wl-paste", got)
+	} else {
+		r.fail("clipboard: E2E wl-paste returned %q, want %q", got, e2eMarker)
+	}
 
 	// Ctrl+S: attempt file save and log the result; not a hard failure because
 	// headless compositors may not flush disk writes for Wayland-native apps.
@@ -557,7 +567,9 @@ func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.
 	moveErr := wm.Move(app.winMatch, testX, testY)
 	if moveErr == nil {
 		time.Sleep(200 * time.Millisecond)
-		if moved, mErr := waitForWindow(wm, app.winMatch, 2*time.Second); mErr == nil {
+		ctxMove, cancelMove := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancelMove()
+		if moved, mErr := pf.Window.WaitFor(ctxMove, app.winMatch, 300*time.Millisecond); mErr == nil {
 			if moved.X == testX && moved.Y == testY {
 				r.pass("Move: repositioned to (%d,%d)", testX, testY)
 			} else {
@@ -575,7 +587,9 @@ func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.
 	resizeErr := wm.Resize(app.winMatch, testW, testH)
 	if resizeErr == nil {
 		time.Sleep(200 * time.Millisecond)
-		if resized, rErr := waitForWindow(wm, app.winMatch, 2*time.Second); rErr == nil {
+		ctxResize, cancelResize := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancelResize()
+		if resized, rErr := pf.Window.WaitFor(ctxResize, app.winMatch, 300*time.Millisecond); rErr == nil {
 			if resized.W == testW && resized.H == testH {
 				r.pass("Resize: resized to %dx%d", testW, testH)
 			} else {
@@ -596,7 +610,10 @@ func testApp(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.
 // (a static info page) using Ctrl+L. WaitForChange detects the navigation start;
 // WaitForNoChange detects the page finishing. This is the core primitive for
 // browser automation with perfuncted.
-func testBrowser(r *results, sc screen.Screenshotter, inp input.Inputter, wm window.Manager, app appSpec) {
+func testBrowser(r *results, pf *perfuncted.Perfuncted, app appSpec) {
+	sc := pf.Screen.Screenshotter
+	inp := pf.Input.Inputter
+	wm := pf.Window.Manager
 	pfx := os.Getenv("PF_TEST_PREFIX")
 	if pfx == "" {
 		pfx = "perfuncted"
@@ -616,7 +633,9 @@ func testBrowser(r *results, sc screen.Screenshotter, inp input.Inputter, wm win
 	defer proc.Process.Kill() //nolint:errcheck
 
 	// Firefox takes longer to start than text editors.
-	info, err := waitForWindow(wm, app.winMatch, 90*time.Second)
+	ctx90, cancel90 := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel90()
+	info, err := pf.Window.WaitFor(ctx90, app.winMatch, 300*time.Millisecond)
 	r.check("window appeared in list", err)
 	if err != nil {
 		return
@@ -755,28 +774,6 @@ func testBrowser(r *results, sc screen.Screenshotter, inp input.Inputter, wm win
 		r.fail("ScanFor: %v", scanErr)
 	} else {
 		r.pass("ScanFor: matched rect %v (hash %d)", scanResult.Rect, scanResult.Hash)
-	}
-}
-
-func waitForWindow(wm window.Manager, substr string, timeout time.Duration) (window.Info, error) {
-	// GTK apps sometimes map the window before it's fully ready.
-	// Add a small initial delay to let the window fully initialize.
-	time.Sleep(100 * time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	for {
-		wins, _ := wm.List()
-		for _, w := range wins {
-			if strings.Contains(strings.ToLower(w.Title), strings.ToLower(substr)) {
-				return w, nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return window.Info{}, fmt.Errorf("window %q did not appear within %s", substr, timeout)
-		case <-time.After(300 * time.Millisecond):
-		}
 	}
 }
 

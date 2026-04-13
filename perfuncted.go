@@ -115,10 +115,17 @@ type ScreenBundle struct {
 	screen.Screenshotter
 }
 
+func (s ScreenBundle) checkAvailable() error {
+	if s.Screenshotter == nil {
+		return fmt.Errorf("screen: not available")
+	}
+	return nil
+}
+
 // GrabHash captures a region and returns its pixel hash.
 func (s ScreenBundle) GrabHash(rect image.Rectangle) (uint32, error) {
-	if s.Screenshotter == nil {
-		return 0, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
 	}
 	return find.GrabHash(s.Screenshotter, rect, nil)
 }
@@ -127,8 +134,8 @@ func (s ScreenBundle) GrabHash(rect image.Rectangle) (uint32, error) {
 // It pairs with WaitForNoChange: use WaitForChange to detect when a transition begins,
 // then WaitForNoChange to detect when it ends.
 func (s ScreenBundle) WaitForChange(ctx context.Context, rect image.Rectangle, initial uint32, poll time.Duration) (uint32, error) {
-	if s.Screenshotter == nil {
-		return 0, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
 	}
 	return find.WaitForChange(ctx, s.Screenshotter, rect, initial, poll, nil)
 }
@@ -139,8 +146,8 @@ func (s ScreenBundle) WaitForChange(ctx context.Context, rect image.Rectangle, i
 //
 // stable must be ≥ 1; a value of 5 at 200ms poll requires one second of visual stability.
 func (s ScreenBundle) WaitForNoChange(ctx context.Context, rect image.Rectangle, stable int, poll time.Duration) (uint32, error) {
-	if s.Screenshotter == nil {
-		return 0, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
 	}
 	return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable, poll, nil)
 }
@@ -152,8 +159,8 @@ func (s ScreenBundle) WaitForNoChange(ctx context.Context, rect image.Rectangle,
 // stable controls how many consecutive identical samples count as settled.
 // A value of 5 at 200ms poll means one second of visual stability.
 func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, action func(), stable int, poll time.Duration) (uint32, error) {
-	if s.Screenshotter == nil {
-		return 0, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
 	}
 	before, err := find.GrabHash(s.Screenshotter, rect, nil)
 	if err != nil {
@@ -168,48 +175,48 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 
 // FirstPixel returns the colour of the top-left pixel of rect.
 func (s ScreenBundle) FirstPixel(rect image.Rectangle) (color.RGBA, error) {
-	if s.Screenshotter == nil {
-		return color.RGBA{}, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return color.RGBA{}, err
 	}
 	return find.FirstPixel(s.Screenshotter, rect)
 }
 
 // LastPixel returns the colour of the bottom-right pixel of rect.
 func (s ScreenBundle) LastPixel(rect image.Rectangle) (color.RGBA, error) {
-	if s.Screenshotter == nil {
-		return color.RGBA{}, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return color.RGBA{}, err
 	}
 	return find.LastPixel(s.Screenshotter, rect)
 }
 
 // WaitFor polls rect until its hash equals want.
 func (s ScreenBundle) WaitFor(ctx context.Context, rect image.Rectangle, want uint32, poll time.Duration) (uint32, error) {
-	if s.Screenshotter == nil {
-		return 0, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
 	}
 	return find.WaitFor(ctx, s.Screenshotter, rect, want, poll, nil)
 }
 
 // ScanFor polls multiple regions until one matches its expected hash.
 func (s ScreenBundle) ScanFor(ctx context.Context, rects []image.Rectangle, wants []uint32, poll time.Duration) (find.Result, error) {
-	if s.Screenshotter == nil {
-		return find.Result{}, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return find.Result{}, err
 	}
 	return find.ScanFor(ctx, s.Screenshotter, rects, wants, poll, nil)
 }
 
 // LocateExact searches for reference image within searchArea using exact pixel matching.
 func (s ScreenBundle) LocateExact(searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
-	if s.Screenshotter == nil {
-		return image.Rectangle{}, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return image.Rectangle{}, err
 	}
 	return find.LocateExact(s.Screenshotter, searchArea, reference)
 }
 
 // WaitWithTolerance waits for targetHash to appear within radius pixels of expectedRect.
 func (s ScreenBundle) WaitWithTolerance(ctx context.Context, expectedRect image.Rectangle, targetHash uint32, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
-	if s.Screenshotter == nil {
-		return 0, image.Rectangle{}, fmt.Errorf("screen: not available")
+	if err := s.checkAvailable(); err != nil {
+		return 0, image.Rectangle{}, err
 	}
 	return find.WaitWithTolerance(ctx, s.Screenshotter, expectedRect, targetHash, radius, poll, nil)
 }
@@ -235,15 +242,41 @@ func (w WindowBundle) ActivateBy(pattern string) error {
 	return fmt.Errorf("window: no window title matched %q", pattern)
 }
 
+// WaitFor polls the window list until a window whose title contains pattern
+// (case-insensitive) appears, or ctx is cancelled.
+func (w WindowBundle) WaitFor(ctx context.Context, pattern string, poll time.Duration) (window.Info, error) {
+	lower := strings.ToLower(pattern)
+	for {
+		wins, _ := w.Manager.List()
+		for _, win := range wins {
+			if strings.Contains(strings.ToLower(win.Title), lower) {
+				return win, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return window.Info{}, fmt.Errorf("window %q did not appear: %w", pattern, ctx.Err())
+		case <-time.After(poll):
+		}
+	}
+}
+
 // InputBundle wraps an input.Inputter with higher-level workflow methods.
 type InputBundle struct {
 	input.Inputter
 }
 
-// DoubleClick moves to (x, y) and performs two quick left clicks.
-func (i InputBundle) DoubleClick(x, y int) error {
+func (i InputBundle) checkAvailable() error {
 	if i.Inputter == nil {
 		return fmt.Errorf("input: not available")
+	}
+	return nil
+}
+
+// DoubleClick moves to (x, y) and performs two quick left clicks.
+func (i InputBundle) DoubleClick(x, y int) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
 	}
 	if err := i.MouseClick(x, y, 1); err != nil {
 		return err
@@ -253,8 +286,8 @@ func (i InputBundle) DoubleClick(x, y int) error {
 
 // DragAndDrop moves to (x1, y1), presses left button, moves to (x2, y2), and releases.
 func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
-	if i.Inputter == nil {
-		return fmt.Errorf("input: not available")
+	if err := i.checkAvailable(); err != nil {
+		return err
 	}
 	if err := i.MouseMove(x1, y1); err != nil {
 		return err
@@ -271,12 +304,41 @@ func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
 
 // ClickRectCenter moves to the center of rect and performs a left click.
 func (i InputBundle) ClickRectCenter(rect image.Rectangle) error {
-	if i.Inputter == nil {
-		return fmt.Errorf("input: not available")
+	if err := i.checkAvailable(); err != nil {
+		return err
 	}
 	cx := rect.Min.X + rect.Dx()/2
 	cy := rect.Min.Y + rect.Dy()/2
 	return i.MouseClick(cx, cy, 1)
+}
+
+// PressCombo sends a key combination like "ctrl+s" or "alt+f4".
+// Modifiers are held down in order, the final key is tapped, then
+// modifiers are released in reverse order.
+func (i InputBundle) PressCombo(combo string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	parts := strings.Split(strings.ToLower(combo), "+")
+	modifiers := parts[:len(parts)-1]
+	final := parts[len(parts)-1]
+	for _, m := range modifiers {
+		if err := i.KeyDown(m); err != nil {
+			return err
+		}
+	}
+	if err := i.KeyTap(final); err != nil {
+		for _, m := range modifiers {
+			i.KeyUp(m) //nolint:errcheck
+		}
+		return err
+	}
+	for ix := len(modifiers) - 1; ix >= 0; ix-- {
+		if err := i.KeyUp(modifiers[ix]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Perfuncted bundles auto-detected screen, input, and window backends.

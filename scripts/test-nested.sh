@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # scripts/test-nested.sh — nested integration test suite
 #
-# Runs cmd/integration against 7 isolated sessions concurrently:
+# Usage:
+#   bash scripts/test-nested.sh                              # all 7 sessions
+#   bash scripts/test-nested.sh --session wlroots-wayland kwrite  # single session (fast)
+#
+# Sessions:
 #   x11-kwrite, x11-pluma                      (pure X11 with Openbox)
 #   wlroots-wayland-kwrite, wlroots-wayland-pluma  (Sway headless, Wayland apps)
 #   wlroots-wayland-firefox                    (Sway headless, Firefox browser)
@@ -385,10 +389,11 @@ run_session() {
             SWAY_PID=$!
             ;;
         wlroots-xwayland)
-            # Sway headless + XWayland: wlroots compositor with X11 compatibility
+            # Sway headless + XWayland: wlroots compositor with X11 compatibility.
+            # Uses ci.conf (which calls create_output) since this is headless — no initial output.
             log "starting sway (WLR_BACKENDS=headless + XWayland) → $SWAY_WL"
             clean_run WLR_BACKENDS=headless WLR_RENDERER=pixman XWAYLAND_NO_AUTH=1 \
-                bash -c "sway --unsupported-gpu -c config/sway/nested.conf > /tmp/perfuncted-logs/sway-$PREFIX.log 2>&1" &
+                bash -c "sway --unsupported-gpu -c config/sway/ci.conf > /tmp/perfuncted-logs/sway-$PREFIX.log 2>&1" &
             SWAY_PID=$!
             ;;
     esac

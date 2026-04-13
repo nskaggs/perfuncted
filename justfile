@@ -45,11 +45,19 @@ install: build
 integration:
     go run ./cmd/integration/
 
-# Run the full nested integration test suite (headless + visible Wayland + X11).
-# Launches 7 isolated sessions: x11-kwrite, x11-pluma, wlroots-wayland-kwrite,
-# wlroots-wayland-pluma, wlroots-wayland-firefox, wlroots-xwayland-kwrite,
-# wlroots-xwayland-pluma. Each session is started fresh and fully torn down.
+# Fast headless Wayland integration test: one isolated sway session + kwrite.
+# Verifies screen, input, window, clipboard. Wall time < 2 minutes.
+test-headless:
+    @bash scripts/test-wayland.sh headless
+
+# Fast nested Wayland integration test: visible sway window on host desktop + kwrite.
+# Same coverage as test-headless but in a visible session. Wall time < 2 minutes.
 test-nested:
+    @bash scripts/test-wayland.sh nested
+
+# Full integration suite: 7 isolated sessions across Wayland, X11, XWayland.
+# Slower (several minutes). Use for thorough pre-release validation.
+test-full:
     @bash scripts/test-nested.sh
 
 # Run integration suite on the primary desktop (no nested compositor).
