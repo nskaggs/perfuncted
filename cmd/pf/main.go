@@ -20,8 +20,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -70,6 +72,7 @@ func main() {
 		inputCmd(openPF),
 		windowCmd(openPF),
 		findCmd(openPF),
+		clipboardCmd(openPF),
 		infoCmd(),
 		sessionCmd(),
 		docsCmd(root),
@@ -208,13 +211,12 @@ func infoCmd() *cobra.Command {
 				fmt.Println("  input injection  ✓  wl-virtual")
 				fmt.Println("  pixel scanning   ✓")
 			case compositor.GNOME:
-				fmt.Println("  screen capture   ~  portal only (one-time consent)")
-				fmt.Println("  window list      ✗  impossible on GNOME Wayland")
-				fmt.Println("  window control   ✗  impossible on GNOME Wayland")
+				fmt.Println("  screen capture   ~  portal only (may require consent)")
+				fmt.Println("  window list      ✓  gnome-shell Eval")
+				fmt.Println("  window control   ✓  gnome-shell Eval")
 				fmt.Println("  input injection  ✓  /dev/uinput")
-				fmt.Println("")
-				fmt.Println("  -> Run inside a nested sway session for full automation:")
-				fmt.Println("     just nested")
+				fmt.Println("  clipboard        ✓  wl-copy/wl-paste")
+				fmt.Println("  pixel scanning   ✓")
 			case compositor.X11:
 				fmt.Println("  screen capture   ✓  XGetImage")
 				fmt.Println("  window list      ✓  EWMH")
@@ -395,6 +397,26 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	pixel.Flags().IntVar(&py, "y", 0, "y coordinate")
 
 	cmd.AddCommand(grab, checksum, pixel)
+
+	resolution := &cobra.Command{
+		Use:   "resolution",
+		Short: "Print the screen resolution",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			w, h, err := pf.Screen.Resolution()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%dx%d\n", w, h)
+			return nil
+		},
+	}
+
+	cmd.AddCommand(resolution)
 	return cmd
 }
 
@@ -673,6 +695,44 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	down.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
 
 	cmd.AddCommand(up, down)
+
+	left := &cobra.Command{
+		Use:   "left",
+		Short: "Scroll left by N clicks",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.ScrollLeft(clicks); err != nil {
+				return err
+			}
+			fmt.Printf("scrolled left %d\n", clicks)
+			return nil
+		},
+	}
+	left.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
+
+	right := &cobra.Command{
+		Use:   "right",
+		Short: "Scroll right by N clicks",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.ScrollRight(clicks); err != nil {
+				return err
+			}
+			fmt.Printf("scrolled right %d\n", clicks)
+			return nil
+		},
+	}
+	right.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
+
+	cmd.AddCommand(left, right)
 	return cmd
 }
 
@@ -802,6 +862,62 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	_ = resize.MarkFlagRequired("title")
 
 	cmd.AddCommand(list, activate, activateBy, active, move, resize)
+
+	closeWin := &cobra.Command{
+		Use:   "close <title>",
+		Short: "Close a window by title",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Window.CloseWindow(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("closed: %s\n", args[0])
+			return nil
+		},
+	}
+
+	minimize := &cobra.Command{
+		Use:   "minimize <title>",
+		Short: "Minimize a window by title",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Window.Minimize(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("minimized: %s\n", args[0])
+			return nil
+		},
+	}
+
+	maximize := &cobra.Command{
+		Use:   "maximize <title>",
+		Short: "Maximize a window by title",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Window.Maximize(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("maximized: %s\n", args[0])
+			return nil
+		},
+	}
+
+	cmd.AddCommand(closeWin, minimize, maximize)
 	return cmd
 }
 
@@ -1075,6 +1191,129 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	_ = locate.MarkFlagRequired("ref")
 
 	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, waitForNoChange, scanFor, locate)
+
+	var colorRectFlag, colorTargetFlag string
+	var colorTolerance int
+	findColor := &cobra.Command{
+		Use:   "color",
+		Short: "Find the first pixel matching a colour within tolerance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(colorRectFlag)
+			if err != nil {
+				return err
+			}
+			c, err := parseColor(colorTargetFlag)
+			if err != nil {
+				return err
+			}
+			pt, err := pf.Screen.FindColor(r, c, colorTolerance)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d,%d\n", pt.X, pt.Y)
+			return nil
+		},
+	}
+	findColor.Flags().StringVar(&colorRectFlag, "rect", "0,0,1920,1080", "search area x0,y0,x1,y1")
+	findColor.Flags().StringVar(&colorTargetFlag, "color", "", "target colour as RRGGBB hex (required)")
+	findColor.Flags().IntVar(&colorTolerance, "tolerance", 0, "per-channel tolerance (0-255)")
+	_ = findColor.MarkFlagRequired("color")
+
+	var wlRefFlag, wlRectFlag, wlTimeoutFlag, wlPollFlag string
+	waitLocate := &cobra.Command{
+		Use:   "wait-locate",
+		Short: "Poll until a reference image is found in the search area",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(wlRectFlag)
+			if err != nil {
+				return err
+			}
+			ref, err := loadPNG(wlRefFlag)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(wlTimeoutFlag, 10*time.Second)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(wlPollFlag, 200*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			rect, err := pf.Screen.WaitForLocate(ctx, r, ref, poll)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d,%d,%d,%d\n", rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
+			return nil
+		},
+	}
+	waitLocate.Flags().StringVar(&wlRefFlag, "ref", "", "reference PNG image path (required)")
+	waitLocate.Flags().StringVar(&wlRectFlag, "rect", "0,0,1920,1080", "search area x0,y0,x1,y1")
+	waitLocate.Flags().StringVar(&wlTimeoutFlag, "timeout", "10s", "maximum wait time")
+	waitLocate.Flags().StringVar(&wlPollFlag, "poll", "200ms", "poll interval")
+	_ = waitLocate.MarkFlagRequired("ref")
+
+	cmd.AddCommand(findColor, waitLocate)
+	return cmd
+}
+
+// ── clipboard ───────────────────────────────────────────────────────────────────────────
+
+func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+	cmd := &cobra.Command{Use: "clipboard", Short: "Clipboard operations"}
+
+	get := &cobra.Command{
+		Use:   "get",
+		Short: "Print clipboard contents",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if pf.Clipboard == nil {
+				return fmt.Errorf("clipboard: not available")
+			}
+			s, err := pf.Clipboard.Get()
+			if err != nil {
+				return err
+			}
+			fmt.Print(s)
+			return nil
+		},
+	}
+
+	set := &cobra.Command{
+		Use:   "set <text>",
+		Short: "Set clipboard contents",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if pf.Clipboard == nil {
+				return fmt.Errorf("clipboard: not available")
+			}
+			return pf.Clipboard.Set(args[0])
+		},
+	}
+
+	cmd.AddCommand(get, set)
 	return cmd
 }
 
@@ -1162,4 +1401,17 @@ func loadPNG(path string) (image.Image, error) {
 		return nil, fmt.Errorf("decode reference PNG: %w", err)
 	}
 	return img, nil
+}
+
+// parseColor parses a hex colour string like "ff0000" or "FF0000" into color.RGBA.
+func parseColor(s string) (color.RGBA, error) {
+	s = strings.TrimPrefix(s, "#")
+	if len(s) != 6 {
+		return color.RGBA{}, fmt.Errorf("--color must be 6-digit hex RRGGBB; got %q", s)
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return color.RGBA{}, fmt.Errorf("--color: invalid hex %q: %v", s, err)
+	}
+	return color.RGBA{R: b[0], G: b[1], B: b[2], A: 0xff}, nil
 }

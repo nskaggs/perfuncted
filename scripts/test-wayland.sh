@@ -160,6 +160,18 @@ run_pf window list >/dev/null 2>&1 \
 run_pf info >/dev/null 2>&1 \
     && echo "✓ pf info" || { echo "✗ pf info"; CLI_RC=1; }
 
+RES=$(run_pf screen resolution 2>/dev/null)
+[ -n "$RES" ] && echo "✓ pf screen resolution ($RES)" || { echo "✗ pf screen resolution"; CLI_RC=1; }
+
+run_pf find color --rect 0,0,10,10 --color 000000 --tolerance 50 >/dev/null 2>&1 \
+    && echo "✓ pf find color" || { echo "✗ pf find color"; CLI_RC=1; }
+
+run_pf clipboard set "pf-test-clip" >/dev/null 2>&1 \
+    && echo "✓ pf clipboard set" || { echo "✗ pf clipboard set"; CLI_RC=1; }
+
+CLIP=$(run_pf clipboard get 2>/dev/null)
+[ "$CLIP" = "pf-test-clip" ] && echo "✓ pf clipboard get" || { echo "✗ pf clipboard get (got: $CLIP)"; CLI_RC=1; }
+
 # ── result ────────────────────────────────────────────────────────────────────
 
 echo ""
