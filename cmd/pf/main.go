@@ -532,7 +532,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			return pressCombo(pf.Input.Inputter, args[0])
+			return pf.Input.PressCombo(args[0])
 		},
 	}
 
@@ -627,30 +627,6 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
 		typeCmd, key, keydown, keyup, mousedown, mouseup)
 	return cmd
-}
-
-// pressCombo handles "ctrl+s", "alt+f4", "return", etc.
-func pressCombo(inp input.Inputter, combo string) error {
-	parts := strings.Split(strings.ToLower(combo), "+")
-	modifiers := parts[:len(parts)-1]
-	final := parts[len(parts)-1]
-	for _, m := range modifiers {
-		if err := inp.KeyDown(m); err != nil {
-			return err
-		}
-	}
-	if err := inp.KeyTap(final); err != nil {
-		for _, m := range modifiers {
-			inp.KeyUp(m) //nolint:errcheck
-		}
-		return err
-	}
-	for i := len(modifiers) - 1; i >= 0; i-- {
-		if err := inp.KeyUp(modifiers[i]); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ── window ────────────────────────────────────────────────────────────────────────────
