@@ -625,7 +625,54 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	mouseup.Flags().IntVar(&muButton, "button", 1, "button number")
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
-		typeCmd, key, keydown, keyup, mousedown, mouseup)
+		typeCmd, key, keydown, keyup, mousedown, mouseup, scrollCmd(openPF))
+	return cmd
+}
+
+// ── scroll ─────────────────────────────────────────────────────────────────────────────
+
+func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
+
+	var clicks int
+
+	up := &cobra.Command{
+		Use:   "up",
+		Short: "Scroll up by N clicks",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.ScrollUp(clicks); err != nil {
+				return err
+			}
+			fmt.Printf("scrolled up %d\n", clicks)
+			return nil
+		},
+	}
+	up.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
+
+	down := &cobra.Command{
+		Use:   "down",
+		Short: "Scroll down by N clicks",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.ScrollDown(clicks); err != nil {
+				return err
+			}
+			fmt.Printf("scrolled down %d\n", clicks)
+			return nil
+		},
+	}
+	down.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
+
+	cmd.AddCommand(up, down)
 	return cmd
 }
 
@@ -996,7 +1043,38 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	_ = scanFor.MarkFlagRequired("rects")
 	_ = scanFor.MarkFlagRequired("wants")
 
-	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, waitForNoChange, scanFor)
+	var locateRect, locateRef string
+	locate := &cobra.Command{
+		Use:   "locate",
+		Short: "Find a reference PNG image within a screen region",
+		Long:  `Scans searchArea for an exact pixel match of the reference image and prints the bounding rectangle of the first match.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(locateRect)
+			if err != nil {
+				return err
+			}
+			ref, err := loadPNG(locateRef)
+			if err != nil {
+				return err
+			}
+			found, err := pf.Screen.LocateExact(r, ref)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d,%d,%d,%d\n", found.Min.X, found.Min.Y, found.Max.X, found.Max.Y)
+			return nil
+		},
+	}
+	locate.Flags().StringVar(&locateRect, "rect", "0,0,1920,1080", "search area x0,y0,x1,y1")
+	locate.Flags().StringVar(&locateRef, "ref", "", "path to reference PNG image")
+	_ = locate.MarkFlagRequired("ref")
+
+	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, waitForNoChange, scanFor, locate)
 	return cmd
 }
 
@@ -1014,26 +1092,12 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 }
 
 func parseHash(s string) (uint32, error) {
-	s = strings.TrimPrefix(s, "0x")
-	isHex := false
-	for _, c := range s {
-		if (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
-			isHex = true
-			break
-		}
-	}
-	if isHex {
-		v, err := strconv.ParseUint(s, 16, 32)
-		if err != nil {
-			return 0, fmt.Errorf("invalid hex hash %q: %v", s, err)
-		}
+	v, err := strconv.ParseUint(s, 0, 32) // handles 0x prefix + decimal
+	if err == nil {
 		return uint32(v), nil
 	}
-	v, err := strconv.ParseUint(s, 0, 32)
+	v, err = strconv.ParseUint(s, 16, 32) // fallback for raw hex like "ab12cd"
 	if err != nil {
-		if v2, err2 := strconv.ParseUint(s, 16, 32); err2 == nil {
-			return uint32(v2), nil
-		}
 		return 0, fmt.Errorf("invalid hash %q: %v", s, err)
 	}
 	return uint32(v), nil
@@ -1085,4 +1149,17 @@ func parseRect(s string) (image.Rectangle, error) {
 		vals[i] = v
 	}
 	return image.Rect(vals[0], vals[1], vals[2], vals[3]), nil
+}
+
+func loadPNG(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open reference image: %w", err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("decode reference PNG: %w", err)
+	}
+	return img, nil
 }
