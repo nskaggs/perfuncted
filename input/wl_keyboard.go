@@ -107,6 +107,20 @@ func (k *wlKeyboard) warmup() error {
 	return k.sendKey(kcShift, 0)
 }
 
+// uploadKeymapAndRestoreMods uploads a keymap and re-sends the current modifier
+// state. Compositors (including sway/wlroots) reset the modifier state when a
+// new keymap is installed, so any held modifiers (e.g. Ctrl) must be
+// re-declared after every upload.
+func (k *wlKeyboard) uploadKeymapAndRestoreMods(keymap string) error {
+	if err := k.uploadKeymap(keymap); err != nil {
+		return err
+	}
+	if k.mods != 0 {
+		return k.sendModifiers()
+	}
+	return nil
+}
+
 // typeString types s by assigning each unique rune its own keycode slot in a
 // freshly generated XKB keymap. This is layout-independent: the compositor
 // uses our custom keymap, not the system keyboard layout.
@@ -118,7 +132,7 @@ func (k *wlKeyboard) typeString(s string) error {
 	if uint32(len(runes)) > maxDynSlots {
 		return fmt.Errorf("keyboard: string has %d unique characters, max %d per call", len(runes), maxDynSlots)
 	}
-	if err := k.uploadKeymap(xkbWithRunes(runes)); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(xkbWithRunes(runes)); err != nil {
 		return err
 	}
 	slot := make(map[rune]uint32, len(runes))
@@ -139,7 +153,7 @@ func (k *wlKeyboard) typeString(s string) error {
 // Any modifier state set via pressKey is preserved across the tap.
 func (k *wlKeyboard) tapKey(key string) error {
 	if kc, sym, ok := namedKey(key); ok {
-		if err := k.uploadKeymap(xkbWithNamed(kc, sym)); err != nil {
+		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
 			return err
 		}
 		return k.tap(kc)
@@ -152,7 +166,7 @@ func (k *wlKeyboard) tapKey(key string) error {
 // stored for later release via releaseKey.
 func (k *wlKeyboard) pressKey(key string) error {
 	if kc, sym, ok := namedKey(key); ok {
-		if err := k.uploadKeymap(xkbWithNamed(kc, sym)); err != nil {
+		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
 			return err
 		}
 		if err := k.sendKey(kc, 1); err != nil {
@@ -170,7 +184,7 @@ func (k *wlKeyboard) pressKey(key string) error {
 	if len(runes) != 1 {
 		return fmt.Errorf("keyboard: cannot hold multi-character key %q", key)
 	}
-	if err := k.uploadKeymap(xkbWithRunes(runes)); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(xkbWithRunes(runes)); err != nil {
 		return err
 	}
 	if err := k.sendKey(kcDynBase, 1); err != nil {
@@ -241,7 +255,7 @@ func (k *wlKeyboard) sendKey(keycode, state uint32) error {
 	wl.PutUint32(buf[0:], k.kbd.ID())
 	wl.PutUint32(buf[4:], 20<<16|1) // opcode 1 = key
 	wl.PutUint32(buf[8:], t)
-	wl.PutUint32(buf[12:], keycode)
+	wl.PutUint32(buf[12:], keycode-8) // XKB keycode → evdev scancode
 	wl.PutUint32(buf[16:], state)
 	return k.ctx.WriteMsg(buf[:], nil)
 }

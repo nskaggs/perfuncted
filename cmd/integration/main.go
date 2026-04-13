@@ -330,9 +330,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	_, rceErr := find.WaitForChange(ctxRCE, sc, winRect, hashPreRCEsc, 100*time.Millisecond, nil)
 	cancelRCE()
 	if rceErr != nil {
-		// Soft check: Escape is sent; GTK3 Wayland in headless mode may defer the
-		// damage/repaint so the visual close isn't always detected within 4 s.
-		r.pass("context menu Escape sent (visual change not detected; headless render may be deferred)")
+		r.fail("context menu did not close after Escape (screen unchanged)")
 	} else {
 		r.pass("context menu closed after Escape")
 	}
@@ -361,7 +359,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	if hashPostDown != hashPreDown {
 		r.pass("Mousedown/Mouseup: editor region changed (click registered)")
 	} else {
-		r.pass("Mousedown/Mouseup events sent (visual change not detected; headless render may be deferred)")
+		r.fail("Mousedown/Mouseup: editor region did not change after click")
 	}
 
 	// ── Text input ───────────────────────────────────────────────────────────
@@ -386,7 +384,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	hashEditorAfter, changeErr := find.WaitForChange(ctx, sc, editorRect, hashEditorBefore, 100*time.Millisecond, nil)
 	cancel()
 	if changeErr != nil {
-		r.pass("editor text typed (visual change not detected; headless render may be deferred)")
+		r.fail("editor text typed: no visual change detected after typing")
 	} else {
 		r.pass("editor changed after typing (hash %d->%d)", hashEditorBefore, hashEditorAfter)
 	}
@@ -420,7 +418,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	clipOut, clipErr := exec.Command("wl-paste").Output()
 	if clipErr != nil {
-		r.pass("clipboard: wl-paste unavailable (%v)", clipErr)
+		r.fail("clipboard: wl-paste failed: %v", clipErr)
 	} else if got := strings.TrimSpace(string(clipOut)); got == kbMarker {
 		r.pass("clipboard: verified %q via wl-paste", got)
 	} else {
@@ -528,25 +526,75 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	clipOut2, clipErr2 := exec.Command("wl-paste").Output()
 	if clipErr2 != nil {
-		r.pass("clipboard: wl-paste unavailable (%v)", clipErr2)
+		r.fail("clipboard: E2E wl-paste failed: %v", clipErr2)
 	} else if got := strings.TrimSpace(string(clipOut2)); got == e2eMarker {
 		r.pass("clipboard: E2E verified %q via wl-paste", got)
 	} else {
 		r.fail("clipboard: E2E wl-paste returned %q, want %q", got, e2eMarker)
 	}
 
-	// Ctrl+S: attempt file save and log the result; not a hard failure because
-	// headless compositors may not flush disk writes for Wayland-native apps.
+	// Ctrl+S: opens a Save As dialog for the document. Exercise dialog
+	// interaction by detecting the dialog, typing a save path, and confirming.
+	e2eSaveFile := fmt.Sprintf("/tmp/%s-e2e-save.txt", pfx)
+	os.Remove(e2eSaveFile)
+	defer os.Remove(e2eSaveFile)
+
+	titleBefore, _ := wm.ActiveTitle()
 	inp.KeyDown("ctrl") //nolint:errcheck
 	inp.KeyTap("s")     //nolint:errcheck
 	inp.KeyUp("ctrl")   //nolint:errcheck
-	time.Sleep(2 * time.Second)
-	if content, readErr := os.ReadFile(app.saveFile); readErr != nil {
-		r.pass("Ctrl+S file save skipped (read error: %v)", readErr)
-	} else if strings.Contains(string(content), e2eMarker) {
-		r.pass("Ctrl+S file save: %s contains marker", app.saveFile)
+
+	// Wait for the Save As dialog (active window title changes from editor).
+	dialogTitle := ""
+	dlgDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(dlgDeadline) {
+		time.Sleep(200 * time.Millisecond)
+		if t, err := wm.ActiveTitle(); err == nil && t != titleBefore {
+			dialogTitle = t
+			break
+		}
+	}
+
+	if dialogTitle == "" {
+		r.fail("Ctrl+S: Save As dialog did not appear")
+		inp.KeyTap("escape") //nolint:errcheck
+		time.Sleep(500 * time.Millisecond)
 	} else {
-		r.pass("Ctrl+S file save: %s not updated (headless limitation)", app.saveFile)
+		r.pass("Ctrl+S: Save As dialog appeared: %q", dialogTitle)
+
+		// Type the full save path into the filename field. In KDE file
+		// dialogs a leading / activates the path-edit bar automatically.
+		time.Sleep(300 * time.Millisecond)
+		r.check("type save path in dialog", inp.Type(e2eSaveFile))
+		time.Sleep(200 * time.Millisecond)
+		inp.KeyTap("return") //nolint:errcheck
+
+		// Wait for the dialog to close (active title changes from dialog).
+		dialogClosed := false
+		closeDeadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(closeDeadline) {
+			time.Sleep(200 * time.Millisecond)
+			if t, err := wm.ActiveTitle(); err == nil && t != dialogTitle {
+				dialogClosed = true
+				break
+			}
+		}
+
+		if !dialogClosed {
+			r.fail("Ctrl+S: dialog did not close after Enter")
+			inp.KeyTap("escape") //nolint:errcheck
+			time.Sleep(500 * time.Millisecond)
+		} else {
+			r.pass("Ctrl+S: dialog dismissed after save")
+			time.Sleep(500 * time.Millisecond)
+			if content, readErr := os.ReadFile(e2eSaveFile); readErr != nil {
+				r.fail("Ctrl+S file save: could not read %s: %v", e2eSaveFile, readErr)
+			} else if strings.Contains(string(content), e2eMarker) {
+				r.pass("Ctrl+S file save: %s contains marker", e2eSaveFile)
+			} else {
+				r.fail("Ctrl+S file save: %s does not contain marker (got %q)", e2eSaveFile, string(content))
+			}
+		}
 	}
 
 	// ── Move / Resize ─────────────────────────────────────────────────────────
@@ -572,13 +620,6 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		if moved, mErr := pf.Window.WaitFor(ctxMove, app.winMatch, 300*time.Millisecond); mErr == nil {
 			if moved.X == testX && moved.Y == testY {
 				r.pass("Move: repositioned to (%d,%d)", testX, testY)
-			} else if strings.Contains(os.Getenv("PF_TEST_PREFIX"), "headless") {
-				// Headless sway has a configure/ack race where kwrite's ack of the
-				// floating enable configure event arrives after our move position
-				// command, causing sway to re-centre the window. This is a known
-				// headless compositor limitation; Move works correctly on real desktops.
-				r.pass("Move: IPC confirmed (%d,%d); position reverted (%d,%d) (headless ack race)",
-					testX, testY, moved.X, moved.Y)
 			} else {
 				r.fail("Move: expected (%d,%d) got (%d,%d)", testX, testY, moved.X, moved.Y)
 			}
