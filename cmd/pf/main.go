@@ -450,6 +450,101 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	cmd.AddCommand(grab, checksum, pixel)
 
+	var watchRectFlag, watchPollFlag, watchDurFlag string
+	watch := &cobra.Command{
+		Use:   "watch",
+		Short: "Continuously print hash changes in a screen region",
+		Long: `Polls a screen region and prints a timestamped line whenever the pixel hash
+changes. Useful for tuning poll intervals, spotting oscillating regions, and
+understanding which parts of the screen change during an action.
+
+Output format:
+  <timestamp>  <hash>  <label>
+
+Runs until --duration expires or Ctrl+C.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(watchRectFlag)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(watchPollFlag, 100*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			dur, err := parseDuration(watchDurFlag, 0)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+			var cancel context.CancelFunc
+			if dur > 0 {
+				ctx, cancel = context.WithTimeout(ctx, dur)
+				defer cancel()
+			}
+
+			// Cancel on Ctrl+C as well.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			go func() {
+				select {
+				case <-sigCh:
+					if cancel != nil {
+						cancel()
+					} else {
+						os.Exit(0)
+					}
+				case <-ctx.Done():
+				}
+			}()
+
+			var last uint32
+			first := true
+			start := time.Now()
+			streak := 0
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+				}
+				h, err := pf.Screen.GrabHash(r)
+				if err != nil {
+					return err
+				}
+				ts := time.Now().Format("15:04:05.000")
+				if first {
+					fmt.Printf("%s  0x%08x  (initial)\n", ts, h)
+					last = h
+					first = false
+					streak = 1
+				} else if h != last {
+					elapsed := time.Since(start)
+					fmt.Printf("%s  0x%08x  (+%s after %d stable)\n", ts, h, elapsed.Round(time.Millisecond), streak)
+					last = h
+					start = time.Now()
+					streak = 1
+				} else {
+					streak++
+				}
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(poll):
+				}
+			}
+		},
+	}
+	watch.Flags().StringVar(&watchRectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1 region to monitor")
+	watch.Flags().StringVar(&watchPollFlag, "poll", "100ms", "poll interval")
+	watch.Flags().StringVar(&watchDurFlag, "duration", "", "stop after this duration (e.g. 10s); default runs until Ctrl+C")
+	cmd.AddCommand(watch)
+
 	resolution := &cobra.Command{
 		Use:   "resolution",
 		Short: "Print the screen resolution",
