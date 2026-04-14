@@ -37,6 +37,7 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/screen"
@@ -436,7 +437,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			c, err := pf.Screen.FirstPixel(image.Rect(px, py, px+1, py+1))
+			c, err := find.FirstPixel(pf.Screen.Screenshotter, image.Rect(px, py, px+1, py+1))
 			if err != nil {
 				return err
 			}
@@ -448,30 +449,6 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	pixel.Flags().IntVar(&py, "y", 0, "y coordinate")
 
 	cmd.AddCommand(grab, checksum, pixel)
-
-	var lpRectFlag string
-	lastPixel := &cobra.Command{
-		Use:   "last-pixel",
-		Short: "Print the RGB colour of the bottom-right pixel of a region",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r, err := parseRect(lpRectFlag)
-			if err != nil {
-				return err
-			}
-			c, err := pf.Screen.LastPixel(r)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("R=%d G=%d B=%d\n", c.R, c.G, c.B)
-			return nil
-		},
-	}
-	lastPixel.Flags().StringVar(&lpRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
 
 	resolution := &cobra.Command{
 		Use:   "resolution",
@@ -491,7 +468,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(resolution, lastPixel)
+	cmd.AddCommand(resolution)
 	return cmd
 }
 

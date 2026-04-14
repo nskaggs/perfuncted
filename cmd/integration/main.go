@@ -672,7 +672,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	// FindColor — grab the actual pixel at (0,0) and search for it, proving
 	// the FindColor functionality works regardless of background color.
-	debugPixel, pixErr := pf.Screen.FirstPixel(image.Rect(0, 0, 1, 1))
+	debugPixel, pixErr := find.FirstPixel(pf.Screen.Screenshotter, image.Rect(0, 0, 1, 1))
 	if pixErr != nil {
 		r.fail("FindColor (setup): %v", pixErr)
 	} else {

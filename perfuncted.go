@@ -188,22 +188,6 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 	return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable, poll, nil)
 }
 
-// FirstPixel returns the colour of the top-left pixel of rect.
-func (s ScreenBundle) FirstPixel(rect image.Rectangle) (color.RGBA, error) {
-	if err := s.checkAvailable(); err != nil {
-		return color.RGBA{}, err
-	}
-	return find.FirstPixel(s.Screenshotter, rect)
-}
-
-// LastPixel returns the colour of the bottom-right pixel of rect.
-func (s ScreenBundle) LastPixel(rect image.Rectangle) (color.RGBA, error) {
-	if err := s.checkAvailable(); err != nil {
-		return color.RGBA{}, err
-	}
-	return find.LastPixel(s.Screenshotter, rect)
-}
-
 // WaitFor polls rect until its hash equals want.
 func (s ScreenBundle) WaitFor(ctx context.Context, rect image.Rectangle, want uint32, poll time.Duration) (uint32, error) {
 	if err := s.checkAvailable(); err != nil {

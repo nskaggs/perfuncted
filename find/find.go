@@ -146,12 +146,36 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 		stable = 1
 	}
 	var last uint32
+	var sentinel color.RGBA
+	sentinelSet := false
 	streak := 0
 	for {
-		h, err := GrabHash(sc, rect, newHash)
+		img, err := sc.Grab(rect)
 		if err != nil {
 			return 0, err
 		}
+
+		// Fast pixel check before full CRC32: if the top-left pixel of the
+		// grabbed image changed since the last iteration, the hash is
+		// definitely different — skip the CRC32 and reset the streak.
+		// This is conservative: we only skip when we are certain of a change.
+		b := img.Bounds()
+		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA)
+		if sentinelSet && cur != sentinel {
+			sentinel = cur
+			last = 0 // force mismatch on next full hash
+			streak = 0
+			select {
+			case <-ctx.Done():
+				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
+			case <-time.After(poll):
+			}
+			continue
+		}
+		sentinel = cur
+		sentinelSet = true
+
+		h := PixelHash(img, newHash)
 		if h == last {
 			streak++
 			if streak >= stable {
@@ -220,8 +244,16 @@ func LocateExact(sc Screenshotter, searchArea image.Rectangle, reference image.I
 		return image.Rectangle{}, fmt.Errorf("find: reference image larger than search area")
 	}
 
+	// Precompute the top-left pixel of the reference. Most candidate positions
+	// can be rejected with a single pixel comparison before calling matchAt
+	// (which does rb.Dx() × rb.Dy() comparisons per position).
+	refFirst := color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
+
 	for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
 		for x := sb.Min.X; x <= sb.Max.X-rb.Dx(); x++ {
+			if color.RGBAModel.Convert(src.At(x, y)).(color.RGBA) != refFirst {
+				continue
+			}
 			if matchAt(src, reference, x, y) {
 				return image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), nil
 			}
