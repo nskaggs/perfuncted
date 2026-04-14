@@ -13,7 +13,7 @@
 //	pf input type "hello world"
 //	pf input key ctrl+s
 //	pf window list
-//	pf window activate-by "kwrite"
+//	pf window activate "kwrite"
 //	pf window active
 package main
 
@@ -538,7 +538,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	var x1, y1, x2, y2 int
 	drag := &cobra.Command{
-		Use:   "drag",
+		Use:   "drag-and-drop",
 		Short: "Drag from one coordinate to another (press, move, release)",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			pf, err := openPF()
@@ -813,8 +813,8 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	}
 
 	activate := &cobra.Command{
-		Use:   "activate <title>",
-		Short: "Bring a window to the foreground by title substring",
+		Use:   "activate <pattern>",
+		Short: "Bring a window to the foreground by title substring (case-insensitive)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			pf, err := openPF()
@@ -823,24 +823,6 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Window.Activate(args[0]); err != nil {
-				return err
-			}
-			fmt.Printf("activated: %s\n", args[0])
-			return nil
-		},
-	}
-
-	activateBy := &cobra.Command{
-		Use:   "activate-by <pattern>",
-		Short: "Bring a window to the foreground by title substring (case-insensitive, library-guaranteed)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			if err := pf.Window.ActivateBy(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("activated: %s\n", args[0])
@@ -912,7 +894,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	resize.Flags().IntVar(&rsH, "h", 600, "height in pixels")
 	_ = resize.MarkFlagRequired("title")
 
-	cmd.AddCommand(list, activate, activateBy, active, move, resize)
+	cmd.AddCommand(list, activate, active, move, resize)
 
 	closeWin := &cobra.Command{
 		Use:   "close <title>",
