@@ -10,9 +10,9 @@ no configuration needed.
 pf, _ := perfuncted.New(perfuncted.Options{})
 defer pf.Close()
 
-pf.Input.Type("hello world")
 pf.Window.Activate("Firefox")
-img, _ := pf.Screen.Grab(image.Rect(0, 0, 1920, 1080))
+pf.Input.Type("hello world")
+pf.Input.KeyTap("ctrl+s")
 ```
 
 ## Backend support
@@ -63,9 +63,7 @@ pf clipboard get                        # Print clipboard contents
 pf clipboard set                        # Set clipboard contents
 
 pf find color                           # Find the first pixel matching a colour within tolerance
-pf find last-pixel                      # Print the RGB colour of the bottom-right pixel of a region
 pf find locate                          # Find a reference PNG image within a screen region
-pf find pixel-hash                      # Print the CRC32 pixel hash of a screen region
 pf find scan-for                        # Scan multiple regions until one matches its expected hash
 pf find wait-for                        # Wait until a region's pixel hash equals the provided hash
 pf find wait-for-change                 # Wait until a region's pixel hash changes from an initial value
@@ -76,7 +74,7 @@ pf info                                 # Probe and display supported backends f
 pf input click                          # Click a mouse button at coordinates
 pf input click-center                   # Click the center of a rectangle
 pf input double-click                   # Double-click at coordinates
-pf input drag                           # Drag from one coordinate to another (press, move, release)
+pf input drag-and-drop                  # Drag from one coordinate to another (press, move, release)
 pf input key                            # Send a key or key combination (e.g. ctrl+s, return, escape)
 pf input keydown                        # Press and hold a key
 pf input keyup                          # Release a held key
@@ -86,17 +84,17 @@ pf input move                           # Move mouse to absolute coordinates
 pf input scroll                         # Scroll the mouse wheel
 pf input type                           # Type a string as keyboard events
 
-pf screen checksum                      # Print the CRC32 pixel checksum of a screen region
 pf screen grab                          # Capture a screen region and save as PNG
+pf screen hash                          # Print the CRC32 pixel hash of a screen region
 pf screen pixel                         # Print the RGB colour of a single pixel
 pf screen resolution                    # Print the screen resolution
+pf screen watch                         # Continuously print hash changes in a screen region
 
 pf session check                        # Check if the current runtime environment is ready for automation
 pf session start                        # Start a headless sway session and print env vars
 pf session type                         # Print whether the current session is nested or host
 
-pf window activate                      # Bring a window to the foreground by title substring
-pf window activate-by                   # Bring a window to the foreground by title substring (case-insensitive, library-guaranteed)
+pf window activate                      # Bring a window to the foreground by title substring (case-insensitive)
 pf window active                        # Print the title of the currently focused window
 pf window close                         # Close a window by title
 pf window list                          # List all visible windows
@@ -107,64 +105,15 @@ pf window resize                        # Resize a window
 ```
 <!-- pf-cli-end -->
 
-## Library usage
+## Library API
 
-### Basic automation
+Three top-level bundles are available after `perfuncted.New(...)`:
 
-```go
-package main
+- **`pf.Screen`** — capture regions, compute pixel hashes, locate images, wait for visual changes
+- **`pf.Input`** — type text, tap keys, click and drag, scroll
+- **`pf.Window`** — list, activate, resize, move, and wait for windows
 
-import (
-    "context"
-    "image"
-    "log"
-    "time"
-
-    "github.com/nskaggs/perfuncted"
-    "github.com/nskaggs/perfuncted/find"
-)
-
-func main() {
-    pf, err := perfuncted.New(perfuncted.Options{})
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer pf.Close()
-
-    // Bring a window to focus and interact with it
-    if err := pf.Window.Activate("Firefox"); err != nil {
-        log.Fatal(err)
-    }
-    pf.Input.MouseClick(960, 540, 1)
-    pf.Input.Type("hello world")
-    pf.Input.KeyTap("ctrl+s")
-}
-```
-
-### Waiting for screen changes
-
-The `find` package provides pixel-hash based polling — useful for waiting until
-a UI element appears or a transition completes, without fixed sleeps.
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
-
-region := image.Rect(0, 0, 400, 300)
-
-// Capture the current state
-before, _ := find.GrabHash(pf.Screen, region, nil)
-
-// Trigger some action
-pf.Input.KeyTap("return")
-
-// Wait until the region changes (e.g. a dialog appeared)
-after, err := find.WaitForChange(ctx, pf.Screen, region, before, 50*time.Millisecond, nil)
-if err != nil {
-    log.Println("timed out waiting for change")
-}
-_ = after
-```
+Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted)
 
 ## Setup
 
