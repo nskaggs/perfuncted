@@ -26,9 +26,11 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -38,6 +40,7 @@ import (
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/screen"
+	"github.com/nskaggs/perfuncted/session"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -305,7 +308,54 @@ func sessionCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(typeCmd, check)
+	var startResX, startResY int
+	var startSwayConf string
+	startCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start a headless sway session and print env vars",
+		Long: `Start a new isolated headless sway session (dbus, sway, wl-paste)
+and print the environment variables needed to connect to it.
+
+The session runs until this process is interrupted (Ctrl+C) or killed.
+Use the printed env vars in another terminal to connect:
+
+  eval $(pf session start)
+  kwrite /tmp/test.txt &
+  pf screen grab --out /tmp/shot.png`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cfg := session.Config{}
+			if startResX > 0 && startResY > 0 {
+				cfg.Resolution = image.Pt(startResX, startResY)
+			}
+			cfg.SwayConfigPath = startSwayConf
+
+			sess, err := session.Start(cfg)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("export XDG_RUNTIME_DIR=%s\n", sess.XDGRuntimeDir())
+			fmt.Printf("export WAYLAND_DISPLAY=%s\n", sess.WaylandDisplay())
+			fmt.Printf("export DBUS_SESSION_BUS_ADDRESS=%s\n", sess.DBusAddress())
+			fmt.Fprintf(os.Stderr, "session: running (XDG=%s, pid sway=%d)\n", sess.XDGRuntimeDir(), os.Getpid())
+			fmt.Fprintf(os.Stderr, "session: press Ctrl+C to stop\n")
+
+			// Block until interrupted.
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+			<-sig
+
+			fmt.Fprintf(os.Stderr, "\nsession: stopping...\n")
+			sess.Stop()
+			fmt.Fprintf(os.Stderr, "session: stopped\n")
+			return nil
+		},
+	}
+	startCmd.Flags().IntVar(&startResX, "res-x", 1024, "horizontal resolution")
+	startCmd.Flags().IntVar(&startResY, "res-y", 768, "vertical resolution")
+	startCmd.Flags().StringVar(&startSwayConf, "sway-config", "", "path to custom sway config (default: embedded)")
+
+	cmd.AddCommand(typeCmd, check, startCmd)
 	return cmd
 }
 
