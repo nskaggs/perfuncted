@@ -198,18 +198,60 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 // or ctx expires. rects and wants must be the same length; rects[i] is compared against
 // wants[i]. Returns the first matching Result. This is useful for monitoring several
 // independent UI regions (e.g. button states, dialog presence) simultaneously.
+//
+// When the regions are spatially compact (bounding-box area ≤ 2× the sum of individual
+// rect areas), ScanFor performs a single sc.Grab of the union bounding box per poll
+// cycle and hashes sub-regions in memory — reducing IPC round-trips from N to 1.
 func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wants []uint32, poll time.Duration, newHash Hasher) (Result, error) {
 	if len(rects) != len(wants) {
 		return Result{}, fmt.Errorf("find: ScanFor: len(rects)=%d != len(wants)=%d", len(rects), len(wants))
 	}
+
+	// Compute union bounding box and total individual area.
+	bbox := rects[0]
+	totalArea := 0
+	for _, r := range rects {
+		bbox = bbox.Union(r)
+		totalArea += r.Dx() * r.Dy()
+	}
+	bboxArea := bbox.Dx() * bbox.Dy()
+	useBbox := bboxArea <= 2*totalArea
+
 	for {
-		for i, rect := range rects {
-			h, err := GrabHash(sc, rect, newHash)
+		if useBbox {
+			// Single grab covers all regions; hash sub-regions in memory.
+			img, err := sc.Grab(bbox)
 			if err != nil {
 				return Result{}, err
 			}
-			if h == wants[i] {
-				return Result{Hash: h, Rect: rect}, nil
+			sub, ok := img.(interface{ SubImage(image.Rectangle) image.Image })
+			if !ok {
+				useBbox = false // fall back if SubImage unavailable
+			} else {
+				for i, rect := range rects {
+					// Translate rect to grabbed image coordinate space.
+					tr := image.Rect(
+						rect.Min.X-bbox.Min.X,
+						rect.Min.Y-bbox.Min.Y,
+						rect.Max.X-bbox.Min.X,
+						rect.Max.Y-bbox.Min.Y,
+					)
+					h := PixelHash(sub.SubImage(tr), newHash)
+					if h == wants[i] {
+						return Result{Hash: h, Rect: rect}, nil
+					}
+				}
+			}
+		}
+		if !useBbox {
+			for i, rect := range rects {
+				h, err := GrabHash(sc, rect, newHash)
+				if err != nil {
+					return Result{}, err
+				}
+				if h == wants[i] {
+					return Result{Hash: h, Rect: rect}, nil
+				}
 			}
 		}
 		select {

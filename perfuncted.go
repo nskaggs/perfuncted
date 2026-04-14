@@ -321,6 +321,13 @@ func (w WindowBundle) FindByTitle(pattern string) (window.Info, error) {
 	return window.Info{}, fmt.Errorf("window: no window title matched %q", pattern)
 }
 
+// IsVisible reports whether any window whose title contains pattern
+// (case-insensitive) is currently open.
+func (w WindowBundle) IsVisible(pattern string) bool {
+	_, err := w.FindByTitle(pattern)
+	return err == nil
+}
+
 // WaitFor polls the window list until a window whose title contains pattern
 // (case-insensitive) appears, or ctx is cancelled. List() errors are propagated
 // rather than silently swallowed.
