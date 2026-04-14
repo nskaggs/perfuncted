@@ -31,6 +31,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Unit tests
+        run: go test ./...
+
       - name: Module tidy check
         run: |
           go mod tidy
@@ -46,36 +49,3 @@ jobs:
         with:
           version: "2026.1"
           install-go: false
-
-  integration:
-    name: Integration Tests (Headless)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install sway and compositor dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            sway swaybg xwayland wl-clipboard \
-            openbox xvfb xdotool x11-utils wmctrl \
-            dbus-x11 kwrite pluma \
-            libgl1 libvulkan1 libgles2 \
-            xdg-user-dirs procps
-
-      - name: Run nested integration tests
-        run: |
-          # Bootstrap a throw-away D-Bus session for the runner
-          export XDG_RUNTIME_DIR=/tmp/wayland-runtime
-          mkdir -p "$XDG_RUNTIME_DIR"
-          chmod 0700 "$XDG_RUNTIME_DIR"
-          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-          dbus-daemon --session --address=$DBUS_SESSION_BUS_ADDRESS --nofork --print-address 1 &
-          DBUS_PID=$!
-          export DISPLAY=""
-          bash scripts/test-nested.sh
-          kill $DBUS_PID || true

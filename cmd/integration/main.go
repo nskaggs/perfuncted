@@ -346,20 +346,25 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	inp.MouseMove(winX+400, winY+300) //nolint:errcheck
 	time.Sleep(100 * time.Millisecond)
 
-	editorScrollRect := image.Rect(winX+10, winY+60, winX+600, winY+400)
-	hashPreDown, _ := find.GrabHash(sc, editorScrollRect, nil)
-
 	// Mousedown + Mouseup: one full click via the explicit press/release path.
 	r.check("Mousedown button 1", inp.MouseDown(1))
 	time.Sleep(50 * time.Millisecond)
 	r.check("Mouseup button 1", inp.MouseUp(1))
 	time.Sleep(200 * time.Millisecond)
 
-	hashPostDown, _ := find.GrabHash(sc, editorScrollRect, nil)
-	if hashPostDown != hashPreDown {
-		r.pass("Mousedown/Mouseup: editor region changed (click registered)")
+	// Verify the click registered focus by typing a sentinel character and
+	// confirming the editor content changes, then undoing it.
+	editorScrollRect := image.Rect(winX+10, winY+60, winX+600, winY+400)
+	hashPreSentinel, _ := find.GrabHash(sc, editorScrollRect, nil)
+	inp.Type("~") //nolint:errcheck
+	time.Sleep(200 * time.Millisecond)
+	hashPostSentinel, _ := find.GrabHash(sc, editorScrollRect, nil)
+	pf.Input.PressCombo("ctrl+z") //nolint:errcheck
+	time.Sleep(100 * time.Millisecond)
+	if hashPostSentinel != hashPreSentinel {
+		r.pass("Mousedown/Mouseup: click registered (sentinel character appeared in editor)")
 	} else {
-		r.fail("Mousedown/Mouseup: editor region did not change after click")
+		r.fail("Mousedown/Mouseup: click did not register (editor content unchanged after typing)")
 	}
 
 	// ── Text input ───────────────────────────────────────────────────────────

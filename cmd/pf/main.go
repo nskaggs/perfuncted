@@ -51,8 +51,9 @@ func main() {
 	)
 
 	root := &cobra.Command{
-		Use:   "pf",
-		Short: "perfuncted — screen automation CLI",
+		Use:               "pf",
+		Short:             "perfuncted — screen automation CLI",
+		DisableAutoGenTag: true,
 	}
 	root.PersistentFlags().BoolVar(&nested, "nested", false,
 		"auto-detect and connect to a nested Wayland session in /tmp")

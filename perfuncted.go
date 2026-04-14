@@ -236,6 +236,43 @@ func (s ScreenBundle) Resolution() (int, int, error) {
 	return screen.Resolution(s.Screenshotter)
 }
 
+// GrabFull captures the entire output at its native resolution.
+func (s ScreenBundle) GrabFull() (image.Image, error) {
+	w, h, err := s.Resolution()
+	if err != nil {
+		return nil, err
+	}
+	return s.Grab(image.Rect(0, 0, w, h))
+}
+
+// GrabFullHash captures the entire output and returns its pixel hash.
+func (s ScreenBundle) GrabFullHash() (uint32, error) {
+	w, h, err := s.Resolution()
+	if err != nil {
+		return 0, err
+	}
+	return s.GrabHash(image.Rect(0, 0, w, h))
+}
+
+// WaitForVisibleChange grabs the initial state of rect, waits for it to change,
+// then waits for it to stabilise. Use immediately after triggering an action
+// (navigation, button press, dialog open) to detect when the UI has settled.
+//
+// It is equivalent to: grab hash → WaitForChange → WaitForNoChange(3 samples).
+func (s ScreenBundle) WaitForVisibleChange(ctx context.Context, rect image.Rectangle, poll time.Duration) (uint32, error) {
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
+	}
+	initial, err := find.GrabHash(s.Screenshotter, rect, nil)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := find.WaitForChange(ctx, s.Screenshotter, rect, initial, poll, nil); err != nil {
+		return 0, err
+	}
+	return find.WaitForNoChange(ctx, s.Screenshotter, rect, 3, poll, nil)
+}
+
 // WaitWithTolerance waits for targetHash to appear within radius pixels of expectedRect.
 func (s ScreenBundle) WaitWithTolerance(ctx context.Context, expectedRect image.Rectangle, targetHash uint32, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
 	if err := s.checkAvailable(); err != nil {
@@ -281,6 +318,23 @@ func (w WindowBundle) ActivateBy(pattern string) error {
 		}
 	}
 	return fmt.Errorf("window: no window title matched %q", pattern)
+}
+
+// FindByTitle returns the first window whose title contains pattern
+// (case-insensitive). Use this to inspect window geometry or title before
+// activating; ActivateBy discards the match result.
+func (w WindowBundle) FindByTitle(pattern string) (window.Info, error) {
+	windows, err := w.Manager.List()
+	if err != nil {
+		return window.Info{}, err
+	}
+	lower := strings.ToLower(pattern)
+	for _, win := range windows {
+		if strings.Contains(strings.ToLower(win.Title), lower) {
+			return win, nil
+		}
+	}
+	return window.Info{}, fmt.Errorf("window: no window title matched %q", pattern)
 }
 
 // WaitFor polls the window list until a window whose title contains pattern
