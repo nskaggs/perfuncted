@@ -1,15 +1,15 @@
-## pf screen checksum
+## pf screen last-pixel
 
-Print the CRC32 pixel checksum of a screen region
+Print the RGB colour of the bottom-right pixel of a region
 
 ```
-pf screen checksum [flags]
+pf screen last-pixel [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help          help for checksum
+  -h, --help          help for last-pixel
       --rect string   x0,y0,x1,y1 (default "0,0,100,100")
 ```
 

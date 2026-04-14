@@ -6,7 +6,7 @@
 // Usage examples:
 //
 //	pf screen grab --rect 0,0,100,100 --out /tmp/shot.png
-//	pf screen checksum --rect 0,0,100,100
+//	pf screen hash --rect 0,0,100,100
 //	pf screen pixel --x 960 --y 540
 //	pf input move --x 500 --y 300
 //	pf input click --x 500 --y 300
@@ -404,8 +404,8 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	grab.Flags().StringVar(&outFlag, "out", "", "output path (default /tmp/pf-grab.png)")
 
 	checksum := &cobra.Command{
-		Use:   "checksum",
-		Short: "Print the CRC32 pixel checksum of a screen region",
+		Use:   "hash",
+		Short: "Print the CRC32 pixel hash of a screen region",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -449,6 +449,30 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	cmd.AddCommand(grab, checksum, pixel)
 
+	var lpRectFlag string
+	lastPixel := &cobra.Command{
+		Use:   "last-pixel",
+		Short: "Print the RGB colour of the bottom-right pixel of a region",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(lpRectFlag)
+			if err != nil {
+				return err
+			}
+			c, err := pf.Screen.LastPixel(r)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("R=%d G=%d B=%d\n", c.R, c.G, c.B)
+			return nil
+		},
+	}
+	lastPixel.Flags().StringVar(&lpRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+
 	resolution := &cobra.Command{
 		Use:   "resolution",
 		Short: "Print the screen resolution",
@@ -467,7 +491,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(resolution)
+	cmd.AddCommand(resolution, lastPixel)
 	return cmd
 }
 
@@ -572,7 +596,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := pf.Input.ClickRectCenter(r); err != nil {
+			if err := pf.Input.ClickCenter(r); err != nil {
 				return err
 			}
 			fmt.Printf("clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
@@ -970,52 +994,6 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		stableCount    int
 	)
 
-	pixelHash := &cobra.Command{
-		Use:   "pixel-hash",
-		Short: "Print the CRC32 pixel hash of a screen region",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r, err := parseRect(rectFlag)
-			if err != nil {
-				return err
-			}
-			h, err := pf.Screen.GrabHash(r)
-			if err != nil {
-				return err
-			}
-			fmt.Println(h)
-			return nil
-		},
-	}
-	pixelHash.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
-
-	lastPixel := &cobra.Command{
-		Use:   "last-pixel",
-		Short: "Print the RGB colour of the bottom-right pixel of a region",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r, err := parseRect(rectFlag)
-			if err != nil {
-				return err
-			}
-			c, err := pf.Screen.LastPixel(r)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("R=%d G=%d B=%d\n", c.R, c.G, c.B)
-			return nil
-		},
-	}
-	lastPixel.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
-
 	waitFor := &cobra.Command{
 		Use:   "wait-for",
 		Short: "Wait until a region's pixel hash equals the provided hash",
@@ -1223,7 +1201,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	locate.Flags().StringVar(&locateRef, "ref", "", "path to reference PNG image")
 	_ = locate.MarkFlagRequired("ref")
 
-	cmd.AddCommand(pixelHash, lastPixel, waitFor, waitForChange, waitForNoChange, scanFor, locate)
+	cmd.AddCommand(waitFor, waitForChange, waitForNoChange, scanFor, locate)
 
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int
