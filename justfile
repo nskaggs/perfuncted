@@ -1,5 +1,8 @@
 # justfile — dev workflow for github.com/nskaggs/perfuncted
-# Run `just` to see available recipes. Requires: just, staticcheck.
+# Run `just` to see available recipes. Requires: just, staticcheck, govulncheck, deadcode.
+# Install dev tools: go install staticcheck.io/staticcheck@latest
+#                    go install golang.org/x/vuln/cmd/govulncheck@latest
+#                    go install golang.org/x/tools/cmd/deadcode@latest
 
 default:
     @just --list
@@ -18,6 +21,14 @@ vet:
 check: fmt vet
     staticcheck ./...
 
+# Check for dead (unreachable) code
+deadcode:
+    deadcode -test ./...
+
+# Check dependencies for known vulnerabilities
+vulncheck:
+    govulncheck ./...
+
 # Tidy and verify the module graph
 tidy:
     go mod tidy
@@ -26,10 +37,10 @@ tidy:
 # Generate CLI documentation
 docs:
     rm -rf docs-cli/
-    go run ./cmd/pf/ docs --dir ./docs-cli --readme README.md
+    go run ./cmd/pf/ docs --dir ./docs-cli
 
 # Full pre-commit workflow
-precommit: check tidy docs
+precommit: check deadcode tidy docs vulncheck
 
 # Build all packages and binaries
 build: precommit
@@ -40,6 +51,10 @@ install: build
     go install ./cmd/pf/
 
 # ── testing ────────────────────────────────────────────────────────────────────
+
+# Run unit tests with the race detector
+race:
+    go test -race ./...
 
 # Run the live integration test against the current display (requires kwrite, pluma, or firefox)
 integration:

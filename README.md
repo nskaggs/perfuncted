@@ -53,57 +53,6 @@ go get github.com/nskaggs/perfuncted
 |---|---|
 | `udev` rule or `input` group | `/dev/uinput` access (see Setup below) |
 
-## CLI usage
-
-Run `pf help` or `pf [command] --help` for full usage. Quick reference:
-
-<!-- pf-cli-start -->
-```
-pf clipboard get                        # Print clipboard contents
-pf clipboard set                        # Set clipboard contents
-
-pf find color                           # Find the first pixel matching a colour within tolerance
-pf find locate                          # Find a reference PNG image within a screen region
-pf find scan-for                        # Scan multiple regions until one matches its expected hash
-pf find wait-for                        # Wait until a region's pixel hash equals the provided hash
-pf find wait-for-change                 # Wait until a region's pixel hash changes from an initial value
-pf find wait-for-no-change              # Wait until a region's pixel hash is stable for N consecutive samples
-pf find wait-locate                     # Poll until a reference image is found in the search area
-pf info                                 # Probe and display supported backends for this environment
-
-pf input click                          # Click a mouse button at coordinates
-pf input click-center                   # Click the center of a rectangle
-pf input double-click                   # Double-click at coordinates
-pf input drag-and-drop                  # Drag from one coordinate to another (press, move, release)
-pf input key                            # Send a key or key combination (e.g. ctrl+s, return, escape)
-pf input keydown                        # Press and hold a key
-pf input keyup                          # Release a held key
-pf input mousedown                      # Press a mouse button (optional coords)
-pf input mouseup                        # Release a mouse button (optional coords)
-pf input move                           # Move mouse to absolute coordinates
-pf input scroll                         # Scroll the mouse wheel
-pf input type                           # Type a string as keyboard events
-
-pf screen grab                          # Capture a screen region and save as PNG
-pf screen hash                          # Print the CRC32 pixel hash of a screen region
-pf screen pixel                         # Print the RGB colour of a single pixel
-pf screen resolution                    # Print the screen resolution
-pf screen watch                         # Continuously print hash changes in a screen region
-
-pf session check                        # Check if the current runtime environment is ready for automation
-pf session start                        # Start a headless sway session and print env vars
-pf session type                         # Print whether the current session is nested or host
-
-pf window activate                      # Bring a window to the foreground by title substring (case-insensitive)
-pf window active                        # Print the title of the currently focused window
-pf window close                         # Close a window by title
-pf window list                          # List all visible windows
-pf window maximize                      # Maximize a window by title
-pf window minimize                      # Minimize a window by title
-pf window move                          # Move a window to absolute screen coordinates
-pf window resize                        # Resize a window
-```
-<!-- pf-cli-end -->
 
 ## Library API
 

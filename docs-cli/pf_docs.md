@@ -9,9 +9,8 @@ pf docs [flags]
 ### Options
 
 ```
-  -d, --dir string      directory to write markdown files (default "./docs-cli")
-  -h, --help            help for docs
-      --readme string   path to README.md whose CLI section to regenerate
+  -d, --dir string   directory to write markdown files (default "./docs-cli")
+  -h, --help         help for docs
 ```
 
 ### Options inherited from parent commands

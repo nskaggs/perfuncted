@@ -18,7 +18,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -90,7 +89,7 @@ func main() {
 // ── docs ────────────────────────────────────────────────────────────────────────────
 
 func docsCmd(root *cobra.Command) *cobra.Command {
-	var dirFlag, readmeFlag string
+	var dirFlag string
 	cmd := &cobra.Command{
 		Use:   "docs",
 		Short: "Generate markdown documentation for the CLI",
@@ -102,67 +101,11 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 				return err
 			}
 			fmt.Printf("Documentation generated in %s\n", dirFlag)
-			if readmeFlag != "" {
-				if err := updateReadmeCLI(root, readmeFlag); err != nil {
-					return fmt.Errorf("update readme: %w", err)
-				}
-				fmt.Printf("README CLI section updated in %s\n", readmeFlag)
-			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&dirFlag, "dir", "d", "./docs-cli", "directory to write markdown files")
-	cmd.Flags().StringVar(&readmeFlag, "readme", "", "path to README.md whose CLI section to regenerate")
 	return cmd
-}
-
-// updateReadmeCLI rewrites the block between <!-- pf-cli-start --> and
-// <!-- pf-cli-end --> in the given README with a compact command listing
-// derived from the live cobra command tree.
-func updateReadmeCLI(root *cobra.Command, readmePath string) error {
-	skip := map[string]bool{"completion": true, "help": true, "docs": true}
-
-	var buf bytes.Buffer
-	buf.WriteString("```\n")
-	first := true
-	for _, grp := range root.Commands() {
-		if skip[grp.Name()] || grp.Hidden {
-			continue
-		}
-		if !grp.HasSubCommands() {
-			fmt.Fprintf(&buf, "%-40s# %s\n", "pf "+grp.Name()+"  ", grp.Short)
-			first = false
-			continue
-		}
-		if !first {
-			buf.WriteByte('\n')
-		}
-		first = false
-		for _, sub := range grp.Commands() {
-			if sub.Hidden || sub.Name() == "help" {
-				continue
-			}
-			fmt.Fprintf(&buf, "%-40s# %s\n", "pf "+grp.Name()+" "+sub.Name()+"  ", sub.Short)
-		}
-	}
-	buf.WriteString("```\n")
-
-	data, err := os.ReadFile(readmePath)
-	if err != nil {
-		return err
-	}
-	const startMarker = "<!-- pf-cli-start -->\n"
-	const endMarker = "<!-- pf-cli-end -->"
-	start := bytes.Index(data, []byte(startMarker))
-	end := bytes.Index(data, []byte(endMarker))
-	if start < 0 || end < 0 || end <= start {
-		return fmt.Errorf("README missing <!-- pf-cli-start --> / <!-- pf-cli-end --> sentinels")
-	}
-	var out bytes.Buffer
-	out.Write(data[:start+len(startMarker)])
-	out.Write(buf.Bytes())
-	out.Write(data[end:])
-	return os.WriteFile(readmePath, out.Bytes(), 0644)
 }
 
 // ── info ────────────────────────────────────────────────────────────────────────────

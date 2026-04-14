@@ -1,17 +1,23 @@
-// Package perfuncted is a cross-platform screen automation library for Linux
-// desktops. It auto-detects the best available backend for screen capture,
-// input injection, and window management across X11, XWayland, and native
-// Wayland sessions (wlroots, KDE, GNOME).
+// Package perfuncted is a Go library for automating Linux desktop applications.
+// It auto-detects the right backend at runtime across X11, wlroots Wayland
+// (Sway, Hyprland), KDE Plasma, and GNOME — no configuration needed.
+//
+// Three top-level bundles cover all automation needs:
+//   - [PF.Screen] — capture regions, hash pixels, locate images, wait for changes
+//   - [PF.Input] — type text, tap keys, click and drag, scroll
+//   - [PF.Window] — list, activate, resize, and wait for windows
 //
 // Quick start:
 //
-// pf, err := perfuncted.New(perfuncted.Options{MaxX: 1920, MaxY: 1080})
-// if err != nil { log.Fatal(err) }
-// defer pf.Close()
+//	pf, err := perfuncted.New(perfuncted.Options{})
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer pf.Close()
 //
-// img, _ := pf.Screen.Grab(image.Rect(0, 0, 100, 100))
-// _ = pf.Input.MouseMove(960, 540)
-// _ = pf.Window.Activate("Firefox")
+//	pf.Window.Activate("Firefox")
+//	pf.Input.Type("hello world")
+//	pf.Input.KeyTap("ctrl+s")
 package perfuncted
 
 import (
