@@ -224,7 +224,9 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 			if err != nil {
 				return Result{}, err
 			}
-			sub, ok := img.(interface{ SubImage(image.Rectangle) image.Image })
+			sub, ok := img.(interface {
+				SubImage(image.Rectangle) image.Image
+			})
 			if !ok {
 				useBbox = false // fall back if SubImage unavailable
 			} else {
