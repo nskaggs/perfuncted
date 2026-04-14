@@ -482,3 +482,24 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 		}
 	}
 }
+
+// WaitForFn polls rect every poll interval until fn returns true for the
+// grabbed image, or ctx expires. fn receives the raw grabbed image each
+// iteration and may inspect it with any predicate (brightness, color
+// presence, histogram, etc.).
+func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+	for {
+		img, err := sc.Grab(rect)
+		if err != nil {
+			return nil, err
+		}
+		if fn(img) {
+			return img, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
+		case <-time.After(poll):
+		}
+	}
+}

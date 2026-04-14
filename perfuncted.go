@@ -248,10 +248,17 @@ func (s ScreenBundle) GrabFullHash() (uint32, error) {
 // then waits for it to stabilise. Use immediately after triggering an action
 // (navigation, button press, dialog open) to detect when the UI has settled.
 //
-// It is equivalent to: grab hash → WaitForChange → WaitForNoChange(3 samples).
-func (s ScreenBundle) WaitForVisibleChange(ctx context.Context, rect image.Rectangle, poll time.Duration) (uint32, error) {
+// stable is the number of consecutive identical samples required to consider
+// the screen settled. It defaults to 3 when not provided.
+//
+// It is equivalent to: grab hash → WaitForChange → WaitForNoChange(stable samples).
+func (s ScreenBundle) WaitForVisibleChange(ctx context.Context, rect image.Rectangle, poll time.Duration, stable ...int) (uint32, error) {
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
+	}
+	stableN := 3
+	if len(stable) > 0 && stable[0] > 0 {
+		stableN = stable[0]
 	}
 	initial, err := find.GrabHash(s.Screenshotter, rect, nil)
 	if err != nil {
@@ -260,7 +267,17 @@ func (s ScreenBundle) WaitForVisibleChange(ctx context.Context, rect image.Recta
 	if _, err := find.WaitForChange(ctx, s.Screenshotter, rect, initial, poll, nil); err != nil {
 		return 0, err
 	}
-	return find.WaitForNoChange(ctx, s.Screenshotter, rect, 3, poll, nil)
+	return find.WaitForNoChange(ctx, s.Screenshotter, rect, stableN, poll, nil)
+}
+
+// WaitForFn polls rect every poll interval until fn returns true for the
+// grabbed image, or ctx expires. fn receives the raw grabbed image and may
+// inspect it with any predicate (colour presence, brightness, histogram, etc.).
+func (s ScreenBundle) WaitForFn(ctx context.Context, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
+	return find.WaitForFn(ctx, s.Screenshotter, rect, fn, poll)
 }
 
 // WaitWithTolerance waits for targetHash to appear within radius pixels of expectedRect.
@@ -467,6 +484,9 @@ func (i InputBundle) PressCombo(combo string) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
+	if combo == "" {
+		return fmt.Errorf("input: PressCombo: combo must not be empty")
+	}
 	parts := strings.Split(strings.ToLower(combo), "+")
 	modifiers := parts[:len(parts)-1]
 	final := parts[len(parts)-1]
@@ -587,8 +607,8 @@ func (pf *Perfuncted) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	if c, ok := pf.Clipboard.(interface{ Close() error }); ok {
-		if err := c.Close(); err != nil {
+	if pf.Clipboard != nil {
+		if err := pf.Clipboard.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}

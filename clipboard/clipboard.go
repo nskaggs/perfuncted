@@ -17,6 +17,8 @@ type Clipboard interface {
 	Get() (string, error)
 	// Set sets the clipboard text content.
 	Set(text string) error
+	// Close releases any resources held by the clipboard implementation.
+	Close() error
 }
 
 // Open returns the best available Clipboard for the current session.
@@ -61,6 +63,8 @@ func (c *waylandClipboard) Set(text string) error {
 	return nil
 }
 
+func (c *waylandClipboard) Close() error { return nil }
+
 // x11Clipboard uses xclip for X11 sessions.
 type x11Clipboard struct{}
 
@@ -83,3 +87,5 @@ func (c *x11Clipboard) Set(text string) error {
 	}
 	return nil
 }
+
+func (c *x11Clipboard) Close() error { return nil }
