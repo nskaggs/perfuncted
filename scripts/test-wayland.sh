@@ -172,6 +172,12 @@ run_pf clipboard set "pf-test-clip" >/dev/null 2>&1 \
 CLIP=$(run_pf clipboard get 2>/dev/null)
 [ "$CLIP" = "pf-test-clip" ] && echo "✓ pf clipboard get" || { echo "✗ pf clipboard get (got: $CLIP)"; CLI_RC=1; }
 
+run_pf session type >/dev/null 2>&1 \
+    && echo "✓ pf session type" || { echo "✗ pf session type"; CLI_RC=1; }
+
+run_pf session check >/dev/null 2>&1 \
+    && echo "✓ pf session check" || { echo "✗ pf session check"; CLI_RC=1; }
+
 # ── result ────────────────────────────────────────────────────────────────────
 
 echo ""

@@ -50,6 +50,10 @@ integration:
 test-headless:
     @bash scripts/test-wayland.sh headless
 
+# Test the session package lifecycle: creates its own headless session from scratch.
+test-session:
+    @bash scripts/test-session.sh
+
 # Fast nested Wayland integration test: visible sway window on host desktop + kwrite.
 # Same coverage as test-headless but in a visible session. Wall time < 2 minutes.
 test-nested:

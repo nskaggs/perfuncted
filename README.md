@@ -89,6 +89,7 @@ pf screen pixel                         # Print the RGB colour of a single pixel
 pf screen resolution                    # Print the screen resolution
 
 pf session check                        # Check if the current runtime environment is ready for automation
+pf session start                        # Start a headless sway session and print env vars
 pf session type                         # Print whether the current session is nested or host
 
 pf window activate                      # Bring a window to the foreground by title substring

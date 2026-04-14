@@ -46,6 +46,16 @@ type Options struct {
 	// session in /tmp/perfuncted-xdg-* and switch the process environment to
 	// target that session instead of the host desktop.
 	Nested bool
+
+	// XDGRuntimeDir, WaylandDisplay, and DBusSessionAddress allow callers to
+	// specify the session environment directly instead of relying on (or
+	// mutating) the process environment. When any of these are set, New()
+	// calls os.Setenv before opening backends. This is the preferred way to
+	// connect to a specific session — use it instead of calling os.Setenv
+	// manually.
+	XDGRuntimeDir      string
+	WaylandDisplay     string
+	DBusSessionAddress string
 }
 
 // NestedEnv scans /tmp/perfuncted-xdg-* directories created by `just nested` and
@@ -453,6 +463,17 @@ func New(opts Options) (*Perfuncted, error) {
 		os.Setenv("DBUS_SESSION_BUS_ADDRESS", dbus)
 	}
 
+	// Apply explicit session environment if provided.
+	if opts.XDGRuntimeDir != "" {
+		os.Setenv("XDG_RUNTIME_DIR", opts.XDGRuntimeDir)
+	}
+	if opts.WaylandDisplay != "" {
+		os.Setenv("WAYLAND_DISPLAY", opts.WaylandDisplay)
+	}
+	if opts.DBusSessionAddress != "" {
+		os.Setenv("DBUS_SESSION_BUS_ADDRESS", opts.DBusSessionAddress)
+	}
+
 	pf := &Perfuncted{}
 	var errs []error
 
@@ -512,6 +533,11 @@ func (pf *Perfuncted) Close() error {
 	}
 	if pf.Window.Manager != nil {
 		if err := pf.Window.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c, ok := pf.Clipboard.(interface{ Close() error }); ok {
+		if err := c.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
