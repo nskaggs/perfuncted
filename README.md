@@ -22,14 +22,17 @@ pf.Input.KeyTap("ctrl+s")
 | X11 | XGetImage ✅ | XTEST / uinput ✅ | EWMH ✅ |
 | wlroots Wayland (Sway, Hyprland) | wlr-screencopy ✅ | wl-virtual / uinput ✅ | Sway IPC / wlr-foreign-toplevel ✅ |
 | KDE Plasma Wayland | KWin.ScreenShot2 ✅ | uinput ✅ | KWin D-Bus scripting ✅ |
-| GNOME Wayland | xdg-desktop-portal ⚠️ | uinput ✅ | Shell.Eval ⚠️ |
+| GNOME Wayland | xdg-desktop-portal ⚠️ | uinput ✅ | Shell.Eval ⚠️ (foreign-toplevel typically restricted) |
 
 > **KDE:** wl-virtual input protocols are wlroots-only; KDE uses uinput.
 >
-> **GNOME:** Screen capture shows a one-time consent dialog. Window management
-> via `org.gnome.Shell.Eval` works but is disabled by default on GNOME 41+
-> (requires unsafe-mode). For full automation, run inside a nested
-> [sway](https://swaywm.org/) session.
+> **GNOME (Mutter):** The compositor intentionally restricts some window-management protocols. There are two paths:
+>
+> 1. GnomeManager (org.gnome.Shell.Eval): when available it runs JavaScript inside gnome-shell and supports List, Activate, Move, Resize, ActiveTitle, Close, Minimize, Maximize. On many distributions org.gnome.Shell.Eval is disabled by default (GNOME 41+); enabling it requires unsafe-mode and is a security risk.
+>
+> 2. foreign-toplevel protocol (zwlr_foreign_toplevel_manager_v1 / ext_foreign_toplevel_list_v1): if the compositor advertises this protocol the Wayland backend can use it to list windows and request actions (activate, close, minimize, maximize); however Mutter typically does not advertise it and may ignore requests even when present.
+>
+> Therefore, on GNOME you will usually rely on org.gnome.Shell.Eval (if enabled) or use a nested wlroots compositor (e.g., nested sway) for full automation.
 
 Run `pf info` to see exactly which backends are active on your system.
 
