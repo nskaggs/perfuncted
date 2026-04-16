@@ -1310,7 +1310,7 @@ func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command 
 				return err
 			}
 			defer pf.Close()
-			if pf.Clipboard == nil {
+			if pf.Clipboard.Clipboard == nil {
 				return fmt.Errorf("clipboard: not available")
 			}
 			s, err := pf.Clipboard.Get()
@@ -1332,7 +1332,7 @@ func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command 
 				return err
 			}
 			defer pf.Close()
-			if pf.Clipboard == nil {
+			if pf.Clipboard.Clipboard == nil {
 				return fmt.Errorf("clipboard: not available")
 			}
 			return pf.Clipboard.Set(args[0])
