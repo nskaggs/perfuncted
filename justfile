@@ -81,6 +81,11 @@ run *args: build
     go run ./cmd/pf/ {{args}}
 
 
+# Run all test suites: unit + integration (heavy). Use with care; requires system deps.
+test-all: race test-session test-headless test-nested test-full test-desktop
+    @echo "Completed test-all"
+
+
 # ── dev environment ────────────────────────────────────────────────────────────
 
 # Run the pf CLI
