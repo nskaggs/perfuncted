@@ -147,7 +147,7 @@ func infoCmd() *cobra.Command {
 			fmt.Println("\n── Capability matrix ───────────────────────────────")
 			switch kind {
 			case compositor.KDE:
-				fmt.Println("  screen capture   ✓  KWin.ScreenShot2, portal fallback")
+				fmt.Println("  screen capture   ✓  KWin.ScreenShot2, ext capture when advertised, portal fallback")
 				fmt.Println("  window list      ✓  KWin scripting")
 				fmt.Println("  window control   ✓  KWin scripting")
 				fmt.Println("  input injection  ✓  /dev/uinput")
@@ -159,7 +159,7 @@ func infoCmd() *cobra.Command {
 				fmt.Println("  input injection  ✓  wl-virtual")
 				fmt.Println("  pixel scanning   ✓")
 			case compositor.GNOME:
-				fmt.Println("  screen capture   ~  portal only (may require consent)")
+				fmt.Println("  screen capture   ✓  gnome-shell screenshot, portal fallback")
 				fmt.Println("  window list      ✓  gnome-shell Eval")
 				fmt.Println("  window control   ✓  gnome-shell Eval")
 				fmt.Println("  input injection  ✓  /dev/uinput")
