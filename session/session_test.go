@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/internal/env"
 )
 
 func TestEnviron(t *testing.T) {
@@ -120,7 +122,7 @@ func TestStopManagedProcessReapsChild(t *testing.T) {
 func helperCommand(t *testing.T) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
-	cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+	cmd.Env = env.Merge(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd
 }

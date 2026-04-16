@@ -15,24 +15,34 @@ var le = binary.LittleEndian
 
 // ── Proxy interface and BaseProxy ─────────────────────────────────────────────
 
+// Ctx represents a Wayland connection context used by proxies. It is an interface
+// so tests can provide mocks implementing the required methods.
+type Ctx interface {
+	Register(p Proxy)
+	SetProxy(id uint32, p Proxy)
+	WriteMsg(data, oob []byte) error
+	Dispatch() error
+	Close() error
+}
+
 // Proxy is implemented by all Wayland protocol objects.
 type Proxy interface {
 	ID() uint32
 	SetID(uint32)
-	SetCtx(*Context)
+	SetCtx(Ctx)
 	Dispatch(opcode uint32, fd int, data []byte)
 }
 
 // BaseProxy provides ID/context bookkeeping. Embed it in protocol object structs.
 type BaseProxy struct {
 	id  uint32
-	ctx *Context
+	ctx Ctx
 }
 
-func (b *BaseProxy) ID() uint32        { return b.id }
-func (b *BaseProxy) SetID(id uint32)   { b.id = id }
-func (b *BaseProxy) SetCtx(c *Context) { b.ctx = c }
-func (b *BaseProxy) Ctx() *Context     { return b.ctx }
+func (b *BaseProxy) ID() uint32      { return b.id }
+func (b *BaseProxy) SetID(id uint32) { b.id = id }
+func (b *BaseProxy) SetCtx(c Ctx)    { b.ctx = c }
+func (b *BaseProxy) Ctx() Ctx        { return b.ctx }
 
 // RawProxy is a Proxy backed by a user-supplied dispatch function.
 // Use it to implement custom Wayland protocols without code generation.
@@ -173,7 +183,7 @@ type Display struct{ ctx *Context }
 func NewDisplay(ctx *Context) *Display { return &Display{ctx: ctx} }
 
 // Context returns the underlying connection context.
-func (d *Display) Context() *Context { return d.ctx }
+func (d *Display) Context() Ctx { return d.ctx }
 
 // GetRegistry sends wl_display.get_registry and returns the Registry object.
 func (d *Display) GetRegistry() (*Registry, error) {

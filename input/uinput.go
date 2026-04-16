@@ -236,10 +236,22 @@ func (b *UinputBackend) MouseDown(button int) error {
 	switch button {
 	case 1:
 		return b.touchpad.LeftPress()
+	case 2:
+		// Middle click requires a relative mouse device.
+		if err := b.ensureMouse(); err != nil {
+			return err
+		}
+		return b.mouse.MiddlePress()
 	case 3:
 		return b.touchpad.RightPress()
 	default:
-		return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3)", button)
+		// Try to provide better diagnostics: if a relative mouse can be created,
+		// report that the specific button isn't implemented rather than claiming
+		// the compositor/touchpad doesn't support it.
+		if err := b.ensureMouse(); err != nil {
+			return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3) and creating a relative mouse failed: %w", button, err)
+		}
+		return fmt.Errorf("input/uinput: unsupported mouse button %d (only 1=left,2=middle,3=right supported)", button)
 	}
 }
 
@@ -247,10 +259,19 @@ func (b *UinputBackend) MouseUp(button int) error {
 	switch button {
 	case 1:
 		return b.touchpad.LeftRelease()
+	case 2:
+		// Middle release requires the relative mouse device.
+		if err := b.ensureMouse(); err != nil {
+			return err
+		}
+		return b.mouse.MiddleRelease()
 	case 3:
 		return b.touchpad.RightRelease()
 	default:
-		return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3)", button)
+		if err := b.ensureMouse(); err != nil {
+			return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3) and creating a relative mouse failed: %w", button, err)
+		}
+		return fmt.Errorf("input/uinput: unsupported mouse button %d (only 1=left,2=middle,3=right supported)", button)
 	}
 }
 

@@ -23,6 +23,11 @@ type Info struct {
 	PID   int32
 	X, Y  int
 	W, H  int
+	// Runtime state gathered from the foreign-toplevel protocol.
+	Active     bool
+	Minimized  bool
+	Maximized  bool
+	Fullscreen bool
 }
 
 // Manager lists and controls desktop windows.

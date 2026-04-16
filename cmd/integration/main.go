@@ -15,13 +15,14 @@ import (
 	"image/png"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -83,7 +84,7 @@ func detectApps() []appSpec {
 	for _, a := range all {
 		// Detect if any part of the launch command exists in PATH.
 		for _, arg := range a.launch {
-			if _, err := exec.LookPath(arg); err == nil {
+			if _, err := executil.LookPath(arg); err == nil {
 				found = append(found, a)
 				break
 			}
@@ -231,9 +232,9 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	}
 	// Append the file path so the app opens it on launch.
 	launchCmd := append(app.launch, app.saveFile)
-	proc := exec.Command(launchCmd[0], launchCmd[1:]...)
+	proc := executil.CommandContext(context.Background(), launchCmd[0], launchCmd[1:]...)
 	if len(app.extraEnv) > 0 {
-		proc.Env = append(os.Environ(), app.extraEnv...)
+		proc.Env = env.Merge(os.Environ(), app.extraEnv...)
 	}
 	if err := proc.Start(); err != nil {
 		r.fail("%s launch: %v", app.launch[0], err)
@@ -421,7 +422,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	inp.KeyUp("ctrl")   //nolint:errcheck
 	time.Sleep(500 * time.Millisecond)
 
-	clipOut, clipErr := exec.Command("wl-paste").Output()
+	clipOut, clipErr := executil.CommandContext(context.Background(), "wl-paste").Output()
 	if clipErr != nil {
 		r.fail("clipboard: wl-paste failed: %v", clipErr)
 	} else if got := strings.TrimSpace(string(clipOut)); got == kbMarker {
@@ -529,7 +530,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	inp.KeyUp("ctrl")   //nolint:errcheck
 	time.Sleep(500 * time.Millisecond)
 
-	clipOut2, clipErr2 := exec.Command("wl-paste").Output()
+	clipOut2, clipErr2 := executil.CommandContext(context.Background(), "wl-paste").Output()
 	if clipErr2 != nil {
 		r.fail("clipboard: E2E wl-paste failed: %v", clipErr2)
 	} else if got := strings.TrimSpace(string(clipOut2)); got == e2eMarker {
@@ -612,7 +613,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	// In X11, Openbox might maximize windows. Force remove maximization.
 	if os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("DISPLAY") != "" {
-		exec.Command("wmctrl", "-r", app.winMatch, "-b", "remove,maximized_vert,maximized_horz").Run() //nolint:errcheck
+		executil.CommandContext(context.Background(), "wmctrl", "-r", app.winMatch, "-b", "remove,maximized_vert,maximized_horz").Run() //nolint:errcheck
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -746,9 +747,9 @@ func testBrowser(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	// ── Window ───────────────────────────────────────────────────────────────
 	r.section("WINDOW [" + app.name + "]")
 
-	proc := exec.Command(app.launch[0], app.launch[1:]...)
+	proc := executil.CommandContext(context.Background(), app.launch[0], app.launch[1:]...)
 	if len(app.extraEnv) > 0 {
-		proc.Env = append(os.Environ(), app.extraEnv...)
+		proc.Env = env.Merge(os.Environ(), app.extraEnv...)
 	}
 	if err := proc.Start(); err != nil {
 		r.fail("%s launch: %v", app.launch[0], err)

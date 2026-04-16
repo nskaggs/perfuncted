@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
 //go:embed configs/ci.conf configs/headless.conf
@@ -62,6 +64,48 @@ type Session struct {
 	logDir     string
 	mu         sync.Mutex
 	stopped    bool
+}
+
+// managedProc wraps a started process for unified lifecycle management.
+type managedProc struct {
+	cmd *exec.Cmd
+	pid int
+}
+
+// stop terminates the process group using SIGTERM and waits up to the
+// provided timeout for the process to exit. If the process doesn't exit
+// in time, SIGKILL is used as a fallback.
+func (m *managedProc) stop(waitTimeout time.Duration) {
+	if m == nil || m.pid <= 0 {
+		return
+	}
+	// First try graceful termination of the process group.
+	_ = syscall.Kill(-m.pid, syscall.SIGTERM)
+	if m.cmd == nil {
+		time.Sleep(waitTimeout)
+		return
+	}
+	// Use cmd.Wait in a goroutine to avoid busy-polling the PID. If Wait
+	// returns within the timeout, the process exited cleanly; otherwise
+	// send SIGKILL and wait again briefly.
+	done := make(chan struct{})
+	go func() {
+		_ = m.cmd.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return
+	case <-time.After(waitTimeout):
+		// Force kill the process group.
+		_ = syscall.Kill(-m.pid, syscall.SIGKILL)
+		select {
+		case <-done:
+			return
+		case <-time.After(waitTimeout):
+			return
+		}
+	}
 }
 
 // Start creates a new isolated headless sway session. It launches dbus-daemon,
@@ -134,11 +178,11 @@ func (s *Session) Perfuncted(opts perfuncted.Options) (*perfuncted.Perfuncted, e
 // Launch starts a subprocess inside the session with the correct environment.
 // The caller is responsible for waiting on or killing the returned Cmd.
 func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
-	path, err := exec.LookPath(name)
+	path, err := executil.LookPath(name)
 	if err != nil {
 		return nil, fmt.Errorf("session: %s not found: %w", name, err)
 	}
-	cmd := exec.Command(path, args...)
+	cmd := executil.CommandContext(context.Background(), path, args...)
 	cmd.Env = s.Env()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -150,7 +194,7 @@ func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
 // Env returns a complete environment variable slice for child processes
 // running inside this session. It overlays session vars on the host env.
 func (s *Session) Env() []string {
-	return Environ(s.xdgDir, s.wlDisplay, s.dbusAddr)
+	return env.Environ(s.xdgDir, s.wlDisplay, s.dbusAddr)
 }
 
 // XDGRuntimeDir returns the temporary directory path for this session.
@@ -219,37 +263,17 @@ func (s *Session) IsStopped() bool {
 	return s.stopped
 }
 
-// Environ builds a complete environment variable slice by overlaying session
-// variables on the current process environment. Useful for exec.Cmd.Env when
-// launching processes into a specific session without constructing a full
-// Session object.
+// Environ is a thin wrapper around internal/env.Environ for callers/tests that
+// relied on the original package-level helper.
 func Environ(xdgRuntimeDir, waylandDisplay, dbusAddr string) []string {
-	var filtered []string
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") ||
-			strings.HasPrefix(e, "WAYLAND_DISPLAY=") ||
-			strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS=") ||
-			strings.HasPrefix(e, "DISPLAY=") {
-			continue
-		}
-		filtered = append(filtered, e)
-	}
-	filtered = append(filtered,
-		"XDG_RUNTIME_DIR="+xdgRuntimeDir,
-		"WAYLAND_DISPLAY="+waylandDisplay,
-		"DBUS_SESSION_BUS_ADDRESS="+dbusAddr,
-		"DISPLAY=",
-		"GDK_BACKEND=wayland",
-		"QT_QPA_PLATFORM=wayland",
-	)
-	return filtered
+	return env.Environ(xdgRuntimeDir, waylandDisplay, dbusAddr)
 }
 
 func (s *Session) launchDBus() error {
-	cmd := exec.Command("dbus-daemon", "--session",
+	cmd := executil.CommandContext(context.Background(), "dbus-daemon", "--session",
 		"--address="+s.dbusAddr,
 		"--nofork", "--nopidfile")
-	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+s.xdgDir)
+	cmd.Env = env.Merge(os.Environ(), "XDG_RUNTIME_DIR="+s.xdgDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return err
@@ -259,13 +283,10 @@ func (s *Session) launchDBus() error {
 
 	// Wait for dbus socket to appear.
 	busPath := filepath.Join(s.xdgDir, "bus")
-	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(busPath); err == nil {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
+	if err := waitForFile(busPath, 100, 100*time.Millisecond); err != nil {
+		return fmt.Errorf("dbus socket %s did not appear within 10s: %w", busPath, err)
 	}
-	return fmt.Errorf("dbus socket %s did not appear within 10s", busPath)
+	return nil
 }
 
 func (s *Session) launchSway(confPath string) error {
@@ -275,8 +296,8 @@ func (s *Session) launchSway(confPath string) error {
 		return fmt.Errorf("create log: %w", err)
 	}
 
-	cmd := exec.Command("sway", "--unsupported-gpu", "-c", confPath)
-	cmd.Env = append(os.Environ(),
+	cmd := executil.CommandContext(context.Background(), "sway", "--unsupported-gpu", "-c", confPath)
+	cmd.Env = env.Merge(os.Environ(),
 		"WLR_BACKENDS=headless",
 		"WLR_RENDERER=pixman",
 		"XDG_RUNTIME_DIR="+s.xdgDir,
@@ -296,33 +317,21 @@ func (s *Session) launchSway(confPath string) error {
 
 	// Wait for wayland socket.
 	socketPath := filepath.Join(s.xdgDir, s.wlDisplay)
-	for i := 0; i < 150; i++ {
-		if _, err := os.Stat(socketPath); err == nil {
-			break
-		}
-		if i == 149 {
-			return fmt.Errorf("wayland socket %s did not appear within 30s", socketPath)
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := waitForFile(socketPath, 150, 200*time.Millisecond); err != nil {
+		return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
 	}
 
 	// Wait for sway IPC socket as well so callers depending on window control
 	// don't race browser startup against compositor readiness.
-	for i := 0; i < 150; i++ {
-		if matches, err := filepath.Glob(filepath.Join(s.xdgDir, "sway-ipc.*.sock")); err == nil && len(matches) > 0 {
-			return nil
-		}
-		if i == 149 {
-			return fmt.Errorf("sway IPC socket in %s did not appear within 30s", s.xdgDir)
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := waitForGlob(filepath.Join(s.xdgDir, "sway-ipc.*.sock"), 150, 200*time.Millisecond); err != nil {
+		return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", s.xdgDir, err)
 	}
 	return nil
 }
 
 func (s *Session) launchWlPaste() {
-	cmd := exec.Command("wl-paste", "--watch", "cat")
-	cmd.Env = append(os.Environ(),
+	cmd := executil.CommandContext(context.Background(), "wl-paste", "--watch", "cat")
+	cmd.Env = env.Merge(os.Environ(),
 		"XDG_RUNTIME_DIR="+s.xdgDir,
 		"WAYLAND_DISPLAY="+s.wlDisplay,
 		"DBUS_SESSION_BUS_ADDRESS="+s.dbusAddr,
@@ -335,43 +344,37 @@ func (s *Session) launchWlPaste() {
 }
 
 func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {
-	if pid <= 0 {
-		return
-	}
-	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && err != syscall.ESRCH {
-		return
-	}
-	if cmd == nil {
-		time.Sleep(waitTimeout)
-		return
-	}
-	if waitForProcess(pid, waitTimeout) {
-		return
-	}
-	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
-		return
-	}
-	_ = waitForProcess(pid, waitTimeout)
+	(&managedProc{cmd: cmd, pid: pid}).stop(waitTimeout)
 }
 
-func waitForProcess(pid int, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		var status syscall.WaitStatus
-		waited, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
-		switch {
-		case err == nil && waited == pid:
-			return true
-		case err == syscall.ECHILD:
-			return true
-		case err == syscall.EINTR:
-			continue
+// waitForFile checks for the existence of the given path up to attempts times,
+// sleeping interval between tries.
+func waitForFile(path string, attempts int, interval time.Duration) error {
+	for i := 0; i < attempts; i++ {
+		if _, err := os.Stat(path); err == nil {
+			return nil
 		}
-		if time.Now().After(deadline) {
-			return false
+		if i == attempts-1 {
+			break
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(interval)
 	}
+	return fmt.Errorf("%s did not appear within %s", path, time.Duration(attempts)*interval)
+}
+
+// waitForGlob checks that a glob pattern matches at least one file within the
+// given attempts × interval window.
+func waitForGlob(pattern string, attempts int, interval time.Duration) error {
+	for i := 0; i < attempts; i++ {
+		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
+			return nil
+		}
+		if i == attempts-1 {
+			break
+		}
+		time.Sleep(interval)
+	}
+	return fmt.Errorf("pattern %s did not match within %s", pattern, time.Duration(attempts)*interval)
 }
 
 // writeEmbeddedConfig writes the embedded ci.conf to the temp dir, patching
