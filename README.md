@@ -21,8 +21,8 @@ pf.Input.KeyTap("ctrl+s")
 |---|---|---|---|
 | X11 | XGetImage ✅ | XTEST / uinput ✅ | EWMH ✅ |
 | wlroots Wayland (Sway, Hyprland) | wlr-screencopy ✅ | wl-virtual / uinput ✅ | Sway IPC / wlr-foreign-toplevel ✅ |
-| KDE Plasma Wayland | KWin.ScreenShot2 ✅ | uinput ✅ | KWin D-Bus scripting ✅ |
-| GNOME Wayland | xdg-desktop-portal ⚠️ | uinput ✅ | Shell.Eval ⚠️ (foreign-toplevel typically restricted) |
+| KDE Plasma Wayland | KWin.ScreenShot2 / ext-image-copy-capture / xdg-desktop-portal ✅ | uinput ✅ | KWin D-Bus scripting ✅ |
+| GNOME Wayland | gnome-shell screenshot / xdg-desktop-portal ⚠️ | uinput ✅ | Shell.Eval ⚠️ (foreign-toplevel typically restricted) |
 
 > **KDE:** wl-virtual input protocols are wlroots-only; KDE uses uinput.
 >
@@ -30,7 +30,9 @@ pf.Input.KeyTap("ctrl+s")
 >
 > 1. GnomeManager (org.gnome.Shell.Eval): when available it runs JavaScript inside gnome-shell and supports List, Activate, Move, Resize, ActiveTitle, Close, Minimize, Maximize. On many distributions org.gnome.Shell.Eval is disabled by default (GNOME 41+); enabling it requires unsafe-mode and is a security risk.
 >
-> 2. foreign-toplevel protocol (zwlr_foreign_toplevel_manager_v1 / ext_foreign_toplevel_list_v1): if the compositor advertises this protocol the Wayland backend can use it to list windows and request actions (activate, close, minimize, maximize); however Mutter typically does not advertise it and may ignore requests even when present.
+> 2. GnomeShellScreenshotBackend (org.gnome.Shell.Screenshot): when GNOME Shell is running in unsafe mode it can capture full-screen or rectangular PNGs directly, avoiding portal consent prompts. In safe mode perfuncted falls back to xdg-desktop-portal Screenshot.
+>
+> 3. foreign-toplevel protocol: `zwlr_foreign_toplevel_manager_v1` supports list plus basic actions (activate, close, minimize, maximize), while `ext_foreign_toplevel_list_v1` is list-only. Mutter typically does not advertise either one.
 >
 > Therefore, on GNOME you will usually rely on org.gnome.Shell.Eval (if enabled) or use a nested wlroots compositor (e.g., nested sway) for full automation.
 

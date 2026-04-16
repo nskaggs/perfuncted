@@ -34,6 +34,10 @@ type WaylandWindowManager struct {
 	toplevels map[uint32]*Info
 }
 
+func (m *WaylandWindowManager) canControlToplevels() bool {
+	return m.wlrMgrID != 0
+}
+
 // NewWaylandWindowManager connects and returns a WaylandWindowManager if the
 // compositor advertises at least one foreign-toplevel protocol.
 func NewWaylandWindowManager() (*WaylandWindowManager, error) {
@@ -207,14 +211,18 @@ func (m *WaylandWindowManager) ActiveTitle() (string, error) {
 }
 
 // Activate raises a window by title substring. Activation requires a Wayland
-// seat; if no seat was advertised, return ErrNotSupported.
+// seat and the zwlr foreign-toplevel control protocol; ext_foreign_toplevel_list_v1
+// is enumeration-only and cannot activate windows.
 func (m *WaylandWindowManager) Activate(title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
 	id, _, ok := m.findToplevel(title)
 	if !ok {
-		return fmt.Errorf("window/wayland: no window matching %q", title)
+		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
 	}
 	if m.seat == nil {
 		// Try binding a seat now if we know the global name.
@@ -252,7 +260,10 @@ func (m *WaylandWindowManager) CloseWindow(title string) error {
 	}
 	id, _, ok := m.findToplevel(title)
 	if !ok {
-		return fmt.Errorf("window/wayland: no window matching %q", title)
+		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
 	}
 	if err := m.sendHandleRequest(id, 5, nil); err != nil {
 		return fmt.Errorf("window/wayland: close: %w", err)
@@ -260,14 +271,18 @@ func (m *WaylandWindowManager) CloseWindow(title string) error {
 	return nil
 }
 
-// Minimize requests the compositor to minimize the matching toplevel.
+// Minimize requests the compositor to minimize the matching toplevel. This is
+// only available on zwlr_foreign_toplevel_manager_v1.
 func (m *WaylandWindowManager) Minimize(title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
 	id, _, ok := m.findToplevel(title)
 	if !ok {
-		return fmt.Errorf("window/wayland: no window matching %q", title)
+		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
 	}
 	if err := m.sendHandleRequest(id, 2, nil); err != nil {
 		return fmt.Errorf("window/wayland: minimize: %w", err)
@@ -275,14 +290,18 @@ func (m *WaylandWindowManager) Minimize(title string) error {
 	return nil
 }
 
-// Maximize requests the compositor to maximize the matching toplevel.
+// Maximize requests the compositor to maximize the matching toplevel. This is
+// only available on zwlr_foreign_toplevel_manager_v1.
 func (m *WaylandWindowManager) Maximize(title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
 	id, _, ok := m.findToplevel(title)
 	if !ok {
-		return fmt.Errorf("window/wayland: no window matching %q", title)
+		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
 	}
 	if err := m.sendHandleRequest(id, 0, nil); err != nil {
 		return fmt.Errorf("window/wayland: maximize: %w", err)

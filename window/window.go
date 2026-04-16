@@ -104,6 +104,7 @@ func Probe() []probe.Result {
 
 	return probe.SelectBest([]probe.Result{
 		checkKWinScript(kind),
+		checkGnomeShellEval(kind),
 		checkForeignToplevel(globals),
 	})
 }
@@ -132,6 +133,23 @@ func checkKWinScript(kind compositor.Session) probe.Result {
 	} else {
 		r.Reason = "org.kde.kwin.Scripting interface absent"
 	}
+	return r
+}
+
+func checkGnomeShellEval(kind compositor.Session) probe.Result {
+	r := probe.Result{Name: "gnome-shell-eval"}
+	if kind != compositor.GNOME {
+		r.Reason = "not a GNOME session"
+		return r
+	}
+	g, err := NewGnomeManager()
+	if err != nil {
+		r.Reason = "unsafe mode disabled or access denied"
+		return r
+	}
+	g.Close()
+	r.Available = true
+	r.Reason = "org.gnome.Shell.Eval on session bus (unsafe mode)"
 	return r
 }
 

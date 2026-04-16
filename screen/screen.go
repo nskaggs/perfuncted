@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -52,6 +53,9 @@ func Open() (Screenshotter, error) {
 		if b, err := NewKWinShotBackend(); err == nil {
 			return b, nil
 		}
+		if b, err := NewExtCaptureBackend(); err == nil {
+			return b, nil
+		}
 		// Fall back to xdg-desktop-portal (xdg-desktop-portal-kde) when KWin
 		// screenshot authorization is denied. The portal may show a one-time
 		// consent dialog on first use; once granted the permission is remembered.
@@ -70,10 +74,13 @@ func Open() (Screenshotter, error) {
 		return nil, fmt.Errorf("screen: wlroots compositor but no screencopy protocol available")
 
 	case compositor.GNOME:
+		if b, err := NewGnomeShellScreenshotBackend(); err == nil {
+			return b, nil
+		}
 		if b, err := NewPortalDBusBackend(); err == nil {
 			return b, nil
 		}
-		return nil, fmt.Errorf("screen: GNOME Wayland requires xdg-desktop-portal")
+		return nil, fmt.Errorf("screen: GNOME Wayland requires GNOME Shell unsafe mode or xdg-desktop-portal")
 
 	case compositor.X11:
 		display := os.Getenv("DISPLAY")
@@ -105,6 +112,7 @@ func Probe() []probe.Result {
 		checkKWinShot(kind),
 		checkWlrScreencopy(globals),
 		checkExtCapture(globals),
+		checkGnomeShellScreenshot(kind),
 		checkPortalDbus(),
 	})
 }
@@ -147,15 +155,11 @@ func checkWlrScreencopy(globals map[string]bool) probe.Result {
 
 func checkExtCapture(globals map[string]bool) probe.Result {
 	r := probe.Result{Name: "ext-image-copy-capture"}
-	if globals == nil {
-		r.Reason = "no Wayland session"
-		return r
-	}
-	if globals["ext_image_copy_capture_manager_v1"] {
+	if ok, reason := extCaptureAvailable(globals); ok {
 		r.Available = true
-		r.Reason = "ext_image_copy_capture_manager_v1 advertised"
+		r.Reason = reason
 	} else {
-		r.Reason = "ext_image_copy_capture_manager_v1 not advertised"
+		r.Reason = reason
 	}
 	return r
 }
@@ -174,5 +178,27 @@ func checkPortalDbus() probe.Result {
 	} else {
 		r.Reason = "org.freedesktop.portal.Desktop not on session bus"
 	}
+	return r
+}
+
+func checkGnomeShellScreenshot(kind compositor.Session) probe.Result {
+	r := probe.Result{Name: "gnome-shell-screenshot"}
+	if kind != compositor.GNOME {
+		r.Reason = "not a GNOME session"
+		return r
+	}
+	b, err := NewGnomeShellScreenshotBackend()
+	if err != nil {
+		switch {
+		case strings.Contains(err.Error(), "not on session bus"):
+			r.Reason = "org.gnome.Shell.Screenshot not on session bus"
+		default:
+			r.Reason = "unsafe mode disabled or access denied"
+		}
+		return r
+	}
+	b.Close()
+	r.Available = true
+	r.Reason = "org.gnome.Shell.Screenshot on session bus (unsafe mode)"
 	return r
 }

@@ -50,8 +50,8 @@ type Inputter interface {
 // Open returns the best available Inputter. On wlroots Wayland compositors
 // (sway, Hyprland) the Wayland virtual input backend is tried first so that
 // events use the compositor's own coordinate space. On other Wayland compositors
-// (e.g. KDE Plasma), uinput is preferred over XTEST because XTEST is scoped
-// to X11/XWayland and does not deliver events to native Wayland windows.
+// (e.g. KDE Plasma, GNOME), uinput is preferred over XTEST because XTEST is
+// scoped to X11/XWayland and does not deliver events to native Wayland windows.
 func Open(maxX, maxY int32) (Inputter, error) {
 	// On Wayland: prefer WlVirtual (wlroots-specific), then uinput (kernel-level,
 	// reaches all Wayland windows), then XTest (X11/XWayland only).

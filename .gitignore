@@ -10,6 +10,8 @@ docs/
 *.md
 !README.md
 !docs-cli/*.md
+/localsource/
+/ref/
 
 # IDEs
 .vscode/

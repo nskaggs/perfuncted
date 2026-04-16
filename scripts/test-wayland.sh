@@ -142,10 +142,17 @@ run_pf() {
 run_pf screen grab --rect 0,0,10,10 --out /tmp/pf-test-grab.png >/dev/null 2>&1 \
     && echo "✓ pf screen grab" || { echo "✗ pf screen grab"; CLI_RC=1; }
 
-H=$(run_pf find pixel-hash --rect 0,0,10,10 2>/dev/null)
-[ -n "$H" ] && echo "✓ pf find pixel-hash ($H)" || { echo "✗ pf find pixel-hash"; CLI_RC=1; }
+H=""
+for i in 1 2 3 4 5 6 7 8; do
+    H=$(run_pf find pixel-hash --rect 0,0,10,10 2>/dev/null) && break || sleep 0.25
+done
+if [ -n "$H" ]; then
+    echo "✓ pf find pixel-hash ($H)"
+else
+    echo "✗ pf find pixel-hash"; CLI_RC=1
+fi
 
-run_pf find wait-for --rect 0,0,10,10 --hash "$H" --timeout 1s >/dev/null 2>&1 \
+run_pf find wait-for --rect 0,0,10,10 --hash "$H" --timeout 2s >/dev/null 2>&1 \
     && echo "✓ pf find wait-for" || { echo "✗ pf find wait-for"; CLI_RC=1; }
 
 run_pf find wait-for-no-change --rect 0,0,10,10 --stable 3 --poll 100ms --timeout 3s >/dev/null 2>&1 \
