@@ -442,7 +442,6 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	} else {
 		r.pass("context menu closed after Escape")
 	}
-	time.Sleep(100 * time.Millisecond)
 
 	// ── Input Device ─────────────────────────────────────────────────────────
 	// Tests Mousedown and Mouseup as independent events (vs. the combined
@@ -451,28 +450,53 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	r.section("INPUT DEVICE [" + app.name + "]")
 
 	// Move to a safe editor area.
-	inp.MouseMove(winX+400, winY+300) //nolint:errcheck
-	time.Sleep(100 * time.Millisecond)
+	moveX, moveY := winX+400, winY+300
+	ptMoveRect := image.Rect(moveX, moveY, moveX+8, moveY+8)
+	ptMoveBefore, ptMoveErr := find.GrabHash(sc, ptMoveRect, nil)
+	r.check("grab pointer region before move", ptMoveErr)
+	r.check("MouseMove to safe editor area", inp.MouseMove(moveX, moveY))
+
+	ctxMove, cancelMove := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelMove()
+	ptMoveAfter, ptMoveErr2 := find.WaitForChange(ctxMove, sc, ptMoveRect, ptMoveBefore, 100*time.Millisecond, nil)
+	if ptMoveErr2 != nil {
+		ptMoveAfter, ptMoveErr2 = find.GrabHash(sc, ptMoveRect, nil)
+	}
+	r.check("grab pointer region after move", ptMoveErr2)
+	if ptMoveErr == nil && ptMoveErr2 == nil {
+		if ptMoveBefore == ptMoveAfter {
+			r.fail("pointer region did not change after MouseMove")
+		} else {
+			r.pass("pointer region changed after MouseMove")
+		}
+	}
 
 	// Mousedown + Mouseup: one full click via the explicit press/release path.
 	r.check("Mousedown button 1", inp.MouseDown(1))
-	time.Sleep(50 * time.Millisecond)
 	r.check("Mouseup button 1", inp.MouseUp(1))
-	time.Sleep(200 * time.Millisecond)
 
 	// Verify the click registered focus by typing a sentinel character and
 	// confirming the editor content changes, then undoing it.
 	editorScrollRect := image.Rect(winX+10, winY+60, winX+600, winY+400)
 	hashPreSentinel, _ := find.GrabHash(sc, editorScrollRect, nil)
-	inp.Type("~") //nolint:errcheck
-	time.Sleep(200 * time.Millisecond)
-	hashPostSentinel, _ := find.GrabHash(sc, editorScrollRect, nil)
-	pf.Input.PressCombo("ctrl+z") //nolint:errcheck
-	time.Sleep(100 * time.Millisecond)
-	if hashPostSentinel != hashPreSentinel {
-		r.pass("Mousedown/Mouseup: click registered (sentinel character appeared in editor)")
+	r.check("Type sentinel", inp.Type("~")) //nolint:errcheck
+
+	ctxSent, cancelSent := context.WithTimeout(context.Background(), 5*time.Second)
+	hashPostSentinel, sentErr := find.WaitForChange(ctxSent, sc, editorScrollRect, hashPreSentinel, 100*time.Millisecond, nil)
+	cancelSent()
+	if sentErr != nil {
+		r.fail("Sentinel char did not appear in editor: %v", sentErr)
 	} else {
-		r.fail("Mousedown/Mouseup: click did not register (editor content unchanged after typing)")
+		// Undo the change
+		pf.Input.PressCombo("ctrl+z") //nolint:errcheck
+		ctxUndo, cancelUndo := context.WithTimeout(context.Background(), 5*time.Second)
+		_, undoErr := find.WaitForChange(ctxUndo, sc, editorScrollRect, hashPostSentinel, 100*time.Millisecond, nil)
+		cancelUndo()
+		if undoErr != nil {
+			r.fail("Undo did not change editor after ctrl+z: %v", undoErr)
+		} else {
+			r.pass("Mousedown/Mouseup: click registered (sentinel appeared and undone)")
+		}
 	}
 
 	// ── Text input ───────────────────────────────────────────────────────────
@@ -489,10 +513,16 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	ptEditorBefore, ptErr := find.GrabHash(sc, ptEditorRect, nil)
 	r.check("grab editor pointer region before click", ptErr)
 	r.check("click inside editor", inp.MouseClick(editorX, editorY, 1))
-	time.Sleep(100 * time.Millisecond)
-	inp.MouseClick(editorX, editorY, 1) //nolint:errcheck
-	time.Sleep(500 * time.Millisecond)
-	ptEditorAfter, ptErr2 := find.GrabHash(sc, ptEditorRect, nil)
+	// Second click to ensure focus and placement
+	r.check("double-click inside editor", inp.MouseClick(editorX, editorY, 1))
+
+	// Wait for pointer region to change indicating focus/cursor placement
+	ctxEditorClick, cancelEditorClick := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelEditorClick()
+	ptEditorAfter, ptErr2 := find.WaitForChange(ctxEditorClick, sc, ptEditorRect, ptEditorBefore, 100*time.Millisecond, nil)
+	if ptErr2 != nil {
+		ptEditorAfter, ptErr2 = find.GrabHash(sc, ptEditorRect, nil)
+	}
 	r.check("grab editor pointer region after click", ptErr2)
 	if ptErr == nil && ptErr2 == nil {
 		if ptEditorBefore == ptEditorAfter {
@@ -507,7 +537,6 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	r.check("grab editor before typing", err)
 
 	r.check("Type text", inp.Type("hello from perfuncted"))
-	time.Sleep(1 * time.Second)
 
 	// WaitForChange confirms text appeared without a fixed sleep.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -733,18 +762,15 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	// by the deferred proc.Process.Kill() immediately after testApp returns.
 	r.section("MOVE/RESIZE [" + app.name + "]")
 	wm.Activate(app.winMatch) //nolint:errcheck
-	time.Sleep(200 * time.Millisecond)
 
 	// In X11, Openbox might maximize windows. Force remove maximization.
 	if os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("DISPLAY") != "" {
 		executil.CommandContext(context.Background(), "wmctrl", "-r", app.winMatch, "-b", "remove,maximized_vert,maximized_horz").Run() //nolint:errcheck
-		time.Sleep(200 * time.Millisecond)
 	}
 
 	const testX, testY, testW, testH = 50, 50, 900, 650
 	moveErr := wm.Move(app.winMatch, testX, testY)
 	if moveErr == nil {
-		time.Sleep(200 * time.Millisecond)
 		ctxMove, cancelMove := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancelMove()
 		if moved, mErr := pf.Window.WaitFor(ctxMove, app.winMatch, 300*time.Millisecond); mErr == nil {
@@ -764,7 +790,6 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	resizeErr := wm.Resize(app.winMatch, testW, testH)
 	if resizeErr == nil {
-		time.Sleep(200 * time.Millisecond)
 		ctxResize, cancelResize := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancelResize()
 		if resized, rErr := pf.Window.WaitFor(ctxResize, app.winMatch, 300*time.Millisecond); rErr == nil {
@@ -815,14 +840,23 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		if err := pf.Clipboard.Set(marker); err != nil {
 			r.fail("Clipboard Set: %v", err)
 		} else {
-			time.Sleep(200 * time.Millisecond)
-			got, err := pf.Clipboard.Get()
-			if err != nil {
-				r.fail("Clipboard Get: %v", err)
-			} else if strings.TrimSpace(got) == marker {
-				r.pass("Clipboard: round-trip OK")
+			// Wait for the clipboard to reflect the new value using RetryUntil
+			ctxClip, cancelClip := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelClip()
+			clipErr := perfuncted.RetryUntil(ctxClip, 100*time.Millisecond, func() error {
+				got, e := pf.Clipboard.Get()
+				if e != nil {
+					return e
+				}
+				if strings.TrimSpace(got) != marker {
+					return fmt.Errorf("clipboard not updated yet")
+				}
+				return nil
+			})
+			if clipErr != nil {
+				r.fail("Clipboard Get: %v", clipErr)
 			} else {
-				r.fail("Clipboard: expected %q got %q", marker, got)
+				r.pass("Clipboard: round-trip OK")
 			}
 		}
 	} else {
