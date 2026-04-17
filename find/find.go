@@ -11,6 +11,7 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"image/draw"
 	"time"
 )
 
@@ -29,7 +30,8 @@ var DefaultHasher Hasher = func() hash.Hash32 { return crc32.NewIEEE() }
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
 // For *image.RGBA images it uses a fast path that reads pixel bytes directly
 // from the underlying Pix slice, avoiding per-pixel interface calls and
-// colour-model conversions.
+// colour-model conversions. Non-RGBA images are converted once to RGBA and
+// then hashed using the same fast loop.
 func PixelHash(img image.Image, newHash Hasher) uint32 {
 	if newHash == nil {
 		newHash = DefaultHasher
@@ -47,14 +49,13 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 		return h.Sum32()
 	}
 
-	// Slow path: generic image via At() + colour model conversion.
-	buf := make([]byte, 4)
+	// Convert non-RGBA images to RGBA once and then use the fast Pix path.
+	rgba := image.NewRGBA(b)
+	draw.Draw(rgba, b, img, b.Min, draw.Src)
 	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
-			buf[0], buf[1], buf[2], buf[3] = c.R, c.G, c.B, c.A
-			h.Write(buf) //nolint:errcheck
-		}
+		off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
+		end := off + b.Dx()*4
+		h.Write(rgba.Pix[off:end]) //nolint:errcheck
 	}
 	return h.Sum32()
 }

@@ -32,6 +32,13 @@ echo ""
 
 mkdir -p /tmp/perfuncted-logs
 
+# If none of the GUI apps we rely on are installed, skip this test.
+# This makes 'just test-desktop' safe in CI and headless environments.
+if ! command -v kwrite >/dev/null 2>&1 && ! command -v pluma >/dev/null 2>&1 && ! command -v firefox >/dev/null 2>&1; then
+    echo "No supported GUI apps (kwrite, pluma, firefox) found in PATH; skipping desktop integration test."
+    exit 0
+fi
+
 # Kill any leftover test app windows from prior failed runs.
 for pat in "kwrite /tmp/perfuncted-kwrite.txt" "pluma /tmp/perfuncted-pluma.txt"; do
     pid=$(pgrep -f "$pat" 2>/dev/null | head -1) && [ -n "$pid" ] && kill "$pid" 2>/dev/null || true

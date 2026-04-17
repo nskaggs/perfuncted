@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package input
 
 // WlVirtualBackend injects input directly into a Wayland compositor using:

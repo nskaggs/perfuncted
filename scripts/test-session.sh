@@ -11,6 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "▶ building session test binary..."
+rm -rf /tmp/pf-session-test || true
 go build -o /tmp/pf-session-test ./cmd/session-test
 echo "  done"
 

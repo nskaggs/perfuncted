@@ -17,6 +17,7 @@ APP="${2:-kwrite}"
 mkdir -p /tmp/perfuncted-logs
 
 echo "▶ building..."
+rm -rf /tmp/pf-integration-bin /tmp/pf-bin || true
 go build -o /tmp/pf-integration-bin ./cmd/integration
 go build -o /tmp/pf-bin ./cmd/pf
 echo "  done"
@@ -67,7 +68,7 @@ DBUS_ADDR="unix:path=$MY_XDG/bus"
 env -i PATH="$PATH" HOME="$HOME" XDG_RUNTIME_DIR="$MY_XDG" \
     dbus-daemon --session --address="$DBUS_ADDR" --nofork --print-address \
     >/dev/null 2>&1 &
-DBUS_PID=$!
+DBUS_PID="$!"
 
 if ! wait_dbus "$DBUS_ADDR"; then
     echo "✗ dbus failed to start" >&2; exit 1
@@ -93,18 +94,17 @@ else
         sway --unsupported-gpu -c config/sway/ci.conf \
         > "$SWAY_LOG" 2>&1 &
 fi
-SWAY_PID=$!
+SWAY_PID="$!"
 
 if ! wait_socket "$MY_XDG/$SWAY_WL" 30; then
     echo "✗ sway Wayland socket did not appear within 30s" >&2
-    cat "$SWAY_LOG" >&2
-    exit 1
+    cat "$SWAY_LOG" >&2; exit 1
 fi
 echo "  sway ready ($MY_XDG/$SWAY_WL)"
 
 XDG_RUNTIME_DIR="$MY_XDG" WAYLAND_DISPLAY="$SWAY_WL" \
     wl-paste --watch cat >/dev/null 2>&1 &
-WLC_PID=$!
+WLC_PID="$!"
 sleep 1
 
 # ── integration test ──────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ run_pf window list >/dev/null 2>&1 \
 run_pf info >/dev/null 2>&1 \
     && echo "✓ pf info" || { echo "✗ pf info"; CLI_RC=1; }
 
-RES=$(run_pf screen resolution 2>/dev/null)
+RES="$(run_pf screen resolution 2>/dev/null)"
 [ -n "$RES" ] && echo "✓ pf screen resolution ($RES)" || { echo "✗ pf screen resolution"; CLI_RC=1; }
 
 run_pf find color --rect 0,0,10,10 --color 000000 --tolerance 50 >/dev/null 2>&1 \
@@ -176,7 +176,7 @@ run_pf find color --rect 0,0,10,10 --color 000000 --tolerance 50 >/dev/null 2>&1
 run_pf clipboard set "pf-test-clip" >/dev/null 2>&1 \
     && echo "✓ pf clipboard set" || { echo "✗ pf clipboard set"; CLI_RC=1; }
 
-CLIP=$(run_pf clipboard get 2>/dev/null)
+CLIP="$(run_pf clipboard get 2>/dev/null)"
 [ "$CLIP" = "pf-test-clip" ] && echo "✓ pf clipboard get" || { echo "✗ pf clipboard get (got: $CLIP)"; CLI_RC=1; }
 
 run_pf session type >/dev/null 2>&1 \

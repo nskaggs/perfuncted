@@ -93,6 +93,29 @@ func detectApps() []appSpec {
 	return found
 }
 
+func ensureActive(wm window.Manager, title string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	// Attempt activation immediately; some backends are synchronous.
+	_ = wm.Activate(title)
+	for time.Now().Before(deadline) {
+		// 1) ActiveTitle may indicate focus.
+		if active, err := wm.ActiveTitle(); err == nil && strings.Contains(strings.ToLower(active), strings.ToLower(title)) {
+			return nil
+		}
+		// 2) Fall back to window listing: some compositors expose per-window Active state.
+		if list, err := wm.List(); err == nil {
+			for _, info := range list {
+				if strings.Contains(strings.ToLower(info.Title), strings.ToLower(title)) && info.Active {
+					return nil
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	active, _ := wm.ActiveTitle()
+	return fmt.Errorf("window not active: last ActiveTitle=%q", active)
+}
+
 func main() {
 	appFilter := flag.String("app", "", "run only this app (kwrite or pluma); empty = all")
 	flag.Parse()
@@ -253,10 +276,13 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	if err := wm.Activate(info.Title); err != nil {
 		r.fail("Activate: %v", err)
-	} else {
-		r.pass("Activate %s", app.name)
+		return
 	}
-	time.Sleep(500 * time.Millisecond)
+	if err := ensureActive(wm, info.Title, 3*time.Second); err != nil {
+		r.fail("EnsureActive: %v", err)
+		return
+	}
+	r.pass("Activate %s", app.name)
 
 	active, err := wm.ActiveTitle()
 	r.check("read ActiveTitle", err)
@@ -276,15 +302,41 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	r.pass("window origin: %d,%d (W=%d H=%d)", winX, winY, info.W, info.H)
 
 	menuBarRect := image.Rect(winX, winY+22, winX+300, winY+50)
+	menuDropRect := image.Rect(winX, winY+50, winX+200, winY+200)
 	hashBefore, err := find.GrabHash(sc, menuBarRect, nil)
 	r.check("grab menu bar before click", err)
+	hashMenuDropBefore, err := find.GrabHash(sc, menuDropRect, nil)
+	r.check("grab menu drop region before click", err)
 
 	fileMenuX, fileMenuY := winX+30, winY+35
+	if err := ensureActive(wm, info.Title, 1*time.Second); err != nil {
+		r.fail("window not active before MouseMove: %v", err)
+		return
+	}
+	// Pixel-based pointer verification: sample a small rect at the target
+	// coordinate before and after the move to ensure the compositor actually
+	// rendered a hover/focus visual change at the pointer location.
+	ptRect := image.Rect(fileMenuX, fileMenuY, fileMenuX+8, fileMenuY+8)
+	ptBefore, ptErr := find.GrabHash(sc, ptRect, nil)
+	r.check("grab pointer region before hover", ptErr)
+	if !(fileMenuX >= winRect.Min.X && fileMenuX < winRect.Max.X && fileMenuY >= winRect.Min.Y && fileMenuY < winRect.Max.Y) {
+		r.fail("target File menu coordinate %d,%d is outside window %v", fileMenuX, fileMenuY, winRect)
+		return
+	}
 	r.check("MouseMove to File menu", inp.MouseMove(fileMenuX, fileMenuY))
 	time.Sleep(200 * time.Millisecond)
 
 	hashHover, err := find.GrabHash(sc, menuBarRect, nil)
 	r.check("grab menu bar after hover", err)
+	ptAfter, ptErr2 := find.GrabHash(sc, ptRect, nil)
+	r.check("grab pointer region after hover", ptErr2)
+	if ptErr == nil && ptErr2 == nil {
+		if ptBefore == ptAfter {
+			r.fail("pointer region did not change after MouseMove")
+		} else {
+			r.pass("pointer region changed after MouseMove")
+		}
+	}
 	if err == nil {
 		if hashHover != hashBefore {
 			r.pass("menu bar changed on hover")
@@ -293,17 +345,20 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		}
 	}
 
+	if !(fileMenuX >= winRect.Min.X && fileMenuX < winRect.Max.X && fileMenuY >= winRect.Min.Y && fileMenuY < winRect.Max.Y) {
+		r.fail("target File menu coordinate %d,%d is outside window %v before click", fileMenuX, fileMenuY, winRect)
+		return
+	}
 	r.check("MouseClick File menu", inp.MouseClick(fileMenuX, fileMenuY, 1))
 	time.Sleep(400 * time.Millisecond)
 
-	menuDropRect := image.Rect(winX, winY+50, winX+200, winY+200)
 	hashAfterClick, err := find.GrabHash(sc, menuDropRect, nil)
 	r.check("grab menu after click", err)
 	if err == nil {
-		if hashAfterClick != hashBefore {
-			r.pass("screen changed after File menu click (menu opened)")
+		if hashAfterClick != hashMenuDropBefore {
+			r.pass("menu drop region changed after File menu click (menu opened)")
 		} else {
-			r.fail("screen unchanged after File menu click")
+			r.fail("menu drop region unchanged after File menu click")
 		}
 		fpath := fmt.Sprintf("/tmp/%s-menu-%s.png", pfx, app.name)
 		savePNG2(sc, menuDropRect, fpath)
@@ -315,7 +370,15 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 
 	// Right-click in the editor area — context menu should appear (button 3).
 	rcX, rcY := winX+400, winY+300
+	if !(rcX >= winRect.Min.X && rcX < winRect.Max.X && rcY >= winRect.Min.Y && rcY < winRect.Max.Y) {
+		r.fail("right-click target %d,%d is outside window %v", rcX, rcY, winRect)
+		return
+	}
 	hashPreRC, _ := find.GrabHash(sc, winRect, nil)
+	// Pixel-based check at right-click point: ensure pointer region changes after click.
+	ptRC := image.Rect(rcX, rcY, rcX+8, rcY+8)
+	ptRCBefore, ptRCErr := find.GrabHash(sc, ptRC, nil)
+	r.check("grab pointer region before right-click", ptRCErr)
 	r.check("MouseClick right (context menu)", inp.MouseClick(rcX, rcY, 3))
 	ctxRC, cancelRC := context.WithTimeout(context.Background(), 3*time.Second)
 	_, rcErr := find.WaitForChange(ctxRC, sc, winRect, hashPreRC, 100*time.Millisecond, nil)
@@ -323,6 +386,15 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	if rcErr != nil {
 		r.fail("right-click context menu did not appear (screen unchanged): %v", rcErr)
 	} else {
+		ptRCAfter, ptRCErr2 := find.GrabHash(sc, ptRC, nil)
+		r.check("grab pointer region after right-click", ptRCErr2)
+		if ptRCErr == nil && ptRCErr2 == nil {
+			if ptRCBefore == ptRCAfter {
+				r.fail("pointer region did not change after right-click")
+			} else {
+				r.pass("pointer region changed after right-click")
+			}
+		}
 		r.pass("right-click context menu appeared")
 	}
 	hashPreRCEsc, _ := find.GrabHash(sc, winRect, nil)
@@ -372,11 +444,28 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	r.section("TEXT INPUT [" + app.name + "]")
 
 	editorX, editorY := winX+400, winY+300
+	if !(editorX >= winRect.Min.X && editorX < winRect.Max.X && editorY >= winRect.Min.Y && editorY < winRect.Max.Y) {
+		r.fail("editor click target %d,%d is outside window %v", editorX, editorY, winRect)
+		return
+	}
 	// Double-click to ensure focus and cursor placement
+	// Pixel-based pointer verification for editor focus: sample small rect.
+	ptEditorRect := image.Rect(editorX, editorY, editorX+8, editorY+8)
+	ptEditorBefore, ptErr := find.GrabHash(sc, ptEditorRect, nil)
+	r.check("grab editor pointer region before click", ptErr)
 	r.check("click inside editor", inp.MouseClick(editorX, editorY, 1))
 	time.Sleep(100 * time.Millisecond)
 	inp.MouseClick(editorX, editorY, 1) //nolint:errcheck
 	time.Sleep(500 * time.Millisecond)
+	ptEditorAfter, ptErr2 := find.GrabHash(sc, ptEditorRect, nil)
+	r.check("grab editor pointer region after click", ptErr2)
+	if ptErr == nil && ptErr2 == nil {
+		if ptEditorBefore == ptEditorAfter {
+			r.fail("editor pointer region did not change after click")
+		} else {
+			r.pass("editor pointer region changed after click")
+		}
+	}
 
 	editorRect := image.Rect(winX+10, winY+60, winX+600, winY+400)
 	hashEditorBefore, err := find.GrabHash(sc, editorRect, nil)

@@ -1,4 +1,7 @@
 // Package dbusutil provides shared D-Bus utilities for perfuncted.
+//go:build linux
+// +build linux
+
 package dbusutil
 
 import "github.com/godbus/dbus/v5"
