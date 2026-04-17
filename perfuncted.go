@@ -705,24 +705,6 @@ func (i InputBundle) TypeWithDelay(s string, delay time.Duration) error {
 	return nil
 }
 
-// Paste sets the system clipboard to text and sends a paste keystroke (Ctrl+V).
-func (i InputBundle) Paste(text string) error {
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	cb, err := clipboard.Open()
-	if err != nil {
-		return err
-	}
-	defer cb.Close()
-	if err := cb.Set(text); err != nil {
-		return err
-	}
-	// small delay to ensure clipboard contents are available to target apps
-	time.Sleep(75 * time.Millisecond)
-	return i.PressCombo("ctrl+v")
-}
-
 // Raw injects a raw scancode if the underlying Inputter supports it.
 func (i InputBundle) Raw(scancode int) error {
 	if err := i.checkAvailable(); err != nil {

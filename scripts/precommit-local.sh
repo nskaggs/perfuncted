@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Generate CLI autogen (ensure cmd/pf builds locally)
+echo "Generating autogen code..."
+go run -tags=gencli ./scripts/gen_cli.go
+
+# formatting checks
 gofmt_out=$(gofmt -l .)
 if [ -n "$gofmt_out" ]; then
   echo "Files not formatted:"

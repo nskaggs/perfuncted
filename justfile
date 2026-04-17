@@ -35,12 +35,15 @@ tidy:
     go mod verify
 
 # Generate CLI documentation
+gencli:
+    go run -tags=gencli ./scripts/gen_cli.go
+
 docs:
     rm -rf docs-cli/
     go run ./cmd/pf/ docs --dir ./docs-cli
 
 # Full pre-commit workflow
-precommit: check deadcode tidy docs vulncheck
+precommit: gencli check deadcode tidy docs vulncheck
 
 # Build all packages and binaries
 build: precommit
