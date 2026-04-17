@@ -174,6 +174,7 @@ func main() {
 			}
 			fpath := fmt.Sprintf("/tmp/%s-screen.png", pfx)
 			savePNG(full, fpath)
+			defer os.Remove(fpath)
 			r.pass("full screenshot -> %s", fpath)
 		}
 	}
@@ -253,6 +254,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		r.fail("pre-create %s: %v", app.saveFile, err)
 		return
 	}
+	defer os.Remove(app.saveFile)
 	// Append the file path so the app opens it on launch.
 	launchCmd := append(app.launch, app.saveFile)
 	proc := executil.CommandContext(context.Background(), launchCmd[0], launchCmd[1:]...)
@@ -416,6 +418,7 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		}
 		fpath := fmt.Sprintf("/tmp/%s-menu-%s.png", pfx, app.name)
 		savePNG2(sc, menuDropRect, fpath)
+		defer os.Remove(fpath)
 		r.pass("menu region -> %s", fpath)
 	}
 
@@ -1023,6 +1026,7 @@ func testBrowser(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	// Save a screenshot for visual inspection.
 	fpath := fmt.Sprintf("/tmp/%s-firefox-before.png", pfx)
 	savePNG2(sc, winRect, fpath)
+	defer os.Remove(fpath)
 	r.pass("screenshot before navigation -> %s", fpath)
 
 	// ── Mouse ────────────────────────────────────────────────────────────────
@@ -1081,6 +1085,7 @@ func testBrowser(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	// Save a screenshot after navigation for visual confirmation.
 	fpath = fmt.Sprintf("/tmp/%s-firefox-after.png", pfx)
 	savePNG2(sc, winRect, fpath)
+	defer os.Remove(fpath)
 	r.pass("screenshot after navigation -> %s", fpath)
 
 	// ── Find ─────────────────────────────────────────────────────────────────
