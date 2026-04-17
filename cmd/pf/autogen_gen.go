@@ -34,7 +34,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// grab: wrapper for perfuncted.Grab
 	var cmd_screen_grab_rect string
-	var cmd_screen_grab_out string
 	cmd_screen_grab := &cobra.Command{
 		Use:   "grab",
 		Short: "Auto-generated wrapper for perfuncted.Grab",
@@ -74,7 +73,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	cmds = append(cmds, cmd_screen_grab)
 
 	// grab-full: wrapper for perfuncted.GrabFull
-	var cmd_screen_grab_full_out string
 
 	cmd_screen_grab_full := &cobra.Command{
 		Use:   "grab-full",
@@ -351,6 +349,50 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 
 	cmds = append(cmds, cmd_input_key_up)
 
+	// modifier-down: wrapper for perfuncted.ModifierDown
+	var cmd_input_modifier_down_key string
+	cmd_input_modifier_down := &cobra.Command{
+		Use:   "modifier-down",
+		Short: "Auto-generated wrapper for perfuncted.ModifierDown",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_input_modifier_down_key (string)
+			if err := pf.Input.ModifierDown(cmd_input_modifier_down_key); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_modifier_down.Flags().StringVar(&cmd_input_modifier_down_key, "key", "", "key")
+
+	cmds = append(cmds, cmd_input_modifier_down)
+
+	// modifier-up: wrapper for perfuncted.ModifierUp
+	var cmd_input_modifier_up_key string
+	cmd_input_modifier_up := &cobra.Command{
+		Use:   "modifier-up",
+		Short: "Auto-generated wrapper for perfuncted.ModifierUp",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_input_modifier_up_key (string)
+			if err := pf.Input.ModifierUp(cmd_input_modifier_up_key); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_modifier_up.Flags().StringVar(&cmd_input_modifier_up_key, "key", "", "key")
+
+	cmds = append(cmds, cmd_input_modifier_up)
+
 	// mouse-click: wrapper for perfuncted.MouseClick
 	var cmd_input_mouse_click_x int
 	var cmd_input_mouse_click_y int
@@ -448,6 +490,28 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 
 	cmds = append(cmds, cmd_input_mouse_up)
 
+	// paste: wrapper for perfuncted.Paste
+	var cmd_input_paste_text string
+	cmd_input_paste := &cobra.Command{
+		Use:   "paste",
+		Short: "Auto-generated wrapper for perfuncted.Paste",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_input_paste_text (string)
+			if err := pf.Input.Paste(cmd_input_paste_text); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_paste.Flags().StringVar(&cmd_input_paste_text, "text", "", "text")
+
+	cmds = append(cmds, cmd_input_paste)
+
 	// press-combo: wrapper for perfuncted.PressCombo
 	var cmd_input_press_combo_combo string
 	cmd_input_press_combo := &cobra.Command{
@@ -469,6 +533,28 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmd_input_press_combo.Flags().StringVar(&cmd_input_press_combo_combo, "combo", "", "combo")
 
 	cmds = append(cmds, cmd_input_press_combo)
+
+	// raw: wrapper for perfuncted.Raw
+	var cmd_input_raw_scancode int
+	cmd_input_raw := &cobra.Command{
+		Use:   "raw",
+		Short: "Auto-generated wrapper for perfuncted.Raw",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_input_raw_scancode (int) already parsed into var
+			if err := pf.Input.Raw(cmd_input_raw_scancode); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_raw.Flags().IntVar(&cmd_input_raw_scancode, "scancode", 0, "scancode")
+
+	cmds = append(cmds, cmd_input_raw)
 
 	// scroll-down: wrapper for perfuncted.ScrollDown
 	var cmd_input_scroll_down_clicks int
@@ -579,6 +665,34 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmd_input_type.Flags().StringVar(&cmd_input_type_s, "s", "", "s")
 
 	cmds = append(cmds, cmd_input_type)
+
+	// type-with-delay: wrapper for perfuncted.TypeWithDelay
+	var cmd_input_type_with_delay_s string
+	var cmd_input_type_with_delay_delay string
+	cmd_input_type_with_delay := &cobra.Command{
+		Use:   "type-with-delay",
+		Short: "Auto-generated wrapper for perfuncted.TypeWithDelay",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_input_type_with_delay_s (string)
+			cmd_input_type_with_delay_delay_dur, err := parseDuration(cmd_input_type_with_delay_delay, 0)
+			if err != nil {
+				return err
+			}
+			if err := pf.Input.TypeWithDelay(cmd_input_type_with_delay_s, cmd_input_type_with_delay_delay_dur); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_type_with_delay.Flags().StringVar(&cmd_input_type_with_delay_s, "s", "", "s")
+	cmd_input_type_with_delay.Flags().StringVar(&cmd_input_type_with_delay_delay, "delay", "", "delay")
+
+	cmds = append(cmds, cmd_input_type_with_delay)
 	return cmds
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {

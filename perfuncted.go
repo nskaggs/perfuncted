@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -324,6 +325,92 @@ func (s ScreenBundle) FindColor(rect image.Rectangle, target color.RGBA, toleran
 	return find.FindColor(s.Screenshotter, rect, target, tolerance)
 }
 
+// GetPixel returns the colour of the pixel at (x,y) on the screen.
+func (s ScreenBundle) GetPixel(x, y int) (color.RGBA, error) {
+	if err := s.checkAvailable(); err != nil {
+		return color.RGBA{}, err
+	}
+	return find.FirstPixel(s.Screenshotter, image.Rect(x, y, x+1, y+1))
+}
+
+// GetMultiplePixels returns the colours at the requested absolute screen points.
+// It grabs the minimal bounding box covering the points to minimise IPCs.
+func (s ScreenBundle) GetMultiplePixels(points []image.Point) ([]color.RGBA, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
+	if len(points) == 0 {
+		return nil, nil
+	}
+	minX, minY := points[0].X, points[0].Y
+	maxX, maxY := points[0].X, points[0].Y
+	for _, p := range points {
+		if p.X < minX {
+			minX = p.X
+		}
+		if p.Y < minY {
+			minY = p.Y
+		}
+		if p.X > maxX {
+			maxX = p.X
+		}
+		if p.Y > maxY {
+			maxY = p.Y
+		}
+	}
+	bbox := image.Rect(minX, minY, maxX+1, maxY+1)
+	img, err := s.Grab(bbox)
+	if err != nil {
+		// Fallback to individual reads.
+		out := make([]color.RGBA, len(points))
+		for i, p := range points {
+			c, err := find.FirstPixel(s.Screenshotter, image.Rect(p.X, p.Y, p.X+1, p.Y+1))
+			if err != nil {
+				return nil, err
+			}
+			out[i] = c
+		}
+		return out, nil
+	}
+	b := img.Bounds()
+	out := make([]color.RGBA, len(points))
+	for i, p := range points {
+		x := p.X - bbox.Min.X + b.Min.X
+		y := p.Y - bbox.Min.Y + b.Min.Y
+		out[i] = color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+	}
+	return out, nil
+}
+
+// CaptureRegion captures rect and writes it as a PNG to path.
+func (s ScreenBundle) CaptureRegion(rect image.Rectangle, path string) error {
+	if err := s.checkAvailable(); err != nil {
+		return err
+	}
+	img, err := s.Grab(rect)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("screen: create file: %w", err)
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return fmt.Errorf("screen: encode png: %w", err)
+	}
+	return nil
+}
+
+// PixelToScreen returns the raw grabbed image for rect. It is a thin wrapper
+// over the Screenshotter's Grab method but provided for API symmetry.
+func (s ScreenBundle) PixelToScreen(rect image.Rectangle) (image.Image, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
+	return s.Grab(rect)
+}
+
 // WindowBundle wraps a window.Manager with additional find utilities.
 type WindowBundle struct {
 	window.Manager
@@ -525,6 +612,65 @@ func (i InputBundle) PressCombo(combo string) error {
 		}
 	}
 	return nil
+}
+
+// ModifierDown presses and holds a modifier key (e.g. "ctrl", "alt", "shift").
+func (i InputBundle) ModifierDown(key string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	return i.KeyDown(key)
+}
+
+// ModifierUp releases a previously held modifier key.
+func (i InputBundle) ModifierUp(key string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	return i.KeyUp(key)
+}
+
+// TypeWithDelay types the provided string, waiting delay between each rune.
+func (i InputBundle) TypeWithDelay(s string, delay time.Duration) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	for _, r := range s {
+		if err := i.Type(string(r)); err != nil {
+			return err
+		}
+		time.Sleep(delay)
+	}
+	return nil
+}
+
+// Paste sets the system clipboard to text and sends a paste keystroke (Ctrl+V).
+func (i InputBundle) Paste(text string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	cb, err := clipboard.Open()
+	if err != nil {
+		return err
+	}
+	defer cb.Close()
+	if err := cb.Set(text); err != nil {
+		return err
+	}
+	// small delay to ensure clipboard contents are available to target apps
+	time.Sleep(75 * time.Millisecond)
+	return i.PressCombo("ctrl+v")
+}
+
+// Raw injects a raw scancode if the underlying Inputter supports it.
+func (i InputBundle) Raw(scancode int) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	if r, ok := i.Inputter.(interface{ Raw(int) error }); ok {
+		return r.Raw(scancode)
+	}
+	return fmt.Errorf("input: raw scancode not supported by backend")
 }
 
 // ClipboardBundle wraps clipboard.Clipboard with a safe Get that won't hang.
