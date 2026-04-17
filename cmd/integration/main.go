@@ -298,23 +298,42 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	r.section("MOUSE [" + app.name + "]")
 
 	winX, winY := info.X, info.Y
-	// Some window managers (or early X11 sessions) may report width/height as 0
-	// initially. Fallback to the screen resolution to allow the tests to proceed
-	// deterministically instead of operating on a zero-sized rect.
-	if info.W <= 0 || info.H <= 0 {
-		if w, h, err := pf.Screen.Resolution(); err == nil {
-			info.W = w
-			info.H = h
-		} else {
-			info.W = 1024
-			info.H = 768
-		}
+	screenRect := image.Rect(0, 0, 1024, 768)
+	if w, h, err := pf.Screen.Resolution(); err == nil && w > 0 && h > 0 {
+		screenRect = image.Rect(0, 0, w, h)
 	}
-	winRect := image.Rect(winX, winY, winX+info.W, winY+info.H)
+	if winX < screenRect.Min.X {
+		winX = screenRect.Min.X
+	} else if winX >= screenRect.Max.X {
+		winX = screenRect.Max.X - 1
+	}
+	if winY < screenRect.Min.Y {
+		winY = screenRect.Min.Y
+	} else if winY >= screenRect.Max.Y {
+		winY = screenRect.Max.Y - 1
+	}
+	if info.W <= 0 {
+		info.W = screenRect.Max.X - winX
+	}
+	if info.H <= 0 {
+		info.H = screenRect.Max.Y - winY
+	}
+	winRect := image.Rect(winX, winY, winX+info.W, winY+info.H).Intersect(screenRect)
+	if winRect.Empty() {
+		winRect = screenRect
+	}
+	winX, winY = winRect.Min.X, winRect.Min.Y
+	info.W, info.H = winRect.Dx(), winRect.Dy()
 	r.pass("window origin: %d,%d (W=%d H=%d)", winX, winY, info.W, info.H)
 
-	menuBarRect := image.Rect(winX, winY+22, winX+300, winY+50)
-	menuDropRect := image.Rect(winX, winY+50, winX+200, winY+200)
+	menuBarRect := image.Rect(winX, winY+22, winX+300, winY+50).Intersect(winRect)
+	if menuBarRect.Empty() {
+		menuBarRect = winRect
+	}
+	menuDropRect := image.Rect(winX, winY+50, winX+200, winY+200).Intersect(winRect)
+	if menuDropRect.Empty() {
+		menuDropRect = winRect
+	}
 	hashBefore, err := find.GrabHash(sc, menuBarRect, nil)
 	r.check("grab menu bar before click", err)
 	hashMenuDropBefore, err := find.GrabHash(sc, menuDropRect, nil)
@@ -325,16 +344,16 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		r.fail("window not active before MouseMove: %v", err)
 		return
 	}
-	// Pixel-based pointer verification: sample a small rect at the target
-	// coordinate before and after the move to ensure the compositor actually
-	// rendered a hover/focus visual change at the pointer location.
-	ptRect := image.Rect(fileMenuX, fileMenuY, fileMenuX+8, fileMenuY+8)
-	ptBefore, ptErr := find.GrabHash(sc, ptRect, nil)
-	r.check("grab pointer region before hover", ptErr)
 	if !(fileMenuX >= winRect.Min.X && fileMenuX < winRect.Max.X && fileMenuY >= winRect.Min.Y && fileMenuY < winRect.Max.Y) {
 		r.fail("target File menu coordinate %d,%d is outside window %v", fileMenuX, fileMenuY, winRect)
 		return
 	}
+	// Pixel-based pointer verification: sample a small rect at the target
+	// coordinate before and after the move to ensure the compositor actually
+	// rendered a hover/focus visual change at the pointer location.
+	ptRect := image.Rect(fileMenuX, fileMenuY, fileMenuX+8, fileMenuY+8).Intersect(winRect)
+	ptBefore, ptErr := find.GrabHash(sc, ptRect, nil)
+	r.check("grab pointer region before hover", ptErr)
 	r.check("MouseMove to File menu", inp.MouseMove(fileMenuX, fileMenuY))
 
 	// Wait for the pointer region to change (indicates hover/focus)
