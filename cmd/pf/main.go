@@ -1060,6 +1060,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			h, err := pf.Screen.WaitFor(ctx, r, want, poll)
+			h, err = pf.Screen.WaitFor(ctx, r, want, poll)
 			if err != nil {
 				return fmt.Errorf("wait-for failed: %w (last observed: %08x)", err, h)
 			}
