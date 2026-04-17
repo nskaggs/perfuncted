@@ -52,7 +52,7 @@ install: build
 
 # ── testing ────────────────────────────────────────────────────────────────────
 
-# Run unit tests with the race detector
+# Run unit tests (with race detector)
 test-unit:
     go test -race ./...
 
@@ -60,12 +60,16 @@ test-unit:
 test-session:
     @bash scripts/test-session.sh
 
-# Run integration tests. Defaults to headless; pass nested or desktop to target
-# a different environment.
+# Run integration tests (defaults to headless if no arg provided)
+# Usage: just test-integration            -> headless
+#        just test-integration desktop    -> desktop
+#        just test-integration nested     -> nested
 test-integration *args:
-    @bash scripts/test-integration.sh {{args}}
+    @mode="{{args}}"; \
+    if [ -z "$$mode" ]; then mode=headless; fi; \
+    bash scripts/test-integration.sh "$$mode"
 
-# Run all test suites: unit + session + default integration.
+# Run all test suites: unit + session + integration
 test-all: test-unit test-session test-integration
     @echo "Completed test-all"
 

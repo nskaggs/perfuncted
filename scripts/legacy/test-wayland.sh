@@ -8,7 +8,7 @@
 # Both modes run in a fully isolated XDG_RUNTIME_DIR so host processes
 # are never affected. Wall time: under 2 minutes.
 
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MODE="${1:-headless}"   # headless | nested
@@ -20,37 +20,7 @@ echo "▶ building..."
 rm -rf /tmp/pf-integration-bin /tmp/pf-bin || true
 go build -o /tmp/pf-integration-bin ./cmd/integration
 go build -o /tmp/pf-bin ./cmd/pf
-
-# Create a reference PNG with solid red content for CLI tests
-REF_PNG="/tmp/pf-test-ref.png"
-if [ ! -f "$REF_PNG" ]; then
-    cat > /tmp/gen_png.go << 'EOGO'
-package main
-import (
-    "image"
-    "image/color"
-    "image/png"
-    "os"
-)
-func main() {
-    img := image.NewRGBA(image.Rect(0, 0, 100, 100))
-    red := color.RGBA{0xFF, 0x00, 0x00, 0xFF}
-    for y := 0; y < 100; y++ {
-        for x := 0; x < 100; x++ {
-            img.Set(x, y, red)
-        }
-    }
-    f, _ := os.Create("$REF_PNG")
-    png.Encode(f, img)
-    f.Close()
-}
-EOGO
-    echo "  creating reference PNG..."
-    go run /tmp/gen_png.go || { echo "ERROR: failed to create reference PNG" >&2; exit 1; }
-    rm -f /tmp/gen_png.go
-fi
-
-echo "  reference PNG: $REF_PNG"
+echo "  done"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,14 +55,12 @@ MY_XDG=$(mktemp -d -p /tmp perfuncted-xdg-XXXXXX)
 chmod 0700 "$MY_XDG"
 
 SWAY_PID="" WLC_PID="" DBUS_PID=""
-REF_PNG_KEEP="$REF_PNG"
 
 cleanup() {
     [ -n "$WLC_PID"  ] && kill "$WLC_PID"  2>/dev/null || true
     [ -n "$SWAY_PID" ] && kill "$SWAY_PID" 2>/dev/null || true
     [ -n "$DBUS_PID" ] && kill "$DBUS_PID" 2>/dev/null || true
     rm -rf "$MY_XDG" 2>/dev/null || true
-    # Keep the reference PNG so CLI tests can find it
 }
 trap cleanup EXIT
 
@@ -171,40 +139,24 @@ run_pf() {
         /tmp/pf-bin "$@"
 }
 
-# Test screen grab works
 run_pf screen grab --rect 0,0,10,10 --out /tmp/pf-test-grab.png >/dev/null 2>&1 \
     && echo "✓ pf screen grab" || { echo "✗ pf screen grab"; CLI_RC=1; }
 
-# Test pixel hash using reference PNG CRC32
-REF_HASH=$(python3 -c "
-import zlib, struct
-data = open('$REF_PNG','rb').read()
-pos = data.find(b'IDAT')
-if pos == -1:
-    exit(1)
-raw = data[pos+4:pos+struct.unpack('>I', data[pos-4:pos])[0]+4]
-h = zlib.crc32(raw) & 0xffffffff
-print('0x%08x' % h)
-")
-
 H=""
-if [ -n "$REF_HASH" ]; then
-    for i in 1 2 3 4 5 6 7 8; do
-        H=$(run_pf find pixel-hash --rect 0,0,100,100 2>/dev/null) && break || sleep 0.25
-    done
-    if [ -n "$H" ]; then
-        echo "✓ pf find pixel-hash ($H)"
-        run_pf find wait-for --rect 0,0,100,100 --hash "$REF_HASH" --timeout 2s \
-            >/dev/null 2>&1 && echo "✓ pf find wait-for" || { echo "✗ pf find wait-for"; CLI_RC=1; }
-    else
-        echo "⚠ pf find pixel-hash: no content found (expected in blank test session)"
-    fi
+for i in 1 2 3 4 5 6 7 8; do
+    H=$(run_pf find pixel-hash --rect 0,0,10,10 2>/dev/null) && break || sleep 0.25
+done
+if [ -n "$H" ]; then
+    echo "✓ pf find pixel-hash ($H)"
 else
-    echo "⚠ pf find pixel-hash: skipping (reference hash unavailable)"
+    echo "✗ pf find pixel-hash"; CLI_RC=1
 fi
 
-run_pf find wait-for-no-change --rect 0,0,10,10 --stable 3 --poll 100ms --timeout 3s \
-    >/dev/null 2>&1 && echo "✓ pf find wait-for-no-change" || { echo "✗ pf find wait-for-no-change"; CLI_RC=1; }
+run_pf find wait-for --rect 0,0,10,10 --hash "$H" --timeout 2s >/dev/null 2>&1 \
+    && echo "✓ pf find wait-for" || { echo "✗ pf find wait-for"; CLI_RC=1; }
+
+run_pf find wait-for-no-change --rect 0,0,10,10 --stable 3 --poll 100ms --timeout 3s >/dev/null 2>&1 \
+    && echo "✓ pf find wait-for-no-change" || { echo "✗ pf find wait-for-no-change"; CLI_RC=1; }
 
 run_pf input move --x 100 --y 100 >/dev/null 2>&1 \
     && echo "✓ pf input move" || { echo "✗ pf input move"; CLI_RC=1; }

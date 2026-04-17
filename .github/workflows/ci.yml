@@ -47,6 +47,15 @@ jobs:
           go run ./cmd/pf/ docs --dir ./docs-cli
           git diff --exit-code docs-cli/
 
+      - name: Generate CLI
+        run: |
+          go run -tags=gencli ./scripts/gen_cli.go
+          git diff --exit-code cmd/pf/autogen_gen.go
+
+      - name: CLI/API sync check
+        run: |
+          go run ./scripts/verify_cli_api.go
+
       - name: staticcheck
         uses: dominikh/staticcheck-action@v1
         with:
