@@ -931,18 +931,50 @@ func testBrowser(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		r.pass("Activate %s", app.name)
 	}
 	// Wait for Firefox to finish painting its initial UI before we hash the screen.
-	// Replace a fixed sleep with a size fallback so tests work if the window manager
-	// reports width/height as 0 initially.
-	if info.W <= 0 || info.H <= 0 {
-		if w, h, err := pf.Screen.Resolution(); err == nil {
+	// If the window manager reports width/height as 0 initially, fall back to a
+	// bounded on-screen rect and wait until its hash stops changing instead of
+	// relying on a fixed sleep.
+	screenRect := image.Rect(0, 0, 1024, 768)
+	if w, h, err := pf.Screen.Resolution(); err == nil && w > 0 && h > 0 {
+		screenRect = image.Rect(0, 0, w, h)
+		if info.W <= 0 || info.H <= 0 {
 			info.W = w
 			info.H = h
-		} else {
-			info.W = 1024
-			info.H = 768
 		}
+	} else if info.W <= 0 || info.H <= 0 {
+		info.W = screenRect.Dx()
+		info.H = screenRect.Dy()
 	}
 
+	waitRect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H).Intersect(screenRect)
+	if waitRect.Empty() {
+		waitRect = screenRect
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	const stableSamples = 2
+	stableCount := 0
+	var prevHash interface{}
+	var havePrev bool
+	for {
+		hash, err := pf.Screen.GrabHash(waitRect)
+		if err == nil {
+			if havePrev && hash == prevHash {
+				stableCount++
+				if stableCount >= stableSamples {
+					break
+				}
+			} else {
+				stableCount = 0
+				prevHash = hash
+				havePrev = true
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	active, err := wm.ActiveTitle()
 	r.check("read ActiveTitle", err)
 	if err == nil {
