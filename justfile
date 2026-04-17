@@ -53,52 +53,20 @@ install: build
 # ── testing ────────────────────────────────────────────────────────────────────
 
 # Run unit tests with the race detector
-race:
+test-unit:
     go test -race ./...
-
-# Print per-function unit test coverage summary
-coverage:
-    go test -coverprofile=coverage.out ./...
-    go tool cover -func=coverage.out
-    @rm -f coverage.out
-
-# Open an HTML coverage report in the browser
-coverage-html:
-    go test -coverprofile=coverage.out ./...
-    go tool cover -html=coverage.out
-    @rm -f coverage.out
-
-# Run the live integration test against the current display (requires kwrite, pluma, or firefox)
-integration:
-    go run ./cmd/integration/
-
-# Fast headless Wayland integration test: one isolated sway session + kwrite.
-# Verifies screen, input, window, clipboard. Wall time < 2 minutes.
-test-headless:
-    @bash scripts/test-wayland.sh headless
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
     @bash scripts/test-session.sh
 
-# Fast nested Wayland integration test: visible sway window on host desktop + kwrite.
-# Same coverage as test-headless but in a visible session. Wall time < 2 minutes.
-test-nested:
-    @bash scripts/test-wayland.sh nested
+# Run integration tests. Defaults to headless; pass nested or desktop to target
+# a different environment.
+test-integration *args:
+    @bash scripts/test-integration.sh {{args}}
 
-# Full integration suite: 7 isolated sessions across Wayland, X11, XWayland.
-# Slower (several minutes). Use for thorough pre-release validation.
-test-full:
-    @bash scripts/test-nested.sh
-
-# Run integration suite on the primary desktop (no nested compositor).
-# Exercises KWinShot, KWinScriptManager, X11Backend, XTest — backends that
-# nested sessions never reach. Moves mouse and types on the real desktop.
-test-desktop:
-    @bash scripts/test-desktop.sh
-
-# Run all test suites: unit + integration (heavy). Use with care; requires system deps.
-test-all: race test-session test-headless test-nested test-full test-desktop
+# Run all test suites: unit + session + default integration.
+test-all: test-unit test-session test-integration
     @echo "Completed test-all"
 
 # Run the pf CLI with the given arguments
