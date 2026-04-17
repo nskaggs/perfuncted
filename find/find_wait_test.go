@@ -296,7 +296,9 @@ func TestScanFor(t *testing.T) {
 		t.Fatalf("grab failed: %v", err)
 	}
 
-	subIf, ok := grabbed.(interface{ SubImage(image.Rectangle) image.Image })
+	subIf, ok := grabbed.(interface {
+		SubImage(image.Rectangle) image.Image
+	})
 	if !ok {
 		t.Fatalf("grabbed image does not support SubImage: type=%T", grabbed)
 	}
