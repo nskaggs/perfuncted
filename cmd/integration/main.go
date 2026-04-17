@@ -423,10 +423,19 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	}
 
 	inp.KeyTap("escape") //nolint:errcheck
-	// Wait briefly for the menu to close (if it was open).
+	// Wait briefly for the menu to close (if it was open). Use a captured
+	// menu hash if available; otherwise wait for the region to stabilise after
+	// sending Escape to avoid spurious immediate returns when hash is unknown.
 	ctxClose, cancelClose := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelClose()
-	_, _ = find.WaitForChange(ctxClose, sc, menuDropRect, hashAfterClick, 100*time.Millisecond, nil)
+	if err == nil {
+		// We captured hashAfterClick successfully: wait for the region to change
+		// (menu closing) relative to that hash.
+		_, _ = find.WaitForChange(ctxClose, sc, menuDropRect, hashAfterClick, 100*time.Millisecond, nil)
+	} else {
+		// Fallback: wait for the menu region to settle (stable/no-change) after Escape.
+		_, _ = find.WaitForNoChange(ctxClose, sc, menuDropRect, 3, 100*time.Millisecond, nil)
+	}
 
 	// Right-click in the editor area — context menu should appear (button 3).
 	rcX, rcY := winX+400, winY+300
@@ -537,9 +546,9 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	ptEditorRect := image.Rect(editorX, editorY, editorX+8, editorY+8)
 	ptEditorBefore, ptErr := find.GrabHash(sc, ptEditorRect, nil)
 	r.check("grab editor pointer region before click", ptErr)
-	r.check("click inside editor", inp.MouseClick(editorX, editorY, 1))
-	// Second click to ensure focus and placement
-	r.check("double-click inside editor", inp.MouseClick(editorX, editorY, 1))
+	// Use the InputBundle DoubleClick helper to perform a platform-friendly
+	// double-click (click + short pause + click).
+	r.check("double-click inside editor", pf.Input.DoubleClick(editorX, editorY))
 
 	// Wait for pointer region to change indicating focus/cursor placement
 	ctxEditorClick, cancelEditorClick := context.WithTimeout(context.Background(), 3*time.Second)
