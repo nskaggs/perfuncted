@@ -456,6 +456,62 @@ func (w WindowBundle) IsVisible(pattern string) bool {
 	return err == nil
 }
 
+// Resize changes the window dimensions for the first window whose title
+// contains title (case-insensitive).
+func (w WindowBundle) Resize(title string, width, height int) error {
+	if w.Manager == nil {
+		return fmt.Errorf("window: not available")
+	}
+	return w.Manager.Resize(title, width, height)
+}
+
+// Minimize instructs the compositor to minimize the window matching title.
+func (w WindowBundle) Minimize(title string) error {
+	if w.Manager == nil {
+		return fmt.Errorf("window: not available")
+	}
+	return w.Manager.Minimize(title)
+}
+
+// Maximize instructs the compositor to maximize the window matching title.
+func (w WindowBundle) Maximize(title string) error {
+	if w.Manager == nil {
+		return fmt.Errorf("window: not available")
+	}
+	return w.Manager.Maximize(title)
+}
+
+// Restore attempts to bring the window matching title back to a normal state.
+// This is best-effort: Activate is used to un-minimize; un-maximizing is
+// backend-specific and may not be supported uniformly.
+func (w WindowBundle) Restore(title string) error {
+	if w.Manager == nil {
+		return fmt.Errorf("window: not available")
+	}
+	if err := w.Manager.Activate(title); err == nil {
+		return nil
+	}
+	return fmt.Errorf("window: restore not supported or failed to activate %q", title)
+}
+
+// GetGeometry returns the window geometry (x,y,w,h) for the first matching title.
+func (w WindowBundle) GetGeometry(title string) (image.Rectangle, error) {
+	info, err := w.FindByTitle(title)
+	if err != nil {
+		return image.Rectangle{}, err
+	}
+	return image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H), nil
+}
+
+// GetProcess returns the PID of the process that owns the first window matching title.
+func (w WindowBundle) GetProcess(title string) (int, error) {
+	info, err := w.FindByTitle(title)
+	if err != nil {
+		return 0, err
+	}
+	return int(info.PID), nil
+}
+
 // WaitFor polls the window list until a window whose title contains pattern
 // (case-insensitive) appears, or ctx is cancelled. List() errors are propagated
 // rather than silently swallowed.
