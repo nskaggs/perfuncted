@@ -1,0 +1,20 @@
+# Mapping file for generator (scripts/gen_cli.go).
+# Structure: <group>:
+#   <MethodName>:
+#     name: <cli-name>
+#     skip: true|false
+#     positional: true|false
+#     out_flag: <flag-name>
+#
+# Examples:
+# screen:
+#   GrabHash:
+#     name: hash
+# input:
+#   Type:
+#     positional: true
+#
+# Add overrides here to control generation and to whitelist hand-written commands.
+
+# Keep empty by default; add mappings as needed.
+
