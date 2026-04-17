@@ -324,12 +324,26 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		return
 	}
 	r.check("MouseMove to File menu", inp.MouseMove(fileMenuX, fileMenuY))
-	time.Sleep(200 * time.Millisecond)
 
-	hashHover, err := find.GrabHash(sc, menuBarRect, nil)
-	r.check("grab menu bar after hover", err)
-	ptAfter, ptErr2 := find.GrabHash(sc, ptRect, nil)
+	// Wait for the pointer region to change (indicates hover/focus)
+	ctxHover, cancelHover := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelHover()
+	ptAfter, ptErr2 := find.WaitForChange(ctxHover, sc, ptRect, ptBefore, 100*time.Millisecond, nil)
+	if ptErr2 != nil {
+		// fallback: capture current pointer region if WaitForChange timed out or failed
+		ptAfter, ptErr2 = find.GrabHash(sc, ptRect, nil)
+	}
 	r.check("grab pointer region after hover", ptErr2)
+
+	// Wait for menu bar to change if necessary (short timeout). If it doesn't change, capture current state.
+	ctxMenu, cancelMenu := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancelMenu()
+	hashHover, err := find.WaitForChange(ctxMenu, sc, menuBarRect, hashBefore, 100*time.Millisecond, nil)
+	if err != nil {
+		hashHover, err = find.GrabHash(sc, menuBarRect, nil)
+	}
+	r.check("grab menu bar after hover", err)
+
 	if ptErr == nil && ptErr2 == nil {
 		if ptBefore == ptAfter {
 			r.fail("pointer region did not change after MouseMove")
@@ -350,9 +364,15 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		return
 	}
 	r.check("MouseClick File menu", inp.MouseClick(fileMenuX, fileMenuY, 1))
-	time.Sleep(400 * time.Millisecond)
 
-	hashAfterClick, err := find.GrabHash(sc, menuDropRect, nil)
+	// Wait for the menu dropdown area to visually change, indicating the menu has appeared.
+	ctxMenuOpen, cancelMenuOpen := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelMenuOpen()
+	hashAfterClick, err := find.WaitForChange(ctxMenuOpen, sc, menuDropRect, hashMenuDropBefore, 100*time.Millisecond, nil)
+	if err != nil {
+		// fallback: capture current state for diagnostics
+		hashAfterClick, err = find.GrabHash(sc, menuDropRect, nil)
+	}
 	r.check("grab menu after click", err)
 	if err == nil {
 		if hashAfterClick != hashMenuDropBefore {
@@ -366,7 +386,10 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	}
 
 	inp.KeyTap("escape") //nolint:errcheck
-	time.Sleep(200 * time.Millisecond)
+	// Wait briefly for the menu to close (if it was open).
+	ctxClose, cancelClose := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelClose()
+	_, _ = find.WaitForChange(ctxClose, sc, menuDropRect, hashAfterClick, 100*time.Millisecond, nil)
 
 	// Right-click in the editor area — context menu should appear (button 3).
 	rcX, rcY := winX+400, winY+300
