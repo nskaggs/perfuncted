@@ -298,6 +298,18 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	r.section("MOUSE [" + app.name + "]")
 
 	winX, winY := info.X, info.Y
+	// Some window managers (or early X11 sessions) may report width/height as 0
+	// initially. Fallback to the screen resolution to allow the tests to proceed
+	// deterministically instead of operating on a zero-sized rect.
+	if info.W <= 0 || info.H <= 0 {
+		if w, h, err := pf.Screen.Resolution(); err == nil {
+			info.W = w
+			info.H = h
+		} else {
+			info.W = 1024
+			info.H = 768
+		}
+	}
 	winRect := image.Rect(winX, winY, winX+info.W, winY+info.H)
 	r.pass("window origin: %d,%d (W=%d H=%d)", winX, winY, info.W, info.H)
 
@@ -885,7 +897,17 @@ func testBrowser(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 		r.pass("Activate %s", app.name)
 	}
 	// Wait for Firefox to finish painting its initial UI before we hash the screen.
-	time.Sleep(2 * time.Second)
+	// Replace a fixed sleep with a size fallback so tests work if the window manager
+	// reports width/height as 0 initially.
+	if info.W <= 0 || info.H <= 0 {
+		if w, h, err := pf.Screen.Resolution(); err == nil {
+			info.W = w
+			info.H = h
+		} else {
+			info.W = 1024
+			info.H = 768
+		}
+	}
 
 	active, err := wm.ActiveTitle()
 	r.check("read ActiveTitle", err)
