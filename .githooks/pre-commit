@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-commit: running 'just build'..."
+if command -v just >/dev/null 2>&1; then
+  if ! just build; then
+    echo "pre-commit: 'just build' failed. Commit aborted." >&2
+    exit 1
+  fi
+else
+  echo "pre-commit: 'just' not found; running fallback checks: go vet, go test, go build..." >&2
+  if ! go vet ./...; then echo "go vet failed" >&2; exit 1; fi
+  if ! go test ./...; then echo "go test failed" >&2; exit 1; fi
+  if ! go build ./...; then echo "go build failed" >&2; exit 1; fi
+fi
+
+echo "pre-commit: success"

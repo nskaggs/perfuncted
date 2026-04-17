@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-push: running 'just build' and tests..."
+if command -v just >/dev/null 2>&1; then
+  if ! just build; then
+    echo "pre-push: just build failed; push aborted." >&2
+    exit 1
+  fi
+  # If 'just test' exists and succeeds as a command, run it; otherwise fallback to go tests
+  if just --list 2>/dev/null | grep -q '^test$' ; then
+    if ! just test; then
+      echo "pre-push: just test failed; push aborted." >&2
+      exit 1
+    fi
+  else
+    if ! go vet ./...; then echo "go vet failed; push aborted." >&2; exit 1; fi
+    if ! go test ./...; then echo "go test failed; push aborted." >&2; exit 1; fi
+  fi
+else
+  echo "pre-push: 'just' not found; running fallback: go vet/test/build" >&2
+  if ! go vet ./...; then echo "go vet failed; push aborted." >&2; exit 1; fi
+  if ! go test ./...; then echo "go test failed; push aborted." >&2; exit 1; fi
+  if ! go build ./...; then echo "go build failed; push aborted." >&2; exit 1; fi
+fi
+
+echo "pre-push: success"
