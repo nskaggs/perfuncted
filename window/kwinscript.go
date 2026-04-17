@@ -14,6 +14,9 @@
 //
 // KWin scripts run inside the compositor process with no user consent dialog.
 // This is KDE's official, intended automation interface.
+//go:build linux
+// +build linux
+
 package window
 
 import (

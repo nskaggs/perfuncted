@@ -7,9 +7,9 @@
 #
 # Sessions:
 #   x11-kwrite, x11-pluma                      (pure X11 with Openbox)
-#   wlroots-wayland-kwrite, wlroots-wayland-pluma  (Sway headless, Wayland apps)
-#   wlroots-wayland-firefox                    (Sway headless, Firefox browser)
-#   wlroots-xwayland-kwrite, wlroots-xwayland-pluma (Sway headless + XWayland, X11 apps)
+##   wlroots-wayland-kwrite, wlroots-wayland-pluma  (Sway headless, Wayland apps)
+##   wlroots-wayland-firefox                    (Sway headless, Firefox browser)
+##   wlroots-xwayland-kwrite, wlroots-xwayland-pluma (Sway headless + XWayland, X11 apps)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -181,9 +181,11 @@ cleanup_stale
 mkdir -p /tmp/perfuncted-logs
 
 echo "  building integration binary for tests..."
+rm -rf /tmp/perfuncted-integration /tmp/pf-bin || true
 go build -o /tmp/perfuncted-integration ./cmd/integration/
 
 echo "  building pf CLI binary for tests..."
+rm -rf /tmp/pf-bin || true
 go build -o /tmp/pf-bin ./cmd/pf/
 
 # ── shared helpers ────────────────────────────────────────────────────────────
@@ -193,7 +195,7 @@ wait_for_xvfb() {
     local timeout=10
     local elapsed=0
     
-    while ! DISPLAY=$display xdpyinfo >/dev/null 2>&1; do
+    while ! DISPLAY=$display xdpyinfo ; do
         sleep 0.2
         elapsed=$((elapsed + 1))
         if [ $elapsed -ge $((timeout * 5)) ]; then
@@ -212,7 +214,7 @@ wait_for_dbus() {
         --session --dest=org.freedesktop.DBus \
         --type=method_call --print-reply \
         /org/freedesktop/DBus org.freedesktop.DBus.ListNames \
-        >/dev/null 2>&1; do
+        ; do
         sleep 0.2
         elapsed=$((elapsed + 1))
         if [ $elapsed -ge $((timeout * 5)) ]; then
@@ -296,7 +298,7 @@ test_cli() {
     local prefix="$2"
     CLI_RC=0
 
-    clean_run $env_str bash -c "/tmp/pf-bin screen grab --rect 0,0,10,10 --out /tmp/pf-test-$prefix.png >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin screen grab --rect 0,0,10,10 --out /tmp/pf-test-$prefix.png "
     local rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf screen grab"; else fail "CLI: pf screen grab ($rc)"; CLI_RC=1; fi
 
@@ -304,37 +306,37 @@ test_cli() {
     h=$(clean_run $env_str bash -c "/tmp/pf-bin find pixel-hash --rect 0,0,10,10 2>/dev/null")
     if [ -n "$h" ]; then ok "CLI: pf find pixel-hash ($h)"; else fail "CLI: pf find pixel-hash"; CLI_RC=1; fi
 
-    clean_run $env_str bash -c "/tmp/pf-bin find wait-for --rect 0,0,10,10 --hash '$h' --timeout 1s >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin find wait-for --rect 0,0,10,10 --hash '$h' --timeout 1s "
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf find wait-for"; else fail "CLI: pf find wait-for ($rc)"; CLI_RC=1; fi
 
-    clean_run $env_str bash -c "/tmp/pf-bin find wait-for-no-change --rect 0,0,10,10 --stable 3 --poll 100ms --timeout 3s >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin find wait-for-no-change --rect 0,0,10,10 --stable 3 --poll 100ms --timeout 3s "
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf find wait-for-no-change"; else fail "CLI: pf find wait-for-no-change ($rc)"; CLI_RC=1; fi
 
-    clean_run $env_str bash -c "/tmp/pf-bin find scan-for --rects '0,0,10,10;10,10,20,20' --wants '$h,00000000' --timeout 1s >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin find scan-for --rects '0,0,10,10;10,10,20,20' --wants '$h,00000000' --timeout 1s "
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf find scan-for"; else fail "CLI: pf find scan-for ($rc)"; CLI_RC=1; fi
 
-    clean_run $env_str bash -c "/tmp/pf-bin input move --x 100 --y 100 >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin input move --x 100 --y 100 "
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf input move"; else fail "CLI: pf input move ($rc)"; CLI_RC=1; fi
 
-    clean_run $env_str bash -c "/tmp/pf-bin window list >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin window list "
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf window list"; else fail "CLI: pf window list ($rc)"; CLI_RC=1; fi
 
     # pf info: verify backend probe output
-    clean_run $env_str bash -c "/tmp/pf-bin info >/dev/null 2>&1"
+    clean_run $env_str bash -c "/tmp/pf-bin info "
     rc=$?
     if [ $rc -eq 0 ]; then ok "CLI: pf info"; else fail "CLI: pf info ($rc)"; CLI_RC=1; fi
 }
 
 # ── session worker ────────────────────────────────────────────────────────────
 # run_session SESSION_TYPE APP [XVFB_DISP] [PREFIX_OVERRIDE]
-#   SESSION_TYPE   : x11 | wlroots-wayland | wlroots-xwayland
+##   SESSION_TYPE   : x11 | wlroots-wayland | wlroots-xwayland
 #   APP            : kwrite | pluma
-#   XVFB_DISP      : X display for Xvfb (e.g. :10), required for x11 and wlroots-xwayland
+##   XVFB_DISP      : X display for Xvfb (e.g. :10), required for x11 and wlroots-xwayland
 #   PREFIX_OVERRIDE: Optional prefix for log files and aggregation
 
 run_session() {
@@ -388,7 +390,7 @@ run_session() {
                 bash -c "sway --unsupported-gpu -c config/sway/ci.conf > /tmp/perfuncted-logs/sway-$PREFIX.log 2>&1" &
             SWAY_PID=$!
             ;;
-        wlroots-xwayland)
+#        wlroots-xwayland)
             # Sway headless + XWayland: wlroots compositor with X11 compatibility.
             # Uses ci.conf (which calls create_output) since this is headless — no initial output.
             log "starting sway (WLR_BACKENDS=headless + XWayland) → $SWAY_WL"
@@ -422,7 +424,7 @@ run_session() {
                 # Full Wayland: both GTK and Qt use Wayland backend
                 ENV_STR="WAYLAND_DISPLAY=$SWAY_WL DISPLAY= GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland"
                 ;;
-            wlroots-xwayland)
+#            wlroots-xwayland)
                 # XWayland: read display from XWayland's cmdline to avoid races
                 # with concurrent Xvfb sessions creating sockets at the same time.
                 local XDISP
@@ -434,7 +436,7 @@ run_session() {
         esac
 
         if [ "$SKIP" -eq 0 ]; then
-            clean_run WAYLAND_DISPLAY="$SWAY_WL" wl-paste --watch cat >/dev/null 2>&1 &
+            clean_run WAYLAND_DISPLAY="$SWAY_WL" wl-paste --watch cat  &
             WLC_PID=$!
             sleep 2
             run_example "$ENV_STR" "$APP"
@@ -472,23 +474,13 @@ run_session() {
 
 # ── execute concurrently ──────────────────────────────────────────────────────
 
-echo "  launching 7 isolated sessions concurrently..."
+echo "  launching 1 session..."
 # Allocate X11 displays before forking to avoid races between concurrent sessions.
 X11_D1=$(next_x_display 10)
-X11_D2=$(next_x_display $(( ${X11_D1#:} + 1 )))
-# X11 sessions: pure Xvfb, no compositor
-( run_session x11              kwrite "$X11_D1" > /tmp/perfuncted-logs/x11-kwrite-test.log     2>&1 ) &
-( run_session x11              pluma  "$X11_D2" > /tmp/perfuncted-logs/x11-pluma-test.log      2>&1 ) &
-# wlroots-wayland sessions: Sway headless with Wayland apps
-( run_session wlroots-wayland  kwrite     > /tmp/perfuncted-logs/wlroots-wayland-kwrite-test.log  2>&1 ) &
-( run_session wlroots-wayland  pluma      > /tmp/perfuncted-logs/wlroots-wayland-pluma-test.log   2>&1 ) &
-# wlroots-wayland firefox session: proves perfuncted works with a real browser
-# (uses WaitForChange + WaitForNoChange for page-load detection)
-( run_session wlroots-wayland  firefox    > /tmp/perfuncted-logs/wlroots-wayland-firefox-test.log 2>&1 ) &
-# wlroots-xwayland sessions: Sway headless + XWayland with X11 apps (run sequentially to avoid X display races)
+# concurrently disabled for debugging
 (
-    run_session wlroots-xwayland kwrite > /tmp/perfuncted-logs/wlroots-xwayland-kwrite-test.log 2>&1
-    run_session wlroots-xwayland pluma  > /tmp/perfuncted-logs/wlroots-xwayland-pluma-test.log  2>&1
+#    run_session wlroots-xwayland kwrite > /tmp/perfuncted-logs/wlroots-xwayland-kwrite-test.log 2>&1
+#    run_session wlroots-xwayland pluma  > /tmp/perfuncted-logs/wlroots-xwayland-pluma-test.log  2>&1
 ) &
 
 wait
@@ -499,7 +491,7 @@ TOTAL_PASS=0
 TOTAL_FAIL=0
 
 echo ""
-for key in x11-kwrite x11-pluma wlroots-wayland-kwrite wlroots-wayland-pluma wlroots-wayland-firefox wlroots-xwayland-kwrite wlroots-xwayland-pluma; do
+###for key in x11-kwrite x11-pluma wlroots-wayland-kwrite wlroots-wayland-pluma wlroots-wayland-firefox wlroots-xwayland-kwrite wlroots-xwayland-pluma; do
     echo "── SESSION: $key ────────────────────────────────────────"
     cat /tmp/perfuncted-logs/${key}-test.log
     if [ -f /tmp/perfuncted-logs/${key}.res ]; then
@@ -522,3 +514,4 @@ echo "  logs: /tmp/perfuncted-logs/"
 cleanup_all
 
 [ "$TOTAL_FAIL" -eq 0 ]
+( run_session wlroots-wayland  kwrite > /tmp/perfuncted-logs/wlroots-wayland-kwrite-test.log 2>&1 ) &

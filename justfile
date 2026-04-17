@@ -101,6 +101,10 @@ test-desktop:
 test-all: race test-session test-headless test-nested test-full test-desktop
     @echo "Completed test-all"
 
+# Run the pf CLI with the given arguments
+run *args: build
+    go run ./cmd/pf/ {{args}}
+
 
 # ── dev environment ────────────────────────────────────────────────────────────
 

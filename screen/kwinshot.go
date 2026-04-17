@@ -4,6 +4,9 @@
 // passed as an fd argument. No portal, no user-consent dialog — this is a
 // trusted compositor API on KDE and the lowest available layer for screen
 // capture (below KWin there is only DRM, which KWin owns).
+//go:build linux
+// +build linux
+
 package screen
 
 import (

@@ -1,6 +1,9 @@
 // Package compositor detects which Wayland compositor (or X11 session) is
 // running so that screen and window backends can select the right implementation
 // without trial-and-error probing.
+//go:build linux
+// +build linux
+
 package compositor
 
 import (

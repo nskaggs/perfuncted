@@ -1009,6 +1009,29 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		stableCount    int
 	)
 
+	pixelHash := &cobra.Command{
+		Use:   "pixel-hash",
+		Short: "Print the CRC32 pixel hash of a screen region (compatibility)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(rectFlag)
+			if err != nil {
+				return err
+			}
+			h, err := pf.Screen.GrabHash(r)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	pixelHash.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+
 	waitFor := &cobra.Command{
 		Use:   "wait-for",
 		Short: "Wait until a region's pixel hash equals the provided hash",
@@ -1038,9 +1061,10 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			defer cancel()
 			h, err := pf.Screen.WaitFor(ctx, r, want, poll)
 			if err != nil {
-				return err
+				return fmt.Errorf("wait-for failed: %w (last observed: %08x)", err, h)
 			}
 			fmt.Printf("%08x\n", h)
+			fmt.Printf("DEBUG: Found hash %08x\n", h)
 			return nil
 		},
 	}
@@ -1087,7 +1111,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Printf("DEBUG: Found hash %08x\n", h)
 			return nil
 		},
 	}
@@ -1130,7 +1154,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Printf("DEBUG: Found hash %08x\n", h)
 			return nil
 		},
 	}
@@ -1216,7 +1240,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	locate.Flags().StringVar(&locateRef, "ref", "", "path to reference PNG image")
 	_ = locate.MarkFlagRequired("ref")
 
-	cmd.AddCommand(waitFor, waitForChange, waitForNoChange, scanFor, locate)
+	cmd.AddCommand(pixelHash, waitFor, waitForChange, waitForNoChange, scanFor, locate)
 
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int
