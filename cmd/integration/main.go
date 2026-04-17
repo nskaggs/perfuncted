@@ -352,6 +352,9 @@ func testApp(r *results, pf *perfuncted.Perfuncted, app appSpec) {
 	// coordinate before and after the move to ensure the compositor actually
 	// rendered a hover/focus visual change at the pointer location.
 	ptRect := image.Rect(fileMenuX, fileMenuY, fileMenuX+8, fileMenuY+8).Intersect(winRect)
+	if ptRect.Empty() {
+		ptRect = winRect
+	}
 	ptBefore, ptErr := find.GrabHash(sc, ptRect, nil)
 	r.check("grab pointer region before hover", ptErr)
 	r.check("MouseMove to File menu", inp.MouseMove(fileMenuX, fileMenuY))
