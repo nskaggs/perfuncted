@@ -63,4 +63,3 @@ func ImageHashCompare(hash1, hash2 uint32, tolerance int) bool {
 	d := hash1 ^ hash2
 	return bits.OnesCount32(d) <= tolerance
 }
-
