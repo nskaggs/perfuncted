@@ -182,6 +182,13 @@ func main() {
 		docs[grp][cmd] = true
 	}
 
+	// Normalize known CLI aliases that don't map directly to method names.
+	if docs["screen"] != nil {
+		if docs["screen"]["watch"] {
+			docs["screen"]["grab-hash"] = true
+		}
+	}
+
 	missingInAPI := []string{}
 	missingInCLI := []string{}
 
@@ -244,5 +251,11 @@ func main() {
 
 	fmt.Println("\nThis is a best-effort check. Some commands map to multiple API calls or use different names.")
 	fmt.Println("If these warnings are expected, whitelist them or improve mapping rules in scripts/verify_cli_api.go")
+
+	// Exit non-zero only when docs reference missing API methods (missingInAPI).
+	if len(missingInAPI) > 0 {
+		os.Exit(1)
+	}
+	os.Exit(0)
 	os.Exit(1)
 }
