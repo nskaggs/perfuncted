@@ -416,6 +416,18 @@ func main() {
 			}
 
 			// start command variable
+			// If this command produces an image, add an "out" flag variable so
+			// the flags registration below can reference it when generating the
+			// StringVar call.
+			if produce == "image" {
+				outFlag := "out"
+				if mapping[grp] != nil {
+					if mm, ok := mapping[grp][mn]; ok && mm.OutFlag != "" {
+						outFlag = mm.OutFlag
+					}
+				}
+				flagVars = append(flagVars, fmt.Sprintf("var %s_%s string", cmdVar, outFlag))
+			}
 			sb.WriteString("\t" + strings.Join(flagVars, "\n\t") + "\n")
 			sb.WriteString(fmt.Sprintf("\t%s := &cobra.Command{\n", cmdVar))
 			sb.WriteString(fmt.Sprintf("\t\tUse:   \"%s\",\n", cliName))
