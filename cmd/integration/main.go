@@ -326,10 +326,20 @@ func testApp(ctx *testContext, app appSpec) {
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
 			time.Sleep(1 * time.Second)
+			// Try a second kill if it's still visible.
+			if pf.Window.IsVisible(app.winMatch) {
+				_ = cmd.Process.Kill()
+				time.Sleep(1 * time.Second)
+			}
 		}
 	}
 
-	ctxC, cancelC := context.WithTimeout(context.Background(), 45*time.Second)
+	// Choose a longer timeout for pluma, which can be slow to exit in CI.
+	timeout := 45 * time.Second
+	if app.name == "pluma" {
+		timeout = 90 * time.Second
+	}
+	ctxC, cancelC := context.WithTimeout(context.Background(), timeout)
 	defer cancelC()
 	r.check("WaitForClose", pf.Window.WaitForClose(ctxC, app.winMatch, 200*time.Millisecond))
 }
