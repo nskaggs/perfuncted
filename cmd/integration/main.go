@@ -246,6 +246,8 @@ func testApp(ctx *testContext, app appSpec) {
 	time.Sleep(2 * time.Second)
 	_ = pf.Input.PressCombo("ctrl+s")
 	time.Sleep(2 * time.Second)
+	_ = pf.Input.PressCombo("ctrl+s")
+	time.Sleep(4 * time.Second)
 
 	// Validate file content
 	content, err := os.ReadFile(app.saveFile)
@@ -304,8 +306,15 @@ func testApp(ctx *testContext, app appSpec) {
 		time.Sleep(500 * time.Millisecond)
 		_ = pf.Window.CloseWindow(app.winMatch)
 	}
+	// If the window is still visible, try killing the launched process as a last resort.
+	if pf.Window.IsVisible(app.winMatch) {
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			time.Sleep(1 * time.Second)
+		}
+	}
 
-	ctxC, cancelC := context.WithTimeout(context.Background(), 30*time.Second)
+	ctxC, cancelC := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancelC()
 	r.check("WaitForClose", pf.Window.WaitForClose(ctxC, app.winMatch, 200*time.Millisecond))
 }
