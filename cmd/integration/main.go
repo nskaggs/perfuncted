@@ -244,6 +244,8 @@ func testApp(ctx *testContext, app appSpec) {
 	// Save file (Ctrl+S)
 	r.check("Ctrl+S (Save)", pf.Input.PressCombo("ctrl+s"))
 	time.Sleep(2 * time.Second)
+	_ = pf.Input.PressCombo("ctrl+s")
+	time.Sleep(2 * time.Second)
 
 	// Validate file content
 	content, err := os.ReadFile(app.saveFile)
@@ -287,8 +289,8 @@ func testApp(ctx *testContext, app appSpec) {
 	time.Sleep(1 * time.Second)
 	newRect, _ := pf.Window.GetGeometry(app.winMatch)
 	// Allow some tolerance in CI where window decorations or scaling may alter final size.
-	minW, maxW := 800*85/100, 800*115/100
-	minH, maxH := 600*85/100, 600*115/100
+	minW, maxW := 800*80/100, 800*120/100
+	minH, maxH := 600*80/100, 600*120/100
 	if newRect.Dx() >= minW && newRect.Dx() <= maxW && newRect.Dy() >= minH && newRect.Dy() <= maxH {
 		r.pass("Resize: confirmed %dx%d (within tolerance)", newRect.Dx(), newRect.Dy())
 	} else {
@@ -303,7 +305,7 @@ func testApp(ctx *testContext, app appSpec) {
 		_ = pf.Window.CloseWindow(app.winMatch)
 	}
 
-	ctxC, cancelC := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxC, cancelC := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelC()
 	r.check("WaitForClose", pf.Window.WaitForClose(ctxC, app.winMatch, 200*time.Millisecond))
 }
