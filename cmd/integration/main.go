@@ -200,7 +200,7 @@ func testApp(ctx *testContext, app appSpec) {
 	defer cmd.Process.Kill()
 
 	// 1. Window Management
-	wctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	wctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	info, err := pf.Window.WaitFor(wctx, app.winMatch, 500*time.Millisecond)
@@ -286,11 +286,8 @@ func testApp(ctx *testContext, app appSpec) {
 	r.check("Resize", pf.Window.Resize(app.winMatch, 800, 600))
 	time.Sleep(1 * time.Second)
 	newRect, _ := pf.Window.GetGeometry(app.winMatch)
-	// Allow some tolerance in CI where window decorations or scaling may alter final size.
-	minW, maxW := 800*85/100, 800*115/100
-	minH, maxH := 600*85/100, 600*115/100
-	if newRect.Dx() >= minW && newRect.Dx() <= maxW && newRect.Dy() >= minH && newRect.Dy() <= maxH {
-		r.pass("Resize: confirmed %dx%d (within tolerance)", newRect.Dx(), newRect.Dy())
+	if newRect.Dx() == 800 && newRect.Dy() == 600 {
+		r.pass("Resize: confirmed 800x600")
 	} else {
 		r.fail("Resize: expected 800x600, got %dx%d", newRect.Dx(), newRect.Dy())
 	}
@@ -303,7 +300,7 @@ func testApp(ctx *testContext, app appSpec) {
 		_ = pf.Window.CloseWindow(app.winMatch)
 	}
 
-	ctxC, cancelC := context.WithTimeout(context.Background(), 10*time.Second)
+	ctxC, cancelC := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelC()
 	r.check("WaitForClose", pf.Window.WaitForClose(ctxC, app.winMatch, 200*time.Millisecond))
 }
