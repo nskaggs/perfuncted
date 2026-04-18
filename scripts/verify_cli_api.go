@@ -65,6 +65,8 @@ func candidatesFromMethod(name string) []string {
 	// try stripping common prefixes
 	for _, p := range commonPrefixes {
 		if strings.HasPrefix(name, p) {
+			// also allow the prefix itself as a candidate (e.g. ActiveTitle -> "active")
+			c = append(c, strings.ToLower(p))
 			s := strings.TrimPrefix(name, p)
 			if s != "" {
 				c = append(c, hyphenate(s))
@@ -171,11 +173,21 @@ func main() {
 			continue
 		}
 		grp := m[1]
-		cmd := strings.TrimSuffix(m[2], ".md")
+		// doc files use underscores for multi-word commands (e.g. pf_input_scroll_right.md).
+		// Normalize to hyphens so it matches candidatesFromMethod output.
+		cmd := strings.ReplaceAll(m[2], "_", "-")
 		if docs[grp] == nil {
 			docs[grp] = map[string]bool{}
 		}
 		docs[grp][cmd] = true
+	}
+
+	// Normalize known CLI aliases that don't map directly to method names.
+	if docs["screen"] != nil {
+		if docs["screen"]["watch"] {
+			docs["screen"]["grab-hash"] = true
+			delete(docs["screen"], "watch")
+		}
 	}
 
 	missingInAPI := []string{}
@@ -240,5 +252,11 @@ func main() {
 
 	fmt.Println("\nThis is a best-effort check. Some commands map to multiple API calls or use different names.")
 	fmt.Println("If these warnings are expected, whitelist them or improve mapping rules in scripts/verify_cli_api.go")
+
+	// Exit non-zero only when docs reference missing API methods (missingInAPI).
+	if len(missingInAPI) > 0 {
+		os.Exit(1)
+	}
+	os.Exit(0)
 	os.Exit(1)
 }

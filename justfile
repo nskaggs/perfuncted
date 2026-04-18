@@ -65,9 +65,11 @@ test-session:
 #        just test-integration desktop    -> desktop
 #        just test-integration nested     -> nested
 test-integration *args:
-    @mode="{{args}}"; \
-    if [ -z "$$mode" ]; then mode=headless; fi; \
-    bash scripts/test-integration.sh "$$mode"
+    @if [ -z '{{args}}' ]; then \
+        bash scripts/test-integration.sh headless; \
+    else \
+        bash scripts/test-integration.sh {{args}}; \
+    fi
 
 # Run all test suites: unit + session + integration
 test-all: test-unit test-session test-integration

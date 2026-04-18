@@ -416,7 +416,9 @@ func main() {
 			}
 
 			// start command variable
-			// if image output, declare out flag var so Flags().StringVar has a target
+			// If this command produces an image, add an "out" flag variable so
+			// the flags registration below can reference it when generating the
+			// StringVar call.
 			if produce == "image" {
 				outFlag := "out"
 				if mapping[grp] != nil {
