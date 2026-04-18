@@ -3,9 +3,10 @@
 // every app executable found in PATH (kwrite, pluma, firefox).
 //
 // Usage:
-//   go run ./cmd/integration --headless   # Start an isolated session and run tests
-//   go run ./cmd/integration --nested     # Auto-detect and run against nested session
-//   go run ./cmd/integration --app kwrite # Run tests only for kwrite
+//
+//	go run ./cmd/integration --headless   # Start an isolated session and run tests
+//	go run ./cmd/integration --nested     # Auto-detect and run against nested session
+//	go run ./cmd/integration --app kwrite # Run tests only for kwrite
 package main
 
 import (

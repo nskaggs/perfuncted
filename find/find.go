@@ -414,18 +414,14 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 	}
 }
 
-// FindColor scans rect for the first pixel whose colour is within tolerance of
-// target. Returns the absolute (x, y) of the match. Tolerance is applied per
-// channel: |r-r'| ≤ tol && |g-g'| ≤ tol && |b-b'| ≤ tol.
-func FindColor(sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
-	img, err := sc.Grab(rect)
-	if err != nil {
-		return image.Point{}, fmt.Errorf("find: find-color grab: %w", err)
-	}
+// PixelFound scans img (which was captured for rect) for the first pixel
+// whose colour is within tolerance of target. Returns the absolute screen
+// coordinate and true if found.
+func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, bool) {
 	b := img.Bounds()
 
 	// Fast path: read directly from Pix for *image.RGBA, avoiding per-pixel
-	// At() calls and color model conversion.
+	// At() calls and colour model conversion.
 	if rgba, ok := img.(*image.RGBA); ok {
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
@@ -434,12 +430,12 @@ func FindColor(sc Screenshotter, rect image.Rectangle, target color.RGBA, tolera
 				if abs(int(p[0])-int(target.R)) <= tolerance &&
 					abs(int(p[1])-int(target.G)) <= tolerance &&
 					abs(int(p[2])-int(target.B)) <= tolerance {
-					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), nil
+					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 				}
 				off += 4
 			}
 		}
-		return image.Point{}, fmt.Errorf("find: colour #%02x%02x%02x not found (tolerance=%d)", target.R, target.G, target.B, tolerance)
+		return image.Point{}, false
 	}
 
 	// Slow path: generic image via At() + colour model conversion.
@@ -447,9 +443,23 @@ func FindColor(sc Screenshotter, rect image.Rectangle, target color.RGBA, tolera
 		for x := b.Min.X; x < b.Max.X; x++ {
 			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
 			if colorClose(c, target, tolerance) {
-				return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), nil
+				return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 			}
 		}
+	}
+	return image.Point{}, false
+}
+
+// FindColor scans rect for the first pixel whose colour is within tolerance of
+// target. Returns the absolute (x, y) of the match. Tolerance is applied per
+// channel: |r-r'| ≤ tol && |g-g'| ≤ tol && |b-b'| ≤ tol.
+func FindColor(sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
+	img, err := sc.Grab(rect)
+	if err != nil {
+		return image.Point{}, fmt.Errorf("find: find-color grab: %w", err)
+	}
+	if p, ok := PixelFound(img, rect, target, tolerance); ok {
+		return p, nil
 	}
 	return image.Point{}, fmt.Errorf("find: colour #%02x%02x%02x not found (tolerance=%d)", target.R, target.G, target.B, tolerance)
 }
