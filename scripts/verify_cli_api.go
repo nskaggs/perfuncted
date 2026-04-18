@@ -171,9 +171,7 @@ func main() {
 			continue
 		}
 		grp := m[1]
-		// doc files use underscores for multi-word commands (e.g. pf_input_scroll_right.md).
-		// Normalize to hyphens so it matches candidatesFromMethod output.
-		cmd := strings.ReplaceAll(m[2], "_", "-")
+		cmd := strings.TrimSuffix(m[2], ".md")
 		if docs[grp] == nil {
 			docs[grp] = map[string]bool{}
 		}
