@@ -1,16 +1,16 @@
-## pf window restore
+## pf input key-tap
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.KeyTap
 
 ```
-pf window restore [flags]
+pf input key-tap [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+  -h, --help         help for key-tap
+      --key string   key
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +23,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
 

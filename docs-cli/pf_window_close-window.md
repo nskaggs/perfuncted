@@ -1,15 +1,16 @@
-## pf input modifier-down
+## pf window close-window
 
-Press and hold a modifier key (e.g., ctrl, alt, shift)
+Auto-generated wrapper for perfuncted.CloseWindow
 
 ```
-pf input modifier-down <modifier> [flags]
+pf window close-window [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for modifier-down
+  -h, --help           help for close-window
+      --title string   title
 ```
 
 ### Options inherited from parent commands
@@ -22,5 +23,5 @@ pf input modifier-down <modifier> [flags]
 
 ### SEE ALSO
 
-* [pf input keydown](pf_input_keydown.md)
-* [pf input modifier-up](pf_input_modifier_up.md)
+* [pf window](pf_window.md)	 - Window management
+

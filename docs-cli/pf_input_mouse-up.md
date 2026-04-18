@@ -1,15 +1,16 @@
-## pf window get-process
+## pf input mouse-up
 
-Print PID or process name for the window matching title or id
+Auto-generated wrapper for perfuncted.MouseUp
 
 ```
-pf window get-process <title|id> [flags]
+pf input mouse-up [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for get-process
+      --button int   button
+  -h, --help         help for mouse-up
 ```
 
 ### Options inherited from parent commands
@@ -22,4 +23,5 @@ pf window get-process <title|id> [flags]
 
 ### SEE ALSO
 
-* [pf window list](pf_window_list.md)
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
+

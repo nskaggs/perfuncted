@@ -1,15 +1,15 @@
-## pf window restore
+## pf window get-process
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.GetProcess
 
 ```
-pf window restore [flags]
+pf window get-process [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
+  -h, --help           help for get-process
       --title string   title
 ```
 

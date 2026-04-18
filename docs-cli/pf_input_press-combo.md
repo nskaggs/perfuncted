@@ -1,16 +1,16 @@
-## pf window restore
+## pf input press-combo
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.PressCombo
 
 ```
-pf window restore [flags]
+pf input press-combo [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+      --combo string   combo
+  -h, --help           help for press-combo
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +23,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
 

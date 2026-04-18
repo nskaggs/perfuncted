@@ -1,16 +1,16 @@
-## pf window restore
+## pf input mouse-down
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.MouseDown
 
 ```
-pf window restore [flags]
+pf input mouse-down [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+      --button int   button
+  -h, --help         help for mouse-down
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +23,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
 

@@ -1,16 +1,16 @@
-## pf window wait-for
+## pf screen grab-hash
 
-Wait for a window matching name to appear
+Auto-generated wrapper for perfuncted.GrabHash
 
 ```
-pf window wait-for <name> [flags]
+pf screen grab-hash [flags]
 ```
 
 ### Options
 
 ```
-      --timeout string   timeout duration (default "5s")
-  -h, --help             help for wait-for
+  -h, --help          help for grab-hash
+      --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 
 ### Options inherited from parent commands
@@ -23,4 +23,5 @@ pf window wait-for <name> [flags]
 
 ### SEE ALSO
 
-* [pf window list](pf_window_list.md)
+* [pf screen](pf_screen.md)	 - Screen capture operations
+

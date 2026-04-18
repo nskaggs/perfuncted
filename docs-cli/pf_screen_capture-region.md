@@ -1,15 +1,17 @@
-## pf window is-visible
+## pf screen capture-region
 
-Return whether a window matching title or id is visible
+Auto-generated wrapper for perfuncted.CaptureRegion
 
 ```
-pf window is-visible <title|id> [flags]
+pf screen capture-region [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for is-visible
+  -h, --help          help for capture-region
+      --path string   path
+      --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 
 ### Options inherited from parent commands
@@ -22,4 +24,5 @@ pf window is-visible <title|id> [flags]
 
 ### SEE ALSO
 
-* [pf window active](pf_window_active.md)
+* [pf screen](pf_screen.md)	 - Screen capture operations
+

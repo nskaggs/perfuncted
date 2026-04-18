@@ -1,15 +1,16 @@
-## pf screen capture-region
+## pf input modifier-up
 
-Capture a screen region to a PNG file
+Auto-generated wrapper for perfuncted.ModifierUp
 
 ```
-pf screen capture-region <x0,y0,x1,y1> <output.png> [flags]
+pf input modifier-up [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for capture-region
+  -h, --help         help for modifier-up
+      --key string   key
 ```
 
 ### Options inherited from parent commands
@@ -22,4 +23,5 @@ pf screen capture-region <x0,y0,x1,y1> <output.png> [flags]
 
 ### SEE ALSO
 
-* [pf screen grab](pf_screen_grab.md)
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
+

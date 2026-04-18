@@ -1,16 +1,16 @@
-## pf window wait-for-title-change
+## pf input key-up
 
-Wait for the focused window's title to change
+Auto-generated wrapper for perfuncted.KeyUp
 
 ```
-pf window wait-for-title-change [flags]
+pf input key-up [flags]
 ```
 
 ### Options
 
 ```
-      --timeout string   timeout duration (default "5s")
-  -h, --help             help for wait-for-title-change
+  -h, --help         help for key-up
+      --key string   key
 ```
 
 ### Options inherited from parent commands
@@ -23,4 +23,5 @@ pf window wait-for-title-change [flags]
 
 ### SEE ALSO
 
-* [pf window active](pf_window_active.md)
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
+

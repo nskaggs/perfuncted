@@ -1,16 +1,16 @@
-## pf window restore
+## pf input scroll-right
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.ScrollRight
 
 ```
-pf window restore [flags]
+pf input scroll-right [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+      --clicks int   clicks
+  -h, --help         help for scroll-right
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +23,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
 

@@ -1,16 +1,17 @@
-## pf window restore
+## pf input mouse-move
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.MouseMove
 
 ```
-pf window restore [flags]
+pf input mouse-move [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+  -h, --help    help for mouse-move
+      --x int   x
+      --y int   y
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +24,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
 

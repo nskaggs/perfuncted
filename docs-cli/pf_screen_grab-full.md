@@ -1,15 +1,16 @@
-## pf clipboard paste-with-input
+## pf screen grab-full
 
-Paste clipboard contents and send input text to the focused application
+Auto-generated wrapper for perfuncted.GrabFull
 
 ```
-pf clipboard paste-with-input <text> [flags]
+pf screen grab-full [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for paste-with-input
+  -h, --help         help for grab-full
+      --out string   output path
 ```
 
 ### Options inherited from parent commands
@@ -22,5 +23,5 @@ pf clipboard paste-with-input <text> [flags]
 
 ### SEE ALSO
 
-* [pf clipboard](pf_clipboard.md)
-* [pf input type](pf_input_type.md)
+* [pf screen](pf_screen.md)	 - Screen capture operations
+

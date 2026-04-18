@@ -1,16 +1,18 @@
-## pf window restore
+## pf input mouse-click
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.MouseClick
 
 ```
-pf window restore [flags]
+pf input mouse-click [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+      --button int   button
+  -h, --help         help for mouse-click
+      --x int        x
+      --y int        y
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +25,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
 

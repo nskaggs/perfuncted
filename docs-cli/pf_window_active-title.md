@@ -1,15 +1,15 @@
-## pf input modifier-up
+## pf window active-title
 
-Release a previously held modifier key
+Auto-generated wrapper for perfuncted.ActiveTitle
 
 ```
-pf input modifier-up <modifier> [flags]
+pf window active-title [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for modifier-up
+  -h, --help   help for active-title
 ```
 
 ### Options inherited from parent commands
@@ -22,5 +22,5 @@ pf input modifier-up <modifier> [flags]
 
 ### SEE ALSO
 
-* [pf input keyup](pf_input_keyup.md)
-* [pf input modifier-down](pf_input_modifier_down.md)
+* [pf window](pf_window.md)	 - Window management
+

@@ -1,15 +1,16 @@
-## pf window get-geometry
+## pf input scroll-left
 
-Print geometry (x,y,width,height) for a window matching title or id
+Auto-generated wrapper for perfuncted.ScrollLeft
 
 ```
-pf window get-geometry <title|id> [flags]
+pf input scroll-left [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for get-geometry
+      --clicks int   clicks
+  -h, --help         help for scroll-left
 ```
 
 ### Options inherited from parent commands
@@ -22,4 +23,5 @@ pf window get-geometry <title|id> [flags]
 
 ### SEE ALSO
 
-* [pf window list](pf_window_list.md)
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
+

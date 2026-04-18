@@ -1,15 +1,16 @@
-## pf window find-by-title
+## pf input key-down
 
-Find a window by a case-insensitive title substring and print window info.
+Auto-generated wrapper for perfuncted.KeyDown
 
 ```
-pf window find-by-title <title> [flags]
+pf input key-down [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for find-by-title
+  -h, --help         help for key-down
+      --key string   key
 ```
 
 ### Options inherited from parent commands
@@ -22,5 +23,5 @@ pf window find-by-title <title> [flags]
 
 ### SEE ALSO
 
-* [pf window list](pf_window_list.md)
-* [pf window active](pf_window_active.md)
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
+

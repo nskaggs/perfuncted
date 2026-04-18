@@ -1,15 +1,15 @@
-## pf input press-combo
+## pf screen close
 
-Press a key combo (e.g., "ctrl+s" or "ctrl+shift+z").
+Auto-generated wrapper for perfuncted.Close
 
 ```
-pf input press-combo <combo> [flags]
+pf screen close [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for press-combo
+  -h, --help   help for close
 ```
 
 ### Options inherited from parent commands
@@ -22,5 +22,5 @@ pf input press-combo <combo> [flags]
 
 ### SEE ALSO
 
-* [pf input key](pf_input_key.md)
-* [pf input type](pf_input_type.md)
+* [pf screen](pf_screen.md)	 - Screen capture operations
+

@@ -1,16 +1,17 @@
-## pf window restore
+## pf screen pixel-to-screen
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.PixelToScreen
 
 ```
-pf window restore [flags]
+pf screen pixel-to-screen [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+  -h, --help          help for pixel-to-screen
+      --out string    output path
+      --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 
 ### Options inherited from parent commands
@@ -23,5 +24,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf screen](pf_screen.md)	 - Screen capture operations
 
