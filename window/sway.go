@@ -211,6 +211,9 @@ func (m *SwayManager) Resize(substr string, width, height int) error {
 	if err != nil {
 		return err
 	}
+	if err := m.swayCmd(fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
+		return err
+	}
 	cmd := fmt.Sprintf("[con_id=%d] resize set %d %d", int64(w.ID), width, height)
 	return m.swayCmd(cmd)
 }

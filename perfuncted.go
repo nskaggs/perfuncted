@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -324,6 +325,47 @@ func (s ScreenBundle) FindColor(rect image.Rectangle, target color.RGBA, toleran
 	return find.FindColor(s.Screenshotter, rect, target, tolerance)
 }
 
+// GetPixel returns the colour of the pixel at (x, y).
+func (s ScreenBundle) GetPixel(x, y int) (color.RGBA, error) {
+	if err := s.checkAvailable(); err != nil {
+		return color.RGBA{}, err
+	}
+	return find.FirstPixel(s.Screenshotter, image.Rect(x, y, x+1, y+1))
+}
+
+// GetMultiplePixels returns the colours of the pixels at the given points.
+func (s ScreenBundle) GetMultiplePixels(points []image.Point) ([]color.RGBA, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
+	out := make([]color.RGBA, len(points))
+	for i, pt := range points {
+		c, err := find.FirstPixel(s.Screenshotter, image.Rect(pt.X, pt.Y, pt.X+1, pt.Y+1))
+		if err != nil {
+			return nil, err
+		}
+		out[i] = c
+	}
+	return out, nil
+}
+
+// CaptureRegion captures rect and saves it as a PNG file at path.
+func (s ScreenBundle) CaptureRegion(rect image.Rectangle, path string) error {
+	if err := s.checkAvailable(); err != nil {
+		return err
+	}
+	img, err := s.Grab(rect)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
+}
+
 // WindowBundle wraps a window.Manager with additional find utilities.
 type WindowBundle struct {
 	window.Manager
@@ -360,6 +402,64 @@ func (w WindowBundle) FindByTitle(pattern string) (window.Info, error) {
 		}
 	}
 	return window.Info{}, fmt.Errorf("window: no window title matched %q", pattern)
+}
+
+// GetGeometry returns the dimensions and position of the first window whose
+// title contains pattern (case-insensitive).
+func (w WindowBundle) GetGeometry(pattern string) (image.Rectangle, error) {
+	info, err := w.FindByTitle(pattern)
+	if err != nil {
+		return image.Rectangle{}, err
+	}
+	return image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H), nil
+}
+
+// GetProcess returns the PID of the first window whose title contains pattern
+// (case-insensitive).
+func (w WindowBundle) GetProcess(pattern string) (int32, error) {
+	info, err := w.FindByTitle(pattern)
+	if err != nil {
+		return 0, err
+	}
+	return info.PID, nil
+}
+
+// Minimize minimizes the first window whose title contains pattern.
+func (w WindowBundle) Minimize(pattern string) error {
+	info, err := w.FindByTitle(pattern)
+	if err != nil {
+		return err
+	}
+	return w.Manager.Minimize(info.Title)
+}
+
+// Maximize maximizes the first window whose title contains pattern.
+func (w WindowBundle) Maximize(pattern string) error {
+	info, err := w.FindByTitle(pattern)
+	if err != nil {
+		return err
+	}
+	return w.Manager.Maximize(info.Title)
+}
+
+// Restore restores the first window whose title contains pattern.
+// Restoration behavior (from minimized vs. from maximized) is backend-dependent.
+func (w WindowBundle) Restore(pattern string) error {
+	info, err := w.FindByTitle(pattern)
+	if err != nil {
+		return err
+	}
+	// Many backends treat Activate as Restore.
+	return w.Manager.Activate(info.Title)
+}
+
+// CloseWindow closes the first window whose title contains pattern.
+func (w WindowBundle) CloseWindow(pattern string) error {
+	info, err := w.FindByTitle(pattern)
+	if err != nil {
+		return err
+	}
+	return w.Manager.CloseWindow(info.Title)
 }
 
 // IsVisible reports whether any window whose title contains pattern
@@ -467,6 +567,36 @@ func (i InputBundle) DoubleClick(x, y int) error {
 	return i.MouseClick(x, y, 1)
 }
 
+// TypeWithDelay types the given string with a delay between each character.
+func (i InputBundle) TypeWithDelay(s string, delay time.Duration) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	for _, r := range s {
+		if err := i.Type(string(r)); err != nil {
+			return err
+		}
+		time.Sleep(delay)
+	}
+	return nil
+}
+
+// ModifierDown presses and holds a modifier key.
+func (i InputBundle) ModifierDown(key string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	return i.KeyDown(key)
+}
+
+// ModifierUp releases a modifier key.
+func (i InputBundle) ModifierUp(key string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	return i.KeyUp(key)
+}
+
 // DragAndDrop moves to (x1, y1), presses left button, moves to (x2, y2), and releases.
 func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
 	if err := i.checkAvailable(); err != nil {
@@ -547,6 +677,19 @@ type Perfuncted struct {
 	Input     InputBundle
 	Window    WindowBundle
 	Clipboard ClipboardBundle
+}
+
+// Paste sets the clipboard content and triggers a Ctrl+V key combination.
+func (pf *Perfuncted) Paste(text string) error {
+	if pf.Clipboard.Clipboard == nil {
+		return fmt.Errorf("clipboard: not available")
+	}
+	if err := pf.Clipboard.Set(text); err != nil {
+		return err
+	}
+	// Small settle delay for some clipboard managers
+	time.Sleep(100 * time.Millisecond)
+	return pf.Input.PressCombo("ctrl+v")
 }
 
 func resolveSessionEnv(opts Options) (sessionEnv, error) {
