@@ -18,3 +18,9 @@
 
 # Keep empty by default; add mappings as needed.
 
+input:
+  TypeWithDelay:
+    skip: true
+screen:
+  GetMultiplePixels:
+    skip: true
