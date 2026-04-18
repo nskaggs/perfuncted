@@ -62,6 +62,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// grab: wrapper for perfuncted.Grab
 	var cmd_screen_grab_rect string
+	var cmd_screen_grab_out string
 	cmd_screen_grab := &cobra.Command{
 		Use:   "grab",
 		Short: "Auto-generated wrapper for perfuncted.Grab",
@@ -101,7 +102,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	cmds = append(cmds, cmd_screen_grab)
 
 	// grab-full: wrapper for perfuncted.GrabFull
-
+	var cmd_screen_grab_full_out string
 	cmd_screen_grab_full := &cobra.Command{
 		Use:   "grab-full",
 		Short: "Auto-generated wrapper for perfuncted.GrabFull",
@@ -186,6 +187,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// pixel-to-screen: wrapper for perfuncted.PixelToScreen
 	var cmd_screen_pixel_to_screen_rect string
+	var cmd_screen_pixel_to_screen_out string
 	cmd_screen_pixel_to_screen := &cobra.Command{
 		Use:   "pixel-to-screen",
 		Short: "Auto-generated wrapper for perfuncted.PixelToScreen",
