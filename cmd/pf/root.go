@@ -507,6 +507,18 @@ Runs until --duration expires or Ctrl+C.`,
 	}
 
 	cmd.AddCommand(resolution)
+
+	// append auto-generated screen commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenScreenCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
@@ -738,6 +750,18 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
 		typeCmd, key, keydown, keyup, mousedown, mouseup, scrollCmd(openPF))
+
+	// append auto-generated input commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenInputCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
@@ -935,6 +959,132 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	cmd.AddCommand(list, activate, active, move, resize)
 
+	// Manual wrappers for additional WindowBundle APIs
+	findByTitle := &cobra.Command{
+		Use:   "find-by-title <pattern>",
+		Short: "Find a window by title and print info",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			info, err := pf.Window.FindByTitle(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("0x%x\t%s\n", info.ID, info.Title)
+			fmt.Printf("x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
+			fmt.Printf("pid=%d\n", info.PID)
+			return nil
+		},
+	}
+
+	getGeom := &cobra.Command{
+		Use:   "get-geometry <title>",
+		Short: "Print geometry for a window",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := pf.Window.GetGeometry(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d,%d,%d,%d\n", r.Min.X, r.Min.Y, r.Max.X, r.Max.Y)
+			return nil
+		},
+	}
+
+	isVisible := &cobra.Command{
+		Use:   "is-visible <title>",
+		Short: "Return whether a window is visible",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if pf.Window.IsVisible(args[0]) {
+				fmt.Println("true")
+			} else {
+				fmt.Println("false")
+			}
+			return nil
+		},
+	}
+
+	waitForWin := &cobra.Command{
+		Use:   "wait-for <name>",
+		Short: "Wait for a window matching name to appear",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// local flags with defaults
+			var timeoutFlag = "5s"
+			var pollFlag = "100ms"
+			poll, err := parseDuration(pollFlag, 100*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			info, err := pf.Window.WaitFor(ctx, args[0], poll)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("0x%x\t%s\n", info.ID, info.Title)
+			fmt.Printf("x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
+			fmt.Printf("pid=%d\n", info.PID)
+			return nil
+		},
+	}
+
+	waitTitleChange := &cobra.Command{
+		Use:   "wait-for-title-change",
+		Short: "Wait for the focused window's title to change",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			var timeoutFlag = "5s"
+			var pollFlag = "100ms"
+			poll, err := parseDuration(pollFlag, 100*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			t, err := pf.Window.WaitForTitleChange(ctx, poll)
+			if err != nil {
+				return err
+			}
+			fmt.Println(t)
+			return nil
+		},
+	}
+
+	cmd.AddCommand(findByTitle, getGeom, isVisible, waitForWin, waitTitleChange)
+
 	closeWin := &cobra.Command{
 		Use:   "close <title>",
 		Short: "Close a window by title",
@@ -990,6 +1140,18 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	}
 
 	cmd.AddCommand(closeWin, minimize, maximize)
+
+	// append auto-generated window commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenWindowCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
@@ -1218,6 +1380,91 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 
 	cmd.AddCommand(waitFor, waitForChange, waitForNoChange, scanFor, locate)
 
+	// Manual wrappers for additional Screen find APIs
+	var vfRect, vfPoll, vfTimeout string
+	var vfStable int
+	waitForVisibleChange := &cobra.Command{
+		Use:   "wait-for-visible-change",
+		Short: "Wait until a region's visible content changes (useful for animations/loads)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(vfRect)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(vfPoll, 50*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(vfTimeout, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			h, err := pf.Screen.WaitForVisibleChange(ctx, r, poll, vfStable)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	waitForVisibleChange.Flags().StringVar(&vfRect, "rect", "0,0,100,100", "x0,y0,x1,y1 (default 0,0,100,100)")
+	waitForVisibleChange.Flags().StringVar(&vfPoll, "poll", "50ms", "poll interval")
+	waitForVisibleChange.Flags().StringVar(&vfTimeout, "timeout", "5s", "timeout duration")
+	waitForVisibleChange.Flags().IntVar(&vfStable, "stable", 3, "consecutive identical samples required (default 3)")
+
+	var wwtRect, wwtHash, wwtPoll, wwtTimeout string
+	var wwtRadius int
+	waitWithTolerance := &cobra.Command{
+		Use:   "wait-with-tolerance",
+		Short: "Wait for a target hash within a radius tolerance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(wwtRect)
+			if err != nil {
+				return err
+			}
+			h, err := parseHash(wwtHash)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(wwtPoll, 50*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(wwtTimeout, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			resHash, rect, err := pf.Screen.WaitWithTolerance(ctx, r, h, wwtRadius, poll)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x %d,%d,%d,%d\n", resHash, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
+			return nil
+		},
+	}
+	waitWithTolerance.Flags().StringVar(&wwtRect, "rect", "0,0,100,100", "x0,y0,x1,y1 (default 0,0,100,100)")
+	waitWithTolerance.Flags().StringVar(&wwtHash, "hash", "", "target hash (decimal or 0xhex) (required)")
+	waitWithTolerance.Flags().IntVar(&wwtRadius, "radius", 1, "pixel radius tolerance (default 1)")
+	waitWithTolerance.Flags().StringVar(&wwtPoll, "poll", "50ms", "poll interval")
+	waitWithTolerance.Flags().StringVar(&wwtTimeout, "timeout", "5s", "timeout duration")
+	_ = waitWithTolerance.MarkFlagRequired("hash")
+
+	cmd.AddCommand(waitForVisibleChange, waitWithTolerance)
+
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int
 	findColor := &cobra.Command{
@@ -1340,6 +1587,18 @@ func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command 
 	}
 
 	cmd.AddCommand(get, set)
+
+	// append auto-generated clipboard commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenClipboardCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 

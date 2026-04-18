@@ -713,34 +713,6 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmd_input_type.Flags().StringVar(&cmd_input_type_s, "s", "", "s")
 
 	cmds = append(cmds, cmd_input_type)
-
-	// type-with-delay: wrapper for perfuncted.TypeWithDelay
-	var cmd_input_type_with_delay_s string
-	var cmd_input_type_with_delay_delay string
-	cmd_input_type_with_delay := &cobra.Command{
-		Use:   "type-with-delay",
-		Short: "Auto-generated wrapper for perfuncted.TypeWithDelay",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_input_type_with_delay_s (string)
-			cmd_input_type_with_delay_delay_dur, err := parseDuration(cmd_input_type_with_delay_delay, 0)
-			if err != nil {
-				return err
-			}
-			if err := pf.Input.TypeWithDelay(cmd_input_type_with_delay_s, cmd_input_type_with_delay_delay_dur); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_input_type_with_delay.Flags().StringVar(&cmd_input_type_with_delay_s, "s", "", "s")
-	cmd_input_type_with_delay.Flags().StringVar(&cmd_input_type_with_delay_delay, "delay", "", "delay")
-
-	cmds = append(cmds, cmd_input_type_with_delay)
 	return cmds
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
