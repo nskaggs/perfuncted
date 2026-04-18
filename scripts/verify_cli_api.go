@@ -65,6 +65,8 @@ func candidatesFromMethod(name string) []string {
 	// try stripping common prefixes
 	for _, p := range commonPrefixes {
 		if strings.HasPrefix(name, p) {
+			// also allow the prefix itself as a candidate (e.g. ActiveTitle -> "active")
+			c = append(c, strings.ToLower(p))
 			s := strings.TrimPrefix(name, p)
 			if s != "" {
 				c = append(c, hyphenate(s))
