@@ -116,8 +116,8 @@ func (b *WlrScreencopyBackend) Grab(rect image.Rectangle) (image.Image, error) {
 	frameProxy := &wlRawProxy{}
 	ctx.Register(frameProxy)
 
-	// capture_output(overlay_cursor=0, output, frame_new_id)
-	if err := wlSendCaptureOutput(ctx, mgrProxy.ID(), 0, output.ID(), frameProxy.ID()); err != nil {
+	// capture_output(overlay_cursor=1, output, frame_new_id)
+	if err := wlSendCaptureOutput(ctx, mgrProxy.ID(), 1, output.ID(), frameProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/wlr: capture_output: %w", err)
 	}
 

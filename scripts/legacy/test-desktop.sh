@@ -13,7 +13,7 @@
 # Move to a clear workspace before starting.
 
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 echo ""
 echo "══════════════════════════════════════════════"

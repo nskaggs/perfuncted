@@ -12,7 +12,7 @@
 ##   wlroots-xwayland-kwrite, wlroots-xwayland-pluma (Sway headless + XWayland, X11 apps)
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # ── cleanup helpers ───────────────────────────────────────────────────────────
 

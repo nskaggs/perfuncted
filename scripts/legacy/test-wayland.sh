@@ -9,7 +9,7 @@
 # are never affected. Wall time: under 2 minutes.
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 MODE="${1:-headless}"   # headless | nested
 APP="${2:-kwrite}"
@@ -144,12 +144,12 @@ run_pf screen grab --rect 0,0,10,10 --out /tmp/pf-test-grab.png >/dev/null 2>&1 
 
 H=""
 for i in 1 2 3 4 5 6 7 8; do
-    H=$(run_pf find pixel-hash --rect 0,0,10,10 2>/dev/null) && break || sleep 0.25
+    H=$(run_pf screen hash --rect 0,0,10,10 2>/dev/null) && break || sleep 0.25
 done
 if [ -n "$H" ]; then
-    echo "✓ pf find pixel-hash ($H)"
+    echo "✓ pf screen hash ($H)"
 else
-    echo "✗ pf find pixel-hash"; CLI_RC=1
+    echo "✗ pf screen hash"; CLI_RC=1
 fi
 
 run_pf find wait-for --rect 0,0,10,10 --hash "$H" --timeout 2s >/dev/null 2>&1 \
