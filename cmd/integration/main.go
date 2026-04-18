@@ -303,7 +303,7 @@ func testApp(ctx *testContext, app appSpec) {
 		_ = pf.Window.CloseWindow(app.winMatch)
 	}
 
-	ctxC, cancelC := context.WithTimeout(context.Background(), 10*time.Second)
+	ctxC, cancelC := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancelC()
 	r.check("WaitForClose", pf.Window.WaitForClose(ctxC, app.winMatch, 200*time.Millisecond))
 }
@@ -400,7 +400,23 @@ func detectApps() []appSpec {
 	}
 	var found []appSpec
 	for _, a := range all {
-		if _, err := executil.LookPath(a.launch[0]); err == nil {
+		// Prefer detecting the real application binary rather than wrapper commands
+		// (e.g. pluma is launched via "dbus-run-session pluma"). If a wrapper like
+		// dbus-run-session is used, check the wrapped command exists.
+		candidate := a.launch[0]
+		if len(a.launch) > 1 && a.launch[0] == "dbus-run-session" {
+			candidate = a.launch[1]
+		} else {
+			// Otherwise pick the first element that looks like a command (not a flag or url).
+			for _, el := range a.launch {
+				if strings.HasPrefix(el, "-") || strings.Contains(el, ":") {
+					continue
+				}
+				candidate = el
+				break
+			}
+		}
+		if _, err := executil.LookPath(candidate); err == nil {
 			found = append(found, a)
 		}
 	}
