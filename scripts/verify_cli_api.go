@@ -186,6 +186,7 @@ func main() {
 	if docs["screen"] != nil {
 		if docs["screen"]["watch"] {
 			docs["screen"]["grab-hash"] = true
+			delete(docs["screen"], "watch")
 		}
 	}
 
