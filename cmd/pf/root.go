@@ -507,6 +507,18 @@ Runs until --duration expires or Ctrl+C.`,
 	}
 
 	cmd.AddCommand(resolution)
+
+	// append auto-generated screen commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenScreenCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
@@ -738,6 +750,18 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
 		typeCmd, key, keydown, keyup, mousedown, mouseup, scrollCmd(openPF))
+
+	// append auto-generated input commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenInputCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
@@ -990,6 +1014,18 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	}
 
 	cmd.AddCommand(closeWin, minimize, maximize)
+
+	// append auto-generated window commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenWindowCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
@@ -1340,6 +1376,18 @@ func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command 
 	}
 
 	cmd.AddCommand(get, set)
+
+	// append auto-generated clipboard commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenClipboardCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 
