@@ -159,7 +159,17 @@ func putStr(buf []byte, s string) []byte {
 }
 
 // SocketPath returns the absolute path to the Wayland socket from the environment.
+var socketPathOverride string
+
+// SetSocketPathOverride sets an explicit Wayland socket path to use instead
+// of reading WAYLAND_DISPLAY/XDG_RUNTIME_DIR from the process environment.
+// Pass an empty string to clear the override.
+func SetSocketPathOverride(sock string) { socketPathOverride = sock }
+
 func SocketPath() string {
+	if socketPathOverride != "" {
+		return socketPathOverride
+	}
 	sock := os.Getenv("WAYLAND_DISPLAY")
 	if sock == "" {
 		return ""

@@ -37,63 +37,52 @@ type WlVirtualBackend struct {
 // NewWlVirtualBackend connects to sock and initialises virtual pointer and keyboard.
 // The output dimensions are probed from the first wl_output advertised.
 func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
-	ctx, err := wl.Connect(sock)
+	// Use the helper to connect and enumerate globals.
+	s, err := wl.NewSession(sock)
 	if err != nil {
-		return nil, fmt.Errorf("input/wl-virtual: connect: %w", err)
+		return nil, fmt.Errorf("input/wl-virtual: %w", err)
 	}
-	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("input/wl-virtual: get registry: %w", err)
-	}
-
-	b := &WlVirtualBackend{display: display}
+	b := &WlVirtualBackend{display: s.Display}
 
 	var ptrMgrID, ptrMgrVer uint32
 	var kbdMgrID, kbdMgrVer uint32
 	var outID, seatID uint32
 
-	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-		switch ev.Interface {
-		case "zwlr_virtual_pointer_manager_v1":
-			ptrMgrID = ev.Name
-			ptrMgrVer = ev.Version
-		case "zwp_virtual_keyboard_manager_v1":
-			kbdMgrID = ev.Name
-			kbdMgrVer = ev.Version
-		case "wl_seat":
-			if seatID == 0 {
-				seatID = ev.Name
-			}
-		case "wl_output":
-			if outID == 0 {
-				outID = ev.Name
-			}
-		}
-	})
-	if err := display.RoundTrip(); err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("input/wl-virtual: registry roundtrip: %w", err)
+	if ev, ok := s.Globals["zwlr_virtual_pointer_manager_v1"]; ok {
+		ptrMgrID = ev.Name
+		ptrMgrVer = ev.Version
 	}
+	if ev, ok := s.Globals["zwp_virtual_keyboard_manager_v1"]; ok {
+		kbdMgrID = ev.Name
+		kbdMgrVer = ev.Version
+	}
+	if ev, ok := s.Globals["wl_seat"]; ok {
+		seatID = ev.Name
+	}
+	if ev, ok := s.Globals["wl_output"]; ok {
+		outID = ev.Name
+	}
+
 	if ptrMgrID == 0 {
-		ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("input/wl-virtual: zwlr_virtual_pointer_manager_v1 not advertised")
 	}
 	if kbdMgrID == 0 {
-		ctx.Close()
-		return nil, fmt.Errorf("input/wl-virtual: zwp_virtual_keyboard_manager_v1 not advertised")
+		_ = s.Close()
+		return nil, fmt.Errorf("input/wl-virtual: zwp_virtual_keyboard_v1 not advertised")
 	}
 	if seatID == 0 {
-		ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("input/wl-virtual: no wl_seat advertised")
 	}
 
 	// Bind virtual pointer manager.
+	registry := s.Registry
+	ctx := s.Ctx
 	mgrProxy := &wl.RawProxy{}
 	ctx.Register(mgrProxy)
 	if err := registry.Bind(ptrMgrID, "zwlr_virtual_pointer_manager_v1", min(ptrMgrVer, 2), mgrProxy.ID()); err != nil {
-		ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("input/wl-virtual: bind virtual pointer manager: %w", err)
 	}
 
@@ -109,7 +98,7 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 					b.outH = wl.Uint32(data[8:12])
 				}
 			}
-			display.RoundTrip() //nolint:errcheck
+			b.display.RoundTrip() //nolint:errcheck
 		}
 	}
 
@@ -122,13 +111,13 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 	wl.PutUint32(buf[8:], 0)      // seat = null
 	wl.PutUint32(buf[12:], b.ptr.ID())
 	if err := ctx.WriteMsg(buf[:], nil); err != nil {
-		ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("input/wl-virtual: create virtual pointer: %w", err)
 	}
 
 	kbd, err := newWlKeyboard(ctx, registry, kbdMgrID, kbdMgrVer, seatID)
 	if err != nil {
-		ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("input/wl-virtual: %w", err)
 	}
 	b.kbd = kbd

@@ -1,8 +1,11 @@
 package input
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
 func TestXkbKeysym(t *testing.T) {
@@ -125,5 +128,82 @@ func TestXkbWithNamed(t *testing.T) {
 	km2 := xkbWithNamed(kcShift, "Shift_L")
 	if strings.Contains(km2, "KNAM") {
 		t.Error("modifier keycode should not add KNAM")
+	}
+}
+
+// --- new tests for keymap caching ---
+
+// fakeCtx implements wl.Ctx for testing WriteMsg calls.
+type fakeCtx struct {
+	writes   int
+	lastData []byte
+}
+
+func (f *fakeCtx) Register(p wl.Proxy)            {}
+func (f *fakeCtx) SetProxy(id uint32, p wl.Proxy) {}
+func (f *fakeCtx) WriteMsg(data, oob []byte) error {
+	f.writes++
+	f.lastData = append([]byte{}, data...)
+	return nil
+}
+func (f *fakeCtx) Dispatch() error { return nil }
+func (f *fakeCtx) Close() error    { return nil }
+
+func TestUploadKeymap_Caching(t *testing.T) {
+	k := &wlKeyboard{held: make(map[string]uint32)}
+	// prepare a raw proxy with a fixed id
+	rp := &wl.RawProxy{}
+	rp.SetID(123)
+	k.kbd = rp
+	f := &fakeCtx{}
+	k.ctx = f
+
+	text := "xkb_keymap { }"
+	if err := k.uploadKeymap(text); err != nil {
+		t.Fatalf("upload1 error: %v", err)
+	}
+	if f.writes != 1 {
+		t.Fatalf("expected 1 write, got %d", f.writes)
+	}
+	// second call should be a no-op
+	if err := k.uploadKeymap(text); err != nil {
+		t.Fatalf("upload2 error: %v", err)
+	}
+	if f.writes != 1 {
+		t.Fatalf("expected still 1 write, got %d", f.writes)
+	}
+
+	// different text should cause another write
+	if err := k.uploadKeymap(text + "x"); err != nil {
+		t.Fatalf("upload3 error: %v", err)
+	}
+	if f.writes != 2 {
+		t.Fatalf("expected 2 writes, got %d", f.writes)
+	}
+}
+
+func TestUploadKeymap_Concurrent(t *testing.T) {
+	k := &wlKeyboard{held: make(map[string]uint32)}
+	rp := &wl.RawProxy{}
+	rp.SetID(1)
+	k.kbd = rp
+	f := &fakeCtx{}
+	k.ctx = f
+
+	text := "xkb_keymap { }"
+	errCh := make(chan error, 2)
+	go func() { errCh <- k.uploadKeymap(text) }()
+	go func() { errCh <- k.uploadKeymap(text) }()
+	// collect errors
+	e1 := <-errCh
+	e2 := <-errCh
+	if e1 != nil && !errors.Is(e1, nil) {
+		t.Fatalf("err1=%v", e1)
+	}
+	if e2 != nil && !errors.Is(e2, nil) {
+		t.Fatalf("err2=%v", e2)
+	}
+	if f.writes != 1 {
+		t.Fatalf("expected 1 write after concurrent uploads, got %d", f.writes)
 	}
 }

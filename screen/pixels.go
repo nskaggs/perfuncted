@@ -12,12 +12,13 @@ import (
 // that all receive BGRA frames from the compositor or X server.
 func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	rowBytes := w * 4
 	for row := 0; row < h; row++ {
-		srcRow := data[row*stride : row*stride+w*4]
+		srcRow := data[row*stride : row*stride+rowBytes]
 		dstOff := row * img.Stride
-		dst := img.Pix[dstOff : dstOff+w*4]
-		for col := 0; col < w; col++ {
-			s := col * 4
+		dst := img.Pix[dstOff : dstOff+rowBytes]
+		// iterate by bytes to reduce multiplications inside loop
+		for s := 0; s < rowBytes; s += 4 {
 			dst[s+0] = srcRow[s+2] // R ← B
 			dst[s+1] = srcRow[s+1] // G ← G
 			dst[s+2] = srcRow[s+0] // B ← R

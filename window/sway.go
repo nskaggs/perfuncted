@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -139,19 +138,12 @@ func findFocused(n *swayNode) string {
 	return ""
 }
 
-// findWindow returns the first window whose title contains substr (case-insensitive).
 func (m *SwayManager) findWindow(substr string) (Info, error) {
-	windows, err := m.List()
+	w, err := FindByTitle(m, substr)
 	if err != nil {
-		return Info{}, err
+		return Info{}, fmt.Errorf("window/sway: %w", err)
 	}
-	lc := strings.ToLower(substr)
-	for _, w := range windows {
-		if strings.Contains(strings.ToLower(w.Title), lc) {
-			return w, nil
-		}
-	}
-	return Info{}, fmt.Errorf("window/sway: no window matching %q", substr)
+	return w, nil
 }
 
 // swayCmd runs a sway IPC command and returns an error if sway reports failure.

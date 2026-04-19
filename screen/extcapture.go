@@ -31,59 +31,52 @@ func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("screen/ext: WAYLAND_DISPLAY not set")
 	}
-	ctx, err := wl.Connect(sock)
+	s, err := wl.NewSession(sock)
 	if err != nil {
-		return nil, fmt.Errorf("screen/ext: connect: %w", err)
+		return nil, fmt.Errorf("screen/ext: %w", err)
 	}
-	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("screen/ext: get registry: %w", err)
-	}
+	ctx := s.Ctx
+	display := s.Display
+	registry := s.Registry
 	b := &ExtCaptureBackend{display: display, registry: registry}
-	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-		switch ev.Interface {
-		case "ext_image_copy_capture_manager_v1":
-			b.mgrID = ev.Name
-			b.mgrVer = ev.Version
-		case "ext_output_image_capture_source_manager_v1":
-			b.sourceMgrID = ev.Name
-			b.sourceMgrVer = ev.Version
-		case "wl_output":
-			if b.output == nil {
-				out := &wl.Output{}
-				ctx.Register(out)
-				if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
-					b.output = out
-				}
-			}
-		case "wl_shm":
-			shm := &wl.Shm{}
-			ctx.Register(shm)
-			if err := registry.Bind(ev.Name, ev.Interface, 1, shm.ID()); err == nil {
-				b.shm = shm
-			}
-		}
-	})
-	if err := display.RoundTrip(); err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("screen/ext: registry round-trip: %w", err)
+
+	if ev, ok := s.Globals["ext_image_copy_capture_manager_v1"]; ok {
+		b.mgrID = ev.Name
+		b.mgrVer = ev.Version
 	}
+	if ev, ok := s.Globals["ext_output_image_capture_source_manager_v1"]; ok {
+		b.sourceMgrID = ev.Name
+		b.sourceMgrVer = ev.Version
+	}
+	if ev, ok := s.Globals["wl_output"]; ok {
+		out := &wl.Output{}
+		ctx.Register(out)
+		if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
+			b.output = out
+		}
+	}
+	if ev, ok := s.Globals["wl_shm"]; ok {
+		shm := &wl.Shm{}
+		ctx.Register(shm)
+		if err := registry.Bind(ev.Name, ev.Interface, 1, shm.ID()); err == nil {
+			b.shm = shm
+		}
+	}
+
 	if b.mgrID == 0 {
-		ctx.Close()
+		_ = ctx.Close()
 		return nil, fmt.Errorf("screen/ext: compositor does not advertise ext_image_copy_capture_manager_v1")
 	}
 	if b.sourceMgrID == 0 {
-		ctx.Close()
+		_ = ctx.Close()
 		return nil, fmt.Errorf("screen/ext: compositor does not advertise ext_output_image_capture_source_manager_v1")
 	}
 	if b.output == nil {
-		ctx.Close()
+		_ = ctx.Close()
 		return nil, fmt.Errorf("screen/ext: wl_output not advertised")
 	}
 	if b.shm == nil {
-		ctx.Close()
+		_ = ctx.Close()
 		return nil, fmt.Errorf("screen/ext: wl_shm not advertised")
 	}
 	return b, nil

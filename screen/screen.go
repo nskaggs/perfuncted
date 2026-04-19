@@ -83,7 +83,7 @@ func Open() (Screenshotter, error) {
 		return nil, fmt.Errorf("screen: GNOME Wayland requires GNOME Shell unsafe mode or xdg-desktop-portal")
 
 	case compositor.X11:
-		display := os.Getenv("DISPLAY")
+		display := displayEnv()
 		if display == "" {
 			return nil, fmt.Errorf("screen: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
@@ -115,6 +115,20 @@ func Probe() []probe.Result {
 		checkGnomeShellScreenshot(kind),
 		checkPortalDbus(),
 	})
+}
+
+// displayOverride allows perfuncted.New to target a specific DISPLAY without
+// mutating the process environment. Set via SetDisplayOverride.
+var displayOverride string
+
+// SetDisplayOverride sets an explicit DISPLAY value for package-level lookups.
+func SetDisplayOverride(d string) { displayOverride = d }
+
+func displayEnv() string {
+	if displayOverride != "" {
+		return displayOverride
+	}
+	return os.Getenv("DISPLAY")
 }
 
 func checkKWinShot(kind compositor.Session) probe.Result {

@@ -89,12 +89,24 @@ func Open() (Manager, error) {
 		return nil, fmt.Errorf("window: unsupported Wayland compositor")
 
 	default: // X11 / XWayland
-		d := os.Getenv("DISPLAY")
+		d := displayEnv()
 		if d == "" {
 			return nil, fmt.Errorf("window: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
 		return NewX11Backend(d)
 	}
+}
+
+var displayOverride string
+
+// SetDisplayOverride sets an explicit DISPLAY value for package-level lookups.
+func SetDisplayOverride(d string) { displayOverride = d }
+
+func displayEnv() string {
+	if displayOverride != "" {
+		return displayOverride
+	}
+	return os.Getenv("DISPLAY")
 }
 
 // Probe returns availability details for each window backend in priority order.

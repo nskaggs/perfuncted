@@ -68,7 +68,7 @@ func Open(maxX, maxY int32) (Inputter, error) {
 		}
 	}
 	// Pure X11 or XWayland: XTest is scoped to the target display.
-	if d := os.Getenv("DISPLAY"); d != "" {
+	if d := displayEnv(); d != "" {
 		if b, err := NewXTestBackend(d); err == nil {
 			return b, nil
 		}
@@ -106,7 +106,7 @@ func Probe() []probe.Result {
 
 func checkXTest() probe.Result {
 	r := probe.Result{Name: "xtest"}
-	d := os.Getenv("DISPLAY")
+	d := displayEnv()
 	if d == "" {
 		r.Reason = "DISPLAY not set"
 		return r
@@ -120,6 +120,18 @@ func checkXTest() probe.Result {
 	r.Available = true
 	r.Reason = fmt.Sprintf("XTEST available on %s", d)
 	return r
+}
+
+var displayOverride string
+
+// SetDisplayOverride sets an explicit DISPLAY value for package-level lookups.
+func SetDisplayOverride(d string) { displayOverride = d }
+
+func displayEnv() string {
+	if displayOverride != "" {
+		return displayOverride
+	}
+	return os.Getenv("DISPLAY")
 }
 
 func checkWlVirtual() probe.Result {

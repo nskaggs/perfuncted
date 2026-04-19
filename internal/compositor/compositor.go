@@ -9,7 +9,6 @@ package compositor
 import (
 	"os"
 	"strings"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -86,24 +85,17 @@ func probeGlobals() (Session, bool) {
 	if sock == "" {
 		return 0, false
 	}
-	ctx, err := wl.Connect(sock)
+	// Use the Session helper to connect and synchronously collect globals.
+	s, err := wl.NewSession(sock)
 	if err != nil {
 		return 0, false
 	}
-	defer ctx.Close()
-
-	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		return 0, false
-	}
+	defer s.Close()
 
 	var hasWlroots, hasKDE, hasGNOME bool
-	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
+	for _, ev := range s.Globals {
 		iface := ev.Interface
 		switch {
-		// True wlroots-only automation globals.
-		// zwlr_layer_shell_v1 is also on KDE — do not use it as an indicator.
 		case iface == "zwlr_screencopy_manager_v1" ||
 			iface == "zwlr_foreign_toplevel_manager_v1" ||
 			iface == "zwlr_virtual_keyboard_manager_v1" ||
@@ -114,40 +106,18 @@ func probeGlobals() (Session, bool) {
 		case iface == "gtk_shell1" || iface == "gtk_surface1":
 			hasGNOME = true
 		}
-	})
-
-	// Synchronous roundtrip: all registry globals arrive before the sync
-	// callback fires, so the flags are fully populated before we return.
-	cb, err := display.Sync()
-	if err != nil {
-		return 0, false
 	}
-	done := make(chan struct{}, 1)
-	cb.SetDoneHandler(func() { close(done) })
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if time.Now().After(deadline) {
-			return 0, false
-		}
-		if err := ctx.Dispatch(); err != nil {
-			return 0, false
-		}
-		select {
-		case <-done:
-			// Wlroots protocols on the socket always win — even if KDE D-Bus
-			// globals also appear (e.g. nested sway inside KDE).
-			switch {
-			case hasWlroots:
-				return Wlroots, true
-			case hasKDE:
-				return KDE, true
-			case hasGNOME:
-				return GNOME, true
-			default:
-				return Unknown, true
-			}
-		default:
-		}
+
+	// Return priority based on collected globals.
+	switch {
+	case hasWlroots:
+		return Wlroots, true
+	case hasKDE:
+		return KDE, true
+	case hasGNOME:
+		return GNOME, true
+	default:
+		return Unknown, true
 	}
 }
 

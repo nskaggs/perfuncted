@@ -45,35 +45,23 @@ func NewWaylandWindowManager() (*WaylandWindowManager, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("window/wayland: WAYLAND_DISPLAY not set")
 	}
-	ctx, err := wl.Connect(sock)
+
+	s, err := wl.NewSession(sock)
 	if err != nil {
-		return nil, fmt.Errorf("window/wayland: connect: %w", err)
+		return nil, fmt.Errorf("window/wayland: %w", err)
 	}
-	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("window/wayland: get registry: %w", err)
+	m := &WaylandWindowManager{display: s.Display, registry: s.Registry, toplevels: make(map[uint32]*Info)}
+	if ev, ok := s.Globals["ext_foreign_toplevel_list_v1"]; ok {
+		m.extMgrID = ev.Name
 	}
-	m := &WaylandWindowManager{display: display, registry: registry, toplevels: make(map[uint32]*Info)}
-	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-		switch ev.Interface {
-		case "ext_foreign_toplevel_list_v1":
-			m.extMgrID = ev.Name
-		case "zwlr_foreign_toplevel_manager_v1":
-			m.wlrMgrID = ev.Name
-		case "wl_seat":
-			// remember a seat global if it's advertised; binding is deferred until
-			// the point we actually need to send activate requests.
-			m.seatID = ev.Name
-		}
-	})
-	if err := display.RoundTrip(); err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("window/wayland: registry round-trip: %w", err)
+	if ev, ok := s.Globals["zwlr_foreign_toplevel_manager_v1"]; ok {
+		m.wlrMgrID = ev.Name
+	}
+	if ev, ok := s.Globals["wl_seat"]; ok {
+		m.seatID = ev.Name
 	}
 	if m.extMgrID == 0 && m.wlrMgrID == 0 {
-		ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("window/wayland: neither ext_foreign_toplevel_list_v1 nor zwlr_foreign_toplevel_manager_v1 advertised (GNOME Wayland restricts this)")
 	}
 
@@ -83,16 +71,16 @@ func NewWaylandWindowManager() (*WaylandWindowManager, error) {
 	// seat object id.
 	if m.seatID != 0 {
 		seatProxy := &wl.RawProxy{}
-		display.Context().Register(seatProxy)
-		if err := registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
-			ctx.Close()
+		m.display.Context().Register(seatProxy)
+		if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+			_ = s.Close()
 			return nil, fmt.Errorf("window/wayland: bind wl_seat: %w", err)
 		}
 		m.seat = seatProxy
 	}
 
 	if err := m.fetchToplevels(); err != nil {
-		ctx.Close()
+		_ = s.Close()
 		return nil, err
 	}
 	return m, nil
@@ -258,10 +246,11 @@ func (m *WaylandWindowManager) CloseWindow(title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
-	id, _, ok := m.findToplevel(title)
-	if !ok {
-		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	info, err := FindByTitle(m, title)
+	if err != nil {
+		return fmt.Errorf("window/wayland: %w", err)
 	}
+	id := uint32(info.ID)
 	if !m.canControlToplevels() {
 		return ErrNotSupported
 	}
@@ -277,10 +266,11 @@ func (m *WaylandWindowManager) Minimize(title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
-	id, _, ok := m.findToplevel(title)
-	if !ok {
-		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	info, err := FindByTitle(m, title)
+	if err != nil {
+		return fmt.Errorf("window/wayland: %w", err)
 	}
+	id := uint32(info.ID)
 	if !m.canControlToplevels() {
 		return ErrNotSupported
 	}
@@ -296,10 +286,11 @@ func (m *WaylandWindowManager) Maximize(title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
-	id, _, ok := m.findToplevel(title)
-	if !ok {
-		return fmt.Errorf("window/wayland: window matching %q not found", title)
+	info, err := FindByTitle(m, title)
+	if err != nil {
+		return fmt.Errorf("window/wayland: %w", err)
 	}
+	id := uint32(info.ID)
 	if !m.canControlToplevels() {
 		return ErrNotSupported
 	}

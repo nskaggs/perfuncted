@@ -5,7 +5,6 @@ package window
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
@@ -107,17 +106,11 @@ func (b *X11Backend) List() ([]Info, error) {
 
 // findByTitle returns the first window whose title contains the given string (case-insensitive).
 func (b *X11Backend) findByTitle(title string) (xproto.Window, error) {
-	infos, err := b.List()
+	info, err := FindByTitle(b, title)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("window/x11: %w", err)
 	}
-	lower := strings.ToLower(title)
-	for _, info := range infos {
-		if strings.Contains(strings.ToLower(info.Title), lower) {
-			return xproto.Window(info.ID), nil
-		}
-	}
-	return 0, fmt.Errorf("window/x11: window %q not found", title)
+	return xproto.Window(info.ID), nil
 }
 
 // Activate raises and focuses a window by title using _NET_ACTIVE_WINDOW.

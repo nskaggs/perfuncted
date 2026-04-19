@@ -7,6 +7,7 @@ package input
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -53,10 +54,14 @@ const (
 const xkbFormatTextV1 = 1
 
 type wlKeyboard struct {
-	ctx  *wl.Context
+	ctx  wl.Ctx
 	kbd  *wl.RawProxy
 	mods uint32            // currently depressed modifier bitmask
 	held map[string]uint32 // non-modifier held keys: canonical name → keycode
+	// lastKeymap caches the most recently uploaded keymap text to avoid
+	// re-uploading identical keymaps repeatedly.
+	lastMu     sync.Mutex
+	lastKeymap string
 }
 
 // newWlKeyboard binds zwp_virtual_keyboard_manager_v1 and creates a virtual
@@ -232,6 +237,14 @@ func (k *wlKeyboard) releaseKey(key string) error {
 // ── Protocol messages ─────────────────────────────────────────────────────────
 
 func (k *wlKeyboard) uploadKeymap(text string) error {
+	// Hold the lock for the entire upload to prevent concurrent duplicate
+	// uploads from multiple goroutines using the same wlKeyboard instance.
+	k.lastMu.Lock()
+	defer k.lastMu.Unlock()
+	if k.lastKeymap == text {
+		return nil
+	}
+
 	data := text + "\x00"
 	f, err := shmutil.CreateFile(int64(len(data)))
 	if err != nil {
@@ -246,7 +259,11 @@ func (k *wlKeyboard) uploadKeymap(text string) error {
 	wl.PutUint32(buf[4:], 16<<16) // size=16, opcode=0 (keymap)
 	wl.PutUint32(buf[8:], xkbFormatTextV1)
 	wl.PutUint32(buf[12:], uint32(len(data)))
-	return k.ctx.WriteMsg(buf[:], syscall.UnixRights(int(f.Fd())))
+	if err := k.ctx.WriteMsg(buf[:], syscall.UnixRights(int(f.Fd()))); err != nil {
+		return err
+	}
+	k.lastKeymap = text
+	return nil
 }
 
 func (k *wlKeyboard) sendKey(keycode, state uint32) error {

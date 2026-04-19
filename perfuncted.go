@@ -35,6 +35,8 @@ import (
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/wl"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -419,34 +421,28 @@ type WindowBundle struct {
 // Activate focuses the first window whose title contains pattern (case-insensitive).
 // Note: This operates on a "first match wins" basis.
 func (w WindowBundle) Activate(pattern string) error {
-	windows, err := w.Manager.List()
+	if w.Manager == nil {
+		return fmt.Errorf("window: not available")
+	}
+	info, err := window.FindByTitle(w.Manager, pattern)
 	if err != nil {
-		return err
+		return fmt.Errorf("window: %w", err)
 	}
-	patternLower := strings.ToLower(pattern)
-	for _, win := range windows {
-		if strings.Contains(strings.ToLower(win.Title), patternLower) {
-			return w.Manager.Activate(win.Title)
-		}
-	}
-	return fmt.Errorf("window: no window title matched %q", pattern)
+	return w.Manager.Activate(info.Title)
 }
 
 // FindByTitle returns the first window whose title contains pattern
 // (case-insensitive). Use this to inspect window geometry or title before
 // activating; Activate discards the match result.
 func (w WindowBundle) FindByTitle(pattern string) (window.Info, error) {
-	windows, err := w.Manager.List()
+	if w.Manager == nil {
+		return window.Info{}, fmt.Errorf("window: not available")
+	}
+	info, err := window.FindByTitle(w.Manager, pattern)
 	if err != nil {
-		return window.Info{}, err
+		return window.Info{}, fmt.Errorf("window: %w", err)
 	}
-	lower := strings.ToLower(pattern)
-	for _, win := range windows {
-		if strings.Contains(strings.ToLower(win.Title), lower) {
-			return win, nil
-		}
-	}
-	return window.Info{}, fmt.Errorf("window: no window title matched %q", pattern)
+	return info, nil
 }
 
 // IsVisible reports whether any window whose title contains pattern
@@ -808,35 +804,32 @@ func resolveSessionEnv(opts Options) (sessionEnv, error) {
 	return env, nil
 }
 
+// applySessionEnv sets package-level overrides (instead of mutating process
+// environment) so session targeting is thread-safe. It returns a restore
+// function that clears the overrides and restores previous socket selection.
 func applySessionEnv(env sessionEnv) func() {
-	const unset = "\x00"
-	prev := map[string]string{
-		"XDG_RUNTIME_DIR":          unset,
-		"WAYLAND_DISPLAY":          unset,
-		"DBUS_SESSION_BUS_ADDRESS": unset,
-	}
-	for k := range prev {
-		if v, ok := os.LookupEnv(k); ok {
-			prev[k] = v
-		}
-	}
-	if env.xdgRuntimeDir != "" {
-		_ = os.Setenv("XDG_RUNTIME_DIR", env.xdgRuntimeDir)
-	}
+	// capture previous socket path to restore behavior afterwards
+	prevSock := wl.SocketPath()
+	// set socket override based on provided env
 	if env.waylandDisplay != "" {
-		_ = os.Setenv("WAYLAND_DISPLAY", env.waylandDisplay)
-	}
-	if env.dbusSessionAddress != "" {
-		_ = os.Setenv("DBUS_SESSION_BUS_ADDRESS", env.dbusSessionAddress)
-	}
-	return func() {
-		for k, v := range prev {
-			if v == unset {
-				_ = os.Unsetenv(k)
-				continue
-			}
-			_ = os.Setenv(k, v)
+		if filepath.IsAbs(env.waylandDisplay) {
+			wl.SetSocketPathOverride(env.waylandDisplay)
+		} else if env.xdgRuntimeDir != "" {
+			wl.SetSocketPathOverride(filepath.Join(env.xdgRuntimeDir, env.waylandDisplay))
+		} else {
+			// relative name with no xdg provided — still set override to name
+			wl.SetSocketPathOverride(env.waylandDisplay)
 		}
+	}
+	// DBus override
+	dbusutil.SetSessionAddressOverride(env.dbusSessionAddress)
+	// DISPLAY override (empty here — callers may set via package helpers)
+	screen.SetDisplayOverride("")
+	return func() {
+		// restore previous state
+		wl.SetSocketPathOverride(prevSock)
+		dbusutil.SetSessionAddressOverride("")
+		screen.SetDisplayOverride("")
 	}
 }
 
@@ -852,10 +845,34 @@ func New(opts Options) (*Perfuncted, error) {
 	if err != nil {
 		return nil, err
 	}
-	restoreEnv := applySessionEnv(env)
-	defer restoreEnv()
+	// Instead of mutating process environment, set package-level overrides
+	// so backends can connect to the desired session without global state races.
+	// Prepare restore function to clear overrides when New returns.
+	// internal/wl.SetSocketPathOverride exists; import via package wl
+	wl.SetSocketPathOverride("")
+	// set to requested socket path
+	if env.waylandDisplay != "" {
+		// compute absolute socket path from XDG_RUNTIME_DIR + WAYLAND_DISPLAY
+		if filepath.IsAbs(env.waylandDisplay) {
+			wl.SetSocketPathOverride(env.waylandDisplay)
+		} else if env.xdgRuntimeDir != "" {
+			wl.SetSocketPathOverride(filepath.Join(env.xdgRuntimeDir, env.waylandDisplay))
+		}
+	}
+	// DBus override
+	dbusutil.SetSessionAddressOverride(env.dbusSessionAddress)
+	// DISPLAY override for screen/input/window packages
+	screen.SetDisplayOverride("")
+	defer func() {
+		// clear overrides
+		wl.SetSocketPathOverride("")
+		dbusutil.SetSessionAddressOverride("")
+		screen.SetDisplayOverride("")
+		window.SetDisplayOverride("")
+		input.SetDisplayOverride("")
+	}()
 
-	// Apply explicit session environment if provided.
+	// Apply explicit session environment into opts for backends that accept it
 	if env.xdgRuntimeDir != "" {
 		opts.XDGRuntimeDir = env.xdgRuntimeDir
 	}
