@@ -27,6 +27,9 @@ type WaylandWindowManager struct {
 		SetGlobalHandler(func(wl.GlobalEvent))
 		ID() uint32
 	}
+	// underlying session (cached refcounted). If non-nil Close() should call
+	// session.Close() to respect reference counting.
+	session  *wl.Session
 	extMgrID uint32
 	wlrMgrID uint32
 	// wl_seat global name (if advertised) and a bound proxy for activate requests.
@@ -51,7 +54,7 @@ func NewWaylandWindowManager() (*WaylandWindowManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("window/wayland: %w", err)
 	}
-	m := &WaylandWindowManager{display: s.Display, registry: s.Registry, toplevels: make(map[uint32]*Info)}
+	m := &WaylandWindowManager{session: s, display: s.Display, registry: s.Registry, toplevels: make(map[uint32]*Info)}
 	if ev, ok := s.Globals["ext_foreign_toplevel_list_v1"]; ok {
 		m.extMgrID = ev.Name
 	}
@@ -305,4 +308,12 @@ func (m *WaylandWindowManager) Maximize(ctx context.Context, title string) error
 	return nil
 }
 
-func (m *WaylandWindowManager) Close() error { return m.display.Context().Close() }
+func (m *WaylandWindowManager) Close() error {
+	if m.session != nil {
+		return m.session.Close()
+	}
+	if m.display != nil {
+		return m.display.Context().Close()
+	}
+	return nil
+}

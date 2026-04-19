@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nskaggs/perfuncted/internal/keymap"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -378,80 +379,86 @@ func xkbKeysym(r rune) string {
 
 // namedKey maps a key name to its fixed keycode and XKB keysym string.
 func namedKey(key string) (kc uint32, sym string, ok bool) {
-	switch strings.ToLower(key) {
-	case "shift", "shift_l":
-		return kcShift, "Shift_L", true
-	case "ctrl", "control", "control_l":
-		return kcCtrl, "Control_L", true
-	case "alt", "alt_l":
-		return kcAlt, "Alt_L", true
-	case "super", "meta", "logo", "super_l":
-		return kcSuper, "Super_L", true
-	case "return", "enter":
-		return kcReturn, "Return", true
-	case "escape", "esc":
-		return kcEscape, "Escape", true
-	case "tab":
-		return kcTab, "Tab", true
-	case "backspace":
-		return kcBksp, "BackSpace", true
-	case "delete":
-		return kcDelete, "Delete", true
-	case "home":
-		return kcHome, "Home", true
-	case "end":
-		return kcEnd, "End", true
-	case "page_up", "prior", "pageup":
-		return kcPgUp, "Prior", true
-	case "page_down", "next", "pagedown":
-		return kcPgDown, "Next", true
-	case "left":
-		return kcLeft, "Left", true
-	case "right":
-		return kcRight, "Right", true
-	case "up":
-		return kcUp, "Up", true
-	case "down":
-		return kcDown, "Down", true
-	case "f1":
-		return kcF1, "F1", true
-	case "f2":
-		return kcF1 + 1, "F2", true
-	case "f3":
-		return kcF1 + 2, "F3", true
-	case "f4":
-		return kcF1 + 3, "F4", true
-	case "f5":
-		return kcF1 + 4, "F5", true
-	case "f6":
-		return kcF1 + 5, "F6", true
-	case "f7":
-		return kcF1 + 6, "F7", true
-	case "f8":
-		return kcF1 + 7, "F8", true
-	case "f9":
-		return kcF1 + 8, "F9", true
-	case "f10":
-		return kcF1 + 9, "F10", true
-	case "f11":
-		return kcF1 + 10, "F11", true
-	case "f12":
-		return kcF1 + 11, "F12", true
+	if k, found := keymap.FromString(key); found {
+		switch k {
+		case keymap.KeyShift:
+			return kcShift, "Shift_L", true
+		case keymap.KeyCtrl:
+			return kcCtrl, "Control_L", true
+		case keymap.KeyAlt:
+			return kcAlt, "Alt_L", true
+		case keymap.KeySuper:
+			return kcSuper, "Super_L", true
+		case keymap.KeyEnter:
+			return kcReturn, "Return", true
+		case keymap.KeyEscape:
+			return kcEscape, "Escape", true
+		case keymap.KeyTab:
+			return kcTab, "Tab", true
+		case keymap.KeyBackspace:
+			return kcBksp, "BackSpace", true
+		case keymap.KeyDelete:
+			return kcDelete, "Delete", true
+		case keymap.KeyHome:
+			return kcHome, "Home", true
+		case keymap.KeyEnd:
+			return kcEnd, "End", true
+		case keymap.KeyPageUp:
+			return kcPgUp, "Prior", true
+		case keymap.KeyPageDown:
+			return kcPgDown, "Next", true
+		case keymap.KeyLeft:
+			return kcLeft, "Left", true
+		case keymap.KeyRight:
+			return kcRight, "Right", true
+		case keymap.KeyUp:
+			return kcUp, "Up", true
+		case keymap.KeyDown:
+			return kcDown, "Down", true
+		case keymap.KeyF1:
+			return kcF1, "F1", true
+		case keymap.KeyF2:
+			return kcF1 + 1, "F2", true
+		case keymap.KeyF3:
+			return kcF1 + 2, "F3", true
+		case keymap.KeyF4:
+			return kcF1 + 3, "F4", true
+		case keymap.KeyF5:
+			return kcF1 + 4, "F5", true
+		case keymap.KeyF6:
+			return kcF1 + 5, "F6", true
+		case keymap.KeyF7:
+			return kcF1 + 6, "F7", true
+		case keymap.KeyF8:
+			return kcF1 + 7, "F8", true
+		case keymap.KeyF9:
+			return kcF1 + 8, "F9", true
+		case keymap.KeyF10:
+			return kcF1 + 9, "F10", true
+		case keymap.KeyF11:
+			return kcF1 + 10, "F11", true
+		case keymap.KeyF12:
+			return kcF1 + 11, "F12", true
+		}
 	}
 	return 0, "", false
 }
 
 // modBit returns the XKB modifier bitmask for a modifier key name, or 0.
 func modBit(key string) uint32 {
-	switch strings.ToLower(key) {
-	case "shift", "shift_l":
-		return modShift
-	case "ctrl", "control", "control_l":
-		return modControl
-	case "alt", "alt_l":
-		return modMod1
-	case "super", "meta", "logo", "super_l":
-		return modMod4
+	if k, found := keymap.FromString(key); found {
+		if keymap.IsModifier(k) {
+			switch k {
+			case keymap.KeyShift:
+				return modShift
+			case keymap.KeyCtrl:
+				return modControl
+			case keymap.KeyAlt:
+				return modMod1
+			case keymap.KeySuper:
+				return modMod4
+			}
+		}
 	}
 	return 0
 }

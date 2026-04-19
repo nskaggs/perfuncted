@@ -28,11 +28,15 @@ const (
 
 // WlVirtualBackend implements Inputter for wlroots Wayland compositors.
 type WlVirtualBackend struct {
-	display *wl.Display
-	ptr     *wl.RawProxy // zwlr_virtual_pointer_v1
-	kbd     *wlKeyboard
-	outW    uint32 // output width
-	outH    uint32 // output height
+	session  *wl.Session
+	display  *wl.Display
+	ptr      *wl.RawProxy // zwlr_virtual_pointer_v1
+	kbd      *wlKeyboard
+	outW     uint32 // logical output width
+	outH     uint32 // logical output height
+	outPhysW uint32 // physical output width (pixels)
+	outPhysH uint32 // physical output height (pixels)
+	outScale uint32 // wl_output scale factor
 }
 
 // NewWlVirtualBackend connects to sock and initialises virtual pointer and keyboard.
@@ -43,7 +47,7 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 	if err != nil {
 		return nil, fmt.Errorf("input/wl-virtual: %w", err)
 	}
-	b := &WlVirtualBackend{display: s.Display}
+	b := &WlVirtualBackend{session: s, display: s.Display}
 
 	var ptrMgrID, ptrMgrVer uint32
 	var kbdMgrID, kbdMgrVer uint32
@@ -93,10 +97,32 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 	b.outW, b.outH = 1920, 1080 // fallback
 	if outID != 0 {
 		if err := registry.Bind(outID, "wl_output", 1, outProxy.ID()); err == nil {
+			// Handle mode (physical size) and scale events and maintain logical dims.
 			outProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
-				if opcode == 1 && len(data) >= 12 { // mode event: flags, width, height, refresh
-					b.outW = wl.Uint32(data[4:8])
-					b.outH = wl.Uint32(data[8:12])
+				switch opcode {
+				case 1: // mode: flags, width, height, refresh
+					if len(data) >= 12 {
+						b.outPhysW = wl.Uint32(data[4:8])
+						b.outPhysH = wl.Uint32(data[8:12])
+						if b.outScale == 0 {
+							b.outScale = 1
+						}
+						b.outW = b.outPhysW / b.outScale
+						b.outH = b.outPhysH / b.outScale
+					}
+				case 3: // scale
+					if len(data) >= 4 {
+						b.outScale = wl.Uint32(data[0:4])
+						if b.outScale == 0 {
+							b.outScale = 1
+						}
+						if b.outPhysW != 0 {
+							b.outW = b.outPhysW / b.outScale
+						}
+						if b.outPhysH != 0 {
+							b.outH = b.outPhysH / b.outScale
+						}
+					}
 				}
 			}
 			b.display.RoundTrip() //nolint:errcheck
@@ -254,4 +280,12 @@ func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 // Close closes the Wayland connection.
-func (b *WlVirtualBackend) Close() error { return b.display.Context().Close() }
+func (b *WlVirtualBackend) Close() error {
+	if b.session != nil {
+		return b.session.Close()
+	}
+	if b.display != nil {
+		return b.display.Context().Close()
+	}
+	return nil
+}

@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/bendahl/uinput"
+	"github.com/nskaggs/perfuncted/internal/keymap"
 )
 
 // UinputBackend injects keyboard and mouse events via /dev/uinput.
@@ -62,44 +64,43 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	return &UinputBackend{kb: kb, touchpad: tp}, nil
 }
 
-// keyCode maps named keys (used by KeyTap/KeyDown/KeyUp) to uinput codes.
-// Extend this map as needed for game-specific keys.
-var keyCode = map[string]int{
-	"a": uinput.KeyA, "b": uinput.KeyB, "c": uinput.KeyC, "d": uinput.KeyD,
-	"e": uinput.KeyE, "f": uinput.KeyF, "g": uinput.KeyG, "h": uinput.KeyH,
-	"i": uinput.KeyI, "j": uinput.KeyJ, "k": uinput.KeyK, "l": uinput.KeyL,
-	"m": uinput.KeyM, "n": uinput.KeyN, "o": uinput.KeyO, "p": uinput.KeyP,
-	"q": uinput.KeyQ, "r": uinput.KeyR, "s": uinput.KeyS, "t": uinput.KeyT,
-	"u": uinput.KeyU, "v": uinput.KeyV, "w": uinput.KeyW, "x": uinput.KeyX,
-	"y": uinput.KeyY, "z": uinput.KeyZ,
-	"0": uinput.Key0, "1": uinput.Key1, "2": uinput.Key2, "3": uinput.Key3,
-	"4": uinput.Key4, "5": uinput.Key5, "6": uinput.Key6, "7": uinput.Key7,
-	"8": uinput.Key8, "9": uinput.Key9,
-	"space":     uinput.KeySpace,
-	"enter":     uinput.KeyEnter,
-	"return":    uinput.KeyEnter,
-	"tab":       uinput.KeyTab,
-	"backspace": uinput.KeyBackspace,
-	"escape":    uinput.KeyEsc,
-	"esc":       uinput.KeyEsc,
-	"ctrl":      uinput.KeyLeftctrl,
-	"alt":       uinput.KeyLeftalt,
-	"shift":     uinput.KeyLeftshift,
-	"super":     uinput.KeyLeftmeta,
-	"up":        uinput.KeyUp,
-	"down":      uinput.KeyDown,
-	"left":      uinput.KeyLeft,
-	"right":     uinput.KeyRight,
-	"home":      uinput.KeyHome,
-	"end":       uinput.KeyEnd,
-	"pageup":    uinput.KeyPageup,
-	"pagedown":  uinput.KeyPagedown,
-	"insert":    uinput.KeyInsert,
-	"delete":    uinput.KeyDelete,
-	"f1":        uinput.KeyF1, "f2": uinput.KeyF2, "f3": uinput.KeyF3,
-	"f4": uinput.KeyF4, "f5": uinput.KeyF5, "f6": uinput.KeyF6,
-	"f7": uinput.KeyF7, "f8": uinput.KeyF8, "f9": uinput.KeyF9,
-	"f10": uinput.KeyF10, "f11": uinput.KeyF11, "f12": uinput.KeyF12,
+// keyCode maps generic Key identifiers to uinput codes.
+// Use internal/keymap to resolve string names — this keeps naming consistent
+// across backends.
+var keyCode = map[keymap.Key]int{
+	keymap.KeyA: uinput.KeyA, keymap.KeyB: uinput.KeyB, keymap.KeyC: uinput.KeyC, keymap.KeyD: uinput.KeyD,
+	keymap.KeyE: uinput.KeyE, keymap.KeyF: uinput.KeyF, keymap.KeyG: uinput.KeyG, keymap.KeyH: uinput.KeyH,
+	keymap.KeyI: uinput.KeyI, keymap.KeyJ: uinput.KeyJ, keymap.KeyK: uinput.KeyK, keymap.KeyL: uinput.KeyL,
+	keymap.KeyM: uinput.KeyM, keymap.KeyN: uinput.KeyN, keymap.KeyO: uinput.KeyO, keymap.KeyP: uinput.KeyP,
+	keymap.KeyQ: uinput.KeyQ, keymap.KeyR: uinput.KeyR, keymap.KeyS: uinput.KeyS, keymap.KeyT: uinput.KeyT,
+	keymap.KeyU: uinput.KeyU, keymap.KeyV: uinput.KeyV, keymap.KeyW: uinput.KeyW, keymap.KeyX: uinput.KeyX,
+	keymap.KeyY: uinput.KeyY, keymap.KeyZ: uinput.KeyZ,
+	keymap.Key0: uinput.Key0, keymap.Key1: uinput.Key1, keymap.Key2: uinput.Key2, keymap.Key3: uinput.Key3,
+	keymap.Key4: uinput.Key4, keymap.Key5: uinput.Key5, keymap.Key6: uinput.Key6, keymap.Key7: uinput.Key7,
+	keymap.Key8: uinput.Key8, keymap.Key9: uinput.Key9,
+	keymap.KeySpace:     uinput.KeySpace,
+	keymap.KeyEnter:     uinput.KeyEnter,
+	keymap.KeyTab:       uinput.KeyTab,
+	keymap.KeyBackspace: uinput.KeyBackspace,
+	keymap.KeyEscape:    uinput.KeyEsc,
+	keymap.KeyCtrl:      uinput.KeyLeftctrl,
+	keymap.KeyAlt:       uinput.KeyLeftalt,
+	keymap.KeyShift:     uinput.KeyLeftshift,
+	keymap.KeySuper:     uinput.KeyLeftmeta,
+	keymap.KeyUp:        uinput.KeyUp,
+	keymap.KeyDown:      uinput.KeyDown,
+	keymap.KeyLeft:      uinput.KeyLeft,
+	keymap.KeyRight:     uinput.KeyRight,
+	keymap.KeyHome:      uinput.KeyHome,
+	keymap.KeyEnd:       uinput.KeyEnd,
+	keymap.KeyPageUp:    uinput.KeyPageup,
+	keymap.KeyPageDown:  uinput.KeyPagedown,
+	keymap.KeyInsert:    uinput.KeyInsert,
+	keymap.KeyDelete:    uinput.KeyDelete,
+	keymap.KeyF1:        uinput.KeyF1, keymap.KeyF2: uinput.KeyF2, keymap.KeyF3: uinput.KeyF3,
+	keymap.KeyF4: uinput.KeyF4, keymap.KeyF5: uinput.KeyF5, keymap.KeyF6: uinput.KeyF6,
+	keymap.KeyF7: uinput.KeyF7, keymap.KeyF8: uinput.KeyF8, keymap.KeyF9: uinput.KeyF9,
+	keymap.KeyF10: uinput.KeyF10, keymap.KeyF11: uinput.KeyF11, keymap.KeyF12: uinput.KeyF12,
 }
 
 // charKey maps a printable rune to its uinput keycode and whether Shift is required.
@@ -160,13 +161,18 @@ var charToKey = map[rune]charKey{
 }
 
 func (b *UinputBackend) resolveKey(key string) (int, error) {
-	if code, ok := keyCode[key]; ok {
-		return code, nil
-	}
-	// Single character fallback.
-	if len(key) == 1 {
-		if code, ok := keyCode[string([]byte{key[0] | 0x20})]; ok { // lowercase
+	// Try canonical map from internal/keymap.
+	if k, ok := keymap.FromString(key); ok {
+		if code, ok := keyCode[k]; ok {
 			return code, nil
+		}
+	}
+	// Single character fallback: lowercase
+	if len(key) == 1 {
+		if k, ok := keymap.FromString(strings.ToLower(key)); ok {
+			if code, ok := keyCode[k]; ok {
+				return code, nil
+			}
 		}
 	}
 	return 0, fmt.Errorf("input/uinput: unknown key %q", key)

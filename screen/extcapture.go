@@ -15,6 +15,7 @@ import (
 // available where the compositor advertises ext_image_copy_capture_manager_v1.
 // Do not assume specific compositor versions — rely solely on protocol presence.
 type ExtCaptureBackend struct {
+	session      *wl.Session
 	display      *wl.Display
 	registry     *wl.Registry
 	shm          *wl.Shm
@@ -22,7 +23,8 @@ type ExtCaptureBackend struct {
 	mgrVer       uint32
 	sourceMgrID  uint32
 	sourceMgrVer uint32
-	output       *wl.Output
+	outputProxy  *wlRawProxy
+	outputScale  uint32
 }
 
 // NewExtCaptureBackend returns an ExtCaptureBackend if the compositor advertises
@@ -39,7 +41,7 @@ func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
 	ctx := s.Ctx
 	display := s.Display
 	registry := s.Registry
-	b := &ExtCaptureBackend{display: display, registry: registry}
+	b := &ExtCaptureBackend{session: s, display: display, registry: registry}
 
 	if ev, ok := s.Globals["ext_image_copy_capture_manager_v1"]; ok {
 		b.mgrID = ev.Name
@@ -50,10 +52,19 @@ func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
 		b.sourceMgrVer = ev.Version
 	}
 	if ev, ok := s.Globals["wl_output"]; ok {
-		out := &wl.Output{}
+		out := &wlRawProxy{}
 		ctx.Register(out)
 		if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
-			b.output = out
+			b.outputProxy = out
+			// record output scale via dispatchFn
+			out.dispatchFn = func(op uint32, _ int, data []byte) {
+				if op == 3 && len(data) >= 4 { // scale
+					b.outputScale = wl.Uint32(data[0:4])
+					if b.outputScale == 0 {
+						b.outputScale = 1
+					}
+				}
+			}
 		}
 	}
 	if ev, ok := s.Globals["wl_shm"]; ok {
@@ -65,19 +76,19 @@ func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
 	}
 
 	if b.mgrID == 0 {
-		_ = ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("screen/ext: compositor does not advertise ext_image_copy_capture_manager_v1")
 	}
 	if b.sourceMgrID == 0 {
-		_ = ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("screen/ext: compositor does not advertise ext_output_image_capture_source_manager_v1")
 	}
-	if b.output == nil {
-		_ = ctx.Close()
+	if b.outputProxy == nil {
+		_ = s.Close()
 		return nil, fmt.Errorf("screen/ext: wl_output not advertised")
 	}
 	if b.shm == nil {
-		_ = ctx.Close()
+		_ = s.Close()
 		return nil, fmt.Errorf("screen/ext: wl_shm not advertised")
 	}
 	return b, nil
@@ -111,7 +122,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 
 	sourceProxy := &wlRawProxy{}
 	wlctx.Register(sourceProxy)
-	if err := sendExtOutputCreateSource(wlctx, sourceMgrProxy.ID(), sourceProxy.ID(), b.output.ID()); err != nil {
+	if err := sendExtOutputCreateSource(wlctx, sourceMgrProxy.ID(), sourceProxy.ID(), b.outputProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: create_source: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, sourceProxy.ID(), 0, nil) //nolint:errcheck
@@ -220,11 +231,27 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	// Decode XRGB8888 (BGRA on little-endian x86).
 	img := decodeBGRA(pixels, int(si.width), int(si.height), int(stride))
 
-	// Crop to requested rect.
-	return cropRGBA(img, rect), nil
+	// Crop to requested rect. Convert logical rect -> physical using outputScale.
+	if rect.Dx() <= 0 || rect.Dy() <= 0 {
+		return img, nil
+	}
+	scale := int(b.outputScale)
+	if scale <= 0 {
+		scale = 1
+	}
+	phys := image.Rect(rect.Min.X*scale, rect.Min.Y*scale, rect.Max.X*scale, rect.Max.Y*scale)
+	return cropRGBA(img, phys), nil
 }
 
-func (b *ExtCaptureBackend) Close() error { return b.display.Context().Close() }
+func (b *ExtCaptureBackend) Close() error {
+	if b.session != nil {
+		return b.session.Close()
+	}
+	if b.display != nil {
+		return b.display.Context().Close()
+	}
+	return nil
+}
 
 func extCaptureAvailable(globals map[string]bool) (bool, string) {
 	if globals == nil {

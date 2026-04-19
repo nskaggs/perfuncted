@@ -23,6 +23,10 @@ import (
 var (
 	// default TTL for cached contexts; tests may override via SetWlrCacheTTL
 	defaultWlrCacheTTL = 5 * time.Minute
+	// global wlr cached contexts: cap and bookkeeping
+	maxWlrCachedContexts = 4
+	globalWlrMu          sync.Mutex
+	globalWlrCtxs        = make(map[*wl.Context]time.Time)
 )
 
 // NewWlrScreencopyBackendWithConnector constructs a backend with an injectable
@@ -50,6 +54,8 @@ type WlrScreencopyBackend struct {
 	ttl      time.Duration
 	janOnce  sync.Once
 	done     chan struct{}
+	// last observed output scale (1 if unknown)
+	scale uint32
 }
 
 // withWlrContext ensures a wl.Context exists for this backend and calls fn
@@ -92,14 +98,46 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 			return fmt.Errorf("screen/wlr: connect: %w", err)
 		}
 		b.ctx = ctx
+		// register in global cache
+		globalWlrMu.Lock()
+		globalWlrCtxs[b.ctx] = time.Now()
+		// enforce cap
+		if len(globalWlrCtxs) > maxWlrCachedContexts {
+			// find oldest and evict until cap satisfied
+			for len(globalWlrCtxs) > maxWlrCachedContexts {
+				var oldest *wl.Context
+				var oldestT time.Time
+				for c, t := range globalWlrCtxs {
+					if oldest == nil || t.Before(oldestT) {
+						oldest = c
+						oldestT = t
+					}
+				}
+				if oldest != nil {
+					_ = wl.SafeClose(oldest)
+					delete(globalWlrCtxs, oldest)
+				}
+			}
+		}
+		globalWlrMu.Unlock()
 	}
 	b.lastUsed = time.Now()
 	if err := fn(b.ctx); err != nil {
+		// close and remove from global cache
 		_ = wl.SafeClose(b.ctx)
+		globalWlrMu.Lock()
+		delete(globalWlrCtxs, b.ctx)
+		globalWlrMu.Unlock()
 		b.ctx = nil
 		return err
 	}
 	b.lastUsed = time.Now()
+	// update global last-used
+	globalWlrMu.Lock()
+	if b.ctx != nil {
+		globalWlrCtxs[b.ctx] = b.lastUsed
+	}
+	globalWlrMu.Unlock()
 	return nil
 }
 
@@ -142,7 +180,8 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 		}
 
 		var shm *wl.Shm
-		var output *wl.Output
+		var output *wlRawProxy
+		var outputScale uint32 = 1
 		var mgrName, mgrVer uint32
 
 		registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
@@ -152,11 +191,27 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 				mgrVer = ev.Version
 			case "wl_output":
 				if output == nil {
-					out := &wl.Output{}
+					out := &wlRawProxy{}
 					ctx.Register(out)
 					ver := min(ev.Version, 4)
 					if err := registry.Bind(ev.Name, ev.Interface, ver, out.ID()); err == nil {
 						output = out
+						// capture mode and scale events
+						out.dispatchFn = func(opcode uint32, _ int, data []byte) {
+							switch opcode {
+							case 1: // mode
+								// mode provides physical size; currently we only care about scale
+								// (captured buffer dimensions are used directly).
+								// keep the case so Dispatch pumps it.
+							case 3: // scale
+								if len(data) >= 4 {
+									outputScale = wl.Uint32(data[0:4])
+									if outputScale == 0 {
+										outputScale = 1
+									}
+								}
+							}
+						}
 					}
 				}
 			case "wl_shm":
@@ -281,7 +336,13 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 		return 0, 0, err
 	}
 	bounds := img.Bounds()
-	return bounds.Dx(), bounds.Dy(), nil
+	w := bounds.Dx()
+	h := bounds.Dy()
+	if b.scale > 1 {
+		w = w / int(b.scale)
+		h = h / int(b.scale)
+	}
+	return w, h, nil
 }
 
 func (b *WlrScreencopyBackend) Close() error {

@@ -18,6 +18,7 @@ import (
 // For other operations (mouse, key taps) it delegates to an underlying
 // Inputter (prefer wl-virtual when available).
 type WlInputMethodBackend struct {
+	session *wl.Session
 	display *wl.Display
 	ctx     *wl.Context
 	mgr     *wl.RawProxy
@@ -64,7 +65,7 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	mgrProxy := &wl.RawProxy{}
 	ctx.Register(mgrProxy)
 	if err := registry.Bind(mgrID, "zwp_input_method_manager_v2", 1, mgrProxy.ID()); err != nil {
-		ctx.Close()
+		_ = sess.Close()
 		return nil, fmt.Errorf("input/wl-im: bind manager: %w", err)
 	}
 
@@ -72,7 +73,7 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	seatProxy := &wl.RawProxy{}
 	ctx.Register(seatProxy)
 	if err := registry.Bind(seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
-		ctx.Close()
+		_ = sess.Close()
 		return nil, fmt.Errorf("input/wl-im: bind seat: %w", err)
 	}
 
@@ -85,11 +86,11 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	wl.PutUint32(buf[8:], seatProxy.ID())
 	wl.PutUint32(buf[12:], im.ID())
 	if err := ctx.WriteMsg(buf[:], nil); err != nil {
-		ctx.Close()
+		_ = sess.Close()
 		return nil, fmt.Errorf("input/wl-im: get_input_method: %w", err)
 	}
 
-	backend := &WlInputMethodBackend{display: display, ctx: ctx, mgr: mgrProxy, seat: seatProxy, im: im}
+	backend := &WlInputMethodBackend{session: sess, display: display, ctx: ctx, mgr: mgrProxy, seat: seatProxy, im: im}
 
 	// Listen for done events so we can manage the serial used by commit().
 	im.OnEvent = func(opcode uint32, _ int, _ []byte) {
@@ -101,7 +102,7 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 
 	// Round-trip now to ensure the input_method object is created and listeners attached.
 	if err := display.RoundTrip(); err != nil {
-		_ = backend.display.Context().Close()
+		_ = backend.session.Close()
 		return nil, fmt.Errorf("input/wl-im: round-trip after create: %w", err)
 	}
 
@@ -271,8 +272,10 @@ func (b *WlInputMethodBackend) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	if err := b.display.Context().Close(); err != nil {
-		errs = append(errs, err)
+	if b.session != nil {
+		if err := b.session.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if len(errs) == 0 {
 		return nil

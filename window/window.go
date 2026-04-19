@@ -18,6 +18,11 @@ import (
 var ErrNotSupported = errors.New("window: operation not supported on this compositor")
 
 // Info describes a managed window.
+// Note: Geometry fields (X,Y,W,H) are best-effort. Wayland's foreign-toplevel
+// protocols do not always provide bounds; backends may leave them zero. Do not
+// rely on these fields being present for all compositors — treat them as
+// advisory. For Wayland, clients requiring accurate geometry should use a
+// compositor-specific protocol (xdg-output) when available.
 type Info struct {
 	ID    uint64
 	Title string
