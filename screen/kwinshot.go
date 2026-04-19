@@ -11,6 +11,7 @@ package screen
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -52,7 +53,7 @@ func NewKWinShotBackend() (*KWinShotBackend, error) {
 	// Probe grab: verify the process has screenshot authorization.
 	// KDE Plasma 6 requires explicit per-process permission via the xdg
 	// permission store; this check allows Open() to fall back to the portal.
-	if _, err := b.Grab(image.Rect(0, 0, 1, 1)); err != nil {
+	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
 		return nil, fmt.Errorf("screen/kwin: authorization check failed: %w", err)
 	}
 	return b, nil
@@ -62,7 +63,7 @@ func NewKWinShotBackend() (*KWinShotBackend, error) {
 // the D-Bus reply carries format metadata in an a{sv}. We close our write-end
 // copy after the synchronous call returns (KWin has already written + closed
 // its dup'd copy by then), then drain the read end.
-func (b *KWinShotBackend) Grab(rect image.Rectangle) (image.Image, error) {
+func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	if rect.Empty() {
 		return nil, fmt.Errorf("screen/kwin: empty rectangle")
 	}

@@ -40,7 +40,7 @@ func WaitForImage(sc find.Screenshotter, template image.Image, method string, ti
 	defer cancel()
 	// Probe full-screen bounds by asking for a zero rect grab; many backends
 	// return the full-output image for a zero rect.
-	img, err := sc.Grab(image.Rect(0, 0, 0, 0))
+	img, err := sc.Grab(ctx, image.Rect(0, 0, 0, 0))
 	if err != nil {
 		return nil, fmt.Errorf("util: probe screen bounds: %w", err)
 	}

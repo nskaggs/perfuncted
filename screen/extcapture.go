@@ -1,6 +1,7 @@
 package screen
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"syscall"
@@ -90,38 +91,38 @@ func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
 //   - ext_image_copy_capture_frame_v1 opcode 1 = attach_buffer
 //   - ext_image_copy_capture_frame_v1 opcode 2 = damage_buffer
 //   - ext_image_copy_capture_frame_v1 opcode 3 = capture
-func (b *ExtCaptureBackend) Grab(rect image.Rectangle) (image.Image, error) {
-	ctx := b.display.Context()
+func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	wlctx := b.display.Context()
 
 	// Bind managers.
 	mgrProxy := &wlRawProxy{}
-	ctx.Register(mgrProxy)
+	wlctx.Register(mgrProxy)
 	if err := b.registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), mgrProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: bind manager: %w", err)
 	}
-	defer sendWaylandRequest(ctx, mgrProxy.ID(), 2, nil) //nolint:errcheck
+	defer sendWaylandRequest(wlctx, mgrProxy.ID(), 2, nil) //nolint:errcheck
 
 	sourceMgrProxy := &wlRawProxy{}
-	ctx.Register(sourceMgrProxy)
+	wlctx.Register(sourceMgrProxy)
 	if err := b.registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), sourceMgrProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: bind output source manager: %w", err)
 	}
-	defer sendWaylandRequest(ctx, sourceMgrProxy.ID(), 1, nil) //nolint:errcheck
+	defer sendWaylandRequest(wlctx, sourceMgrProxy.ID(), 1, nil) //nolint:errcheck
 
 	sourceProxy := &wlRawProxy{}
-	ctx.Register(sourceProxy)
-	if err := sendExtOutputCreateSource(ctx, sourceMgrProxy.ID(), sourceProxy.ID(), b.output.ID()); err != nil {
+	wlctx.Register(sourceProxy)
+	if err := sendExtOutputCreateSource(wlctx, sourceMgrProxy.ID(), sourceProxy.ID(), b.output.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: create_source: %w", err)
 	}
-	defer sendWaylandRequest(ctx, sourceProxy.ID(), 0, nil) //nolint:errcheck
+	defer sendWaylandRequest(wlctx, sourceProxy.ID(), 0, nil) //nolint:errcheck
 
 	// create_session(new_id, source, options=0) — opcode 0.
 	sessProxy := &wlRawProxy{}
-	ctx.Register(sessProxy)
-	if err := sendExtCreateSession(ctx, mgrProxy.ID(), sessProxy.ID(), sourceProxy.ID()); err != nil {
+	wlctx.Register(sessProxy)
+	if err := sendExtCreateSession(wlctx, mgrProxy.ID(), sessProxy.ID(), sourceProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: create_session: %w", err)
 	}
-	defer sendWaylandRequest(ctx, sessProxy.ID(), 1, nil) //nolint:errcheck
+	defer sendWaylandRequest(wlctx, sessProxy.ID(), 1, nil) //nolint:errcheck
 
 	// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
 	type sessInfo struct{ width, height, format uint32 }
@@ -176,17 +177,17 @@ func (b *ExtCaptureBackend) Grab(rect image.Rectangle) (image.Image, error) {
 
 	// create_frame(new_id) — session opcode 1.
 	frameProxy := &wlRawProxy{}
-	ctx.Register(frameProxy)
-	if err := sendExtCreateFrame(ctx, sessProxy.ID(), frameProxy.ID()); err != nil {
+	wlctx.Register(frameProxy)
+	if err := sendExtCreateFrame(wlctx, sessProxy.ID(), frameProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: create_frame: %w", err)
 	}
-	defer sendWaylandRequest(ctx, frameProxy.ID(), 0, nil) //nolint:errcheck
+	defer sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil) //nolint:errcheck
 
 	// attach_buffer(buffer) — frame opcode 1.
-	if err := sendExtAttachBuffer(ctx, frameProxy.ID(), wlbuf.ID()); err != nil {
+	if err := sendExtAttachBuffer(wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: attach_buffer: %w", err)
 	}
-	if err := sendExtDamageBuffer(ctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
+	if err := sendExtDamageBuffer(wlctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
 		return nil, fmt.Errorf("screen/ext: damage_buffer: %w", err)
 	}
 
@@ -203,12 +204,12 @@ func (b *ExtCaptureBackend) Grab(rect image.Rectangle) (image.Image, error) {
 			failed = true
 		}
 	}
-	if err := sendExtCapture(ctx, frameProxy.ID()); err != nil {
+	if err := sendExtCapture(wlctx, frameProxy.ID()); err != nil {
 		return nil, fmt.Errorf("screen/ext: capture: %w", err)
 	}
 
 	for !ready && !failed {
-		if err := ctx.Dispatch(); err != nil {
+		if err := wlctx.Dispatch(); err != nil {
 			return nil, fmt.Errorf("screen/ext: dispatch: %w", err)
 		}
 	}

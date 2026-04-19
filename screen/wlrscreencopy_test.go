@@ -9,17 +9,11 @@ import (
 )
 
 func TestWithWlrContextCachingAndReset(t *testing.T) {
-	origConnect := wlrConnect
-	defer func() { wlrConnect = origConnect }()
-
-	// Simple fake connector that returns an empty *wl.Context
-	wlrConnect = func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }
-
-	sock := "/tmp/fake-wl-sock"
-
+	// Create backend with fake connector
+	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 5*time.Minute)
 	// first call should create a context
 	var firstPtr, secondPtr *wl.Context
-	if err := withWlrContext(sock, func(ctx *wl.Context) error {
+	if err := b.withWlrContext(func(ctx *wl.Context) error {
 		firstPtr = ctx
 		return nil
 	}); err != nil {
@@ -27,7 +21,7 @@ func TestWithWlrContextCachingAndReset(t *testing.T) {
 	}
 
 	// second call should reuse same pointer
-	if err := withWlrContext(sock, func(ctx *wl.Context) error {
+	if err := b.withWlrContext(func(ctx *wl.Context) error {
 		secondPtr = ctx
 		return nil
 	}); err != nil {
@@ -39,46 +33,37 @@ func TestWithWlrContextCachingAndReset(t *testing.T) {
 	}
 
 	// simulate failure during fn; cached context should be closed and reset
-	if err := withWlrContext(sock, func(ctx *wl.Context) error {
+	if err := b.withWlrContext(func(ctx *wl.Context) error {
 		return fmt.Errorf("simulated")
 	}); err == nil {
 		t.Fatalf("expected error from simulated fn")
 	}
 
-	wlrCacheMu.Lock()
-	c := wlrCaches[sock]
-	wlrCacheMu.Unlock()
-	if c != nil && c.ctx != nil {
-		t.Fatalf("expected cached ctx to be nil after error, got %v", c.ctx)
+	if b.ctx != nil {
+		t.Fatalf("expected cached ctx to be nil after error, got %v", b.ctx)
 	}
 }
 
 func TestWlrCacheJanitorEvicts(t *testing.T) {
-	origConnect := wlrConnect
-	origTTL := wlrCacheTTL
-	defer func() { wlrConnect = origConnect; wlrCacheTTL = origTTL }()
-
-	wlrConnect = func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }
-	wlrCacheTTL = 50 * time.Millisecond
-
-	sock := "/tmp/fake-wl-sock-evict"
-	if err := withWlrContext(sock, func(ctx *wl.Context) error { return nil }); err != nil {
+	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock-evict", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 50*time.Millisecond)
+	// create context
+	if err := b.withWlrContext(func(ctx *wl.Context) error { return nil }); err != nil {
 		t.Fatalf("setup withWlrContext failed: %v", err)
 	}
 
 	// mark lastUsed as old
-	wlrCacheMu.Lock()
-	if c, ok := wlrCaches[sock]; ok {
-		c.lastUsed = time.Now().Add(-time.Hour)
+	b.ctxMu.Lock()
+	if b.ctx != nil {
+		b.lastUsed = time.Now().Add(-time.Hour)
 	}
-	wlrCacheMu.Unlock()
+	b.ctxMu.Unlock()
 
-	// wait for janitor to run (it ticks every second)
+	// wait for janitor to run
 	time.Sleep(150 * time.Millisecond)
 
-	wlrCacheMu.Lock()
-	_, exists := wlrCaches[sock]
-	wlrCacheMu.Unlock()
+	b.ctxMu.Lock()
+	exists := b.ctx != nil
+	b.ctxMu.Unlock()
 	if exists {
 		t.Fatalf("expected cache entry to be evicted by janitor")
 	}

@@ -4,6 +4,7 @@
 package screen
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/png"
@@ -84,7 +85,7 @@ func NewPortalDBusBackend() (*PortalDBusBackend, error) {
 
 // Grab takes a full workspace screenshot via the portal and returns the
 // requested rectangle. The portal may show a consent dialog on first use.
-func (b *PortalDBusBackend) Grab(rect image.Rectangle) (image.Image, error) {
+func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	// Build a unique token; the portal embeds it in the request handle path.
 	token := fmt.Sprintf("pf%d", time.Now().UnixNano())
 

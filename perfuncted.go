@@ -155,7 +155,7 @@ func (s ScreenBundle) GrabHash(rect image.Rectangle) (uint32, error) {
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
-	return find.GrabHash(s.Screenshotter, rect, nil)
+	return find.GrabHash(context.Background(), s.Screenshotter, rect, nil)
 }
 
 // WaitForChange polls rect every poll interval until its hash differs from initial.
@@ -190,7 +190,7 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
-	before, err := find.GrabHash(s.Screenshotter, rect, nil)
+	before, err := find.GrabHash(context.Background(), s.Screenshotter, rect, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -222,7 +222,7 @@ func (s ScreenBundle) LocateExact(searchArea image.Rectangle, reference image.Im
 	if err := s.checkAvailable(); err != nil {
 		return image.Rectangle{}, err
 	}
-	return find.LocateExact(s.Screenshotter, searchArea, reference)
+	return find.LocateExact(context.Background(), s.Screenshotter, searchArea, reference)
 }
 
 // Resolution returns the screen width and height in pixels.
@@ -239,7 +239,7 @@ func (s ScreenBundle) GrabFull() (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.Grab(image.Rect(0, 0, w, h))
+	return s.Screenshotter.Grab(context.Background(), image.Rect(0, 0, w, h))
 }
 
 // GrabFullHash captures the entire output and returns its pixel hash.
@@ -281,7 +281,7 @@ func (s ScreenBundle) WaitForVisibleChange(ctx context.Context, rect image.Recta
 	if len(stable) > 0 && stable[0] > 0 {
 		stableN = stable[0]
 	}
-	initial, err := find.GrabHash(s.Screenshotter, rect, nil)
+	initial, err := find.GrabHash(context.Background(), s.Screenshotter, rect, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -324,7 +324,7 @@ func (s ScreenBundle) FindColor(rect image.Rectangle, target color.RGBA, toleran
 	if err := s.checkAvailable(); err != nil {
 		return image.Point{}, err
 	}
-	return find.FindColor(s.Screenshotter, rect, target, tolerance)
+	return find.FindColor(context.Background(), s.Screenshotter, rect, target, tolerance)
 }
 
 // GetPixel returns the colour of the pixel at (x,y) on the screen.
@@ -332,7 +332,7 @@ func (s ScreenBundle) GetPixel(x, y int) (color.RGBA, error) {
 	if err := s.checkAvailable(); err != nil {
 		return color.RGBA{}, err
 	}
-	return find.FirstPixel(s.Screenshotter, image.Rect(x, y, x+1, y+1))
+	return find.FirstPixel(context.Background(), s.Screenshotter, image.Rect(x, y, x+1, y+1))
 }
 
 // GetMultiplePixels returns the colours at the requested absolute screen points.
@@ -361,12 +361,12 @@ func (s ScreenBundle) GetMultiplePixels(points []image.Point) ([]color.RGBA, err
 		}
 	}
 	bbox := image.Rect(minX, minY, maxX+1, maxY+1)
-	img, err := s.Grab(bbox)
+	img, err := s.Screenshotter.Grab(context.Background(), bbox)
 	if err != nil {
 		// Fallback to individual reads.
 		out := make([]color.RGBA, len(points))
 		for i, p := range points {
-			c, err := find.FirstPixel(s.Screenshotter, image.Rect(p.X, p.Y, p.X+1, p.Y+1))
+			c, err := find.FirstPixel(context.Background(), s.Screenshotter, image.Rect(p.X, p.Y, p.X+1, p.Y+1))
 			if err != nil {
 				return nil, err
 			}
@@ -389,7 +389,7 @@ func (s ScreenBundle) CaptureRegion(rect image.Rectangle, path string) error {
 	if err := s.checkAvailable(); err != nil {
 		return err
 	}
-	img, err := s.Grab(rect)
+	img, err := s.Screenshotter.Grab(context.Background(), rect)
 	if err != nil {
 		return err
 	}
@@ -410,7 +410,7 @@ func (s ScreenBundle) PixelToScreen(rect image.Rectangle) (image.Image, error) {
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
-	return s.Grab(rect)
+	return s.Screenshotter.Grab(context.Background(), rect)
 }
 
 // WindowBundle wraps a window.Manager with additional find utilities.

@@ -324,7 +324,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			img, err := pf.Screen.Grab(r)
+			img, err := pf.Screen.Grab(context.Background(), r)
 			if err != nil {
 				return err
 			}
@@ -380,7 +380,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			c, err := find.FirstPixel(pf.Screen.Screenshotter, image.Rect(px, py, px+1, py+1))
+			c, err := find.FirstPixel(context.Background(), pf.Screen.Screenshotter, image.Rect(px, py, px+1, py+1))
 			if err != nil {
 				return err
 			}

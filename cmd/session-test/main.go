@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"os"
@@ -77,7 +78,7 @@ func main() {
 
 	// 5. Grab screen.
 	if pf != nil && pf.Screen.Screenshotter != nil {
-		img, err := pf.Screen.Grab(image.Rect(0, 0, 100, 100))
+		img, err := pf.Screen.Grab(context.Background(), image.Rect(0, 0, 100, 100))
 		if err != nil {
 			fail("Screen.Grab: %v", err)
 		} else if img.Bounds().Dx() >= 100 {

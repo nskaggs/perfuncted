@@ -54,7 +54,7 @@ type Screenshotter struct {
 
 // Grab returns the next frame. The rect argument is accepted but ignored —
 // the mock always returns the full pre-configured image.
-func (s *Screenshotter) Grab(rect image.Rectangle) (image.Image, error) {
+func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	if s.Err != nil {
 		return nil, s.Err
 	}

@@ -1,6 +1,7 @@
 package screen
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"sync"
@@ -16,92 +17,96 @@ import (
 // and is detected at runtime by enumerating compositor globals.
 // Each Grab() opens a fresh Wayland connection and closes it on return,
 // matching the one-shot pattern used by grim and other capture tools.
-type WlrScreencopyBackend struct {
-	sock string
-}
-
-// cached Wayland contexts per socket to avoid reconnecting for each Grab.
-// Access to each cached context is serialized via cachedWlrCtx.mu because
-// wl.Context is not safe for concurrent use.
+// (moved) see constructor NewWlrScreencopyBackendWithConnector for fields.
+// per-backend cached Wayland context to avoid reconnecting for each Grab.
+// Access is serialized via b.ctxMu because wl.Context is not safe for concurrent use.
 var (
-	wlrCacheMu sync.Mutex
-	wlrCaches  = map[string]*cachedWlrCtx{}
-	// TTL for cached contexts. Tests may override.
-	wlrCacheTTL    = 5 * time.Minute
-	wlrJanitorOnce sync.Once
-	// wlrConnect is a variable so tests can inject a fake connector.
-	wlrConnect = wl.Connect
+	// default TTL for cached contexts; tests may override via SetWlrCacheTTL
+	defaultWlrCacheTTL = 5 * time.Minute
 )
 
-type cachedWlrCtx struct {
-	ctx      *wl.Context
-	mu       sync.Mutex
-	lastUsed time.Time
+// NewWlrScreencopyBackendWithConnector constructs a backend with an injectable
+// connector and TTL (used by tests). Use NewWlrScreencopyBackend for normal use.
+func NewWlrScreencopyBackendWithConnector(sock string, connect func(string) (*wl.Context, error), ttl time.Duration) *WlrScreencopyBackend {
+	if connect == nil {
+		connect = wl.Connect
+	}
+	if ttl <= 0 {
+		ttl = defaultWlrCacheTTL
+	}
+	b := &WlrScreencopyBackend{sock: sock}
+	b.connect = connect
+	b.ttl = ttl
+	b.done = make(chan struct{})
+	return b
 }
 
-// withWlrContext ensures a wl.Context exists for sock and calls fn while
-// holding the per-context lock to serialize access. If the context appears
-// broken (fn returns an error), the context is closed and reset. A background
-// janitor evicts idle contexts after wlrCacheTTL.
-func withWlrContext(sock string, fn func(ctx *wl.Context) error) error {
-	// Start janitor once.
-	wlrJanitorOnce.Do(func() {
+type WlrScreencopyBackend struct {
+	sock     string
+	ctxMu    sync.Mutex
+	ctx      *wl.Context
+	lastUsed time.Time
+	connect  func(string) (*wl.Context, error)
+	ttl      time.Duration
+	janOnce  sync.Once
+	done     chan struct{}
+}
+
+// withWlrContext ensures a wl.Context exists for this backend and calls fn
+// while holding the per-backend lock to serialize access. If the context
+// appears broken (fn returns an error), the context is closed and reset. A
+// background janitor evicts idle contexts after b.ttl.
+func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) error {
+	b.janOnce.Do(func() {
 		go func() {
-			interval := wlrCacheTTL / 10
+			interval := b.ttl / 10
 			if interval < time.Millisecond {
 				interval = time.Millisecond
 			}
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
-			for range ticker.C {
-				now := time.Now()
-				wlrCacheMu.Lock()
-				for k, c := range wlrCaches {
-					c.mu.Lock()
-					idle := now.Sub(c.lastUsed)
-					if c.ctx != nil && idle > wlrCacheTTL {
-						_ = wl.SafeClose(c.ctx)
-						c.ctx = nil
+			for {
+				select {
+				case <-ticker.C:
+					b.ctxMu.Lock()
+					if b.ctx != nil {
+						idle := time.Since(b.lastUsed)
+						if idle > b.ttl {
+							_ = wl.SafeClose(b.ctx)
+							b.ctx = nil
+						}
 					}
-					if c.ctx == nil {
-						c.mu.Unlock()
-						delete(wlrCaches, k)
-						continue
-					}
-					c.mu.Unlock()
+					b.ctxMu.Unlock()
+				case <-b.done:
+					return
 				}
-				wlrCacheMu.Unlock()
 			}
 		}()
 	})
 
-	wlrCacheMu.Lock()
-	c := wlrCaches[sock]
-	if c == nil {
-		c = &cachedWlrCtx{lastUsed: time.Now()}
-		wlrCaches[sock] = c
-	}
-	wlrCacheMu.Unlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.ctx == nil {
-		ctx, err := wlrConnect(sock)
+	b.ctxMu.Lock()
+	defer b.ctxMu.Unlock()
+	if b.ctx == nil {
+		ctx, err := b.connect(b.sock)
 		if err != nil {
 			return fmt.Errorf("screen/wlr: connect: %w", err)
 		}
-		c.ctx = ctx
+		b.ctx = ctx
 	}
-	c.lastUsed = time.Now()
-	if err := fn(c.ctx); err != nil {
-		// reset cached context on error to allow reconnect next time
-		_ = wl.SafeClose(c.ctx)
-		c.ctx = nil
+	b.lastUsed = time.Now()
+	if err := fn(b.ctx); err != nil {
+		_ = wl.SafeClose(b.ctx)
+		b.ctx = nil
 		return err
 	}
-	c.lastUsed = time.Now()
+	b.lastUsed = time.Now()
 	return nil
 }
+
+// SetWlrCacheTTL allows tests to tune the default TTL used by backends created
+// with NewWlrScreencopyBackend. Backends created via the WithConnector variant
+// may pass a custom TTL directly.
+func SetWlrCacheTTL(d time.Duration) { defaultWlrCacheTTL = d }
 
 // NewWlrScreencopyBackend verifies that zwlr_screencopy_manager_v1 is
 // advertised on WAYLAND_DISPLAY and returns a backend if so.
@@ -121,14 +126,15 @@ func NewWlrScreencopyBackend() (*WlrScreencopyBackend, error) {
 		return nil, fmt.Errorf("screen/wlr: compositor does not advertise zwlr_screencopy_manager_v1")
 	}
 	_ = s.Close()
-	return &WlrScreencopyBackend{sock: sock}, nil
+	b := NewWlrScreencopyBackendWithConnector(sock, wl.Connect, defaultWlrCacheTTL)
+	return b, nil
 }
 
 // Grab captures the entire output and returns the cropped rect.
 // Reuses a cached Wayland connection to reduce connect/close overhead.
-func (b *WlrScreencopyBackend) Grab(rect image.Rectangle) (image.Image, error) {
+func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	var outImg image.Image
-	if err := withWlrContext(b.sock, func(ctx *wl.Context) error {
+	if err := b.withWlrContext(func(ctx *wl.Context) error {
 		display := wl.NewDisplay(ctx)
 		registry, err := display.GetRegistry()
 		if err != nil {
@@ -270,7 +276,7 @@ func (b *WlrScreencopyBackend) Grab(rect image.Rectangle) (image.Image, error) {
 // Resolution returns the output resolution by performing a full screencopy
 // and reading the buffer dimensions from the compositor.
 func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
-	img, err := b.Grab(image.Rect(0, 0, 0, 0))
+	img, err := b.Grab(context.Background(), image.Rect(0, 0, 0, 0))
 	if err != nil {
 		return 0, 0, err
 	}
@@ -279,19 +285,16 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 }
 
 func (b *WlrScreencopyBackend) Close() error {
-	wlrCacheMu.Lock()
-	c := wlrCaches[b.sock]
-	if c != nil {
-		// lock per-context to ensure no Grab is in progress
-		c.mu.Lock()
-		if c.ctx != nil {
-			_ = wl.SafeClose(c.ctx)
-			c.ctx = nil
-		}
-		c.mu.Unlock()
-		delete(wlrCaches, b.sock)
+	// stop janitor and close any active context
+	if b.done != nil {
+		close(b.done)
 	}
-	wlrCacheMu.Unlock()
+	b.ctxMu.Lock()
+	if b.ctx != nil {
+		_ = wl.SafeClose(b.ctx)
+		b.ctx = nil
+	}
+	b.ctxMu.Unlock()
 	return nil
 }
 

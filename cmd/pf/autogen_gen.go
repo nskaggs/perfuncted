@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
@@ -76,7 +77,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			if err != nil {
 				return err
 			}
-			img, err := pf.Screen.Grab(r_0)
+			img, err := pf.Screen.Grab(context.Background(), r_0)
 			if err != nil {
 				return err
 			}

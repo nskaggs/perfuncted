@@ -4,6 +4,7 @@
 package screen
 
 import (
+	"context"
 	"fmt"
 	"image"
 
@@ -47,7 +48,7 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 // Grab captures the pixels inside rect.
 // On composited displays it snapshots the root via NameWindowPixmap so that
 // the actual composited framebuffer is captured rather than the bare root pixmap.
-func (b *X11Backend) Grab(rect image.Rectangle) (image.Image, error) {
+func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	drawable := xproto.Drawable(b.root)
 
 	if b.hasComposite {

@@ -4,6 +4,7 @@
 package screen
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/png"
@@ -44,7 +45,7 @@ func NewGnomeShellScreenshotBackend() (*GnomeShellScreenshotBackend, error) {
 		conn: conn,
 		obj:  conn.Object(gnomeShellShotDest, gnomeShellShotPath),
 	}
-	if _, err := b.Grab(image.Rect(0, 0, 1, 1)); err != nil {
+	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("screen/gnome-shell: authorization check failed: %w", err)
 	}
@@ -61,7 +62,7 @@ func newTempScreenshotFile(prefix string) (*os.File, error) {
 
 // Grab captures rect using GNOME Shell's native screenshot service. A zero rect
 // requests a full-screen capture; a non-empty rect uses ScreenshotArea.
-func (b *GnomeShellScreenshotBackend) Grab(rect image.Rectangle) (image.Image, error) {
+func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	tmp, err := newTempScreenshotFile("perfuncted-gnome-*.png")
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: temp file: %w", err)
@@ -118,7 +119,7 @@ func (b *GnomeShellScreenshotBackend) Grab(rect image.Rectangle) (image.Image, e
 }
 
 func (b *GnomeShellScreenshotBackend) Resolution() (int, int, error) {
-	img, err := b.Grab(image.Rect(0, 0, 0, 0))
+	img, err := b.Grab(context.Background(), image.Rect(0, 0, 0, 0))
 	if err != nil {
 		return 0, 0, err
 	}

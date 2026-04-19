@@ -17,7 +17,7 @@ import (
 
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
 type Screenshotter interface {
-	Grab(rect image.Rectangle) (image.Image, error)
+	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
 }
 
 // Hasher returns a fresh hash.Hash32 for each call. Swap out for stronger
@@ -61,8 +61,8 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 }
 
 // GrabHash captures rect from sc and returns its pixel hash.
-func GrabHash(sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
-	img, err := sc.Grab(rect)
+func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
+	img, err := sc.Grab(ctx, rect)
 	if err != nil {
 		return 0, fmt.Errorf("find: grab: %w", err)
 	}
@@ -70,8 +70,8 @@ func GrabHash(sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, e
 }
 
 // FirstPixel returns the colour of the top-left pixel of rect captured from sc.
-func FirstPixel(sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
-	img, err := sc.Grab(image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Min.Y+1))
+func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
+	img, err := sc.Grab(ctx, image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Min.Y+1))
 	if err != nil {
 		return color.RGBA{}, fmt.Errorf("find: first pixel: %w", err)
 	}
@@ -80,9 +80,9 @@ func FirstPixel(sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
 }
 
 // LastPixel returns the colour of the bottom-right pixel of rect captured from sc.
-func LastPixel(sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
+func LastPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
 	x, y := rect.Max.X-1, rect.Max.Y-1
-	img, err := sc.Grab(image.Rect(x, y, x+1, y+1))
+	img, err := sc.Grab(ctx, image.Rect(x, y, x+1, y+1))
 	if err != nil {
 		return color.RGBA{}, fmt.Errorf("find: last pixel: %w", err)
 	}
@@ -101,7 +101,7 @@ type Result struct {
 // the last observed hash for debugging.
 func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, poll time.Duration, newHash Hasher) (uint32, error) {
 	for {
-		h, err := GrabHash(sc, rect, newHash)
+		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
 			return 0, err
 		}
@@ -121,7 +121,7 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 // then WaitForNoChange to detect when it ends.
 func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, poll time.Duration, newHash Hasher) (uint32, error) {
 	for {
-		h, err := GrabHash(sc, rect, newHash)
+		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
 			return 0, err
 		}
@@ -151,8 +151,9 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 	var sentinel color.RGBA
 	sentinelSet := false
 	streak := 0
+
 	for {
-		img, err := sc.Grab(rect)
+		img, err := sc.Grab(ctx, rect)
 		if err != nil {
 			return 0, err
 		}
@@ -221,7 +222,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	for {
 		if useBbox {
 			// Single grab covers all regions; hash sub-regions in memory.
-			img, err := sc.Grab(bbox)
+			img, err := sc.Grab(ctx, bbox)
 			if err != nil {
 				return Result{}, err
 			}
@@ -248,7 +249,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 		}
 		if !useBbox {
 			for i, rect := range rects {
-				h, err := GrabHash(sc, rect, newHash)
+				h, err := GrabHash(ctx, sc, rect, newHash)
 				if err != nil {
 					return Result{}, err
 				}
@@ -277,8 +278,8 @@ func (a Anchor) Rect(dx, dy, w, h int) image.Rectangle {
 
 // LocateExact performs an exact byte-for-byte search of reference within the searchArea.
 // It returns the absolute image.Rectangle where it matches.
-func LocateExact(sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
-	src, err := sc.Grab(searchArea)
+func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+	src, err := sc.Grab(ctx, searchArea)
 	if err != nil {
 		return image.Rectangle{}, fmt.Errorf("find: locate grab: %w", err)
 	}
@@ -381,7 +382,7 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 	)
 
 	for {
-		img, err := sc.Grab(searchArea)
+		img, err := sc.Grab(ctx, searchArea)
 		if err != nil {
 			return 0, image.Rectangle{}, fmt.Errorf("find: tolerance grab: %w", err)
 		}
@@ -453,8 +454,8 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 // FindColor scans rect for the first pixel whose colour is within tolerance of
 // target. Returns the absolute (x, y) of the match. Tolerance is applied per
 // channel: |r-r'| ≤ tol && |g-g'| ≤ tol && |b-b'| ≤ tol.
-func FindColor(sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
-	img, err := sc.Grab(rect)
+func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
+	img, err := sc.Grab(ctx, rect)
 	if err != nil {
 		return image.Point{}, fmt.Errorf("find: find-color grab: %w", err)
 	}
@@ -482,7 +483,7 @@ func abs(x int) int {
 // where the reference was located.
 func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
 	for {
-		r, err := LocateExact(sc, searchArea, reference)
+		r, err := LocateExact(ctx, sc, searchArea, reference)
 		if err == nil {
 			return r, nil
 		}
@@ -500,7 +501,7 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 // presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
 	for {
-		img, err := sc.Grab(rect)
+		img, err := sc.Grab(ctx, rect)
 		if err != nil {
 			return nil, err
 		}

@@ -135,7 +135,7 @@ func testBasicScreen(ctx *testContext) {
 	}
 
 	rect := image.Rect(0, 0, 100, 100)
-	img, err := pf.Screen.Grab(rect)
+	img, err := pf.Screen.Grab(context.Background(), rect)
 	r.check("Grab 100x100", err)
 	if err == nil {
 		hVal := find.PixelHash(img, nil)
@@ -327,7 +327,7 @@ func testApp(ctx *testContext, app appSpec) {
 
 	// LocateExact
 	refRect := image.Rect(rect.Min.X+20, rect.Min.Y+20, rect.Min.X+50, rect.Min.Y+50)
-	refImg, err := pf.Screen.Grab(refRect)
+	refImg, err := pf.Screen.Grab(context.Background(), refRect)
 	if err == nil {
 		found, err := pf.Screen.LocateExact(rect, refImg)
 		r.check("LocateExact", err)

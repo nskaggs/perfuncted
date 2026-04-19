@@ -1,6 +1,7 @@
 package find
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"testing"
@@ -64,7 +65,7 @@ type fakeScreen struct {
 	img *image.RGBA
 }
 
-func (f *fakeScreen) Grab(rect image.Rectangle) (image.Image, error) {
+func (f *fakeScreen) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	return f.img.SubImage(rect), nil
 }
 
@@ -73,7 +74,7 @@ func TestFirstPixel(t *testing.T) {
 	img.SetRGBA(3, 3, color.RGBA{R: 42, G: 84, B: 126, A: 255})
 	sc := &fakeScreen{img: img}
 
-	c, err := FirstPixel(sc, image.Rect(3, 3, 6, 6))
+	c, err := FirstPixel(context.Background(), sc, image.Rect(3, 3, 6, 6))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestLastPixel(t *testing.T) {
 	img.SetRGBA(5, 5, color.RGBA{R: 10, G: 20, B: 30, A: 255})
 	sc := &fakeScreen{img: img}
 
-	c, err := LastPixel(sc, image.Rect(3, 3, 6, 6))
+	c, err := LastPixel(context.Background(), sc, image.Rect(3, 3, 6, 6))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestLocateExact(t *testing.T) {
 	}
 
 	sc := &fakeScreen{img: img}
-	found, err := LocateExact(sc, image.Rect(0, 0, 20, 20), needle)
+	found, err := LocateExact(context.Background(), sc, image.Rect(0, 0, 20, 20), needle)
 	if err != nil {
 		t.Fatal(err)
 	}

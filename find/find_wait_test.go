@@ -40,7 +40,7 @@ func TestWaitFor_Success(t *testing.T) {
 	defer cancel()
 
 	// Get the hash of the solid color image
-	img, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	img, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestWaitFor_WithCustomHasher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	img, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	img, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestWaitForChange_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	img, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	img, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestWaitForChange_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	img, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	img, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestWaitForNoChange_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	img, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	img, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestWaitForNoChange_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	_, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestWaitForFn_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	initialImg, err := sc.Grab(image.Rect(0, 0, 10, 10))
+	initialImg, err := sc.Grab(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatalf("Grab failed: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestWaitForFn_Timeout(t *testing.T) {
 // TestGrabHash tests the GrabHash utility function.
 func TestGrabHash_Success(t *testing.T) {
 	sc := &solidScreenshotter{}
-	hash, err := GrabHash(sc, image.Rect(0, 0, 10, 10), nil)
+	hash, err := GrabHash(context.Background(), sc, image.Rect(0, 0, 10, 10), nil)
 	if err != nil {
 		t.Fatalf("GrabHash returned unexpected error: %v", err)
 	}
@@ -226,12 +226,12 @@ func TestGrabHashSubImage(t *testing.T) {
 	}
 
 	sc := &fakeScreen{img: fullImg}
-	fullHash, err := GrabHash(sc, image.Rect(0, 0, 10, 10), nil)
+	fullHash, err := GrabHash(context.Background(), sc, image.Rect(0, 0, 10, 10), nil)
 	if err != nil {
 		t.Fatalf("GrabHash full image failed: %v", err)
 	}
 
-	subHash, err := GrabHash(sc, image.Rect(2, 2, 5, 5), nil)
+	subHash, err := GrabHash(context.Background(), sc, image.Rect(2, 2, 5, 5), nil)
 	if err != nil {
 		t.Fatalf("GrabHash sub-image failed: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestScanFor(t *testing.T) {
 	for _, r := range rects {
 		bbox = bbox.Union(r)
 	}
-	grabbed, err := sc.Grab(bbox)
+	grabbed, err := sc.Grab(context.Background(), bbox)
 	if err != nil {
 		t.Fatalf("grab failed: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestFindColor(t *testing.T) {
 	sc := &fakeScreen{img: img}
 	target := color.RGBA{R: 255, G: 0, B: 0, A: 255}
 
-	pt, err := FindColor(sc, image.Rect(0, 0, 10, 10), target, 10)
+	pt, err := FindColor(context.Background(), sc, image.Rect(0, 0, 10, 10), target, 10)
 	if err != nil {
 		t.Fatalf("FindColor returned error: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestFindColor(t *testing.T) {
 
 	// Test with tolerance
 	target2 := color.RGBA{R: 250, G: 5, B: 5, A: 255} // close to red
-	pt2, err := FindColor(sc, image.Rect(0, 0, 10, 10), target2, 10)
+	pt2, err := FindColor(context.Background(), sc, image.Rect(0, 0, 10, 10), target2, 10)
 	if err != nil {
 		t.Fatalf("FindColor with tolerance returned error: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestWaitForLocate(t *testing.T) {
 
 type solidScreenshotter struct{}
 
-func (s *solidScreenshotter) Grab(rect image.Rectangle) (image.Image, error) {
+func (s *solidScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	img := image.NewRGBA(rect)
 	c := color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
@@ -445,7 +445,7 @@ type changingScreenshotter struct {
 	count int
 }
 
-func (c *changingScreenshotter) Grab(rect image.Rectangle) (image.Image, error) {
+func (c *changingScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	img := image.NewRGBA(rect)
 	if c.count%2 == 0 {
 		col := color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
