@@ -4,6 +4,7 @@
 package input
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -81,7 +82,7 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 	return 0, fmt.Errorf("input/xtest: keysym 0x%x for key %q not found in keymap", sym, key)
 }
 
-func (b *XTestBackend) KeyDown(key string) error {
+func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 	kc, err := b.keycodeFor(key)
 	if err != nil {
 		return err
@@ -89,7 +90,7 @@ func (b *XTestBackend) KeyDown(key string) error {
 	return xtest.FakeInputChecked(b.conn, xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
-func (b *XTestBackend) KeyUp(key string) error {
+func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	kc, err := b.keycodeFor(key)
 	if err != nil {
 		return err
@@ -97,17 +98,17 @@ func (b *XTestBackend) KeyUp(key string) error {
 	return xtest.FakeInputChecked(b.conn, xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
-func (b *XTestBackend) KeyTap(key string) error {
-	if err := b.KeyDown(key); err != nil {
+func (b *XTestBackend) KeyTap(ctx context.Context, key string) error {
+	if err := b.KeyDown(ctx, key); err != nil {
 		return err
 	}
 	time.Sleep(b.delay)
-	return b.KeyUp(key)
+	return b.KeyUp(ctx, key)
 }
 
-func (b *XTestBackend) Type(s string) error {
+func (b *XTestBackend) Type(ctx context.Context, s string) error {
 	for _, ch := range s {
-		if err := b.KeyTap(string(ch)); err != nil {
+		if err := b.KeyTap(ctx, string(ch)); err != nil {
 			return err
 		}
 		time.Sleep(b.delay)
@@ -115,40 +116,40 @@ func (b *XTestBackend) Type(s string) error {
 	return nil
 }
 
-func (b *XTestBackend) MouseMove(x, y int) error {
+func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
 	return xtest.FakeInputChecked(b.conn, xproto.MotionNotify, 0,
 		xproto.TimeCurrentTime, b.root, int16(x), int16(y), 0).Check()
 }
 
-func (b *XTestBackend) MouseClick(x, y, button int) error {
-	if err := b.MouseMove(x, y); err != nil {
+func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if err := b.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
-	if err := b.MouseDown(button); err != nil {
+	if err := b.MouseDown(ctx, button); err != nil {
 		return err
 	}
 	time.Sleep(b.delay)
-	return b.MouseUp(button)
+	return b.MouseUp(ctx, button)
 }
 
-func (b *XTestBackend) MouseDown(button int) error {
+func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 	return xtest.FakeInputChecked(b.conn, xproto.ButtonPress, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
-func (b *XTestBackend) MouseUp(button int) error {
+func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 	return xtest.FakeInputChecked(b.conn, xproto.ButtonRelease, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 // X11 scroll is button 4 (up) / 5 (down).
-func (b *XTestBackend) ScrollUp(clicks int) error {
-	for range clicks {
-		if err := b.MouseDown(4); err != nil {
+func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
+	for i := 0; i < clicks; i++ {
+		if err := b.MouseDown(ctx, 4); err != nil {
 			return err
 		}
-		if err := b.MouseUp(4); err != nil {
+		if err := b.MouseUp(ctx, 4); err != nil {
 			return err
 		}
 	}
@@ -156,12 +157,12 @@ func (b *XTestBackend) ScrollUp(clicks int) error {
 }
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
-func (b *XTestBackend) ScrollDown(clicks int) error {
-	for range clicks {
-		if err := b.MouseDown(5); err != nil {
+func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
+	for i := 0; i < clicks; i++ {
+		if err := b.MouseDown(ctx, 5); err != nil {
 			return err
 		}
-		if err := b.MouseUp(5); err != nil {
+		if err := b.MouseUp(ctx, 5); err != nil {
 			return err
 		}
 	}
@@ -170,12 +171,12 @@ func (b *XTestBackend) ScrollDown(clicks int) error {
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 // X11 scroll is button 6 (left) / 7 (right).
-func (b *XTestBackend) ScrollLeft(clicks int) error {
-	for range clicks {
-		if err := b.MouseDown(6); err != nil {
+func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	for i := 0; i < clicks; i++ {
+		if err := b.MouseDown(ctx, 6); err != nil {
 			return err
 		}
-		if err := b.MouseUp(6); err != nil {
+		if err := b.MouseUp(ctx, 6); err != nil {
 			return err
 		}
 	}
@@ -183,12 +184,12 @@ func (b *XTestBackend) ScrollLeft(clicks int) error {
 }
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
-func (b *XTestBackend) ScrollRight(clicks int) error {
-	for range clicks {
-		if err := b.MouseDown(7); err != nil {
+func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
+	for i := 0; i < clicks; i++ {
+		if err := b.MouseDown(ctx, 7); err != nil {
 			return err
 		}
-		if err := b.MouseUp(7); err != nil {
+		if err := b.MouseUp(ctx, 7); err != nil {
 			return err
 		}
 	}

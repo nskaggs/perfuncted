@@ -358,19 +358,27 @@ type tapErrInputter struct {
 	failAfter *int
 }
 
-func (t *tapErrInputter) KeyDown(key string) error     { return t.mock.KeyDown(key) }
-func (t *tapErrInputter) KeyUp(key string) error       { return t.mock.KeyUp(key) }
-func (t *tapErrInputter) KeyTap(key string) error      { return errors.New("tap failed") }
-func (t *tapErrInputter) Type(s string) error          { return t.mock.Type(s) }
-func (t *tapErrInputter) MouseMove(x, y int) error     { return t.mock.MouseMove(x, y) }
-func (t *tapErrInputter) MouseClick(x, y, b int) error { return t.mock.MouseClick(x, y, b) }
-func (t *tapErrInputter) MouseDown(b int) error        { return t.mock.MouseDown(b) }
-func (t *tapErrInputter) MouseUp(b int) error          { return t.mock.MouseUp(b) }
-func (t *tapErrInputter) ScrollUp(n int) error         { return nil }
-func (t *tapErrInputter) ScrollDown(n int) error       { return nil }
-func (t *tapErrInputter) ScrollLeft(n int) error       { return nil }
-func (t *tapErrInputter) ScrollRight(n int) error      { return nil }
-func (t *tapErrInputter) Close() error                 { return nil }
+func (t *tapErrInputter) KeyDown(ctx context.Context, key string) error {
+	return t.mock.KeyDown(ctx, key)
+}
+func (t *tapErrInputter) KeyUp(ctx context.Context, key string) error { return t.mock.KeyUp(ctx, key) }
+func (t *tapErrInputter) KeyTap(ctx context.Context, key string) error {
+	return errors.New("tap failed")
+}
+func (t *tapErrInputter) Type(ctx context.Context, s string) error { return t.mock.Type(ctx, s) }
+func (t *tapErrInputter) MouseMove(ctx context.Context, x, y int) error {
+	return t.mock.MouseMove(ctx, x, y)
+}
+func (t *tapErrInputter) MouseClick(ctx context.Context, x, y, b int) error {
+	return t.mock.MouseClick(ctx, x, y, b)
+}
+func (t *tapErrInputter) MouseDown(ctx context.Context, b int) error   { return t.mock.MouseDown(ctx, b) }
+func (t *tapErrInputter) MouseUp(ctx context.Context, b int) error     { return t.mock.MouseUp(ctx, b) }
+func (t *tapErrInputter) ScrollUp(ctx context.Context, n int) error    { return nil }
+func (t *tapErrInputter) ScrollDown(ctx context.Context, n int) error  { return nil }
+func (t *tapErrInputter) ScrollLeft(ctx context.Context, n int) error  { return nil }
+func (t *tapErrInputter) ScrollRight(ctx context.Context, n int) error { return nil }
+func (t *tapErrInputter) Close() error                                 { return nil }
 
 // ── ScreenBundle tests ────────────────────────────────────────────────────────
 

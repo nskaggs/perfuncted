@@ -133,21 +133,39 @@ func (m *Inputter) record(s string) {
 	m.mu.Unlock()
 }
 
-func (m *Inputter) KeyDown(key string) error { m.record("down:" + key); return m.Err }
-func (m *Inputter) KeyUp(key string) error   { m.record("up:" + key); return m.Err }
-func (m *Inputter) KeyTap(key string) error  { m.record("tap:" + key); return m.Err }
-func (m *Inputter) Type(s string) error      { m.record("type:" + s); return m.Err }
-func (m *Inputter) MouseDown(b int) error    { m.record("mousedown"); return m.Err }
-func (m *Inputter) MouseUp(b int) error      { m.record("mouseup"); return m.Err }
-func (m *Inputter) ScrollUp(n int) error     { m.record(fmt.Sprintf("scroll-up:%d", n)); return m.Err }
-func (m *Inputter) ScrollDown(n int) error   { m.record(fmt.Sprintf("scroll-down:%d", n)); return m.Err }
-func (m *Inputter) ScrollLeft(n int) error   { m.record(fmt.Sprintf("scroll-left:%d", n)); return m.Err }
-func (m *Inputter) ScrollRight(n int) error {
+func (m *Inputter) KeyDown(ctx context.Context, key string) error {
+	m.record("down:" + key)
+	return m.Err
+}
+func (m *Inputter) KeyUp(ctx context.Context, key string) error { m.record("up:" + key); return m.Err }
+func (m *Inputter) KeyTap(ctx context.Context, key string) error {
+	m.record("tap:" + key)
+	return m.Err
+}
+func (m *Inputter) Type(ctx context.Context, s string) error   { m.record("type:" + s); return m.Err }
+func (m *Inputter) MouseDown(ctx context.Context, b int) error { m.record("mousedown"); return m.Err }
+func (m *Inputter) MouseUp(ctx context.Context, b int) error   { m.record("mouseup"); return m.Err }
+func (m *Inputter) ScrollUp(ctx context.Context, n int) error {
+	m.record(fmt.Sprintf("scroll-up:%d", n))
+	return m.Err
+}
+func (m *Inputter) ScrollDown(ctx context.Context, n int) error {
+	m.record(fmt.Sprintf("scroll-down:%d", n))
+	return m.Err
+}
+func (m *Inputter) ScrollLeft(ctx context.Context, n int) error {
+	m.record(fmt.Sprintf("scroll-left:%d", n))
+	return m.Err
+}
+func (m *Inputter) ScrollRight(ctx context.Context, n int) error {
 	m.record(fmt.Sprintf("scroll-right:%d", n))
 	return m.Err
 }
-func (m *Inputter) MouseMove(x, y int) error { m.record(fmt.Sprintf("move:%d,%d", x, y)); return m.Err }
-func (m *Inputter) MouseClick(x, y, b int) error {
+func (m *Inputter) MouseMove(ctx context.Context, x, y int) error {
+	m.record(fmt.Sprintf("move:%d,%d", x, y))
+	return m.Err
+}
+func (m *Inputter) MouseClick(ctx context.Context, x, y, b int) error {
 	m.record(fmt.Sprintf("click:%d,%d", x, y))
 	return m.Err
 }

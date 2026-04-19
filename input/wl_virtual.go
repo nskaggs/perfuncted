@@ -12,6 +12,7 @@ package input
 // require the outer compositor to relay events.
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -138,7 +139,7 @@ func (b *WlVirtualBackend) ptrFrame() error {
 
 // MouseMove moves the pointer to absolute position (x, y) in the compositor's
 // output coordinate space (i.e. sway display pixels).
-func (b *WlVirtualBackend) MouseMove(x, y int) error {
+func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 	var buf [28]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 28<<16|1) // size=28, opcode=1 (motion_absolute)
@@ -178,36 +179,40 @@ func btnCode(button int) uint32 {
 }
 
 // MouseDown presses a mouse button.
-func (b *WlVirtualBackend) MouseDown(button int) error { return b.button(btnCode(button), 1) }
+func (b *WlVirtualBackend) MouseDown(ctx context.Context, button int) error {
+	return b.button(btnCode(button), 1)
+}
 
 // MouseUp releases a mouse button.
-func (b *WlVirtualBackend) MouseUp(button int) error { return b.button(btnCode(button), 0) }
+func (b *WlVirtualBackend) MouseUp(ctx context.Context, button int) error {
+	return b.button(btnCode(button), 0)
+}
 
 // MouseClick moves to (x,y) then clicks the given button.
-func (b *WlVirtualBackend) MouseClick(x, y, button int) error {
-	if err := b.MouseMove(x, y); err != nil {
+func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if err := b.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
 	time.Sleep(40 * time.Millisecond)
-	if err := b.MouseDown(button); err != nil {
+	if err := b.MouseDown(ctx, button); err != nil {
 		return err
 	}
 	time.Sleep(40 * time.Millisecond)
-	return b.MouseUp(button)
+	return b.MouseUp(ctx, button)
 }
 
 // Type sends a string as keyboard events.
-func (b *WlVirtualBackend) Type(s string) error { return b.kbd.typeString(s) }
+func (b *WlVirtualBackend) Type(ctx context.Context, s string) error { return b.kbd.typeString(s) }
 
 // KeyTap presses and releases a key, respecting any held modifiers.
-func (b *WlVirtualBackend) KeyTap(key string) error { return b.kbd.tapKey(key) }
+func (b *WlVirtualBackend) KeyTap(ctx context.Context, key string) error { return b.kbd.tapKey(key) }
 
 // KeyDown presses and holds a key. Modifier keys update the compositor's
 // modifier state; other keys are held until released with KeyUp.
-func (b *WlVirtualBackend) KeyDown(key string) error { return b.kbd.pressKey(key) }
+func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error { return b.kbd.pressKey(key) }
 
 // KeyUp releases a previously held key.
-func (b *WlVirtualBackend) KeyUp(key string) error { return b.kbd.releaseKey(key) }
+func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error { return b.kbd.releaseKey(key) }
 
 // scroll sends an axis event for the given number of discrete scroll notches.
 // axis 0 = vertical, axis 1 = horizontal. Positive values scroll down/right;
@@ -229,16 +234,24 @@ func (b *WlVirtualBackend) scroll(axis uint32, clicks int) error {
 }
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
-func (b *WlVirtualBackend) ScrollUp(clicks int) error { return b.scroll(0, -clicks) }
+func (b *WlVirtualBackend) ScrollUp(ctx context.Context, clicks int) error {
+	return b.scroll(0, -clicks)
+}
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
-func (b *WlVirtualBackend) ScrollDown(clicks int) error { return b.scroll(0, clicks) }
+func (b *WlVirtualBackend) ScrollDown(ctx context.Context, clicks int) error {
+	return b.scroll(0, clicks)
+}
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
-func (b *WlVirtualBackend) ScrollLeft(clicks int) error { return b.scroll(1, -clicks) }
+func (b *WlVirtualBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	return b.scroll(1, -clicks)
+}
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
-func (b *WlVirtualBackend) ScrollRight(clicks int) error { return b.scroll(1, clicks) }
+func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
+	return b.scroll(1, clicks)
+}
 
 // Close closes the Wayland connection.
 func (b *WlVirtualBackend) Close() error { return b.display.Context().Close() }

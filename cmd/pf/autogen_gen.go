@@ -366,7 +366,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_key_down_key (string)
-			if err := pf.Input.KeyDown(cmd_input_key_down_key); err != nil {
+			if err := pf.Input.KeyDown(context.Background(), cmd_input_key_down_key); err != nil {
 				return err
 			}
 			return nil
@@ -388,7 +388,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_key_tap_key (string)
-			if err := pf.Input.KeyTap(cmd_input_key_tap_key); err != nil {
+			if err := pf.Input.KeyTap(context.Background(), cmd_input_key_tap_key); err != nil {
 				return err
 			}
 			return nil
@@ -410,7 +410,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_key_up_key (string)
-			if err := pf.Input.KeyUp(cmd_input_key_up_key); err != nil {
+			if err := pf.Input.KeyUp(context.Background(), cmd_input_key_up_key); err != nil {
 				return err
 			}
 			return nil
@@ -480,7 +480,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			// flag cmd_input_mouse_click_x (int) already parsed into var
 			// flag cmd_input_mouse_click_y (int) already parsed into var
 			// flag cmd_input_mouse_click_button (int) already parsed into var
-			if err := pf.Input.MouseClick(cmd_input_mouse_click_x, cmd_input_mouse_click_y, cmd_input_mouse_click_button); err != nil {
+			if err := pf.Input.MouseClick(context.Background(), cmd_input_mouse_click_x, cmd_input_mouse_click_y, cmd_input_mouse_click_button); err != nil {
 				return err
 			}
 			return nil
@@ -504,7 +504,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_mouse_down_button (int) already parsed into var
-			if err := pf.Input.MouseDown(cmd_input_mouse_down_button); err != nil {
+			if err := pf.Input.MouseDown(context.Background(), cmd_input_mouse_down_button); err != nil {
 				return err
 			}
 			return nil
@@ -528,7 +528,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			defer pf.Close()
 			// flag cmd_input_mouse_move_x (int) already parsed into var
 			// flag cmd_input_mouse_move_y (int) already parsed into var
-			if err := pf.Input.MouseMove(cmd_input_mouse_move_x, cmd_input_mouse_move_y); err != nil {
+			if err := pf.Input.MouseMove(context.Background(), cmd_input_mouse_move_x, cmd_input_mouse_move_y); err != nil {
 				return err
 			}
 			return nil
@@ -551,7 +551,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_mouse_up_button (int) already parsed into var
-			if err := pf.Input.MouseUp(cmd_input_mouse_up_button); err != nil {
+			if err := pf.Input.MouseUp(context.Background(), cmd_input_mouse_up_button); err != nil {
 				return err
 			}
 			return nil
@@ -617,7 +617,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_scroll_down_clicks (int) already parsed into var
-			if err := pf.Input.ScrollDown(cmd_input_scroll_down_clicks); err != nil {
+			if err := pf.Input.ScrollDown(context.Background(), cmd_input_scroll_down_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -639,7 +639,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_scroll_left_clicks (int) already parsed into var
-			if err := pf.Input.ScrollLeft(cmd_input_scroll_left_clicks); err != nil {
+			if err := pf.Input.ScrollLeft(context.Background(), cmd_input_scroll_left_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -661,7 +661,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_scroll_right_clicks (int) already parsed into var
-			if err := pf.Input.ScrollRight(cmd_input_scroll_right_clicks); err != nil {
+			if err := pf.Input.ScrollRight(context.Background(), cmd_input_scroll_right_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -683,7 +683,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_scroll_up_clicks (int) already parsed into var
-			if err := pf.Input.ScrollUp(cmd_input_scroll_up_clicks); err != nil {
+			if err := pf.Input.ScrollUp(context.Background(), cmd_input_scroll_up_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -705,7 +705,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 			}
 			defer pf.Close()
 			// flag cmd_input_type_s (string)
-			if err := pf.Input.Type(cmd_input_type_s); err != nil {
+			if err := pf.Input.Type(context.Background(), cmd_input_type_s); err != nil {
 				return err
 			}
 			return nil

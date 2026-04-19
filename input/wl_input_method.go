@@ -4,6 +4,7 @@
 package input
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -34,38 +35,28 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("input: WAYLAND_DISPLAY not set")
 	}
-	ctx, err := wl.Connect(sock)
+	// Use the centralized Session helper to connect and enumerate globals.
+	sess, err := wl.NewSession(sock)
 	if err != nil {
-		return nil, fmt.Errorf("input/wl-im: connect: %w", err)
+		return nil, fmt.Errorf("input/wl-im: %w", err)
 	}
-	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("input/wl-im: get registry: %w", err)
-	}
+	ctx := sess.Ctx
+	display := sess.Display
+	registry := sess.Registry
 
 	var mgrID, seatID uint32
-	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-		switch ev.Interface {
-		case "zwp_input_method_manager_v2":
-			mgrID = ev.Name
-		case "wl_seat":
-			if seatID == 0 {
-				seatID = ev.Name
-			}
-		}
-	})
-	if err := display.RoundTrip(); err != nil {
-		ctx.Close()
-		return nil, fmt.Errorf("input/wl-im: registry round-trip: %w", err)
+	if ev, ok := sess.Globals["zwp_input_method_manager_v2"]; ok {
+		mgrID = ev.Name
+	}
+	if ev, ok := sess.Globals["wl_seat"]; ok {
+		seatID = ev.Name
 	}
 	if mgrID == 0 {
-		ctx.Close()
+		_ = sess.Close()
 		return nil, fmt.Errorf("input/wl-im: zwp_input_method_manager_v2 not advertised")
 	}
 	if seatID == 0 {
-		ctx.Close()
+		_ = sess.Close()
 		return nil, fmt.Errorf("input/wl-im: no wl_seat advertised")
 	}
 
@@ -157,10 +148,10 @@ func (b *WlInputMethodBackend) sendIMRequest(opcode uint32, payload []byte) erro
 
 // Type sends s using input-method commit_string + commit(serial). If that
 // path fails, fall back to the delegated backend if available.
-func (b *WlInputMethodBackend) Type(s string) error {
+func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
 	if b.im == nil {
 		if b.other != nil {
-			return b.other.Type(s)
+			return b.other.Type(ctx, s)
 		}
 		return fmt.Errorf("input/wl-im: input method unavailable")
 	}
@@ -177,7 +168,7 @@ func (b *WlInputMethodBackend) Type(s string) error {
 		if err := b.sendIMRequest(0, payload); err != nil { // opcode 0 = commit_string
 			// fall back
 			if b.other != nil {
-				return b.other.Type(s)
+				return b.other.Type(ctx, s)
 			}
 			return fmt.Errorf("input/wl-im: commit_string: %w", err)
 		}
@@ -188,7 +179,7 @@ func (b *WlInputMethodBackend) Type(s string) error {
 		wl.PutUint32(cbuf[8:], b.serial)
 		if err := b.ctx.WriteMsg(cbuf[:], nil); err != nil {
 			if b.other != nil {
-				return b.other.Type(s)
+				return b.other.Type(ctx, s)
 			}
 			return fmt.Errorf("input/wl-im: commit: %w", err)
 		}
@@ -196,7 +187,7 @@ func (b *WlInputMethodBackend) Type(s string) error {
 		if err := b.display.RoundTrip(); err != nil {
 			// If RoundTrip fails, fall back
 			if b.other != nil {
-				return b.other.Type(s)
+				return b.other.Type(ctx, s)
 			}
 			return fmt.Errorf("input/wl-im: round-trip after commit: %w", err)
 		}
@@ -206,71 +197,71 @@ func (b *WlInputMethodBackend) Type(s string) error {
 }
 
 // Delegate other methods to the underlying backend when present.
-func (b *WlInputMethodBackend) KeyDown(key string) error {
+func (b *WlInputMethodBackend) KeyDown(ctx context.Context, key string) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: KeyDown unsupported (no subordinate backend)")
 	}
-	return b.other.KeyDown(key)
+	return b.other.KeyDown(ctx, key)
 }
-func (b *WlInputMethodBackend) KeyUp(key string) error {
+func (b *WlInputMethodBackend) KeyUp(ctx context.Context, key string) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: KeyUp unsupported (no subordinate backend)")
 	}
-	return b.other.KeyUp(key)
+	return b.other.KeyUp(ctx, key)
 }
-func (b *WlInputMethodBackend) KeyTap(key string) error {
+func (b *WlInputMethodBackend) KeyTap(ctx context.Context, key string) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: KeyTap unsupported (no subordinate backend)")
 	}
-	return b.other.KeyTap(key)
+	return b.other.KeyTap(ctx, key)
 }
-func (b *WlInputMethodBackend) MouseMove(x, y int) error {
+func (b *WlInputMethodBackend) MouseMove(ctx context.Context, x, y int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: MouseMove unsupported (no subordinate backend)")
 	}
-	return b.other.MouseMove(x, y)
+	return b.other.MouseMove(ctx, x, y)
 }
-func (b *WlInputMethodBackend) MouseClick(x, y, button int) error {
+func (b *WlInputMethodBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: MouseClick unsupported (no subordinate backend)")
 	}
-	return b.other.MouseClick(x, y, button)
+	return b.other.MouseClick(ctx, x, y, button)
 }
-func (b *WlInputMethodBackend) MouseDown(button int) error {
+func (b *WlInputMethodBackend) MouseDown(ctx context.Context, button int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: MouseDown unsupported (no subordinate backend)")
 	}
-	return b.other.MouseDown(button)
+	return b.other.MouseDown(ctx, button)
 }
-func (b *WlInputMethodBackend) MouseUp(button int) error {
+func (b *WlInputMethodBackend) MouseUp(ctx context.Context, button int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: MouseUp unsupported (no subordinate backend)")
 	}
-	return b.other.MouseUp(button)
+	return b.other.MouseUp(ctx, button)
 }
-func (b *WlInputMethodBackend) ScrollUp(clicks int) error {
+func (b *WlInputMethodBackend) ScrollUp(ctx context.Context, clicks int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: ScrollUp unsupported (no subordinate backend)")
 	}
-	return b.other.ScrollUp(clicks)
+	return b.other.ScrollUp(ctx, clicks)
 }
-func (b *WlInputMethodBackend) ScrollDown(clicks int) error {
+func (b *WlInputMethodBackend) ScrollDown(ctx context.Context, clicks int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: ScrollDown unsupported (no subordinate backend)")
 	}
-	return b.other.ScrollDown(clicks)
+	return b.other.ScrollDown(ctx, clicks)
 }
-func (b *WlInputMethodBackend) ScrollLeft(clicks int) error {
+func (b *WlInputMethodBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: ScrollLeft unsupported (no subordinate backend)")
 	}
-	return b.other.ScrollLeft(clicks)
+	return b.other.ScrollLeft(ctx, clicks)
 }
-func (b *WlInputMethodBackend) ScrollRight(clicks int) error {
+func (b *WlInputMethodBackend) ScrollRight(ctx context.Context, clicks int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: ScrollRight unsupported (no subordinate backend)")
 	}
-	return b.other.ScrollRight(clicks)
+	return b.other.ScrollRight(ctx, clicks)
 }
 
 func (b *WlInputMethodBackend) Close() error {

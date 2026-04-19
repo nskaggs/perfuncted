@@ -6,6 +6,7 @@
 package input
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -20,29 +21,29 @@ import (
 // 2=middle, 3=right. Scroll methods accept a positive click count.
 type Inputter interface {
 	// KeyDown presses and holds a key.
-	KeyDown(key string) error
+	KeyDown(ctx context.Context, key string) error
 	// KeyUp releases a previously held key.
-	KeyUp(key string) error
+	KeyUp(ctx context.Context, key string) error
 	// KeyTap presses and immediately releases a key.
-	KeyTap(key string) error
+	KeyTap(ctx context.Context, key string) error
 	// Type sends a string as a sequence of key events.
-	Type(s string) error
+	Type(ctx context.Context, s string) error
 	// MouseMove moves the pointer to absolute coordinates (x, y).
-	MouseMove(x, y int) error
+	MouseMove(ctx context.Context, x, y int) error
 	// MouseClick moves to (x, y) and clicks the given button.
-	MouseClick(x, y, button int) error
+	MouseClick(ctx context.Context, x, y, button int) error
 	// MouseDown presses (but does not release) a mouse button.
-	MouseDown(button int) error
+	MouseDown(ctx context.Context, button int) error
 	// MouseUp releases a previously pressed mouse button.
-	MouseUp(button int) error
+	MouseUp(ctx context.Context, button int) error
 	// ScrollUp scrolls the mouse wheel up by the given number of notches.
-	ScrollUp(clicks int) error
+	ScrollUp(ctx context.Context, clicks int) error
 	// ScrollDown scrolls the mouse wheel down by the given number of notches.
-	ScrollDown(clicks int) error
+	ScrollDown(ctx context.Context, clicks int) error
 	// ScrollLeft scrolls the mouse wheel left by the given number of notches.
-	ScrollLeft(clicks int) error
+	ScrollLeft(ctx context.Context, clicks int) error
 	// ScrollRight scrolls the mouse wheel right by the given number of notches.
-	ScrollRight(clicks int) error
+	ScrollRight(ctx context.Context, clicks int) error
 	// Close releases all backend resources.
 	Close() error
 }

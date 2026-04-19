@@ -320,7 +320,7 @@ func testApp(ctx *testContext, app appSpec) {
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
-		_ = pf.Input.KeyTap("escape")
+		_ = pf.Input.KeyTap(context.Background(), "escape")
 	}()
 	_, err = pf.Screen.WaitForVisibleChange(ctxV, rect, 100*time.Millisecond, 2)
 	r.check("WaitForVisibleChange", err)
@@ -354,7 +354,7 @@ func testApp(ctx *testContext, app appSpec) {
 	r.check("CloseWindow", pf.Window.CloseWindow(app.winMatch))
 	time.Sleep(1 * time.Second)
 	if pf.Window.IsVisible(app.winMatch) {
-		_ = pf.Input.KeyTap("escape")
+		_ = pf.Input.KeyTap(context.Background(), "escape")
 		time.Sleep(500 * time.Millisecond)
 		_ = pf.Window.CloseWindow(app.winMatch)
 	}
@@ -418,9 +418,9 @@ func testBrowser(ctx *testContext, app appSpec) {
 	// Navigation test
 	r.check("Ctrl+L (Focus Address Bar)", pf.Input.PressCombo("ctrl+l"))
 	time.Sleep(1 * time.Second)
-	r.check("Type URL", pf.Input.Type("about:support"))
+	r.check("Type URL", pf.Input.Type(context.Background(), "about:support"))
 	time.Sleep(500 * time.Millisecond)
-	r.check("Return", pf.Input.KeyTap("return"))
+	r.check("Return", pf.Input.KeyTap(context.Background(), "return"))
 
 	fmt.Println("  (testing WaitForStable...)")
 	rect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)

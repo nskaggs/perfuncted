@@ -538,7 +538,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.MouseMove(mx, my); err != nil {
+			if err := pf.Input.MouseMove(context.Background(), mx, my); err != nil {
 				return err
 			}
 			fmt.Printf("moved to %d,%d\n", mx, my)
@@ -557,7 +557,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.MouseClick(mx, my, button); err != nil {
+			if err := pf.Input.MouseClick(context.Background(), mx, my, button); err != nil {
 				return err
 			}
 			fmt.Printf("clicked button %d at %d,%d\n", button, mx, my)
@@ -642,7 +642,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			return pf.Input.Type(args[0])
+			return pf.Input.Type(context.Background(), args[0])
 		},
 	}
 
@@ -670,7 +670,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.KeyDown(args[0]); err != nil {
+			if err := pf.Input.KeyDown(context.Background(), args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("keydown %s\n", args[0])
@@ -688,7 +688,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.KeyUp(args[0]); err != nil {
+			if err := pf.Input.KeyUp(context.Background(), args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("keyup %s\n", args[0])
@@ -707,11 +707,11 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if mdx != -1 && mdy != -1 {
-				if err := pf.Input.MouseMove(mdx, mdy); err != nil {
+				if err := pf.Input.MouseMove(context.Background(), mdx, mdy); err != nil {
 					return err
 				}
 			}
-			if err := pf.Input.MouseDown(mdButton); err != nil {
+			if err := pf.Input.MouseDown(context.Background(), mdButton); err != nil {
 				return err
 			}
 			fmt.Printf("mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
@@ -733,11 +733,11 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if mux != -1 && muy != -1 {
-				if err := pf.Input.MouseMove(mux, muy); err != nil {
+				if err := pf.Input.MouseMove(context.Background(), mux, muy); err != nil {
 					return err
 				}
 			}
-			if err := pf.Input.MouseUp(muButton); err != nil {
+			if err := pf.Input.MouseUp(context.Background(), muButton); err != nil {
 				return err
 			}
 			fmt.Printf("mouseup button %d at %d,%d\n", muButton, mux, muy)
@@ -781,7 +781,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollUp(clicks); err != nil {
+			if err := pf.Input.ScrollUp(context.Background(), clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled up %d\n", clicks)
@@ -799,7 +799,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollDown(clicks); err != nil {
+			if err := pf.Input.ScrollDown(context.Background(), clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled down %d\n", clicks)
@@ -819,7 +819,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollLeft(clicks); err != nil {
+			if err := pf.Input.ScrollLeft(context.Background(), clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled left %d\n", clicks)
@@ -837,7 +837,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollRight(clicks); err != nil {
+			if err := pf.Input.ScrollRight(context.Background(), clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled right %d\n", clicks)

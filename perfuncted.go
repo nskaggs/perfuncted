@@ -631,11 +631,11 @@ func (i InputBundle) DoubleClick(x, y int) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
-	if err := i.MouseClick(x, y, 1); err != nil {
+	if err := i.MouseClick(context.Background(), x, y, 1); err != nil {
 		return err
 	}
 	time.Sleep(80 * time.Millisecond)
-	return i.MouseClick(x, y, 1)
+	return i.MouseClick(context.Background(), x, y, 1)
 }
 
 // DragAndDrop moves to (x1, y1), presses left button, moves to (x2, y2), and releases.
@@ -643,17 +643,17 @@ func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
-	if err := i.MouseMove(x1, y1); err != nil {
+	if err := i.MouseMove(context.Background(), x1, y1); err != nil {
 		return err
 	}
-	if err := i.MouseDown(1); err != nil {
+	if err := i.MouseDown(context.Background(), 1); err != nil {
 		return err
 	}
-	if err := i.MouseMove(x2, y2); err != nil {
-		i.MouseUp(1) // best effort release
+	if err := i.MouseMove(context.Background(), x2, y2); err != nil {
+		i.MouseUp(context.Background(), 1) // best effort release
 		return err
 	}
-	return i.MouseUp(1)
+	return i.MouseUp(context.Background(), 1)
 }
 
 // ClickCenter moves to the center of rect and performs a left click.
@@ -663,7 +663,7 @@ func (i InputBundle) ClickCenter(rect image.Rectangle) error {
 	}
 	cx := rect.Min.X + rect.Dx()/2
 	cy := rect.Min.Y + rect.Dy()/2
-	return i.MouseClick(cx, cy, 1)
+	return i.MouseClick(context.Background(), cx, cy, 1)
 }
 
 // PressCombo sends a key combination like "ctrl+s" or "alt+f4".
@@ -680,18 +680,18 @@ func (i InputBundle) PressCombo(combo string) error {
 	modifiers := parts[:len(parts)-1]
 	final := parts[len(parts)-1]
 	for _, m := range modifiers {
-		if err := i.KeyDown(m); err != nil {
+		if err := i.KeyDown(context.Background(), m); err != nil {
 			return err
 		}
 	}
-	if err := i.KeyTap(final); err != nil {
+	if err := i.KeyTap(context.Background(), final); err != nil {
 		for _, m := range modifiers {
-			i.KeyUp(m) //nolint:errcheck
+			i.KeyUp(context.Background(), m) //nolint:errcheck
 		}
 		return err
 	}
 	for ix := len(modifiers) - 1; ix >= 0; ix-- {
-		if err := i.KeyUp(modifiers[ix]); err != nil {
+		if err := i.KeyUp(context.Background(), modifiers[ix]); err != nil {
 			return err
 		}
 	}
@@ -703,7 +703,7 @@ func (i InputBundle) ModifierDown(key string) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
-	return i.KeyDown(key)
+	return i.KeyDown(context.Background(), key)
 }
 
 // ModifierUp releases a previously held modifier key.
@@ -711,7 +711,7 @@ func (i InputBundle) ModifierUp(key string) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
-	return i.KeyUp(key)
+	return i.KeyUp(context.Background(), key)
 }
 
 // TypeWithDelay types the provided string, waiting delay between each rune.
@@ -720,7 +720,7 @@ func (i InputBundle) TypeWithDelay(s string, delay time.Duration) error {
 		return err
 	}
 	for _, r := range s {
-		if err := i.Type(string(r)); err != nil {
+		if err := i.Type(context.Background(), string(r)); err != nil {
 			return err
 		}
 		time.Sleep(delay)
@@ -759,14 +759,14 @@ func (c ClipboardBundle) PasteWithInput(inp input.Inputter, text string) error {
 	}
 	// small delay to ensure clipboard contents are available to target apps
 	time.Sleep(75 * time.Millisecond)
-	if err := inp.KeyDown("ctrl"); err != nil {
+	if err := inp.KeyDown(context.Background(), "ctrl"); err != nil {
 		return err
 	}
-	if err := inp.KeyTap("v"); err != nil {
-		_ = inp.KeyUp("ctrl")
+	if err := inp.KeyTap(context.Background(), "v"); err != nil {
+		_ = inp.KeyUp(context.Background(), "ctrl")
 		return err
 	}
-	return inp.KeyUp("ctrl")
+	return inp.KeyUp(context.Background(), "ctrl")
 }
 
 // Get reads the clipboard. The default clipboard backends enforce their own

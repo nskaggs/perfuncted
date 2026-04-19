@@ -4,6 +4,7 @@
 package input
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -171,7 +172,7 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 	return 0, fmt.Errorf("input/uinput: unknown key %q", key)
 }
 
-func (b *UinputBackend) KeyDown(key string) error {
+func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 	code, err := b.resolveKey(key)
 	if err != nil {
 		return err
@@ -179,7 +180,7 @@ func (b *UinputBackend) KeyDown(key string) error {
 	return b.kb.KeyDown(code)
 }
 
-func (b *UinputBackend) KeyUp(key string) error {
+func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 	code, err := b.resolveKey(key)
 	if err != nil {
 		return err
@@ -187,7 +188,7 @@ func (b *UinputBackend) KeyUp(key string) error {
 	return b.kb.KeyUp(code)
 }
 
-func (b *UinputBackend) KeyTap(key string) error {
+func (b *UinputBackend) KeyTap(ctx context.Context, key string) error {
 	code, err := b.resolveKey(key)
 	if err != nil {
 		return err
@@ -195,7 +196,7 @@ func (b *UinputBackend) KeyTap(key string) error {
 	return b.kb.KeyPress(code)
 }
 
-func (b *UinputBackend) Type(s string) error {
+func (b *UinputBackend) Type(ctx context.Context, s string) error {
 	for _, ch := range s {
 		ck, ok := charToKey[ch]
 		if !ok {
@@ -221,21 +222,21 @@ func (b *UinputBackend) Type(s string) error {
 	return nil
 }
 
-func (b *UinputBackend) MouseMove(x, y int) error {
+func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
 	return b.touchpad.MoveTo(int32(x), int32(y))
 }
 
-func (b *UinputBackend) MouseClick(x, y, button int) error {
-	if err := b.MouseMove(x, y); err != nil {
+func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if err := b.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
-	if err := b.MouseDown(button); err != nil {
+	if err := b.MouseDown(ctx, button); err != nil {
 		return err
 	}
-	return b.MouseUp(button)
+	return b.MouseUp(ctx, button)
 }
 
-func (b *UinputBackend) MouseDown(button int) error {
+func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 	switch button {
 	case 1:
 		return b.touchpad.LeftPress()
@@ -258,7 +259,7 @@ func (b *UinputBackend) MouseDown(button int) error {
 	}
 }
 
-func (b *UinputBackend) MouseUp(button int) error {
+func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
 	switch button {
 	case 1:
 		return b.touchpad.LeftRelease()
@@ -291,7 +292,7 @@ func (b *UinputBackend) ensureMouse() error {
 }
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
-func (b *UinputBackend) ScrollUp(clicks int) error {
+func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -299,7 +300,7 @@ func (b *UinputBackend) ScrollUp(clicks int) error {
 }
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
-func (b *UinputBackend) ScrollDown(clicks int) error {
+func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -307,7 +308,7 @@ func (b *UinputBackend) ScrollDown(clicks int) error {
 }
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
-func (b *UinputBackend) ScrollLeft(clicks int) error {
+func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -315,7 +316,7 @@ func (b *UinputBackend) ScrollLeft(clicks int) error {
 }
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
-func (b *UinputBackend) ScrollRight(clicks int) error {
+func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
