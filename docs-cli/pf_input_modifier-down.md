@@ -10,7 +10,7 @@ pf input modifier-down [flags]
 
 ```
   -h, --help         help for modifier-down
-      --key string   key
+      --mod string   mod
 ```
 
 ### Options inherited from parent commands

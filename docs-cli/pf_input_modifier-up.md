@@ -10,7 +10,7 @@ pf input modifier-up [flags]
 
 ```
   -h, --help         help for modifier-up
-      --key string   key
+      --mod string   mod
 ```
 
 ### Options inherited from parent commands

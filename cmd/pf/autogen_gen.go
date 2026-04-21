@@ -3,11 +3,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
-	"image/png"
-	"os"
+	"time"
 )
 
 func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
@@ -29,7 +27,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			if err != nil {
 				return err
 			}
-			// flag cmd_screen_capture_region_path (string)
 			if err := pf.Screen.CaptureRegion(r_0, cmd_screen_capture_region_path); err != nil {
 				return err
 			}
@@ -63,7 +60,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// grab: wrapper for perfuncted.Grab
 	var cmd_screen_grab_rect string
-	var cmd_screen_grab_out string
 	cmd_screen_grab := &cobra.Command{
 		Use:   "grab",
 		Short: "Auto-generated wrapper for perfuncted.Grab",
@@ -73,37 +69,22 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_grab_rect)
+			r_1, err := parseRect(cmd_screen_grab_rect)
 			if err != nil {
 				return err
 			}
-			img, err := pf.Screen.Grab(context.Background(), r_0)
-			if err != nil {
+			if _, err := pf.Screen.Grab(r_1); err != nil {
 				return err
 			}
-			out := cmd_screen_grab_out
-			if out == "" {
-				out = "/tmp/pf-grab.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
 			return nil
 		},
 	}
 	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_out, "out", "", "output path")
 
 	cmds = append(cmds, cmd_screen_grab)
 
 	// grab-full: wrapper for perfuncted.GrabFull
-	var cmd_screen_grab_full_out string
+
 	cmd_screen_grab_full := &cobra.Command{
 		Use:   "grab-full",
 		Short: "Auto-generated wrapper for perfuncted.GrabFull",
@@ -113,27 +94,12 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			img, err := pf.Screen.GrabFull()
-			if err != nil {
+			if _, err := pf.Screen.GrabFull(); err != nil {
 				return err
 			}
-			out := cmd_screen_grab_full_out
-			if out == "" {
-				out = "/tmp/pf-grab-full.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
 			return nil
 		},
 	}
-	cmd_screen_grab_full.Flags().StringVar(&cmd_screen_grab_full_out, "out", "", "output path")
 
 	cmds = append(cmds, cmd_screen_grab_full)
 
@@ -148,11 +114,9 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			h, err := pf.Screen.GrabFullHash()
-			if err != nil {
+			if _, err := pf.Screen.GrabFullHash(); err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
 			return nil
 		},
 	}
@@ -174,11 +138,9 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			if err != nil {
 				return err
 			}
-			h, err := pf.Screen.GrabHash(r_0)
-			if err != nil {
+			if _, err := pf.Screen.GrabHash(r_0); err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
 			return nil
 		},
 	}
@@ -188,7 +150,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// pixel-to-screen: wrapper for perfuncted.PixelToScreen
 	var cmd_screen_pixel_to_screen_rect string
-	var cmd_screen_pixel_to_screen_out string
 	cmd_screen_pixel_to_screen := &cobra.Command{
 		Use:   "pixel-to-screen",
 		Short: "Auto-generated wrapper for perfuncted.PixelToScreen",
@@ -202,54 +163,19 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			if err != nil {
 				return err
 			}
-			img, err := pf.Screen.PixelToScreen(r_0)
-			if err != nil {
+			if _, _, err := pf.Screen.PixelToScreen(r_0); err != nil {
 				return err
 			}
-			out := cmd_screen_pixel_to_screen_out
-			if out == "" {
-				out = "/tmp/pf-pixel-to-screen.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
 			return nil
 		},
 	}
 	cmd_screen_pixel_to_screen.Flags().StringVar(&cmd_screen_pixel_to_screen_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	cmd_screen_pixel_to_screen.Flags().StringVar(&cmd_screen_pixel_to_screen_out, "out", "", "output path")
 
 	cmds = append(cmds, cmd_screen_pixel_to_screen)
 
-	// resolution: wrapper for perfuncted.Resolution
-
-	cmd_screen_resolution := &cobra.Command{
-		Use:   "resolution",
-		Short: "Auto-generated wrapper for perfuncted.Resolution",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			w, h, err := pf.Screen.Resolution()
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%dx%d\n", w, h)
-			return nil
-		},
-	}
-
-	cmds = append(cmds, cmd_screen_resolution)
 	return cmds
 }
+
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
@@ -310,8 +236,6 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_double_click_x (int) already parsed into var
-			// flag cmd_input_double_click_y (int) already parsed into var
 			if err := pf.Input.DoubleClick(cmd_input_double_click_x, cmd_input_double_click_y); err != nil {
 				return err
 			}
@@ -337,10 +261,6 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_drag_and_drop_x1 (int) already parsed into var
-			// flag cmd_input_drag_and_drop_y1 (int) already parsed into var
-			// flag cmd_input_drag_and_drop_x2 (int) already parsed into var
-			// flag cmd_input_drag_and_drop_y2 (int) already parsed into var
 			if err := pf.Input.DragAndDrop(cmd_input_drag_and_drop_x1, cmd_input_drag_and_drop_y1, cmd_input_drag_and_drop_x2, cmd_input_drag_and_drop_y2); err != nil {
 				return err
 			}
@@ -365,8 +285,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_key_down_key (string)
-			if err := pf.Input.KeyDown(context.Background(), cmd_input_key_down_key); err != nil {
+			if err := pf.Input.KeyDown(cmd_input_key_down_key); err != nil {
 				return err
 			}
 			return nil
@@ -387,8 +306,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_key_tap_key (string)
-			if err := pf.Input.KeyTap(context.Background(), cmd_input_key_tap_key); err != nil {
+			if err := pf.Input.KeyTap(cmd_input_key_tap_key); err != nil {
 				return err
 			}
 			return nil
@@ -409,8 +327,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_key_up_key (string)
-			if err := pf.Input.KeyUp(context.Background(), cmd_input_key_up_key); err != nil {
+			if err := pf.Input.KeyUp(cmd_input_key_up_key); err != nil {
 				return err
 			}
 			return nil
@@ -421,7 +338,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmds = append(cmds, cmd_input_key_up)
 
 	// modifier-down: wrapper for perfuncted.ModifierDown
-	var cmd_input_modifier_down_key string
+	var cmd_input_modifier_down_mod string
 	cmd_input_modifier_down := &cobra.Command{
 		Use:   "modifier-down",
 		Short: "Auto-generated wrapper for perfuncted.ModifierDown",
@@ -431,19 +348,18 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_modifier_down_key (string)
-			if err := pf.Input.ModifierDown(cmd_input_modifier_down_key); err != nil {
+			if err := pf.Input.ModifierDown(cmd_input_modifier_down_mod); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_input_modifier_down.Flags().StringVar(&cmd_input_modifier_down_key, "key", "", "key")
+	cmd_input_modifier_down.Flags().StringVar(&cmd_input_modifier_down_mod, "mod", "", "mod")
 
 	cmds = append(cmds, cmd_input_modifier_down)
 
 	// modifier-up: wrapper for perfuncted.ModifierUp
-	var cmd_input_modifier_up_key string
+	var cmd_input_modifier_up_mod string
 	cmd_input_modifier_up := &cobra.Command{
 		Use:   "modifier-up",
 		Short: "Auto-generated wrapper for perfuncted.ModifierUp",
@@ -453,14 +369,13 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_modifier_up_key (string)
-			if err := pf.Input.ModifierUp(cmd_input_modifier_up_key); err != nil {
+			if err := pf.Input.ModifierUp(cmd_input_modifier_up_mod); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_input_modifier_up.Flags().StringVar(&cmd_input_modifier_up_key, "key", "", "key")
+	cmd_input_modifier_up.Flags().StringVar(&cmd_input_modifier_up_mod, "mod", "", "mod")
 
 	cmds = append(cmds, cmd_input_modifier_up)
 
@@ -477,10 +392,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_mouse_click_x (int) already parsed into var
-			// flag cmd_input_mouse_click_y (int) already parsed into var
-			// flag cmd_input_mouse_click_button (int) already parsed into var
-			if err := pf.Input.MouseClick(context.Background(), cmd_input_mouse_click_x, cmd_input_mouse_click_y, cmd_input_mouse_click_button); err != nil {
+			if err := pf.Input.MouseClick(cmd_input_mouse_click_x, cmd_input_mouse_click_y, cmd_input_mouse_click_button); err != nil {
 				return err
 			}
 			return nil
@@ -503,8 +415,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_mouse_down_button (int) already parsed into var
-			if err := pf.Input.MouseDown(context.Background(), cmd_input_mouse_down_button); err != nil {
+			if err := pf.Input.MouseDown(cmd_input_mouse_down_button); err != nil {
 				return err
 			}
 			return nil
@@ -526,9 +437,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_mouse_move_x (int) already parsed into var
-			// flag cmd_input_mouse_move_y (int) already parsed into var
-			if err := pf.Input.MouseMove(context.Background(), cmd_input_mouse_move_x, cmd_input_mouse_move_y); err != nil {
+			if err := pf.Input.MouseMove(cmd_input_mouse_move_x, cmd_input_mouse_move_y); err != nil {
 				return err
 			}
 			return nil
@@ -550,8 +459,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_mouse_up_button (int) already parsed into var
-			if err := pf.Input.MouseUp(context.Background(), cmd_input_mouse_up_button); err != nil {
+			if err := pf.Input.MouseUp(cmd_input_mouse_up_button); err != nil {
 				return err
 			}
 			return nil
@@ -572,7 +480,6 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_press_combo_combo (string)
 			if err := pf.Input.PressCombo(cmd_input_press_combo_combo); err != nil {
 				return err
 			}
@@ -584,7 +491,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmds = append(cmds, cmd_input_press_combo)
 
 	// raw: wrapper for perfuncted.Raw
-	var cmd_input_raw_scancode int
+	var cmd_input_raw_event string
 	cmd_input_raw := &cobra.Command{
 		Use:   "raw",
 		Short: "Auto-generated wrapper for perfuncted.Raw",
@@ -594,14 +501,13 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_raw_scancode (int) already parsed into var
-			if err := pf.Input.Raw(cmd_input_raw_scancode); err != nil {
+			if err := pf.Input.Raw(cmd_input_raw_event); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_input_raw.Flags().IntVar(&cmd_input_raw_scancode, "scancode", 0, "scancode")
+	cmd_input_raw.Flags().StringVar(&cmd_input_raw_event, "event", "", "event")
 
 	cmds = append(cmds, cmd_input_raw)
 
@@ -616,8 +522,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_scroll_down_clicks (int) already parsed into var
-			if err := pf.Input.ScrollDown(context.Background(), cmd_input_scroll_down_clicks); err != nil {
+			if err := pf.Input.ScrollDown(cmd_input_scroll_down_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -638,8 +543,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_scroll_left_clicks (int) already parsed into var
-			if err := pf.Input.ScrollLeft(context.Background(), cmd_input_scroll_left_clicks); err != nil {
+			if err := pf.Input.ScrollLeft(cmd_input_scroll_left_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -660,8 +564,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_scroll_right_clicks (int) already parsed into var
-			if err := pf.Input.ScrollRight(context.Background(), cmd_input_scroll_right_clicks); err != nil {
+			if err := pf.Input.ScrollRight(cmd_input_scroll_right_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -682,8 +585,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_scroll_up_clicks (int) already parsed into var
-			if err := pf.Input.ScrollUp(context.Background(), cmd_input_scroll_up_clicks); err != nil {
+			if err := pf.Input.ScrollUp(cmd_input_scroll_up_clicks); err != nil {
 				return err
 			}
 			return nil
@@ -694,7 +596,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmds = append(cmds, cmd_input_scroll_up)
 
 	// type: wrapper for perfuncted.Type
-	var cmd_input_type_s string
+	var cmd_input_type_text string
 	cmd_input_type := &cobra.Command{
 		Use:   "type",
 		Short: "Auto-generated wrapper for perfuncted.Type",
@@ -704,18 +606,40 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_input_type_s (string)
-			if err := pf.Input.Type(context.Background(), cmd_input_type_s); err != nil {
+			if err := pf.Input.Type(cmd_input_type_text); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_input_type.Flags().StringVar(&cmd_input_type_s, "s", "", "s")
+	cmd_input_type.Flags().StringVar(&cmd_input_type_text, "text", "", "text")
 
 	cmds = append(cmds, cmd_input_type)
+
+	// type-with-delay: wrapper for perfuncted.TypeWithDelay
+	var cmd_input_type_with_delay_text string
+	var cmd_input_type_with_delay_delay time.Duration
+	cmd_input_type_with_delay := &cobra.Command{
+		Use:   "type-with-delay",
+		Short: "Auto-generated wrapper for perfuncted.TypeWithDelay",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Input.TypeWithDelay(cmd_input_type_with_delay_text, cmd_input_type_with_delay_delay); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_type_with_delay.Flags().StringVar(&cmd_input_type_with_delay_text, "text", "", "text")
+	cmd_input_type_with_delay.Flags().DurationVar(&cmd_input_type_with_delay_delay, "delay", 0, "delay")
+
 	return cmds
 }
+
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
@@ -730,7 +654,6 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_activate_pattern (string)
 			if err := pf.Window.Activate(cmd_window_activate_pattern); err != nil {
 				return err
 			}
@@ -752,11 +675,9 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			res, err := pf.Window.ActiveTitle()
-			if err != nil {
+			if _, err := pf.Window.ActiveTitle(); err != nil {
 				return err
 			}
-			fmt.Print(res)
 			return nil
 		},
 	}
@@ -784,7 +705,7 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	cmds = append(cmds, cmd_window_close)
 
 	// close-window: wrapper for perfuncted.CloseWindow
-	var cmd_window_close_window_title string
+	var cmd_window_close_window_pattern string
 	cmd_window_close_window := &cobra.Command{
 		Use:   "close-window",
 		Short: "Auto-generated wrapper for perfuncted.CloseWindow",
@@ -794,19 +715,60 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_close_window_title (string)
-			if err := pf.Window.CloseWindow(cmd_window_close_window_title); err != nil {
+			if err := pf.Window.CloseWindow(cmd_window_close_window_pattern); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_window_close_window.Flags().StringVar(&cmd_window_close_window_title, "title", "", "title")
+	cmd_window_close_window.Flags().StringVar(&cmd_window_close_window_pattern, "pattern", "", "pattern")
 
 	cmds = append(cmds, cmd_window_close_window)
 
+	// find-by-title: wrapper for perfuncted.FindByTitle
+	var cmd_window_find_by_title_pattern string
+	cmd_window_find_by_title := &cobra.Command{
+		Use:   "find-by-title",
+		Short: "Auto-generated wrapper for perfuncted.FindByTitle",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if _, err := pf.Window.FindByTitle(cmd_window_find_by_title_pattern); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_window_find_by_title.Flags().StringVar(&cmd_window_find_by_title_pattern, "pattern", "", "pattern")
+
+	cmds = append(cmds, cmd_window_find_by_title)
+
+	// get-geometry: wrapper for perfuncted.GetGeometry
+	var cmd_window_get_geometry_pattern string
+	cmd_window_get_geometry := &cobra.Command{
+		Use:   "get-geometry",
+		Short: "Auto-generated wrapper for perfuncted.GetGeometry",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if _, err := pf.Window.GetGeometry(cmd_window_get_geometry_pattern); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_window_get_geometry.Flags().StringVar(&cmd_window_get_geometry_pattern, "pattern", "", "pattern")
+
+	cmds = append(cmds, cmd_window_get_geometry)
+
 	// get-process: wrapper for perfuncted.GetProcess
-	var cmd_window_get_process_title string
+	var cmd_window_get_process_pattern string
 	cmd_window_get_process := &cobra.Command{
 		Use:   "get-process",
 		Short: "Auto-generated wrapper for perfuncted.GetProcess",
@@ -816,21 +778,38 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_get_process_title (string)
-			res, err := pf.Window.GetProcess(cmd_window_get_process_title)
-			if err != nil {
+			if _, err := pf.Window.GetProcess(cmd_window_get_process_pattern); err != nil {
 				return err
 			}
-			fmt.Printf("%d\n", res)
 			return nil
 		},
 	}
-	cmd_window_get_process.Flags().StringVar(&cmd_window_get_process_title, "title", "", "title")
+	cmd_window_get_process.Flags().StringVar(&cmd_window_get_process_pattern, "pattern", "", "pattern")
 
 	cmds = append(cmds, cmd_window_get_process)
 
+	// list: wrapper for perfuncted.List
+
+	cmd_window_list := &cobra.Command{
+		Use:   "list",
+		Short: "Auto-generated wrapper for perfuncted.List",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if _, err := pf.Window.List(context.Background()); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+
+	cmds = append(cmds, cmd_window_list)
+
 	// maximize: wrapper for perfuncted.Maximize
-	var cmd_window_maximize_title string
+	var cmd_window_maximize_pattern string
 	cmd_window_maximize := &cobra.Command{
 		Use:   "maximize",
 		Short: "Auto-generated wrapper for perfuncted.Maximize",
@@ -840,19 +819,18 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_maximize_title (string)
-			if err := pf.Window.Maximize(cmd_window_maximize_title); err != nil {
+			if err := pf.Window.Maximize(cmd_window_maximize_pattern); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_window_maximize.Flags().StringVar(&cmd_window_maximize_title, "title", "", "title")
+	cmd_window_maximize.Flags().StringVar(&cmd_window_maximize_pattern, "pattern", "", "pattern")
 
 	cmds = append(cmds, cmd_window_maximize)
 
 	// minimize: wrapper for perfuncted.Minimize
-	var cmd_window_minimize_title string
+	var cmd_window_minimize_pattern string
 	cmd_window_minimize := &cobra.Command{
 		Use:   "minimize",
 		Short: "Auto-generated wrapper for perfuncted.Minimize",
@@ -862,19 +840,18 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_minimize_title (string)
-			if err := pf.Window.Minimize(cmd_window_minimize_title); err != nil {
+			if err := pf.Window.Minimize(cmd_window_minimize_pattern); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_window_minimize.Flags().StringVar(&cmd_window_minimize_title, "title", "", "title")
+	cmd_window_minimize.Flags().StringVar(&cmd_window_minimize_pattern, "pattern", "", "pattern")
 
 	cmds = append(cmds, cmd_window_minimize)
 
 	// move: wrapper for perfuncted.Move
-	var cmd_window_move_title string
+	var cmd_window_move_pattern string
 	var cmd_window_move_x int
 	var cmd_window_move_y int
 	cmd_window_move := &cobra.Command{
@@ -886,23 +863,20 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_move_title (string)
-			// flag cmd_window_move_x (int) already parsed into var
-			// flag cmd_window_move_y (int) already parsed into var
-			if err := pf.Window.Move(cmd_window_move_title, cmd_window_move_x, cmd_window_move_y); err != nil {
+			if err := pf.Window.Move(context.Background(), cmd_window_move_pattern, cmd_window_move_x, cmd_window_move_y); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_window_move.Flags().StringVar(&cmd_window_move_title, "title", "", "title")
+	cmd_window_move.Flags().StringVar(&cmd_window_move_pattern, "pattern", "", "pattern")
 	cmd_window_move.Flags().IntVar(&cmd_window_move_x, "x", 0, "x")
 	cmd_window_move.Flags().IntVar(&cmd_window_move_y, "y", 0, "y")
 
 	cmds = append(cmds, cmd_window_move)
 
 	// resize: wrapper for perfuncted.Resize
-	var cmd_window_resize_title string
+	var cmd_window_resize_pattern string
 	var cmd_window_resize_width int
 	var cmd_window_resize_height int
 	cmd_window_resize := &cobra.Command{
@@ -914,23 +888,20 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_resize_title (string)
-			// flag cmd_window_resize_width (int) already parsed into var
-			// flag cmd_window_resize_height (int) already parsed into var
-			if err := pf.Window.Resize(cmd_window_resize_title, cmd_window_resize_width, cmd_window_resize_height); err != nil {
+			if err := pf.Window.Resize(cmd_window_resize_pattern, cmd_window_resize_width, cmd_window_resize_height); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_window_resize.Flags().StringVar(&cmd_window_resize_title, "title", "", "title")
+	cmd_window_resize.Flags().StringVar(&cmd_window_resize_pattern, "pattern", "", "pattern")
 	cmd_window_resize.Flags().IntVar(&cmd_window_resize_width, "width", 0, "width")
 	cmd_window_resize.Flags().IntVar(&cmd_window_resize_height, "height", 0, "height")
 
 	cmds = append(cmds, cmd_window_resize)
 
 	// restore: wrapper for perfuncted.Restore
-	var cmd_window_restore_title string
+	var cmd_window_restore_pattern string
 	cmd_window_restore := &cobra.Command{
 		Use:   "restore",
 		Short: "Auto-generated wrapper for perfuncted.Restore",
@@ -940,18 +911,19 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_window_restore_title (string)
-			if err := pf.Window.Restore(cmd_window_restore_title); err != nil {
+			if err := pf.Window.Restore(cmd_window_restore_pattern); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd_window_restore.Flags().StringVar(&cmd_window_restore_title, "title", "", "title")
+	cmd_window_restore.Flags().StringVar(&cmd_window_restore_pattern, "pattern", "", "pattern")
 
 	cmds = append(cmds, cmd_window_restore)
+
 	return cmds
 }
+
 func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
@@ -986,11 +958,9 @@ func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*
 				return err
 			}
 			defer pf.Close()
-			res, err := pf.Clipboard.Get()
-			if err != nil {
+			if _, err := pf.Clipboard.Get(); err != nil {
 				return err
 			}
-			fmt.Print(res)
 			return nil
 		},
 	}
@@ -1008,7 +978,6 @@ func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*
 				return err
 			}
 			defer pf.Close()
-			// flag cmd_clipboard_set_text (string)
 			if err := pf.Clipboard.Set(cmd_clipboard_set_text); err != nil {
 				return err
 			}
@@ -1018,5 +987,6 @@ func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*
 	cmd_clipboard_set.Flags().StringVar(&cmd_clipboard_set_text, "text", "", "text")
 
 	cmds = append(cmds, cmd_clipboard_set)
+
 	return cmds
 }

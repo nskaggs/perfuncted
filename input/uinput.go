@@ -329,6 +329,31 @@ func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(true, int32(clicks))
 }
 
+func (b *UinputBackend) PressCombo(ctx context.Context, combo string) error {
+	parts := strings.Split(strings.ToLower(combo), "+")
+	codes := make([]int, 0, len(parts))
+	for _, p := range parts {
+		code, err := b.resolveKey(strings.TrimSpace(p))
+		if err != nil {
+			return err
+		}
+		codes = append(codes, code)
+	}
+	// Press all
+	for _, c := range codes {
+		if err := b.kb.KeyDown(c); err != nil {
+			return err
+		}
+	}
+	// Release in reverse
+	for i := len(codes) - 1; i >= 0; i-- {
+		if err := b.kb.KeyUp(codes[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (b *UinputBackend) Close() error {
 	var errs []error
 	if err := b.kb.Close(); err != nil {

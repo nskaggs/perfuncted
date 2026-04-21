@@ -1,19 +1,4 @@
-// Package session manages headless sway sessions for desktop automation.
-//
-// A Session encapsulates the full lifecycle of an isolated Wayland session:
-// a temporary XDG_RUNTIME_DIR, dbus-daemon, headless sway compositor, and
-// wl-paste clipboard watcher. Callers use it to automate GUI applications
-// without touching the host desktop.
-//
-// Quick start:
-//
-//	sess, err := session.Start(session.Config{})
-//	if err != nil { log.Fatal(err) }
-//	defer sess.Stop()
-//
-//	pf, err := sess.Perfuncted(perfuncted.Options{})
-//	cmd, _ := sess.Launch("kwrite", "/tmp/test.txt")
-package session
+package perfuncted
 
 import (
 	"context"
@@ -29,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -37,8 +21,8 @@ import (
 //go:embed configs/ci.conf configs/headless.conf
 var embeddedConfigs embed.FS
 
-// Config controls session creation.
-type Config struct {
+// SessionConfig controls session creation.
+type SessionConfig struct {
 	// Resolution sets the headless output size. Zero value defaults to 1024x768.
 	Resolution image.Point
 
@@ -108,10 +92,10 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	}
 }
 
-// Start creates a new isolated headless sway session. It launches dbus-daemon,
+// StartSession creates a new isolated headless sway session. It launches dbus-daemon,
 // headless sway, and wl-paste, then waits for the Wayland and sway IPC sockets
 // to appear.
-func Start(cfg Config) (*Session, error) {
+func StartSession(cfg SessionConfig) (*Session, error) {
 	if cfg.Resolution == (image.Point{}) {
 		cfg.Resolution = image.Pt(1024, 768)
 	}
@@ -166,15 +150,6 @@ func Start(cfg Config) (*Session, error) {
 	return s, nil
 }
 
-// Perfuncted returns a connected perfuncted instance targeting this session.
-// The returned instance should be closed separately from the session.
-func (s *Session) Perfuncted(opts perfuncted.Options) (*perfuncted.Perfuncted, error) {
-	opts.XDGRuntimeDir = s.xdgDir
-	opts.WaylandDisplay = s.wlDisplay
-	opts.DBusSessionAddress = s.dbusAddr
-	return perfuncted.New(opts)
-}
-
 // Launch starts a subprocess inside the session with the correct environment.
 // The caller is responsible for waiting on or killing the returned Cmd.
 func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
@@ -206,12 +181,18 @@ func (s *Session) WaylandDisplay() string { return s.wlDisplay }
 // DBusAddress returns the D-Bus session bus address.
 func (s *Session) DBusAddress() string { return s.dbusAddr }
 
+// Perfuncted returns a connected perfuncted instance targeting this session.
+// The returned instance should be closed separately from the session.
+func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
+	opts.XDGRuntimeDir = s.xdgDir
+	opts.WaylandDisplay = s.wlDisplay
+	opts.DBusSessionAddress = s.dbusAddr
+	return New(opts)
+}
+
 // CleanupOnSignal stops the session when ctx is cancelled or when the process
 // receives an interrupt/termination signal. It returns a function that
 // unregisters the handler without stopping the session.
-//
-// SIGKILL and hard crashes cannot be handled in-process; callers should still
-// keep an external cleanup path for those cases.
 func (s *Session) CleanupOnSignal(ctx context.Context) func() {
 	if ctx == nil {
 		ctx = context.Background()
@@ -261,12 +242,6 @@ func (s *Session) IsStopped() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stopped
-}
-
-// Environ is a thin wrapper around internal/env.Environ for callers/tests that
-// relied on the original package-level helper.
-func Environ(xdgRuntimeDir, waylandDisplay, dbusAddr string) []string {
-	return env.Environ(xdgRuntimeDir, waylandDisplay, dbusAddr)
 }
 
 func (s *Session) launchDBus() error {

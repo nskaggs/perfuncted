@@ -11,8 +11,18 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
+
+// GrabFullHash returns a fast pixel hash of the entire screen.
+func (b *GnomeShellScreenshotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	img, err := b.Grab(ctx, image.Rectangle{})
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
 
 const (
 	gnomeShellShotDest  = "org.gnome.Shell.Screenshot"

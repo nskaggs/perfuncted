@@ -16,7 +16,7 @@ func TestPerfunctedPaste(t *testing.T) {
 	if cb.Text != "hello" {
 		t.Fatalf("Clipboard.Text = %q; want %q", cb.Text, "hello")
 	}
-	want := []string{"down:ctrl", "tap:v", "up:ctrl"}
+	want := []string{"combo:ctrl+v"}
 	if len(inp.Calls) < len(want) {
 		t.Fatalf("calls = %v", inp.Calls)
 	}

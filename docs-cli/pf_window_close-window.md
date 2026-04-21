@@ -9,8 +9,8 @@ pf window close-window [flags]
 ### Options
 
 ```
-  -h, --help           help for close-window
-      --title string   title
+  -h, --help             help for close-window
+      --pattern string   pattern
 ```
 
 ### Options inherited from parent commands

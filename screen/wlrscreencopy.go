@@ -3,6 +3,7 @@ package screen
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"sync"
 	"syscall"
@@ -11,6 +12,143 @@ import (
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
+
+// GrabFullHash returns a CRC32 checksum of the entire screen.
+// Bypasses intermediate image allocation by hashing the raw buffer directly.
+func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	var hash uint32
+	if err := b.withWlrContext(func(ctx *wl.Context) error {
+		display := wl.NewDisplay(ctx)
+		registry, err := display.GetRegistry()
+		if err != nil {
+			return fmt.Errorf("screen/wlr: get registry: %w", err)
+		}
+
+		var shm *wl.Shm
+		var output *wlRawProxy
+		var mgrName, mgrVer uint32
+
+		registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
+			switch ev.Interface {
+			case "zwlr_screencopy_manager_v1":
+				mgrName = ev.Name
+				mgrVer = ev.Version
+			case "wl_output":
+				if output == nil {
+					out := &wlRawProxy{}
+					ctx.Register(out)
+					ver := min(ev.Version, 4)
+					if err := registry.Bind(ev.Name, ev.Interface, ver, out.ID()); err == nil {
+						output = out
+					}
+				}
+			case "wl_shm":
+				s := &wl.Shm{}
+				ctx.Register(s)
+				if err := registry.Bind(ev.Name, ev.Interface, 1, s.ID()); err == nil {
+					shm = s
+				}
+			}
+		})
+
+		if err := display.RoundTrip(); err != nil {
+			return fmt.Errorf("screen/wlr: registry round-trip: %w", err)
+		}
+		if mgrName == 0 {
+			return fmt.Errorf("screen/wlr: zwlr_screencopy_manager_v1 not found")
+		}
+		if shm == nil || output == nil {
+			return fmt.Errorf("screen/wlr: wl_shm or wl_output missing")
+		}
+
+		mgrProxy := &wlRawProxy{}
+		ctx.Register(mgrProxy)
+		if err := registry.Bind(mgrName, "zwlr_screencopy_manager_v1", min(mgrVer, 3), mgrProxy.ID()); err != nil {
+			return fmt.Errorf("screen/wlr: bind manager: %w", err)
+		}
+
+		frameProxy := &wlRawProxy{}
+		ctx.Register(frameProxy)
+
+		if err := wlSendCaptureOutput(ctx, mgrProxy.ID(), 1, output.ID(), frameProxy.ID()); err != nil {
+			return fmt.Errorf("screen/wlr: capture_output: %w", err)
+		}
+
+		type bufInfo struct{ format, width, height, stride uint32 }
+		var bi bufInfo
+		var ready, failed, bufDone bool
+
+		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
+			switch opcode {
+			case 0: // buffer
+				bi.format = wl.Uint32(data[0:4])
+				bi.width = wl.Uint32(data[4:8])
+				bi.height = wl.Uint32(data[8:12])
+				bi.stride = wl.Uint32(data[12:16])
+			case 2: // ready
+				ready = true
+			case 3: // failed
+				failed = true
+			case 6: // buffer_done (protocol v2+)
+				bufDone = true
+			}
+		}
+
+		for !bufDone && bi.width == 0 && !failed {
+			if err := ctx.Dispatch(); err != nil {
+				return fmt.Errorf("screen/wlr: dispatch: %w", err)
+			}
+		}
+		if failed {
+			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
+		}
+
+		size := int(bi.stride * bi.height)
+		f, err := shmutil.CreateFile(int64(size))
+		if err != nil {
+			return fmt.Errorf("screen/wlr: shm file: %w", err)
+		}
+		defer f.Close()
+
+		pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		if err != nil {
+			return fmt.Errorf("screen/wlr: mmap: %w", err)
+		}
+		defer syscall.Munmap(pixels) //nolint:errcheck
+
+		pool, err := shm.CreatePool(int(f.Fd()), int32(size))
+		if err != nil {
+			return fmt.Errorf("screen/wlr: create_pool: %w", err)
+		}
+		defer pool.Destroy() //nolint:errcheck
+
+		buf, err := pool.CreateBuffer(0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
+		if err != nil {
+			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
+		}
+		defer buf.Destroy() //nolint:errcheck
+
+		if err := wlSendFrameCopy(ctx, frameProxy.ID(), buf.ID()); err != nil {
+			return fmt.Errorf("screen/wlr: frame copy: %w", err)
+		}
+
+		for !ready && !failed {
+			if err := ctx.Dispatch(); err != nil {
+				return fmt.Errorf("screen/wlr: dispatch: %w", err)
+			}
+		}
+		if failed {
+			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
+		}
+
+		// Calculate CRC32 IEEE of the raw buffer.
+		hash = crc32.ChecksumIEEE(pixels)
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return hash, nil
+}
 
 // WlrScreencopyBackend captures the screen using zwlr_screencopy_manager_v1.
 // This protocol is advertised by wlroots-based compositors (Sway, Hyprland, etc.)

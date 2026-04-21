@@ -20,8 +20,26 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
+
+// GrabFullHash returns a fast pixel hash of the entire screen.
+func (b *KWinShotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	img, err := b.Grab(ctx, image.Rect(0, 0, 0, 0))
+	if err != nil {
+		// KWin CaptureArea may fail with empty rect, so we need to get resolution first
+		w, h, err := ResolutionWithContext(ctx, b)
+		if err != nil {
+			return 0, err
+		}
+		img, err = b.Grab(ctx, image.Rect(0, 0, w, h))
+		if err != nil {
+			return 0, err
+		}
+	}
+	return find.PixelHash(img, nil), nil
+}
 
 const (
 	kwinShotDest  = "org.kde.KWin"

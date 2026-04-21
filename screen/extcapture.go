@@ -3,6 +3,7 @@ package screen
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"syscall"
 
@@ -94,36 +95,66 @@ func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
 	return b, nil
 }
 
+// GrabFullHash returns a CRC32 checksum of the entire screen.
+// Bypasses intermediate image allocation by hashing the raw buffer directly.
+func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	var hash uint32
+	if err := b.grabInternal(ctx, func(pixels []byte, _, _, _ int) error {
+		hash = crc32.ChecksumIEEE(pixels)
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return hash, nil
+}
+
 // Grab captures the full output then returns the cropped rect.
-// Wire protocol:
-//   - ext_output_image_capture_source_manager_v1 opcode 0 = create_source
-//   - ext_image_copy_capture_manager_v1 opcode 0 = create_session
-//   - ext_image_copy_capture_session_v1 opcode 0 = create_frame
-//   - ext_image_copy_capture_frame_v1 opcode 1 = attach_buffer
-//   - ext_image_copy_capture_frame_v1 opcode 2 = damage_buffer
-//   - ext_image_copy_capture_frame_v1 opcode 3 = capture
 func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	var outImg image.Image
+	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
+		// Decode XRGB8888 (BGRA on little-endian x86).
+		img := decodeBGRA(pixels, w, h, stride)
+
+		// Crop to requested rect. Convert logical rect -> physical using outputScale.
+		if rect.Dx() <= 0 || rect.Dy() <= 0 {
+			outImg = img
+			return nil
+		}
+		scale := int(b.outputScale)
+		if scale <= 0 {
+			scale = 1
+		}
+		phys := image.Rect(rect.Min.X*scale, rect.Min.Y*scale, rect.Max.X*scale, rect.Max.Y*scale)
+		outImg = cropRGBA(img, phys)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return outImg, nil
+}
+
+func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error {
 	wlctx := b.display.Context()
 
 	// Bind managers.
 	mgrProxy := &wlRawProxy{}
 	wlctx.Register(mgrProxy)
 	if err := b.registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), mgrProxy.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: bind manager: %w", err)
+		return fmt.Errorf("screen/ext: bind manager: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, mgrProxy.ID(), 2, nil) //nolint:errcheck
 
 	sourceMgrProxy := &wlRawProxy{}
 	wlctx.Register(sourceMgrProxy)
 	if err := b.registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), sourceMgrProxy.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: bind output source manager: %w", err)
+		return fmt.Errorf("screen/ext: bind output source manager: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, sourceMgrProxy.ID(), 1, nil) //nolint:errcheck
 
 	sourceProxy := &wlRawProxy{}
 	wlctx.Register(sourceProxy)
 	if err := sendExtOutputCreateSource(wlctx, sourceMgrProxy.ID(), sourceProxy.ID(), b.outputProxy.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: create_source: %w", err)
+		return fmt.Errorf("screen/ext: create_source: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, sourceProxy.ID(), 0, nil) //nolint:errcheck
 
@@ -131,7 +162,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	sessProxy := &wlRawProxy{}
 	wlctx.Register(sessProxy)
 	if err := sendExtCreateSession(wlctx, mgrProxy.ID(), sessProxy.ID(), sourceProxy.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: create_session: %w", err)
+		return fmt.Errorf("screen/ext: create_session: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, sessProxy.ID(), 1, nil) //nolint:errcheck
 
@@ -151,38 +182,38 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		}
 	}
 	if err := b.display.RoundTrip(); err != nil {
-		return nil, fmt.Errorf("screen/ext: session round-trip: %w", err)
+		return fmt.Errorf("screen/ext: session round-trip: %w", err)
 	}
 	if stopped {
-		return nil, fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
+		return fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
 	}
 	if si.width == 0 || si.height == 0 {
-		return nil, fmt.Errorf("screen/ext: session did not report buffer size")
+		return fmt.Errorf("screen/ext: session did not report buffer size")
 	}
 
 	stride := si.width * 4
 	size := int(stride * si.height)
 	f, err := shmutil.CreateFile(int64(size))
 	if err != nil {
-		return nil, fmt.Errorf("screen/ext: shm file: %w", err)
+		return fmt.Errorf("screen/ext: shm file: %w", err)
 	}
 	defer f.Close()
 
 	pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
-		return nil, fmt.Errorf("screen/ext: mmap: %w", err)
+		return fmt.Errorf("screen/ext: mmap: %w", err)
 	}
 	defer syscall.Munmap(pixels) //nolint:errcheck
 
 	pool, err := b.shm.CreatePool(int(f.Fd()), int32(size))
 	if err != nil {
-		return nil, fmt.Errorf("screen/ext: create_pool: %w", err)
+		return fmt.Errorf("screen/ext: create_pool: %w", err)
 	}
 	defer pool.Destroy() //nolint:errcheck
 
 	wlbuf, err := pool.CreateBuffer(0, int32(si.width), int32(si.height), int32(stride), si.format)
 	if err != nil {
-		return nil, fmt.Errorf("screen/ext: create_buffer: %w", err)
+		return fmt.Errorf("screen/ext: create_buffer: %w", err)
 	}
 	defer wlbuf.Destroy() //nolint:errcheck
 
@@ -190,25 +221,22 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	frameProxy := &wlRawProxy{}
 	wlctx.Register(frameProxy)
 	if err := sendExtCreateFrame(wlctx, sessProxy.ID(), frameProxy.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: create_frame: %w", err)
+		return fmt.Errorf("screen/ext: create_frame: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil) //nolint:errcheck
 
 	// attach_buffer(buffer) — frame opcode 1.
 	if err := sendExtAttachBuffer(wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: attach_buffer: %w", err)
+		return fmt.Errorf("screen/ext: attach_buffer: %w", err)
 	}
 	if err := sendExtDamageBuffer(wlctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
-		return nil, fmt.Errorf("screen/ext: damage_buffer: %w", err)
+		return fmt.Errorf("screen/ext: damage_buffer: %w", err)
 	}
 
 	// capture — frame opcode 3.
 	var ready, failed bool
 	frameProxy.dispatchFn = func(opcode uint32, _ int, _ []byte) {
 		switch opcode {
-		case 0: // transform
-		case 1: // damage
-		case 2: // presentation_time
 		case 3: // ready
 			ready = true
 		case 4: // failed
@@ -216,31 +244,19 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		}
 	}
 	if err := sendExtCapture(wlctx, frameProxy.ID()); err != nil {
-		return nil, fmt.Errorf("screen/ext: capture: %w", err)
+		return fmt.Errorf("screen/ext: capture: %w", err)
 	}
 
 	for !ready && !failed {
 		if err := wlctx.Dispatch(); err != nil {
-			return nil, fmt.Errorf("screen/ext: dispatch: %w", err)
+			return fmt.Errorf("screen/ext: dispatch: %w", err)
 		}
 	}
 	if failed {
-		return nil, fmt.Errorf("screen/ext: compositor signalled frame failed")
+		return fmt.Errorf("screen/ext: compositor signalled frame failed")
 	}
 
-	// Decode XRGB8888 (BGRA on little-endian x86).
-	img := decodeBGRA(pixels, int(si.width), int(si.height), int(stride))
-
-	// Crop to requested rect. Convert logical rect -> physical using outputScale.
-	if rect.Dx() <= 0 || rect.Dy() <= 0 {
-		return img, nil
-	}
-	scale := int(b.outputScale)
-	if scale <= 0 {
-		scale = 1
-	}
-	phys := image.Rect(rect.Min.X*scale, rect.Min.Y*scale, rect.Max.X*scale, rect.Max.Y*scale)
-	return cropRGBA(img, phys), nil
+	return fn(pixels, int(si.width), int(si.height), int(stride))
 }
 
 func (b *ExtCaptureBackend) Close() error {

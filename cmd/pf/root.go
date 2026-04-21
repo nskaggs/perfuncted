@@ -2,19 +2,6 @@
 // Each command group maps to a bundle (Screen, Input, Window); subcommands
 // map to bundle methods. All backend setup — including nested-session detection
 // — flows through perfuncted.New(), keeping the CLI and library in sync.
-//
-// Usage examples:
-//
-//	pf screen grab --rect 0,0,100,100 --out /tmp/shot.png
-//	pf screen hash --rect 0,0,100,100
-//	pf screen pixel --x 960 --y 540
-//	pf input move --x 500 --y 300
-//	pf input click --x 500 --y 300
-//	pf input type "hello world"
-//	pf input key ctrl+s
-//	pf window list
-//	pf window activate "kwrite"
-//	pf window active
 package main
 
 import (
@@ -36,11 +23,9 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/session"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -268,13 +253,13 @@ Use the printed env vars in another terminal to connect:
   kwrite /tmp/test.txt &
   pf screen grab --out /tmp/shot.png`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg := session.Config{}
+			cfg := perfuncted.SessionConfig{}
 			if startResX > 0 && startResY > 0 {
 				cfg.Resolution = image.Pt(startResX, startResY)
 			}
 			cfg.SwayConfigPath = startSwayConf
 
-			sess, err := session.Start(cfg)
+			sess, err := perfuncted.StartSession(cfg)
 			if err != nil {
 				return err
 			}
@@ -324,7 +309,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			img, err := pf.Screen.Grab(context.Background(), r)
+			img, err := pf.Screen.Grab(r)
 			if err != nil {
 				return err
 			}
@@ -380,7 +365,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			c, err := find.FirstPixel(context.Background(), pf.Screen.Screenshotter, image.Rect(px, py, px+1, py+1))
+			c, err := pf.Screen.GetPixel(px, py)
 			if err != nil {
 				return err
 			}
@@ -538,7 +523,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.MouseMove(context.Background(), mx, my); err != nil {
+			if err := pf.Input.Move(mx, my); err != nil {
 				return err
 			}
 			fmt.Printf("moved to %d,%d\n", mx, my)
@@ -557,7 +542,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.MouseClick(context.Background(), mx, my, button); err != nil {
+			if err := pf.Input.MouseClick(mx, my, button); err != nil {
 				return err
 			}
 			fmt.Printf("clicked button %d at %d,%d\n", button, mx, my)
@@ -642,7 +627,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			return pf.Input.Type(context.Background(), args[0])
+			return pf.Input.Type(args[0])
 		},
 	}
 
@@ -670,7 +655,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.KeyDown(context.Background(), args[0]); err != nil {
+			if err := pf.Input.KeyDown(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("keydown %s\n", args[0])
@@ -688,7 +673,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.KeyUp(context.Background(), args[0]); err != nil {
+			if err := pf.Input.KeyUp(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("keyup %s\n", args[0])
@@ -707,11 +692,11 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if mdx != -1 && mdy != -1 {
-				if err := pf.Input.MouseMove(context.Background(), mdx, mdy); err != nil {
+				if err := pf.Input.Move(mdx, mdy); err != nil {
 					return err
 				}
 			}
-			if err := pf.Input.MouseDown(context.Background(), mdButton); err != nil {
+			if err := pf.Input.MouseDown(mdButton); err != nil {
 				return err
 			}
 			fmt.Printf("mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
@@ -733,11 +718,11 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if mux != -1 && muy != -1 {
-				if err := pf.Input.MouseMove(context.Background(), mux, muy); err != nil {
+				if err := pf.Input.Move(mux, muy); err != nil {
 					return err
 				}
 			}
-			if err := pf.Input.MouseUp(context.Background(), muButton); err != nil {
+			if err := pf.Input.MouseUp(muButton); err != nil {
 				return err
 			}
 			fmt.Printf("mouseup button %d at %d,%d\n", muButton, mux, muy)
@@ -781,7 +766,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollUp(context.Background(), clicks); err != nil {
+			if err := pf.Input.ScrollUp(clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled up %d\n", clicks)
@@ -799,7 +784,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollDown(context.Background(), clicks); err != nil {
+			if err := pf.Input.ScrollDown(clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled down %d\n", clicks)
@@ -819,7 +804,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollLeft(context.Background(), clicks); err != nil {
+			if err := pf.Input.ScrollLeft(clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled left %d\n", clicks)
@@ -837,7 +822,7 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollRight(context.Background(), clicks); err != nil {
+			if err := pf.Input.ScrollRight(clicks); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled right %d\n", clicks)
@@ -864,7 +849,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			wins, err := pf.Window.List()
+			wins, err := pf.Window.List(context.Background())
 			if err != nil {
 				return err
 			}
@@ -922,7 +907,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Move(mvTitle, mvX, mvY); err != nil {
+			if err := pf.Window.Move(context.Background(), mvTitle, mvX, mvY); err != nil {
 				return err
 			}
 			fmt.Printf("moved %q to %d,%d\n", mvTitle, mvX, mvY)
@@ -1198,7 +1183,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitFor(ctx, r, want, poll)
+			h, err := pf.Screen.WaitForContext(ctx, r, want, poll)
 			if err != nil {
 				return err
 			}
@@ -1245,7 +1230,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForChange(ctx, r, initial, poll)
+			h, err := pf.Screen.WaitForChangeContext(ctx, r, initial, poll)
 			if err != nil {
 				return err
 			}
@@ -1288,7 +1273,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForNoChange(ctx, r, stableCount, poll)
+			h, err := pf.Screen.WaitForNoChangeContext(ctx, r, stableCount, poll)
 			if err != nil {
 				return err
 			}
@@ -1332,7 +1317,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			res, err := pf.Screen.ScanFor(ctx, rects, wants, poll)
+			res, err := pf.Screen.ScanForContext(ctx, rects, wants, poll)
 			if err != nil {
 				return err
 			}
@@ -1406,7 +1391,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForVisibleChange(ctx, r, poll, vfStable)
+			h, err := pf.Screen.WaitForVisibleChangeContext(ctx, r, poll, vfStable)
 			if err != nil {
 				return err
 			}
@@ -1448,7 +1433,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			resHash, rect, err := pf.Screen.WaitWithTolerance(ctx, r, h, wwtRadius, poll)
+			resHash, rect, err := pf.Screen.WaitWithToleranceContext(ctx, r, h, wwtRadius, poll)
 			if err != nil {
 				return err
 			}
@@ -1462,8 +1447,6 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	waitWithTolerance.Flags().StringVar(&wwtPoll, "poll", "50ms", "poll interval")
 	waitWithTolerance.Flags().StringVar(&wwtTimeout, "timeout", "5s", "timeout duration")
 	_ = waitWithTolerance.MarkFlagRequired("hash")
-
-	cmd.AddCommand(waitForVisibleChange, waitWithTolerance)
 
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int
@@ -1525,7 +1508,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			rect, err := pf.Screen.WaitForLocate(ctx, r, ref, poll)
+			rect, err := pf.Screen.WaitForLocateContext(ctx, r, ref, poll)
 			if err != nil {
 				return err
 			}
@@ -1557,9 +1540,6 @@ func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command 
 				return err
 			}
 			defer pf.Close()
-			if pf.Clipboard.Clipboard == nil {
-				return fmt.Errorf("clipboard: not available")
-			}
 			s, err := pf.Clipboard.Get()
 			if err != nil {
 				return err
@@ -1579,9 +1559,6 @@ func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command 
 				return err
 			}
 			defer pf.Close()
-			if pf.Clipboard.Clipboard == nil {
-				return fmt.Errorf("clipboard: not available")
-			}
 			return pf.Clipboard.Set(args[0])
 		},
 	}

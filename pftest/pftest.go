@@ -1,22 +1,5 @@
 // Package pftest provides in-memory mock backends for perfuncted's
 // Screenshotter, Inputter, Manager, and Clipboard interfaces.
-//
-// Each mock is a plain struct with exported fields — configure them before the
-// test, run the code under test, assert on the recorded state afterward:
-//
-//	sc := &pftest.Screenshotter{
-//	    Frames: []image.Image{pftest.SolidImage(64, 64, color.RGBA{255, 0, 0, 255})},
-//	}
-//	inp := &pftest.Inputter{}
-//	pf := pftest.New(sc, inp, nil, nil)
-//
-//	pf.Input.PressCombo("ctrl+s")
-//
-//	if inp.Calls[0] != "down:ctrl" { ... }
-//
-// Pass nil for any backend you don't need — the corresponding bundle will have
-// a nil inner interface and return an "not available" error if called, which is
-// the same behaviour as perfuncted.New() when a backend fails to open.
 package pftest
 
 import (
@@ -28,20 +11,15 @@ import (
 	"sync"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/clipboard"
+	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
 
 // ── Screenshotter ─────────────────────────────────────────────────────────────
 
-// Screenshotter is a deterministic, in-memory screen backend. It returns
-// Frames in order; the last frame is repeated indefinitely once exhausted.
-// If Frames is empty, Grab returns a zero-size black image.
-//
-// Width and Height are used by Resolution() and as the image size when a
-// frame's bounds are zero. When Frames is non-empty, Resolution() returns
-// the bounds of the first frame (ignoring Width/Height).
-//
-// Set Err to make all Grab calls return that error.
 type Screenshotter struct {
 	Frames []image.Image
 	Width  int
@@ -52,8 +30,6 @@ type Screenshotter struct {
 	idx int
 }
 
-// Grab returns the next frame. The rect argument is accepted but ignored —
-// the mock always returns the full pre-configured image.
 func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	if s.Err != nil {
 		return nil, s.Err
@@ -77,8 +53,14 @@ func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.I
 	return f, nil
 }
 
-// Resolution returns the bounds of the first frame, or Width×Height when
-// Frames is empty.
+func (s *Screenshotter) GrabFullHash(ctx context.Context) (uint32, error) {
+	img, err := s.Grab(ctx, image.Rectangle{})
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
 func (s *Screenshotter) Resolution() (int, int, error) {
 	if len(s.Frames) > 0 {
 		b := s.Frames[0].Bounds()
@@ -87,18 +69,14 @@ func (s *Screenshotter) Resolution() (int, int, error) {
 	return s.Width, s.Height, nil
 }
 
-// Reset rewinds the frame queue to the beginning.
 func (s *Screenshotter) Reset() {
 	s.mu.Lock()
 	s.idx = 0
 	s.mu.Unlock()
 }
 
-// Close is a no-op.
 func (s *Screenshotter) Close() error { return nil }
 
-// SolidImage returns a w×h *image.RGBA filled with c. Useful for building
-// Screenshotter.Frames without loading files.
 func SolidImage(w, h int, c color.RGBA) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
@@ -111,15 +89,6 @@ func SolidImage(w, h int, c color.RGBA) image.Image {
 
 // ── Inputter ──────────────────────────────────────────────────────────────────
 
-// Inputter records every injected event as a string in Calls.
-//
-// Event strings follow the format "<verb>:<arg>" where verb is one of:
-// "down", "up", "tap", "type", "move", "click", "mousedown", "mouseup",
-// "scroll-up", "scroll-down", "scroll-left", "scroll-right".
-// Mouse events append coordinates: "click:10,20" or "move:10,20".
-// Scroll events append the click count: "scroll-up:3".
-//
-// Set Err to make every method return that error (after recording the call).
 type Inputter struct {
 	Calls []string
 	Err   error
@@ -169,10 +138,12 @@ func (m *Inputter) MouseClick(ctx context.Context, x, y, b int) error {
 	m.record(fmt.Sprintf("click:%d,%d", x, y))
 	return m.Err
 }
+func (m *Inputter) PressCombo(ctx context.Context, c string) error {
+	m.record("combo:" + c)
+	return m.Err
+}
 func (m *Inputter) Close() error { return nil }
 
-// Typed returns all "type:..." calls joined together, useful for asserting
-// what text was typed overall.
 func (m *Inputter) Typed() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -185,7 +156,6 @@ func (m *Inputter) Typed() string {
 	return b.String()
 }
 
-// Reset clears the recorded call log.
 func (m *Inputter) Reset() {
 	m.mu.Lock()
 	m.Calls = m.Calls[:0]
@@ -194,14 +164,6 @@ func (m *Inputter) Reset() {
 
 // ── Manager ───────────────────────────────────────────────────────────────────
 
-// Manager provides scripted window lists and title sequences to drive
-// WindowBundle logic without a live compositor.
-//
-// List() returns entries from Lists in order; the last entry is repeated.
-// ActiveTitle() returns entries from Titles in order; the last is repeated.
-// Activate() appends the resolved title to Activated.
-//
-// Set Err to make all methods return that error.
 type Manager struct {
 	Lists     [][]window.Info
 	Titles    []string
@@ -240,6 +202,9 @@ func (m *Manager) Activate(ctx context.Context, title string) error {
 }
 
 func (m *Manager) ActiveTitle(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if m.Err != nil {
 		return "", m.Err
 	}
@@ -255,6 +220,10 @@ func (m *Manager) ActiveTitle(ctx context.Context) (string, error) {
 	return t, nil
 }
 
+func (m *Manager) FindByTitle(ctx context.Context, pattern string) (window.Info, error) {
+	return window.FindByTitle(ctx, m, pattern)
+}
+
 func (m *Manager) Move(ctx context.Context, title string, x, y int) error   { return m.Err }
 func (m *Manager) Resize(ctx context.Context, title string, w, h int) error { return m.Err }
 func (m *Manager) CloseWindow(ctx context.Context, title string) error      { return m.Err }
@@ -262,7 +231,6 @@ func (m *Manager) Minimize(ctx context.Context, title string) error         { re
 func (m *Manager) Maximize(ctx context.Context, title string) error         { return m.Err }
 func (m *Manager) Close() error                                             { return nil }
 
-// Reset rewinds all queues and clears Activated.
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	m.listIdx = 0
@@ -273,24 +241,19 @@ func (m *Manager) Reset() {
 
 // ── Clipboard ─────────────────────────────────────────────────────────────────
 
-// Clipboard is an in-memory clipboard backend. Get returns Text and GetErr;
-// Set stores the provided text in Text and returns SetErr.
 type Clipboard struct {
 	Text   string
 	GetErr error
 	SetErr error
 }
 
-func (c *Clipboard) Get() (string, error)  { return c.Text, c.GetErr }
-func (c *Clipboard) Set(text string) error { c.Text = text; return c.SetErr }
-func (c *Clipboard) Close() error          { return nil }
+func (c *Clipboard) Get(ctx context.Context) (string, error)    { return c.Text, c.GetErr }
+func (c *Clipboard) Set(ctx context.Context, text string) error { c.Text = text; return c.SetErr }
+func (c *Clipboard) Close() error                               { return nil }
 
 // ── Assembly ──────────────────────────────────────────────────────────────────
 
-// New assembles a *perfuncted.Perfuncted wired with the supplied mock backends.
-// Pass nil for any backend you don't need; the corresponding bundle will behave
-// as it does when perfuncted.New() fails to open that backend.
-func New(sc *Screenshotter, inp *Inputter, mgr *Manager, cb *Clipboard) *perfuncted.Perfuncted {
+func New(sc screen.Screenshotter, inp input.Inputter, mgr window.Manager, cb clipboard.Clipboard) *perfuncted.Perfuncted {
 	pf := &perfuncted.Perfuncted{}
 	if sc != nil {
 		pf.Screen = perfuncted.ScreenBundle{Screenshotter: sc}

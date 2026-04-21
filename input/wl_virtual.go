@@ -14,6 +14,7 @@ package input
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -239,6 +240,21 @@ func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error { retu
 
 // KeyUp releases a previously held key.
 func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error { return b.kbd.releaseKey(key) }
+
+func (b *WlVirtualBackend) PressCombo(ctx context.Context, combo string) error {
+	parts := strings.Split(strings.ToLower(combo), "+")
+	for _, p := range parts {
+		if err := b.kbd.pressKey(strings.TrimSpace(p)); err != nil {
+			return err
+		}
+	}
+	for i := len(parts) - 1; i >= 0; i-- {
+		if err := b.kbd.releaseKey(strings.TrimSpace(parts[i])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // scroll sends an axis event for the given number of discrete scroll notches.
 // axis 0 = vertical, axis 1 = horizontal. Positive values scroll down/right;

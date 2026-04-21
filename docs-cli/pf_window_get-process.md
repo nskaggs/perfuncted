@@ -9,8 +9,8 @@ pf window get-process [flags]
 ### Options
 
 ```
-  -h, --help           help for get-process
-      --title string   title
+  -h, --help             help for get-process
+      --pattern string   pattern
 ```
 
 ### Options inherited from parent commands

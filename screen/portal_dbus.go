@@ -14,8 +14,18 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
+
+// GrabFullHash returns a fast pixel hash of the entire screen.
+func (b *PortalDBusBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	img, err := b.Grab(ctx, image.Rectangle{})
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
 
 // PortalDBusBackend captures the screen via the xdg-desktop-portal Screenshot
 // interface (org.freedesktop.portal.Screenshot). Each Grab call takes a full

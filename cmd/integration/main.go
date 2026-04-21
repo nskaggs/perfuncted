@@ -27,7 +27,6 @@ import (
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/session"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -37,12 +36,12 @@ func main() {
 	appFilter := flag.String("app", "", "run only this app (kwrite, pluma, firefox); empty = all")
 	flag.Parse()
 
-	var sess *session.Session
+	var sess *perfuncted.Session
 	var err error
 
 	if *headless {
 		fmt.Println("▶ starting headless session...")
-		sess, err = session.Start(session.Config{
+		sess, err = perfuncted.StartSession(perfuncted.SessionConfig{
 			Resolution: image.Pt(1024, 768),
 		})
 		if err != nil {
@@ -107,7 +106,7 @@ func main() {
 type testContext struct {
 	pf   *perfuncted.Perfuncted
 	r    *results
-	sess *session.Session
+	sess *perfuncted.Session
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -135,7 +134,7 @@ func testBasicScreen(ctx *testContext) {
 	}
 
 	rect := image.Rect(0, 0, 100, 100)
-	img, err := pf.Screen.Grab(context.Background(), rect)
+	img, err := pf.Screen.Grab(rect)
 	r.check("Grab 100x100", err)
 	if err == nil {
 		hVal := find.PixelHash(img, nil)
@@ -159,9 +158,7 @@ func testBasicScreen(ctx *testContext) {
 
 	// WaitForFn
 	fmt.Println("  (testing WaitForFn...)")
-	ctxF, cancelF := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelF()
-	_, err = pf.Screen.WaitForFn(ctxF, rect, func(i image.Image) bool {
+	_, err = pf.Screen.WaitForFn(rect, func(i image.Image) bool {
 		return i != nil
 	}, 100*time.Millisecond)
 	r.check("WaitForFn", err)
@@ -320,14 +317,14 @@ func testApp(ctx *testContext, app appSpec) {
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
-		_ = pf.Input.KeyTap(context.Background(), "escape")
+		_ = pf.Input.KeyTap("escape")
 	}()
-	_, err = pf.Screen.WaitForVisibleChange(ctxV, rect, 100*time.Millisecond, 2)
+	_, err = pf.Screen.WaitForVisibleChangeContext(ctxV, rect, 100*time.Millisecond, 2)
 	r.check("WaitForVisibleChange", err)
 
 	// LocateExact
 	refRect := image.Rect(rect.Min.X+20, rect.Min.Y+20, rect.Min.X+50, rect.Min.Y+50)
-	refImg, err := pf.Screen.Grab(context.Background(), refRect)
+	refImg, err := pf.Screen.Grab(refRect)
 	if err == nil {
 		found, err := pf.Screen.LocateExact(rect, refImg)
 		r.check("LocateExact", err)
@@ -354,7 +351,7 @@ func testApp(ctx *testContext, app appSpec) {
 	r.check("CloseWindow", pf.Window.CloseWindow(app.winMatch))
 	time.Sleep(1 * time.Second)
 	if pf.Window.IsVisible(app.winMatch) {
-		_ = pf.Input.KeyTap(context.Background(), "escape")
+		_ = pf.Input.KeyTap("escape")
 		time.Sleep(500 * time.Millisecond)
 		_ = pf.Window.CloseWindow(app.winMatch)
 	}
@@ -418,15 +415,15 @@ func testBrowser(ctx *testContext, app appSpec) {
 	// Navigation test
 	r.check("Ctrl+L (Focus Address Bar)", pf.Input.PressCombo("ctrl+l"))
 	time.Sleep(1 * time.Second)
-	r.check("Type URL", pf.Input.Type(context.Background(), "about:support"))
+	r.check("Type URL", pf.Input.Type("about:support"))
 	time.Sleep(500 * time.Millisecond)
-	r.check("Return", pf.Input.KeyTap(context.Background(), "return"))
+	r.check("Return", pf.Input.KeyTap("return"))
 
 	fmt.Println("  (testing WaitForStable...)")
 	rect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
 	ctxS, cancelS := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelS()
-	_, err = pf.Screen.WaitForStable(ctxS, rect, 5, 1*time.Second)
+	_, err = pf.Screen.WaitForStableContext(ctxS, rect, 5, 1*time.Second)
 	r.check("WaitForStable", err)
 }
 

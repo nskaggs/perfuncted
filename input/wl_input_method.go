@@ -265,6 +265,13 @@ func (b *WlInputMethodBackend) ScrollRight(ctx context.Context, clicks int) erro
 	return b.other.ScrollRight(ctx, clicks)
 }
 
+func (b *WlInputMethodBackend) PressCombo(ctx context.Context, combo string) error {
+	if b.other == nil {
+		return fmt.Errorf("input/wl-im: PressCombo unsupported (no subordinate backend)")
+	}
+	return b.other.PressCombo(ctx, combo)
+}
+
 func (b *WlInputMethodBackend) Close() error {
 	var errs []error
 	if b.other != nil {

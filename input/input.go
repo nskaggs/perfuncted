@@ -30,7 +30,7 @@ type Inputter interface {
 	Type(ctx context.Context, s string) error
 	// MouseMove moves the pointer to absolute coordinates (x, y).
 	MouseMove(ctx context.Context, x, y int) error
-	// MouseClick moves to (x, y) and clicks the given button.
+	// Click moves to (x, y) and clicks the given button.
 	MouseClick(ctx context.Context, x, y, button int) error
 	// MouseDown presses (but does not release) a mouse button.
 	MouseDown(ctx context.Context, button int) error
@@ -44,6 +44,8 @@ type Inputter interface {
 	ScrollLeft(ctx context.Context, clicks int) error
 	// ScrollRight scrolls the mouse wheel right by the given number of notches.
 	ScrollRight(ctx context.Context, clicks int) error
+	// PressCombo sends a key combination, e.g. "ctrl+shift+t".
+	PressCombo(ctx context.Context, combo string) error
 	// Close releases all backend resources.
 	Close() error
 }

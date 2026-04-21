@@ -18,6 +18,7 @@ import (
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
+	GrabFullHash(ctx context.Context) (uint32, error)
 }
 
 // Hasher returns a fresh hash.Hash32 for each call. Swap out for stronger

@@ -18,6 +18,9 @@ import (
 // Screenshotter captures a rectangular region of the screen.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
+	// GrabFullHash returns a fast pixel hash of the entire screen.
+	// Backends should optimize this to avoid intermediate image allocations.
+	GrabFullHash(ctx context.Context) (uint32, error)
 	Close() error
 }
 

@@ -1,6 +1,5 @@
 // Package clipboard provides cross-platform clipboard access for Linux desktops.
-// On Wayland it uses wl-copy/wl-paste; on X11 it uses xclip. Both approaches
-// spawn a subprocess, making this work regardless of compositor or toolkit.
+// On Wayland it uses wl-copy/wl-paste; on X11, it uses xclip.
 package clipboard
 
 import (
@@ -8,80 +7,88 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
-	"time"
 
-	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
-const commandTimeout = 5 * time.Second
+var ErrNoClipboardTool = errors.New("no supported clipboard tool found (install wl-clipboard or xclip)")
 
-// ErrNoClipboardTool is returned when no supported clipboard helper is present.
-var ErrNoClipboardTool = errors.New("clipboard: no clipboard tool available (install wl-clipboard or xclip)")
-
-// Clipboard reads and writes the system clipboard.
+// Clipboard is the interface for system clipboard access.
 type Clipboard interface {
-	// Get returns the current clipboard text content.
-	Get() (string, error)
-	// Set sets the clipboard text content.
-	Set(text string) error
-	// Close releases any resources held by the clipboard implementation.
+	Get(ctx context.Context) (string, error)
+	Set(ctx context.Context, text string) error
 	Close() error
 }
 
-// extCmdClipboard is a thin implementation backed by external commands.
+// Bundle wraps a Clipboard with a check function.
+type Bundle struct {
+	Clipboard
+}
+
+func (b Bundle) checkAvailable() error {
+	if b.Clipboard == nil {
+		return fmt.Errorf("clipboard: not available")
+	}
+	return nil
+}
+
+func (b Bundle) Get(ctx context.Context) (string, error) {
+	if err := b.checkAvailable(); err != nil {
+		return "", err
+	}
+	return b.Clipboard.Get(ctx)
+}
+
+func (b Bundle) Set(ctx context.Context, text string) error {
+	if err := b.checkAvailable(); err != nil {
+		return err
+	}
+	return b.Clipboard.Set(ctx, text)
+}
+
+// Open detects the environment and returns the appropriate Clipboard backend.
+func Open() (Bundle, error) {
+	// Wayland check
+	if _, err := executil.LookPath("wl-copy"); err == nil {
+		if _, err := executil.LookPath("wl-paste"); err == nil {
+			return Bundle{&extCmdClipboard{
+				getCmd: []string{"wl-paste", "--no-newline"},
+				setCmd: []string{"wl-copy"},
+			}}, nil
+		}
+	}
+	// X11 check
+	if _, err := executil.LookPath("xclip"); err == nil {
+		return Bundle{&extCmdClipboard{
+			getCmd: []string{"xclip", "-selection", "clipboard", "-o"},
+			setCmd: []string{"xclip", "-selection", "clipboard"},
+		}}, nil
+	}
+	return Bundle{}, ErrNoClipboardTool
+}
+
 type extCmdClipboard struct {
 	getCmd []string
 	setCmd []string
-	env    []string
 }
 
-func (c *extCmdClipboard) Get() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
+func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
-	cmd.Env = c.env
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("clipboard: %s: %w", c.getCmd[0], err)
+		return "", fmt.Errorf("clipboard get: %w", err)
 	}
 	return out.String(), nil
 }
 
-func (c *extCmdClipboard) Set(text string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
+func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
-	cmd.Env = c.env
-	cmd.Stdin = strings.NewReader(text)
+	cmd.Stdin = bytes.NewBufferString(text)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("clipboard: %s: %w", c.setCmd[0], err)
+		return fmt.Errorf("clipboard set: %w", err)
 	}
 	return nil
 }
 
 func (c *extCmdClipboard) Close() error { return nil }
-
-// Open returns the best available Clipboard for the current session.
-// On Wayland sessions (WAYLAND_DISPLAY set) it uses wl-copy/wl-paste.
-// On X11 sessions it uses xclip.
-func Open() (Clipboard, error) {
-	env := env.Merge(os.Environ())
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
-		if copyPath, err := executil.LookPath("wl-copy"); err == nil {
-			if pastePath, err := executil.LookPath("wl-paste"); err == nil {
-				return &extCmdClipboard{getCmd: []string{pastePath, "--no-newline"}, setCmd: []string{copyPath}, env: env}, nil
-			}
-		}
-	}
-	if os.Getenv("DISPLAY") != "" {
-		if xclipPath, err := executil.LookPath("xclip"); err == nil {
-			return &extCmdClipboard{getCmd: []string{xclipPath, "-selection", "clipboard", "-o"}, setCmd: []string{xclipPath, "-selection", "clipboard"}, env: env}, nil
-		}
-	}
-	return nil, ErrNoClipboardTool
-}

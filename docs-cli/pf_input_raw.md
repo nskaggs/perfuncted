@@ -9,8 +9,8 @@ pf input raw [flags]
 ### Options
 
 ```
+      --event string   event
   -h, --help           help for raw
-      --scancode int   scancode
 ```
 
 ### Options inherited from parent commands

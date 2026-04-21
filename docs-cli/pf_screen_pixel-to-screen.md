@@ -10,7 +10,6 @@ pf screen pixel-to-screen [flags]
 
 ```
   -h, --help          help for pixel-to-screen
-      --out string    output path
       --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 

@@ -1,4 +1,4 @@
-package session
+package perfuncted
 
 import (
 	"context"
@@ -15,10 +15,10 @@ import (
 )
 
 func TestEnviron(t *testing.T) {
-	env := Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
+	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
 
 	var xdg, wl, dbus, display, gdk, qt string
-	for _, e := range env {
+	for _, e := range ev {
 		switch {
 		case strings.HasPrefix(e, "XDG_RUNTIME_DIR="):
 			xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
@@ -62,11 +62,11 @@ func TestEnvironFiltersHost(t *testing.T) {
 	os.Setenv("DISPLAY", ":0")
 	defer os.Unsetenv("DISPLAY")
 
-	env := Environ("/tmp/sess", "wayland-1", "unix:path=/tmp/sess/bus")
+	ev := env.Environ("/tmp/sess", "wayland-1", "unix:path=/tmp/sess/bus")
 
 	// Count occurrences of XDG_RUNTIME_DIR — should be exactly 1.
 	count := 0
-	for _, e := range env {
+	for _, e := range ev {
 		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
 			count++
 		}
@@ -76,8 +76,8 @@ func TestEnvironFiltersHost(t *testing.T) {
 	}
 }
 
-func TestConfigDefaults(t *testing.T) {
-	cfg := Config{}
+func TestSessionConfigDefaults(t *testing.T) {
+	cfg := SessionConfig{}
 	if cfg.Resolution != (image.Point{}) {
 		t.Errorf("default Resolution = %v, want zero", cfg.Resolution)
 	}

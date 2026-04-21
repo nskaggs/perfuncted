@@ -9,8 +9,7 @@ pf screen grab-full [flags]
 ### Options
 
 ```
-  -h, --help         help for grab-full
-      --out string   output path
+  -h, --help   help for grab-full
 ```
 
 ### Options inherited from parent commands

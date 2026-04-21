@@ -90,6 +90,7 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 	return xtest.FakeInputChecked(b.conn, xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
+// KeyUp releases a previously held key.
 func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	kc, err := b.keycodeFor(key)
 	if err != nil {
@@ -98,7 +99,34 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	return xtest.FakeInputChecked(b.conn, xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
+func (b *XTestBackend) PressCombo(ctx context.Context, combo string) error {
+	parts := strings.Split(strings.ToLower(combo), "+")
+	kcs := make([]xproto.Keycode, 0, len(parts))
+	for _, p := range parts {
+		kc, err := b.keycodeFor(strings.TrimSpace(p))
+		if err != nil {
+			return err
+		}
+		kcs = append(kcs, kc)
+	}
+	// Press all
+	for _, kc := range kcs {
+		if err := xtest.FakeInputChecked(b.conn, xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
+			return err
+		}
+	}
+	time.Sleep(b.delay)
+	// Release in reverse
+	for i := len(kcs) - 1; i >= 0; i-- {
+		if err := xtest.FakeInputChecked(b.conn, xproto.KeyRelease, byte(kcs[i]), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (b *XTestBackend) KeyTap(ctx context.Context, key string) error {
+
 	if err := b.KeyDown(ctx, key); err != nil {
 		return err
 	}

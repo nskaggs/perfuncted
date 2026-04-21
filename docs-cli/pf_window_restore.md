@@ -9,8 +9,8 @@ pf window restore [flags]
 ### Options
 
 ```
-  -h, --help           help for restore
-      --title string   title
+  -h, --help             help for restore
+      --pattern string   pattern
 ```
 
 ### Options inherited from parent commands
