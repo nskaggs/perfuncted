@@ -341,7 +341,11 @@ func main() {
 					imports["os"] = true
 					imports["image/png"] = true
 				} else if first.String() == "uint32" {
-					produce = "uint32"
+					if results.Len() == 3 && isRectangleType(results.At(1).Type()) {
+						produce = "uint32-rect"
+					} else {
+						produce = "uint32"
+					}
 					imports["fmt"] = true
 				} else if first.String() == "string" {
 					produce = "string"
@@ -486,7 +490,11 @@ func main() {
 					callParams = append(callParams, vname)
 				case "int":
 					vname := fmt.Sprintf("%s_%s", cmdVar, pname)
-					callParams = append(callParams, vname)
+					if params.At(i).Type().String() == "uint32" {
+						callParams = append(callParams, fmt.Sprintf("uint32(%s)", vname))
+					} else {
+						callParams = append(callParams, vname)
+					}
 				case "rect":
 					callParams = append(callParams, fmt.Sprintf("r_%d", rectIndex))
 					rectIndex++
@@ -523,6 +531,11 @@ func main() {
 				sb.WriteString(fmt.Sprintf("\t\t\th, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
 				sb.WriteString("\t\t\tfmt.Printf(\"%08x\\n\", h)\n")
+				sb.WriteString("\t\t\treturn nil\n")
+			} else if produce == "uint32-rect" {
+				sb.WriteString(fmt.Sprintf("\t\t\th, rect, err := %s\n", callStr))
+				sb.WriteString("\t\t\tif err != nil { return err }\n")
+				sb.WriteString("\t\t\tfmt.Printf(\"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "string" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
