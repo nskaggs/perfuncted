@@ -20,7 +20,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
@@ -651,44 +650,14 @@ func testBrowser(ctx *testContext, app appSpec) {
 
 	var cmd *exec.Cmd
 	var stdoutBuf, stderrBuf bytes.Buffer
-	var profileDir string
-	if app.name == "firefox" {
-		d, err := os.MkdirTemp("", "pf-firefox-profile-")
-		if err != nil {
-			r.fail("create firefox profile dir: %v", err)
-			return
-		}
-		profileDir = d
-		defer os.RemoveAll(profileDir)
-	}
 
 	if sess != nil {
-		if app.name == "firefox" {
-			// Build args with ephemeral profile so desktop Firefox isn't reused.
-			args := append(app.launch[1:], "--profile", profileDir)
-			path, err := executil.LookPath(app.launch[0])
-			if err != nil {
-				r.fail("find browser binary: %v", err)
-				return
-			}
-			c := executil.CommandContext(context.Background(), path, args...)
-			c.Env = sess.Env()
-			c.Stdout = &stdoutBuf
-			c.Stderr = &stderrBuf
-			c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			if err := c.Start(); err != nil {
-				r.fail("launch browser via session: %v", err)
-				return
-			}
-			cmd = c
-		} else {
-			c, err := sess.Launch(app.launch[0], app.launch[1:]...)
-			if err != nil {
-				r.fail("launch browser via session: %v", err)
-				return
-			}
-			cmd = c
+		c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+		if err != nil {
+			r.fail("launch browser via session: %v", err)
+			return
 		}
+		cmd = c
 	} else {
 		cmd = exec.Command(app.launch[0], app.launch[1:]...)
 		cmd.Env = append(os.Environ(), app.extraEnv...)
@@ -748,19 +717,35 @@ func testBrowser(ctx *testContext, app appSpec) {
 	}
 
 	r.check("Activate browser", pf.Window.Activate(app.winMatch))
-	time.Sleep(5 * time.Second)
 
-	// Navigation test: ensure address bar focus before typing
-	r.check("Ctrl+L (Focus Address Bar)", pf.Input.PressCombo("ctrl+l"))
-	// give the app a moment to focus address bar, then ensure focus with F6
-	time.Sleep(500 * time.Millisecond)
-	r.check("Ensure address bar focus (F6)", pf.Input.KeyTap("f6"))
-	// Type with small delays to improve reliability
-	r.check("Type URL", pf.Input.TypeWithDelay("about:support", 25*time.Millisecond))
-	time.Sleep(500 * time.Millisecond)
-	r.check("Return", pf.Input.KeyTap("return"))
+	// Navigation test: ensure address bar focus before typing using objective screen checks
+	// define a small top-area rect to observe address bar/focus changes
+	topH := info.H / 8
+	if topH < 24 {
+		topH = 24
+	}
+	topRect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+topH)
 
-	fmt.Println("  (testing WaitForStable...)")
+	// Ctrl+L should change the address bar area
+	var actionErr error
+	ctxCL, cancelCL := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCL()
+	_, err = pf.Screen.WaitForSettleContext(ctxCL, topRect, func() { actionErr = pf.Input.PressCombo("ctrl+l") }, 3, 200*time.Millisecond)
+	r.check("Ctrl+L sent", actionErr)
+	r.check("Address bar reacted to Ctrl+L", err)
+
+	// Type the URL and verify visual change
+	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelType()
+	actionErr = nil
+	_, err = pf.Screen.WaitForSettleContext(ctxType, topRect, func() { actionErr = pf.Input.TypeWithDelay("about:support", 25*time.Millisecond) }, 3, 200*time.Millisecond)
+	r.check("Type URL sent", actionErr)
+	r.check("Address bar changed after typing", err)
+
+	// Press return and wait for the whole window to settle
+	actionErr = pf.Input.KeyTap("return")
+	r.check("Return sent", actionErr)
+
 	rect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
 	ctxS, cancelS := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelS()
