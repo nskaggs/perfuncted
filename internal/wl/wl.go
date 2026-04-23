@@ -92,7 +92,22 @@ func (ctx *Context) SetProxy(id uint32, p Proxy) {
 }
 
 // WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
+func wlDebugEnabled() bool {
+	return os.Getenv("PF_WL_DEBUG") == "1"
+}
+
 func (ctx *Context) WriteMsg(data, oob []byte) error {
+	if wlDebugEnabled() {
+		if len(data) >= 8 {
+			sender := Uint32(data[0:4])
+			sizeOpcode := Uint32(data[4:8])
+			size := int(sizeOpcode>>16) - 8
+			opcode := sizeOpcode & 0xffff
+			fmt.Printf("WL OUT: sender=%d opcode=%d size=%d data=%x\n", sender, opcode, size, data[8:min(len(data), 8+64)])
+		} else {
+			fmt.Printf("WL OUT: short data len=%d\n", len(data))
+		}
+	}
 	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
 	if err != nil {
 		return err
@@ -101,6 +116,13 @@ func (ctx *Context) WriteMsg(data, oob []byte) error {
 		return fmt.Errorf("wl: short write (%d/%d data, %d/%d oob)", n, len(data), oobn, len(oob))
 	}
 	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Dispatch reads and dispatches exactly one Wayland message.
@@ -123,6 +145,9 @@ func (ctx *Context) Dispatch() error {
 		if _, err := io.ReadFull(ctx.conn, data); err != nil {
 			return fmt.Errorf("wl: %w", err)
 		}
+	}
+	if wlDebugEnabled() {
+		fmt.Printf("WL IN: sender=%d opcode=%d size=%d data=%x\n", senderID, opcode, size, data[:min(len(data), 64)])
 	}
 	if p, ok := ctx.objects[senderID]; ok {
 		p.Dispatch(opcode, -1, data)
