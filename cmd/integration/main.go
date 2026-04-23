@@ -233,69 +233,63 @@ func testApp(ctx *testContext, app appSpec) {
 	r.check("TypeWithDelay", pf.Input.TypeWithDelay("Integration", 20*time.Millisecond))
 	time.Sleep(200 * time.Millisecond)
 
-	// Paste
+	// Paste — verify clipboard then perform a paste (no retries).
 	marker := "PF-PASTE-" + app.name
-	r.check("Paste", pf.Paste(marker))
-	time.Sleep(1 * time.Second)
+
+	// 1) Set the clipboard using the library and verify the backend reports the same value.
+	if err := pf.Clipboard.Set(marker); err != nil {
+		r.fail("clipboard.Set failed: %v", err)
+		return
+	}
+	r.pass("Clipboard set")
+
+	clipVal, err := pf.Clipboard.Get()
+	if err != nil {
+		r.fail("clipboard.Get failed after Set: %v", err)
+		return
+	}
+	if clipVal != marker {
+		r.fail("clipboard content mismatch: expected %q got %q", marker, clipVal)
+		return
+	}
+	r.pass("Clipboard verified")
+
+	// 2) Trigger paste via Ctrl+V (single attempt) and verify the file content once.
+	if err := pf.Input.PressCombo("ctrl+v"); err != nil {
+		r.fail("Paste keypress (Ctrl+V) failed: %v", err)
+		return
+	}
+	r.pass("Paste keypress sent")
+	// Allow a short moment for the UI to update with pasted content.
+	time.Sleep(200 * time.Millisecond)
 
 	// Save before opening a new tab: Action: Ctrl+S. Verify content and mtime.
 	var beforeMod time.Time
-	if fi, err := os.Stat(app.saveFile); err == nil {
+	if fi, stErr := os.Stat(app.saveFile); stErr == nil {
 		beforeMod = fi.ModTime()
 	}
-	r.check("Ctrl+S (Save)", pf.Input.PressCombo("ctrl+s"))
-	// Small initial sleep before polling to give the app a chance to start writing.
-	time.Sleep(200 * time.Millisecond)
-	var (
-		content []byte
-		rerr    error
-		found   bool
-	)
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		content, rerr = os.ReadFile(app.saveFile)
-		if rerr == nil && strings.Contains(string(content), marker) {
-			found = true
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := pf.Input.PressCombo("ctrl+s"); err != nil {
+		r.fail("Ctrl+S (Save) failed: %v", err)
+		return
 	}
-	if found {
-		r.pass("File saved correctly with marker (pre-tab save)")
-		if fi, stErr := os.Stat(app.saveFile); stErr == nil {
-			if fi.ModTime().After(beforeMod) {
-				r.pass("File mtime updated after save (pre-tab)")
-			} else {
-				r.fail("File mtime not updated after save (pre-tab)")
-			}
-		}
-	} else {
-		// Debug: dump file contents to help diagnose flaky CI failures where
-		// the save completed but the expected marker isn't present.
-		if b, derr := os.ReadFile(app.saveFile); derr == nil {
-			fmt.Printf("  DEBUG: pre-tab file contents:\n%s\n", string(b))
+	r.pass("Ctrl+S (Save)")
+
+	// Read file ONCE (no retries) and assert marker presence. Report clipboard and file contents on failure.
+	content, rerr := os.ReadFile(app.saveFile)
+	if rerr != nil {
+		r.fail("Pre-tab save failed: could not read file after save: %v; clipboard=%q", rerr, clipVal)
+		return
+	}
+	if !strings.Contains(string(content), marker) {
+		r.fail("Pre-tab save failed: marker %q missing after paste; clipboard=%q; fileContents=%q", marker, clipVal, string(content))
+		return
+	}
+	r.pass("File saved correctly with marker (pre-tab save)")
+	if fi, stErr := os.Stat(app.saveFile); stErr == nil {
+		if fi.ModTime().After(beforeMod) {
+			r.pass("File mtime updated after save (pre-tab)")
 		} else {
-			fmt.Printf("  DEBUG: pre-tab read error: %v\n", derr)
-		}
-		// Fallback: type the marker directly and save again to work around
-		// paste-related flakiness in headless CI sessions.
-		r.check("Fallback: Type marker", pf.Input.Type(marker))
-		time.Sleep(200 * time.Millisecond)
-		r.check("Fallback: Ctrl+S (Save)", pf.Input.PressCombo("ctrl+s"))
-		// Poll briefly for the marker to appear after fallback typing.
-		deadline2 := time.Now().Add(3 * time.Second)
-		var fbFound bool
-		for time.Now().Before(deadline2) {
-			if b, ferr := os.ReadFile(app.saveFile); ferr == nil && strings.Contains(string(b), marker) {
-				fbFound = true
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-		if fbFound {
-			r.pass("File saved correctly with marker (fallback typing)")
-		} else {
-			r.fail("Pre-tab save failed: marker %q not found or unreadable after fallback", marker)
+			r.fail("File mtime not updated after save (pre-tab)")
 		}
 	}
 
