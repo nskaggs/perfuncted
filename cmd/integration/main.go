@@ -254,7 +254,29 @@ func testApp(ctx *testContext, app appSpec) {
 	}
 	r.pass("Clipboard verified")
 
-	// 2) Trigger paste via Ctrl+V (single attempt) and verify the file content once.
+	// Ensure the target application window is focused before sending paste.
+	title, terr := pf.Window.ActiveTitle()
+	if terr != nil || !strings.Contains(strings.ToLower(title), strings.ToLower(app.winMatch)) {
+		// Try activating the window and verify focus again.
+		r.check("Activate window before paste", pf.Window.Activate(app.winMatch))
+		time.Sleep(200 * time.Millisecond)
+		title2, terr2 := pf.Window.ActiveTitle()
+		if terr2 != nil || !strings.Contains(strings.ToLower(title2), strings.ToLower(app.winMatch)) {
+			r.fail("Window not focused before paste: active=%q err=%v", title2, terr2)
+			// Report clipboard and a debug read of the file to help diagnosis.
+			if b, derr := os.ReadFile(app.saveFile); derr == nil {
+				fmt.Printf("  DEBUG: file before paste attempt:\n%s\n", string(b))
+			} else {
+				fmt.Printf("  DEBUG: could not read file before paste attempt: %v\n", derr)
+			}
+			return
+		}
+		r.pass("Window focused before paste")
+	} else {
+		r.pass("Window already focused before paste")
+	}
+
+	// 2) Trigger paste via Ctrl+V (single attempt).
 	if err := pf.Input.PressCombo("ctrl+v"); err != nil {
 		r.fail("Paste keypress (Ctrl+V) failed: %v", err)
 		return
