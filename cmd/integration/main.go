@@ -277,8 +277,19 @@ func testApp(ctx *testContext, app appSpec) {
 	}
 
 	// 2) Trigger paste via Ctrl+V (single attempt).
+	// Record diagnostic context before the paste.
+	inputBackend := fmt.Sprintf("%T", pf.Input.Inputter)
+	titleBefore, _ := pf.Window.ActiveTitle()
+	pidBefore, pidErr := pf.Window.GetProcess(app.winMatch)
+	var procCmdlineBefore string
+	if pidErr == nil {
+		if b, e := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pidBefore)); e == nil {
+			procCmdlineBefore = strings.ReplaceAll(string(b), "\x00", " ")
+		}
+	}
+
 	if err := pf.Input.PressCombo("ctrl+v"); err != nil {
-		r.fail("Paste keypress (Ctrl+V) failed: %v", err)
+		r.fail("Paste keypress (Ctrl+V) failed: %v; inputBackend=%s", err, inputBackend)
 		return
 	}
 	r.pass("Paste keypress sent")
@@ -291,7 +302,7 @@ func testApp(ctx *testContext, app appSpec) {
 		beforeMod = fi.ModTime()
 	}
 	if err := pf.Input.PressCombo("ctrl+s"); err != nil {
-		r.fail("Ctrl+S (Save) failed: %v", err)
+		r.fail("Ctrl+S (Save) failed: %v; inputBackend=%s", err, inputBackend)
 		return
 	}
 	r.pass("Ctrl+S (Save)")
@@ -299,10 +310,27 @@ func testApp(ctx *testContext, app appSpec) {
 	// Read file ONCE (no retries) and assert marker presence. Report clipboard and file contents on failure.
 	content, rerr := os.ReadFile(app.saveFile)
 	if rerr != nil {
-		r.fail("Pre-tab save failed: could not read file after save: %v; clipboard=%q", rerr, clipVal)
+		r.fail("Pre-tab save failed: could not read file after save: %v; clipboard=%q; inputBackend=%s", rerr, clipVal, inputBackend)
 		return
 	}
 	if !strings.Contains(string(content), marker) {
+		// Gather diagnostic context at failure time.
+		titleAfter, _ := pf.Window.ActiveTitle()
+		pidAfter, _ := pf.Window.GetProcess(app.winMatch)
+		var procCmdlineAfter string
+		if b, e := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pidAfter)); e == nil {
+			procCmdlineAfter = strings.ReplaceAll(string(b), "\x00", " ")
+		}
+
+		fmt.Printf("  DEBUG: paste failure diagnostics:\n")
+		fmt.Printf("    inputBackend: %s\n", inputBackend)
+		fmt.Printf("    clipboard-before: %q\n", clipVal)
+		fmt.Printf("    activeTitle-before: %q\n", titleBefore)
+		fmt.Printf("    procBefore: pid=%d cmd=%q\n", pidBefore, procCmdlineBefore)
+		fmt.Printf("    activeTitle-after: %q\n", titleAfter)
+		fmt.Printf("    procAfter: pid=%d cmd=%q\n", pidAfter, procCmdlineAfter)
+		fmt.Printf("    fileContents: %q\n", string(content))
+		
 		r.fail("Pre-tab save failed: marker %q missing after paste; clipboard=%q; fileContents=%q", marker, clipVal, string(content))
 		return
 	}
