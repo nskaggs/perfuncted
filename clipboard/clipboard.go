@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -108,23 +107,7 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = executil.MergeEnv(c.env, os.Environ())
-	// Preserve env inspection for tests
-	var xdg, wl, dbus string
-	for _, e := range cmd.Env {
-		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
-			xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
-		}
-		if strings.HasPrefix(e, "WAYLAND_DISPLAY=") {
-			wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
-		}
-		if strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS=") {
-			dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
-		}
-	}
-	// keep variables referenced for linters/tests
-	_ = xdg
-	_ = wl
-	_ = dbus
+
 	cmd.Stdin = bytes.NewBufferString(text)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
