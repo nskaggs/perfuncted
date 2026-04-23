@@ -270,6 +270,13 @@ func testApp(ctx *testContext, app appSpec) {
 			}
 		}
 	} else {
+		// Debug: dump file contents to help diagnose flaky CI failures where
+		// the save completed but the expected marker isn't present.
+		if b, derr := os.ReadFile(app.saveFile); derr == nil {
+			fmt.Printf("  DEBUG: pre-tab file contents:\n%s\n", string(b))
+		} else {
+			fmt.Printf("  DEBUG: pre-tab read error: %v\n", derr)
+		}
 		r.fail("Pre-tab save failed: marker %q not found or unreadable", marker)
 	}
 
@@ -290,6 +297,7 @@ func testApp(ctx *testContext, app appSpec) {
 			if err2 != nil {
 				r.fail("Post-tab-close: could not read save file: %v", err2)
 			} else if !strings.Contains(string(content2), marker) {
+				fmt.Printf("  DEBUG: post-tab file contents:\n%s\n", string(content2))
 				r.fail("Post-tab-close: marker %q missing (tab close may have affected buffer)", marker)
 			} else {
 				r.pass("Ctrl+N/Ctrl+W sequence closed new tab and original buffer preserved")
