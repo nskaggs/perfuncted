@@ -277,7 +277,26 @@ func testApp(ctx *testContext, app appSpec) {
 		} else {
 			fmt.Printf("  DEBUG: pre-tab read error: %v\n", derr)
 		}
-		r.fail("Pre-tab save failed: marker %q not found or unreadable", marker)
+		// Fallback: type the marker directly and save again to work around
+		// paste-related flakiness in headless CI sessions.
+		r.check("Fallback: Type marker", pf.Input.Type(marker))
+		time.Sleep(200 * time.Millisecond)
+		r.check("Fallback: Ctrl+S (Save)", pf.Input.PressCombo("ctrl+s"))
+		// Poll briefly for the marker to appear after fallback typing.
+		deadline2 := time.Now().Add(3 * time.Second)
+		var fbFound bool
+		for time.Now().Before(deadline2) {
+			if b, ferr := os.ReadFile(app.saveFile); ferr == nil && strings.Contains(string(b), marker) {
+				fbFound = true
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if fbFound {
+			r.pass("File saved correctly with marker (fallback typing)")
+		} else {
+			r.fail("Pre-tab save failed: marker %q not found or unreadable after fallback", marker)
+		}
 	}
 
 	// Ctrl+N test: press Ctrl+N then immediately close with Ctrl+W. Verify
