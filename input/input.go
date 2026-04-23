@@ -56,9 +56,26 @@ type Inputter interface {
 // (e.g. KDE Plasma, GNOME), uinput is preferred over XTEST because XTEST is
 // scoped to X11/XWayland and does not deliver events to native Wayland windows.
 func Open(maxX, maxY int32) (Inputter, error) {
-	// On Wayland: prefer WlVirtual (wlroots-specific), then uinput (kernel-level,
-	// reaches all Wayland windows), then XTest (X11/XWayland only).
+	// Allow forcing a particular backend for debugging in CI/local runs.
+	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
+		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
+			if b, err := NewUinputBackend(maxX, maxY); err == nil {
+				return b, nil
+			}
+			return nil, fmt.Errorf("forced uinput selected but failed to initialize")
+		}
+		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
+	}
+
+	// On Wayland: prefer WlInputMethod (commit_string) when available because
+	// it delivers Unicode text reliably to Wayland clients. Fallback order:
+	//  WlInputMethod -> WlVirtual -> uinput -> XTest
 	if sock := wl.SocketPath(); sock != "" {
+		// Try input method first
+		if b, err := NewWlInputMethodBackend(sock, maxX, maxY); err == nil {
+			return b, nil
+		}
+		// Then try wl-virtual (wlroots-specific)
 		if b, err := NewWlVirtualBackend(sock); err == nil {
 			return b, nil
 		}
