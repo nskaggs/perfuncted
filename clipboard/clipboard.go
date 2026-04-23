@@ -95,23 +95,7 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = executil.MergeEnv(c.env, os.Environ())
-	// Capture env values used so tests can verify we're targeting the headless session.
-	var xdg, wl, dbus string
-	for _, e := range cmd.Env {
-		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
-			xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
-		}
-		if strings.HasPrefix(e, "WAYLAND_DISPLAY=") {
-			wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
-		}
-		if strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS=") {
-			dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
-		}
-	}
-	// keep variables referenced for linters/tests
-	_ = xdg
-	_ = wl
-	_ = dbus
+
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
