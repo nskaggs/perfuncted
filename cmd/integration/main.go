@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
@@ -649,27 +650,98 @@ func testBrowser(ctx *testContext, app appSpec) {
 	r.section("BROWSER [" + app.name + "]")
 
 	var cmd *exec.Cmd
-	if sess != nil {
-		c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var profileDir string
+	if app.name == "firefox" {
+		d, err := os.MkdirTemp("", "pf-firefox-profile-")
 		if err != nil {
-			r.fail("launch browser via session: %v", err)
+			r.fail("create firefox profile dir: %v", err)
 			return
 		}
-		cmd = c
+		profileDir = d
+		defer os.RemoveAll(profileDir)
+	}
+
+	if sess != nil {
+		if app.name == "firefox" {
+			// Build args with ephemeral profile so desktop Firefox isn't reused.
+			args := append(app.launch[1:], "--profile", profileDir)
+			path, err := executil.LookPath(app.launch[0])
+			if err != nil {
+				r.fail("find browser binary: %v", err)
+				return
+			}
+			c := executil.CommandContext(context.Background(), path, args...)
+			c.Env = sess.Env()
+			c.Stdout = &stdoutBuf
+			c.Stderr = &stderrBuf
+			c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := c.Start(); err != nil {
+				r.fail("launch browser via session: %v", err)
+				return
+			}
+			cmd = c
+		} else {
+			c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+			if err != nil {
+				r.fail("launch browser via session: %v", err)
+				return
+			}
+			cmd = c
+		}
 	} else {
 		cmd = exec.Command(app.launch[0], app.launch[1:]...)
 		cmd.Env = append(os.Environ(), app.extraEnv...)
+		cmd.Stdout = &stdoutBuf
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			r.fail("launch browser: %v", err)
 			return
 		}
 	}
-	defer cmd.Process.Kill()
+	defer func() {
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}()
 
+	// Wait for either the browser window to appear or for the process to exit early.
 	wctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	info, err := pf.Window.WaitFor(wctx, app.winMatch, 1*time.Second)
+	winCh := make(chan struct{}, 1)
+	procCh := make(chan error, 1)
+	go func() {
+		_, err := pf.Window.WaitFor(wctx, app.winMatch, 1*time.Second)
+		if err != nil {
+			procCh <- err
+			return
+		}
+		winCh <- struct{}{}
+	}()
+	go func() {
+		if cmd == nil {
+			procCh <- fmt.Errorf("no cmd")
+			return
+		}
+		err := cmd.Wait()
+		procCh <- err
+	}()
+
+	select {
+	case <-winCh:
+		// browser window appeared
+	case err := <-procCh:
+		// process exited before window; fail with stderr
+		r.fail("browser exited before window appeared: %v; stderr=%q stdout=%q", err, stderrBuf.String(), stdoutBuf.String())
+		return
+	case <-wctx.Done():
+		r.fail("browser did not appear: %v", wctx.Err())
+		return
+	}
+
+	// At this point the window should be present
+	info, err := pf.Window.WaitFor(context.Background(), app.winMatch, 500*time.Millisecond)
 	r.check("Browser appeared", err)
 	if err != nil {
 		return
@@ -678,10 +750,13 @@ func testBrowser(ctx *testContext, app appSpec) {
 	r.check("Activate browser", pf.Window.Activate(app.winMatch))
 	time.Sleep(5 * time.Second)
 
-	// Navigation test
+	// Navigation test: ensure address bar focus before typing
 	r.check("Ctrl+L (Focus Address Bar)", pf.Input.PressCombo("ctrl+l"))
-	time.Sleep(1 * time.Second)
-	r.check("Type URL", pf.Input.Type("about:support"))
+	// give the app a moment to focus address bar, then ensure focus with F6
+	time.Sleep(500 * time.Millisecond)
+	r.check("Ensure address bar focus (F6)", pf.Input.KeyTap("f6"))
+	// Type with small delays to improve reliability
+	r.check("Type URL", pf.Input.TypeWithDelay("about:support", 25*time.Millisecond))
 	time.Sleep(500 * time.Millisecond)
 	r.check("Return", pf.Input.KeyTap("return"))
 
