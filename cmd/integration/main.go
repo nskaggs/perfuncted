@@ -40,7 +40,6 @@ func main() {
 	var err error
 
 	if *headless {
-		fmt.Println("▶ starting headless session...")
 		sess, err = perfuncted.StartSession(perfuncted.SessionConfig{
 			Resolution: image.Pt(1024, 768),
 		})
@@ -48,7 +47,6 @@ func main() {
 			log.Fatalf("failed to start headless session: %v", err)
 		}
 		defer sess.Stop()
-		fmt.Printf("  session ready (XDG=%s)\n", sess.XDGRuntimeDir())
 	}
 
 	opts := perfuncted.Options{
@@ -67,8 +65,6 @@ func main() {
 		log.Fatalf("perfuncted.New: %v", err)
 	}
 	defer pf.Close()
-
-	fmt.Printf("screen: %T\ninput:  %T\nwindow: %T\n\n", pf.Screen.Screenshotter, pf.Input.Inputter, pf.Window.Manager)
 
 	r := &results{}
 	ctx := &testContext{pf: pf, r: r, sess: sess}
@@ -112,15 +108,15 @@ type testContext struct {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 func testProbes(r *results) {
-	fmt.Println("  (enumerating backends...)")
+	// Probe backends to ensure no panics; results are not printed in CI runs.
 	for _, res := range screen.Probe() {
-		fmt.Printf("  screen: %v\n", res)
+		_ = res
 	}
 	for _, res := range input.Probe() {
-		fmt.Printf("  input: %v\n", res)
+		_ = res
 	}
 	for _, res := range window.Probe() {
-		fmt.Printf("  window: %v\n", res)
+		_ = res
 	}
 	r.pass("probes enumerated")
 }
@@ -157,7 +153,6 @@ func testBasicScreen(ctx *testContext) {
 	}
 
 	// WaitForFn
-	fmt.Println("  (testing WaitForFn...)")
 	_, err = pf.Screen.WaitForFn(rect, func(i image.Image) bool {
 		return i != nil
 	}, 100*time.Millisecond)
@@ -273,7 +268,6 @@ func testApp(ctx *testContext, app appSpec) {
 		if strings.Contains(string(b), "Integration") {
 			r.pass("Typed content verified via Save->file read")
 		} else {
-			fmt.Printf("  DEBUG: file after save: %q\n", string(b))
 			// Fall back to Select+Copy if save didn't include the typed text.
 			if err := pf.Input.PressCombo("ctrl+a"); err != nil {
 				r.fail("Ctrl+A (Select All) failed: %v", err)
@@ -291,7 +285,6 @@ func testApp(ctx *testContext, app appSpec) {
 				return
 			}
 			if !strings.Contains(clipAfter, "Integration") {
-				fmt.Printf("  DEBUG: clipboard after select-copy: %q\n", clipAfter)
 				// Typing verification failed — as a deterministic recovery, overwrite
 				// the buffer with a known marker via the clipboard and paste it.
 				marker2 := "PF-TYPE-RECOVER-" + app.name
@@ -315,7 +308,6 @@ func testApp(ctx *testContext, app appSpec) {
 					if strings.Contains(string(b2), marker2) {
 						r.pass("Typed content recovered via clipboard-paste and save")
 					} else {
-						fmt.Printf("  DEBUG: file after recovery paste: %q\n", string(b2))
 						r.fail("Recovery paste did not write expected marker; file=%q", string(b2))
 						return
 					}
@@ -363,13 +355,6 @@ func testApp(ctx *testContext, app appSpec) {
 		title2, terr2 := pf.Window.ActiveTitle()
 		if terr2 != nil || !strings.Contains(strings.ToLower(title2), strings.ToLower(app.winMatch)) {
 			r.fail("Window not focused before paste: active=%q err=%v", title2, terr2)
-			// Report clipboard and a debug read of the file to help diagnosis.
-			if b, derr := os.ReadFile(app.saveFile); derr == nil {
-				fmt.Printf("  DEBUG: file before paste attempt:\n%s\n", string(b))
-			} else {
-				fmt.Printf("  DEBUG: could not read file before paste attempt: %v\n", derr)
-			}
-			return
 		}
 		r.pass("Window focused before paste")
 	} else {
@@ -564,7 +549,6 @@ func testApp(ctx *testContext, app appSpec) {
 	r.section("SCREEN-FIND [" + app.name + "]")
 
 	// WaitForVisibleChange
-	fmt.Println("  (testing WaitForVisibleChange via typing...)")
 	ctxV, cancelV := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelV()
 	go func() {
@@ -871,7 +855,7 @@ type results struct {
 
 func (r *results) section(name string) {
 	r.current = name
-	fmt.Printf("\n── %s ──\n", name)
+	_ = name
 }
 
 func (r *results) pass(msg string, args ...any) {
@@ -897,9 +881,8 @@ func (r *results) check(label string, err error) {
 }
 
 func (r *results) summary() {
-	fmt.Printf("\n══════════════════════════════\n")
-	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
-	fmt.Printf("══════════════════════════════\n")
+	_ = r.passed
+	_ = r.failed
 	if r.failed > 0 {
 		os.Exit(1)
 	}
