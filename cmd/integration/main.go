@@ -244,11 +244,25 @@ func testApp(ctx *testContext, app appSpec) {
 		beforeMod = fi.ModTime()
 	}
 	r.check("Ctrl+S (Save)", pf.Input.PressCombo("ctrl+s"))
-	time.Sleep(2 * time.Second)
-	content, err := os.ReadFile(app.saveFile)
-	if err == nil && strings.Contains(string(content), marker) {
+	// Small initial sleep before polling to give the app a chance to start writing.
+	time.Sleep(200 * time.Millisecond)
+	var (
+		content []byte
+		rerr    error
+		found   bool
+	)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		content, rerr = os.ReadFile(app.saveFile)
+		if rerr == nil && strings.Contains(string(content), marker) {
+			found = true
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if found {
 		r.pass("File saved correctly with marker (pre-tab save)")
-		if fi, err := os.Stat(app.saveFile); err == nil {
+		if fi, stErr := os.Stat(app.saveFile); stErr == nil {
 			if fi.ModTime().After(beforeMod) {
 				r.pass("File mtime updated after save (pre-tab)")
 			} else {
@@ -256,7 +270,7 @@ func testApp(ctx *testContext, app appSpec) {
 			}
 		}
 	} else {
-		r.fail("Pre-tab save failed: marker %q not found or unreadable: %v", marker, err)
+		r.fail("Pre-tab save failed: marker %q not found or unreadable", marker)
 	}
 
 	// Ctrl+N test: press Ctrl+N then immediately close with Ctrl+W. Verify
