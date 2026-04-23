@@ -166,12 +166,12 @@ func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
 		chunk := s[start:end]
 		// commit_string
 		payload := encodeWlString(chunk)
-		fmt.Printf("WlIM: commit_string chunk=%q serial=%d\n", chunk, b.serial)
+
 		if err := b.sendIMRequest(0, payload); err != nil { // opcode 0 = commit_string
-			fmt.Printf("WlIM: commit_string failed: %v\n", err)
+
 			// fall back
 			if b.other != nil {
-				fmt.Printf("WlIM: falling back to subordinate backend for Type()\n")
+
 				return b.other.Type(ctx, s)
 			}
 			return fmt.Errorf("input/wl-im: commit_string: %w", err)
@@ -182,24 +182,24 @@ func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
 		wl.PutUint32(cbuf[4:], 12<<16|3) // size=12, opcode=3 (commit)
 		wl.PutUint32(cbuf[8:], b.serial)
 		if err := b.ctx.WriteMsg(cbuf[:], nil); err != nil {
-			fmt.Printf("WlIM: commit write failed: %v\n", err)
+
 			if b.other != nil {
-				fmt.Printf("WlIM: falling back to subordinate backend for Type() after commit write\n")
+
 				return b.other.Type(ctx, s)
 			}
 			return fmt.Errorf("input/wl-im: commit: %w", err)
 		}
 		// Wait for compositor to emit done (increments b.serial)
 		if err := b.display.RoundTrip(); err != nil {
-			fmt.Printf("WlIM: RoundTrip failed after commit: %v\n", err)
+
 			// If RoundTrip fails, fall back
 			if b.other != nil {
-				fmt.Printf("WlIM: falling back to subordinate backend for Type() after roundtrip failure\n")
+
 				return b.other.Type(ctx, s)
 			}
 			return fmt.Errorf("input/wl-im: round-trip after commit: %w", err)
 		}
-		fmt.Printf("WlIM: commit done serial now=%d\n", b.serial)
+
 		start = end
 	}
 	return nil
