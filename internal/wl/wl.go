@@ -92,9 +92,7 @@ func (ctx *Context) SetProxy(id uint32, p Proxy) {
 }
 
 // WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
-
 func (ctx *Context) WriteMsg(data, oob []byte) error {
-
 	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
 	if err != nil {
 		return err
@@ -104,8 +102,6 @@ func (ctx *Context) WriteMsg(data, oob []byte) error {
 	}
 	return nil
 }
-
-
 
 // Dispatch reads and dispatches exactly one Wayland message.
 // Messages from unknown sender IDs are silently discarded (not an error).
@@ -128,7 +124,6 @@ func (ctx *Context) Dispatch() error {
 			return fmt.Errorf("wl: %w", err)
 		}
 	}
-
 	if p, ok := ctx.objects[senderID]; ok {
 		p.Dispatch(opcode, -1, data)
 	}
