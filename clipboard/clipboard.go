@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -83,12 +84,26 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
-	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
-	cmd.Stdin = bytes.NewBufferString(text)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("clipboard set: %w", err)
+	// Retry transient failures from external clipboard tools a few times to
+	// improve robustness in CI where wl-copy can occasionally fail.
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
+		cmd.Stdin = bytes.NewBufferString(text)
+		if err := cmd.Run(); err != nil {
+			lastErr = err
+			// If context was cancelled, return immediately.
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("clipboard set: %w", ctx.Err())
+			default:
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("clipboard set: %w", lastErr)
 }
 
 func (c *extCmdClipboard) Close() error { return nil }
