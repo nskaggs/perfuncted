@@ -650,16 +650,45 @@ func testBrowser(ctx *testContext, app appSpec) {
 
 	var cmd *exec.Cmd
 	var stdoutBuf, stderrBuf bytes.Buffer
-
-	if sess != nil {
-		c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+	var profileDir string
+	var err error
+	if app.name == "firefox" {
+		if sess != nil {
+			profileDir, err = os.MkdirTemp(sess.XDGRuntimeDir(), "pf-firefox-profile-")
+		} else {
+			profileDir, err = os.MkdirTemp("", "pf-firefox-profile-")
+		}
 		if err != nil {
-			r.fail("launch browser via session: %v", err)
+			r.fail("create firefox profile dir: %v", err)
 			return
 		}
-		cmd = c
+		defer os.RemoveAll(profileDir)
+	}
+
+	if sess != nil {
+		if app.name == "firefox" {
+			args := append(app.launch[1:], "--profile", profileDir)
+			c, err := sess.Launch(app.launch[0], args...)
+			if err != nil {
+				r.fail("launch browser via session: %v", err)
+				return
+			}
+			cmd = c
+		} else {
+			c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+			if err != nil {
+				r.fail("launch browser via session: %v", err)
+				return
+			}
+			cmd = c
+		}
 	} else {
-		cmd = exec.Command(app.launch[0], app.launch[1:]...)
+		if app.name == "firefox" {
+			args := append(app.launch[1:], "--profile", profileDir)
+			cmd = exec.Command(app.launch[0], args...)
+		} else {
+			cmd = exec.Command(app.launch[0], app.launch[1:]...)
+		}
 		cmd.Env = append(os.Environ(), app.extraEnv...)
 		cmd.Stdout = &stdoutBuf
 		cmd.Stderr = &stderrBuf
