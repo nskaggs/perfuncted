@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -94,7 +96,20 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = executil.MergeEnv(c.env, os.Environ())
-
+	// Log the env values used so tests can verify we're targeting the headless session.
+	var xdg, wl, dbus string
+	for _, e := range cmd.Env {
+		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
+			xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
+		}
+		if strings.HasPrefix(e, "WAYLAND_DISPLAY=") {
+			wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
+		}
+		if strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS=") {
+			dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
+		}
+	}
+	fmt.Printf("DEBUG: running %v (clipboard get) with XDG_RUNTIME_DIR=%q WAYLAND_DISPLAY=%q DBUS_SESSION_BUS_ADDRESS=%q\n", c.getCmd, xdg, wl, dbus)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
@@ -104,18 +119,42 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
-	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
-	// Ensure the external tool runs with the session env captured at Open().
-	cmd.Env = executil.MergeEnv(c.env, os.Environ())
-
-	cmd.Stdin = bytes.NewBufferString(text)
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return fmt.Errorf("clipboard set: %w", ctx.Err())
+	// Retry transient failures from external clipboard tools a few times to
+	// improve robustness in CI where wl-copy can occasionally fail.
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
+		// Ensure the external tool runs with the session env captured at Open().
+		cmd.Env = executil.MergeEnv(c.env, os.Environ())
+		// Log the env values used so tests can verify we're targeting the headless session.
+		var xdg, wl, dbus string
+		for _, e := range cmd.Env {
+			if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
+				xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
+			}
+			if strings.HasPrefix(e, "WAYLAND_DISPLAY=") {
+				wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
+			}
+			if strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS=") {
+				dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
+			}
 		}
-		return fmt.Errorf("clipboard set: %w", err)
+		fmt.Printf("DEBUG: running %v (clipboard set) with XDG_RUNTIME_DIR=%q WAYLAND_DISPLAY=%q DBUS_SESSION_BUS_ADDRESS=%q\n", c.setCmd, xdg, wl, dbus)
+		cmd.Stdin = bytes.NewBufferString(text)
+		if err := cmd.Run(); err != nil {
+			lastErr = err
+			// If context was cancelled, return immediately.
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("clipboard set: %w", ctx.Err())
+			default:
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("clipboard set: %w", lastErr)
 }
 
 func (c *extCmdClipboard) Close() error { return nil }
