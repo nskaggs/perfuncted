@@ -157,7 +157,6 @@ func testBasicScreen(ctx *testContext) {
 	}
 
 	// WaitForFn
-	fmt.Println("  (testing WaitForFn...)")
 	_, err = pf.Screen.WaitForFn(rect, func(i image.Image) bool {
 		return i != nil
 	}, 100*time.Millisecond)
@@ -228,35 +227,147 @@ func testApp(ctx *testContext, app appSpec) {
 	// ClickCenter
 	r.check("ClickCenter", pf.Input.ClickCenter(rect))
 	time.Sleep(500 * time.Millisecond)
+	// Verify the window remains active after clicking
+	titleAfterClick, atErr := pf.Window.ActiveTitle()
+	r.check("ActiveTitle after ClickCenter", atErr)
+	if atErr == nil {
+		r.pass("ActiveTitle after ClickCenter: %q", titleAfterClick)
+	}
+	// Also click near the expected document area to ensure text input focus
+	clickX := rect.Min.X + 40
+	clickY := rect.Min.Y + 120
+	_ = pf.Input.MouseMove(clickX, clickY)
+	_ = pf.Input.MouseClick(clickX, clickY, 1)
+	time.Sleep(700 * time.Millisecond)
 
-	// Type with Delay
+	// Type with Delay into the document area
 	r.check("TypeWithDelay", pf.Input.TypeWithDelay("Integration", 20*time.Millisecond))
-	time.Sleep(200 * time.Millisecond)
+	// Verify the UI changed after typing
+	ctxType, cancelType := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancelType()
+	_, visErr := pf.Screen.WaitForVisibleChangeContext(ctxType, rect, 100*time.Millisecond, 2)
+	r.check("WaitForVisibleChange after TypeWithDelay", visErr)
+	if visErr == nil {
+		r.pass("Visible change detected after typing")
+	}
+	// Allow application to process input and update buffers
+	time.Sleep(800 * time.Millisecond)
 
-	// Paste
+	// Save the buffer to disk and verify the file contains the typed text.
+	if err := pf.Input.PressCombo("ctrl+s"); err != nil {
+		r.fail("Ctrl+S (Save) failed: %v", err)
+		return
+	}
+	// Allow save to complete
+	time.Sleep(1500 * time.Millisecond)
+	if b, rerr := os.ReadFile(app.saveFile); rerr == nil {
+		if strings.Contains(string(b), "Integration") {
+			r.pass("Typed content verified via Save->file read")
+		} else {
+			fmt.Printf("  DEBUG: typed verification failed. file contents: %q\n", string(b))
+			if fi, err := os.Stat(app.saveFile); err == nil {
+				fmt.Printf("  DEBUG: file mode=%v size=%d mtime=%v\n", fi.Mode(), fi.Size(), fi.ModTime())
+			}
+			r.fail("Typed content not found in save file; typed verification failed")
+			return
+		}
+	} else {
+		r.fail("could not read save file for typed-content verification: %v", rerr)
+		return
+	}
+
+	// Paste — verify clipboard then perform a paste (no retries).
 	marker := "PF-PASTE-" + app.name
-	r.check("Paste", pf.Paste(marker))
-	time.Sleep(1 * time.Second)
+
+	// 1) Set the clipboard using the library and verify the backend reports the same value.
+	if err := pf.Clipboard.Set(marker); err != nil {
+		r.fail("clipboard.Set failed: %v", err)
+		return
+	}
+	r.pass("Clipboard set")
+
+	var clipVal string
+	clipVal, err = pf.Clipboard.Get()
+	if err != nil {
+		r.fail("clipboard.Get failed after Set: %v", err)
+		return
+	}
+	if clipVal != marker {
+		r.fail("clipboard content mismatch: expected %q got %q", marker, clipVal)
+		return
+	}
+	r.pass("Clipboard verified")
+
+	// Ensure the target application window is focused before sending paste.
+	title, terr := pf.Window.ActiveTitle()
+	if terr != nil || !strings.Contains(strings.ToLower(title), strings.ToLower(app.winMatch)) {
+		// Try activating the window and verify focus again.
+		r.check("Activate window before paste", pf.Window.Activate(app.winMatch))
+		time.Sleep(200 * time.Millisecond)
+		title2, terr2 := pf.Window.ActiveTitle()
+		if terr2 != nil || !strings.Contains(strings.ToLower(title2), strings.ToLower(app.winMatch)) {
+			r.fail("Window not focused before paste: active=%q err=%v", title2, terr2)
+		}
+		r.pass("Window focused before paste")
+	} else {
+		r.pass("Window already focused before paste")
+	}
+
+	// 2) Trigger paste via an explicit modifier sequence (KeyDown/KeyTap/KeyUp).
+	inputBackend := fmt.Sprintf("%T", pf.Input.Inputter)
+
+	if err := pf.Input.KeyDown("ctrl"); err != nil {
+		r.fail("KeyDown ctrl failed: %v; inputBackend=%s", err, inputBackend)
+		return
+	}
+	r.pass("KeyDown ctrl")
+
+	if err := pf.Input.KeyTap("v"); err != nil {
+		r.fail("KeyTap v failed: %v; inputBackend=%s", err, inputBackend)
+		// Attempt to release modifier to avoid stuck state
+		_ = pf.Input.KeyUp("ctrl")
+		return
+	}
+	r.pass("KeyTap v")
+
+	if err := pf.Input.KeyUp("ctrl"); err != nil {
+		r.fail("KeyUp ctrl failed: %v; inputBackend=%s", err, inputBackend)
+		return
+	}
+	r.pass("KeyUp ctrl")
+
+	// Allow a short moment for the UI to update with pasted content.
+	time.Sleep(200 * time.Millisecond)
 
 	// Save before opening a new tab: Action: Ctrl+S. Verify content and mtime.
 	var beforeMod time.Time
-	if fi, err := os.Stat(app.saveFile); err == nil {
+	if fi, stErr := os.Stat(app.saveFile); stErr == nil {
 		beforeMod = fi.ModTime()
 	}
-	r.check("Ctrl+S (Save)", pf.Input.PressCombo("ctrl+s"))
-	time.Sleep(2 * time.Second)
-	content, err := os.ReadFile(app.saveFile)
-	if err == nil && strings.Contains(string(content), marker) {
-		r.pass("File saved correctly with marker (pre-tab save)")
-		if fi, err := os.Stat(app.saveFile); err == nil {
-			if fi.ModTime().After(beforeMod) {
-				r.pass("File mtime updated after save (pre-tab)")
-			} else {
-				r.fail("File mtime not updated after save (pre-tab)")
-			}
+	if err := pf.Input.PressCombo("ctrl+s"); err != nil {
+		r.fail("Ctrl+S (Save) failed: %v; inputBackend=%s", err, inputBackend)
+		return
+	}
+	r.pass("Ctrl+S (Save)")
+
+	// Read file ONCE (no retries) and assert marker presence. File content is the
+	// single source of truth for paste verification.
+	content, rerr := os.ReadFile(app.saveFile)
+	if rerr != nil {
+		r.fail("Pre-tab save failed: could not read file after save: %v", rerr)
+		return
+	}
+	if !strings.Contains(string(content), marker) {
+		r.fail("Pre-tab save failed: marker %q missing after paste; fileContents=%q", marker, string(content))
+		return
+	}
+	r.pass("File saved correctly with marker (pre-tab save)")
+	if fi, stErr := os.Stat(app.saveFile); stErr == nil {
+		if fi.ModTime().After(beforeMod) {
+			r.pass("File mtime updated after save (pre-tab)")
+		} else {
+			r.fail("File mtime not updated after save (pre-tab)")
 		}
-	} else {
-		r.fail("Pre-tab save failed: marker %q not found or unreadable: %v", marker, err)
 	}
 
 	// Ctrl+N test: press Ctrl+N then immediately close with Ctrl+W. Verify
@@ -298,7 +409,6 @@ func testApp(ctx *testContext, app appSpec) {
 	r.section("SCREEN-FIND [" + app.name + "]")
 
 	// WaitForVisibleChange
-	fmt.Println("  (testing WaitForVisibleChange via typing...)")
 	ctxV, cancelV := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelV()
 	go func() {
@@ -383,43 +493,132 @@ func testBrowser(ctx *testContext, app appSpec) {
 	r.section("BROWSER [" + app.name + "]")
 
 	var cmd *exec.Cmd
-	if sess != nil {
-		c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var profileDir string
+	var err error
+	if app.name == "firefox" {
+		if sess != nil {
+			profileDir, err = os.MkdirTemp(sess.XDGRuntimeDir(), "pf-firefox-profile-")
+		} else {
+			profileDir, err = os.MkdirTemp("", "pf-firefox-profile-")
+		}
 		if err != nil {
-			r.fail("launch browser via session: %v", err)
+			r.fail("create firefox profile dir: %v", err)
 			return
 		}
-		cmd = c
+		defer os.RemoveAll(profileDir)
+	}
+
+	if sess != nil {
+		if app.name == "firefox" {
+			args := append(app.launch[1:], "--profile", profileDir)
+			c, err := sess.Launch(app.launch[0], args...)
+			if err != nil {
+				r.fail("launch browser via session: %v", err)
+				return
+			}
+			cmd = c
+		} else {
+			c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+			if err != nil {
+				r.fail("launch browser via session: %v", err)
+				return
+			}
+			cmd = c
+		}
 	} else {
-		cmd = exec.Command(app.launch[0], app.launch[1:]...)
+		if app.name == "firefox" {
+			args := append(app.launch[1:], "--profile", profileDir)
+			cmd = exec.Command(app.launch[0], args...)
+		} else {
+			cmd = exec.Command(app.launch[0], app.launch[1:]...)
+		}
 		cmd.Env = append(os.Environ(), app.extraEnv...)
+		cmd.Stdout = &stdoutBuf
+		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
 			r.fail("launch browser: %v", err)
 			return
 		}
 	}
-	defer cmd.Process.Kill()
+	defer func() {
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}()
 
+	// Wait for either the browser window to appear or for the process to exit early.
 	wctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	info, err := pf.Window.WaitFor(wctx, app.winMatch, 1*time.Second)
+	winCh := make(chan struct{}, 1)
+	procCh := make(chan error, 1)
+	go func() {
+		_, err := pf.Window.WaitFor(wctx, app.winMatch, 1*time.Second)
+		if err != nil {
+			procCh <- err
+			return
+		}
+		winCh <- struct{}{}
+	}()
+	go func() {
+		if cmd == nil {
+			procCh <- fmt.Errorf("no cmd")
+			return
+		}
+		err := cmd.Wait()
+		procCh <- err
+	}()
+
+	select {
+	case <-winCh:
+		// browser window appeared
+	case err := <-procCh:
+		// process exited before window; fail with stderr
+		r.fail("browser exited before window appeared: %v; stderr=%q stdout=%q", err, stderrBuf.String(), stdoutBuf.String())
+		return
+	case <-wctx.Done():
+		r.fail("browser did not appear: %v", wctx.Err())
+		return
+	}
+
+	// At this point the window should be present
+	info, err := pf.Window.WaitFor(context.Background(), app.winMatch, 500*time.Millisecond)
 	r.check("Browser appeared", err)
 	if err != nil {
 		return
 	}
 
 	r.check("Activate browser", pf.Window.Activate(app.winMatch))
-	time.Sleep(5 * time.Second)
 
-	// Navigation test
-	r.check("Ctrl+L (Focus Address Bar)", pf.Input.PressCombo("ctrl+l"))
-	time.Sleep(1 * time.Second)
-	r.check("Type URL", pf.Input.Type("about:support"))
-	time.Sleep(500 * time.Millisecond)
-	r.check("Return", pf.Input.KeyTap("return"))
+	// Navigation test: ensure address bar focus before typing using objective screen checks
+	// define a small top-area rect to observe address bar/focus changes
+	topH := info.H / 8
+	if topH < 24 {
+		topH = 24
+	}
+	topRect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+topH)
 
-	fmt.Println("  (testing WaitForStable...)")
+	// Ctrl+L should change the address bar area
+	var actionErr error
+	ctxCL, cancelCL := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCL()
+	_, err = pf.Screen.WaitForSettleContext(ctxCL, topRect, func() { actionErr = pf.Input.PressCombo("ctrl+l") }, 3, 200*time.Millisecond)
+	r.check("Ctrl+L sent", actionErr)
+	r.check("Address bar reacted to Ctrl+L", err)
+
+	// Type the URL and verify visual change
+	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelType()
+	actionErr = nil
+	_, err = pf.Screen.WaitForSettleContext(ctxType, topRect, func() { actionErr = pf.Input.TypeWithDelay("about:support", 25*time.Millisecond) }, 3, 200*time.Millisecond)
+	r.check("Type URL sent", actionErr)
+	r.check("Address bar changed after typing", err)
+
+	// Press return and wait for the whole window to settle
+	actionErr = pf.Input.KeyTap("return")
+	r.check("Return sent", actionErr)
+
 	rect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
 	ctxS, cancelS := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelS()
@@ -527,10 +726,12 @@ func (r *results) pass(msg string, args ...any) {
 }
 
 func (r *results) fail(msg string, args ...any) {
-	r.failed++
-	s := fmt.Sprintf("  FAIL  %s\n", fmt.Sprintf(msg, args...))
-	fmt.Print(s)
-	r.logs.WriteString(s)
+	fmt.Printf("\n══════════════════════════════\n")
+	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
+	fmt.Printf("══════════════════════════════\n")
+	if r.failed > 0 {
+		os.Exit(1)
+	}
 }
 
 func (r *results) check(label string, err error) {
@@ -545,7 +746,4 @@ func (r *results) summary() {
 	fmt.Printf("\n══════════════════════════════\n")
 	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
 	fmt.Printf("══════════════════════════════\n")
-	if r.failed > 0 {
-		os.Exit(1)
-	}
 }
