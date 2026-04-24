@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -704,15 +705,39 @@ func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration
 	if err != nil {
 		return "", err
 	}
+
+	const (
+		maxPoll      = 100 * time.Millisecond
+		jitterFactor = 0.1
+	)
+
+	delay := poll
+	if delay > maxPoll {
+		delay = maxPoll
+	}
+
 	for {
 		current, err := w.Manager.ActiveTitle(ctx)
 		if err == nil && current != initial {
 			return current, nil
 		}
+
+		// Calculate next delay with exponential backoff and jitter
+		nextDelay := delay * 2
+		if nextDelay > maxPoll {
+			nextDelay = maxPoll
+		}
+		jitter := time.Duration(float64(nextDelay) * jitterFactor * (rand.Float64()*2 - 1))
+		nextDelay += jitter
+		if nextDelay < time.Millisecond {
+			nextDelay = time.Millisecond
+		}
+
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(poll):
+		case <-time.After(delay):
+			delay = nextDelay
 		}
 	}
 }
@@ -811,34 +836,27 @@ func New(opts Options) (*Perfuncted, error) {
 		screen.SetDisplayOverride(os.Getenv("DISPLAY"))
 	}
 
+	// Eagerly open the screen backend to preserve prior behaviour for callers
+	// that expect screen availability immediately.
 	scr, err := screen.Open()
 	if err != nil {
 		return nil, err
 	}
-	inp, err := input.Open(opts.MaxX, opts.MaxY)
-	if err != nil {
-		scr.Close()
-		return nil, err
+
+	// Defer initialization of input/window/clipboard backends until first use.
+	inpLazy := &lazyInputter{
+		env:  env,
+		maxX: opts.MaxX,
+		maxY: opts.MaxY,
 	}
-	win, err := window.Open()
-	if err != nil {
-		scr.Close()
-		inp.Close()
-		return nil, err
-	}
-	cb, err := clipboard.Open()
-	if err != nil {
-		scr.Close()
-		inp.Close()
-		win.Close()
-		return nil, err
-	}
+	winLazy := &lazyWindowManager{env: env}
+	cbLazy := &lazyClipboard{env: env}
 
 	return &Perfuncted{
 		Screen:    ScreenBundle{scr},
-		Input:     InputBundle{inp},
-		Window:    WindowBundle{win},
-		Clipboard: ClipboardBundle{cb},
+		Input:     InputBundle{inpLazy},
+		Window:    WindowBundle{winLazy},
+		Clipboard: ClipboardBundle{cbLazy},
 	}, nil
 }
 

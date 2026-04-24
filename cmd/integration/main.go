@@ -40,6 +40,7 @@ func main() {
 	var err error
 
 	if *headless {
+		fmt.Println("▶ starting headless session...")
 		sess, err = perfuncted.StartSession(perfuncted.SessionConfig{
 			Resolution: image.Pt(1024, 768),
 		})
@@ -47,6 +48,7 @@ func main() {
 			log.Fatalf("failed to start headless session: %v", err)
 		}
 		defer sess.Stop()
+		fmt.Printf("  session ready (XDG=%s)\n", sess.XDGRuntimeDir())
 	}
 
 	opts := perfuncted.Options{
@@ -385,7 +387,6 @@ func testApp(ctx *testContext, app appSpec) {
 			if err2 != nil {
 				r.fail("Post-tab-close: could not read save file: %v", err2)
 			} else if !strings.Contains(string(content2), marker) {
-				fmt.Printf("  DEBUG: post-tab file contents:\n%s\n", string(content2))
 				r.fail("Post-tab-close: marker %q missing (tab close may have affected buffer)", marker)
 			} else {
 				r.pass("Ctrl+N/Ctrl+W sequence closed new tab and original buffer preserved")
