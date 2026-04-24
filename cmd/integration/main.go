@@ -32,11 +32,6 @@ import (
 	"github.com/nskaggs/perfuncted/window"
 )
 
-var (
-	rootCtx    context.Context
-	rootCancel context.CancelFunc
-)
-
 type targetMode string
 
 const (
@@ -103,7 +98,7 @@ func main() {
 	fmt.Printf("screen: %T\ninput:  %T\nwindow: %T\n\n", pf.Screen.Screenshotter, pf.Input.Inputter, pf.Window.Manager)
 
 	r := &results{}
-	rootCtx, rootCancel = context.WithCancel(context.Background())
+	rootCtx, rootCancel := context.WithCancel(context.Background())
 	r.cancel = rootCancel
 	ctx := &testContext{
 		mode: mode,
@@ -112,6 +107,7 @@ func main() {
 		r:    r,
 		sess: sess,
 		opts: opts,
+		root: rootCtx,
 	}
 
 	// ── 1. Global Screen/Probe Tests ──────────────────────────────────────────
@@ -141,7 +137,7 @@ func main() {
 		}
 	}
 
-	// Ensure any goroutines observing rootCtx get cancelled and run deferred cleanup.
+	// Ensure any goroutines observing the root context get cancelled and run deferred cleanup.
 	rootCancel()
 	r.summary()
 	// Exit non-zero if any failures were recorded.
@@ -160,6 +156,7 @@ type testContext struct {
 	r    *results
 	sess *perfuncted.Session
 	opts perfuncted.Options
+	root context.Context
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -348,7 +345,7 @@ func testApp(ctx *testContext, app appSpec) {
 	verifyProcessRouting(ctx, app.name+" process", cmd.Process.Pid)
 
 	// 1. Window Management
-	wctx, cancel := context.WithTimeout(rootCtx, 40*time.Second)
+	wctx, cancel := context.WithTimeout(ctx.root, 40*time.Second)
 	defer cancel()
 
 	info, err := pf.Window.WaitFor(wctx, app.winMatch, 500*time.Millisecond)
@@ -403,7 +400,7 @@ func testApp(ctx *testContext, app appSpec) {
 	// Type with Delay into the document area
 	r.check("TypeWithDelay", pf.Input.TypeWithDelay("Integration", 20*time.Millisecond))
 	// Verify the UI changed after typing
-	ctxType, cancelType := context.WithTimeout(rootCtx, 4*time.Second)
+	ctxType, cancelType := context.WithTimeout(ctx.root, 4*time.Second)
 	defer cancelType()
 	_, visErr := pf.Screen.WaitForVisibleChangeContext(ctxType, rect, 100*time.Millisecond, 2)
 	r.check("WaitForVisibleChange after TypeWithDelay", visErr)
@@ -565,7 +562,7 @@ func testApp(ctx *testContext, app appSpec) {
 			// Also assert no Save dialog popped up during close
 			dialogs := []string{"Save", "Save As", "Save Changes", "Do you want to save", "Document Modified"}
 			for _, d := range dialogs {
-				ctxD, cancelD := context.WithTimeout(rootCtx, 1*time.Second)
+				ctxD, cancelD := context.WithTimeout(ctx.root, 1*time.Second)
 				_, err := pf.Window.WaitFor(ctxD, d, 200*time.Millisecond)
 				cancelD()
 				if err == nil {
@@ -580,7 +577,7 @@ func testApp(ctx *testContext, app appSpec) {
 	r.section("SCREEN-FIND [" + app.name + "]")
 
 	// WaitForVisibleChange
-	ctxV, cancelV := context.WithTimeout(rootCtx, 10*time.Second)
+	ctxV, cancelV := context.WithTimeout(ctx.root, 10*time.Second)
 	defer cancelV()
 	go func() {
 		time.Sleep(1 * time.Second)
@@ -654,7 +651,7 @@ func testApp(ctx *testContext, app appSpec) {
 	if app.name == "pluma" {
 		timeout = 90 * time.Second
 	}
-	ctxC, cancelC := context.WithTimeout(rootCtx, timeout)
+	ctxC, cancelC := context.WithTimeout(ctx.root, timeout)
 	defer cancelC()
 	r.check("WaitForClose", pf.Window.WaitForClose(ctxC, app.winMatch, 200*time.Millisecond))
 }
@@ -723,7 +720,7 @@ func testBrowser(ctx *testContext, app appSpec) {
 	}()
 
 	// Wait for either the browser window to appear or for the process to exit early.
-	wctx, cancel := context.WithTimeout(rootCtx, 90*time.Second)
+	wctx, cancel := context.WithTimeout(ctx.root, 90*time.Second)
 	defer cancel()
 
 	winCh := make(chan struct{}, 1)
@@ -758,7 +755,7 @@ func testBrowser(ctx *testContext, app appSpec) {
 	}
 
 	// At this point the window should be present
-	info, err := pf.Window.WaitFor(rootCtx, app.winMatch, 500*time.Millisecond)
+	info, err := pf.Window.WaitFor(ctx.root, app.winMatch, 500*time.Millisecond)
 	r.check("Browser appeared", err)
 	if err != nil {
 		return
@@ -776,14 +773,14 @@ func testBrowser(ctx *testContext, app appSpec) {
 
 	// Ctrl+L should change the address bar area
 	var actionErr error
-	ctxCL, cancelCL := context.WithTimeout(rootCtx, 5*time.Second)
+	ctxCL, cancelCL := context.WithTimeout(ctx.root, 5*time.Second)
 	defer cancelCL()
 	_, err = pf.Screen.WaitForSettleContext(ctxCL, topRect, func() { actionErr = pf.Input.PressCombo("ctrl+l") }, 3, 200*time.Millisecond)
 	r.check("Ctrl+L sent", actionErr)
 	r.check("Address bar reacted to Ctrl+L", err)
 
 	// Type the URL and verify visual change
-	ctxType, cancelType := context.WithTimeout(rootCtx, 5*time.Second)
+	ctxType, cancelType := context.WithTimeout(ctx.root, 5*time.Second)
 	defer cancelType()
 	actionErr = nil
 	_, err = pf.Screen.WaitForSettleContext(ctxType, topRect, func() { actionErr = pf.Input.TypeWithDelay("about:support", 25*time.Millisecond) }, 3, 200*time.Millisecond)
@@ -795,7 +792,7 @@ func testBrowser(ctx *testContext, app appSpec) {
 	r.check("Return sent", actionErr)
 
 	rect := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
-	ctxS, cancelS := context.WithTimeout(rootCtx, 30*time.Second)
+	ctxS, cancelS := context.WithTimeout(ctx.root, 30*time.Second)
 	defer cancelS()
 	_, err = pf.Screen.WaitForStableContext(ctxS, rect, 5, 1*time.Second)
 	r.check("WaitForStable", err)

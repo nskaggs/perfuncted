@@ -26,7 +26,7 @@ func Merge(base []string, overlays ...string) []string {
 	overMap := make(map[string]string, len(overlays))
 	overKeys := make([]string, 0, len(overlays))
 	for _, kv := range overlays {
-		i := strings.Index(kv, "=")
+		i := strings.IndexByte(kv, '=')
 		if i < 0 {
 			// Treat whole string as key with empty value.
 			if _, ok := overMap[kv]; !ok {
