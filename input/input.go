@@ -2,13 +2,14 @@
 // Backend priority: wl-virtual (wlroots Wayland) → uinput (other Wayland) → XTEST (X11) → uinput (fallback).
 // uinput requires membership in the "input" group or a udev rule:
 //
-//	KERNEL=="uinput", GROUP="input", MODE="0660"
+// KERNEL=="uinput", GROUP="input", MODE="0660"
 package input
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -50,16 +51,38 @@ type Inputter interface {
 	Close() error
 }
 
-// Open returns the best available Inputter. On wlroots Wayland compositors
-// (sway, Hyprland) the Wayland virtual input backend is tried first so that
-// events use the compositor's own coordinate space. On other Wayland compositors
-// (e.g. KDE Plasma, GNOME), uinput is preferred over XTEST because XTEST is
-// scoped to X11/XWayland and does not deliver events to native Wayland windows.
+// Cached backend detection results
+var (
+	cachedInput   Inputter
+	cachedInputMu sync.Mutex
+	prevInputEnv  string
+)
+
+// Open returns the best available Inputter. Uses caching to avoid repeated
+// backend detection and prioritizes backends based on detected session type.
 func Open(maxX, maxY int32) (Inputter, error) {
+	// Check cache first and invalidate if environment changed.
+	currentFP := inputEnvFingerprint()
+	cachedInputMu.Lock()
+	if cachedInput != nil {
+		if prevInputEnv == currentFP {
+			defer cachedInputMu.Unlock()
+			return cachedInput, nil
+		}
+		// Env changed -> close and clear cache
+		cachedInput.Close()
+		cachedInput = nil
+	}
+	cachedInputMu.Unlock()
+
 	// Allow forcing a particular backend for debugging in CI/local runs.
 	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
 		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
 			if b, err := NewUinputBackend(maxX, maxY); err == nil {
+				cachedInputMu.Lock()
+				cachedInput = b
+				prevInputEnv = currentFP
+				cachedInputMu.Unlock()
 				return b, nil
 			}
 			return nil, fmt.Errorf("forced uinput selected but failed to initialize")
@@ -69,39 +92,62 @@ func Open(maxX, maxY int32) (Inputter, error) {
 
 	// On Wayland: prefer WlInputMethod (commit_string) when available because
 	// it delivers Unicode text reliably to Wayland clients. Fallback order:
-	//  WlInputMethod -> WlVirtual -> uinput -> XTest
+	//
+	//	WlInputMethod -> WlVirtual -> uinput -> XTest
 	if sock := wl.SocketPath(); sock != "" {
 		// Try input method first
 		if b, err := NewWlInputMethodBackend(sock, maxX, maxY); err == nil {
+			cachedInputMu.Lock()
+			cachedInput = b
+			prevInputEnv = currentFP
+			cachedInputMu.Unlock()
 			return b, nil
 		}
 		// Then try wl-virtual (wlroots-specific)
 		if b, err := NewWlVirtualBackend(sock); err == nil {
+			cachedInputMu.Lock()
+			cachedInput = b
+			prevInputEnv = currentFP
+			cachedInputMu.Unlock()
 			return b, nil
 		}
 		// WlVirtual unavailable (e.g. KDE Plasma). uinput is preferred over
 		// XTest here because XTest does not deliver events to native Wayland apps.
 		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
 			if b, err := NewUinputBackend(maxX, maxY); err == nil {
+				cachedInputMu.Lock()
+				cachedInput = b
+				prevInputEnv = currentFP
+				cachedInputMu.Unlock()
 				return b, nil
 			}
 		}
 	}
+
 	// Pure X11 or XWayland: XTest is scoped to the target display.
 	if d := displayEnv(); d != "" {
 		if b, err := NewXTestBackend(d); err == nil {
+			cachedInputMu.Lock()
+			cachedInput = b
+			prevInputEnv = currentFP
+			cachedInputMu.Unlock()
 			return b, nil
 		}
 	}
+
 	// Final fallback: uinput on systems without a Wayland session.
 	if _, err := os.Stat("/dev/uinput"); err == nil {
-		b, err := NewUinputBackend(maxX, maxY)
-		if err == nil {
+		if b, err := NewUinputBackend(maxX, maxY); err == nil {
+			cachedInputMu.Lock()
+			cachedInput = b
+			prevInputEnv = currentFP
+			cachedInputMu.Unlock()
 			return b, nil
 		}
 		// Return uinput error directly—it includes permission hints.
 		return nil, err
 	}
+
 	return nil, fmt.Errorf("input: no backend available (uinput inaccessible, DISPLAY not set)")
 }
 
@@ -152,6 +198,10 @@ func displayEnv() string {
 		return displayOverride
 	}
 	return os.Getenv("DISPLAY")
+}
+
+func inputEnvFingerprint() string {
+	return os.Getenv("XDG_RUNTIME_DIR") + "|" + os.Getenv("WAYLAND_DISPLAY") + "|" + os.Getenv("DBUS_SESSION_BUS_ADDRESS") + "|" + displayEnv()
 }
 
 func checkWlVirtual() probe.Result {

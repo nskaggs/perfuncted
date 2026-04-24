@@ -7,6 +7,7 @@ import (
 	"image"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -55,60 +56,88 @@ type Resolver interface {
 }
 
 // Open returns the best available Screenshotter for the current environment.
+// Uses caching to avoid repeated backend detection.
 func Open() (Screenshotter, error) {
-	switch compositor.Detect() {
+	currentFP := screenEnvFingerprint()
+	cachedScreenMu.Lock()
+	if cachedScreen != nil {
+		if prevScreenEnv == currentFP {
+			defer cachedScreenMu.Unlock()
+			return cachedScreen, nil
+		}
+		// Environment changed — invalidate cached backend.
+		cachedScreen.Close()
+		cachedScreen = nil
+	}
+	cachedScreenMu.Unlock()
+
+	// Determine session type for prioritized backend selection
+	session := compositor.Detect()
+	var scr Screenshotter
+	var err error
+
+	switch session {
 	case compositor.KDE:
-		if b, err := NewKWinShotBackend(); err == nil {
-			return b, nil
+		scr, err = NewKWinShotBackend()
+		if err != nil {
+			scr, err = NewExtCaptureBackend()
 		}
-		if b, err := NewExtCaptureBackend(); err == nil {
-			return b, nil
+		if err != nil {
+			// Fall back to xdg-desktop-portal (xdg-desktop-portal-kde) when KWin
+			// screenshot authorization is denied. The portal may show a one-time
+			// consent dialog on first use; once granted the permission is remembered.
+			scr, err = NewPortalDBusBackend()
 		}
-		// Fall back to xdg-desktop-portal (xdg-desktop-portal-kde) when KWin
-		// screenshot authorization is denied. The portal may show a one-time
-		// consent dialog on first use; once granted the permission is remembered.
-		if b, err := NewPortalDBusBackend(); err == nil {
-			return b, nil
+		if err != nil {
+			return nil, fmt.Errorf("screen: KDE requires KWin.ScreenShot2 auth or xdg-desktop-portal")
 		}
-		return nil, fmt.Errorf("screen: KDE requires KWin.ScreenShot2 auth or xdg-desktop-portal")
 
 	case compositor.Wlroots:
-		if b, err := NewWlrScreencopyBackend(); err == nil {
-			return b, nil
+		scr, err = NewWlrScreencopyBackend()
+		if err != nil {
+			scr, err = NewExtCaptureBackend()
 		}
-		if b, err := NewExtCaptureBackend(); err == nil {
-			return b, nil
+		if err != nil {
+			return nil, fmt.Errorf("screen: wlroots compositor but no screencopy protocol available")
 		}
-		return nil, fmt.Errorf("screen: wlroots compositor but no screencopy protocol available")
 
 	case compositor.GNOME:
-		if b, err := NewGnomeShellScreenshotBackend(); err == nil {
-			return b, nil
+		scr, err = NewGnomeShellScreenshotBackend()
+		if err != nil {
+			scr, err = NewPortalDBusBackend()
 		}
-		if b, err := NewPortalDBusBackend(); err == nil {
-			return b, nil
+		if err != nil {
+			return nil, fmt.Errorf("screen: GNOME Wayland requires GNOME Shell unsafe mode or xdg-desktop-portal")
 		}
-		return nil, fmt.Errorf("screen: GNOME Wayland requires GNOME Shell unsafe mode or xdg-desktop-portal")
 
 	case compositor.X11:
 		display := displayEnv()
 		if display == "" {
 			return nil, fmt.Errorf("screen: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
-		return NewX11Backend(display)
+		scr, err = NewX11Backend(display)
 
 	default: // Unknown Wayland compositor — try protocols then portal
-		if b, err := NewWlrScreencopyBackend(); err == nil {
-			return b, nil
+		scr, err = NewWlrScreencopyBackend()
+		if err != nil {
+			scr, err = NewExtCaptureBackend()
 		}
-		if b, err := NewExtCaptureBackend(); err == nil {
-			return b, nil
+		if err != nil {
+			scr, err = NewPortalDBusBackend()
 		}
-		if b, err := NewPortalDBusBackend(); err == nil {
-			return b, nil
+		if err != nil {
+			return nil, fmt.Errorf("screen: unsupported Wayland compositor")
 		}
-		return nil, fmt.Errorf("screen: unsupported Wayland compositor")
 	}
+
+	if scr != nil {
+		cachedScreenMu.Lock()
+		cachedScreen = scr
+		prevScreenEnv = currentFP
+		cachedScreenMu.Unlock()
+	}
+
+	return scr, err
 }
 
 // Probe returns availability details for every screen backend in priority order.
@@ -129,6 +158,13 @@ func Probe() []probe.Result {
 // mutating the process environment. Set via SetDisplayOverride.
 var displayOverride string
 
+// Cached backend detection results
+var (
+	cachedScreen   Screenshotter
+	cachedScreenMu sync.Mutex
+	prevScreenEnv  string
+)
+
 // SetDisplayOverride sets an explicit DISPLAY value for package-level lookups.
 func SetDisplayOverride(d string) { displayOverride = d }
 
@@ -137,6 +173,21 @@ func displayEnv() string {
 		return displayOverride
 	}
 	return os.Getenv("DISPLAY")
+}
+
+func screenEnvFingerprint() string {
+	return os.Getenv("XDG_RUNTIME_DIR") + "|" + os.Getenv("WAYLAND_DISPLAY") + "|" + os.Getenv("DBUS_SESSION_BUS_ADDRESS") + "|" + displayEnv()
+}
+
+// clearScreenCache clears the cached screen backend (called when environment changes)
+func clearScreenCache() {
+	cachedScreenMu.Lock()
+	if cachedScreen != nil {
+		cachedScreen.Close()
+		cachedScreen = nil
+	}
+	prevScreenEnv = ""
+	cachedScreenMu.Unlock()
 }
 
 func checkKWinShot(kind compositor.Session) probe.Result {
