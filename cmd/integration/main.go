@@ -719,13 +719,19 @@ func (r *results) section(name string) {
 }
 
 func (r *results) pass(msg string, args ...any) {
+	r.passed++
+	s := fmt.Sprintf("  PASS  %s\n", fmt.Sprintf(msg, args...))
+	fmt.Print(s)
+	r.logs.WriteString(s)
 }
 
 func (r *results) fail(msg string, args ...any) {
-	r.failed++
-	s := fmt.Sprintf("  FAIL  %s\n", fmt.Sprintf(msg, args...))
-	fmt.Print(s)
-	r.logs.WriteString(s)
+	fmt.Printf("\n══════════════════════════════\n")
+	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
+	fmt.Printf("══════════════════════════════\n")
+	if r.failed > 0 {
+		os.Exit(1)
+	}
 }
 
 func (r *results) check(label string, err error) {
