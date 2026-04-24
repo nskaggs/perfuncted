@@ -179,17 +179,6 @@ func screenEnvFingerprint() string {
 	return os.Getenv("XDG_RUNTIME_DIR") + "|" + os.Getenv("WAYLAND_DISPLAY") + "|" + os.Getenv("DBUS_SESSION_BUS_ADDRESS") + "|" + displayEnv()
 }
 
-// clearScreenCache clears the cached screen backend (called when environment changes)
-func clearScreenCache() {
-	cachedScreenMu.Lock()
-	if cachedScreen != nil {
-		cachedScreen.Close()
-		cachedScreen = nil
-	}
-	prevScreenEnv = ""
-	cachedScreenMu.Unlock()
-}
-
 func checkKWinShot(kind compositor.Session) probe.Result {
 	r := probe.Result{Name: "kwin-shot2"}
 	if kind != compositor.KDE {

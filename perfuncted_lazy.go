@@ -3,60 +3,12 @@ package perfuncted
 
 import (
 	"context"
-	"image"
 	"sync"
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
-
-// lazyScreenshotter defers screen.Open() until first use and then delegates.
-type lazyScreenshotter struct {
-	mu   sync.Mutex
-	env  sessionEnv
-	real screen.Screenshotter
-}
-
-func (l *lazyScreenshotter) ensure() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.real != nil {
-		return nil
-	}
-	restore := applySessionEnv(l.env)
-	defer restore()
-	s, err := screen.Open()
-	if err != nil {
-		return err
-	}
-	l.real = s
-	return nil
-}
-
-func (l *lazyScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	if err := l.ensure(); err != nil {
-		return nil, err
-	}
-	return l.real.Grab(ctx, rect)
-}
-
-func (l *lazyScreenshotter) GrabFullHash(ctx context.Context) (uint32, error) {
-	if err := l.ensure(); err != nil {
-		return 0, err
-	}
-	return l.real.GrabFullHash(ctx)
-}
-
-func (l *lazyScreenshotter) Close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.real != nil {
-		return l.real.Close()
-	}
-	return nil
-}
 
 // lazyInputter defers input.Open() until needed.
 type lazyInputter struct {
