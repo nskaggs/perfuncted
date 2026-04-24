@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -62,81 +61,46 @@ type Manager interface {
 	Close() error
 }
 
-// Cached backend detection results
-var (
-	cachedWindow   Manager
-	cachedWindowMu sync.Mutex
-	prevWindowEnv  string
-)
-
 // Open returns the best available Manager for the current environment.
-// Uses caching to avoid repeated backend detection and prioritizes
-// backends based on detected session type.
 func Open() (Manager, error) {
-	// Check cache first and invalidate on environment change.
-	currentFP := windowEnvFingerprint()
-	cachedWindowMu.Lock()
-	if cachedWindow != nil {
-		if prevWindowEnv == currentFP {
-			defer cachedWindowMu.Unlock()
-			return cachedWindow, nil
-		}
-		cachedWindow.Close()
-		cachedWindow = nil
-	}
-	cachedWindowMu.Unlock()
-
-	// Determine session type for prioritized backend selection
-	session := compositor.Detect()
-	var m Manager
-	var err error
-
-	switch session {
+	switch compositor.Detect() {
 	case compositor.KDE:
-		m, err = NewKWinScriptManager()
+		m, err := NewKWinScriptManager()
 		if err != nil {
 			return nil, fmt.Errorf("window: KDE detected but KWin scripting unavailable: %w", err)
 		}
+		return m, nil
 
 	case compositor.Wlroots:
-		if m, err = NewSwayManager(); err == nil {
-			// Successfully got SwayManager
-		} else {
-			m, err = NewWaylandWindowManager()
-			if err != nil {
-				return nil, fmt.Errorf("window: no window manager available on this wlroots compositor: %w", err)
-			}
+		if m, err := NewSwayManager(); err == nil {
+			return m, nil
 		}
+		m, err := NewWaylandWindowManager()
+		if err != nil {
+			return nil, fmt.Errorf("window: no window manager available on this wlroots compositor: %w", err)
+		}
+		return m, nil
 
 	case compositor.GNOME:
-		m, err = NewGnomeManager()
+		m, err := NewGnomeManager()
 		if err != nil {
 			return nil, fmt.Errorf("window: GNOME Shell Eval not available: %w", err)
 		}
+		return m, nil
 
 	case compositor.Unknown:
-		if m, err = NewWaylandWindowManager(); err == nil {
-			// Successfully got WaylandWindowManager
-		} else {
-			return nil, fmt.Errorf("window: unsupported Wayland compositor")
+		if m, err := NewWaylandWindowManager(); err == nil {
+			return m, nil
 		}
+		return nil, fmt.Errorf("window: unsupported Wayland compositor")
 
 	default: // X11 / XWayland
 		d := displayEnv()
 		if d == "" {
 			return nil, fmt.Errorf("window: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
-		m, err = NewX11Backend(d)
+		return NewX11Backend(d)
 	}
-
-	if m != nil {
-		cachedWindowMu.Lock()
-		cachedWindow = m
-		prevWindowEnv = currentFP
-		cachedWindowMu.Unlock()
-	}
-
-	return m, err
 }
 
 var displayOverride string
@@ -149,10 +113,6 @@ func displayEnv() string {
 		return displayOverride
 	}
 	return os.Getenv("DISPLAY")
-}
-
-func windowEnvFingerprint() string {
-	return os.Getenv("XDG_RUNTIME_DIR") + "|" + os.Getenv("WAYLAND_DISPLAY") + "|" + os.Getenv("DBUS_SESSION_BUS_ADDRESS") + "|" + displayEnv()
 }
 
 // Probe returns availability details for each window backend in priority order.

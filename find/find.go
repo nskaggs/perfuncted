@@ -12,7 +12,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"math/rand"
 	"time"
 )
 
@@ -98,21 +97,10 @@ type Result struct {
 	Rect image.Rectangle
 }
 
-// WaitFor polls rect with exponential backoff until its pixel hash equals want, or ctx expires.
+// WaitFor polls rect every poll interval until its pixel hash equals want, or ctx expires.
 // On success, it returns the final hash (which equals want). On timeout, it returns
 // the last observed hash for debugging.
 func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, poll time.Duration, newHash Hasher) (uint32, error) {
-	// Exponential backoff parameters
-	const (
-		maxPoll      = 100 * time.Millisecond // maximum poll interval
-		jitterFactor = 0.1                    // 10% jitter
-	)
-
-	var delay time.Duration = poll
-	if delay > maxPoll {
-		delay = maxPoll
-	}
-
 	for {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
@@ -121,46 +109,18 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 		if h == want {
 			return h, nil
 		}
-
-		// Calculate next delay with exponential backoff and jitter
-		nextDelay := delay * 2
-		if nextDelay > maxPoll {
-			nextDelay = maxPoll
-		}
-		// Add jitter: ±jitterFactor * nextDelay
-		jitter := time.Duration(float64(nextDelay) * jitterFactor * (2*float64(rand.Int63n(2)) - 1))
-		if jitter < 0 {
-			jitter = -jitter
-		}
-		nextDelay += jitter
-		if nextDelay < time.Millisecond {
-			nextDelay = time.Millisecond // minimum 1ms
-		}
-
 		select {
 		case <-ctx.Done():
 			return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x)", want, h)
-		case <-time.After(delay):
-			delay = nextDelay
+		case <-time.After(poll):
 		}
 	}
 }
 
-// WaitForChange polls rect with exponential backoff until its hash differs from initial, or ctx expires.
+// WaitForChange polls rect every poll interval until its hash differs from initial, or ctx expires.
 // It pairs with WaitForNoChange: use WaitForChange to detect when a transition begins,
 // then WaitForNoChange to detect when it ends.
 func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, poll time.Duration, newHash Hasher) (uint32, error) {
-	// Exponential backoff parameters
-	const (
-		maxPoll      = 100 * time.Millisecond // maximum poll interval
-		jitterFactor = 0.1                    // 10% jitter
-	)
-
-	var delay time.Duration = poll
-	if delay > maxPoll {
-		delay = maxPoll
-	}
-
 	for {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
@@ -169,32 +129,15 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 		if h != initial {
 			return h, nil
 		}
-
-		// Calculate next delay with exponential backoff and jitter
-		nextDelay := delay * 2
-		if nextDelay > maxPoll {
-			nextDelay = maxPoll
-		}
-		// Add jitter: ±jitterFactor * nextDelay
-		jitter := time.Duration(float64(nextDelay) * jitterFactor * (2*float64(rand.Int63n(2)) - 1))
-		if jitter < 0 {
-			jitter = -jitter
-		}
-		nextDelay += jitter
-		if nextDelay < time.Millisecond {
-			nextDelay = time.Millisecond // minimum 1ms
-		}
-
 		select {
 		case <-ctx.Done():
 			return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
-		case <-time.After(delay):
-			delay = nextDelay
+		case <-time.After(poll):
 		}
 	}
 }
 
-// WaitForNoChange polls rect with exponential backoff until its pixel hash is unchanged for
+// WaitForNoChange polls rect every poll interval until its pixel hash is unchanged for
 // stable consecutive samples, then returns the stable hash. It is the counterpart to
 // WaitForChange: use WaitForChange to detect when a transition begins (e.g. a click
 // triggers a page load), then WaitForNoChange to detect when it finishes settling.
@@ -205,18 +148,6 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 	if stable <= 0 {
 		stable = 1
 	}
-
-	// Exponential backoff parameters
-	const (
-		maxPoll      = 100 * time.Millisecond // maximum poll interval
-		jitterFactor = 0.1                    // 10% jitter
-	)
-
-	var delay time.Duration = poll
-	if delay > maxPoll {
-		delay = maxPoll
-	}
-
 	var last uint32
 	var sentinel color.RGBA
 	sentinelSet := false
@@ -238,27 +169,10 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			sentinel = cur
 			last = 0 // force mismatch on next full hash
 			streak = 0
-
-			// Calculate next delay with exponential backoff and jitter
-			nextDelay := delay * 2
-			if nextDelay > maxPoll {
-				nextDelay = maxPoll
-			}
-			// Add jitter: ±jitterFactor * nextDelay
-			jitter := time.Duration(float64(nextDelay) * jitterFactor * (2*float64(rand.Int63n(2)) - 1))
-			if jitter < 0 {
-				jitter = -jitter
-			}
-			nextDelay += jitter
-			if nextDelay < time.Millisecond {
-				nextDelay = time.Millisecond // minimum 1ms
-			}
-
 			select {
 			case <-ctx.Done():
 				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-			case <-time.After(delay):
-				delay = nextDelay
+			case <-time.After(poll):
 			}
 			continue
 		}
@@ -275,27 +189,10 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			last = h
 			streak = 1
 		}
-
-		// Calculate next delay with exponential backoff and jitter
-		nextDelay := delay * 2
-		if nextDelay > maxPoll {
-			nextDelay = maxPoll
-		}
-		// Add jitter: ±jitterFactor * nextDelay
-		jitter := time.Duration(float64(nextDelay) * jitterFactor * (2*float64(rand.Int63n(2)) - 1))
-		if jitter < 0 {
-			jitter = -jitter
-		}
-		nextDelay += jitter
-		if nextDelay < time.Millisecond {
-			nextDelay = time.Millisecond // minimum 1ms
-		}
-
 		select {
 		case <-ctx.Done():
 			return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-		case <-time.After(delay):
-			delay = nextDelay
+		case <-time.After(poll):
 		}
 	}
 }
@@ -599,22 +496,11 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 	}
 }
 
-// WaitForFn polls rect with exponential backoff until fn returns true for the
+// WaitForFn polls rect every poll interval until fn returns true for the
 // grabbed image, or ctx expires. fn receives the raw grabbed image each
 // iteration and may inspect it with any predicate (brightness, color
 // presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
-	// Exponential backoff parameters
-	const (
-		maxPoll      = 100 * time.Millisecond // maximum poll interval
-		jitterFactor = 0.1                    // 10% jitter
-	)
-
-	var delay time.Duration = poll
-	if delay > maxPoll {
-		delay = maxPoll
-	}
-
 	for {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
@@ -623,27 +509,10 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 		if fn(img) {
 			return img, nil
 		}
-
-		// Calculate next delay with exponential backoff and jitter
-		nextDelay := delay * 2
-		if nextDelay > maxPoll {
-			nextDelay = maxPoll
-		}
-		// Add jitter: ±jitterFactor * nextDelay
-		jitter := time.Duration(float64(nextDelay) * jitterFactor * (2*float64(rand.Int63n(2)) - 1))
-		if jitter < 0 {
-			jitter = -jitter
-		}
-		nextDelay += jitter
-		if nextDelay < time.Millisecond {
-			nextDelay = time.Millisecond // minimum 1ms
-		}
-
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
-		case <-time.After(delay):
-			delay = nextDelay
+		case <-time.After(poll):
 		}
 	}
 }
