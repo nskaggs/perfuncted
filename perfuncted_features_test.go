@@ -20,9 +20,6 @@ func TestFeatures(t *testing.T) {
 		if err := pf.Input.ModifierUp("ctrl"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input.Raw("42"); err != nil {
-			t.Fatal(err)
-		}
 		if err := pf.Input.TypeWithDelay("hello", 0); err != nil {
 			t.Fatal(err)
 		}

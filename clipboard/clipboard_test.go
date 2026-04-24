@@ -15,9 +15,9 @@ func TestOpenCapturesSessionEnv(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	wl, ok := cb.(*waylandClipboard)
+	wl, ok := cb.(*extCmdClipboard)
 	if !ok {
-		t.Fatalf("clipboard type = %T, want *waylandClipboard", cb)
+		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb)
 	}
 
 	env := make(map[string]string)
@@ -47,7 +47,7 @@ func TestOpenPrefersCapturedWaylandEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	wl := cb.(*waylandClipboard)
+	wl := cb.(*extCmdClipboard)
 	found := false
 	for _, kv := range wl.env {
 		if kv == "WAYLAND_DISPLAY=wayland-88" {

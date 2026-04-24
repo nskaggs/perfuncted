@@ -82,7 +82,13 @@ func fileURIPath(fileURI string) (string, error) {
 // NewPortalDBusBackend verifies that the xdg-desktop-portal Screenshot
 // interface is reachable on the session bus.
 func NewPortalDBusBackend() (*PortalDBusBackend, error) {
-	conn, err := dbus.SessionBus()
+	return NewPortalDBusBackendForBus("")
+}
+
+// NewPortalDBusBackendForBus verifies that the xdg-desktop-portal Screenshot
+// interface is reachable on the session bus at addr.
+func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
+	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/portal: D-Bus session: %w", err)
 	}

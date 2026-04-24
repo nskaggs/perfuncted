@@ -111,7 +111,13 @@ func (m *Inputter) KeyTap(ctx context.Context, key string) error {
 	m.record("tap:" + key)
 	return m.Err
 }
-func (m *Inputter) Type(ctx context.Context, s string) error   { m.record("type:" + s); return m.Err }
+func (m *Inputter) Type(ctx context.Context, s string) error {
+	return m.TypeContext(ctx, s)
+}
+func (m *Inputter) TypeContext(ctx context.Context, s string) error {
+	m.record("type:" + s)
+	return m.Err
+}
 func (m *Inputter) MouseDown(ctx context.Context, b int) error { m.record("mousedown"); return m.Err }
 func (m *Inputter) MouseUp(ctx context.Context, b int) error   { m.record("mouseup"); return m.Err }
 func (m *Inputter) ScrollUp(ctx context.Context, n int) error {
@@ -192,6 +198,10 @@ func (m *Manager) List(ctx context.Context) ([]window.Info, error) {
 }
 
 func (m *Manager) Activate(ctx context.Context, title string) error {
+	return m.ActivateContext(ctx, title)
+}
+
+func (m *Manager) ActivateContext(ctx context.Context, title string) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -202,6 +212,10 @@ func (m *Manager) Activate(ctx context.Context, title string) error {
 }
 
 func (m *Manager) ActiveTitle(ctx context.Context) (string, error) {
+	return m.ActiveTitleContext(ctx)
+}
+
+func (m *Manager) ActiveTitleContext(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -229,6 +243,7 @@ func (m *Manager) Resize(ctx context.Context, title string, w, h int) error { re
 func (m *Manager) CloseWindow(ctx context.Context, title string) error      { return m.Err }
 func (m *Manager) Minimize(ctx context.Context, title string) error         { return m.Err }
 func (m *Manager) Maximize(ctx context.Context, title string) error         { return m.Err }
+func (m *Manager) Restore(ctx context.Context, title string) error          { return m.Err }
 func (m *Manager) Close() error                                             { return nil }
 
 func (m *Manager) Reset() {

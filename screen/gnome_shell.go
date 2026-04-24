@@ -43,7 +43,13 @@ type GnomeShellScreenshotBackend struct {
 // probe screenshot is performed at construction time so callers can fall back to
 // the portal when unsafe mode is disabled.
 func NewGnomeShellScreenshotBackend() (*GnomeShellScreenshotBackend, error) {
-	conn, err := dbus.SessionBus()
+	return NewGnomeShellScreenshotBackendForBus("")
+}
+
+// NewGnomeShellScreenshotBackendForBus returns a backend for the session bus at
+// addr when GNOME Shell's screenshot service is reachable and authorized.
+func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBackend, error) {
+	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: D-Bus session: %w", err)
 	}

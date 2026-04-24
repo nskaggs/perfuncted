@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -44,6 +45,34 @@ type tapErrInputter struct {
 	pftest.Inputter
 }
 
+type closeErrScreen struct {
+	pftest.Screenshotter
+	err error
+}
+
+func (s *closeErrScreen) Close() error { return s.err }
+
+type closeErrInput struct {
+	pftest.Inputter
+	err error
+}
+
+func (i *closeErrInput) Close() error { return i.err }
+
+type closeErrWindow struct {
+	pftest.Manager
+	err error
+}
+
+func (w *closeErrWindow) Close() error { return w.err }
+
+type closeErrClipboard struct {
+	pftest.Clipboard
+	err error
+}
+
+func (c *closeErrClipboard) Close() error { return c.err }
+
 func (m *tapErrInputter) KeyTap(ctx context.Context, key string) error {
 	return errors.New("tap error")
 }
@@ -59,6 +88,28 @@ func TestInputBundleErrors(t *testing.T) {
 	err := pf.Input.KeyTap("a")
 	if err == nil || err.Error() != "tap error" {
 		t.Errorf("expected 'tap error', got %v", err)
+	}
+}
+
+func TestCloseJoinsErrors(t *testing.T) {
+	screenErr := errors.New("screen close failed")
+	inputErr := errors.New("input close failed")
+	windowErr := errors.New("window close failed")
+	clipboardErr := errors.New("clipboard close failed")
+
+	pf := &perfuncted.Perfuncted{
+		Screen: perfuncted.ScreenBundle{Screenshotter: &closeErrScreen{err: screenErr}},
+		Input:  perfuncted.InputBundle{Inputter: &closeErrInput{err: inputErr}},
+		Window: perfuncted.WindowBundle{Manager: &closeErrWindow{err: windowErr}},
+		Clipboard: perfuncted.ClipboardBundle{
+			Clipboard: &closeErrClipboard{err: clipboardErr},
+		},
+	}
+
+	err := pf.Close()
+	if !errors.Is(err, screenErr) || !errors.Is(err, inputErr) ||
+		!errors.Is(err, windowErr) || !errors.Is(err, clipboardErr) {
+		t.Fatalf("close error %v does not include all component errors", err)
 	}
 }
 

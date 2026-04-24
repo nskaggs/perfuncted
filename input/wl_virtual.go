@@ -229,7 +229,13 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 }
 
 // Type sends a string as keyboard events.
-func (b *WlVirtualBackend) Type(ctx context.Context, s string) error { return b.kbd.typeString(s) }
+func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
+	return b.TypeContext(ctx, s)
+}
+
+func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
+	return b.kbd.typeString(s)
+}
 
 // KeyTap presses and releases a key, respecting any held modifiers.
 func (b *WlVirtualBackend) KeyTap(ctx context.Context, key string) error { return b.kbd.tapKey(key) }

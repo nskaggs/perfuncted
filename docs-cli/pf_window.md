@@ -21,9 +21,7 @@ Window management
 * [pf](pf.md)	 - perfuncted — screen automation CLI
 * [pf window activate](pf_window_activate.md)	 - Bring a window to the foreground by title substring (case-insensitive)
 * [pf window active](pf_window_active.md)	 - Print the title of the currently focused window
-* [pf window active-title](pf_window_active-title.md)	 - Auto-generated wrapper for perfuncted.ActiveTitle
 * [pf window close](pf_window_close.md)	 - Close a window by title
-* [pf window close-window](pf_window_close-window.md)	 - Auto-generated wrapper for perfuncted.CloseWindow
 * [pf window find-by-title](pf_window_find-by-title.md)	 - Find a window by title and print info
 * [pf window get-geometry](pf_window_get-geometry.md)	 - Print geometry for a window
 * [pf window get-process](pf_window_get-process.md)	 - Auto-generated wrapper for perfuncted.GetProcess

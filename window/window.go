@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -57,45 +57,52 @@ type Manager interface {
 	Minimize(ctx context.Context, title string) error
 	// Maximize maximizes the window matching title.
 	Maximize(ctx context.Context, title string) error
+	// Restore restores the window matching title.
+	Restore(ctx context.Context, title string) error
 	// Close releases backend resources.
 	Close() error
 }
 
 // Open returns the best available Manager for the current environment.
 func Open() (Manager, error) {
-	switch compositor.Detect() {
+	return OpenRuntime(env.Current())
+}
+
+// OpenRuntime returns the best available Manager for rt.
+func OpenRuntime(rt env.Runtime) (Manager, error) {
+	switch compositor.DetectRuntime(rt) {
 	case compositor.KDE:
-		m, err := NewKWinScriptManager()
+		m, err := NewKWinScriptManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 		if err != nil {
 			return nil, fmt.Errorf("window: KDE detected but KWin scripting unavailable: %w", err)
 		}
 		return m, nil
 
 	case compositor.Wlroots:
-		if m, err := NewSwayManager(); err == nil {
+		if m, err := NewSwayManagerRuntime(rt); err == nil {
 			return m, nil
 		}
-		m, err := NewWaylandWindowManager()
+		m, err := NewWaylandWindowManagerForSocket(rt.SocketPath())
 		if err != nil {
 			return nil, fmt.Errorf("window: no window manager available on this wlroots compositor: %w", err)
 		}
 		return m, nil
 
 	case compositor.GNOME:
-		m, err := NewGnomeManager()
+		m, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 		if err != nil {
 			return nil, fmt.Errorf("window: GNOME Shell Eval not available: %w", err)
 		}
 		return m, nil
 
 	case compositor.Unknown:
-		if m, err := NewWaylandWindowManager(); err == nil {
+		if m, err := NewWaylandWindowManagerForSocket(rt.SocketPath()); err == nil {
 			return m, nil
 		}
 		return nil, fmt.Errorf("window: unsupported Wayland compositor")
 
 	default: // X11 / XWayland
-		d := displayEnv()
+		d := rt.Display()
 		if d == "" {
 			return nil, fmt.Errorf("window: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
@@ -103,37 +110,30 @@ func Open() (Manager, error) {
 	}
 }
 
-var displayOverride string
-
-// SetDisplayOverride sets an explicit DISPLAY value for package-level lookups.
-func SetDisplayOverride(d string) { displayOverride = d }
-
-func displayEnv() string {
-	if displayOverride != "" {
-		return displayOverride
-	}
-	return os.Getenv("DISPLAY")
-}
-
 // Probe returns availability details for each window backend in priority order.
 func Probe() []probe.Result {
-	kind := compositor.Detect()
-	globals := wl.ListGlobals(wl.SocketPath())
+	return ProbeRuntime(env.Current())
+}
+
+// ProbeRuntime returns availability details for rt in backend priority order.
+func ProbeRuntime(rt env.Runtime) []probe.Result {
+	kind := compositor.DetectRuntime(rt)
+	globals := wl.ListGlobals(rt.SocketPath())
 
 	return probe.SelectBest([]probe.Result{
-		checkKWinScript(kind),
-		checkGnomeShellEval(kind),
+		checkKWinScript(rt, kind),
+		checkGnomeShellEval(rt, kind),
 		checkForeignToplevel(globals),
 	})
 }
 
-func checkKWinScript(kind compositor.Session) probe.Result {
+func checkKWinScript(rt env.Runtime, kind compositor.Session) probe.Result {
 	r := probe.Result{Name: "kwin-scripting"}
 	if kind != compositor.KDE {
 		r.Reason = "not a KDE Plasma session"
 		return r
 	}
-	conn, err := dbus.SessionBus()
+	conn, err := dbusutil.SessionBusAddress(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		r.Reason = fmt.Sprintf("D-Bus unavailable: %v", err)
 		return r
@@ -154,13 +154,13 @@ func checkKWinScript(kind compositor.Session) probe.Result {
 	return r
 }
 
-func checkGnomeShellEval(kind compositor.Session) probe.Result {
+func checkGnomeShellEval(rt env.Runtime, kind compositor.Session) probe.Result {
 	r := probe.Result{Name: "gnome-shell-eval"}
 	if kind != compositor.GNOME {
 		r.Reason = "not a GNOME session"
 		return r
 	}
-	g, err := NewGnomeManager()
+	g, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		r.Reason = "unsafe mode disabled or access denied"
 		return r

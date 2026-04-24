@@ -45,7 +45,12 @@ func (m *WaylandWindowManager) canControlToplevels() bool {
 // NewWaylandWindowManager connects and returns a WaylandWindowManager if the
 // compositor advertises at least one foreign-toplevel protocol.
 func NewWaylandWindowManager() (*WaylandWindowManager, error) {
-	sock := wl.SocketPath()
+	return NewWaylandWindowManagerForSocket(wl.SocketPath())
+}
+
+// NewWaylandWindowManagerForSocket connects to sock and returns a manager if
+// the compositor advertises at least one foreign-toplevel protocol.
+func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("window/wayland: WAYLAND_DISPLAY not set")
 	}
@@ -206,6 +211,11 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 // seat and the zwlr foreign-toplevel control protocol; ext_foreign_toplevel_list_v1
 // is enumeration-only and cannot activate windows.
 func (m *WaylandWindowManager) Activate(ctx context.Context, title string) error {
+	return m.ActivateContext(ctx, title)
+}
+
+// ActivateContext is an alias for Activate to match bundle patterns.
+func (m *WaylandWindowManager) ActivateContext(ctx context.Context, title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
@@ -235,6 +245,29 @@ func (m *WaylandWindowManager) Activate(ctx context.Context, title string) error
 	wl.PutUint32(payload, m.seat.ID())
 	if err := m.sendHandleRequest(id, 4, payload); err != nil {
 		return fmt.Errorf("window/wayland: activate: %w", err)
+	}
+	return nil
+}
+
+// Restore unsets maximized and minimized state on the matching toplevel.
+func (m *WaylandWindowManager) Restore(ctx context.Context, title string) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return fmt.Errorf("window/wayland: round-trip: %w", err)
+	}
+	info, err := FindByTitle(ctx, m, title)
+	if err != nil {
+		return fmt.Errorf("window/wayland: %w", err)
+	}
+	id := uint32(info.ID)
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	// unset_maximized (1) + unset_minimized (3)
+	if err := m.sendHandleRequest(id, 1, nil); err != nil {
+		return fmt.Errorf("window/wayland: unset_maximized: %w", err)
+	}
+	if err := m.sendHandleRequest(id, 3, nil); err != nil {
+		return fmt.Errorf("window/wayland: unset_minimized: %w", err)
 	}
 	return nil
 }

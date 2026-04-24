@@ -25,9 +25,18 @@ import (
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
+)
+
+type targetMode string
+
+const (
+	modeDesktop  targetMode = "desktop"
+	modeNested   targetMode = "nested"
+	modeHeadless targetMode = "headless"
 )
 
 func main() {
@@ -38,8 +47,11 @@ func main() {
 
 	var sess *perfuncted.Session
 	var err error
+	mode := modeDesktop
+	targetRuntime := env.Current()
 
 	if *headless {
+		mode = modeHeadless
 		fmt.Println("▶ starting headless session...")
 		sess, err = perfuncted.StartSession(perfuncted.SessionConfig{
 			Resolution: image.Pt(1024, 768),
@@ -49,6 +61,9 @@ func main() {
 		}
 		defer sess.Stop()
 		fmt.Printf("  session ready (XDG=%s)\n", sess.XDGRuntimeDir())
+		targetRuntime = targetRuntime.WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
+	} else if *nested {
+		mode = modeNested
 	}
 
 	opts := perfuncted.Options{
@@ -60,6 +75,17 @@ func main() {
 		opts.XDGRuntimeDir = sess.XDGRuntimeDir()
 		opts.WaylandDisplay = sess.WaylandDisplay()
 		opts.DBusSessionAddress = sess.DBusAddress()
+	} else if *nested {
+		fmt.Println("▶ connecting to nested session...")
+		xdg, wl, dbus, err := perfuncted.NestedEnv()
+		if err != nil {
+			log.Fatalf("failed to find nested session: %v", err)
+		}
+		opts.XDGRuntimeDir = xdg
+		opts.WaylandDisplay = wl
+		opts.DBusSessionAddress = dbus
+		fmt.Printf("  connected to XDG=%s\n", xdg)
+		targetRuntime = targetRuntime.WithSession(xdg, wl, dbus)
 	}
 
 	pf, err := perfuncted.New(opts)
@@ -71,11 +97,18 @@ func main() {
 	fmt.Printf("screen: %T\ninput:  %T\nwindow: %T\n\n", pf.Screen.Screenshotter, pf.Input.Inputter, pf.Window.Manager)
 
 	r := &results{}
-	ctx := &testContext{pf: pf, r: r, sess: sess}
+	ctx := &testContext{
+		mode: mode,
+		rt:   targetRuntime,
+		pf:   pf,
+		r:    r,
+		sess: sess,
+		opts: opts,
+	}
 
 	// ── 1. Global Screen/Probe Tests ──────────────────────────────────────────
 	r.section("SYSTEM PROBE")
-	testProbes(r)
+	testProbes(ctx)
 
 	r.section("BASIC SCREEN")
 	testBasicScreen(ctx)
@@ -104,25 +137,30 @@ func main() {
 }
 
 type testContext struct {
+	mode targetMode
+	rt   env.Runtime
 	pf   *perfuncted.Perfuncted
 	r    *results
 	sess *perfuncted.Session
+	opts perfuncted.Options
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-func testProbes(r *results) {
+func testProbes(ctx *testContext) {
+	r := ctx.r
 	fmt.Println("  (enumerating backends...)")
-	for _, res := range screen.Probe() {
+	for _, res := range screen.ProbeRuntime(ctx.rt) {
 		fmt.Printf("  screen: %v\n", res)
 	}
-	for _, res := range input.Probe() {
+	for _, res := range input.ProbeRuntime(ctx.rt) {
 		fmt.Printf("  input: %v\n", res)
 	}
-	for _, res := range window.Probe() {
+	for _, res := range window.ProbeRuntime(ctx.rt) {
 		fmt.Printf("  window: %v\n", res)
 	}
 	r.pass("probes enumerated")
+	verifyBackendSelection(ctx)
 }
 
 func testBasicScreen(ctx *testContext) {
@@ -163,8 +201,117 @@ func testBasicScreen(ctx *testContext) {
 	r.check("WaitForFn", err)
 }
 
+func verifyBackendSelection(ctx *testContext) {
+	if ctx.mode == modeDesktop {
+		return
+	}
+	if ctx.rt.Get("DISPLAY") != "" {
+		ctx.r.fail("target runtime leaked DISPLAY=%q for %s mode", ctx.rt.Get("DISPLAY"), ctx.mode)
+		return
+	}
+
+	switch ctx.pf.Input.Inputter.(type) {
+	case *input.XTestBackend:
+		ctx.r.fail("input backend leaked to XTEST in %s mode", ctx.mode)
+		return
+	}
+	switch ctx.pf.Window.Manager.(type) {
+	case *window.X11Backend:
+		ctx.r.fail("window backend leaked to X11 in %s mode", ctx.mode)
+		return
+	}
+	switch ctx.pf.Screen.Screenshotter.(type) {
+	case *screen.X11Backend:
+		ctx.r.fail("screen backend leaked to X11 in %s mode", ctx.mode)
+		return
+	case *screen.PortalDBusBackend:
+		ctx.r.fail("screen backend fell back to portal in %s mode", ctx.mode)
+		return
+	}
+	ctx.r.pass("selected backends remain inside %s target", ctx.mode)
+}
+
+func launchTargetProcess(ctx *testContext, app appSpec, args ...string) (*exec.Cmd, error) {
+	if ctx.sess != nil {
+		return ctx.sess.LaunchEnv(app.extraEnv, app.launch[0], args...)
+	}
+
+	cmd := exec.Command(app.launch[0], args...)
+	cmd.Env = env.Merge(ctx.rt.EnvList(), app.extraEnv...)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd, nil
+}
+
+func readProcEnv(pid int) (map[string]string, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string)
+	for _, kv := range bytes.Split(data, []byte{0}) {
+		if len(kv) == 0 {
+			continue
+		}
+		parts := bytes.SplitN(kv, []byte{'='}, 2)
+		if len(parts) != 2 {
+			continue
+		}
+		out[string(parts[0])] = string(parts[1])
+	}
+	return out, nil
+}
+
+func verifyProcessRouting(ctx *testContext, label string, pid int) {
+	procEnv, err := readProcEnv(pid)
+	if err != nil {
+		ctx.r.fail("%s: read /proc/%d/environ: %v", label, pid, err)
+		return
+	}
+
+	keys := []string{"XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY"}
+	for _, key := range keys {
+		want := ctx.rt.Get(key)
+		got := procEnv[key]
+		if got != want {
+			ctx.r.fail("%s routed to wrong %s: got %q want %q", label, key, got, want)
+			return
+		}
+	}
+	ctx.r.pass("%s routed to target session env", label)
+}
+
+func externalClipboardRead(rt env.Runtime) (string, error) {
+	if rt.Get("WAYLAND_DISPLAY") != "" {
+		if _, err := executil.LookPath("wl-paste"); err == nil {
+			cmd := exec.Command("wl-paste", "--no-newline")
+			cmd.Env = rt.EnvList()
+			var out bytes.Buffer
+			cmd.Stdout = &out
+			if err := cmd.Run(); err != nil {
+				return "", err
+			}
+			return out.String(), nil
+		}
+	}
+	if rt.Display() != "" {
+		if _, err := executil.LookPath("xclip"); err == nil {
+			cmd := exec.Command("xclip", "-selection", "clipboard", "-o")
+			cmd.Env = rt.EnvList()
+			var out bytes.Buffer
+			cmd.Stdout = &out
+			if err := cmd.Run(); err != nil {
+				return "", err
+			}
+			return out.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no external clipboard reader for target runtime")
+}
+
 func testApp(ctx *testContext, app appSpec) {
-	pf, r, sess := ctx.pf, ctx.r, ctx.sess
+	pf, r := ctx.pf, ctx.r
 	r.section("APP [" + app.name + "]")
 
 	// Cleanup and pre-create file
@@ -175,25 +322,13 @@ func testApp(ctx *testContext, app appSpec) {
 	}
 	defer os.Remove(app.saveFile)
 
-	var cmd *exec.Cmd
-	if sess != nil {
-		c, err := sess.Launch(app.launch[0], append(app.launch[1:], app.saveFile)...)
-		if err != nil {
-			r.fail("launch %s via session: %v", app.name, err)
-			return
-		}
-		cmd = c
-	} else {
-		cmd = exec.Command(app.launch[0], append(app.launch[1:], app.saveFile)...)
-		if len(app.extraEnv) > 0 {
-			cmd.Env = append(os.Environ(), app.extraEnv...)
-		}
-		if err := cmd.Start(); err != nil {
-			r.fail("launch %s: %v", app.name, err)
-			return
-		}
+	cmd, err := launchTargetProcess(ctx, app, append(app.launch[1:], app.saveFile)...)
+	if err != nil {
+		r.fail("launch %s: %v", app.name, err)
+		return
 	}
 	defer cmd.Process.Kill()
+	verifyProcessRouting(ctx, app.name+" process", cmd.Process.Pid)
 
 	// 1. Window Management
 	wctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
@@ -213,6 +348,10 @@ func testApp(ctx *testContext, app appSpec) {
 	r.check("ActiveTitle", err)
 	if err == nil {
 		r.pass("ActiveTitle: %q", active)
+		if !strings.Contains(strings.ToLower(active), strings.ToLower(app.winMatch)) {
+			r.fail("Activate targeted wrong window: active=%q want match %q", active, app.winMatch)
+			return
+		}
 	}
 
 	rect, err := pf.Window.GetGeometry(app.winMatch)
@@ -232,12 +371,16 @@ func testApp(ctx *testContext, app appSpec) {
 	r.check("ActiveTitle after ClickCenter", atErr)
 	if atErr == nil {
 		r.pass("ActiveTitle after ClickCenter: %q", titleAfterClick)
+		if !strings.Contains(strings.ToLower(titleAfterClick), strings.ToLower(app.winMatch)) {
+			r.fail("ClickCenter targeted wrong window: active=%q want match %q", titleAfterClick, app.winMatch)
+			return
+		}
 	}
 	// Also click near the expected document area to ensure text input focus
 	clickX := rect.Min.X + 40
 	clickY := rect.Min.Y + 120
-	_ = pf.Input.MouseMove(clickX, clickY)
-	_ = pf.Input.MouseClick(clickX, clickY, 1)
+	r.check("MouseMove document area", pf.Input.MouseMove(clickX, clickY))
+	r.check("MouseClick document area", pf.Input.MouseClick(clickX, clickY, 1))
 	time.Sleep(700 * time.Millisecond)
 
 	// Type with Delay into the document area
@@ -297,6 +440,17 @@ func testApp(ctx *testContext, app appSpec) {
 		return
 	}
 	r.pass("Clipboard verified")
+
+	extClip, err := externalClipboardRead(ctx.rt)
+	if err != nil {
+		r.fail("external clipboard read failed: %v", err)
+		return
+	}
+	if extClip != marker {
+		r.fail("external clipboard mismatch: expected %q got %q", marker, extClip)
+		return
+	}
+	r.pass("Clipboard routed to target session")
 
 	// Ensure the target application window is focused before sending paste.
 	title, terr := pf.Window.ActiveTitle()
@@ -499,6 +653,8 @@ func testBrowser(ctx *testContext, app appSpec) {
 	if app.name == "firefox" {
 		if sess != nil {
 			profileDir, err = os.MkdirTemp(sess.XDGRuntimeDir(), "pf-firefox-profile-")
+		} else if ctx.mode != modeDesktop && ctx.rt.Get("XDG_RUNTIME_DIR") != "" {
+			profileDir, err = os.MkdirTemp(ctx.rt.Get("XDG_RUNTIME_DIR"), "pf-firefox-profile-")
 		} else {
 			profileDir, err = os.MkdirTemp("", "pf-firefox-profile-")
 		}
@@ -512,14 +668,14 @@ func testBrowser(ctx *testContext, app appSpec) {
 	if sess != nil {
 		if app.name == "firefox" {
 			args := append(app.launch[1:], "--profile", profileDir)
-			c, err := sess.Launch(app.launch[0], args...)
+			c, err := sess.LaunchEnv(app.extraEnv, app.launch[0], args...)
 			if err != nil {
 				r.fail("launch browser via session: %v", err)
 				return
 			}
 			cmd = c
 		} else {
-			c, err := sess.Launch(app.launch[0], app.launch[1:]...)
+			c, err := sess.LaunchEnv(app.extraEnv, app.launch[0], app.launch[1:]...)
 			if err != nil {
 				r.fail("launch browser via session: %v", err)
 				return
@@ -533,7 +689,7 @@ func testBrowser(ctx *testContext, app appSpec) {
 		} else {
 			cmd = exec.Command(app.launch[0], app.launch[1:]...)
 		}
-		cmd.Env = append(os.Environ(), app.extraEnv...)
+		cmd.Env = env.Merge(ctx.rt.EnvList(), app.extraEnv...)
 		cmd.Stdout = &stdoutBuf
 		cmd.Stderr = &stderrBuf
 		if err := cmd.Start(); err != nil {
@@ -541,6 +697,7 @@ func testBrowser(ctx *testContext, app appSpec) {
 			return
 		}
 	}
+	verifyProcessRouting(ctx, app.name+" process", cmd.Process.Pid)
 	defer func() {
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
@@ -726,12 +883,14 @@ func (r *results) pass(msg string, args ...any) {
 }
 
 func (r *results) fail(msg string, args ...any) {
+	r.failed++
+	s := fmt.Sprintf("  FAIL  %s\n", fmt.Sprintf(msg, args...))
+	fmt.Print(s)
+	r.logs.WriteString(s)
 	fmt.Printf("\n══════════════════════════════\n")
 	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
 	fmt.Printf("══════════════════════════════\n")
-	if r.failed > 0 {
-		os.Exit(1)
-	}
+	os.Exit(1)
 }
 
 func (r *results) check(label string, err error) {

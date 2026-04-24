@@ -5,12 +5,11 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"os"
 	"strings"
 
-	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -56,55 +55,60 @@ type Resolver interface {
 
 // Open returns the best available Screenshotter for the current environment.
 func Open() (Screenshotter, error) {
-	switch compositor.Detect() {
+	return OpenRuntime(env.Current())
+}
+
+// OpenRuntime returns the best available Screenshotter for rt.
+func OpenRuntime(rt env.Runtime) (Screenshotter, error) {
+	switch compositor.DetectRuntime(rt) {
 	case compositor.KDE:
-		if b, err := NewKWinShotBackend(); err == nil {
+		if b, err := NewKWinShotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
-		if b, err := NewExtCaptureBackend(); err == nil {
+		if b, err := NewExtCaptureBackendForSocket(rt.SocketPath()); err == nil {
 			return b, nil
 		}
 		// Fall back to xdg-desktop-portal (xdg-desktop-portal-kde) when KWin
 		// screenshot authorization is denied. The portal may show a one-time
 		// consent dialog on first use; once granted the permission is remembered.
-		if b, err := NewPortalDBusBackend(); err == nil {
+		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
 		return nil, fmt.Errorf("screen: KDE requires KWin.ScreenShot2 auth or xdg-desktop-portal")
 
 	case compositor.Wlroots:
-		if b, err := NewWlrScreencopyBackend(); err == nil {
+		if b, err := NewWlrScreencopyBackendForSocket(rt.SocketPath()); err == nil {
 			return b, nil
 		}
-		if b, err := NewExtCaptureBackend(); err == nil {
+		if b, err := NewExtCaptureBackendForSocket(rt.SocketPath()); err == nil {
 			return b, nil
 		}
 		return nil, fmt.Errorf("screen: wlroots compositor but no screencopy protocol available")
 
 	case compositor.GNOME:
-		if b, err := NewGnomeShellScreenshotBackend(); err == nil {
+		if b, err := NewGnomeShellScreenshotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
-		if b, err := NewPortalDBusBackend(); err == nil {
+		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
 		return nil, fmt.Errorf("screen: GNOME Wayland requires GNOME Shell unsafe mode or xdg-desktop-portal")
 
 	case compositor.X11:
-		display := displayEnv()
+		display := rt.Display()
 		if display == "" {
 			return nil, fmt.Errorf("screen: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
 		return NewX11Backend(display)
 
 	default: // Unknown Wayland compositor — try protocols then portal
-		if b, err := NewWlrScreencopyBackend(); err == nil {
+		if b, err := NewWlrScreencopyBackendForSocket(rt.SocketPath()); err == nil {
 			return b, nil
 		}
-		if b, err := NewExtCaptureBackend(); err == nil {
+		if b, err := NewExtCaptureBackendForSocket(rt.SocketPath()); err == nil {
 			return b, nil
 		}
-		if b, err := NewPortalDBusBackend(); err == nil {
+		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
 		return nil, fmt.Errorf("screen: unsupported Wayland compositor")
@@ -113,33 +117,24 @@ func Open() (Screenshotter, error) {
 
 // Probe returns availability details for every screen backend in priority order.
 func Probe() []probe.Result {
-	kind := compositor.Detect()
-	globals := wl.ListGlobals(wl.SocketPath())
+	return ProbeRuntime(env.Current())
+}
+
+// ProbeRuntime returns availability details for rt in backend priority order.
+func ProbeRuntime(rt env.Runtime) []probe.Result {
+	kind := compositor.DetectRuntime(rt)
+	globals := wl.ListGlobals(rt.SocketPath())
 
 	return probe.SelectBest([]probe.Result{
-		checkKWinShot(kind),
+		checkKWinShot(rt, kind),
 		checkWlrScreencopy(globals),
 		checkExtCapture(globals),
-		checkGnomeShellScreenshot(kind),
-		checkPortalDbus(),
+		checkGnomeShellScreenshot(rt, kind),
+		checkPortalDbus(rt),
 	})
 }
 
-// displayOverride allows perfuncted.New to target a specific DISPLAY without
-// mutating the process environment. Set via SetDisplayOverride.
-var displayOverride string
-
-// SetDisplayOverride sets an explicit DISPLAY value for package-level lookups.
-func SetDisplayOverride(d string) { displayOverride = d }
-
-func displayEnv() string {
-	if displayOverride != "" {
-		return displayOverride
-	}
-	return os.Getenv("DISPLAY")
-}
-
-func checkKWinShot(kind compositor.Session) probe.Result {
+func checkKWinShot(rt env.Runtime, kind compositor.Session) probe.Result {
 	r := probe.Result{Name: "kwin-shot2"}
 	if kind != compositor.KDE {
 		r.Reason = "not a KDE Plasma session"
@@ -147,7 +142,7 @@ func checkKWinShot(kind compositor.Session) probe.Result {
 	}
 	// Try the real constructor: it performs a 1×1 probe grab so we detect
 	// KDE Plasma 6 authorization failures (not just D-Bus reachability).
-	b, err := NewKWinShotBackend()
+	b, err := NewKWinShotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		// Strip the nested "screen/kwin: authorization check failed: " prefix
 		// for a cleaner one-line probe reason.
@@ -186,9 +181,9 @@ func checkExtCapture(globals map[string]bool) probe.Result {
 	return r
 }
 
-func checkPortalDbus() probe.Result {
+func checkPortalDbus(rt env.Runtime) probe.Result {
 	r := probe.Result{Name: "portal"}
-	conn, err := dbus.SessionBus()
+	conn, err := dbusutil.SessionBusAddress(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		r.Reason = "D-Bus session unavailable"
 		return r
@@ -203,13 +198,13 @@ func checkPortalDbus() probe.Result {
 	return r
 }
 
-func checkGnomeShellScreenshot(kind compositor.Session) probe.Result {
+func checkGnomeShellScreenshot(rt env.Runtime, kind compositor.Session) probe.Result {
 	r := probe.Result{Name: "gnome-shell-screenshot"}
 	if kind != compositor.GNOME {
 		r.Reason = "not a GNOME session"
 		return r
 	}
-	b, err := NewGnomeShellScreenshotBackend()
+	b, err := NewGnomeShellScreenshotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		switch {
 		case strings.Contains(err.Error(), "not on session bus"):

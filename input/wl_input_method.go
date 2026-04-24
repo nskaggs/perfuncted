@@ -150,6 +150,11 @@ func (b *WlInputMethodBackend) sendIMRequest(opcode uint32, payload []byte) erro
 // Type sends s using input-method commit_string + commit(serial). If that
 // path fails, fall back to the delegated backend if available.
 func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
+	return b.TypeContext(ctx, s)
+}
+
+// TypeContext is an alias for Type to match bundle patterns.
+func (b *WlInputMethodBackend) TypeContext(ctx context.Context, s string) error {
 	if b.im == nil {
 		if b.other != nil {
 			return b.other.Type(ctx, s)

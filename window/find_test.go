@@ -12,12 +12,14 @@ type fakeManager struct {
 
 func (f *fakeManager) List(ctx context.Context) ([]Info, error)             { return f.wins, nil }
 func (f *fakeManager) Activate(ctx context.Context, _ string) error         { return nil }
+func (f *fakeManager) ActivateContext(ctx context.Context, _ string) error  { return nil }
 func (f *fakeManager) Move(ctx context.Context, _ string, _, _ int) error   { return nil }
 func (f *fakeManager) Resize(ctx context.Context, _ string, _, _ int) error { return nil }
 func (f *fakeManager) ActiveTitle(ctx context.Context) (string, error)      { return "", nil }
 func (f *fakeManager) CloseWindow(ctx context.Context, _ string) error      { return nil }
 func (f *fakeManager) Minimize(ctx context.Context, _ string) error         { return nil }
 func (f *fakeManager) Maximize(ctx context.Context, _ string) error         { return nil }
+func (f *fakeManager) Restore(ctx context.Context, _ string) error          { return nil }
 func (f *fakeManager) Close() error                                         { return nil }
 
 func TestFindByTitle_FindsMatch(t *testing.T) {

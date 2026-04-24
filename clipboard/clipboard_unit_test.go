@@ -49,8 +49,8 @@ func TestOpen_PrefersWaylandWhenAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, ok := cb.Clipboard.(*extCmdClipboard); !ok {
-		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb.Clipboard)
+	if _, ok := cb.(*extCmdClipboard); !ok {
+		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestOpen_PrefersX11WhenXclipAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, ok := cb.Clipboard.(*extCmdClipboard); !ok {
-		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb.Clipboard)
+	if _, ok := cb.(*extCmdClipboard); !ok {
+		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb)
 	}
 }

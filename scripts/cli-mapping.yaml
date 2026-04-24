@@ -19,8 +19,74 @@
 # Keep empty by default; add mappings as needed.
 
 input:
+  ClickCenter:
+    skip: true
+  DoubleClick:
+    skip: true
+  DragAndDrop:
+    skip: true
+  KeyDown:
+    skip: true
+  KeyTap:
+    skip: true
+  KeyUp:
+    skip: true
+  MouseClick:
+    skip: true
+  MouseDown:
+    skip: true
+  MouseMove:
+    skip: true
+  MouseUp:
+    skip: true
+  PressCombo:
+    skip: true
+  ScrollDown:
+    skip: true
+  ScrollLeft:
+    skip: true
+  ScrollRight:
+    skip: true
+  ScrollUp:
+    skip: true
+  Type:
+    skip: true
   TypeWithDelay:
     skip: true
 screen:
   GetMultiplePixels:
+    skip: true
+window:
+  Activate:
+    skip: true
+  ActiveTitle:
+    skip: true
+  CloseWindow:
+    skip: true
+  FindByTitle:
+    skip: true
+  GetGeometry:
+    skip: true
+  IsVisible:
+    skip: true
+  List:
+    skip: true
+  Maximize:
+    skip: true
+  Minimize:
+    skip: true
+  Move:
+    skip: true
+  Resize:
+    skip: true
+  WaitFor:
+    skip: true
+  WaitForTitleChange:
+    skip: true
+clipboard:
+  Close:
+    skip: true
+  Get:
+    skip: true
+  Set:
     skip: true

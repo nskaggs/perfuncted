@@ -19,7 +19,6 @@ Clipboard operations
 ### SEE ALSO
 
 * [pf](pf.md)	 - perfuncted — screen automation CLI
-* [pf clipboard close](pf_clipboard_close.md)	 - Auto-generated wrapper for perfuncted.Close
 * [pf clipboard get](pf_clipboard_get.md)	 - Print clipboard contents
 * [pf clipboard set](pf_clipboard_set.md)	 - Set clipboard contents
 

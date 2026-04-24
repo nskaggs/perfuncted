@@ -135,6 +135,10 @@ func (b *XTestBackend) KeyTap(ctx context.Context, key string) error {
 }
 
 func (b *XTestBackend) Type(ctx context.Context, s string) error {
+	return b.TypeContext(ctx, s)
+}
+
+func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 	for _, ch := range s {
 		if err := b.KeyTap(ctx, string(ch)); err != nil {
 			return err

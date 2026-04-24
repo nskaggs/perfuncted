@@ -20,7 +20,6 @@ Screen capture operations
 
 * [pf](pf.md)	 - perfuncted — screen automation CLI
 * [pf screen capture-region](pf_screen_capture-region.md)	 - Auto-generated wrapper for perfuncted.CaptureRegion
-* [pf screen close](pf_screen_close.md)	 - Auto-generated wrapper for perfuncted.Close
 * [pf screen grab](pf_screen_grab.md)	 - Capture a screen region and save as PNG
 * [pf screen grab-full](pf_screen_grab-full.md)	 - Auto-generated wrapper for perfuncted.GrabFull
 * [pf screen grab-full-hash](pf_screen_grab-full-hash.md)	 - Auto-generated wrapper for perfuncted.GrabFullHash

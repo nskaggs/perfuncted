@@ -7,10 +7,10 @@
 package compositor
 
 import (
-	"os"
 	"strings"
 
-	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -44,20 +44,25 @@ func (s Session) String() string {
 // advertised on WAYLAND_DISPLAY (correctly handles nested compositors such as
 // sway inside KDE), then falls back to environment variable heuristics.
 func Detect() Session {
-	if os.Getenv("WAYLAND_DISPLAY") == "" {
+	return DetectRuntime(env.Current())
+}
+
+// DetectRuntime identifies the compositor represented by rt.
+func DetectRuntime(rt env.Runtime) Session {
+	if rt.Get("WAYLAND_DISPLAY") == "" {
 		return X11
 	}
 
 	// Probe the real compositor socket first.
-	if s, ok := probeGlobals(); ok {
+	if s, ok := probeGlobals(rt); ok {
 		return s
 	}
 
 	// Env-var fallbacks (fast but unreliable for nested sessions).
-	if os.Getenv("SWAYSOCK") != "" || os.Getenv("HYPRLAND_INSTANCE_SIGNATURE") != "" {
+	if rt.Get("SWAYSOCK") != "" || rt.Get("HYPRLAND_INSTANCE_SIGNATURE") != "" {
 		return Wlroots
 	}
-	desktop := strings.ToUpper(os.Getenv("XDG_CURRENT_DESKTOP"))
+	desktop := strings.ToUpper(rt.Get("XDG_CURRENT_DESKTOP"))
 	switch {
 	case strings.Contains(desktop, "KDE"):
 		return KDE
@@ -69,7 +74,7 @@ func Detect() Session {
 		strings.Contains(desktop, "WAYFIRE"):
 		return Wlroots
 	}
-	if kwinOnBus() {
+	if kwinOnBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")) {
 		return KDE
 	}
 	return Unknown
@@ -80,8 +85,8 @@ func Detect() Session {
 // Wlroots protocols seen on the actual socket take priority over KDE D-Bus
 // presence, so nested sway/Hyprland sessions inside a KDE desktop are
 // correctly identified as wlroots.
-func probeGlobals() (Session, bool) {
-	sock := wl.SocketPath()
+func probeGlobals(rt env.Runtime) (Session, bool) {
+	sock := rt.SocketPath()
 	if sock == "" {
 		return 0, false
 	}
@@ -121,8 +126,8 @@ func probeGlobals() (Session, bool) {
 	}
 }
 
-func kwinOnBus() bool {
-	conn, err := dbus.SessionBus()
+func kwinOnBus(addr string) bool {
+	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return false
 	}

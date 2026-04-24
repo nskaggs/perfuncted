@@ -114,6 +114,28 @@ func methodsForType(pkg *packages.Package, typeName string) ([]string, error) {
 	return out, nil
 }
 
+func skipMethodForCLISync(name string) bool {
+	if strings.HasSuffix(name, "Context") || name == "Close" {
+		return true
+	}
+	switch name {
+	case "FindColor",
+		"GetMultiplePixels",
+		"LocateExact",
+		"PasteWithInput",
+		"PressCombo",
+		"ScanFor",
+		"TypeWithDelay",
+		"WaitForFn",
+		"WaitForLocate",
+		"WaitForSettle",
+		"WaitForVisibleChange":
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 	// map CLI group -> perfuncted bundle type
 	bundleTypes := map[string]string{
@@ -201,6 +223,9 @@ func main() {
 		}
 		mset := map[string]bool{}
 		for _, mn := range methods[grp] {
+			if skipMethodForCLISync(mn) {
+				continue
+			}
 			for _, c := range candidatesFromMethod(mn) {
 				mset[c] = true
 			}
@@ -218,6 +243,9 @@ func main() {
 			continue
 		}
 		for _, mn := range mlist {
+			if skipMethodForCLISync(mn) {
+				continue
+			}
 			ok := false
 			for _, c := range candidatesFromMethod(mn) {
 				if docs[grp] != nil && docs[grp][c] {

@@ -130,6 +130,11 @@ func (b *X11Backend) findByTitle(ctx context.Context, title string) (xproto.Wind
 
 // Activate raises and focuses a window by title using _NET_ACTIVE_WINDOW.
 func (b *X11Backend) Activate(ctx context.Context, title string) error {
+	return b.ActivateContext(ctx, title)
+}
+
+// ActivateContext is an alias for Activate to match bundle patterns.
+func (b *X11Backend) ActivateContext(ctx context.Context, title string) error {
 	win, err := b.findByTitle(ctx, title)
 	if err != nil {
 		return err
@@ -143,6 +148,38 @@ func (b *X11Backend) Activate(ctx context.Context, title string) error {
 			Type:   b.atomNetActiveWindow,
 			Data:   xproto.ClientMessageDataUnionData32New(data),
 		}.Bytes())).Check()
+}
+
+// Restore restores the window by removing maximized states and mapping it.
+func (b *X11Backend) Restore(ctx context.Context, title string) error {
+	win, err := b.findByTitle(ctx, title)
+	if err != nil {
+		return err
+	}
+	stateAtom, err := xproto.InternAtom(b.conn, false, 14, "_NET_WM_STATE").Reply()
+	if err != nil {
+		return fmt.Errorf("window/x11: intern _NET_WM_STATE: %w", err)
+	}
+	maxV, err := xproto.InternAtom(b.conn, false, 28, "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
+	if err != nil {
+		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_VERT: %w", err)
+	}
+	maxH, err := xproto.InternAtom(b.conn, false, 28, "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
+	if err != nil {
+		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_HORZ: %w", err)
+	}
+	data := [5]uint32{0 /* _NET_WM_STATE_REMOVE */, uint32(maxV.Atom), uint32(maxH.Atom), 1, 0}
+	if err := xproto.SendEventChecked(b.conn, false, b.root,
+		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
+		string(xproto.ClientMessageEvent{
+			Format: 32,
+			Window: win,
+			Type:   stateAtom.Atom,
+			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
+		}.Bytes())).Check(); err != nil {
+		return err
+	}
+	return xproto.MapWindowChecked(b.conn, win).Check()
 }
 
 // Move repositions a window by title.

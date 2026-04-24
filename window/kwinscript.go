@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
 const (
@@ -44,7 +45,13 @@ type KWinScriptManager struct {
 // NewKWinScriptManager returns a KWinScriptManager if the KWin scripting
 // interface is accessible on the session bus.
 func NewKWinScriptManager() (*KWinScriptManager, error) {
-	conn, err := dbus.SessionBus()
+	return NewKWinScriptManagerForBus("")
+}
+
+// NewKWinScriptManagerForBus returns a KWinScriptManager for the session bus
+// at addr if the KWin scripting interface is accessible.
+func NewKWinScriptManagerForBus(addr string) (*KWinScriptManager, error) {
+	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("window/kwinscript: D-Bus: %w", err)
 	}
@@ -209,10 +216,30 @@ callDBus('%s', '/', '%s', 'ReportWindows', found);
 
 // Activate raises and focuses the first window whose title contains substr.
 func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
+	return k.ActivateContext(ctx, title)
+}
+
+// ActivateContext is an alias for Activate to match bundle patterns.
+func (k *KWinScriptManager) ActivateContext(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
 	result, err := k.runScript(func(svc string) string {
 		return kwinFindWindowScript(safe, svc,
 			"w.minimized = false;\n            workspace.activateWindow(w);")
+	})
+	if err != nil {
+		return err
+	}
+	if result == "" {
+		return fmt.Errorf("window: window matching %q not found", title)
+	}
+	return nil
+}
+
+// Restore restores the first window whose title contains substr.
+func (k *KWinScriptManager) Restore(ctx context.Context, title string) error {
+	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
+	result, err := k.runScript(func(svc string) string {
+		return kwinFindWindowScript(safe, svc, "w.setMaximize(false, false); w.minimized = false;")
 	})
 	if err != nil {
 		return err

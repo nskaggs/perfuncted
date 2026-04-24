@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
 // GnomeManager implements window management for GNOME Shell via the
@@ -21,7 +22,13 @@ type GnomeManager struct {
 // NewGnomeManager opens a D-Bus connection and verifies that
 // org.gnome.Shell.Eval is accessible.
 func NewGnomeManager() (*GnomeManager, error) {
-	conn, err := dbus.SessionBus()
+	return NewGnomeManagerForBus("")
+}
+
+// NewGnomeManagerForBus opens a D-Bus connection at addr and verifies that
+// org.gnome.Shell.Eval is accessible.
+func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
+	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("gnome: session bus: %w", err)
 	}
@@ -107,7 +114,15 @@ func (g *GnomeManager) actOnWindow(title, action string) error {
 }
 
 func (g *GnomeManager) Activate(ctx context.Context, title string) error {
+	return g.ActivateContext(ctx, title)
+}
+
+func (g *GnomeManager) ActivateContext(ctx context.Context, title string) error {
 	return g.actOnWindow(title, `w.activate(global.get_current_time())`)
+}
+
+func (g *GnomeManager) Restore(ctx context.Context, title string) error {
+	return g.actOnWindow(title, `w.unminimize(); w.unmaximize(3)`)
 }
 
 func (g *GnomeManager) Move(ctx context.Context, title string, x, y int) error {

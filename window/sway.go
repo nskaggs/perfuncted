@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/nskaggs/perfuncted/internal/env"
 )
 
 // swayMagic is the fixed 6-byte header prefix for all sway IPC messages.
@@ -31,13 +32,18 @@ type SwayManager struct {
 // socket. It checks $SWAYSOCK first, then globs all sway-ipc sockets in
 // $XDG_RUNTIME_DIR and tries each until one responds.
 func NewSwayManager() (*SwayManager, error) {
-	sock := os.Getenv("SWAYSOCK")
+	return NewSwayManagerRuntime(env.Current())
+}
+
+// NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
+func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
+	sock := rt.Get("SWAYSOCK")
 	if sock != "" {
 		if _, err := swayQuery(sock, swayMsgGetTree, ""); err == nil {
 			return &SwayManager{sock: sock}, nil
 		}
 	}
-	rdir := os.Getenv("XDG_RUNTIME_DIR")
+	rdir := rt.Get("XDG_RUNTIME_DIR")
 	if rdir == "" {
 		return nil, fmt.Errorf("window/sway: SWAYSOCK not set and XDG_RUNTIME_DIR empty")
 	}
@@ -165,12 +171,20 @@ func (m *SwayManager) swayCmd(cmd string) error {
 
 // Activate focuses the first window whose title contains substr (case-insensitive).
 func (m *SwayManager) Activate(ctx context.Context, substr string) error {
+	return m.ActivateContext(ctx, substr)
+}
+
+// ActivateContext is an alias for Activate to match bundle patterns.
+func (m *SwayManager) ActivateContext(ctx context.Context, substr string) error {
 	w, err := m.findWindow(ctx, substr)
 	if err != nil {
 		return err
 	}
 	return m.swayCmd(fmt.Sprintf("[con_id=%d] focus", int64(w.ID)))
 }
+
+// Restore is a no-op on sway as it does not have a formal restore action for scratchpad/fullscreen.
+func (m *SwayManager) Restore(ctx context.Context, substr string) error { return nil }
 
 // Move repositions the first window whose title contains substr.
 // The window is made floating so it can be placed at an absolute position.

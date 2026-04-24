@@ -275,6 +275,9 @@ func main() {
 		}
 		for _, m := range methods {
 			mn := m.Name()
+			if strings.HasSuffix(mn, "Context") || mn == "Close" {
+				continue
+			}
 			// mapping skip?
 			if mapping[grp] != nil {
 				if mm, ok := mapping[grp][mn]; ok && mm.Skip {

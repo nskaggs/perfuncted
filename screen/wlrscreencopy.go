@@ -287,7 +287,12 @@ func SetWlrCacheTTL(d time.Duration) { defaultWlrCacheTTL = d }
 // NewWlrScreencopyBackend verifies that zwlr_screencopy_manager_v1 is
 // advertised on WAYLAND_DISPLAY and returns a backend if so.
 func NewWlrScreencopyBackend() (*WlrScreencopyBackend, error) {
-	sock := wl.SocketPath()
+	return NewWlrScreencopyBackendForSocket(wl.SocketPath())
+}
+
+// NewWlrScreencopyBackendForSocket verifies that zwlr_screencopy_manager_v1 is
+// advertised on sock and returns a backend if so.
+func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("screen/wlr: WAYLAND_DISPLAY not set")
 	}

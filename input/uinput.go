@@ -203,6 +203,10 @@ func (b *UinputBackend) KeyTap(ctx context.Context, key string) error {
 }
 
 func (b *UinputBackend) Type(ctx context.Context, s string) error {
+	return b.TypeContext(ctx, s)
+}
+
+func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 	for _, ch := range s {
 		ck, ok := charToKey[ch]
 		if !ok {

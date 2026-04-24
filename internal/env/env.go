@@ -1,7 +1,6 @@
 package env
 
 import (
-	"os"
 	"strings"
 )
 
@@ -9,25 +8,7 @@ import (
 // variables on the current process environment. This mirrors the previous
 // session.Environ implementation but centralizes it for reuse.
 func Environ(xdgRuntimeDir, waylandDisplay, dbusAddr string) []string {
-	var filtered []string
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") ||
-			strings.HasPrefix(e, "WAYLAND_DISPLAY=") ||
-			strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS=") ||
-			strings.HasPrefix(e, "DISPLAY=") {
-			continue
-		}
-		filtered = append(filtered, e)
-	}
-	filtered = append(filtered,
-		"XDG_RUNTIME_DIR="+xdgRuntimeDir,
-		"WAYLAND_DISPLAY="+waylandDisplay,
-		"DBUS_SESSION_BUS_ADDRESS="+dbusAddr,
-		"DISPLAY=",
-		"GDK_BACKEND=wayland",
-		"QT_QPA_PLATFORM=wayland",
-	)
-	return filtered
+	return Current().WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr).EnvList()
 }
 
 // Merge overlays the provided overlay entries on top of the base environment.

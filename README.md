@@ -61,11 +61,12 @@ go get github.com/nskaggs/perfuncted
 
 ## Library API
 
-Three top-level bundles are available after `perfuncted.New(...)`:
+Four top-level bundles are available after `perfuncted.New(...)`:
 
 - **`pf.Screen`** — capture regions, compute pixel hashes, locate images, wait for visual changes
 - **`pf.Input`** — type text, tap keys, click and drag, scroll
 - **`pf.Window`** — list, activate, resize, move, and wait for windows
+- **`pf.Clipboard`** — get and set clipboard contents in the selected target session
 
 Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted)
 
