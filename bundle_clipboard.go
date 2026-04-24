@@ -42,9 +42,11 @@ func (c ClipboardBundle) PasteWithInput(text string, inp InputBundle) error {
 	return c.PasteWithInputContext(context.Background(), text, inp)
 }
 
+const PasteCombo = "ctrl+v"
+
 func (c ClipboardBundle) PasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
 	if err := c.SetContext(ctx, text); err != nil {
 		return err
 	}
-	return inp.PressComboContext(ctx, "ctrl+v")
+	return inp.PressComboContext(ctx, PasteCombo)
 }

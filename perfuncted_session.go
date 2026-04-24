@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"image"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -318,6 +319,10 @@ func (s *Session) launchWlPaste() {
 	if err := cmd.Start(); err == nil {
 		s.wlPastePid = cmd.Process.Pid
 		s.wlPasteCmd = cmd
+		return
+	} else {
+		// Best-effort background helper failed to start; log so users see the reason.
+		log.Printf("warning: wl-paste helper failed to start: %v", err)
 	}
 }
 

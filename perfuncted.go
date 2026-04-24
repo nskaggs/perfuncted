@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,7 +61,25 @@ func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
 		return "", "", "", fmt.Errorf("perfuncted: no nested session found in /tmp/perfuncted-xdg-*")
 	}
 	if len(matches) > 1 {
-		return "", "", "", fmt.Errorf("perfuncted: multiple nested sessions found (%d), specify env vars manually", len(matches))
+		// If multiple nested sessions exist, pick the most-recently-modified
+		// directory to be robust in CI where parallel runs may leave multiple
+		// entries. Emit a warning to stderr to help debugging.
+		type mtimeEntry struct {
+			path string
+			mod  time.Time
+		}
+		var entries []mtimeEntry
+		for _, m := range matches {
+			if fi, err := os.Stat(m); err == nil {
+				entries = append(entries, mtimeEntry{path: m, mod: fi.ModTime()})
+			} else {
+				entries = append(entries, mtimeEntry{path: m, mod: time.Time{}})
+			}
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].mod.After(entries[j].mod) })
+		xdgDir := entries[0].path
+		fmt.Fprintf(os.Stderr, "warning: multiple nested sessions found, picking %s\n", xdgDir)
+		matches = []string{xdgDir}
 	}
 
 	xdgDir := matches[0]

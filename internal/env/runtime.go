@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Runtime is a snapshot of the environment used to route automation requests
@@ -21,11 +22,8 @@ func Current() Runtime {
 func FromEnviron(values []string) Runtime {
 	vars := make(map[string]string, len(values))
 	for _, kv := range values {
-		for i := 0; i < len(kv); i++ {
-			if kv[i] == '=' {
-				vars[kv[:i]] = kv[i+1:]
-				break
-			}
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			vars[kv[:i]] = kv[i+1:]
 		}
 	}
 	return Runtime{vars: vars}

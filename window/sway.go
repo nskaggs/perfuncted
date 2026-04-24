@@ -171,11 +171,6 @@ func (m *SwayManager) swayCmd(cmd string) error {
 
 // Activate focuses the first window whose title contains substr (case-insensitive).
 func (m *SwayManager) Activate(ctx context.Context, substr string) error {
-	return m.ActivateContext(ctx, substr)
-}
-
-// ActivateContext is an alias for Activate to match bundle patterns.
-func (m *SwayManager) ActivateContext(ctx context.Context, substr string) error {
 	w, err := m.findWindow(ctx, substr)
 	if err != nil {
 		return err
@@ -184,7 +179,9 @@ func (m *SwayManager) ActivateContext(ctx context.Context, substr string) error 
 }
 
 // Restore is a no-op on sway as it does not have a formal restore action for scratchpad/fullscreen.
-func (m *SwayManager) Restore(ctx context.Context, substr string) error { return nil }
+func (m *SwayManager) Restore(ctx context.Context, substr string) error {
+	return ErrNotSupported
+}
 
 // Move repositions the first window whose title contains substr.
 // The window is made floating so it can be placed at an absolute position.

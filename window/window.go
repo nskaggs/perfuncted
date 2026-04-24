@@ -58,6 +58,10 @@ type Manager interface {
 	// Maximize maximizes the window matching title.
 	Maximize(ctx context.Context, title string) error
 	// Restore restores the window matching title.
+	//
+	// The semantics are backend-defined but should aim to return the window to
+	// a normal (unminimized, unmaximized) visible state. If a backend cannot
+	// perform a restore, it should return ErrNotSupported.
 	Restore(ctx context.Context, title string) error
 	// Close releases backend resources.
 	Close() error

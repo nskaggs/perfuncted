@@ -41,10 +41,16 @@ func (i InputBundle) TypeWithDelayContext(ctx context.Context, text string, dela
 		if err := i.Inputter.Type(ctx, string(r)); err != nil {
 			return err
 		}
+		// Use a reusable timer to avoid leaking timers in tight loops.
+		t := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return ctx.Err()
-		case <-time.After(delay):
+		case <-t.C:
+		}
+		if !t.Stop() {
+			// drained above
 		}
 	}
 	return nil

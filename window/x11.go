@@ -130,11 +130,6 @@ func (b *X11Backend) findByTitle(ctx context.Context, title string) (xproto.Wind
 
 // Activate raises and focuses a window by title using _NET_ACTIVE_WINDOW.
 func (b *X11Backend) Activate(ctx context.Context, title string) error {
-	return b.ActivateContext(ctx, title)
-}
-
-// ActivateContext is an alias for Activate to match bundle patterns.
-func (b *X11Backend) ActivateContext(ctx context.Context, title string) error {
 	win, err := b.findByTitle(ctx, title)
 	if err != nil {
 		return err

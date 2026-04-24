@@ -211,11 +211,6 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 // seat and the zwlr foreign-toplevel control protocol; ext_foreign_toplevel_list_v1
 // is enumeration-only and cannot activate windows.
 func (m *WaylandWindowManager) Activate(ctx context.Context, title string) error {
-	return m.ActivateContext(ctx, title)
-}
-
-// ActivateContext is an alias for Activate to match bundle patterns.
-func (m *WaylandWindowManager) ActivateContext(ctx context.Context, title string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return fmt.Errorf("window/wayland: round-trip: %w", err)
 	}

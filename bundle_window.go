@@ -119,13 +119,21 @@ func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration
 	}
 	for {
 		current, err := w.Manager.ActiveTitle(ctx)
-		if err == nil && current != initial {
+		if err != nil {
+			return "", err
+		}
+		if current != initial {
 			return current, nil
 		}
+		t := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return "", ctx.Err()
-		case <-time.After(poll):
+		case <-t.C:
+		}
+		if !t.Stop() {
+			// drained
 		}
 	}
 }

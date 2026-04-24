@@ -216,11 +216,6 @@ callDBus('%s', '/', '%s', 'ReportWindows', found);
 
 // Activate raises and focuses the first window whose title contains substr.
 func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
-	return k.ActivateContext(ctx, title)
-}
-
-// ActivateContext is an alias for Activate to match bundle patterns.
-func (k *KWinScriptManager) ActivateContext(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
 	result, err := k.runScript(func(svc string) string {
 		return kwinFindWindowScript(safe, svc,

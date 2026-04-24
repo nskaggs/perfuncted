@@ -55,6 +55,10 @@ func (s ScreenBundle) GrabContext(ctx context.Context, rect image.Rectangle) (im
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
+	if rect.Empty() {
+		// Normalize: empty rect means full-screen grab at bundle level.
+		return s.Screenshotter.Grab(ctx, image.Rectangle{})
+	}
 	return s.Screenshotter.Grab(ctx, rect)
 }
 
@@ -139,6 +143,9 @@ func (s ScreenBundle) GetMultiplePixelsContext(ctx context.Context, points []ima
 	return out, nil
 }
 
+// PixelToScreen currently returns the rectangle's Min point. If a real
+// coordinate conversion is required by some backends, implement it here.
+// TODO: remove this helper if unused or implement proper conversion.
 func (s ScreenBundle) PixelToScreen(rect image.Rectangle) (int, int, error) {
 	return rect.Min.X, rect.Min.Y, nil
 }
@@ -154,11 +161,11 @@ func (s ScreenBundle) WaitForFnContext(ctx context.Context, rect image.Rectangle
 	return find.WaitForFn(ctx, s.Screenshotter, rect, fn, poll)
 }
 
-func (s ScreenBundle) WaitForVisibleChange(rect image.Rectangle, poll time.Duration, stable ...int) (uint32, error) {
-	return s.WaitForVisibleChangeContext(context.Background(), rect, poll, stable...)
+func (s ScreenBundle) WaitForVisibleChange(rect image.Rectangle, poll time.Duration, stable int) (uint32, error) {
+	return s.WaitForVisibleChangeContext(context.Background(), rect, poll, stable)
 }
 
-func (s ScreenBundle) WaitForVisibleChangeContext(ctx context.Context, rect image.Rectangle, poll time.Duration, stable ...int) (uint32, error) {
+func (s ScreenBundle) WaitForVisibleChangeContext(ctx context.Context, rect image.Rectangle, poll time.Duration, stable int) (uint32, error) {
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
@@ -170,8 +177,8 @@ func (s ScreenBundle) WaitForVisibleChangeContext(ctx context.Context, rect imag
 	if err != nil {
 		return 0, err
 	}
-	if len(stable) > 0 && stable[0] > 1 {
-		return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable[0], poll, nil)
+	if stable > 1 {
+		return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable, poll, nil)
 	}
 	return h, nil
 }

@@ -114,10 +114,6 @@ func (g *GnomeManager) actOnWindow(title, action string) error {
 }
 
 func (g *GnomeManager) Activate(ctx context.Context, title string) error {
-	return g.ActivateContext(ctx, title)
-}
-
-func (g *GnomeManager) ActivateContext(ctx context.Context, title string) error {
 	return g.actOnWindow(title, `w.activate(global.get_current_time())`)
 }
 
