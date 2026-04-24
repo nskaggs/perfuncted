@@ -194,10 +194,12 @@ func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
 		if err == nil {
 			return nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return fmt.Errorf("retry: timed out: %w", err)
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }

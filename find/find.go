@@ -109,10 +109,12 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 		if h == want {
 			return h, nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x)", want, h)
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -129,10 +131,12 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 		if h != initial {
 			return h, nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -169,10 +173,12 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			sentinel = cur
 			last = 0 // force mismatch on next full hash
 			streak = 0
+			timer := time.NewTimer(poll)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-			case <-time.After(poll):
+			case <-timer.C:
 			}
 			continue
 		}
@@ -189,10 +195,12 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			last = h
 			streak = 1
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -259,10 +267,12 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 				}
 			}
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return Result{}, fmt.Errorf("find: timeout scanning %d regions", len(rects))
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -408,10 +418,12 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
 		}
 
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match")
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -488,10 +500,12 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 		if err == nil {
 			return r, nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return image.Rectangle{}, fmt.Errorf("find: timeout waiting to locate reference image: %w", ctx.Err())
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -509,10 +523,12 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 		if fn(img) {
 			return img, nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }

@@ -124,10 +124,12 @@ func (k *KWinScriptManager) runScript(buildJS func(svc string) string) (string, 
 	// Without this call the script is registered but never runs.
 	scr.Call(kwinScriptIface+".start", 0) //nolint:errcheck
 
+	timer := time.NewTimer(5 * time.Second)
 	select {
 	case data := <-recv.ch:
+		timer.Stop()
 		return data, nil
-	case <-time.After(5 * time.Second):
+	case <-timer.C:
 		return "", fmt.Errorf("window/kwinscript: timeout — script %d did not call back (is KWin scripting enabled?)", scriptID)
 	}
 }

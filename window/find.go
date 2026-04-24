@@ -30,10 +30,12 @@ func WaitFor(ctx context.Context, m Manager, pattern string, poll time.Duration)
 		if err == nil {
 			return info, nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return Info{}, fmt.Errorf("wait for window %q: %w", pattern, ctx.Err())
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }
@@ -45,10 +47,12 @@ func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Dura
 		if err != nil {
 			return nil
 		}
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return fmt.Errorf("wait for window close %q: %w", pattern, ctx.Err())
-		case <-time.After(poll):
+		case <-timer.C:
 		}
 	}
 }

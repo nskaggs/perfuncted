@@ -460,10 +460,12 @@ Runs until --duration expires or Ctrl+C.`,
 				} else {
 					streak++
 				}
+				timer := time.NewTimer(poll)
 				select {
 				case <-ctx.Done():
+					timer.Stop()
 					return nil
-				case <-time.After(poll):
+				case <-timer.C:
 				}
 			}
 		},

@@ -78,16 +78,20 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 		_ = m.cmd.Wait()
 		close(done)
 	}()
+	outer := time.NewTimer(waitTimeout)
 	select {
 	case <-done:
+		outer.Stop()
 		return
-	case <-time.After(waitTimeout):
+	case <-outer.C:
 		// Force kill the process group.
 		_ = syscall.Kill(-m.pid, syscall.SIGKILL)
+		inner := time.NewTimer(waitTimeout)
 		select {
 		case <-done:
+			inner.Stop()
 			return
-		case <-time.After(waitTimeout):
+		case <-inner.C:
 			return
 		}
 	}
