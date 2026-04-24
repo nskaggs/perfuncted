@@ -83,7 +83,9 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 // exec.Cmd.Env.
 func (r Runtime) EnvList() []string {
 	if len(r.vars) == 0 {
-		return nil
+		// Return an empty slice (not nil) to represent an empty environment
+		// for exec.Cmd.Env. Nil would mean "inherit parent env".
+		return []string{}
 	}
 	keys := make([]string, 0, len(r.vars))
 	for key := range r.vars {

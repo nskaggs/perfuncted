@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
@@ -709,7 +710,7 @@ func testBrowser(ctx *testContext, app appSpec) {
 	defer cancel()
 
 	winCh := make(chan struct{}, 1)
-	procCh := make(chan error, 1)
+	procCh := make(chan error, 2)
 	go func() {
 		_, err := pf.Window.WaitFor(wctx, app.winMatch, 1*time.Second)
 		if err != nil {
@@ -864,6 +865,7 @@ func detectApps() []appSpec {
 // ── Results Tracker ──────────────────────────────────────────────────────────
 
 type results struct {
+	mu      sync.Mutex
 	passed  int
 	failed  int
 	current string
@@ -871,25 +873,35 @@ type results struct {
 }
 
 func (r *results) section(name string) {
+	r.mu.Lock()
 	r.current = name
+	r.mu.Unlock()
 	fmt.Printf("\n── %s ──\n", name)
 }
 
 func (r *results) pass(msg string, args ...any) {
+	r.mu.Lock()
 	r.passed++
 	s := fmt.Sprintf("  PASS  %s\n", fmt.Sprintf(msg, args...))
 	fmt.Print(s)
 	r.logs.WriteString(s)
+	r.mu.Unlock()
 }
 
 func (r *results) fail(msg string, args ...any) {
+	r.mu.Lock()
 	r.failed++
 	s := fmt.Sprintf("  FAIL  %s\n", fmt.Sprintf(msg, args...))
 	fmt.Print(s)
 	r.logs.WriteString(s)
+	p, f := r.passed, r.failed
+	r.mu.Unlock()
 	fmt.Printf("\n══════════════════════════════\n")
-	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
+	fmt.Printf("  passed: %d  failed: %d\n", p, f)
 	fmt.Printf("══════════════════════════════\n")
+	// Note: still exiting here for the integration binary, but counters and
+	// logs are protected by the mutex to avoid races when called from other
+	// goroutines. A future change should signal a cancel to let main tidy up.
 	os.Exit(1)
 }
 
@@ -902,7 +914,10 @@ func (r *results) check(label string, err error) {
 }
 
 func (r *results) summary() {
+	r.mu.Lock()
+	p, f := r.passed, r.failed
+	r.mu.Unlock()
 	fmt.Printf("\n══════════════════════════════\n")
-	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
+	fmt.Printf("  passed: %d  failed: %d\n", p, f)
 	fmt.Printf("══════════════════════════════\n")
 }

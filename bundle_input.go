@@ -125,13 +125,23 @@ func (i InputBundle) DoubleClickContext(ctx context.Context, x, y int) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
+	// Move once to target and emulate two quick down/up pairs to better match
+	// a real double-click (avoids redundant extra move calls).
 	if err := i.Inputter.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
-	if err := i.Inputter.MouseClick(ctx, x, y, 1); err != nil {
+	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
 		return err
 	}
-	return i.Inputter.MouseClick(ctx, x, y, 1)
+	if err := i.Inputter.MouseUp(ctx, 1); err != nil {
+		return err
+	}
+	// Small pause to emulate human double-click timing.
+	time.Sleep(50 * time.Millisecond)
+	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
+		return err
+	}
+	return i.Inputter.MouseUp(ctx, 1)
 }
 
 func (i InputBundle) MouseMove(x, y int) error {
@@ -243,6 +253,8 @@ func (i InputBundle) DragAndDropContext(ctx context.Context, x1, y1, x2, y2 int)
 	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
 		return err
 	}
+	// Ensure the button is released even if subsequent operations fail.
+	defer func() { _ = i.Inputter.MouseUp(context.Background(), 1) }()
 	if err := i.Inputter.MouseMove(ctx, x2, y2); err != nil {
 		return err
 	}

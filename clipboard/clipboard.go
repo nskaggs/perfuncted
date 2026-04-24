@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
@@ -71,7 +72,9 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("clipboard get: %w", err)
 	}
-	return out.String(), nil
+	// Normalize trailing-newline differences between backends by trimming a
+	// single trailing '\n'. This keeps behaviour consistent for callers.
+	return strings.TrimRight(out.String(), "\n"), nil
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {

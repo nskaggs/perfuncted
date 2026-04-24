@@ -30,7 +30,7 @@ func (s ScreenBundle) GrabHashContext(ctx context.Context, rect image.Rectangle)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
-	if rect.Empty() || rect == image.Rect(0, 0, 0, 0) {
+	if rect.Empty() {
 		return s.Screenshotter.GrabFullHash(ctx)
 	}
 	return find.GrabHash(ctx, s.Screenshotter, rect, nil)
@@ -107,11 +107,33 @@ func (s ScreenBundle) GetMultiplePixelsContext(ctx context.Context, points []ima
 		return nil, err
 	}
 	out := make([]color.RGBA, len(points))
-	for i, p := range points {
-		c, err := find.FirstPixel(ctx, s.Screenshotter, image.Rect(p.X, p.Y, p.X+1, p.Y+1))
-		if err != nil {
-			return nil, err
+	if len(points) == 0 {
+		return out, nil
+	}
+	// Compute bounding box for a single grab, then index into the returned image.
+	minX, minY := points[0].X, points[0].Y
+	maxX, maxY := minX, minY
+	for _, p := range points {
+		if p.X < minX {
+			minX = p.X
 		}
+		if p.Y < minY {
+			minY = p.Y
+		}
+		if p.X > maxX {
+			maxX = p.X
+		}
+		if p.Y > maxY {
+			maxY = p.Y
+		}
+	}
+	bounds := image.Rect(minX, minY, maxX+1, maxY+1)
+	img, err := s.GrabContext(ctx, bounds)
+	if err != nil {
+		return nil, err
+	}
+	for i, p := range points {
+		c := color.RGBAModel.Convert(img.At(p.X, p.Y)).(color.RGBA)
 		out[i] = c
 	}
 	return out, nil
