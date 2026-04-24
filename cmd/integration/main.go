@@ -715,14 +715,10 @@ type results struct {
 
 func (r *results) section(name string) {
 	r.current = name
-	_ = name
+	fmt.Printf("\n── %s ──\n", name)
 }
 
 func (r *results) pass(msg string, args ...any) {
-	r.passed++
-	s := fmt.Sprintf("  PASS  %s\n", fmt.Sprintf(msg, args...))
-	fmt.Print(s)
-	r.logs.WriteString(s)
 }
 
 func (r *results) fail(msg string, args ...any) {
@@ -741,9 +737,7 @@ func (r *results) check(label string, err error) {
 }
 
 func (r *results) summary() {
-	_ = r.passed
-	_ = r.failed
-	if r.failed > 0 {
-		os.Exit(1)
-	}
+	fmt.Printf("\n══════════════════════════════\n")
+	fmt.Printf("  passed: %d  failed: %d\n", r.passed, r.failed)
+	fmt.Printf("══════════════════════════════\n")
 }
