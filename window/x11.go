@@ -78,6 +78,15 @@ func (b *X11Backend) windowPID(win xproto.Window) int32 {
 		uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
 }
 
+// windowGeometry returns the geometry of a window.
+func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
+	geo, err := xproto.GetGeometry(b.conn, xproto.Drawable(win)).Reply()
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+	return int(geo.X), int(geo.Y), int(geo.Width), int(geo.Height)
+}
+
 // List returns all top-level windows from _NET_CLIENT_LIST.
 func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
 	rep, err := xproto.GetProperty(b.conn, false, b.root, b.atomNetClientList,
@@ -96,10 +105,15 @@ func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
 	}
 	infos := make([]Info, 0, len(ids))
 	for _, id := range ids {
+		x, y, w, h := b.windowGeometry(id)
 		infos = append(infos, Info{
 			ID:    uint64(id),
 			Title: b.windowTitle(id),
 			PID:   b.windowPID(id),
+			X:     x,
+			Y:     y,
+			W:     w,
+			H:     h,
 		})
 	}
 	return infos, nil
