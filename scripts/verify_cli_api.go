@@ -128,8 +128,7 @@ func skipMethodForCLISync(name string) bool {
 		"TypeWithDelay",
 		"WaitForFn",
 		"WaitForLocate",
-		"WaitForSettle",
-		"WaitForVisibleChange":
+		"WaitForSettle":
 		return true
 	default:
 		return false

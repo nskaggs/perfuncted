@@ -5,8 +5,96 @@ run:
   tests: true
 
 linters:
-  default: none
   enable:
-    - govet
-    - ineffassign
-    - unused
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - dupl
+    - err113
+    - errorlint
+    - goconst
+    - gocritic
+    - gocyclo
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    dupl:
+      threshold: 150
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    gocritic:
+      enabled-checks:
+        - appendAssign
+        - badCond
+        - badLock
+        - captLocal
+        - deferInLoop
+        - dupImport
+        - dupSubExpr
+        - hugeParam
+        - indexAlloc
+        - sloppyReassign
+        - unnecessaryBlock
+        - unnecessaryDefer
+        - unslice
+        - valSwap
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable:
+        - nilness
+        - shadow
+        - unmarshal
+        - unreachable
+        - unusedresult
+    revive:
+      rules:
+        - name: exported
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-naming
+        - name: early-return
+        - name: increment-decrement
+        - name: receiver-naming
+        - name: time-naming
+        - name: var-naming
+        - name: indent-error-flow
+        - name: unexported-return
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - revive
+        text: TODO
+      - linters:
+          - unparam
+        text: interface method
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
