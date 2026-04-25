@@ -174,7 +174,7 @@ func New(opts Options) (*Perfuncted, error) {
 func (p *Perfuncted) Close() error {
 	var errs []error
 	if p.Screen.Screenshotter != nil {
-		errs = append(errs, p.Screen.Screenshotter.Close())
+		errs = append(errs, p.Screen.Close())
 	}
 	if p.Input.Inputter != nil {
 		errs = append(errs, p.Input.Close())

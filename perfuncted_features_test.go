@@ -47,18 +47,11 @@ func TestFeatures(t *testing.T) {
 	})
 
 	t.Run("Window", func(t *testing.T) {
-		if _, err := pf.Window.GetGeometry("Firefox"); err != nil {
-			// pftest mock may return error if no list set, but we just check call
-		}
-		if _, err := pf.Window.GetProcess("Firefox"); err != nil {
-		}
-		if err := pf.Window.Resize("Firefox", 800, 600); err != nil {
-		}
-		if err := pf.Window.Minimize("Firefox"); err != nil {
-		}
-		if err := pf.Window.Maximize("Firefox"); err != nil {
-		}
-		if err := pf.Window.Restore("Firefox"); err != nil {
-		}
+		_, _ = pf.Window.GetGeometry("Firefox")
+		_, _ = pf.Window.GetProcess("Firefox")
+		_ = pf.Window.Resize("Firefox", 800, 600)
+		_ = pf.Window.Minimize("Firefox")
+		_ = pf.Window.Maximize("Firefox")
+		_ = pf.Window.Restore("Firefox")
 	})
 }

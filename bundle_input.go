@@ -49,9 +49,6 @@ func (i InputBundle) TypeWithDelayContext(ctx context.Context, text string, dela
 			return ctx.Err()
 		case <-t.C:
 		}
-		if !t.Stop() {
-			// drained above
-		}
 	}
 	return nil
 }

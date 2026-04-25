@@ -132,9 +132,6 @@ func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration
 			return "", ctx.Err()
 		case <-t.C:
 		}
-		if !t.Stop() {
-			// drained
-		}
 	}
 }
 
