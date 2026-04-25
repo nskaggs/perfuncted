@@ -32,6 +32,7 @@ Screen capture operations
 * [pf screen wait-for-change](pf_screen_wait-for-change.md)	 - Auto-generated wrapper for perfuncted.WaitForChange
 * [pf screen wait-for-no-change](pf_screen_wait-for-no-change.md)	 - Auto-generated wrapper for perfuncted.WaitForNoChange
 * [pf screen wait-for-stable](pf_screen_wait-for-stable.md)	 - Auto-generated wrapper for perfuncted.WaitForStable
+* [pf screen wait-for-visible-change](pf_screen_wait-for-visible-change.md)	 - Auto-generated wrapper for perfuncted.WaitForVisibleChange
 * [pf screen wait-with-tolerance](pf_screen_wait-with-tolerance.md)	 - Auto-generated wrapper for perfuncted.WaitWithTolerance
 * [pf screen watch](pf_screen_watch.md)	 - Continuously print hash changes in a screen region
 
