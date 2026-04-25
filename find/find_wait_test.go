@@ -2,7 +2,6 @@ package find
 
 import (
 	"context"
-	"hash"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -69,7 +68,7 @@ func TestWaitFor_DifferentHash(t *testing.T) {
 
 // TestWaitFor_WithCustomHasher tests WaitFor with a custom hasher.
 func TestWaitFor_WithCustomHasher(t *testing.T) {
-	customHasher := func() hash.Hash32 { return crc32.NewIEEE() }
+	customHasher := crc32.NewIEEE
 	sc := &solidScreenshotter{}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

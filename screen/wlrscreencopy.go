@@ -482,8 +482,8 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 	w := bounds.Dx()
 	h := bounds.Dy()
 	if b.scale > 1 {
-		w = w / int(b.scale)
-		h = h / int(b.scale)
+		w /= int(b.scale)
+		h /= int(b.scale)
 	}
 	return w, h, nil
 }

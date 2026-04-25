@@ -14,6 +14,12 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	headless := flag.Bool("headless", false, "start a new headless session")
 	flag.Parse()
 
@@ -25,7 +31,7 @@ func main() {
 			Resolution: image.Pt(1024, 768),
 		})
 		if err != nil {
-			log.Fatalf("failed to start session: %v", err)
+			return fmt.Errorf("failed to start session: %w", err)
 		}
 		defer sess.Stop()
 		fmt.Printf("Started session: %s\n", sess.XDGRuntimeDir())
@@ -38,7 +44,7 @@ func main() {
 
 	pf, err := perfuncted.New(perfuncted.Options{})
 	if err != nil {
-		log.Fatalf("failed to open backends: %v", err)
+		return fmt.Errorf("failed to open backends: %w", err)
 	}
 	defer pf.Close()
 
@@ -54,21 +60,20 @@ func main() {
 	start := time.Now()
 	img, err := pf.Screen.Grab(image.Rect(0, 0, 100, 100))
 	if err != nil {
-		log.Fatalf("Grab failed: %v", err)
+		return fmt.Errorf("grab failed: %w", err)
 	}
 	fmt.Printf("Grabbed 100x100 in %v (bounds: %v)\n", time.Since(start), img.Bounds())
 
 	// 2. Input & Window Test
 	fmt.Println("Launching kwrite...")
 	var launchErr error
-	if sess != nil {
-		_, launchErr = sess.Launch("kwrite")
-	} else {
-		log.Fatal("this test requires --headless to safely launch apps")
+	if sess == nil {
+		return fmt.Errorf("this test requires --headless to safely launch apps")
 	}
+	_, launchErr = sess.Launch("kwrite")
 
 	if launchErr != nil {
-		log.Fatalf("failed to launch app: %v", launchErr)
+		return fmt.Errorf("failed to launch app: %w", launchErr)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -77,7 +82,7 @@ func main() {
 	fmt.Println("Waiting for window...")
 	info, err := pf.Window.WaitFor(ctx, "kwrite", 500*time.Millisecond)
 	if err != nil {
-		log.Fatalf("window did not appear: %v", err)
+		return fmt.Errorf("window did not appear: %w", err)
 	}
 	fmt.Printf("Found window: %q (0x%x)\n", info.Title, info.ID)
 
@@ -90,4 +95,5 @@ func main() {
 
 	fmt.Println("Closing in 3 seconds...")
 	time.Sleep(3 * time.Second)
+	return nil
 }

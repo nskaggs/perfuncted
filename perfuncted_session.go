@@ -325,14 +325,14 @@ func (s *Session) launchWlPaste() {
 	cmd := executil.CommandContext(context.Background(), "wl-paste", "--watch", "cat")
 	cmd.Env = s.Env()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err == nil {
+	err := cmd.Start()
+	if err == nil {
 		s.wlPastePid = cmd.Process.Pid
 		s.wlPasteCmd = cmd
 		return
-	} else {
-		// Best-effort background helper failed to start; log so users see the reason.
-		log.Printf("warning: wl-paste helper failed to start: %v", err)
 	}
+	// Best-effort background helper failed to start; log so users see the reason.
+	log.Printf("warning: wl-paste helper failed to start: %v", err)
 }
 
 func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {

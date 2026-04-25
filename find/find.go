@@ -26,7 +26,7 @@ type Screenshotter interface {
 type Hasher func() hash.Hash32
 
 // DefaultHasher uses CRC32 IEEE.
-var DefaultHasher Hasher = func() hash.Hash32 { return crc32.NewIEEE() }
+var DefaultHasher Hasher = crc32.NewIEEE
 
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
 // For *image.RGBA images it uses a fast path that reads pixel bytes directly
@@ -401,21 +401,21 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		sb := img.Bounds()
 		w, h := expectedRect.Dx(), expectedRect.Dy()
 
-		if sub, ok := img.(interface {
+		sub, ok := img.(interface {
 			SubImage(r image.Rectangle) image.Image
-		}); ok {
-			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
-				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
-					r := image.Rect(x, y, x+w, y+h)
-					subImg := sub.SubImage(r)
-					hVal := PixelHash(subImg, newHash)
-					if hVal == targetHash {
-						return targetHash, r, nil
-					}
+		})
+		if !ok {
+			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
+		}
+		for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
+			for x := sb.Min.X; x <= sb.Max.X-w; x++ {
+				r := image.Rect(x, y, x+w, y+h)
+				subImg := sub.SubImage(r)
+				hVal := PixelHash(subImg, newHash)
+				if hVal == targetHash {
+					return targetHash, r, nil
 				}
 			}
-		} else {
-			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
 		}
 
 		timer := time.NewTimer(poll)
