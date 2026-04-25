@@ -165,10 +165,10 @@ func main() {
 
 	methods := map[string][]string{}
 	for grp, tname := range bundleTypes {
-		m, err := methodsForType(perfPkg, tname)
-		if err != nil {
+		m, methodErr := methodsForType(perfPkg, tname)
+		if methodErr != nil {
 			// If type not found, continue but warn
-			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			fmt.Fprintf(os.Stderr, "warning: %v\n", methodErr)
 			methods[grp] = []string{}
 			continue
 		}

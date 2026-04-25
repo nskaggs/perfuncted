@@ -111,7 +111,8 @@ func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image
 	if call.Err != nil {
 		return nil, fmt.Errorf("screen/kwin: CaptureArea: %w", call.Err)
 	}
-	if err := call.Store(&results); err != nil {
+	err = call.Store(&results)
+	if err != nil {
 		return nil, fmt.Errorf("screen/kwin: store results: %w", err)
 	}
 

@@ -70,7 +70,7 @@ func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
 		}
 		var entries []mtimeEntry
 		for _, m := range matches {
-			if fi, err := os.Stat(m); err == nil {
+			if fi, statErr := os.Stat(m); statErr == nil {
 				entries = append(entries, mtimeEntry{path: m, mod: fi.ModTime()})
 			} else {
 				entries = append(entries, mtimeEntry{path: m, mod: time.Time{}})

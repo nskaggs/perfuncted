@@ -95,7 +95,8 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 		if call.Err != nil {
 			return nil, fmt.Errorf("screen/gnome-shell: Screenshot: %w", call.Err)
 		}
-		if err := call.Store(&success, &used); err != nil {
+		err = call.Store(&success, &used)
+		if err != nil {
 			return nil, fmt.Errorf("screen/gnome-shell: Screenshot reply: %w", err)
 		}
 	} else {
@@ -106,7 +107,8 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 		if call.Err != nil {
 			return nil, fmt.Errorf("screen/gnome-shell: ScreenshotArea: %w", call.Err)
 		}
-		if err := call.Store(&success, &used); err != nil {
+		err = call.Store(&success, &used)
+		if err != nil {
 			return nil, fmt.Errorf("screen/gnome-shell: ScreenshotArea reply: %w", err)
 		}
 	}

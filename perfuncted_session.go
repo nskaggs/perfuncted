@@ -115,7 +115,8 @@ func StartSession(cfg SessionConfig) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("session: mkdirtemp: %w", err)
 	}
-	if err := os.Chmod(xdgDir, 0700); err != nil {
+	err = os.Chmod(xdgDir, 0700)
+	if err != nil {
 		os.RemoveAll(xdgDir)
 		return nil, fmt.Errorf("session: chmod: %w", err)
 	}
@@ -128,7 +129,8 @@ func StartSession(cfg SessionConfig) (*Session, error) {
 	}
 
 	// 1. Launch dbus-daemon.
-	if err := s.launchDBus(); err != nil {
+	err = s.launchDBus()
+	if err != nil {
 		s.Stop()
 		return nil, fmt.Errorf("session: dbus: %w", err)
 	}
