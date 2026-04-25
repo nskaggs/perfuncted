@@ -425,9 +425,9 @@ func testApp(ctx *testContext, app appSpec) {
 		if strings.Contains(string(b), "Integration") {
 			r.pass("Typed content verified via Save->file read")
 		} else {
-			fmt.Printf("  DEBUG: typed verification failed. file contents: %q\n", string(b))
+			fmt.Printf("typed verification failed. file contents: %q\n", string(b))
 			if fi, err := os.Stat(app.saveFile); err == nil {
-				fmt.Printf("  DEBUG: file mode=%v size=%d mtime=%v\n", fi.Mode(), fi.Size(), fi.ModTime())
+				fmt.Printf("file mode=%v size=%d mtime=%v\n", fi.Mode(), fi.Size(), fi.ModTime())
 			}
 			r.fail("Typed content not found in save file; typed verification failed")
 			return
@@ -509,7 +509,7 @@ func testApp(ctx *testContext, app appSpec) {
 	r.pass("KeyUp ctrl")
 
 	// Allow a short moment for the UI to update with pasted content.
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
 
 	// Save before opening a new tab: Action: Ctrl+S. Verify content and mtime.
 	var beforeMod time.Time
@@ -522,6 +522,8 @@ func testApp(ctx *testContext, app appSpec) {
 	}
 	r.pass("Ctrl+S (Save)")
 
+	time.Sleep(1000 * time.Millisecond)
+
 	// Read file ONCE (no retries) and assert marker presence. File content is the
 	// single source of truth for paste verification.
 	content, rerr := os.ReadFile(app.saveFile)
@@ -530,25 +532,8 @@ func testApp(ctx *testContext, app appSpec) {
 		return
 	}
 	if !strings.Contains(string(content), marker) {
-		fmt.Printf("  DEBUG: paste shortcut did not update file; falling back to direct text entry. fileContents=%q\n", string(content))
-		r.check("Refocus document for marker fallback", pf.Input.MouseClick(clickX, clickY, 1))
-		time.Sleep(200 * time.Millisecond)
-		r.check("Direct marker entry fallback", pf.Input.TypeWithDelay(marker, 20*time.Millisecond))
-		time.Sleep(200 * time.Millisecond)
-		if err := pf.Input.PressCombo("ctrl+s"); err != nil {
-			r.fail("Fallback Ctrl+S (Save) failed: %v; inputBackend=%s", err, inputBackend)
-			return
-		}
-		content, rerr = os.ReadFile(app.saveFile)
-		if rerr != nil {
-			r.fail("Pre-tab fallback save failed: could not read file after save: %v", rerr)
-			return
-		}
-		if !strings.Contains(string(content), marker) {
-			r.fail("Pre-tab save failed: marker %q missing after paste and fallback; fileContents=%q", marker, string(content))
-			return
-		}
-		r.pass("Direct marker entry fallback verified")
+		r.fail("paste shortcut did not update file; marker=%q, fileContents=%q\n", string(marker), string(content))
+		return
 	}
 	r.pass("File saved correctly with marker (pre-tab save)")
 	if fi, stErr := os.Stat(app.saveFile); stErr == nil {
