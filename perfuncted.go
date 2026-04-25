@@ -20,6 +20,8 @@ import (
 	"github.com/nskaggs/perfuncted/window"
 )
 
+var nestedSessionGlob = filepath.Glob
+
 // Options controls backend selection.
 type Options struct {
 	MaxX, MaxY int32
@@ -53,52 +55,60 @@ func resolveRuntime(opts Options) (env.Runtime, error) {
 }
 
 func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
-	matches, err := filepath.Glob("/tmp/perfuncted-xdg-*")
+	matches, err := nestedSessionGlob("/tmp/perfuncted-xdg-*")
 	if err != nil {
 		return "", "", "", fmt.Errorf("perfuncted: glob nested sessions: %w", err)
 	}
 	if len(matches) == 0 {
 		return "", "", "", fmt.Errorf("perfuncted: no nested session found in /tmp/perfuncted-xdg-*")
 	}
-	if len(matches) > 1 {
-		// If multiple nested sessions exist, pick the most-recently-modified
-		// directory to be robust in CI where parallel runs may leave multiple
-		// entries. Emit a warning to stderr to help debugging.
-		type mtimeEntry struct {
-			path string
-			mod  time.Time
-		}
-		var entries []mtimeEntry
-		for _, m := range matches {
-			if fi, statErr := os.Stat(m); statErr == nil {
-				entries = append(entries, mtimeEntry{path: m, mod: fi.ModTime()})
-			} else {
-				entries = append(entries, mtimeEntry{path: m, mod: time.Time{}})
-			}
-		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].mod.After(entries[j].mod) })
-		xdgDir := entries[0].path
-		fmt.Fprintf(os.Stderr, "warning: multiple nested sessions found, picking %s\n", xdgDir)
-		matches = []string{xdgDir}
+	type nestedEntry struct {
+		path string
+		mod  time.Time
+		wl   string
 	}
 
-	xdgDir := matches[0]
+	var entries []nestedEntry
+	for _, xdgDir := range matches {
+		wlSocket, socketErr := nestedWaylandSocket(xdgDir)
+		if socketErr != nil {
+			continue
+		}
+
+		fi, statErr := os.Stat(xdgDir)
+		mod := time.Time{}
+		if statErr == nil {
+			mod = fi.ModTime()
+		}
+		entries = append(entries, nestedEntry{path: xdgDir, mod: mod, wl: wlSocket})
+	}
+	if len(entries) == 0 {
+		return "", "", "", fmt.Errorf("perfuncted: no nested session found with a wayland socket in /tmp/perfuncted-xdg-*")
+	}
+
+	if len(entries) > 1 {
+		// If multiple nested sessions exist, pick the most-recently-modified
+		// directory among the ones that actually expose a Wayland socket.
+		sort.Slice(entries, func(i, j int) bool { return entries[i].mod.After(entries[j].mod) })
+		fmt.Fprintf(os.Stderr, "warning: multiple nested sessions found, picking %s\n", entries[0].path)
+	}
+
+	xdgDir := entries[0].path
+	return xdgDir, entries[0].wl, fmt.Sprintf("unix:path=%s/bus", xdgDir), nil
+}
+
+func nestedWaylandSocket(xdgDir string) (string, error) {
 	sockets, err := filepath.Glob(filepath.Join(xdgDir, "wayland-*"))
 	if err != nil {
-		return "", "", "", fmt.Errorf("perfuncted: glob wayland sockets: %w", err)
+		return "", fmt.Errorf("perfuncted: glob wayland sockets: %w", err)
 	}
-	var wlSocket string
 	for _, sock := range sockets {
-		if !strings.HasSuffix(sock, ".lock") {
-			wlSocket = filepath.Base(sock)
-			break
+		if strings.HasSuffix(sock, ".lock") {
+			continue
 		}
+		return filepath.Base(sock), nil
 	}
-	if wlSocket == "" {
-		return "", "", "", fmt.Errorf("perfuncted: no wayland socket in %s", xdgDir)
-	}
-
-	return xdgDir, wlSocket, fmt.Sprintf("unix:path=%s/bus", xdgDir), nil
+	return "", fmt.Errorf("perfuncted: no wayland socket in %s", xdgDir)
 }
 
 func DetectSession() (kind string, details map[string]string) {

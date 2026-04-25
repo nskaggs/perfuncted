@@ -1,6 +1,10 @@
 package perfuncted
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/nskaggs/perfuncted/internal/env"
+)
 
 func TestResolveRuntimePreservesHostDesktopWhenNoSessionOverride(t *testing.T) {
 	t.Setenv("DISPLAY", ":99")
@@ -41,5 +45,27 @@ func TestResolveRuntimeClearsHostDisplayForExplicitSession(t *testing.T) {
 	}
 	if got := rt.Get("SWAYSOCK"); got != "" {
 		t.Fatalf("SWAYSOCK = %q, want empty", got)
+	}
+}
+
+func TestRuntimeSocketPathResolvesRelativeWaylandDisplay(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"XDG_RUNTIME_DIR=/tmp/perfuncted-host",
+		"WAYLAND_DISPLAY=wayland-0",
+	})
+
+	if got := rt.SocketPath(); got != "/tmp/perfuncted-host/wayland-0" {
+		t.Fatalf("SocketPath = %q, want /tmp/perfuncted-host/wayland-0", got)
+	}
+}
+
+func TestRuntimeSocketPathKeepsAbsoluteWaylandDisplay(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"XDG_RUNTIME_DIR=/tmp/perfuncted-host",
+		"WAYLAND_DISPLAY=/run/user/1000/wayland-1",
+	})
+
+	if got := rt.SocketPath(); got != "/run/user/1000/wayland-1" {
+		t.Fatalf("SocketPath = %q, want /run/user/1000/wayland-1", got)
 	}
 }

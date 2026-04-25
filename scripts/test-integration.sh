@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/test-integration.sh headless   # Run in a new isolated headless session (default)
-#   bash scripts/test-integration.sh nested     # Run against an existing nested session
+#   bash scripts/test-integration.sh nested     # Start and run a nested session
 #   bash scripts/test-integration.sh desktop    # Run against the host desktop
 #   bash scripts/test-integration.sh --app kwrite headless # Filter by app
 
@@ -29,7 +29,7 @@ case "$MODE" in
         ;;
     nested)
         echo "▶ running integration tests in NESTED mode"
-        # cmd/integration handles auto-discovery of /tmp/perfuncted-xdg-*
+        # cmd/integration starts and owns the nested session
         go run ./cmd/integration --nested "$@"
         ;;
     desktop)

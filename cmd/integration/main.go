@@ -5,7 +5,7 @@
 // Usage:
 //
 //	go run ./cmd/integration --headless   # Start an isolated session and run tests
-//	go run ./cmd/integration --nested     # Auto-detect and run against nested session
+//	go run ./cmd/integration --nested     # Start and run against a nested session
 //	go run ./cmd/integration --app kwrite # Run tests only for kwrite
 package main
 
@@ -42,7 +42,7 @@ const (
 
 func main() {
 	headless := flag.Bool("headless", false, "start a new isolated headless sway session for the test")
-	nested := flag.Bool("nested", false, "connect to an existing nested sway session in /tmp")
+	nested := flag.Bool("nested", false, "start a nested sway session for the test")
 	appFilter := flag.String("app", "", "run only this app (kwrite, pluma, firefox); empty = all")
 	flag.Parse()
 
@@ -61,32 +61,32 @@ func main() {
 			log.Fatalf("failed to start headless session: %v", err)
 		}
 		defer sess.Stop()
+		defer sess.CleanupOnSignal(context.Background())()
 		fmt.Printf("  session ready (XDG=%s)\n", sess.XDGRuntimeDir())
 		targetRuntime = targetRuntime.WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
 	} else if *nested {
 		mode = modeNested
+		fmt.Println("▶ starting nested session...")
+		sess, err = perfuncted.StartNestedSession(perfuncted.SessionConfig{
+			Resolution: image.Pt(1024, 768),
+		})
+		if err != nil {
+			log.Fatalf("failed to start nested session: %v", err)
+		}
+		defer sess.Stop()
+		defer sess.CleanupOnSignal(context.Background())()
+		fmt.Printf("  session ready (XDG=%s)\n", sess.XDGRuntimeDir())
+		targetRuntime = targetRuntime.WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
 	}
 
 	opts := perfuncted.Options{
-		Nested: *nested,
-		MaxX:   1024,
-		MaxY:   768,
+		MaxX: 1024,
+		MaxY: 768,
 	}
 	if sess != nil {
 		opts.XDGRuntimeDir = sess.XDGRuntimeDir()
 		opts.WaylandDisplay = sess.WaylandDisplay()
 		opts.DBusSessionAddress = sess.DBusAddress()
-	} else if *nested {
-		fmt.Println("▶ connecting to nested session...")
-		xdg, wl, dbus, err := perfuncted.NestedEnv()
-		if err != nil {
-			log.Fatalf("failed to find nested session: %v", err)
-		}
-		opts.XDGRuntimeDir = xdg
-		opts.WaylandDisplay = wl
-		opts.DBusSessionAddress = dbus
-		fmt.Printf("  connected to XDG=%s\n", xdg)
-		targetRuntime = targetRuntime.WithSession(xdg, wl, dbus)
 	}
 
 	pf, err := perfuncted.New(opts)

@@ -19,7 +19,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
-//go:embed configs/ci.conf configs/headless.conf
+//go:embed configs/ci.conf configs/headless.conf config/sway/nested.conf
 var embeddedConfigs embed.FS
 
 // SessionConfig controls session creation.
@@ -34,6 +34,13 @@ type SessionConfig struct {
 	// LogDir is the directory for sway log output. Defaults to /tmp/perfuncted-logs.
 	LogDir string
 }
+
+type sessionMode int
+
+const (
+	sessionModeHeadless sessionMode = iota
+	sessionModeNested
+)
 
 // Session is a running headless sway session.
 type Session struct {
@@ -101,6 +108,17 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 // headless sway, and wl-paste, then waits for the Wayland and sway IPC sockets
 // to appear.
 func StartSession(cfg SessionConfig) (*Session, error) {
+	return startSession(cfg, sessionModeHeadless)
+}
+
+// StartNestedSession creates a new isolated nested sway session. It launches
+// dbus-daemon, nested sway, and wl-paste, then waits for the Wayland and sway
+// IPC sockets to appear.
+func StartNestedSession(cfg SessionConfig) (*Session, error) {
+	return startSession(cfg, sessionModeNested)
+}
+
+func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 	if cfg.Resolution == (image.Point{}) {
 		cfg.Resolution = image.Pt(1024, 768)
 	}
@@ -138,15 +156,22 @@ func StartSession(cfg SessionConfig) (*Session, error) {
 	// 2. Resolve sway config.
 	swayConf := cfg.SwayConfigPath
 	if swayConf == "" {
-		swayConf, err = s.writeEmbeddedConfig(cfg.Resolution)
+		switch mode {
+		case sessionModeHeadless:
+			swayConf, err = s.writeEmbeddedConfig("configs/ci.conf", cfg.Resolution)
+		case sessionModeNested:
+			swayConf, err = s.writeEmbeddedConfig("config/sway/nested.conf", image.Point{})
+		default:
+			err = fmt.Errorf("session: unknown mode %d", mode)
+		}
 		if err != nil {
 			s.Stop()
 			return nil, fmt.Errorf("session: sway config: %w", err)
 		}
 	}
 
-	// 3. Launch headless sway.
-	if err := s.launchSway(swayConf); err != nil {
+	// 3. Launch sway.
+	if err := s.launchSway(swayConf, mode); err != nil {
 		s.Stop()
 		return nil, fmt.Errorf("session: sway: %w", err)
 	}
@@ -281,7 +306,7 @@ func (s *Session) launchDBus() error {
 	return nil
 }
 
-func (s *Session) launchSway(confPath string) error {
+func (s *Session) launchSway(confPath string, mode sessionMode) error {
 	logPath := filepath.Join(s.logDir, "sway-session.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
@@ -291,13 +316,32 @@ func (s *Session) launchSway(confPath string) error {
 	cmd := executil.CommandContext(context.Background(), "sway", "--unsupported-gpu", "-c", confPath)
 	// Start the compositor with its target runtime variables, but do not pass
 	// SWAYSOCK=. Sway owns this variable and uses it for its IPC socket path.
-	cmd.Env = env.Merge(env.Current().
-		WithSession(s.xdgDir, s.wlDisplay, s.dbusAddr).
-		Without("SWAYSOCK").
-		EnvList(),
-		"WLR_BACKENDS=headless",
-		"WLR_RENDERER=pixman",
-	)
+	runtime := env.Current().
+		With("XDG_RUNTIME_DIR", s.xdgDir).
+		With("DBUS_SESSION_BUS_ADDRESS", s.dbusAddr).
+		Without("SWAYSOCK")
+	switch mode {
+	case sessionModeHeadless:
+		runtime = runtime.Without("WAYLAND_DISPLAY", "DISPLAY")
+		cmd.Env = env.Merge(runtime.EnvList(),
+			"WLR_BACKENDS=headless",
+			"WLR_RENDERER=pixman",
+		)
+	case sessionModeNested:
+		hostSocket := env.Current().SocketPath()
+		if hostSocket == "" {
+			logFile.Close()
+			return fmt.Errorf("nested session requires a host Wayland socket")
+		}
+		runtime = runtime.With("WAYLAND_DISPLAY", hostSocket)
+		cmd.Env = env.Merge(runtime.EnvList(),
+			"WLR_BACKENDS=wayland",
+			"WLR_RENDERER=pixman",
+		)
+	default:
+		logFile.Close()
+		return fmt.Errorf("unknown session mode %d", mode)
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -372,10 +416,10 @@ func waitForGlob(pattern string, attempts int, interval time.Duration) error {
 	return fmt.Errorf("pattern %s did not match within %s", pattern, time.Duration(attempts)*interval)
 }
 
-// writeEmbeddedConfig writes the embedded ci.conf to the temp dir, patching
-// the resolution to match the requested config.
-func (s *Session) writeEmbeddedConfig(res image.Point) (string, error) {
-	data, err := embeddedConfigs.ReadFile("configs/ci.conf")
+// writeEmbeddedConfig writes an embedded sway config to the temp dir, patching
+// the resolution token when requested.
+func (s *Session) writeEmbeddedConfig(name string, res image.Point) (string, error) {
+	data, err := embeddedConfigs.ReadFile(name)
 	if err != nil {
 		return "", fmt.Errorf("read embedded config: %w", err)
 	}
