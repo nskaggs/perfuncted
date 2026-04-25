@@ -517,6 +517,18 @@ func (p *wlRawProxy) Dispatch(opcode uint32, fd int, data []byte) {
 	}
 }
 
+// ID returns the underlying Wayland object ID.
+func (p *wlRawProxy) ID() uint32 { return p.BaseProxy.ID() }
+
+// SetID sets the underlying Wayland object ID.
+func (p *wlRawProxy) SetID(id uint32) { p.BaseProxy.SetID(id) }
+
+// SetCtx sets the Wayland context for this proxy.
+func (p *wlRawProxy) SetCtx(c wl.Ctx) { p.BaseProxy.SetCtx(c) }
+
+// Ctx returns the Wayland context for this proxy.
+func (p *wlRawProxy) Ctx() wl.Ctx { return p.BaseProxy.Ctx() }
+
 // wlSendCaptureOutput sends zwlr_screencopy_manager_v1.capture_output.
 // Wire layout: [new_id:frame][int:overlay_cursor][object:output]
 func wlSendCaptureOutput(ctx *wl.Context, mgrID, overlayCursor, outputID, frameID uint32) error {

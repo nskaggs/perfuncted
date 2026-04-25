@@ -110,6 +110,10 @@ func (p *mockRawProxy) Dispatch(opcode uint32, fd int, data []byte) {
 	}
 }
 
+func (p *mockRawProxy) SetCtx(c wl.Ctx) { p.BaseProxy.SetCtx(c) }
+func (p *mockRawProxy) ID() uint32     { return p.BaseProxy.ID() }
+func (p *mockRawProxy) SetID(id uint32){ p.BaseProxy.SetID(id) }
+
 // Mock for the wl.Registry SetGlobalHandler
 type mockRegistry struct {
 	wl.BaseProxy
