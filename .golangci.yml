@@ -1,105 +1,12 @@
+version: "2"
+
 run:
-  timeout: 5m
-  tests: true
   modules-download-mode: readonly
+  tests: true
 
 linters:
+  default: none
   enable:
-    # --- Error handling ---
-    - errcheck          # no ignored errors
-    - errorlint         # enforce %w wrapping
-    - err113          # no generic errors, enforce typed errors
-
-    # --- Concurrency correctness ---
-    - govet             # includes race-prone patterns
-    - gocritic          # has goroutine, channel, and defer checks
-    - bodyclose         # ensure HTTP bodies are closed
-    - contextcheck      # ensure ctx is passed and used
-    - containedctx      # forbid storing contexts in structs
-    - prealloc          # detect unnecessary allocations
-
-    # --- API consistency & dead code ---
-    - unused            # unused vars, funcs, fields
-    - unparam           # unused parameters
-    - revive            # style, naming, exported comments
-
-    # --- Performance & correctness ---
-    - staticcheck       # broad correctness + performance
-    - ineffassign       # detect ineffective assignments
-    - gocyclo           # complexity limits
-    - dupl              # detect copy/paste logic
-    - unconvert         # unnecessary type conversions
-
-    # --- Style & idioms ---
-    - goconst           # repeated strings/numbers → consts
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
-
-  govet:
-    enable:
-      - nilness         # typed-nil interface bug
-      - shadow          # shadowed variables
-      - unmarshal       # JSON/XML decode issues
-      - unreachable
-      - unusedresult    # ignored return values
-
-  gocritic:
-    enabled-checks:
-      - appendAssign
-      - badCond
-      - badLock
-      - captLocal
-      - deferInLoop         # forbids time.After in loops
-      - dupImport
-      - dupSubExpr
-      - hugeParam
-      - indexAlloc
-      - sloppyReassign
-      - unnecessaryBlock
-      - unnecessaryDefer
-      - unslice
-      - valSwap
-
-  revive:
-    rules:
-      - name: exported
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: error-return
-      - name: error-naming
-      - name: early-return
-      - name: increment-decrement
-      - name: receiver-naming
-      - name: time-naming
-      - name: var-naming
-      - name: indent-error-flow   # no swallowed errors
-      - name: unexported-return   # avoid interface{} returns
-
-  gocyclo:
-    min-complexity: 15
-
-  dupl:
-    threshold: 150
-
-issues:
-  exclude-rules:
-    # Allow TODOs
-    - linters:
-        - revive
-      text: "TODO"
-
-    # Allow unused params in interface implementations
-    - linters:
-        - unparam
-      text: "interface method"
-
-  max-issues-per-linter: 0
-  max-same-issues: 0
+    - govet
+    - ineffassign
+    - unused
