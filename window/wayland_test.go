@@ -61,7 +61,9 @@ func (d *mockWaylandDisplay) GetRegistry() (*wl.Registry, error) {
 	buf = put32(buf, 1)          // wl_display ID
 	buf = put32(buf, (12<<16)|1) // size=12, opcode=1 (get_registry)
 	buf = put32(buf, reg.ID())
-	d.ctx.WriteMsg(buf, nil)
+	if err := d.ctx.WriteMsg(buf, nil); err != nil {
+		return nil, err
+	}
 	return reg, nil
 }
 func (d *mockWaylandDisplay) Sync() (*wl.Callback, error) {
@@ -72,12 +74,17 @@ func (d *mockWaylandDisplay) Sync() (*wl.Callback, error) {
 	buf = put32(buf, 1)          // wl_display ID
 	buf = put32(buf, (12 << 16)) // size=12, opcode=0 (sync)
 	buf = put32(buf, cb.ID())
-	d.ctx.WriteMsg(buf, nil)
+	if err := d.ctx.WriteMsg(buf, nil); err != nil {
+		return nil, err
+	}
 	return cb, nil
 }
 func (d *mockWaylandDisplay) RoundTrip() error {
 	// Mock RoundTrip: simulate a done event immediately
-	cb, _ := d.Sync()
+	cb, err := d.Sync()
+	if err != nil {
+		return err
+	}
 	cb.SetDoneHandler(func() {
 		// Simulate dispatching a done event for the callback
 		cb.Dispatch(0, -1, nil) // opcode 0 for done event

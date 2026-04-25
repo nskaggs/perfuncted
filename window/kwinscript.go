@@ -99,7 +99,8 @@ func (k *KWinScriptManager) runScript(buildJS func(svc string) string) (string, 
 	defer k.conn.ReleaseName(svc) //nolint:errcheck
 
 	recv := &pfReceiver{ch: make(chan string, 1)}
-	if err := k.conn.Export(recv, "/", svc); err != nil {
+	err = k.conn.Export(recv, "/", svc)
+	if err != nil {
 		return "", fmt.Errorf("window/kwinscript: Export: %w", err)
 	}
 	defer k.conn.Export(nil, "/", svc) //nolint:errcheck

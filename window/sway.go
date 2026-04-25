@@ -47,7 +47,10 @@ func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
 	if rdir == "" {
 		return nil, fmt.Errorf("window/sway: SWAYSOCK not set and XDG_RUNTIME_DIR empty")
 	}
-	matches, _ := filepath.Glob(filepath.Join(rdir, "sway-ipc.*.sock"))
+	matches, err := filepath.Glob(filepath.Join(rdir, "sway-ipc.*.sock"))
+	if err != nil {
+		return nil, fmt.Errorf("window/sway: glob sway sockets: %w", err)
+	}
 	for _, m := range matches {
 		if _, err := swayQuery(m, swayMsgGetTree, ""); err == nil {
 			return &SwayManager{sock: m}, nil
@@ -197,7 +200,11 @@ func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
 	// the float layout reflow is complete (up to ~500 ms).
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		wins, _ := m.List(ctx)
+		wins, err := m.List(ctx)
+		if err != nil {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
 		for _, win := range wins {
 			if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
 				goto ready
