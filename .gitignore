@@ -23,6 +23,7 @@ perfuncted-menu-*.png
 /tmp/perfuncted-*
 
 # Scratch / dev-session artifacts (do not commit)
+.codex
 ff.log
 sway.log
 primary.txt

@@ -87,7 +87,7 @@ The integration suite runs in isolated nested Wayland/X11 sessions and never
 touches your real desktop:
 
 ```bash
-just test-nested
+just test-integration   # or: just test-all
 ```
 
 Optional: install `wl-clipboard` to enable clipboard round-trip verification.
