@@ -156,7 +156,7 @@ type testContext struct {
 	r    *results
 	sess *perfuncted.Session
 	opts perfuncted.Options
-	root context.Context
+	root context.Context //nolint:containedctx // shared cancellation context for integration substeps
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

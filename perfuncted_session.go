@@ -205,8 +205,9 @@ func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
 // receives an interrupt/termination signal. It returns a function that
 // unregisters the handler without stopping the session.
 func (s *Session) CleanupOnSignal(ctx context.Context) func() {
-	if ctx == nil {
-		ctx = context.Background()
+	var done <-chan struct{}
+	if ctx != nil {
+		done = ctx.Done()
 	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
@@ -214,7 +215,7 @@ func (s *Session) CleanupOnSignal(ctx context.Context) func() {
 	go func() {
 		defer signal.Stop(sigs)
 		select {
-		case <-ctx.Done():
+		case <-done:
 			s.Stop()
 		case <-sigs:
 			s.Stop()
