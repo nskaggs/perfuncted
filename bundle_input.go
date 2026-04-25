@@ -14,6 +14,14 @@ type InputBundle struct {
 	input.Inputter
 }
 
+// Close delegates to the underlying Inputter Close method.
+func (i InputBundle) Close() error {
+	if i.Inputter == nil {
+		return nil
+	}
+	return i.Inputter.Close()
+}
+
 func (i InputBundle) checkAvailable() error {
 	return util.CheckAvailable("input", i.Inputter)
 }

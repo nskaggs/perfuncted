@@ -18,6 +18,14 @@ type ScreenBundle struct {
 	screen.Screenshotter
 }
 
+// Close delegates to the underlying Screenshotter Close method.
+func (s ScreenBundle) Close() error {
+	if s.Screenshotter == nil {
+		return nil
+	}
+	return s.Screenshotter.Close()
+}
+
 func (s ScreenBundle) checkAvailable() error {
 	return util.CheckAvailable("screen", s.Screenshotter)
 }

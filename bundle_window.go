@@ -14,6 +14,14 @@ type WindowBundle struct {
 	window.Manager
 }
 
+// Close delegates to the underlying Manager Close method.
+func (w WindowBundle) Close() error {
+	if w.Manager == nil {
+		return nil
+	}
+	return w.Manager.Close()
+}
+
 func (w WindowBundle) checkAvailable() error {
 	return util.CheckAvailable("window", w.Manager)
 }

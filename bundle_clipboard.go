@@ -12,6 +12,14 @@ type ClipboardBundle struct {
 	clipboard.Clipboard
 }
 
+// Close delegates to the underlying Clipboard Close method.
+func (c ClipboardBundle) Close() error {
+	if c.Clipboard == nil {
+		return nil
+	}
+	return c.Clipboard.Close()
+}
+
 func (c ClipboardBundle) checkAvailable() error {
 	return util.CheckAvailable("clipboard", c.Clipboard)
 }
