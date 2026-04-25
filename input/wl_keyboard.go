@@ -372,6 +372,16 @@ func xkbModSymbols() string {
 
 // xkbKeysym returns the XKB keysym name for a rune: "U" + uppercase hex codepoint.
 func xkbKeysym(r rune) string {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return string(r)
+	case r >= 'A' && r <= 'Z':
+		return string(r)
+	case r >= '0' && r <= '9':
+		return string(r)
+	case r == ' ':
+		return "space"
+	}
 	return fmt.Sprintf("U%04X", r)
 }
 

@@ -69,17 +69,16 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
 
-	// On Wayland: prefer WlInputMethod (commit_string) when available because
-	// it delivers Unicode text reliably to Wayland clients. Fallback order:
+	// On Wayland, prefer wl-virtual for full automation semantics. It handles
+	// text, key taps, modifiers, and pointer actions through the same scoped
+	// compositor path. Fallback order:
 	//
-	//	WlInputMethod -> WlVirtual -> uinput -> XTest
+	//	WlVirtual -> WlInputMethod -> uinput -> XTest
 	if sock := rt.SocketPath(); sock != "" {
-		// Try input method first
-		if b, err := NewWlInputMethodBackend(sock, maxX, maxY); err == nil {
+		if b, err := NewWlVirtualBackend(sock); err == nil {
 			return b, nil
 		}
-		// Then try wl-virtual (wlroots-specific)
-		if b, err := NewWlVirtualBackend(sock); err == nil {
+		if b, err := NewWlInputMethodBackend(sock, maxX, maxY); err == nil {
 			return b, nil
 		}
 		// WlVirtual unavailable (e.g. KDE Plasma). uinput is preferred over

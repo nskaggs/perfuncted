@@ -13,9 +13,10 @@ func TestXkbKeysym(t *testing.T) {
 		r    rune
 		want string
 	}{
-		{'A', "U0041"},
-		{'z', "U007A"},
-		{'0', "U0030"},
+		{'A', "A"},
+		{'z', "z"},
+		{'0', "0"},
+		{' ', "space"},
 		{'€', "U20AC"},
 	}
 	for _, tc := range tests {
@@ -107,11 +108,11 @@ func TestXkbBuildContainsModifiers(t *testing.T) {
 
 func TestXkbWithRunes(t *testing.T) {
 	km := xkbWithRunes([]rune{'A', 'b'})
-	if !strings.Contains(km, "U0041") {
-		t.Error("keymap missing U0041 for 'A'")
+	if !strings.Contains(km, "[ A ]") {
+		t.Error("keymap missing standard A keysym")
 	}
-	if !strings.Contains(km, "U0062") {
-		t.Error("keymap missing U0062 for 'b'")
+	if !strings.Contains(km, "[ b ]") {
+		t.Error("keymap missing standard b keysym")
 	}
 }
 

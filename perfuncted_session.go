@@ -286,7 +286,12 @@ func (s *Session) launchSway(confPath string) error {
 	}
 
 	cmd := executil.CommandContext(context.Background(), "sway", "--unsupported-gpu", "-c", confPath)
-	cmd.Env = env.Merge(s.Env(),
+	// Start the compositor with its target runtime variables, but do not pass
+	// SWAYSOCK=. Sway owns this variable and uses it for its IPC socket path.
+	cmd.Env = env.Merge(env.Current().
+		WithSession(s.xdgDir, s.wlDisplay, s.dbusAddr).
+		Without("SWAYSOCK").
+		EnvList(),
 		"WLR_BACKENDS=headless",
 		"WLR_RENDERER=pixman",
 	)

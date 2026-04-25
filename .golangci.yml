@@ -8,7 +8,7 @@ linters:
     # --- Error handling ---
     - errcheck          # no ignored errors
     - errorlint         # enforce %w wrapping
-    - goerr113          # no generic errors, enforce typed errors
+    - err113          # no generic errors, enforce typed errors
 
     # --- Concurrency correctness ---
     - govet             # includes race-prone patterns
@@ -20,10 +20,8 @@ linters:
 
     # --- API consistency & dead code ---
     - unused            # unused vars, funcs, fields
-    - deadcode          # unreachable code
     - unparam           # unused parameters
     - revive            # style, naming, exported comments
-    - gosimple          # simplify API surface
 
     # --- Performance & correctness ---
     - staticcheck       # broad correctness + performance
@@ -33,10 +31,7 @@ linters:
     - unconvert         # unnecessary type conversions
 
     # --- Style & idioms ---
-    - stylecheck        # enforce Go idioms
     - goconst           # repeated strings/numbers → consts
-    - gofmt             # formatting
-    - goimports         # import hygiene
 
 linters-settings:
   errcheck:

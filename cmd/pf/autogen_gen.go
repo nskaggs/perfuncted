@@ -358,6 +358,42 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	cmds = append(cmds, cmd_screen_wait_for_stable)
 
+	// wait-for-visible-change: wrapper for perfuncted.WaitForVisibleChange
+	var cmd_screen_wait_for_visible_change_rect string
+	var cmd_screen_wait_for_visible_change_poll string
+	var cmd_screen_wait_for_visible_change_stable int
+	cmd_screen_wait_for_visible_change := &cobra.Command{
+		Use:   "wait-for-visible-change",
+		Short: "Auto-generated wrapper for perfuncted.WaitForVisibleChange",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_wait_for_visible_change_rect)
+			if err != nil {
+				return err
+			}
+			cmd_screen_wait_for_visible_change_poll_dur, err := parseDuration(cmd_screen_wait_for_visible_change_poll, 0)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_wait_for_visible_change_stable (int) already parsed into var
+			h, err := pf.Screen.WaitForVisibleChange(r_0, cmd_screen_wait_for_visible_change_poll_dur, cmd_screen_wait_for_visible_change_stable)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	cmd_screen_wait_for_visible_change.Flags().StringVar(&cmd_screen_wait_for_visible_change_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_wait_for_visible_change.Flags().StringVar(&cmd_screen_wait_for_visible_change_poll, "poll", "", "poll")
+	cmd_screen_wait_for_visible_change.Flags().IntVar(&cmd_screen_wait_for_visible_change_stable, "stable", 0, "stable")
+
+	cmds = append(cmds, cmd_screen_wait_for_visible_change)
+
 	// wait-with-tolerance: wrapper for perfuncted.WaitWithTolerance
 	var cmd_screen_wait_with_tolerance_rect string
 	var cmd_screen_wait_with_tolerance_want int
