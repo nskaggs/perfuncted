@@ -1,69 +1,59 @@
-# justfile — dev workflow for github.com/nskaggs/perfuncted
-# Run `just` to see available recipes. Requires: just, staticcheck, govulncheck, deadcode.
-# Install dev tools: go install staticcheck.io/staticcheck@latest
-#                    go install golang.org/x/vuln/cmd/govulncheck@latest
-#                    go install golang.org/x/tools/cmd/deadcode@latest
+# Development workflow for github.com/nskaggs/perfuncted.
+# Run `just` to list available recipes.
 
 default:
     @just --list
 
-# ── quality ────────────────────────────────────────────────────────────────────
-
-# Format all Go source
+# Format all Go source.
 fmt:
     go fmt ./...
 
-# Vet all packages
+# Vet all packages.
 vet:
     go vet ./...
 
-# Run staticcheck linter
+# Run format, vet, and staticcheck.
 check: fmt vet
     staticcheck ./...
 
-# Check for dead (unreachable) code
+# Check for unreachable code.
 deadcode:
     deadcode -test ./...
 
-# Check dependencies for known vulnerabilities
+# Check dependencies for known vulnerabilities.
 vulncheck:
     govulncheck ./...
 
-# Tidy and verify the module graph
+# Tidy and verify the module graph.
 tidy:
     go mod tidy
     go mod verify
 
-# Generate CLI documentation
+# Generate CLI documentation.
 docs:
     rm -rf docs-cli/
     go run ./cmd/pf/ docs --dir ./docs-cli
 
-# Full pre-commit workflow
+# Run the full local pre-commit gate.
 precommit: check tidy docs vulncheck
 
-# Build all packages and binaries
+# Build all packages and commands.
 build: precommit
     go build ./...
 
-# Build and install the pf CLI to $GOPATH/bin
+# Build and install the pf CLI to $GOPATH/bin.
 install: build
     go install ./cmd/pf/
 
-# ── testing ────────────────────────────────────────────────────────────────────
-
-# Run unit tests (with race detector)
+# Run unit tests with the race detector.
 test-unit:
     go test -race ./...
 
-# Test the session package lifecycle: creates its own headless session from scratch.
+# Test the session package lifecycle in its own headless session.
 test-session:
     @bash scripts/test-session.sh
 
-# Run integration tests (defaults to headless if no arg provided)
-# Usage: just test-integration            -> headless
-#        just test-integration desktop    -> desktop
-#        just test-integration nested     -> nested
+# Run integration tests in an isolated session.
 test-integration *args:
     @if [ -z '{{args}}' ]; then \
         bash scripts/test-integration.sh headless; \
@@ -71,22 +61,19 @@ test-integration *args:
         bash scripts/test-integration.sh {{args}}; \
     fi
 
-# Run all test suites: unit + session + integration
+# Run all test suites: unit + session + integration.
 test-all: test-unit test-session test-integration
     @echo "Completed test-all"
 
-# Run the pf CLI with the given arguments
+# Run the pf CLI with the given arguments.
 run *args: build
     go run ./cmd/pf/ {{args}}
 
-
-# ── dev environment ────────────────────────────────────────────────────────────
-
-# Run the pf CLI
+# Run the pf CLI without the precommit build gate.
 pf *args:
     go run ./cmd/pf/ {{args}}
 
-# Run the pf CLI inside the nested sway session
+# Run the pf CLI inside a nested sway session.
 nested-pf *args:
     WAYLAND_DISPLAY="${SWAY_WAYLAND_DISPLAY:-wayland-1}" go run ./cmd/pf/ {{args}}
 
@@ -120,8 +107,6 @@ nested:
     XDG_RUNTIME_DIR="$MY_XDG" WAYLAND_DISPLAY="$HOST_XDG/$HOST_WL" \
     sway --unsupported-gpu -c config/sway/nested.conf &
 
-# ── maintenance ────────────────────────────────────────────────────────────────
-
 # Clean up stale nested session processes and sockets.
 # Run this manually if a session crashes without cleaning up after itself.
 cleanup-nested:
@@ -138,6 +123,10 @@ cleanup-nested:
     -rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
     -rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
     -rm -f /tmp/pf-test-*.png 2>/dev/null || true
-    -rm -f /tmp/*-kwrite.txt /tmp/*-pluma.txt 2>/dev/null || true
-    -rm -f /tmp/*-firefox-before.png /tmp/*-firefox-after.png 2>/dev/null || true
     @echo "Cleanup complete."
+
+# Install optional local development tools.
+install-dev-tools:
+    go install honnef.co/go/tools/cmd/staticcheck@latest
+    go install golang.org/x/vuln/cmd/govulncheck@latest
+    go install golang.org/x/tools/cmd/deadcode@latest
