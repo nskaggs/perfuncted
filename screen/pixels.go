@@ -32,6 +32,9 @@ func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 // returning a new image with bounds starting at (0, 0). Pixels outside the
 // source image are left as zero (transparent black).
 func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
+	if src.Bounds() == rect && rect.Min == (image.Point{0, 0}) {
+		return src
+	}
 	out := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
 	r := rect.Intersect(src.Bounds())
 	if r.Empty() {

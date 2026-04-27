@@ -387,8 +387,11 @@ func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Du
 }
 
 // waitForFile checks for the existence of the given path up to attempts times,
-// sleeping interval between tries.
+// at interval between tries.
 func waitForFile(path string, attempts int, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for i := 0; i < attempts; i++ {
 		if _, err := os.Stat(path); err == nil {
 			return nil
@@ -396,7 +399,7 @@ func waitForFile(path string, attempts int, interval time.Duration) error {
 		if i == attempts-1 {
 			break
 		}
-		time.Sleep(interval)
+		<-ticker.C
 	}
 	return fmt.Errorf("%s did not appear within %s", path, time.Duration(attempts)*interval)
 }
@@ -404,6 +407,9 @@ func waitForFile(path string, attempts int, interval time.Duration) error {
 // waitForGlob checks that a glob pattern matches at least one file within the
 // given attempts × interval window.
 func waitForGlob(pattern string, attempts int, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for i := 0; i < attempts; i++ {
 		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
 			return nil
@@ -411,7 +417,7 @@ func waitForGlob(pattern string, attempts int, interval time.Duration) error {
 		if i == attempts-1 {
 			break
 		}
-		time.Sleep(interval)
+		<-ticker.C
 	}
 	return fmt.Errorf("pattern %s did not match within %s", pattern, time.Duration(attempts)*interval)
 }

@@ -25,34 +25,36 @@ func FindByTitle(ctx context.Context, m Manager, substr string) (Info, error) {
 
 // WaitFor blocks until a window matching pattern is found, or ctx expires.
 func WaitFor(ctx context.Context, m Manager, pattern string, poll time.Duration) (Info, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		info, err := FindByTitle(ctx, m, pattern)
 		if err == nil {
 			return info, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return Info{}, fmt.Errorf("wait for window %q: %w", pattern, ctx.Err())
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
 
 // WaitForClose blocks until no window matches pattern, or ctx expires.
 func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Duration) error {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		_, err := FindByTitle(ctx, m, pattern)
 		if err != nil {
 			return nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return fmt.Errorf("wait for window close %q: %w", pattern, ctx.Err())
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }

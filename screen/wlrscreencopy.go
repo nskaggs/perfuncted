@@ -40,6 +40,23 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 					ver := min(ev.Version, 4)
 					if err := registry.Bind(ev.Name, ev.Interface, ver, out.ID()); err == nil {
 						output = out
+						// capture mode and scale events
+						out.dispatchFn = func(opcode uint32, _ int, data []byte) {
+							switch opcode {
+							case 1: // mode
+								if len(data) >= 12 {
+									b.pW = int(wl.Uint32(data[4:8]))
+									b.pH = int(wl.Uint32(data[8:12]))
+								}
+							case 3: // scale
+								if len(data) >= 4 {
+									b.scale = wl.Uint32(data[0:4])
+									if b.scale == 0 {
+										b.scale = 1
+									}
+								}
+							}
+						}
 					}
 				}
 			case "wl_shm":
@@ -192,8 +209,9 @@ type WlrScreencopyBackend struct {
 	ttl      time.Duration
 	janOnce  sync.Once
 	done     chan struct{}
-	// last observed output scale (1 if unknown)
-	scale uint32
+	// last observed output dimensions and scale (1 if unknown)
+	scale  uint32
+	pW, pH int // physical dimensions from mode event
 }
 
 // withWlrContext ensures a wl.Context exists for this backend and calls fn
@@ -324,7 +342,6 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 
 		var shm *wl.Shm
 		var output *wlRawProxy
-		var outputScale uint32 = 1
 		var mgrName, mgrVer uint32
 
 		registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
@@ -343,14 +360,15 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 						out.dispatchFn = func(opcode uint32, _ int, data []byte) {
 							switch opcode {
 							case 1: // mode
-								// mode provides physical size; currently we only care about scale
-								// (captured buffer dimensions are used directly).
-								// keep the case so Dispatch pumps it.
+								if len(data) >= 12 {
+									b.pW = int(wl.Uint32(data[4:8]))
+									b.pH = int(wl.Uint32(data[8:12]))
+								}
 							case 3: // scale
 								if len(data) >= 4 {
-									outputScale = wl.Uint32(data[0:4])
-									if outputScale == 0 {
-										outputScale = 1
+									b.scale = wl.Uint32(data[0:4])
+									if b.scale == 0 {
+										b.scale = 1
 									}
 								}
 							}
@@ -471,9 +489,21 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 	return outImg, nil
 }
 
-// Resolution returns the output resolution by performing a full screencopy
-// and reading the buffer dimensions from the compositor.
+// Resolution returns the output resolution. It prefers cached dimensions
+// from the wl_output mode event, falling back to a full screencopy if
+// physical dimensions are not yet known.
 func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
+	b.ctxMu.Lock()
+	pW, pH, scale := b.pW, b.pH, b.scale
+	b.ctxMu.Unlock()
+
+	if pW > 0 && pH > 0 {
+		if scale > 1 {
+			return pW / int(scale), pH / int(scale), nil
+		}
+		return pW, pH, nil
+	}
+
 	img, err := b.Grab(context.Background(), image.Rect(0, 0, 0, 0))
 	if err != nil {
 		return 0, 0, err
@@ -481,9 +511,9 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 	bounds := img.Bounds()
 	w := bounds.Dx()
 	h := bounds.Dy()
-	if b.scale > 1 {
-		w /= int(b.scale)
-		h /= int(b.scale)
+	if scale > 1 {
+		w /= int(scale)
+		h /= int(scale)
 	}
 	return w, h, nil
 }

@@ -64,6 +64,7 @@ type Context struct {
 	conn    *net.UnixConn
 	objects map[uint32]Proxy
 	nextID  uint32
+	buf     []byte
 }
 
 // Connect opens a Wayland connection to addr (must be an absolute socket path).
@@ -72,7 +73,12 @@ func Connect(addr string) (*Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Context{conn: conn, objects: make(map[uint32]Proxy), nextID: 1}, nil
+	return &Context{
+		conn:    conn,
+		objects: make(map[uint32]Proxy),
+		nextID:  1,
+		buf:     make([]byte, 4096),
+	}, nil
 }
 
 // Register assigns the next client-side object ID to p and tracks it.
@@ -119,7 +125,10 @@ func (ctx *Context) Dispatch() error {
 	}
 	var data []byte
 	if size > 0 {
-		data = make([]byte, size)
+		if size > len(ctx.buf) {
+			ctx.buf = make([]byte, size)
+		}
+		data = ctx.buf[:size]
 		if _, err := io.ReadFull(ctx.conn, data); err != nil {
 			return fmt.Errorf("wl: %w", err)
 		}

@@ -199,17 +199,18 @@ func (p *Perfuncted) Close() error {
 }
 
 func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		err := fn()
 		if err == nil {
 			return nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return fmt.Errorf("retry: timed out: %w", err)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }

@@ -101,6 +101,9 @@ type Result struct {
 // On success, it returns the final hash (which equals want). On timeout, it returns
 // the last observed hash for debugging.
 func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, poll time.Duration, newHash Hasher) (uint32, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
@@ -109,12 +112,10 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 		if h == want {
 			return h, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x)", want, h)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -123,6 +124,9 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 // It pairs with WaitForNoChange: use WaitForChange to detect when a transition begins,
 // then WaitForNoChange to detect when it ends.
 func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, poll time.Duration, newHash Hasher) (uint32, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
@@ -131,12 +135,10 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 		if h != initial {
 			return h, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -157,6 +159,9 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 	sentinelSet := false
 	streak := 0
 
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
@@ -173,12 +178,10 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			sentinel = cur
 			last = 0 // force mismatch on next full hash
 			streak = 0
-			timer := time.NewTimer(poll)
 			select {
 			case <-ctx.Done():
-				timer.Stop()
 				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-			case <-timer.C:
+			case <-ticker.C:
 			}
 			continue
 		}
@@ -195,12 +198,10 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			last = h
 			streak = 1
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -227,6 +228,9 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	}
 	bboxArea := bbox.Dx() * bbox.Dy()
 	useBbox := bboxArea <= 2*totalArea
+
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
 
 	for {
 		if useBbox {
@@ -267,12 +271,10 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 				}
 			}
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return Result{}, fmt.Errorf("find: timeout scanning %d regions", len(rects))
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -392,6 +394,9 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		expectedRect.Max.Y+radius,
 	)
 
+	// Since we don't have the reference image, only its hash, we can't do a
+	// pixel-match first stage easily. However, we can optimize the search by
+	// capturing once and then sub-imaging.
 	for {
 		img, err := sc.Grab(ctx, searchArea)
 		if err != nil {
@@ -407,6 +412,12 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		if !ok {
 			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
 		}
+
+		// Optimization: if the image is *image.RGBA, we can use a faster scan.
+		// We still have to hash every sub-rect because we only have the target hash.
+		// If we had a "representative pixel" or "corner pixel" of the target,
+		// we could skip 99% of these. Since we don't, we'll just ensure the
+		// inner loop is as tight as possible.
 		for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
 			for x := sb.Min.X; x <= sb.Max.X-w; x++ {
 				r := image.Rect(x, y, x+w, y+h)

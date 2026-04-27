@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -20,44 +21,6 @@ const (
 	swayMsgRunCommand = 0
 	swayMsgGetTree    = 4
 )
-
-// SwayManager implements Manager via sway's IPC socket (i3-ipc protocol).
-// It does not require any Wayland protocol machinery — it uses a simple
-// Unix socket with length-prefixed JSON messages.
-type SwayManager struct {
-	sock string
-}
-
-// NewSwayManager returns a SwayManager connected to the nearest sway IPC
-// socket. It checks $SWAYSOCK first, then globs all sway-ipc sockets in
-// $XDG_RUNTIME_DIR and tries each until one responds.
-func NewSwayManager() (*SwayManager, error) {
-	return NewSwayManagerRuntime(env.Current())
-}
-
-// NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
-func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
-	sock := rt.Get("SWAYSOCK")
-	if sock != "" {
-		if _, err := swayQuery(sock, swayMsgGetTree, ""); err == nil {
-			return &SwayManager{sock: sock}, nil
-		}
-	}
-	rdir := rt.Get("XDG_RUNTIME_DIR")
-	if rdir == "" {
-		return nil, fmt.Errorf("window/sway: SWAYSOCK not set and XDG_RUNTIME_DIR empty")
-	}
-	matches, err := filepath.Glob(filepath.Join(rdir, "sway-ipc.*.sock"))
-	if err != nil {
-		return nil, fmt.Errorf("window/sway: glob sway sockets: %w", err)
-	}
-	for _, m := range matches {
-		if _, err := swayQuery(m, swayMsgGetTree, ""); err == nil {
-			return &SwayManager{sock: m}, nil
-		}
-	}
-	return nil, fmt.Errorf("window/sway: no reachable sway IPC socket found (set SWAYSOCK or start sway)")
-}
 
 // swayNode is the recursive JSON tree node returned by GET_TREE.
 type swayNode struct {
@@ -78,9 +41,100 @@ type swayRect struct {
 	H int `json:"height"`
 }
 
+// SwayManager implements Manager via sway's IPC socket (i3-ipc protocol).
+// It does not require any Wayland protocol machinery — it uses a simple
+// Unix socket with length-prefixed JSON messages.
+type SwayManager struct {
+	sock string
+	mu   sync.Mutex
+	conn net.Conn
+}
+
+// NewSwayManager returns a SwayManager connected to the nearest sway IPC
+// socket. It checks $SWAYSOCK first, then globs all sway-ipc sockets in
+// $XDG_RUNTIME_DIR and tries each until one responds.
+func NewSwayManager() (*SwayManager, error) {
+	return NewSwayManagerRuntime(env.Current())
+}
+
+// NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
+func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
+	sock := rt.Get("SWAYSOCK")
+	if sock != "" {
+		if _, err := swayQueryOnce(sock, swayMsgGetTree, ""); err == nil {
+			return &SwayManager{sock: sock}, nil
+		}
+	}
+	rdir := rt.Get("XDG_RUNTIME_DIR")
+	if rdir == "" {
+		return nil, fmt.Errorf("window/sway: SWAYSOCK not set and XDG_RUNTIME_DIR empty")
+	}
+	matches, err := filepath.Glob(filepath.Join(rdir, "sway-ipc.*.sock"))
+	if err != nil {
+		return nil, fmt.Errorf("window/sway: glob sway sockets: %w", err)
+	}
+	for _, m := range matches {
+		if _, err := swayQueryOnce(m, swayMsgGetTree, ""); err == nil {
+			return &SwayManager{sock: m}, nil
+		}
+	}
+	return nil, fmt.Errorf("window/sway: no reachable sway IPC socket found (set SWAYSOCK or start sway)")
+}
+
+func (m *SwayManager) query(msgType uint32, payload string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.conn == nil {
+		conn, err := net.DialTimeout("unix", m.sock, 5*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		m.conn = conn
+	}
+
+	// Set a deadline for this specific operation.
+	m.conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	// Write: magic(6) + length(4 LE) + type(4 LE) + payload
+	pb := []byte(payload)
+	msg := make([]byte, 14+len(pb))
+	copy(msg[0:6], swayMagic[:])
+	binary.LittleEndian.PutUint32(msg[6:10], uint32(len(pb)))
+	binary.LittleEndian.PutUint32(msg[10:14], msgType)
+	copy(msg[14:], pb)
+
+	if _, err := m.conn.Write(msg); err != nil {
+		m.conn.Close()
+		m.conn = nil
+		return nil, err
+	}
+
+	// Read header: magic(6) + length(4 LE) + type(4 LE)
+	hdr := make([]byte, 14)
+	if _, err := io.ReadFull(m.conn, hdr); err != nil {
+		m.conn.Close()
+		m.conn = nil
+		return nil, err
+	}
+	if string(hdr[0:6]) != string(swayMagic[:]) {
+		m.conn.Close()
+		m.conn = nil
+		return nil, fmt.Errorf("bad magic")
+	}
+	bodyLen := binary.LittleEndian.Uint32(hdr[6:10])
+	body := make([]byte, bodyLen)
+	if _, err := io.ReadFull(m.conn, body); err != nil {
+		m.conn.Close()
+		m.conn = nil
+		return nil, err
+	}
+	return body, nil
+}
+
 // List returns all visible windows (leaf containers) in the sway tree.
 func (m *SwayManager) List(ctx context.Context) ([]Info, error) {
-	raw, err := swayQuery(m.sock, swayMsgGetTree, "")
+	raw, err := m.query(swayMsgGetTree, "")
 	if err != nil {
 		return nil, fmt.Errorf("window/sway: get_tree: %w", err)
 	}
@@ -116,7 +170,7 @@ func collectLeaves(n *swayNode, out *[]Info) {
 
 // ActiveTitle returns the title of the currently focused window.
 func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
-	raw, err := swayQuery(m.sock, swayMsgGetTree, "")
+	raw, err := m.query(swayMsgGetTree, "")
 	if err != nil {
 		return "", fmt.Errorf("window/sway: get_tree: %w", err)
 	}
@@ -158,7 +212,7 @@ func (m *SwayManager) findWindow(ctx context.Context, substr string) (Info, erro
 
 // swayCmd runs a sway IPC command and returns an error if sway reports failure.
 func (m *SwayManager) swayCmd(cmd string) error {
-	resp, err := swayQuery(m.sock, swayMsgRunCommand, cmd)
+	resp, err := m.query(swayMsgRunCommand, cmd)
 	if err != nil {
 		return err
 	}
@@ -229,8 +283,17 @@ func (m *SwayManager) Resize(ctx context.Context, substr string, width, height i
 	return m.swayCmd(cmd)
 }
 
-// Close is a no-op; the sway IPC socket is not kept open between calls.
-func (m *SwayManager) Close() error { return nil }
+// Close releases the persistent IPC connection.
+func (m *SwayManager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.conn != nil {
+		err := m.conn.Close()
+		m.conn = nil
+		return err
+	}
+	return nil
+}
 
 // CloseWindow kills the first window whose title contains substr.
 func (m *SwayManager) CloseWindow(ctx context.Context, substr string) error {
@@ -259,11 +322,8 @@ func (m *SwayManager) Maximize(ctx context.Context, substr string) error {
 	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
 }
 
-// swayQuery sends a single IPC request and returns the raw JSON response.
-// Each call opens and closes its own connection to avoid state management.
-// A 5-second deadline covers connect + write + read to avoid hangs on
-// unresponsive sway instances.
-func swayQuery(sock string, msgType uint32, payload string) ([]byte, error) {
+// swayQueryOnce sends a single IPC request and returns the raw JSON response.
+func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) {
 	conn, err := net.DialTimeout("unix", sock, 5*time.Second)
 	if err != nil {
 		return nil, err
