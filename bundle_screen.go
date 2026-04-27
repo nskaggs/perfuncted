@@ -243,15 +243,15 @@ func (s ScreenBundle) WaitForLocateContext(ctx context.Context, searchArea image
 	return find.WaitForLocate(ctx, s.Screenshotter, searchArea, reference, poll)
 }
 
-func (s ScreenBundle) WaitWithTolerance(rect image.Rectangle, want uint32, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
-	return s.WaitWithToleranceContext(context.Background(), rect, want, radius, poll)
+func (s ScreenBundle) WaitWithTolerance(rect image.Rectangle, reference image.Image, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
+	return s.WaitWithToleranceContext(context.Background(), rect, reference, radius, poll)
 }
 
-func (s ScreenBundle) WaitWithToleranceContext(ctx context.Context, rect image.Rectangle, want uint32, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
+func (s ScreenBundle) WaitWithToleranceContext(ctx context.Context, rect image.Rectangle, reference image.Image, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
 	if err := s.checkAvailable(); err != nil {
 		return 0, image.Rectangle{}, err
 	}
-	return find.WaitWithTolerance(ctx, s.Screenshotter, rect, want, radius, poll, nil)
+	return find.WaitWithTolerance(ctx, s.Screenshotter, rect, reference, radius, poll, nil)
 }
 
 func (s ScreenBundle) FindColor(rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {

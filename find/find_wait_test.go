@@ -354,7 +354,7 @@ func TestWaitWithTolerance(t *testing.T) {
 	sc := &fakeScreen{img: img}
 	hash := PixelHash(ref, nil)
 
-	resultHash, resultRect, err := WaitWithTolerance(context.Background(), sc, image.Rect(4, 4, 6, 6), hash, 2, 1*time.Millisecond, nil)
+	resultHash, resultRect, err := WaitWithTolerance(context.Background(), sc, image.Rect(4, 4, 6, 6), ref, 2, 1*time.Millisecond, nil)
 	if err != nil {
 		t.Fatalf("WaitWithTolerance returned error: %v", err)
 	}

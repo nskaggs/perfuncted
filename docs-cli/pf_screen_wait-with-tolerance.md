@@ -13,7 +13,7 @@ pf screen wait-with-tolerance [flags]
       --poll string   poll
       --radius int    radius
       --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
-      --want int      want
+      --ref string    path to reference PNG image (required)
 ```
 
 ### Options inherited from parent commands

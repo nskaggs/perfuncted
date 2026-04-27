@@ -1406,11 +1406,11 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	waitForVisibleChange.Flags().StringVar(&vfTimeout, "timeout", "5s", "timeout duration")
 	waitForVisibleChange.Flags().IntVar(&vfStable, "stable", 3, "consecutive identical samples required (default 3)")
 
-	var wwtRect, wwtHash, wwtPoll, wwtTimeout string
+	var wwtRect, wwtRef, wwtPoll, wwtTimeout string
 	var wwtRadius int
 	waitWithTolerance := &cobra.Command{
 		Use:   "wait-with-tolerance",
-		Short: "Wait for a target hash within a radius tolerance",
+		Short: "Wait for a reference image within a radius tolerance",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -1421,7 +1421,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			h, err := parseHash(wwtHash)
+			ref, err := loadPNG(wwtRef)
 			if err != nil {
 				return err
 			}
@@ -1435,7 +1435,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			resHash, rect, err := pf.Screen.WaitWithToleranceContext(ctx, r, h, wwtRadius, poll)
+			resHash, rect, err := pf.Screen.WaitWithToleranceContext(ctx, r, ref, wwtRadius, poll)
 			if err != nil {
 				return err
 			}
@@ -1444,11 +1444,11 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 		},
 	}
 	waitWithTolerance.Flags().StringVar(&wwtRect, "rect", "0,0,100,100", "x0,y0,x1,y1 (default 0,0,100,100)")
-	waitWithTolerance.Flags().StringVar(&wwtHash, "hash", "", "target hash (decimal or 0xhex) (required)")
+	waitWithTolerance.Flags().StringVar(&wwtRef, "ref", "", "path to reference PNG image (required)")
 	waitWithTolerance.Flags().IntVar(&wwtRadius, "radius", 1, "pixel radius tolerance (default 1)")
 	waitWithTolerance.Flags().StringVar(&wwtPoll, "poll", "50ms", "poll interval")
 	waitWithTolerance.Flags().StringVar(&wwtTimeout, "timeout", "5s", "timeout duration")
-	_ = waitWithTolerance.MarkFlagRequired("hash")
+	_ = waitWithTolerance.MarkFlagRequired("ref")
 
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int

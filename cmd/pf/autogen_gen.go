@@ -396,8 +396,8 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// wait-with-tolerance: wrapper for perfuncted.WaitWithTolerance
 	var cmd_screen_wait_with_tolerance_rect string
-	var cmd_screen_wait_with_tolerance_want int
 	var cmd_screen_wait_with_tolerance_radius int
+	var cmd_screen_wait_with_tolerance_ref string
 	var cmd_screen_wait_with_tolerance_poll string
 	cmd_screen_wait_with_tolerance := &cobra.Command{
 		Use:   "wait-with-tolerance",
@@ -412,13 +412,15 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			if err != nil {
 				return err
 			}
-			// flag cmd_screen_wait_with_tolerance_want (int) already parsed into var
-			// flag cmd_screen_wait_with_tolerance_radius (int) already parsed into var
+			refImg, err := loadPNG(cmd_screen_wait_with_tolerance_ref)
+			if err != nil {
+				return err
+			}
 			cmd_screen_wait_with_tolerance_poll_dur, err := parseDuration(cmd_screen_wait_with_tolerance_poll, 0)
 			if err != nil {
 				return err
 			}
-			h, rect, err := pf.Screen.WaitWithTolerance(r_0, uint32(cmd_screen_wait_with_tolerance_want), cmd_screen_wait_with_tolerance_radius, cmd_screen_wait_with_tolerance_poll_dur)
+			h, rect, err := pf.Screen.WaitWithTolerance(r_0, refImg, cmd_screen_wait_with_tolerance_radius, cmd_screen_wait_with_tolerance_poll_dur)
 			if err != nil {
 				return err
 			}
@@ -427,9 +429,10 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 		},
 	}
 	cmd_screen_wait_with_tolerance.Flags().StringVar(&cmd_screen_wait_with_tolerance_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	cmd_screen_wait_with_tolerance.Flags().IntVar(&cmd_screen_wait_with_tolerance_want, "want", 0, "want")
 	cmd_screen_wait_with_tolerance.Flags().IntVar(&cmd_screen_wait_with_tolerance_radius, "radius", 0, "radius")
+	cmd_screen_wait_with_tolerance.Flags().StringVar(&cmd_screen_wait_with_tolerance_ref, "ref", "", "path to reference PNG image (required)")
 	cmd_screen_wait_with_tolerance.Flags().StringVar(&cmd_screen_wait_with_tolerance_poll, "poll", "", "poll")
+	_ = cmd_screen_wait_with_tolerance.MarkFlagRequired("ref")
 
 	cmds = append(cmds, cmd_screen_wait_with_tolerance)
 	return cmds

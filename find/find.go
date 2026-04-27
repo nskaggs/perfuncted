@@ -382,8 +382,10 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 }
 
 // WaitWithTolerance pads expectedRect by radius pixels on all sides, captures the larger
-// region, and performs an exact hash search of that size within it.
-func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, targetHash uint32, radius int, poll time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
+// region, and performs an exact search for reference within it. A two-stage
+// search is used: a cheap top-left pixel/fingerprint scan followed by an
+// expensive full-rectangle hash only on promising candidates.
+func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, reference image.Image, radius int, poll time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
 	if newHash == nil {
 		newHash = DefaultHasher
 	}
@@ -394,9 +396,25 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		expectedRect.Max.Y+radius,
 	)
 
-	// Since we don't have the reference image, only its hash, we can't do a
-	// pixel-match first stage easily. However, we can optimize the search by
-	// capturing once and then sub-imaging.
+	// Precompute reference hash and top-left pixel for quick rejection.
+	refHash := PixelHash(reference, newHash)
+	rb := reference.Bounds()
+	w, h := rb.Dx(), rb.Dy()
+
+	var refFirst color.RGBA
+	refRGBA, refOk := reference.(*image.RGBA)
+	if refOk {
+		refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
+		refFirst = color.RGBA{
+			R: refRGBA.Pix[refOff0],
+			G: refRGBA.Pix[refOff0+1],
+			B: refRGBA.Pix[refOff0+2],
+			A: refRGBA.Pix[refOff0+3],
+		}
+	} else {
+		refFirst = color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
+	}
+
 	for {
 		img, err := sc.Grab(ctx, searchArea)
 		if err != nil {
@@ -404,7 +422,6 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		}
 
 		sb := img.Bounds()
-		w, h := expectedRect.Dx(), expectedRect.Dy()
 
 		sub, ok := img.(interface {
 			SubImage(r image.Rectangle) image.Image
@@ -413,18 +430,46 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
 		}
 
-		// Optimization: if the image is *image.RGBA, we can use a faster scan.
-		// We still have to hash every sub-rect because we only have the target hash.
-		// If we had a "representative pixel" or "corner pixel" of the target,
-		// we could skip 99% of these. Since we don't, we'll just ensure the
-		// inner loop is as tight as possible.
-		for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
-			for x := sb.Min.X; x <= sb.Max.X-w; x++ {
-				r := image.Rect(x, y, x+w, y+h)
-				subImg := sub.SubImage(r)
-				hVal := PixelHash(subImg, newHash)
-				if hVal == targetHash {
-					return targetHash, r, nil
+		srcRGBA, srcOk := img.(*image.RGBA)
+
+		if srcOk && refOk {
+			// Fast path: both images are *image.RGBA. Compare first pixel bytes
+			// directly to reject most positions before hashing.
+			refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
+			refBytes := refRGBA.Pix[refOff0 : refOff0+4]
+			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
+				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
+					off := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
+					p := srcRGBA.Pix[off : off+4]
+					if p[0] != refBytes[0] || p[1] != refBytes[1] || p[2] != refBytes[2] || p[3] != refBytes[3] {
+						continue
+					}
+					r := image.Rect(x, y, x+w, y+h)
+					if PixelHash(sub.SubImage(r), newHash) == refHash {
+						return refHash, r, nil
+					}
+				}
+			}
+		} else {
+			// Generic path: compare the top-left pixel via At()/color conversion
+			// before invoking the expensive full-rectangle hash.
+			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
+				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
+					var c color.RGBA
+					if srcOk {
+						off := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
+						p := srcRGBA.Pix[off : off+4]
+						c = color.RGBA{R: p[0], G: p[1], B: p[2], A: p[3]}
+					} else {
+						c = color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+					}
+					if c != refFirst {
+						continue
+					}
+					r := image.Rect(x, y, x+w, y+h)
+					if PixelHash(sub.SubImage(r), newHash) == refHash {
+						return refHash, r, nil
+					}
 				}
 			}
 		}
