@@ -418,6 +418,9 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		refFirst = color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
 	}
 
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		img, err := sc.Grab(ctx, searchArea)
 		if err != nil {
@@ -425,7 +428,6 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		}
 
 		sb := img.Bounds()
-
 		sub, ok := img.(interface {
 			SubImage(r image.Rectangle) image.Image
 		})
@@ -477,12 +479,10 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 			}
 		}
 
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match")
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -554,17 +554,18 @@ func abs(x int) int {
 // via exact pixel matching, or ctx expires. Returns the absolute rectangle
 // where the reference was located.
 func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		r, err := LocateExact(ctx, sc, searchArea, reference)
 		if err == nil {
 			return r, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return image.Rectangle{}, fmt.Errorf("find: timeout waiting to locate reference image: %w", ctx.Err())
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -574,6 +575,9 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 // iteration and may inspect it with any predicate (brightness, color
 // presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
@@ -582,12 +586,10 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 		if fn(img) {
 			return img, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
