@@ -250,23 +250,32 @@ func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
 	if err := m.swayCmd(fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
 		return err
 	}
+
 	// Wait for sway to report the window away from its tiled origin, indicating
 	// the float layout reflow is complete (up to ~500 ms).
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.After(500 * time.Millisecond)
+loop:
+	for {
 		wins, err := m.List(ctx)
-		if err != nil {
-			time.Sleep(20 * time.Millisecond)
-			continue
-		}
-		for _, win := range wins {
-			if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
-				goto ready
+		if err == nil {
+			for _, win := range wins {
+				if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
+					break loop
+				}
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			break loop
+		case <-ticker.C:
+		}
 	}
-ready:
+
 	return m.swayCmd(fmt.Sprintf("[con_id=%d] move position %d %d", int64(w.ID), x, y))
 }
 

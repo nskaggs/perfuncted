@@ -20,7 +20,7 @@ func FindByTitle(ctx context.Context, m Manager, substr string) (Info, error) {
 			return w, nil
 		}
 	}
-	return Info{}, fmt.Errorf("window matching %q not found", substr)
+	return Info{}, fmt.Errorf("%w: matching %q", ErrWindowNotFound, substr)
 }
 
 // WaitFor blocks until a window matching pattern is found, or ctx expires.

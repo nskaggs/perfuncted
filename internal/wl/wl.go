@@ -399,20 +399,14 @@ func ListGlobals(sock string) map[string]bool {
 	if sock == "" {
 		return nil
 	}
-	ctx, err := Connect(sock)
+	s, err := NewSession(sock)
 	if err != nil {
 		return nil
 	}
-	defer ctx.Close()
-	display := NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		return nil
-	}
+	defer s.Close()
 	globals := make(map[string]bool)
-	registry.SetGlobalHandler(func(ev GlobalEvent) { globals[ev.Interface] = true })
-	if err := display.RoundTrip(); err != nil {
-		return nil
+	for iface := range s.Globals {
+		globals[iface] = true
 	}
 	return globals
 }

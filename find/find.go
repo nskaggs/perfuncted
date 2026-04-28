@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// ErrNotFound is returned when a pixel pattern or color could not be located.
+var ErrNotFound = fmt.Errorf("find: not found")
+
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
@@ -333,7 +336,7 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 				}
 			}
 		}
-		return image.Rectangle{}, fmt.Errorf("find: exact match not found")
+		return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
 	}
 
 	for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
@@ -346,7 +349,7 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 			}
 		}
 	}
-	return image.Rectangle{}, fmt.Errorf("find: exact match not found")
+	return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
 }
 
 func matchAt(src, ref image.Image, ox, oy int) bool {
@@ -531,7 +534,7 @@ func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, targ
 	if p, ok := PixelFound(img, rect, target, tolerance); ok {
 		return p, nil
 	}
-	return image.Point{}, fmt.Errorf("find: colour #%02x%02x%02x not found (tolerance=%d)", target.R, target.G, target.B, tolerance)
+	return image.Point{}, fmt.Errorf("%w: colour #%02x%02x%02x (tolerance=%d)", ErrNotFound, target.R, target.G, target.B, tolerance)
 }
 
 func colorClose(a, b color.RGBA, tol int) bool {

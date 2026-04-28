@@ -17,6 +17,10 @@ import (
 // ErrNotSupported is returned when the backend cannot perform an operation.
 var ErrNotSupported = errors.New("window: operation not supported on this compositor")
 
+// ErrWindowNotFound is returned when a window matching the requested title or
+// criteria could not be located.
+var ErrWindowNotFound = errors.New("window: not found")
+
 // Info describes a managed window.
 // Note: Geometry fields (X,Y,W,H) are best-effort. Wayland's foreign-toplevel
 // protocols do not always provide bounds; backends may leave them zero. Do not
