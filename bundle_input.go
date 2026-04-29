@@ -147,8 +147,10 @@ func (i InputBundle) DoubleClickContext(ctx context.Context, x, y int) error {
 	if err := i.Inputter.MouseUp(ctx, 1); err != nil {
 		return err
 	}
-	// Small pause to emulate human double-click timing.
-	time.Sleep(50 * time.Millisecond)
+	// Small pause to emulate human double-click timing. Use 20ms to reduce
+	// unnecessary delay while remaining within the OS double-click detection
+	// window.
+	time.Sleep(20 * time.Millisecond)
 	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
 		return err
 	}
