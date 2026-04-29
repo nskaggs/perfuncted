@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -16,6 +17,10 @@ import (
 
 // ErrNotSupported is returned when the backend cannot perform an operation.
 var ErrNotSupported = errors.New("window: operation not supported on this compositor")
+
+// ErrWindowNotFound is returned when a window matching the requested title or
+// criteria could not be located.
+var ErrWindowNotFound = errors.New("window: not found")
 
 // Info describes a managed window.
 // Note: Geometry fields (X,Y,W,H) are best-effort. Wayland's foreign-toplevel
@@ -43,6 +48,8 @@ type Info struct {
 type Manager interface {
 	// List returns all visible top-level windows.
 	List(ctx context.Context) ([]Info, error)
+	// IterateWindows returns an iterator over all visible top-level windows.
+	IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 	// Activate brings the window matching title to the foreground.
 	Activate(ctx context.Context, title string) error
 	// Move repositions the window matching title to (x, y).

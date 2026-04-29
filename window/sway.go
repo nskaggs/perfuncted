@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net"
 	"path/filepath"
 	"sync"
@@ -134,38 +135,67 @@ func (m *SwayManager) query(msgType uint32, payload string) ([]byte, error) {
 
 // List returns all visible windows (leaf containers) in the sway tree.
 func (m *SwayManager) List(ctx context.Context) ([]Info, error) {
-	raw, err := m.query(swayMsgGetTree, "")
-	if err != nil {
-		return nil, fmt.Errorf("window/sway: get_tree: %w", err)
-	}
-	var root swayNode
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return nil, fmt.Errorf("window/sway: parse tree: %w", err)
-	}
 	var out []Info
-	collectLeaves(&root, &out)
+	for win, err := range m.IterateWindows(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, win)
+	}
 	return out, nil
 }
 
-// collectLeaves walks the sway tree and appends leaf containers (real windows).
-func collectLeaves(n *swayNode, out *[]Info) {
-	isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
-	if isLeaf && (n.Type == "con" || n.Type == "floating_con") && n.Name != "" {
-		*out = append(*out, Info{
-			ID:    uint64(n.ID),
-			Title: n.Name,
-			X:     n.Rect.X,
-			Y:     n.Rect.Y,
-			W:     n.Rect.W,
-			H:     n.Rect.H,
+// IterateWindows returns an iterator over all visible windows in the sway tree.
+func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
+	return func(yield func(Info, error) bool) {
+		raw, err := m.query(swayMsgGetTree, "")
+		if err != nil {
+			yield(Info{}, fmt.Errorf("window/sway: get_tree: %w", err))
+			return
+		}
+		var root swayNode
+		if err := json.Unmarshal(raw, &root); err != nil {
+			yield(Info{}, fmt.Errorf("window/sway: parse tree: %w", err))
+			return
+		}
+
+		_ = walkTree(&root, func(n *swayNode) bool {
+			isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
+			if isLeaf && (n.Type == "con" || n.Type == "floating_con") && n.Name != "" {
+				info := Info{
+					ID:    uint64(n.ID),
+					Title: n.Name,
+					X:     n.Rect.X,
+					Y:     n.Rect.Y,
+					W:     n.Rect.W,
+					H:     n.Rect.H,
+				}
+				if !yield(info, nil) {
+					return false
+				}
+			}
+			return true
 		})
 	}
+}
+
+// walkTree performs a pre-order traversal of the sway tree and calls fn for each node.
+// If fn returns false, traversal stops.
+func walkTree(n *swayNode, fn func(*swayNode) bool) bool {
+	if !fn(n) {
+		return false
+	}
 	for i := range n.Nodes {
-		collectLeaves(&n.Nodes[i], out)
+		if !walkTree(&n.Nodes[i], fn) {
+			return false
+		}
 	}
 	for i := range n.FloatingNodes {
-		collectLeaves(&n.FloatingNodes[i], out)
+		if !walkTree(&n.FloatingNodes[i], fn) {
+			return false
+		}
 	}
+	return true
 }
 
 // ActiveTitle returns the title of the currently focused window.
@@ -178,28 +208,18 @@ func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
 	if err := json.Unmarshal(raw, &root); err != nil {
 		return "", fmt.Errorf("window/sway: parse tree: %w", err)
 	}
-	title := findFocused(&root)
+	var title string
+	walkTree(&root, func(n *swayNode) bool {
+		if n.Focused && (n.Type == "con" || n.Type == "floating_con") {
+			title = n.Name
+			return false
+		}
+		return true
+	})
 	if title == "" {
 		return "", fmt.Errorf("window/sway: no focused window")
 	}
 	return title, nil
-}
-
-func findFocused(n *swayNode) string {
-	if n.Focused && (n.Type == "con" || n.Type == "floating_con") {
-		return n.Name
-	}
-	for i := range n.Nodes {
-		if t := findFocused(&n.Nodes[i]); t != "" {
-			return t
-		}
-	}
-	for i := range n.FloatingNodes {
-		if t := findFocused(&n.FloatingNodes[i]); t != "" {
-			return t
-		}
-	}
-	return ""
 }
 
 func (m *SwayManager) findWindow(ctx context.Context, substr string) (Info, error) {
@@ -250,23 +270,32 @@ func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
 	if err := m.swayCmd(fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
 		return err
 	}
+
 	// Wait for sway to report the window away from its tiled origin, indicating
 	// the float layout reflow is complete (up to ~500 ms).
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.After(500 * time.Millisecond)
+loop:
+	for {
 		wins, err := m.List(ctx)
-		if err != nil {
-			time.Sleep(20 * time.Millisecond)
-			continue
-		}
-		for _, win := range wins {
-			if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
-				goto ready
+		if err == nil {
+			for _, win := range wins {
+				if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
+					break loop
+				}
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			break loop
+		case <-ticker.C:
+		}
 	}
-ready:
+
 	return m.swayCmd(fmt.Sprintf("[con_id=%d] move position %d %d", int64(w.ID), x, y))
 }
 

@@ -22,6 +22,7 @@ package window
 import (
 	"context"
 	"fmt"
+	"iter"
 	"os"
 	"strconv"
 	"strings"
@@ -135,10 +136,22 @@ func (k *KWinScriptManager) runScript(buildJS func(svc string) string) (string, 
 	}
 }
 
-// List returns all normal top-level windows reported by workspace.windowList().
 func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
-	data, err := k.runScript(func(svc string) string {
-		return fmt.Sprintf(`
+	var out []Info
+	for win, err := range k.IterateWindows(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, win)
+	}
+	return out, nil
+}
+
+// IterateWindows returns an iterator over all top-level windows.
+func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
+	return func(yield func(Info, error) bool) {
+		data, err := k.runScript(func(svc string) string {
+			return fmt.Sprintf(`
 var wins = workspace.windowList();
 var lines = [];
 for (var i = 0; i < wins.length; i++) {
@@ -151,35 +164,37 @@ for (var i = 0; i < wins.length; i++) {
 }
 callDBus('%s', '/', '%s', 'ReportWindows', lines.join('\n'));
 `, svc, svc)
-	})
-	if err != nil {
-		return nil, err
-	}
+		})
+		if err != nil {
+			yield(Info{}, err)
+			return
+		}
 
-	var infos []Info
-	for i, line := range strings.Split(strings.TrimSpace(data), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 7)
-		info := Info{ID: uint64(i + 1)}
-		if len(parts) >= 2 {
-			info.Title = parts[1]
-		}
-		if len(parts) >= 3 {
-			if pid, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 32); err == nil {
-				info.PID = int32(pid)
+		for i, line := range strings.Split(strings.TrimSpace(data), "\n") {
+			if line == "" {
+				continue
+			}
+			parts := strings.SplitN(line, "\t", 7)
+			info := Info{ID: uint64(i + 1)}
+			if len(parts) >= 2 {
+				info.Title = parts[1]
+			}
+			if len(parts) >= 3 {
+				if pid, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 32); err == nil {
+					info.PID = int32(pid)
+				}
+			}
+			if len(parts) >= 7 {
+				info.X = parseInt(parts[3])
+				info.Y = parseInt(parts[4])
+				info.W = parseInt(parts[5])
+				info.H = parseInt(parts[6])
+			}
+			if !yield(info, nil) {
+				return
 			}
 		}
-		if len(parts) >= 7 {
-			info.X = parseInt(parts[3])
-			info.Y = parseInt(parts[4])
-			info.W = parseInt(parts[5])
-			info.H = parseInt(parts[6])
-		}
-		infos = append(infos, info)
 	}
-	return infos, nil
 }
 
 func parseInt(s string) int {

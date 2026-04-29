@@ -6,6 +6,7 @@ package window
 import (
 	"context"
 	"fmt"
+	"iter"
 
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
@@ -87,36 +88,53 @@ func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 	return int(geo.X), int(geo.Y), int(geo.Width), int(geo.Height)
 }
 
-// List returns all top-level windows from _NET_CLIENT_LIST.
 func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
-	rep, err := xproto.GetProperty(b.conn, false, b.root, b.atomNetClientList,
-		xproto.AtomWindow, 0, 1024).Reply()
-	if err != nil {
-		return nil, fmt.Errorf("window/x11: get _NET_CLIENT_LIST: %w", err)
+	var out []Info
+	for win, err := range b.IterateWindows(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, win)
 	}
-	if rep.Format != 32 {
-		return nil, fmt.Errorf("window/x11: unexpected _NET_CLIENT_LIST format %d", rep.Format)
+	return out, nil
+}
+
+// IterateWindows returns an iterator over all top-level windows.
+func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
+	return func(yield func(Info, error) bool) {
+		rep, err := xproto.GetProperty(b.conn, false, b.root, b.atomNetClientList,
+			xproto.AtomWindow, 0, 1024).Reply()
+		if err != nil {
+			yield(Info{}, fmt.Errorf("window/x11: get _NET_CLIENT_LIST: %w", err))
+			return
+		}
+		if rep.Format != 32 {
+			yield(Info{}, fmt.Errorf("window/x11: unexpected _NET_CLIENT_LIST format %d", rep.Format))
+			return
+		}
+		ids := make([]xproto.Window, len(rep.Value)/4)
+		for i := range ids {
+			ids[i] = xproto.Window(
+				uint32(rep.Value[i*4]) | uint32(rep.Value[i*4+1])<<8 |
+					uint32(rep.Value[i*4+2])<<16 | uint32(rep.Value[i*4+3])<<24)
+		}
+
+		for _, id := range ids {
+			x, y, w, h := b.windowGeometry(id)
+			info := Info{
+				ID:    uint64(id),
+				Title: b.windowTitle(id),
+				PID:   b.windowPID(id),
+				X:     x,
+				Y:     y,
+				W:     w,
+				H:     h,
+			}
+			if !yield(info, nil) {
+				return
+			}
+		}
 	}
-	ids := make([]xproto.Window, len(rep.Value)/4)
-	for i := range ids {
-		ids[i] = xproto.Window(
-			uint32(rep.Value[i*4]) | uint32(rep.Value[i*4+1])<<8 |
-				uint32(rep.Value[i*4+2])<<16 | uint32(rep.Value[i*4+3])<<24)
-	}
-	infos := make([]Info, 0, len(ids))
-	for _, id := range ids {
-		x, y, w, h := b.windowGeometry(id)
-		infos = append(infos, Info{
-			ID:    uint64(id),
-			Title: b.windowTitle(id),
-			PID:   b.windowPID(id),
-			X:     x,
-			Y:     y,
-			W:     w,
-			H:     h,
-		})
-	}
-	return infos, nil
 }
 
 // findByTitle returns the first window whose title contains the given string (case-insensitive).

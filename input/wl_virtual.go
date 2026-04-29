@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -29,6 +30,7 @@ const (
 
 // WlVirtualBackend implements Inputter for wlroots Wayland compositors.
 type WlVirtualBackend struct {
+	mu       sync.Mutex
 	session  *wl.Session
 	display  *wl.Display
 	ptr      *wl.RawProxy // zwlr_virtual_pointer_v1
@@ -167,6 +169,9 @@ func (b *WlVirtualBackend) ptrFrame() error {
 // MouseMove moves the pointer to absolute position (x, y) in the compositor's
 // output coordinate space (i.e. sway display pixels).
 func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	var buf [28]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 28<<16|1) // size=28, opcode=1 (motion_absolute)
@@ -182,6 +187,9 @@ func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 }
 
 func (b *WlVirtualBackend) button(code, state uint32) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	var buf [20]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 20<<16|2) // size=20, opcode=2 (button)
@@ -234,20 +242,37 @@ func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return b.kbd.typeString(s)
 }
 
 // KeyTap presses and releases a key, respecting any held modifiers.
-func (b *WlVirtualBackend) KeyTap(ctx context.Context, key string) error { return b.kbd.tapKey(key) }
+func (b *WlVirtualBackend) KeyTap(ctx context.Context, key string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.kbd.tapKey(key)
+}
 
 // KeyDown presses and holds a key. Modifier keys update the compositor's
 // modifier state; other keys are held until released with KeyUp.
-func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error { return b.kbd.pressKey(key) }
+func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.kbd.pressKey(key)
+}
 
 // KeyUp releases a previously held key.
-func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error { return b.kbd.releaseKey(key) }
+func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.kbd.releaseKey(key)
+}
 
 func (b *WlVirtualBackend) PressCombo(ctx context.Context, combo string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	parts := strings.Split(strings.ToLower(combo), "+")
 	for _, p := range parts {
 		if err := b.kbd.pressKey(strings.TrimSpace(p)); err != nil {
@@ -266,6 +291,9 @@ func (b *WlVirtualBackend) PressCombo(ctx context.Context, combo string) error {
 // axis 0 = vertical, axis 1 = horizontal. Positive values scroll down/right;
 // negative values scroll up/left.
 func (b *WlVirtualBackend) scroll(axis uint32, clicks int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	// wl_pointer.axis: value in wl_fixed_t (24.8 fixed-point).
 	// Convention: ~15 pixels per discrete scroll notch.
 	value := int32(clicks * 15 * 256) // wl_fixed_t

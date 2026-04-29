@@ -10,17 +10,16 @@ import (
 // FindByTitle returns the first window whose title contains substr
 // (case-insensitive). Error messages are standardized for callers.
 func FindByTitle(ctx context.Context, m Manager, substr string) (Info, error) {
-	wins, err := m.List(ctx)
-	if err != nil {
-		return Info{}, err
-	}
 	lc := strings.ToLower(substr)
-	for _, w := range wins {
+	for w, err := range m.IterateWindows(ctx) {
+		if err != nil {
+			return Info{}, err
+		}
 		if strings.Contains(strings.ToLower(w.Title), lc) {
 			return w, nil
 		}
 	}
-	return Info{}, fmt.Errorf("window matching %q not found", substr)
+	return Info{}, fmt.Errorf("window matching %q not found: %w", substr, ErrWindowNotFound)
 }
 
 // WaitFor blocks until a window matching pattern is found, or ctx expires.

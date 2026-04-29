@@ -15,6 +15,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
@@ -134,6 +135,7 @@ type Perfuncted struct {
 	Input     InputBundle
 	Window    WindowBundle
 	Clipboard ClipboardBundle
+	session   compositor.Session
 }
 
 func (p *Perfuncted) Paste(text string) error {
@@ -149,6 +151,8 @@ func New(opts Options) (*Perfuncted, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	session := compositor.DetectRuntime(rt)
 
 	scr, err := screen.OpenRuntime(rt)
 	if err != nil {
@@ -178,6 +182,7 @@ func New(opts Options) (*Perfuncted, error) {
 		Input:     InputBundle{inp},
 		Window:    WindowBundle{win},
 		Clipboard: ClipboardBundle{cb},
+		session:   session,
 	}, nil
 }
 

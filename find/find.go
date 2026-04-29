@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// ErrNotFound is returned when a pixel pattern or color could not be located.
+var ErrNotFound = fmt.Errorf("find: not found")
+
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
@@ -333,7 +336,7 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 				}
 			}
 		}
-		return image.Rectangle{}, fmt.Errorf("find: exact match not found")
+		return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
 	}
 
 	for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
@@ -346,7 +349,7 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 			}
 		}
 	}
-	return image.Rectangle{}, fmt.Errorf("find: exact match not found")
+	return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
 }
 
 func matchAt(src, ref image.Image, ox, oy int) bool {
@@ -415,6 +418,9 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		refFirst = color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
 	}
 
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		img, err := sc.Grab(ctx, searchArea)
 		if err != nil {
@@ -422,7 +428,6 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		}
 
 		sb := img.Bounds()
-
 		sub, ok := img.(interface {
 			SubImage(r image.Rectangle) image.Image
 		})
@@ -474,12 +479,10 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 			}
 		}
 
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match")
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -531,7 +534,7 @@ func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, targ
 	if p, ok := PixelFound(img, rect, target, tolerance); ok {
 		return p, nil
 	}
-	return image.Point{}, fmt.Errorf("find: colour #%02x%02x%02x not found (tolerance=%d)", target.R, target.G, target.B, tolerance)
+	return image.Point{}, fmt.Errorf("%w: colour #%02x%02x%02x (tolerance=%d)", ErrNotFound, target.R, target.G, target.B, tolerance)
 }
 
 func colorClose(a, b color.RGBA, tol int) bool {
@@ -551,17 +554,18 @@ func abs(x int) int {
 // via exact pixel matching, or ctx expires. Returns the absolute rectangle
 // where the reference was located.
 func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		r, err := LocateExact(ctx, sc, searchArea, reference)
 		if err == nil {
 			return r, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return image.Rectangle{}, fmt.Errorf("find: timeout waiting to locate reference image: %w", ctx.Err())
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
@@ -571,6 +575,9 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 // iteration and may inspect it with any predicate (brightness, color
 // presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
@@ -579,12 +586,10 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 		if fn(img) {
 			return img, nil
 		}
-		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }

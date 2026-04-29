@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"image"
+	"sync"
 	"syscall"
 
 	"github.com/nskaggs/perfuncted/internal/shmutil"
@@ -16,6 +17,7 @@ import (
 // available where the compositor advertises ext_image_copy_capture_manager_v1.
 // Do not assume specific compositor versions — rely solely on protocol presence.
 type ExtCaptureBackend struct {
+	mu           sync.Mutex
 	session      *wl.Session
 	display      *wl.Display
 	registry     *wl.Registry
@@ -26,6 +28,12 @@ type ExtCaptureBackend struct {
 	sourceMgrVer uint32
 	outputProxy  *wlRawProxy
 	outputScale  uint32
+
+	// cached proxies
+	mgrProxy       *wlRawProxy
+	sourceMgrProxy *wlRawProxy
+	sourceProxy    *wlRawProxy
+	sessProxy      *wlRawProxy
 }
 
 // NewExtCaptureBackend returns an ExtCaptureBackend if the compositor advertises
@@ -97,6 +105,36 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) {
 		_ = s.Close()
 		return nil, fmt.Errorf("screen/ext: wl_shm not advertised")
 	}
+
+	// Initialize persistent proxies.
+	b.mgrProxy = &wlRawProxy{}
+	ctx.Register(b.mgrProxy)
+	if err := registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), b.mgrProxy.ID()); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("screen/ext: bind manager: %w", err)
+	}
+
+	b.sourceMgrProxy = &wlRawProxy{}
+	ctx.Register(b.sourceMgrProxy)
+	if err := registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), b.sourceMgrProxy.ID()); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("screen/ext: bind output source manager: %w", err)
+	}
+
+	b.sourceProxy = &wlRawProxy{}
+	ctx.Register(b.sourceProxy)
+	if err := sendExtOutputCreateSource(ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("screen/ext: create_source: %w", err)
+	}
+
+	b.sessProxy = &wlRawProxy{}
+	ctx.Register(b.sessProxy)
+	if err := sendExtCreateSession(ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("screen/ext: create_session: %w", err)
+	}
+
 	return b, nil
 }
 
@@ -139,43 +177,16 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 }
 
 func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	wlctx := b.display.Context()
-
-	// Bind managers.
-	mgrProxy := &wlRawProxy{}
-	wlctx.Register(mgrProxy)
-	if err := b.registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), mgrProxy.ID()); err != nil {
-		return fmt.Errorf("screen/ext: bind manager: %w", err)
-	}
-	defer sendWaylandRequest(wlctx, mgrProxy.ID(), 2, nil) //nolint:errcheck
-
-	sourceMgrProxy := &wlRawProxy{}
-	wlctx.Register(sourceMgrProxy)
-	if err := b.registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), sourceMgrProxy.ID()); err != nil {
-		return fmt.Errorf("screen/ext: bind output source manager: %w", err)
-	}
-	defer sendWaylandRequest(wlctx, sourceMgrProxy.ID(), 1, nil) //nolint:errcheck
-
-	sourceProxy := &wlRawProxy{}
-	wlctx.Register(sourceProxy)
-	if err := sendExtOutputCreateSource(wlctx, sourceMgrProxy.ID(), sourceProxy.ID(), b.outputProxy.ID()); err != nil {
-		return fmt.Errorf("screen/ext: create_source: %w", err)
-	}
-	defer sendWaylandRequest(wlctx, sourceProxy.ID(), 0, nil) //nolint:errcheck
-
-	// create_session(new_id, source, options=0) — opcode 0.
-	sessProxy := &wlRawProxy{}
-	wlctx.Register(sessProxy)
-	if err := sendExtCreateSession(wlctx, mgrProxy.ID(), sessProxy.ID(), sourceProxy.ID()); err != nil {
-		return fmt.Errorf("screen/ext: create_session: %w", err)
-	}
-	defer sendWaylandRequest(wlctx, sessProxy.ID(), 1, nil) //nolint:errcheck
 
 	// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
 	type sessInfo struct{ width, height, format uint32 }
 	var si sessInfo
 	var stopped bool
-	sessProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
+	b.sessProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
 		switch opcode {
 		case 0: // buffer_size
 			si.width = wl.Uint32(data[0:4])
@@ -225,7 +236,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	// create_frame(new_id) — session opcode 1.
 	frameProxy := &wlRawProxy{}
 	wlctx.Register(frameProxy)
-	if err := sendExtCreateFrame(wlctx, sessProxy.ID(), frameProxy.ID()); err != nil {
+	if err := sendExtCreateFrame(wlctx, b.sessProxy.ID(), frameProxy.ID()); err != nil {
 		return fmt.Errorf("screen/ext: create_frame: %w", err)
 	}
 	defer sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil) //nolint:errcheck
