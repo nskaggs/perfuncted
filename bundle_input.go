@@ -5,6 +5,7 @@ import (
 	"image"
 	"time"
 
+	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/util"
 )
@@ -59,6 +60,31 @@ func (i InputBundle) TypeWithDelayContext(ctx context.Context, text string, dela
 		}
 	}
 	return nil
+}
+
+// TypeFast attempts to paste text via the system clipboard (wl-copy/xclip)
+// and a Ctrl+V paste key. If the clipboard tool isn't available or paste
+// fails, it falls back to character-by-character Type().
+func (i InputBundle) TypeFast(text string) error {
+	return i.TypeFastContext(context.Background(), text)
+}
+
+func (i InputBundle) TypeFastContext(ctx context.Context, text string) error {
+	if err := i.checkAvailable(); err != nil {
+		return err
+	}
+	cb, err := clipboard.Open()
+	if err == nil {
+		defer cb.Close()
+		if err := cb.Set(ctx, text); err == nil {
+			// Press Ctrl+V to paste. If this fails, fall back to Type().
+			if err := i.Inputter.PressCombo(ctx, "ctrl+v"); err == nil {
+				return nil
+			}
+		}
+	}
+	// fallback to per-character typing
+	return i.Inputter.Type(ctx, text)
 }
 
 func (i InputBundle) KeyTap(key string) error {
@@ -148,7 +174,7 @@ func (i InputBundle) DoubleClickContext(ctx context.Context, x, y int) error {
 		return err
 	}
 	// Small pause to emulate human double-click timing.
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
 		return err
 	}
