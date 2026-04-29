@@ -24,6 +24,14 @@ func (b *GnomeShellScreenshotBackend) GrabFullHash(ctx context.Context) (uint32,
 	return find.PixelHash(img, nil), nil
 }
 
+func (b *GnomeShellScreenshotBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
 const (
 	gnomeShellShotDest  = "org.gnome.Shell.Screenshot"
 	gnomeShellShotPath  = "/org/gnome/Shell/Screenshot"

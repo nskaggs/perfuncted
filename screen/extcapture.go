@@ -8,6 +8,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -149,6 +150,19 @@ func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 		return 0, err
 	}
 	return hash, nil
+}
+
+// GrabRegionHash computes a CRC32 fingerprint for rect. It currently falls
+// back to the generic Grab + PixelHash path.
+func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect.Empty() {
+		return b.GrabFullHash(ctx)
+	}
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
 }
 
 // Grab captures the full output then returns the cropped rect.
