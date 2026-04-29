@@ -146,6 +146,26 @@ func (p *Perfuncted) PasteContext(ctx context.Context, text string) error {
 	return p.Clipboard.PasteWithInputContext(ctx, text, p.Input)
 }
 
+// TypeFast types text quickly by using the clipboard + PasteCombo when a
+// clipboard backend is available. It falls back to per-character typing via
+// the Inputter Type method when the clipboard is unavailable.
+func (p *Perfuncted) TypeFast(text string) error {
+	return p.TypeFastContext(context.Background(), text)
+}
+
+func (p *Perfuncted) TypeFastContext(ctx context.Context, text string) error {
+	if p == nil {
+		return fmt.Errorf("perfuncted: nil Perfuncted")
+	}
+	// Prefer clipboard paste when available; this uses the session's clipboard
+	// backend (wl-copy/wl-paste) and sends the paste key combo via the input
+	// bundle. Falls back to Type which emits per-character key events.
+	if p.Clipboard.Clipboard != nil {
+		return p.Clipboard.PasteWithInputContext(ctx, text, p.Input)
+	}
+	return p.Input.TypeContext(ctx, text)
+}
+
 func New(opts Options) (*Perfuncted, error) {
 	rt, err := resolveRuntime(opts)
 	if err != nil {
