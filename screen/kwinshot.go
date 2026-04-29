@@ -41,6 +41,16 @@ func (b *KWinShotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	return find.PixelHash(img, nil), nil
 }
 
+// GrabRegionHash computes a CRC32 pixel fingerprint for rect. For KWin this
+// currently falls back to a normal Grab + PixelHash.
+func (b *KWinShotBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
 const (
 	kwinShotDest  = "org.kde.KWin"
 	kwinShotPath  = "/org/kde/KWin/ScreenShot2"

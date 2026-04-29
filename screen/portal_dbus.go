@@ -27,6 +27,14 @@ func (b *PortalDBusBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	return find.PixelHash(img, nil), nil
 }
 
+func (b *PortalDBusBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
 // PortalDBusBackend captures the screen via the xdg-desktop-portal Screenshot
 // interface (org.freedesktop.portal.Screenshot). Each Grab call takes a full
 // workspace screenshot and returns the cropped region. No PipeWire required.

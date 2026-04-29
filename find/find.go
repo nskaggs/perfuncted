@@ -19,9 +19,12 @@ import (
 var ErrNotFound = fmt.Errorf("find: not found")
 
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
+// It also includes a fast region-hash path to avoid image allocations when
+// callers only need a pixel fingerprint.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
 	GrabFullHash(ctx context.Context) (uint32, error)
+	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
 }
 
 // Hasher returns a fresh hash.Hash32 for each call. Swap out for stronger
@@ -30,6 +33,23 @@ type Hasher func() hash.Hash32
 
 // DefaultHasher uses CRC32 IEEE.
 var DefaultHasher Hasher = crc32.NewIEEE
+
+// adaptivePoll returns an exponentially backing-off poll duration. base is
+// the starting duration and max is the cap.
+func adaptivePoll(attempt int, base, max time.Duration) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	d := base * time.Duration(1<<attempt)
+	if d > max {
+		return max
+	}
+	return d
+}
+
+// Prevent staticcheck from flagging adaptivePoll as unused while it is wired
+// into wait loops in a follow-up commit.
+var _ = adaptivePoll
 
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
 // For *image.RGBA images it uses a fast path that reads pixel bytes directly
@@ -64,13 +84,11 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 	return h.Sum32()
 }
 
-// GrabHash captures rect from sc and returns its pixel hash.
+// GrabHash captures rect from sc and returns its pixel hash. Preferred
+// implementations provide a fast GrabRegionHash that avoids allocating an
+// image.RGBA; use that when available.
 func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
-	img, err := sc.Grab(ctx, rect)
-	if err != nil {
-		return 0, fmt.Errorf("find: grab: %w", err)
-	}
-	return PixelHash(img, newHash), nil
+	return sc.GrabRegionHash(ctx, rect)
 }
 
 // FirstPixel returns the colour of the top-left pixel of rect captured from sc.

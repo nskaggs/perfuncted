@@ -20,6 +20,10 @@ type Screenshotter interface {
 	// GrabFullHash returns a fast pixel hash of the entire screen.
 	// Backends should optimize this to avoid intermediate image allocations.
 	GrabFullHash(ctx context.Context) (uint32, error)
+	// GrabRegionHash returns a fast pixel hash for the specified rectangle.
+	// Implementations should avoid allocating an image or doing BGRA->RGBA
+	// decoding when possible (use raw buffer hashing).
+	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
 	Close() error
 }
 

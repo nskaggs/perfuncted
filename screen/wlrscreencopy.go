@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"hash/crc32"
 	"image"
+	"os"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -21,6 +23,10 @@ var (
 	globalWlrMu          sync.Mutex
 	globalWlrCtxs        = make(map[*wl.Context]time.Time)
 )
+
+// bufInfo describes the raw buffer provided by the compositor (format, dims).
+// It is used to detect when a pooled mmap + shm file must be reallocated.
+type bufInfo struct{ format, width, height, stride uint32 }
 
 type WlrScreencopyBackend struct {
 	sock     string
@@ -39,6 +45,11 @@ type WlrScreencopyBackend struct {
 	shm      *wl.Shm
 	output   *wlRawProxy
 	mgrProxy *wlRawProxy
+
+	// pooled shared-memory mmap to avoid creating/munmapping on every capture
+	cachedBuf []byte
+	cachedFd  *os.File
+	cachedBI  bufInfo
 }
 
 // NewWlrScreencopyBackendWithConnector constructs a backend with an injectable
@@ -230,7 +241,6 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)
 		}
 
-		type bufInfo struct{ format, width, height, stride uint32 }
 		var bi bufInfo
 		var ready, failed, bufDone bool
 
@@ -260,19 +270,38 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 		}
 
 		size := int(bi.stride * bi.height)
-		f, err := shmutil.CreateFile(int64(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: shm file: %w", err)
-		}
-		defer f.Close()
 
-		pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: mmap: %w", err)
+		// Reuse a pooled mmap if the buffer geometry hasn't changed.
+		var pixels []byte
+		if b.cachedBuf != nil && b.cachedBI == bi && len(b.cachedBuf) >= size {
+			pixels = b.cachedBuf[:size]
+		} else {
+			// Tear down any existing cached mapping.
+			if b.cachedBuf != nil {
+				_ = syscall.Munmap(b.cachedBuf)
+				b.cachedBuf = nil
+			}
+			if b.cachedFd != nil {
+				_ = b.cachedFd.Close()
+				b.cachedFd = nil
+			}
+			f, err := shmutil.CreateFile(int64(size))
+			if err != nil {
+				return fmt.Errorf("screen/wlr: shm file: %w", err)
+			}
+			// Keep the file open and the mapping cached on the backend struct.
+			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+			if err != nil {
+				f.Close()
+				return fmt.Errorf("screen/wlr: mmap: %w", err)
+			}
+			b.cachedFd = f
+			b.cachedBuf = px
+			b.cachedBI = bi
+			pixels = b.cachedBuf[:size]
 		}
-		defer syscall.Munmap(pixels) //nolint:errcheck
 
-		pool, err := b.shm.CreatePool(int(f.Fd()), int32(size))
+		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_pool: %w", err)
 		}
@@ -322,7 +351,6 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)
 		}
 
-		type bufInfo struct{ format, width, height, stride uint32 }
 		var bi bufInfo
 		var ready, failed, bufDone bool
 
@@ -352,19 +380,36 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 		}
 
 		size := int(bi.stride * bi.height)
-		f, err := shmutil.CreateFile(int64(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: shm file: %w", err)
-		}
-		defer f.Close()
 
-		pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: mmap: %w", err)
+		// Reuse a pooled mmap if the buffer geometry hasn't changed.
+		var pixels []byte
+		if b.cachedBuf != nil && b.cachedBI == bi && len(b.cachedBuf) >= size {
+			pixels = b.cachedBuf[:size]
+		} else {
+			if b.cachedBuf != nil {
+				_ = syscall.Munmap(b.cachedBuf)
+				b.cachedBuf = nil
+			}
+			if b.cachedFd != nil {
+				_ = b.cachedFd.Close()
+				b.cachedFd = nil
+			}
+			f, err := shmutil.CreateFile(int64(size))
+			if err != nil {
+				return fmt.Errorf("screen/wlr: shm file: %w", err)
+			}
+			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+			if err != nil {
+				f.Close()
+				return fmt.Errorf("screen/wlr: mmap: %w", err)
+			}
+			b.cachedFd = f
+			b.cachedBuf = px
+			b.cachedBI = bi
+			pixels = b.cachedBuf[:size]
 		}
-		defer syscall.Munmap(pixels) //nolint:errcheck
 
-		pool, err := b.shm.CreatePool(int(f.Fd()), int32(size))
+		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_pool: %w", err)
 		}
@@ -423,6 +468,20 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 	return w, h, nil
 }
 
+// GrabRegionHash provides a fast CRC32 hash for a sub-rectangle. Currently
+// implemented via Grab + PixelHash; backends may later implement a raw-buffer
+// fast path to avoid allocations.
+func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect.Empty() {
+		return b.GrabFullHash(ctx)
+	}
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
 func (b *WlrScreencopyBackend) Close() error {
 	if b.done != nil {
 		close(b.done)
@@ -431,6 +490,15 @@ func (b *WlrScreencopyBackend) Close() error {
 	if b.ctx != nil {
 		_ = wl.SafeClose(b.ctx)
 		b.ctx = nil
+	}
+	// clean up pooled mmap and associated fd
+	if b.cachedBuf != nil {
+		_ = syscall.Munmap(b.cachedBuf)
+		b.cachedBuf = nil
+	}
+	if b.cachedFd != nil {
+		_ = b.cachedFd.Close()
+		b.cachedFd = nil
 	}
 	b.ctxMu.Unlock()
 	return nil

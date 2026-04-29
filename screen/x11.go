@@ -45,6 +45,40 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	return crc32.ChecksumIEEE(reply.Data), nil
 }
 
+// GrabRegionHash returns a fast CRC32 hash for the specified rect. It uses
+// XGetImage on the requested rectangle to avoid an intermediate image decode.
+func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect.Empty() {
+		return b.GrabFullHash(ctx)
+	}
+
+	drawable := xproto.Drawable(b.root)
+	if b.hasComposite {
+		rawID, err := b.conn.NewId()
+		if err == nil {
+			pid := xproto.Pixmap(rawID)
+			if composite.NameWindowPixmap(b.conn, b.root, pid).Check() == nil {
+				drawable = xproto.Drawable(pid)
+				defer xproto.FreePixmap(b.conn, pid) //nolint:errcheck
+			}
+		}
+	}
+
+	x := int16(rect.Min.X)
+	y := int16(rect.Min.Y)
+	w := uint16(rect.Dx())
+	h := uint16(rect.Dy())
+	planeMask := uint32(0xffffffff)
+
+	reply, err := xproto.GetImage(b.conn, xproto.ImageFormatZPixmap,
+		drawable, x, y, w, h, planeMask).Reply()
+	if err != nil {
+		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
+	}
+
+	return crc32.ChecksumIEEE(reply.Data), nil
+}
+
 // X11Backend captures screen regions via XGetImage on an X11 or XWayland display.
 //
 // On composited sessions (KDE/GNOME Wayland via XWayland) the root window is
