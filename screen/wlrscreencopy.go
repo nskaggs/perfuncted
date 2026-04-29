@@ -13,168 +13,6 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
-// GrabFullHash returns a CRC32 checksum of the entire screen.
-// Bypasses intermediate image allocation by hashing the raw buffer directly.
-func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
-	var hash uint32
-	if err := b.withWlrContext(func(ctx *wl.Context) error {
-		display := wl.NewDisplay(ctx)
-		registry, err := display.GetRegistry()
-		if err != nil {
-			return fmt.Errorf("screen/wlr: get registry: %w", err)
-		}
-
-		var shm *wl.Shm
-		var output *wlRawProxy
-		var mgrName, mgrVer uint32
-
-		registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-			switch ev.Interface {
-			case "zwlr_screencopy_manager_v1":
-				mgrName = ev.Name
-				mgrVer = ev.Version
-			case "wl_output":
-				if output == nil {
-					out := &wlRawProxy{}
-					ctx.Register(out)
-					ver := min(ev.Version, 4)
-					if err := registry.Bind(ev.Name, ev.Interface, ver, out.ID()); err == nil {
-						output = out
-						// capture mode and scale events
-						out.dispatchFn = func(opcode uint32, _ int, data []byte) {
-							switch opcode {
-							case 1: // mode
-								if len(data) >= 12 {
-									b.pW = int(wl.Uint32(data[4:8]))
-									b.pH = int(wl.Uint32(data[8:12]))
-								}
-							case 3: // scale
-								if len(data) >= 4 {
-									b.scale = wl.Uint32(data[0:4])
-									if b.scale == 0 {
-										b.scale = 1
-									}
-								}
-							}
-						}
-					}
-				}
-			case "wl_shm":
-				s := &wl.Shm{}
-				ctx.Register(s)
-				if err := registry.Bind(ev.Name, ev.Interface, 1, s.ID()); err == nil {
-					shm = s
-				}
-			}
-		})
-
-		if err := display.RoundTrip(); err != nil {
-			return fmt.Errorf("screen/wlr: registry round-trip: %w", err)
-		}
-		if mgrName == 0 {
-			return fmt.Errorf("screen/wlr: zwlr_screencopy_manager_v1 not found")
-		}
-		if shm == nil || output == nil {
-			return fmt.Errorf("screen/wlr: wl_shm or wl_output missing")
-		}
-
-		mgrProxy := &wlRawProxy{}
-		ctx.Register(mgrProxy)
-		if err := registry.Bind(mgrName, "zwlr_screencopy_manager_v1", min(mgrVer, 3), mgrProxy.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: bind manager: %w", err)
-		}
-
-		frameProxy := &wlRawProxy{}
-		ctx.Register(frameProxy)
-
-		if err := wlSendCaptureOutput(ctx, mgrProxy.ID(), 1, output.ID(), frameProxy.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: capture_output: %w", err)
-		}
-
-		type bufInfo struct{ format, width, height, stride uint32 }
-		var bi bufInfo
-		var ready, failed, bufDone bool
-
-		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
-			switch opcode {
-			case 0: // buffer
-				bi.format = wl.Uint32(data[0:4])
-				bi.width = wl.Uint32(data[4:8])
-				bi.height = wl.Uint32(data[8:12])
-				bi.stride = wl.Uint32(data[12:16])
-			case 2: // ready
-				ready = true
-			case 3: // failed
-				failed = true
-			case 6: // buffer_done (protocol v2+)
-				bufDone = true
-			}
-		}
-
-		for !bufDone && bi.width == 0 && !failed {
-			if err := ctx.Dispatch(); err != nil {
-				return fmt.Errorf("screen/wlr: dispatch: %w", err)
-			}
-		}
-		if failed {
-			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
-		}
-
-		size := int(bi.stride * bi.height)
-		f, err := shmutil.CreateFile(int64(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: shm file: %w", err)
-		}
-		defer f.Close()
-
-		pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: mmap: %w", err)
-		}
-		defer syscall.Munmap(pixels) //nolint:errcheck
-
-		pool, err := shm.CreatePool(int(f.Fd()), int32(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_pool: %w", err)
-		}
-		defer pool.Destroy() //nolint:errcheck
-
-		buf, err := pool.CreateBuffer(0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
-		}
-		defer buf.Destroy() //nolint:errcheck
-
-		if err := wlSendFrameCopy(ctx, frameProxy.ID(), buf.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: frame copy: %w", err)
-		}
-
-		for !ready && !failed {
-			if err := ctx.Dispatch(); err != nil {
-				return fmt.Errorf("screen/wlr: dispatch: %w", err)
-			}
-		}
-		if failed {
-			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
-		}
-
-		// Calculate CRC32 IEEE of the raw buffer.
-		hash = crc32.ChecksumIEEE(pixels)
-		return nil
-	}); err != nil {
-		return 0, err
-	}
-	return hash, nil
-}
-
-// WlrScreencopyBackend captures the screen using zwlr_screencopy_manager_v1.
-// This protocol is advertised by wlroots-based compositors (Sway, Hyprland, etc.)
-// and is detected at runtime by enumerating compositor globals.
-// Each Grab() opens a fresh Wayland connection and closes it on return,
-// matching the one-shot pattern used by grim and other capture tools.
-// (moved) see constructor NewWlrScreencopyBackendWithConnector for fields.
-// per-backend cached Wayland context to avoid reconnecting for each Grab.
-// Access is serialized via b.ctxMu because wl.Context is not safe for concurrent use.
 var (
 	// default TTL for cached contexts; tests may override via SetWlrCacheTTL
 	defaultWlrCacheTTL = 5 * time.Minute
@@ -183,6 +21,25 @@ var (
 	globalWlrMu          sync.Mutex
 	globalWlrCtxs        = make(map[*wl.Context]time.Time)
 )
+
+type WlrScreencopyBackend struct {
+	sock     string
+	ctxMu    sync.Mutex
+	ctx      *wl.Context
+	lastUsed time.Time
+	connect  func(string) (*wl.Context, error)
+	ttl      time.Duration
+	janOnce  sync.Once
+	done     chan struct{}
+	// last observed output dimensions and scale (1 if unknown)
+	scale  uint32
+	pW, pH int // physical dimensions from mode event
+
+	// cached proxies
+	shm      *wl.Shm
+	output   *wlRawProxy
+	mgrProxy *wlRawProxy
+}
 
 // NewWlrScreencopyBackendWithConnector constructs a backend with an injectable
 // connector and TTL (used by tests). Use NewWlrScreencopyBackend for normal use.
@@ -200,24 +57,6 @@ func NewWlrScreencopyBackendWithConnector(sock string, connect func(string) (*wl
 	return b
 }
 
-type WlrScreencopyBackend struct {
-	sock     string
-	ctxMu    sync.Mutex
-	ctx      *wl.Context
-	lastUsed time.Time
-	connect  func(string) (*wl.Context, error)
-	ttl      time.Duration
-	janOnce  sync.Once
-	done     chan struct{}
-	// last observed output dimensions and scale (1 if unknown)
-	scale  uint32
-	pW, pH int // physical dimensions from mode event
-}
-
-// withWlrContext ensures a wl.Context exists for this backend and calls fn
-// while holding the per-backend lock to serialize access. If the context
-// appears broken (fn returns an error), the context is closed and reset. A
-// background janitor evicts idle contexts after b.ttl.
 func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) error {
 	b.janOnce.Do(func() {
 		go func() {
@@ -254,12 +93,13 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 			return fmt.Errorf("screen/wlr: connect: %w", err)
 		}
 		b.ctx = ctx
-		// register in global cache
+		b.shm = nil
+		b.output = nil
+		b.mgrProxy = nil
+
 		globalWlrMu.Lock()
 		globalWlrCtxs[b.ctx] = time.Now()
-		// enforce cap
 		if len(globalWlrCtxs) > maxWlrCachedContexts {
-			// find oldest and evict until cap satisfied
 			for len(globalWlrCtxs) > maxWlrCachedContexts {
 				var oldest *wl.Context
 				var oldestT time.Time
@@ -278,8 +118,19 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 		globalWlrMu.Unlock()
 	}
 	b.lastUsed = time.Now()
+
+	if b.mgrProxy == nil {
+		if err := b.setupProxies(b.ctx); err != nil {
+			_ = wl.SafeClose(b.ctx)
+			globalWlrMu.Lock()
+			delete(globalWlrCtxs, b.ctx)
+			globalWlrMu.Unlock()
+			b.ctx = nil
+			return err
+		}
+	}
+
 	if err := fn(b.ctx); err != nil {
-		// close and remove from global cache
 		_ = wl.SafeClose(b.ctx)
 		globalWlrMu.Lock()
 		delete(globalWlrCtxs, b.ctx)
@@ -288,7 +139,6 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 		return err
 	}
 	b.lastUsed = time.Now()
-	// update global last-used
 	globalWlrMu.Lock()
 	if b.ctx != nil {
 		globalWlrCtxs[b.ctx] = b.lastUsed
@@ -297,113 +147,82 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 	return nil
 }
 
-// SetWlrCacheTTL allows tests to tune the default TTL used by backends created
-// with NewWlrScreencopyBackend. Backends created via the WithConnector variant
-// may pass a custom TTL directly.
-func SetWlrCacheTTL(d time.Duration) { defaultWlrCacheTTL = d }
-
-// NewWlrScreencopyBackend verifies that zwlr_screencopy_manager_v1 is
-// advertised on WAYLAND_DISPLAY and returns a backend if so.
-func NewWlrScreencopyBackend() (*WlrScreencopyBackend, error) {
-	return NewWlrScreencopyBackendForSocket(wl.SocketPath())
-}
-
-// NewWlrScreencopyBackendForSocket verifies that zwlr_screencopy_manager_v1 is
-// advertised on sock and returns a backend if so.
-func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error) {
-	if sock == "" {
-		return nil, fmt.Errorf("screen/wlr: WAYLAND_DISPLAY not set")
-	}
-
-	s, err := wl.NewSession(sock)
+func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error {
+	display := wl.NewDisplay(ctx)
+	registry, err := display.GetRegistry()
 	if err != nil {
-		return nil, fmt.Errorf("screen/wlr: %w", err)
+		return fmt.Errorf("screen/wlr: get registry: %w", err)
 	}
-	// NewSession performed a round-trip and collected globals.
-	if _, ok := s.Globals["zwlr_screencopy_manager_v1"]; !ok {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/wlr: compositor does not advertise zwlr_screencopy_manager_v1")
-	}
-	_ = s.Close()
-	b := NewWlrScreencopyBackendWithConnector(sock, wl.Connect, defaultWlrCacheTTL)
-	return b, nil
-}
 
-// Grab captures the entire output and returns the cropped rect.
-// Reuses a cached Wayland connection to reduce connect/close overhead.
-func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	var outImg image.Image
-	if err := b.withWlrContext(func(ctx *wl.Context) error {
-		display := wl.NewDisplay(ctx)
-		registry, err := display.GetRegistry()
-		if err != nil {
-			return fmt.Errorf("screen/wlr: get registry: %w", err)
+	var mgrName, mgrVer uint32
+	var outID uint32
+
+	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
+		switch ev.Interface {
+		case "zwlr_screencopy_manager_v1":
+			mgrName = ev.Name
+			mgrVer = ev.Version
+		case "wl_output":
+			if outID == 0 {
+				outID = ev.Name
+			}
+		case "wl_shm":
+			s := &wl.Shm{}
+			ctx.Register(s)
+			if err := registry.Bind(ev.Name, ev.Interface, 1, s.ID()); err == nil {
+				b.shm = s
+			}
 		}
+	})
 
-		var shm *wl.Shm
-		var output *wlRawProxy
-		var mgrName, mgrVer uint32
+	if err := display.RoundTrip(); err != nil {
+		return fmt.Errorf("screen/wlr: registry round-trip: %w", err)
+	}
+	if mgrName == 0 {
+		return fmt.Errorf("screen/wlr: zwlr_screencopy_manager_v1 not found")
+	}
+	if b.shm == nil || outID == 0 {
+		return fmt.Errorf("screen/wlr: wl_shm or wl_output missing")
+	}
 
-		registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-			switch ev.Interface {
-			case "zwlr_screencopy_manager_v1":
-				mgrName = ev.Name
-				mgrVer = ev.Version
-			case "wl_output":
-				if output == nil {
-					out := &wlRawProxy{}
-					ctx.Register(out)
-					ver := min(ev.Version, 4)
-					if err := registry.Bind(ev.Name, ev.Interface, ver, out.ID()); err == nil {
-						output = out
-						// capture mode and scale events
-						out.dispatchFn = func(opcode uint32, _ int, data []byte) {
-							switch opcode {
-							case 1: // mode
-								if len(data) >= 12 {
-									b.pW = int(wl.Uint32(data[4:8]))
-									b.pH = int(wl.Uint32(data[8:12]))
-								}
-							case 3: // scale
-								if len(data) >= 4 {
-									b.scale = wl.Uint32(data[0:4])
-									if b.scale == 0 {
-										b.scale = 1
-									}
-								}
-							}
-						}
-					}
-				}
-			case "wl_shm":
-				s := &wl.Shm{}
-				ctx.Register(s)
-				if err := registry.Bind(ev.Name, ev.Interface, 1, s.ID()); err == nil {
-					shm = s
+	b.mgrProxy = &wlRawProxy{}
+	ctx.Register(b.mgrProxy)
+	if err := registry.Bind(mgrName, "zwlr_screencopy_manager_v1", min(mgrVer, 3), b.mgrProxy.ID()); err != nil {
+		return fmt.Errorf("screen/wlr: bind manager: %w", err)
+	}
+
+	b.output = &wlRawProxy{}
+	ctx.Register(b.output)
+	if err := registry.Bind(outID, "wl_output", 4, b.output.ID()); err != nil {
+		return fmt.Errorf("screen/wlr: bind output: %w", err)
+	}
+
+	b.output.dispatchFn = func(opcode uint32, _ int, data []byte) {
+		switch opcode {
+		case 1: // mode
+			if len(data) >= 12 {
+				b.pW = int(wl.Uint32(data[4:8]))
+				b.pH = int(wl.Uint32(data[8:12]))
+			}
+		case 3: // scale
+			if len(data) >= 4 {
+				b.scale = wl.Uint32(data[0:4])
+				if b.scale == 0 {
+					b.scale = 1
 				}
 			}
-		})
+		}
+	}
+	return display.RoundTrip()
+}
 
-		if err := display.RoundTrip(); err != nil {
-			return fmt.Errorf("screen/wlr: registry round-trip: %w", err)
-		}
-		if mgrName == 0 {
-			return fmt.Errorf("screen/wlr: zwlr_screencopy_manager_v1 not found")
-		}
-		if shm == nil || output == nil {
-			return fmt.Errorf("screen/wlr: wl_shm or wl_output missing")
-		}
-
-		mgrProxy := &wlRawProxy{}
-		ctx.Register(mgrProxy)
-		if err := registry.Bind(mgrName, "zwlr_screencopy_manager_v1", min(mgrVer, 3), mgrProxy.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: bind manager: %w", err)
-		}
-
+func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	var outImg image.Image
+	if err := b.withWlrContext(func(wlctx *wl.Context) error {
 		frameProxy := &wlRawProxy{}
-		ctx.Register(frameProxy)
+		wlctx.Register(frameProxy)
 
-		if err := wlSendCaptureOutput(ctx, mgrProxy.ID(), 1, output.ID(), frameProxy.ID()); err != nil {
+		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)
 		}
 
@@ -428,7 +247,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 		}
 
 		for !bufDone && bi.width == 0 && !failed {
-			if err := ctx.Dispatch(); err != nil {
+			if err := wlctx.Dispatch(); err != nil {
 				return fmt.Errorf("screen/wlr: dispatch: %w", err)
 			}
 		}
@@ -449,7 +268,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 		}
 		defer syscall.Munmap(pixels) //nolint:errcheck
 
-		pool, err := shm.CreatePool(int(f.Fd()), int32(size))
+		pool, err := b.shm.CreatePool(int(f.Fd()), int32(size))
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_pool: %w", err)
 		}
@@ -461,12 +280,12 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 		}
 		defer buf.Destroy() //nolint:errcheck
 
-		if err := wlSendFrameCopy(ctx, frameProxy.ID(), buf.ID()); err != nil {
+		if err := wlSendFrameCopy(wlctx, frameProxy.ID(), buf.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: frame copy: %w", err)
 		}
 
 		for !ready && !failed {
-			if err := ctx.Dispatch(); err != nil {
+			if err := wlctx.Dispatch(); err != nil {
 				return fmt.Errorf("screen/wlr: dispatch: %w", err)
 			}
 		}
@@ -489,9 +308,91 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 	return outImg, nil
 }
 
-// Resolution returns the output resolution. It prefers cached dimensions
-// from the wl_output mode event, falling back to a full screencopy if
-// physical dimensions are not yet known.
+func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	var hash uint32
+	if err := b.withWlrContext(func(wlctx *wl.Context) error {
+		frameProxy := &wlRawProxy{}
+		wlctx.Register(frameProxy)
+
+		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
+			return fmt.Errorf("screen/wlr: capture_output: %w", err)
+		}
+
+		type bufInfo struct{ format, width, height, stride uint32 }
+		var bi bufInfo
+		var ready, failed, bufDone bool
+
+		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
+			switch opcode {
+			case 0: // buffer
+				bi.format = wl.Uint32(data[0:4])
+				bi.width = wl.Uint32(data[4:8])
+				bi.height = wl.Uint32(data[8:12])
+				bi.stride = wl.Uint32(data[12:16])
+			case 2: // ready
+				ready = true
+			case 3: // failed
+				failed = true
+			case 6: // buffer_done (protocol v2+)
+				bufDone = true
+			}
+		}
+
+		for !bufDone && bi.width == 0 && !failed {
+			if err := wlctx.Dispatch(); err != nil {
+				return fmt.Errorf("screen/wlr: dispatch: %w", err)
+			}
+		}
+		if failed {
+			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
+		}
+
+		size := int(bi.stride * bi.height)
+		f, err := shmutil.CreateFile(int64(size))
+		if err != nil {
+			return fmt.Errorf("screen/wlr: shm file: %w", err)
+		}
+		defer f.Close()
+
+		pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		if err != nil {
+			return fmt.Errorf("screen/wlr: mmap: %w", err)
+		}
+		defer syscall.Munmap(pixels) //nolint:errcheck
+
+		pool, err := b.shm.CreatePool(int(f.Fd()), int32(size))
+		if err != nil {
+			return fmt.Errorf("screen/wlr: create_pool: %w", err)
+		}
+		defer pool.Destroy() //nolint:errcheck
+
+		buf, err := pool.CreateBuffer(0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
+		if err != nil {
+			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
+		}
+		defer buf.Destroy() //nolint:errcheck
+
+		if err := wlSendFrameCopy(wlctx, frameProxy.ID(), buf.ID()); err != nil {
+			return fmt.Errorf("screen/wlr: frame copy: %w", err)
+		}
+
+		for !ready && !failed {
+			if err := wlctx.Dispatch(); err != nil {
+				return fmt.Errorf("screen/wlr: dispatch: %w", err)
+			}
+		}
+		if failed {
+			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
+		}
+
+		hash = crc32.ChecksumIEEE(pixels)
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return hash, nil
+}
+
 func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 	b.ctxMu.Lock()
 	pW, pH, scale := b.pW, b.pH, b.scale
@@ -519,7 +420,6 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 }
 
 func (b *WlrScreencopyBackend) Close() error {
-	// stop janitor and close any active context
 	if b.done != nil {
 		close(b.done)
 	}
@@ -532,10 +432,28 @@ func (b *WlrScreencopyBackend) Close() error {
 	return nil
 }
 
-// ── shared Wayland helpers used by multiple Wayland backends ─────────────────
+func SetWlrCacheTTL(d time.Duration) { defaultWlrCacheTTL = d }
 
-// wlRawProxy is a Dispatcher backed by a user-supplied function.
-// Used to implement custom protocols without generated bindings.
+func NewWlrScreencopyBackend() (*WlrScreencopyBackend, error) {
+	return NewWlrScreencopyBackendForSocket(wl.SocketPath())
+}
+
+func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error) {
+	if sock == "" {
+		return nil, fmt.Errorf("screen/wlr: WAYLAND_DISPLAY not set")
+	}
+	s, err := wl.NewSession(sock)
+	if err != nil {
+		return nil, fmt.Errorf("screen/wlr: %w", err)
+	}
+	if _, ok := s.Globals["zwlr_screencopy_manager_v1"]; !ok {
+		_ = s.Close()
+		return nil, fmt.Errorf("screen/wlr: compositor does not advertise zwlr_screencopy_manager_v1")
+	}
+	_ = s.Close()
+	return NewWlrScreencopyBackendWithConnector(sock, wl.Connect, defaultWlrCacheTTL), nil
+}
+
 type wlRawProxy struct {
 	wl.BaseProxy
 	dispatchFn func(opcode uint32, fd int, data []byte)
@@ -547,37 +465,27 @@ func (p *wlRawProxy) Dispatch(opcode uint32, fd int, data []byte) {
 	}
 }
 
-// ID returns the underlying Wayland object ID.
-func (p *wlRawProxy) ID() uint32 { return p.BaseProxy.ID() }
-
-// SetID sets the underlying Wayland object ID.
+func (p *wlRawProxy) ID() uint32      { return p.BaseProxy.ID() }
 func (p *wlRawProxy) SetID(id uint32) { p.BaseProxy.SetID(id) }
-
-// SetCtx sets the Wayland context for this proxy.
 func (p *wlRawProxy) SetCtx(c wl.Ctx) { p.BaseProxy.SetCtx(c) }
+func (p *wlRawProxy) Ctx() wl.Ctx     { return p.BaseProxy.Ctx() }
 
-// Ctx returns the Wayland context for this proxy.
-func (p *wlRawProxy) Ctx() wl.Ctx { return p.BaseProxy.Ctx() }
-
-// wlSendCaptureOutput sends zwlr_screencopy_manager_v1.capture_output.
-// Wire layout: [new_id:frame][int:overlay_cursor][object:output]
 func wlSendCaptureOutput(ctx *wl.Context, mgrID, overlayCursor, outputID, frameID uint32) error {
 	const msgSize = 8 + 4 + 4 + 4
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], mgrID)
-	wl.PutUint32(buf[4:], uint32(msgSize<<16)) // opcode 0: capture_output
+	wl.PutUint32(buf[4:], uint32(msgSize<<16))
 	wl.PutUint32(buf[8:], frameID)
 	wl.PutUint32(buf[12:], overlayCursor)
 	wl.PutUint32(buf[16:], outputID)
 	return ctx.WriteMsg(buf[:], nil)
 }
 
-// wlSendFrameCopy sends zwlr_screencopy_frame_v1.copy(buffer).
 func wlSendFrameCopy(ctx *wl.Context, frameID, bufID uint32) error {
 	const msgSize = 8 + 4
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], frameID)
-	wl.PutUint32(buf[4:], uint32(msgSize<<16)) // opcode 0: copy
+	wl.PutUint32(buf[4:], uint32(msgSize<<16))
 	wl.PutUint32(buf[8:], bufID)
 	return ctx.WriteMsg(buf[:], nil)
 }

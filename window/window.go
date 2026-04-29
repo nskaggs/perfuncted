@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -47,6 +48,8 @@ type Info struct {
 type Manager interface {
 	// List returns all visible top-level windows.
 	List(ctx context.Context) ([]Info, error)
+	// IterateWindows returns an iterator over all visible top-level windows.
+	IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 	// Activate brings the window matching title to the foreground.
 	Activate(ctx context.Context, title string) error
 	// Move repositions the window matching title to (x, y).

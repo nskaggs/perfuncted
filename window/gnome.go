@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"strings"
 
 	"github.com/godbus/dbus/v5"
@@ -60,7 +61,20 @@ func (g *GnomeManager) eval(js string) (string, error) {
 }
 
 func (g *GnomeManager) List(ctx context.Context) ([]Info, error) {
-	const js = `
+	var out []Info
+	for win, err := range g.IterateWindows(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, win)
+	}
+	return out, nil
+}
+
+// IterateWindows returns an iterator over all visible top-level windows.
+func (g *GnomeManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
+	return func(yield func(Info, error) bool) {
+		const js = `
 JSON.stringify(
   global.get_window_actors()
     .filter(a => !a.get_meta_window().is_skip_taskbar())
@@ -78,27 +92,30 @@ JSON.stringify(
       };
     })
 )`
-	raw, err := g.eval(js)
-	if err != nil {
-		return nil, err
+		raw, err := g.eval(js)
+		if err != nil {
+			yield(Info{}, err)
+			return
+		}
+		var entries []struct {
+			ID    uint64 `json:"id"`
+			Title string `json:"title"`
+			PID   int32  `json:"pid"`
+			X     int    `json:"x"`
+			Y     int    `json:"y"`
+			W     int    `json:"w"`
+			H     int    `json:"h"`
+		}
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			yield(Info{}, fmt.Errorf("gnome: list parse: %w", err))
+			return
+		}
+		for _, e := range entries {
+			if !yield(Info{ID: e.ID, Title: e.Title, PID: e.PID, X: e.X, Y: e.Y, W: e.W, H: e.H}, nil) {
+				return
+			}
+		}
 	}
-	var entries []struct {
-		ID    uint64 `json:"id"`
-		Title string `json:"title"`
-		PID   int32  `json:"pid"`
-		X     int    `json:"x"`
-		Y     int    `json:"y"`
-		W     int    `json:"w"`
-		H     int    `json:"h"`
-	}
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
-		return nil, fmt.Errorf("gnome: list parse: %w", err)
-	}
-	out := make([]Info, len(entries))
-	for i, e := range entries {
-		out[i] = Info{ID: e.ID, Title: e.Title, PID: e.PID, X: e.X, Y: e.Y, W: e.W, H: e.H}
-	}
-	return out, nil
 }
 
 func (g *GnomeManager) findWindow(title string) string {

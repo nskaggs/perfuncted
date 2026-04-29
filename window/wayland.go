@@ -3,6 +3,7 @@ package window
 import (
 	"context"
 	"fmt"
+	"iter"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -180,18 +181,30 @@ func (m *WaylandWindowManager) findToplevel(title string) (uint32, *Info, bool) 
 	return 0, nil, false
 }
 
-// List returns all top-level windows gathered from the foreign-toplevel protocol.
-// Each call performs a Wayland round-trip to process any pending events (new
-// windows, title changes, closures) before returning.
 func (m *WaylandWindowManager) List(ctx context.Context) ([]Info, error) {
-	if err := m.display.RoundTrip(); err != nil {
-		return nil, fmt.Errorf("window/wayland: round-trip: %w", err)
-	}
-	out := make([]Info, 0, len(m.toplevels))
-	for _, v := range m.toplevels {
-		out = append(out, *v)
+	var out []Info
+	for win, err := range m.IterateWindows(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, win)
 	}
 	return out, nil
+}
+
+// IterateWindows returns an iterator over all top-level windows.
+func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
+	return func(yield func(Info, error) bool) {
+		if err := m.display.RoundTrip(); err != nil {
+			yield(Info{}, fmt.Errorf("window/wayland: round-trip: %w", err))
+			return
+		}
+		for _, v := range m.toplevels {
+			if !yield(*v, nil) {
+				return
+			}
+		}
+	}
 }
 
 // ActiveTitle returns the title of the currently focused window, if available.

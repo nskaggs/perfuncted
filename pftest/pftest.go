@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"iter"
 	"strings"
 	"sync"
 
@@ -182,19 +183,39 @@ type Manager struct {
 }
 
 func (m *Manager) List(ctx context.Context) ([]window.Info, error) {
-	if m.Err != nil {
-		return nil, m.Err
+	var out []window.Info
+	for win, err := range m.IterateWindows(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, win)
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.Lists) == 0 {
-		return nil, nil
+	return out, nil
+}
+
+func (m *Manager) IterateWindows(ctx context.Context) iter.Seq2[window.Info, error] {
+	return func(yield func(window.Info, error) bool) {
+		if m.Err != nil {
+			yield(window.Info{}, m.Err)
+			return
+		}
+		m.mu.Lock()
+		if len(m.Lists) == 0 {
+			m.mu.Unlock()
+			return
+		}
+		r := m.Lists[m.listIdx]
+		if m.listIdx < len(m.Lists)-1 {
+			m.listIdx++
+		}
+		m.mu.Unlock()
+
+		for _, win := range r {
+			if !yield(win, nil) {
+				return
+			}
+		}
 	}
-	r := m.Lists[m.listIdx]
-	if m.listIdx < len(m.Lists)-1 {
-		m.listIdx++
-	}
-	return r, nil
 }
 
 func (m *Manager) Activate(ctx context.Context, title string) error {

@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"image"
+	"iter"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/util"
@@ -117,6 +118,19 @@ func (w WindowBundle) WaitForClose(ctx context.Context, pattern string, poll tim
 	return window.WaitForClose(ctx, w.Manager, pattern, poll)
 }
 
+func (w WindowBundle) IterateWindows() iter.Seq2[window.Info, error] {
+	return w.IterateWindowsContext(context.Background())
+}
+
+func (w WindowBundle) IterateWindowsContext(ctx context.Context) iter.Seq2[window.Info, error] {
+	if err := w.checkAvailable(); err != nil {
+		return func(yield func(window.Info, error) bool) {
+			yield(window.Info{}, err)
+		}
+	}
+	return w.Manager.IterateWindows(ctx)
+}
+
 func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration) (string, error) {
 	if err := w.checkAvailable(); err != nil {
 		return "", err
@@ -125,20 +139,22 @@ func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration
 	if err != nil {
 		return "", err
 	}
+
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
 	for {
-		current, err := w.Manager.ActiveTitle(ctx)
-		if err != nil {
-			return "", err
-		}
-		if current != initial {
-			return current, nil
-		}
-		t := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
-			t.Stop()
 			return "", ctx.Err()
-		case <-t.C:
+		case <-ticker.C:
+			current, err := w.Manager.ActiveTitle(ctx)
+			if err != nil {
+				return "", err
+			}
+			if current != initial {
+				return current, nil
+			}
 		}
 	}
 }

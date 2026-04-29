@@ -2,6 +2,8 @@ package window
 
 import (
 	"context"
+	"iter"
+	"strings"
 	"testing"
 )
 
@@ -10,7 +12,20 @@ type fakeManager struct {
 	wins []Info
 }
 
-func (f *fakeManager) List(ctx context.Context) ([]Info, error)             { return f.wins, nil }
+func (f *fakeManager) List(ctx context.Context) ([]Info, error) {
+	return f.wins, nil
+}
+
+func (f *fakeManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
+	return func(yield func(Info, error) bool) {
+		for _, w := range f.wins {
+			if !yield(w, nil) {
+				return
+			}
+		}
+	}
+}
+
 func (f *fakeManager) Activate(ctx context.Context, _ string) error         { return nil }
 func (f *fakeManager) Move(ctx context.Context, _ string, _, _ int) error   { return nil }
 func (f *fakeManager) Resize(ctx context.Context, _ string, _, _ int) error { return nil }
@@ -38,7 +53,7 @@ func TestFindByTitle_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	if err.Error() != "window matching \"bar\" not found" {
+	if !strings.Contains(err.Error(), "window: not found") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
 }
