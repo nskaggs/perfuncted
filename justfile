@@ -43,7 +43,7 @@ docs:
 precommit: check tidy docs vulncheck
 
 # Build all packages and binaries
-build: precommit
+build:
     go build ./...
 
 # Build and install the pf CLI to $GOPATH/bin
