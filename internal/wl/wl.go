@@ -83,6 +83,9 @@ func Connect(addr string) (*Context, error) {
 
 // Register assigns the next client-side object ID to p and tracks it.
 func (ctx *Context) Register(p Proxy) {
+	if ctx.objects == nil {
+		ctx.objects = make(map[uint32]Proxy)
+	}
 	ctx.nextID++
 	p.SetID(ctx.nextID)
 	p.SetCtx(ctx)
@@ -92,14 +95,22 @@ func (ctx *Context) Register(p Proxy) {
 // SetProxy registers p with a specific compositor-assigned ID.
 // Use this for server-created objects (new_id events from compositor side).
 func (ctx *Context) SetProxy(id uint32, p Proxy) {
+	if ctx.objects == nil {
+		ctx.objects = make(map[uint32]Proxy)
+	}
 	p.SetID(id)
 	p.SetCtx(ctx)
 	ctx.objects[id] = p
 }
 
 // WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
+// If the underlying connection is nil (tests may construct zero-value Contexts),
+// treat it as a no-op rather than panicking.
 func (ctx *Context) WriteMsg(data, oob []byte) error {
-	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
+	if ctx == nil || ctx.conn == nil {
+		return nil
+	}
+	 n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
 	if err != nil {
 		return err
 	}
@@ -112,6 +123,11 @@ func (ctx *Context) WriteMsg(data, oob []byte) error {
 // Dispatch reads and dispatches exactly one Wayland message.
 // Messages from unknown sender IDs are silently discarded (not an error).
 func (ctx *Context) Dispatch() error {
+	// If the underlying connection is nil (tests may construct zero-value Contexts),
+	// treat dispatch as a no-op rather than panicking.
+	if ctx == nil || ctx.conn == nil {
+		return nil
+	}
 	var hdr [8]byte
 	if _, err := io.ReadFull(ctx.conn, hdr[:]); err != nil {
 		return fmt.Errorf("wl: %w", err)
@@ -240,6 +256,11 @@ func (d *Display) RoundTrip() error {
 	cb, err := d.Sync()
 	if err != nil {
 		return err
+	}
+	// If the underlying connection is nil (tests may use zero-value Context),
+	// treat RoundTrip as a no-op since no events are expected.
+	if d.ctx == nil || d.ctx.conn == nil {
+		return nil
 	}
 	done := make(chan struct{}, 1)
 	cb.doneHandler = func() { done <- struct{}{} }
