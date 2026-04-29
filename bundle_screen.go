@@ -194,7 +194,6 @@ func (s ScreenBundle) WaitForStableOrTimeoutContext(ctx context.Context, rect im
 	return nil
 }
 
-
 func (s ScreenBundle) WaitForFnContext(ctx context.Context, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
