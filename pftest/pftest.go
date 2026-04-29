@@ -62,6 +62,14 @@ func (s *Screenshotter) GrabFullHash(ctx context.Context) (uint32, error) {
 	return find.PixelHash(img, nil), nil
 }
 
+func (s *Screenshotter) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := s.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
 func (s *Screenshotter) Resolution() (int, int, error) {
 	if len(s.Frames) > 0 {
 		b := s.Frames[0].Bounds()

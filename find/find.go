@@ -19,9 +19,12 @@ import (
 var ErrNotFound = fmt.Errorf("find: not found")
 
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
+// It also includes a fast region-hash path to avoid image allocations when
+// callers only need a pixel fingerprint.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
 	GrabFullHash(ctx context.Context) (uint32, error)
+	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
 }
 
 // Hasher returns a fresh hash.Hash32 for each call. Swap out for stronger
@@ -30,6 +33,23 @@ type Hasher func() hash.Hash32
 
 // DefaultHasher uses CRC32 IEEE.
 var DefaultHasher Hasher = crc32.NewIEEE
+
+// adaptivePoll returns an exponentially backing-off poll duration. base is
+// the starting duration and max is the cap.
+func adaptivePoll(attempt int, base, max time.Duration) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	d := base * time.Duration(1<<attempt)
+	if d > max {
+		return max
+	}
+	return d
+}
+
+// Prevent staticcheck from flagging adaptivePoll as unused while it is wired
+// into wait loops in a follow-up commit.
+var _ = adaptivePoll
 
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
 // For *image.RGBA images it uses a fast path that reads pixel bytes directly
@@ -64,13 +84,11 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 	return h.Sum32()
 }
 
-// GrabHash captures rect from sc and returns its pixel hash.
+// GrabHash captures rect from sc and returns its pixel hash. Preferred
+// implementations provide a fast GrabRegionHash that avoids allocating an
+// image.RGBA; use that when available.
 func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
-	img, err := sc.Grab(ctx, rect)
-	if err != nil {
-		return 0, fmt.Errorf("find: grab: %w", err)
-	}
-	return PixelHash(img, newHash), nil
+	return sc.GrabRegionHash(ctx, rect)
 }
 
 // FirstPixel returns the colour of the top-left pixel of rect captured from sc.
@@ -104,6 +122,32 @@ type Result struct {
 // On success, it returns the final hash (which equals want). On timeout, it returns
 // the last observed hash for debugging.
 func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, poll time.Duration, newHash Hasher) (uint32, error) {
+	// Adaptive polling when poll == 0: start at 10ms and double up to 200ms.
+	if poll <= 0 {
+		base := 10 * time.Millisecond
+		max := 200 * time.Millisecond
+		attempt := 0
+		for {
+			h, err := GrabHash(ctx, sc, rect, newHash)
+			if err != nil {
+				return 0, err
+			}
+			if h == want {
+				return h, nil
+			}
+			d := adaptivePoll(attempt, base, max)
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x)", want, h)
+			case <-t.C:
+			}
+			attempt++
+		}
+	}
+
+	// Fixed-interval polling
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
@@ -127,6 +171,30 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 // It pairs with WaitForNoChange: use WaitForChange to detect when a transition begins,
 // then WaitForNoChange to detect when it ends.
 func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, poll time.Duration, newHash Hasher) (uint32, error) {
+	if poll <= 0 {
+		base := 10 * time.Millisecond
+		max := 200 * time.Millisecond
+		attempt := 0
+		for {
+			h, err := GrabHash(ctx, sc, rect, newHash)
+			if err != nil {
+				return 0, err
+			}
+			if h != initial {
+				return h, nil
+			}
+			d := adaptivePoll(attempt, base, max)
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
+			case <-t.C:
+			}
+			attempt++
+		}
+	}
+
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
@@ -161,6 +229,62 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 	var sentinel color.RGBA
 	sentinelSet := false
 	streak := 0
+
+	if poll <= 0 {
+		base := 10 * time.Millisecond
+		max := 200 * time.Millisecond
+		attempt := 0
+		for {
+			img, err := sc.Grab(ctx, rect)
+			if err != nil {
+				return 0, err
+			}
+
+			// Fast pixel check before full CRC32: if the top-left pixel of the
+			// grabbed image changed since the last iteration, the hash is
+			// definitely different — skip the CRC32 and reset the streak.
+			// This is conservative: we only skip when we are certain of a change.
+			b := img.Bounds()
+			cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA)
+			if sentinelSet && cur != sentinel {
+				sentinel = cur
+				last = 0 // force mismatch on next full hash
+				streak = 0
+				d := adaptivePoll(attempt, base, max)
+				t := time.NewTimer(d)
+				select {
+				case <-ctx.Done():
+					t.Stop()
+					return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
+				case <-t.C:
+				}
+				attempt++
+				continue
+			}
+			sentinel = cur
+			sentinelSet = true
+
+			h := PixelHash(img, newHash)
+			if h == last {
+				streak++
+				if streak >= stable {
+					return h, nil
+				}
+			} else {
+				last = h
+				streak = 1
+			}
+			d := adaptivePoll(attempt, base, max)
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
+			case <-t.C:
+			}
+			attempt++
+		}
+	}
 
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
@@ -231,6 +355,61 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	}
 	bboxArea := bbox.Dx() * bbox.Dy()
 	useBbox := bboxArea <= 2*totalArea
+
+	if poll <= 0 {
+		base := 10 * time.Millisecond
+		max := 200 * time.Millisecond
+		attempt := 0
+		for {
+			if useBbox {
+				// Single grab covers all regions; hash sub-regions in memory.
+				img, err := sc.Grab(ctx, bbox)
+				if err != nil {
+					return Result{}, err
+				}
+				sub, ok := img.(interface {
+					SubImage(image.Rectangle) image.Image
+				})
+				if !ok {
+					useBbox = false // fall back if SubImage unavailable
+				} else {
+					for i, rect := range rects {
+						// Translate rect to grabbed image coordinate space.
+						tr := image.Rect(
+							rect.Min.X-bbox.Min.X,
+							rect.Min.Y-bbox.Min.Y,
+							rect.Max.X-bbox.Min.X,
+							rect.Max.Y-bbox.Min.Y,
+						)
+						h := PixelHash(sub.SubImage(tr), newHash)
+						if h == wants[i] {
+							return Result{Hash: h, Rect: rect}, nil
+						}
+					}
+				}
+			}
+			if !useBbox {
+				for i, rect := range rects {
+					h, err := GrabHash(ctx, sc, rect, newHash)
+					if err != nil {
+						return Result{}, err
+					}
+					if h == wants[i] {
+						return Result{Hash: h, Rect: rect}, nil
+					}
+				}
+			}
+			d := adaptivePoll(attempt, base, max)
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return Result{}, fmt.Errorf("find: timeout scanning %d regions", len(rects))
+			case <-t.C:
+			}
+			attempt++
+		}
+	}
 
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
@@ -554,6 +733,27 @@ func abs(x int) int {
 // via exact pixel matching, or ctx expires. Returns the absolute rectangle
 // where the reference was located.
 func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
+	if poll <= 0 {
+		base := 10 * time.Millisecond
+		max := 200 * time.Millisecond
+		attempt := 0
+		for {
+			r, err := LocateExact(ctx, sc, searchArea, reference)
+			if err == nil {
+				return r, nil
+			}
+			d := adaptivePoll(attempt, base, max)
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return image.Rectangle{}, fmt.Errorf("find: timeout waiting to locate reference image: %w", ctx.Err())
+			case <-t.C:
+			}
+			attempt++
+		}
+	}
+
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
@@ -575,6 +775,30 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 // iteration and may inspect it with any predicate (brightness, color
 // presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+	if poll <= 0 {
+		base := 10 * time.Millisecond
+		max := 200 * time.Millisecond
+		attempt := 0
+		for {
+			img, err := sc.Grab(ctx, rect)
+			if err != nil {
+				return nil, err
+			}
+			if fn(img) {
+				return img, nil
+			}
+			d := adaptivePoll(attempt, base, max)
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
+			case <-t.C:
+			}
+			attempt++
+		}
+	}
+
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -119,6 +120,9 @@ func StartNestedSession(cfg SessionConfig) (*Session, error) {
 }
 
 func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
+	// Reap stale sessions before allocating a new one.
+	CleanupStaleSessions(24 * time.Hour)
+
 	if cfg.Resolution == (image.Point{}) {
 		cfg.Resolution = image.Pt(1024, 768)
 	}
@@ -145,6 +149,13 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 		dbusAddr:  fmt.Sprintf("unix:path=%s/bus", xdgDir),
 		logDir:    cfg.LogDir,
 	}
+
+	// Write a pidfile so future starts can detect and reap stale sessions.
+	pidPath := filepath.Join(s.xdgDir, "perfuncted.pid")
+	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+
+	// Register signal cleanup automatically so sessions are reaped on SIGINT/SIGTERM.
+	_ = s.CleanupOnSignal(context.Background())
 
 	// 1. Launch dbus-daemon.
 	err = s.launchDBus()
@@ -380,6 +391,63 @@ func (s *Session) launchWlPaste() {
 	}
 	// Best-effort background helper failed to start; log so users see the reason.
 	log.Printf("warning: wl-paste helper failed to start: %v", err)
+}
+
+// CleanupStaleSessions removes perfuncted session directories older than
+// maxAge when their recorded parent PID is no longer running.
+func CleanupStaleSessions(maxAge time.Duration) {
+	matches, err := filepath.Glob("/tmp/perfuncted-xdg-*")
+	if err != nil {
+		log.Printf("warning: unable to glob nested sessions: %v", err)
+		return
+	}
+	now := time.Now()
+	for _, d := range matches {
+		// Read pidfile if present.
+		pidPath := filepath.Join(d, "perfuncted.pid")
+		data, err := os.ReadFile(pidPath)
+		if err != nil {
+			// If no pidfile, consider removal only if directory is older than maxAge.
+			fi, statErr := os.Stat(d)
+			if statErr != nil {
+				continue
+			}
+			if now.Sub(fi.ModTime()) > maxAge {
+				_ = os.RemoveAll(d)
+				log.Printf("reaped stale session dir %s (no pidfile, older than %s)", d, maxAge)
+			}
+			continue
+		}
+		pidStr := strings.TrimSpace(string(data))
+		pid, perr := strconv.Atoi(pidStr)
+		if perr != nil {
+			// malformed pidfile: remove if old enough
+			fi, statErr := os.Stat(d)
+			if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
+				_ = os.RemoveAll(d)
+				log.Printf("reaped stale session dir %s (bad pidfile)", d)
+			}
+			continue
+		}
+		// Check if process is alive.
+		if err := syscall.Kill(pid, 0); err != nil {
+			if err == syscall.ESRCH {
+				_ = os.RemoveAll(d)
+				log.Printf("reaped stale session dir %s (pid %d not running)", d, pid)
+			} else {
+				// If permission denied or other error, skip.
+				log.Printf("warning: cannot check pid %d for %s: %v", pid, d, err)
+			}
+			continue
+		}
+		// If we reach here, the PID is alive — but also remove if the dir is
+		// older than maxAge and the PID doesn't match (defensive).
+		fi, statErr := os.Stat(d)
+		if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
+			// Don't remove an active PID's dir.
+			log.Printf("leaving session dir %s (pid %d still running)", d, pid)
+		}
+	}
 }
 
 func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {

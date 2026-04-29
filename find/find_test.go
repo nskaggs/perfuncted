@@ -73,6 +73,14 @@ func (f *fakeScreen) GrabFullHash(ctx context.Context) (uint32, error) {
 	return PixelHash(f.img, nil), nil
 }
 
+func (f *fakeScreen) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := f.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return PixelHash(img, nil), nil
+}
+
 func TestFirstPixel(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	img.SetRGBA(3, 3, color.RGBA{R: 42, G: 84, B: 126, A: 255})

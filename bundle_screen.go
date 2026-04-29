@@ -162,6 +162,38 @@ func (s ScreenBundle) WaitForFn(rect image.Rectangle, fn func(image.Image) bool,
 	return s.WaitForFnContext(context.Background(), rect, fn, poll)
 }
 
+func (s ScreenBundle) WaitForAnyChange(timeout time.Duration) {
+	_ = s.WaitForAnyChangeContext(context.Background(), timeout)
+}
+
+func (s ScreenBundle) WaitForAnyChangeContext(ctx context.Context, timeout time.Duration) error {
+	if err := s.checkAvailable(); err != nil {
+		return err
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// WaitForVisibleChangeContext returns when any visible change occurs. Ignore
+	// errors and timeouts — this helper intentionally never returns an error.
+	_, _ = s.WaitForVisibleChangeContext(cctx, image.Rectangle{}, 0, 1)
+	return nil
+}
+
+func (s ScreenBundle) WaitForStableOrTimeout(rect image.Rectangle, timeout time.Duration) {
+	_ = s.WaitForStableOrTimeoutContext(context.Background(), rect, timeout)
+}
+
+func (s ScreenBundle) WaitForStableOrTimeoutContext(ctx context.Context, rect image.Rectangle, timeout time.Duration) error {
+	if err := s.checkAvailable(); err != nil {
+		return err
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// Default to waiting for 3 stable samples; the function never returns an error
+	// on timeout — it simply returns after timeout elapses.
+	_, _ = find.WaitForNoChange(cctx, s.Screenshotter, rect, 3, 0, nil)
+	return nil
+}
+
 func (s ScreenBundle) WaitForFnContext(ctx context.Context, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
 	if err := s.checkAvailable(); err != nil {
 		return nil, err

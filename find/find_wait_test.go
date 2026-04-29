@@ -443,6 +443,14 @@ func (s *solidScreenshotter) GrabFullHash(ctx context.Context) (uint32, error) {
 	return PixelHash(img, nil), nil
 }
 
+func (s *solidScreenshotter) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := s.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return PixelHash(img, nil), nil
+}
+
 // changingScreenshotter alternates between two colors.
 
 type changingScreenshotter struct {
@@ -472,5 +480,13 @@ func (c *changingScreenshotter) Grab(ctx context.Context, rect image.Rectangle) 
 
 func (c *changingScreenshotter) GrabFullHash(ctx context.Context) (uint32, error) {
 	img, _ := c.Grab(ctx, image.Rect(0, 0, 100, 100))
+	return PixelHash(img, nil), nil
+}
+
+func (c *changingScreenshotter) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	img, err := c.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
 	return PixelHash(img, nil), nil
 }
