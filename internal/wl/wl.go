@@ -110,7 +110,7 @@ func (ctx *Context) WriteMsg(data, oob []byte) error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
-	 n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
+	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
 	if err != nil {
 		return err
 	}
