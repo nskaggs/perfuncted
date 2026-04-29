@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"hash/crc32"
 	"image"
+	"os"
 	"sync"
 	"syscall"
 
-	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -35,6 +35,11 @@ type ExtCaptureBackend struct {
 	sourceMgrProxy *wlRawProxy
 	sourceProxy    *wlRawProxy
 	sessProxy      *wlRawProxy
+
+	// pooled shared-memory mmap to avoid creating/munmapping on every capture
+	cachedBuf []byte
+	cachedFd  *os.File
+	cachedBI  bufInfo
 }
 
 // NewExtCaptureBackend returns an ExtCaptureBackend if the compositor advertises
@@ -152,17 +157,36 @@ func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	return hash, nil
 }
 
-// GrabRegionHash computes a CRC32 fingerprint for rect. It currently falls
-// back to the generic Grab + PixelHash path.
+// GrabRegionHash computes a CRC32 fingerprint for rect using the raw
+// shared-memory buffer so no intermediate image allocation is needed.
 func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
-	img, err := b.Grab(ctx, rect)
-	if err != nil {
+	var hash uint32
+	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
+		// Crop rect to the buffer bounds.
+		r := rect.Intersect(image.Rect(0, 0, w, h))
+		if r.Empty() {
+			hash = 0
+			return nil
+		}
+		hasher := crc32.NewIEEE()
+		rowBytes := r.Dx() * 4
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			start := y*stride + r.Min.X*4
+			end := start + rowBytes
+			if start < 0 || end > len(pixels) {
+				return fmt.Errorf("screen/ext: region out of bounds")
+			}
+			_, _ = hasher.Write(pixels[start:end])
+		}
+		hash = hasher.Sum32()
+		return nil
+	}); err != nil {
 		return 0, err
 	}
-	return find.PixelHash(img, nil), nil
+	return hash, nil
 }
 
 // Grab captures the full output then returns the cropped rect.
@@ -223,19 +247,38 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 
 	stride := si.width * 4
 	size := int(stride * si.height)
-	f, err := shmutil.CreateFile(int64(size))
-	if err != nil {
-		return fmt.Errorf("screen/ext: shm file: %w", err)
-	}
-	defer f.Close()
 
-	pixels, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-	if err != nil {
-		return fmt.Errorf("screen/ext: mmap: %w", err)
+	// Reuse a pooled mmap if the buffer geometry hasn't changed.
+	var pixels []byte
+	wantedBI := bufInfo{format: si.format, width: si.width, height: si.height, stride: stride}
+	if b.cachedBuf != nil && b.cachedBI == wantedBI && len(b.cachedBuf) >= size {
+		pixels = b.cachedBuf[:size]
+	} else {
+		// Tear down any existing cached mapping.
+		if b.cachedBuf != nil {
+			_ = syscall.Munmap(b.cachedBuf)
+			b.cachedBuf = nil
+		}
+		if b.cachedFd != nil {
+			_ = b.cachedFd.Close()
+			b.cachedFd = nil
+		}
+		f, err := shmutil.CreateFile(int64(size))
+		if err != nil {
+			return fmt.Errorf("screen/ext: shm file: %w", err)
+		}
+		px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		if err != nil {
+			f.Close()
+			return fmt.Errorf("screen/ext: mmap: %w", err)
+		}
+		b.cachedFd = f
+		b.cachedBuf = px
+		b.cachedBI = bufInfo{format: si.format, width: si.width, height: si.height, stride: stride}
+		pixels = b.cachedBuf[:size]
 	}
-	defer syscall.Munmap(pixels) //nolint:errcheck
 
-	pool, err := b.shm.CreatePool(int(f.Fd()), int32(size))
+	pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
 	if err != nil {
 		return fmt.Errorf("screen/ext: create_pool: %w", err)
 	}
@@ -290,6 +333,15 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 }
 
 func (b *ExtCaptureBackend) Close() error {
+	// clean up pooled mmap and associated fd
+	if b.cachedBuf != nil {
+		_ = syscall.Munmap(b.cachedBuf)
+		b.cachedBuf = nil
+	}
+	if b.cachedFd != nil {
+		_ = b.cachedFd.Close()
+		b.cachedFd = nil
+	}
 	if b.session != nil {
 		return b.session.Close()
 	}
