@@ -152,13 +152,15 @@ func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, 
 	return func(yield func(Info, error) bool) {
 		data, err := k.runScript(func(svc string) string {
 			return fmt.Sprintf(`
-var wins = workspace.windowList();
+var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
+var wins = listFunc();
 var lines = [];
 for (var i = 0; i < wins.length; i++) {
     var w = wins[i];
     if (w.normalWindow) {
         var g = w.frameGeometry;
-        lines.push(w.internalId + '\t' + w.caption + '\t' + w.pid
+        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;
+        lines.push(id + '\t' + w.caption + '\t' + w.pid
             + '\t' + g.x + '\t' + g.y + '\t' + g.width + '\t' + g.height);
     }
 }
@@ -216,7 +218,8 @@ func parseInt(s string) int {
 // (or empty string if not found). `safe` must already be JS-safe (escaped).
 func kwinFindWindowScript(safe, svc, actionJS string) string {
 	return fmt.Sprintf(`
-var wins = workspace.windowList();
+var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
+var wins = listFunc();
 var found = '';
 try {
     for (var i = 0; i < wins.length; i++) {
@@ -237,7 +240,7 @@ func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
 	result, err := k.runScript(func(svc string) string {
 		return kwinFindWindowScript(safe, svc,
-			"w.minimized = false;\n            workspace.activateWindow(w);")
+			"w.minimized = false;\n            (typeof workspace.activateWindow === \"function\") ? workspace.activateWindow(w) : workspace.activeClient = w;")
 	})
 	if err != nil {
 		return err
@@ -267,7 +270,7 @@ func (k *KWinScriptManager) Restore(ctx context.Context, title string) error {
 func (k *KWinScriptManager) ActiveTitle(ctx context.Context) (string, error) {
 	return k.runScript(func(svc string) string {
 		return fmt.Sprintf(`
-var w = workspace.activeWindow;
+var w = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;
 callDBus('%s', '/', '%s', 'ReportWindows', w ? w.caption : '');
 `, svc, svc)
 	})
