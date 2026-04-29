@@ -250,6 +250,29 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	cmds = append(cmds, cmd_screen_wait_for)
 
+	// wait-for-any-change: wrapper for perfuncted.WaitForAnyChange
+	var cmd_screen_wait_for_any_change_timeout string
+	cmd_screen_wait_for_any_change := &cobra.Command{
+		Use:   "wait-for-any-change",
+		Short: "Auto-generated wrapper for perfuncted.WaitForAnyChange",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			cmd_screen_wait_for_any_change_timeout_dur, err := parseDuration(cmd_screen_wait_for_any_change_timeout, 0)
+			if err != nil {
+				return err
+			}
+			pf.Screen.WaitForAnyChange(cmd_screen_wait_for_any_change_timeout_dur)
+			return nil
+		},
+	}
+	cmd_screen_wait_for_any_change.Flags().StringVar(&cmd_screen_wait_for_any_change_timeout, "timeout", "", "timeout")
+
+	cmds = append(cmds, cmd_screen_wait_for_any_change)
+
 	// wait-for-change: wrapper for perfuncted.WaitForChange
 	var cmd_screen_wait_for_change_rect string
 	var cmd_screen_wait_for_change_initial int
@@ -358,6 +381,35 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	cmds = append(cmds, cmd_screen_wait_for_stable)
 
+	// wait-for-stable-or-timeout: wrapper for perfuncted.WaitForStableOrTimeout
+	var cmd_screen_wait_for_stable_or_timeout_rect string
+	var cmd_screen_wait_for_stable_or_timeout_timeout string
+	cmd_screen_wait_for_stable_or_timeout := &cobra.Command{
+		Use:   "wait-for-stable-or-timeout",
+		Short: "Auto-generated wrapper for perfuncted.WaitForStableOrTimeout",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_wait_for_stable_or_timeout_rect)
+			if err != nil {
+				return err
+			}
+			cmd_screen_wait_for_stable_or_timeout_timeout_dur, err := parseDuration(cmd_screen_wait_for_stable_or_timeout_timeout, 0)
+			if err != nil {
+				return err
+			}
+			pf.Screen.WaitForStableOrTimeout(r_0, cmd_screen_wait_for_stable_or_timeout_timeout_dur)
+			return nil
+		},
+	}
+	cmd_screen_wait_for_stable_or_timeout.Flags().StringVar(&cmd_screen_wait_for_stable_or_timeout_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_wait_for_stable_or_timeout.Flags().StringVar(&cmd_screen_wait_for_stable_or_timeout_timeout, "timeout", "", "timeout")
+
+	cmds = append(cmds, cmd_screen_wait_for_stable_or_timeout)
+
 	// wait-for-visible-change: wrapper for perfuncted.WaitForVisibleChange
 	var cmd_screen_wait_for_visible_change_rect string
 	var cmd_screen_wait_for_visible_change_poll string
@@ -393,48 +445,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	cmd_screen_wait_for_visible_change.Flags().IntVar(&cmd_screen_wait_for_visible_change_stable, "stable", 0, "stable")
 
 	cmds = append(cmds, cmd_screen_wait_for_visible_change)
-
-	// wait-with-tolerance: wrapper for perfuncted.WaitWithTolerance
-	var cmd_screen_wait_with_tolerance_rect string
-	var cmd_screen_wait_with_tolerance_radius int
-	var cmd_screen_wait_with_tolerance_ref string
-	var cmd_screen_wait_with_tolerance_poll string
-	cmd_screen_wait_with_tolerance := &cobra.Command{
-		Use:   "wait-with-tolerance",
-		Short: "Auto-generated wrapper for perfuncted.WaitWithTolerance",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_wait_with_tolerance_rect)
-			if err != nil {
-				return err
-			}
-			refImg, err := loadPNG(cmd_screen_wait_with_tolerance_ref)
-			if err != nil {
-				return err
-			}
-			cmd_screen_wait_with_tolerance_poll_dur, err := parseDuration(cmd_screen_wait_with_tolerance_poll, 0)
-			if err != nil {
-				return err
-			}
-			h, rect, err := pf.Screen.WaitWithTolerance(r_0, refImg, cmd_screen_wait_with_tolerance_radius, cmd_screen_wait_with_tolerance_poll_dur)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%08x %d,%d,%d,%d\n", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
-			return nil
-		},
-	}
-	cmd_screen_wait_with_tolerance.Flags().StringVar(&cmd_screen_wait_with_tolerance_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	cmd_screen_wait_with_tolerance.Flags().IntVar(&cmd_screen_wait_with_tolerance_radius, "radius", 0, "radius")
-	cmd_screen_wait_with_tolerance.Flags().StringVar(&cmd_screen_wait_with_tolerance_ref, "ref", "", "path to reference PNG image (required)")
-	cmd_screen_wait_with_tolerance.Flags().StringVar(&cmd_screen_wait_with_tolerance_poll, "poll", "", "poll")
-	_ = cmd_screen_wait_with_tolerance.MarkFlagRequired("ref")
-
-	cmds = append(cmds, cmd_screen_wait_with_tolerance)
 	return cmds
 }
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
@@ -508,6 +518,28 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmd_input_scroll.Flags().IntVar(&cmd_input_scroll_dy, "dy", 0, "dy")
 
 	cmds = append(cmds, cmd_input_scroll)
+
+	// type-fast: wrapper for perfuncted.TypeFast
+	var cmd_input_type_fast_text string
+	cmd_input_type_fast := &cobra.Command{
+		Use:   "type-fast",
+		Short: "Auto-generated wrapper for perfuncted.TypeFast",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_input_type_fast_text (string)
+			if err := pf.Input.TypeFast(cmd_input_type_fast_text); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_input_type_fast.Flags().StringVar(&cmd_input_type_fast_text, "text", "", "text")
+
+	cmds = append(cmds, cmd_input_type_fast)
 	return cmds
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {

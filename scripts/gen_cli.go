@@ -556,9 +556,15 @@ func main() {
 				sb.WriteString("\t\t\tfmt.Printf(\"%d\\n\", res)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else {
-				// error-only
-				sb.WriteString(fmt.Sprintf("\t\t\tif err := %s; err != nil { return err }\n", callStr))
-				sb.WriteString("\t\t\treturn nil\n")
+				// error-only or no-return
+				if results.Len() == 0 {
+					// no returns — just call it
+					sb.WriteString(fmt.Sprintf("\t\t\t%s\n", callStr))
+					sb.WriteString("\t\t\treturn nil\n")
+				} else {
+					sb.WriteString(fmt.Sprintf("\t\t\tif err := %s; err != nil { return err }\n", callStr))
+					sb.WriteString("\t\t\treturn nil\n")
+				}
 			}
 
 			sb.WriteString("\t\t},\n")
