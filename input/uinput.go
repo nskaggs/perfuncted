@@ -14,6 +14,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/keymap"
 )
 
+var _ Inputter = (*UinputBackend)(nil)
+
 // UinputBackend injects keyboard and mouse events via /dev/uinput.
 // It is compositor-agnostic and works on X11, XWayland, and all Wayland compositors.
 //

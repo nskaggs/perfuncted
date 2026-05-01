@@ -12,6 +12,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+var _ Inputter = (*WlInputMethodBackend)(nil)
+
 // WlInputMethodBackend implements Unicode text injection via the
 // zwp_input_method_manager_v2 protocol (input-method-unstable-v2). When
 // available this backend sends commit_string + commit to the compositor so

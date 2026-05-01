@@ -14,6 +14,8 @@ import (
 	"github.com/jezek/xgb/xtest"
 )
 
+var _ Inputter = (*XTestBackend)(nil)
+
 // XTestBackend injects keyboard and mouse events via the X11 XTEST extension.
 // It only works on X11 or XWayland sessions. Prefer UinputBackend when available.
 type XTestBackend struct {

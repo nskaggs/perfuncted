@@ -14,6 +14,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+var _ Screenshotter = (*WlrScreencopyBackend)(nil)
+
 var (
 	// default TTL for cached contexts; tests may override via SetWlrCacheTTL
 	defaultWlrCacheTTL = 5 * time.Minute
