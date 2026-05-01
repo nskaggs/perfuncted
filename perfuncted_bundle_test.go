@@ -14,6 +14,7 @@ import (
 )
 
 func TestNewAssemblesAllBackends(t *testing.T) {
+	t.Parallel()
 	// Use pftest to provide mocks for all backends.
 	sc := &pftest.Screenshotter{Width: 100, Height: 100}
 	inp := &pftest.Inputter{}
@@ -82,6 +83,7 @@ func (m *tapErrInputter) PressCombo(ctx context.Context, combo string) error {
 }
 
 func TestInputBundleErrors(t *testing.T) {
+	t.Parallel()
 	inp := &tapErrInputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
@@ -92,6 +94,7 @@ func TestInputBundleErrors(t *testing.T) {
 }
 
 func TestCloseJoinsErrors(t *testing.T) {
+	t.Parallel()
 	screenErr := errors.New("screen close failed")
 	inputErr := errors.New("input close failed")
 	windowErr := errors.New("window close failed")

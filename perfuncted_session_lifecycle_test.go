@@ -12,9 +12,15 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	"go.uber.org/goleak"
 )
 
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
+
 func TestEnviron(t *testing.T) {
+	t.Parallel()
 	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
 
 	var xdg, wl, dbus, display, gdk, qt string

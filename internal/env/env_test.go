@@ -5,6 +5,7 @@ import (
 )
 
 func TestMergeOverrides(t *testing.T) {
+	t.Parallel()
 	base := []string{"A=1", "B=2", "C=3"}
 	over := []string{"B=20", "D=4"}
 	got := Merge(base, over...)
@@ -33,6 +34,7 @@ func TestMergeOverrides(t *testing.T) {
 }
 
 func TestMergeClears(t *testing.T) {
+	t.Parallel()
 	base := []string{"X=old", "Y=keep"}
 	over := []string{"X="}
 	got := Merge(base, over...)
