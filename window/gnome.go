@@ -14,6 +14,9 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
+// gnomeShellService is the D-Bus service name for GNOME Shell's Eval interface.
+const gnomeShellService = "org.gnome.Shell"
+
 // GnomeManager implements window management for GNOME Shell via the
 // org.gnome.Shell.Eval D-Bus interface.
 type GnomeManager struct {
@@ -44,7 +47,7 @@ func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
 
 // eval runs JavaScript in gnome-shell and returns the result string.
 func (g *GnomeManager) eval(js string) (string, error) {
-	obj := g.conn.Object("org.gnome.Shell", "/org/gnome/Shell")
+	obj := g.conn.Object(gnomeShellService, "/org/gnome/Shell")
 	call := obj.Call("org.gnome.Shell.Eval", 0, js)
 	if call.Err != nil {
 		return "", call.Err

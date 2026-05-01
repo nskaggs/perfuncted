@@ -12,6 +12,8 @@ import (
 	"github.com/jezek/xgb/xproto"
 )
 
+var _ Manager = (*X11Backend)(nil)
+
 // X11Backend manages windows via EWMH atoms on an X11 or XWayland display.
 type X11Backend struct {
 	conn                *xgb.Conn
