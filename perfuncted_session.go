@@ -260,12 +260,9 @@ func (s *Session) CleanupOnSignal(ctx context.Context) func() {
 		case <-stopCh:
 		}
 	}()
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			close(stopCh)
-		})
-	}
+	return sync.OnceFunc(func() {
+		close(stopCh)
+	})
 }
 
 // Stop tears down the session in reverse order: wl-paste, sway, dbus,

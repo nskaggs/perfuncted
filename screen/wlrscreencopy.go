@@ -33,9 +33,9 @@ type WlrScreencopyBackend struct {
 	ctx      *wl.Context
 	lastUsed time.Time
 	connect  func(string) (*wl.Context, error)
-	ttl      time.Duration
-	janOnce  sync.Once
-	done     chan struct{}
+	ttl          time.Duration
+	initJanitor  func()
+	done         chan struct{}
 	// last observed output dimensions and scale (1 if unknown)
 	scale  uint32
 	pW, pH int // physical dimensions from mode event
@@ -64,11 +64,7 @@ func NewWlrScreencopyBackendWithConnector(sock string, connect func(string) (*wl
 	b.connect = connect
 	b.ttl = ttl
 	b.done = make(chan struct{})
-	return b
-}
-
-func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) error {
-	b.janOnce.Do(func() {
+	b.initJanitor = sync.OnceFunc(func() {
 		go func() {
 			interval := b.ttl / 10
 			if interval < time.Millisecond {
@@ -94,6 +90,11 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 			}
 		}()
 	})
+	return b
+}
+
+func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) error {
+	b.initJanitor()
 
 	b.ctxMu.Lock()
 	defer b.ctxMu.Unlock()
