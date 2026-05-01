@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -90,7 +90,15 @@ func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
 	if len(entries) > 1 {
 		// If multiple nested sessions exist, pick the most-recently-modified
 		// directory among the ones that actually expose a Wayland socket.
-		sort.Slice(entries, func(i, j int) bool { return entries[i].mod.After(entries[j].mod) })
+		slices.SortFunc(entries, func(a, b nestedEntry) int {
+			if a.mod.After(b.mod) {
+				return -1
+			}
+			if a.mod.Before(b.mod) {
+				return 1
+			}
+			return 0
+		})
 		fmt.Fprintf(os.Stderr, "warning: multiple nested sessions found, picking %s\n", entries[0].path)
 	}
 

@@ -2,15 +2,15 @@ package executil_test
 
 import (
 	"reflect"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
 func sortedCopy(ss []string) []string {
-	out := append([]string(nil), ss...)
-	sort.Strings(out)
+	out := slices.Clone(ss)
+	slices.Sort(out)
 	return out
 }
 
