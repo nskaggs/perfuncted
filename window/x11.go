@@ -18,8 +18,10 @@ type X11Backend struct {
 	root                xproto.Window
 	atomNetClientList   xproto.Atom
 	atomNetActiveWindow xproto.Atom
+	atomNetFrameExtent  xproto.Atom
 	atomNetWMName       xproto.Atom
 	atomNetWMPID        xproto.Atom
+	atomMotifWMHints    xproto.Atom
 	atomUTF8String      xproto.Atom
 }
 
@@ -36,8 +38,10 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 	atoms := map[string]*xproto.Atom{
 		"_NET_CLIENT_LIST":   &b.atomNetClientList,
 		"_NET_ACTIVE_WINDOW": &b.atomNetActiveWindow,
+		"_NET_FRAME_EXTENTS": &b.atomNetFrameExtent,
 		"_NET_WM_NAME":       &b.atomNetWMName,
 		"_NET_WM_PID":        &b.atomNetWMPID,
+		"_MOTIF_WM_HINTS":    &b.atomMotifWMHints,
 		"UTF8_STRING":        &b.atomUTF8String,
 	}
 	for name, ptr := range atoms {
@@ -79,13 +83,62 @@ func (b *X11Backend) windowPID(win xproto.Window) int32 {
 		uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
 }
 
-// windowGeometry returns the geometry of a window.
+// windowHasDecoration checks if the window declared it has decoration at the WM level. Some windows are still
+// using the old Motif way of doing things. On modern desktop, in conjunction with using _NET_FRAME_EXTENTS correctly,
+// this "trick" allows them to bypass the decoration settings which is done by WM ; the WM allocates the decoration
+// space (because of _NET_FRAME_EXTENTS) but does not draw them, leaving this task to the application itself.
+func (b *X11Backend) windowHasDecoration(win xproto.Window) bool {
+	rep, err := xproto.GetProperty(b.conn, false, win, b.atomMotifWMHints,
+		b.atomMotifWMHints, 0, 5).Reply()
+	if err != nil || len(rep.Value) < 20 {
+		return true
+	}
+
+	flags := uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 | uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24
+	decorations := uint32(rep.Value[8]) | uint32(rep.Value[9])<<8 | uint32(rep.Value[10])<<16 | uint32(rep.Value[11])<<24
+
+	const MwmHintsDecorations = 1 << 1
+
+	return (flags&MwmHintsDecorations) != 0 || (decorations != 0)
+}
+
+// windowGeometry returns the geometry of a window, including its decoration
 func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 	geo, err := xproto.GetGeometry(b.conn, xproto.Drawable(win)).Reply()
 	if err != nil {
 		return 0, 0, 0, 0
 	}
-	return int(geo.X), int(geo.Y), int(geo.Width), int(geo.Height)
+
+	trans, err := xproto.TranslateCoordinates(b.conn, win, b.root, 0, 0).Reply()
+	if err != nil {
+		return int(geo.X), int(geo.Y), int(geo.Width), int(geo.Height)
+	}
+
+	if !b.windowHasDecoration(win) {
+		return int(trans.DstX), int(trans.DstY), int(geo.Width), int(geo.Height)
+	}
+
+	x := int(trans.DstX)
+	y := int(trans.DstY)
+	w := int(geo.Width)
+	h := int(geo.Height)
+
+	// decorated windows shall be translated again by the size of the decorations
+	reply, err := xproto.GetProperty(b.conn, false, win, b.atomNetFrameExtent,
+		xproto.AtomCardinal, 0, 4).Reply()
+	if err == nil && len(reply.Value) == 16 {
+		left := int(uint32(reply.Value[0]) | uint32(reply.Value[1])<<8 | uint32(reply.Value[2])<<16 | uint32(reply.Value[3])<<24)
+		right := int(uint32(reply.Value[4]) | uint32(reply.Value[5])<<8 | uint32(reply.Value[6])<<16 | uint32(reply.Value[7])<<24)
+		top := int(uint32(reply.Value[8]) | uint32(reply.Value[9])<<8 | uint32(reply.Value[10])<<16 | uint32(reply.Value[11])<<24)
+		bottom := int(uint32(reply.Value[12]) | uint32(reply.Value[13])<<8 | uint32(reply.Value[14])<<16 | uint32(reply.Value[15])<<24)
+
+		x -= left
+		y -= top
+		w += left + right
+		h += top + bottom
+	}
+
+	return x, y, w, h
 }
 
 func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
