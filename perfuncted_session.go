@@ -5,7 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"image"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -390,7 +390,7 @@ func (s *Session) launchWlPaste() {
 		return
 	}
 	// Best-effort background helper failed to start; log so users see the reason.
-	log.Printf("warning: wl-paste helper failed to start: %v", err)
+	slog.Warn("wl-paste helper failed to start", "error", err)
 }
 
 // CleanupStaleSessions removes perfuncted session directories older than
@@ -398,7 +398,7 @@ func (s *Session) launchWlPaste() {
 func CleanupStaleSessions(maxAge time.Duration) {
 	matches, err := filepath.Glob("/tmp/perfuncted-xdg-*")
 	if err != nil {
-		log.Printf("warning: unable to glob nested sessions: %v", err)
+		slog.Warn("unable to glob nested sessions", "error", err)
 		return
 	}
 	now := time.Now()
@@ -414,7 +414,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			}
 			if now.Sub(fi.ModTime()) > maxAge {
 				_ = os.RemoveAll(d)
-				log.Printf("reaped stale session dir %s (no pidfile, older than %s)", d, maxAge)
+				slog.Info("reaped stale session dir", "path", d, "reason", "no pidfile")
 			}
 			continue
 		}
@@ -425,7 +425,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			fi, statErr := os.Stat(d)
 			if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
 				_ = os.RemoveAll(d)
-				log.Printf("reaped stale session dir %s (bad pidfile)", d)
+				slog.Info("reaped stale session dir", "path", d, "reason", "bad pidfile")
 			}
 			continue
 		}
@@ -433,10 +433,10 @@ func CleanupStaleSessions(maxAge time.Duration) {
 		if err := syscall.Kill(pid, 0); err != nil {
 			if err == syscall.ESRCH {
 				_ = os.RemoveAll(d)
-				log.Printf("reaped stale session dir %s (pid %d not running)", d, pid)
+				slog.Info("reaped stale session dir", "path", d, "pid", pid, "reason", "not running")
 			} else {
 				// If permission denied or other error, skip.
-				log.Printf("warning: cannot check pid %d for %s: %v", pid, d, err)
+				slog.Warn("cannot check pid", "pid", pid, "path", d, "error", err)
 			}
 			continue
 		}
@@ -445,7 +445,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 		fi, statErr := os.Stat(d)
 		if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
 			// Don't remove an active PID's dir.
-			log.Printf("leaving session dir %s (pid %d still running)", d, pid)
+			slog.Info("leaving session dir", "path", d, "pid", pid, "reason", "still running")
 		}
 	}
 }

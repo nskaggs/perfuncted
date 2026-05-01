@@ -5,6 +5,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -292,5 +293,5 @@ func (b *WlInputMethodBackend) Close() error {
 	if len(errs) == 0 {
 		return nil
 	}
-	return fmt.Errorf("input/wl-im: close errors: %v", errs)
+	return errors.Join(errs...)
 }
