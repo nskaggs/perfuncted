@@ -12,9 +12,10 @@ import (
 
 type MockGetPropertyCookie struct {
 	reply *xproto.GetPropertyReply
+	err   error
 }
 
-func (m *MockGetPropertyCookie) Reply() (*xproto.GetPropertyReply, error) { return m.reply, nil }
+func (m *MockGetPropertyCookie) Reply() (*xproto.GetPropertyReply, error) { return m.reply, m.err }
 
 type MockGetKeyboardMappingCookie struct {
 	reply *xproto.GetKeyboardMappingReply
@@ -142,7 +143,7 @@ func (m *MockConnection) TranslateCoordinates(SrcWindow, DstWindow xproto.Window
 	if m.TranslateCoordinatesFunc != nil {
 		return m.TranslateCoordinatesFunc(SrcWindow, DstWindow, SrcX, SrcY)
 	}
-	return &XProtoTranslateCoordinatesCookie{cookie: xproto.TranslateCoordinatesCookie{}}
+	return &MockTranslateCoordinatesCookie{reply: &xproto.TranslateCoordinatesReply{}}
 }
 func (m *MockConnection) SendEventChecked(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie {
 	if m.SendEventCheckedFunc != nil {
@@ -221,6 +222,11 @@ func (m *MockConnection) InitXTest() error { return nil }
 
 func NewMockGetPropertyCookie(rep *xproto.GetPropertyReply) GetPropertyCookie {
 	return &MockGetPropertyCookie{reply: rep}
+}
+
+// NewMockGetPropertyCookieError returns a GetPropertyCookie whose Reply returns the given error.
+func NewMockGetPropertyCookieError(err error) GetPropertyCookie {
+	return &MockGetPropertyCookie{err: err}
 }
 
 func NewMockGetKeyboardMappingCookie(rep *xproto.GetKeyboardMappingReply) GetKeyboardMappingCookie {

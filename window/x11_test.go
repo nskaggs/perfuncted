@@ -1,172 +1,402 @@
+//go:build linux
+// +build linux
+
 package window
 
 import (
 	"context"
-	"encoding/binary"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
-func TestActiveTitle(t *testing.T) {
-	mc := &x11.MockConnection{}
-	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
-	mc.GetPropertyFunc = func(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) x11.GetPropertyCookie {
-		// _NET_ACTIVE_WINDOW
-		if Property == 1000 {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte{2, 0, 0, 0}, Format: 32})
-		}
-		// _NET_WM_NAME
-		if Property == 1001 {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte("My Window")})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte{}})
+// newStubX11Backend creates an X11Backend backed by a shared MockConnection with
+// pre-set atom values.  Tests that need to inspect or override specific methods
+// receive the *x11.MockConnection directly so they can set Func hooks without
+// any type-assertion.
+func newStubX11Backend(t *testing.T, withWindow bool, title string) (*X11Backend, *x11.MockConnection) {
+	t.Helper()
+	conn := &x11.MockConnection{}
+	b := &X11Backend{
+		conn:                conn,
+		root:                1,
+		atomNetClientList:   10,
+		atomNetActiveWindow: 11,
+		atomNetFrameExtent:  12,
+		atomNetWMName:       13,
+		atomNetWMPID:        14,
+		atomMotifWMHints:    15,
+		atomUTF8String:      16,
 	}
-
-	b := NewX11BackendWithConn(mc)
-	b.atomNetActiveWindow = xproto.Atom(1000)
-	b.atomNetWMName = xproto.Atom(1001)
-	b.atomUTF8String = xproto.Atom(0)
-
-	title, err := b.ActiveTitle(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	conn.DefaultScreenFunc = func() *xproto.ScreenInfo {
+		return &xproto.ScreenInfo{Root: b.root, WidthInPixels: 1920, HeightInPixels: 1080}
 	}
-	if title != "My Window" {
-		t.Fatalf("expected 'My Window', got %q", title)
+	// Default: return an empty client list (Format 32, zero bytes) so that
+	// IterateWindows/findByTitle return "not found" rather than a format error.
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	if withWindow {
+		wid := xproto.Window(50)
+		titleBytes := []byte(title)
+		conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+			switch p {
+			case b.atomNetClientList:
+				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{byte(wid), byte(wid >> 8), byte(wid >> 16), byte(wid >> 24)}})
+			case b.atomNetWMName:
+				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: titleBytes})
+			case b.atomNetWMPID:
+				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{1, 0, 0, 0}})
+			case b.atomNetActiveWindow:
+				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+			case b.atomNetFrameExtent, b.atomMotifWMHints:
+				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+			}
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+		}
+		conn.GetGeometryFunc = func(d xproto.Drawable) x11.GetGeometryCookie {
+			return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{X: 10, Y: 20, Width: 800, Height: 600})
+		}
+		conn.TranslateCoordinatesFunc = func(s, d xproto.Window, sx, sy int16) x11.TranslateCoordinatesCookie {
+			return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{DstX: 10, DstY: 20})
+		}
+	}
+	return b, conn
+}
+
+func TestX11Backend_New_NoDisplay(t *testing.T) {
+	orig := os.Getenv("DISPLAY")
+	os.Unsetenv("DISPLAY")
+	defer os.Setenv("DISPLAY", orig)
+	_, err := NewX11Backend("")
+	if err == nil || !strings.Contains(err.Error(), "window/x11: connect to display") {
+		t.Fatalf("NewX11Backend() error = %v, want connection error", err)
 	}
 }
 
-func TestActiveTitle_NoActiveWindow(t *testing.T) {
-	mc := &x11.MockConnection{}
-	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
-	mc.GetPropertyFunc = func(_ bool, _ xproto.Window, _ xproto.Atom, _ xproto.Atom, _, _ uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte{}})
+func TestX11Backend_List(t *testing.T) {
+	b, _ := newStubX11Backend(t, true, "Test Window")
+	wins, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
 	}
-	b := NewX11BackendWithConn(mc)
+	if len(wins) != 1 || wins[0].Title != "Test Window" {
+		t.Errorf("List() = %+v, want 1 window titled %q", wins, "Test Window")
+	}
+}
+
+func TestX11Backend_List_Empty(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	wins, err := b.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if len(wins) != 0 {
+		t.Errorf("List() expected 0 windows, got %d", len(wins))
+	}
+}
+
+func TestX11Backend_List_GetPropertyError(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookieError(fmt.Errorf("simulated error"))
+	}
+	_, err := b.List(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "get _NET_CLIENT_LIST") {
+		t.Errorf("List() error = %v, want error containing %q", err, "get _NET_CLIENT_LIST")
+	}
+}
+
+func TestX11Backend_List_UnexpectedFormat(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte{1, 2, 3}})
+	}
+	_, err := b.List(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "unexpected _NET_CLIENT_LIST format") {
+		t.Errorf("List() error = %v, want error containing format", err)
+	}
+}
+
+// runX11ActionTest is a table-helper for window actions that find a window by
+// title then send an event (Activate, CloseWindow, Minimize, Maximize).
+func runX11ActionTest(t *testing.T, name, title string, action func(*X11Backend, context.Context, string) error) {
+	t.Helper()
+	t.Run("Window exists", func(t *testing.T) {
+		var events []string
+		b, conn := newStubX11Backend(t, true, title)
+		conn.SendEventCheckedFunc = func(p bool, dest xproto.Window, mask uint32, ev string) x11.SendEventCookie {
+			events = append(events, ev)
+			return &x11.MockCheckCookie{}
+		}
+		if err := action(b, context.Background(), title); err != nil {
+			t.Errorf("%s() unexpected error: %v", name, err)
+		}
+		if len(events) == 0 {
+			t.Errorf("%s() did not send event", name)
+		}
+	})
+	t.Run("Window does not exist", func(t *testing.T) {
+		b, _ := newStubX11Backend(t, false, "")
+		err := action(b, context.Background(), "Nonexistent")
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("%s() error = %v, want error containing %q", name, err, "not found")
+		}
+	})
+}
+
+func TestX11Backend_Activate(t *testing.T) {
+	runX11ActionTest(t, "Activate", "ActivateMe", func(b *X11Backend, ctx context.Context, title string) error {
+		return b.Activate(ctx, title)
+	})
+}
+
+func TestX11Backend_CloseWindow(t *testing.T) {
+	runX11ActionTest(t, "CloseWindow", "CloseMe", func(b *X11Backend, ctx context.Context, title string) error {
+		return b.CloseWindow(ctx, title)
+	})
+}
+
+func TestX11Backend_Minimize(t *testing.T) {
+	runX11ActionTest(t, "Minimize", "MinimizeMe", func(b *X11Backend, ctx context.Context, title string) error {
+		return b.Minimize(ctx, title)
+	})
+}
+
+func TestX11Backend_Maximize(t *testing.T) {
+	runX11ActionTest(t, "Maximize", "MaximizeMe", func(b *X11Backend, ctx context.Context, title string) error {
+		return b.Maximize(ctx, title)
+	})
+}
+
+func TestX11Backend_Restore(t *testing.T) {
+	t.Run("Window exists", func(t *testing.T) {
+		var events []string
+		var mapped []xproto.Window
+		b, conn := newStubX11Backend(t, true, "RestoreMe")
+		conn.SendEventCheckedFunc = func(p bool, dest xproto.Window, mask uint32, ev string) x11.SendEventCookie {
+			events = append(events, ev)
+			return &x11.MockCheckCookie{}
+		}
+		conn.MapWindowCheckedFunc = func(w xproto.Window) x11.MapWindowCookie {
+			mapped = append(mapped, w)
+			return &x11.MockCheckCookie{}
+		}
+		if err := b.Restore(context.Background(), "RestoreMe"); err != nil {
+			t.Errorf("Restore() unexpected error: %v", err)
+		}
+		if len(events) == 0 {
+			t.Errorf("Restore() did not send event")
+		}
+		if len(mapped) == 0 {
+			t.Errorf("Restore() did not map window")
+		}
+	})
+	t.Run("Window does not exist", func(t *testing.T) {
+		b, _ := newStubX11Backend(t, false, "")
+		err := b.Restore(context.Background(), "Nonexistent")
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("Restore() error = %v, want error containing %q", err, "not found")
+		}
+	})
+}
+
+func TestX11Backend_Move(t *testing.T) {
+	t.Run("Window exists", func(t *testing.T) {
+		var cfg []struct {
+			mask   uint16
+			values []uint32
+		}
+		b, conn := newStubX11Backend(t, true, "MoveMe")
+		conn.ConfigureWindowCheckedFunc = func(w xproto.Window, mask uint16, vals []uint32) x11.ConfigureWindowCookie {
+			cfg = append(cfg, struct {
+				mask   uint16
+				values []uint32
+			}{mask, vals})
+			return &x11.MockCheckCookie{}
+		}
+		if err := b.Move(context.Background(), "MoveMe", 100, 200); err != nil {
+			t.Errorf("Move() unexpected error: %v", err)
+		}
+		if len(cfg) == 0 {
+			t.Errorf("Move() did not configure window")
+		}
+	})
+	t.Run("Window does not exist", func(t *testing.T) {
+		b, _ := newStubX11Backend(t, false, "")
+		err := b.Move(context.Background(), "Nonexistent", 100, 200)
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("Move() error = %v, want error containing %q", err, "not found")
+		}
+	})
+}
+
+func TestX11Backend_Resize(t *testing.T) {
+	t.Run("Window exists", func(t *testing.T) {
+		var cfg []struct {
+			mask   uint16
+			values []uint32
+		}
+		b, conn := newStubX11Backend(t, true, "ResizeMe")
+		conn.ConfigureWindowCheckedFunc = func(w xproto.Window, mask uint16, vals []uint32) x11.ConfigureWindowCookie {
+			cfg = append(cfg, struct {
+				mask   uint16
+				values []uint32
+			}{mask, vals})
+			return &x11.MockCheckCookie{}
+		}
+		if err := b.Resize(context.Background(), "ResizeMe", 1024, 768); err != nil {
+			t.Errorf("Resize() unexpected error: %v", err)
+		}
+		if len(cfg) == 0 {
+			t.Errorf("Resize() did not configure window")
+		}
+	})
+	t.Run("Window does not exist", func(t *testing.T) {
+		b, _ := newStubX11Backend(t, false, "")
+		err := b.Resize(context.Background(), "Nonexistent", 1024, 768)
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("Resize() error = %v, want error containing %q", err, "not found")
+		}
+	})
+}
+
+func TestX11Backend_ActiveTitle(t *testing.T) {
+	b, conn := newStubX11Backend(t, true, "Active Window")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetActiveWindow {
+			wid := xproto.Window(50)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{byte(wid), byte(wid >> 8), byte(wid >> 16), byte(wid >> 24)}})
+		}
+		if p == b.atomNetWMName {
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("Active Window")})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
 	title, err := b.ActiveTitle(context.Background())
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("ActiveTitle() unexpected error: %v", err)
+	}
+	if title != "Active Window" {
+		t.Errorf("ActiveTitle() = %q, want %q", title, "Active Window")
+	}
+}
+
+func TestX11Backend_ActiveTitle_NoActive(t *testing.T) {
+	b, _ := newStubX11Backend(t, false, "")
+	title, err := b.ActiveTitle(context.Background())
+	if err != nil {
+		t.Fatalf("ActiveTitle() unexpected error: %v", err)
 	}
 	if title != "" {
-		t.Fatalf("expected empty title, got %q", title)
+		t.Errorf("ActiveTitle() = %q, want empty", title)
 	}
 }
 
-func TestIterateWindows(t *testing.T) {
-	// Encode two window IDs in the _NET_CLIENT_LIST reply value.
-	winIDs := []uint32{10, 20}
-	val := make([]byte, 8)
-	binary.LittleEndian.PutUint32(val[0:], winIDs[0])
-	binary.LittleEndian.PutUint32(val[4:], winIDs[1])
-
-	mc := &x11.MockConnection{}
-	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
-	mc.GetPropertyFunc = func(_ bool, win xproto.Window, prop xproto.Atom, _ xproto.Atom, _, _ uint32) x11.GetPropertyCookie {
-		// _NET_CLIENT_LIST on root
-		if win == 1 {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: val})
-		}
-		// _NET_WM_NAME on each window
-		if win == 10 {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte("win10")})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte("win20")})
+func TestX11Backend_findByTitle(t *testing.T) {
+	b, _ := newStubX11Backend(t, true, "My Test Window")
+	win, err := b.findByTitle(context.Background(), "My Test Window")
+	if err != nil {
+		t.Errorf("findByTitle(exact) unexpected error: %v", err)
 	}
-	mc.GetGeometryFunc = func(_ xproto.Drawable) x11.GetGeometryCookie {
-		return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{Width: 100, Height: 200})
+	if win != xproto.Window(50) {
+		t.Errorf("findByTitle(exact) = %d, want 50", win)
 	}
-	mc.TranslateCoordinatesFunc = func(_, _ xproto.Window, _, _ int16) x11.TranslateCoordinatesCookie {
-		return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{DstX: 5, DstY: 10})
-	}
-
-	b := NewX11BackendWithConn(mc)
-	b.atomNetClientList = xproto.Atom(100)
-
-	var titles []string
-	for info, err := range b.IterateWindows(context.Background()) {
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		titles = append(titles, info.Title)
-	}
-	if len(titles) != 2 {
-		t.Fatalf("expected 2 windows, got %d", len(titles))
+	_, err = b.findByTitle(context.Background(), "Nonexistent")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("findByTitle(no match) error = %v, want error containing %q", err, "not found")
 	}
 }
 
-func TestMove(t *testing.T) {
-	var gotMask uint16
-	var gotValues []uint32
-
-	mc := &x11.MockConnection{}
-	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
-	mc.ConfigureWindowCheckedFunc = func(_ xproto.Window, mask uint16, values []uint32) x11.ConfigureWindowCookie {
-		gotMask = mask
-		gotValues = values
-		return &x11.MockCheckCookie{}
-	}
-	// FindByTitle needs IterateWindows → _NET_CLIENT_LIST
-	mc.GetPropertyFunc = func(_ bool, win xproto.Window, prop xproto.Atom, _ xproto.Atom, _, _ uint32) x11.GetPropertyCookie {
-		if win == 1 { // root: return one window ID=42
-			v := make([]byte, 4)
-			binary.LittleEndian.PutUint32(v, 42)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: v})
+func TestX11Backend_windowTitle(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMName {
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("UTF8 Title")})
 		}
-		// _NET_WM_NAME for window 42
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte("target")})
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	mc.GetGeometryFunc = func(_ xproto.Drawable) x11.GetGeometryCookie {
-		return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{Width: 100, Height: 100})
-	}
-	mc.TranslateCoordinatesFunc = func(_, _ xproto.Window, _, _ int16) x11.TranslateCoordinatesCookie {
-		return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{})
-	}
-
-	b := NewX11BackendWithConn(mc)
-	if err := b.Move(context.Background(), "target", 50, 80); err != nil {
-		t.Fatalf("Move() error: %v", err)
-	}
-	wantMask := uint16(xproto.ConfigWindowX | xproto.ConfigWindowY)
-	if gotMask != wantMask {
-		t.Errorf("ConfigureWindowChecked mask = 0x%x, want 0x%x", gotMask, wantMask)
-	}
-	if len(gotValues) != 2 || gotValues[0] != 50 || gotValues[1] != 80 {
-		t.Errorf("ConfigureWindowChecked values = %v, want [50 80]", gotValues)
+	if title := b.windowTitle(50); title != "UTF8 Title" {
+		t.Errorf("windowTitle() = %q, want %q", title, "UTF8 Title")
 	}
 }
 
-func TestResize(t *testing.T) {
-	var gotValues []uint32
-
-	mc := &x11.MockConnection{}
-	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
-	mc.ConfigureWindowCheckedFunc = func(_ xproto.Window, _ uint16, values []uint32) x11.ConfigureWindowCookie {
-		gotValues = values
-		return &x11.MockCheckCookie{}
-	}
-	mc.GetPropertyFunc = func(_ bool, win xproto.Window, _ xproto.Atom, _ xproto.Atom, _, _ uint32) x11.GetPropertyCookie {
-		if win == 1 {
-			v := make([]byte, 4)
-			binary.LittleEndian.PutUint32(v, 42)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: v})
+func TestX11Backend_windowPID(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMPID {
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{42, 0, 0, 0}})
 		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte("resize-me")})
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	mc.GetGeometryFunc = func(_ xproto.Drawable) x11.GetGeometryCookie {
-		return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{})
-	}
-	mc.TranslateCoordinatesFunc = func(_, _ xproto.Window, _, _ int16) x11.TranslateCoordinatesCookie {
-		return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{})
-	}
-
-	b := NewX11BackendWithConn(mc)
-	if err := b.Resize(context.Background(), "resize-me", 640, 480); err != nil {
-		t.Fatalf("Resize() error: %v", err)
-	}
-	if len(gotValues) != 2 || gotValues[0] != 640 || gotValues[1] != 480 {
-		t.Errorf("ConfigureWindowChecked values = %v, want [640 480]", gotValues)
+	if pid := b.windowPID(50); pid != 42 {
+		t.Errorf("windowPID() = %d, want 42", pid)
 	}
 }
 
+func TestX11Backend_windowPID_NoPID(t *testing.T) {
+	b, _ := newStubX11Backend(t, false, "")
+	if pid := b.windowPID(50); pid != 0 {
+		t.Errorf("windowPID() = %d, want 0", pid)
+	}
+}
+
+func TestX11Backend_windowHasDecoration(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomMotifWMHints {
+			data := make([]byte, 20)
+			data[0] = 2 // MwmHintsDecorations flag
+			data[8] = 1 // decorations = 1
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: data})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	if !b.windowHasDecoration(50) {
+		t.Errorf("windowHasDecoration() = false, want true")
+	}
+}
+
+func TestX11Backend_windowHasDecoration_NoDecoration(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomMotifWMHints {
+			data := make([]byte, 20)
+			data[0] = 2 // MwmHintsDecorations flag
+			data[8] = 0 // decorations = 0
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: data})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	if b.windowHasDecoration(50) {
+		t.Errorf("windowHasDecoration() = true, want false")
+	}
+}
+
+func TestX11Backend_windowGeometry(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetGeometryFunc = func(d xproto.Drawable) x11.GetGeometryCookie {
+		return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{X: 10, Y: 20, Width: 800, Height: 600})
+	}
+	conn.TranslateCoordinatesFunc = func(s, d xproto.Window, x, y int16) x11.TranslateCoordinatesCookie {
+		return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{DstX: 10, DstY: 20})
+	}
+	x, y, w, h := b.windowGeometry(50)
+	if x != 10 || y != 20 || w != 800 || h != 600 {
+		t.Errorf("windowGeometry() = (%d, %d, %d, %d), want (10, 20, 800, 600)", x, y, w, h)
+	}
+}
+
+func TestX11Backend_Close(t *testing.T) {
+	b, _ := newStubX11Backend(t, false, "")
+	if err := b.Close(); err != nil {
+		t.Errorf("Close() unexpected error: %v", err)
+	}
+}
