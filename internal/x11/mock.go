@@ -7,7 +7,9 @@ import (
 )
 
 // Minimal mock connection for unit tests. Tests can set the Func fields to
-// customize behavior.
+// customize behavior; defaults return benign zero values so tests only need to
+// configure the methods that matter to them.
+
 type MockGetPropertyCookie struct {
 	reply *xproto.GetPropertyReply
 }
@@ -32,7 +34,16 @@ type MockGetGeometryCookie struct {
 
 func (m *MockGetGeometryCookie) Reply() (*xproto.GetGeometryReply, error) { return m.reply, nil }
 
-// Minimal XTest fake-input cookie implementation
+// MockTranslateCoordinatesCookie implements TranslateCoordinatesCookie for tests.
+type MockTranslateCoordinatesCookie struct {
+	reply *xproto.TranslateCoordinatesReply
+}
+
+func (m *MockTranslateCoordinatesCookie) Reply() (*xproto.TranslateCoordinatesReply, error) {
+	return m.reply, nil
+}
+
+// MockXTestFakeInputCookie implements the XTest check cookie for tests.
 type MockXTestFakeInputCookie struct{ err error }
 
 func (m *MockXTestFakeInputCookie) Check() error { return m.err }
@@ -43,6 +54,24 @@ type MockInternAtomCookie struct {
 }
 
 func (m *MockInternAtomCookie) Reply() (*xproto.InternAtomReply, error) { return m.reply, nil }
+
+// MockGetImageCookie implements GetImageCookie for tests.
+type MockGetImageCookie struct {
+	reply *xproto.GetImageReply
+	err   error
+}
+
+func (m *MockGetImageCookie) Reply() (*xproto.GetImageReply, error) {
+	if m.reply != nil {
+		return m.reply, m.err
+	}
+	return &xproto.GetImageReply{}, m.err
+}
+
+// NewMockGetImageCookie returns a GetImageCookie returning the given reply and error.
+func NewMockGetImageCookie(reply *xproto.GetImageReply, err error) GetImageCookie {
+	return &MockGetImageCookie{reply: reply, err: err}
+}
 
 // MockConnection implements the Connection interface with user-provided hooks.
 type MockConnection struct {
@@ -190,7 +219,6 @@ func (m *MockConnection) FakeInputChecked(eventType byte, detail byte, tm uint32
 
 func (m *MockConnection) InitXTest() error { return nil }
 
-// Constructors for test cookies (exported for use by package tests)
 func NewMockGetPropertyCookie(rep *xproto.GetPropertyReply) GetPropertyCookie {
 	return &MockGetPropertyCookie{reply: rep}
 }
@@ -201,4 +229,12 @@ func NewMockGetKeyboardMappingCookie(rep *xproto.GetKeyboardMappingReply) GetKey
 
 func NewMockXTestFakeInputCookie(err error) XTestFakeInputCookie {
 	return &MockXTestFakeInputCookie{err: err}
+}
+
+func NewMockGetGeometryCookie(rep *xproto.GetGeometryReply) GetGeometryCookie {
+	return &MockGetGeometryCookie{reply: rep}
+}
+
+func NewMockTranslateCoordinatesCookie(rep *xproto.TranslateCoordinatesReply) TranslateCoordinatesCookie {
+	return &MockTranslateCoordinatesCookie{reply: rep}
 }

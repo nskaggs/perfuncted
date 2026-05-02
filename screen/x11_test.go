@@ -15,162 +15,23 @@ import (
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
-// Mock connection for testing screen X11 backend.
-type mockScreenConnection struct {
-	defaultScreenFn    func() *xproto.ScreenInfo
-	getImageFn         func(byte, xproto.Drawable, int16, int16, uint16, uint16, uint32) x11.GetImageCookie
-	newIdFn            func() (uint32, error)
-	freePixmapFn       func(xproto.Pixmap) x11.FreePixmapCookie
-	initCompositeFn    func() error
-	nameWindowPixmapFn func(xproto.Window, xproto.Pixmap) x11.NameWindowPixmapCookie
-}
-
-func (m *mockScreenConnection) Close() {}
-func (m *mockScreenConnection) DefaultScreen() *xproto.ScreenInfo {
-	if m.defaultScreenFn != nil {
-		return m.defaultScreenFn()
-	}
-	return &xproto.ScreenInfo{Root: 1, WidthInPixels: 1920, HeightInPixels: 1080}
-}
-func (m *mockScreenConnection) InternAtom(bool, uint16, string) x11.InternAtomCookie {
-	return &mockScreenInternAtomCookie{reply: &xproto.InternAtomReply{Atom: 1}}
-}
-func (m *mockScreenConnection) GetProperty(bool, xproto.Window, xproto.Atom, xproto.Atom, uint32, uint32) x11.GetPropertyCookie {
-	return &mockScreenGetPropertyCookie{reply: &xproto.GetPropertyReply{Format: 32, Value: []byte{}}}
-}
-func (m *mockScreenConnection) GetGeometry(xproto.Drawable) x11.GetGeometryCookie {
-	return &mockScreenGetGeometryCookie{reply: &xproto.GetGeometryReply{X: 0, Y: 0, Width: 100, Height: 100}}
-}
-func (m *mockScreenConnection) TranslateCoordinates(xproto.Window, xproto.Window, int16, int16) x11.TranslateCoordinatesCookie {
-	return &mockScreenTranslateCoordinatesCookie{reply: &xproto.TranslateCoordinatesReply{DstX: 0, DstY: 0}}
-}
-func (m *mockScreenConnection) SendEventChecked(bool, xproto.Window, uint32, string) x11.SendEventCookie {
-	return &mockScreenSendEventCookie{}
-}
-func (m *mockScreenConnection) MapWindowChecked(xproto.Window) x11.MapWindowCookie {
-	return &mockScreenMapWindowCookie{}
-}
-func (m *mockScreenConnection) ConfigureWindowChecked(xproto.Window, uint16, []uint32) x11.ConfigureWindowCookie {
-	return &mockScreenConfigureWindowCookie{}
-}
-func (m *mockScreenConnection) NewId() (uint32, error) {
-	if m.newIdFn != nil {
-		return m.newIdFn()
-	}
-	return 999, nil
-}
-func (m *mockScreenConnection) GetImage(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-	if m.getImageFn != nil {
-		return m.getImageFn(format, drawable, x, y, width, height, planeMask)
-	}
-	data := make([]byte, 4*4)
-	for i := range data {
-		data[i] = byte(i + 1)
-	}
-	return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
-}
-func (m *mockScreenConnection) FreePixmap(p xproto.Pixmap) x11.FreePixmapCookie {
-	if m.freePixmapFn != nil {
-		return m.freePixmapFn(p)
-	}
-	return &mockScreenFreePixmapCookie{}
-}
-func (m *mockScreenConnection) InitComposite() error {
-	if m.initCompositeFn != nil {
-		return m.initCompositeFn()
-	}
-	return nil
-}
-func (m *mockScreenConnection) NameWindowPixmap(w xproto.Window, p xproto.Pixmap) x11.NameWindowPixmapCookie {
-	if m.nameWindowPixmapFn != nil {
-		return m.nameWindowPixmapFn(w, p)
-	}
-	return &mockScreenNameWindowPixmapCookie{}
-}
-
-// Mock cookies for screen tests.
-type mockScreenInternAtomCookie struct {
-	reply *xproto.InternAtomReply
-	err   error
-}
-
-func (m *mockScreenInternAtomCookie) Reply() (*xproto.InternAtomReply, error) {
-	return m.reply, m.err
-}
-
-type mockScreenGetPropertyCookie struct {
-	reply *xproto.GetPropertyReply
-	err   error
-}
-
-func (m *mockScreenGetPropertyCookie) Reply() (*xproto.GetPropertyReply, error) {
-	return m.reply, m.err
-}
-
-type mockScreenGetGeometryCookie struct {
-	reply *xproto.GetGeometryReply
-	err   error
-}
-
-func (m *mockScreenGetGeometryCookie) Reply() (*xproto.GetGeometryReply, error) {
-	return m.reply, m.err
-}
-
-type mockScreenTranslateCoordinatesCookie struct {
-	reply *xproto.TranslateCoordinatesReply
-	err   error
-}
-
-func (m *mockScreenTranslateCoordinatesCookie) Reply() (*xproto.TranslateCoordinatesReply, error) {
-	return m.reply, m.err
-}
-
-type mockScreenSendEventCookie struct{ err error }
-
-func (m *mockScreenSendEventCookie) Check() error { return m.err }
-
-type mockScreenMapWindowCookie struct{ err error }
-
-func (m *mockScreenMapWindowCookie) Check() error { return m.err }
-
-type mockScreenConfigureWindowCookie struct{ err error }
-
-func (m *mockScreenConfigureWindowCookie) Check() error { return m.err }
-
-type mockScreenGetImageCookie struct {
-	reply *xproto.GetImageReply
-	err   error
-}
-
-func (m *mockScreenGetImageCookie) Reply() (*xproto.GetImageReply, error) {
-	if m.reply != nil {
-		return m.reply, m.err
-	}
-	return &xproto.GetImageReply{}, m.err
-}
-
-type mockScreenFreePixmapCookie struct{ err error }
-
-func (m *mockScreenFreePixmapCookie) Check() error { return m.err }
-
-type mockScreenNameWindowPixmapCookie struct{ err error }
-
-func (m *mockScreenNameWindowPixmapCookie) Check() error { return m.err }
-
-// newStubScreenX11Backend creates a test X11Backend for screen capture.
+// newStubScreenX11Backend creates a test X11Backend backed by the shared
+// x11.MockConnection so all screen tests use the same mock infrastructure.
 func newStubScreenX11Backend(t *testing.T, hasComposite bool) *X11Backend {
 	t.Helper()
-	conn := &mockScreenConnection{}
-	b := &X11Backend{
-		conn:         conn,
-		root:         1,
-		screen:       &xproto.ScreenInfo{Root: 1, WidthInPixels: 1920, HeightInPixels: 1080},
-		hasComposite: hasComposite,
+	screenInfo := &xproto.ScreenInfo{Root: 1, WidthInPixels: 1920, HeightInPixels: 1080}
+	mc := &x11.MockConnection{}
+	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return screenInfo }
+	// Provide a default GetImage that returns a small non-empty image so tests
+	// that don't override it still get a valid (non-error) path.
+	mc.GetImageFunc = func(_ byte, _ xproto.Drawable, _, _ int16, w, h uint16, _ uint32) x11.GetImageCookie {
+		data := make([]byte, int(w)*int(h)*4)
+		for i := range data {
+			data[i] = byte(i + 1)
+		}
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
-	conn.defaultScreenFn = func() *xproto.ScreenInfo {
-		return b.screen
-	}
-	return b
+	return &X11Backend{conn: mc, root: 1, screen: screenInfo, hasComposite: hasComposite}
 }
 
 func TestX11Backend_Grab(t *testing.T) {
@@ -188,13 +49,13 @@ func TestX11Backend_Grab(t *testing.T) {
 func TestX11Backend_Grab_EmptyRect(t *testing.T) {
 	b := newStubScreenX11Backend(t, false)
 	// Empty rect should grab full screen - set up mock to return full screen data
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		// Create data for full screen (1920x1080)
 		data := make([]byte, int(width)*int(height)*4)
 		for i := range data {
 			data[i] = byte(i%255 + 1)
 		}
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 0, 0)
 	img, err := b.Grab(context.Background(), rect)
@@ -209,20 +70,20 @@ func TestX11Backend_Grab_EmptyRect(t *testing.T) {
 func TestX11Backend_Grab_WithComposite(t *testing.T) {
 	var pixmapCreated bool
 	b := newStubScreenX11Backend(t, true)
-	b.conn.(*mockScreenConnection).newIdFn = func() (uint32, error) {
+	b.conn.(*x11.MockConnection).NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
-	b.conn.(*mockScreenConnection).nameWindowPixmapFn = func(w xproto.Window, p xproto.Pixmap) x11.NameWindowPixmapCookie {
+	b.conn.(*x11.MockConnection).NameWindowPixmapFunc = func(w xproto.Window, p xproto.Pixmap) x11.NameWindowPixmapCookie {
 		pixmapCreated = true
-		return &mockScreenNameWindowPixmapCookie{}
+		return &x11.MockCheckCookie{}
 	}
 	// Set up GetImage to return data for 100x100 image
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		data := make([]byte, int(width)*int(height)*4)
 		for i := range data {
 			data[i] = byte(i%255 + 1)
 		}
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 100, 100)
 	img, err := b.Grab(context.Background(), rect)
@@ -240,12 +101,12 @@ func TestX11Backend_Grab_WithComposite(t *testing.T) {
 func TestX11Backend_Grab_WithoutComposite(t *testing.T) {
 	b := newStubScreenX11Backend(t, false)
 	// Set up GetImage to return data for 100x100 image
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		data := make([]byte, int(width)*int(height)*4)
 		for i := range data {
 			data[i] = byte(i%255 + 1)
 		}
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(10, 20, 110, 120)
 	img, err := b.Grab(context.Background(), rect)
@@ -259,8 +120,8 @@ func TestX11Backend_Grab_WithoutComposite(t *testing.T) {
 
 func TestX11Backend_Grab_Error(t *testing.T) {
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{err: image.ErrFormat}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(nil, image.ErrFormat)
 	}
 	rect := image.Rect(0, 0, 100, 100)
 	_, err := b.Grab(context.Background(), rect)
@@ -274,8 +135,8 @@ func TestX11Backend_GrabFullHash(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	hash, err := b.GrabFullHash(context.Background())
 	if err != nil {
@@ -291,11 +152,11 @@ func TestX11Backend_GrabFullHash_WithComposite(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b := newStubScreenX11Backend(t, true)
-	b.conn.(*mockScreenConnection).newIdFn = func() (uint32, error) {
+	b.conn.(*x11.MockConnection).NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	hash, err := b.GrabFullHash(context.Background())
 	if err != nil {
@@ -311,8 +172,8 @@ func TestX11Backend_GrabRegionHash(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 2, 2)
 	hash, err := b.GrabRegionHash(context.Background(), rect)
@@ -341,11 +202,11 @@ func TestX11Backend_GrabRegionHash_WithComposite(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b := newStubScreenX11Backend(t, true)
-	b.conn.(*mockScreenConnection).newIdFn = func() (uint32, error) {
+	b.conn.(*x11.MockConnection).NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(10, 20, 110, 120)
 	hash, err := b.GrabRegionHash(context.Background(), rect)
@@ -377,8 +238,8 @@ func TestX11Backend_Close(t *testing.T) {
 func TestX11Backend_Grab_ColorCheck(t *testing.T) {
 	data := []byte{1, 2, 3, 255}
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 1, 1)
 	img, err := b.Grab(context.Background(), rect)
@@ -424,8 +285,8 @@ func TestDecodeBGRA_Integration(t *testing.T) {
 		70, 80, 90, 255,
 		100, 110, 120, 255,
 	}
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 2, 2)
 	img, err := b.Grab(context.Background(), rect)
@@ -456,8 +317,8 @@ func TestDecodeBGRA_Integration(t *testing.T) {
 
 func TestX11Backend_GrabFullHash_Error(t *testing.T) {
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{err: image.ErrFormat}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(nil, image.ErrFormat)
 	}
 	_, err := b.GrabFullHash(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "XGetImage") {
@@ -467,8 +328,8 @@ func TestX11Backend_GrabFullHash_Error(t *testing.T) {
 
 func TestX11Backend_GrabRegionHash_Error(t *testing.T) {
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{err: image.ErrFormat}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(nil, image.ErrFormat)
 	}
 	rect := image.Rect(0, 0, 100, 100)
 	_, err := b.GrabRegionHash(context.Background(), rect)
@@ -489,8 +350,8 @@ func TestX11Backend_Grab_ImageCheck(t *testing.T) {
 			data[off+3] = 255
 		}
 	}
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 2, 2)
 	img, err := b.Grab(context.Background(), rect)
@@ -515,8 +376,8 @@ func TestX11Backend_Grab_ImageCheck(t *testing.T) {
 
 func TestX11Backend_Grab_NilImage(t *testing.T) {
 	b := newStubScreenX11Backend(t, false)
-	b.conn.(*mockScreenConnection).getImageFn = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return &mockScreenGetImageCookie{reply: &xproto.GetImageReply{Depth: 24, Visual: 1, Data: nil}}
+	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: nil}, nil)
 	}
 	rect := image.Rect(0, 0, 10, 10)
 	img, err := b.Grab(context.Background(), rect)
