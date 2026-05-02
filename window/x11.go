@@ -65,6 +65,21 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 	return b, nil
 }
 
+func (b *X11Backend) activeWindow() (xproto.Window, error) {
+	rep, err := b.conn.GetProperty(false, b.root, b.atomNetActiveWindow,
+		xproto.AtomWindow, 0, 1).Reply()
+	if err != nil {
+		return 0, err
+	}
+	if len(rep.Value) < 4 {
+		return 0, nil
+	}
+	id := xproto.Window(
+		uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
+			uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
+	return id, nil
+}
+
 // windowTitle returns the title of a window, trying _NET_WM_NAME then WM_NAME.
 func (b *X11Backend) windowTitle(win xproto.Window) string {
 	// Try _NET_WM_NAME (UTF-8) first.
@@ -191,16 +206,20 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 					uint32(rep.Value[i*4+2])<<16 | uint32(rep.Value[i*4+3])<<24)
 		}
 
+		// in case of error, activeWindow is not likely to match any id value
+		activeWindow, _ := b.activeWindow()
+
 		for _, id := range ids {
 			x, y, w, h := b.windowGeometry(id)
 			info := Info{
-				ID:    uint64(id),
-				Title: b.windowTitle(id),
-				PID:   b.windowPID(id),
-				X:     x,
-				Y:     y,
-				W:     w,
-				H:     h,
+				ID:     uint64(id),
+				Title:  b.windowTitle(id),
+				PID:    b.windowPID(id),
+				X:      x,
+				Y:      y,
+				W:      w,
+				H:      h,
+				Active: id == activeWindow,
 			}
 			if !yield(info, nil) {
 				return
@@ -285,16 +304,13 @@ func (b *X11Backend) Resize(ctx context.Context, title string, w, h int) error {
 
 // ActiveTitle returns the title of the currently focused window.
 func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
-	rep, err := b.conn.GetProperty(false, b.root, b.atomNetActiveWindow,
-		xproto.AtomWindow, 0, 1).Reply()
+	id, err := b.activeWindow()
 	if err != nil {
 		return "", fmt.Errorf("window/x11: get _NET_ACTIVE_WINDOW: %w", err)
 	}
-	if len(rep.Value) < 4 {
+	if id == 0 {
 		return "", nil
 	}
-	id := xproto.Window(uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
-		uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
 	return b.windowTitle(id), nil
 }
 
