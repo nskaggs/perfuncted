@@ -30,14 +30,14 @@ var (
 type bufInfo struct{ format, width, height, stride uint32 }
 
 type WlrScreencopyBackend struct {
-	sock     string
-	ctxMu    sync.Mutex
-	ctx      *wl.Context
-	lastUsed time.Time
-	connect  func(string) (*wl.Context, error)
-	ttl          time.Duration
-	initJanitor  func()
-	done         chan struct{}
+	sock        string
+	ctxMu       sync.Mutex
+	ctx         *wl.Context
+	lastUsed    time.Time
+	connect     func(string) (*wl.Context, error)
+	ttl         time.Duration
+	initJanitor func()
+	done        chan struct{}
 	// last observed output dimensions and scale (1 if unknown)
 	scale  uint32
 	pW, pH int // physical dimensions from mode event

@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"go/format"
 	"go/types"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
