@@ -131,7 +131,7 @@ func (m *MockConnection) GetProperty(Delete bool, Window xproto.Window, Property
 	if m.GetPropertyFunc != nil {
 		return m.GetPropertyFunc(Delete, Window, Property, Type, LongOffset, LongLength)
 	}
-	return &MockGetPropertyCookie{reply: &xproto.GetPropertyReply{Value: []byte{}, Format: 8}}
+	return &MockGetPropertyCookie{reply: &xproto.GetPropertyReply{Value: []byte{}, Format: 32}}
 }
 func (m *MockConnection) GetGeometry(Drawable xproto.Drawable) GetGeometryCookie {
 	if m.GetGeometryFunc != nil {

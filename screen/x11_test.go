@@ -17,7 +17,9 @@ import (
 
 // newStubScreenX11Backend creates a test X11Backend backed by the shared
 // x11.MockConnection so all screen tests use the same mock infrastructure.
-func newStubScreenX11Backend(t *testing.T, hasComposite bool) *X11Backend {
+// The mock is returned directly so tests can configure Func hooks without
+// type assertions.
+func newStubScreenX11Backend(t *testing.T, hasComposite bool) (*X11Backend, *x11.MockConnection) {
 	t.Helper()
 	screenInfo := &xproto.ScreenInfo{Root: 1, WidthInPixels: 1920, HeightInPixels: 1080}
 	mc := &x11.MockConnection{}
@@ -31,11 +33,11 @@ func newStubScreenX11Backend(t *testing.T, hasComposite bool) *X11Backend {
 		}
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
-	return &X11Backend{conn: mc, root: 1, screen: screenInfo, hasComposite: hasComposite}
+	return &X11Backend{conn: mc, root: 1, screen: screenInfo, hasComposite: hasComposite}, mc
 }
 
 func TestX11Backend_Grab(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, _ := newStubScreenX11Backend(t, false)
 	rect := image.Rect(0, 0, 2, 2)
 	img, err := b.Grab(context.Background(), rect)
 	if err != nil {
@@ -47,9 +49,9 @@ func TestX11Backend_Grab(t *testing.T) {
 }
 
 func TestX11Backend_Grab_EmptyRect(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, mc := newStubScreenX11Backend(t, false)
 	// Empty rect should grab full screen - set up mock to return full screen data
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		// Create data for full screen (1920x1080)
 		data := make([]byte, int(width)*int(height)*4)
 		for i := range data {
@@ -69,16 +71,16 @@ func TestX11Backend_Grab_EmptyRect(t *testing.T) {
 
 func TestX11Backend_Grab_WithComposite(t *testing.T) {
 	var pixmapCreated bool
-	b := newStubScreenX11Backend(t, true)
-	b.conn.(*x11.MockConnection).NewIdFunc = func() (uint32, error) {
+	b, mc := newStubScreenX11Backend(t, true)
+	mc.NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
-	b.conn.(*x11.MockConnection).NameWindowPixmapFunc = func(w xproto.Window, p xproto.Pixmap) x11.NameWindowPixmapCookie {
+	mc.NameWindowPixmapFunc = func(w xproto.Window, p xproto.Pixmap) x11.NameWindowPixmapCookie {
 		pixmapCreated = true
 		return &x11.MockCheckCookie{}
 	}
 	// Set up GetImage to return data for 100x100 image
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		data := make([]byte, int(width)*int(height)*4)
 		for i := range data {
 			data[i] = byte(i%255 + 1)
@@ -99,9 +101,9 @@ func TestX11Backend_Grab_WithComposite(t *testing.T) {
 }
 
 func TestX11Backend_Grab_WithoutComposite(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, mc := newStubScreenX11Backend(t, false)
 	// Set up GetImage to return data for 100x100 image
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		data := make([]byte, int(width)*int(height)*4)
 		for i := range data {
 			data[i] = byte(i%255 + 1)
@@ -119,8 +121,8 @@ func TestX11Backend_Grab_WithoutComposite(t *testing.T) {
 }
 
 func TestX11Backend_Grab_Error(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(nil, image.ErrFormat)
 	}
 	rect := image.Rect(0, 0, 100, 100)
@@ -134,8 +136,8 @@ func TestX11Backend_GrabFullHash(t *testing.T) {
 	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	expectedHash := crc32.ChecksumIEEE(data)
 
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	hash, err := b.GrabFullHash(context.Background())
@@ -151,11 +153,11 @@ func TestX11Backend_GrabFullHash_WithComposite(t *testing.T) {
 	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	expectedHash := crc32.ChecksumIEEE(data)
 
-	b := newStubScreenX11Backend(t, true)
-	b.conn.(*x11.MockConnection).NewIdFunc = func() (uint32, error) {
+	b, mc := newStubScreenX11Backend(t, true)
+	mc.NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	hash, err := b.GrabFullHash(context.Background())
@@ -171,8 +173,8 @@ func TestX11Backend_GrabRegionHash(t *testing.T) {
 	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	expectedHash := crc32.ChecksumIEEE(data)
 
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 2, 2)
@@ -186,7 +188,7 @@ func TestX11Backend_GrabRegionHash(t *testing.T) {
 }
 
 func TestX11Backend_GrabRegionHash_EmptyRect(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, _ := newStubScreenX11Backend(t, false)
 	hash1, _ := b.GrabFullHash(context.Background())
 	hash2, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 0, 0))
 	if err != nil {
@@ -201,11 +203,11 @@ func TestX11Backend_GrabRegionHash_WithComposite(t *testing.T) {
 	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	expectedHash := crc32.ChecksumIEEE(data)
 
-	b := newStubScreenX11Backend(t, true)
-	b.conn.(*x11.MockConnection).NewIdFunc = func() (uint32, error) {
+	b, mc := newStubScreenX11Backend(t, true)
+	mc.NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(10, 20, 110, 120)
@@ -229,7 +231,7 @@ func TestX11Backend_New_NoDisplay(t *testing.T) {
 }
 
 func TestX11Backend_Close(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, _ := newStubScreenX11Backend(t, false)
 	if err := b.Close(); err != nil {
 		t.Errorf("Close() unexpected error: %v", err)
 	}
@@ -237,8 +239,8 @@ func TestX11Backend_Close(t *testing.T) {
 
 func TestX11Backend_Grab_ColorCheck(t *testing.T) {
 	data := []byte{1, 2, 3, 255}
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 1, 1)
@@ -257,7 +259,7 @@ func TestX11Backend_Grab_ColorCheck(t *testing.T) {
 }
 
 func TestX11Backend_Resolution(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, _ := newStubScreenX11Backend(t, false)
 	w, h, err := Resolution(b)
 	if err != nil {
 		t.Fatalf("Resolution() unexpected error: %v", err)
@@ -268,24 +270,24 @@ func TestX11Backend_Resolution(t *testing.T) {
 }
 
 func TestX11Backend_ImplementsScreenshotter(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, _ := newStubScreenX11Backend(t, false)
 	var _ Screenshotter = b
 }
 
 func TestX11Backend_ImplementsResolver(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, _ := newStubScreenX11Backend(t, false)
 	var _ Resolver = b
 }
 
 func TestDecodeBGRA_Integration(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, mc := newStubScreenX11Backend(t, false)
 	data := []byte{
 		10, 20, 30, 255,
 		40, 50, 60, 255,
 		70, 80, 90, 255,
 		100, 110, 120, 255,
 	}
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 2, 2)
@@ -316,8 +318,8 @@ func TestDecodeBGRA_Integration(t *testing.T) {
 }
 
 func TestX11Backend_GrabFullHash_Error(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(nil, image.ErrFormat)
 	}
 	_, err := b.GrabFullHash(context.Background())
@@ -327,8 +329,8 @@ func TestX11Backend_GrabFullHash_Error(t *testing.T) {
 }
 
 func TestX11Backend_GrabRegionHash_Error(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(nil, image.ErrFormat)
 	}
 	rect := image.Rect(0, 0, 100, 100)
@@ -339,7 +341,7 @@ func TestX11Backend_GrabRegionHash_Error(t *testing.T) {
 }
 
 func TestX11Backend_Grab_ImageCheck(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
+	b, mc := newStubScreenX11Backend(t, false)
 	data := make([]byte, 4*4*4)
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 2; x++ {
@@ -350,7 +352,7 @@ func TestX11Backend_Grab_ImageCheck(t *testing.T) {
 			data[off+3] = 255
 		}
 	}
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
 	rect := image.Rect(0, 0, 2, 2)
@@ -375,8 +377,8 @@ func TestX11Backend_Grab_ImageCheck(t *testing.T) {
 }
 
 func TestX11Backend_Grab_NilImage(t *testing.T) {
-	b := newStubScreenX11Backend(t, false)
-	b.conn.(*x11.MockConnection).GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+	b, mc := newStubScreenX11Backend(t, false)
+	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: nil}, nil)
 	}
 	rect := image.Rect(0, 0, 10, 10)

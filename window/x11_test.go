@@ -90,10 +90,7 @@ func TestX11Backend_List(t *testing.T) {
 }
 
 func TestX11Backend_List_Empty(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
+	b, _ := newStubX11Backend(t, false, "")
 	wins, err := b.List(context.Background())
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)

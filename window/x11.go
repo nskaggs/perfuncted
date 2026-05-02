@@ -57,14 +57,6 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 	return b, nil
 }
 
-// NewX11BackendWithConn creates a backend that uses an existing x11.Connection.
-// Useful for unit tests with mocked connections.
-func NewX11BackendWithConn(conn x11.Connection) *X11Backend {
-	b := &X11Backend{conn: conn}
-	b.root = conn.DefaultScreen().Root
-	return b
-}
-
 // windowTitle returns the title of a window, trying _NET_WM_NAME then WM_NAME.
 func (b *X11Backend) windowTitle(win xproto.Window) string {
 	// Try _NET_WM_NAME (UTF-8) first.
