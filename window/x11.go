@@ -80,6 +80,25 @@ func (b *X11Backend) activeWindow() (xproto.Window, error) {
 	return id, nil
 }
 
+func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized bool) {
+	rep, err := b.conn.GetProperty(false, win, b.atomNetWMState,
+		xproto.AtomAtom, 0, 64).Reply()
+	if err != nil || rep.Format != 32 {
+		return
+	}
+	for i := 0; i+3 < len(rep.Value); i += 4 {
+		a := xproto.Atom(uint32(rep.Value[i]) | uint32(rep.Value[i+1])<<8 |
+			uint32(rep.Value[i+2])<<16 | uint32(rep.Value[i+3])<<24)
+		switch a {
+		case b.atomNetWMStateHidden:
+			minimized = true
+		case b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz:
+			maximized = true
+		}
+	}
+	return
+}
+
 // windowTitle returns the title of a window, trying _NET_WM_NAME then WM_NAME.
 func (b *X11Backend) windowTitle(win xproto.Window) string {
 	// Try _NET_WM_NAME (UTF-8) first.
@@ -211,15 +230,18 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 
 		for _, id := range ids {
 			x, y, w, h := b.windowGeometry(id)
+			minimized, maximized := b.windowState(id)
 			info := Info{
-				ID:     uint64(id),
-				Title:  b.windowTitle(id),
-				PID:    b.windowPID(id),
-				X:      x,
-				Y:      y,
-				W:      w,
-				H:      h,
-				Active: id == activeWindow,
+				ID:        uint64(id),
+				Title:     b.windowTitle(id),
+				PID:       b.windowPID(id),
+				X:         x,
+				Y:         y,
+				W:         w,
+				H:         h,
+				Minimized: minimized,
+				Maximized: maximized,
+				Active:    id == activeWindow,
 			}
 			if !yield(info, nil) {
 				return
