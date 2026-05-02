@@ -143,6 +143,11 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	return decodeBGRA(reply.Data, int(w), int(h), int(w)*4), nil
 }
 
+// Resolution returns the screen dimensions from the X11 screen info.
+func (b *X11Backend) Resolution() (int, int, error) {
+	return int(b.screen.WidthInPixels), int(b.screen.HeightInPixels), nil
+}
+
 // Close closes the X11 connection.
 func (b *X11Backend) Close() error {
 	b.conn.Close()
