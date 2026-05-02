@@ -14,13 +14,13 @@ func TestActiveTitle(t *testing.T) {
 	mc.GetPropertyFunc = func(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) x11.GetPropertyCookie {
 		// _NET_ACTIVE_WINDOW
 		if Property == 1000 {
-			return &x11.MockGetPropertyCookie{reply: &xproto.GetPropertyReply{Value: []byte{2, 0, 0, 0}, Format: 32}}
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte{2, 0, 0, 0}, Format: 32})
 		}
 		// _NET_WM_NAME
 		if Property == 1001 {
-			return &x11.MockGetPropertyCookie{reply: &xproto.GetPropertyReply{Value: []byte("My Window")}}
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte("My Window")})
 		}
-		return &x11.MockGetPropertyCookie{reply: &xproto.GetPropertyReply{Value: []byte{}}}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Value: []byte{}})
 	}
 
 	b := NewX11BackendWithConn(mc)

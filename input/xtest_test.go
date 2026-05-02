@@ -14,10 +14,10 @@ func TestKeyDownMapsToFakeInput(t *testing.T) {
 	mc.SetupFunc = func() *xproto.SetupInfo { return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 8} }
 	mc.GetKeyboardMappingFunc = func(first xproto.Keycode, count byte) x11.GetKeyboardMappingCookie {
 		// map the single keycode to keysym 'a' (0x61)
-		return &x11.MockGetKeyboardMappingCookie{reply: &xproto.GetKeyboardMappingReply{KeysymsPerKeycode: 1, Keysyms: []xproto.Keysym{0x61}}}
+		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{KeysymsPerKeycode: 1, Keysyms: []xproto.Keysym{0x61}})
 	}
-	mc.FakeInputCheckedFunc = func(eventType byte, detail byte, time uint32, window xproto.Window, x, y int16, device byte) x11.XTestFakeInputCookie {
-		return &x11.MockXTestFakeInputCookie{err: nil}
+	mc.FakeInputCheckedFunc = func(eventType byte, detail byte, tm uint32, window xproto.Window, x, y int16, device byte) x11.XTestFakeInputCookie {
+		return x11.NewMockXTestFakeInputCookie(nil)
 	}
 
 	b, err := NewXTestBackendWithConn(mc)
