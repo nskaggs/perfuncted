@@ -108,4 +108,3 @@ func TestPressComboSendsAllKeys(t *testing.T) {
 		t.Errorf("last two events should be KeyRelease: %v", events[2:])
 	}
 }
-

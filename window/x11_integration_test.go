@@ -97,4 +97,3 @@ func TestX11Backend_Integration_List(t *testing.T) {
 		t.Errorf("List() on empty Xvfb display: %v", err)
 	}
 }
-
