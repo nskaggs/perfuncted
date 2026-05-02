@@ -1589,7 +1589,7 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 	}
 	v, err := time.ParseDuration(s)
 	if err != nil {
-		return 0, fmt.Errorf("invalid duration %q: %v", s, err)
+		return 0, fmt.Errorf("invalid duration %q: %w", s, err)
 	}
 	return v, nil
 }
@@ -1601,7 +1601,7 @@ func parseHash(s string) (uint32, error) {
 	}
 	v, err = strconv.ParseUint(s, 16, 32) // fallback for raw hex like "ab12cd"
 	if err != nil {
-		return 0, fmt.Errorf("invalid hash %q: %v", s, err)
+		return 0, fmt.Errorf("invalid hash %q: %w", s, err)
 	}
 	return uint32(v), nil
 }
@@ -1675,7 +1675,7 @@ func parseColor(s string) (color.RGBA, error) {
 	}
 	b, err := hex.DecodeString(s)
 	if err != nil {
-		return color.RGBA{}, fmt.Errorf("--color: invalid hex %q: %v", s, err)
+		return color.RGBA{}, fmt.Errorf("--color: invalid hex %q: %w", s, err)
 	}
 	return color.RGBA{R: b[0], G: b[1], B: b[2], A: 0xff}, nil
 }

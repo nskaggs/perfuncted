@@ -5,11 +5,14 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
+
+var _ Inputter = (*WlInputMethodBackend)(nil)
 
 // WlInputMethodBackend implements Unicode text injection via the
 // zwp_input_method_manager_v2 protocol (input-method-unstable-v2). When
@@ -292,5 +295,5 @@ func (b *WlInputMethodBackend) Close() error {
 	if len(errs) == 0 {
 		return nil
 	}
-	return fmt.Errorf("input/wl-im: close errors: %v", errs)
+	return errors.Join(errs...)
 }

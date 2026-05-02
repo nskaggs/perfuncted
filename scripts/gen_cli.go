@@ -12,11 +12,10 @@ import (
 	"fmt"
 	"go/format"
 	"go/types"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -112,23 +111,23 @@ func methodsForType(pkg *packages.Package, typeName string) ([]*types.Func, erro
 			out = append(out, m)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	slices.SortFunc(out, func(a, b *types.Func) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
 	return out, nil
 }
 
 func loadMapping(path string) (Mapping, error) {
 	m := Mapping{}
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return m, nil
 		}
-		return nil, err
+		return m, err
 	}
-	if err := yaml.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
+	err = yaml.Unmarshal(b, &m)
+	return m, err
 }
 
 func collectDocs() (map[string]map[string]bool, error) {
@@ -608,7 +607,7 @@ func main() {
 	for k := range imports {
 		impList = append(impList, k)
 	}
-	sort.Strings(impList)
+	slices.Sort(impList)
 	fmt.Fprintln(outBuf, "import (")
 	for _, imp := range impList {
 		fmt.Fprintf(outBuf, "\t\"%s\"\n", imp)
@@ -649,10 +648,10 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "format error:", err)
 		// write unformatted for debugging
-		ioutil.WriteFile("cmd/pf/autogen_gen.go", src, 0644)
+		os.WriteFile("cmd/pf/autogen_gen.go", src, 0644)
 		os.Exit(2)
 	}
-	if err := ioutil.WriteFile("cmd/pf/autogen_gen.go", fmtSrc, 0644); err != nil {
+	if err := os.WriteFile("cmd/pf/autogen_gen.go", fmtSrc, 0644); err != nil {
 		fmt.Fprintln(os.Stderr, "write autogen:", err)
 		os.Exit(2)
 	}

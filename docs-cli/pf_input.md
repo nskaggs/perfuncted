@@ -33,4 +33,5 @@ Mouse and keyboard injection
 * [pf input move](pf_input_move.md)	 - Move mouse to absolute coordinates
 * [pf input scroll](pf_input_scroll.md)	 - Scroll the mouse wheel
 * [pf input type](pf_input_type.md)	 - Type a string as keyboard events
+* [pf input type-fast](pf_input_type-fast.md)	 - Auto-generated wrapper for perfuncted.TypeFast
 

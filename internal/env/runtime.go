@@ -3,7 +3,7 @@ package env
 import (
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -89,7 +89,7 @@ func (r Runtime) EnvList() []string {
 	for key := range r.vars {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
 		out = append(out, key+"="+r.vars[key])

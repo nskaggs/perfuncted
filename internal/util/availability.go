@@ -8,7 +8,7 @@ import (
 
 // CheckAvailable checks if a resource is available and returns an appropriate error if not.
 // It handles typed-nil interface values by using reflection.
-func CheckAvailable(name string, resource interface{}) error {
+func CheckAvailable(name string, resource any) error {
 	if resource == nil {
 		return fmt.Errorf("%s: not available", name)
 	}

@@ -2,19 +2,20 @@ package executil_test
 
 import (
 	"reflect"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
 func sortedCopy(ss []string) []string {
-	out := append([]string(nil), ss...)
-	sort.Strings(out)
+	out := slices.Clone(ss)
+	slices.Sort(out)
 	return out
 }
 
 func TestMergeEnvVarious(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		base  []string
@@ -53,6 +54,7 @@ func TestMergeEnvVarious(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := executil.MergeEnv(tc.extra, tc.base)
 			want := sortedCopy(tc.want)
 			if !reflect.DeepEqual(got, want) {

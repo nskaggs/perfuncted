@@ -1,19 +1,17 @@
-## pf screen wait-with-tolerance
+## pf screen wait-for-stable-or-timeout
 
-Auto-generated wrapper for perfuncted.WaitWithTolerance
+Auto-generated wrapper for perfuncted.WaitForStableOrTimeout
 
 ```
-pf screen wait-with-tolerance [flags]
+pf screen wait-for-stable-or-timeout [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help          help for wait-with-tolerance
-      --poll string   poll
-      --radius int    radius
-      --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
-      --ref string    path to reference PNG image (required)
+  -h, --help             help for wait-for-stable-or-timeout
+      --rect string      x0,y0,x1,y1 (default "0,0,1920,1080")
+      --timeout string   timeout
 ```
 
 ### Options inherited from parent commands

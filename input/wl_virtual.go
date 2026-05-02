@@ -21,6 +21,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+var _ Inputter = (*WlVirtualBackend)(nil)
+
 // Button codes (Linux input event codes)
 const (
 	btnLeft   = 0x110

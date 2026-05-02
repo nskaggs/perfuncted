@@ -2,7 +2,7 @@ package executil
 
 import (
 	"os/exec"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -37,6 +37,6 @@ func MergeEnv(extra, base []string) []string {
 	for k, v := range m {
 		out = append(out, k+"="+v)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }

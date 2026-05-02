@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -48,7 +48,7 @@ func uniq(xs []string) []string {
 			out = append(out, x)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -110,7 +110,7 @@ func methodsForType(pkg *packages.Package, typeName string) ([]string, error) {
 	for k := range set {
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }
 

@@ -9,6 +9,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+var _ Manager = (*WaylandWindowManager)(nil)
+
 // WaylandWindowManager implements Manager using ext-foreign-toplevel-list-v1
 // and/or zwlr-foreign-toplevel-management-v1, whichever the compositor advertises.
 // Protocols are detected by probing globals at runtime; no version numbers are
