@@ -35,7 +35,7 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 		return nil, fmt.Errorf("window/x11: connect to display %q: %w", displayName, err)
 	}
 	b := &X11Backend{conn: conn}
-	b.root = b.conn.DefaultScreen().Root
+	b.root = conn.DefaultScreen().Root
 
 	atoms := map[string]*xproto.Atom{
 		"_NET_CLIENT_LIST":   &b.atomNetClientList,
@@ -47,14 +47,22 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 		"UTF8_STRING":        &b.atomUTF8String,
 	}
 	for name, ptr := range atoms {
-		reply, err := b.conn.InternAtom(false, uint16(len(name)), name).Reply()
+		rep, err := b.conn.InternAtom(false, uint16(len(name)), name).Reply()
 		if err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("window/x11: intern atom %q: %w", name, err)
 		}
-		*ptr = reply.Atom
+		*ptr = rep.Atom
 	}
 	return b, nil
+}
+
+// NewX11BackendWithConn creates a backend that uses an existing x11.Connection.
+// Useful for unit tests with mocked connections.
+func NewX11BackendWithConn(conn x11.Connection) *X11Backend {
+	b := &X11Backend{conn: conn}
+	b.root = conn.DefaultScreen().Root
+	return b
 }
 
 // windowTitle returns the title of a window, trying _NET_WM_NAME then WM_NAME.
@@ -77,7 +85,7 @@ func (b *X11Backend) windowTitle(win xproto.Window) string {
 // windowPID returns the PID stored in _NET_WM_PID, or 0 if unavailable.
 func (b *X11Backend) windowPID(win xproto.Window) int32 {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMPID,
-		xproto.AtomCardinal, 0, 1).Reply()
+		b.atomNetWMPID, 0, 1).Reply()
 	if err != nil || len(rep.Value) < 4 {
 		return 0
 	}
@@ -101,12 +109,7 @@ func (b *X11Backend) windowHasDecoration(win xproto.Window) bool {
 
 	const MwmHintsDecorations = 1 << 1
 
-	// If the app didn't set MwmHintsDecorations, default is to have decorations.
-	// If it did set the flag, use the decorations value (0 = no decorations).
-	if (flags & MwmHintsDecorations) == 0 {
-		return true
-	}
-	return decorations != 0
+	return (flags&MwmHintsDecorations) != 0 || (decorations != 0)
 }
 
 // windowGeometry returns the geometry of a window, including its decoration
@@ -132,7 +135,7 @@ func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 
 	// decorated windows shall be translated again by the size of the decorations
 	reply, err := b.conn.GetProperty(false, win, b.atomNetFrameExtent,
-		xproto.AtomCardinal, 0, 4).Reply()
+		b.atomNetFrameExtent, 0, 4).Reply()
 	if err == nil && len(reply.Value) == 16 {
 		left := int(uint32(reply.Value[0]) | uint32(reply.Value[1])<<8 | uint32(reply.Value[2])<<16 | uint32(reply.Value[3])<<24)
 		right := int(uint32(reply.Value[4]) | uint32(reply.Value[5])<<8 | uint32(reply.Value[6])<<16 | uint32(reply.Value[7])<<24)

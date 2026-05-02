@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
-	"github.com/jezek/xgb/xtest"
+	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
 var _ Inputter = (*XTestBackend)(nil)
@@ -19,7 +18,7 @@ var _ Inputter = (*XTestBackend)(nil)
 // XTestBackend injects keyboard and mouse events via the X11 XTEST extension.
 // It only works on X11 or XWayland sessions. Prefer UinputBackend when available.
 type XTestBackend struct {
-	conn  *xgb.Conn
+	conn  x11.Connection
 	root  xproto.Window
 	delay time.Duration
 }
@@ -27,15 +26,24 @@ type XTestBackend struct {
 // NewXTestBackend connects to the named X11 display and initialises XTEST.
 // Pass an empty string to use the DISPLAY environment variable.
 func NewXTestBackend(displayName string) (*XTestBackend, error) {
-	conn, err := xgb.NewConnDisplay(displayName)
+	conn, err := x11.NewXgbConnection(displayName)
 	if err != nil {
 		return nil, fmt.Errorf("input/xtest: connect to display %q: %w", displayName, err)
 	}
-	if err := xtest.Init(conn); err != nil {
+	if err := conn.InitXTest(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("input/xtest: init XTEST: %w", err)
 	}
-	root := xproto.Setup(conn).DefaultScreen(conn).Root
+	root := conn.DefaultScreen().Root
+	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
+}
+
+// NewXTestBackendWithConn returns a backend using an existing x11.Connection (for tests).
+func NewXTestBackendWithConn(conn x11.Connection) (*XTestBackend, error) {
+	if err := conn.InitXTest(); err != nil {
+		return nil, fmt.Errorf("input/xtest: init XTEST: %w", err)
+	}
+	root := conn.DefaultScreen().Root
 	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
 }
 
@@ -68,14 +76,15 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 	if !ok {
 		return 0, fmt.Errorf("input/xtest: unknown key %q", key)
 	}
-	km, err := xproto.GetKeyboardMapping(b.conn,
-		xproto.Setup(b.conn).MinKeycode,
-		byte(xproto.Setup(b.conn).MaxKeycode-xproto.Setup(b.conn).MinKeycode+1)).Reply()
+	setup := b.conn.Setup()
+	first := xproto.Keycode(setup.MinKeycode)
+	count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
+	km, err := b.conn.GetKeyboardMapping(first, count).Reply()
 	if err != nil {
 		return 0, fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
 	}
 	kpk := int(km.KeysymsPerKeycode)
-	min := int(xproto.Setup(b.conn).MinKeycode)
+	min := int(setup.MinKeycode)
 	for i, s := range km.Keysyms {
 		if s == sym {
 			return xproto.Keycode(min + i/kpk), nil
@@ -89,7 +98,7 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	return xtest.FakeInputChecked(b.conn, xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	return b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 // KeyUp releases a previously held key.
@@ -98,7 +107,7 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	return xtest.FakeInputChecked(b.conn, xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 func (b *XTestBackend) PressCombo(ctx context.Context, combo string) error {
@@ -113,14 +122,14 @@ func (b *XTestBackend) PressCombo(ctx context.Context, combo string) error {
 	}
 	// Press all
 	for _, kc := range kcs {
-		if err := xtest.FakeInputChecked(b.conn, xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
+		if err := b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
 			return err
 		}
 	}
 	time.Sleep(b.delay)
 	// Release in reverse
 	for i := len(kcs) - 1; i >= 0; i-- {
-		if err := xtest.FakeInputChecked(b.conn, xproto.KeyRelease, byte(kcs[i]), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
+		if err := b.conn.FakeInputChecked(xproto.KeyRelease, byte(kcs[i]), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
 			return err
 		}
 	}
@@ -151,7 +160,7 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 }
 
 func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
-	return xtest.FakeInputChecked(b.conn, xproto.MotionNotify, 0,
+	return b.conn.FakeInputChecked(xproto.MotionNotify, 0,
 		xproto.TimeCurrentTime, b.root, int16(x), int16(y), 0).Check()
 }
 
@@ -167,12 +176,12 @@ func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 }
 
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
-	return xtest.FakeInputChecked(b.conn, xproto.ButtonPress, byte(button),
+	return b.conn.FakeInputChecked(xproto.ButtonPress, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
-	return xtest.FakeInputChecked(b.conn, xproto.ButtonRelease, byte(button),
+	return b.conn.FakeInputChecked(xproto.ButtonRelease, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 

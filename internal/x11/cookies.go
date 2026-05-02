@@ -3,6 +3,7 @@ package x11
 import (
 	"github.com/jezek/xgb/composite"
 	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgb/xtest"
 )
 
 type InternAtomCookie interface {
@@ -42,6 +43,16 @@ type FreePixmapCookie interface {
 }
 
 type NameWindowPixmapCookie interface {
+	Check() error
+}
+
+// GetKeyboardMappingCookie wraps xproto.GetKeyboardMappingCookie
+type GetKeyboardMappingCookie interface {
+	Reply() (*xproto.GetKeyboardMappingReply, error)
+}
+
+// XTestFakeInputCookie wraps xtest.FakeInputCookie
+type XTestFakeInputCookie interface {
 	Check() error
 }
 
@@ -169,5 +180,31 @@ func NewXProtoNameWindowPixmapCookie(c composite.NameWindowPixmapCookie) *XProto
 }
 
 func (c *XProtoNameWindowPixmapCookie) Check() error {
+	return c.cookie.Check()
+}
+
+// GetKeyboardMapping wrapper
+type XProtoGetKeyboardMappingCookie struct {
+	cookie xproto.GetKeyboardMappingCookie
+}
+
+func NewXProtoGetKeyboardMappingCookie(c xproto.GetKeyboardMappingCookie) *XProtoGetKeyboardMappingCookie {
+	return &XProtoGetKeyboardMappingCookie{cookie: c}
+}
+
+func (c *XProtoGetKeyboardMappingCookie) Reply() (*xproto.GetKeyboardMappingReply, error) {
+	return c.cookie.Reply()
+}
+
+// XTest fake-input wrapper
+type XProtoXTestFakeInputCookie struct {
+	cookie xtest.FakeInputCookie
+}
+
+func NewXProtoXTestFakeInputCookie(c xtest.FakeInputCookie) *XProtoXTestFakeInputCookie {
+	return &XProtoXTestFakeInputCookie{cookie: c}
+}
+
+func (c *XProtoXTestFakeInputCookie) Check() error {
 	return c.cookie.Check()
 }
