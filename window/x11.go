@@ -101,7 +101,12 @@ func (b *X11Backend) windowHasDecoration(win xproto.Window) bool {
 
 	const MwmHintsDecorations = 1 << 1
 
-	return (flags&MwmHintsDecorations) != 0 || (decorations != 0)
+	// If the app didn't set MwmHintsDecorations, default is to have decorations.
+	// If it did set the flag, use the decorations value (0 = no decorations).
+	if (flags & MwmHintsDecorations) == 0 {
+		return true
+	}
+	return decorations != 0
 }
 
 // windowGeometry returns the geometry of a window, including its decoration
