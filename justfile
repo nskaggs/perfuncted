@@ -44,13 +44,22 @@ install-dev-tools:
     go install golang.org/x/vuln/cmd/govulncheck@latest
     go install golang.org/x/tools/cmd/deadcode@latest
 
-# Generate CLI documentation
-docs:
+# Generate CLI code and documentation
+generate:
+    go run -tags=gencli ./scripts/gen_cli.go
     rm -rf docs-cli/
     go run ./cmd/pf/ docs --dir ./docs-cli
 
-# Pre-commit: all checks + unit tests
-precommit: check test-unit
+# Generate CLI documentation
+docs: generate
+
+# Verify generated files are current
+check-generate:
+    just generate
+    git diff --exit-code -- cmd/pf/autogen_gen.go docs-cli
+
+# Pre-commit: generated files + all checks + unit tests
+precommit: check-generate check test-unit
 
 # Build all packages and binaries
 build:
@@ -71,18 +80,23 @@ test: test-unit
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
-    @bash scripts/test-session.sh
+    PF_TEST_DISPLAY_SERVER=wayland go test -tags=integration ./integration -run TestSessionLifecycle -count=1
 
-# Run integration tests (defaults to headless if no arg provided)
-# Usage: just test-integration            -> headless
-#        just test-integration desktop    -> desktop
-#        just test-integration nested     -> nested
-test-integration *args:
-    @if [ -z '{{args}}' ]; then \
-        bash scripts/test-integration.sh headless; \
-    else \
-        bash scripts/test-integration.sh {{args}}; \
-    fi
+# Run the shared integration suite against X11.
+test-integration-x11:
+    PF_TEST_DISPLAY_SERVER=x11 go test -tags=integration ./integration -count=1
+
+# Run the shared integration suite against Wayland.
+test-integration-wayland:
+    PF_TEST_DISPLAY_SERVER=wayland go test -tags=integration ./integration -count=1
+
+# Run the shared integration suite against a visible nested Wayland session.
+test-integration-nested:
+    PF_TEST_DISPLAY_SERVER=nested go test -tags=integration ./integration -count=1
+
+# Run all integration checks: shared suite plus package-level backend integrations.
+test-integration: test-integration-x11 test-integration-wayland
+    go test -tags=integration ./window ./input ./screen ./clipboard -count=1
 
 # Run all test suites: unit + session + integration
 test-all: test-unit test-session test-integration

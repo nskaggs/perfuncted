@@ -4,6 +4,8 @@
 /test
 *.test
 /integration
+!/integration/
+!/integration/*.go
 
 # Documentation (local only)
 docs/

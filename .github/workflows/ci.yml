@@ -18,8 +18,12 @@ jobs:
           go-version: "1.25"
           cache: true
 
-      - name: Generate CLI
-        run: go run -tags=gencli ./scripts/gen_cli.go
+      - name: Generate artifacts
+        run: |
+          go run -tags=gencli ./scripts/gen_cli.go
+          rm -rf docs-cli/
+          go run ./cmd/pf/ docs --dir ./docs-cli
+          git diff --exit-code -- cmd/pf/autogen_gen.go docs-cli
 
       - name: Format check
         run: test -z "$(gofmt -l .)"
@@ -65,15 +69,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway kwrite pluma dbus-x11 libwayland-client0 libwayland-server0 \
+          sudo apt-get install -y sway openbox kwrite pluma firefox dbus-x11 libwayland-client0 libwayland-server0 \
                                  libwlroots-dev libx11-dev libxtst-dev x11-utils \
                                  wl-clipboard xdg-utils xvfb
 
-      - name: X11 Integration Tests (Xvfb)
-        run: go test -v -tags=integration -timeout=60s ./window/... ./input/... ./screen/...
+      - name: X11 Integration Tests
+        run: PF_TEST_DISPLAY_SERVER=x11 go test -v -tags=integration -timeout=60s ./integration -count=1
 
-      - name: Run Integration Tests
-        run: bash scripts/test-integration.sh headless
+      - name: Wayland Integration Tests
+        run: PF_TEST_DISPLAY_SERVER=wayland go test -v -tags=integration -timeout=60s ./integration -count=1
         env:
           PF_TEST_PREFIX: ci
 
+      - name: Backend Integration Tests
+        run: go test -v -tags=integration -timeout=60s ./window ./input ./screen ./clipboard -count=1
