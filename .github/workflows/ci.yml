@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26.2"
           cache: true
 
       - name: Generate artifacts
@@ -63,7 +63,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26.2"
           cache: true
 
       - name: Install dependencies
@@ -74,10 +74,10 @@ jobs:
                                  wl-clipboard xdg-utils xvfb
 
       - name: X11 Integration Tests
-        run: PF_TEST_DISPLAY_SERVER=x11 go test -v -tags=integration -timeout=60s ./integration -count=1
+        run: PF_TEST_DISPLAY_SERVER=headless-x11 go test -v -tags=integration -timeout=60s ./integration -count=1
 
       - name: Wayland Integration Tests
-        run: PF_TEST_DISPLAY_SERVER=wayland go test -v -tags=integration -timeout=60s ./integration -count=1
+        run: PF_TEST_DISPLAY_SERVER=headless-wayland go test -v -tags=integration -timeout=60s ./integration -count=1
         env:
           PF_TEST_PREFIX: ci
 

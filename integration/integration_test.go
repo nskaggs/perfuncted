@@ -28,9 +28,10 @@ import (
 type displayMode string
 
 const (
-	displayX11     displayMode = "x11"
-	displayNested  displayMode = "nested"
-	displayWayland displayMode = "wayland"
+	displayHeadlessX11     displayMode = "headless-x11"
+	displayNestedX11       displayMode = "nested-x11"
+	displayHeadlessWayland displayMode = "headless-wayland"
+	displayNestedWayland   displayMode = "nested-wayland"
 )
 
 type appSpec struct {
@@ -55,9 +56,10 @@ type suite struct {
 var currentSuite *suite
 
 func TestMain(m *testing.M) {
-	mode := displayMode(strings.ToLower(os.Getenv("PF_TEST_DISPLAY_SERVER")))
-	if mode == "" {
-		mode = displayWayland
+	mode, err := parseDisplayMode(strings.ToLower(os.Getenv("PF_TEST_DISPLAY_SERVER")))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "integration setup failed: %v\n", err)
+		os.Exit(1)
 	}
 
 	s, err := newSuite(mode)
@@ -77,52 +79,54 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func parseDisplayMode(raw string) (displayMode, error) {
+	switch raw {
+	case "", "wayland", "headless-wayland":
+		return displayHeadlessWayland, nil
+	case "nested-wayland":
+		return displayNestedWayland, nil
+	case "x11", "headless-x11":
+		return displayHeadlessX11, nil
+	case "nested-x11":
+		return displayNestedX11, nil
+	case "nested":
+		return displayNestedWayland, nil
+	default:
+		return "", fmt.Errorf("unknown PF_TEST_DISPLAY_SERVER=%q", raw)
+	}
+}
+
 func newSuite(mode displayMode) (*suite, error) {
 	s := &suite{mode: mode}
 	switch mode {
-	case displayX11:
+	case displayHeadlessX11:
 		display, xvfb, openbox, err := startX11Session()
 		if err != nil {
 			return nil, err
 		}
 		s.xvfb = xvfb
 		s.openbox = openbox
-		os.Setenv("DISPLAY", display)
-		os.Unsetenv("WAYLAND_DISPLAY")
-		os.Unsetenv("XDG_RUNTIME_DIR")
-		os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
-		os.Unsetenv("SWAYSOCK")
-		os.Setenv("GDK_BACKEND", "x11")
-		os.Setenv("QT_QPA_PLATFORM", "xcb")
-		s.rt = env.Current().Without(
-			"WAYLAND_DISPLAY",
-			"XDG_RUNTIME_DIR",
-			"DBUS_SESSION_BUS_ADDRESS",
-			"SWAYSOCK",
-			"HYPRLAND_INSTANCE_SIGNATURE",
-		).With("DISPLAY", display).With("GDK_BACKEND", "x11").With("QT_QPA_PLATFORM", "xcb")
-	case displayWayland:
+		s.rt = configureX11Runtime(display)
+	case displayNestedX11:
+		display := os.Getenv("DISPLAY")
+		if display == "" {
+			return nil, fmt.Errorf("nested x11 requires DISPLAY to be set")
+		}
+		s.rt = configureX11Runtime(display)
+	case displayHeadlessWayland:
 		sess, err := perfuncted.StartSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
 		if err != nil {
 			return nil, err
 		}
 		s.session = sess
-		os.Setenv("XDG_RUNTIME_DIR", sess.XDGRuntimeDir())
-		os.Setenv("WAYLAND_DISPLAY", sess.WaylandDisplay())
-		os.Setenv("DBUS_SESSION_BUS_ADDRESS", sess.DBusAddress())
-		os.Unsetenv("DISPLAY")
-		s.rt = env.Current().WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
-	case displayNested:
+		s.rt = configureWaylandRuntime(sess)
+	case displayNestedWayland:
 		sess, err := perfuncted.StartNestedSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
 		if err != nil {
 			return nil, err
 		}
 		s.session = sess
-		os.Setenv("XDG_RUNTIME_DIR", sess.XDGRuntimeDir())
-		os.Setenv("WAYLAND_DISPLAY", sess.WaylandDisplay())
-		os.Setenv("DBUS_SESSION_BUS_ADDRESS", sess.DBusAddress())
-		os.Unsetenv("DISPLAY")
-		s.rt = env.Current().WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
+		s.rt = configureWaylandRuntime(sess)
 	default:
 		return nil, fmt.Errorf("unknown PF_TEST_DISPLAY_SERVER=%q", mode)
 	}
@@ -134,6 +138,31 @@ func newSuite(mode displayMode) (*suite, error) {
 	}
 	s.pf = pf
 	return s, nil
+}
+
+func configureX11Runtime(display string) env.Runtime {
+	os.Setenv("DISPLAY", display)
+	os.Unsetenv("WAYLAND_DISPLAY")
+	os.Unsetenv("XDG_RUNTIME_DIR")
+	os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
+	os.Unsetenv("SWAYSOCK")
+	os.Setenv("GDK_BACKEND", "x11")
+	os.Setenv("QT_QPA_PLATFORM", "xcb")
+	return env.Current().Without(
+		"WAYLAND_DISPLAY",
+		"XDG_RUNTIME_DIR",
+		"DBUS_SESSION_BUS_ADDRESS",
+		"SWAYSOCK",
+		"HYPRLAND_INSTANCE_SIGNATURE",
+	).With("DISPLAY", display).With("GDK_BACKEND", "x11").With("QT_QPA_PLATFORM", "xcb")
+}
+
+func configureWaylandRuntime(sess *perfuncted.Session) env.Runtime {
+	os.Setenv("XDG_RUNTIME_DIR", sess.XDGRuntimeDir())
+	os.Setenv("WAYLAND_DISPLAY", sess.WaylandDisplay())
+	os.Setenv("DBUS_SESSION_BUS_ADDRESS", sess.DBusAddress())
+	os.Unsetenv("DISPLAY")
+	return env.Current().WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
 }
 
 func (s *suite) Close() error {
@@ -259,7 +288,7 @@ func TestSessionLifecycle(t *testing.T) {
 		}
 	}
 
-	cmd, err := launchApp(rt, sess, app, app.extraEnvFor(displayWayland)...)
+	cmd, err := launchApp(rt, sess, app, app.extraEnvFor(displayHeadlessWayland)...)
 	if err != nil {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
@@ -642,11 +671,11 @@ func (a appSpec) extraEnvFor(mode displayMode) []string {
 	switch a.name {
 	case "firefox":
 		envs = append(envs, "MOZ_DISABLE_CONTENT_SANDBOX=1")
-		if mode == displayWayland {
+		if mode == displayHeadlessWayland || mode == displayNestedWayland {
 			envs = append(envs, "MOZ_ENABLE_WAYLAND=1")
 		}
 	}
-	if mode == displayX11 {
+	if mode == displayHeadlessX11 || mode == displayNestedX11 {
 		envs = append(envs, "GDK_BACKEND=x11", "QT_QPA_PLATFORM=xcb")
 	}
 	return envs
