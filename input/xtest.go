@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -48,12 +49,19 @@ func NewXTestBackendWithConn(conn x11.Connection) (*XTestBackend, error) {
 }
 
 // keysymForName maps a key name to an X11 keysym value.
+// For letters, we use lowercase keysyms. Uppercase is handled by sending
+// Shift+lowercase in TypeContext.
 var keysymForName = map[string]xproto.Keysym{
 	"a": 0x61, "b": 0x62, "c": 0x63, "d": 0x64, "e": 0x65,
 	"f": 0x66, "g": 0x67, "h": 0x68, "i": 0x69, "j": 0x6a,
 	"k": 0x6b, "l": 0x6c, "m": 0x6d, "n": 0x6e, "o": 0x6f,
 	"p": 0x70, "q": 0x71, "r": 0x72, "s": 0x73, "t": 0x74,
 	"u": 0x75, "v": 0x76, "w": 0x77, "x": 0x78, "y": 0x79, "z": 0x7a,
+	"A": 0x61, "B": 0x62, "C": 0x63, "D": 0x64, "E": 0x65,
+	"F": 0x66, "G": 0x67, "H": 0x68, "I": 0x69, "J": 0x6a,
+	"K": 0x6b, "L": 0x6c, "M": 0x6d, "N": 0x6e, "O": 0x6f,
+	"P": 0x70, "Q": 0x71, "R": 0x72, "S": 0x73, "T": 0x74,
+	"U": 0x75, "V": 0x76, "W": 0x77, "X": 0x78, "Y": 0x79, "Z": 0x7a,
 	"0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34,
 	"5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39,
 	" ": 0x20, "space": 0x20,
@@ -68,8 +76,9 @@ var keysymForName = map[string]xproto.Keysym{
 }
 
 func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
-	sym, ok := keysymForName[strings.ToLower(key)]
+	sym, ok := keysymForName[key]
 	if !ok && len(key) == 1 {
+		// For single characters not in the map, use the character code directly
 		sym = xproto.Keysym(key[0])
 		ok = true
 	}
@@ -137,6 +146,25 @@ func (b *XTestBackend) PressCombo(ctx context.Context, combo string) error {
 }
 
 func (b *XTestBackend) KeyTap(ctx context.Context, key string) error {
+	// Handle single uppercase character by sending Shift+lowercase
+	if len(key) == 1 && unicode.IsUpper(rune(key[0])) {
+		if err := b.KeyDown(ctx, "shift"); err != nil {
+			return err
+		}
+		if err := b.KeyDown(ctx, string(unicode.ToLower(rune(key[0])))); err != nil {
+			_ = b.KeyUp(ctx, "shift")
+			return err
+		}
+		time.Sleep(b.delay)
+		if err := b.KeyUp(ctx, string(unicode.ToLower(rune(key[0])))); err != nil {
+			_ = b.KeyUp(ctx, "shift")
+			return err
+		}
+		if err := b.KeyUp(ctx, "shift"); err != nil {
+			return err
+		}
+		return nil
+	}
 
 	if err := b.KeyDown(ctx, key); err != nil {
 		return err
@@ -151,8 +179,25 @@ func (b *XTestBackend) Type(ctx context.Context, s string) error {
 
 func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 	for _, ch := range s {
-		if err := b.KeyTap(ctx, string(ch)); err != nil {
-			return err
+		// Handle uppercase letters by sending Shift+lowercase
+		if unicode.IsUpper(ch) {
+			// Press Shift
+			if err := b.KeyDown(ctx, "shift"); err != nil {
+				return err
+			}
+			// Type the lowercase version
+			if err := b.KeyTap(ctx, string(unicode.ToLower(ch))); err != nil {
+				_ = b.KeyUp(ctx, "shift")
+				return err
+			}
+			// Release Shift
+			if err := b.KeyUp(ctx, "shift"); err != nil {
+				return err
+			}
+		} else {
+			if err := b.KeyTap(ctx, string(ch)); err != nil {
+				return err
+			}
 		}
 		time.Sleep(b.delay)
 	}
