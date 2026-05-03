@@ -46,7 +46,7 @@ func (i InputBundle) TypeContext(ctx context.Context, text string) error {
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
-	return i.Inputter.Type(ctx, text)
+	return i.Inputter.KeyTap(ctx, text)
 }
 
 func (i InputBundle) TypeWithDelay(text string, delay time.Duration) error {
