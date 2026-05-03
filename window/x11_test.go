@@ -22,15 +22,19 @@ func newStubX11Backend(t *testing.T, withWindow bool, title string) (*X11Backend
 	t.Helper()
 	conn := &x11.MockConnection{}
 	b := &X11Backend{
-		conn:                conn,
-		root:                1,
-		atomNetClientList:   10,
-		atomNetActiveWindow: 11,
-		atomNetFrameExtent:  12,
-		atomNetWMName:       13,
-		atomNetWMPID:        14,
-		atomMotifWMHints:    15,
-		atomUTF8String:      16,
+		conn:                        conn,
+		root:                        1,
+		atomNetClientList:           10,
+		atomNetActiveWindow:         11,
+		atomNetFrameExtent:          12,
+		atomNetWMName:               13,
+		atomNetWMState:              20,
+		atomNetWMStateHidden:        21,
+		atomNetWMStateMaximizedVert: 22,
+		atomNetWMStateMaximizedHorz: 23,
+		atomNetWMPID:                14,
+		atomMotifWMHints:            15,
+		atomUTF8String:              16,
 	}
 	conn.DefaultScreenFunc = func() *xproto.ScreenInfo {
 		return &xproto.ScreenInfo{Root: b.root, WidthInPixels: 1920, HeightInPixels: 1080}
@@ -395,5 +399,192 @@ func TestX11Backend_Close(t *testing.T) {
 	b, _ := newStubX11Backend(t, false, "")
 	if err := b.Close(); err != nil {
 		t.Errorf("Close() unexpected error: %v", err)
+	}
+}
+
+func TestX11Backend_activeWindow(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	// Test with active window
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetActiveWindow {
+			wid := xproto.Window(50)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{byte(wid), byte(wid >> 8), byte(wid >> 16), byte(wid >> 24)}})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	win, err := b.activeWindow()
+	if err != nil {
+		t.Fatalf("activeWindow() unexpected error: %v", err)
+	}
+	if win != xproto.Window(50) {
+		t.Errorf("activeWindow() = %d, want 50", win)
+	}
+}
+
+func TestX11Backend_activeWindow_NoActive(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	win, err := b.activeWindow()
+	if err != nil {
+		t.Fatalf("activeWindow() unexpected error: %v", err)
+	}
+	if win != 0 {
+		t.Errorf("activeWindow() = %d, want 0", win)
+	}
+}
+
+func TestX11Backend_activeWindow_Error(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookieError(fmt.Errorf("connection error"))
+	}
+	_, err := b.activeWindow()
+	if err == nil {
+		t.Fatal("activeWindow() expected error, got nil")
+	}
+}
+
+func TestX11Backend_windowState_Minimized(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			// Return _NET_WM_STATE_HIDDEN in the state
+			atomBytes := []byte{
+				byte(b.atomNetWMStateHidden), byte(b.atomNetWMStateHidden >> 8),
+				byte(b.atomNetWMStateHidden >> 16), byte(b.atomNetWMStateHidden >> 24),
+			}
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	minimized, maximized := b.windowState(50)
+	if !minimized {
+		t.Errorf("windowState() minimized = false, want true")
+	}
+	if maximized {
+		t.Errorf("windowState() maximized = true, want false")
+	}
+}
+
+func TestX11Backend_windowState_Maximized(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			// Return both maximized vert and horz (8 bytes = 2 atoms * 4 bytes each)
+			atomBytes := make([]byte, 8)
+			// _NET_WM_STATE_MAXIMIZED_VERT
+			atomBytes[0] = byte(b.atomNetWMStateMaximizedVert)
+			atomBytes[1] = byte(b.atomNetWMStateMaximizedVert >> 8)
+			atomBytes[2] = byte(b.atomNetWMStateMaximizedVert >> 16)
+			atomBytes[3] = byte(b.atomNetWMStateMaximizedVert >> 24)
+			// _NET_WM_STATE_MAXIMIZED_HORZ
+			atomBytes[4] = byte(b.atomNetWMStateMaximizedHorz)
+			atomBytes[5] = byte(b.atomNetWMStateMaximizedHorz >> 8)
+			atomBytes[6] = byte(b.atomNetWMStateMaximizedHorz >> 16)
+			atomBytes[7] = byte(b.atomNetWMStateMaximizedHorz >> 24)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	minimized, maximized := b.windowState(50)
+	if minimized {
+		t.Errorf("windowState() minimized = true, want false")
+	}
+	if !maximized {
+		t.Errorf("windowState() maximized = false, want true")
+	}
+}
+
+func TestX11Backend_windowState_Both(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			// Return hidden, maximized vert, and maximized horz (12 bytes = 3 atoms * 4 bytes each)
+			atomBytes := make([]byte, 12)
+			// _NET_WM_STATE_HIDDEN
+			atomBytes[0] = byte(b.atomNetWMStateHidden)
+			atomBytes[1] = byte(b.atomNetWMStateHidden >> 8)
+			atomBytes[2] = byte(b.atomNetWMStateHidden >> 16)
+			atomBytes[3] = byte(b.atomNetWMStateHidden >> 24)
+			// _NET_WM_STATE_MAXIMIZED_VERT
+			atomBytes[4] = byte(b.atomNetWMStateMaximizedVert)
+			atomBytes[5] = byte(b.atomNetWMStateMaximizedVert >> 8)
+			atomBytes[6] = byte(b.atomNetWMStateMaximizedVert >> 16)
+			atomBytes[7] = byte(b.atomNetWMStateMaximizedVert >> 24)
+			// _NET_WM_STATE_MAXIMIZED_HORZ
+			atomBytes[8] = byte(b.atomNetWMStateMaximizedHorz)
+			atomBytes[9] = byte(b.atomNetWMStateMaximizedHorz >> 8)
+			atomBytes[10] = byte(b.atomNetWMStateMaximizedHorz >> 16)
+			atomBytes[11] = byte(b.atomNetWMStateMaximizedHorz >> 24)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	minimized, maximized := b.windowState(50)
+	if !minimized {
+		t.Errorf("windowState() minimized = false, want true")
+	}
+	if !maximized {
+		t.Errorf("windowState() maximized = false, want true")
+	}
+}
+
+func TestX11Backend_windowState_Error(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			return x11.NewMockGetPropertyCookieError(fmt.Errorf("connection error"))
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	minimized, maximized := b.windowState(50)
+	if minimized || maximized {
+		t.Errorf("windowState() with error should return false, false, got %v, %v", minimized, maximized)
+	}
+}
+
+func TestX11Backend_IterateWindows_MinimizedMaximized(t *testing.T) {
+	b, conn := newStubX11Backend(t, true, "Test Window")
+	// Override getPropertyFn to also handle atomNetWMState
+	origFn := conn.GetPropertyFunc
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			// Return both hidden and maximized (12 bytes = 3 atoms * 4 bytes each)
+			atomBytes := make([]byte, 12)
+			// _NET_WM_STATE_HIDDEN
+			atomBytes[0] = byte(b.atomNetWMStateHidden)
+			atomBytes[1] = byte(b.atomNetWMStateHidden >> 8)
+			atomBytes[2] = byte(b.atomNetWMStateHidden >> 16)
+			atomBytes[3] = byte(b.atomNetWMStateHidden >> 24)
+			// _NET_WM_STATE_MAXIMIZED_VERT
+			atomBytes[4] = byte(b.atomNetWMStateMaximizedVert)
+			atomBytes[5] = byte(b.atomNetWMStateMaximizedVert >> 8)
+			atomBytes[6] = byte(b.atomNetWMStateMaximizedVert >> 16)
+			atomBytes[7] = byte(b.atomNetWMStateMaximizedVert >> 24)
+			// _NET_WM_STATE_MAXIMIZED_HORZ
+			atomBytes[8] = byte(b.atomNetWMStateMaximizedHorz)
+			atomBytes[9] = byte(b.atomNetWMStateMaximizedHorz >> 8)
+			atomBytes[10] = byte(b.atomNetWMStateMaximizedHorz >> 16)
+			atomBytes[11] = byte(b.atomNetWMStateMaximizedHorz >> 24)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+		}
+		// Call original function for other properties
+		return origFn(d, w, p, t, lo, ll)
+	}
+	ctx := context.Background()
+	var found Info
+	for info, err := range b.IterateWindows(ctx) {
+		if err != nil {
+			t.Fatalf("IterateWindows() error: %v", err)
+		}
+		found = info
+	}
+	if !found.Minimized {
+		t.Errorf("IterateWindows() Minimized = false, want true")
+	}
+	if !found.Maximized {
+		t.Errorf("IterateWindows() Maximized = false, want true")
 	}
 }

@@ -16,15 +16,19 @@ var _ Manager = (*X11Backend)(nil)
 
 // X11Backend manages windows via EWMH atoms on an X11 or XWayland display.
 type X11Backend struct {
-	conn                x11.Connection
-	root                xproto.Window
-	atomNetClientList   xproto.Atom
-	atomNetActiveWindow xproto.Atom
-	atomNetFrameExtent  xproto.Atom
-	atomNetWMName       xproto.Atom
-	atomNetWMPID        xproto.Atom
-	atomMotifWMHints    xproto.Atom
-	atomUTF8String      xproto.Atom
+	conn                        x11.Connection
+	root                        xproto.Window
+	atomNetClientList           xproto.Atom
+	atomNetActiveWindow         xproto.Atom
+	atomNetFrameExtent          xproto.Atom
+	atomNetWMName               xproto.Atom
+	atomNetWMState              xproto.Atom
+	atomNetWMStateHidden        xproto.Atom
+	atomNetWMStateMaximizedVert xproto.Atom
+	atomNetWMStateMaximizedHorz xproto.Atom
+	atomNetWMPID                xproto.Atom
+	atomMotifWMHints            xproto.Atom
+	atomUTF8String              xproto.Atom
 }
 
 // NewX11Backend connects to the X11 display and interns the EWMH atoms needed
@@ -38,13 +42,17 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 	b.root = conn.DefaultScreen().Root
 
 	atoms := map[string]*xproto.Atom{
-		"_NET_CLIENT_LIST":   &b.atomNetClientList,
-		"_NET_ACTIVE_WINDOW": &b.atomNetActiveWindow,
-		"_NET_FRAME_EXTENTS": &b.atomNetFrameExtent,
-		"_NET_WM_NAME":       &b.atomNetWMName,
-		"_NET_WM_PID":        &b.atomNetWMPID,
-		"_MOTIF_WM_HINTS":    &b.atomMotifWMHints,
-		"UTF8_STRING":        &b.atomUTF8String,
+		"_NET_CLIENT_LIST":             &b.atomNetClientList,
+		"_NET_ACTIVE_WINDOW":           &b.atomNetActiveWindow,
+		"_NET_FRAME_EXTENTS":           &b.atomNetFrameExtent,
+		"_NET_WM_NAME":                 &b.atomNetWMName,
+		"_NET_WM_STATE":                &b.atomNetWMState,
+		"_NET_WM_STATE_HIDDEN":         &b.atomNetWMStateHidden,
+		"_NET_WM_STATE_MAXIMIZED_VERT": &b.atomNetWMStateMaximizedVert,
+		"_NET_WM_STATE_MAXIMIZED_HORZ": &b.atomNetWMStateMaximizedHorz,
+		"_NET_WM_PID":                  &b.atomNetWMPID,
+		"_MOTIF_WM_HINTS":              &b.atomMotifWMHints,
+		"UTF8_STRING":                  &b.atomUTF8String,
 	}
 	for name, ptr := range atoms {
 		rep, err := b.conn.InternAtom(false, uint16(len(name)), name).Reply()
@@ -55,6 +63,40 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 		*ptr = rep.Atom
 	}
 	return b, nil
+}
+
+func (b *X11Backend) activeWindow() (xproto.Window, error) {
+	rep, err := b.conn.GetProperty(false, b.root, b.atomNetActiveWindow,
+		xproto.AtomWindow, 0, 1).Reply()
+	if err != nil {
+		return 0, err
+	}
+	if len(rep.Value) < 4 {
+		return 0, nil
+	}
+	id := xproto.Window(
+		uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
+			uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
+	return id, nil
+}
+
+func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized bool) {
+	rep, err := b.conn.GetProperty(false, win, b.atomNetWMState,
+		xproto.AtomAtom, 0, 64).Reply()
+	if err != nil || rep.Format != 32 {
+		return
+	}
+	for i := 0; i+3 < len(rep.Value); i += 4 {
+		a := xproto.Atom(uint32(rep.Value[i]) | uint32(rep.Value[i+1])<<8 |
+			uint32(rep.Value[i+2])<<16 | uint32(rep.Value[i+3])<<24)
+		switch a {
+		case b.atomNetWMStateHidden:
+			minimized = true
+		case b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz:
+			maximized = true
+		}
+	}
+	return
 }
 
 // windowTitle returns the title of a window, trying _NET_WM_NAME then WM_NAME.
@@ -183,16 +225,23 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 					uint32(rep.Value[i*4+2])<<16 | uint32(rep.Value[i*4+3])<<24)
 		}
 
+		// in case of error, activeWindow is not likely to match any id value
+		activeWindow, _ := b.activeWindow()
+
 		for _, id := range ids {
 			x, y, w, h := b.windowGeometry(id)
+			minimized, maximized := b.windowState(id)
 			info := Info{
-				ID:    uint64(id),
-				Title: b.windowTitle(id),
-				PID:   b.windowPID(id),
-				X:     x,
-				Y:     y,
-				W:     w,
-				H:     h,
+				ID:        uint64(id),
+				Title:     b.windowTitle(id),
+				PID:       b.windowPID(id),
+				X:         x,
+				Y:         y,
+				W:         w,
+				H:         h,
+				Minimized: minimized,
+				Maximized: maximized,
+				Active:    id == activeWindow,
 			}
 			if !yield(info, nil) {
 				return
@@ -233,25 +282,19 @@ func (b *X11Backend) Restore(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	stateAtom, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE")), "_NET_WM_STATE").Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern _NET_WM_STATE: %w", err)
+	data := [5]uint32{
+		0, /* _NET_WM_STATE_REMOVE */
+		uint32(b.atomNetWMStateMaximizedVert),
+		uint32(b.atomNetWMStateMaximizedHorz),
+		1,
+		0,
 	}
-	maxV, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_VERT")), "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_VERT: %w", err)
-	}
-	maxH, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_HORZ")), "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_HORZ: %w", err)
-	}
-	data := [5]uint32{0 /* _NET_WM_STATE_REMOVE */, uint32(maxV.Atom), uint32(maxH.Atom), 1, 0}
 	if err := b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
 		string(xproto.ClientMessageEvent{
 			Format: 32,
 			Window: win,
-			Type:   stateAtom.Atom,
+			Type:   b.atomNetWMState,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
 		}.Bytes())).Check(); err != nil {
 		return err
@@ -283,16 +326,13 @@ func (b *X11Backend) Resize(ctx context.Context, title string, w, h int) error {
 
 // ActiveTitle returns the title of the currently focused window.
 func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
-	rep, err := b.conn.GetProperty(false, b.root, b.atomNetActiveWindow,
-		xproto.AtomWindow, 0, 1).Reply()
+	id, err := b.activeWindow()
 	if err != nil {
 		return "", fmt.Errorf("window/x11: get _NET_ACTIVE_WINDOW: %w", err)
 	}
-	if len(rep.Value) < 4 {
+	if id == 0 {
 		return "", nil
 	}
-	id := xproto.Window(uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
-		uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
 	return b.windowTitle(id), nil
 }
 
@@ -336,7 +376,8 @@ func (b *X11Backend) Minimize(ctx context.Context, title string) error {
 		return err
 	}
 	// Use XIconifyWindow via ChangeProperty with WM_CHANGE_STATE.
-	csAtom, err := b.conn.InternAtom(false, 15, "WM_CHANGE_STATE").Reply()
+	const wmChangeState = "WM_CHANGE_STATE"
+	csAtom, err := b.conn.InternAtom(false, uint16(len(wmChangeState)), wmChangeState).Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: %w", err)
 	}
@@ -357,25 +398,19 @@ func (b *X11Backend) Maximize(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	stateAtom, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE")), "_NET_WM_STATE").Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern _NET_WM_STATE: %w", err)
+	data := [5]uint32{
+		1, /* _NET_WM_STATE_ADD */
+		uint32(b.atomNetWMStateMaximizedVert),
+		uint32(b.atomNetWMStateMaximizedHorz),
+		1, /* source = application */
+		0,
 	}
-	maxV, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_VERT")), "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_VERT: %w", err)
-	}
-	maxH, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_HORZ")), "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_HORZ: %w", err)
-	}
-	data := [5]uint32{1 /* _NET_WM_STATE_ADD */, uint32(maxV.Atom), uint32(maxH.Atom), 1 /* source = application */, 0}
 	return b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
 		string(xproto.ClientMessageEvent{
 			Format: 32,
 			Window: win,
-			Type:   stateAtom.Atom,
+			Type:   b.atomNetWMState,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
 		}.Bytes())).Check()
 }
