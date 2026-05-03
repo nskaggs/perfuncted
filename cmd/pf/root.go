@@ -11,6 +11,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -31,9 +32,17 @@ import (
 
 func main() {
 	var (
-		nested     bool
-		maxX, maxY int32
+		nested       bool
+		traceActions bool
+		traceDelay   time.Duration
+		maxX, maxY   int32
 	)
+	if envBool(os.Getenv("PF_TRACE_ACTIONS")) {
+		traceActions = true
+	}
+	if d, err := time.ParseDuration(os.Getenv("PF_TRACE_DELAY")); err == nil && d > 0 {
+		traceDelay = d
+	}
 
 	root := &cobra.Command{
 		Use:               "pf",
@@ -46,13 +55,23 @@ func main() {
 		"input coordinate space width (default 1920)")
 	root.PersistentFlags().Int32Var(&maxY, "max-y", 0,
 		"input coordinate space height (default 1080)")
+	root.PersistentFlags().BoolVar(&traceActions, "trace-actions", traceActions,
+		"print each API action to stderr as it runs")
+	root.PersistentFlags().DurationVar(&traceDelay, "trace-delay", traceDelay,
+		"sleep after each traced action")
 
 	// openPF is the single gateway to all backends.
 	openPF := func() (*perfuncted.Perfuncted, error) {
+		var traceWriter io.Writer
+		if traceActions || traceDelay > 0 {
+			traceWriter = os.Stderr
+		}
 		return perfuncted.New(perfuncted.Options{
-			Nested: nested,
-			MaxX:   maxX,
-			MaxY:   maxY,
+			Nested:      nested,
+			MaxX:        maxX,
+			MaxY:        maxY,
+			TraceWriter: traceWriter,
+			TraceDelay:  traceDelay,
 		})
 	}
 
@@ -68,6 +87,15 @@ func main() {
 	)
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+func envBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 

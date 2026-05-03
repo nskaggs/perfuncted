@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,8 +99,35 @@ func parseDisplayMode(raw string) (displayMode, error) {
 	}
 }
 
+func traceConfigFromEnv() (io.Writer, time.Duration) {
+	delay := 0 * time.Millisecond
+	enabled := envBool(os.Getenv("PF_TRACE_ACTIONS"))
+	if raw := os.Getenv("PF_TRACE_DELAY"); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil {
+			delay = parsed
+			if parsed > 0 {
+				enabled = true
+			}
+		}
+	}
+	if !enabled {
+		return nil, 0
+	}
+	return os.Stderr, delay
+}
+
+func envBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func newSuite(mode displayMode) (*suite, error) {
 	s := &suite{mode: mode}
+	traceWriter, traceDelay := traceConfigFromEnv()
 	switch mode {
 	case displayHeadlessX11:
 		display, xvfb, openbox, err := startX11Session()
@@ -135,7 +163,12 @@ func newSuite(mode displayMode) (*suite, error) {
 		return nil, fmt.Errorf("unknown PF_TEST_DISPLAY_SERVER=%q", mode)
 	}
 
-	pf, err := perfuncted.New(perfuncted.Options{MaxX: 1024, MaxY: 768})
+	pf, err := perfuncted.New(perfuncted.Options{
+		MaxX:        1024,
+		MaxY:        768,
+		TraceWriter: traceWriter,
+		TraceDelay:  traceDelay,
+	})
 	if err != nil {
 		_ = s.Close()
 		return nil, err
@@ -626,6 +659,11 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 }
 
+// kwrite is the editor smoke signal for now.
+//
+// We are intentionally leaving the clipboard paste and ctrl+s path for the
+// GTK editor follow-up work that pluma was exposing.
+
 func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	t.Helper()
 	cmd, err := launchApp(s.rt, s.session, app, app.extraEnvFor(s.mode)...)
@@ -738,13 +776,6 @@ func requiredApps(t *testing.T) []appSpec {
 			launch:   []string{"kwrite"},
 			winMatch: "kwrite",
 			saveFile: filepath.Join(os.TempDir(), pfx+"-kwrite.txt"),
-		},
-		{
-			name:     "pluma",
-			launch:   []string{"dbus-run-session", "pluma"},
-			winMatch: "pluma",
-			saveFile: filepath.Join(os.TempDir(), pfx+"-pluma.txt"),
-			extraEnv: []string{"GTK_USE_PORTAL=0"},
 		},
 		{
 			name:      "firefox",

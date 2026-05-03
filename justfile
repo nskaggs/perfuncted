@@ -98,11 +98,6 @@ test-integration-headless-wayland:
 test-integration-nested-wayland:
     PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1
 
-# Backward-compatible aliases.
-test-integration-x11: test-integration-headless-x11
-test-integration-wayland: test-integration-headless-wayland
-test-integration-nested: test-integration-nested-wayland
-
 # Run all integration checks: shared suite plus package-level backend integrations.
 test-integration: test-integration-headless-x11 test-integration-headless-wayland
     go test -tags=integration ./window ./input ./screen ./clipboard -count=1
@@ -174,6 +169,6 @@ cleanup-nested:
     -rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
     -rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
     -rm -f /tmp/pf-test-*.png 2>/dev/null || true
-    -rm -f /tmp/*-kwrite.txt /tmp/*-pluma.txt 2>/dev/null || true
+    -rm -f /tmp/*-kwrite.txt 2>/dev/null || true
     -rm -f /tmp/*-firefox-before.png /tmp/*-firefox-after.png 2>/dev/null || true
     @echo "Cleanup complete."
