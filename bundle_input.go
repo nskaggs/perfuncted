@@ -50,6 +50,9 @@ func (i InputBundle) TypeContext(ctx context.Context, text string) error {
 }
 
 func (i InputBundle) TypeWithDelay(text string, delay time.Duration) error {
+	if delay == 0 {
+		delay = 20 * time.Millisecond
+	}
 	return i.TypeWithDelayContext(context.Background(), text, delay)
 }
 

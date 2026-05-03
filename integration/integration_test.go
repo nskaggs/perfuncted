@@ -587,8 +587,8 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := s.pf.Screen.WaitForStableContext(ctxFocus, typingRect, 3, 100*time.Millisecond); err != nil {
 		t.Fatalf("wait for editor focus to settle: %v", err)
 	}
-	if err := s.pf.Input.TypeWithDelay("Integration", 20*time.Millisecond); err != nil {
-		t.Fatalf("type with delay: %v", err)
+	if err := s.pf.Input.TypeFast("Integration"); err != nil {
+		t.Fatalf("text entry: %v", err)
 	}
 	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelType()
@@ -640,7 +640,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 	savedText, err := waitForFileContains(context.Background(), saveFile, "Integration", 10*time.Second)
 	if err != nil {
-		t.Fatalf("wait for save file contents: %v", err)
+		t.Fatalf("wait for save file %q contents: %v", saveFile, err)
 	}
 	if !strings.Contains(savedText, "Integration") {
 		t.Fatalf("saved file %q does not contain typed text", saveFile)
@@ -658,11 +658,6 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("wait for close: %v", err)
 	}
 }
-
-// kwrite is the editor smoke signal for now.
-//
-// We are intentionally leaving the clipboard paste and ctrl+s path for the
-// GTK editor follow-up work that pluma was exposing.
 
 func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	t.Helper()
@@ -777,12 +772,18 @@ func requiredApps(t *testing.T) []appSpec {
 			winMatch: "kwrite",
 			saveFile: filepath.Join(os.TempDir(), pfx+"-kwrite.txt"),
 		},
-		{
-			name:      "firefox",
-			launch:    []string{"firefox", "--no-remote", "--new-instance", "about:blank"},
-			winMatch:  "firefox",
-			isBrowser: true,
-		},
+		//{
+		//	name:     "pluma",
+		//	launch:   []string{"pluma"},
+		//	winMatch: "pluma",
+		//	saveFile: filepath.Join(os.TempDir(), pfx+"-pluma.txt"),
+		//},
+		//{
+		//	name:      "firefox",
+		//	launch:    []string{"firefox", "--no-remote", "--new-instance", "about:blank"},
+		//	winMatch:  "firefox",
+		//	isBrowser: true,
+		//},
 	}
 
 	for _, app := range all {

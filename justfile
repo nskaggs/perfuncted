@@ -90,6 +90,10 @@ test-integration-headless-x11:
 test-integration-nested-x11:
     PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1
 
+# Integration suite against nested X11 with tracing and slower execution
+test-integration-nested-x11-debug:
+    PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1 -v
+
 # Run the shared integration suite against headless Wayland.
 test-integration-headless-wayland:
     PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -count=1
@@ -98,6 +102,10 @@ test-integration-headless-wayland:
 test-integration-nested-wayland:
     PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1
 
+# Integration suite against nested Wayland with tracing and slower execution
+test-integration-nested-wayland-debug:
+    PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1 -v
+    
 # Run all integration checks: shared suite plus package-level backend integrations.
 test-integration: test-integration-headless-x11 test-integration-headless-wayland
     go test -tags=integration ./window ./input ./screen ./clipboard -count=1
