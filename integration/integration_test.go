@@ -587,7 +587,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := s.pf.Screen.WaitForStableContext(ctxFocus, typingRect, 3, 100*time.Millisecond); err != nil {
 		t.Fatalf("wait for editor focus to settle: %v", err)
 	}
-	if err := s.pf.Input.Type("Integration"); err != nil {
+	if err := s.pf.Input.TypeFast("Integration"); err != nil {
 		t.Fatalf("text entry: %v", err)
 	}
 	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
