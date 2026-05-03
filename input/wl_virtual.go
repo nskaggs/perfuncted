@@ -281,6 +281,7 @@ func (b *WlVirtualBackend) PressCombo(ctx context.Context, combo string) error {
 			return err
 		}
 	}
+	time.Sleep(50 * time.Millisecond)
 	for i := len(parts) - 1; i >= 0; i-- {
 		if err := b.kbd.releaseKey(strings.TrimSpace(parts[i])); err != nil {
 			return err

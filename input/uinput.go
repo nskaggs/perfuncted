@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bendahl/uinput"
 	"github.com/nskaggs/perfuncted/internal/keymap"
@@ -351,6 +352,7 @@ func (b *UinputBackend) PressCombo(ctx context.Context, combo string) error {
 			return err
 		}
 	}
+	time.Sleep(50 * time.Millisecond)
 	// Release in reverse
 	for i := len(codes) - 1; i >= 0; i-- {
 		if err := b.kb.KeyUp(codes[i]); err != nil {

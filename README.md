@@ -94,7 +94,7 @@ just test-integration-nested-wayland
 just test-integration   # CI headless matrix
 ```
 
-Optional: install `wl-clipboard` to enable clipboard round-trip verification.
+Optional: install `wl-clipboard` for Wayland clipboard round-trip verification and `xclip` for X11 clipboard round-trip verification.
 
 ## Development
 

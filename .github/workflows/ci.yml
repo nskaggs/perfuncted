@@ -70,7 +70,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y sway openbox kwrite pluma firefox dbus-x11 libwayland-client0 libwayland-server0 \
-                                 libwlroots-dev libx11-dev libxtst-dev x11-utils \
+                                 libwlroots-dev libx11-dev libxtst-dev x11-utils xclip \
                                  wl-clipboard xdg-utils xvfb
 
       - name: X11 Integration Tests

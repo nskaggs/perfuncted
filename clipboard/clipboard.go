@@ -35,25 +35,28 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 	// compositor when the parent process later calls Set/Get.
 	extraEnv := captureRuntimeEnv(rt)
 
-	// Wayland check
-	if _, err := executil.LookPath("wl-copy"); err == nil {
-		if _, err := executil.LookPath("wl-paste"); err == nil {
-			return &extCmdClipboard{
-				getCmd: []string{"wl-paste", "--no-newline"},
-				setCmd: []string{"wl-copy"},
-				env:    extraEnv,
-			}, nil
+	if isWaylandRuntime(rt) {
+		if _, err := executil.LookPath("wl-copy"); err != nil {
+			return nil, ErrNoClipboardTool
 		}
-	}
-	// X11 check
-	if _, err := executil.LookPath("xclip"); err == nil {
+		if _, err := executil.LookPath("wl-paste"); err != nil {
+			return nil, ErrNoClipboardTool
+		}
 		return &extCmdClipboard{
-			getCmd: []string{"xclip", "-selection", "clipboard", "-o"},
-			setCmd: []string{"xclip", "-selection", "clipboard"},
+			getCmd: []string{"wl-paste", "--no-newline"},
+			setCmd: []string{"wl-copy"},
 			env:    extraEnv,
 		}, nil
 	}
-	return nil, ErrNoClipboardTool
+
+	if _, err := executil.LookPath("xclip"); err != nil {
+		return nil, ErrNoClipboardTool
+	}
+	return &extCmdClipboard{
+		getCmd: []string{"xclip", "-selection", "clipboard", "-o"},
+		setCmd: []string{"xclip", "-selection", "clipboard"},
+		env:    extraEnv,
+	}, nil
 }
 
 type extCmdClipboard struct {
@@ -96,4 +99,14 @@ func (c *extCmdClipboard) Close() error { return nil }
 
 func captureRuntimeEnv(rt env.Runtime) []string {
 	return rt.EnvList()
+}
+
+func isWaylandRuntime(rt env.Runtime) bool {
+	if rt.Get("XDG_SESSION_TYPE") == "wayland" {
+		return true
+	}
+	if rt.Get("WAYLAND_DISPLAY") != "" && rt.Display() == "" {
+		return true
+	}
+	return false
 }

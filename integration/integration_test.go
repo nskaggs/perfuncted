@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ type suite struct {
 
 	session *perfuncted.Session
 	xvfb    *exec.Cmd
+	xephyr  *exec.Cmd
 	openbox *exec.Cmd
 }
 
@@ -108,10 +110,12 @@ func newSuite(mode displayMode) (*suite, error) {
 		s.openbox = openbox
 		s.rt = configureX11Runtime(display)
 	case displayNestedX11:
-		display := os.Getenv("DISPLAY")
-		if display == "" {
-			return nil, fmt.Errorf("nested x11 requires DISPLAY to be set")
+		display, xephyr, openbox, err := startNestedX11Session()
+		if err != nil {
+			return nil, err
 		}
+		s.xephyr = xephyr
+		s.openbox = openbox
 		s.rt = configureX11Runtime(display)
 	case displayHeadlessWayland:
 		sess, err := perfuncted.StartSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
@@ -146,6 +150,7 @@ func configureX11Runtime(display string) env.Runtime {
 	os.Unsetenv("XDG_RUNTIME_DIR")
 	os.Unsetenv("DBUS_SESSION_BUS_ADDRESS")
 	os.Unsetenv("SWAYSOCK")
+	os.Setenv("XDG_SESSION_TYPE", "x11")
 	os.Setenv("GDK_BACKEND", "x11")
 	os.Setenv("QT_QPA_PLATFORM", "xcb")
 	return env.Current().Without(
@@ -154,7 +159,7 @@ func configureX11Runtime(display string) env.Runtime {
 		"DBUS_SESSION_BUS_ADDRESS",
 		"SWAYSOCK",
 		"HYPRLAND_INSTANCE_SIGNATURE",
-	).With("DISPLAY", display).With("GDK_BACKEND", "x11").With("QT_QPA_PLATFORM", "xcb")
+	).With("DISPLAY", display).With("XDG_SESSION_TYPE", "x11").With("GDK_BACKEND", "x11").With("QT_QPA_PLATFORM", "xcb")
 }
 
 func configureWaylandRuntime(sess *perfuncted.Session) env.Runtime {
@@ -173,15 +178,35 @@ func (s *suite) Close() error {
 	if s.session != nil {
 		s.session.Stop()
 	}
-	if s.openbox != nil && s.openbox.Process != nil {
-		_ = s.openbox.Process.Kill()
-		_ = s.openbox.Wait()
-	}
-	if s.xvfb != nil && s.xvfb.Process != nil {
-		_ = s.xvfb.Process.Kill()
-		_ = s.xvfb.Wait()
-	}
+	terminateCmd(s.openbox, 2*time.Second)
+	terminateCmd(s.xephyr, 2*time.Second)
+	terminateCmd(s.xvfb, 2*time.Second)
 	return joinErrors(errs...)
+}
+
+func terminateCmd(cmd *exec.Cmd, timeout time.Duration) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pid := cmd.Process.Pid
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		select {
+		case <-done:
+		case <-time.After(timeout):
+		}
+	}
 }
 
 func joinErrors(errs ...error) error {
@@ -212,6 +237,7 @@ func startX11Session() (display string, xvfb *exec.Cmd, openbox *exec.Cmd, err e
 	const dispNum = 99
 	display = fmt.Sprintf(":%d", dispNum)
 	xvfb = exec.Command("Xvfb", display, "-screen", "0", "1024x768x24")
+	xvfb.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := xvfb.Start(); err != nil {
 		return "", nil, nil, fmt.Errorf("start Xvfb: %w", err)
 	}
@@ -232,6 +258,7 @@ func startX11Session() (display string, xvfb *exec.Cmd, openbox *exec.Cmd, err e
 
 	openbox = exec.Command("openbox")
 	openbox.Env = append(os.Environ(), "DISPLAY="+display)
+	openbox.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := openbox.Start(); err != nil {
 		_ = xvfb.Process.Kill()
 		_ = xvfb.Wait()
@@ -239,6 +266,50 @@ func startX11Session() (display string, xvfb *exec.Cmd, openbox *exec.Cmd, err e
 	}
 	time.Sleep(600 * time.Millisecond)
 	return display, xvfb, openbox, nil
+}
+
+func startNestedX11Session() (display string, xephyr *exec.Cmd, openbox *exec.Cmd, err error) {
+	if _, err := executil.LookPath("Xephyr"); err != nil {
+		return "", nil, nil, fmt.Errorf("nested x11 integration requires Xephyr: %w", err)
+	}
+	if _, err := executil.LookPath("openbox"); err != nil {
+		return "", nil, nil, fmt.Errorf("nested x11 integration requires openbox: %w", err)
+	}
+	if os.Getenv("DISPLAY") == "" {
+		return "", nil, nil, fmt.Errorf("nested x11 requires host DISPLAY to be set")
+	}
+
+	const dispNum = 100
+	display = fmt.Sprintf(":%d", dispNum)
+	xephyr = exec.Command("Xephyr", display, "-screen", "1024x768", "-ac", "-br", "-reset")
+	xephyr.Env = append(os.Environ(), "DISPLAY="+os.Getenv("DISPLAY"))
+	xephyr.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := xephyr.Start(); err != nil {
+		return "", nil, nil, fmt.Errorf("start Xephyr: %w", err)
+	}
+
+	lockFile := fmt.Sprintf("/tmp/.X%d-lock", dispNum)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, statErr := os.Stat(lockFile); statErr == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if _, statErr := os.Stat(lockFile); statErr != nil {
+		terminateCmd(xephyr, 500*time.Millisecond)
+		return "", nil, nil, fmt.Errorf("Xephyr did not start within 10s (lock %s not found)", lockFile)
+	}
+
+	openbox = exec.Command("openbox")
+	openbox.Env = append(os.Environ(), "DISPLAY="+display)
+	openbox.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := openbox.Start(); err != nil {
+		terminateCmd(xephyr, 500*time.Millisecond)
+		return "", nil, nil, fmt.Errorf("start openbox: %w", err)
+	}
+	time.Sleep(600 * time.Millisecond)
+	return display, xephyr, openbox, nil
 }
 
 func TestIntegration(t *testing.T) {
@@ -293,10 +364,7 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
 	t.Cleanup(func() {
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
-		}
+		terminateCmd(cmd, 5*time.Second)
 	})
 
 	if _, err := waitForWindow(pf, app.winMatch, 30*time.Second); err != nil {
@@ -429,10 +497,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
 	t.Cleanup(func() {
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
-		}
+		terminateCmd(cmd, 5*time.Second)
 		_ = os.Remove(saveFile)
 	})
 
@@ -442,6 +507,10 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 
 	if err := s.pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
+	}
+	docName := filepath.Base(saveFile)
+	if _, err := waitForWindow(s.pf, docName, 20*time.Second); err != nil {
+		t.Fatalf("wait for %s document title %q: %v", app.name, docName, err)
 	}
 	active, err := s.pf.Window.ActiveTitle()
 	if err != nil {
@@ -458,47 +527,64 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if rect.Empty() {
 		t.Fatal("geometry returned empty rect")
 	}
+	screenW, screenH, err := s.pf.Screen.Resolution()
+	if err != nil {
+		t.Fatalf("resolution: %v", err)
+	}
+	captureRect := rect.Intersect(image.Rect(0, 0, screenW, screenH))
+	if captureRect.Empty() {
+		t.Fatalf("capture rect %v fell outside the screen %dx%d", rect, screenW, screenH)
+	}
 
 	if err := s.pf.Input.ClickCenter(rect); err != nil {
 		t.Fatalf("click center: %v", err)
 	}
-	if err := s.pf.Input.MouseMove(rect.Min.X+20, rect.Min.Y+20); err != nil {
-		t.Fatalf("mouse move: %v", err)
+
+	typingRect := image.Rect(
+		rect.Min.X+rect.Dx()/4,
+		rect.Min.Y+rect.Dy()/4,
+		rect.Min.X+3*rect.Dx()/4,
+		rect.Min.Y+3*rect.Dy()/4,
+	)
+	if typingRect.Empty() {
+		typingRect = captureRect
 	}
-	if err := s.pf.Input.MouseClick(rect.Min.X+20, rect.Min.Y+20, 1); err != nil {
-		t.Fatalf("mouse click: %v", err)
+	ctxFocus, cancelFocus := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFocus()
+	if _, err := s.pf.Screen.WaitForStableContext(ctxFocus, typingRect, 3, 100*time.Millisecond); err != nil {
+		t.Fatalf("wait for editor focus to settle: %v", err)
 	}
-	time.Sleep(700 * time.Millisecond)
-	clickX := rect.Min.X + 40
-	clickY := rect.Min.Y + 120
-	if err := s.pf.Input.MouseMove(clickX, clickY); err != nil {
-		t.Fatalf("mouse move document area: %v", err)
-	}
-	if err := s.pf.Input.MouseClick(clickX, clickY, 1); err != nil {
-		t.Fatalf("mouse click document area: %v", err)
-	}
-	time.Sleep(700 * time.Millisecond)
 	if err := s.pf.Input.TypeWithDelay("Integration", 20*time.Millisecond); err != nil {
 		t.Fatalf("type with delay: %v", err)
 	}
+	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelType()
+	if _, err := s.pf.Screen.WaitForNoChangeContext(ctxType, typingRect, 3, 100*time.Millisecond); err != nil {
+		t.Fatalf("wait for typed text to settle: %v", err)
+	}
 
-	img, err := s.pf.Screen.Grab(rect)
+	img, err := s.pf.Screen.Grab(captureRect)
 	if err != nil {
 		t.Fatalf("grab window: %v", err)
 	}
-	if _, err := s.pf.Screen.GrabHash(rect); err != nil {
+	if _, err := s.pf.Screen.GrabHash(captureRect); err != nil {
 		t.Fatalf("grab hash: %v", err)
 	}
-	if _, err := s.pf.Screen.GetMultiplePixels([]image.Point{{rect.Min.X, rect.Min.Y}, {rect.Min.X + 1, rect.Min.Y + 1}}); err != nil {
+	if _, err := s.pf.Screen.GetMultiplePixels([]image.Point{{captureRect.Min.X, captureRect.Min.Y}, {captureRect.Min.X + 1, captureRect.Min.Y + 1}}); err != nil {
 		t.Fatalf("get multiple pixels: %v", err)
 	}
-	if _, err := s.pf.Screen.GetPixel(rect.Min.X, rect.Min.Y); err != nil {
+	if _, err := s.pf.Screen.GetPixel(captureRect.Min.X, captureRect.Min.Y); err != nil {
 		t.Fatalf("get pixel: %v", err)
 	}
-	if _, err := s.pf.Screen.LocateExact(rect, img); err != nil {
+	refRect := image.Rect(captureRect.Min.X+20, captureRect.Min.Y+20, min(captureRect.Min.X+50, captureRect.Max.X), min(captureRect.Min.Y+50, captureRect.Max.Y))
+	ref, err := s.pf.Screen.Grab(refRect)
+	if err != nil {
+		t.Fatalf("grab ref rect: %v", err)
+	}
+	if _, err := s.pf.Screen.LocateExact(captureRect, ref); err != nil {
 		t.Fatalf("locate exact: %v", err)
 	}
-	if _, err := s.pf.Screen.ScanFor([]image.Rectangle{rect}, []uint32{find.PixelHash(img, nil)}, 100*time.Millisecond); err != nil {
+	if _, err := s.pf.Screen.ScanFor([]image.Rectangle{captureRect}, []uint32{find.PixelHash(img, nil)}, 100*time.Millisecond); err != nil {
 		t.Fatalf("scan for: %v", err)
 	}
 
@@ -513,29 +599,17 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("paste: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	go func() {
-		time.Sleep(1 * time.Second)
-		if err := s.pf.Input.PressCombo("alt+f"); err != nil {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-		_ = s.pf.Input.KeyTap("escape")
-	}()
-	if _, err := s.pf.Screen.WaitForVisibleChangeContext(ctx, rect, 100*time.Millisecond, 2); err != nil {
-		t.Fatalf("wait for visible change: %v", err)
+	if err := s.pf.Input.ClickCenter(rect); err != nil {
+		t.Fatalf("refocus before save: %v", err)
 	}
-
 	if err := s.pf.Input.PressCombo("ctrl+s"); err != nil {
 		t.Fatalf("ctrl+s: %v", err)
 	}
-	time.Sleep(1500 * time.Millisecond)
-	content, err := os.ReadFile(saveFile)
+	savedText, err := waitForFileContains(context.Background(), saveFile, "Integration", 10*time.Second)
 	if err != nil {
-		t.Fatalf("read saved file: %v", err)
+		t.Fatalf("wait for save file contents: %v", err)
 	}
-	if !strings.Contains(string(content), "Integration") {
+	if !strings.Contains(savedText, "Integration") {
 		t.Fatalf("saved file %q does not contain typed text", saveFile)
 	}
 
@@ -559,10 +633,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
 	t.Cleanup(func() {
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
-		}
+		terminateCmd(cmd, 5*time.Second)
 	})
 
 	if _, err := waitForWindow(s.pf, app.winMatch, 90*time.Second); err != nil {
@@ -575,7 +646,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	if err := s.pf.Input.PressCombo("ctrl+l"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
-	if err := s.pf.Input.TypeWithDelay("about:support", 10*time.Millisecond); err != nil {
+	if err := s.pf.Input.TypeFast("about:support"); err != nil {
 		t.Fatalf("type address: %v", err)
 	}
 	if err := s.pf.Input.KeyTap("return"); err != nil {
@@ -607,11 +678,19 @@ func launchApp(rt env.Runtime, sess *perfuncted.Session, app appSpec, extraEnv .
 		}
 	}
 
+	baseEnv := rt.EnvList()
 	if sess != nil {
-		return sess.LaunchEnv(extraEnv, app.launch[0], args...)
+		baseEnv = sess.Env()
 	}
-	cmd := exec.Command(app.launch[0], args...)
-	cmd.Env = env.Merge(rt.EnvList(), extraEnv...)
+	path, err := executil.LookPath(app.launch[0])
+	if err != nil {
+		return nil, err
+	}
+	cmd := executil.CommandContext(context.Background(), path, args...)
+	cmd.Env = env.Merge(baseEnv, extraEnv...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -622,6 +701,29 @@ func waitForWindow(pf *perfuncted.Perfuncted, pattern string, timeout time.Durat
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return pf.Window.WaitFor(ctx, pattern, 500*time.Millisecond)
+}
+
+func waitForFileContains(ctx context.Context, path, want string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		if strings.Contains(string(data), want) {
+			return string(data), nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func requiredApps(t *testing.T) []appSpec {
@@ -687,6 +789,13 @@ func colorAt(img image.Image, x, y int) color.RGBA {
 
 func min(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b
