@@ -233,15 +233,15 @@ func (b *X11Backend) Restore(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	stateAtom, err := b.conn.InternAtom(false, 14, "_NET_WM_STATE").Reply()
+	stateAtom, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE")), "_NET_WM_STATE").Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern _NET_WM_STATE: %w", err)
 	}
-	maxV, err := b.conn.InternAtom(false, 28, "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
+	maxV, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_VERT")), "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_VERT: %w", err)
 	}
-	maxH, err := b.conn.InternAtom(false, 28, "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
+	maxH, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_HORZ")), "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_HORZ: %w", err)
 	}
@@ -309,11 +309,13 @@ func (b *X11Backend) CloseWindow(ctx context.Context, title string) error {
 		return err
 	}
 	// Intern WM_DELETE_WINDOW and WM_PROTOCOLS atoms.
-	delAtom, err := b.conn.InternAtom(false, 18, "WM_DELETE_WINDOW").Reply()
+	const wmDeleteWindow = "WM_DELETE_WINDOW"
+	const wmProtocols = "WM_PROTOCOLS"
+	delAtom, err := b.conn.InternAtom(false, uint16(len(wmDeleteWindow)), wmDeleteWindow).Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: %w", err)
 	}
-	protoAtom, err := b.conn.InternAtom(false, 12, "WM_PROTOCOLS").Reply()
+	protoAtom, err := b.conn.InternAtom(false, uint16(len(wmProtocols)), wmProtocols).Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: %w", err)
 	}
@@ -355,15 +357,15 @@ func (b *X11Backend) Maximize(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	stateAtom, err := b.conn.InternAtom(false, 14, "_NET_WM_STATE").Reply()
+	stateAtom, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE")), "_NET_WM_STATE").Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern _NET_WM_STATE: %w", err)
 	}
-	maxV, err := b.conn.InternAtom(false, 28, "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
+	maxV, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_VERT")), "_NET_WM_STATE_MAXIMIZED_VERT").Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_VERT: %w", err)
 	}
-	maxH, err := b.conn.InternAtom(false, 28, "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
+	maxH, err := b.conn.InternAtom(false, uint16(len("_NET_WM_STATE_MAXIMIZED_HORZ")), "_NET_WM_STATE_MAXIMIZED_HORZ").Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern _NET_WM_STATE_MAXIMIZED_HORZ: %w", err)
 	}
