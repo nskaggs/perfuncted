@@ -1,8 +1,5 @@
 # justfile — dev workflow for github.com/nskaggs/perfuncted
 # Run `just` to see available recipes. Requires: just, staticcheck, govulncheck, deadcode.
-# Install dev tools: go install staticcheck.io/staticcheck@latest
-#                    go install golang.org/x/vuln/cmd/govulncheck@latest
-#                    go install golang.org/x/tools/cmd/deadcode@latest
 
 default:
     @just --list
@@ -11,15 +8,22 @@ default:
 
 # Format all Go source
 fmt:
-    go fmt ./...
+    gofmt -w .
 
 # Vet all packages
 vet:
     go vet ./...
 
 # Run staticcheck linter
-check: fmt vet
+lint:
     staticcheck ./...
+
+# Check formatting
+check-fmt:
+    test -z "$(gofmt -l .)"
+
+# Run all quality checks
+check: check-fmt vet lint
 
 # Check for dead (unreachable) code
 deadcode:
@@ -34,13 +38,19 @@ tidy:
     go mod tidy
     go mod verify
 
+# Install development tools
+install-dev-tools:
+    go install honnef.co/go/tools/cmd/staticcheck@latest
+    go install golang.org/x/vuln/cmd/govulncheck@latest
+    go install golang.org/x/tools/cmd/deadcode@latest
+
 # Generate CLI documentation
 docs:
     rm -rf docs-cli/
     go run ./cmd/pf/ docs --dir ./docs-cli
 
-# Full pre-commit workflow
-precommit: check tidy docs vulncheck
+# Pre-commit: all checks + unit tests
+precommit: check test-unit
 
 # Build all packages and binaries
 build:
@@ -52,9 +62,12 @@ install: build
 
 # ── testing ────────────────────────────────────────────────────────────────────
 
-# Run unit tests (with race detector)
+# Run short (unit) tests only
 test-unit:
-    go test -race ./...
+    go test -short -race ./...
+
+# Run unit tests (default alias)
+test: test-unit
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:

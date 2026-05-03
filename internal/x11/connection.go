@@ -4,11 +4,16 @@ import (
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/composite"
 	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgb/xtest"
 )
 
+// Connection abstracts the minimal xgb/xproto/xtest surface used by backends.
+// Methods return cookie interfaces defined in cookies.go so tests can mock them.
 type Connection interface {
 	Close()
 	DefaultScreen() *xproto.ScreenInfo
+	Setup() *xproto.SetupInfo
+
 	InternAtom(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie
 	GetProperty(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) GetPropertyCookie
 	GetGeometry(Drawable xproto.Drawable) GetGeometryCookie
@@ -21,8 +26,14 @@ type Connection interface {
 	FreePixmap(Pixmap xproto.Pixmap) FreePixmapCookie
 	InitComposite() error
 	NameWindowPixmap(Window xproto.Window, Pixmap xproto.Pixmap) NameWindowPixmapCookie
+
+	// Keyboard / XTest helpers used by input/xtest.go
+	GetKeyboardMapping(first xproto.Keycode, count byte) GetKeyboardMappingCookie
+	FakeInputChecked(eventType byte, detail byte, time uint32, window xproto.Window, x, y int16, device byte) XTestFakeInputCookie
+	InitXTest() error
 }
 
+// XgbConnection implements Connection using github.com/jezek/xgb.
 type XgbConnection struct {
 	conn *xgb.Conn
 }
@@ -41,6 +52,10 @@ func (c *XgbConnection) Close() {
 
 func (c *XgbConnection) DefaultScreen() *xproto.ScreenInfo {
 	return xproto.Setup(c.conn).DefaultScreen(c.conn)
+}
+
+func (c *XgbConnection) Setup() *xproto.SetupInfo {
+	return xproto.Setup(c.conn)
 }
 
 func (c *XgbConnection) InternAtom(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie {
@@ -99,4 +114,19 @@ func (c *XgbConnection) InitComposite() error {
 func (c *XgbConnection) NameWindowPixmap(Window xproto.Window, Pixmap xproto.Pixmap) NameWindowPixmapCookie {
 	cookie := composite.NameWindowPixmap(c.conn, Window, Pixmap)
 	return NewXProtoNameWindowPixmapCookie(cookie)
+}
+
+// Keyboard / XTest wrappers
+func (c *XgbConnection) GetKeyboardMapping(first xproto.Keycode, count byte) GetKeyboardMappingCookie {
+	cookie := xproto.GetKeyboardMapping(c.conn, first, count)
+	return NewXProtoGetKeyboardMappingCookie(cookie)
+}
+
+func (c *XgbConnection) FakeInputChecked(eventType byte, detail byte, time uint32, window xproto.Window, x, y int16, device byte) XTestFakeInputCookie {
+	cookie := xtest.FakeInputChecked(c.conn, eventType, detail, time, window, x, y, device)
+	return NewXProtoXTestFakeInputCookie(cookie)
+}
+
+func (c *XgbConnection) InitXTest() error {
+	return xtest.Init(c.conn)
 }
