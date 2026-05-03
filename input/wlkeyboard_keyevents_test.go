@@ -372,10 +372,25 @@ func TestReleaseKey_NamedNonModifier(t *testing.T) {
 
 func TestReleaseKey_NotHeld(t *testing.T) {
 	k, rc := newTestKeyboard()
-	// Release a key that was never pressed — should be a no-op
-	if err := k.releaseKey("x"); err != nil {
-		t.Fatalf("releaseKey: %v", err)
+	// Release a key that was never pressed — should return an error
+	err := k.releaseKey("x")
+	if err == nil {
+		t.Fatal("expected error for releasing non-held key")
 	}
+	t.Logf("got expected error: %v", err)
+	if rc.writes != 0 {
+		t.Fatalf("expected 0 writes for unreleased key, got %d", rc.writes)
+	}
+}
+
+func TestReleaseKey_NamedNotHeld(t *testing.T) {
+	k, rc := newTestKeyboard()
+	// Release a named non-modifier key that was never pressed — should return an error
+	err := k.releaseKey("return")
+	if err == nil {
+		t.Fatal("expected error for releasing non-held named key")
+	}
+	t.Logf("got expected error: %v", err)
 	if rc.writes != 0 {
 		t.Fatalf("expected 0 writes for unreleased key, got %d", rc.writes)
 	}

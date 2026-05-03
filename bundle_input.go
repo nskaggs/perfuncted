@@ -313,9 +313,9 @@ func (i InputBundle) ScrollContext(ctx context.Context, dx, dy int) error {
 		return i.ScrollLeftContext(ctx, -dx)
 	}
 	if dy > 0 {
-		return i.ScrollUpContext(ctx, dy)
+		return i.ScrollDownContext(ctx, dy)
 	} else if dy < 0 {
-		return i.ScrollDownContext(ctx, -dy)
+		return i.ScrollUpContext(ctx, -dy)
 	}
 	return nil
 }
@@ -335,11 +335,16 @@ func (i InputBundle) DragAndDropContext(ctx context.Context, x1, y1, x2, y2 int)
 	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
 		return err
 	}
-	// Ensure the button is released even if subsequent operations fail.
-	defer func() { _ = i.Inputter.MouseUp(context.Background(), 1) }()
+	released := false
+	defer func() {
+		if !released {
+			_ = i.Inputter.MouseUp(context.Background(), 1)
+		}
+	}()
 	if err := i.Inputter.MouseMove(ctx, x2, y2); err != nil {
 		return err
 	}
+	released = true
 	return i.Inputter.MouseUp(ctx, 1)
 }
 

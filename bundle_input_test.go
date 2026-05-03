@@ -179,9 +179,9 @@ func TestInputBundleScroll_DyPositive(t *testing.T) {
 	if len(inp.Calls) != 1 {
 		t.Fatalf("expected 1 call, got %v", inp.Calls)
 	}
-	// Note: dy > 0 maps to ScrollUp (sign convention per bug #7)
-	if inp.Calls[0] != "scroll-up:5" {
-		t.Errorf("call = %q, want scroll-up:5", inp.Calls[0])
+	// dy > 0 maps to ScrollDown (positive = scroll down)
+	if inp.Calls[0] != "scroll-down:5" {
+		t.Errorf("call = %q, want scroll-down:5", inp.Calls[0])
 	}
 }
 
@@ -196,9 +196,9 @@ func TestInputBundleScroll_DyNegative(t *testing.T) {
 	if len(inp.Calls) != 1 {
 		t.Fatalf("expected 1 call, got %v", inp.Calls)
 	}
-	// Note: dy < 0 maps to ScrollDown
-	if inp.Calls[0] != "scroll-down:3" {
-		t.Errorf("call = %q, want scroll-down:3", inp.Calls[0])
+	// Note: dy < 0 maps to ScrollUp (negative = scroll up)
+	if inp.Calls[0] != "scroll-up:3" {
+		t.Errorf("call = %q, want scroll-up:3", inp.Calls[0])
 	}
 }
 
@@ -300,13 +300,11 @@ func TestInputBundleDragAndDrop(t *testing.T) {
 	}
 
 	// DragAndDrop: MouseMove(start), MouseDown, MouseMove(end), MouseUp
-	// Note: the defer also calls MouseUp, so we get 5 calls total.
 	want := []string{
 		"move:10,20",
 		"mousedown",
 		"move:30,40",
 		"mouseup",
-		"mouseup", // from defer
 	}
 	if len(inp.Calls) != len(want) {
 		t.Fatalf("unexpected call count: got %v want %v", inp.Calls, want)

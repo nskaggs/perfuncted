@@ -59,7 +59,7 @@ func TestPutStr(t *testing.T) {
 			"",
 			[]byte{
 				1, 0, 0, 0, // length = 1
-				0, // null terminator
+				0,       // null terminator
 				0, 0, 0, // padding to 4 bytes
 			},
 		},
@@ -158,7 +158,7 @@ func TestRegistry_Dispatch_GlobalEvent(t *testing.T) {
 	// Layout: name(4) + interface(string: length+bytes+pad) + version(4)
 	data := make([]byte, 0)
 	data = append(data, 1, 0, 0, 0) // name = 1
-	data = putStr(data, "wl_seat")   // string: len=7, "wl_seat\0" + pad to 8
+	data = putStr(data, "wl_seat")  // string: len=7, "wl_seat\0" + pad to 8
 	data = append(data, 3, 0, 0, 0) // version = 3
 
 	r.Dispatch(0, -1, data)
@@ -239,6 +239,14 @@ func TestContext_Dispatch_NilConn(t *testing.T) {
 	}
 }
 
+func TestContext_Close_NilConn(t *testing.T) {
+	// Context with nil conn (test construction) should be a no-op (not panic).
+	ctx := &Context{}
+	if err := ctx.Close(); err != nil {
+		t.Errorf("Close on nil conn returned error: %v", err)
+	}
+}
+
 func TestSafeClose(t *testing.T) {
 	// nil context
 	if err := SafeClose(nil); err != nil {
@@ -256,12 +264,12 @@ func TestRegistry_BindMessageLayout(t *testing.T) {
 	// We can't call Bind without a real ctx, but we can test the encoding
 	// indirectly by checking putStr output.
 	var buf []byte
-	buf = put32(buf, 5)   // registry id
-	buf = put32(buf, 0)   // placeholder for size|opcode
-	buf = put32(buf, 10)  // name
+	buf = put32(buf, 5)  // registry id
+	buf = put32(buf, 0)  // placeholder for size|opcode
+	buf = put32(buf, 10) // name
 	buf = putStr(buf, "wl_seat")
-	buf = put32(buf, 3)   // version
-	buf = put32(buf, 20)  // new_id
+	buf = put32(buf, 3)                      // version
+	buf = put32(buf, 20)                     // new_id
 	PutUint32(buf[4:], uint32(len(buf))<<16) // opcode 0 = bind
 
 	// Verify the buffer has the right structure

@@ -52,18 +52,13 @@ func TestWlVirtualBackend_Close_NilSession(t *testing.T) {
 	}
 }
 
-func TestWlVirtualBackend_Close_NilDisplay(t *testing.T) {
-	// Close with session nil but display non-nil where Context() returns nil.
-	// This triggers the bug: Close() calls b.display.Context().Close() which
-	// panics when Context() returns nil.
+func TestWlVirtualBackend_Close_NilDisplayContext(t *testing.T) {
+	// Close with session nil but display non-nil where Context() returns nil
+	// should not panic (bug #4 was fixed).
 	b := &WlVirtualBackend{display: &wl.Display{}}
-	defer func() {
-		r := recover()
-		if r != nil {
-			t.Logf("Close panicked as expected (bug #4): %v", r)
-		}
-	}()
-	_ = b.Close()
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close with nil display context: %v", err)
+	}
 }
 
 func TestScroll_SignConvention(t *testing.T) {
@@ -90,29 +85,4 @@ func TestScroll_SignConvention(t *testing.T) {
 	if downValue != 11520 {
 		t.Errorf("3 notches down = %d, want 11520", downValue)
 	}
-}
-
-func TestWlVirtualBackend_MouseClick_Panics(t *testing.T) {
-	// MouseClick on a zero-value backend panics because MouseMove accesses
-	// nil pointers. This documents the current behavior.
-	b := &WlVirtualBackend{}
-	defer func() {
-		r := recover()
-		if r != nil {
-			t.Logf("MouseClick panicked as expected: %v", r)
-		}
-	}()
-	_ = b.MouseClick(nil, 100, 200, 1)
-}
-
-func TestWlVirtualBackend_PressCombo_Panics(t *testing.T) {
-	// PressCombo on a zero-value backend panics because it accesses kbd.
-	b := &WlVirtualBackend{}
-	defer func() {
-		r := recover()
-		if r != nil {
-			t.Logf("PressCombo panicked as expected: %v", r)
-		}
-	}()
-	_ = b.PressCombo(nil, "ctrl+c")
 }

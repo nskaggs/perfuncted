@@ -332,11 +332,15 @@ func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return b.scroll(1, clicks)
 }
 
-// Close closes the Wayland connection.
+// Close closes the Wayland connection. Safe to call multiple times and in any
+// state (session may be nil if partially constructed).
 func (b *WlVirtualBackend) Close() error {
 	if b.session != nil {
 		return b.session.Close()
 	}
+	// b.display.Context() returns Ctx whose concrete type is *Context.
+	// When the underlying *Context is nil, Context.Close() handles it
+	// gracefully via its nil-receiver check.
 	if b.display != nil {
 		return b.display.Context().Close()
 	}

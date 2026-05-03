@@ -156,7 +156,14 @@ func (ctx *Context) Dispatch() error {
 }
 
 // Close closes the Wayland socket connection.
-func (ctx *Context) Close() error { return ctx.conn.Close() }
+// If the receiver or its underlying connection is nil (tests may construct
+// partial contexts), treat it as a no-op rather than panicking.
+func (ctx *Context) Close() error {
+	if ctx == nil || ctx.conn == nil {
+		return nil
+	}
+	return ctx.conn.Close()
+}
 
 // SafeClose closes ctx if non-nil and its underlying connection is non-nil.
 // Use when callers may construct partial contexts in tests.

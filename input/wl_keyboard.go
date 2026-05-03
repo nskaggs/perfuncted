@@ -200,12 +200,17 @@ func (k *wlKeyboard) pressKey(key string) error {
 	return nil
 }
 
-// releaseKey releases a previously pressed key.
+// releaseKey releases a previously pressed key. Returns an error if the key
+// is not currently held, catching bugs where callers release keys they never
+// pressed.
 func (k *wlKeyboard) releaseKey(key string) error {
 	if kc, sym, ok := namedKey(key); ok {
 		// Ensure the keymap still defines this keycode (another upload may have
 		// replaced it). Modifier keycodes (8–11) are always in every keymap.
 		if kc > kcSuper {
+			if _, held := k.held[key]; !held {
+				return fmt.Errorf("keyboard: key %q not held", key)
+			}
 			if err := k.uploadKeymap(xkbWithNamed(kc, sym)); err != nil {
 				return err
 			}
@@ -223,10 +228,10 @@ func (k *wlKeyboard) releaseKey(key string) error {
 	// Single-character held key.
 	runes := []rune(key)
 	if len(runes) != 1 {
-		return nil
+		return fmt.Errorf("keyboard: cannot release multi-character key %q", key)
 	}
 	if _, held := k.held[key]; !held {
-		return nil
+		return fmt.Errorf("keyboard: key %q not held", key)
 	}
 	if err := k.uploadKeymap(xkbWithRunes(runes)); err != nil {
 		return err
