@@ -178,5 +178,6 @@ cleanup-nested:
     -rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
     -rm -f /tmp/pf-test-*.png 2>/dev/null || true
     -rm -f /tmp/*-kwrite.txt 2>/dev/null || true
-    -rm -f /tmp/*-firefox-before.png /tmp/*-firefox-after.png 2>/dev/null || true
+    -rm -f /tmp/*-featherpad.txt 2>/dev/null || true
+    -rm -f /tmp/*-gnome-text-editor.txt 2>/dev/null || true
     @echo "Cleanup complete."

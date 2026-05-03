@@ -541,6 +541,11 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if err := s.pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
+
+	if err := s.pf.Window.Maximize(app.winMatch); err != nil {
+		t.Fatalf("maximize window %v", err)
+	}
+
 	docName := filepath.Base(saveFile)
 	if _, err := waitForWindow(s.pf, docName, 20*time.Second); err != nil {
 		t.Fatalf("wait for %s document title %q: %v", app.name, docName, err)
@@ -766,11 +771,33 @@ func requiredApps(t *testing.T) []appSpec {
 		pfx = "integration"
 	}
 	all := []appSpec{
+		//qt5/qt6 supported on wayland and x11
 		{
 			name:     "kwrite",
 			launch:   []string{"kwrite"},
 			winMatch: "kwrite",
 			saveFile: filepath.Join(os.TempDir(), pfx+"-kwrite.txt"),
+		},
+		//gtk3 only supported on X11
+		//{
+		//	name:     "gedit",
+		//	launch:   []string{"gedit"},
+		//	winMatch: "gedit",
+		//	saveFile: filepath.Join(os.TempDir(), pfx+"-gedit.txt"),
+		//},
+		//qt5 supported on wayland and x11
+		{
+			name:     "featherpad",
+			launch:   []string{"featherpad"},
+			winMatch: "featherpad",
+			saveFile: filepath.Join(os.TempDir(), pfx+"-featherpad.txt"),
+		},
+		//gtk4 supported on wayland and x11
+		{
+			name:     "gnome-text-editor",
+			launch:   []string{"gnome-text-editor"},
+			winMatch: "gnome-text-editor",
+			saveFile: filepath.Join(os.TempDir(), pfx+"-gnome-text-editor.txt"),
 		},
 		//{
 		//	name:     "pluma",
