@@ -78,9 +78,14 @@ var keysymForName = map[string]xproto.Keysym{
 func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 	sym, ok := keysymForName[key]
 	if !ok && len(key) == 1 {
-		// For single characters not in the map, use the character code directly
-		sym = xproto.Keysym(key[0])
-		ok = true
+		// For single printable ASCII characters not in the map, use the
+		// character code directly. Reject control characters and non-ASCII
+		// bytes that are not valid keysyms.
+		c := key[0]
+		if c >= 0x20 && c < 0x7f {
+			sym = xproto.Keysym(c)
+			ok = true
+		}
 	}
 	if !ok {
 		return 0, fmt.Errorf("input/xtest: unknown key %q", key)
@@ -146,8 +151,10 @@ func (b *XTestBackend) PressCombo(ctx context.Context, combo string) error {
 }
 
 func (b *XTestBackend) KeyTap(ctx context.Context, key string) error {
-	// Handle single uppercase character by sending Shift+lowercase
-	if len(key) == 1 && unicode.IsUpper(rune(key[0])) {
+	// Handle single ASCII uppercase character (A-Z) by sending Shift+lowercase.
+	// Non-ASCII uppercase (Ü, Ñ, etc.) are not handled here because their
+	// lowercase forms are not in the ASCII-only keysymForName map.
+	if len(key) == 1 && key[0] >= 'A' && key[0] <= 'Z' {
 		if err := b.KeyDown(ctx, "shift"); err != nil {
 			return err
 		}
@@ -179,8 +186,11 @@ func (b *XTestBackend) Type(ctx context.Context, s string) error {
 
 func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 	for _, ch := range s {
-		// Handle uppercase letters by sending Shift+lowercase
-		if unicode.IsUpper(ch) {
+		// Handle ASCII uppercase letters (A-Z) by sending Shift+lowercase.
+		// Non-ASCII uppercase characters are typed directly; they will fail
+		// keycodeFor lookup if not in the keysym map, which is correct —
+		// X11 keysyms for those must be provided explicitly.
+		if ch >= 'A' && ch <= 'Z' {
 			// Press Shift
 			if err := b.KeyDown(ctx, "shift"); err != nil {
 				return err
