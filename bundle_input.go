@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 // InputBundle wraps per-compositor input backends.
 type InputBundle struct {
 	input.Inputter
+	tracer *actionTracer
 }
 
 // Close delegates to the underlying Inputter Close method.
@@ -20,6 +22,7 @@ func (i InputBundle) Close() error {
 	if i.Inputter == nil {
 		return nil
 	}
+	i.traceAction("close")
 	return i.Inputter.Close()
 }
 
@@ -27,11 +30,19 @@ func (i InputBundle) checkAvailable() error {
 	return util.CheckAvailable("input", i.Inputter)
 }
 
+func (i InputBundle) traceAction(msg string) {
+	if i.tracer == nil {
+		return
+	}
+	i.tracer.Tracef("input", "%s", msg)
+}
+
 func (i InputBundle) Type(text string) error {
 	return i.TypeContext(context.Background(), text)
 }
 
 func (i InputBundle) TypeContext(ctx context.Context, text string) error {
+	i.traceAction(fmt.Sprintf("type text=%q", text))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -39,15 +50,19 @@ func (i InputBundle) TypeContext(ctx context.Context, text string) error {
 }
 
 func (i InputBundle) TypeWithDelay(text string, delay time.Duration) error {
+	if delay == 0 {
+		delay = 20 * time.Millisecond
+	}
 	return i.TypeWithDelayContext(context.Background(), text, delay)
 }
 
 func (i InputBundle) TypeWithDelayContext(ctx context.Context, text string, delay time.Duration) error {
+	i.traceAction(fmt.Sprintf("type-with-delay text=%q delay=%s", text, delay))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
 	for _, r := range text {
-		if err := i.Inputter.Type(ctx, string(r)); err != nil {
+		if err := i.KeyTapContext(ctx, keyNameForRune(r)); err != nil {
 			return err
 		}
 		// Use a reusable timer to avoid leaking timers in tight loops.
@@ -62,6 +77,19 @@ func (i InputBundle) TypeWithDelayContext(ctx context.Context, text string, dela
 	return nil
 }
 
+func keyNameForRune(r rune) string {
+	switch r {
+	case ' ':
+		return "space"
+	case '\n', '\r':
+		return "enter"
+	case '\t':
+		return "tab"
+	default:
+		return string(r)
+	}
+}
+
 // TypeFast attempts to paste text via the system clipboard (wl-copy/xclip)
 // and a Ctrl+V paste key. If the clipboard tool isn't available or paste
 // fails, it falls back to character-by-character Type().
@@ -70,6 +98,7 @@ func (i InputBundle) TypeFast(text string) error {
 }
 
 func (i InputBundle) TypeFastContext(ctx context.Context, text string) error {
+	i.traceAction(fmt.Sprintf("type-fast text=%q", text))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -92,6 +121,7 @@ func (i InputBundle) KeyTap(key string) error {
 }
 
 func (i InputBundle) KeyTapContext(ctx context.Context, key string) error {
+	i.traceAction(fmt.Sprintf("key-tap key=%q", key))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -103,6 +133,7 @@ func (i InputBundle) KeyDown(key string) error {
 }
 
 func (i InputBundle) KeyDownContext(ctx context.Context, key string) error {
+	i.traceAction(fmt.Sprintf("key-down key=%q", key))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -114,6 +145,7 @@ func (i InputBundle) KeyUp(key string) error {
 }
 
 func (i InputBundle) KeyUpContext(ctx context.Context, key string) error {
+	i.traceAction(fmt.Sprintf("key-up key=%q", key))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -125,6 +157,7 @@ func (i InputBundle) PressCombo(combo string) error {
 }
 
 func (i InputBundle) PressComboContext(ctx context.Context, combo string) error {
+	i.traceAction(fmt.Sprintf("press-combo combo=%q", combo))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -136,6 +169,7 @@ func (i InputBundle) MouseClick(x, y, button int) error {
 }
 
 func (i InputBundle) MouseClickContext(ctx context.Context, x, y, button int) error {
+	i.traceAction(fmt.Sprintf("mouse-click x=%d y=%d button=%d", x, y, button))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -147,6 +181,7 @@ func (i InputBundle) ClickCenter(rect image.Rectangle) error {
 }
 
 func (i InputBundle) ClickCenterContext(ctx context.Context, rect image.Rectangle) error {
+	i.traceAction(fmt.Sprintf("click-center rect=%s", rect))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -159,6 +194,7 @@ func (i InputBundle) DoubleClick(x, y int) error {
 }
 
 func (i InputBundle) DoubleClickContext(ctx context.Context, x, y int) error {
+	i.traceAction(fmt.Sprintf("double-click x=%d y=%d", x, y))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -186,6 +222,7 @@ func (i InputBundle) MouseMove(x, y int) error {
 }
 
 func (i InputBundle) MouseMoveContext(ctx context.Context, x, y int) error {
+	i.traceAction(fmt.Sprintf("mouse-move x=%d y=%d", x, y))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -197,6 +234,7 @@ func (i InputBundle) MouseDown(button int) error {
 }
 
 func (i InputBundle) MouseDownContext(ctx context.Context, button int) error {
+	i.traceAction(fmt.Sprintf("mouse-down button=%d", button))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -208,6 +246,7 @@ func (i InputBundle) MouseUp(button int) error {
 }
 
 func (i InputBundle) MouseUpContext(ctx context.Context, button int) error {
+	i.traceAction(fmt.Sprintf("mouse-up button=%d", button))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -219,6 +258,7 @@ func (i InputBundle) ScrollUp(clicks int) error {
 }
 
 func (i InputBundle) ScrollUpContext(ctx context.Context, clicks int) error {
+	i.traceAction(fmt.Sprintf("scroll-up clicks=%d", clicks))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -230,6 +270,7 @@ func (i InputBundle) ScrollDown(clicks int) error {
 }
 
 func (i InputBundle) ScrollDownContext(ctx context.Context, clicks int) error {
+	i.traceAction(fmt.Sprintf("scroll-down clicks=%d", clicks))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -241,6 +282,7 @@ func (i InputBundle) ScrollLeft(clicks int) error {
 }
 
 func (i InputBundle) ScrollLeftContext(ctx context.Context, clicks int) error {
+	i.traceAction(fmt.Sprintf("scroll-left clicks=%d", clicks))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -252,6 +294,7 @@ func (i InputBundle) ScrollRight(clicks int) error {
 }
 
 func (i InputBundle) ScrollRightContext(ctx context.Context, clicks int) error {
+	i.traceAction(fmt.Sprintf("scroll-right clicks=%d", clicks))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -263,6 +306,7 @@ func (i InputBundle) Scroll(dx, dy int) error {
 }
 
 func (i InputBundle) ScrollContext(ctx context.Context, dx, dy int) error {
+	i.traceAction(fmt.Sprintf("scroll dx=%d dy=%d", dx, dy))
 	if dx > 0 {
 		return i.ScrollRightContext(ctx, dx)
 	} else if dx < 0 {
@@ -281,6 +325,7 @@ func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
 }
 
 func (i InputBundle) DragAndDropContext(ctx context.Context, x1, y1, x2, y2 int) error {
+	i.traceAction(fmt.Sprintf("drag-and-drop x1=%d y1=%d x2=%d y2=%d", x1, y1, x2, y2))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -303,6 +348,7 @@ func (i InputBundle) ModifierDown(mod string) error {
 }
 
 func (i InputBundle) ModifierDownContext(ctx context.Context, mod string) error {
+	i.traceAction(fmt.Sprintf("modifier-down mod=%q", mod))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -314,6 +360,7 @@ func (i InputBundle) ModifierUp(mod string) error {
 }
 
 func (i InputBundle) ModifierUpContext(ctx context.Context, mod string) error {
+	i.traceAction(fmt.Sprintf("modifier-up mod=%q", mod))
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}

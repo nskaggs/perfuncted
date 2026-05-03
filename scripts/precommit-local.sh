@@ -5,6 +5,9 @@ echo "▶ pre-commit: running quality checks..."
 
 # 1. Regenerate CLI (ensure autogen is up to date)
 go run -tags=gencli ./scripts/gen_cli.go
+rm -rf docs-cli/
+go run ./cmd/pf/ docs --dir ./docs-cli
+git diff --exit-code -- cmd/pf/autogen_gen.go docs-cli
 
 # 2. Format
 if [ -n "$(gofmt -l .)" ]; then

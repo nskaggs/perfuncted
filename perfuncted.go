@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,6 +28,9 @@ var nestedSessionGlob = filepath.Glob
 type Options struct {
 	MaxX, MaxY int32
 	Nested     bool
+
+	TraceWriter io.Writer
+	TraceDelay  time.Duration
 
 	XDGRuntimeDir      string
 	WaylandDisplay     string
@@ -144,6 +148,7 @@ type Perfuncted struct {
 	Window    WindowBundle
 	Clipboard ClipboardBundle
 	session   compositor.Session
+	trace     *actionTracer
 }
 
 func (p *Perfuncted) Paste(text string) error {
@@ -151,6 +156,10 @@ func (p *Perfuncted) Paste(text string) error {
 }
 
 func (p *Perfuncted) PasteContext(ctx context.Context, text string) error {
+	if p == nil {
+		return fmt.Errorf("perfuncted: nil Perfuncted")
+	}
+	p.traceAction(fmt.Sprintf("paste text=%q", text))
 	return p.Clipboard.PasteWithInputContext(ctx, text, p.Input)
 }
 
@@ -165,6 +174,7 @@ func (p *Perfuncted) TypeFastContext(ctx context.Context, text string) error {
 	if p == nil {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
+	p.traceAction(fmt.Sprintf("type-fast text=%q", text))
 	// Prefer clipboard paste when available; this uses the session's clipboard
 	// backend (wl-copy/wl-paste) and sends the paste key combo via the input
 	// bundle. Falls back to Type which emits per-character key events.
@@ -204,17 +214,23 @@ func New(opts Options) (*Perfuncted, error) {
 		win.Close()
 		return nil, err
 	}
+	tracer := newActionTracer(opts.TraceWriter, opts.TraceDelay)
+	if tracer != nil {
+		tracer.Tracef("perfuncted.new", "nested=%t max=%dx%d", opts.Nested, opts.MaxX, opts.MaxY)
+	}
 
 	return &Perfuncted{
-		Screen:    ScreenBundle{scr},
-		Input:     InputBundle{inp},
-		Window:    WindowBundle{win},
-		Clipboard: ClipboardBundle{cb},
+		Screen:    ScreenBundle{Screenshotter: scr, tracer: tracer},
+		Input:     InputBundle{Inputter: inp, tracer: tracer},
+		Window:    WindowBundle{Manager: win, tracer: tracer},
+		Clipboard: ClipboardBundle{Clipboard: cb, tracer: tracer},
 		session:   session,
+		trace:     tracer,
 	}, nil
 }
 
 func (p *Perfuncted) Close() error {
+	p.traceAction("close")
 	var errs []error
 	if p.Screen.Screenshotter != nil {
 		errs = append(errs, p.Screen.Close())
@@ -246,4 +262,11 @@ func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (p *Perfuncted) traceAction(msg string) {
+	if p == nil || p.trace == nil {
+		return
+	}
+	p.trace.Tracef("perfuncted", "%s", msg)
 }

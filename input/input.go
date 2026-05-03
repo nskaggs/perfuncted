@@ -1,5 +1,6 @@
 // Package input provides keyboard and mouse injection backends.
-// Backend priority: wl-virtual (wlroots Wayland) → uinput (other Wayland) → XTEST (X11) → uinput (fallback).
+// Backend priority on Wayland: WlInputMethod -> wl-virtual -> uinput.
+// On X11, XTEST is used first; uinput remains the final fallback.
 // uinput requires membership in the "input" group or a udev rule:
 //
 // KERNEL=="uinput", GROUP="input", MODE="0660"
@@ -69,20 +70,20 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
 
-	// On Wayland, prefer wl-virtual for full automation semantics. It handles
-	// text, key taps, modifiers, and pointer actions through the same scoped
-	// compositor path. Fallback order:
+	// On Wayland, prefer the input-method path for text-heavy apps. It handles
+	// committed UTF-8 text directly and still delegates pointer/key combo
+	// operations to a compositor-scoped backend when available. Fallback order:
 	//
-	//	WlVirtual -> WlInputMethod -> uinput -> XTest
+	//	WlInputMethod -> wl-virtual -> uinput
 	if sock := rt.SocketPath(); sock != "" {
-		if b, err := NewWlVirtualBackend(sock); err == nil {
-			return b, nil
-		}
 		if b, err := NewWlInputMethodBackend(sock, maxX, maxY); err == nil {
 			return b, nil
 		}
-		// WlVirtual unavailable (e.g. KDE Plasma). uinput is preferred over
-		// XTest here because XTest does not deliver events to native Wayland apps.
+		if b, err := NewWlVirtualBackend(sock); err == nil {
+			return b, nil
+		}
+		// wl-virtual unavailable (e.g. compositor lacks the extension). uinput is the last
+		// Wayland fallback when the compositor-scoped backends are unavailable.
 		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
 			if b, err := NewUinputBackend(maxX, maxY); err == nil {
 				return b, nil
@@ -109,28 +110,50 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 	return nil, fmt.Errorf("input: no backend available (uinput inaccessible, DISPLAY not set)")
 }
 
-// Probe returns availability details for each input backend, in the priority
-// order that Open() uses: wl-virtual first (wlroots Wayland), then uinput
-// (other Wayland compositors), then XTEST (X11/XWayland).
+// Probe returns availability details for each input backend in the same
+// priority order that Open() uses for the current session type.
 func Probe() []probe.Result {
 	return ProbeRuntime(env.Current())
 }
 
 // ProbeRuntime returns availability details for rt.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
-	// On Wayland, uinput outranks XTEST (XTEST only reaches X11/XWayland).
 	if rt.SocketPath() != "" {
 		return probe.SelectBest([]probe.Result{
+			checkWlInputMethod(rt),
 			checkWlVirtual(rt),
 			checkUinput(),
-			checkXTest(rt),
 		})
 	}
 	return probe.SelectBest([]probe.Result{
-		checkWlVirtual(rt),
 		checkXTest(rt),
 		checkUinput(),
 	})
+}
+
+func checkWlInputMethod(rt env.Runtime) probe.Result {
+	r := probe.Result{Name: "wl-input-method"}
+	sock := rt.SocketPath()
+	if sock == "" {
+		r.Reason = "WAYLAND_DISPLAY not set"
+		return r
+	}
+	globs := wl.ListGlobals(sock)
+	if globs == nil {
+		r.Reason = fmt.Sprintf("connect %s: failed", sock)
+		return r
+	}
+	if !globs["zwp_input_method_manager_v2"] {
+		r.Reason = "zwp_input_method_manager_v2 not advertised"
+		return r
+	}
+	if !globs["wl_seat"] {
+		r.Reason = "wl_seat not advertised"
+		return r
+	}
+	r.Available = true
+	r.Reason = "zwp_input_method_manager_v2 + wl_seat available"
+	return r
 }
 
 func checkXTest(rt env.Runtime) probe.Result {

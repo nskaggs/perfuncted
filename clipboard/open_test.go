@@ -73,6 +73,7 @@ func TestOpen_PrefersX11WhenXclipAvailable(t *testing.T) {
 	// Simulate X11 session.
 	t.Setenv("DISPLAY", ":0")
 	os.Unsetenv("WAYLAND_DISPLAY")
+	t.Setenv("XDG_SESSION_TYPE", "x11")
 
 	cb, err := Open()
 	if err != nil {

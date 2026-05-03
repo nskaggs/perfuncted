@@ -24,6 +24,7 @@ func TestEnviron(t *testing.T) {
 	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
 
 	var xdg, wl, dbus, display, gdk, qt string
+	var sessionType string
 	for _, e := range ev {
 		switch {
 		case strings.HasPrefix(e, "XDG_RUNTIME_DIR="):
@@ -38,6 +39,8 @@ func TestEnviron(t *testing.T) {
 			gdk = strings.TrimPrefix(e, "GDK_BACKEND=")
 		case strings.HasPrefix(e, "QT_QPA_PLATFORM="):
 			qt = strings.TrimPrefix(e, "QT_QPA_PLATFORM=")
+		case strings.HasPrefix(e, "XDG_SESSION_TYPE="):
+			sessionType = strings.TrimPrefix(e, "XDG_SESSION_TYPE=")
 		}
 	}
 
@@ -58,6 +61,9 @@ func TestEnviron(t *testing.T) {
 	}
 	if qt != "wayland" {
 		t.Errorf("QT_QPA_PLATFORM = %q, want wayland", qt)
+	}
+	if sessionType != "wayland" {
+		t.Errorf("XDG_SESSION_TYPE = %q, want wayland", sessionType)
 	}
 }
 

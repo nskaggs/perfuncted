@@ -3,7 +3,6 @@
 /example
 /test
 *.test
-/integration
 
 # Documentation (local only)
 docs/

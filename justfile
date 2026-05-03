@@ -44,13 +44,22 @@ install-dev-tools:
     go install golang.org/x/vuln/cmd/govulncheck@latest
     go install golang.org/x/tools/cmd/deadcode@latest
 
-# Generate CLI documentation
-docs:
+# Generate CLI code and documentation
+generate:
+    go run -tags=gencli ./scripts/gen_cli.go
     rm -rf docs-cli/
     go run ./cmd/pf/ docs --dir ./docs-cli
 
-# Pre-commit: all checks + unit tests
-precommit: check test-unit
+# Generate CLI documentation
+docs: generate
+
+# Verify generated files are current
+check-generate:
+    just generate
+    git diff --exit-code -- cmd/pf/autogen_gen.go docs-cli
+
+# Pre-commit: generated files + all checks + unit tests
+precommit: check-generate check test-unit
 
 # Build all packages and binaries
 build:
@@ -71,18 +80,35 @@ test: test-unit
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
-    @bash scripts/test-session.sh
+    PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run TestSessionLifecycle -count=1
 
-# Run integration tests (defaults to headless if no arg provided)
-# Usage: just test-integration            -> headless
-#        just test-integration desktop    -> desktop
-#        just test-integration nested     -> nested
-test-integration *args:
-    @if [ -z '{{args}}' ]; then \
-        bash scripts/test-integration.sh headless; \
-    else \
-        bash scripts/test-integration.sh {{args}}; \
-    fi
+# Run the shared integration suite against headless X11.
+test-integration-headless-x11:
+    PF_TEST_DISPLAY_SERVER=headless-x11 go test -tags=integration ./integration -count=1
+
+# Run the shared integration suite against nested X11.
+test-integration-nested-x11:
+    PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1
+
+# Integration suite against nested X11 with tracing and slower execution
+test-integration-nested-x11-debug:
+    PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1 -v
+
+# Run the shared integration suite against headless Wayland.
+test-integration-headless-wayland:
+    PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -count=1
+
+# Run the shared integration suite against nested Wayland.
+test-integration-nested-wayland:
+    PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1
+
+# Integration suite against nested Wayland with tracing and slower execution
+test-integration-nested-wayland-debug:
+    PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1 -v
+    
+# Run all integration checks: shared suite plus package-level backend integrations.
+test-integration: test-integration-headless-x11 test-integration-headless-wayland
+    go test -tags=integration ./window ./input ./screen ./clipboard -count=1
 
 # Run all test suites: unit + session + integration
 test-all: test-unit test-session test-integration
@@ -151,6 +177,6 @@ cleanup-nested:
     -rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
     -rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
     -rm -f /tmp/pf-test-*.png 2>/dev/null || true
-    -rm -f /tmp/*-kwrite.txt /tmp/*-pluma.txt 2>/dev/null || true
+    -rm -f /tmp/*-kwrite.txt 2>/dev/null || true
     -rm -f /tmp/*-firefox-before.png /tmp/*-firefox-after.png 2>/dev/null || true
     @echo "Cleanup complete."

@@ -87,10 +87,14 @@ The integration suite runs in isolated nested Wayland/X11 sessions and never
 touches your real desktop:
 
 ```bash
-just test-integration   # or: just test-all
+just test-integration-headless-x11
+just test-integration-headless-wayland
+just test-integration-nested-x11
+just test-integration-nested-wayland
+just test-integration   # CI headless matrix
 ```
 
-Optional: install `wl-clipboard` to enable clipboard round-trip verification.
+Optional: install `wl-clipboard` for Wayland clipboard round-trip verification and `xclip` for X11 clipboard round-trip verification.
 
 ## Development
 
