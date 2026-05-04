@@ -114,8 +114,8 @@ var keyCode = map[keymap.Key]int{
 	keymap.KeyInsert:    uinput.KeyInsert,
 	keymap.KeyDelete:    uinput.KeyDelete,
 	keymap.KeyF1:        uinput.KeyF1, keymap.KeyF2: uinput.KeyF2, keymap.KeyF3: uinput.KeyF3,
-	keymap.KeyF4:        uinput.KeyF4, keymap.KeyF5: uinput.KeyF5, keymap.KeyF6: uinput.KeyF6,
-	keymap.KeyF7:        uinput.KeyF7, keymap.KeyF8: uinput.KeyF8, keymap.KeyF9: uinput.KeyF9,
+	keymap.KeyF4: uinput.KeyF4, keymap.KeyF5: uinput.KeyF5, keymap.KeyF6: uinput.KeyF6,
+	keymap.KeyF7: uinput.KeyF7, keymap.KeyF8: uinput.KeyF8, keymap.KeyF9: uinput.KeyF9,
 	keymap.KeyF10: uinput.KeyF10, keymap.KeyF11: uinput.KeyF11, keymap.KeyF12: uinput.KeyF12,
 }
 
@@ -383,7 +383,7 @@ const (
 
 // Kernel keysym types (from <linux/keyboard.h>).
 const (
-	ktLatin  = 0 // KT_LATIN  — plain ASCII/Latin character
+	ktLatin  = 0  // KT_LATIN  — plain ASCII/Latin character
 	ktLetter = 11 // KT_LETTER — letter affected by CapsLock
 )
 
@@ -476,7 +476,7 @@ func qwertyRuneMap() map[rune]kernelChar {
 		' ':  {uinput.KeySpace, false},
 		'\t': {uinput.KeyTab, false},
 		'\n': {uinput.KeyEnter, false},
-		'0': {uinput.Key0, false}, '1': {uinput.Key1, false}, '2': {uinput.Key2, false},
+		'0':  {uinput.Key0, false}, '1': {uinput.Key1, false}, '2': {uinput.Key2, false},
 		'3': {uinput.Key3, false}, '4': {uinput.Key4, false}, '5': {uinput.Key5, false},
 		'6': {uinput.Key6, false}, '7': {uinput.Key7, false}, '8': {uinput.Key8, false},
 		'9': {uinput.Key9, false},

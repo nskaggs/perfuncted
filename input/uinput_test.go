@@ -270,31 +270,31 @@ func TestBuildKernelRuneMapFallback(t *testing.T) {
 
 func TestKernelRuneExtraction(t *testing.T) {
 	tests := []struct {
-		sym     uint16
-		want    rune
-		wantOK  bool
+		sym    uint16
+		want   rune
+		wantOK bool
 	}{
 		// KT_LATIN (type=0) with ASCII value
-		{0x0061, 'a', true},  // KT_LATIN + 'a'
-		{0x0041, 'A', true},  // KT_LATIN + 'A'
-		{0x0030, '0', true},  // KT_LATIN + '0'
-		{0x0020, ' ', true},  // KT_LATIN + space
+		{0x0061, 'a', true}, // KT_LATIN + 'a'
+		{0x0041, 'A', true}, // KT_LATIN + 'A'
+		{0x0030, '0', true}, // KT_LATIN + '0'
+		{0x0020, ' ', true}, // KT_LATIN + space
 		// KT_LETTER (type=11) with value
-		{0x0B61, 'a', true},  // KT_LETTER + 'a'
-		{0x0B41, 'A', true},  // KT_LETTER + 'A'
+		{0x0B61, 'a', true}, // KT_LETTER + 'a'
+		{0x0B41, 'A', true}, // KT_LETTER + 'A'
 		// Non-Latin types should not extract
-		{0x0100, 0, false},   // KT_FN
-		{0x0200, 0, false},   // KT_SPEC
-		{0x0300, 0, false},   // KT_PAD
-		{0x0400, 0, false},   // KT_DEAD
-		{0x0500, 0, false},   // KT_CONS
-		{0x0600, 0, false},   // KT_CUR
-		{0x0700, 0, false},   // KT_SHIFT
-		{0x0800, 0, false},   // KT_META
-		{0x0900, 0, false},   // KT_ASCII
-		{0x0A00, 0, false},   // KT_LOCK
+		{0x0100, 0, false}, // KT_FN
+		{0x0200, 0, false}, // KT_SPEC
+		{0x0300, 0, false}, // KT_PAD
+		{0x0400, 0, false}, // KT_DEAD
+		{0x0500, 0, false}, // KT_CONS
+		{0x0600, 0, false}, // KT_CUR
+		{0x0700, 0, false}, // KT_SHIFT
+		{0x0800, 0, false}, // KT_META
+		{0x0900, 0, false}, // KT_ASCII
+		{0x0A00, 0, false}, // KT_LOCK
 		// Zero value
-		{0x0000, 0, true},    // KT_LATIN + 0 → valid extraction, rune 0
+		{0x0000, 0, true}, // KT_LATIN + 0 → valid extraction, rune 0
 	}
 
 	for _, tt := range tests {
