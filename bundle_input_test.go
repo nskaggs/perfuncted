@@ -8,14 +8,14 @@ import (
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
-func TestPerfunctedTypeFast_ClipboardPath(t *testing.T) {
+func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{}
 	pf := pftest.New(nil, inp, nil, cb)
 
-	// Perfuncted.TypeFast uses Clipboard.PasteWithInput internally.
-	if err := pf.TypeFast("hello world"); err != nil {
-		t.Fatalf("TypeFast: %v", err)
+	// Perfuncted.Paste uses clipboard+PasteCombo when a clipboard is available.
+	if err := pf.Paste("hello world"); err != nil {
+		t.Fatalf("Paste: %v", err)
 	}
 
 	// Verify clipboard was set.
@@ -36,13 +36,13 @@ func TestPerfunctedTypeFast_ClipboardPath(t *testing.T) {
 	}
 }
 
-func TestPerfunctedTypeFast_FallbackToType(t *testing.T) {
-	// When clipboard is nil, TypeFast should fall back to Type.
+func TestPerfunctedPaste_FallbackToType(t *testing.T) {
+	// When clipboard is nil, Paste should fall back to Type.
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.TypeFast("abc"); err != nil {
-		t.Fatalf("TypeFast: %v", err)
+	if err := pf.Paste("abc"); err != nil {
+		t.Fatalf("Paste: %v", err)
 	}
 
 	// Should have called Type with the full string.
@@ -58,14 +58,13 @@ func TestPerfunctedTypeFast_FallbackToType(t *testing.T) {
 	}
 }
 
-func TestPerfunctedTypeFast_ClipboardSetFails(t *testing.T) {
-	// When clipboard.Set fails, Perfuncted.TypeFast returns the error
-	// (no fallback — that's InputBundle.TypeFast's job).
+func TestPerfunctedPaste_ClipboardSetFails(t *testing.T) {
+	// When clipboard.Set fails, Perfuncted.Paste returns the error.
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{SetErr: context.DeadlineExceeded}
 	pf := pftest.New(nil, inp, nil, cb)
 
-	err := pf.TypeFast("fallback")
+	err := pf.Paste("fallback")
 	if err == nil {
 		t.Fatal("expected error when clipboard.Set fails")
 	}

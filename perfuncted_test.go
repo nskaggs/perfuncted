@@ -71,19 +71,19 @@ func TestBundleSmoke(t *testing.T) {
 	})
 
 	t.Run("Screen", func(t *testing.T) {
-		if _, err := pf.Screen.GetPixelContext(context.Background(), 5, 5); err != nil {
+		if _, err := pf.Screen.GetPixel(5, 5); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pf.Screen.GetMultiplePixelsContext(context.Background(), []image.Point{{1, 1}}); err != nil {
+		if _, err := pf.Screen.GetMultiplePixels([]image.Point{{1, 1}}); err != nil {
 			t.Fatal(err)
 		}
 	})
 
 	t.Run("Window", func(t *testing.T) {
-		_ = pf.Window.ResizeContext(context.Background(), "Firefox", 800, 600)
-		_ = pf.Window.MinimizeContext(context.Background(), "Firefox")
-		_ = pf.Window.MaximizeContext(context.Background(), "Firefox")
-		_ = pf.Window.RestoreContext(context.Background(), "Firefox")
+		_ = pf.Window.Resize("Firefox", 800, 600)
+		_ = pf.Window.Minimize("Firefox")
+		_ = pf.Window.Maximize("Firefox")
+		_ = pf.Window.Restore("Firefox")
 	})
 }
 
@@ -177,7 +177,7 @@ func TestWindowBundle(t *testing.T) {
 		t.Errorf("unexpected list: %v", wins)
 	}
 
-	if err := pf.Window.ActivateContext(context.Background(), "Firefox"); err != nil {
+	if err := pf.Window.Activate("Firefox"); err != nil {
 		t.Fatal(err)
 	}
 	if len(mgr.Activated) != 1 || mgr.Activated[0] != "Firefox" {
@@ -190,7 +190,7 @@ func TestScreenBundleHashing(t *testing.T) {
 	sc := &pftest.Screenshotter{Frames: []image.Image{img}}
 	pf := pftest.New(sc, nil, nil, nil)
 
-	h1, err := pf.Screen.GrabHashContext(context.Background(), image.Rect(0, 0, 10, 10))
+	h1, err := pf.Screen.GrabRegionHash(context.Background(), image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,8 +198,8 @@ func TestScreenBundleHashing(t *testing.T) {
 		t.Error("expected non-zero hash")
 	}
 
-	// GrabFullHash - equivalent to GrabHashContext with empty rect
-	h2, err := pf.Screen.GrabHashContext(context.Background(), image.Rectangle{})
+	// GrabFullHash - equivalent to GrabRegionHash with empty rect
+	h2, err := pf.Screen.GrabFullHash(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestWaitForVisibleChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen.WaitForVisibleChangeContext(ctx, image.Rect(0, 0, 10, 10), 10*time.Millisecond, 2)
+	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() {}, 2, 10*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestWaitForSettle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen.WaitForSettleContext(ctx, image.Rect(0, 0, 10, 10), func() {
+	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() {
 		// simulate action that causes change
 	}, 3, 10*time.Millisecond)
 
