@@ -403,7 +403,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if _, err := waitForWindow(pf, app.winMatch, 30*time.Second); err != nil {
 		t.Fatalf("wait for %s window: %v", app.name, err)
 	}
-	if err := pf.Window.ActivateContext(context.Background(), app.winMatch); err != nil {
+	if err := pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
 	// Give the editor a moment to fully focus before typing.
@@ -418,7 +418,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 	// Wait for the save to complete before closing.
 	time.Sleep(1 * time.Second)
-	if err := pf.Window.CloseWindowContext(context.Background(), app.winMatch); err != nil {
+	if err := pf.Window.CloseWindow(app.winMatch); err != nil {
 		t.Fatalf("close window: %v", err)
 	}
 	// Give the close dialog a moment to appear and process.
@@ -467,7 +467,7 @@ func compositorKind(rt env.Runtime) string {
 
 func runScreenSmoke(t *testing.T, s *suite) {
 	t.Helper()
-	w, h, err := s.pf.Screen.ResolutionContext(context.Background())
+	w, h, err := s.pf.Screen.Resolution()
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
@@ -476,40 +476,40 @@ func runScreenSmoke(t *testing.T, s *suite) {
 	}
 
 	rect := image.Rect(0, 0, min(w, 200), min(h, 200))
-	img, err := s.pf.Screen.GrabContext(context.Background(), rect)
+	img, err := s.pf.Screen.Grab(context.Background(), rect)
 	if err != nil {
 		t.Fatalf("grab: %v", err)
 	}
-	if _, err := s.pf.Screen.GrabHashContext(context.Background(), rect); err != nil {
+	if _, err := s.pf.Screen.GrabRegionHash(context.Background(), rect); err != nil {
 		t.Fatalf("grab hash: %v", err)
 	}
 	// Grab hash of full screen
 	fullScreenRect := image.Rect(0, 0, w, h)
-	if _, err := s.pf.Screen.GrabHashContext(context.Background(), fullScreenRect); err != nil {
+	if _, err := s.pf.Screen.GrabRegionHash(context.Background(), fullScreenRect); err != nil {
 		t.Fatalf("grab full hash: %v", err)
 	}
 
 	tmp := filepath.Join(t.TempDir(), "capture.png")
-	if err := s.pf.Screen.CaptureRegionContext(context.Background(), rect, tmp); err != nil {
+	if err := s.pf.Screen.CaptureRegion(rect, tmp); err != nil {
 		t.Fatalf("capture region: %v", err)
 	}
 	if _, err := os.Stat(tmp); err != nil {
 		t.Fatalf("capture region output missing: %v", err)
 	}
-	if _, err := s.pf.Screen.GetPixelContext(context.Background(), rect.Min.X, rect.Min.Y); err != nil {
+	if _, err := s.pf.Screen.GetPixel(rect.Min.X, rect.Min.Y); err != nil {
 		t.Fatalf("get pixel: %v", err)
 	}
-	if _, err := s.pf.Screen.GetMultiplePixelsContext(context.Background(), []image.Point{{rect.Min.X, rect.Min.Y}}); err != nil {
+	if _, err := s.pf.Screen.GetMultiplePixels([]image.Point{{rect.Min.X, rect.Min.Y}}); err != nil {
 		t.Fatalf("get multiple pixels: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := s.pf.Screen.WaitForFnContext(ctx, rect, func(i image.Image) bool { return i != nil }, 100*time.Millisecond); err != nil {
+	if _, err := s.pf.Screen.WaitForFn(ctx, rect, func(i image.Image) bool { return i != nil }, 100*time.Millisecond); err != nil {
 		t.Fatalf("wait for fn: %v", err)
 	}
 
-	pt, err := s.pf.Screen.FindColorContext(context.Background(), rect, colorAt(img, rect.Min.X, rect.Min.Y), 0)
+	pt, err := s.pf.Screen.FindColor(rect, colorAt(img, rect.Min.X, rect.Min.Y), 0)
 	if err != nil {
 		t.Fatalf("find color: %v", err)
 	}
@@ -518,7 +518,7 @@ func runScreenSmoke(t *testing.T, s *suite) {
 	}
 
 	refRect := image.Rect(rect.Min.X, rect.Min.Y, min(rect.Min.X+20, rect.Max.X), min(rect.Min.Y+20, rect.Max.Y))
-	ref, err := s.pf.Screen.GrabContext(context.Background(), refRect)
+	ref, err := s.pf.Screen.Grab(context.Background(), refRect)
 	if err == nil {
 		// WaitWithTolerance is not exposed; skip advanced tolerance testing
 		_ = ref
@@ -548,11 +548,11 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("wait for %s window: %v", app.name, err)
 	}
 
-	if err := s.pf.Window.ActivateContext(context.Background(), app.winMatch); err != nil {
+	if err := s.pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
 
-	if err := s.pf.Window.MaximizeContext(context.Background(), app.winMatch); err != nil {
+	if err := s.pf.Window.Maximize(app.winMatch); err != nil {
 		t.Fatalf("maximize window %v", err)
 	}
 
@@ -560,7 +560,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := waitForWindow(s.pf, docName, 20*time.Second); err != nil {
 		t.Fatalf("wait for %s document title %q: %v", app.name, docName, err)
 	}
-	active, err := s.pf.Window.ActiveTitleContext(context.Background())
+	active, err := s.pf.Window.ActiveTitle()
 	if err != nil {
 		t.Fatalf("active title: %v", err)
 	}
@@ -568,7 +568,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("active title %q does not match %q", active, app.winMatch)
 	}
 
-	info, err := s.pf.Window.FindByTitleContext(context.Background(), app.winMatch)
+	info, err := s.pf.Window.FindByTitle(app.winMatch)
 	if err != nil {
 		t.Fatalf("find window: %v", err)
 	}
@@ -576,7 +576,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if rect.Empty() {
 		t.Fatal("geometry returned empty rect")
 	}
-	screenW, screenH, err := s.pf.Screen.ResolutionContext(context.Background())
+	screenW, screenH, err := s.pf.Screen.Resolution()
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
@@ -600,7 +600,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 	ctxFocus, cancelFocus := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFocus()
-	if _, err := s.pf.Screen.WaitForStableContext(ctxFocus, typingRect, 3, 100*time.Millisecond); err != nil {
+	if _, err := find.WaitForNoChange(ctxFocus, s.pf.Screen.Screenshotter, typingRect, 3, 100*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for editor focus to settle: %v", err)
 	}
 	if err := s.pf.Input.Type("Integration"); err != nil {
@@ -608,17 +608,17 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelType()
-	if _, err := s.pf.Screen.WaitForNoChangeContext(ctxType, typingRect, 3, 100*time.Millisecond); err != nil {
+	if _, err := find.WaitForNoChange(ctxType, s.pf.Screen.Screenshotter, typingRect, 3, 100*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for typed text to settle: %v", err)
 	}
 
-	if _, err := s.pf.Screen.GrabHashContext(context.Background(), captureRect); err != nil {
+	if _, err := s.pf.Screen.GrabRegionHash(context.Background(), captureRect); err != nil {
 		t.Fatalf("grab hash: %v", err)
 	}
-	if _, err := s.pf.Screen.GetMultiplePixelsContext(context.Background(), []image.Point{{captureRect.Min.X, captureRect.Min.Y}, {captureRect.Min.X + 1, captureRect.Min.Y + 1}}); err != nil {
+	if _, err := s.pf.Screen.GetMultiplePixels([]image.Point{{captureRect.Min.X, captureRect.Min.Y}, {captureRect.Min.X + 1, captureRect.Min.Y + 1}}); err != nil {
 		t.Fatalf("get multiple pixels: %v", err)
 	}
-	if _, err := s.pf.Screen.GetPixelContext(context.Background(), captureRect.Min.X, captureRect.Min.Y); err != nil {
+	if _, err := s.pf.Screen.GetPixel(captureRect.Min.X, captureRect.Min.Y); err != nil {
 		t.Fatalf("get pixel: %v", err)
 	}
 	// Use a tiny 10x10 region at the center of the window for pixel
@@ -627,13 +627,13 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	cx := rect.Min.X + rect.Dx()/2
 	cy := rect.Min.Y + rect.Dy()/2
 	tinyRect := image.Rect(cx-5, cy-5, cx+5, cy+5)
-	tinyImg, err := s.pf.Screen.GrabContext(context.Background(), tinyRect)
+	tinyImg, err := s.pf.Screen.Grab(context.Background(), tinyRect)
 	if err != nil {
 		t.Fatalf("grab tiny rect: %v", err)
 	}
 	scanCtx, scanCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer scanCancel()
-	if _, err := s.pf.Screen.ScanForContext(scanCtx, []image.Rectangle{tinyRect}, []uint32{find.PixelHash(tinyImg, nil)}, 100*time.Millisecond); err != nil {
+	if _, err := s.pf.Screen.ScanFor(scanCtx, []image.Rectangle{tinyRect}, []uint32{find.PixelHash(tinyImg, nil)}, 100*time.Millisecond); err != nil {
 		t.Fatalf("scan for: %v", err)
 	}
 
@@ -662,10 +662,10 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("saved file %q does not contain typed text", saveFile)
 	}
 
-	if err := s.pf.Window.ResizeContext(context.Background(), app.winMatch, 800, 600); err != nil {
+	if err := s.pf.Window.Resize(app.winMatch, 800, 600); err != nil {
 		t.Fatalf("resize: %v", err)
 	}
-	if err := s.pf.Window.CloseWindowContext(context.Background(), app.winMatch); err != nil {
+	if err := s.pf.Window.CloseWindow(app.winMatch); err != nil {
 		t.Fatalf("close window: %v", err)
 	}
 	ctxClose, cancelClose := context.WithTimeout(context.Background(), 30*time.Second)
@@ -689,14 +689,14 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := waitForWindow(s.pf, app.winMatch, 90*time.Second); err != nil {
 		t.Fatalf("wait for browser window: %v", err)
 	}
-	if err := s.pf.Window.ActivateContext(context.Background(), app.winMatch); err != nil {
+	if err := s.pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate browser: %v", err)
 	}
 
 	if err := s.pf.Input.Type("{ctrl+l}"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
-	if err := s.pf.TypeFast("about:support"); err != nil {
+	if err := s.pf.Paste("about:support"); err != nil {
 		t.Fatalf("type address: %v", err)
 	}
 	if err := s.pf.Input.Type("{enter}"); err != nil {
@@ -706,7 +706,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	rect := image.Rect(0, 0, 100, 100)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := s.pf.Screen.WaitForStableContext(ctx, rect, 3, 500*time.Millisecond); err != nil {
+	if _, err := find.WaitForNoChange(ctx, s.pf.Screen.Screenshotter, rect, 3, 500*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for stable: %v", err)
 	}
 }
@@ -753,7 +753,7 @@ func waitForWindow(pf *perfuncted.Perfuncted, pattern string, timeout time.Durat
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		info, err := pf.Window.FindByTitleContext(ctx, pattern)
+		info, err := pf.Window.FindByTitle(pattern)
 		if err == nil {
 			return info, nil
 		}
@@ -771,7 +771,7 @@ func waitForWindowClose(pf *perfuncted.Perfuncted, pattern string, timeout time.
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		_, err := pf.Window.FindByTitleContext(ctx, pattern)
+		_, err := pf.Window.FindByTitle(pattern)
 		if err != nil {
 			return nil
 		}

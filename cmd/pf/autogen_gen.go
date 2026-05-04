@@ -2,12 +2,63 @@
 package main
 
 import (
+	"fmt"
 	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
 )
 
 func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// capture-region: wrapper for perfuncted.CaptureRegion
+	var cmd_screen_capture_region_rect string
+	var cmd_screen_capture_region_path string
+	cmd_screen_capture_region := &cobra.Command{
+		Use:   "capture-region",
+		Short: "Auto-generated wrapper for perfuncted.CaptureRegion",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_capture_region_rect)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_capture_region_path (string)
+			if err := pf.Screen.CaptureRegion(r_0, cmd_screen_capture_region_path); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_screen_capture_region.Flags().StringVar(&cmd_screen_capture_region_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_capture_region.Flags().StringVar(&cmd_screen_capture_region_path, "path", "", "path")
+
+	cmds = append(cmds, cmd_screen_capture_region)
+
+	// resolution: wrapper for perfuncted.Resolution
+
+	cmd_screen_resolution := &cobra.Command{
+		Use:   "resolution",
+		Short: "Auto-generated wrapper for perfuncted.Resolution",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			w, h, err := pf.Screen.Resolution()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%dx%d\n", w, h)
+			return nil
+		},
+	}
+
+	cmds = append(cmds, cmd_screen_resolution)
 	return cmds
 }
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
@@ -16,6 +67,28 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// restore: wrapper for perfuncted.Restore
+	var cmd_window_restore_pattern string
+	cmd_window_restore := &cobra.Command{
+		Use:   "restore",
+		Short: "Auto-generated wrapper for perfuncted.Restore",
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_window_restore_pattern (string)
+			if err := pf.Window.Restore(cmd_window_restore_pattern); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_window_restore.Flags().StringVar(&cmd_window_restore_pattern, "pattern", "", "pattern")
+
+	cmds = append(cmds, cmd_window_restore)
 	return cmds
 }
 func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
