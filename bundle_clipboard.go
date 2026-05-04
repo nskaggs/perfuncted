@@ -58,10 +58,6 @@ func (c ClipboardBundle) setContext(ctx context.Context, text string) error {
 	return c.Clipboard.Set(ctx, text)
 }
 
-func (c ClipboardBundle) pasteWithInput(text string, inp InputBundle) error {
-	return c.pasteWithInputContext(context.Background(), text, inp)
-}
-
 func (c ClipboardBundle) pasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
 	c.traceAction(fmt.Sprintf("paste-with-input text=%q", text))
 	if err := c.setContext(ctx, text); err != nil {
