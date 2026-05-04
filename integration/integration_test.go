@@ -425,8 +425,10 @@ func TestSessionLifecycle(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	// Check window is closed by waiting for title change to indicate close handling
-	_ = ctx // Context already created for potential future use
+	if err := waitForWindowClose(pf, app.winMatch, 30*time.Second); err != nil {
+		t.Fatalf("wait for close: %v", err)
+	}
+	_ = ctx
 }
 
 func mustSuite(t *testing.T) *suite {
@@ -668,8 +670,10 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 	ctxClose, cancelClose := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelClose()
-	// WaitForClose is not exposed; verify window closure via other means
 	_ = ctxClose
+	if err := waitForWindowClose(s.pf, app.winMatch, 30*time.Second); err != nil {
+		t.Fatalf("wait for window close: %v", err)
+	}
 }
 
 func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
@@ -746,7 +750,37 @@ func launchApp(rt env.Runtime, sess *perfuncted.Session, app appSpec, extraEnv .
 func waitForWindow(pf *perfuncted.Perfuncted, pattern string, timeout time.Duration) (window.Info, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return pf.Window.FindByTitleContext(ctx, pattern)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		info, err := pf.Window.FindByTitleContext(ctx, pattern)
+		if err == nil {
+			return info, nil
+		}
+		select {
+		case <-ctx.Done():
+			return window.Info{}, fmt.Errorf("wait for window %q: timed out after %s", pattern, timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForWindowClose(pf *perfuncted.Perfuncted, pattern string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		_, err := pf.Window.FindByTitleContext(ctx, pattern)
+		if err != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for window close %q: timed out after %s", pattern, timeout)
+		case <-ticker.C:
+		}
+	}
 }
 
 func waitForFileContains(ctx context.Context, path, want string, timeout time.Duration) (string, error) {
