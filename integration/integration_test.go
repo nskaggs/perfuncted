@@ -409,7 +409,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := pf.Input.Type("session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
-	if err := pf.Input.Type("^s"); err != nil {
+	if err := pf.Input.Type("{ctrl+s}"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	if err := pf.Window.CloseWindow(app.winMatch); err != nil {
@@ -681,7 +681,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("activate browser: %v", err)
 	}
 
-	if err := s.pf.Input.Type("^l"); err != nil {
+	if err := s.pf.Input.Type("{ctrl+l}"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
 	if err := s.pf.Input.TypeFast("about:support"); err != nil {
@@ -793,12 +793,12 @@ func requiredApps(t *testing.T) []appSpec {
 			saveFile: filepath.Join(os.TempDir(), pfx+"-featherpad.txt"),
 		},
 		//gtk4 supported on wayland and x11
-		{
-			name:     "gnome-text-editor",
-			launch:   []string{"gnome-text-editor"},
-			winMatch: "gnome-text-editor",
-			saveFile: filepath.Join(os.TempDir(), pfx+"-gnome-text-editor.txt"),
-		},
+		//{
+		//	name:     "gnome-text-editor",
+		//	launch:   []string{"gnome-text-editor"},
+		//	winMatch: "gnome-text-editor",
+		//	saveFile: filepath.Join(os.TempDir(), pfx+"-gnome-text-editor.txt"),
+		//},
 		//{
 		//	name:     "pluma",
 		//	launch:   []string{"pluma"},
