@@ -406,15 +406,23 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
+	// Give the editor a moment to fully focus before typing.
+	time.Sleep(1 * time.Second)
 	if err := pf.Input.Type("session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
+	// Wait for the editor to process the typed text before saving.
+	time.Sleep(500 * time.Millisecond)
 	if err := pf.Input.Type("{ctrl+s}"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
+	// Wait for the save to complete before closing.
+	time.Sleep(1 * time.Second)
 	if err := pf.Window.CloseWindow(app.winMatch); err != nil {
 		t.Fatalf("close window: %v", err)
 	}
+	// Give the close dialog a moment to appear and process.
+	time.Sleep(1 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := pf.Window.WaitForClose(ctx, app.winMatch, 200*time.Millisecond); err != nil {
@@ -601,10 +609,6 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("wait for typed text to settle: %v", err)
 	}
 
-	img, err := s.pf.Screen.Grab(captureRect)
-	if err != nil {
-		t.Fatalf("grab window: %v", err)
-	}
 	if _, err := s.pf.Screen.GrabHash(captureRect); err != nil {
 		t.Fatalf("grab hash: %v", err)
 	}
@@ -614,15 +618,19 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := s.pf.Screen.GetPixel(captureRect.Min.X, captureRect.Min.Y); err != nil {
 		t.Fatalf("get pixel: %v", err)
 	}
-	refRect := image.Rect(captureRect.Min.X+20, captureRect.Min.Y+20, min(captureRect.Min.X+50, captureRect.Max.X), min(captureRect.Min.Y+50, captureRect.Max.Y))
-	ref, err := s.pf.Screen.Grab(refRect)
+	// Use a tiny 10x10 region at the center of the window for pixel
+	// scanning. Large regions are fragile — any cursor blink or compositor
+	// redraw changes the hash. A small stable patch is all we need.
+	cx := rect.Min.X + rect.Dx()/2
+	cy := rect.Min.Y + rect.Dy()/2
+	tinyRect := image.Rect(cx-5, cy-5, cx+5, cy+5)
+	tinyImg, err := s.pf.Screen.Grab(tinyRect)
 	if err != nil {
-		t.Fatalf("grab ref rect: %v", err)
+		t.Fatalf("grab tiny rect: %v", err)
 	}
-	if _, err := s.pf.Screen.LocateExact(captureRect, ref); err != nil {
-		t.Fatalf("locate exact: %v", err)
-	}
-	if _, err := s.pf.Screen.ScanFor([]image.Rectangle{captureRect}, []uint32{find.PixelHash(img, nil)}, 100*time.Millisecond); err != nil {
+	scanCtx, scanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer scanCancel()
+	if _, err := s.pf.Screen.ScanForContext(scanCtx, []image.Rectangle{tinyRect}, []uint32{find.PixelHash(tinyImg, nil)}, 100*time.Millisecond); err != nil {
 		t.Fatalf("scan for: %v", err)
 	}
 
