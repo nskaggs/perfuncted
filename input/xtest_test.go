@@ -108,11 +108,10 @@ func TestTypeCtrlA(t *testing.T) {
 	}
 }
 
-func TestTypeContextUppercaseDirectKeysym(t *testing.T) {
+func TestTypeContextUppercaseUsesShift(t *testing.T) {
 	// Setup: MinKeycode=8, MaxKeycode=12 (5 keycodes)
-	// Keysym layout: H(0x48), e(0x65), l(0x6c), o(0x6f), shift(0xffe1)
-	// Note: 'H' is 0x48, not 0x68 — typeText sends each character's own
-	// keysym directly instead of decomposing uppercase into Shift+lowercase.
+	// Keymap: h(0x68), e(0x65), l(0x6c), o(0x6f), shift(0xffe1)
+	// typeText sends uppercase 'H' as Shift+keycode_for_h.
 	mc := &x11.MockConnection{}
 	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
 	mc.SetupFunc = func() *xproto.SetupInfo { return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 12} }
@@ -120,11 +119,11 @@ func TestTypeContextUppercaseDirectKeysym(t *testing.T) {
 		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
 			KeysymsPerKeycode: 1,
 			Keysyms: []xproto.Keysym{
-				0x48,   // keycode 8→'H' (uppercase keysym, not 'h')
+				0x68,   // keycode 8→'h'
 				0x65,   // keycode 9→'e'
 				0x6c,   // keycode 10→'l'
 				0x6f,   // keycode 11→'o'
-				0xffe1, // keycode 12→shift (unused in direct mode)
+				0xffe1, // keycode 12→shift
 			},
 		})
 	}
@@ -134,7 +133,6 @@ func TestTypeContextUppercaseDirectKeysym(t *testing.T) {
 	}
 	b.delay = 0
 
-	// Capture full event history: each entry is (eventType, detail/keycode).
 	type fakeInputEvent struct {
 		eventType byte
 		detail    byte
@@ -145,33 +143,34 @@ func TestTypeContextUppercaseDirectKeysym(t *testing.T) {
 		return x11.NewMockXTestFakeInputCookie(nil)
 	}
 
-	// Type "Hello" — 'H' sends keysym 0x48 directly, no Shift needed.
 	if err := b.TypeContext(context.Background(), "Hello"); err != nil {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
-	// Expected: each character is a press+release pair = 10 events total.
-	// No Shift events at all — typeText sends keysyms directly.
+	// Expected: Shift down, h press, h release, Shift up, e, l, l, o = 12 events
 	hKC := byte(8)
 	eKC := byte(9)
 	lKC := byte(10)
 	oKC := byte(11)
+	shiftKC := byte(12)
 
-	if len(events) != 10 {
-		t.Fatalf("expected 10 events for 'Hello' (5 chars × press+release), got %d: %v", len(events), events)
+	if len(events) != 12 {
+		t.Fatalf("expected 12 events for 'Hello', got %d: %v", len(events), events)
 	}
 
 	expected := []fakeInputEvent{
-		{xproto.KeyPress, hKC},   // H press
-		{xproto.KeyRelease, hKC}, // H release
-		{xproto.KeyPress, eKC},   // e press
-		{xproto.KeyRelease, eKC}, // e release
-		{xproto.KeyPress, lKC},   // l press
-		{xproto.KeyRelease, lKC}, // l release
-		{xproto.KeyPress, lKC},   // l press
-		{xproto.KeyRelease, lKC}, // l release
-		{xproto.KeyPress, oKC},   // o press
-		{xproto.KeyRelease, oKC}, // o release
+		{xproto.KeyPress, shiftKC},   // Shift down
+		{xproto.KeyPress, hKC},       // h press (with Shift → 'H')
+		{xproto.KeyRelease, hKC},     // h release
+		{xproto.KeyRelease, shiftKC}, // Shift up
+		{xproto.KeyPress, eKC},       // e press
+		{xproto.KeyRelease, eKC},     // e release
+		{xproto.KeyPress, lKC},       // l press
+		{xproto.KeyRelease, lKC},     // l release
+		{xproto.KeyPress, lKC},       // l press
+		{xproto.KeyRelease, lKC},     // l release
+		{xproto.KeyPress, oKC},       // o press
+		{xproto.KeyRelease, oKC},     // o release
 	}
 
 	for i, exp := range expected {

@@ -150,59 +150,20 @@ func (b *WlInputMethodBackend) sendIMRequest(opcode uint32, payload []byte) erro
 	return b.ctx.WriteMsg(buf, nil)
 }
 
-// Type sends s using input-method commit_string + commit(serial). If that
-// path fails, fall back to the delegated backend if available.
+// Type delegates to the wl-virtual keyboard backend via TypeContext.
 func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)
 }
 
-// TypeContext is an alias for Type to match bundle patterns.
+// TypeContext delegates to the wl-virtual keyboard backend (other), which
+// handles both literal text and {key combos} via a custom XKB keymap.
+// The input-method protocol (commit_string) requires compositor-side activation
+// which is unreliable in headless CI environments.
 func (b *WlInputMethodBackend) TypeContext(ctx context.Context, s string) error {
-	if b.im == nil {
-		if b.other != nil {
-			return b.other.Type(ctx, s)
-		}
-		return fmt.Errorf("input/wl-im: input method unavailable")
+	if b.other != nil {
+		return b.other.Type(ctx, s)
 	}
-	// Wayland message limit: keep segments <= 4000 bytes for safety.
-	const maxChunk = 4000
-	for start := 0; start < len(s); {
-		end := start + maxChunk
-		if end > len(s) {
-			end = len(s)
-		}
-		chunk := s[start:end]
-		// commit_string
-		payload := encodeWlString(chunk)
-		if err := b.sendIMRequest(0, payload); err != nil { // opcode 0 = commit_string
-			// fall back
-			if b.other != nil {
-				return b.other.Type(ctx, s)
-			}
-			return fmt.Errorf("input/wl-im: commit_string: %w", err)
-		}
-		// commit(serial)
-		var cbuf [12]byte
-		wl.PutUint32(cbuf[0:], b.im.ID())
-		wl.PutUint32(cbuf[4:], 12<<16|3) // size=12, opcode=3 (commit)
-		wl.PutUint32(cbuf[8:], b.serial)
-		if err := b.ctx.WriteMsg(cbuf[:], nil); err != nil {
-			if b.other != nil {
-				return b.other.Type(ctx, s)
-			}
-			return fmt.Errorf("input/wl-im: commit: %w", err)
-		}
-		// Wait for compositor to emit done (increments b.serial)
-		if err := b.display.RoundTrip(); err != nil {
-			// If RoundTrip fails, fall back
-			if b.other != nil {
-				return b.other.Type(ctx, s)
-			}
-			return fmt.Errorf("input/wl-im: round-trip after commit: %w", err)
-		}
-		start = end
-	}
-	return nil
+	return fmt.Errorf("input/wl-im: no subordinate backend for typing")
 }
 
 // Delegate other methods to the underlying backend when present.
