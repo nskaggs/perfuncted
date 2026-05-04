@@ -181,5 +181,3 @@ func TestTypeContextUppercaseUsesShift(t *testing.T) {
 		}
 	}
 }
-
-

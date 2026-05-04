@@ -2,19 +2,19 @@
 //
 // The Type method accepts a human-readable key syntax:
 //
-//	- Literal text is typed character-by-character (layout-independent).
-//	- {keyname} sends a named key: {enter}, {tab}, {escape}, {f1}, {ctrl}, etc.
-//	- {keyname down} holds a key down; {keyname up} releases it.
-//	- {modifier+key} sends a key combination with named modifiers:
-//	    ctrl+, alt+, shift+, super+ (or meta+)
-//	- {ctrl+shift+t}    → Ctrl+Shift+T
-//	- {alt+shift+left}  → Alt+Shift+Left
-//	- {ctrl down}v{ctrl up} — holds Ctrl, taps V, releases Ctrl
-//	- Examples:
-//	    Type("hello world")          → types "hello world"
-//	    Type("{enter}")              → presses Enter
-//	    Type("{ctrl+s}")             → Ctrl+S
-//	    Type("{ctrl+shift+left}")    → Ctrl+Shift+Left
+//   - Literal text is typed character-by-character (layout-independent).
+//   - {keyname} sends a named key: {enter}, {tab}, {escape}, {f1}, {ctrl}, etc.
+//   - {keyname down} holds a key down; {keyname up} releases it.
+//   - {modifier+key} sends a key combination with named modifiers:
+//     ctrl+, alt+, shift+, super+ (or meta+)
+//   - {ctrl+shift+t}    → Ctrl+Shift+T
+//   - {alt+shift+left}  → Alt+Shift+Left
+//   - {ctrl down}v{ctrl up} — holds Ctrl, taps V, releases Ctrl
+//   - Examples:
+//     Type("hello world")          → types "hello world"
+//     Type("{enter}")              → presses Enter
+//     Type("{ctrl+s}")             → Ctrl+S
+//     Type("{ctrl+shift+left}")    → Ctrl+Shift+Left
 package input
 
 import (
