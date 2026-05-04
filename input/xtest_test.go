@@ -109,21 +109,33 @@ func TestTypeCtrlA(t *testing.T) {
 }
 
 func TestTypeContextUppercaseUsesShift(t *testing.T) {
-	// Setup: MinKeycode=8, MaxKeycode=12 (5 keycodes)
-	// Keymap: h(0x68), e(0x65), l(0x6c), o(0x6f), shift(0xffe1)
-	// typeText sends uppercase 'H' as Shift+keycode_for_h.
+	// Setup: MinKeycode=8, MaxKeycode=12 (5 keycodes), 2 keysyms per keycode.
+	// Level 0: lowercase, Level 1: uppercase (standard US QWERTY layout).
+	// Keymap per keycode: [level0, level1]
+	//   keycode 8: [h(0x68), H(0x48)]
+	//   keycode 9: [e(0x65), E(0x45)]
+	//   keycode 10: [l(0x6c), L(0x4c)]
+	//   keycode 11: [o(0x6f), O(0x4f)]
+	//   keycode 12: [NoSymbol, Shift_L(0xffe1)]
+	//
+	// typeText now looks up each character's keysym directly:
+	//   'H' → keysym 0x48 at keycode 8, level 1 → needs Shift
+	//   'e' → keysym 0x65 at keycode 9, level 0 → no Shift
+	//   'l' → keysym 0x6c at keycode 10, level 0 → no Shift
+	//   'l' → same
+	//   'o' → keysym 0x6f at keycode 11, level 0 → no Shift
 	mc := &x11.MockConnection{}
 	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
 	mc.SetupFunc = func() *xproto.SetupInfo { return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 12} }
 	mc.GetKeyboardMappingFunc = func(_ xproto.Keycode, _ byte) x11.GetKeyboardMappingCookie {
 		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
-			KeysymsPerKeycode: 1,
+			KeysymsPerKeycode: 2,
 			Keysyms: []xproto.Keysym{
-				0x68,   // keycode 8→'h'
-				0x65,   // keycode 9→'e'
-				0x6c,   // keycode 10→'l'
-				0x6f,   // keycode 11→'o'
-				0xffe1, // keycode 12→shift
+				0x68, 0x48, // keycode 8: h, H
+				0x65, 0x45, // keycode 9: e, E
+				0x6c, 0x4c, // keycode 10: l, L
+				0x6f, 0x4f, // keycode 11: o, O
+				0x0, 0xffe1, // keycode 12: NoSymbol, Shift_L
 			},
 		})
 	}
@@ -147,7 +159,7 @@ func TestTypeContextUppercaseUsesShift(t *testing.T) {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
-	// Expected: Shift down, h press, h release, Shift up, e, l, l, o = 12 events
+	// Expected: H(Shift down/up) + e + l + l + o = 12 events
 	hKC := byte(8)
 	eKC := byte(9)
 	lKC := byte(10)
@@ -159,11 +171,11 @@ func TestTypeContextUppercaseUsesShift(t *testing.T) {
 	}
 
 	expected := []fakeInputEvent{
-		{xproto.KeyPress, shiftKC},   // Shift down
-		{xproto.KeyPress, hKC},       // h press (with Shift → 'H')
-		{xproto.KeyRelease, hKC},     // h release
+		{xproto.KeyPress, shiftKC},   // Shift down (H is at level 1)
+		{xproto.KeyPress, hKC},       // H press
+		{xproto.KeyRelease, hKC},     // H release
 		{xproto.KeyRelease, shiftKC}, // Shift up
-		{xproto.KeyPress, eKC},       // e press
+		{xproto.KeyPress, eKC},       // e press (level 0, no Shift)
 		{xproto.KeyRelease, eKC},     // e release
 		{xproto.KeyPress, lKC},       // l press
 		{xproto.KeyRelease, lKC},     // l release
@@ -171,6 +183,10 @@ func TestTypeContextUppercaseUsesShift(t *testing.T) {
 		{xproto.KeyRelease, lKC},     // l release
 		{xproto.KeyPress, oKC},       // o press
 		{xproto.KeyRelease, oKC},     // o release
+	}
+
+	if len(events) != len(expected) {
+		t.Fatalf("expected %d events, got %d: %v", len(expected), len(events), events)
 	}
 
 	for i, exp := range expected {

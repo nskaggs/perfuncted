@@ -406,15 +406,23 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := pf.Window.Activate(app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
+	// Give the editor a moment to fully focus before typing.
+	time.Sleep(1 * time.Second)
 	if err := pf.Input.Type("session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
+	// Wait for the editor to process the typed text before saving.
+	time.Sleep(500 * time.Millisecond)
 	if err := pf.Input.Type("{ctrl+s}"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
+	// Wait for the save to complete before closing.
+	time.Sleep(1 * time.Second)
 	if err := pf.Window.CloseWindow(app.winMatch); err != nil {
 		t.Fatalf("close window: %v", err)
 	}
+	// Give the close dialog a moment to appear and process.
+	time.Sleep(1 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := pf.Window.WaitForClose(ctx, app.winMatch, 200*time.Millisecond); err != nil {
