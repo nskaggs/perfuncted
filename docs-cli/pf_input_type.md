@@ -1,6 +1,6 @@
 ## pf input type
 
-Type a string as keyboard events
+Type a string or send keys (e.g. {enter}, {ctrl+s})
 
 ```
 pf input type <text> [flags]
