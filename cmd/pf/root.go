@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/png"
 	"io"
 	"os"
 	"os/signal"
@@ -24,6 +23,7 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/screen"
@@ -337,20 +337,11 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			img, err := pf.Screen.GrabContext(context.Background(), r)
-			if err != nil {
-				return err
-			}
 			out := outFlag
 			if out == "" {
 				out = "/tmp/pf-grab.png"
 			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
+			if err := pf.Screen.CaptureRegion(r, out); err != nil {
 				return err
 			}
 			fmt.Println(out)
@@ -373,7 +364,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			h, err := pf.Screen.GrabHashContext(context.Background(), r)
+			h, err := pf.Screen.GrabRegionHash(context.Background(), r)
 			if err != nil {
 				return err
 			}
@@ -393,7 +384,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			c, err := pf.Screen.GetPixelContext(context.Background(), px, py)
+			c, err := pf.Screen.GetPixel(px, py)
 			if err != nil {
 				return err
 			}
@@ -469,7 +460,7 @@ Runs until --duration expires or Ctrl+C.`,
 					return nil
 				default:
 				}
-				h, err := pf.Screen.GrabHashContext(context.Background(), r)
+				h, err := pf.Screen.GrabRegionHash(context.Background(), r)
 				if err != nil {
 					return err
 				}
@@ -512,7 +503,7 @@ Runs until --duration expires or Ctrl+C.`,
 				return err
 			}
 			defer pf.Close()
-			w, h, err := pf.Screen.ResolutionContext(context.Background())
+			w, h, err := pf.Screen.Resolution()
 			if err != nil {
 				return err
 			}
@@ -886,7 +877,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.ActivateContext(context.Background(), args[0]); err != nil {
+			if err := pf.Window.Activate(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("activated: %s\n", args[0])
@@ -903,7 +894,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			t, err := pf.Window.ActiveTitleContext(context.Background())
+			t, err := pf.Window.ActiveTitle()
 			if err != nil {
 				return err
 			}
@@ -946,7 +937,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.ResizeContext(context.Background(), rsTitle, rsW, rsH); err != nil {
+			if err := pf.Window.Resize(rsTitle, rsW, rsH); err != nil {
 				return err
 			}
 			fmt.Printf("resized %q to %dx%d\n", rsTitle, rsW, rsH)
@@ -971,7 +962,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			info, err := pf.Window.FindByTitleContext(context.Background(), args[0])
+			info, err := pf.Window.FindByTitle(args[0])
 			if err != nil {
 				return err
 			}
@@ -992,7 +983,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			info, err := pf.Window.FindByTitleContext(context.Background(), args[0])
+			info, err := pf.Window.FindByTitle(args[0])
 			if err != nil {
 				return err
 			}
@@ -1012,7 +1003,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			_, err = pf.Window.FindByTitleContext(context.Background(), args[0])
+			_, err = pf.Window.FindByTitle(args[0])
 			if err == nil {
 				fmt.Println("true")
 			} else {
@@ -1034,7 +1025,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.CloseWindowContext(context.Background(), args[0]); err != nil {
+			if err := pf.Window.CloseWindow(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("closed: %s\n", args[0])
@@ -1052,7 +1043,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.MinimizeContext(context.Background(), args[0]); err != nil {
+			if err := pf.Window.Minimize(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("minimized: %s\n", args[0])
@@ -1070,7 +1061,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.MaximizeContext(context.Background(), args[0]); err != nil {
+			if err := pf.Window.Maximize(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("maximized: %s\n", args[0])
@@ -1137,7 +1128,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForContext(ctx, r, want, poll)
+			h, err := pf.Screen.WaitFor(ctx, r, want, poll)
 			if err != nil {
 				return err
 			}
@@ -1166,7 +1157,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			var initial uint32
 			if captureInitial {
-				if initial, err = pf.Screen.GrabHashContext(context.Background(), r); err != nil {
+				if initial, err = pf.Screen.GrabRegionHash(context.Background(), r); err != nil {
 					return err
 				}
 			} else {
@@ -1184,7 +1175,7 @@ func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForChangeContext(ctx, r, initial, poll)
+			h, err := pf.Screen.WaitForChange(ctx, r, initial, poll)
 			if err != nil {
 				return err
 			}
@@ -1227,7 +1218,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForNoChangeContext(ctx, r, stableCount, poll)
+			h, err := find.WaitForNoChange(ctx, pf.Screen.Screenshotter, r, stableCount, poll, nil)
 			if err != nil {
 				return err
 			}
@@ -1271,7 +1262,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			res, err := pf.Screen.ScanForContext(ctx, rects, wants, poll)
+			res, err := pf.Screen.ScanFor(ctx, rects, wants, poll)
 			if err != nil {
 				return err
 			}
@@ -1314,9 +1305,19 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForVisibleChangeContext(ctx, r, poll, vfStable)
+			initial, err := pf.Screen.GrabRegionHash(ctx, r)
 			if err != nil {
 				return err
+			}
+			h, err := pf.Screen.WaitForChange(ctx, r, initial, poll)
+			if err != nil {
+				return err
+			}
+			if vfStable > 1 {
+				h, err = find.WaitForNoChange(ctx, pf.Screen.Screenshotter, r, vfStable, poll, nil)
+				if err != nil {
+					return err
+				}
 			}
 			fmt.Printf("%08x\n", h)
 			return nil
@@ -1346,7 +1347,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			pt, err := pf.Screen.FindColorContext(context.Background(), r, c, colorTolerance)
+			pt, err := pf.Screen.FindColor(r, c, colorTolerance)
 			if err != nil {
 				return err
 			}

@@ -121,11 +121,15 @@ func skipMethodForCLISync(name string) bool {
 	switch name {
 	case "FindColor",
 		"GetMultiplePixels",
+		"IterateWindows",
 		"LocateExact",
 		"ScanFor",
+		"WaitFor",
+		"WaitForChange",
+		"WaitForClose",
 		"WaitForFn",
-		"WaitForLocate",
-		"WaitForSettle":
+		"WaitForSettle",
+		"WaitForWindow":
 		return true
 	default:
 		return false
@@ -216,6 +220,7 @@ func main() {
 			"find-by-title": true,
 			"get-geometry":  true,
 			"is-visible":    true,
+			"iterate":       true,
 		},
 		"screen": {
 			"pixel":      true,

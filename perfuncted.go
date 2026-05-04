@@ -151,37 +151,17 @@ type Perfuncted struct {
 	trace     *actionTracer
 }
 
+// Paste writes text to the clipboard and sends the paste key combo. If no
+// clipboard backend is available it falls back to per-character typing.
 func (p *Perfuncted) Paste(text string) error {
-	return p.PasteContext(context.Background(), text)
-}
-
-func (p *Perfuncted) PasteContext(ctx context.Context, text string) error {
 	if p == nil {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
 	p.traceAction(fmt.Sprintf("paste text=%q", text))
-	return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
-}
-
-// TypeFast types text quickly by using the clipboard + PasteCombo when a
-// clipboard backend is available. It falls back to per-character typing via
-// the Inputter Type method when the clipboard is unavailable.
-func (p *Perfuncted) TypeFast(text string) error {
-	return p.TypeFastContext(context.Background(), text)
-}
-
-func (p *Perfuncted) TypeFastContext(ctx context.Context, text string) error {
-	if p == nil {
-		return fmt.Errorf("perfuncted: nil Perfuncted")
-	}
-	p.traceAction(fmt.Sprintf("type-fast text=%q", text))
-	// Prefer clipboard paste when available; this uses the session's clipboard
-	// backend (wl-copy/wl-paste) and sends the paste key combo via the input
-	// bundle. Falls back to Type which emits per-character key events.
 	if p.Clipboard.Clipboard != nil {
-		return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
+		return p.Clipboard.pasteWithInputContext(context.Background(), text, p.Input)
 	}
-	return p.Input.typeContext(ctx, text)
+	return p.Input.typeContext(context.Background(), text)
 }
 
 func New(opts Options) (*Perfuncted, error) {
