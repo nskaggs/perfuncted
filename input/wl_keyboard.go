@@ -41,9 +41,6 @@ const (
 	kcDynMax  uint32 = 255
 )
 
-// maxDynSlots is the maximum number of unique Unicode codepoints in one Type call.
-const maxDynSlots = kcDynMax - kcDynBase + 1
-
 // XKB modifier bitmask values (standard X11 modifier indices).
 const (
 	modShift   uint32 = 1
@@ -123,34 +120,6 @@ func (k *wlKeyboard) uploadKeymapAndRestoreMods(keymap string) error {
 	}
 	if k.mods != 0 {
 		return k.sendModifiers()
-	}
-	return nil
-}
-
-// typeString types s by assigning each unique rune its own keycode slot in a
-// freshly generated XKB keymap. This is layout-independent: the compositor
-// uses our custom keymap, not the system keyboard layout.
-func (k *wlKeyboard) typeString(s string) error {
-	if s == "" {
-		return nil
-	}
-	runes := uniqueRunes(s)
-	if uint32(len(runes)) > maxDynSlots {
-		return fmt.Errorf("keyboard: string has %d unique characters, max %d per call", len(runes), maxDynSlots)
-	}
-	if err := k.uploadKeymapAndRestoreMods(xkbWithRunes(runes)); err != nil {
-		return err
-	}
-	slot := make(map[rune]uint32, len(runes))
-	for i, r := range runes {
-		slot[r] = kcDynBase + uint32(i)
-	}
-	for _, r := range s {
-		if err := k.tap(slot[r]); err != nil {
-			return err
-		}
-		// Small delay between characters for headless compositors
-		time.Sleep(10 * time.Millisecond)
 	}
 	return nil
 }
@@ -358,18 +327,6 @@ func (k *wlKeyboard) sendkeys(actions []keySend) error {
 	}
 
 	return nil
-}
-
-// tapKey taps a named key (Return, Escape, Tab, F5, …) or a single character.
-// Any modifier state set via pressKey is preserved across the tap.
-func (k *wlKeyboard) tapKey(key string) error {
-	if kc, sym, ok := namedKey(key); ok {
-		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
-			return err
-		}
-		return k.tap(kc)
-	}
-	return k.typeString(key)
 }
 
 // pressKey presses and holds a key. For modifier keys the compositor's modifier
@@ -681,17 +638,4 @@ func modBit(key string) uint32 {
 		}
 	}
 	return 0
-}
-
-// uniqueRunes returns the unique runes in s in first-occurrence order.
-func uniqueRunes(s string) []rune {
-	seen := make(map[rune]bool)
-	var out []rune
-	for _, r := range s {
-		if !seen[r] {
-			seen[r] = true
-			out = append(out, r)
-		}
-	}
-	return out
 }

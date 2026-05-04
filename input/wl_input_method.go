@@ -121,35 +121,6 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	return backend, nil
 }
 
-// encodeWlString encodes a Wayland string (length+bytes+null+padding).
-func encodeWlString(s string) []byte {
-	n := uint32(len(s) + 1)
-	b := make([]byte, 4)
-	wl.PutUint32(b, n)
-	out := make([]byte, 0, 4+len(s)+4)
-	out = append(out, b...)
-	out = append(out, s...)
-	padded := (n + 3) &^ 3
-	zeros := int(padded) - len(s)
-	for i := 0; i < zeros; i++ {
-		out = append(out, 0)
-	}
-	return out
-}
-
-// sendIMRequest writes a request to the input_method object with the given
-// opcode and payload (payload should already be Wayland-encoded for strings).
-func (b *WlInputMethodBackend) sendIMRequest(opcode uint32, payload []byte) error {
-	size := 8 + len(payload)
-	buf := make([]byte, size)
-	wl.PutUint32(buf[0:], b.im.ID())
-	wl.PutUint32(buf[4:], uint32(size)<<16|opcode)
-	if len(payload) > 0 {
-		copy(buf[8:], payload)
-	}
-	return b.ctx.WriteMsg(buf, nil)
-}
-
 // Type delegates to the wl-virtual keyboard backend via TypeContext.
 func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)

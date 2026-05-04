@@ -172,27 +172,6 @@ func isModifierName(s string) bool {
 	return false
 }
 
-// DecodeRunes decodes a keySend slice into a flat sequence of runes and
-// special-key markers. This is used by backends that need to know which
-// characters are literal text vs. special keys.
-//
-// Each element is either a literal rune (text) or a special key marker.
-// This helper is kept for potential future use but is not currently needed
-// since backends consume keySend directly.
-func decodeRunes(sends []keySend) []string {
-	var out []string
-	for _, s := range sends {
-		if s.text != "" {
-			for _, r := range s.text {
-				out = append(out, string(r))
-			}
-		} else {
-			out = append(out, "{"+s.key+"}")
-		}
-	}
-	return out
-}
-
 // ParseKeySequence is a convenience for callers that want to parse a string
 // into a flat list of key names and text segments. Unlike ParseKeySend it
 // returns strings only.

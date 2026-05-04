@@ -10,6 +10,23 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+// encodeWlString encodes a Wayland string (length+bytes+null+padding).
+// Kept as a test helper since it verifies wire encoding.
+func encodeWlString(s string) []byte {
+	n := uint32(len(s) + 1)
+	b := make([]byte, 4)
+	wl.PutUint32(b, n)
+	out := make([]byte, 0, 4+len(s)+4)
+	out = append(out, b...)
+	out = append(out, s...)
+	padded := (n + 3) &^ 3
+	zeros := int(padded) - len(s)
+	for i := 0; i < zeros; i++ {
+		out = append(out, 0)
+	}
+	return out
+}
+
 func TestEncodeWlString(t *testing.T) {
 	tests := []struct {
 		input string
