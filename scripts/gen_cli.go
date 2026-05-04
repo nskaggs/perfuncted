@@ -260,7 +260,6 @@ func main() {
 	imports := map[string]bool{
 		"github.com/spf13/cobra":        true,
 		"github.com/nskaggs/perfuncted": true,
-		"fmt":                           true,
 	}
 	// We'll populate imports as we discover uses.
 
