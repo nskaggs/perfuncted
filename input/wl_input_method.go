@@ -121,88 +121,20 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	return backend, nil
 }
 
-// encodeWlString encodes a Wayland string (length+bytes+null+padding).
-func encodeWlString(s string) []byte {
-	n := uint32(len(s) + 1)
-	b := make([]byte, 4)
-	wl.PutUint32(b, n)
-	out := make([]byte, 0, 4+len(s)+4)
-	out = append(out, b...)
-	out = append(out, s...)
-	padded := (n + 3) &^ 3
-	zeros := int(padded) - len(s)
-	for i := 0; i < zeros; i++ {
-		out = append(out, 0)
-	}
-	return out
-}
-
-// sendIMRequest writes a request to the input_method object with the given
-// opcode and payload (payload should already be Wayland-encoded for strings).
-func (b *WlInputMethodBackend) sendIMRequest(opcode uint32, payload []byte) error {
-	size := 8 + len(payload)
-	buf := make([]byte, size)
-	wl.PutUint32(buf[0:], b.im.ID())
-	wl.PutUint32(buf[4:], uint32(size)<<16|opcode)
-	if len(payload) > 0 {
-		copy(buf[8:], payload)
-	}
-	return b.ctx.WriteMsg(buf, nil)
-}
-
-// Type sends s using input-method commit_string + commit(serial). If that
-// path fails, fall back to the delegated backend if available.
+// Type delegates to the wl-virtual keyboard backend via TypeContext.
 func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)
 }
 
-// TypeContext is an alias for Type to match bundle patterns.
+// TypeContext delegates to the wl-virtual keyboard backend (other), which
+// handles both literal text and {key combos} via a custom XKB keymap.
+// The input-method protocol (commit_string) requires compositor-side activation
+// which is unreliable in headless CI environments.
 func (b *WlInputMethodBackend) TypeContext(ctx context.Context, s string) error {
-	if b.im == nil {
-		if b.other != nil {
-			return b.other.Type(ctx, s)
-		}
-		return fmt.Errorf("input/wl-im: input method unavailable")
+	if b.other != nil {
+		return b.other.Type(ctx, s)
 	}
-	// Wayland message limit: keep segments <= 4000 bytes for safety.
-	const maxChunk = 4000
-	for start := 0; start < len(s); {
-		end := start + maxChunk
-		if end > len(s) {
-			end = len(s)
-		}
-		chunk := s[start:end]
-		// commit_string
-		payload := encodeWlString(chunk)
-		if err := b.sendIMRequest(0, payload); err != nil { // opcode 0 = commit_string
-			// fall back
-			if b.other != nil {
-				return b.other.Type(ctx, s)
-			}
-			return fmt.Errorf("input/wl-im: commit_string: %w", err)
-		}
-		// commit(serial)
-		var cbuf [12]byte
-		wl.PutUint32(cbuf[0:], b.im.ID())
-		wl.PutUint32(cbuf[4:], 12<<16|3) // size=12, opcode=3 (commit)
-		wl.PutUint32(cbuf[8:], b.serial)
-		if err := b.ctx.WriteMsg(cbuf[:], nil); err != nil {
-			if b.other != nil {
-				return b.other.Type(ctx, s)
-			}
-			return fmt.Errorf("input/wl-im: commit: %w", err)
-		}
-		// Wait for compositor to emit done (increments b.serial)
-		if err := b.display.RoundTrip(); err != nil {
-			// If RoundTrip fails, fall back
-			if b.other != nil {
-				return b.other.Type(ctx, s)
-			}
-			return fmt.Errorf("input/wl-im: round-trip after commit: %w", err)
-		}
-		start = end
-	}
-	return nil
+	return fmt.Errorf("input/wl-im: no subordinate backend for typing")
 }
 
 // Delegate other methods to the underlying backend when present.
@@ -217,12 +149,6 @@ func (b *WlInputMethodBackend) KeyUp(ctx context.Context, key string) error {
 		return fmt.Errorf("input/wl-im: KeyUp unsupported (no subordinate backend)")
 	}
 	return b.other.KeyUp(ctx, key)
-}
-func (b *WlInputMethodBackend) KeyTap(ctx context.Context, key string) error {
-	if b.other == nil {
-		return fmt.Errorf("input/wl-im: KeyTap unsupported (no subordinate backend)")
-	}
-	return b.other.KeyTap(ctx, key)
 }
 func (b *WlInputMethodBackend) MouseMove(ctx context.Context, x, y int) error {
 	if b.other == nil {
@@ -271,13 +197,6 @@ func (b *WlInputMethodBackend) ScrollRight(ctx context.Context, clicks int) erro
 		return fmt.Errorf("input/wl-im: ScrollRight unsupported (no subordinate backend)")
 	}
 	return b.other.ScrollRight(ctx, clicks)
-}
-
-func (b *WlInputMethodBackend) PressCombo(ctx context.Context, combo string) error {
-	if b.other == nil {
-		return fmt.Errorf("input/wl-im: PressCombo unsupported (no subordinate backend)")
-	}
-	return b.other.PressCombo(ctx, combo)
 }
 
 func (b *WlInputMethodBackend) Close() error {

@@ -649,7 +649,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	typeCmd := &cobra.Command{
 		Use:   "type <text>",
-		Short: "Type a string as keyboard events",
+		Short: "Type a string or send keys (e.g. {enter}, {ctrl+s})",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			pf, err := openPF()
@@ -658,20 +658,6 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			return pf.Input.Type(args[0])
-		},
-	}
-
-	key := &cobra.Command{
-		Use:   "key <combo>",
-		Short: "Send a key or key combination (e.g. ctrl+s, return, escape)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			return pf.Input.PressCombo(args[0])
 		},
 	}
 
@@ -764,7 +750,7 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	mouseup.Flags().IntVar(&muButton, "button", 1, "button number")
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
-		typeCmd, key, keydown, keyup, mousedown, mouseup, scrollCmd(openPF))
+		typeCmd, keydown, keyup, mousedown, mouseup, scrollCmd(openPF))
 
 	// append auto-generated input commands (avoid duplicates)
 	existing := map[string]bool{}

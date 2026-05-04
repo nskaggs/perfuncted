@@ -5,7 +5,9 @@ package input
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -496,4 +498,62 @@ func TestXkbWithNamed_ModifierReturnsModsOnly(t *testing.T) {
 	if bytes.Contains([]byte(km), []byte("KNAM")) {
 		t.Error("modifier keycode should not add KNAM")
 	}
+}
+
+// ── Test-only helpers (moved from wl_keyboard.go to eliminate U1000 warnings) ──
+
+const testMaxDynSlots = kcDynMax - kcDynBase + 1
+
+func testUniqueRunes(s string) []rune {
+	seen := make(map[rune]bool)
+	var out []rune
+	for _, r := range s {
+		if !seen[r] {
+			seen[r] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (k *wlKeyboard) typeString(s string) error {
+	if s == "" {
+		return nil
+	}
+	runes := testUniqueRunes(s)
+	if uint32(len(runes)) > testMaxDynSlots {
+		return fmt.Errorf("keyboard: string has %d unique characters, max %d per call", len(runes), testMaxDynSlots)
+	}
+	if err := k.uploadKeymapAndRestoreMods(xkbWithRunes(runes)); err != nil {
+		return err
+	}
+	slot := make(map[rune]uint32, len(runes))
+	for i, r := range runes {
+		slot[r] = kcDynBase + uint32(i)
+	}
+	for _, r := range s {
+		if err := k.tap(slot[r]); err != nil {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil
+}
+
+func (k *wlKeyboard) tapKey(key string) error {
+	if kc, sym, ok := namedKey(key); ok {
+		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
+			return err
+		}
+		return k.tap(kc)
+	}
+	return k.typeString(key)
+}
+
+// maxDynSlots is exported for tests that reference it by name.
+const maxDynSlots = testMaxDynSlots
+
+// uniqueRunes is exported for tests in wl_keyboard_test.go.
+func uniqueRunes(s string) []rune {
+	return testUniqueRunes(s)
 }

@@ -6,9 +6,7 @@ package input
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -49,8 +47,7 @@ func NewXTestBackendWithConn(conn x11.Connection) (*XTestBackend, error) {
 }
 
 // keysymForName maps a key name to an X11 keysym value.
-// For letters, we use lowercase keysyms. Uppercase is handled by sending
-// Shift+lowercase in TypeContext.
+// Letters map to their lowercase keysyms; typeText holds Shift for uppercase.
 var keysymForName = map[string]xproto.Keysym{
 	"a": 0x61, "b": 0x62, "c": 0x63, "d": 0x64, "e": 0x65,
 	"f": 0x66, "g": 0x67, "h": 0x68, "i": 0x69, "j": 0x6a,
@@ -124,94 +121,144 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
-func (b *XTestBackend) PressCombo(ctx context.Context, combo string) error {
-	parts := strings.Split(strings.ToLower(combo), "+")
-	kcs := make([]xproto.Keycode, 0, len(parts))
-	for _, p := range parts {
-		kc, err := b.keycodeFor(strings.TrimSpace(p))
-		if err != nil {
-			return err
-		}
-		kcs = append(kcs, kc)
-	}
-	// Press all
-	for _, kc := range kcs {
-		if err := b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
-			return err
-		}
-	}
-	time.Sleep(b.delay)
-	// Release in reverse
-	for i := len(kcs) - 1; i >= 0; i-- {
-		if err := b.conn.FakeInputChecked(xproto.KeyRelease, byte(kcs[i]), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b *XTestBackend) KeyTap(ctx context.Context, key string) error {
-	// Handle single ASCII uppercase character (A-Z) by sending Shift+lowercase.
-	// Non-ASCII uppercase (Ü, Ñ, etc.) are not handled here because their
-	// lowercase forms are not in the ASCII-only keysymForName map.
-	if len(key) == 1 && key[0] >= 'A' && key[0] <= 'Z' {
-		if err := b.KeyDown(ctx, "shift"); err != nil {
-			return err
-		}
-		if err := b.KeyDown(ctx, string(unicode.ToLower(rune(key[0])))); err != nil {
-			_ = b.KeyUp(ctx, "shift")
-			return err
-		}
-		time.Sleep(b.delay)
-		if err := b.KeyUp(ctx, string(unicode.ToLower(rune(key[0])))); err != nil {
-			_ = b.KeyUp(ctx, "shift")
-			return err
-		}
-		if err := b.KeyUp(ctx, "shift"); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if err := b.KeyDown(ctx, key); err != nil {
-		return err
-	}
-	time.Sleep(b.delay)
-	return b.KeyUp(ctx, key)
-}
-
 func (b *XTestBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)
 }
 
 func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
-	for _, ch := range s {
-		// Handle ASCII uppercase letters (A-Z) by sending Shift+lowercase.
-		// Non-ASCII uppercase characters are typed directly; they will fail
-		// keycodeFor lookup if not in the keysym map, which is correct —
-		// X11 keysyms for those must be provided explicitly.
-		if ch >= 'A' && ch <= 'Z' {
-			// Press Shift
-			if err := b.KeyDown(ctx, "shift"); err != nil {
+	actions, err := ParseKeySend(s)
+	if err != nil {
+		return err
+	}
+	for _, a := range actions {
+		if a.text != "" {
+			if err := b.typeText(ctx, a.text); err != nil {
 				return err
 			}
-			// Type the lowercase version
-			if err := b.KeyTap(ctx, string(unicode.ToLower(ch))); err != nil {
-				_ = b.KeyUp(ctx, "shift")
-				return err
-			}
-			// Release Shift
-			if err := b.KeyUp(ctx, "shift"); err != nil {
-				return err
-			}
-		} else {
-			if err := b.KeyTap(ctx, string(ch)); err != nil {
+			continue
+		}
+		if a.key == "" {
+			continue
+		}
+		kc, err := b.keycodeFor(a.key)
+		if err != nil {
+			return err
+		}
+		// Press modifier keys first.
+		if a.modifiers.shift {
+			if err := b.keyDown(ctx, "shift"); err != nil {
 				return err
 			}
 		}
-		time.Sleep(b.delay)
+		if a.modifiers.ctrl {
+			if err := b.keyDown(ctx, "ctrl"); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.alt {
+			if err := b.keyDown(ctx, "alt"); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.super {
+			if err := b.keyDown(ctx, "super"); err != nil {
+				return err
+			}
+		}
+		if a.down {
+			if err := b.keyDownKC(ctx, kc); err != nil {
+				return err
+			}
+		} else {
+			if err := b.keyDownKC(ctx, kc); err != nil {
+				return err
+			}
+			time.Sleep(b.delay)
+			if err := b.keyUpKC(ctx, kc); err != nil {
+				return err
+			}
+		}
+		// Release temporary modifiers.
+		if a.modifiers.super {
+			if err := b.keyUp(ctx, "super"); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.alt {
+			if err := b.keyUp(ctx, "alt"); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.ctrl {
+			if err := b.keyUp(ctx, "ctrl"); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.shift {
+			if err := b.keyUp(ctx, "shift"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// typeText types literal text character-by-character using the XTEST keysym mapping.
+// Uppercase letters hold Shift while tapping the base key; all other characters
+// (lowercase, digits, symbols, space) are sent as-is.
+func (b *XTestBackend) typeText(ctx context.Context, s string) error {
+	for _, ch := range s {
+		upper := ch >= 'A' && ch <= 'Z'
+		if upper {
+			ch = ch + 0x20 // to lowercase
+		}
+		kc, err := b.keycodeFor(string(ch))
+		if err != nil {
+			return err
+		}
+		if upper {
+			if err := b.keyDown(ctx, "shift"); err != nil {
+				return err
+			}
+		}
+		if err := b.keyDownKC(ctx, kc); err != nil {
+			return err
+		}
+		time.Sleep(b.delay)
+		if err := b.keyUpKC(ctx, kc); err != nil {
+			return err
+		}
+		if upper {
+			if err := b.keyUp(ctx, "shift"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (b *XTestBackend) keyDown(ctx context.Context, key string) error {
+	kc, err := b.keycodeFor(key)
+	if err != nil {
+		return err
+	}
+	return b.keyDownKC(ctx, kc)
+}
+
+func (b *XTestBackend) keyUp(ctx context.Context, key string) error {
+	kc, err := b.keycodeFor(key)
+	if err != nil {
+		return err
+	}
+	return b.keyUpKC(ctx, kc)
+}
+
+func (b *XTestBackend) keyDownKC(_ context.Context, kc xproto.Keycode) error {
+	return b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+}
+
+func (b *XTestBackend) keyUpKC(_ context.Context, kc xproto.Keycode) error {
+	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {

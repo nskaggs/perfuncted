@@ -123,9 +123,7 @@ func skipMethodForCLISync(name string) bool {
 		"GetMultiplePixels",
 		"LocateExact",
 		"PasteWithInput",
-		"PressCombo",
 		"ScanFor",
-		"TypeWithDelay",
 		"WaitForFn",
 		"WaitForLocate",
 		"WaitForSettle":

@@ -132,6 +132,18 @@ func TestXkbWithNamed(t *testing.T) {
 	}
 }
 
+// --- sendkeys tests use recordingCtx from wlkeyboard_keyevents_test.go ---
+
+func newSendkeysTestKeyboard() (*wlKeyboard, *recordingCtx) {
+	k := &wlKeyboard{held: make(map[string]uint32)}
+	rp := &wl.RawProxy{}
+	rp.SetID(42)
+	k.kbd = rp
+	f := &recordingCtx{}
+	k.ctx = f
+	return k, f
+}
+
 // --- new tests for keymap caching ---
 
 // fakeCtx implements wl.Ctx for testing WriteMsg calls.
@@ -180,6 +192,159 @@ func TestUploadKeymap_Caching(t *testing.T) {
 	}
 	if f.writes != 2 {
 		t.Fatalf("expected 2 writes, got %d", f.writes)
+	}
+}
+
+func TestSendkeys_Empty(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	if err := k.sendkeys(nil); err != nil {
+		t.Fatalf("sendkeys(nil): %v", err)
+	}
+	if rc.writes != 0 {
+		t.Fatalf("expected 0 writes, got %d", rc.writes)
+	}
+	if err := k.sendkeys([]keySend{}); err != nil {
+		t.Fatalf("sendkeys([]): %v", err)
+	}
+	if rc.writes != 0 {
+		t.Fatalf("expected 0 writes, got %d", rc.writes)
+	}
+}
+
+func TestSendkeys_PlainText(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	actions := []keySend{{text: "ab"}}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	// 1 keymap upload + 4 key events (2 chars × press+release) = 5 writes
+	if rc.writes != 5 {
+		t.Fatalf("expected 5 writes for plain text 'ab', got %d", rc.writes)
+	}
+	// First message should be keymap upload (opcode 0)
+	opcode0 := wl.Uint32(rc.msgs[0][4:8]) & 0xffff
+	if opcode0 != 0 {
+		t.Errorf("first msg opcode = %d, want 0 (keymap)", opcode0)
+	}
+	// Remaining should be key events (opcode 1)
+	for i := 1; i < 5; i++ {
+		opcode := wl.Uint32(rc.msgs[i][4:8]) & 0xffff
+		if opcode != 1 {
+			t.Errorf("msg[%d] opcode = %d, want 1 (key)", i, opcode)
+		}
+	}
+}
+
+func TestSendkeys_ComboOnly(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	actions := []keySend{
+		{key: "enter", modifiers: modifiers{}},
+	}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	// 1 keymap upload + 2 key events (press+release of enter) = 3 writes
+	if rc.writes != 3 {
+		t.Fatalf("expected 3 writes for enter tap, got %d", rc.writes)
+	}
+}
+
+func TestSendkeys_TextBeforeCombo_OrderedCorrectly(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	// "ab{enter}" — text before combo. The text must be typed BEFORE the enter key.
+	actions := []keySend{
+		{text: "ab"},
+		{key: "enter"},
+	}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	// 1 keymap upload + 4 key events for "ab" + 2 key events for enter = 7 writes
+	if rc.writes != 7 {
+		t.Fatalf("expected 7 writes, got %d", rc.writes)
+	}
+	// Msg 0: keymap upload (opcode 0)
+	// Msgs 1-4: key events for 'a' and 'b' (opcode 1)
+	// Msgs 5-6: key events for enter press/release (opcode 1)
+
+	// Check that the first key event (msg 1) is for rune slot kcDynBase (first rune 'a')
+	// keycode in sendKey is stored as keycode-8
+	firstKeycode := wl.Uint32(rc.msgs[1][12:16])
+	if firstKeycode != kcDynBase-8 {
+		t.Errorf("first char keycode = %d, want %d (kcDynBase-8)", firstKeycode, kcDynBase-8)
+	}
+}
+
+func TestSendkeys_ComboBeforeText_OrderedCorrectly(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	// "{enter}ab" — combo before text. The enter must be typed BEFORE the text.
+	actions := []keySend{
+		{key: "enter"},
+		{text: "ab"},
+	}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	// 1 keymap upload + 2 key events for enter + 4 key events for "ab" = 7 writes
+	if rc.writes != 7 {
+		t.Fatalf("expected 7 writes, got %d", rc.writes)
+	}
+	// Msgs 1-2: enter key events. enter is assigned a dynamic slot by sendkeys:
+	//   allRunes = ['a','b'], nextSlot = kcDynBase + 2 = 39
+	//   namedSlots["enter"] = 39, so keycode = 39 - 8 = 31
+	enterSlot := kcDynBase + 2 // 2 runes in "ab"
+	enterKeycode := wl.Uint32(rc.msgs[1][12:16])
+	if enterKeycode != enterSlot-8 {
+		t.Errorf("enter keycode = %d, want %d (enterSlot-8)", enterKeycode, enterSlot-8)
+	}
+	// Msgs 3-6: text key events (keycode = kcDynBase-8, kcDynBase+1-8)
+}
+
+func TestSendkeys_ModifierCombo(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	actions := []keySend{
+		{key: "a", modifiers: modifiers{ctrl: true}},
+	}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	// Expected writes:
+	// 1. keymap upload
+	// 2. modifiers message (Ctrl down)
+	// 3. key-a press
+	// 4. key-a release (after delay)
+	// 5. modifiers message (Ctrl up)
+	if rc.writes != 5 {
+		t.Fatalf("expected 5 writes for ctrl+a, got %d", rc.writes)
+	}
+	// Msg 1 should be modifiers (opcode 2)
+	opcode1 := wl.Uint32(rc.msgs[1][4:8]) & 0xffff
+	if opcode1 != 2 {
+		t.Errorf("msg[1] opcode = %d, want 2 (modifiers)", opcode1)
+	}
+	// Check that ctrl modifier bit is set
+	mods := wl.Uint32(rc.msgs[1][8:12])
+	if mods&modControl == 0 {
+		t.Errorf("ctrl modifier bit not set in first modifiers message")
+	}
+}
+
+func TestSendkeys_MixedTextAndCombo_AllRunesInKeymap(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	// "Hi{enter}World" — text split by a combo
+	// The keymap should include all runes: H, i, W, o, r, l, d
+	actions := []keySend{
+		{text: "Hi"},
+		{key: "enter"},
+		{text: "World"},
+	}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	// Total: 1 keymap + 4 for Hi + 2 for enter + 10 for World = 17
+	expectedWrites := 1 + 4 + 2 + 10
+	if rc.writes != expectedWrites {
+		t.Fatalf("expected %d writes, got %d", expectedWrites, rc.writes)
 	}
 }
 

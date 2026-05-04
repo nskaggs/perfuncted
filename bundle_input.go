@@ -49,47 +49,6 @@ func (i InputBundle) TypeContext(ctx context.Context, text string) error {
 	return i.Inputter.Type(ctx, text)
 }
 
-func (i InputBundle) TypeWithDelay(text string, delay time.Duration) error {
-	if delay == 0 {
-		delay = 20 * time.Millisecond
-	}
-	return i.TypeWithDelayContext(context.Background(), text, delay)
-}
-
-func (i InputBundle) TypeWithDelayContext(ctx context.Context, text string, delay time.Duration) error {
-	i.traceAction(fmt.Sprintf("type-with-delay text=%q delay=%s", text, delay))
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	for _, r := range text {
-		if err := i.KeyTapContext(ctx, keyNameForRune(r)); err != nil {
-			return err
-		}
-		// Use a reusable timer to avoid leaking timers in tight loops.
-		t := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-			return ctx.Err()
-		case <-t.C:
-		}
-	}
-	return nil
-}
-
-func keyNameForRune(r rune) string {
-	switch r {
-	case ' ':
-		return "space"
-	case '\n', '\r':
-		return "enter"
-	case '\t':
-		return "tab"
-	default:
-		return string(r)
-	}
-}
-
 // TypeFast attempts to paste text via the system clipboard (wl-copy/xclip)
 // and a Ctrl+V paste key. If the clipboard tool isn't available or paste
 // fails, it falls back to character-by-character Type().
@@ -106,26 +65,14 @@ func (i InputBundle) TypeFastContext(ctx context.Context, text string) error {
 	if err == nil {
 		defer cb.Close()
 		if err := cb.Set(ctx, text); err == nil {
-			// Press Ctrl+V to paste. If this fails, fall back to Type().
-			if err := i.Inputter.PressCombo(ctx, "ctrl+v"); err == nil {
+			// Press Ctrl+V to paste using brace-combo syntax. If this fails, fall back to Type().
+			if err := i.Inputter.Type(ctx, "{ctrl+v}"); err == nil {
 				return nil
 			}
 		}
 	}
 	// fallback to per-character typing
 	return i.Inputter.Type(ctx, text)
-}
-
-func (i InputBundle) KeyTap(key string) error {
-	return i.KeyTapContext(context.Background(), key)
-}
-
-func (i InputBundle) KeyTapContext(ctx context.Context, key string) error {
-	i.traceAction(fmt.Sprintf("key-tap key=%q", key))
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.KeyTap(ctx, key)
 }
 
 func (i InputBundle) KeyDown(key string) error {
@@ -150,18 +97,6 @@ func (i InputBundle) KeyUpContext(ctx context.Context, key string) error {
 		return err
 	}
 	return i.Inputter.KeyUp(ctx, key)
-}
-
-func (i InputBundle) PressCombo(combo string) error {
-	return i.PressComboContext(context.Background(), combo)
-}
-
-func (i InputBundle) PressComboContext(ctx context.Context, combo string) error {
-	i.traceAction(fmt.Sprintf("press-combo combo=%q", combo))
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.PressCombo(ctx, combo)
 }
 
 func (i InputBundle) MouseClick(x, y, button int) error {

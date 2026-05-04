@@ -19,6 +19,9 @@ import (
 // Inputter injects keyboard and mouse events.
 //
 // Keyboard methods accept key names ("a", "ctrl", "return", "f5", etc.).
+// Type accepts a key syntax: literal text is typed as-is, {keyname} sends
+// named keys, modifier+key sends combinations, and {keyname down/up}
+// holds/releases a key.
 // Mouse methods use screen-absolute pixel coordinates; button 1=left,
 // 2=middle, 3=right. Scroll methods accept a positive click count.
 type Inputter interface {
@@ -26,9 +29,7 @@ type Inputter interface {
 	KeyDown(ctx context.Context, key string) error
 	// KeyUp releases a previously held key.
 	KeyUp(ctx context.Context, key string) error
-	// KeyTap presses and immediately releases a key.
-	KeyTap(ctx context.Context, key string) error
-	// Type sends a string as a sequence of key events.
+	// Type sends a string as a sequence of key events using key syntax.
 	Type(ctx context.Context, s string) error
 	// MouseMove moves the pointer to absolute coordinates (x, y).
 	MouseMove(ctx context.Context, x, y int) error
@@ -46,8 +47,6 @@ type Inputter interface {
 	ScrollLeft(ctx context.Context, clicks int) error
 	// ScrollRight scrolls the mouse wheel right by the given number of notches.
 	ScrollRight(ctx context.Context, clicks int) error
-	// PressCombo sends a key combination, e.g. "ctrl+shift+t".
-	PressCombo(ctx context.Context, combo string) error
 	// Close releases all backend resources.
 	Close() error
 }
