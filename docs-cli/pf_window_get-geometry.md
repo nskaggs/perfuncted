@@ -1,16 +1,15 @@
-## pf window restore
+## pf window get-geometry
 
-Auto-generated wrapper for perfuncted.Restore
+Print geometry for a window
 
 ```
-pf window restore [flags]
+pf window get-geometry <title> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help             help for restore
-      --pattern string   pattern
+  -h, --help   help for get-geometry
 ```
 
 ### Options inherited from parent commands

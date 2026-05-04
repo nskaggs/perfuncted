@@ -1,16 +1,15 @@
-## pf screen wait-for-any-change
+## pf window is-visible
 
-Auto-generated wrapper for perfuncted.WaitForAnyChange
+Return whether a window is visible
 
 ```
-pf screen wait-for-any-change [flags]
+pf window is-visible <title> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help             help for wait-for-any-change
-      --timeout string   timeout
+  -h, --help   help for is-visible
 ```
 
 ### Options inherited from parent commands
@@ -25,5 +24,5 @@ pf screen wait-for-any-change [flags]
 
 ### SEE ALSO
 
-* [pf screen](pf_screen.md)	 - Screen capture operations
+* [pf window](pf_window.md)	 - Window management
 
