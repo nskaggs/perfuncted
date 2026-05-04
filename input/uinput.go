@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"github.com/bendahl/uinput"
 	"github.com/nskaggs/perfuncted/internal/keymap"
@@ -28,9 +30,17 @@ var _ Inputter = (*UinputBackend)(nil)
 // Mouse movement uses a virtual touchpad with absolute coordinates in the range
 // [0, maxCoord]. Callers should pass the screen dimensions as maxX/maxY.
 type UinputBackend struct {
-	kb       uinput.Keyboard
-	touchpad uinput.TouchPad
-	mouse    uinput.Mouse // lazy-initialised on first scroll
+	kb         uinput.Keyboard
+	touchpad   uinput.TouchPad
+	mouse      uinput.Mouse // lazy-initialised on first scroll
+	charToRune map[rune]kernelChar
+}
+
+// kernelChar maps a rune to its evdev keycode and shift requirement
+// using the active kernel keymap.
+type kernelChar struct {
+	keycode int
+	shift   bool
 }
 
 // NewUinputBackend opens /dev/uinput and creates virtual keyboard and touchpad devices.
@@ -38,10 +48,9 @@ type UinputBackend struct {
 // mouse coordinates map correctly.
 // Returns an error with a hint when the device exists but permission is denied.
 //
-// WARNING: The Type() method assumes a US QWERTY keyboard layout when mapping
-// characters to keycodes. Non-ASCII characters and keys in different positions
-// on other layouts (e.g. AZERTY, Dvorak) will produce incorrect output.
-// Use WlVirtualBackend or XTestBackend if layout-independent typing is required.
+// Text typing is layout-independent: the kernel keymap is queried at init to
+// determine which evdev keycode + shift state produces each character.
+// Falls back to a static US QWERTY map if the kernel keymap is inaccessible.
 func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	if _, err := os.Stat("/dev/uinput"); errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("input/uinput: /dev/uinput not found; kernel module uinput may not be loaded")
@@ -63,7 +72,12 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 		return nil, fmt.Errorf("input/uinput: create touchpad: %w", err)
 	}
 
-	return &UinputBackend{kb: kb, touchpad: tp}, nil
+	charToRune, err := buildKernelRuneMap()
+	if err != nil {
+		charToRune = qwertyRuneMap()
+	}
+
+	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune}, nil
 }
 
 // keyCode maps generic Key identifiers to uinput codes.
@@ -100,76 +114,17 @@ var keyCode = map[keymap.Key]int{
 	keymap.KeyInsert:    uinput.KeyInsert,
 	keymap.KeyDelete:    uinput.KeyDelete,
 	keymap.KeyF1:        uinput.KeyF1, keymap.KeyF2: uinput.KeyF2, keymap.KeyF3: uinput.KeyF3,
-	keymap.KeyF4: uinput.KeyF4, keymap.KeyF5: uinput.KeyF5, keymap.KeyF6: uinput.KeyF6,
-	keymap.KeyF7: uinput.KeyF7, keymap.KeyF8: uinput.KeyF8, keymap.KeyF9: uinput.KeyF9,
+	keymap.KeyF4:        uinput.KeyF4, keymap.KeyF5: uinput.KeyF5, keymap.KeyF6: uinput.KeyF6,
+	keymap.KeyF7:        uinput.KeyF7, keymap.KeyF8: uinput.KeyF8, keymap.KeyF9: uinput.KeyF9,
 	keymap.KeyF10: uinput.KeyF10, keymap.KeyF11: uinput.KeyF11, keymap.KeyF12: uinput.KeyF12,
 }
 
-// charKey maps a printable rune to its uinput keycode and whether Shift is required.
-// US QWERTY layout assumed.
-type charKey struct {
-	code  int
-	shift bool
-}
-
-var charToKey = map[rune]charKey{
-	// Whitespace
-	' ':  {uinput.KeySpace, false},
-	'\t': {uinput.KeyTab, false},
-	'\n': {uinput.KeyEnter, false},
-	// Digits
-	'0': {uinput.Key0, false}, '1': {uinput.Key1, false}, '2': {uinput.Key2, false},
-	'3': {uinput.Key3, false}, '4': {uinput.Key4, false}, '5': {uinput.Key5, false},
-	'6': {uinput.Key6, false}, '7': {uinput.Key7, false}, '8': {uinput.Key8, false},
-	'9': {uinput.Key9, false},
-	// Shift+digit symbols
-	'!': {uinput.Key1, true}, '@': {uinput.Key2, true}, '#': {uinput.Key3, true},
-	'$': {uinput.Key4, true}, '%': {uinput.Key5, true}, '^': {uinput.Key6, true},
-	'&': {uinput.Key7, true}, '*': {uinput.Key8, true}, '(': {uinput.Key9, true},
-	')': {uinput.Key0, true},
-	// Lowercase letters
-	'a': {uinput.KeyA, false}, 'b': {uinput.KeyB, false}, 'c': {uinput.KeyC, false},
-	'd': {uinput.KeyD, false}, 'e': {uinput.KeyE, false}, 'f': {uinput.KeyF, false},
-	'g': {uinput.KeyG, false}, 'h': {uinput.KeyH, false}, 'i': {uinput.KeyI, false},
-	'j': {uinput.KeyJ, false}, 'k': {uinput.KeyK, false}, 'l': {uinput.KeyL, false},
-	'm': {uinput.KeyM, false}, 'n': {uinput.KeyN, false}, 'o': {uinput.KeyO, false},
-	'p': {uinput.KeyP, false}, 'q': {uinput.KeyQ, false}, 'r': {uinput.KeyR, false},
-	's': {uinput.KeyS, false}, 't': {uinput.KeyT, false}, 'u': {uinput.KeyU, false},
-	'v': {uinput.KeyV, false}, 'w': {uinput.KeyW, false}, 'x': {uinput.KeyX, false},
-	'y': {uinput.KeyY, false}, 'z': {uinput.KeyZ, false},
-	// Uppercase letters
-	'A': {uinput.KeyA, true}, 'B': {uinput.KeyB, true}, 'C': {uinput.KeyC, true},
-	'D': {uinput.KeyD, true}, 'E': {uinput.KeyE, true}, 'F': {uinput.KeyF, true},
-	'G': {uinput.KeyG, true}, 'H': {uinput.KeyH, true}, 'I': {uinput.KeyI, true},
-	'J': {uinput.KeyJ, true}, 'K': {uinput.KeyK, true}, 'L': {uinput.KeyL, true},
-	'M': {uinput.KeyM, true}, 'N': {uinput.KeyN, true}, 'O': {uinput.KeyO, true},
-	'P': {uinput.KeyP, true}, 'Q': {uinput.KeyQ, true}, 'R': {uinput.KeyR, true},
-	'S': {uinput.KeyS, true}, 'T': {uinput.KeyT, true}, 'U': {uinput.KeyU, true},
-	'V': {uinput.KeyV, true}, 'W': {uinput.KeyW, true}, 'X': {uinput.KeyX, true},
-	'Y': {uinput.KeyY, true}, 'Z': {uinput.KeyZ, true},
-	// Punctuation (unshifted)
-	'-': {uinput.KeyMinus, false}, '=': {uinput.KeyEqual, false},
-	'[': {uinput.KeyLeftbrace, false}, ']': {uinput.KeyRightbrace, false},
-	'\\': {uinput.KeyBackslash, false}, ';': {uinput.KeySemicolon, false},
-	'\'': {uinput.KeyApostrophe, false}, '`': {uinput.KeyGrave, false},
-	',': {uinput.KeyComma, false}, '.': {uinput.KeyDot, false},
-	'/': {uinput.KeySlash, false},
-	// Punctuation (shifted)
-	'_': {uinput.KeyMinus, true}, '+': {uinput.KeyEqual, true},
-	'{': {uinput.KeyLeftbrace, true}, '}': {uinput.KeyRightbrace, true},
-	'|': {uinput.KeyBackslash, true}, ':': {uinput.KeySemicolon, true},
-	'"': {uinput.KeyApostrophe, true}, '~': {uinput.KeyGrave, true},
-	'<': {uinput.KeyComma, true}, '>': {uinput.KeyDot, true}, '?': {uinput.KeySlash, true},
-}
-
 func (b *UinputBackend) resolveKey(key string) (int, error) {
-	// Try canonical map from internal/keymap.
 	if k, ok := keymap.FromString(key); ok {
 		if code, ok := keyCode[k]; ok {
 			return code, nil
 		}
 	}
-	// Single character fallback: lowercase
 	if len(key) == 1 {
 		if k, ok := keymap.FromString(strings.ToLower(key)); ok {
 			if code, ok := keyCode[k]; ok {
@@ -219,7 +174,6 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 		if err != nil {
 			return err
 		}
-		// Press modifier keys first.
 		if a.modifiers.shift {
 			if err := b.kb.KeyDown(uinput.KeyLeftshift); err != nil {
 				return err
@@ -249,7 +203,6 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 				return err
 			}
 		}
-		// Release temporary modifiers.
 		if a.modifiers.super {
 			if err := b.kb.KeyUp(uinput.KeyLeftmeta); err != nil {
 				return err
@@ -274,25 +227,27 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 	return nil
 }
 
-// typeText types literal text character-by-character using the US QWERTY layout mapping.
+// typeText types literal text character-by-character using the kernel keymap
+// to determine the correct evdev keycode and shift state for each rune.
+// This is layout-independent: on AZERTY 'a' is at KEY_Q position, on QWERTY it's KEY_A, etc.
 func (b *UinputBackend) typeText(s string) error {
 	for _, ch := range s {
-		ck, ok := charToKey[ch]
+		kc, ok := b.charToRune[ch]
 		if !ok {
-			return fmt.Errorf("input/uinput: unsupported character %q", string(ch))
+			return fmt.Errorf("input/uinput: unsupported character %q (not found in kernel keymap)", string(ch))
 		}
-		if ck.shift {
+		if kc.shift {
 			if err := b.kb.KeyDown(uinput.KeyLeftshift); err != nil {
 				return err
 			}
 		}
-		if err := b.kb.KeyPress(ck.code); err != nil {
-			if ck.shift {
+		if err := b.kb.KeyPress(kc.keycode); err != nil {
+			if kc.shift {
 				_ = b.kb.KeyUp(uinput.KeyLeftshift)
 			}
 			return err
 		}
-		if ck.shift {
+		if kc.shift {
 			if err := b.kb.KeyUp(uinput.KeyLeftshift); err != nil {
 				return err
 			}
@@ -320,7 +275,6 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 	case 1:
 		return b.touchpad.LeftPress()
 	case 2:
-		// Middle click requires a relative mouse device.
 		if err := b.ensureMouse(); err != nil {
 			return err
 		}
@@ -328,9 +282,6 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 	case 3:
 		return b.touchpad.RightPress()
 	default:
-		// Try to provide better diagnostics: if a relative mouse can be created,
-		// report that the specific button isn't implemented rather than claiming
-		// the compositor/touchpad doesn't support it.
 		if err := b.ensureMouse(); err != nil {
 			return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3) and creating a relative mouse failed: %w", button, err)
 		}
@@ -343,7 +294,6 @@ func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
 	case 1:
 		return b.touchpad.LeftRelease()
 	case 2:
-		// Middle release requires the relative mouse device.
 		if err := b.ensureMouse(); err != nil {
 			return err
 		}
@@ -370,7 +320,6 @@ func (b *UinputBackend) ensureMouse() error {
 	return nil
 }
 
-// ScrollUp scrolls the mouse wheel up by the given number of notches.
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
@@ -378,7 +327,6 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(false, int32(-clicks))
 }
 
-// ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
@@ -386,7 +334,6 @@ func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(false, int32(clicks))
 }
 
-// ScrollLeft scrolls the mouse wheel left by the given number of notches.
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
@@ -394,7 +341,6 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(true, int32(-clicks))
 }
 
-// ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	if err := b.ensureMouse(); err != nil {
 		return err
@@ -416,4 +362,156 @@ func (b *UinputBackend) Close() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// ── Kernel keymap query (layout-independent rune → keycode mapping) ───────────
+
+// kbEntry matches struct kbentry from <linux/kd.h>.
+type kbEntry struct {
+	table uint8
+	index uint8
+	value uint16
+}
+
+const (
+	kdgkbent  = 0x4B46 // KDGKBENT ioctl
+	kNormal   = 0x00   // K_NORMTAB
+	kShift    = 0x01   // K_SHIFTTAB
+	kAltGr    = 0x02   // K_ALTTAB
+	kAltShift = 0x03   // K_ALTSHIFTTAB
+)
+
+// Kernel keysym types (from <linux/keyboard.h>).
+const (
+	ktLatin  = 0 // KT_LATIN  — plain ASCII/Latin character
+	ktLetter = 11 // KT_LETTER — letter affected by CapsLock
+)
+
+// kernelRune extracts a Unicode rune from a kernel keysym value if it
+// represents a typeable Latin/letter character, and reports whether the
+// extraction succeeded.
+func kernelRune(sym uint16) (rune, bool) {
+	typ := sym >> 8
+	switch typ {
+	case ktLatin, ktLetter:
+		return rune(sym & 0xFF), true
+	}
+	return 0, false
+}
+
+// buildKernelRuneMap reads the kernel keymap via KDGKBENT ioctl on a virtual
+// console device and builds a reverse map from rune → (evdev keycode,
+// needsShift). This makes typeText layout-independent: on AZERTY, 'a' maps
+// to the KEY_Q evdev code; on QWERTY, 'a' maps to KEY_A.
+//
+// If no console device is accessible, falls back to the static US QWERTY map.
+func buildKernelRuneMap() (map[rune]kernelChar, error) {
+	// Try virtual console devices.  We need one the user has read access to.
+	// /dev/ttyN for an active VC is typically readable by the user on that VC.
+	paths := []string{}
+	// Add /dev/tty0 first (current VC), then scan for accessible ttyN.
+	paths = append(paths, "/dev/tty0")
+	for i := 1; i <= 63; i++ {
+		paths = append(paths, fmt.Sprintf("/dev/tty%d", i))
+	}
+
+	var f *os.File
+	for _, p := range paths {
+		if fh, err := os.OpenFile(p, os.O_RDONLY, 0); err == nil {
+			// Verify the ioctl actually works on this device.
+			ent := kbEntry{table: kNormal, index: 16} // KEY_Q
+			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fh.Fd(), kdgkbent, uintptr(unsafe.Pointer(&ent)))
+			if errno == 0 {
+				f = fh
+				break
+			}
+			fh.Close()
+		}
+	}
+	if f == nil {
+		return nil, fmt.Errorf("no accessible virtual console for KDGKBENT")
+	}
+	defer f.Close()
+
+	m := make(map[rune]kernelChar)
+
+	// Scan keycodes 0–127 at the normal (unshifted) and shift tables.
+	for kc := 0; kc < 128; kc++ {
+		for _, table := range []uint8{kNormal, kShift} {
+			ent := kbEntry{table: table, index: uint8(kc)}
+			_, _, errno := syscall.Syscall(
+				syscall.SYS_IOCTL,
+				f.Fd(),
+				kdgkbent,
+				uintptr(unsafe.Pointer(&ent)),
+			)
+			if errno != 0 {
+				continue
+			}
+			r, ok := kernelRune(ent.value)
+			if !ok || r == 0 {
+				continue
+			}
+			// Prefer unshifted entry (first seen wins since we scan kNormal first).
+			if _, exists := m[r]; !exists {
+				m[r] = kernelChar{
+					keycode: kc,
+					shift:   table == kShift,
+				}
+			}
+		}
+	}
+
+	if len(m) == 0 {
+		return nil, fmt.Errorf("KDGKBENT returned no typeable entries")
+	}
+
+	return m, nil
+}
+
+// qwertyRuneMap returns a static US QWERTY rune → keycode map as fallback
+// when the kernel keymap cannot be queried.
+func qwertyRuneMap() map[rune]kernelChar {
+	return map[rune]kernelChar{
+		' ':  {uinput.KeySpace, false},
+		'\t': {uinput.KeyTab, false},
+		'\n': {uinput.KeyEnter, false},
+		'0': {uinput.Key0, false}, '1': {uinput.Key1, false}, '2': {uinput.Key2, false},
+		'3': {uinput.Key3, false}, '4': {uinput.Key4, false}, '5': {uinput.Key5, false},
+		'6': {uinput.Key6, false}, '7': {uinput.Key7, false}, '8': {uinput.Key8, false},
+		'9': {uinput.Key9, false},
+		'!': {uinput.Key1, true}, '@': {uinput.Key2, true}, '#': {uinput.Key3, true},
+		'$': {uinput.Key4, true}, '%': {uinput.Key5, true}, '^': {uinput.Key6, true},
+		'&': {uinput.Key7, true}, '*': {uinput.Key8, true}, '(': {uinput.Key9, true},
+		')': {uinput.Key0, true},
+		'a': {uinput.KeyA, false}, 'b': {uinput.KeyB, false}, 'c': {uinput.KeyC, false},
+		'd': {uinput.KeyD, false}, 'e': {uinput.KeyE, false}, 'f': {uinput.KeyF, false},
+		'g': {uinput.KeyG, false}, 'h': {uinput.KeyH, false}, 'i': {uinput.KeyI, false},
+		'j': {uinput.KeyJ, false}, 'k': {uinput.KeyK, false}, 'l': {uinput.KeyL, false},
+		'm': {uinput.KeyM, false}, 'n': {uinput.KeyN, false}, 'o': {uinput.KeyO, false},
+		'p': {uinput.KeyP, false}, 'q': {uinput.KeyQ, false}, 'r': {uinput.KeyR, false},
+		's': {uinput.KeyS, false}, 't': {uinput.KeyT, false}, 'u': {uinput.KeyU, false},
+		'v': {uinput.KeyV, false}, 'w': {uinput.KeyW, false}, 'x': {uinput.KeyX, false},
+		'y': {uinput.KeyY, false}, 'z': {uinput.KeyZ, false},
+		'A': {uinput.KeyA, true}, 'B': {uinput.KeyB, true}, 'C': {uinput.KeyC, true},
+		'D': {uinput.KeyD, true}, 'E': {uinput.KeyE, true}, 'F': {uinput.KeyF, true},
+		'G': {uinput.KeyG, true}, 'H': {uinput.KeyH, true}, 'I': {uinput.KeyI, true},
+		'J': {uinput.KeyJ, true}, 'K': {uinput.KeyK, true}, 'L': {uinput.KeyL, true},
+		'M': {uinput.KeyM, true}, 'N': {uinput.KeyN, true}, 'O': {uinput.KeyO, true},
+		'P': {uinput.KeyP, true}, 'Q': {uinput.KeyQ, true}, 'R': {uinput.KeyR, true},
+		'S': {uinput.KeyS, true}, 'T': {uinput.KeyT, true}, 'U': {uinput.KeyU, true},
+		'V': {uinput.KeyV, true}, 'W': {uinput.KeyW, true}, 'X': {uinput.KeyX, true},
+		'Y': {uinput.KeyY, true}, 'Z': {uinput.KeyZ, true},
+		'-': {uinput.KeyMinus, false}, '=': {uinput.KeyEqual, false},
+		'[': {uinput.KeyLeftbrace, false}, ']': {uinput.KeyRightbrace, false},
+		'\\': {uinput.KeyBackslash, false}, ';': {uinput.KeySemicolon, false},
+		'\'': {uinput.KeyApostrophe, false}, '`': {uinput.KeyGrave, false},
+		',': {uinput.KeyComma, false}, '.': {uinput.KeyDot, false},
+		'/': {uinput.KeySlash, false},
+		'_': {uinput.KeyMinus, true}, '+': {uinput.KeyEqual, true},
+		'{': {uinput.KeyLeftbrace, true}, '}': {uinput.KeyRightbrace, true},
+		'|': {uinput.KeyBackslash, true}, ':': {uinput.KeySemicolon, true},
+		'"': {uinput.KeyApostrophe, true}, '~': {uinput.KeyGrave, true},
+		'<': {uinput.KeyComma, true}, '>': {uinput.KeyDot, true}, '?': {uinput.KeySlash, true},
+	}
 }
