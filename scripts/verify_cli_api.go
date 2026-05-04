@@ -119,12 +119,10 @@ func skipMethodForCLISync(name string) bool {
 		return true
 	}
 	switch name {
-	case "CaptureRegion",
-		"FindColor",
+	case "FindColor",
 		"GetMultiplePixels",
 		"IterateWindows",
 		"LocateExact",
-		"Restore",
 		"ScanFor",
 		"WaitFor",
 		"WaitForChange",
@@ -223,7 +221,6 @@ func main() {
 			"get-geometry":  true,
 			"is-visible":    true,
 			"iterate":       true,
-			"restore":       true,
 		},
 		"screen": {
 			"pixel":      true,
