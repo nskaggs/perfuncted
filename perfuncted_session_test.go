@@ -99,23 +99,23 @@ func TestSessionConfigDefaults(t *testing.T) {
 }
 
 func TestEmbeddedConfigs(t *testing.T) {
-	data, err := embeddedConfigs.ReadFile("configs/ci.conf")
-	if err != nil {
-		t.Fatalf("read embedded ci.conf: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("embedded ci.conf is empty")
-	}
-	if !strings.Contains(string(data), "HEADLESS-1") {
-		t.Error("ci.conf missing HEADLESS-1 output line")
-	}
-
-	data, err = embeddedConfigs.ReadFile("configs/headless.conf")
+	data, err := embeddedConfigs.ReadFile("configs/headless.conf")
 	if err != nil {
 		t.Fatalf("read embedded headless.conf: %v", err)
 	}
 	if len(data) == 0 {
 		t.Fatal("embedded headless.conf is empty")
+	}
+	if !strings.Contains(string(data), "HEADLESS-1") {
+		t.Error("headless.conf missing HEADLESS-1 output line")
+	}
+
+	data, err = embeddedConfigs.ReadFile("configs/nested.conf")
+	if err != nil {
+		t.Fatalf("read embedded nested.conf: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("embedded nested.conf is empty")
 	}
 }
 
