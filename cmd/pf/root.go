@@ -1022,71 +1022,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		},
 	}
 
-	waitForWin := &cobra.Command{
-		Use:   "wait-for <name>",
-		Short: "Wait for a window matching name to appear",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// local flags with defaults
-			var timeoutFlag = "5s"
-			var pollFlag = "100ms"
-			poll, err := parseDuration(pollFlag, 100*time.Millisecond)
-			if err != nil {
-				return err
-			}
-			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
-			if err != nil {
-				return err
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			info, err := pf.Window.WaitFor(ctx, args[0], poll)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("0x%x\t%s\n", info.ID, info.Title)
-			fmt.Printf("x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
-			fmt.Printf("pid=%d\n", info.PID)
-			return nil
-		},
-	}
-
-	waitTitleChange := &cobra.Command{
-		Use:   "wait-for-title-change",
-		Short: "Wait for the focused window's title to change",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			var timeoutFlag = "5s"
-			var pollFlag = "100ms"
-			poll, err := parseDuration(pollFlag, 100*time.Millisecond)
-			if err != nil {
-				return err
-			}
-			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
-			if err != nil {
-				return err
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			t, err := pf.Window.WaitForTitleChange(ctx, poll)
-			if err != nil {
-				return err
-			}
-			fmt.Println(t)
-			return nil
-		},
-	}
-
-	cmd.AddCommand(findByTitle, getGeom, isVisible, waitForWin, waitTitleChange)
+	cmd.AddCommand(findByTitle, getGeom, isVisible)
 
 	closeWin := &cobra.Command{
 		Use:   "close <title>",
@@ -1350,38 +1286,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	_ = scanFor.MarkFlagRequired("rects")
 	_ = scanFor.MarkFlagRequired("wants")
 
-	var locateRect, locateRef string
-	locate := &cobra.Command{
-		Use:   "locate",
-		Short: "Find a reference PNG image within a screen region",
-		Long:  `Scans searchArea for an exact pixel match of the reference image and prints the bounding rectangle of the first match.`,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r, err := parseRect(locateRect)
-			if err != nil {
-				return err
-			}
-			ref, err := loadPNG(locateRef)
-			if err != nil {
-				return err
-			}
-			found, err := pf.Screen.LocateExactContext(context.Background(), r, ref)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%d,%d,%d,%d\n", found.Min.X, found.Min.Y, found.Max.X, found.Max.Y)
-			return nil
-		},
-	}
-	locate.Flags().StringVar(&locateRect, "rect", "0,0,1920,1080", "search area x0,y0,x1,y1")
-	locate.Flags().StringVar(&locateRef, "ref", "", "path to reference PNG image")
-	_ = locate.MarkFlagRequired("ref")
-
-	cmd.AddCommand(waitFor, waitForChange, waitForNoChange, scanFor, locate)
+	cmd.AddCommand(waitFor, waitForChange, waitForNoChange, scanFor)
 
 	// Manual wrappers for additional Screen find APIs
 	var vfRect, vfPoll, vfTimeout string
@@ -1422,50 +1327,6 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	waitForVisibleChange.Flags().StringVar(&vfTimeout, "timeout", "5s", "timeout duration")
 	waitForVisibleChange.Flags().IntVar(&vfStable, "stable", 3, "consecutive identical samples required (default 3)")
 
-	var wwtRect, wwtRef, wwtPoll, wwtTimeout string
-	var wwtRadius int
-	waitWithTolerance := &cobra.Command{
-		Use:   "wait-with-tolerance",
-		Short: "Wait for a reference image within a radius tolerance",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r, err := parseRect(wwtRect)
-			if err != nil {
-				return err
-			}
-			ref, err := loadPNG(wwtRef)
-			if err != nil {
-				return err
-			}
-			poll, err := parseDuration(wwtPoll, 50*time.Millisecond)
-			if err != nil {
-				return err
-			}
-			timeout, err := parseDuration(wwtTimeout, 5*time.Second)
-			if err != nil {
-				return err
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			resHash, rect, err := pf.Screen.WaitWithToleranceContext(ctx, r, ref, wwtRadius, poll)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%08x %d,%d,%d,%d\n", resHash, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
-			return nil
-		},
-	}
-	waitWithTolerance.Flags().StringVar(&wwtRect, "rect", "0,0,100,100", "x0,y0,x1,y1 (default 0,0,100,100)")
-	waitWithTolerance.Flags().StringVar(&wwtRef, "ref", "", "path to reference PNG image (required)")
-	waitWithTolerance.Flags().IntVar(&wwtRadius, "radius", 1, "pixel radius tolerance (default 1)")
-	waitWithTolerance.Flags().StringVar(&wwtPoll, "poll", "50ms", "poll interval")
-	waitWithTolerance.Flags().StringVar(&wwtTimeout, "timeout", "5s", "timeout duration")
-	_ = waitWithTolerance.MarkFlagRequired("ref")
-
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int
 	findColor := &cobra.Command{
@@ -1498,49 +1359,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	findColor.Flags().IntVar(&colorTolerance, "tolerance", 0, "per-channel tolerance (0-255)")
 	_ = findColor.MarkFlagRequired("color")
 
-	var wlRefFlag, wlRectFlag, wlTimeoutFlag, wlPollFlag string
-	waitLocate := &cobra.Command{
-		Use:   "wait-locate",
-		Short: "Poll until a reference image is found in the search area",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r, err := parseRect(wlRectFlag)
-			if err != nil {
-				return err
-			}
-			ref, err := loadPNG(wlRefFlag)
-			if err != nil {
-				return err
-			}
-			timeout, err := parseDuration(wlTimeoutFlag, 10*time.Second)
-			if err != nil {
-				return err
-			}
-			poll, err := parseDuration(wlPollFlag, 200*time.Millisecond)
-			if err != nil {
-				return err
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			rect, err := pf.Screen.WaitForLocateContext(ctx, r, ref, poll)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%d,%d,%d,%d\n", rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
-			return nil
-		},
-	}
-	waitLocate.Flags().StringVar(&wlRefFlag, "ref", "", "reference PNG image path (required)")
-	waitLocate.Flags().StringVar(&wlRectFlag, "rect", "0,0,1920,1080", "search area x0,y0,x1,y1")
-	waitLocate.Flags().StringVar(&wlTimeoutFlag, "timeout", "10s", "maximum wait time")
-	waitLocate.Flags().StringVar(&wlPollFlag, "poll", "200ms", "poll interval")
-	_ = waitLocate.MarkFlagRequired("ref")
-
-	cmd.AddCommand(findColor, waitLocate)
+	cmd.AddCommand(findColor)
 	return cmd
 }
 
@@ -1668,19 +1487,6 @@ func parseRect(s string) (image.Rectangle, error) {
 		vals[i] = v
 	}
 	return image.Rect(vals[0], vals[1], vals[2], vals[3]), nil
-}
-
-func loadPNG(path string) (image.Image, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open reference image: %w", err)
-	}
-	defer f.Close()
-	img, err := png.Decode(f)
-	if err != nil {
-		return nil, fmt.Errorf("decode reference PNG: %w", err)
-	}
-	return img, nil
 }
 
 // parseColor parses a hex colour string like "ff0000" or "FF0000" into color.RGBA.

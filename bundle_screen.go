@@ -51,7 +51,7 @@ func (s ScreenBundle) GrabHashContext(ctx context.Context, rect image.Rectangle)
 	return find.GrabHash(ctx, s.Screenshotter, rect, nil)
 }
 
-func (s ScreenBundle) GrabFullHashContext(ctx context.Context) (uint32, error) {
+func (s ScreenBundle) grabFullHashContext(ctx context.Context) (uint32, error) {
 	s.traceAction("grab-full-hash")
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
@@ -70,7 +70,7 @@ func (s ScreenBundle) GrabContext(ctx context.Context, rect image.Rectangle) (im
 	return s.Screenshotter.Grab(ctx, rect)
 }
 
-func (s ScreenBundle) GrabFullContext(ctx context.Context) (image.Image, error) {
+func (s ScreenBundle) grabFullContext(ctx context.Context) (image.Image, error) {
 	return s.GrabContext(ctx, image.Rectangle{})
 }
 
@@ -213,7 +213,7 @@ func (s ScreenBundle) WaitForSettleContext(ctx context.Context, rect image.Recta
 	return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable, poll, nil)
 }
 
-func (s ScreenBundle) LocateExactContext(ctx context.Context, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+func (s ScreenBundle) locateExactContext(ctx context.Context, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
 	s.traceAction(fmt.Sprintf("locate-exact search=%s", searchArea))
 	if err := s.checkAvailable(); err != nil {
 		return image.Rectangle{}, err
@@ -221,7 +221,7 @@ func (s ScreenBundle) LocateExactContext(ctx context.Context, searchArea image.R
 	return find.LocateExact(ctx, s.Screenshotter, searchArea, reference)
 }
 
-func (s ScreenBundle) WaitForLocateContext(ctx context.Context, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
+func (s ScreenBundle) waitForLocateContext(ctx context.Context, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
 	s.traceAction(fmt.Sprintf("wait-for-locate search=%s poll=%s", searchArea, poll))
 	if err := s.checkAvailable(); err != nil {
 		return image.Rectangle{}, err
@@ -229,7 +229,7 @@ func (s ScreenBundle) WaitForLocateContext(ctx context.Context, searchArea image
 	return find.WaitForLocate(ctx, s.Screenshotter, searchArea, reference, poll)
 }
 
-func (s ScreenBundle) WaitWithToleranceContext(ctx context.Context, rect image.Rectangle, reference image.Image, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
+func (s ScreenBundle) waitWithToleranceContext(ctx context.Context, rect image.Rectangle, reference image.Image, radius int, poll time.Duration) (uint32, image.Rectangle, error) {
 	s.traceAction(fmt.Sprintf("wait-with-tolerance rect=%s radius=%d poll=%s", rect, radius, poll))
 	if err := s.checkAvailable(); err != nil {
 		return 0, image.Rectangle{}, err

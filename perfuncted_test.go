@@ -80,8 +80,6 @@ func TestBundleSmoke(t *testing.T) {
 	})
 
 	t.Run("Window", func(t *testing.T) {
-		_, _ = pf.Window.GetGeometryContext(context.Background(), "Firefox")
-		_, _ = pf.Window.GetProcessContext(context.Background(), "Firefox")
 		_ = pf.Window.ResizeContext(context.Background(), "Firefox", 800, 600)
 		_ = pf.Window.MinimizeContext(context.Background(), "Firefox")
 		_ = pf.Window.MaximizeContext(context.Background(), "Firefox")
@@ -200,8 +198,8 @@ func TestScreenBundleHashing(t *testing.T) {
 		t.Error("expected non-zero hash")
 	}
 
-	// GrabFullHash
-	h2, err := pf.Screen.GrabFullHashContext(context.Background())
+	// GrabFullHash - equivalent to GrabHashContext with empty rect
+	h2, err := pf.Screen.GrabHashContext(context.Background(), image.Rectangle{})
 	if err != nil {
 		t.Fatal(err)
 	}
