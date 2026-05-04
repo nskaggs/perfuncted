@@ -157,7 +157,7 @@ nested:
     # strictly inside MY_XDG. This fixes Firefox sandboxing and IPC.
     WLR_BACKENDS=wayland WLR_RENDERER=pixman \
     XDG_RUNTIME_DIR="$MY_XDG" WAYLAND_DISPLAY="$HOST_XDG/$HOST_WL" \
-    sway --unsupported-gpu -c config/sway/nested.conf &
+    sway --unsupported-gpu -c configs/nested.conf &
 
 # ── maintenance ────────────────────────────────────────────────────────────────
 

@@ -20,7 +20,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
-//go:embed configs/ci.conf configs/headless.conf configs/nested.conf
+//go:embed configs/headless.conf configs/nested.conf
 var embeddedConfigs embed.FS
 
 // SessionConfig controls session creation.
@@ -29,7 +29,7 @@ type SessionConfig struct {
 	Resolution image.Point
 
 	// SwayConfigPath overrides the embedded sway config. When empty, the
-	// embedded ci.conf is written to the temp dir and used.
+	// embedded headless.conf is written to the temp dir and used.
 	SwayConfigPath string
 
 	// LogDir is the directory for sway log output. Defaults to /tmp/perfuncted-logs.
@@ -169,7 +169,7 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 	if swayConf == "" {
 		switch mode {
 		case sessionModeHeadless:
-			swayConf, err = s.writeEmbeddedConfig("configs/ci.conf", cfg.Resolution)
+			swayConf, err = s.writeEmbeddedConfig("configs/headless.conf", cfg.Resolution)
 		case sessionModeNested:
 			swayConf, err = s.writeEmbeddedConfig("configs/nested.conf", image.Point{})
 		default:
