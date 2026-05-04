@@ -116,10 +116,6 @@ func (m *Inputter) KeyDown(ctx context.Context, key string) error {
 	return m.Err
 }
 func (m *Inputter) KeyUp(ctx context.Context, key string) error { m.record("up:" + key); return m.Err }
-func (m *Inputter) KeyTap(ctx context.Context, key string) error {
-	m.record("tap:" + key)
-	return m.Err
-}
 func (m *Inputter) Type(ctx context.Context, s string) error {
 	return m.TypeContext(ctx, s)
 }
@@ -151,10 +147,6 @@ func (m *Inputter) MouseMove(ctx context.Context, x, y int) error {
 }
 func (m *Inputter) MouseClick(ctx context.Context, x, y, b int) error {
 	m.record(fmt.Sprintf("click:%d,%d", x, y))
-	return m.Err
-}
-func (m *Inputter) PressCombo(ctx context.Context, c string) error {
-	m.record("combo:" + c)
 	return m.Err
 }
 func (m *Inputter) Close() error { return nil }

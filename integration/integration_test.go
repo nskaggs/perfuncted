@@ -409,7 +409,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := pf.Input.Type("session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
-	if err := pf.Input.PressCombo("ctrl+s"); err != nil {
+	if err := pf.Input.Type("^s"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	if err := pf.Window.CloseWindow(app.winMatch); err != nil {
@@ -640,7 +640,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if err := s.pf.Input.ClickCenter(rect); err != nil {
 		t.Fatalf("refocus before save: %v", err)
 	}
-	if err := s.pf.Input.PressCombo("ctrl+s"); err != nil {
+	if err := s.pf.Input.Type("{ctrl+s}"); err != nil {
 		t.Fatalf("ctrl+s: %v", err)
 	}
 	savedText, err := waitForFileContains(context.Background(), saveFile, "Integration", 10*time.Second)
@@ -681,13 +681,13 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("activate browser: %v", err)
 	}
 
-	if err := s.pf.Input.PressCombo("ctrl+l"); err != nil {
+	if err := s.pf.Input.Type("^l"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
 	if err := s.pf.Input.TypeFast("about:support"); err != nil {
 		t.Fatalf("type address: %v", err)
 	}
-	if err := s.pf.Input.KeyTap("return"); err != nil {
+	if err := s.pf.Input.Type("{enter}"); err != nil {
 		t.Fatalf("return: %v", err)
 	}
 

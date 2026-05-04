@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/bendahl/uinput"
 	"github.com/nskaggs/perfuncted/internal/keymap"
@@ -197,19 +196,86 @@ func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 	return b.kb.KeyUp(code)
 }
 
-func (b *UinputBackend) KeyTap(ctx context.Context, key string) error {
-	code, err := b.resolveKey(key)
-	if err != nil {
-		return err
-	}
-	return b.kb.KeyPress(code)
-}
-
 func (b *UinputBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)
 }
 
 func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
+	actions, err := ParseKeySend(s)
+	if err != nil {
+		return err
+	}
+	for _, a := range actions {
+		if a.text != "" {
+			if err := b.typeText(a.text); err != nil {
+				return err
+			}
+			continue
+		}
+		if a.key == "" {
+			continue
+		}
+		code, err := b.resolveKey(a.key)
+		if err != nil {
+			return err
+		}
+		// Press modifier keys first.
+		if a.modifiers.shift {
+			if err := b.kb.KeyDown(uinput.KeyLeftshift); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.ctrl {
+			if err := b.kb.KeyDown(uinput.KeyLeftctrl); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.alt {
+			if err := b.kb.KeyDown(uinput.KeyLeftalt); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.super {
+			if err := b.kb.KeyDown(uinput.KeyLeftmeta); err != nil {
+				return err
+			}
+		}
+		if a.down {
+			if err := b.kb.KeyDown(code); err != nil {
+				return err
+			}
+		} else {
+			if err := b.kb.KeyPress(code); err != nil {
+				return err
+			}
+		}
+		// Release temporary modifiers.
+		if a.modifiers.super {
+			if err := b.kb.KeyUp(uinput.KeyLeftmeta); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.alt {
+			if err := b.kb.KeyUp(uinput.KeyLeftalt); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.ctrl {
+			if err := b.kb.KeyUp(uinput.KeyLeftctrl); err != nil {
+				return err
+			}
+		}
+		if a.modifiers.shift {
+			if err := b.kb.KeyUp(uinput.KeyLeftshift); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// typeText types literal text character-by-character using the US QWERTY layout mapping.
+func (b *UinputBackend) typeText(s string) error {
 	for _, ch := range s {
 		ck, ok := charToKey[ch]
 		if !ok {
@@ -334,32 +400,6 @@ func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 		return err
 	}
 	return b.mouse.Wheel(true, int32(clicks))
-}
-
-func (b *UinputBackend) PressCombo(ctx context.Context, combo string) error {
-	parts := strings.Split(strings.ToLower(combo), "+")
-	codes := make([]int, 0, len(parts))
-	for _, p := range parts {
-		code, err := b.resolveKey(strings.TrimSpace(p))
-		if err != nil {
-			return err
-		}
-		codes = append(codes, code)
-	}
-	// Press all
-	for _, c := range codes {
-		if err := b.kb.KeyDown(c); err != nil {
-			return err
-		}
-	}
-	time.Sleep(50 * time.Millisecond)
-	// Release in reverse
-	for i := len(codes) - 1; i >= 0; i-- {
-		if err := b.kb.KeyUp(codes[i]); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (b *UinputBackend) Close() error {

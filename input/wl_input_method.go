@@ -218,12 +218,6 @@ func (b *WlInputMethodBackend) KeyUp(ctx context.Context, key string) error {
 	}
 	return b.other.KeyUp(ctx, key)
 }
-func (b *WlInputMethodBackend) KeyTap(ctx context.Context, key string) error {
-	if b.other == nil {
-		return fmt.Errorf("input/wl-im: KeyTap unsupported (no subordinate backend)")
-	}
-	return b.other.KeyTap(ctx, key)
-}
 func (b *WlInputMethodBackend) MouseMove(ctx context.Context, x, y int) error {
 	if b.other == nil {
 		return fmt.Errorf("input/wl-im: MouseMove unsupported (no subordinate backend)")
@@ -271,13 +265,6 @@ func (b *WlInputMethodBackend) ScrollRight(ctx context.Context, clicks int) erro
 		return fmt.Errorf("input/wl-im: ScrollRight unsupported (no subordinate backend)")
 	}
 	return b.other.ScrollRight(ctx, clicks)
-}
-
-func (b *WlInputMethodBackend) PressCombo(ctx context.Context, combo string) error {
-	if b.other == nil {
-		return fmt.Errorf("input/wl-im: PressCombo unsupported (no subordinate backend)")
-	}
-	return b.other.PressCombo(ctx, combo)
 }
 
 func (b *WlInputMethodBackend) Close() error {

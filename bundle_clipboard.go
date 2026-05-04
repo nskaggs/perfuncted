@@ -62,12 +62,10 @@ func (c ClipboardBundle) PasteWithInput(text string, inp InputBundle) error {
 	return c.PasteWithInputContext(context.Background(), text, inp)
 }
 
-const PasteCombo = "ctrl+v"
-
 func (c ClipboardBundle) PasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
 	c.traceAction(fmt.Sprintf("paste-with-input text=%q", text))
 	if err := c.SetContext(ctx, text); err != nil {
 		return err
 	}
-	return inp.PressComboContext(ctx, PasteCombo)
+	return inp.TypeContext(ctx, "{ctrl+v}")
 }

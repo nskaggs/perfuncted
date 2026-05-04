@@ -25,8 +25,8 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	if _, err := pf.Screen.GrabFull(); err != nil {
 		t.Errorf("GrabFull: %v", err)
 	}
-	if err := pf.Input.PressCombo("return"); err != nil {
-		t.Errorf("PressCombo: %v", err)
+	if err := pf.Input.Type("{enter}"); err != nil {
+		t.Errorf("Type: %v", err)
 	}
 	if got, err := pf.Clipboard.Get(); err != nil || got != "hi" {
 		t.Errorf("Clipboard.Get: %q, %v", got, err)
@@ -42,7 +42,7 @@ func TestNewNilBackends(t *testing.T) {
 	if _, err := pf.Screen.GrabFull(); err == nil {
 		t.Error("expected error for nil screen")
 	}
-	if err := pf.Input.PressCombo("ctrl+s"); err == nil {
+	if err := pf.Input.Type("{ctrl+s}"); err == nil {
 		t.Error("expected error for nil inputter")
 	}
 	if _, err := pf.Clipboard.Get(); err == nil {

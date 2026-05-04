@@ -155,6 +155,211 @@ func (k *wlKeyboard) typeString(s string) error {
 	return nil
 }
 
+// sendkeys processes a sequence of parsed keySend actions with a single
+// keymap upload. This avoids the modifier-state-reset problem that occurs
+// when pressing multiple keys via separate pressKey calls (each uploads a
+// new keymap, which resets compositor modifier state).
+//
+// Text and key actions are executed in the order they appear in the input,
+// so "Hello{enter}" types "Hello" before pressing Enter.
+func (k *wlKeyboard) sendkeys(actions []keySend) error {
+	if len(actions) == 0 {
+		return nil
+	}
+
+	// First pass: collect all unique runes from text actions and all named
+	// keycodes so we can build a single keymap that covers everything.
+	var allRunes []rune
+	seenRunes := make(map[rune]bool)
+	type keyAction struct {
+		key  string
+		down bool
+		mod  modifiers
+	}
+	var keys []keyAction
+
+	for _, a := range actions {
+		if a.text != "" {
+			for _, r := range a.text {
+				if !seenRunes[r] {
+					seenRunes[r] = true
+					allRunes = append(allRunes, r)
+				}
+			}
+			continue
+		}
+		keys = append(keys, keyAction{key: a.key, down: a.down, mod: a.modifiers})
+	}
+
+	// Build a keymap that includes all needed runes and named keys.
+	// Start with modifier keycodes (always present).
+	var kc, sym strings.Builder
+	kc.WriteString(xkbModKeycodes())
+	sym.WriteString(xkbModSymbols())
+
+	// Add named non-modifier keys.
+	namedSlots := make(map[string]uint32)
+	nextSlot := kcDynBase + uint32(len(allRunes))
+	for _, ka := range keys {
+		if _, _, ok := namedKey(ka.key); ok {
+			if modBit(ka.key) != 0 {
+				continue // modifier key — already in keymap
+			}
+			if _, done := namedSlots[ka.key]; !done {
+				slot := nextSlot
+				nextSlot++
+				namedSlots[ka.key] = slot
+				_, s, _ := namedKey(ka.key)
+				fmt.Fprintf(&kc, "    <K%03d> = %d;\n", slot, slot)
+				fmt.Fprintf(&sym, "    key <K%03d> { [ %s ] };\n", slot, s)
+			}
+		} else {
+			// Not a named key — treat as literal character(s).
+			for _, r := range ka.key {
+				if !seenRunes[r] {
+					seenRunes[r] = true
+					allRunes = append(allRunes, r)
+				}
+			}
+		}
+	}
+
+	// Add rune slots.
+	runeSlots := make(map[rune]uint32)
+	for i, r := range allRunes {
+		slot := kcDynBase + uint32(i)
+		runeSlots[r] = slot
+		fmt.Fprintf(&kc, "    <K%03d> = %d;\n", slot, slot)
+		fmt.Fprintf(&sym, "    key <K%03d> { [ %s ] };\n", slot, xkbKeysym(r))
+	}
+
+	maxSlot := nextSlot - 1
+	if len(allRunes) > 0 {
+		maxSlot = kcDynBase + uint32(len(allRunes)) - 1
+	}
+	if maxSlot < kcSuper {
+		maxSlot = kcSuper
+	}
+
+	keymapText := xkbBuild(maxSlot, kc.String(), sym.String())
+	if err := k.uploadKeymapAndRestoreMods(keymapText); err != nil {
+		return err
+	}
+
+	// Build a lookup from key name to keyAction for the second pass.
+	keyIndex := 0
+
+	// Second pass: execute actions in order — text and keys interleaved.
+	for _, a := range actions {
+		if a.text != "" {
+			// Type literal text.
+			for _, r := range a.text {
+				slot := runeSlots[r]
+				if err := k.tap(slot); err != nil {
+					return err
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			continue
+		}
+
+		// Key action — look it up from the keys slice.
+		if keyIndex >= len(keys) {
+			continue
+		}
+		ka := keys[keyIndex]
+		keyIndex++
+
+		// Press temporary modifier keys first.
+		modBitmask := uint32(0)
+		if ka.mod.ctrl {
+			modBitmask |= modControl
+		}
+		if ka.mod.alt {
+			modBitmask |= modMod1
+		}
+		if ka.mod.shift {
+			modBitmask |= modShift
+		}
+		if ka.mod.super {
+			modBitmask |= modMod4
+		}
+
+		if modBitmask != 0 {
+			k.mods |= modBitmask
+			if err := k.sendModifiers(); err != nil {
+				return err
+			}
+		}
+
+		if kc, _, ok := namedKey(ka.key); ok {
+			if bit := modBit(ka.key); bit != 0 {
+				// This key is itself a modifier.
+				if ka.down {
+					k.mods |= bit
+				} else {
+					k.mods &^= bit
+				}
+				if err := k.sendKey(kc, 1); err != nil {
+					return err
+				}
+				if !ka.down {
+					if err := k.sendKey(kc, 0); err != nil {
+						return err
+					}
+				}
+				if err := k.sendModifiers(); err != nil {
+					return err
+				}
+			} else {
+				// Named non-modifier key.
+				slot := namedSlots[ka.key]
+				if ka.down {
+					k.held[ka.key] = slot
+					if err := k.sendKey(slot, 1); err != nil {
+						return err
+					}
+				} else {
+					if err := k.sendKey(slot, 1); err != nil {
+						return err
+					}
+					time.Sleep(10 * time.Millisecond)
+					if err := k.sendKey(slot, 0); err != nil {
+						return err
+					}
+					delete(k.held, ka.key)
+				}
+			}
+		} else {
+			// Literal character(s) — tap each rune.
+			for _, r := range ka.key {
+				slot := runeSlots[r]
+				if ka.down {
+					k.held[ka.key] = slot
+					if err := k.sendKey(slot, 1); err != nil {
+						return err
+					}
+				} else {
+					if err := k.tap(slot); err != nil {
+						return err
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+		}
+
+		// Release temporary modifiers.
+		if modBitmask != 0 {
+			k.mods &^= modBitmask
+			if err := k.sendModifiers(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // tapKey taps a named key (Return, Escape, Tab, F5, …) or a single character.
 // Any modifier state set via pressKey is preserved across the tap.
 func (k *wlKeyboard) tapKey(key string) error {

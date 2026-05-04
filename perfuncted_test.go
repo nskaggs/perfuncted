@@ -28,11 +28,11 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 		t.Error("pf.Screen.Screenshotter not correctly assigned")
 	}
 	// pf.Input uses InputBundle which wraps inp.
-	if err := pf.Input.KeyTap("a"); err != nil {
-		t.Errorf("KeyTap: %v", err)
+	if err := pf.Input.Type("a"); err != nil {
+		t.Errorf("Type: %v", err)
 	}
-	if err := pf.Input.PressCombo("ctrl+c"); err != nil {
-		t.Errorf("PressCombo: %v", err)
+	if err := pf.Input.Type("^c"); err != nil {
+		t.Errorf("Type ctrl+c: %v", err)
 	}
 	if pf.Window.Manager != mgr {
 		t.Error("pf.Window.Manager not correctly assigned")
@@ -55,7 +55,7 @@ func TestBundleSmoke(t *testing.T) {
 		if err := pf.Input.ModifierUp("ctrl"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input.TypeWithDelay("hello", 0); err != nil {
+		if err := pf.Input.Type("hello"); err != nil {
 			t.Fatal(err)
 		}
 		if err := pf.Input.MouseClick(10, 20, 1); err != nil {
@@ -123,12 +123,12 @@ type closeErrClipboard struct {
 
 func (c *closeErrClipboard) Close() error { return c.err }
 
-func (m *tapErrInputter) KeyTap(ctx context.Context, key string) error {
-	return errors.New("tap error")
+func (m *tapErrInputter) Type(ctx context.Context, s string) error {
+	return errors.New("type error")
 }
 
-func (m *tapErrInputter) PressCombo(ctx context.Context, combo string) error {
-	return nil
+func (m *tapErrInputter) TypeContext(ctx context.Context, s string) error {
+	return errors.New("type error")
 }
 
 func TestInputBundleErrors(t *testing.T) {
@@ -136,9 +136,9 @@ func TestInputBundleErrors(t *testing.T) {
 	inp := &tapErrInputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	err := pf.Input.KeyTap("a")
-	if err == nil || err.Error() != "tap error" {
-		t.Errorf("expected 'tap error', got %v", err)
+	err := pf.Input.Type("a")
+	if err == nil || err.Error() != "type error" {
+		t.Errorf("expected 'type error', got %v", err)
 	}
 }
 

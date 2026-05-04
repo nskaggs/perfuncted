@@ -62,11 +62,11 @@ func startXvfb() (display string, stop func(), err error) {
 	return display, stop, nil
 }
 
-// TestXTestBackend_Integration_KeyTap connects to the Xvfb display and fires
-// a single key tap.  This validates that XTEST initialises and FakeInput
+// TestXTestBackend_Integration_Type connects to the Xvfb display and fires
+// a single key event. This validates that XTEST initialises and FakeInput
 // round-trips without error; it does not assert side-effects because there is
 // no receiver window.
-func TestXTestBackend_Integration_KeyTap(t *testing.T) {
+func TestXTestBackend_Integration_Type(t *testing.T) {
 	b, err := input.NewXTestBackend(os.Getenv("DISPLAY"))
 	if err != nil {
 		t.Skipf("cannot init XTEST on %s: %v", os.Getenv("DISPLAY"), err)
@@ -76,8 +76,8 @@ func TestXTestBackend_Integration_KeyTap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := b.KeyTap(ctx, "a"); err != nil {
-		t.Errorf("KeyTap('a') on Xvfb: %v", err)
+	if err := b.Type(ctx, "a"); err != nil {
+		t.Errorf("Type('a') on Xvfb: %v", err)
 	}
 }
 

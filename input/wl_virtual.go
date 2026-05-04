@@ -14,7 +14,6 @@ package input
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -238,7 +237,9 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 	return b.MouseUp(ctx, button)
 }
 
-// Type sends a string as keyboard events.
+// Type sends a string as keyboard events using key syntax.
+// Literal text is typed as-is; {keyname} sends named keys; modifier+key combos
+// and {keyname down/up} are supported.
 func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)
 }
@@ -246,14 +247,11 @@ func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
 func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.kbd.typeString(s)
-}
-
-// KeyTap presses and releases a key, respecting any held modifiers.
-func (b *WlVirtualBackend) KeyTap(ctx context.Context, key string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.kbd.tapKey(key)
+	actions, err := ParseKeySend(s)
+	if err != nil {
+		return err
+	}
+	return b.kbd.sendkeys(actions)
 }
 
 // KeyDown presses and holds a key. Modifier keys update the compositor's
@@ -269,25 +267,6 @@ func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.kbd.releaseKey(key)
-}
-
-func (b *WlVirtualBackend) PressCombo(ctx context.Context, combo string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	parts := strings.Split(strings.ToLower(combo), "+")
-	for _, p := range parts {
-		if err := b.kbd.pressKey(strings.TrimSpace(p)); err != nil {
-			return err
-		}
-	}
-	time.Sleep(50 * time.Millisecond)
-	for i := len(parts) - 1; i >= 0; i-- {
-		if err := b.kbd.releaseKey(strings.TrimSpace(parts[i])); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // scroll sends an axis event for the given number of discrete scroll notches.

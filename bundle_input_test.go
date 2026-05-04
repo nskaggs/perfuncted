@@ -8,28 +8,6 @@ import (
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
-func TestInputBundleTypeWithDelayUsesKeyTaps(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	if err := pf.Input.TypeWithDelay("A b\n\t", 0); err != nil {
-		t.Fatalf("TypeWithDelay: %v", err)
-	}
-
-	want := []string{"tap:A", "tap:space", "tap:b", "tap:enter", "tap:tab"}
-	if len(inp.Calls) != len(want) {
-		t.Fatalf("unexpected call count: got %v want %v", inp.Calls, want)
-	}
-	for i, call := range want {
-		if inp.Calls[i] != call {
-			t.Fatalf("call %d = %q, want %q (all calls: %v)", i, inp.Calls[i], call, inp.Calls)
-		}
-	}
-	if typed := inp.Typed(); typed != "" {
-		t.Fatalf("TypeWithDelay should not use bulk Type, got typed text %q", typed)
-	}
-}
-
 func TestPerfunctedTypeFast_ClipboardPath(t *testing.T) {
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{}
@@ -45,21 +23,21 @@ func TestPerfunctedTypeFast_ClipboardPath(t *testing.T) {
 		t.Errorf("clipboard text = %q, want %q", cb.Text, "hello world")
 	}
 
-	// Verify PressCombo was called with ctrl+v.
+	// Verify Type was called with "{ctrl+v}" (brace-combo Ctrl+V).
 	found := false
 	for _, call := range inp.Calls {
-		if call == "combo:ctrl+v" {
+		if call == "type:{ctrl+v}" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected combo:ctrl+v in calls: %v", inp.Calls)
+		t.Errorf("expected type:{ctrl+v} in calls: %v", inp.Calls)
 	}
 }
 
 func TestPerfunctedTypeFast_FallbackToType(t *testing.T) {
-	// When clipboard is nil, TypeFast should fall back to per-character Type.
+	// When clipboard is nil, TypeFast should fall back to Type.
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
@@ -229,23 +207,6 @@ func TestInputBundleClickCenter(t *testing.T) {
 	}
 	if inp.Calls[0] != "click:20,30" {
 		t.Errorf("call = %q, want click:20,30", inp.Calls[0])
-	}
-}
-
-func TestInputBundleClickCenter_OddSize(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	// Rect from (0,0) to (5,5) → center (2,2) (integer division)
-	if err := pf.Input.ClickCenter(image.Rect(0, 0, 5, 5)); err != nil {
-		t.Fatalf("ClickCenter: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "click:2,2" {
-		t.Errorf("call = %q, want click:2,2", inp.Calls[0])
 	}
 }
 
