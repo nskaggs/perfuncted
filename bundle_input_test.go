@@ -72,22 +72,6 @@ func TestPerfunctedTypeFast_ClipboardSetFails(t *testing.T) {
 	t.Logf("got expected error: %v", err)
 }
 
-func TestInputBundleTypeFast_NoClipboardAvailable(t *testing.T) {
-	// InputBundle.TypeFast calls clipboard.Open() which may fail.
-	// When it fails, it falls back to Inputter.Type().
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	// This tests the InputBundle.TypeFast path via Perfuncted.
-	// clipboard.Open() will likely fail in test env, triggering fallback.
-	err := pf.Input.TypeFast("test")
-	if err != nil {
-		t.Logf("TypeFast error: %v", err)
-	} else {
-		t.Log("TypeFast succeeded (clipboard available)")
-	}
-}
-
 func TestInputBundleDoubleClick(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
@@ -118,8 +102,8 @@ func TestInputBundleScroll_DxPositive(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input.Scroll(3, 0); err != nil {
-		t.Fatalf("Scroll: %v", err)
+	if err := pf.Input.ScrollRight(3); err != nil {
+		t.Fatalf("ScrollRight: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {
@@ -134,8 +118,8 @@ func TestInputBundleScroll_DxNegative(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input.Scroll(-2, 0); err != nil {
-		t.Fatalf("Scroll: %v", err)
+	if err := pf.Input.ScrollLeft(2); err != nil {
+		t.Fatalf("ScrollLeft: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {
@@ -150,14 +134,13 @@ func TestInputBundleScroll_DyPositive(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input.Scroll(0, 5); err != nil {
-		t.Fatalf("Scroll: %v", err)
+	if err := pf.Input.ScrollDown(5); err != nil {
+		t.Fatalf("ScrollDown: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {
 		t.Fatalf("expected 1 call, got %v", inp.Calls)
 	}
-	// dy > 0 maps to ScrollDown (positive = scroll down)
 	if inp.Calls[0] != "scroll-down:5" {
 		t.Errorf("call = %q, want scroll-down:5", inp.Calls[0])
 	}
@@ -167,29 +150,15 @@ func TestInputBundleScroll_DyNegative(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input.Scroll(0, -3); err != nil {
-		t.Fatalf("Scroll: %v", err)
+	if err := pf.Input.ScrollUp(3); err != nil {
+		t.Fatalf("ScrollUp: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {
 		t.Fatalf("expected 1 call, got %v", inp.Calls)
 	}
-	// Note: dy < 0 maps to ScrollUp (negative = scroll up)
 	if inp.Calls[0] != "scroll-up:3" {
 		t.Errorf("call = %q, want scroll-up:3", inp.Calls[0])
-	}
-}
-
-func TestInputBundleScroll_Zero(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	if err := pf.Input.Scroll(0, 0); err != nil {
-		t.Fatalf("Scroll: %v", err)
-	}
-
-	if len(inp.Calls) != 0 {
-		t.Fatalf("expected 0 calls for zero scroll, got %v", inp.Calls)
 	}
 }
 
@@ -214,8 +183,9 @@ func TestInputBundleModifierDown(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input.ModifierDown("ctrl"); err != nil {
-		t.Fatalf("ModifierDown: %v", err)
+	// modifierDown is an alias for KeyDown.
+	if err := pf.Input.KeyDown("ctrl"); err != nil {
+		t.Fatalf("KeyDown: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {
@@ -230,8 +200,9 @@ func TestInputBundleModifierUp(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input.ModifierUp("shift"); err != nil {
-		t.Fatalf("ModifierUp: %v", err)
+	// modifierUp is an alias for KeyUp.
+	if err := pf.Input.KeyUp("shift"); err != nil {
+		t.Fatalf("KeyUp: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {

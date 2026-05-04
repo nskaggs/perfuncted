@@ -1,6 +1,7 @@
 package pftest_test
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"testing"
@@ -22,8 +23,8 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	}
 
 	// Exercise each bundle through the assembled Perfuncted.
-	if _, err := pf.Screen.GrabFull(); err != nil {
-		t.Errorf("GrabFull: %v", err)
+	if _, err := pf.Screen.GrabContext(context.Background(), image.Rectangle{}); err != nil {
+		t.Errorf("GrabContext: %v", err)
 	}
 	if err := pf.Input.Type("{enter}"); err != nil {
 		t.Errorf("Type: %v", err)
@@ -39,7 +40,7 @@ func TestNewNilBackends(t *testing.T) {
 		t.Fatal("New returned nil")
 	}
 	// All bundles are zero-valued; operations should return errors, not panic.
-	if _, err := pf.Screen.GrabFull(); err == nil {
+	if _, err := pf.Screen.GrabContext(context.Background(), image.Rectangle{}); err == nil {
 		t.Error("expected error for nil screen")
 	}
 	if err := pf.Input.Type("{ctrl+s}"); err == nil {

@@ -17,8 +17,8 @@ type WindowBundle struct {
 	tracer *actionTracer
 }
 
-// Close delegates to the underlying Manager Close method.
-func (w WindowBundle) Close() error {
+// close delegates to the underlying Manager Close method.
+func (w WindowBundle) close() error {
 	if w.Manager == nil {
 		return nil
 	}
@@ -37,20 +37,12 @@ func (w WindowBundle) traceAction(msg string) {
 	w.tracer.Tracef("window", "%s", msg)
 }
 
-func (w WindowBundle) Activate(pattern string) error {
-	return w.ActivateContext(context.Background(), pattern)
-}
-
 func (w WindowBundle) ActivateContext(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("activate pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Activate(ctx, pattern)
-}
-
-func (w WindowBundle) ActiveTitle() (string, error) {
-	return w.ActiveTitleContext(context.Background())
 }
 
 func (w WindowBundle) ActiveTitleContext(ctx context.Context) (string, error) {
@@ -61,20 +53,12 @@ func (w WindowBundle) ActiveTitleContext(ctx context.Context) (string, error) {
 	return w.Manager.ActiveTitle(ctx)
 }
 
-func (w WindowBundle) CloseWindow(pattern string) error {
-	return w.CloseWindowContext(context.Background(), pattern)
-}
-
 func (w WindowBundle) CloseWindowContext(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("close-window pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.CloseWindow(ctx, pattern)
-}
-
-func (w WindowBundle) Resize(pattern string, width, height int) error {
-	return w.ResizeContext(context.Background(), pattern, width, height)
 }
 
 func (w WindowBundle) ResizeContext(ctx context.Context, pattern string, width, height int) error {
@@ -85,20 +69,12 @@ func (w WindowBundle) ResizeContext(ctx context.Context, pattern string, width, 
 	return w.Manager.Resize(ctx, pattern, width, height)
 }
 
-func (w WindowBundle) Minimize(pattern string) error {
-	return w.MinimizeContext(context.Background(), pattern)
-}
-
 func (w WindowBundle) MinimizeContext(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("minimize pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Minimize(ctx, pattern)
-}
-
-func (w WindowBundle) Maximize(pattern string) error {
-	return w.MaximizeContext(context.Background(), pattern)
 }
 
 func (w WindowBundle) MaximizeContext(ctx context.Context, pattern string) error {
@@ -109,10 +85,6 @@ func (w WindowBundle) MaximizeContext(ctx context.Context, pattern string) error
 	return w.Manager.Maximize(ctx, pattern)
 }
 
-func (w WindowBundle) Restore(pattern string) error {
-	return w.RestoreContext(context.Background(), pattern)
-}
-
 func (w WindowBundle) RestoreContext(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("restore pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
@@ -121,7 +93,7 @@ func (w WindowBundle) RestoreContext(ctx context.Context, pattern string) error 
 	return w.Manager.Restore(ctx, pattern)
 }
 
-func (w WindowBundle) WaitFor(ctx context.Context, pattern string, poll time.Duration) (window.Info, error) {
+func (w WindowBundle) waitFor(ctx context.Context, pattern string, poll time.Duration) (window.Info, error) {
 	w.traceAction(fmt.Sprintf("wait-for pattern=%q poll=%s", pattern, poll))
 	if err := w.checkAvailable(); err != nil {
 		return window.Info{}, err
@@ -129,7 +101,7 @@ func (w WindowBundle) WaitFor(ctx context.Context, pattern string, poll time.Dur
 	return window.WaitFor(ctx, w.Manager, pattern, poll)
 }
 
-func (w WindowBundle) WaitForClose(ctx context.Context, pattern string, poll time.Duration) error {
+func (w WindowBundle) waitForClose(ctx context.Context, pattern string, poll time.Duration) error {
 	w.traceAction(fmt.Sprintf("wait-for-close pattern=%q poll=%s", pattern, poll))
 	if err := w.checkAvailable(); err != nil {
 		return err
@@ -137,11 +109,7 @@ func (w WindowBundle) WaitForClose(ctx context.Context, pattern string, poll tim
 	return window.WaitForClose(ctx, w.Manager, pattern, poll)
 }
 
-func (w WindowBundle) IterateWindows() iter.Seq2[window.Info, error] {
-	return w.IterateWindowsContext(context.Background())
-}
-
-func (w WindowBundle) IterateWindowsContext(ctx context.Context) iter.Seq2[window.Info, error] {
+func (w WindowBundle) iterateWindowsContext(ctx context.Context) iter.Seq2[window.Info, error] {
 	w.traceAction("iterate-windows")
 	if err := w.checkAvailable(); err != nil {
 		return func(yield func(window.Info, error) bool) {
@@ -151,7 +119,7 @@ func (w WindowBundle) IterateWindowsContext(ctx context.Context) iter.Seq2[windo
 	return w.Manager.IterateWindows(ctx)
 }
 
-func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration) (string, error) {
+func (w WindowBundle) waitForTitleChange(ctx context.Context, poll time.Duration) (string, error) {
 	w.traceAction(fmt.Sprintf("wait-for-title-change poll=%s", poll))
 	if err := w.checkAvailable(); err != nil {
 		return "", err
@@ -180,21 +148,13 @@ func (w WindowBundle) WaitForTitleChange(ctx context.Context, poll time.Duration
 	}
 }
 
-func (w WindowBundle) IsVisible(pattern string) bool {
-	return w.IsVisibleContext(context.Background(), pattern)
-}
-
-func (w WindowBundle) IsVisibleContext(ctx context.Context, pattern string) bool {
+func (w WindowBundle) isVisibleContext(ctx context.Context, pattern string) bool {
 	w.traceAction(fmt.Sprintf("is-visible pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return false
 	}
 	_, err := window.FindByTitle(ctx, w.Manager, pattern)
 	return err == nil
-}
-
-func (w WindowBundle) FindByTitle(pattern string) (window.Info, error) {
-	return w.FindByTitleContext(context.Background(), pattern)
 }
 
 func (w WindowBundle) FindByTitleContext(ctx context.Context, pattern string) (window.Info, error) {
@@ -205,11 +165,7 @@ func (w WindowBundle) FindByTitleContext(ctx context.Context, pattern string) (w
 	return window.FindByTitle(ctx, w.Manager, pattern)
 }
 
-func (w WindowBundle) GetGeometry(pattern string) (image.Rectangle, error) {
-	return w.GetGeometryContext(context.Background(), pattern)
-}
-
-func (w WindowBundle) GetGeometryContext(ctx context.Context, pattern string) (image.Rectangle, error) {
+func (w WindowBundle) getGeometryContext(ctx context.Context, pattern string) (image.Rectangle, error) {
 	w.traceAction(fmt.Sprintf("get-geometry pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return image.Rectangle{}, err
@@ -221,11 +177,7 @@ func (w WindowBundle) GetGeometryContext(ctx context.Context, pattern string) (i
 	return image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H), nil
 }
 
-func (w WindowBundle) GetProcess(pattern string) (int, error) {
-	return w.GetProcessContext(context.Background(), pattern)
-}
-
-func (w WindowBundle) GetProcessContext(ctx context.Context, pattern string) (int, error) {
+func (w WindowBundle) getProcessContext(ctx context.Context, pattern string) (int, error) {
 	w.traceAction(fmt.Sprintf("get-process pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return 0, err

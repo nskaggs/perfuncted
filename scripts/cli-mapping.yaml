@@ -84,8 +84,6 @@ window:
   WaitForTitleChange:
     skip: true
 clipboard:
-  Close:
-    skip: true
   Get:
     skip: true
   Set:

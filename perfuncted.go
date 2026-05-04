@@ -160,7 +160,7 @@ func (p *Perfuncted) PasteContext(ctx context.Context, text string) error {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
 	p.traceAction(fmt.Sprintf("paste text=%q", text))
-	return p.Clipboard.PasteWithInputContext(ctx, text, p.Input)
+	return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
 }
 
 // TypeFast types text quickly by using the clipboard + PasteCombo when a
@@ -179,9 +179,9 @@ func (p *Perfuncted) TypeFastContext(ctx context.Context, text string) error {
 	// backend (wl-copy/wl-paste) and sends the paste key combo via the input
 	// bundle. Falls back to Type which emits per-character key events.
 	if p.Clipboard.Clipboard != nil {
-		return p.Clipboard.PasteWithInputContext(ctx, text, p.Input)
+		return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
 	}
-	return p.Input.TypeContext(ctx, text)
+	return p.Input.typeContext(ctx, text)
 }
 
 func New(opts Options) (*Perfuncted, error) {
@@ -233,16 +233,16 @@ func (p *Perfuncted) Close() error {
 	p.traceAction("close")
 	var errs []error
 	if p.Screen.Screenshotter != nil {
-		errs = append(errs, p.Screen.Close())
+		errs = append(errs, p.Screen.close())
 	}
 	if p.Input.Inputter != nil {
-		errs = append(errs, p.Input.Close())
+		errs = append(errs, p.Input.close())
 	}
 	if p.Window.Manager != nil {
-		errs = append(errs, p.Window.Close())
+		errs = append(errs, p.Window.close())
 	}
 	if p.Clipboard.Clipboard != nil {
-		errs = append(errs, p.Clipboard.Close())
+		errs = append(errs, p.Clipboard.close())
 	}
 	return errors.Join(errs...)
 }

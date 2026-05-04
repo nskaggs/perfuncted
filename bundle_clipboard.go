@@ -14,8 +14,8 @@ type ClipboardBundle struct {
 	tracer *actionTracer
 }
 
-// Close delegates to the underlying Clipboard Close method.
-func (c ClipboardBundle) Close() error {
+// close delegates to the underlying Clipboard Close method.
+func (c ClipboardBundle) close() error {
 	if c.Clipboard == nil {
 		return nil
 	}
@@ -35,10 +35,10 @@ func (c ClipboardBundle) traceAction(msg string) {
 }
 
 func (c ClipboardBundle) Get() (string, error) {
-	return c.GetContext(context.Background())
+	return c.getContext(context.Background())
 }
 
-func (c ClipboardBundle) GetContext(ctx context.Context) (string, error) {
+func (c ClipboardBundle) getContext(ctx context.Context) (string, error) {
 	c.traceAction("get")
 	if err := c.checkAvailable(); err != nil {
 		return "", err
@@ -47,10 +47,10 @@ func (c ClipboardBundle) GetContext(ctx context.Context) (string, error) {
 }
 
 func (c ClipboardBundle) Set(text string) error {
-	return c.SetContext(context.Background(), text)
+	return c.setContext(context.Background(), text)
 }
 
-func (c ClipboardBundle) SetContext(ctx context.Context, text string) error {
+func (c ClipboardBundle) setContext(ctx context.Context, text string) error {
 	c.traceAction(fmt.Sprintf("set text=%q", text))
 	if err := c.checkAvailable(); err != nil {
 		return err
@@ -58,14 +58,14 @@ func (c ClipboardBundle) SetContext(ctx context.Context, text string) error {
 	return c.Clipboard.Set(ctx, text)
 }
 
-func (c ClipboardBundle) PasteWithInput(text string, inp InputBundle) error {
-	return c.PasteWithInputContext(context.Background(), text, inp)
+func (c ClipboardBundle) pasteWithInput(text string, inp InputBundle) error {
+	return c.pasteWithInputContext(context.Background(), text, inp)
 }
 
-func (c ClipboardBundle) PasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
+func (c ClipboardBundle) pasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
 	c.traceAction(fmt.Sprintf("paste-with-input text=%q", text))
-	if err := c.SetContext(ctx, text); err != nil {
+	if err := c.setContext(ctx, text); err != nil {
 		return err
 	}
-	return inp.TypeContext(ctx, "{ctrl+v}")
+	return inp.typeContext(ctx, "{ctrl+v}")
 }
