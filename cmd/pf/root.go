@@ -992,10 +992,11 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			r, err := pf.Window.GetGeometry(args[0])
+			info, err := pf.Window.FindByTitle(args[0])
 			if err != nil {
 				return err
 			}
+			r := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
 			fmt.Printf("%d,%d,%d,%d\n", r.Min.X, r.Min.Y, r.Max.X, r.Max.Y)
 			return nil
 		},
@@ -1011,7 +1012,8 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if pf.Window.IsVisible(args[0]) {
+			_, err := pf.Window.FindByTitle(args[0])
+			if err == nil {
 				fmt.Println("true")
 			} else {
 				fmt.Println("false")
@@ -1043,7 +1045,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			info, err := pf.Window.WaitFor(ctx, args[0], poll)
+			info, err := pf.Window.waitFor(ctx, args[0], poll)
 			if err != nil {
 				return err
 			}
@@ -1075,7 +1077,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			t, err := pf.Window.WaitForTitleChange(ctx, poll)
+			t, err := pf.Window.waitForTitleChange(ctx, poll)
 			if err != nil {
 				return err
 			}

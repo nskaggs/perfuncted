@@ -81,63 +81,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	cmds = append(cmds, cmd_screen_grab)
 
-	// grab-full: wrapper for perfuncted.GrabFull
-	var cmd_screen_grab_full_out string
-	cmd_screen_grab_full := &cobra.Command{
-		Use:   "grab-full",
-		Short: "Auto-generated wrapper for perfuncted.GrabFull",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			img, err := pf.Screen.GrabFull()
-			if err != nil {
-				return err
-			}
-			out := cmd_screen_grab_full_out
-			if out == "" {
-				out = "/tmp/pf-grab-full.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
-			return nil
-		},
-	}
-	cmd_screen_grab_full.Flags().StringVar(&cmd_screen_grab_full_out, "out", "", "output path")
-
-	cmds = append(cmds, cmd_screen_grab_full)
-
-	// grab-full-hash: wrapper for perfuncted.GrabFullHash
-
-	cmd_screen_grab_full_hash := &cobra.Command{
-		Use:   "grab-full-hash",
-		Short: "Auto-generated wrapper for perfuncted.GrabFullHash",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			h, err := pf.Screen.GrabFullHash()
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%08x\n", h)
-			return nil
-		},
-	}
-
-	cmds = append(cmds, cmd_screen_grab_full_hash)
-
 	// grab-hash: wrapper for perfuncted.GrabHash
 	var cmd_screen_grab_hash_rect string
 	cmd_screen_grab_hash := &cobra.Command{
@@ -164,33 +107,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	cmd_screen_grab_hash.Flags().StringVar(&cmd_screen_grab_hash_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
 
 	cmds = append(cmds, cmd_screen_grab_hash)
-
-	// pixel-to-screen: wrapper for perfuncted.PixelToScreen
-	var cmd_screen_pixel_to_screen_rect string
-	cmd_screen_pixel_to_screen := &cobra.Command{
-		Use:   "pixel-to-screen",
-		Short: "Auto-generated wrapper for perfuncted.PixelToScreen",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_pixel_to_screen_rect)
-			if err != nil {
-				return err
-			}
-			w, h, err := pf.Screen.PixelToScreen(r_0)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%dx%d\n", w, h)
-			return nil
-		},
-	}
-	cmd_screen_pixel_to_screen.Flags().StringVar(&cmd_screen_pixel_to_screen_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-
-	cmds = append(cmds, cmd_screen_pixel_to_screen)
 
 	// resolution: wrapper for perfuncted.Resolution
 
@@ -449,125 +365,10 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 }
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
-
-	// modifier-down: wrapper for perfuncted.ModifierDown
-	var cmd_input_modifier_down_mod string
-	cmd_input_modifier_down := &cobra.Command{
-		Use:   "modifier-down",
-		Short: "Auto-generated wrapper for perfuncted.ModifierDown",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_input_modifier_down_mod (string)
-			if err := pf.Input.ModifierDown(cmd_input_modifier_down_mod); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_input_modifier_down.Flags().StringVar(&cmd_input_modifier_down_mod, "mod", "", "mod")
-
-	cmds = append(cmds, cmd_input_modifier_down)
-
-	// modifier-up: wrapper for perfuncted.ModifierUp
-	var cmd_input_modifier_up_mod string
-	cmd_input_modifier_up := &cobra.Command{
-		Use:   "modifier-up",
-		Short: "Auto-generated wrapper for perfuncted.ModifierUp",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_input_modifier_up_mod (string)
-			if err := pf.Input.ModifierUp(cmd_input_modifier_up_mod); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_input_modifier_up.Flags().StringVar(&cmd_input_modifier_up_mod, "mod", "", "mod")
-
-	cmds = append(cmds, cmd_input_modifier_up)
-
-	// scroll: wrapper for perfuncted.Scroll
-	var cmd_input_scroll_dx int
-	var cmd_input_scroll_dy int
-	cmd_input_scroll := &cobra.Command{
-		Use:   "scroll",
-		Short: "Auto-generated wrapper for perfuncted.Scroll",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_input_scroll_dx (int) already parsed into var
-			// flag cmd_input_scroll_dy (int) already parsed into var
-			if err := pf.Input.Scroll(cmd_input_scroll_dx, cmd_input_scroll_dy); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_input_scroll.Flags().IntVar(&cmd_input_scroll_dx, "dx", 0, "dx")
-	cmd_input_scroll.Flags().IntVar(&cmd_input_scroll_dy, "dy", 0, "dy")
-
-	cmds = append(cmds, cmd_input_scroll)
-
-	// type-fast: wrapper for perfuncted.TypeFast
-	var cmd_input_type_fast_text string
-	cmd_input_type_fast := &cobra.Command{
-		Use:   "type-fast",
-		Short: "Auto-generated wrapper for perfuncted.TypeFast",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_input_type_fast_text (string)
-			if err := pf.Input.TypeFast(cmd_input_type_fast_text); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_input_type_fast.Flags().StringVar(&cmd_input_type_fast_text, "text", "", "text")
-
-	cmds = append(cmds, cmd_input_type_fast)
 	return cmds
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
-
-	// get-process: wrapper for perfuncted.GetProcess
-	var cmd_window_get_process_pattern string
-	cmd_window_get_process := &cobra.Command{
-		Use:   "get-process",
-		Short: "Auto-generated wrapper for perfuncted.GetProcess",
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_window_get_process_pattern (string)
-			res, err := pf.Window.GetProcess(cmd_window_get_process_pattern)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%d\n", res)
-			return nil
-		},
-	}
-	cmd_window_get_process.Flags().StringVar(&cmd_window_get_process_pattern, "pattern", "", "pattern")
-
-	cmds = append(cmds, cmd_window_get_process)
 
 	// restore: wrapper for perfuncted.Restore
 	var cmd_window_restore_pattern string

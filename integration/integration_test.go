@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package integration_test
+package perfuncted
 
 import (
 	"context"
@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -48,7 +47,7 @@ type appSpec struct {
 type suite struct {
 	mode displayMode
 	rt   env.Runtime
-	pf   *perfuncted.Perfuncted
+	pf   **Perfuncted
 
 	session *perfuncted.Session
 	xvfb    *exec.Cmd
@@ -692,7 +691,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	if err := s.pf.Input.Type("{ctrl+l}"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
-	if err := s.pf.Input.TypeFast("about:support"); err != nil {
+	if err := s.pf.Input.Type("about:support"); err != nil {
 		t.Fatalf("type address: %v", err)
 	}
 	if err := s.pf.Input.Type("{enter}"); err != nil {
@@ -743,7 +742,7 @@ func launchApp(rt env.Runtime, sess *perfuncted.Session, app appSpec, extraEnv .
 	return cmd, nil
 }
 
-func waitForWindow(pf *perfuncted.Perfuncted, pattern string, timeout time.Duration) (window.Info, error) {
+func waitForWindow(pf **Perfuncted, pattern string, timeout time.Duration) (window.Info, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return pf.Window.WaitFor(ctx, pattern, 500*time.Millisecond)

@@ -19,7 +19,7 @@ func TestClipboardBundle(t *testing.T) {
 		if got, err := pf.Clipboard.Get(); err != nil || got != "hello" {
 			t.Fatal(err, got)
 		}
-		if err := pf.Clipboard.PasteWithInput("world", pf.Input); err != nil {
+		if err := pf.Paste("world"); err != nil {
 			t.Fatal(err)
 		}
 	})

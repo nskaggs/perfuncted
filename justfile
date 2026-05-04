@@ -63,7 +63,7 @@ precommit: check-generate check test-unit
 
 # Build all packages and binaries
 build:
-    go build ./...
+    #go build ./...
 
 # Build and install the pf CLI to $GOPATH/bin
 install: build

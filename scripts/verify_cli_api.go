@@ -122,7 +122,6 @@ func skipMethodForCLISync(name string) bool {
 	case "FindColor",
 		"GetMultiplePixels",
 		"LocateExact",
-		"PasteWithInput",
 		"ScanFor",
 		"WaitForFn",
 		"WaitForLocate",
