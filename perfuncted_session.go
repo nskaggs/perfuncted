@@ -20,7 +20,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
-//go:embed configs/ci.conf configs/headless.conf config/sway/nested.conf
+//go:embed configs/ci.conf configs/headless.conf configs/nested.conf
 var embeddedConfigs embed.FS
 
 // SessionConfig controls session creation.
@@ -171,7 +171,7 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 		case sessionModeHeadless:
 			swayConf, err = s.writeEmbeddedConfig("configs/ci.conf", cfg.Resolution)
 		case sessionModeNested:
-			swayConf, err = s.writeEmbeddedConfig("config/sway/nested.conf", image.Point{})
+			swayConf, err = s.writeEmbeddedConfig("configs/nested.conf", image.Point{})
 		default:
 			err = fmt.Errorf("session: unknown mode %d", mode)
 		}
