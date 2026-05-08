@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -847,12 +848,96 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 // ── window ────────────────────────────────────────────────────────────────────────────
 
+type windowOutputFormat string
+
+const (
+	windowOutputPlain windowOutputFormat = "plain"
+	windowOutputJSON  windowOutputFormat = "json"
+)
+
+func parseWindowMatchArgs(args []string) (window.Match, error) {
+	if len(args) == 0 {
+		return window.Match{}, nil
+	}
+	return window.ParseMatchSpec(strings.Join(args, " "))
+}
+
+func collectWindowMatches(ctx context.Context, m window.Manager, match window.Match) ([]window.Info, error) {
+	wins, err := m.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var matched []window.Info
+	for _, w := range wins {
+		if match.Matches(w) {
+			matched = append(matched, w)
+		}
+	}
+	return matched, nil
+}
+
+func windowNotFoundError(match window.Match) error {
+	return fmt.Errorf("window matching %q not found: %w", match.String(), window.ErrWindowNotFound)
+}
+
+func printWindowPlain(w window.Info) {
+	fmt.Printf("0x%x\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
+		w.ID, w.Title, w.AppID, w.PID, w.Active, w.Minimized, w.Maximized, w.Fullscreen)
+}
+
+func printWindowListPlain(wins []window.Info) {
+	for _, w := range wins {
+		printWindowPlain(w)
+	}
+}
+
+func waitForWindowMatch(ctx context.Context, m window.Manager, match window.Match, poll time.Duration) (window.Info, error) {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
+	for {
+		wins, err := collectWindowMatches(ctx, m, match)
+		if err != nil {
+			return window.Info{}, err
+		}
+		if len(wins) > 0 {
+			return wins[0], nil
+		}
+		select {
+		case <-ctx.Done():
+			return window.Info{}, fmt.Errorf("wait for window %q: %w", match.String(), ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForWindowCloseMatch(ctx context.Context, m window.Manager, match window.Match, poll time.Duration) error {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+
+	for {
+		wins, err := collectWindowMatches(ctx, m, match)
+		if err != nil {
+			return err
+		}
+		if len(wins) == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for window close %q: %w", match.String(), ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
+	listOutputFlag := string(windowOutputPlain)
 
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "List all visible windows",
+		Short: "List windows",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -863,12 +948,20 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, w := range wins {
-				fmt.Printf("0x%x\t%s\n", w.ID, w.Title)
+			switch strings.ToLower(listOutputFlag) {
+			case string(windowOutputPlain):
+				printWindowListPlain(wins)
+			case string(windowOutputJSON):
+				if err := json.NewEncoder(os.Stdout).Encode(wins); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("unknown output format %q", listOutputFlag)
 			}
 			return nil
 		},
 	}
+	list.Flags().StringVar(&listOutputFlag, "output", listOutputFlag, "plain|json")
 
 	activate := &cobra.Command{
 		Use:   "activate <pattern>",
@@ -954,6 +1047,102 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 	cmd.AddCommand(list, activate, active, move, resize)
 
+	var waitForPollFlag, waitForTimeoutFlag string
+	find := &cobra.Command{
+		Use:   "find [match-spec ...]",
+		Short: "Find matching windows and print them",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			match, err := parseWindowMatchArgs(args)
+			if err != nil {
+				return err
+			}
+			wins, err := collectWindowMatches(context.Background(), pf.Window.Manager, match)
+			if err != nil {
+				return err
+			}
+			if len(wins) == 0 {
+				return windowNotFoundError(match)
+			}
+			printWindowListPlain(wins)
+			return nil
+		},
+	}
+
+	waitFor := &cobra.Command{
+		Use:   "wait-for [match-spec ...]",
+		Short: "Wait until a matching window appears",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			match, err := parseWindowMatchArgs(args)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(waitForPollFlag, 100*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(waitForTimeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+			w, err := waitForWindowMatch(ctx, pf.Window.Manager, match, poll)
+			if err != nil {
+				return err
+			}
+			printWindowPlain(w)
+			return nil
+		},
+	}
+	waitFor.Flags().StringVar(&waitForPollFlag, "poll", "100ms", "poll interval")
+	waitFor.Flags().StringVar(&waitForTimeoutFlag, "timeout", "5s", "timeout duration")
+
+	var waitClosePollFlag, waitCloseTimeoutFlag string
+	waitClose := &cobra.Command{
+		Use:   "wait-close [match-spec ...]",
+		Short: "Wait until matching windows disappear",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			match, err := parseWindowMatchArgs(args)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(waitClosePollFlag, 100*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(waitCloseTimeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+			if err := waitForWindowCloseMatch(ctx, pf.Window.Manager, match, poll); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	waitClose.Flags().StringVar(&waitClosePollFlag, "poll", "100ms", "poll interval")
+	waitClose.Flags().StringVar(&waitCloseTimeoutFlag, "timeout", "5s", "timeout duration")
+
 	// Manual wrappers for additional WindowBundle APIs
 	findByTitle := &cobra.Command{
 		Use:   "find-by-title <pattern>",
@@ -1016,7 +1205,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(findByTitle, getGeom, isVisible)
+	cmd.AddCommand(find, waitFor, waitClose, findByTitle, getGeom, isVisible)
 
 	closeWin := &cobra.Command{
 		Use:   "close <title>",

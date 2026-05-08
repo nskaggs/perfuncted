@@ -1,16 +1,17 @@
-## pf window list
+## pf window wait-close
 
-List windows
+Wait until matching windows disappear
 
 ```
-pf window list [flags]
+pf window wait-close [match-spec ...] [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help            help for list
-      --output string   plain|json (default "plain")
+  -h, --help             help for wait-close
+      --poll string      poll interval (default "100ms")
+      --timeout string   timeout duration (default "5s")
 ```
 
 ### Options inherited from parent commands

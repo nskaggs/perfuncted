@@ -174,6 +174,10 @@ func ParseMatchSpec(spec string) (Match, error) {
 			}
 			id := uint64(v)
 			m.ID = &id
+		case "state":
+			if err := applyMatchState(&m, val); err != nil {
+				return Match{}, err
+			}
 		case "active":
 			b, err := parseMatchBool(val)
 			if err != nil {
@@ -209,6 +213,32 @@ func ParseMatchSpec(spec string) (Match, error) {
 		}
 	}
 	return m, nil
+}
+
+func applyMatchState(m *Match, raw string) error {
+	negated := strings.HasPrefix(raw, "-")
+	name := strings.ToLower(strings.TrimPrefix(raw, "-"))
+	on := !negated
+
+	switch name {
+	case "active":
+		m.Active = boolPtr(on)
+	case "minimized":
+		m.Minimized = boolPtr(on)
+	case "maximized":
+		m.Maximized = boolPtr(on)
+	case "fullscreen":
+		m.Fullscreen = boolPtr(on)
+	case "visible", "visible-only":
+		m.VisibleOnly = on
+	default:
+		return fmt.Errorf("window: unknown state %q", raw)
+	}
+	return nil
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 func tokenizeMatchSpec(spec string) ([]string, error) {

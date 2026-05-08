@@ -1,16 +1,15 @@
-## pf window list
+## pf window find
 
-List windows
+Find matching windows and print them
 
 ```
-pf window list [flags]
+pf window find [match-spec ...] [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help            help for list
-      --output string   plain|json (default "plain")
+  -h, --help   help for find
 ```
 
 ### Options inherited from parent commands

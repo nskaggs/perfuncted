@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/window"
 )
 
 func TestNewRootCmdConfiguresCobra(t *testing.T) {
@@ -79,6 +81,101 @@ func TestRunWithFactoryReportsParseError(t *testing.T) {
 	if !strings.Contains(stderr, `--rect must be x0,y0,x1,y1; got "bad"`) {
 		t.Fatalf("stderr = %q, want rect parse error", stderr)
 	}
+}
+
+func TestWindowCommands(t *testing.T) {
+	t.Run("list plain", func(t *testing.T) {
+		mgr := &pftest.Manager{Lists: [][]window.Info{{
+			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42, Active: true},
+			{ID: 8, Title: "Terminal", AppID: "org.gnome.Terminal", PID: 99},
+		}}}
+		stdout, stderr, code := captureRunIO(t, []string{"window", "list", "--output", "plain"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if !strings.Contains(stdout, "0x7\tFirefox") || !strings.Contains(stdout, "app_id=firefox") {
+			t.Fatalf("stdout = %q, want plain window rows", stdout)
+		}
+	})
+
+	t.Run("list json", func(t *testing.T) {
+		mgr := &pftest.Manager{Lists: [][]window.Info{{
+			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42, Active: true},
+		}}}
+		stdout, stderr, code := captureRunIO(t, []string{"window", "list", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		var got []window.Info
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%q", err, stdout)
+		}
+		if len(got) != 1 || got[0].Title != "Firefox" || got[0].ID != 7 {
+			t.Fatalf("decoded windows = %+v, want Firefox ID 7", got)
+		}
+	})
+
+	t.Run("find", func(t *testing.T) {
+		mgr := &pftest.Manager{Lists: [][]window.Info{{
+			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42},
+			{ID: 8, Title: "Firefox Settings", AppID: "firefox", PID: 43},
+		}}}
+		stdout, stderr, code := captureRunIO(t, []string{"window", "find", "app_id:firefox", "state:-minimized"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if !strings.Contains(stdout, "Firefox") || !strings.Contains(stdout, "Firefox Settings") {
+			t.Fatalf("stdout = %q, want matching windows", stdout)
+		}
+	})
+
+	t.Run("wait-for", func(t *testing.T) {
+		mgr := &pftest.Manager{Lists: [][]window.Info{
+			{},
+			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
+		}}
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-for", "title:Firefox", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if !strings.Contains(stdout, "Firefox") {
+			t.Fatalf("stdout = %q, want matching window", stdout)
+		}
+	})
+
+	t.Run("wait-close", func(t *testing.T) {
+		mgr := &pftest.Manager{Lists: [][]window.Info{
+			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
+			{},
+		}}
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+	})
 }
 
 func captureRunIO(t *testing.T, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) (string, string, int) {
