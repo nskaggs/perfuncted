@@ -10,7 +10,6 @@ import (
 
 func int32Ptr(v int32) *int32    { return &v }
 func uint64Ptr(v uint64) *uint64 { return &v }
-func boolPtr(v bool) *bool       { return &v }
 
 func TestParseMatchSpec(t *testing.T) {
 	tests := []struct {
@@ -25,7 +24,7 @@ func TestParseMatchSpec(t *testing.T) {
 		},
 		{
 			name: "structured match",
-			spec: `title="Exact Title" app_id=org.example class=Example pid=42 id=7 active minimized=false fullscreen visible-only`,
+			spec: `title="Exact Title" app_id=org.example class=Example pid=42 id=7 state:active state:-minimized state:fullscreen visible:true`,
 			want: Match{
 				TitleExact:  "Exact Title",
 				AppID:       "org.example",
@@ -43,6 +42,11 @@ func TestParseMatchSpec(t *testing.T) {
 			spec: `title~=browser`,
 			want: Match{TitleContains: "browser"},
 		},
+		{
+			name: "visible false",
+			spec: `visible:false`,
+			want: Match{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -53,6 +57,22 @@ func TestParseMatchSpec(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("ParseMatchSpec(%q) = %+v, want %+v", tt.spec, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseMatchSpec_Invalid(t *testing.T) {
+	tests := []string{
+		`pid=abc`,
+		`id=abc`,
+		`state:bogus`,
+		`title="unterminated`,
+	}
+	for _, spec := range tests {
+		t.Run(spec, func(t *testing.T) {
+			if _, err := ParseMatchSpec(spec); err == nil {
+				t.Fatalf("ParseMatchSpec(%q) expected error, got nil", spec)
 			}
 		})
 	}
@@ -87,6 +107,7 @@ func TestMatch_Matches(t *testing.T) {
 		{name: "maximized", match: Match{Maximized: boolPtr(true)}, want: true},
 		{name: "fullscreen", match: Match{Fullscreen: boolPtr(true)}, want: true},
 		{name: "visible only", match: Match{VisibleOnly: true}, want: true},
+		{name: "state negation", match: Match{Minimized: boolPtr(false)}, want: true},
 		{name: "wrong pid", match: Match{PID: int32Ptr(99)}, want: false},
 		{name: "wrong class", match: Match{Class: "terminal"}, want: false},
 	}
