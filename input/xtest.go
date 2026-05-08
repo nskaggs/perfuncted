@@ -351,6 +351,19 @@ func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return nil
 }
 
+func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	rep, err := b.conn.QueryPointer(b.root).Reply()
+	if err != nil {
+		return 0, 0, fmt.Errorf("input/xtest: query pointer: %w", err)
+	}
+	return int(rep.RootX), int(rep.RootY), nil
+}
+
+func (b *XTestBackend) Sync(ctx context.Context) error {
+	b.conn.Sync()
+	return nil
+}
+
 func (b *XTestBackend) Close() error {
 	b.conn.Close()
 	return nil

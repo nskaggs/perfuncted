@@ -37,6 +37,7 @@ type cliConfig struct {
 	traceDelay   time.Duration
 	maxX         int32
 	maxY         int32
+	sync         bool
 }
 
 func defaultOpenPFFactory(cfg *cliConfig) func() (*perfuncted.Perfuncted, error) {
@@ -81,13 +82,17 @@ func newRootCmd(openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, e
 		"print each API action to stderr as it runs")
 	root.PersistentFlags().DurationVar(&cfg.traceDelay, "trace-delay", cfg.traceDelay,
 		"sleep after each traced action")
+	root.PersistentFlags().BoolVar(&cfg.sync, "sync", false,
+		"sync after observable mutating commands when supported")
 
 	openPF := openPFFactory(cfg)
 	root.AddCommand(
-		screenCmd(openPF),
-		inputCmd(openPF),
-		windowCmd(openPF),
+		screenCmd(openPF, cfg),
+		inputCmd(openPF, cfg),
+		windowCmd(openPF, cfg),
+		outputCmd(openPFFactory, cfg),
 		findCmd(openPF),
+		runCmd(root, openPFFactory, cfg),
 		clipboardCmd(openPF),
 		infoCmd(),
 		sessionCmd(),
@@ -130,10 +135,16 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 // ── info ────────────────────────────────────────────────────────────────────────────
 
 func infoCmd() *cobra.Command {
-	return &cobra.Command{
+	var outputFlag string
+	cmd := &cobra.Command{
 		Use:   "info",
 		Short: "Probe and display supported backends for this environment",
-		Run: func(_ *cobra.Command, _ []string) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.ToLower(outputFlag) == "json" {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(buildInfoReport())
+			}
 			kind := compositor.Detect()
 
 			fmt.Println("── Environment ────────────────────────────────────")
@@ -193,8 +204,11 @@ func infoCmd() *cobra.Command {
 			default:
 				fmt.Println("  Unknown compositor — run inside a nested sway session.")
 			}
+			return nil
 		},
 	}
+	cmd.Flags().StringVar(&outputFlag, "output", "plain", "plain|json")
+	return cmd
 }
 
 func probeMarker(selected, available bool) string {
@@ -325,7 +339,7 @@ Use the printed env vars in another terminal to connect:
 
 // ── screen ────────────────────────────────────────────────────────────────────────────
 
-func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+func screenCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
 	var rectFlag, outFlag string
@@ -404,6 +418,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	cmd.AddCommand(grab, checksum, pixel)
 
 	var watchRectFlag, watchPollFlag, watchDurFlag string
+	var watchOutputFlag string
 	watch := &cobra.Command{
 		Use:   "watch",
 		Short: "Continuously print hash changes in a screen region",
@@ -415,7 +430,7 @@ Output format:
   <timestamp>  <hash>  <label>
 
 Runs until --duration expires or Ctrl+C.`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF()
 			if err != nil {
 				return err
@@ -458,6 +473,7 @@ Runs until --duration expires or Ctrl+C.`,
 			first := true
 			start := time.Now()
 			streak := 0
+			enc := json.NewEncoder(cmd.OutOrStdout())
 			for {
 				select {
 				case <-ctx.Done():
@@ -470,13 +486,21 @@ Runs until --duration expires or Ctrl+C.`,
 				}
 				ts := time.Now().Format("15:04:05.000")
 				if first {
-					fmt.Printf("%s  0x%08x  (initial)\n", ts, h)
+					if strings.ToLower(watchOutputFlag) == "json" {
+						_ = enc.Encode(map[string]any{"timestamp": ts, "hash": fmt.Sprintf("0x%08x", h), "event": "initial"})
+					} else {
+						fmt.Printf("%s  0x%08x  (initial)\n", ts, h)
+					}
 					last = h
 					first = false
 					streak = 1
 				} else if h != last {
 					elapsed := time.Since(start)
-					fmt.Printf("%s  0x%08x  (+%s after %d stable)\n", ts, h, elapsed.Round(time.Millisecond), streak)
+					if strings.ToLower(watchOutputFlag) == "json" {
+						_ = enc.Encode(map[string]any{"timestamp": ts, "hash": fmt.Sprintf("0x%08x", h), "event": "change", "elapsed": elapsed.Round(time.Millisecond).String(), "stable": streak})
+					} else {
+						fmt.Printf("%s  0x%08x  (+%s after %d stable)\n", ts, h, elapsed.Round(time.Millisecond), streak)
+					}
 					last = h
 					start = time.Now()
 					streak = 1
@@ -496,6 +520,7 @@ Runs until --duration expires or Ctrl+C.`,
 	watch.Flags().StringVar(&watchRectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1 region to monitor")
 	watch.Flags().StringVar(&watchPollFlag, "poll", "100ms", "poll interval")
 	watch.Flags().StringVar(&watchDurFlag, "duration", "", "stop after this duration (e.g. 10s); default runs until Ctrl+C")
+	watch.Flags().StringVar(&watchOutputFlag, "output", "plain", "plain|json")
 	cmd.AddCommand(watch)
 
 	resolution := &cobra.Command{
@@ -534,10 +559,17 @@ Runs until --duration expires or Ctrl+C.`,
 
 // ── input ────────────────────────────────────────────────────────────────────────────
 
-func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
+	syncIf := func(pf *perfuncted.Perfuncted) error {
+		if cfg != nil && cfg.sync {
+			return pf.Input.Sync(context.Background())
+		}
+		return nil
+	}
 
 	var mx, my, button int
+	var typeStdin bool
 
 	move := &cobra.Command{
 		Use:   "move",
@@ -551,6 +583,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err := pf.Input.MouseMove(context.Background(), mx, my); err != nil {
 				return err
 			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
 			fmt.Printf("moved to %d,%d\n", mx, my)
 			return nil
 		},
@@ -558,6 +593,8 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	move.Flags().IntVar(&mx, "x", 0, "x coordinate")
 	move.Flags().IntVar(&my, "y", 0, "y coordinate")
 
+	var clickRepeat int
+	var clickDelayFlag string
 	click := &cobra.Command{
 		Use:   "click",
 		Short: "Click a mouse button at coordinates",
@@ -567,7 +604,23 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.MouseClick(context.Background(), mx, my, button); err != nil {
+			repeat := clickRepeat
+			if repeat <= 0 {
+				repeat = 1
+			}
+			delay, err := parseDuration(clickDelayFlag, 0)
+			if err != nil {
+				return err
+			}
+			for i := 0; i < repeat; i++ {
+				if err := pf.Input.MouseClick(context.Background(), mx, my, button); err != nil {
+					return err
+				}
+				if i+1 < repeat && delay > 0 {
+					time.Sleep(delay)
+				}
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("clicked button %d at %d,%d\n", button, mx, my)
@@ -577,6 +630,8 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	click.Flags().IntVar(&mx, "x", 0, "x coordinate")
 	click.Flags().IntVar(&my, "y", 0, "y coordinate")
 	click.Flags().IntVar(&button, "button", 1, "1=left 2=middle 3=right")
+	click.Flags().IntVar(&clickRepeat, "repeat", 1, "repeat count")
+	click.Flags().StringVar(&clickDelayFlag, "delay", "0", "delay between clicks")
 
 	doubleClick := &cobra.Command{
 		Use:   "double-click",
@@ -588,6 +643,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.DoubleClick(context.Background(), mx, my); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("double-clicked at %d,%d\n", mx, my)
@@ -608,6 +666,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.DragAndDrop(context.Background(), x1, y1, x2, y2); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("dragged %d,%d to %d,%d\n", x1, y1, x2, y2)
@@ -636,6 +697,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err := pf.Input.ClickCenter(context.Background(), r); err != nil {
 				return err
 			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
 			fmt.Printf("clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
 			return nil
 		},
@@ -645,16 +709,33 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	typeCmd := &cobra.Command{
 		Use:   "type <text>",
 		Short: "Type a string or send keys (e.g. {enter}, {ctrl+s})",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			return pf.Input.Type(context.Background(), args[0])
+			text := ""
+			useStdin := typeStdin
+			if useStdin {
+				b, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return err
+				}
+				text = string(b)
+			} else if len(args) == 1 {
+				text = args[0]
+			} else {
+				return fmt.Errorf("type requires text or --stdin")
+			}
+			if err := pf.Input.Type(context.Background(), text); err != nil {
+				return err
+			}
+			return syncIf(pf)
 		},
 	}
+	typeCmd.Flags().BoolVar(&typeStdin, "stdin", false, "read text from stdin")
 
 	keydown := &cobra.Command{
 		Use:   "keydown <key>",
@@ -667,6 +748,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.KeyDown(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("keydown %s\n", args[0])
@@ -685,6 +769,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.KeyUp(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("keyup %s\n", args[0])
@@ -708,6 +795,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				}
 			}
 			if err := pf.Input.MouseDown(context.Background(), mdButton); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
@@ -736,6 +826,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err := pf.Input.MouseUp(context.Background(), muButton); err != nil {
 				return err
 			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
 			fmt.Printf("mouseup button %d at %d,%d\n", muButton, mux, muy)
 			return nil
 		},
@@ -744,8 +837,26 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	mouseup.Flags().IntVar(&muy, "y", -1, "y coordinate (optional)")
 	mouseup.Flags().IntVar(&muButton, "button", 1, "button number")
 
+	location := &cobra.Command{
+		Use:   "location",
+		Short: "Print current pointer location",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			x, y, err := pf.Input.PointerLocation(context.Background())
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d,%d\n", x, y)
+			return nil
+		},
+	}
+
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
-		typeCmd, keydown, keyup, mousedown, mouseup, scrollCmd(openPF))
+		typeCmd, keydown, keyup, mousedown, mouseup, location, scrollCmd(openPF, cfg))
 
 	// append auto-generated input commands (avoid duplicates)
 	existing := map[string]bool{}
@@ -763,8 +874,14 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 
 // ── scroll ─────────────────────────────────────────────────────────────────────────────
 
-func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+func scrollCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
+	syncIf := func(pf *perfuncted.Perfuncted) error {
+		if cfg != nil && cfg.sync {
+			return pf.Input.Sync(context.Background())
+		}
+		return nil
+	}
 
 	var clicks int
 
@@ -778,6 +895,9 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.ScrollUp(context.Background(), clicks); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled up %d\n", clicks)
@@ -796,6 +916,9 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.ScrollDown(context.Background(), clicks); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled down %d\n", clicks)
@@ -818,6 +941,9 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err := pf.Input.ScrollLeft(context.Background(), clicks); err != nil {
 				return err
 			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
 			fmt.Printf("scrolled left %d\n", clicks)
 			return nil
 		},
@@ -834,6 +960,9 @@ func scrollCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Input.ScrollRight(context.Background(), clicks); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("scrolled right %d\n", clicks)
@@ -931,8 +1060,14 @@ func waitForWindowCloseMatch(ctx context.Context, m window.Manager, match window
 	}
 }
 
-func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
+	syncIf := func(pf *perfuncted.Perfuncted) error {
+		if cfg != nil && cfg.sync {
+			return pf.Window.Sync(context.Background())
+		}
+		return nil
+	}
 	listOutputFlag := string(windowOutputPlain)
 
 	list := &cobra.Command{
@@ -952,7 +1087,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			case string(windowOutputPlain):
 				printWindowListPlain(wins)
 			case string(windowOutputJSON):
-				if err := json.NewEncoder(os.Stdout).Encode(wins); err != nil {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(wins); err != nil {
 					return err
 				}
 			default:
@@ -974,6 +1109,9 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Window.Activate(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("activated: %s\n", args[0])
@@ -1000,7 +1138,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	}
 
 	var mvTitle string
-	var mvX, mvY int
+	var mvX, mvY string
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move a window to absolute screen coordinates",
@@ -1010,16 +1148,37 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Move(context.Background(), mvTitle, mvX, mvY); err != nil {
+			info, err := pf.Window.FindByTitle(context.Background(), mvTitle)
+			if err != nil {
 				return err
 			}
-			fmt.Printf("moved %q to %d,%d\n", mvTitle, mvX, mvY)
+			x, unchanged, err := parseOptionalIntToken(mvX)
+			if err != nil {
+				return err
+			}
+			if unchanged {
+				x = info.X
+			}
+			y, unchanged, err := parseOptionalIntToken(mvY)
+			if err != nil {
+				return err
+			}
+			if unchanged {
+				y = info.Y
+			}
+			if err := pf.Window.Move(context.Background(), mvTitle, x, y); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
+			fmt.Printf("moved %q to %d,%d\n", mvTitle, x, y)
 			return nil
 		},
 	}
 	move.Flags().StringVar(&mvTitle, "title", "", "window title substring (required)")
-	move.Flags().IntVar(&mvX, "x", 0, "x coordinate")
-	move.Flags().IntVar(&mvY, "y", 0, "y coordinate")
+	move.Flags().StringVar(&mvX, "x", "keep", "x coordinate or keep")
+	move.Flags().StringVar(&mvY, "y", "keep", "y coordinate or keep")
 	_ = move.MarkFlagRequired("title")
 
 	var rsTitle string
@@ -1036,6 +1195,9 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err := pf.Window.Resize(context.Background(), rsTitle, rsW, rsH); err != nil {
 				return err
 			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
 			fmt.Printf("resized %q to %dx%d\n", rsTitle, rsW, rsH)
 			return nil
 		},
@@ -1045,7 +1207,49 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	resize.Flags().IntVar(&rsH, "h", 600, "height in pixels")
 	_ = resize.MarkFlagRequired("title")
 
-	cmd.AddCommand(list, activate, active, move, resize)
+	fullscreen := &cobra.Command{
+		Use:   "fullscreen <title>",
+		Short: "Fullscreen a window by title",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Window.Fullscreen(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
+			fmt.Printf("fullscreen: %s\n", args[0])
+			return nil
+		},
+	}
+
+	unfullscreen := &cobra.Command{
+		Use:   "unfullscreen <title>",
+		Short: "Exit fullscreen for a window by title",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if err := pf.Window.Unfullscreen(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
+			fmt.Printf("unfullscreen: %s\n", args[0])
+			return nil
+		},
+	}
+
+	cmd.AddCommand(list, activate, active, move, resize, fullscreen, unfullscreen)
 
 	var waitForPollFlag, waitForTimeoutFlag string
 	find := &cobra.Command{
@@ -1143,6 +1347,40 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 	waitClose.Flags().StringVar(&waitClosePollFlag, "poll", "100ms", "poll interval")
 	waitClose.Flags().StringVar(&waitCloseTimeoutFlag, "timeout", "5s", "timeout duration")
 
+	var geomOutputFlag string
+	getGeom := &cobra.Command{
+		Use:   "get-geometry <title>",
+		Short: "Print geometry for a window",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			info, err := pf.Window.FindByTitle(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+			switch strings.ToLower(geomOutputFlag) {
+			case "json":
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+					"title": args[0],
+					"geometry": map[string]int{
+						"x": info.X,
+						"y": info.Y,
+						"w": info.W,
+						"h": info.H,
+					},
+				})
+			default:
+				fmt.Printf("%d,%d,%d,%d\n", info.X, info.Y, info.X+info.W, info.Y+info.H)
+				return nil
+			}
+		},
+	}
+	getGeom.Flags().StringVar(&geomOutputFlag, "output", "plain", "plain|json")
+
 	// Manual wrappers for additional WindowBundle APIs
 	findByTitle := &cobra.Command{
 		Use:   "find-by-title <pattern>",
@@ -1161,26 +1399,6 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			fmt.Printf("0x%x\t%s\n", info.ID, info.Title)
 			fmt.Printf("x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
 			fmt.Printf("pid=%d\n", info.PID)
-			return nil
-		},
-	}
-
-	getGeom := &cobra.Command{
-		Use:   "get-geometry <title>",
-		Short: "Print geometry for a window",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			info, err := pf.Window.FindByTitle(context.Background(), args[0])
-			if err != nil {
-				return err
-			}
-			r := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
-			fmt.Printf("%d,%d,%d,%d\n", r.Min.X, r.Min.Y, r.Max.X, r.Max.Y)
 			return nil
 		},
 	}
@@ -1205,7 +1423,52 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(find, waitFor, waitClose, findByTitle, getGeom, isVisible)
+	watchOutputFlag := "plain"
+	watch := &cobra.Command{
+		Use:   "watch",
+		Short: "Stream window list changes",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			var last string
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			for {
+				select {
+				case <-cmd.Context().Done():
+					return nil
+				case <-ticker.C:
+				}
+				wins, err := pf.Window.List(context.Background())
+				if err != nil {
+					return err
+				}
+				raw, err := json.Marshal(wins)
+				if err != nil {
+					return err
+				}
+				cur := string(raw)
+				if cur == last {
+					continue
+				}
+				last = cur
+				if strings.ToLower(watchOutputFlag) == "json" {
+					if err := enc.Encode(map[string]any{"windows": wins, "count": len(wins)}); err != nil {
+						return err
+					}
+					continue
+				}
+				printWindowListPlain(wins)
+			}
+		},
+	}
+	watch.Flags().StringVar(&watchOutputFlag, "output", "plain", "plain|json")
+
+	cmd.AddCommand(find, waitFor, waitClose, watch, findByTitle, getGeom, isVisible)
 
 	closeWin := &cobra.Command{
 		Use:   "close <title>",
@@ -1218,6 +1481,9 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Window.CloseWindow(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("closed: %s\n", args[0])
@@ -1238,6 +1504,9 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			if err := pf.Window.Minimize(context.Background(), args[0]); err != nil {
 				return err
 			}
+			if err := syncIf(pf); err != nil {
+				return err
+			}
 			fmt.Printf("minimized: %s\n", args[0])
 			return nil
 		},
@@ -1254,6 +1523,9 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
 			}
 			defer pf.Close()
 			if err := pf.Window.Maximize(context.Background(), args[0]); err != nil {
+				return err
+			}
+			if err := syncIf(pf); err != nil {
 				return err
 			}
 			fmt.Printf("maximized: %s\n", args[0])
@@ -1693,4 +1965,17 @@ func parseColor(s string) (color.RGBA, error) {
 		return color.RGBA{}, fmt.Errorf("--color: invalid hex %q: %w", s, err)
 	}
 	return color.RGBA{R: b[0], G: b[1], B: b[2], A: 0xff}, nil
+}
+
+func parseOptionalIntToken(raw string) (value int, unchanged bool, err error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "-", "keep", "same", "unchanged":
+		return 0, true, nil
+	default:
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, false, err
+		}
+		return v, false, nil
+	}
 }

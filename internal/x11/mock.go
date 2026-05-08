@@ -44,6 +44,13 @@ func (m *MockTranslateCoordinatesCookie) Reply() (*xproto.TranslateCoordinatesRe
 	return m.reply, nil
 }
 
+// MockQueryPointerCookie implements QueryPointerCookie for tests.
+type MockQueryPointerCookie struct {
+	reply *xproto.QueryPointerReply
+}
+
+func (m *MockQueryPointerCookie) Reply() (*xproto.QueryPointerReply, error) { return m.reply, nil }
+
 // MockXTestFakeInputCookie implements the XTest check cookie for tests.
 type MockXTestFakeInputCookie struct{ err error }
 
@@ -85,6 +92,7 @@ type MockConnection struct {
 	GetPropertyFunc            func(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) GetPropertyCookie
 	GetGeometryFunc            func(Drawable xproto.Drawable) GetGeometryCookie
 	TranslateCoordinatesFunc   func(SrcWindow, DstWindow xproto.Window, SrcX, SrcY int16) TranslateCoordinatesCookie
+	QueryPointerFunc           func(Window xproto.Window) QueryPointerCookie
 	SendEventCheckedFunc       func(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie
 	MapWindowCheckedFunc       func(Window xproto.Window) MapWindowCookie
 	ConfigureWindowCheckedFunc func(Window xproto.Window, ValueMask uint16, ValueList []uint32) ConfigureWindowCookie
@@ -109,6 +117,7 @@ type MockConnection struct {
 }
 
 func (m *MockConnection) Close() {}
+func (m *MockConnection) Sync()  {}
 func (m *MockConnection) DefaultScreen() *xproto.ScreenInfo {
 	if m.DefaultScreenFunc != nil {
 		return m.DefaultScreenFunc()
@@ -144,6 +153,12 @@ func (m *MockConnection) TranslateCoordinates(SrcWindow, DstWindow xproto.Window
 		return m.TranslateCoordinatesFunc(SrcWindow, DstWindow, SrcX, SrcY)
 	}
 	return &MockTranslateCoordinatesCookie{reply: &xproto.TranslateCoordinatesReply{}}
+}
+func (m *MockConnection) QueryPointer(Window xproto.Window) QueryPointerCookie {
+	if m.QueryPointerFunc != nil {
+		return m.QueryPointerFunc(Window)
+	}
+	return &MockQueryPointerCookie{reply: &xproto.QueryPointerReply{}}
 }
 func (m *MockConnection) SendEventChecked(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie {
 	if m.SendEventCheckedFunc != nil {
@@ -243,4 +258,8 @@ func NewMockGetGeometryCookie(rep *xproto.GetGeometryReply) GetGeometryCookie {
 
 func NewMockTranslateCoordinatesCookie(rep *xproto.TranslateCoordinatesReply) TranslateCoordinatesCookie {
 	return &MockTranslateCoordinatesCookie{reply: rep}
+}
+
+func NewMockQueryPointerCookie(rep *xproto.QueryPointerReply) QueryPointerCookie {
+	return &MockQueryPointerCookie{reply: rep}
 }

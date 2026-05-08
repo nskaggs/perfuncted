@@ -168,6 +168,18 @@ func (g *GnomeManager) Maximize(ctx context.Context, title string) error {
 	return g.actOnWindow(title, `w.maximize(3)`) // 3 = Meta.MaximizeFlags.BOTH
 }
 
+func (g *GnomeManager) Fullscreen(ctx context.Context, title string) error {
+	return ErrNotSupported
+}
+
+func (g *GnomeManager) Unfullscreen(ctx context.Context, title string) error {
+	return ErrNotSupported
+}
+
 func (g *GnomeManager) Close() error {
+	return nil
+}
+
+func (g *GnomeManager) Sync(ctx context.Context) error {
 	return nil
 }

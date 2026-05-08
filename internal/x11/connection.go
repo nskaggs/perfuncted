@@ -11,6 +11,7 @@ import (
 // Methods return cookie interfaces defined in cookies.go so tests can mock them.
 type Connection interface {
 	Close()
+	Sync()
 	DefaultScreen() *xproto.ScreenInfo
 	Setup() *xproto.SetupInfo
 
@@ -18,6 +19,7 @@ type Connection interface {
 	GetProperty(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) GetPropertyCookie
 	GetGeometry(Drawable xproto.Drawable) GetGeometryCookie
 	TranslateCoordinates(SrcWindow, DstWindow xproto.Window, SrcX, SrcY int16) TranslateCoordinatesCookie
+	QueryPointer(Window xproto.Window) QueryPointerCookie
 	SendEventChecked(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie
 	MapWindowChecked(Window xproto.Window) MapWindowCookie
 	ConfigureWindowChecked(Window xproto.Window, ValueMask uint16, ValueList []uint32) ConfigureWindowCookie
@@ -50,6 +52,10 @@ func (c *XgbConnection) Close() {
 	c.conn.Close()
 }
 
+func (c *XgbConnection) Sync() {
+	c.conn.Sync()
+}
+
 func (c *XgbConnection) DefaultScreen() *xproto.ScreenInfo {
 	return xproto.Setup(c.conn).DefaultScreen(c.conn)
 }
@@ -76,6 +82,11 @@ func (c *XgbConnection) GetGeometry(Drawable xproto.Drawable) GetGeometryCookie 
 func (c *XgbConnection) TranslateCoordinates(SrcWindow, DstWindow xproto.Window, SrcX, SrcY int16) TranslateCoordinatesCookie {
 	cookie := xproto.TranslateCoordinates(c.conn, SrcWindow, DstWindow, SrcX, SrcY)
 	return NewXProtoTranslateCoordinatesCookie(cookie)
+}
+
+func (c *XgbConnection) QueryPointer(Window xproto.Window) QueryPointerCookie {
+	cookie := xproto.QueryPointer(c.conn, Window)
+	return NewXProtoQueryPointerCookie(cookie)
 }
 
 func (c *XgbConnection) SendEventChecked(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie {

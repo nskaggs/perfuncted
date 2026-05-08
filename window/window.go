@@ -66,6 +66,10 @@ type Manager interface {
 	Minimize(ctx context.Context, title string) error
 	// Maximize maximizes the window matching title.
 	Maximize(ctx context.Context, title string) error
+	// Fullscreen requests fullscreen state for the window matching title.
+	Fullscreen(ctx context.Context, title string) error
+	// Unfullscreen exits fullscreen state for the window matching title.
+	Unfullscreen(ctx context.Context, title string) error
 	// Restore restores the window matching title.
 	//
 	// The semantics are backend-defined but should aim to return the window to

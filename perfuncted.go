@@ -18,6 +18,7 @@ import (
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -146,6 +147,7 @@ type Perfuncted struct {
 	Screen    ScreenBundle
 	Input     InputBundle
 	Window    WindowBundle
+	Output    OutputBundle
 	Clipboard ClipboardBundle
 	session   compositor.Session
 	trace     *actionTracer
@@ -187,11 +189,19 @@ func New(opts Options) (*Perfuncted, error) {
 		inp.Close()
 		return nil, err
 	}
+	out, err := output.OpenRuntime(rt)
+	if err != nil {
+		scr.Close()
+		inp.Close()
+		win.Close()
+		return nil, err
+	}
 	cb, err := clipboard.OpenRuntime(rt)
 	if err != nil {
 		scr.Close()
 		inp.Close()
 		win.Close()
+		out.Close()
 		return nil, err
 	}
 	tracer := newActionTracer(opts.TraceWriter, opts.TraceDelay)
@@ -203,6 +213,7 @@ func New(opts Options) (*Perfuncted, error) {
 		Screen:    ScreenBundle{Screenshotter: scr, tracer: tracer},
 		Input:     InputBundle{Inputter: inp, tracer: tracer},
 		Window:    WindowBundle{Manager: win, tracer: tracer},
+		Output:    OutputBundle{Lister: out, tracer: tracer},
 		Clipboard: ClipboardBundle{Clipboard: cb, tracer: tracer},
 		session:   session,
 		trace:     tracer,
@@ -220,6 +231,9 @@ func (p *Perfuncted) Close() error {
 	}
 	if p.Window.Manager != nil {
 		errs = append(errs, p.Window.close())
+	}
+	if p.Output.Lister != nil {
+		errs = append(errs, p.Output.close())
 	}
 	if p.Clipboard.Clipboard != nil {
 		errs = append(errs, p.Clipboard.close())

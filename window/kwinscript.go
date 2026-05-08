@@ -366,3 +366,15 @@ func (k *KWinScriptManager) Maximize(ctx context.Context, title string) error {
 	}
 	return nil
 }
+
+func (k *KWinScriptManager) Fullscreen(ctx context.Context, title string) error {
+	return ErrNotSupported
+}
+
+func (k *KWinScriptManager) Unfullscreen(ctx context.Context, title string) error {
+	return ErrNotSupported
+}
+
+func (k *KWinScriptManager) Sync(ctx context.Context) error {
+	return nil
+}

@@ -127,10 +127,76 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 }
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// location: wrapper for perfuncted.PointerLocation
+
+	cmd_input_location := &cobra.Command{
+		Use:   "location",
+		Short: "Auto-generated wrapper for perfuncted.PointerLocation",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			w, h, err := pf.Input.PointerLocation(cmd.Context())
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%dx%d\n", w, h)
+			return nil
+		},
+	}
+
+	cmds = append(cmds, cmd_input_location)
 	return cmds
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// fullscreen: wrapper for perfuncted.Fullscreen
+	var cmd_window_fullscreen_pattern string
+	cmd_window_fullscreen := &cobra.Command{
+		Use:   "fullscreen",
+		Short: "Auto-generated wrapper for perfuncted.Fullscreen",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_window_fullscreen_pattern (string)
+			if err := pf.Window.Fullscreen(cmd.Context(), cmd_window_fullscreen_pattern); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_window_fullscreen.Flags().StringVar(&cmd_window_fullscreen_pattern, "pattern", "", "pattern")
+
+	cmds = append(cmds, cmd_window_fullscreen)
+
+	// unfullscreen: wrapper for perfuncted.Unfullscreen
+	var cmd_window_unfullscreen_pattern string
+	cmd_window_unfullscreen := &cobra.Command{
+		Use:   "unfullscreen",
+		Short: "Auto-generated wrapper for perfuncted.Unfullscreen",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_window_unfullscreen_pattern (string)
+			if err := pf.Window.Unfullscreen(cmd.Context(), cmd_window_unfullscreen_pattern); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_window_unfullscreen.Flags().StringVar(&cmd_window_unfullscreen_pattern, "pattern", "", "pattern")
+
+	cmds = append(cmds, cmd_window_unfullscreen)
 
 	// wait-for-close: wrapper for perfuncted.WaitForClose
 	var cmd_window_wait_for_close_pattern string

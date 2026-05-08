@@ -47,6 +47,10 @@ type Inputter interface {
 	ScrollLeft(ctx context.Context, clicks int) error
 	// ScrollRight scrolls the mouse wheel right by the given number of notches.
 	ScrollRight(ctx context.Context, clicks int) error
+	// PointerLocation returns the current pointer location if the backend can query it.
+	PointerLocation(ctx context.Context) (x, y int, err error)
+	// Sync flushes any pending backend state when supported.
+	Sync(ctx context.Context) error
 	// Close releases all backend resources.
 	Close() error
 }

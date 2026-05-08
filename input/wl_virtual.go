@@ -311,6 +311,14 @@ func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return b.scroll(1, clicks)
 }
 
+func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	return 0, 0, fmt.Errorf("input/wl-virtual: pointer location unsupported")
+}
+
+func (b *WlVirtualBackend) Sync(ctx context.Context) error {
+	return nil
+}
+
 // Close closes the Wayland connection. Safe to call multiple times and in any
 // state (session may be nil if partially constructed).
 func (b *WlVirtualBackend) Close() error {

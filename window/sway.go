@@ -325,6 +325,10 @@ func (m *SwayManager) Close() error {
 	return nil
 }
 
+func (m *SwayManager) Sync(ctx context.Context) error {
+	return nil
+}
+
 // CloseWindow kills the first window whose title contains substr.
 func (m *SwayManager) CloseWindow(ctx context.Context, substr string) error {
 	w, err := m.findWindow(ctx, substr)
@@ -350,6 +354,22 @@ func (m *SwayManager) Maximize(ctx context.Context, substr string) error {
 		return err
 	}
 	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
+}
+
+func (m *SwayManager) Fullscreen(ctx context.Context, substr string) error {
+	w, err := m.findWindow(ctx, substr)
+	if err != nil {
+		return err
+	}
+	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
+}
+
+func (m *SwayManager) Unfullscreen(ctx context.Context, substr string) error {
+	w, err := m.findWindow(ctx, substr)
+	if err != nil {
+		return err
+	}
+	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen disable", int64(w.ID)))
 }
 
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.
