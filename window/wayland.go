@@ -45,6 +45,26 @@ func (m *WaylandWindowManager) canControlToplevels() bool {
 	return m.wlrMgrID != 0
 }
 
+func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
+	if len(data) < 4 {
+		return false
+	}
+	slen := wl.Uint32(data[0:4])
+	if int(slen) > len(data)-4 {
+		return false
+	}
+	value := strings.TrimRight(string(data[4:4+slen]), "\x00")
+	switch opcode {
+	case 0:
+		info.Title = value
+	case 1:
+		info.AppID = value
+	default:
+		return false
+	}
+	return true
+}
+
 // NewWaylandWindowManager connects and returns a WaylandWindowManager if the
 // compositor advertises at least one foreign-toplevel protocol.
 func NewWaylandWindowManager() (*WaylandWindowManager, error) {
@@ -124,11 +144,7 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 		// Each handle emits title/app_id/state/output_enter/leave/closed events.
 		handle.OnEvent = func(op uint32, _ int, d []byte) {
 			// title and app_id are strings (arg[0] = byte-length, arg[1..] = string)
-			if (op == 0 || op == 1) && len(d) >= 4 {
-				slen := wl.Uint32(d[0:4])
-				if int(slen) <= len(d)-4 {
-					info.Title = strings.TrimRight(string(d[4:4+slen]), "\x00")
-				}
+			if applyToplevelString(info, op, d) {
 				return
 			}
 			// state is an array of uint32 and lists active states (maximized=0,

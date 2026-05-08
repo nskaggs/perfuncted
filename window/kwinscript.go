@@ -160,7 +160,8 @@ for (var i = 0; i < wins.length; i++) {
     if (w.normalWindow) {
         var g = w.frameGeometry;
         var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;
-        lines.push(id + '\t' + w.caption + '\t' + w.pid
+        lines.push(id + '\t' + w.caption + '\t' + (w.resourceName || '')
+            + '\t' + (w.resourceClass || '') + '\t' + w.pid
             + '\t' + g.x + '\t' + g.y + '\t' + g.width + '\t' + g.height);
     }
 }
@@ -176,21 +177,27 @@ callDBus('%s', '/', '%s', 'ReportWindows', lines.join('\n'));
 			if line == "" {
 				continue
 			}
-			parts := strings.SplitN(line, "\t", 7)
+			parts := strings.SplitN(line, "\t", 9)
 			info := Info{ID: uint64(i + 1)}
 			if len(parts) >= 2 {
 				info.Title = parts[1]
 			}
 			if len(parts) >= 3 {
-				if pid, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 32); err == nil {
+				info.AppID = parts[2]
+			}
+			if len(parts) >= 4 {
+				info.Class = parts[3]
+			}
+			if len(parts) >= 5 {
+				if pid, err := strconv.ParseInt(strings.TrimSpace(parts[4]), 10, 32); err == nil {
 					info.PID = int32(pid)
 				}
 			}
-			if len(parts) >= 7 {
-				info.X = parseInt(parts[3])
-				info.Y = parseInt(parts[4])
-				info.W = parseInt(parts[5])
-				info.H = parseInt(parts[6])
+			if len(parts) >= 9 {
+				info.X = parseInt(parts[5])
+				info.Y = parseInt(parts[6])
+				info.W = parseInt(parts[7])
+				info.H = parseInt(parts[8])
 			}
 			if !yield(info, nil) {
 				return
