@@ -1,18 +1,17 @@
-## pf screen wait-for
+## pf window wait-for-close
 
-Auto-generated wrapper for perfuncted.WaitFor
+Auto-generated wrapper for perfuncted.WaitForClose
 
 ```
-pf screen wait-for [flags]
+pf window wait-for-close [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help          help for wait-for
-      --poll string   poll
-      --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
-      --want int      want
+  -h, --help             help for wait-for-close
+      --pattern string   pattern
+      --poll string      poll
 ```
 
 ### Options inherited from parent commands
@@ -27,5 +26,5 @@ pf screen wait-for [flags]
 
 ### SEE ALSO
 
-* [pf screen](pf_screen.md)	 - Screen capture operations
+* [pf window](pf_window.md)	 - Window management
 

@@ -1,17 +1,15 @@
-## pf screen wait-for-change
+## pf screen grab-region-hash
 
-Auto-generated wrapper for perfuncted.WaitForChange
+Auto-generated wrapper for perfuncted.GrabRegionHash
 
 ```
-pf screen wait-for-change [flags]
+pf screen grab-region-hash [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help          help for wait-for-change
-      --initial int   initial
-      --poll string   poll
+  -h, --help          help for grab-region-hash
       --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 

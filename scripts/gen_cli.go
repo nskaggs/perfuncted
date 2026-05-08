@@ -226,12 +226,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	docs, err := collectDocs()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "collect docs:", err)
-		os.Exit(2)
-	}
-
 	cfg := &packages.Config{Mode: packages.NeedName | packages.NeedTypes, Dir: "."}
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
@@ -288,19 +282,6 @@ func main() {
 					continue
 				}
 			}
-			// skip if docs already have candidate name
-			cands := candidatesFromMethod(mn)
-			skipBecauseDocs := false
-			for _, c := range cands {
-				if docs[grp] != nil && docs[grp][c] {
-					skipBecauseDocs = true
-					break
-				}
-			}
-			if skipBecauseDocs {
-				continue
-			}
-
 			// analyze signature
 			sig, ok := m.Type().(*types.Signature)
 			if !ok {
