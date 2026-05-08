@@ -32,6 +32,4 @@ Window management
 * [pf window minimize](pf_window_minimize.md)	 - Minimize a window by title
 * [pf window move](pf_window_move.md)	 - Move a window to absolute screen coordinates
 * [pf window resize](pf_window_resize.md)	 - Resize a window
-* [pf window restore](pf_window_restore.md)	 - Auto-generated wrapper for perfuncted.Restore
-* [pf window wait-for-close](pf_window_wait-for-close.md)	 - Auto-generated wrapper for perfuncted.WaitForClose
 
