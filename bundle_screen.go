@@ -63,9 +63,9 @@ func (s ScreenBundle) grab(ctx context.Context, rect image.Rectangle) (image.Ima
 }
 
 // CaptureRegion captures the given screen region and saves it as a PNG file at path.
-func (s ScreenBundle) CaptureRegion(rect image.Rectangle, path string) error {
+func (s ScreenBundle) CaptureRegion(ctx context.Context, rect image.Rectangle, path string) error {
 	s.traceAction(fmt.Sprintf("capture-region rect=%s path=%q", rect, path))
-	img, err := s.grab(context.Background(), rect)
+	img, err := s.grab(ctx, rect)
 	if err != nil {
 		return err
 	}
@@ -78,12 +78,12 @@ func (s ScreenBundle) CaptureRegion(rect image.Rectangle, path string) error {
 }
 
 // GetPixel returns the colour of the pixel at (x, y).
-func (s ScreenBundle) GetPixel(x, y int) (color.RGBA, error) {
+func (s ScreenBundle) GetPixel(ctx context.Context, x, y int) (color.RGBA, error) {
 	s.traceAction(fmt.Sprintf("get-pixel x=%d y=%d", x, y))
 	if err := s.checkAvailable(); err != nil {
 		return color.RGBA{}, err
 	}
-	c, err := find.FirstPixel(context.Background(), s.Screenshotter, image.Rect(x, y, x+1, y+1))
+	c, err := find.FirstPixel(ctx, s.Screenshotter, image.Rect(x, y, x+1, y+1))
 	if err != nil {
 		return color.RGBA{}, err
 	}
@@ -91,7 +91,7 @@ func (s ScreenBundle) GetPixel(x, y int) (color.RGBA, error) {
 }
 
 // GetMultiplePixels returns the colours of all given points in a single grab.
-func (s ScreenBundle) GetMultiplePixels(points []image.Point) ([]color.RGBA, error) {
+func (s ScreenBundle) GetMultiplePixels(ctx context.Context, points []image.Point) ([]color.RGBA, error) {
 	s.traceAction(fmt.Sprintf("get-multiple-pixels count=%d", len(points)))
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (s ScreenBundle) GetMultiplePixels(points []image.Point) ([]color.RGBA, err
 		}
 	}
 	bounds := image.Rect(minX, minY, maxX+1, maxY+1)
-	img, err := s.grab(context.Background(), bounds)
+	img, err := s.grab(ctx, bounds)
 	if err != nil {
 		return nil, err
 	}
@@ -156,12 +156,12 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 }
 
 // FindColor searches rect for the first pixel matching target within tolerance.
-func (s ScreenBundle) FindColor(rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
+func (s ScreenBundle) FindColor(ctx context.Context, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
 	s.traceAction(fmt.Sprintf("find-color rect=%s tolerance=%d", rect, tolerance))
 	if err := s.checkAvailable(); err != nil {
 		return image.Point{}, err
 	}
-	return find.FindColor(context.Background(), s.Screenshotter, rect, target, tolerance)
+	return find.FindColor(ctx, s.Screenshotter, rect, target, tolerance)
 }
 
 // WaitForChange polls rect every poll interval until its hash differs from
@@ -195,10 +195,10 @@ func (s ScreenBundle) ScanFor(ctx context.Context, rects []image.Rectangle, want
 }
 
 // Resolution returns the current screen dimensions.
-func (s ScreenBundle) Resolution() (int, int, error) {
+func (s ScreenBundle) Resolution(ctx context.Context) (int, int, error) {
 	s.traceAction("resolution")
 	if err := s.checkAvailable(); err != nil {
 		return 0, 0, err
 	}
-	return screen.ResolutionWithContext(context.Background(), s.Screenshotter)
+	return screen.ResolutionWithContext(ctx, s.Screenshotter)
 }

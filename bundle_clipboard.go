@@ -34,8 +34,8 @@ func (c ClipboardBundle) traceAction(msg string) {
 	c.tracer.Tracef("clipboard", "%s", msg)
 }
 
-func (c ClipboardBundle) Get() (string, error) {
-	return c.getContext(context.Background())
+func (c ClipboardBundle) Get(ctx context.Context) (string, error) {
+	return c.getContext(ctx)
 }
 
 func (c ClipboardBundle) getContext(ctx context.Context) (string, error) {
@@ -46,8 +46,8 @@ func (c ClipboardBundle) getContext(ctx context.Context) (string, error) {
 	return c.Clipboard.Get(ctx)
 }
 
-func (c ClipboardBundle) Set(text string) error {
-	return c.setContext(context.Background(), text)
+func (c ClipboardBundle) Set(ctx context.Context, text string) error {
+	return c.setContext(ctx, text)
 }
 
 func (c ClipboardBundle) setContext(ctx context.Context, text string) error {

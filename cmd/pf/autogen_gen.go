@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
@@ -27,7 +28,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			// flag cmd_screen_capture_region_path (string)
-			if err := pf.Screen.CaptureRegion(r_0, cmd_screen_capture_region_path); err != nil {
+			if err := pf.Screen.CaptureRegion(context.Background(), r_0, cmd_screen_capture_region_path); err != nil {
 				return err
 			}
 			return nil
@@ -49,7 +50,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 				return err
 			}
 			defer pf.Close()
-			w, h, err := pf.Screen.Resolution()
+			w, h, err := pf.Screen.Resolution(context.Background())
 			if err != nil {
 				return err
 			}
@@ -80,7 +81,7 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			}
 			defer pf.Close()
 			// flag cmd_window_restore_pattern (string)
-			if err := pf.Window.Restore(cmd_window_restore_pattern); err != nil {
+			if err := pf.Window.Restore(context.Background(), cmd_window_restore_pattern); err != nil {
 				return err
 			}
 			return nil

@@ -7,12 +7,23 @@ It detects your session type at runtime and selects the right backend automatica
 no configuration needed.
 
 ```go
-pf, _ := perfuncted.New(perfuncted.Options{})
-defer pf.Close()
+package main
 
-pf.Window.Activate("Firefox")
-pf.Input.Type("hello world")
-pf.Input.KeyTap("ctrl+s")
+import (
+	"context"
+
+	"github.com/nskaggs/perfuncted"
+)
+
+func main() {
+	ctx := context.Background()
+	pf, _ := perfuncted.New(perfuncted.Options{})
+	defer pf.Close()
+
+	_ = pf.Window.Activate(ctx, "Firefox")
+	_ = pf.Input.Type(ctx, "hello world")
+	_ = pf.Input.Type(ctx, "{ctrl+s}")
+}
 ```
 
 ## Backend support
@@ -67,6 +78,8 @@ Four top-level bundles are available after `perfuncted.New(...)`:
 - **`pf.Input`** — type text, tap keys, click and drag, scroll
 - **`pf.Window`** — list, activate, resize, move, and wait for windows
 - **`pf.Clipboard`** — get and set clipboard contents in the selected target session
+
+All bundle operations that talk to a backend or can block take `ctx context.Context` as their first argument.
 
 Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted)
 

@@ -35,77 +35,95 @@ func (w WindowBundle) traceAction(msg string) {
 	w.tracer.Tracef("window", "%s", msg)
 }
 
+// List returns all visible top-level windows.
+func (w WindowBundle) List(ctx context.Context) ([]window.Info, error) {
+	w.traceAction("list")
+	if err := w.checkAvailable(); err != nil {
+		return nil, err
+	}
+	return w.Manager.List(ctx)
+}
+
 // Activate raises and focuses the window matching pattern.
-func (w WindowBundle) Activate(pattern string) error {
+func (w WindowBundle) Activate(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("activate pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
-	return w.Manager.Activate(context.Background(), pattern)
+	return w.Manager.Activate(ctx, pattern)
+}
+
+// Move repositions the window matching pattern.
+func (w WindowBundle) Move(ctx context.Context, pattern string, x, y int) error {
+	w.traceAction(fmt.Sprintf("move pattern=%q x=%d y=%d", pattern, x, y))
+	if err := w.checkAvailable(); err != nil {
+		return err
+	}
+	return w.Manager.Move(ctx, pattern, x, y)
 }
 
 // ActiveTitle returns the title of the currently focused window.
-func (w WindowBundle) ActiveTitle() (string, error) {
+func (w WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	w.traceAction("active-title")
 	if err := w.checkAvailable(); err != nil {
 		return "", err
 	}
-	return w.Manager.ActiveTitle(context.Background())
+	return w.Manager.ActiveTitle(ctx)
 }
 
 // CloseWindow closes the window matching pattern.
-func (w WindowBundle) CloseWindow(pattern string) error {
+func (w WindowBundle) CloseWindow(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("close-window pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
-	return w.Manager.CloseWindow(context.Background(), pattern)
+	return w.Manager.CloseWindow(ctx, pattern)
 }
 
 // Resize sets the dimensions of the window matching pattern.
-func (w WindowBundle) Resize(pattern string, width, height int) error {
+func (w WindowBundle) Resize(ctx context.Context, pattern string, width, height int) error {
 	w.traceAction(fmt.Sprintf("resize pattern=%q width=%d height=%d", pattern, width, height))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
-	return w.Manager.Resize(context.Background(), pattern, width, height)
+	return w.Manager.Resize(ctx, pattern, width, height)
 }
 
 // Minimize minimises the window matching pattern.
-func (w WindowBundle) Minimize(pattern string) error {
+func (w WindowBundle) Minimize(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("minimize pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
-	return w.Manager.Minimize(context.Background(), pattern)
+	return w.Manager.Minimize(ctx, pattern)
 }
 
 // Maximize maximises the window matching pattern.
-func (w WindowBundle) Maximize(pattern string) error {
+func (w WindowBundle) Maximize(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("maximize pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
-	return w.Manager.Maximize(context.Background(), pattern)
+	return w.Manager.Maximize(ctx, pattern)
 }
 
 // Restore restores the window matching pattern to its previous size.
-func (w WindowBundle) Restore(pattern string) error {
+func (w WindowBundle) Restore(ctx context.Context, pattern string) error {
 	w.traceAction(fmt.Sprintf("restore pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
-	return w.Manager.Restore(context.Background(), pattern)
+	return w.Manager.Restore(ctx, pattern)
 }
 
 // FindByTitle returns the first window whose title contains pattern
 // (case-insensitive).
-func (w WindowBundle) FindByTitle(pattern string) (window.Info, error) {
+func (w WindowBundle) FindByTitle(ctx context.Context, pattern string) (window.Info, error) {
 	w.traceAction(fmt.Sprintf("find-by-title pattern=%q", pattern))
 	if err := w.checkAvailable(); err != nil {
 		return window.Info{}, err
 	}
-	return window.FindByTitle(context.Background(), w.Manager, pattern)
+	return window.FindByTitle(ctx, w.Manager, pattern)
 }
 
 // WaitForWindow polls until a window matching pattern is found, or ctx is

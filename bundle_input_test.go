@@ -12,9 +12,10 @@ func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{}
 	pf := pftest.New(nil, inp, nil, cb)
+	ctx := context.Background()
 
 	// Perfuncted.Paste uses clipboard+PasteCombo when a clipboard is available.
-	if err := pf.Paste("hello world"); err != nil {
+	if err := pf.Paste(ctx, "hello world"); err != nil {
 		t.Fatalf("Paste: %v", err)
 	}
 
@@ -40,8 +41,9 @@ func TestPerfunctedPaste_FallbackToType(t *testing.T) {
 	// When clipboard is nil, Paste should fall back to Type.
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Paste("abc"); err != nil {
+	if err := pf.Paste(ctx, "abc"); err != nil {
 		t.Fatalf("Paste: %v", err)
 	}
 
@@ -63,8 +65,9 @@ func TestPerfunctedPaste_ClipboardSetFails(t *testing.T) {
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{SetErr: context.DeadlineExceeded}
 	pf := pftest.New(nil, inp, nil, cb)
+	ctx := context.Background()
 
-	err := pf.Paste("fallback")
+	err := pf.Paste(ctx, "fallback")
 	if err == nil {
 		t.Fatal("expected error when clipboard.Set fails")
 	}
@@ -74,8 +77,9 @@ func TestPerfunctedPaste_ClipboardSetFails(t *testing.T) {
 func TestInputBundleDoubleClick(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Input.DoubleClick(50, 75); err != nil {
+	if err := pf.Input.DoubleClick(ctx, 50, 75); err != nil {
 		t.Fatalf("DoubleClick: %v", err)
 	}
 
@@ -100,8 +104,9 @@ func TestInputBundleDoubleClick(t *testing.T) {
 func TestInputBundleScroll_DxPositive(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Input.ScrollRight(3); err != nil {
+	if err := pf.Input.ScrollRight(ctx, 3); err != nil {
 		t.Fatalf("ScrollRight: %v", err)
 	}
 
@@ -116,8 +121,9 @@ func TestInputBundleScroll_DxPositive(t *testing.T) {
 func TestInputBundleScroll_DxNegative(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Input.ScrollLeft(2); err != nil {
+	if err := pf.Input.ScrollLeft(ctx, 2); err != nil {
 		t.Fatalf("ScrollLeft: %v", err)
 	}
 
@@ -132,8 +138,9 @@ func TestInputBundleScroll_DxNegative(t *testing.T) {
 func TestInputBundleScroll_DyPositive(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Input.ScrollDown(5); err != nil {
+	if err := pf.Input.ScrollDown(ctx, 5); err != nil {
 		t.Fatalf("ScrollDown: %v", err)
 	}
 
@@ -148,8 +155,9 @@ func TestInputBundleScroll_DyPositive(t *testing.T) {
 func TestInputBundleScroll_DyNegative(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Input.ScrollUp(3); err != nil {
+	if err := pf.Input.ScrollUp(ctx, 3); err != nil {
 		t.Fatalf("ScrollUp: %v", err)
 	}
 
@@ -164,9 +172,10 @@ func TestInputBundleScroll_DyNegative(t *testing.T) {
 func TestInputBundleClickCenter(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
 	// Rect from (10,20) to (30,40) → center (20,30)
-	if err := pf.Input.ClickCenter(image.Rect(10, 20, 30, 40)); err != nil {
+	if err := pf.Input.ClickCenter(ctx, image.Rect(10, 20, 30, 40)); err != nil {
 		t.Fatalf("ClickCenter: %v", err)
 	}
 
@@ -181,9 +190,10 @@ func TestInputBundleClickCenter(t *testing.T) {
 func TestInputBundleModifierDown(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
 	// modifierDown is an alias for KeyDown.
-	if err := pf.Input.KeyDown("ctrl"); err != nil {
+	if err := pf.Input.KeyDown(ctx, "ctrl"); err != nil {
 		t.Fatalf("KeyDown: %v", err)
 	}
 
@@ -198,9 +208,10 @@ func TestInputBundleModifierDown(t *testing.T) {
 func TestInputBundleModifierUp(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
 	// modifierUp is an alias for KeyUp.
-	if err := pf.Input.KeyUp("shift"); err != nil {
+	if err := pf.Input.KeyUp(ctx, "shift"); err != nil {
 		t.Fatalf("KeyUp: %v", err)
 	}
 
@@ -215,7 +226,7 @@ func TestInputBundleModifierUp(t *testing.T) {
 func TestInputBundleType_NilCheck(t *testing.T) {
 	// Type with nil Inputter should return error.
 	pf := pftest.New(nil, nil, nil, nil)
-	err := pf.Input.Type("hello")
+	err := pf.Input.Type(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error for nil Inputter")
 	}
@@ -225,8 +236,9 @@ func TestInputBundleType_NilCheck(t *testing.T) {
 func TestInputBundleDragAndDrop(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	if err := pf.Input.DragAndDrop(10, 20, 30, 40); err != nil {
+	if err := pf.Input.DragAndDrop(ctx, 10, 20, 30, 40); err != nil {
 		t.Fatalf("DragAndDrop: %v", err)
 	}
 
