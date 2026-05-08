@@ -2,12 +2,113 @@
 package main
 
 import (
+	"fmt"
 	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
 )
 
 func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// capture-region: wrapper for perfuncted.CaptureRegion
+	var cmd_screen_capture_region_rect string
+	var cmd_screen_capture_region_path string
+	cmd_screen_capture_region := &cobra.Command{
+		Use:   "capture-region",
+		Short: "Auto-generated wrapper for perfuncted.CaptureRegion",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_capture_region_rect)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_capture_region_path (string)
+			if err := pf.Screen.CaptureRegion(cmd.Context(), r_0, cmd_screen_capture_region_path); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_screen_capture_region.Flags().StringVar(&cmd_screen_capture_region_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_capture_region.Flags().StringVar(&cmd_screen_capture_region_path, "path", "", "path")
+
+	cmds = append(cmds, cmd_screen_capture_region)
+
+	// wait-for: wrapper for perfuncted.WaitFor
+	var cmd_screen_wait_for_rect string
+	var cmd_screen_wait_for_want int
+	var cmd_screen_wait_for_poll string
+	cmd_screen_wait_for := &cobra.Command{
+		Use:   "wait-for",
+		Short: "Auto-generated wrapper for perfuncted.WaitFor",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_wait_for_rect)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_wait_for_want (int) already parsed into var
+			cmd_screen_wait_for_poll_dur, err := parseDuration(cmd_screen_wait_for_poll, 0)
+			if err != nil {
+				return err
+			}
+			h, err := pf.Screen.WaitFor(cmd.Context(), r_0, uint32(cmd_screen_wait_for_want), cmd_screen_wait_for_poll_dur)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	cmd_screen_wait_for.Flags().StringVar(&cmd_screen_wait_for_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_wait_for.Flags().IntVar(&cmd_screen_wait_for_want, "want", 0, "want")
+	cmd_screen_wait_for.Flags().StringVar(&cmd_screen_wait_for_poll, "poll", "", "poll")
+
+	cmds = append(cmds, cmd_screen_wait_for)
+
+	// wait-for-change: wrapper for perfuncted.WaitForChange
+	var cmd_screen_wait_for_change_rect string
+	var cmd_screen_wait_for_change_initial int
+	var cmd_screen_wait_for_change_poll string
+	cmd_screen_wait_for_change := &cobra.Command{
+		Use:   "wait-for-change",
+		Short: "Auto-generated wrapper for perfuncted.WaitForChange",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_wait_for_change_rect)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_wait_for_change_initial (int) already parsed into var
+			cmd_screen_wait_for_change_poll_dur, err := parseDuration(cmd_screen_wait_for_change_poll, 0)
+			if err != nil {
+				return err
+			}
+			h, err := pf.Screen.WaitForChange(cmd.Context(), r_0, uint32(cmd_screen_wait_for_change_initial), cmd_screen_wait_for_change_poll_dur)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	cmd_screen_wait_for_change.Flags().StringVar(&cmd_screen_wait_for_change_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_wait_for_change.Flags().IntVar(&cmd_screen_wait_for_change_initial, "initial", 0, "initial")
+	cmd_screen_wait_for_change.Flags().StringVar(&cmd_screen_wait_for_change_poll, "poll", "", "poll")
+
+	cmds = append(cmds, cmd_screen_wait_for_change)
 	return cmds
 }
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
@@ -16,6 +117,28 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 }
 func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// restore: wrapper for perfuncted.Restore
+	var cmd_window_restore_pattern string
+	cmd_window_restore := &cobra.Command{
+		Use:   "restore",
+		Short: "Auto-generated wrapper for perfuncted.Restore",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			// flag cmd_window_restore_pattern (string)
+			if err := pf.Window.Restore(cmd.Context(), cmd_window_restore_pattern); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_window_restore.Flags().StringVar(&cmd_window_restore_pattern, "pattern", "", "pattern")
+
+	cmds = append(cmds, cmd_window_restore)
 	return cmds
 }
 func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
