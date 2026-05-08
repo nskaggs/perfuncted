@@ -36,8 +36,8 @@ func (i InputBundle) traceAction(msg string) {
 	i.tracer.Tracef("input", "%s", msg)
 }
 
-func (i InputBundle) Type(text string) error {
-	return i.typeContext(context.Background(), text)
+func (i InputBundle) Type(ctx context.Context, text string) error {
+	return i.typeContext(ctx, text)
 }
 
 func (i InputBundle) typeContext(ctx context.Context, text string) error {
@@ -48,8 +48,8 @@ func (i InputBundle) typeContext(ctx context.Context, text string) error {
 	return i.Inputter.Type(ctx, text)
 }
 
-func (i InputBundle) KeyDown(key string) error {
-	return i.keyDownContext(context.Background(), key)
+func (i InputBundle) KeyDown(ctx context.Context, key string) error {
+	return i.keyDownContext(ctx, key)
 }
 
 func (i InputBundle) keyDownContext(ctx context.Context, key string) error {
@@ -60,8 +60,8 @@ func (i InputBundle) keyDownContext(ctx context.Context, key string) error {
 	return i.Inputter.KeyDown(ctx, key)
 }
 
-func (i InputBundle) KeyUp(key string) error {
-	return i.keyUpContext(context.Background(), key)
+func (i InputBundle) KeyUp(ctx context.Context, key string) error {
+	return i.keyUpContext(ctx, key)
 }
 
 func (i InputBundle) keyUpContext(ctx context.Context, key string) error {
@@ -72,8 +72,8 @@ func (i InputBundle) keyUpContext(ctx context.Context, key string) error {
 	return i.Inputter.KeyUp(ctx, key)
 }
 
-func (i InputBundle) MouseClick(x, y, button int) error {
-	return i.mouseClickContext(context.Background(), x, y, button)
+func (i InputBundle) MouseClick(ctx context.Context, x, y, button int) error {
+	return i.mouseClickContext(ctx, x, y, button)
 }
 
 func (i InputBundle) mouseClickContext(ctx context.Context, x, y, button int) error {
@@ -84,8 +84,8 @@ func (i InputBundle) mouseClickContext(ctx context.Context, x, y, button int) er
 	return i.Inputter.MouseClick(ctx, x, y, button)
 }
 
-func (i InputBundle) ClickCenter(rect image.Rectangle) error {
-	return i.clickCenterContext(context.Background(), rect)
+func (i InputBundle) ClickCenter(ctx context.Context, rect image.Rectangle) error {
+	return i.clickCenterContext(ctx, rect)
 }
 
 func (i InputBundle) clickCenterContext(ctx context.Context, rect image.Rectangle) error {
@@ -97,8 +97,8 @@ func (i InputBundle) clickCenterContext(ctx context.Context, rect image.Rectangl
 	return i.Inputter.MouseClick(ctx, x, y, 1)
 }
 
-func (i InputBundle) DoubleClick(x, y int) error {
-	return i.doubleClickContext(context.Background(), x, y)
+func (i InputBundle) DoubleClick(ctx context.Context, x, y int) error {
+	return i.doubleClickContext(ctx, x, y)
 }
 
 func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
@@ -116,15 +116,19 @@ func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
 		return err
 	}
 	// Small pause to emulate human double-click timing.
-	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-time.After(20 * time.Millisecond):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
 		return err
 	}
 	return i.Inputter.MouseUp(ctx, 1)
 }
 
-func (i InputBundle) MouseMove(x, y int) error {
-	return i.mouseMoveContext(context.Background(), x, y)
+func (i InputBundle) MouseMove(ctx context.Context, x, y int) error {
+	return i.mouseMoveContext(ctx, x, y)
 }
 
 func (i InputBundle) mouseMoveContext(ctx context.Context, x, y int) error {
@@ -135,8 +139,8 @@ func (i InputBundle) mouseMoveContext(ctx context.Context, x, y int) error {
 	return i.Inputter.MouseMove(ctx, x, y)
 }
 
-func (i InputBundle) MouseDown(button int) error {
-	return i.mouseDownContext(context.Background(), button)
+func (i InputBundle) MouseDown(ctx context.Context, button int) error {
+	return i.mouseDownContext(ctx, button)
 }
 
 func (i InputBundle) mouseDownContext(ctx context.Context, button int) error {
@@ -147,8 +151,8 @@ func (i InputBundle) mouseDownContext(ctx context.Context, button int) error {
 	return i.Inputter.MouseDown(ctx, button)
 }
 
-func (i InputBundle) MouseUp(button int) error {
-	return i.mouseUpContext(context.Background(), button)
+func (i InputBundle) MouseUp(ctx context.Context, button int) error {
+	return i.mouseUpContext(ctx, button)
 }
 
 func (i InputBundle) mouseUpContext(ctx context.Context, button int) error {
@@ -159,8 +163,8 @@ func (i InputBundle) mouseUpContext(ctx context.Context, button int) error {
 	return i.Inputter.MouseUp(ctx, button)
 }
 
-func (i InputBundle) ScrollUp(clicks int) error {
-	return i.scrollUpContext(context.Background(), clicks)
+func (i InputBundle) ScrollUp(ctx context.Context, clicks int) error {
+	return i.scrollUpContext(ctx, clicks)
 }
 
 func (i InputBundle) scrollUpContext(ctx context.Context, clicks int) error {
@@ -171,8 +175,8 @@ func (i InputBundle) scrollUpContext(ctx context.Context, clicks int) error {
 	return i.Inputter.ScrollUp(ctx, clicks)
 }
 
-func (i InputBundle) ScrollDown(clicks int) error {
-	return i.scrollDownContext(context.Background(), clicks)
+func (i InputBundle) ScrollDown(ctx context.Context, clicks int) error {
+	return i.scrollDownContext(ctx, clicks)
 }
 
 func (i InputBundle) scrollDownContext(ctx context.Context, clicks int) error {
@@ -183,8 +187,8 @@ func (i InputBundle) scrollDownContext(ctx context.Context, clicks int) error {
 	return i.Inputter.ScrollDown(ctx, clicks)
 }
 
-func (i InputBundle) ScrollLeft(clicks int) error {
-	return i.scrollLeftContext(context.Background(), clicks)
+func (i InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
+	return i.scrollLeftContext(ctx, clicks)
 }
 
 func (i InputBundle) scrollLeftContext(ctx context.Context, clicks int) error {
@@ -195,8 +199,8 @@ func (i InputBundle) scrollLeftContext(ctx context.Context, clicks int) error {
 	return i.Inputter.ScrollLeft(ctx, clicks)
 }
 
-func (i InputBundle) ScrollRight(clicks int) error {
-	return i.scrollRightContext(context.Background(), clicks)
+func (i InputBundle) ScrollRight(ctx context.Context, clicks int) error {
+	return i.scrollRightContext(ctx, clicks)
 }
 
 func (i InputBundle) scrollRightContext(ctx context.Context, clicks int) error {
@@ -207,8 +211,8 @@ func (i InputBundle) scrollRightContext(ctx context.Context, clicks int) error {
 	return i.Inputter.ScrollRight(ctx, clicks)
 }
 
-func (i InputBundle) DragAndDrop(x1, y1, x2, y2 int) error {
-	return i.dragAndDropContext(context.Background(), x1, y1, x2, y2)
+func (i InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
+	return i.dragAndDropContext(ctx, x1, y1, x2, y2)
 }
 
 func (i InputBundle) dragAndDropContext(ctx context.Context, x1, y1, x2, y2 int) error {
@@ -225,7 +229,8 @@ func (i InputBundle) dragAndDropContext(ctx context.Context, x1, y1, x2, y2 int)
 	released := false
 	defer func() {
 		if !released {
-			_ = i.Inputter.MouseUp(context.Background(), 1)
+			cleanupCtx := context.WithoutCancel(ctx)
+			_ = i.Inputter.MouseUp(cleanupCtx, 1)
 		}
 	}()
 	if err := i.Inputter.MouseMove(ctx, x2, y2); err != nil {

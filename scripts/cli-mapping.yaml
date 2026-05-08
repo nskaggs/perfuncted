@@ -54,7 +54,13 @@ input:
   TypeWithDelay:
     skip: true
 screen:
+  CaptureRegion:
+    skip: true
   GetMultiplePixels:
+    skip: true
+  WaitFor:
+    skip: true
+  WaitForChange:
     skip: true
 window:
   Activate:
@@ -78,6 +84,8 @@ window:
   Move:
     skip: true
   Resize:
+    skip: true
+  Restore:
     skip: true
   WaitFor:
     skip: true

@@ -1,16 +1,15 @@
-## pf screen capture-region
+## pf screen grab-region-hash
 
-Auto-generated wrapper for perfuncted.CaptureRegion
+Auto-generated wrapper for perfuncted.GrabRegionHash
 
 ```
-pf screen capture-region [flags]
+pf screen grab-region-hash [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help          help for capture-region
-      --path string   path
+  -h, --help          help for grab-region-hash
       --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 

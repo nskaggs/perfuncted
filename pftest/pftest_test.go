@@ -1,6 +1,7 @@
 package pftest_test
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"testing"
@@ -22,13 +23,13 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	}
 
 	// Exercise each bundle through the assembled Perfuncted.
-	if _, _, err := pf.Screen.Resolution(); err != nil {
+	if _, _, err := pf.Screen.Resolution(context.Background()); err != nil {
 		t.Errorf("Resolution: %v", err)
 	}
-	if err := pf.Input.Type("{enter}"); err != nil {
+	if err := pf.Input.Type(context.Background(), "{enter}"); err != nil {
 		t.Errorf("Type: %v", err)
 	}
-	if got, err := pf.Clipboard.Get(); err != nil || got != "hi" {
+	if got, err := pf.Clipboard.Get(context.Background()); err != nil || got != "hi" {
 		t.Errorf("Clipboard.Get: %q, %v", got, err)
 	}
 }
@@ -39,13 +40,13 @@ func TestNewNilBackends(t *testing.T) {
 		t.Fatal("New returned nil")
 	}
 	// All bundles are zero-valued; operations should return errors, not panic.
-	if _, _, err := pf.Screen.Resolution(); err == nil {
+	if _, _, err := pf.Screen.Resolution(context.Background()); err == nil {
 		t.Error("expected error for nil screen")
 	}
-	if err := pf.Input.Type("{ctrl+s}"); err == nil {
+	if err := pf.Input.Type(context.Background(), "{ctrl+s}"); err == nil {
 		t.Error("expected error for nil inputter")
 	}
-	if _, err := pf.Clipboard.Get(); err == nil {
+	if _, err := pf.Clipboard.Get(context.Background()); err == nil {
 		t.Error("expected error for nil clipboard")
 	}
 }

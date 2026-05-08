@@ -153,15 +153,15 @@ type Perfuncted struct {
 
 // Paste writes text to the clipboard and sends the paste key combo. If no
 // clipboard backend is available it falls back to per-character typing.
-func (p *Perfuncted) Paste(text string) error {
+func (p *Perfuncted) Paste(ctx context.Context, text string) error {
 	if p == nil {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
 	p.traceAction(fmt.Sprintf("paste text=%q", text))
 	if p.Clipboard.Clipboard != nil {
-		return p.Clipboard.pasteWithInputContext(context.Background(), text, p.Input)
+		return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
 	}
-	return p.Input.typeContext(context.Background(), text)
+	return p.Input.typeContext(ctx, text)
 }
 
 func New(opts Options) (*Perfuncted, error) {

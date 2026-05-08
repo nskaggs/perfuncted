@@ -1,6 +1,7 @@
 package perfuncted_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/pftest"
@@ -13,13 +14,14 @@ func TestClipboardBundle(t *testing.T) {
 	pf := pftest.New(sc, inp, nil, cb)
 
 	t.Run("Clipboard", func(t *testing.T) {
-		if err := pf.Clipboard.Set("hello"); err != nil {
+		ctx := context.Background()
+		if err := pf.Clipboard.Set(ctx, "hello"); err != nil {
 			t.Fatal(err)
 		}
-		if got, err := pf.Clipboard.Get(); err != nil || got != "hello" {
+		if got, err := pf.Clipboard.Get(ctx); err != nil || got != "hello" {
 			t.Fatal(err, got)
 		}
-		if err := pf.Paste("world"); err != nil {
+		if err := pf.Paste(ctx, "world"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -29,7 +31,7 @@ func TestPerfunctedPaste(t *testing.T) {
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{}
 	pf := pftest.New(nil, inp, nil, cb)
-	if err := pf.Paste("hello"); err != nil {
+	if err := pf.Paste(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if cb.Text != "hello" {

@@ -1,16 +1,15 @@
-## pf window restore
+## pf screen grab-full-hash
 
-Auto-generated wrapper for perfuncted.Restore
+Auto-generated wrapper for perfuncted.GrabFullHash
 
 ```
-pf window restore [flags]
+pf screen grab-full-hash [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help             help for restore
-      --pattern string   pattern
+  -h, --help   help for grab-full-hash
 ```
 
 ### Options inherited from parent commands
@@ -25,5 +24,5 @@ pf window restore [flags]
 
 ### SEE ALSO
 
-* [pf window](pf_window.md)	 - Window management
+* [pf screen](pf_screen.md)	 - Screen capture operations
 

@@ -147,7 +147,9 @@ func collectDocs() (map[string]map[string]bool, error) {
 			continue
 		}
 		grp := m[1]
-		cmd := strings.TrimSuffix(m[2], ".md")
+		// Docs filenames use underscores in some command names; normalize to the
+		// hyphenated CLI form so we can compare against generated candidates.
+		cmd := strings.ReplaceAll(strings.TrimSuffix(m[2], ".md"), "_", "-")
 		if out[grp] == nil {
 			out[grp] = map[string]bool{}
 		}
@@ -158,7 +160,7 @@ func collectDocs() (map[string]map[string]bool, error) {
 
 func regexpForDocs() *regexp.Regexp {
 	// compile here to avoid importing regexp at top-level prematurely
-	return regexp.MustCompile(`^pf_([a-z0-9-]+)_(.+)\\.md$`)
+	return regexp.MustCompile(`^pf_([a-z0-9-]+)_(.+)\.md$`)
 }
 
 // Type helpers --------------------------------------------------------------
@@ -177,6 +179,10 @@ func isRectangleType(t types.Type) bool {
 
 func isDurationType(t types.Type) bool {
 	return t.String() == "time.Duration"
+}
+
+func isContextType(t types.Type) bool {
+	return t.String() == "context.Context"
 }
 
 func isStringType(t types.Type) bool {
@@ -217,12 +223,6 @@ func main() {
 	mapping, err := loadMapping(mapPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load mapping:", err)
-		os.Exit(2)
-	}
-
-	docs, err := collectDocs()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "collect docs:", err)
 		os.Exit(2)
 	}
 
@@ -282,19 +282,6 @@ func main() {
 					continue
 				}
 			}
-			// skip if docs already have candidate name
-			cands := candidatesFromMethod(mn)
-			skipBecauseDocs := false
-			for _, c := range cands {
-				if docs[grp] != nil && docs[grp][c] {
-					skipBecauseDocs = true
-					break
-				}
-			}
-			if skipBecauseDocs {
-				continue
-			}
-
 			// analyze signature
 			sig, ok := m.Type().(*types.Signature)
 			if !ok {
@@ -303,10 +290,17 @@ func main() {
 			params := sig.Params()
 			results := sig.Results()
 
-			// disallow context or function types
+			// Allow a leading context.Context, then only generate flags for supported
+			// simple scalar types that map cleanly to CLI arguments.
 			unsupported := false
 			paramInfos := []string{}
-			for i := 0; i < params.Len(); i++ {
+			hasContextParam := false
+			start := 0
+			if params.Len() > 0 && isContextType(params.At(0).Type()) {
+				hasContextParam = true
+				start = 1
+			}
+			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				t := p.Type()
 				if isStringType(t) {
@@ -387,10 +381,10 @@ func main() {
 			// build RunE body
 			sb.WriteString(fmt.Sprintf("\n\t// %s: wrapper for perfuncted.%s\n", cliName, mn))
 			// declare flag variables
-			for i := 0; i < params.Len(); i++ {
+			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				pname := paramNameOrDefault(p, i+1)
-				t := paramInfos[i]
+				t := paramInfos[i-start]
 				var vname string
 				if pname == "arg1" || pname == "arg2" || pname == "arg3" {
 					vname = fmt.Sprintf("%s_%s", cmdVar, pname)
@@ -438,25 +432,26 @@ func main() {
 			sb.WriteString(fmt.Sprintf("\t\tUse:   \"%s\",\n", cliName))
 			sb.WriteString(fmt.Sprintf("\t\tShort: \"Auto-generated wrapper for perfuncted.%s\",\n", mn))
 			// Args for simple positional single-string param
-			if params.Len() == 1 && isStringType(params.At(0).Type()) {
+			if params.Len()-start == 1 && isStringType(params.At(start).Type()) {
 				if mapping[grp] != nil {
 					if mm, ok := mapping[grp][mn]; ok && mm.Positional {
 						sb.WriteString("\t\tArgs:  cobra.ExactArgs(1),\n")
 					}
 				}
 			}
-			sb.WriteString("\t\tRunE: func(_ *cobra.Command, args []string) error {\n")
+			sb.WriteString("\t\tRunE: func(cmd *cobra.Command, args []string) error {\n")
 			sb.WriteString("\t\t\tpf, err := openPF()\n\t\t\tif err != nil { return err }\n\t\t\tdefer pf.Close()\n")
 			// parse params
-			for i := 0; i < params.Len(); i++ {
+			rectIndex := 0
+			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				pname := paramNameOrDefault(p, i+1)
-				t := paramInfos[i]
+				t := paramInfos[i-start]
 				vname := fmt.Sprintf("%s_%s", cmdVar, pname)
 				switch t {
 				case "string":
 					// positional?
-					if params.Len() == 1 {
+					if params.Len()-start == 1 {
 						if mapping[grp] != nil {
 							if mm, ok := mapping[grp][mn]; ok && mm.Positional {
 								sb.WriteString(fmt.Sprintf("\t\t\tvar %s string\n", vname))
@@ -470,8 +465,9 @@ func main() {
 					sb.WriteString(fmt.Sprintf("\t\t\t// flag %s (int) already parsed into var\n", vname))
 				case "rect":
 					// parse rect
-					sb.WriteString(fmt.Sprintf("\t\t\tr_%d, err := parseRect(%s_%s)\n", i, cmdVar, pname))
+					sb.WriteString(fmt.Sprintf("\t\t\tr_%d, err := parseRect(%s_%s)\n", rectIndex, cmdVar, pname))
 					sb.WriteString("\t\t\tif err != nil { return err }\n")
+					rectIndex++
 				case "duration":
 					sb.WriteString(fmt.Sprintf("\t\t\t%s_dur, err := parseDuration(%s_%s, 0)\n", vname, cmdVar, pname))
 					sb.WriteString("\t\t\tif err != nil { return err }\n")
@@ -480,11 +476,14 @@ func main() {
 
 			// call and handle results
 			callParams := []string{}
-			rectIndex := 0
-			for i := 0; i < params.Len(); i++ {
+			if hasContextParam {
+				callParams = append(callParams, "cmd.Context()")
+			}
+			rectIndex = 0
+			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				pname := paramNameOrDefault(p, i+1)
-				t := paramInfos[i]
+				t := paramInfos[i-start]
 				switch t {
 				case "string":
 					vname := fmt.Sprintf("%s_%s", cmdVar, pname)
@@ -569,11 +568,11 @@ func main() {
 			sb.WriteString("\t}\n")
 
 			// flags registration
-			for i := 0; i < params.Len(); i++ {
+			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				pname := paramNameOrDefault(p, i+1)
 				vname := fmt.Sprintf("%s_%s", cmdVar, pname)
-				t := paramInfos[i]
+				t := paramInfos[i-start]
 				switch t {
 				case "string":
 					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, \"%s\", \"\", \"%s\")\n", cmdVar, vname, pname, pname))

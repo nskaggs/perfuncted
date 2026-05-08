@@ -20,6 +20,7 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	inp := &pftest.Inputter{}
 	mgr := &pftest.Manager{}
 	cb := &pftest.Clipboard{}
+	ctx := context.Background()
 
 	pf := pftest.New(sc, inp, mgr, cb)
 	defer pf.Close()
@@ -28,10 +29,10 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 		t.Error("pf.Screen.Screenshotter not correctly assigned")
 	}
 	// pf.Input uses InputBundle which wraps inp.
-	if err := pf.Input.Type("a"); err != nil {
+	if err := pf.Input.Type(ctx, "a"); err != nil {
 		t.Errorf("Type: %v", err)
 	}
-	if err := pf.Input.Type("^c"); err != nil {
+	if err := pf.Input.Type(ctx, "^c"); err != nil {
 		t.Errorf("Type ctrl+c: %v", err)
 	}
 	if pf.Window.Manager != mgr {
@@ -47,6 +48,7 @@ func TestBundleSmoke(t *testing.T) {
 	inp := &pftest.Inputter{}
 	mgr := &pftest.Manager{}
 	pf := pftest.New(sc, inp, mgr, nil)
+	ctx := context.Background()
 
 	t.Run("Input", func(t *testing.T) {
 		// TODO: ModifierDown and ModifierUp methods are not yet implemented
@@ -56,34 +58,34 @@ func TestBundleSmoke(t *testing.T) {
 		// if err := pf.Input.ModifierUp("ctrl"); err != nil {
 		// 	t.Fatal(err)
 		// }
-		if err := pf.Input.Type("hello"); err != nil {
+		if err := pf.Input.Type(ctx, "hello"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input.MouseClick(10, 20, 1); err != nil {
+		if err := pf.Input.MouseClick(ctx, 10, 20, 1); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input.DoubleClick(10, 20); err != nil {
+		if err := pf.Input.DoubleClick(ctx, 10, 20); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input.DragAndDrop(0, 0, 100, 100); err != nil {
+		if err := pf.Input.DragAndDrop(ctx, 0, 0, 100, 100); err != nil {
 			t.Fatal(err)
 		}
 	})
 
 	t.Run("Screen", func(t *testing.T) {
-		if _, err := pf.Screen.GetPixel(5, 5); err != nil {
+		if _, err := pf.Screen.GetPixel(ctx, 5, 5); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pf.Screen.GetMultiplePixels([]image.Point{{1, 1}}); err != nil {
+		if _, err := pf.Screen.GetMultiplePixels(ctx, []image.Point{{1, 1}}); err != nil {
 			t.Fatal(err)
 		}
 	})
 
 	t.Run("Window", func(t *testing.T) {
-		_ = pf.Window.Resize("Firefox", 800, 600)
-		_ = pf.Window.Minimize("Firefox")
-		_ = pf.Window.Maximize("Firefox")
-		_ = pf.Window.Restore("Firefox")
+		_ = pf.Window.Resize(ctx, "Firefox", 800, 600)
+		_ = pf.Window.Minimize(ctx, "Firefox")
+		_ = pf.Window.Maximize(ctx, "Firefox")
+		_ = pf.Window.Restore(ctx, "Firefox")
 	})
 }
 
@@ -119,11 +121,56 @@ type closeErrClipboard struct {
 
 func (c *closeErrClipboard) Close() error { return c.err }
 
-func (m *tapErrInputter) Type(ctx context.Context, s string) error {
-	return errors.New("type error")
+type contextKey struct{}
+
+type contextSpyInputter struct {
+	pftest.Inputter
+	ctxValue any
 }
 
-func (m *tapErrInputter) TypeContext(ctx context.Context, s string) error {
+func (s *contextSpyInputter) Type(ctx context.Context, text string) error {
+	s.ctxValue = ctx.Value(contextKey{})
+	return nil
+}
+
+type contextSpyManager struct {
+	pftest.Manager
+	ctxValue any
+}
+
+func (m *contextSpyManager) List(ctx context.Context) ([]window.Info, error) {
+	m.ctxValue = ctx.Value(contextKey{})
+	return []window.Info{{Title: "Firefox"}}, nil
+}
+
+type contextSpyClipboard struct {
+	pftest.Clipboard
+	setValue any
+	getValue any
+}
+
+func (c *contextSpyClipboard) Get(ctx context.Context) (string, error) {
+	c.getValue = ctx.Value(contextKey{})
+	return c.Text, nil
+}
+
+func (c *contextSpyClipboard) Set(ctx context.Context, text string) error {
+	c.setValue = ctx.Value(contextKey{})
+	c.Text = text
+	return nil
+}
+
+type contextSpyScreenshotter struct {
+	pftest.Screenshotter
+	ctxValue any
+}
+
+func (s *contextSpyScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	s.ctxValue = ctx.Value(contextKey{})
+	return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
+}
+
+func (m *tapErrInputter) Type(ctx context.Context, s string) error {
 	return errors.New("type error")
 }
 
@@ -131,10 +178,55 @@ func TestInputBundleErrors(t *testing.T) {
 	t.Parallel()
 	inp := &tapErrInputter{}
 	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
 
-	err := pf.Input.Type("a")
+	err := pf.Input.Type(ctx, "a")
 	if err == nil || err.Error() != "type error" {
 		t.Errorf("expected 'type error', got %v", err)
+	}
+}
+
+func TestBundleMethodsPropagateContext(t *testing.T) {
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), contextKey{}, "token")
+	inp := &contextSpyInputter{}
+	mgr := &contextSpyManager{}
+	cb := &contextSpyClipboard{}
+	sc := &contextSpyScreenshotter{}
+	pf := &perfuncted.Perfuncted{
+		Screen:    perfuncted.ScreenBundle{Screenshotter: sc},
+		Input:     perfuncted.InputBundle{Inputter: inp},
+		Window:    perfuncted.WindowBundle{Manager: mgr},
+		Clipboard: perfuncted.ClipboardBundle{Clipboard: cb},
+	}
+
+	if err := pf.Input.Type(ctx, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pf.Window.List(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := pf.Clipboard.Set(ctx, "clipboard"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := pf.Clipboard.Get(ctx); err != nil || got != "clipboard" {
+		t.Fatalf("Clipboard.Get = %q, %v", got, err)
+	}
+	if _, err := pf.Screen.GetPixel(ctx, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if inp.ctxValue != "token" {
+		t.Fatalf("input ctx = %v, want token", inp.ctxValue)
+	}
+	if mgr.ctxValue != "token" {
+		t.Fatalf("window ctx = %v, want token", mgr.ctxValue)
+	}
+	if cb.setValue != "token" || cb.getValue != "token" {
+		t.Fatalf("clipboard ctx = set:%v get:%v, want token", cb.setValue, cb.getValue)
+	}
+	if sc.ctxValue != "token" {
+		t.Fatalf("screen ctx = %v, want token", sc.ctxValue)
 	}
 }
 
@@ -168,8 +260,9 @@ func TestWindowBundle(t *testing.T) {
 		},
 	}
 	pf := pftest.New(nil, nil, mgr, nil)
+	ctx := context.Background()
 
-	wins, err := pf.Window.List(context.Background())
+	wins, err := pf.Window.List(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +270,7 @@ func TestWindowBundle(t *testing.T) {
 		t.Errorf("unexpected list: %v", wins)
 	}
 
-	if err := pf.Window.Activate("Firefox"); err != nil {
+	if err := pf.Window.Activate(ctx, "Firefox"); err != nil {
 		t.Fatal(err)
 	}
 	if len(mgr.Activated) != 1 || mgr.Activated[0] != "Firefox" {
@@ -189,8 +282,9 @@ func TestScreenBundleHashing(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	sc := &pftest.Screenshotter{Frames: []image.Image{img}}
 	pf := pftest.New(sc, nil, nil, nil)
+	ctx := context.Background()
 
-	h1, err := pf.Screen.GrabRegionHash(context.Background(), image.Rect(0, 0, 10, 10))
+	h1, err := pf.Screen.GrabRegionHash(ctx, image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +293,7 @@ func TestScreenBundleHashing(t *testing.T) {
 	}
 
 	// GrabFullHash - equivalent to GrabRegionHash with empty rect
-	h2, err := pf.Screen.GrabFullHash(context.Background())
+	h2, err := pf.Screen.GrabFullHash(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
