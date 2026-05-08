@@ -8,6 +8,13 @@ import (
 	"github.com/nskaggs/perfuncted"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+	builtBy = "unknown"
+)
+
 func main() {
 	os.Exit(run(context.Background(), os.Args[1:]))
 }

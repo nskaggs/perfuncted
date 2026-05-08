@@ -26,5 +26,6 @@ perfuncted — screen automation CLI
 * [pf run](pf_run.md)	 - Run CLI commands from a script file or stdin
 * [pf screen](pf_screen.md)	 - Screen capture operations
 * [pf session](pf_session.md)	 - Session diagnostics and utilities
+* [pf version](pf_version.md)	 - Print version information
 * [pf window](pf_window.md)	 - Window management
 
