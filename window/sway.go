@@ -165,6 +165,7 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 				info := Info{
 					ID:    uint64(n.ID),
 					Title: n.Name,
+					AppID: n.AppID,
 					X:     n.Rect.X,
 					Y:     n.Rect.Y,
 					W:     n.Rect.W,

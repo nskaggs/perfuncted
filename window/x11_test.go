@@ -349,6 +349,20 @@ func TestX11Backend_windowPID_NoPID(t *testing.T) {
 	}
 }
 
+func TestX11Backend_windowClass(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == xproto.AtomWmClass {
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("org.example\x00Example\x00")})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	appID, class := b.windowClass(50)
+	if appID != "org.example" || class != "Example" {
+		t.Fatalf("windowClass() = (%q, %q), want (%q, %q)", appID, class, "org.example", "Example")
+	}
+}
+
 func TestX11Backend_windowHasDecoration(t *testing.T) {
 	b, conn := newStubX11Backend(t, false, "")
 	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {

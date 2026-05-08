@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strings"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -127,6 +128,25 @@ func (b *X11Backend) windowPID(win xproto.Window) int32 {
 		uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
 }
 
+// windowClass returns the WM_CLASS instance and class strings, if available.
+func (b *X11Backend) windowClass(win xproto.Window) (string, string) {
+	rep, err := b.conn.GetProperty(false, win, xproto.AtomWmClass,
+		xproto.AtomString, 0, 1024).Reply()
+	if err != nil || len(rep.Value) == 0 {
+		return "", ""
+	}
+	parts := strings.Split(string(rep.Value), "\x00")
+	if len(parts) == 0 {
+		return "", ""
+	}
+	appID := strings.TrimSpace(parts[0])
+	class := appID
+	if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+		class = strings.TrimSpace(parts[1])
+	}
+	return appID, class
+}
+
 // windowHasDecoration checks if the window declared it has decoration at the WM level. Some windows are still
 // using the old Motif way of doing things. On modern desktop, in conjunction with using _NET_FRAME_EXTENTS correctly,
 // this "trick" allows them to bypass the decoration settings which is done by WM ; the WM allocates the decoration
@@ -231,9 +251,12 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 		for _, id := range ids {
 			x, y, w, h := b.windowGeometry(id)
 			minimized, maximized := b.windowState(id)
+			appID, class := b.windowClass(id)
 			info := Info{
 				ID:        uint64(id),
 				Title:     b.windowTitle(id),
+				AppID:     appID,
+				Class:     class,
 				PID:       b.windowPID(id),
 				X:         x,
 				Y:         y,

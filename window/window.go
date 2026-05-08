@@ -31,6 +31,8 @@ var ErrWindowNotFound = errors.New("window: not found")
 type Info struct {
 	ID    uint64
 	Title string
+	AppID string
+	Class string
 	PID   int32
 	X, Y  int
 	W, H  int
@@ -43,8 +45,8 @@ type Info struct {
 
 // Manager lists and controls desktop windows.
 //
-// All title-based methods use case-insensitive substring matching; the
-// first window whose title contains the given string is acted upon.
+// All title-based methods use case-insensitive substring matching as a
+// shorthand; more specific matching is exposed via window.Match helpers.
 type Manager interface {
 	// List returns all visible top-level windows.
 	List(ctx context.Context) ([]Info, error)

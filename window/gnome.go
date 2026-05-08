@@ -87,6 +87,7 @@ JSON.stringify(
       return {
         id:    w.get_stable_sequence(),
         title: w.get_title() || "",
+        class: w.get_wm_class ? (w.get_wm_class() || "") : "",
         pid:   w.get_pid(),
         x:     r.x,
         y:     r.y,
@@ -103,6 +104,7 @@ JSON.stringify(
 		var entries []struct {
 			ID    uint64 `json:"id"`
 			Title string `json:"title"`
+			Class string `json:"class"`
 			PID   int32  `json:"pid"`
 			X     int    `json:"x"`
 			Y     int    `json:"y"`
@@ -114,7 +116,7 @@ JSON.stringify(
 			return
 		}
 		for _, e := range entries {
-			if !yield(Info{ID: e.ID, Title: e.Title, PID: e.PID, X: e.X, Y: e.Y, W: e.W, H: e.H}, nil) {
+			if !yield(Info{ID: e.ID, Title: e.Title, Class: e.Class, PID: e.PID, X: e.X, Y: e.Y, W: e.W, H: e.H}, nil) {
 				return
 			}
 		}
