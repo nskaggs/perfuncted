@@ -348,6 +348,14 @@ func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(true, int32(clicks))
 }
 
+func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	return 0, 0, fmt.Errorf("input/uinput: pointer location unsupported")
+}
+
+func (b *UinputBackend) Sync(ctx context.Context) error {
+	return nil
+}
+
 func (b *UinputBackend) Close() error {
 	var errs []error
 	if err := b.kb.Close(); err != nil {

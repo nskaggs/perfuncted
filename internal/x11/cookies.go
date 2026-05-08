@@ -22,6 +22,10 @@ type TranslateCoordinatesCookie interface {
 	Reply() (*xproto.TranslateCoordinatesReply, error)
 }
 
+type QueryPointerCookie interface {
+	Reply() (*xproto.QueryPointerReply, error)
+}
+
 type SendEventCookie interface {
 	Check() error
 }
@@ -105,6 +109,19 @@ func NewXProtoTranslateCoordinatesCookie(c xproto.TranslateCoordinatesCookie) *X
 }
 
 func (c *XProtoTranslateCoordinatesCookie) Reply() (*xproto.TranslateCoordinatesReply, error) {
+	return c.cookie.Reply()
+}
+
+// XProtoQueryPointerCookie encapsulates xproto.QueryPointerCookie.
+type XProtoQueryPointerCookie struct {
+	cookie xproto.QueryPointerCookie
+}
+
+func NewXProtoQueryPointerCookie(c xproto.QueryPointerCookie) *XProtoQueryPointerCookie {
+	return &XProtoQueryPointerCookie{cookie: c}
+}
+
+func (c *XProtoQueryPointerCookie) Reply() (*xproto.QueryPointerReply, error) {
 	return c.cookie.Reply()
 }
 

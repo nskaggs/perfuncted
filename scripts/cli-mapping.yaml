@@ -49,6 +49,10 @@ input:
     skip: true
   ScrollUp:
     skip: true
+  PointerLocation:
+    name: location
+  Sync:
+    skip: true
   Type:
     skip: true
   TypeWithDelay:
@@ -86,6 +90,8 @@ window:
   Resize:
     skip: true
   Restore:
+    skip: true
+  Sync:
     skip: true
   WaitFor:
     skip: true

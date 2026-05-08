@@ -199,6 +199,20 @@ func (b *WlInputMethodBackend) ScrollRight(ctx context.Context, clicks int) erro
 	return b.other.ScrollRight(ctx, clicks)
 }
 
+func (b *WlInputMethodBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	if b.other == nil {
+		return 0, 0, fmt.Errorf("input/wl-im: pointer location unsupported (no subordinate backend)")
+	}
+	return b.other.PointerLocation(ctx)
+}
+
+func (b *WlInputMethodBackend) Sync(ctx context.Context) error {
+	if b.other != nil {
+		return b.other.Sync(ctx)
+	}
+	return nil
+}
+
 func (b *WlInputMethodBackend) Close() error {
 	var errs []error
 	if b.other != nil {

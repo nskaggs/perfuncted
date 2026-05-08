@@ -367,6 +367,14 @@ func (m *WaylandWindowManager) Maximize(ctx context.Context, title string) error
 	return nil
 }
 
+func (m *WaylandWindowManager) Fullscreen(ctx context.Context, title string) error {
+	return ErrNotSupported
+}
+
+func (m *WaylandWindowManager) Unfullscreen(ctx context.Context, title string) error {
+	return ErrNotSupported
+}
+
 func (m *WaylandWindowManager) Close() error {
 	if m.session != nil {
 		return m.session.Close()
@@ -375,4 +383,11 @@ func (m *WaylandWindowManager) Close() error {
 		return m.display.Context().Close()
 	}
 	return nil
+}
+
+func (m *WaylandWindowManager) Sync(ctx context.Context) error {
+	if m.display == nil {
+		return nil
+	}
+	return m.display.RoundTrip()
 }

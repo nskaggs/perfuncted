@@ -27,6 +27,7 @@ type X11Backend struct {
 	atomNetWMStateHidden        xproto.Atom
 	atomNetWMStateMaximizedVert xproto.Atom
 	atomNetWMStateMaximizedHorz xproto.Atom
+	atomNetWMStateFullscreen    xproto.Atom
 	atomNetWMPID                xproto.Atom
 	atomMotifWMHints            xproto.Atom
 	atomUTF8String              xproto.Atom
@@ -51,6 +52,7 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 		"_NET_WM_STATE_HIDDEN":         &b.atomNetWMStateHidden,
 		"_NET_WM_STATE_MAXIMIZED_VERT": &b.atomNetWMStateMaximizedVert,
 		"_NET_WM_STATE_MAXIMIZED_HORZ": &b.atomNetWMStateMaximizedHorz,
+		"_NET_WM_STATE_FULLSCREEN":     &b.atomNetWMStateFullscreen,
 		"_NET_WM_PID":                  &b.atomNetWMPID,
 		"_MOTIF_WM_HINTS":              &b.atomMotifWMHints,
 		"UTF8_STRING":                  &b.atomUTF8String,
@@ -305,24 +307,27 @@ func (b *X11Backend) Restore(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	data := [5]uint32{
-		0, /* _NET_WM_STATE_REMOVE */
-		uint32(b.atomNetWMStateMaximizedVert),
-		uint32(b.atomNetWMStateMaximizedHorz),
-		1,
-		0,
+	if err := b.setWMState(win, 0, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz); err != nil {
+		return err
 	}
-	if err := b.conn.SendEventChecked(false, b.root,
+	return b.conn.MapWindowChecked(win).Check()
+}
+
+func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xproto.Atom) error {
+	var data [5]uint32
+	data[0] = action
+	for i := 0; i < len(atoms) && i < 3; i++ {
+		data[i+1] = uint32(atoms[i])
+	}
+	data[4] = 1
+	return b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
 		string(xproto.ClientMessageEvent{
 			Format: 32,
 			Window: win,
 			Type:   b.atomNetWMState,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
-		}.Bytes())).Check(); err != nil {
-		return err
-	}
-	return b.conn.MapWindowChecked(win).Check()
+		}.Bytes())).Check()
 }
 
 // Move repositions a window by title.
@@ -362,6 +367,11 @@ func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
 // Close closes the X11 connection.
 func (b *X11Backend) Close() error {
 	b.conn.Close()
+	return nil
+}
+
+func (b *X11Backend) Sync(ctx context.Context) error {
+	b.conn.Sync()
 	return nil
 }
 
@@ -421,19 +431,21 @@ func (b *X11Backend) Maximize(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	data := [5]uint32{
-		1, /* _NET_WM_STATE_ADD */
-		uint32(b.atomNetWMStateMaximizedVert),
-		uint32(b.atomNetWMStateMaximizedHorz),
-		1, /* source = application */
-		0,
+	return b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
+}
+
+func (b *X11Backend) Fullscreen(ctx context.Context, title string) error {
+	win, err := b.findByTitle(ctx, title)
+	if err != nil {
+		return err
 	}
-	return b.conn.SendEventChecked(false, b.root,
-		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
-		string(xproto.ClientMessageEvent{
-			Format: 32,
-			Window: win,
-			Type:   b.atomNetWMState,
-			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
-		}.Bytes())).Check()
+	return b.setWMState(win, 1, b.atomNetWMStateFullscreen)
+}
+
+func (b *X11Backend) Unfullscreen(ctx context.Context, title string) error {
+	win, err := b.findByTitle(ctx, title)
+	if err != nil {
+		return err
+	}
+	return b.setWMState(win, 0, b.atomNetWMStateFullscreen)
 }

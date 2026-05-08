@@ -53,7 +53,7 @@ func uniq(xs []string) []string {
 }
 
 var commonPrefixes = []string{
-	"Mouse", "Key", "Grab", "Find", "WaitFor", "Wait", "Get", "Set", "List", "Active", "Activate", "Press", "Scroll", "Close",
+	"Mouse", "Key", "Grab", "Find", "WaitFor", "Wait", "Get", "Set", "List", "Active", "Activate", "Press", "Scroll", "Close", "Pointer",
 }
 
 func candidatesFromMethod(name string) []string {
@@ -129,7 +129,8 @@ func skipMethodForCLISync(name string) bool {
 		"WaitForClose",
 		"WaitForFn",
 		"WaitForSettle",
-		"WaitForWindow":
+		"WaitForWindow",
+		"Sync":
 		return true
 	default:
 		return false
@@ -233,6 +234,7 @@ func main() {
 			"get-geometry":    true,
 			"is-visible":      true,
 			"iterate":         true,
+			"watch":           true,
 			"wait-for-close":  true,
 			"wait-for-window": true,
 		},

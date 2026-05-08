@@ -149,7 +149,11 @@ func (m *Inputter) MouseClick(ctx context.Context, x, y, b int) error {
 	m.record(fmt.Sprintf("click:%d,%d", x, y))
 	return m.Err
 }
-func (m *Inputter) Close() error { return nil }
+func (m *Inputter) PointerLocation(ctx context.Context) (int, int, error) {
+	return 0, 0, m.Err
+}
+func (m *Inputter) Sync(ctx context.Context) error { return m.Err }
+func (m *Inputter) Close() error                   { return nil }
 
 func (m *Inputter) Typed() string {
 	m.mu.Lock()
@@ -264,6 +268,8 @@ func (m *Manager) Resize(ctx context.Context, title string, w, h int) error { re
 func (m *Manager) CloseWindow(ctx context.Context, title string) error      { return m.Err }
 func (m *Manager) Minimize(ctx context.Context, title string) error         { return m.Err }
 func (m *Manager) Maximize(ctx context.Context, title string) error         { return m.Err }
+func (m *Manager) Fullscreen(ctx context.Context, title string) error       { return m.Err }
+func (m *Manager) Unfullscreen(ctx context.Context, title string) error     { return m.Err }
 func (m *Manager) Restore(ctx context.Context, title string) error          { return m.Err }
 func (m *Manager) Close() error                                             { return nil }
 

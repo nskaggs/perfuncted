@@ -35,6 +35,20 @@ func (w WindowBundle) traceAction(msg string) {
 	w.tracer.Tracef("window", "%s", msg)
 }
 
+func (w WindowBundle) sync(ctx context.Context) error {
+	type syncer interface {
+		Sync(context.Context) error
+	}
+	if s, ok := w.Manager.(syncer); ok {
+		return s.Sync(ctx)
+	}
+	return nil
+}
+
+func (w WindowBundle) Sync(ctx context.Context) error {
+	return w.sync(ctx)
+}
+
 // List returns all visible top-level windows.
 func (w WindowBundle) List(ctx context.Context) ([]window.Info, error) {
 	w.traceAction("list")
@@ -105,6 +119,24 @@ func (w WindowBundle) Maximize(ctx context.Context, pattern string) error {
 		return err
 	}
 	return w.Manager.Maximize(ctx, pattern)
+}
+
+// Fullscreen toggles fullscreen for the matching window.
+func (w WindowBundle) Fullscreen(ctx context.Context, pattern string) error {
+	w.traceAction(fmt.Sprintf("fullscreen pattern=%q", pattern))
+	if err := w.checkAvailable(); err != nil {
+		return err
+	}
+	return w.Manager.Fullscreen(ctx, pattern)
+}
+
+// Unfullscreen exits fullscreen for the matching window.
+func (w WindowBundle) Unfullscreen(ctx context.Context, pattern string) error {
+	w.traceAction(fmt.Sprintf("unfullscreen pattern=%q", pattern))
+	if err := w.checkAvailable(); err != nil {
+		return err
+	}
+	return w.Manager.Unfullscreen(ctx, pattern)
 }
 
 // Restore restores the window matching pattern to its previous size.

@@ -22,6 +22,7 @@ pf screen watch [flags]
 ```
       --duration string   stop after this duration (e.g. 10s); default runs until Ctrl+C
   -h, --help              help for watch
+      --output string     plain|json (default "plain")
       --poll string       poll interval (default "100ms")
       --rect string       x0,y0,x1,y1 region to monitor (default "0,0,1920,1080")
 ```
@@ -32,6 +33,7 @@ pf screen watch [flags]
       --max-x int32            input coordinate space width (default 1920)
       --max-y int32            input coordinate space height (default 1080)
       --nested                 auto-detect and connect to a nested Wayland session in /tmp
+      --sync                   sync after observable mutating commands when supported
       --trace-actions          print each API action to stderr as it runs
       --trace-delay duration   sleep after each traced action
 ```

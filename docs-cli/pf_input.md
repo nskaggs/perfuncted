@@ -14,6 +14,7 @@ Mouse and keyboard injection
       --max-x int32            input coordinate space width (default 1920)
       --max-y int32            input coordinate space height (default 1080)
       --nested                 auto-detect and connect to a nested Wayland session in /tmp
+      --sync                   sync after observable mutating commands when supported
       --trace-actions          print each API action to stderr as it runs
       --trace-delay duration   sleep after each traced action
 ```
@@ -27,6 +28,7 @@ Mouse and keyboard injection
 * [pf input drag-and-drop](pf_input_drag-and-drop.md)	 - Drag from one coordinate to another (press, move, release)
 * [pf input keydown](pf_input_keydown.md)	 - Press and hold a key
 * [pf input keyup](pf_input_keyup.md)	 - Release a held key
+* [pf input location](pf_input_location.md)	 - Print current pointer location
 * [pf input mousedown](pf_input_mousedown.md)	 - Press a mouse button (optional coords)
 * [pf input mouseup](pf_input_mouseup.md)	 - Release a mouse button (optional coords)
 * [pf input move](pf_input_move.md)	 - Move mouse to absolute coordinates

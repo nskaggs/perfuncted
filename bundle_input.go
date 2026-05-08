@@ -211,6 +211,24 @@ func (i InputBundle) scrollRightContext(ctx context.Context, clicks int) error {
 	return i.Inputter.ScrollRight(ctx, clicks)
 }
 
+func (i InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
+	i.traceAction("pointer-location")
+	if err := i.checkAvailable(); err != nil {
+		return 0, 0, err
+	}
+	return i.Inputter.PointerLocation(ctx)
+}
+
+func (i InputBundle) Sync(ctx context.Context) error {
+	type syncer interface {
+		Sync(context.Context) error
+	}
+	if s, ok := i.Inputter.(syncer); ok {
+		return s.Sync(ctx)
+	}
+	return nil
+}
+
 func (i InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
 	return i.dragAndDropContext(ctx, x1, y1, x2, y2)
 }

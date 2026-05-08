@@ -57,7 +57,7 @@ func hyphenate(s string) string {
 }
 
 var commonPrefixes = []string{
-	"Mouse", "Key", "Grab", "Find", "WaitFor", "Wait", "Get", "Set", "List", "Active", "Activate", "Press", "Scroll", "Close",
+	"Mouse", "Key", "Grab", "Find", "WaitFor", "Wait", "Get", "Set", "List", "Active", "Activate", "Press", "Scroll", "Close", "Pointer",
 }
 
 func candidatesFromMethod(name string) []string {
