@@ -79,6 +79,9 @@ precommit: check-generate check-docs check-api-sync check test-unit
 
 # Build all packages and binaries
 build:
+    # Produce a repo-root pf binary used by release tests
+    CGO_ENABLED=0 go build -o pf ./cmd/pf
+    # Also build all packages for parity
     CGO_ENABLED=0 go build ./...
 
 # Build and install the pf CLI to $GOPATH/bin
