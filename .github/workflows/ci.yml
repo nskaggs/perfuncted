@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CGO_ENABLED: "0"
+
 jobs:
   quality:
     name: Build & Quality
@@ -35,7 +38,7 @@ jobs:
         run: go build ./...
 
       - name: Unit tests
-        run: go test -short -race ./...
+        run: go test -short ./...
 
       - name: CLI Sync Check
         run: go run ./scripts/verify_cli_api.go
@@ -83,3 +86,45 @@ jobs:
 
       - name: Backend Integration Tests
         run: go test -v -tags=integration -timeout=60s ./window ./input ./screen ./clipboard -count=1
+
+  release-smoke:
+    name: Release Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+          cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sway dbus-x11 libwayland-client0 libwayland-server0 \
+                                 wl-clipboard xdg-utils
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: build --snapshot --clean --single-target
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Static release smoke test (no display)
+        run: |
+          BIN=$(find dist/ -name 'pf' -type f | head -1)
+          echo "Testing binary: $BIN"
+          PF_BINARY="$BIN" go test -tags=release -v -run TestBinaryStatic ./release/ -count=1
+
+      - name: Live release smoke test (headless Wayland)
+        run: |
+          BIN=$(find dist/ -name 'pf' -type f | head -1)
+          echo "Testing binary: $BIN"
+          PF_BINARY="$BIN" PF_TEST_DISPLAY_SERVER=headless-wayland \
+            go test -tags=release -v -run TestBinaryLive ./release/ -count=1 -timeout=120s
+
