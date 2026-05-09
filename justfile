@@ -40,15 +40,15 @@ tidy:
 
 # Install development tools
 install-dev-tools:
-    go install honnef.co/go/tools/cmd/staticcheck@latest
-    go install golang.org/x/vuln/cmd/govulncheck@latest
-    go install golang.org/x/tools/cmd/deadcode@latest
+    CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest
+    CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@latest
+    CGO_ENABLED=0 go install golang.org/x/tools/cmd/deadcode@latest
 
 # Generate CLI code and documentation
 generate:
-    go run -tags=gencli ./scripts/gen_cli.go
+    CGO_ENABLED=0 go run -tags=gencli ./scripts/gen_cli.go
     rm -rf docs-cli/
-    go run ./cmd/pf/ docs --dir ./docs-cli
+    CGO_ENABLED=0 go run ./cmd/pf/ docs --dir ./docs-cli
 
 # Generate CLI documentation
 docs: generate
@@ -72,78 +72,95 @@ check-docs:
 
 # Verify CLI commands and API methods are in sync (coverage both directions).
 check-api-sync:
-    go run ./scripts/verify_cli_api.go
+    CGO_ENABLED=0 go run ./scripts/verify_cli_api.go
 
 # Pre-commit: generated files + all checks + docs quality + unit tests
 precommit: check-generate check-docs check-api-sync check test-unit
 
 # Build all packages and binaries
 build:
-    go build ./...
+    CGO_ENABLED=0 go build ./...
 
 # Build and install the pf CLI to $GOPATH/bin
 install: build
-    go install ./cmd/pf/
+    CGO_ENABLED=0 go install ./cmd/pf/
 
 # ── testing ────────────────────────────────────────────────────────────────────
 
 # Run short (unit) tests only
 test-unit:
-    go test -short -race ./...
+    CGO_ENABLED=0 go test -short ./...
 
 # Run unit tests (default alias)
 test: test-unit
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
-    PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run TestSessionLifecycle -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run TestSessionLifecycle -count=1
 
 # Run the shared integration suite against headless X11.
 test-integration-headless-x11:
-    PF_TEST_DISPLAY_SERVER=headless-x11 go test -tags=integration ./integration -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-x11 go test -tags=integration ./integration -count=1
 
 # Run the shared integration suite against nested X11.
 test-integration-nested-x11:
-    PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1
 
 # Integration suite against nested X11 with tracing and slower execution
 test-integration-nested-x11-debug:
-    PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1 -v
+    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1 -v
 
 # Run the shared integration suite against headless Wayland.
 test-integration-headless-wayland:
-    PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -count=1
 
 # Run the shared integration suite against nested Wayland.
 test-integration-nested-wayland:
-    PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1
 
 # Integration suite against nested Wayland with tracing and slower execution
 test-integration-nested-wayland-debug:
-    PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1 -v
+    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1 -v
     
 # Run all integration checks: shared suite plus package-level backend integrations.
 test-integration: test-integration-headless-x11 test-integration-headless-wayland
-    go test -tags=integration ./window ./input ./screen ./clipboard -count=1
+    CGO_ENABLED=0 go test -tags=integration ./window ./input ./screen ./clipboard -count=1
 
 # Run all test suites: unit + session + integration
 test-all: test-unit test-session test-integration
     @echo "Completed test-all"
 
+# ── release smoke tests ────────────────────────────────────────────────────
+
+# Build the pf binary and run the release smoke test (static tests only, no display required).
+# Validates the binary exits correctly, version output, help text, and info JSON.
+test-release-static: build
+    CGO_ENABLED=0 PF_BINARY=./pf go test -tags=release -v -run TestBinaryStatic ./release/ -count=1
+
+# Run the full release smoke test against a headless Wayland session.
+# Starts a real sway session and drives the built binary through screen/window/clipboard commands.
+test-release: build
+    CGO_ENABLED=0 PF_BINARY=./pf PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=release -v ./release/ -count=1
+
+# Run the release smoke test against an explicit binary (e.g. a GoReleaser dist artifact).
+# Usage: just test-release-binary ./dist/pf_linux_amd64/pf
+test-release-binary BINARY:
+    CGO_ENABLED=0 PF_BINARY={{BINARY}} PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=release -v ./release/ -count=1
+
 # Run the pf CLI with the given arguments
 run *args: build
-    go run ./cmd/pf/ {{args}}
+    CGO_ENABLED=0 go run ./cmd/pf/ {{args}}
 
 
 # ── dev environment ────────────────────────────────────────────────────────────
 
 # Run the pf CLI
 pf *args:
-    go run ./cmd/pf/ {{args}}
+    CGO_ENABLED=0 go run ./cmd/pf/ {{args}}
 
 # Run the pf CLI inside the nested sway session
 nested-pf *args:
-    WAYLAND_DISPLAY="${SWAY_WAYLAND_DISPLAY:-wayland-1}" go run ./cmd/pf/ {{args}}
+    CGO_ENABLED=0 WAYLAND_DISPLAY="${SWAY_WAYLAND_DISPLAY:-wayland-1}" go run ./cmd/pf/ {{args}}
 
 # Launch a visible isolated nested sway session (wlroots) connected to the host desktop.
 # Creates a temporary XDG_RUNTIME_DIR so host processes do not leak into it.
