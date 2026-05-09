@@ -35,9 +35,9 @@ type MethodMapping struct {
 	Skip       bool              `yaml:"skip,omitempty"`
 	Positional bool              `yaml:"positional,omitempty"`
 	OutFlag    string            `yaml:"out_flag,omitempty"`
-	Short      string            `yaml:"short,omitempty"`      // one-line description shown in help
-	Long       string            `yaml:"long,omitempty"`       // multi-paragraph description shown in Synopsis
-	Flags      map[string]string `yaml:"flags,omitempty"`      // flag name -> usage string override
+	Short      string            `yaml:"short,omitempty"` // one-line description shown in help
+	Long       string            `yaml:"long,omitempty"`  // multi-paragraph description shown in Synopsis
+	Flags      map[string]string `yaml:"flags,omitempty"` // flag name -> usage string override
 }
 
 type Mapping map[string]map[string]MethodMapping
