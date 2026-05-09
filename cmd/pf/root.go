@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"io"
 	"os"
 	"os/signal"
@@ -19,7 +20,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"image/png"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
