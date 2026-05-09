@@ -62,6 +62,19 @@ func (s ScreenBundle) grab(ctx context.Context, rect image.Rectangle) (image.Ima
 	return s.Screenshotter.Grab(ctx, rect)
 }
 
+// GetAllPixels captures the entire screen and returns it as an image.Image.
+func (s ScreenBundle) GetAllPixels(ctx context.Context) (image.Image, error) {
+	s.traceAction("get-all-pixels")
+	return s.grab(ctx, image.Rectangle{})
+}
+
+// GrabRegion captures the specified screen region and returns it as an image.Image.
+// If rect is empty, it captures the entire screen.
+func (s ScreenBundle) GrabRegion(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	s.traceAction(fmt.Sprintf("grab-region rect=%s", rect))
+	return s.grab(ctx, rect)
+}
+
 // CaptureRegion captures the given screen region and saves it as a PNG file at path.
 func (s ScreenBundle) CaptureRegion(ctx context.Context, rect image.Rectangle, path string) error {
 	s.traceAction(fmt.Sprintf("capture-region rect=%s path=%q", rect, path))
