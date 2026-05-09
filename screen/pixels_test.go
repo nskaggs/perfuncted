@@ -108,10 +108,10 @@ func TestDecodeBGRARect(t *testing.T) {
 	data := make([]byte, 36)
 	// Fill with distinct values
 	for i := 0; i < 9; i++ {
-		data[i*4+0] = byte(i + 1)      // B
-		data[i*4+1] = byte((i + 1) * 2)  // G
-		data[i*4+2] = byte((i + 1) * 3)  // R
-		data[i*4+3] = 0xFF             // A
+		data[i*4+0] = byte(i + 1)       // B
+		data[i*4+1] = byte((i + 1) * 2) // G
+		data[i*4+2] = byte((i + 1) * 3) // R
+		data[i*4+3] = 0xFF              // A
 	}
 
 	// Extract 2x2 rect starting at (1, 1)
@@ -136,8 +136,8 @@ func TestDecodeBGRARect(t *testing.T) {
 func TestDecodeBGRARectWithStridePadding(t *testing.T) {
 	// 2x2 image with stride=12 (4 bytes padding per row).
 	data := []byte{
-		0x01, 0x02, 0x03, 0xFF,   0x11, 0x12, 0x13, 0xFF,   0x00, 0x00, 0x00, 0x00, // row 0 + padding
-		0x04, 0x05, 0x06, 0xFF,   0x14, 0x15, 0x16, 0xFF,   0x00, 0x00, 0x00, 0x00, // row 1 + padding
+		0x01, 0x02, 0x03, 0xFF, 0x11, 0x12, 0x13, 0xFF, 0x00, 0x00, 0x00, 0x00, // row 0 + padding
+		0x04, 0x05, 0x06, 0xFF, 0x14, 0x15, 0x16, 0xFF, 0x00, 0x00, 0x00, 0x00, // row 1 + padding
 	}
 
 	// Extract 1x2 rect starting at (1, 0)

@@ -22,8 +22,8 @@ func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 		dst := img.Pix[dstOff : dstOff+rowBytes]
 		// iterate by bytes to reduce multiplications inside loop
 		for s := 0; s < rowBytes; s += 4 {
-			_ = srcRow[s+3] // eliminate bounds check
-			_ = dst[s+3]    // eliminate bounds check
+			_ = srcRow[s+3]        // eliminate bounds check
+			_ = dst[s+3]           // eliminate bounds check
 			dst[s+0] = srcRow[s+2] // R ← B
 			dst[s+1] = srcRow[s+1] // G ← G
 			dst[s+2] = srcRow[s+0] // B ← R
@@ -48,8 +48,8 @@ func decodeBGRARect(data []byte, w, h, stride int, rect image.Rectangle) *image.
 		dstOff := y * out.Stride
 		dst := out.Pix[dstOff : dstOff+rowBytes]
 		for s := 0; s < rowBytes; s += 4 {
-			_ = srcRow[s+3] // eliminate bounds check
-			_ = dst[s+3]    // eliminate bounds check
+			_ = srcRow[s+3]        // eliminate bounds check
+			_ = dst[s+3]           // eliminate bounds check
 			dst[s+0] = srcRow[s+2] // R ← B
 			dst[s+1] = srcRow[s+1] // G ← G
 			dst[s+2] = srcRow[s+0] // B ← R
