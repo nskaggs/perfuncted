@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"io"
 	"os"
 	"os/signal"
@@ -432,6 +433,70 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 	pixel.Flags().IntVar(&py, "y", 0, "y coordinate")
 
 	cmd.AddCommand(grab, checksum, pixel)
+
+	getAllPixels := &cobra.Command{
+		Use:   "get-all-pixels",
+		Short: "Capture the entire screen and output raw RGBA pixels to stdout",
+		Long: `Captures the entire screen and writes the raw 8-bit RGBA pixel data
+directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			img, err := pf.Screen.GetAllPixels(context.Background())
+			if err != nil {
+				return err
+			}
+			if rgba, ok := img.(*image.RGBA); ok {
+				_, err = cmd.OutOrStdout().Write(rgba.Pix)
+				return err
+			}
+			return fmt.Errorf("unexpected image type %T", img)
+		},
+	}
+
+	var grabRegionRect, grabRegionOut string
+	grabRegion := &cobra.Command{
+		Use:   "grab-region",
+		Short: "Capture a specific screen region",
+		Long: `Captures a specific screen region and outputs it as a PNG.
+If --out is not provided or is '-', the PNG data is written to stdout.
+Otherwise, it is saved to the specified file.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(grabRegionRect)
+			if err != nil {
+				return err
+			}
+			img, err := pf.Screen.GrabRegion(context.Background(), r)
+			if err != nil {
+				return err
+			}
+			if grabRegionOut == "" || grabRegionOut == "-" {
+				return png.Encode(cmd.OutOrStdout(), img)
+			}
+			f, err := os.Create(grabRegionOut)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			if err := png.Encode(f, img); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, grabRegionOut)
+			return nil
+		},
+	}
+	grabRegion.Flags().StringVar(&grabRegionRect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	grabRegion.Flags().StringVar(&grabRegionOut, "out", "-", "output path or '-' for stdout")
+
+	cmd.AddCommand(getAllPixels, grabRegion)
 
 	var watchRectFlag, watchPollFlag, watchDurFlag string
 	var watchOutputFlag string

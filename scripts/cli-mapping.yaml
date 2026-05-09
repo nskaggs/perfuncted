@@ -60,6 +60,10 @@ input:
 screen:
   CaptureRegion:
     skip: true
+  GetAllPixels:
+    skip: true
+  GrabRegion:
+    skip: true
   GetMultiplePixels:
     skip: true
   WaitFor:

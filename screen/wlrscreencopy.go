@@ -328,14 +328,12 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
 		}
 
-		img := decodeBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride))
-
 		if rect.Dx() <= 0 || rect.Dy() <= 0 {
-			outImg = img
+			outImg = decodeBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride))
 			return nil
 		}
 
-		outImg = cropRGBA(img, rect)
+		outImg = decodeBGRARect(pixels, int(bi.width), int(bi.height), int(bi.stride), rect)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -436,7 +434,17 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
 		}
 
-		hash = crc32.ChecksumIEEE(pixels)
+		if int(bi.stride) == int(bi.width)*4 {
+			hash = crc32.ChecksumIEEE(pixels)
+		} else {
+			h := crc32.NewIEEE()
+			rowBytes := int(bi.width) * 4
+			for y := 0; y < int(bi.height); y++ {
+				start := y * int(bi.stride)
+				_, _ = h.Write(pixels[start : start+rowBytes]) //nolint:errcheck
+			}
+			hash = h.Sum32()
+		}
 		return nil
 	}); err != nil {
 		return 0, err

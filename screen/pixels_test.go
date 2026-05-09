@@ -102,3 +102,59 @@ func TestCropRGBAClipsToSource(t *testing.T) {
 		t.Errorf("out-of-bounds pixel should be zero, got %v", c)
 	}
 }
+
+func TestDecodeBGRARect(t *testing.T) {
+	// 3x3 image, stride=12.
+	data := make([]byte, 36)
+	// Fill with distinct values
+	for i := 0; i < 9; i++ {
+		data[i*4+0] = byte(i + 1)       // B
+		data[i*4+1] = byte((i + 1) * 2) // G
+		data[i*4+2] = byte((i + 1) * 3) // R
+		data[i*4+3] = 0xFF              // A
+	}
+
+	// Extract 2x2 rect starting at (1, 1)
+	rect := image.Rect(1, 1, 3, 3)
+	img := decodeBGRARect(data, 3, 3, 12, rect)
+
+	if img.Bounds().Dx() != 2 || img.Bounds().Dy() != 2 {
+		t.Fatalf("expected 2x2, got %dx%d", img.Bounds().Dx(), img.Bounds().Dy())
+	}
+
+	// Check (0, 0) of cropped, which is (1, 1) in original = index 4
+	c0 := img.RGBAAt(0, 0)
+	expectedB := byte(5)
+	expectedG := byte(10)
+	expectedR := byte(15)
+
+	if c0.B != expectedB || c0.G != expectedG || c0.R != expectedR {
+		t.Errorf("expected RGB(%d, %d, %d), got (%d, %d, %d)", expectedR, expectedG, expectedB, c0.R, c0.G, c0.B)
+	}
+}
+
+func TestDecodeBGRARectWithStridePadding(t *testing.T) {
+	// 2x2 image with stride=12 (4 bytes padding per row).
+	data := []byte{
+		0x01, 0x02, 0x03, 0xFF, 0x11, 0x12, 0x13, 0xFF, 0x00, 0x00, 0x00, 0x00, // row 0 + padding
+		0x04, 0x05, 0x06, 0xFF, 0x14, 0x15, 0x16, 0xFF, 0x00, 0x00, 0x00, 0x00, // row 1 + padding
+	}
+
+	// Extract 1x2 rect starting at (1, 0)
+	rect := image.Rect(1, 0, 2, 2)
+	img := decodeBGRARect(data, 2, 2, 12, rect)
+
+	if img.Bounds().Dx() != 1 || img.Bounds().Dy() != 2 {
+		t.Fatalf("expected 1x2, got %dx%d", img.Bounds().Dx(), img.Bounds().Dy())
+	}
+
+	c0 := img.RGBAAt(0, 0)
+	if c0.B != 0x11 || c0.G != 0x12 || c0.R != 0x13 {
+		t.Errorf("row 0: got RGB(%02x,%02x,%02x) want (13,12,11)", c0.R, c0.G, c0.B)
+	}
+
+	c1 := img.RGBAAt(0, 1)
+	if c1.B != 0x14 || c1.G != 0x15 || c1.R != 0x16 {
+		t.Errorf("row 1: got RGB(%02x,%02x,%02x) want (16,15,14)", c1.R, c1.G, c1.B)
+	}
+}

@@ -148,8 +148,18 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) {
 // Bypasses intermediate image allocation by hashing the raw buffer directly.
 func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
-	if err := b.grabInternal(ctx, func(pixels []byte, _, _, _ int) error {
-		hash = crc32.ChecksumIEEE(pixels)
+	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
+		if stride == w*4 {
+			hash = crc32.ChecksumIEEE(pixels)
+		} else {
+			hasher := crc32.NewIEEE()
+			rowBytes := w * 4
+			for y := 0; y < h; y++ {
+				start := y * stride
+				_, _ = hasher.Write(pixels[start : start+rowBytes])
+			}
+			hash = hasher.Sum32()
+		}
 		return nil
 	}); err != nil {
 		return 0, err
@@ -193,12 +203,9 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	var outImg image.Image
 	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
-		// Decode XRGB8888 (BGRA on little-endian x86).
-		img := decodeBGRA(pixels, w, h, stride)
-
 		// Crop to requested rect. Convert logical rect -> physical using outputScale.
 		if rect.Dx() <= 0 || rect.Dy() <= 0 {
-			outImg = img
+			outImg = decodeBGRA(pixels, w, h, stride)
 			return nil
 		}
 		scale := int(b.outputScale)
@@ -206,7 +213,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 			scale = 1
 		}
 		phys := image.Rect(rect.Min.X*scale, rect.Min.Y*scale, rect.Max.X*scale, rect.Max.Y*scale)
-		outImg = cropRGBA(img, phys)
+		outImg = decodeBGRARect(pixels, w, h, stride, phys)
 		return nil
 	}); err != nil {
 		return nil, err
