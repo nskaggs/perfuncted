@@ -12,41 +12,6 @@ import (
 func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
-	// get-all-pixels: wrapper for perfuncted.GetAllPixels
-	var cmd_screen_get_all_pixels_out string
-	cmd_screen_get_all_pixels := &cobra.Command{
-		Use:   "get-all-pixels",
-		Short: "Auto-generated wrapper for perfuncted.GetAllPixels",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			img, err := pf.Screen.GetAllPixels(cmd.Context())
-			if err != nil {
-				return err
-			}
-			out := cmd_screen_get_all_pixels_out
-			if out == "" {
-				out = "/tmp/pf-get-all-pixels.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
-			return nil
-		},
-	}
-	cmd_screen_get_all_pixels.Flags().StringVar(&cmd_screen_get_all_pixels_out, "out", "", "output path")
-
-	cmds = append(cmds, cmd_screen_get_all_pixels)
-
 	// grab: wrapper for perfuncted.Grab
 	var cmd_screen_grab_rect string
 	var cmd_screen_grab_out string
@@ -109,47 +74,6 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	}
 
 	cmds = append(cmds, cmd_screen_grab_full_hash)
-
-	// grab-region: wrapper for perfuncted.GrabRegion
-	var cmd_screen_grab_region_rect string
-	var cmd_screen_grab_region_out string
-	cmd_screen_grab_region := &cobra.Command{
-		Use:   "grab-region",
-		Short: "Auto-generated wrapper for perfuncted.GrabRegion",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_grab_region_rect)
-			if err != nil {
-				return err
-			}
-			img, err := pf.Screen.GrabRegion(cmd.Context(), r_0)
-			if err != nil {
-				return err
-			}
-			out := cmd_screen_grab_region_out
-			if out == "" {
-				out = "/tmp/pf-grab-region.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
-			return nil
-		},
-	}
-	cmd_screen_grab_region.Flags().StringVar(&cmd_screen_grab_region_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	cmd_screen_grab_region.Flags().StringVar(&cmd_screen_grab_region_out, "out", "", "output path")
-
-	cmds = append(cmds, cmd_screen_grab_region)
 
 	// grab-region-hash: wrapper for perfuncted.GrabRegionHash
 	var cmd_screen_grab_region_hash_rect string

@@ -1,6 +1,12 @@
 ## pf screen grab-region
 
-Auto-generated wrapper for perfuncted.GrabRegion
+Capture a specific screen region
+
+### Synopsis
+
+Captures a specific screen region and outputs it as a PNG.
+If --out is not provided or is '-', the PNG data is written to stdout.
+Otherwise, it is saved to the specified file.
 
 ```
 pf screen grab-region [flags]
@@ -10,7 +16,7 @@ pf screen grab-region [flags]
 
 ```
   -h, --help          help for grab-region
-      --out string    output path
+      --out string    output path or '-' for stdout (default "-")
       --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 

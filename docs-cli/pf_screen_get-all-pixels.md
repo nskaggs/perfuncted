@@ -1,6 +1,11 @@
 ## pf screen get-all-pixels
 
-Auto-generated wrapper for perfuncted.GetAllPixels
+Capture the entire screen and output raw RGBA pixels to stdout
+
+### Synopsis
+
+Captures the entire screen and writes the raw 8-bit RGBA pixel data
+directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.
 
 ```
 pf screen get-all-pixels [flags]
@@ -9,8 +14,7 @@ pf screen get-all-pixels [flags]
 ### Options
 
 ```
-  -h, --help         help for get-all-pixels
-      --out string   output path
+  -h, --help   help for get-all-pixels
 ```
 
 ### Options inherited from parent commands
