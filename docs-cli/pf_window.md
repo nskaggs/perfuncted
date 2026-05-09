@@ -38,6 +38,6 @@ Window management
 * [pf window unfullscreen](pf_window_unfullscreen.md)	 - Exit fullscreen for a window by title
 * [pf window wait-close](pf_window_wait-close.md)	 - Wait until matching windows disappear
 * [pf window wait-for](pf_window_wait-for.md)	 - Wait until a matching window appears
-* [pf window wait-for-close](pf_window_wait-for-close.md)	 - Auto-generated wrapper for perfuncted.WaitForClose
+* [pf window wait-for-close](pf_window_wait-for-close.md)	 - Block until a window matching the title pattern closes
 * [pf window watch](pf_window_watch.md)	 - Stream window list changes
 

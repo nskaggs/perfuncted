@@ -17,7 +17,8 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	var cmd_screen_grab_out string
 	cmd_screen_grab := &cobra.Command{
 		Use:   "grab",
-		Short: "Auto-generated wrapper for perfuncted.Grab",
+		Short: "Capture a screen region and save as PNG",
+		Long:  "Captures the specified screen region and writes it as a PNG file.\nIf --out is omitted the image is written to /tmp/pf-grab.png and the path is printed to stdout.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -48,7 +49,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			return nil
 		},
 	}
-	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_rect, "rect", "0,0,1920,1080", "region to capture as x0,y0,x1,y1")
 	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_out, "out", "", "output path")
 
 	cmds = append(cmds, cmd_screen_grab)
@@ -57,7 +58,8 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	cmd_screen_grab_full_hash := &cobra.Command{
 		Use:   "grab-full-hash",
-		Short: "Auto-generated wrapper for perfuncted.GrabFullHash",
+		Short: "Print the CRC32 hash of the full screen contents",
+		Long:  "Captures the full screen and prints the CRC32 pixel hash as a zero-padded\nhex integer. Useful as a quick change-detection probe without saving any files.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -79,7 +81,8 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	var cmd_screen_grab_region_hash_rect string
 	cmd_screen_grab_region_hash := &cobra.Command{
 		Use:   "grab-region-hash",
-		Short: "Auto-generated wrapper for perfuncted.GrabRegionHash",
+		Short: "Print the CRC32 hash of a screen region",
+		Long:  "Captures the specified screen region and prints its CRC32 pixel hash as a\nzero-padded hex integer. Useful for polling whether a region has changed.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -98,7 +101,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			return nil
 		},
 	}
-	cmd_screen_grab_region_hash.Flags().StringVar(&cmd_screen_grab_region_hash_rect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	cmd_screen_grab_region_hash.Flags().StringVar(&cmd_screen_grab_region_hash_rect, "rect", "0,0,1920,1080", "region to hash as x0,y0,x1,y1")
 
 	cmds = append(cmds, cmd_screen_grab_region_hash)
 
@@ -106,7 +109,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	cmd_screen_resolution := &cobra.Command{
 		Use:   "resolution",
-		Short: "Auto-generated wrapper for perfuncted.Resolution",
+		Short: "Print the screen resolution as WxH",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -132,7 +135,7 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 
 	cmd_input_location := &cobra.Command{
 		Use:   "location",
-		Short: "Auto-generated wrapper for perfuncted.PointerLocation",
+		Short: "Print the current pointer (mouse cursor) position as x,y",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -158,7 +161,8 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	var cmd_window_fullscreen_pattern string
 	cmd_window_fullscreen := &cobra.Command{
 		Use:   "fullscreen",
-		Short: "Auto-generated wrapper for perfuncted.Fullscreen",
+		Short: "Put a window into fullscreen mode",
+		Long:  "Finds the first window whose title contains --pattern and puts it into\nfullscreen mode. The match is case-insensitive.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -172,7 +176,7 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			return nil
 		},
 	}
-	cmd_window_fullscreen.Flags().StringVar(&cmd_window_fullscreen_pattern, "pattern", "", "pattern")
+	cmd_window_fullscreen.Flags().StringVar(&cmd_window_fullscreen_pattern, "pattern", "", "substring to match against window titles (case-insensitive)")
 
 	cmds = append(cmds, cmd_window_fullscreen)
 
@@ -180,7 +184,8 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	var cmd_window_unfullscreen_pattern string
 	cmd_window_unfullscreen := &cobra.Command{
 		Use:   "unfullscreen",
-		Short: "Auto-generated wrapper for perfuncted.Unfullscreen",
+		Short: "Exit fullscreen mode for a window",
+		Long:  "Finds the first window whose title contains --pattern and takes it out of\nfullscreen mode. The match is case-insensitive.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -194,7 +199,7 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			return nil
 		},
 	}
-	cmd_window_unfullscreen.Flags().StringVar(&cmd_window_unfullscreen_pattern, "pattern", "", "pattern")
+	cmd_window_unfullscreen.Flags().StringVar(&cmd_window_unfullscreen_pattern, "pattern", "", "substring to match against window titles (case-insensitive)")
 
 	cmds = append(cmds, cmd_window_unfullscreen)
 
@@ -203,7 +208,8 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	var cmd_window_wait_for_close_poll string
 	cmd_window_wait_for_close := &cobra.Command{
 		Use:   "wait-for-close",
-		Short: "Auto-generated wrapper for perfuncted.WaitForClose",
+		Short: "Block until a window matching the title pattern closes",
+		Long:  "Polls window titles at the given interval until no window whose title contains\n--pattern is found. Exits cleanly when the window is gone, or returns an error\nif the context deadline is exceeded.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF()
 			if err != nil {
@@ -221,8 +227,8 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			return nil
 		},
 	}
-	cmd_window_wait_for_close.Flags().StringVar(&cmd_window_wait_for_close_pattern, "pattern", "", "pattern")
-	cmd_window_wait_for_close.Flags().StringVar(&cmd_window_wait_for_close_poll, "poll", "", "poll")
+	cmd_window_wait_for_close.Flags().StringVar(&cmd_window_wait_for_close_pattern, "pattern", "", "substring to match against window titles (case-insensitive)")
+	cmd_window_wait_for_close.Flags().StringVar(&cmd_window_wait_for_close_poll, "poll", "", "polling interval (e.g. 200ms); leave empty to use the default")
 
 	cmds = append(cmds, cmd_window_wait_for_close)
 	return cmds

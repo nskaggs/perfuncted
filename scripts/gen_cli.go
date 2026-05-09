@@ -2,9 +2,14 @@
 // +build gencli
 
 // Command generator: produce cobra command wrappers from perfuncted API.
-// Usage: go run ./scripts/gen_cli.go
+// Usage: go run -tags=gencli ./scripts/gen_cli.go
+//
 // It reads scripts/cli-mapping.yaml and docs-cli/ to avoid generating commands
 // that already exist in the hand-written CLI docs.
+//
+// Every non-skipped method MUST have a "short" entry in cli-mapping.yaml.
+// The generator will refuse to emit a bare placeholder description and will
+// exit non-zero if a short description is missing.
 package main
 
 import (
@@ -24,11 +29,15 @@ import (
 )
 
 // Mapping controls per-method overrides and skips.
+// All non-skipped methods must supply at least a Short description.
 type MethodMapping struct {
-	Name       string `yaml:"name,omitempty"`
-	Skip       bool   `yaml:"skip,omitempty"`
-	Positional bool   `yaml:"positional,omitempty"`
-	OutFlag    string `yaml:"out_flag,omitempty"`
+	Name       string            `yaml:"name,omitempty"`
+	Skip       bool              `yaml:"skip,omitempty"`
+	Positional bool              `yaml:"positional,omitempty"`
+	OutFlag    string            `yaml:"out_flag,omitempty"`
+	Short      string            `yaml:"short,omitempty"`      // one-line description shown in help
+	Long       string            `yaml:"long,omitempty"`       // multi-paragraph description shown in Synopsis
+	Flags      map[string]string `yaml:"flags,omitempty"`      // flag name -> usage string override
 }
 
 type Mapping map[string]map[string]MethodMapping
@@ -428,9 +437,26 @@ func main() {
 				flagVars = append(flagVars, fmt.Sprintf("var %s_%s string", cmdVar, outFlag))
 			}
 			sb.WriteString("\t" + strings.Join(flagVars, "\n\t") + "\n")
+			// Require an explicit short description from the mapping; refuse to emit a placeholder.
+			shortDesc := ""
+			longDesc := ""
+			if mapping[grp] != nil {
+				if mm, ok := mapping[grp][mn]; ok {
+					shortDesc = mm.Short
+					longDesc = mm.Long
+				}
+			}
+			if shortDesc == "" {
+				fmt.Fprintf(os.Stderr, "ERROR: %s.%s has no 'short' description in cli-mapping.yaml.\n", grp, mn)
+				fmt.Fprintf(os.Stderr, "  Add a 'short' entry under %s: %s: in scripts/cli-mapping.yaml\n", grp, mn)
+				os.Exit(2)
+			}
 			sb.WriteString(fmt.Sprintf("\t%s := &cobra.Command{\n", cmdVar))
 			sb.WriteString(fmt.Sprintf("\t\tUse:   \"%s\",\n", cliName))
-			sb.WriteString(fmt.Sprintf("\t\tShort: \"Auto-generated wrapper for perfuncted.%s\",\n", mn))
+			sb.WriteString(fmt.Sprintf("\t\tShort: %q,\n", shortDesc))
+			if longDesc != "" {
+				sb.WriteString(fmt.Sprintf("\t\tLong:  %q,\n", longDesc))
+			}
 			// Args for simple positional single-string param
 			if params.Len()-start == 1 && isStringType(params.At(start).Type()) {
 				if mapping[grp] != nil {
@@ -568,6 +594,21 @@ func main() {
 			sb.WriteString("\t}\n")
 
 			// flags registration
+			// collect flag overrides for this method from the mapping
+			flagOverrides := map[string]string{}
+			if mapping[grp] != nil {
+				if mm, ok := mapping[grp][mn]; ok && mm.Flags != nil {
+					for k, v := range mm.Flags {
+						flagOverrides[k] = v
+					}
+				}
+			}
+			flagUsage := func(name, fallback string) string {
+				if u, ok := flagOverrides[name]; ok {
+					return u
+				}
+				return fallback
+			}
 			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				pname := paramNameOrDefault(p, i+1)
@@ -575,13 +616,13 @@ func main() {
 				t := paramInfos[i-start]
 				switch t {
 				case "string":
-					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, \"%s\", \"\", \"%s\")\n", cmdVar, vname, pname, pname))
+					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, %q, \"\", %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
 				case "int":
-					sb.WriteString(fmt.Sprintf("\t%s.Flags().IntVar(&%s, \"%s\", 0, \"%s\")\n", cmdVar, vname, pname, pname))
+					sb.WriteString(fmt.Sprintf("\t%s.Flags().IntVar(&%s, %q, 0, %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
 				case "rect":
-					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, \"rect\", \"0,0,1920,1080\", \"x0,y0,x1,y1\")\n", cmdVar, vname))
+					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, \"rect\", \"0,0,1920,1080\", %q)\n", cmdVar, vname, flagUsage("rect", "x0,y0,x1,y1")))
 				case "duration":
-					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, \"%s\", \"\", \"%s\")\n", cmdVar, vname, pname, pname))
+					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, %q, \"\", %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
 				}
 			}
 
