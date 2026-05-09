@@ -97,6 +97,7 @@ func newRootCmd(openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, e
 		infoCmd(),
 		sessionCmd(),
 		docsCmd(root),
+		versionCmd(),
 	)
 	return root
 }
@@ -130,6 +131,21 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&dirFlag, "dir", "d", "./docs-cli", "directory to write markdown files")
 	return cmd
+}
+
+// ── version ─────────────────────────────────────────────────────────────────────────
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Run: func(cmd *cobra.Command, _ []string) {
+			fmt.Fprintf(cmd.OutOrStdout(), "pf %s\n", version)
+			fmt.Fprintf(cmd.OutOrStdout(), "  commit:  %s\n", commit)
+			fmt.Fprintf(cmd.OutOrStdout(), "  date:    %s\n", date)
+			fmt.Fprintf(cmd.OutOrStdout(), "  builtBy: %s\n", builtBy)
+		},
+	}
 }
 
 // ── info ────────────────────────────────────────────────────────────────────────────

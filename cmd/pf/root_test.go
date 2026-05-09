@@ -37,6 +37,7 @@ func TestNewRootCmdConfiguresCobra(t *testing.T) {
 		"info":      true,
 		"session":   true,
 		"docs":      true,
+		"version":   true,
 	}
 	for _, sub := range cmd.Commands() {
 		delete(wantSubs, sub.Name())
@@ -212,4 +213,22 @@ func captureRunIO(t *testing.T, args []string, openPFFactory func(*cliConfig) fu
 	}
 
 	return string(outBytes), string(errBytes), code
+}
+
+func TestVersionCmd(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"version"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+		return func() (*perfuncted.Perfuncted, error) {
+			return nil, nil
+		}
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if !strings.Contains(stdout, "pf dev") {
+		t.Fatalf("stdout = %q, want it to contain 'pf dev'", stdout)
+	}
 }
