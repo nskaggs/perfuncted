@@ -1,22 +1,18 @@
 # Mapping file for generator (scripts/gen_cli.go).
 # Structure: <group>:
 #   <MethodName>:
-#     name: <cli-name>
-#     skip: true|false
-#     positional: true|false
-#     out_flag: <flag-name>
+#     name: <cli-name>           # override the hyphenated CLI command name
+#     skip: true|false           # exclude from autogeneration (hand-written in root.go)
+#     positional: true|false     # accept value as positional arg instead of --flag
+#     out_flag: <flag-name>      # flag name for image output path (default: out)
+#     short: <one-line summary>  # REQUIRED for all non-skipped methods
+#     long: |                    # optional multi-paragraph synopsis (shown under "Synopsis")
+#       ...
+#     flags:                     # per-flag usage string overrides
+#       <flag-name>: <usage>
 #
-# Examples:
-# screen:
-#   GrabHash:
-#     name: hash
-# input:
-#   Type:
-#     positional: true
-#
-# Add overrides here to control generation and to whitelist hand-written commands.
-
-# Keep empty by default; add mappings as needed.
+# Every non-skipped method MUST have a short description.
+# The generator will exit non-zero if any short description is missing.
 
 input:
   ClickCenter:
@@ -51,12 +47,14 @@ input:
     skip: true
   PointerLocation:
     name: location
+    short: "Print the current pointer (mouse cursor) position as x,y"
   Sync:
     skip: true
   Type:
     skip: true
   TypeWithDelay:
     skip: true
+
 screen:
   CaptureRegion:
     skip: true
@@ -70,6 +68,23 @@ screen:
     skip: true
   WaitForChange:
     skip: true
+  Grab:
+    short: "Capture a screen region and save as PNG"
+    long: "Captures the specified screen region and writes it as a PNG file.\nIf --out is omitted the image is written to /tmp/pf-grab.png and the path is printed to stdout."
+    flags:
+      rect: "region to capture as x0,y0,x1,y1"
+      out: "output file path (default /tmp/pf-grab.png)"
+  GrabFullHash:
+    short: "Print the CRC32 hash of the full screen contents"
+    long: "Captures the full screen and prints the CRC32 pixel hash as a zero-padded\nhex integer. Useful as a quick change-detection probe without saving any files."
+  GrabRegionHash:
+    short: "Print the CRC32 hash of a screen region"
+    long: "Captures the specified screen region and prints its CRC32 pixel hash as a\nzero-padded hex integer. Useful for polling whether a region has changed."
+    flags:
+      rect: "region to hash as x0,y0,x1,y1"
+  Resolution:
+    short: "Print the screen resolution as WxH"
+
 window:
   Activate:
     skip: true
@@ -101,6 +116,23 @@ window:
     skip: true
   WaitForTitleChange:
     skip: true
+  Fullscreen:
+    short: "Put a window into fullscreen mode"
+    long: "Finds the first window whose title contains --pattern and puts it into\nfullscreen mode. The match is case-insensitive."
+    flags:
+      pattern: "substring to match against window titles (case-insensitive)"
+  Unfullscreen:
+    short: "Exit fullscreen mode for a window"
+    long: "Finds the first window whose title contains --pattern and takes it out of\nfullscreen mode. The match is case-insensitive."
+    flags:
+      pattern: "substring to match against window titles (case-insensitive)"
+  WaitForClose:
+    short: "Block until a window matching the title pattern closes"
+    long: "Polls window titles at the given interval until no window whose title contains\n--pattern is found. Exits cleanly when the window is gone, or returns an error\nif the context deadline is exceeded."
+    flags:
+      pattern: "substring to match against window titles (case-insensitive)"
+      poll: "polling interval (e.g. 200ms); leave empty to use the default"
+
 clipboard:
   Get:
     skip: true

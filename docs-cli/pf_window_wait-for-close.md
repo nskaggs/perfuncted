@@ -1,6 +1,12 @@
 ## pf window wait-for-close
 
-Auto-generated wrapper for perfuncted.WaitForClose
+Block until a window matching the title pattern closes
+
+### Synopsis
+
+Polls window titles at the given interval until no window whose title contains
+--pattern is found. Exits cleanly when the window is gone, or returns an error
+if the context deadline is exceeded.
 
 ```
 pf window wait-for-close [flags]
@@ -10,8 +16,8 @@ pf window wait-for-close [flags]
 
 ```
   -h, --help             help for wait-for-close
-      --pattern string   pattern
-      --poll string      poll
+      --pattern string   substring to match against window titles (case-insensitive)
+      --poll string      polling interval (e.g. 200ms); leave empty to use the default
 ```
 
 ### Options inherited from parent commands

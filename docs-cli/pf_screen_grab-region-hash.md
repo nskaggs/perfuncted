@@ -1,6 +1,11 @@
 ## pf screen grab-region-hash
 
-Auto-generated wrapper for perfuncted.GrabRegionHash
+Print the CRC32 hash of a screen region
+
+### Synopsis
+
+Captures the specified screen region and prints its CRC32 pixel hash as a
+zero-padded hex integer. Useful for polling whether a region has changed.
 
 ```
 pf screen grab-region-hash [flags]
@@ -10,7 +15,7 @@ pf screen grab-region-hash [flags]
 
 ```
   -h, --help          help for grab-region-hash
-      --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
+      --rect string   region to hash as x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 
 ### Options inherited from parent commands

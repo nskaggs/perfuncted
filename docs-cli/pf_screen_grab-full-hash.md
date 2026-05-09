@@ -1,6 +1,11 @@
 ## pf screen grab-full-hash
 
-Auto-generated wrapper for perfuncted.GrabFullHash
+Print the CRC32 hash of the full screen contents
+
+### Synopsis
+
+Captures the full screen and prints the CRC32 pixel hash as a zero-padded
+hex integer. Useful as a quick change-detection probe without saving any files.
 
 ```
 pf screen grab-full-hash [flags]
