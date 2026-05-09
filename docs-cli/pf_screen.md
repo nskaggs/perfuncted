@@ -22,8 +22,10 @@ Screen capture operations
 ### SEE ALSO
 
 * [pf](pf.md)	 - perfuncted — screen automation CLI
+* [pf screen get-all-pixels](pf_screen_get-all-pixels.md)	 - Auto-generated wrapper for perfuncted.GetAllPixels
 * [pf screen grab](pf_screen_grab.md)	 - Capture a screen region and save as PNG
 * [pf screen grab-full-hash](pf_screen_grab-full-hash.md)	 - Auto-generated wrapper for perfuncted.GrabFullHash
+* [pf screen grab-region](pf_screen_grab-region.md)	 - Auto-generated wrapper for perfuncted.GrabRegion
 * [pf screen grab-region-hash](pf_screen_grab-region-hash.md)	 - Auto-generated wrapper for perfuncted.GrabRegionHash
 * [pf screen hash](pf_screen_hash.md)	 - Print the CRC32 pixel hash of a screen region
 * [pf screen pixel](pf_screen_pixel.md)	 - Print the RGB colour of a single pixel
