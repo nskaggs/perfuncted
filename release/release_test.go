@@ -239,10 +239,10 @@ func TestBinaryStatic(t *testing.T) {
 		}
 		outStr := strings.ToLower(string(out))
 		if strings.Contains(outStr, "linux-vdso") || strings.Contains(outStr, "libc") {
-			t.Logf("NOTE: binary appears dynamically linked (CGO may be enabled in this build): %s", out)
-		} else {
-			t.Logf("binary is statically linked (CGO_ENABLED=0 confirmed)")
+			t.Fatalf("binary appears dynamically linked (CGO may be enabled in this build): %s", out)
 		}
+		// If we reach here the binary looks static.
+		t.Logf("binary is statically linked (CGO_ENABLED=0 confirmed)")
 	})
 }
 
