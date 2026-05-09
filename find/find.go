@@ -463,8 +463,8 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 		for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
 			for x := sb.Min.X; x <= sb.Max.X-rb.Dx(); x++ {
 				srcOff := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
-				p := srcRGBA.Pix[srcOff : srcOff+4]
-				if p[0] != refFirst.R || p[1] != refFirst.G || p[2] != refFirst.B || p[3] != refFirst.A {
+				_ = srcRGBA.Pix[srcOff+3] // eliminate bounds check
+				if srcRGBA.Pix[srcOff] != refFirst.R || srcRGBA.Pix[srcOff+1] != refFirst.G || srcRGBA.Pix[srcOff+2] != refFirst.B || srcRGBA.Pix[srcOff+3] != refFirst.A {
 					continue
 				}
 				if matchAt(src, reference, x, y) {
@@ -581,8 +581,8 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
 				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
 					off := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
-					p := srcRGBA.Pix[off : off+4]
-					if p[0] != refBytes[0] || p[1] != refBytes[1] || p[2] != refBytes[2] || p[3] != refBytes[3] {
+					_ = srcRGBA.Pix[off+3] // eliminate bounds check
+					if srcRGBA.Pix[off] != refBytes[0] || srcRGBA.Pix[off+1] != refBytes[1] || srcRGBA.Pix[off+2] != refBytes[2] || srcRGBA.Pix[off+3] != refBytes[3] {
 						continue
 					}
 					r := image.Rect(x, y, x+w, y+h)
@@ -635,10 +635,10 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
 			for x := b.Min.X; x < b.Max.X; x++ {
-				p := rgba.Pix[off : off+4]
-				if abs(int(p[0])-int(target.R)) <= tolerance &&
-					abs(int(p[1])-int(target.G)) <= tolerance &&
-					abs(int(p[2])-int(target.B)) <= tolerance {
+				_ = rgba.Pix[off+3] // eliminate bounds check
+				if abs(int(rgba.Pix[off+0])-int(target.R)) <= tolerance &&
+					abs(int(rgba.Pix[off+1])-int(target.G)) <= tolerance &&
+					abs(int(rgba.Pix[off+2])-int(target.B)) <= tolerance {
 					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 				}
 				off += 4
