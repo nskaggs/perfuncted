@@ -14,39 +14,16 @@ jobs:
     name: Build and validate bundle
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
-      options: --privileged
     env:
       CGO_ENABLED: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure Flatpak session helper is available
+      - name: Install Flatpak tooling
         run: |
-          if command -v flatpak-session-helper >/dev/null 2>&1; then
-            exit 0
-          fi
-
-          if command -v apt-get >/dev/null 2>&1; then
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak
-            exit 0
-          fi
-
-          if command -v dnf >/dev/null 2>&1; then
-            dnf install -y flatpak
-            exit 0
-          fi
-
-          if command -v apk >/dev/null 2>&1; then
-            apk add flatpak
-            exit 0
-          fi
-
-          echo "flatpak-session-helper is missing and no supported package manager was found" >&2
-          exit 1
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak
 
       - name: Set up Go
         uses: actions/setup-go@v5
