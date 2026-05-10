@@ -129,6 +129,10 @@ test-integration-nested-wayland-debug:
 test-integration: test-integration-headless-x11 test-integration-headless-wayland
     CGO_ENABLED=0 go test -tags=integration ./window ./input ./screen ./clipboard -count=1
 
+# Build, install, and validate the Flatpak bundle in an isolated Flatpak home.
+test-flatpak:
+    CGO_ENABLED=0 go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
+
 # Run all test suites: unit + session + integration
 test-all: test-unit test-session test-integration
     @echo "Completed test-all"

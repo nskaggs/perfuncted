@@ -51,6 +51,15 @@ Run `pf info` to see exactly which backends are active on your system.
 
 ## Install
 
+**Flatpak bundle (CI artifact):**
+
+The Flatpak workflow attaches `dist/flatpak/perfuncted.flatpak` as an artifact.
+
+```bash
+flatpak install --user -y ./dist/flatpak/perfuncted.flatpak
+flatpak run io.github.nskaggs.perfuncted --help
+```
+
 **CLI:**
 
 ```bash
@@ -105,6 +114,7 @@ just test-integration-headless-wayland
 just test-integration-nested-x11
 just test-integration-nested-wayland
 just test-integration   # CI headless matrix
+just test-flatpak      # build, install, and validate the Flatpak bundle
 ```
 
 Optional: install `wl-clipboard` for Wayland clipboard round-trip verification and `xclip` for X11 clipboard round-trip verification.

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>io.github.nskaggs.perfuncted</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer id="io.github.nskaggs">
+    <name>Nicholas Skaggs</name>
+  </developer>
+  <name>perfuncted</name>
+  <summary>Go CLI for automating Linux desktop sessions</summary>
+  <description>
+    <p>perfuncted is a Go library and command-line tool for automating Linux desktop applications.</p>
+    <p>It detects the active session at runtime and selects the best available backend for input, window management, screen capture, and clipboard access.</p>
+  </description>
+  <url type="homepage">https://github.com/nskaggs/perfuncted</url>
+  <url type="bugtracker">https://github.com/nskaggs/perfuncted/issues</url>
+  <icon type="stock">io.github.nskaggs.perfuncted</icon>
+  <provides>
+    <binary>pf</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+  <keywords>
+    <keyword>automation</keyword>
+    <keyword>desktop</keyword>
+    <keyword>input</keyword>
+    <keyword>wayland</keyword>
+    <keyword>x11</keyword>
+  </keywords>
+  <releases>
+    <release version="0.3.1" date="2026-05-08">
+      <description>
+        <p>Current upstream release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
