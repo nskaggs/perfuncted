@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">perfuncted</title>
+  <desc id="desc">A terminal-style icon with the letters pf.</desc>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="64" x2="456" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16222e"/>
+      <stop offset="1" stop-color="#070b11"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="112" y1="128" x2="400" y2="392" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f1721"/>
+      <stop offset="1" stop-color="#091018"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bg)"/>
+  <rect x="88" y="104" width="336" height="304" rx="36" fill="url(#screen)" stroke="#2dd4bf" stroke-width="10"/>
+  <rect x="88" y="104" width="336" height="58" rx="36" fill="#132231"/>
+  <circle cx="128" cy="133" r="11" fill="#fb7185"/>
+  <circle cx="164" cy="133" r="11" fill="#f59e0b"/>
+  <circle cx="200" cy="133" r="11" fill="#34d399"/>
+  <path d="M142 200h78v28h-78z" fill="#2dd4bf"/>
+  <path d="M242 200h110v14H242zM242 224h156v14H242zM142 246h176v14H142z" fill="#84f4e4"/>
+  <path d="M142 296h44v74h-24v-25h-20zM186 296h78v21h-54v18h46v21h-46v34h-24z" fill="#f8fafc"/>
+</svg>
