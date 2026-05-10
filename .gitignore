@@ -3,6 +3,7 @@
 /example
 /test
 *.test
+/dist
 
 # Documentation (local only)
 docs/
