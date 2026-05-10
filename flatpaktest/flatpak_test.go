@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,8 +50,9 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 		t.Fatalf("resolve user cache directory: %v", err)
 	}
 	testRoot := filepath.Join(cacheRoot, "perfuncted-flatpak-test")
-	manifestPath := filepath.Join(repoRoot, "io.github.nskaggs.perfuncted.yml")
-	appstreamPath := filepath.Join(repoRoot, "flatpak", "io.github.nskaggs.perfuncted.metainfo.xml")
+	sourceRoot := filepath.Join(testRoot, "source")
+	manifestPath := filepath.Join(sourceRoot, "io.github.nskaggs.perfuncted.yml")
+	appstreamPath := filepath.Join(sourceRoot, "flatpak", "io.github.nskaggs.perfuncted.metainfo.xml")
 	bundlePath := filepath.Join(repoRoot, "dist", "flatpak", "perfuncted.flatpak")
 	buildDir := filepath.Join(repoRoot, "builddir")
 	defaultRepoDir := filepath.Join(repoRoot, "repo")
@@ -67,15 +69,20 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	_ = os.RemoveAll(defaultRepoDir)
 	_ = os.RemoveAll(testRoot)
 	_ = os.RemoveAll(filepath.Join(repoRoot, ".flatpak-builder"))
+	_ = os.RemoveAll(sourceRoot)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(buildDir)
 		_ = os.RemoveAll(defaultRepoDir)
 		_ = os.RemoveAll(testRoot)
 		_ = os.RemoveAll(filepath.Join(repoRoot, ".flatpak-builder"))
+		_ = mustRemoveWorktree(repoRoot, sourceRoot)
 	})
 
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
 		t.Fatalf("create flatpak test root: %v", err)
+	}
+	if err := mustAddWorktree(repoRoot, sourceRoot); err != nil {
+		t.Fatalf("create flatpak source worktree: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(bundlePath), 0o755); err != nil {
 		t.Fatalf("create bundle directory: %v", err)
@@ -96,18 +103,18 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	session := mustStartDBusSession(t)
 	t.Cleanup(session.close)
 
-	buildHarness := newHarness(t, repoRoot, session.address, buildHome, tmpRoot, runRoot)
-	bundleHarness := newHarness(t, repoRoot, session.address, bundleHome, tmpRoot, runRoot)
+	buildHarness := newHarness(t, sourceRoot, session.address, buildHome, tmpRoot, runRoot)
+	bundleHarness := newHarness(t, sourceRoot, session.address, bundleHome, tmpRoot, runRoot)
 
-	buildHarness.mustRun(t, repoRoot, "remote-add", "--if-not-exists", "--user", "flathub", flathubRemoteURL)
-	buildHarness.mustRun(t, repoRoot, "install", "-y", "--user", "flathub", builderAppID)
+	buildHarness.mustRun(t, sourceRoot, "remote-add", "--if-not-exists", "--user", "flathub", flathubRemoteURL)
+	buildHarness.mustRun(t, sourceRoot, "install", "-y", "--user", "flathub", builderAppID)
 
 	t.Run("manifest lint", func(t *testing.T) {
-		buildHarness.mustRunLint(t, repoRoot, "manifest", manifestPath)
-		buildHarness.mustRun(t, repoRoot, "run", "--command=flatpak-builder-lint", builderAppID, "appstream", appstreamPath)
+		buildHarness.mustRunLint(t, sourceRoot, "manifest", manifestPath)
+		buildHarness.mustRun(t, sourceRoot, "run", "--command=flatpak-builder-lint", builderAppID, "appstream", appstreamPath)
 	})
 
-	buildHarness.mustRun(t, repoRoot, "run", "--command=flathub-build", builderAppID,
+	buildHarness.mustRun(t, sourceRoot, "run", "--command=flathub-build", builderAppID,
 		"--install",
 		"--disable-rofiles-fuse",
 		"--repo="+repoDir,
@@ -116,7 +123,7 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	)
 
 	t.Run("installed build", func(t *testing.T) {
-		stdout, stderr, code := buildHarness.run(t, repoRoot, "run", appID, "version")
+		stdout, stderr, code := buildHarness.run(t, sourceRoot, "run", appID, "version")
 		if code != 0 {
 			t.Fatalf("flatpak run %s version exit code = %d, want 0\nstdout=%q\nstderr=%q", appID, code, stdout, stderr)
 		}
@@ -124,21 +131,21 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	})
 
 	t.Run("repo lint", func(t *testing.T) {
-		buildHarness.mustRunLint(t, repoRoot, "repo", repoDir)
+		buildHarness.mustRunLint(t, sourceRoot, "repo", repoDir)
 	})
 
-	buildHarness.mustRun(t, repoRoot, "build-bundle", repoDir, bundlePath, appID, branch)
+	buildHarness.mustRun(t, sourceRoot, "build-bundle", repoDir, bundlePath, appID, branch)
 	if info, err := os.Stat(bundlePath); err != nil {
 		t.Fatalf("bundle missing after build: %v", err)
 	} else if info.Size() == 0 {
 		t.Fatalf("bundle is empty: %s", bundlePath)
 	}
 
-	bundleHarness.mustRun(t, repoRoot, "remote-add", "--if-not-exists", "--user", "flathub", flathubRemoteURL)
-	bundleHarness.mustRun(t, repoRoot, "install", "--user", "-y", bundlePath)
+	bundleHarness.mustRun(t, sourceRoot, "remote-add", "--if-not-exists", "--user", "flathub", flathubRemoteURL)
+	bundleHarness.mustRun(t, sourceRoot, "install", "--user", "-y", bundlePath)
 
 	t.Run("bundle install", func(t *testing.T) {
-		stdout, stderr, code := bundleHarness.run(t, repoRoot, "run", appID, "version")
+		stdout, stderr, code := bundleHarness.run(t, sourceRoot, "run", appID, "version")
 		if code != 0 {
 			t.Fatalf("flatpak run %s version exit code = %d, want 0\nstdout=%q\nstderr=%q", appID, code, stdout, stderr)
 		}
@@ -163,8 +170,10 @@ func newHarness(t *testing.T, repoRoot, dbusAddress, home, tmpRoot, runRoot stri
 	env = setEnv(env, "XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	env = setEnv(env, "XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	env = setEnv(env, "XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	env = setEnv(env, "XDG_DATA_DIRS", "/app/share:/usr/local/share:/usr/share")
 	env = setEnv(env, "XDG_RUNTIME_DIR", runRoot)
 	env = setEnv(env, "DBUS_SESSION_BUS_ADDRESS", dbusAddress)
+	env = setEnv(env, "NO_AT_BRIDGE", "1")
 	env = setEnv(env, "TMPDIR", tmpRoot)
 	env = unsetEnv(env, "DISPLAY")
 	env = unsetEnv(env, "WAYLAND_DISPLAY")
@@ -298,6 +307,34 @@ func assertVersionOutput(t *testing.T, stdout string) {
 	if !strings.Contains(stdout, "date:") {
 		t.Fatalf("version output missing date line: %q", stdout)
 	}
+}
+
+func mustAddWorktree(repoRoot, sourceRoot string) error {
+	if _, err := os.Stat(sourceRoot); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	cmd := exec.Command("git", "-C", repoRoot, "worktree", "add", "--detach", sourceRoot, "HEAD")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree add: %w: %s", err, out)
+	}
+	return nil
+}
+
+func mustRemoveWorktree(repoRoot, sourceRoot string) error {
+	cmd := exec.Command("git", "-C", repoRoot, "worktree", "remove", "--force", sourceRoot)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// If the worktree is already gone, keep cleanup best-effort.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("git worktree remove: %w: %s", err, out)
+	}
+	return nil
 }
 
 func mustRepoRoot(t *testing.T) string {
