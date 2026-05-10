@@ -316,7 +316,7 @@ func mustAddWorktree(repoRoot, sourceRoot string) error {
 		return err
 	}
 
-	cmd := exec.Command("git", "-C", repoRoot, "worktree", "add", "--detach", sourceRoot, "HEAD")
+	cmd := exec.Command("git", "-c", "safe.directory="+repoRoot, "-C", repoRoot, "worktree", "add", "--detach", sourceRoot, "HEAD")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git worktree add: %w: %s", err, out)
@@ -325,7 +325,7 @@ func mustAddWorktree(repoRoot, sourceRoot string) error {
 }
 
 func mustRemoveWorktree(repoRoot, sourceRoot string) error {
-	cmd := exec.Command("git", "-C", repoRoot, "worktree", "remove", "--force", sourceRoot)
+	cmd := exec.Command("git", "-c", "safe.directory="+repoRoot, "-C", repoRoot, "worktree", "remove", "--force", sourceRoot)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// If the worktree is already gone, keep cleanup best-effort.
