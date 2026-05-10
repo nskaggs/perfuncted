@@ -1,6 +1,7 @@
 package wl
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -129,6 +130,82 @@ func TestNewSession_CloseDecrementsRefcount(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if !exists {
 		t.Error("session should still be in cache while refcount > 0")
+	}
+}
+
+func TestSessionCloseRemovesCacheAtZeroRefs(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	sock := "wayland-test-zero"
+	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
+	sessionCacheMu.Lock()
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCacheMu.Unlock()
+
+	if err := fakeSess.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	sessionCacheMu.Lock()
+	_, exists := sessionCache[sock]
+	sessionCacheMu.Unlock()
+	if exists {
+		t.Fatal("session remained in cache after final close")
+	}
+}
+
+func TestNewSessionCacheConcurrentHitAndClose(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	sock := "wayland-test-concurrent"
+	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
+	sessionCacheMu.Lock()
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCacheMu.Unlock()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 25; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, err := NewSession(sock)
+			if err != nil {
+				t.Errorf("NewSession: %v", err)
+				return
+			}
+			if err := s.Close(); err != nil {
+				t.Errorf("Close: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	sessionCacheMu.Lock()
+	ref := sessionCache[sock]
+	sessionCacheMu.Unlock()
+	if ref == nil {
+		t.Fatal("original cached session was removed")
+	}
+	if ref.refs != 1 {
+		t.Fatalf("refcount = %d, want 1", ref.refs)
 	}
 }
 

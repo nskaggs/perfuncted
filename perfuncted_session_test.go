@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -171,4 +172,62 @@ func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("session was not stopped on context cancellation")
+}
+
+func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
+	xdgDir := filepath.Join(t.TempDir(), "xdg")
+	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
+		t.Fatalf("mkdir xdg: %v", err)
+	}
+
+	s := &Session{xdgDir: xdgDir}
+	s.Cleanup()
+
+	if !s.IsStopped() {
+		t.Fatal("session was not marked stopped")
+	}
+	if !s.IsCleaned() {
+		t.Fatal("session was not marked cleaned")
+	}
+	if _, err := os.Stat(xdgDir); !os.IsNotExist(err) {
+		t.Fatalf("xdg dir still exists after cleanup: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	if err := os.WriteFile(filepath.Join(dir, "perfuncted.pid"), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsKeepsLivePIDDir(t *testing.T) {
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	if err := os.WriteFile(filepath.Join(dir, "perfuncted.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatalf("WriteFile pid: %v", err)
+	}
+
+	CleanupStaleSessions(0)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("live session dir was removed: %v", err)
+	}
 }

@@ -4,6 +4,9 @@ project_name: perfuncted
 before:
   hooks:
     - go mod tidy
+    - go run -tags=gencli ./scripts/gen_cli.go
+    - go test -short ./...
+    - go run ./scripts/verify_cli_api.go
 
 builds:
   - id: pf
