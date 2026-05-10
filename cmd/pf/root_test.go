@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -179,6 +182,88 @@ func TestWindowCommands(t *testing.T) {
 	})
 }
 
+func TestScreenAndInputCommands(t *testing.T) {
+	t.Run("get-multiple-pixels", func(t *testing.T) {
+		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+		img.Set(0, 0, color.RGBA{R: 1, G: 2, B: 3, A: 4})
+		img.Set(1, 1, color.RGBA{R: 10, G: 20, B: 30, A: 255})
+
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "get-multiple-pixels", "--points", "0,0;1,1", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}}, nil, nil, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		var got []struct {
+			X int   `json:"x"`
+			Y int   `json:"y"`
+			R uint8 `json:"r"`
+			G uint8 `json:"g"`
+			B uint8 `json:"b"`
+			A uint8 `json:"a"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%q", err, stdout)
+		}
+		if len(got) != 2 || got[0].X != 0 || got[0].R != 1 || got[1].X != 1 || got[1].G != 20 {
+			t.Fatalf("unexpected samples: %+v", got)
+		}
+	})
+
+	t.Run("wait-for-fn", func(t *testing.T) {
+		sc := &pftest.Screenshotter{Frames: []image.Image{
+			pftest.SolidImage(2, 2, color.RGBA{}),
+			pftest.SolidImage(2, 2, color.RGBA{R: 255, A: 255}),
+		}}
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-fn", "--rect", "0,0,2,2", "--predicate", "non-empty", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(sc, nil, nil, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if _, err := strconv.ParseUint(strings.TrimSpace(stdout), 16, 32); err != nil {
+			t.Fatalf("stdout = %q, want 8-digit hex hash: %v", stdout, err)
+		}
+	})
+
+	t.Run("wait-for-settle", func(t *testing.T) {
+		sc := &pftest.Screenshotter{Frames: []image.Image{
+			pftest.SolidImage(2, 2, color.RGBA{}),
+			pftest.SolidImage(2, 2, color.RGBA{G: 255, A: 255}),
+			pftest.SolidImage(2, 2, color.RGBA{G: 255, A: 255}),
+		}}
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-settle", "--rect", "0,0,2,2", "--stable", "2", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(sc, nil, nil, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if _, err := strconv.ParseUint(strings.TrimSpace(stdout), 16, 32); err != nil {
+			t.Fatalf("stdout = %q, want 8-digit hex hash: %v", stdout, err)
+		}
+	})
+
+	t.Run("input sync", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"input", "sync"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, &pftest.Inputter{}, nil, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+	})
+}
+
 func captureRunIO(t *testing.T, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) (string, string, int) {
 	t.Helper()
 
@@ -228,7 +313,10 @@ func TestVersionCmd(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	if !strings.Contains(stdout, "pf dev") {
-		t.Fatalf("stdout = %q, want it to contain 'pf dev'", stdout)
+	if !strings.HasPrefix(stdout, "pf ") {
+		t.Fatalf("stdout = %q, want it to start with 'pf '", stdout)
+	}
+	if strings.Contains(stdout, "dev") {
+		t.Fatalf("stdout = %q, want it to avoid hardcoded dev", stdout)
 	}
 }

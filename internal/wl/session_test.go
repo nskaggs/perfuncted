@@ -1,7 +1,9 @@
 package wl
 
 import (
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewSession_CacheHit(t *testing.T) {
@@ -132,6 +134,82 @@ func TestNewSession_CloseDecrementsRefcount(t *testing.T) {
 	}
 }
 
+func TestSessionCloseRemovesCacheAtZeroRefs(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	sock := "wayland-test-zero"
+	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
+	sessionCacheMu.Lock()
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCacheMu.Unlock()
+
+	if err := fakeSess.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	sessionCacheMu.Lock()
+	_, exists := sessionCache[sock]
+	sessionCacheMu.Unlock()
+	if exists {
+		t.Fatal("session remained in cache after final close")
+	}
+}
+
+func TestNewSessionCacheConcurrentHitAndClose(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	sock := "wayland-test-concurrent"
+	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
+	sessionCacheMu.Lock()
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCacheMu.Unlock()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 25; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, err := NewSession(sock)
+			if err != nil {
+				t.Errorf("NewSession: %v", err)
+				return
+			}
+			if err := s.Close(); err != nil {
+				t.Errorf("Close: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	sessionCacheMu.Lock()
+	ref := sessionCache[sock]
+	sessionCacheMu.Unlock()
+	if ref == nil {
+		t.Fatal("original cached session was removed")
+	}
+	if ref.refs != 1 {
+		t.Fatalf("refcount = %d, want 1", ref.refs)
+	}
+}
+
 func TestNewSession_NotInCache(t *testing.T) {
 	// Clear the cache.
 	sessionCacheMu.Lock()
@@ -159,6 +237,40 @@ func TestNewSession_NotInCache(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if exists {
 		t.Error("failed session should not be cached")
+	}
+}
+
+func TestCleanupStaleSessionsPrunesOldCacheEntries(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	oldSock := "wayland-test-stale"
+	freshSock := "wayland-test-fresh"
+	now := time.Now()
+	sessionCacheMu.Lock()
+	sessionCache[oldSock] = &sessionRef{sess: &Session{Sock: oldSock, Ctx: &Context{}}, refs: 1, lastUsed: now.Add(-48 * time.Hour)}
+	sessionCache[freshSock] = &sessionRef{sess: &Session{Sock: freshSock, Ctx: &Context{}}, refs: 1, lastUsed: now}
+	sessionCacheMu.Unlock()
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	sessionCacheMu.Lock()
+	_, oldExists := sessionCache[oldSock]
+	freshRef := sessionCache[freshSock]
+	sessionCacheMu.Unlock()
+	if oldExists {
+		t.Fatal("stale cache entry remained after CleanupStaleSessions")
+	}
+	if freshRef == nil {
+		t.Fatal("fresh cache entry was pruned unexpectedly")
 	}
 }
 

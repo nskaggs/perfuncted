@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -236,6 +238,7 @@ func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
 	opts.XDGRuntimeDir = s.xdgDir
 	opts.WaylandDisplay = s.wlDisplay
 	opts.DBusSessionAddress = s.dbusAddr
+	opts.ManagedSession = s
 	return New(opts)
 }
 
@@ -284,11 +287,34 @@ func (s *Session) Stop() {
 	}
 }
 
+// Cleanup is an alias for Stop. It exists to make the lifecycle explicit for
+// callers that want teardown to include both process shutdown and temp-dir
+// removal.
+func (s *Session) Cleanup() {
+	s.Stop()
+}
+
 // IsStopped returns true if Stop has been called.
 func (s *Session) IsStopped() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stopped
+}
+
+// IsCleaned returns true when Stop/Cleanup has been called and the session's
+// XDG runtime directory no longer exists.
+func (s *Session) IsCleaned() bool {
+	if s == nil || s.xdgDir == "" {
+		return true
+	}
+	s.mu.Lock()
+	stopped := s.stopped
+	s.mu.Unlock()
+	if !stopped {
+		return false
+	}
+	_, err := os.Stat(s.xdgDir)
+	return os.IsNotExist(err)
 }
 
 func (s *Session) launchDBus() error {
@@ -362,16 +388,25 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 	s.swayCmd = cmd
 	logFile.Close()
 
-	// Wait for wayland socket.
+	// Wait for the Wayland and sway IPC sockets in parallel so startup is gated
+	// by the slower of the two readiness checks instead of the sum.
 	socketPath := filepath.Join(s.xdgDir, s.wlDisplay)
-	if err := waitForFile(socketPath, 150, 200*time.Millisecond); err != nil {
-		return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
-	}
-
-	// Wait for sway IPC socket as well so callers depending on window control
-	// don't race browser startup against compositor readiness.
-	if err := waitForGlob(filepath.Join(s.xdgDir, "sway-ipc.*.sock"), 150, 200*time.Millisecond); err != nil {
-		return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", s.xdgDir, err)
+	ipcGlob := filepath.Join(s.xdgDir, "sway-ipc.*.sock")
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		if err := waitForFile(socketPath, 150, 200*time.Millisecond); err != nil {
+			return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := waitForGlob(ipcGlob, 150, 200*time.Millisecond); err != nil {
+			return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", s.xdgDir, err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -427,14 +462,9 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			continue
 		}
 		// Check if process is alive.
-		if err := syscall.Kill(pid, 0); err != nil {
-			if err == syscall.ESRCH {
-				_ = os.RemoveAll(d)
-				slog.Info("reaped stale session dir", "path", d, "pid", pid, "reason", "not running")
-			} else {
-				// If permission denied or other error, skip.
-				slog.Warn("cannot check pid", "pid", pid, "path", d, "error", err)
-			}
+		if !pidAlive(pid) {
+			_ = os.RemoveAll(d)
+			slog.Info("reaped stale session dir", "path", d, "pid", pid, "reason", "not running")
 			continue
 		}
 		// If we reach here, the PID is alive — but also remove if the dir is
@@ -445,6 +475,14 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			slog.Info("leaving session dir", "path", d, "pid", pid, "reason", "still running")
 		}
 	}
+}
+
+func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
 }
 
 func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {

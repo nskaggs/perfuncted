@@ -84,6 +84,19 @@ screen:
       rect: "region to hash as x0,y0,x1,y1"
   Resolution:
     short: "Print the screen resolution as WxH"
+  WaitForNoChange:
+    short: "Wait for a screen region to stop changing"
+    flags:
+      rect: "region to monitor as x0,y0,x1,y1"
+      stable: "number of stable samples required"
+      poll: "polling interval (e.g. 200ms)"
+  WaitForNoChangeFrom:
+    short: "Wait for a screen region to stop changing, starting from an initial hash"
+    flags:
+      rect: "region to monitor as x0,y0,x1,y1"
+      initial: "initial CRC32 hash (hex)"
+      stable: "number of stable samples required"
+      poll: "polling interval (e.g. 200ms)"
 
 window:
   Activate:
@@ -135,6 +148,7 @@ window:
 
 clipboard:
   Get:
-    skip: true
+    short: "Print the current clipboard contents"
   Set:
-    skip: true
+    short: "Set the clipboard contents"
+    positional: true

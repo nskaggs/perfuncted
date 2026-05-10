@@ -57,3 +57,33 @@ func TestMergeClears(t *testing.T) {
 		t.Fatalf("Y = %q, want keep", m["Y"])
 	}
 }
+
+func TestMergeEmptyBase(t *testing.T) {
+	t.Parallel()
+	got := Merge(nil, "A=1", "B=2")
+	m := envMap(got)
+	if m["A"] != "1" || m["B"] != "2" {
+		t.Fatalf("Merge(nil) = %v", got)
+	}
+}
+
+func TestMergeLastOverrideWins(t *testing.T) {
+	t.Parallel()
+	got := Merge([]string{"A=base"}, "A=first", "A=second")
+	if m := envMap(got); m["A"] != "second" {
+		t.Fatalf("A = %q, want second", m["A"])
+	}
+}
+
+func envMap(kvs []string) map[string]string {
+	m := make(map[string]string)
+	for _, kv := range kvs {
+		for i := 0; i < len(kv); i++ {
+			if kv[i] == '=' {
+				m[kv[:i]] = kv[i+1:]
+				break
+			}
+		}
+	}
+	return m
+}

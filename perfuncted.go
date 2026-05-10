@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,11 +33,17 @@ type Options struct {
 	Nested     bool
 
 	TraceWriter io.Writer
+	TraceLogger *slog.Logger
 	TraceDelay  time.Duration
 
 	XDGRuntimeDir      string
 	WaylandDisplay     string
 	DBusSessionAddress string
+
+	// ManagedSession is stopped and cleaned when Perfuncted.Close is called.
+	// It is set by Session.Perfuncted for callers that want one handle to own
+	// both API bundles and the underlying isolated session lifecycle.
+	ManagedSession *Session
 }
 
 func resolveRuntime(opts Options) (env.Runtime, error) {
@@ -78,6 +86,9 @@ func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
 	for _, xdgDir := range matches {
 		wlSocket, socketErr := nestedWaylandSocket(xdgDir)
 		if socketErr != nil {
+			continue
+		}
+		if !nestedSessionPIDAlive(xdgDir) {
 			continue
 		}
 
@@ -125,6 +136,18 @@ func nestedWaylandSocket(xdgDir string) (string, error) {
 	return "", fmt.Errorf("perfuncted: no wayland socket in %s", xdgDir)
 }
 
+func nestedSessionPIDAlive(xdgDir string) bool {
+	data, err := os.ReadFile(filepath.Join(xdgDir, "perfuncted.pid"))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return false
+	}
+	return pidAlive(pid)
+}
+
 func DetectSession() (kind string, details map[string]string) {
 	details = make(map[string]string)
 	xdg := os.Getenv("XDG_RUNTIME_DIR")
@@ -150,6 +173,7 @@ type Perfuncted struct {
 	Output    OutputBundle
 	Clipboard ClipboardBundle
 	session   compositor.Session
+	managed   *Session
 	trace     *actionTracer
 }
 
@@ -204,7 +228,7 @@ func New(opts Options) (*Perfuncted, error) {
 		out.Close()
 		return nil, err
 	}
-	tracer := newActionTracer(opts.TraceWriter, opts.TraceDelay)
+	tracer := newActionTracer(opts.TraceWriter, opts.TraceLogger, opts.TraceDelay)
 	if tracer != nil {
 		tracer.Tracef("perfuncted.new", "nested=%t max=%dx%d", opts.Nested, opts.MaxX, opts.MaxY)
 	}
@@ -216,6 +240,7 @@ func New(opts Options) (*Perfuncted, error) {
 		Output:    OutputBundle{Lister: out, tracer: tracer},
 		Clipboard: ClipboardBundle{Clipboard: cb, tracer: tracer},
 		session:   session,
+		managed:   opts.ManagedSession,
 		trace:     tracer,
 	}, nil
 }
@@ -237,6 +262,9 @@ func (p *Perfuncted) Close() error {
 	}
 	if p.Clipboard.Clipboard != nil {
 		errs = append(errs, p.Clipboard.close())
+	}
+	if p.managed != nil {
+		p.managed.Cleanup()
 	}
 	return errors.Join(errs...)
 }

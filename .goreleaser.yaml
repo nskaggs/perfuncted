@@ -3,7 +3,11 @@ project_name: perfuncted
 
 before:
   hooks:
+    - go generate ./...
     - go mod tidy
+    - go run -tags=gencli ./scripts/gen_cli.go
+    - go test -short ./...
+    - go run ./scripts/verify_cli_api.go
 
 builds:
   - id: pf
@@ -34,6 +38,14 @@ checksum:
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
+
+brews:
+  - name: pf
+    description: "Screen automation CLI for perfuncted"
+    homepage: "https://github.com/nskaggs/perfuncted"
+    directory: Formula
+    install: |
+      bin.install "pf"
 
 changelog:
   sort: asc

@@ -239,11 +239,17 @@ func main() {
 			"wait-for-window": true,
 		},
 		"screen": {
-			"pixel":           true,
-			"resolution":      true,
-			"grab-hash":       true,
-			"wait-for":        true,
-			"wait-for-change": true,
+			"pixel":               true,
+			"resolution":          true,
+			"grab-hash":           true,
+			"wait-for":            true,
+			"wait-for-change":     true,
+			"wait-for-fn":         true,
+			"wait-for-settle":     true,
+			"get-multiple-pixels": true,
+		},
+		"input": {
+			"sync": true,
 		},
 	}
 	// Whitelist expected API-only methods that intentionally have no direct docs-cli command.
@@ -337,5 +343,4 @@ func main() {
 		os.Exit(1)
 	}
 	os.Exit(0)
-	os.Exit(1)
 }

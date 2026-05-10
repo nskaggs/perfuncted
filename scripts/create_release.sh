@@ -90,7 +90,7 @@ if [[ -n "$version" ]]; then
   ldflags+=" -X main.version=${version}"
 fi
 
-outdir="$repo_root/dist/${version:-dev}_linux_amd64"
+outdir="$repo_root/dist/${version:-local}_linux_amd64"
 mkdir -p "$outdir"
 
 echo "Building static linux/amd64 binary..."
