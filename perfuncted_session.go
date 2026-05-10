@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -386,16 +388,25 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 	s.swayCmd = cmd
 	logFile.Close()
 
-	// Wait for wayland socket.
+	// Wait for the Wayland and sway IPC sockets in parallel so startup is gated
+	// by the slower of the two readiness checks instead of the sum.
 	socketPath := filepath.Join(s.xdgDir, s.wlDisplay)
-	if err := waitForFile(socketPath, 150, 200*time.Millisecond); err != nil {
-		return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
-	}
-
-	// Wait for sway IPC socket as well so callers depending on window control
-	// don't race browser startup against compositor readiness.
-	if err := waitForGlob(filepath.Join(s.xdgDir, "sway-ipc.*.sock"), 150, 200*time.Millisecond); err != nil {
-		return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", s.xdgDir, err)
+	ipcGlob := filepath.Join(s.xdgDir, "sway-ipc.*.sock")
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		if err := waitForFile(socketPath, 150, 200*time.Millisecond); err != nil {
+			return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := waitForGlob(ipcGlob, 150, 200*time.Millisecond); err != nil {
+			return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", s.xdgDir, err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return err
 	}
 	return nil
 }
