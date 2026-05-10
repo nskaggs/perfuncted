@@ -25,7 +25,6 @@ const (
 	commandTimeout    = 45 * time.Minute
 	builderAppID      = "org.flatpak.Builder"
 	flatpakBinaryName = "flatpak"
-	flatpakHelperPath = "/usr/libexec/flatpak-session-helper"
 	flatpakService    = "org.freedesktop.Flatpak.service"
 )
 
@@ -351,16 +350,35 @@ func mustWriteFlatpakServiceFile(dbusHome string) error {
 	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
 		return fmt.Errorf("create flatpak D-Bus service directory: %w", err)
 	}
-	if _, err := os.Stat(flatpakHelperPath); err != nil {
-		return fmt.Errorf("required command %q not found: %w", flatpakHelperPath, err)
+	helperPath, err := resolveFlatpakSessionHelper()
+	if err != nil {
+		return err
 	}
 
 	servicePath := filepath.Join(serviceDir, flatpakService)
-	service := fmt.Sprintf("[D-BUS Service]\nName=org.freedesktop.Flatpak\nExec=%s\nSystemdService=flatpak-session-helper.service\n", flatpakHelperPath)
+	service := fmt.Sprintf("[D-BUS Service]\nName=org.freedesktop.Flatpak\nExec=%s\nSystemdService=flatpak-session-helper.service\n", helperPath)
 	if err := os.WriteFile(servicePath, []byte(service), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", servicePath, err)
 	}
 	return nil
+}
+
+func resolveFlatpakSessionHelper() (string, error) {
+	if path, err := exec.LookPath("flatpak-session-helper"); err == nil {
+		return path, nil
+	}
+
+	for _, candidate := range []string{
+		"/usr/libexec/flatpak-session-helper",
+		"/usr/lib/flatpak-session-helper",
+		"/usr/libexec/flatpak-system-helper",
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("required Flatpak session helper not found in PATH or common install locations")
 }
 
 func mustRepoRoot(t *testing.T) string {

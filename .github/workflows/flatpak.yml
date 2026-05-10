@@ -23,6 +23,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Ensure Flatpak session helper is available
+        run: |
+          if command -v flatpak-session-helper >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak
+            exit 0
+          fi
+
+          if command -v dnf >/dev/null 2>&1; then
+            dnf install -y flatpak
+            exit 0
+          fi
+
+          if command -v apk >/dev/null 2>&1; then
+            apk add flatpak
+            exit 0
+          fi
+
+          echo "flatpak-session-helper is missing and no supported package manager was found" >&2
+          exit 1
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
