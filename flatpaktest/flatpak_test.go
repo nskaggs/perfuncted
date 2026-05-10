@@ -25,6 +25,8 @@ const (
 	commandTimeout    = 45 * time.Minute
 	builderAppID      = "org.flatpak.Builder"
 	flatpakBinaryName = "flatpak"
+	flatpakHelperPath = "/usr/libexec/flatpak-session-helper"
+	flatpakService    = "org.freedesktop.Flatpak.service"
 )
 
 type harness struct {
@@ -60,6 +62,7 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	repoDir := filepath.Join(testRoot, "repo")
 	buildHome := filepath.Join(testRoot, "build-home")
 	bundleHome := filepath.Join(testRoot, "bundle-home")
+	dbusHome := filepath.Join(testRoot, "dbus-home")
 	tmpRoot := filepath.Join(testRoot, "tmp")
 	runRoot := filepath.Join(testRoot, "run")
 
@@ -81,6 +84,9 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
 		t.Fatalf("create flatpak test root: %v", err)
 	}
+	if err := mustWriteFlatpakServiceFile(dbusHome); err != nil {
+		t.Fatalf("write flatpak D-Bus service file: %v", err)
+	}
 	if err := mustAddWorktree(repoRoot, sourceRoot); err != nil {
 		t.Fatalf("create flatpak source worktree: %v", err)
 	}
@@ -100,7 +106,7 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 		t.Fatalf("create flatpak run directory: %v", err)
 	}
 
-	session := mustStartDBusSession(t)
+	session := mustStartDBusSession(t, dbusHome)
 	t.Cleanup(session.close)
 
 	buildHarness := newHarness(t, sourceRoot, session.address, buildHome, tmpRoot, runRoot)
@@ -247,7 +253,7 @@ func (h *harness) run(t *testing.T, dir, subcommand string, args ...string) (std
 	return stdout, stderr, 1
 }
 
-func mustStartDBusSession(t *testing.T) *dbusSession {
+func mustStartDBusSession(t *testing.T, dbusHome string) *dbusSession {
 	t.Helper()
 
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
@@ -255,6 +261,9 @@ func mustStartDBusSession(t *testing.T) *dbusSession {
 	}
 
 	cmd := exec.Command("dbus-daemon", "--session", "--fork", "--print-address=1", "--print-pid=1", "--nopidfile")
+	cmd.Env = os.Environ()
+	cmd.Env = setEnv(cmd.Env, "HOME", dbusHome)
+	cmd.Env = setEnv(cmd.Env, "XDG_DATA_HOME", filepath.Join(dbusHome, ".local", "share"))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("start dbus session: %v\noutput=%s", err, out)
@@ -333,6 +342,23 @@ func mustRemoveWorktree(repoRoot, sourceRoot string) error {
 			return nil
 		}
 		return fmt.Errorf("git worktree remove: %w: %s", err, out)
+	}
+	return nil
+}
+
+func mustWriteFlatpakServiceFile(dbusHome string) error {
+	serviceDir := filepath.Join(dbusHome, ".local", "share", "dbus-1", "services")
+	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
+		return fmt.Errorf("create flatpak D-Bus service directory: %w", err)
+	}
+	if _, err := os.Stat(flatpakHelperPath); err != nil {
+		return fmt.Errorf("required command %q not found: %w", flatpakHelperPath, err)
+	}
+
+	servicePath := filepath.Join(serviceDir, flatpakService)
+	service := fmt.Sprintf("[D-BUS Service]\nName=org.freedesktop.Flatpak\nExec=%s\nSystemdService=flatpak-session-helper.service\n", flatpakHelperPath)
+	if err := os.WriteFile(servicePath, []byte(service), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", servicePath, err)
 	}
 	return nil
 }
