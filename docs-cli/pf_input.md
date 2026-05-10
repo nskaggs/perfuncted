@@ -33,5 +33,6 @@ Mouse and keyboard injection
 * [pf input mouseup](pf_input_mouseup.md)	 - Release a mouse button (optional coords)
 * [pf input move](pf_input_move.md)	 - Move mouse to absolute coordinates
 * [pf input scroll](pf_input_scroll.md)	 - Scroll the mouse wheel
+* [pf input sync](pf_input_sync.md)	 - Synchronize the input backend with the compositor
 * [pf input type](pf_input_type.md)	 - Type a string or send keys (e.g. {enter}, {ctrl+s})
 

@@ -139,9 +139,9 @@ func TestBinaryStatic(t *testing.T) {
 		}
 	})
 
-	t.Run("version_is_goreleaser_or_dev", func(t *testing.T) {
-		// A proper release build should NOT say "dev" as the version.
-		// We log the version but do not fail for dev builds (local testing).
+	t.Run("version_is_stamped_or_blank", func(t *testing.T) {
+		// Local builds may have an empty version because ldflags were not set.
+		// Release builds should be stamped by GoReleaser.
 		stdout, _, code := run(t, bin, "version")
 		if code != 0 {
 			t.Fatalf("version exit code = %d, want 0", code)
@@ -151,11 +151,7 @@ func TestBinaryStatic(t *testing.T) {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			ver := fields[1]
-			if ver == "dev" {
-				t.Logf("WARNING: binary version is 'dev' — not a GoReleaser-stamped binary")
-			} else {
-				t.Logf("version: %s", ver)
-			}
+			t.Logf("version: %s", ver)
 		}
 	})
 

@@ -624,6 +624,150 @@ Runs until --duration expires or Ctrl+C.`,
 
 	cmd.AddCommand(resolution)
 
+	var waitFnRectFlag, waitFnPollFlag, waitFnTimeoutFlag, waitFnPredicateFlag string
+	waitForFn := &cobra.Command{
+		Use:   "wait-for-fn",
+		Short: "Wait for a screen region to satisfy a built-in predicate",
+		Long: `Uses the library's WaitForFn helper with a small set of practical built-in
+predicates. This is useful when the caller wants a higher-level readiness
+check than a raw hash comparison.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(waitFnRectFlag)
+			if err != nil {
+				return err
+			}
+			pred, err := screenPredicate(waitFnPredicateFlag)
+			if err != nil {
+				return err
+			}
+			poll, err := parseDuration(waitFnPollFlag, 50*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(waitFnTimeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			img, err := pf.Screen.WaitForFn(ctx, r, pred, poll)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", find.PixelHash(img, nil))
+			return nil
+		},
+	}
+	waitForFn.Flags().StringVar(&waitFnRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitForFn.Flags().StringVar(&waitFnPredicateFlag, "predicate", "non-empty", "built-in predicate: non-empty|opaque|non-zero")
+	waitForFn.Flags().StringVar(&waitFnPollFlag, "poll", "50ms", "poll interval")
+	waitForFn.Flags().StringVar(&waitFnTimeoutFlag, "timeout", "5s", "timeout duration")
+
+	var settleRectFlag, settleStableFlag, settlePollFlag, settleTimeoutFlag string
+	waitForSettle := &cobra.Command{
+		Use:   "wait-for-settle",
+		Short: "Wait for a screen region to change and then settle",
+		Long: `Captures a baseline hash, yields to the caller's surrounding action model,
+then waits for the region to change and become stable again. The CLI version
+uses a no-op action so it still works as a pure readiness probe.`,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r, err := parseRect(settleRectFlag)
+			if err != nil {
+				return err
+			}
+			stable, err := strconv.Atoi(strings.TrimSpace(settleStableFlag))
+			if err != nil {
+				return fmt.Errorf("invalid --stable %q: %w", settleStableFlag, err)
+			}
+			poll, err := parseDuration(settlePollFlag, 100*time.Millisecond)
+			if err != nil {
+				return err
+			}
+			timeout, err := parseDuration(settleTimeoutFlag, 5*time.Second)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			h, err := pf.Screen.WaitForSettle(ctx, r, func() {}, stable, poll)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	waitForSettle.Flags().StringVar(&settleRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitForSettle.Flags().StringVar(&settleStableFlag, "stable", "3", "consecutive identical samples required")
+	waitForSettle.Flags().StringVar(&settlePollFlag, "poll", "100ms", "poll interval")
+	waitForSettle.Flags().StringVar(&settleTimeoutFlag, "timeout", "5s", "timeout duration")
+
+	var multiPointsFlag, multiOutputFlag string
+	getMultiplePixels := &cobra.Command{
+		Use:   "get-multiple-pixels",
+		Short: "Capture several pixels in one screen grab",
+		Long: `Captures a bounding rectangle covering every requested point, then prints the
+colour of each point in order. Use --output json for machine parsing, or the
+plain format for quick interactive checks.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			points, err := parsePoints(multiPointsFlag)
+			if err != nil {
+				return err
+			}
+			if len(points) == 0 {
+				return fmt.Errorf("--points must contain at least one x,y pair")
+			}
+			cols, err := pf.Screen.GetMultiplePixels(context.Background(), points)
+			if err != nil {
+				return err
+			}
+			type sample struct {
+				X int   `json:"x"`
+				Y int   `json:"y"`
+				R uint8 `json:"r"`
+				G uint8 `json:"g"`
+				B uint8 `json:"b"`
+				A uint8 `json:"a"`
+			}
+			out := make([]sample, len(points))
+			for i, p := range points {
+				c := cols[i]
+				out[i] = sample{X: p.X, Y: p.Y, R: c.R, G: c.G, B: c.B, A: c.A}
+			}
+			switch strings.ToLower(strings.TrimSpace(multiOutputFlag)) {
+			case "", "plain":
+				for _, s := range out {
+					fmt.Fprintf(cmd.OutOrStdout(), "%d,%d R=%d G=%d B=%d A=%d\n", s.X, s.Y, s.R, s.G, s.B, s.A)
+				}
+			case "json":
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+			default:
+				return fmt.Errorf("invalid --output %q: want plain or json", multiOutputFlag)
+			}
+			return nil
+		},
+	}
+	getMultiplePixels.Flags().StringVar(&multiPointsFlag, "points", "", "semicolon-separated x,y pairs")
+	getMultiplePixels.Flags().StringVar(&multiOutputFlag, "output", "plain", "plain|json")
+	_ = getMultiplePixels.MarkFlagRequired("points")
+
+	cmd.AddCommand(waitForFn, waitForSettle, getMultiplePixels)
+
 	// append auto-generated screen commands (avoid duplicates)
 	existing := map[string]bool{}
 	for _, c := range cmd.Commands() {
@@ -938,6 +1082,20 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *co
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
 		typeCmd, keydown, keyup, mousedown, mouseup, location, scrollCmd(openPF, cfg))
+
+	sync := &cobra.Command{
+		Use:   "sync",
+		Short: "Synchronize the input backend with the compositor",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			return pf.Input.Sync(context.Background())
+		},
+	}
+	cmd.AddCommand(sync)
 
 	// append auto-generated input commands (avoid duplicates)
 	existing := map[string]bool{}
@@ -2019,6 +2177,22 @@ func parseRects(s string) ([]image.Rectangle, error) {
 	return out, nil
 }
 
+func parsePoints(s string) ([]image.Point, error) {
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ";")
+	out := make([]image.Point, 0, len(parts))
+	for _, p := range parts {
+		pt, err := parsePoint(strings.TrimSpace(p))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, pt)
+	}
+	return out, nil
+}
+
 func parseRect(s string) (image.Rectangle, error) {
 	parts := strings.Split(s, ",")
 	if len(parts) != 4 {
@@ -2033,6 +2207,55 @@ func parseRect(s string) (image.Rectangle, error) {
 		vals[i] = v
 	}
 	return image.Rect(vals[0], vals[1], vals[2], vals[3]), nil
+}
+
+func parsePoint(s string) (image.Point, error) {
+	parts := strings.Split(s, ",")
+	if len(parts) != 2 {
+		return image.Point{}, fmt.Errorf("--points must be semicolon-separated x,y pairs; got %q", s)
+	}
+	x, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return image.Point{}, fmt.Errorf("--points: invalid x %q", parts[0])
+	}
+	y, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return image.Point{}, fmt.Errorf("--points: invalid y %q", parts[1])
+	}
+	return image.Pt(x, y), nil
+}
+
+func screenPredicate(name string) (func(image.Image) bool, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "non-empty", "non-zero":
+		return func(img image.Image) bool {
+			bounds := img.Bounds()
+			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					r, g, blue, a := img.At(x, y).RGBA()
+					if r|g|blue|a != 0 {
+						return true
+					}
+				}
+			}
+			return false
+		}, nil
+	case "opaque":
+		return func(img image.Image) bool {
+			bounds := img.Bounds()
+			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					_, _, _, a := img.At(x, y).RGBA()
+					if a != 0 {
+						return true
+					}
+				}
+			}
+			return false
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid --predicate %q: want non-empty, non-zero, or opaque", name)
+	}
 }
 
 // parseColor parses a hex colour string like "ff0000" or "FF0000" into color.RGBA.
