@@ -3,6 +3,7 @@ package wl
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Session encapsulates a Wayland connection and the display/registry helpers.
@@ -22,8 +23,9 @@ type Session struct {
 
 // sessionRef tracks a cached session and its reference count.
 type sessionRef struct {
-	sess *Session
-	refs int
+	sess     *Session
+	refs     int
+	lastUsed time.Time
 }
 
 var (
@@ -31,13 +33,44 @@ var (
 	sessionCache   = make(map[string]*sessionRef)
 )
 
+// DefaultSessionCacheTTL limits how long a cached session can sit unused
+// before being evicted from the in-memory cache. The underlying connection is
+// not forcibly closed during TTL eviction; callers still holding a Session
+// continue to own that live connection.
+const DefaultSessionCacheTTL = 24 * time.Hour
+
+// CleanupStaleSessions prunes cache entries older than ttl. It is safe to call
+// from tests or maintenance code to keep the in-memory cache bounded.
+func CleanupStaleSessions(ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = DefaultSessionCacheTTL
+	}
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+	cleanupStaleSessionsLocked(time.Now(), ttl)
+}
+
+func cleanupStaleSessionsLocked(now time.Time, ttl time.Duration) {
+	for sock, ref := range sessionCache {
+		if ref == nil || ref.lastUsed.IsZero() {
+			continue
+		}
+		if now.Sub(ref.lastUsed) > ttl {
+			delete(sessionCache, sock)
+		}
+	}
+}
+
 // NewSession returns a cached, reference-counted Session for sock. If no
 // session exists, a new connection is established and cached. Call Close() on
 // the returned Session to release the reference.
 func NewSession(sock string) (*Session, error) {
+	now := time.Now()
 	sessionCacheMu.Lock()
+	cleanupStaleSessionsLocked(now, DefaultSessionCacheTTL)
 	if ref, ok := sessionCache[sock]; ok {
 		ref.refs++
+		ref.lastUsed = now
 		s := ref.sess
 		sessionCacheMu.Unlock()
 		return s, nil
@@ -65,12 +98,13 @@ func NewSession(sock string) (*Session, error) {
 	// Another goroutine may have created the session while we were dialing.
 	if ref, ok := sessionCache[sock]; ok {
 		ref.refs++
+		ref.lastUsed = now
 		sessionCacheMu.Unlock()
 		// Close newly created ctx; use the existing cached session instead.
 		_ = ctx.Close()
 		return ref.sess, nil
 	}
-	sessionCache[sock] = &sessionRef{sess: s, refs: 1}
+	sessionCache[sock] = &sessionRef{sess: s, refs: 1, lastUsed: now}
 	sessionCacheMu.Unlock()
 	return s, nil
 }

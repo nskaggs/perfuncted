@@ -3,6 +3,7 @@ package wl
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewSession_CacheHit(t *testing.T) {
@@ -236,6 +237,40 @@ func TestNewSession_NotInCache(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if exists {
 		t.Error("failed session should not be cached")
+	}
+}
+
+func TestCleanupStaleSessionsPrunesOldCacheEntries(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	oldSock := "wayland-test-stale"
+	freshSock := "wayland-test-fresh"
+	now := time.Now()
+	sessionCacheMu.Lock()
+	sessionCache[oldSock] = &sessionRef{sess: &Session{Sock: oldSock, Ctx: &Context{}}, refs: 1, lastUsed: now.Add(-48 * time.Hour)}
+	sessionCache[freshSock] = &sessionRef{sess: &Session{Sock: freshSock, Ctx: &Context{}}, refs: 1, lastUsed: now}
+	sessionCacheMu.Unlock()
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	sessionCacheMu.Lock()
+	_, oldExists := sessionCache[oldSock]
+	freshRef := sessionCache[freshSock]
+	sessionCacheMu.Unlock()
+	if oldExists {
+		t.Fatal("stale cache entry remained after CleanupStaleSessions")
+	}
+	if freshRef == nil {
+		t.Fatal("fresh cache entry was pruned unexpectedly")
 	}
 }
 
