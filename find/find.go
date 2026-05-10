@@ -230,13 +230,23 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 // stable must be ≥ 1. A value of 5 with poll=200ms means the region must look
 // identical for one full second before returning.
 func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, stable int, poll time.Duration, newHash Hasher) (uint32, error) {
+	return WaitForNoChangeFrom(ctx, sc, rect, 0, stable, poll, newHash)
+}
+
+// WaitForNoChangeFrom is the same as WaitForNoChange but accepts an initial hash
+// to avoid the first capture if the caller already knows the current state.
+// If initial is 0, the first capture is performed immediately.
+func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, stable int, poll time.Duration, newHash Hasher) (uint32, error) {
 	if stable <= 0 {
 		stable = 1
 	}
-	var last uint32
+	last := initial
+	streak := 0
+	if initial != 0 {
+		streak = 1
+	}
 	var sentinel color.RGBA
 	sentinelSet := false
-	streak := 0
 
 	// Adaptive polling when poll <= 0.
 	if poll <= 0 {
@@ -269,7 +279,7 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 			sentinelSet = true
 
 			h := PixelHash(img, newHash)
-			if h == last {
+			if streak > 0 && h == last {
 				streak++
 				if streak >= stable {
 					return h, nil
@@ -328,7 +338,7 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 		sentinelSet = true
 
 		h := PixelHash(img, newHash)
-		if h == last {
+		if streak > 0 && h == last {
 			streak++
 			if streak >= stable {
 				return h, nil

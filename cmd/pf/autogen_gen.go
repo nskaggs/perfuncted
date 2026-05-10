@@ -126,6 +126,81 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	}
 
 	cmds = append(cmds, cmd_screen_resolution)
+
+	// wait-for-no-change: wrapper for perfuncted.WaitForNoChange
+	var cmd_screen_wait_for_no_change_rect string
+	var cmd_screen_wait_for_no_change_stable int
+	var cmd_screen_wait_for_no_change_poll string
+	cmd_screen_wait_for_no_change := &cobra.Command{
+		Use:   "wait-for-no-change",
+		Short: "Wait for a screen region to stop changing",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_wait_for_no_change_rect)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_wait_for_no_change_stable (int) already parsed into var
+			cmd_screen_wait_for_no_change_poll_dur, err := parseDuration(cmd_screen_wait_for_no_change_poll, 0)
+			if err != nil {
+				return err
+			}
+			h, err := pf.Screen.WaitForNoChange(cmd.Context(), r_0, cmd_screen_wait_for_no_change_stable, cmd_screen_wait_for_no_change_poll_dur)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	cmd_screen_wait_for_no_change.Flags().StringVar(&cmd_screen_wait_for_no_change_rect, "rect", "0,0,1920,1080", "region to monitor as x0,y0,x1,y1")
+	cmd_screen_wait_for_no_change.Flags().IntVar(&cmd_screen_wait_for_no_change_stable, "stable", 0, "number of stable samples required")
+	cmd_screen_wait_for_no_change.Flags().StringVar(&cmd_screen_wait_for_no_change_poll, "poll", "", "polling interval (e.g. 200ms)")
+
+	cmds = append(cmds, cmd_screen_wait_for_no_change)
+
+	// wait-for-no-change-from: wrapper for perfuncted.WaitForNoChangeFrom
+	var cmd_screen_wait_for_no_change_from_rect string
+	var cmd_screen_wait_for_no_change_from_initial int
+	var cmd_screen_wait_for_no_change_from_stable int
+	var cmd_screen_wait_for_no_change_from_poll string
+	cmd_screen_wait_for_no_change_from := &cobra.Command{
+		Use:   "wait-for-no-change-from",
+		Short: "Wait for a screen region to stop changing, starting from an initial hash",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			r_0, err := parseRect(cmd_screen_wait_for_no_change_from_rect)
+			if err != nil {
+				return err
+			}
+			// flag cmd_screen_wait_for_no_change_from_initial (int) already parsed into var
+			// flag cmd_screen_wait_for_no_change_from_stable (int) already parsed into var
+			cmd_screen_wait_for_no_change_from_poll_dur, err := parseDuration(cmd_screen_wait_for_no_change_from_poll, 0)
+			if err != nil {
+				return err
+			}
+			h, err := pf.Screen.WaitForNoChangeFrom(cmd.Context(), r_0, uint32(cmd_screen_wait_for_no_change_from_initial), cmd_screen_wait_for_no_change_from_stable, cmd_screen_wait_for_no_change_from_poll_dur)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%08x\n", h)
+			return nil
+		},
+	}
+	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_rect, "rect", "0,0,1920,1080", "region to monitor as x0,y0,x1,y1")
+	cmd_screen_wait_for_no_change_from.Flags().IntVar(&cmd_screen_wait_for_no_change_from_initial, "initial", 0, "initial CRC32 hash (hex)")
+	cmd_screen_wait_for_no_change_from.Flags().IntVar(&cmd_screen_wait_for_no_change_from_stable, "stable", 0, "number of stable samples required")
+	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_poll, "poll", "", "polling interval (e.g. 200ms)")
+
+	cmds = append(cmds, cmd_screen_wait_for_no_change_from)
 	return cmds
 }
 func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
@@ -235,5 +310,51 @@ func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 }
 func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
+
+	// get: wrapper for perfuncted.Get
+
+	cmd_clipboard_get := &cobra.Command{
+		Use:   "get",
+		Short: "Print the current clipboard contents",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			res, err := pf.Clipboard.Get(cmd.Context())
+			if err != nil {
+				return err
+			}
+			fmt.Print(res)
+			return nil
+		},
+	}
+
+	cmds = append(cmds, cmd_clipboard_get)
+
+	// set: wrapper for perfuncted.Set
+	var cmd_clipboard_set_text string
+	cmd_clipboard_set := &cobra.Command{
+		Use:   "set",
+		Short: "Set the clipboard contents",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pf, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			var cmd_clipboard_set_text string
+			cmd_clipboard_set_text = args[0]
+			if err := pf.Clipboard.Set(cmd.Context(), cmd_clipboard_set_text); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd_clipboard_set.Flags().StringVar(&cmd_clipboard_set_text, "text", "", "text")
+
+	cmds = append(cmds, cmd_clipboard_set)
 	return cmds
 }

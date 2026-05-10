@@ -162,13 +162,35 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 		return 0, err
 	}
 	action()
-	if _, err := find.WaitForChange(ctx, s.Screenshotter, rect, before, poll, nil); err != nil {
+	changed, err := find.WaitForChange(ctx, s.Screenshotter, rect, before, poll, nil)
+	if err != nil {
+		return 0, err
+	}
+	return find.WaitForNoChangeFrom(ctx, s.Screenshotter, rect, changed, stable, poll, nil)
+}
+
+// WaitForNoChange polls rect every poll interval until its pixel hash is unchanged
+// for stable consecutive samples, then returns the stable hash.
+func (s ScreenBundle) WaitForNoChange(ctx context.Context, rect image.Rectangle, stable int, poll time.Duration) (uint32, error) {
+	s.traceAction(fmt.Sprintf("wait-for-no-change rect=%s stable=%d poll=%s", rect, stable, poll))
+	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
 	return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable, poll, nil)
 }
 
+// WaitForNoChangeFrom is the same as WaitForNoChange but accepts an initial hash
+// to avoid the first capture if the caller already knows the current state.
+func (s ScreenBundle) WaitForNoChangeFrom(ctx context.Context, rect image.Rectangle, initial uint32, stable int, poll time.Duration) (uint32, error) {
+	s.traceAction(fmt.Sprintf("wait-for-no-change-from rect=%s initial=%08x stable=%d poll=%s", rect, initial, stable, poll))
+	if err := s.checkAvailable(); err != nil {
+		return 0, err
+	}
+	return find.WaitForNoChangeFrom(ctx, s.Screenshotter, rect, initial, stable, poll, nil)
+}
+
 // FindColor searches rect for the first pixel matching target within tolerance.
+
 func (s ScreenBundle) FindColor(ctx context.Context, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
 	s.traceAction(fmt.Sprintf("find-color rect=%s tolerance=%d", rect, tolerance))
 	if err := s.checkAvailable(); err != nil {
