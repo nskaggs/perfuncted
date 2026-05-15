@@ -270,6 +270,9 @@ func (p *Perfuncted) Close() error {
 }
 
 func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
+	if poll <= 0 {
+		poll = 10 * time.Millisecond
+	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 

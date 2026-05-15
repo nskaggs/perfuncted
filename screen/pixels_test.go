@@ -118,12 +118,12 @@ func TestDecodeBGRARect(t *testing.T) {
 	rect := image.Rect(1, 1, 3, 3)
 	img := decodeBGRARect(data, 3, 3, 12, rect)
 
-	if img.Bounds().Dx() != 2 || img.Bounds().Dy() != 2 {
-		t.Fatalf("expected 2x2, got %dx%d", img.Bounds().Dx(), img.Bounds().Dy())
+	if got := img.Bounds(); got != rect {
+		t.Fatalf("expected bounds %v, got %v", rect, got)
 	}
 
-	// Check (0, 0) of cropped, which is (1, 1) in original = index 4
-	c0 := img.RGBAAt(0, 0)
+	// Check (1, 1) of cropped/original = index 4.
+	c0 := img.RGBAAt(1, 1)
 	expectedB := byte(5)
 	expectedG := byte(10)
 	expectedR := byte(15)
@@ -144,16 +144,16 @@ func TestDecodeBGRARectWithStridePadding(t *testing.T) {
 	rect := image.Rect(1, 0, 2, 2)
 	img := decodeBGRARect(data, 2, 2, 12, rect)
 
-	if img.Bounds().Dx() != 1 || img.Bounds().Dy() != 2 {
-		t.Fatalf("expected 1x2, got %dx%d", img.Bounds().Dx(), img.Bounds().Dy())
+	if got := img.Bounds(); got != rect {
+		t.Fatalf("expected bounds %v, got %v", rect, got)
 	}
 
-	c0 := img.RGBAAt(0, 0)
+	c0 := img.RGBAAt(1, 0)
 	if c0.B != 0x11 || c0.G != 0x12 || c0.R != 0x13 {
 		t.Errorf("row 0: got RGB(%02x,%02x,%02x) want (13,12,11)", c0.R, c0.G, c0.B)
 	}
 
-	c1 := img.RGBAAt(0, 1)
+	c1 := img.RGBAAt(1, 1)
 	if c1.B != 0x14 || c1.G != 0x15 || c1.R != 0x16 {
 		t.Errorf("row 1: got RGB(%02x,%02x,%02x) want (16,15,14)", c1.R, c1.G, c1.B)
 	}

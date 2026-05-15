@@ -5,6 +5,7 @@ import (
 	"iter"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeManager implements Manager for testing FindByTitle.
@@ -57,5 +58,27 @@ func TestFindByTitle_NotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "window: not found") {
 		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestWaitForMatchZeroPoll(t *testing.T) {
+	m := &fakeManager{}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := WaitForMatch(ctx, m, Match{TitleContains: "hello"}, 0)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestWaitForMatchCloseZeroPoll(t *testing.T) {
+	m := &fakeManager{wins: []Info{{ID: 1, Title: "Hello World"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := WaitForMatchClose(ctx, m, Match{TitleContains: "hello"}, 0)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
 	}
 }

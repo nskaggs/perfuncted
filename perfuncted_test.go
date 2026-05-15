@@ -230,6 +230,23 @@ func TestBundleMethodsPropagateContext(t *testing.T) {
 	}
 }
 
+func TestRetryZeroPoll(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	calls := 0
+	err := perfuncted.Retry(ctx, 0, func() error {
+		calls++
+		return errors.New("try again")
+	})
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if calls == 0 {
+		t.Fatal("expected retry function to be called")
+	}
+}
+
 func TestCloseJoinsErrors(t *testing.T) {
 	t.Parallel()
 	screenErr := errors.New("screen close failed")

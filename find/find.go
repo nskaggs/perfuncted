@@ -51,6 +51,13 @@ func adaptivePoll(attempt int, base, max time.Duration) time.Duration {
 // into wait loops in a follow-up commit.
 var _ = adaptivePoll
 
+func clampPoll(poll time.Duration) time.Duration {
+	if poll <= 0 {
+		return 10 * time.Millisecond
+	}
+	return poll
+}
+
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
 // For *image.RGBA images it uses a fast path that reads pixel bytes directly
 // from the underlying Pix slice, avoiding per-pixel interface calls and
@@ -151,7 +158,7 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 	}
 
 	// Fixed-interval polling.
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -203,7 +210,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 	}
 
 	// Fixed-interval polling.
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -308,7 +315,7 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 	}
 
 	// Fixed-interval polling.
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -367,6 +374,9 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	if len(rects) != len(wants) {
 		return Result{}, fmt.Errorf("find: ScanFor: len(rects)=%d != len(wants)=%d", len(rects), len(wants))
 	}
+	if len(rects) == 0 {
+		return Result{}, fmt.Errorf("find: ScanFor: no regions provided")
+	}
 
 	// Compute union bounding box and total individual area.
 	bbox := rects[0]
@@ -378,7 +388,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	bboxArea := bbox.Dx() * bbox.Dy()
 	useBbox := bboxArea <= 2*totalArea
 
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -388,6 +398,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 			if err != nil {
 				return Result{}, err
 			}
+			imgBase := img.Bounds().Min
 			sub, ok := img.(interface {
 				SubImage(image.Rectangle) image.Image
 			})
@@ -395,12 +406,14 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 				useBbox = false // fall back if SubImage unavailable
 			} else {
 				for i, rect := range rects {
-					// Translate rect to grabbed image coordinate space.
+					// Translate the requested screen rect into the grabbed image's
+					// coordinate space. Backends may return either zero-origin or
+					// absolute-bounds images, so respect the returned bounds.
 					tr := image.Rect(
-						rect.Min.X-bbox.Min.X,
-						rect.Min.Y-bbox.Min.Y,
-						rect.Max.X-bbox.Min.X,
-						rect.Max.Y-bbox.Min.Y,
+						rect.Min.X-bbox.Min.X+imgBase.X,
+						rect.Min.Y-bbox.Min.Y+imgBase.Y,
+						rect.Max.X-bbox.Min.X+imgBase.X,
+						rect.Max.Y-bbox.Min.Y+imgBase.Y,
 					)
 					h := PixelHash(sub.SubImage(tr), newHash)
 					if h == wants[i] {
@@ -564,7 +577,7 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		refFirst = color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
 	}
 
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -700,7 +713,7 @@ func abs(x int) int {
 // via exact pixel matching, or ctx expires. Returns the absolute rectangle
 // where the reference was located.
 func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -721,7 +734,7 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 // iteration and may inspect it with any predicate (brightness, color
 // presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
