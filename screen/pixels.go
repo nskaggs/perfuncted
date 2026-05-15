@@ -41,7 +41,7 @@ func decodeBGRARect(data []byte, w, h, stride int, rect image.Rectangle) *image.
 	if r.Empty() {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
-	out := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
+	out := image.NewRGBA(r)
 	rowBytes := r.Dx() * 4
 	for y := 0; y < r.Dy(); y++ {
 		srcRow := data[(r.Min.Y+y)*stride+r.Min.X*4 : (r.Min.Y+y)*stride+r.Min.X*4+rowBytes]

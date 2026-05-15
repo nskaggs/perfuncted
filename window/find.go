@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+func clampPoll(poll time.Duration) time.Duration {
+	if poll <= 0 {
+		return 10 * time.Millisecond
+	}
+	return poll
+}
+
 // Find returns the first window matching match.
 func Find(ctx context.Context, m Manager, match Match) (Info, error) {
 	return find(ctx, m, match, match.String())
@@ -36,7 +43,7 @@ func WaitFor(ctx context.Context, m Manager, pattern string, poll time.Duration)
 
 // WaitForMatch blocks until a window matching match is found, or ctx expires.
 func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duration) (Info, error) {
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
@@ -59,7 +66,7 @@ func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Dura
 
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
-	ticker := time.NewTicker(poll)
+	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {

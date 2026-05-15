@@ -180,6 +180,24 @@ func TestWindowCommands(t *testing.T) {
 			t.Fatalf("stdout = %q, want empty", stdout)
 		}
 	})
+
+	t.Run("wait-close zero poll", func(t *testing.T) {
+		mgr := &pftest.Manager{Lists: [][]window.Info{
+			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
+			{},
+		}}
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "0s", "--timeout", "250ms"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+	})
 }
 
 func TestScreenAndInputCommands(t *testing.T) {
@@ -227,6 +245,20 @@ func TestScreenAndInputCommands(t *testing.T) {
 		}
 		if _, err := strconv.ParseUint(strings.TrimSpace(stdout), 16, 32); err != nil {
 			t.Fatalf("stdout = %q, want 8-digit hex hash: %v", stdout, err)
+		}
+	})
+
+	t.Run("scan-for empty", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"find", "scan-for", "--rects", "", "--wants", ""}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(&pftest.Screenshotter{Width: 2, Height: 2}, nil, nil, nil), nil
+			}
+		})
+		if code == 0 {
+			t.Fatalf("exit code = 0, want non-zero; stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stderr, "scan-for requires at least one rect/hash pair") {
+			t.Fatalf("stderr = %q, want empty-input error", stderr)
 		}
 	})
 

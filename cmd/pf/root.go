@@ -525,6 +525,9 @@ Runs until --duration expires or Ctrl+C.`,
 			if err != nil {
 				return err
 			}
+			if poll <= 0 {
+				poll = 100 * time.Millisecond
+			}
 			dur, err := parseDuration(watchDurFlag, 0)
 			if err != nil {
 				return err
@@ -1260,6 +1263,9 @@ func printWindowListPlain(wins []window.Info) {
 }
 
 func waitForWindowMatch(ctx context.Context, m window.Manager, match window.Match, poll time.Duration) (window.Info, error) {
+	if poll <= 0 {
+		poll = 100 * time.Millisecond
+	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
@@ -1280,6 +1286,9 @@ func waitForWindowMatch(ctx context.Context, m window.Manager, match window.Matc
 }
 
 func waitForWindowCloseMatch(ctx context.Context, m window.Manager, match window.Match, poll time.Duration) error {
+	if poll <= 0 {
+		poll = 100 * time.Millisecond
+	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
@@ -1954,6 +1963,9 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			if len(rects) != len(wants) {
 				return fmt.Errorf("len(rects)=%d != len(wants)=%d", len(rects), len(wants))
+			}
+			if len(rects) == 0 {
+				return fmt.Errorf("scan-for requires at least one rect/hash pair")
 			}
 			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
 			if err != nil {

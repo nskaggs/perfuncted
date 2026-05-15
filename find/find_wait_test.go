@@ -203,6 +203,19 @@ func TestWaitForFn_Timeout(t *testing.T) {
 	}
 }
 
+func TestWaitForFnZeroPoll(t *testing.T) {
+	sc := &solidScreenshotter{}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := WaitForFn(ctx, sc, image.Rect(0, 0, 10, 10), func(image.Image) bool {
+		return false
+	}, 0)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
 // TestGrabHash tests the GrabHash utility function.
 func TestGrabHash_Success(t *testing.T) {
 	sc := &solidScreenshotter{}
@@ -333,6 +346,13 @@ func TestScanFor(t *testing.T) {
 	}
 }
 
+func TestScanForEmpty(t *testing.T) {
+	_, err := ScanFor(context.Background(), &solidScreenshotter{}, nil, nil, 10*time.Millisecond, nil)
+	if err == nil {
+		t.Fatal("expected error for empty ScanFor input")
+	}
+}
+
 // TestWaitWithTolerance tests WaitWithTolerance.
 func TestWaitWithTolerance(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
@@ -363,6 +383,30 @@ func TestWaitWithTolerance(t *testing.T) {
 	}
 	if resultRect.Min.X != 4 || resultRect.Min.Y != 4 {
 		t.Fatalf("WaitWithTolerance returned rect %v, want around (4,4)", resultRect)
+	}
+}
+
+func TestWaitWithToleranceZeroPoll(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 100, G: 100, B: 100, A: 255})
+		}
+	}
+	ref := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			ref.SetRGBA(x, y, color.RGBA{R: 150, G: 150, B: 150, A: 255})
+		}
+	}
+
+	sc := &fakeScreen{img: img}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, _, err := WaitWithTolerance(ctx, sc, image.Rect(4, 4, 6, 6), ref, 2, 0, nil)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
 	}
 }
 
@@ -420,6 +464,30 @@ func TestWaitForLocate(t *testing.T) {
 	}
 	if found.Min.X != 5 || found.Min.Y != 7 {
 		t.Fatalf("WaitForLocate returned (%d,%d), want (5,7)", found.Min.X, found.Min.Y)
+	}
+}
+
+func TestWaitForLocateZeroPoll(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
+	for y := 0; y < 20; y++ {
+		for x := 0; x < 20; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 100, G: 100, B: 100, A: 255})
+		}
+	}
+	needle := image.NewRGBA(image.Rect(0, 0, 3, 3))
+	for y := 0; y < 3; y++ {
+		for x := 0; x < 3; x++ {
+			needle.SetRGBA(x, y, color.RGBA{R: 200, G: 0, B: 0, A: 255})
+		}
+	}
+
+	sc := &fakeScreen{img: img}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := WaitForLocate(ctx, sc, image.Rect(0, 0, 20, 20), needle, 0)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
 	}
 }
 
