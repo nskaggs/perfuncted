@@ -9,7 +9,8 @@ import (
 // ── normalizeContext ──────────────────────────────────────────────────────────
 
 func TestNormalizeContext_NilReturnsBackground(t *testing.T) {
-	got := normalizeContext(nil)
+	var nilCtx context.Context //nolint:SA1012 // testing nil handling
+	got := normalizeContext(nilCtx)
 	if got == nil {
 		t.Fatal("normalizeContext(nil) returned nil, want non-nil context")
 	}
@@ -50,14 +51,16 @@ func TestSleepContext_ZeroDuration_CancelledContext(t *testing.T) {
 
 func TestSleepContext_NilContext_ZeroDuration(t *testing.T) {
 	// nil context is normalised to Background, so 0-duration returns nil.
-	if err := sleepContext(nil, 0); err != nil {
+	var nilCtx context.Context //nolint:SA1012 // testing nil handling
+	if err := sleepContext(nilCtx, 0); err != nil {
 		t.Fatalf("sleepContext(nil, 0) = %v, want nil", err)
 	}
 }
 
 func TestSleepContext_NilContext_PositiveDuration(t *testing.T) {
 	// nil context is normalised to Background; positive duration should complete.
-	if err := sleepContext(nil, 1*time.Millisecond); err != nil {
+	var nilCtx context.Context //nolint:SA1012 // testing nil handling
+	if err := sleepContext(nilCtx, 1*time.Millisecond); err != nil {
 		t.Fatalf("sleepContext(nil, 1ms) = %v, want nil", err)
 	}
 }

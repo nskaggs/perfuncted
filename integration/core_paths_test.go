@@ -28,18 +28,18 @@ import (
 
 // Verifier wraps *testing.T and exposes assertion helpers for pixel content,
 // image location, window presence, and basic value equality.
-type Verifier struct {
+type chk struct {
 	t  *testing.T
 	sc find.Screenshotter // nil when pixel/image assertions are not needed
 }
 
-func newVerifier(t *testing.T, sc find.Screenshotter) *Verifier {
+func newChk(t *testing.T, sc find.Screenshotter) *Verifier {
 	t.Helper()
-	return &Verifier{t: t, sc: sc}
+	return &chk{t: t, sc: sc}
 }
 
 // NoError fatally fails the test if err is non-nil.
-func (v *Verifier) NoError(err error, msg string) {
+func (v *chk) NoError(err error, msg string) {
 	v.t.Helper()
 	if err != nil {
 		v.t.Fatalf("%s: %v", msg, err)
@@ -47,7 +47,7 @@ func (v *Verifier) NoError(err error, msg string) {
 }
 
 // Equal fails the test if want != got.
-func (v *Verifier) Equal(want, got, msg string) {
+func (v *chk) Equal(want, got, msg string) {
 	v.t.Helper()
 	if want != got {
 		v.t.Errorf("%s: want %q, got %q", msg, want, got)
@@ -55,7 +55,7 @@ func (v *Verifier) Equal(want, got, msg string) {
 }
 
 // ErrorIs fails the test if err does not wrap target.
-func (v *Verifier) ErrorIs(err, target error, msg string) {
+func (v *chk) ErrorIs(err, target error, msg string) {
 	v.t.Helper()
 	if !errors.Is(err, target) {
 		v.t.Errorf("%s: want error wrapping %v, got %v", msg, target, err)
@@ -64,7 +64,7 @@ func (v *Verifier) ErrorIs(err, target error, msg string) {
 
 // PixelPresent grabs rect from the screenshotter and asserts at least one
 // pixel matches target within tolerance. rect must be in screen coordinates.
-func (v *Verifier) PixelPresent(ctx context.Context, rect image.Rectangle, target color.RGBA, tolerance int) {
+func (v *chk) PixelPresent(ctx context.Context, rect image.Rectangle, target color.RGBA, tolerance int) {
 	v.t.Helper()
 	if v.sc == nil {
 		v.t.Fatal("PixelPresent: Verifier has no screenshotter")
@@ -82,7 +82,7 @@ func (v *Verifier) PixelPresent(ctx context.Context, rect image.Rectangle, targe
 // ImageLocated asserts reference can be found (exact match) within searchArea
 // using the Verifier's screenshotter and returns the matched rectangle in
 // screen coordinates.
-func (v *Verifier) ImageLocated(ctx context.Context, searchArea image.Rectangle, reference image.Image, msg string) image.Rectangle {
+func (v *chk) ImageLocated(ctx context.Context, searchArea image.Rectangle, reference image.Image, msg string) image.Rectangle {
 	v.t.Helper()
 	if v.sc == nil {
 		v.t.Fatal("ImageLocated: Verifier has no screenshotter")
@@ -96,7 +96,7 @@ func (v *Verifier) ImageLocated(ctx context.Context, searchArea image.Rectangle,
 
 // ImageNotLocated asserts reference cannot be found within searchArea and
 // that the error wraps find.ErrNotFound.
-func (v *Verifier) ImageNotLocated(ctx context.Context, searchArea image.Rectangle, reference image.Image, msg string) {
+func (v *chk) ImageNotLocated(ctx context.Context, searchArea image.Rectangle, reference image.Image, msg string) {
 	v.t.Helper()
 	if v.sc == nil {
 		v.t.Fatal("ImageNotLocated: Verifier has no screenshotter")
@@ -113,7 +113,7 @@ func (v *Verifier) ImageNotLocated(ctx context.Context, searchArea image.Rectang
 
 // WindowExists asserts a window matching pattern is currently visible and
 // returns its Info.
-func (v *Verifier) WindowExists(ctx context.Context, pf *perfuncted.Perfuncted, pattern string) window.Info {
+func (v *chk) WindowExists(ctx context.Context, pf *perfuncted.Perfuncted, pattern string) window.Info {
 	v.t.Helper()
 	info, err := pf.Window.FindByTitle(ctx, pattern)
 	if err != nil {
@@ -123,7 +123,7 @@ func (v *Verifier) WindowExists(ctx context.Context, pf *perfuncted.Perfuncted, 
 }
 
 // WindowAbsent asserts no window matching pattern is currently visible.
-func (v *Verifier) WindowAbsent(ctx context.Context, pf *perfuncted.Perfuncted, pattern string) {
+func (v *chk) WindowAbsent(ctx context.Context, pf *perfuncted.Perfuncted, pattern string) {
 	v.t.Helper()
 	_, err := pf.Window.FindByTitle(ctx, pattern)
 	if err == nil {
@@ -210,7 +210,7 @@ func TestClipboardRoundTrip_Unicode(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	const text = "Hello 世界 🌍 Ñoño αβγδ ∑∫∂"
 	v.NoError(s.pf.Clipboard.Set(ctx, text), "clipboard set unicode")
@@ -231,7 +231,7 @@ func TestClipboardRoundTrip_Whitespace(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	const text = "  leading  \t\ttabs\t  nested   trailing  "
 	v.NoError(s.pf.Clipboard.Set(ctx, text), "clipboard set whitespace")
@@ -252,7 +252,7 @@ func TestClipboardRoundTrip_Newlines(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	const text = "line one\nline two\nline three\nfinal"
 	v.NoError(s.pf.Clipboard.Set(ctx, text), "clipboard set newlines")
@@ -305,7 +305,7 @@ func TestClipboard_NoContamination(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	const first = "first-clipboard-value-abc"
 	const second = "second-clipboard-value-xyz"
@@ -338,7 +338,7 @@ func TestTypeFast_SetsClipboard(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	// Establish a known initial clipboard state.
 	const sentinel = "SENTINEL_BEFORE_PASTE"
@@ -375,7 +375,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	const typeText = "TypeFastMatchesType"
 
@@ -464,7 +464,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	// ── open window A ─────────────────────────────────────────────────────────
 	fileA := filepath.Join(t.TempDir(), "focusA.txt")
@@ -530,7 +530,7 @@ func TestWindowClose_VerifiedGoneFromList(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	closeFile := filepath.Join(t.TempDir(), "closetest.txt")
 	if err := os.WriteFile(closeFile, nil, 0o644); err != nil {
@@ -574,7 +574,7 @@ func TestScreenCapture_SelfLocate(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	screenW, screenH, err := s.pf.Screen.Resolution(ctx)
 	v.NoError(err, "screen resolution")
@@ -642,7 +642,7 @@ func TestScreenCapture_PixelPresent(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	screenW, screenH, err := s.pf.Screen.Resolution(ctx)
 	v.NoError(err, "live screen resolution")
@@ -676,7 +676,7 @@ func TestFind_LocateExact_NotFound(t *testing.T) {
 	// Screenshotter always returns a solid blue image.
 	bg := solidColorImage(200, 200, color.RGBA{B: 200, A: 255})
 	sc := &constScreenshotter{img: bg}
-	v := newVerifier(t, sc)
+	v := newChk(t, sc)
 
 	// A solid red reference must not match inside the blue search area.
 	ref := solidColorImage(10, 10, color.RGBA{R: 200, A: 255})
@@ -699,7 +699,7 @@ func TestFind_LocateAll_KnownPosition(t *testing.T) {
 		}
 	}
 	sc := &constScreenshotter{img: canvas}
-	v := newVerifier(t, sc)
+	v := newChk(t, sc)
 
 	ref := solidColorImage(10, 10, red)
 	// Search the entire canvas (zero-origin to match constScreenshotter output).
@@ -751,7 +751,7 @@ func TestErrorPath_WindowNotFound(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	v := newVerifier(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen.Screenshotter)
 
 	_, err := s.pf.Window.FindByTitle(ctx, "xyzzy-nonexistent-window-pfinttest-8675309")
 	if err == nil {
