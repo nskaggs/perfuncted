@@ -132,23 +132,28 @@ func splitShell(s string) ([]string, error) {
 	var cur strings.Builder
 	inQuote := byte(0)
 	escaped := false
+	tokenStarted := false
 	emit := func() {
-		if cur.Len() > 0 {
+		if tokenStarted {
 			out = append(out, cur.String())
 			cur.Reset()
+			tokenStarted = false
 		}
 	}
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
 		if escaped {
+			tokenStarted = true
 			cur.WriteByte(ch)
 			escaped = false
 			continue
 		}
 		switch ch {
 		case '\\':
+			tokenStarted = true
 			escaped = true
 		case '\'', '"':
+			tokenStarted = true
 			if inQuote == 0 {
 				inQuote = ch
 				continue
@@ -160,11 +165,13 @@ func splitShell(s string) ([]string, error) {
 			cur.WriteByte(ch)
 		case ' ', '\t':
 			if inQuote != 0 {
+				tokenStarted = true
 				cur.WriteByte(ch)
 				continue
 			}
 			emit()
 		default:
+			tokenStarted = true
 			cur.WriteByte(ch)
 		}
 	}
