@@ -201,7 +201,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 			}
 			select {
 			case <-ctx.Done():
-				return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
+				return h, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
 			default:
 			}
 			d := adaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
@@ -210,7 +210,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 			select {
 			case <-ctx.Done():
 				t.Stop()
-				return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
+				return h, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
 			case <-t.C:
 			}
 		}
@@ -230,7 +230,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 		}
 		select {
 		case <-ctx.Done():
-			return 0, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
+			return h, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
 		case <-ticker.C:
 		}
 	}

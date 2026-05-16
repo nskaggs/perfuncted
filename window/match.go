@@ -149,13 +149,14 @@ func ParseMatchSpec(spec string) (Match, error) {
 
 		switch strings.ToLower(strings.TrimSuffix(key, "~")) {
 		case "title":
+			// key may be "title" (exact) or "title~" (substring). The trailing "~"
+			// is stripped by TrimSuffix before the switch, so case "title~" here
+			// would be unreachable — the HasSuffix check below distinguishes the two.
 			if strings.HasSuffix(key, "~") {
 				m.TitleContains = val
 			} else {
 				m.TitleExact = val
 			}
-		case "title~":
-			m.TitleContains = val
 		case "app", "app_id", "appid":
 			m.AppID = val
 		case "class":
