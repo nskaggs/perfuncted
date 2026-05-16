@@ -160,6 +160,16 @@ func TestLocateExact(t *testing.T) {
 	}
 }
 
+func TestLocateExactEmptyReference(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
+	sc := &fakeScreen{img: img}
+
+	_, err := LocateExact(context.Background(), sc, image.Rect(0, 0, 20, 20), image.NewRGBA(image.Rect(0, 0, 0, 0)))
+	if err == nil {
+		t.Fatal("expected error for empty reference image")
+	}
+}
+
 // ── uniqueRunes (tested via xkb helper in input package, sanity check here) ──
 
 func TestAnchorRect(t *testing.T) {

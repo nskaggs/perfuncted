@@ -95,7 +95,14 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 // implementations provide a fast GrabRegionHash that avoids allocating an
 // image.RGBA; use that when available.
 func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
-	return sc.GrabRegionHash(ctx, rect)
+	if newHash == nil {
+		return sc.GrabRegionHash(ctx, rect)
+	}
+	img, err := sc.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return PixelHash(img, newHash), nil
 }
 
 // FirstPixel returns the colour of the top-left pixel of rect captured from sc.
@@ -377,6 +384,11 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	if len(rects) == 0 {
 		return Result{}, fmt.Errorf("find: ScanFor: no regions provided")
 	}
+	for i, r := range rects {
+		if r.Empty() {
+			return Result{}, fmt.Errorf("find: ScanFor: empty region at index %d: %v", i, r)
+		}
+	}
 
 	// Compute union bounding box and total individual area.
 	bbox := rects[0]
@@ -454,6 +466,12 @@ func (a Anchor) Rect(dx, dy, w, h int) image.Rectangle {
 // LocateExact performs an exact byte-for-byte search of reference within the searchArea.
 // It returns the absolute image.Rectangle where it matches.
 func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+	if searchArea.Empty() {
+		return image.Rectangle{}, fmt.Errorf("find: locate search area is empty")
+	}
+	if reference.Bounds().Empty() {
+		return image.Rectangle{}, fmt.Errorf("find: reference image is empty")
+	}
 	src, err := sc.Grab(ctx, searchArea)
 	if err != nil {
 		return image.Rectangle{}, fmt.Errorf("find: locate grab: %w", err)
@@ -551,12 +569,24 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 	if newHash == nil {
 		newHash = DefaultHasher
 	}
+	if radius < 0 {
+		return 0, image.Rectangle{}, fmt.Errorf("find: tolerance radius must be non-negative")
+	}
+	if expectedRect.Empty() {
+		return 0, image.Rectangle{}, fmt.Errorf("find: expected rect is empty")
+	}
+	if reference.Bounds().Empty() {
+		return 0, image.Rectangle{}, fmt.Errorf("find: reference image is empty")
+	}
 	searchArea := image.Rect(
 		expectedRect.Min.X-radius,
 		expectedRect.Min.Y-radius,
 		expectedRect.Max.X+radius,
 		expectedRect.Max.Y+radius,
 	)
+	if searchArea.Empty() {
+		return 0, image.Rectangle{}, fmt.Errorf("find: tolerance search area is empty")
+	}
 
 	// Precompute reference hash and top-left pixel for quick rejection.
 	refHash := PixelHash(reference, newHash)
@@ -686,6 +716,9 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 // target. Returns the absolute (x, y) of the match. Tolerance is applied per
 // channel: |r-r'| ≤ tol && |g-g'| ≤ tol && |b-b'| ≤ tol.
 func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
+	if tolerance < 0 || tolerance > 255 {
+		return image.Point{}, fmt.Errorf("find: invalid tolerance %d (want 0..255)", tolerance)
+	}
 	img, err := sc.Grab(ctx, rect)
 	if err != nil {
 		return image.Point{}, fmt.Errorf("find: find-color grab: %w", err)
