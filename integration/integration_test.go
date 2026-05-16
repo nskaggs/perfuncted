@@ -536,13 +536,13 @@ func (v *Verifier) captureFailure(label string) {
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("fail-%s-%d.png", label, time.Now().Unix()))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	w, h, err := v.pf.Screen.Resolution(ctx)
 	if err != nil {
 		v.t.Logf("failed to resolve screen for failure capture: %v", err)
 		return
 	}
-	
+
 	if err := v.pf.Screen.CaptureRegion(ctx, image.Rect(0, 0, w, h), path); err != nil {
 		v.t.Logf("failed to capture screen snapshot on failure: %v", err)
 		return
