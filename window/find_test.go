@@ -2,6 +2,7 @@ package window
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"strings"
 	"testing"
@@ -69,6 +70,16 @@ func TestWaitForMatchZeroPoll(t *testing.T) {
 	_, err := WaitForMatch(ctx, m, Match{TitleContains: "hello"}, 0)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestWaitForMatchPropagatesManagerError(t *testing.T) {
+	want := errors.New("list failed")
+	m := &errIterManager{err: want}
+
+	_, err := WaitForMatch(context.Background(), m, Match{TitleContains: "hello"}, 0)
+	if !errors.Is(err, want) {
+		t.Fatalf("WaitForMatch error = %v, want %v", err, want)
 	}
 }
 

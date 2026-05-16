@@ -52,6 +52,9 @@ func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duratio
 		if err == nil {
 			return info, nil
 		}
+		if !errors.Is(err, ErrWindowNotFound) {
+			return Info{}, err
+		}
 		select {
 		case <-ctx.Done():
 			return Info{}, fmt.Errorf("wait for window %q: %w", match.String(), ctx.Err())
