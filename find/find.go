@@ -294,7 +294,7 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 		attempt := 0
 		for {
 			if err := contextErr(ctx); err != nil {
-				return 0, err
+				return last, err
 			}
 			img, err := sc.Grab(ctx, rect)
 			if err != nil {
@@ -363,7 +363,7 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 
 	for {
 		if err := contextErr(ctx); err != nil {
-			return 0, err
+			return last, err
 		}
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {

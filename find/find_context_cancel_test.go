@@ -104,6 +104,38 @@ func TestWaitForNoChange_CanceledContextAfterGrab(t *testing.T) {
 	}
 }
 
+func TestWaitForNoChange_CanceledContextBeforeGrabReturnsInitial(t *testing.T) {
+	img := solidRGBA(color.RGBA{B: 255, A: 255})
+	initial := PixelHash(img, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		poll time.Duration
+	}{
+		{name: "fixed poll", poll: 10 * time.Millisecond},
+		{name: "adaptive poll", poll: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := &cancelOnGrabScreenshotter{img: img}
+
+			got, err := WaitForNoChangeFrom(ctx, sc, image.Rect(0, 0, 4, 4), initial, 2, tt.poll, nil)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("WaitForNoChange error = %v, want context.Canceled", err)
+			}
+			if got != initial {
+				t.Fatalf("WaitForNoChange returned %08x, want initial hash %08x", got, initial)
+			}
+			if sc.grabs != 0 {
+				t.Fatalf("WaitForNoChange grabbed %d frames after context cancellation, want 0", sc.grabs)
+			}
+		})
+	}
+}
+
 func TestWaitForFn_CanceledContextAfterGrab(t *testing.T) {
 	img := solidRGBA(color.RGBA{R: 200, G: 100, B: 50, A: 255})
 	ctx, cancel := context.WithCancel(context.Background())
