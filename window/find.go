@@ -2,6 +2,7 @@ package window
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -72,7 +73,14 @@ func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Du
 	for {
 		_, err := Find(ctx, m, match)
 		if err != nil {
-			return nil
+			// Only a true "window not found" result means the window closed
+			// successfully. Any other error (I/O failure, context cancellation)
+			// must be propagated so callers are not misled into thinking the
+			// window closed when it may still be open.
+			if errors.Is(err, ErrWindowNotFound) {
+				return nil
+			}
+			return err
 		}
 		select {
 		case <-ctx.Done():
