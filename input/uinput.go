@@ -136,6 +136,10 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 }
 
 func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	code, err := b.resolveKey(key)
 	if err != nil {
 		return err
@@ -144,6 +148,10 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 }
 
 func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	code, err := b.resolveKey(key)
 	if err != nil {
 		return err
@@ -156,13 +164,20 @@ func (b *UinputBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	actions, err := ParseKeySend(s)
 	if err != nil {
 		return err
 	}
 	for _, a := range actions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if a.text != "" {
-			if err := b.typeText(a.text); err != nil {
+			if err := b.typeText(ctx, a.text); err != nil {
 				return err
 			}
 			continue
@@ -174,7 +189,7 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 		if err != nil {
 			return err
 		}
-		if err := b.typeKeyWithMods(code, a.down, a.modifiers); err != nil {
+		if err := b.typeKeyWithMods(ctx, code, a.down, a.modifiers); err != nil {
 			return err
 		}
 	}
@@ -184,7 +199,12 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 // typeKeyWithMods presses modifier keys, sends the key action, then releases
 // modifiers in reverse order. If any step fails, already-pressed modifiers
 // are released (best-effort) before the error is returned.
-func (b *UinputBackend) typeKeyWithMods(code int, down bool, mods modifiers) error {
+func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down bool, mods modifiers) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Build ordered list of modifier keycodes.
 	var modKeys []int
 	if mods.shift {
@@ -208,6 +228,10 @@ func (b *UinputBackend) typeKeyWithMods(code int, down bool, mods modifiers) err
 		}
 	}
 	for _, mk := range modKeys {
+		if err := ctx.Err(); err != nil {
+			releaseHeld()
+			return err
+		}
 		if err := b.kb.KeyDown(mk); err != nil {
 			releaseHeld()
 			return err
@@ -216,6 +240,10 @@ func (b *UinputBackend) typeKeyWithMods(code int, down bool, mods modifiers) err
 	}
 
 	// Send the key.
+	if err := ctx.Err(); err != nil {
+		releaseHeld()
+		return err
+	}
 	if down {
 		if err := b.kb.KeyDown(code); err != nil {
 			releaseHeld()
@@ -243,8 +271,12 @@ func (b *UinputBackend) typeKeyWithMods(code int, down bool, mods modifiers) err
 // typeText types literal text character-by-character using the kernel keymap
 // to determine the correct evdev keycode and shift state for each rune.
 // This is layout-independent: on AZERTY 'a' is at KEY_Q position, on QWERTY it's KEY_A, etc.
-func (b *UinputBackend) typeText(s string) error {
+func (b *UinputBackend) typeText(ctx context.Context, s string) error {
+	ctx = normalizeContext(ctx)
 	for _, ch := range s {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		kc, ok := b.charToRune[ch]
 		if !ok {
 			return fmt.Errorf("input/uinput: unsupported character %q (not found in kernel keymap)", string(ch))
@@ -270,10 +302,18 @@ func (b *UinputBackend) typeText(s string) error {
 }
 
 func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.touchpad.MoveTo(int32(x), int32(y))
 }
 
 func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
@@ -284,6 +324,10 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 }
 
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	switch button {
 	case 1:
 		return b.touchpad.LeftPress()
@@ -303,6 +347,10 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 }
 
 func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	switch button {
 	case 1:
 		return b.touchpad.LeftRelease()
@@ -334,6 +382,10 @@ func (b *UinputBackend) ensureMouse() error {
 }
 
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -341,6 +393,10 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -348,6 +404,10 @@ func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -355,6 +415,10 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -362,11 +426,16 @@ func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	return 0, 0, fmt.Errorf("input/uinput: pointer location unsupported")
 }
 
 func (b *UinputBackend) Sync(ctx context.Context) error {
-	return nil
+	ctx = normalizeContext(ctx)
+	return ctx.Err()
 }
 
 func (b *UinputBackend) Close() error {
