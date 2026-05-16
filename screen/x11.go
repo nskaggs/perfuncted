@@ -40,6 +40,9 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
 	}
+	if err := validateX11PixelBuffer(reply.Data, int(w), int(h)); err != nil {
+		return 0, err
+	}
 
 	return crc32.ChecksumIEEE(reply.Data), nil
 }
@@ -73,6 +76,9 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 		drawable, x, y, w, h, planeMask).Reply()
 	if err != nil {
 		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
+	}
+	if err := validateX11PixelBuffer(reply.Data, int(w), int(h)); err != nil {
+		return 0, err
 	}
 
 	return crc32.ChecksumIEEE(reply.Data), nil
@@ -142,6 +148,9 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	if err != nil {
 		return nil, fmt.Errorf("screen/x11: XGetImage: %w", err)
 	}
+	if err := validateX11PixelBuffer(reply.Data, int(w), int(h)); err != nil {
+		return nil, err
+	}
 
 	return decodeBGRA(reply.Data, int(w), int(h), int(w)*4), nil
 }
@@ -154,5 +163,13 @@ func (b *X11Backend) Resolution() (int, int, error) {
 // Close closes the X11 connection.
 func (b *X11Backend) Close() error {
 	b.conn.Close()
+	return nil
+}
+
+func validateX11PixelBuffer(data []byte, w, h int) error {
+	expected := w * h * 4
+	if len(data) < expected {
+		return fmt.Errorf("screen/x11: short pixel buffer: got %d bytes, want %d", len(data), expected)
+	}
 	return nil
 }

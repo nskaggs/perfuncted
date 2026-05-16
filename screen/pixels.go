@@ -11,24 +11,22 @@ import (
 // This function is used by multiple backends (wlrscreencopy, extcapture, x11)
 // that all receive BGRA frames from the compositor or X server.
 func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
-	if len(data) == 0 || w <= 0 || h <= 0 {
+	if len(data) == 0 || w <= 0 || h <= 0 || stride <= 0 {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	rowBytes := w * 4
 	for row := 0; row < h; row++ {
-		srcRow := data[row*stride : row*stride+rowBytes]
-		dstOff := row * img.Stride
-		dst := img.Pix[dstOff : dstOff+rowBytes]
-		// iterate by bytes to reduce multiplications inside loop
-		for s := 0; s < rowBytes; s += 4 {
-			_ = srcRow[s+3]        // eliminate bounds check
-			_ = dst[s+3]           // eliminate bounds check
-			dst[s+0] = srcRow[s+2] // R ← B
-			dst[s+1] = srcRow[s+1] // G ← G
-			dst[s+2] = srcRow[s+0] // B ← R
-			dst[s+3] = 0xff        // A
+		srcStart := row * stride
+		if srcStart >= len(data) {
+			break
 		}
+		srcEnd := srcStart + rowBytes
+		if srcEnd > len(data) {
+			srcEnd = len(data)
+		}
+		dstOff := row * img.Stride
+		copyBGRA(img.Pix[dstOff:dstOff+rowBytes], data[srcStart:srcEnd])
 	}
 	return img
 }
@@ -37,6 +35,9 @@ func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 // image. This avoids allocating and decoding the entire screen when only a
 // small region is needed.
 func decodeBGRARect(data []byte, w, h, stride int, rect image.Rectangle) *image.RGBA {
+	if len(data) == 0 || w <= 0 || h <= 0 || stride <= 0 {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
 	r := rect.Intersect(image.Rect(0, 0, w, h))
 	if r.Empty() {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
@@ -44,19 +45,32 @@ func decodeBGRARect(data []byte, w, h, stride int, rect image.Rectangle) *image.
 	out := image.NewRGBA(r)
 	rowBytes := r.Dx() * 4
 	for y := 0; y < r.Dy(); y++ {
-		srcRow := data[(r.Min.Y+y)*stride+r.Min.X*4 : (r.Min.Y+y)*stride+r.Min.X*4+rowBytes]
-		dstOff := y * out.Stride
-		dst := out.Pix[dstOff : dstOff+rowBytes]
-		for s := 0; s < rowBytes; s += 4 {
-			_ = srcRow[s+3]        // eliminate bounds check
-			_ = dst[s+3]           // eliminate bounds check
-			dst[s+0] = srcRow[s+2] // R ← B
-			dst[s+1] = srcRow[s+1] // G ← G
-			dst[s+2] = srcRow[s+0] // B ← R
-			dst[s+3] = 0xff        // A
+		srcStart := (r.Min.Y+y)*stride + r.Min.X*4
+		if srcStart >= len(data) {
+			break
 		}
+		srcEnd := srcStart + rowBytes
+		if srcEnd > len(data) {
+			srcEnd = len(data)
+		}
+		dstOff := y * out.Stride
+		copyBGRA(out.Pix[dstOff:dstOff+rowBytes], data[srcStart:srcEnd])
 	}
 	return out
+}
+
+func copyBGRA(dst, src []byte) {
+	n := len(src)
+	if len(dst) < n {
+		n = len(dst)
+	}
+	n -= n % 4
+	for i := 0; i < n; i += 4 {
+		dst[i+0] = src[i+2] // R ← B
+		dst[i+1] = src[i+1] // G ← G
+		dst[i+2] = src[i+0] // B ← R
+		dst[i+3] = 0xff     // A
+	}
 }
 
 // cropRGBA extracts the sub-rectangle rect from a full-screen RGBA image,

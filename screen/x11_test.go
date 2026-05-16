@@ -137,6 +137,8 @@ func TestX11Backend_GrabFullHash(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b, mc := newStubScreenX11Backend(t, false)
+	b.screen.WidthInPixels = 2
+	b.screen.HeightInPixels = 1
 	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
@@ -154,6 +156,8 @@ func TestX11Backend_GrabFullHash_WithComposite(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b, mc := newStubScreenX11Backend(t, true)
+	b.screen.WidthInPixels = 2
+	b.screen.HeightInPixels = 1
 	mc.NewIdFunc = func() (uint32, error) {
 		return 100, nil
 	}
@@ -170,7 +174,12 @@ func TestX11Backend_GrabFullHash_WithComposite(t *testing.T) {
 }
 
 func TestX11Backend_GrabRegionHash(t *testing.T) {
-	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	data := []byte{
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+		9, 10, 11, 12,
+		13, 14, 15, 16,
+	}
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b, mc := newStubScreenX11Backend(t, false)
@@ -200,7 +209,12 @@ func TestX11Backend_GrabRegionHash_EmptyRect(t *testing.T) {
 }
 
 func TestX11Backend_GrabRegionHash_WithComposite(t *testing.T) {
-	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	data := []byte{
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+		9, 10, 11, 12,
+		13, 14, 15, 16,
+	}
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b, mc := newStubScreenX11Backend(t, true)
@@ -210,7 +224,7 @@ func TestX11Backend_GrabRegionHash_WithComposite(t *testing.T) {
 	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
 		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: data}, nil)
 	}
-	rect := image.Rect(10, 20, 110, 120)
+	rect := image.Rect(0, 0, 2, 2)
 	hash, err := b.GrabRegionHash(context.Background(), rect)
 	if err != nil {
 		t.Fatalf("GrabRegionHash() unexpected error: %v", err)
@@ -376,18 +390,48 @@ func TestX11Backend_Grab_ImageCheck(t *testing.T) {
 	}
 }
 
-func TestX11Backend_Grab_NilImage(t *testing.T) {
-	b, mc := newStubScreenX11Backend(t, false)
-	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
-		return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: nil}, nil)
+func TestX11Backend_ShortPixelBufferErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*X11Backend) error
+	}{
+		{
+			name: "Grab",
+			run: func(b *X11Backend) error {
+				_, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+				return err
+			},
+		},
+		{
+			name: "GrabFullHash",
+			run: func(b *X11Backend) error {
+				_, err := b.GrabFullHash(context.Background())
+				return err
+			},
+		},
+		{
+			name: "GrabRegionHash",
+			run: func(b *X11Backend) error {
+				_, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1))
+				return err
+			},
+		},
 	}
-	rect := image.Rect(0, 0, 10, 10)
-	img, err := b.Grab(context.Background(), rect)
-	if err != nil {
-		t.Fatalf("Grab() unexpected error: %v", err)
-	}
-	// Nil data should result in an empty image
-	if img == nil {
-		t.Fatal("Grab() returned nil image for nil data")
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b, mc := newStubScreenX11Backend(t, false)
+			mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
+				return x11.NewMockGetImageCookie(&xproto.GetImageReply{Depth: 24, Visual: 1, Data: []byte{1, 2, 3}}, nil)
+			}
+			if tc.name == "GrabFullHash" {
+				b.screen.WidthInPixels = 1
+				b.screen.HeightInPixels = 1
+			}
+			err := tc.run(b)
+			if err == nil || !strings.Contains(err.Error(), "short pixel buffer") {
+				t.Fatalf("%s() error = %v, want short pixel buffer error", tc.name, err)
+			}
+		})
 	}
 }
