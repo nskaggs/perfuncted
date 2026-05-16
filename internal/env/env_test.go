@@ -75,6 +75,36 @@ func TestMergeLastOverrideWins(t *testing.T) {
 	}
 }
 
+func TestMergeOverlayReplacesKeyOnlyBaseEntry(t *testing.T) {
+	t.Parallel()
+
+	got := Merge([]string{"FOO", "BAR=1"}, "FOO=2")
+	want := []string{"BAR=1", "FOO=2"}
+	if len(got) != len(want) {
+		t.Fatalf("Merge returned %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Merge[%d] = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestMergePreservesKeyOnlyBaseEntryWithoutOverlay(t *testing.T) {
+	t.Parallel()
+
+	got := Merge([]string{"FOO", "BAR=1"})
+	want := []string{"FOO", "BAR=1"}
+	if len(got) != len(want) {
+		t.Fatalf("Merge returned %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Merge[%d] = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func envMap(kvs []string) map[string]string {
 	m := make(map[string]string)
 	for _, kv := range kvs {

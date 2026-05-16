@@ -44,11 +44,12 @@ func Merge(base []string, overlays ...string) []string {
 	}
 
 	out := make([]string, 0, len(base)+len(overlays))
-	seen := make(map[string]bool, len(base)+len(overlays))
 	for _, kv := range base {
 		i := strings.Index(kv, "=")
 		if i < 0 {
-			// keep malformed entries
+			if _, overr := overMap[kv]; overr {
+				continue
+			}
 			out = append(out, kv)
 			continue
 		}
@@ -58,13 +59,11 @@ func Merge(base []string, overlays ...string) []string {
 			continue
 		}
 		out = append(out, kv)
-		seen[k] = true
 	}
 	// append overlays in order
 	for _, k := range overKeys {
 		v := overMap[k]
 		out = append(out, k+"="+v)
-		seen[k] = true
 	}
 	return out
 }
