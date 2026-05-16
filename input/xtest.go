@@ -169,6 +169,9 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 // KeyUp releases a previously held key.
 func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	kc, err := b.keycodeFor(key)
 	if err != nil {
 		return err
@@ -382,6 +385,9 @@ func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.conn.FakeInputChecked(xproto.ButtonRelease, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }

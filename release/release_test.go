@@ -386,8 +386,8 @@ func TestBinaryLive(t *testing.T) {
 			t.Fatalf("screen hash exit code = %d, want 0\nstdout=%q\nstderr=%q", code, stdout, stderr)
 		}
 		stdout = strings.TrimSpace(stdout)
-		// Output is a decimal uint32.
-		if _, err := strconv.ParseUint(stdout, 10, 32); err != nil {
+		// Output is a hex uint32.
+		if _, err := strconv.ParseUint(stdout, 16, 32); err != nil {
 			t.Fatalf("screen hash output %q is not a valid uint32: %v", stdout, err)
 		}
 		t.Logf("screen hash: %s", stdout)

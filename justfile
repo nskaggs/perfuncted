@@ -20,7 +20,12 @@ lint:
 
 # Check formatting
 check-fmt:
-    test -z "$(gofmt -l .)"
+    @if gofmt -l . | grep -q .; then \
+        echo "  FAIL: Files not formatted. Running 'gofmt -w .' for you."; \
+        gofmt -w .; \
+        echo "  Please stage the formatted files and try again."; \
+        exit 1; \
+    fi
 
 # Run all quality checks
 check: check-fmt vet lint
@@ -76,6 +81,9 @@ check-api-sync:
 
 # Pre-commit: generated files + all checks + docs quality + unit tests
 precommit: check-generate check-docs check-api-sync check test-unit
+
+# Run everything CI does: quality + integration + release smoke tests
+ci: precommit deadcode vulncheck test-integration test-release-static test-release
 
 # Build all packages and binaries
 build:
