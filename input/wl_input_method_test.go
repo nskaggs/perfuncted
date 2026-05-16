@@ -5,6 +5,7 @@ package input
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -117,6 +118,82 @@ func TestWlInputMethodBackend_Delegate_NoOther(t *testing.T) {
 	// errors when other is nil.
 	// This requires a real Wayland connection, so we just verify the error path.
 	t.Log("Delegation test requires real Wayland connection; skipping full test")
+}
+
+func TestWlInputMethodBackend_CanceledContextShortCircuitsNoOther(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	b := &WlInputMethodBackend{}
+
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "TypeContext",
+			run:  func() error { return b.TypeContext(ctx, "text") },
+		},
+		{
+			name: "KeyDown",
+			run:  func() error { return b.KeyDown(ctx, "a") },
+		},
+		{
+			name: "KeyUp",
+			run:  func() error { return b.KeyUp(ctx, "a") },
+		},
+		{
+			name: "MouseMove",
+			run:  func() error { return b.MouseMove(ctx, 1, 2) },
+		},
+		{
+			name: "MouseClick",
+			run:  func() error { return b.MouseClick(ctx, 1, 2, 1) },
+		},
+		{
+			name: "MouseDown",
+			run:  func() error { return b.MouseDown(ctx, 1) },
+		},
+		{
+			name: "MouseUp",
+			run:  func() error { return b.MouseUp(ctx, 1) },
+		},
+		{
+			name: "ScrollUp",
+			run:  func() error { return b.ScrollUp(ctx, 1) },
+		},
+		{
+			name: "ScrollDown",
+			run:  func() error { return b.ScrollDown(ctx, 1) },
+		},
+		{
+			name: "ScrollLeft",
+			run:  func() error { return b.ScrollLeft(ctx, 1) },
+		},
+		{
+			name: "ScrollRight",
+			run:  func() error { return b.ScrollRight(ctx, 1) },
+		},
+		{
+			name: "Sync",
+			run:  func() error { return b.Sync(ctx) },
+		},
+		{
+			name: "PointerLocation",
+			run: func() error {
+				_, _, err := b.PointerLocation(ctx)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.run(); err != context.Canceled {
+				t.Fatalf("%s canceled error = %v, want context.Canceled", tt.name, err)
+			}
+		})
+	}
 }
 
 func TestTypeContext_Chunking(t *testing.T) {
