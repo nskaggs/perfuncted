@@ -82,12 +82,16 @@ check-api-sync:
 
 # ── CI & quality ──────────────────────────────────────────────────────────────
 
-# Run all static quality checks (formatting, linting, generation, unit tests)
-# This matches the 'quality' job in GitHub Actions.
-quality: check-generate check-docs check-api-sync check-fmt vet lint deadcode vulncheck test-unit
+# Run essential fast quality checks (formatting, generation, vet)
+# Ideal for pre-commit hooks.
+quality-fast: check-generate check-docs check-api-sync check-fmt vet
 
-# Pre-commit: runs the full quality suite
-precommit: quality
+# Run the full static quality suite (includes linters and unit tests)
+# This matches the 'quality' job in GitHub Actions.
+quality: quality-fast lint deadcode vulncheck test-unit
+
+# Pre-commit: runs only the fastest essential checks
+precommit: quality-fast
 
 # Run everything CI does: quality + integration + release smoke tests
 # This aggregates all major CI jobs for local reproduction.
