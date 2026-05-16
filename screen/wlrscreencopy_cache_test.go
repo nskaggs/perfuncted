@@ -14,8 +14,20 @@ func TestGlobalWlrCacheLimit(t *testing.T) {
 	maxWlrCachedContexts = 3
 	defer func() { maxWlrCachedContexts = orig }()
 
+	var backends []*WlrScreencopyBackend
+	defer func() {
+		for _, b := range backends {
+			b.Close()
+		}
+		// Clean global state to prevent cross-test pollution.
+		globalWlrMu.Lock()
+		globalWlrCtxs = make(map[*wl.Context]time.Time)
+		globalWlrMu.Unlock()
+	}()
+
 	for i := 0; i < 6; i++ {
 		b := NewWlrScreencopyBackendWithConnector("/tmp/fake", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 50*time.Millisecond)
+		backends = append(backends, b)
 		if err := b.withWlrContext(func(ctx *wl.Context) error { return nil }); err != nil {
 			t.Fatalf("withWlrContext failed: %v", err)
 		}
@@ -46,6 +58,7 @@ func TestWithWlrContextReconnect(t *testing.T) {
 		call++
 		return &wl.Context{}, nil
 	}, 5*time.Minute)
+	defer b.Close()
 
 	// First withWlrContext: simulate fn returning an error (protocol error)
 	if err := b.withWlrContext(func(ctx *wl.Context) error { return fmt.Errorf("simulated protocol error") }); err == nil {
