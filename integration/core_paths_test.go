@@ -779,3 +779,203 @@ func TestErrorPath_ContextCancelled(t *testing.T) {
 		t.Error("Retry should call the function at least once before giving up")
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Extra clipboard tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestClipboardRoundTrip_ASCII verifies that a plain ASCII string survives a
+// clipboard write/read cycle intact.
+func TestClipboardRoundTrip_ASCII(t *testing.T) {
+	s := mustSuite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	const text = "hello-world-integration-test-42"
+	if err := s.pf.Clipboard.Set(ctx, text); err != nil {
+		t.Fatalf("clipboard set: %v", err)
+	}
+	t.Cleanup(func() {
+		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+		defer done()
+		_ = s.pf.Clipboard.Set(cctx, "")
+	})
+
+	got, err := s.pf.Clipboard.Get(ctx)
+	if err != nil {
+		t.Fatalf("clipboard get: %v", err)
+	}
+	if got != text {
+		t.Errorf("clipboard ASCII round-trip: want %q, got %q", text, got)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Window list lifecycle
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestWindowList_Lifecycle opens a known window, verifies it appears in
+// Window.List, verifies ActiveTitle reflects focus, and verifies the window
+// disappears from the list after it is closed.
+func TestWindowList_Lifecycle(t *testing.T) {
+	app, ok := firstAvailableApp(t)
+	if !ok {
+		t.Skip("no supported text editor found in PATH; skipping window list test")
+	}
+	s := mustSuite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	saveFile := filepath.Join(t.TempDir(), "wlist.txt")
+	if err := os.WriteFile(saveFile, nil, 0o644); err != nil {
+		t.Fatalf("create saveFile: %v", err)
+	}
+	winApp := app
+	winApp.saveFile = saveFile
+	cmd, err := launchApp(s.rt, s.session, winApp, winApp.extraEnvFor(s.mode)...)
+	if err != nil {
+		t.Fatalf("launch app: %v", err)
+	}
+	t.Cleanup(func() { terminateCmd(cmd, 5*time.Second) })
+
+	docName := filepath.Base(saveFile)
+	if _, err := waitForWindow(s.pf, docName, 30*time.Second); err != nil {
+		t.Fatalf("wait for window: %v", err)
+	}
+
+	// Verify the window appears in Window.List.
+	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer listCancel()
+	wins, err := s.pf.Window.List(listCtx)
+	if err != nil {
+		t.Fatalf("Window.List: %v", err)
+	}
+	foundInList := false
+	for _, w := range wins {
+		if strings.Contains(strings.ToLower(w.Title), strings.ToLower(docName)) {
+			foundInList = true
+			break
+		}
+	}
+	if !foundInList {
+		t.Errorf("window %q not found in list of %d windows", docName, len(wins))
+	}
+
+	// Activate the window and verify ActiveTitle reflects the focus change.
+	activateCtx, activateCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer activateCancel()
+	if err := s.pf.Window.Activate(activateCtx, docName); err != nil {
+		t.Fatalf("activate window: %v", err)
+	}
+	activeTitle, titleOk := pollActiveTitle(activateCtx, s.pf, app.winMatch)
+	if !titleOk {
+		t.Errorf("ActiveTitle never reflected %q; last seen: %q", app.winMatch, activeTitle)
+	}
+
+	// Close the window and verify it disappears from Window.List.
+	closeCtx, closeCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer closeCancel()
+	if err := s.pf.Window.CloseWindow(closeCtx, docName); err != nil {
+		t.Fatalf("close window: %v", err)
+	}
+	if err := waitForWindowClose(s.pf, docName, 15*time.Second); err != nil {
+		t.Fatalf("wait for window close: %v", err)
+	}
+
+	absentCtx, absentCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer absentCancel()
+	wins2, err := s.pf.Window.List(absentCtx)
+	if err != nil {
+		t.Fatalf("Window.List after close: %v", err)
+	}
+	for _, w := range wins2 {
+		if strings.Contains(strings.ToLower(w.Title), strings.ToLower(docName)) {
+			t.Errorf("window %q still appears in list after close", docName)
+			break
+		}
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Screen resolution sanity check
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestScreenResolution_Sane verifies that the reported screen dimensions are
+// positive and plausible for a headless integration session (at least 640×480).
+func TestScreenResolution_Sane(t *testing.T) {
+	s := mustSuite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	w, h, err := s.pf.Screen.Resolution(ctx)
+	if err != nil {
+		t.Fatalf("Screen.Resolution: %v", err)
+	}
+	if w <= 0 || h <= 0 {
+		t.Errorf("resolution returned non-positive dimensions: %dx%d", w, h)
+	}
+	const minW, minH = 640, 480
+	if w < minW {
+		t.Errorf("screen width %d is below minimum expected %d", w, minW)
+	}
+	if h < minH {
+		t.Errorf("screen height %d is below minimum expected %d", h, minH)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WaitForChange end-to-end detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestFind_WaitForChangeDetectsChange captures the initial screen hash, opens
+// a new window (which visually changes the display), and verifies that
+// Screen.WaitForChange returns a different hash within the timeout.
+func TestFind_WaitForChangeDetectsChange(t *testing.T) {
+	app, ok := firstAvailableApp(t)
+	if !ok {
+		t.Skip("no supported text editor found in PATH; skipping WaitForChange test")
+	}
+	s := mustSuite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Capture the initial screen state before any action.
+	scrW, scrH, err := s.pf.Screen.Resolution(ctx)
+	if err != nil {
+		t.Fatalf("resolution: %v", err)
+	}
+	watchRect := image.Rect(0, 0, scrW, scrH)
+	h0, err := s.pf.Screen.GrabRegionHash(ctx, watchRect)
+	if err != nil {
+		t.Fatalf("initial hash: %v", err)
+	}
+
+	// Opening a new window changes the visual content of the screen.
+	saveFile := filepath.Join(t.TempDir(), "wfc.txt")
+	if err := os.WriteFile(saveFile, nil, 0o644); err != nil {
+		t.Fatalf("create saveFile: %v", err)
+	}
+	wfcApp := app
+	wfcApp.saveFile = saveFile
+	cmd, err := launchApp(s.rt, s.session, wfcApp, wfcApp.extraEnvFor(s.mode)...)
+	if err != nil {
+		t.Fatalf("launch app: %v", err)
+	}
+	t.Cleanup(func() { terminateCmd(cmd, 5*time.Second) })
+
+	// WaitForChange should detect the screen update caused by the new window.
+	wfcCtx, wfcCancel := context.WithTimeout(ctx, 20*time.Second)
+	defer wfcCancel()
+	h1, err := s.pf.Screen.WaitForChange(wfcCtx, watchRect, h0, 100*time.Millisecond)
+	if err != nil {
+		v := Verifier{t: t, pf: s.pf}
+		v.captureFailure("no-screen-change")
+		t.Fatalf("WaitForChange: screen did not change after opening %s: %v", app.name, err)
+	}
+	if h1 == h0 {
+		t.Errorf("WaitForChange returned same hash %08x — expected a different value", h0)
+	}
+
+	// Leave the desktop clean.
+	_ = s.pf.Window.CloseWindow(ctx, filepath.Base(saveFile))
+}
