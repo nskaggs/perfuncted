@@ -27,4 +27,5 @@ Pixel scanning and wait utilities
 * [pf find wait-for](pf_find_wait-for.md)	 - Wait until a region's pixel hash equals the provided hash
 * [pf find wait-for-change](pf_find_wait-for-change.md)	 - Wait until a region's pixel hash changes from an initial value
 * [pf find wait-for-no-change](pf_find_wait-for-no-change.md)	 - Wait until a region's pixel hash is stable for N consecutive samples
+* [pf find wait-for-visible-change](pf_find_wait-for-visible-change.md)	 - Wait until a region's visible content changes (useful for animations/loads)
 

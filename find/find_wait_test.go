@@ -2,7 +2,7 @@ package find
 
 import (
 	"context"
-	"hash/crc32"
+	"hash/adler32"
 	"image"
 	"image/color"
 	"testing"
@@ -68,7 +68,7 @@ func TestWaitFor_DifferentHash(t *testing.T) {
 
 // TestWaitFor_WithCustomHasher tests WaitFor with a custom hasher.
 func TestWaitFor_WithCustomHasher(t *testing.T) {
-	customHasher := crc32.NewIEEE
+	customHasher := adler32.New
 	sc := &solidScreenshotter{}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -266,6 +266,25 @@ func TestGrabHashSubImage(t *testing.T) {
 	}
 }
 
+func TestGrabHashWithCustomHasher(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 10), G: uint8(y * 20), B: 7, A: 255})
+		}
+	}
+
+	sc := &fakeScreen{img: img}
+	got, err := GrabHash(context.Background(), sc, image.Rect(0, 0, 4, 4), adler32.New)
+	if err != nil {
+		t.Fatalf("GrabHash returned error: %v", err)
+	}
+	want := PixelHash(img, adler32.New)
+	if got != want {
+		t.Fatalf("GrabHash with custom hasher = %08x, want %08x", got, want)
+	}
+}
+
 // TestScanFor tests ScanFor across multiple regions.
 func TestScanFor(t *testing.T) {
 	// Create an image with patterns at different locations
@@ -351,6 +370,11 @@ func TestScanForEmpty(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty ScanFor input")
 	}
+
+	_, err = ScanFor(context.Background(), &solidScreenshotter{}, []image.Rectangle{image.Rect(0, 0, 0, 1)}, []uint32{1}, 10*time.Millisecond, nil)
+	if err == nil {
+		t.Fatal("expected error for empty ScanFor region")
+	}
 }
 
 // TestWaitWithTolerance tests WaitWithTolerance.
@@ -383,6 +407,16 @@ func TestWaitWithTolerance(t *testing.T) {
 	}
 	if resultRect.Min.X != 4 || resultRect.Min.Y != 4 {
 		t.Fatalf("WaitWithTolerance returned rect %v, want around (4,4)", resultRect)
+	}
+
+	_, _, err = WaitWithTolerance(context.Background(), sc, image.Rect(4, 4, 6, 6), image.NewRGBA(image.Rect(0, 0, 0, 0)), 2, 1*time.Millisecond, nil)
+	if err == nil {
+		t.Fatal("expected error for empty reference image")
+	}
+
+	_, _, err = WaitWithTolerance(context.Background(), sc, image.Rect(4, 4, 6, 6), ref, -1, 1*time.Millisecond, nil)
+	if err == nil {
+		t.Fatal("expected error for negative tolerance radius")
 	}
 }
 
@@ -441,6 +475,10 @@ func TestFindColor(t *testing.T) {
 	}
 	if pt2.X != 3 || pt2.Y != 3 {
 		t.Fatalf("FindColor with tolerance returned (%d,%d), want (3,3)", pt2.X, pt2.Y)
+	}
+
+	if _, err := FindColor(context.Background(), sc, image.Rect(0, 0, 10, 10), target, -1); err == nil {
+		t.Fatal("expected error for negative tolerance")
 	}
 }
 

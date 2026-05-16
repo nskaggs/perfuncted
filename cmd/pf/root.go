@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -405,7 +406,7 @@ func screenCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			if err != nil {
 				return err
 			}
-			fmt.Println(h)
+			fmt.Printf("%08x\n", h)
 			return nil
 		},
 	}
@@ -543,6 +544,7 @@ Runs until --duration expires or Ctrl+C.`,
 			// Cancel on Ctrl+C as well.
 			sigCh := make(chan os.Signal, 1)
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			defer signal.Stop(sigCh)
 			go func() {
 				select {
 				case <-sigCh:
@@ -564,7 +566,7 @@ Runs until --duration expires or Ctrl+C.`,
 					return nil
 				default:
 				}
-				h, err := pf.Screen.GrabRegionHash(context.Background(), r)
+				h, err := pf.Screen.GrabRegionHash(ctx, r)
 				if err != nil {
 					return err
 				}
@@ -1664,8 +1666,10 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			_, err = pf.Window.FindByTitle(context.Background(), args[0])
 			if err == nil {
 				fmt.Println("true")
-			} else {
+			} else if errors.Is(err, window.ErrWindowNotFound) {
 				fmt.Println("false")
+			} else {
+				return err
 			}
 			return nil
 		},
@@ -1685,13 +1689,14 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			defer ticker.Stop()
 			var last string
 			enc := json.NewEncoder(cmd.OutOrStdout())
+			ctx := cmd.Context()
 			for {
 				select {
-				case <-cmd.Context().Done():
+				case <-ctx.Done():
 					return nil
 				case <-ticker.C:
 				}
-				wins, err := pf.Window.List(context.Background())
+				wins, err := pf.Window.List(ctx)
 				if err != nil {
 					return err
 				}
@@ -2038,10 +2043,10 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			return nil
 		},
 	}
-	waitForVisibleChange.Flags().StringVar(&vfRect, "rect", "0,0,100,100", "x0,y0,x1,y1 (default 0,0,100,100)")
+	waitForVisibleChange.Flags().StringVar(&vfRect, "rect", "0,0,100,100", "x0,y0,x1,y1")
 	waitForVisibleChange.Flags().StringVar(&vfPoll, "poll", "50ms", "poll interval")
 	waitForVisibleChange.Flags().StringVar(&vfTimeout, "timeout", "5s", "timeout duration")
-	waitForVisibleChange.Flags().IntVar(&vfStable, "stable", 3, "consecutive identical samples required (default 3)")
+	waitForVisibleChange.Flags().IntVar(&vfStable, "stable", 3, "consecutive identical samples required")
 
 	var colorRectFlag, colorTargetFlag string
 	var colorTolerance int
@@ -2075,7 +2080,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	findColor.Flags().IntVar(&colorTolerance, "tolerance", 0, "per-channel tolerance (0-255)")
 	_ = findColor.MarkFlagRequired("color")
 
-	cmd.AddCommand(findColor)
+	cmd.AddCommand(findColor, waitForVisibleChange)
 	return cmd
 }
 

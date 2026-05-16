@@ -3,17 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/nskaggs/perfuncted/window"
+	"github.com/spf13/cobra"
 )
 
 func TestNewRootCmdConfiguresCobra(t *testing.T) {
@@ -36,6 +40,8 @@ func TestNewRootCmdConfiguresCobra(t *testing.T) {
 		"input":     true,
 		"window":    true,
 		"find":      true,
+		"output":    true,
+		"run":       true,
 		"clipboard": true,
 		"info":      true,
 		"session":   true,
@@ -47,6 +53,45 @@ func TestNewRootCmdConfiguresCobra(t *testing.T) {
 	}
 	if len(wantSubs) != 0 {
 		t.Fatalf("missing subcommands: %v", wantSubs)
+	}
+}
+
+func findCommandPath(cmd *cobra.Command, path ...string) *cobra.Command {
+	if len(path) == 0 {
+		return cmd
+	}
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == path[0] {
+			return findCommandPath(sub, path[1:]...)
+		}
+	}
+	return nil
+}
+
+func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
+	root := newRootCmd(func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+		return func() (*perfuncted.Perfuncted, error) { return nil, nil }
+	})
+
+	for _, path := range [][]string{
+		{"screen", "hash"},
+		{"screen", "grab-region"},
+		{"screen", "get-all-pixels"},
+		{"screen", "watch"},
+		{"find", "wait-for-visible-change"},
+		{"window", "get-geometry"},
+		{"window", "is-visible"},
+		{"window", "watch"},
+		{"output", "list"},
+		{"run"},
+		{"info"},
+		{"session"},
+		{"clipboard", "get"},
+		{"clipboard", "set"},
+	} {
+		if got := findCommandPath(root, path...); got == nil {
+			t.Fatalf("missing command path %q", strings.Join(path, " "))
+		}
 	}
 }
 
@@ -292,6 +337,194 @@ func TestScreenAndInputCommands(t *testing.T) {
 		}
 		if stdout != "" {
 			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+	})
+}
+
+func TestScreenHashAndWatch(t *testing.T) {
+	t.Run("hash", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "hash", "--rect", "0,0,2,2"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				img := pftest.SolidImage(2, 2, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}}, nil, nil, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if _, err := strconv.ParseUint(strings.TrimSpace(stdout), 16, 32); err != nil {
+			t.Fatalf("stdout = %q, want 8-digit hex hash: %v", stdout, err)
+		}
+	})
+
+	t.Run("watch json", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--duration", "20ms", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				img := pftest.SolidImage(2, 2, color.RGBA{R: 4, G: 5, B: 6, A: 255})
+				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}}, nil, nil, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if !strings.Contains(stdout, `"event":"initial"`) {
+			t.Fatalf("stdout = %q, want initial JSON event", stdout)
+		}
+	})
+}
+
+func TestFindWaitForVisibleChange(t *testing.T) {
+	initial := pftest.SolidImage(2, 2, color.RGBA{A: 255})
+	changed := pftest.SolidImage(2, 2, color.RGBA{R: 200, G: 20, B: 10, A: 255})
+	stdout, stderr, code := captureRunIO(t, []string{"find", "wait-for-visible-change", "--rect", "0,0,2,2", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+		return func() (*perfuncted.Perfuncted, error) {
+			return pftest.New(&pftest.Screenshotter{Frames: []image.Image{initial, changed}}, nil, nil, nil), nil
+		}
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+	}
+	if _, err := strconv.ParseUint(strings.TrimSpace(stdout), 16, 32); err != nil {
+		t.Fatalf("stdout = %q, want 8-digit hex hash: %v", stdout, err)
+	}
+}
+
+func TestWindowGeometryAndVisibility(t *testing.T) {
+	mgr := &pftest.Manager{Lists: [][]window.Info{{{ID: 7, Title: "Firefox", AppID: "firefox", X: 10, Y: 20, W: 100, H: 200}}}}
+
+	t.Run("geometry", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "get-geometry", "Firefox"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if got, want := strings.TrimSpace(stdout), "10,20,110,220"; got != want {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("visible", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Firefox"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if got, want := strings.TrimSpace(stdout), "true"; got != want {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("not-found", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Terminal"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, mgr, nil), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if got, want := strings.TrimSpace(stdout), "false"; got != want {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("backend error", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Firefox"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, &pftest.Manager{Err: errors.New("boom")}, nil), nil
+			}
+		})
+		if code == 0 {
+			t.Fatalf("exit code = 0, want non-zero; stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stderr, "boom") {
+			t.Fatalf("stderr = %q, want backend error", stderr)
+		}
+	})
+}
+
+type fakeOutputLister struct {
+	infos []output.Info
+}
+
+func (f *fakeOutputLister) List(ctx context.Context) ([]output.Info, error) {
+	return f.infos, nil
+}
+
+func (f *fakeOutputLister) Close() error { return nil }
+
+func TestOutputListInfoAndRun(t *testing.T) {
+	t.Run("output list json", func(t *testing.T) {
+		fake := &fakeOutputLister{infos: []output.Info{{
+			Name:        "HDMI-A-1",
+			Backend:     "wayland",
+			Geometry:    output.Geometry{X: 0, Y: 0, W: 1920, H: 1080},
+			ResolutionW: 1920,
+			ResolutionH: 1080,
+			Scale:       2,
+		}}}
+		stdout, stderr, code := captureRunIO(t, []string{"output", "list", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return &perfuncted.Perfuncted{Output: perfuncted.OutputBundle{Lister: fake}}, nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		var got output.Info
+		if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &got); err != nil {
+			t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%q", err, stdout)
+		}
+		if got.Name != "HDMI-A-1" || got.Geometry.W != 1920 || got.Scale != 2 {
+			t.Fatalf("decoded output = %+v", got)
+		}
+	})
+
+	t.Run("info json", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return nil, nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		var got map[string]any
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%q", err, stdout)
+		}
+		for _, key := range []string{"compositor", "environment", "probes", "capabilities"} {
+			if _, ok := got[key]; !ok {
+				t.Fatalf("missing key %q in info report: %+v", key, got)
+			}
+		}
+	})
+
+	t.Run("run script", func(t *testing.T) {
+		script := filepath.Join(t.TempDir(), "script.pf")
+		if err := os.WriteFile(script, []byte("# comment\ninfo\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		stdout, stderr, code := captureRunIO(t, []string{"run", script}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return &perfuncted.Perfuncted{}, nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		var got map[string]any
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%q", err, stdout)
+		}
+		if _, ok := got["capabilities"]; !ok {
+			t.Fatalf("stdout = %q, want info report", stdout)
 		}
 	})
 }
