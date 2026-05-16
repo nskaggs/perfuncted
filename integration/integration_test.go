@@ -524,6 +524,25 @@ func runScreenSmoke(t *testing.T, s *suite) {
 	}
 }
 
+// Verifier centralizes test assertions about application state (screen, window, etc.)
+type Verifier struct {
+	t  *testing.T
+	pf *perfuncted.Perfuncted
+}
+
+// VerifyStableRegion polls a region until it stabilizes, then performs a final validation grab.
+func (v *Verifier) VerifyStableRegion(ctx context.Context, label string, rect image.Rectangle) {
+	v.t.Helper()
+	// Polling for stability is the standard way to ensure the app has finished reacting.
+	if _, err := find.WaitForNoChange(ctx, v.pf.Screen.Screenshotter, rect, 3, 100*time.Millisecond, nil); err != nil {
+		v.t.Fatalf("%s: wait for region %v to settle: %v", label, rect, err)
+	}
+	// Final validation: ensure we can actually grab the region.
+	if _, err := v.pf.Screen.Grab(ctx, rect); err != nil {
+		v.t.Fatalf("%s: failed to grab region %v: %v", label, rect, err)
+	}
+}
+
 func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	t.Helper()
 	saveFile := app.saveFile
@@ -598,22 +617,13 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if typingRect.Empty() {
 		typingRect = captureRect
 	}
-	// verifyPixelSample performs a quick validation of a tiny screen patch to ensure the app has rendered updates.
-	verifyPixelSample := func(t *testing.T, label string, rect image.Rectangle) {
-		t.Helper()
-		tinyRect := image.Rect(rect.Min.X+rect.Dx()/2-2, rect.Min.Y+rect.Dy()/2-2, rect.Min.X+rect.Dx()/2+2, rect.Min.Y+rect.Dy()/2+2)
-		if _, err := s.pf.Screen.Grab(ctx, tinyRect); err != nil {
-			t.Fatalf("pixel sample validation %q: %v", label, err)
-		}
-	}
+
+	verify := Verifier{t: t, pf: s.pf}
 
 	// Wait for editor focus to settle
 	ctxFocus, cancelFocus := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFocus()
-	if _, err := find.WaitForNoChange(ctxFocus, s.pf.Screen.Screenshotter, typingRect, 3, 100*time.Millisecond, nil); err != nil {
-		t.Fatalf("wait for editor focus to settle: %v", err)
-	}
-	verifyPixelSample(t, "post-focus", typingRect)
+	verify.VerifyStableRegion(ctxFocus, "post-focus", typingRect)
 
 	if err := s.pf.Input.Type(ctx, "Integration"); err != nil {
 		t.Fatalf("text entry: %v", err)
@@ -622,10 +632,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	// Wait for text input settle
 	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelType()
-	if _, err := find.WaitForNoChange(ctxType, s.pf.Screen.Screenshotter, typingRect, 3, 100*time.Millisecond, nil); err != nil {
-		t.Fatalf("wait for typed text to settle: %v", err)
-	}
-	verifyPixelSample(t, "post-typing", typingRect)
+	verify.VerifyStableRegion(ctxType, "post-typing", typingRect)
 
 	if _, err := s.pf.Screen.GrabRegionHash(ctx, captureRect); err != nil {
 		t.Fatalf("grab hash: %v", err)
