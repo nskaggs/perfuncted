@@ -5,6 +5,8 @@ package input
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -36,6 +38,29 @@ func newTestKeyboard() (*wlKeyboard, *recordingCtx) {
 	rp.SetID(42)
 	k.kbd = rp
 	f := &recordingCtx{}
+	k.ctx = f
+	return k, f
+}
+
+// failingCtx is a recordingCtx that returns an error after successWrites writes.
+type failingCtx struct {
+	recordingCtx
+	successWrites int // number of writes to allow before failing
+}
+
+func (f *failingCtx) WriteMsg(data, oob []byte) error {
+	if f.writes >= f.successWrites {
+		return errors.New("injected write failure")
+	}
+	return f.recordingCtx.WriteMsg(data, oob)
+}
+
+func newFailingKeyboard(successWrites int) (*wlKeyboard, *failingCtx) {
+	k := &wlKeyboard{held: make(map[string]uint32)}
+	rp := &wl.RawProxy{}
+	rp.SetID(42)
+	k.kbd = rp
+	f := &failingCtx{successWrites: successWrites}
 	k.ctx = f
 	return k, f
 }
@@ -556,4 +581,49 @@ const maxDynSlots = testMaxDynSlots
 // uniqueRunes is exported for tests in wl_keyboard_test.go.
 func uniqueRunes(s string) []rune {
 	return testUniqueRunes(s)
+}
+
+// TestSendkeysContext_HeldNotSetOnSendKeyFailure verifies that k.held is NOT
+// populated when the sendKey call for a key-down action fails. Before the fix,
+// k.held was set before sendKey, leaving a phantom held key on failure.
+func TestSendkeysContext_HeldNotSetOnSendKeyFailure(t *testing.T) {
+	// sendkeysContext does 1 write for keymap upload; the next write is sendKey.
+	// Allow 1 write (keymap) then fail.
+	k, _ := newFailingKeyboard(1)
+
+	actions, err := ParseKeySend("{enter down}")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// Should fail because sendKey (write 1) fails.
+	if err := k.sendkeysContext(context.Background(), actions); err == nil {
+		t.Fatal("expected error from injected write failure")
+	}
+	if len(k.held) != 0 {
+		t.Errorf("k.held = %v after sendKey failure, want empty map", k.held)
+	}
+}
+
+// TestSendkeysContext_ModifierClearedOnSendKeyFailure verifies that k.mods is
+// restored to its original value when a sendKey fails after temporary modifiers
+// were applied. Before the fix, k.mods retained the temporary modifier bits.
+func TestSendkeysContext_ModifierClearedOnSendKeyFailure(t *testing.T) {
+	// For {ctrl+s}:
+	//   write 0: keymap upload
+	//   write 1: sendModifiers (apply ctrl)
+	//   write 2: sendKey(slot, 1) — we want this to fail
+	// Allow 2 writes (keymap + sendModifiers) then fail.
+	k, _ := newFailingKeyboard(2)
+
+	actions, err := ParseKeySend("{ctrl+s}")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	initialMods := k.mods
+	if err := k.sendkeysContext(context.Background(), actions); err == nil {
+		t.Fatal("expected error from injected write failure")
+	}
+	if k.mods != initialMods {
+		t.Errorf("k.mods = %08b after failure, want %08b (should be restored to initial)", k.mods, initialMods)
+	}
 }

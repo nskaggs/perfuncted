@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
 )
 
 func BenchmarkPixelHashRGBA(b *testing.B) {
@@ -69,6 +70,65 @@ func BenchmarkScanForCompact(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := ScanFor(context.Background(), sc, rects, wants, 0, nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkWaitForFn_ImmediatelyTrue measures the latency floor when the
+// predicate is satisfied on the very first poll.
+func BenchmarkWaitForFn_ImmediatelyTrue(b *testing.B) {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	sc := &fakeScreen{img: img}
+	rect := image.Rect(0, 0, 64, 64)
+	pred := func(_ context.Context, _ image.Image) bool { return true }
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := WaitForFn(context.Background(), sc, rect, pred, 10*time.Millisecond); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkWaitForFn_FivePollIterations measures cost when predicate becomes
+// true after 5 grabs (exercises the poll loop).
+func BenchmarkWaitForFn_FivePollIterations(b *testing.B) {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	sc := &fakeScreen{img: img}
+	rect := image.Rect(0, 0, 64, 64)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		count := 0
+		pred := func(_ context.Context, _ image.Image) bool {
+			count++
+			return count >= 5
+		}
+		if _, err := WaitForFn(context.Background(), sc, rect, pred, 1*time.Microsecond); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkWaitFor_ImmediatelyTrue measures WaitFor when the hash matches immediately.
+func BenchmarkWaitFor_ImmediatelyTrue(b *testing.B) {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 42, A: 255})
+		}
+	}
+	sc := &fakeScreen{img: img}
+	rect := image.Rect(0, 0, 64, 64)
+	want := PixelHash(img, nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := WaitFor(context.Background(), sc, rect, want, 1*time.Millisecond, nil); err != nil {
 			b.Fatal(err)
 		}
 	}
