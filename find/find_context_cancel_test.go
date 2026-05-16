@@ -70,6 +70,25 @@ func TestWaitForChange_CanceledContextAfterGrab(t *testing.T) {
 	}
 }
 
+func TestWaitForChange_CanceledContextBeforeGrabReturnsInitial(t *testing.T) {
+	img := solidRGBA(color.RGBA{G: 255, A: 255})
+	initial := PixelHash(img, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sc := &cancelOnGrabScreenshotter{img: img}
+
+	got, err := WaitForChange(ctx, sc, image.Rect(0, 0, 4, 4), initial, 10*time.Millisecond, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WaitForChange error = %v, want context.Canceled", err)
+	}
+	if got != initial {
+		t.Fatalf("WaitForChange returned %08x, want initial hash %08x", got, initial)
+	}
+	if sc.grabs != 0 {
+		t.Fatalf("WaitForChange grabbed %d frames after context cancellation, want 0", sc.grabs)
+	}
+}
+
 func TestWaitForNoChange_CanceledContextAfterGrab(t *testing.T) {
 	img := solidRGBA(color.RGBA{B: 255, A: 255})
 	want := PixelHash(img, nil)
