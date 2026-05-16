@@ -79,13 +79,22 @@ check-docs:
 check-api-sync:
     CGO_ENABLED=0 go run ./scripts/verify_cli_api.go
 
-# Pre-commit: generated files + all checks + docs quality + unit tests
-precommit: check-generate check-docs check-api-sync check test-unit
+
+# ── CI & quality ──────────────────────────────────────────────────────────────
+
+# Run all static quality checks (formatting, linting, generation, unit tests)
+# This matches the 'quality' job in GitHub Actions.
+quality: check-generate check-docs check-api-sync check-fmt vet lint deadcode vulncheck test-unit
+
+# Pre-commit: runs the full quality suite
+precommit: quality
 
 # Run everything CI does: quality + integration + release smoke tests
-ci: precommit deadcode vulncheck test-integration test-release-static test-release
+# This aggregates all major CI jobs for local reproduction.
+ci: quality test-integration test-release
 
-# Build all packages and binaries
+
+# ── build & install ────────────────────────────────────────────────────────────
 build:
     # Produce a repo-root pf binary used by release tests
     CGO_ENABLED=0 go build -o pf ./cmd/pf
