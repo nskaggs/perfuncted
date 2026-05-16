@@ -146,15 +146,18 @@ func readWlString(data []byte, off int) (string, int, bool) {
 	}
 	n := int(wl.Uint32(data[off : off+4]))
 	off += 4
-	if n <= 0 || off+n > len(data)+1 {
+	if n <= 0 || off+n > len(data) {
 		return "", off, false
 	}
 	end := off + n - 1
-	if end > len(data) {
+	if end >= len(data) || data[end] != 0 {
 		return "", off, false
 	}
 	raw := string(data[off:end])
 	padded := (n + 3) &^ 3
+	if off+int(padded) > len(data) {
+		return "", off, false
+	}
 	return raw, off + int(padded), true
 }
 
