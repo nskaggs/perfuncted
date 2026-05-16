@@ -68,3 +68,18 @@ func TestWlrCacheJanitorEvicts(t *testing.T) {
 		t.Fatalf("expected cache entry to be evicted by janitor")
 	}
 }
+
+func TestWlrScreencopyBackendCloseIsIdempotent(t *testing.T) {
+	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock-close", func(sock string) (*wl.Context, error) {
+		return &wl.Context{}, nil
+	}, time.Minute)
+	if err := b.withWlrContext(func(ctx *wl.Context) error { return nil }); err != nil {
+		t.Fatalf("setup withWlrContext failed: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("first Close() error: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("second Close() error: %v", err)
+	}
+}

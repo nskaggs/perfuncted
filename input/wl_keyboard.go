@@ -303,7 +303,12 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 					if err := k.sendKey(slot, 1); err != nil {
 						return err
 					}
-					time.Sleep(10 * time.Millisecond)
+					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+						if upErr := k.sendKey(slot, 0); upErr != nil {
+							return upErr
+						}
+						return err
+					}
 					if err := k.sendKey(slot, 0); err != nil {
 						return err
 					}
@@ -319,16 +324,16 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 					if err := k.sendKey(slot, 1); err != nil {
 						return err
 					}
-					} else {
-						if err := k.tapContext(ctx, slot); err != nil {
-							return err
-						}
-						if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-							return err
-						}
+				} else {
+					if err := k.tapContext(ctx, slot); err != nil {
+						return err
+					}
+					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+						return err
 					}
 				}
 			}
+		}
 
 		// Release temporary modifiers.
 		if modBitmask != 0 {

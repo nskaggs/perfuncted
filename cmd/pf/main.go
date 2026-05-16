@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/nskaggs/perfuncted"
 )
@@ -16,7 +18,9 @@ var (
 )
 
 func main() {
-	os.Exit(run(context.Background(), os.Args[1:]))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(run(ctx, os.Args[1:]))
 }
 
 func run(ctx context.Context, args []string) int {
@@ -24,6 +28,9 @@ func run(ctx context.Context, args []string) int {
 }
 
 func runWithFactory(ctx context.Context, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) int {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	cmd := newRootCmd(openPFFactory)
 	cmd.SetArgs(args)
 	if err := cmd.ExecuteContext(ctx); err != nil {

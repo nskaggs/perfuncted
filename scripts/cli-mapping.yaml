@@ -94,7 +94,7 @@ screen:
     short: "Wait for a screen region to stop changing, starting from an initial hash"
     flags:
       rect: "region to monitor as x0,y0,x1,y1"
-      initial: "initial CRC32 hash (hex)"
+      initial: "initial CRC32 hash (decimal or 0xhex)"
       stable: "number of stable samples required"
       poll: "polling interval (e.g. 200ms)"
 

@@ -312,10 +312,25 @@ func main() {
 			for i := start; i < params.Len(); i++ {
 				p := params.At(i)
 				t := p.Type()
+				pname := paramNameOrDefault(p, i+1)
 				if isStringType(t) {
 					paramInfos = append(paramInfos, "string")
 				} else if isIntLike(t) {
-					paramInfos = append(paramInfos, "int")
+					if t.String() == "uint32" {
+						usage := ""
+						if mapping[grp] != nil {
+							if mm, ok := mapping[grp][mn]; ok && mm.Flags != nil {
+								usage = mm.Flags[pname]
+							}
+						}
+						if strings.Contains(strings.ToLower(usage), "hex") {
+							paramInfos = append(paramInfos, "uint32hex")
+						} else {
+							paramInfos = append(paramInfos, "uint32")
+						}
+					} else {
+						paramInfos = append(paramInfos, "int")
+					}
 				} else if isRectangleType(t) {
 					paramInfos = append(paramInfos, "rect")
 				} else if isDurationType(t) {
@@ -408,6 +423,13 @@ func main() {
 				case "int":
 					flagVars = append(flagVars, fmt.Sprintf("var %s int", vname))
 					argList = append(argList, vname)
+				case "uint32":
+					flagVars = append(flagVars, fmt.Sprintf("var %s int", vname))
+					argList = append(argList, vname)
+				case "uint32hex":
+					flagVars = append(flagVars, fmt.Sprintf("var %s string", vname))
+					argList = append(argList, vname+"_parsed")
+					imports["fmt"] = true
 				case "rect":
 					flagVars = append(flagVars, fmt.Sprintf("var %s string", vname))
 					argList = append(argList, vname+"_rect")
@@ -489,6 +511,11 @@ func main() {
 					sb.WriteString(fmt.Sprintf("\t\t\t// flag %s (string)\n", vname))
 				case "int":
 					sb.WriteString(fmt.Sprintf("\t\t\t// flag %s (int) already parsed into var\n", vname))
+				case "uint32":
+					sb.WriteString(fmt.Sprintf("\t\t\t// flag %s (int) already parsed into var\n", vname))
+				case "uint32hex":
+					sb.WriteString(fmt.Sprintf("\t\t\t%s_parsed, err := parseHash(%s)\n", vname, vname))
+					sb.WriteString("\t\t\tif err != nil { return err }\n")
 				case "rect":
 					// parse rect
 					sb.WriteString(fmt.Sprintf("\t\t\tr_%d, err := parseRect(%s_%s)\n", rectIndex, cmdVar, pname))
@@ -521,6 +548,12 @@ func main() {
 					} else {
 						callParams = append(callParams, vname)
 					}
+				case "uint32":
+					vname := fmt.Sprintf("%s_%s", cmdVar, pname)
+					callParams = append(callParams, fmt.Sprintf("uint32(%s)", vname))
+				case "uint32hex":
+					vname := fmt.Sprintf("%s_%s_parsed", cmdVar, pname)
+					callParams = append(callParams, vname)
 				case "rect":
 					callParams = append(callParams, fmt.Sprintf("r_%d", rectIndex))
 					rectIndex++
@@ -619,6 +652,10 @@ func main() {
 					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, %q, \"\", %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
 				case "int":
 					sb.WriteString(fmt.Sprintf("\t%s.Flags().IntVar(&%s, %q, 0, %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
+				case "uint32":
+					sb.WriteString(fmt.Sprintf("\t%s.Flags().IntVar(&%s, %q, 0, %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
+				case "uint32hex":
+					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, %q, \"\", %q)\n", cmdVar, vname, pname, flagUsage(pname, pname)))
 				case "rect":
 					sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s, \"rect\", \"0,0,1920,1080\", %q)\n", cmdVar, vname, flagUsage("rect", "x0,y0,x1,y1")))
 				case "duration":

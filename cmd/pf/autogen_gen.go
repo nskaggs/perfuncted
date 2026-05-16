@@ -165,7 +165,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 
 	// wait-for-no-change-from: wrapper for perfuncted.WaitForNoChangeFrom
 	var cmd_screen_wait_for_no_change_from_rect string
-	var cmd_screen_wait_for_no_change_from_initial int
+	var cmd_screen_wait_for_no_change_from_initial string
 	var cmd_screen_wait_for_no_change_from_stable int
 	var cmd_screen_wait_for_no_change_from_poll string
 	cmd_screen_wait_for_no_change_from := &cobra.Command{
@@ -181,13 +181,16 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 			if err != nil {
 				return err
 			}
-			// flag cmd_screen_wait_for_no_change_from_initial (int) already parsed into var
+			cmd_screen_wait_for_no_change_from_initial_parsed, err := parseHash(cmd_screen_wait_for_no_change_from_initial)
+			if err != nil {
+				return err
+			}
 			// flag cmd_screen_wait_for_no_change_from_stable (int) already parsed into var
 			cmd_screen_wait_for_no_change_from_poll_dur, err := parseDuration(cmd_screen_wait_for_no_change_from_poll, 0)
 			if err != nil {
 				return err
 			}
-			h, err := pf.Screen.WaitForNoChangeFrom(cmd.Context(), r_0, uint32(cmd_screen_wait_for_no_change_from_initial), cmd_screen_wait_for_no_change_from_stable, cmd_screen_wait_for_no_change_from_poll_dur)
+			h, err := pf.Screen.WaitForNoChangeFrom(cmd.Context(), r_0, cmd_screen_wait_for_no_change_from_initial_parsed, cmd_screen_wait_for_no_change_from_stable, cmd_screen_wait_for_no_change_from_poll_dur)
 			if err != nil {
 				return err
 			}
@@ -196,7 +199,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 		},
 	}
 	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_rect, "rect", "0,0,1920,1080", "region to monitor as x0,y0,x1,y1")
-	cmd_screen_wait_for_no_change_from.Flags().IntVar(&cmd_screen_wait_for_no_change_from_initial, "initial", 0, "initial CRC32 hash (hex)")
+	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_initial, "initial", "", "initial CRC32 hash (decimal or 0xhex)")
 	cmd_screen_wait_for_no_change_from.Flags().IntVar(&cmd_screen_wait_for_no_change_from_stable, "stable", 0, "number of stable samples required")
 	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_poll, "poll", "", "polling interval (e.g. 200ms)")
 

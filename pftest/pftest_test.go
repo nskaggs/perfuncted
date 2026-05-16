@@ -50,3 +50,21 @@ func TestNewNilBackends(t *testing.T) {
 		t.Error("expected error for nil clipboard")
 	}
 }
+
+func TestScreenshotterZeroOrigin(t *testing.T) {
+	img := image.NewRGBA(image.Rect(10, 20, 14, 24))
+	want := color.RGBA{R: 3, G: 4, B: 5, A: 255}
+	img.SetRGBA(12, 22, want)
+	sc := &pftest.Screenshotter{Frames: []image.Image{img}, ZeroOrigin: true}
+
+	got, err := sc.Grab(context.Background(), image.Rect(11, 21, 13, 23))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Bounds() != image.Rect(0, 0, 2, 2) {
+		t.Fatalf("bounds = %v, want zero-origin 2x2", got.Bounds())
+	}
+	if c := color.RGBAModel.Convert(got.At(1, 1)).(color.RGBA); c != want {
+		t.Fatalf("pixel = %+v, want %+v", c, want)
+	}
+}
