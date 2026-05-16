@@ -12,8 +12,9 @@ git diff --exit-code -- cmd/pf/autogen_gen.go docs-cli
 
 # 2. Format
 if [ -n "$(gofmt -l .)" ]; then
-    echo "  FAIL: Files not formatted (run 'go fmt ./...')"
-    gofmt -l .
+    echo "  FAIL: Files not formatted. Running 'go fmt ./...' for you."
+    go fmt ./...
+    echo "  Please stage the formatted files and try again."
     exit 1
 fi
 
