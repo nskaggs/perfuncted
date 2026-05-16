@@ -213,7 +213,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 		attempt := 0
 		for {
 			if err := contextErr(ctx); err != nil {
-				return 0, err
+				return initial, err
 			}
 			h, err := GrabHash(ctx, sc, rect, newHash)
 			if err != nil {
@@ -243,7 +243,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 
 	for {
 		if err := contextErr(ctx); err != nil {
-			return 0, err
+			return initial, err
 		}
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
