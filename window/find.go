@@ -48,6 +48,9 @@ func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duratio
 	defer ticker.Stop()
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return Info{}, fmt.Errorf("wait for window %q: %w", match.String(), err)
+		}
 		info, err := Find(ctx, m, match)
 		if err == nil {
 			return info, nil
@@ -74,6 +77,9 @@ func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Du
 	defer ticker.Stop()
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("wait for window close %q: %w", match.String(), err)
+		}
 		_, err := Find(ctx, m, match)
 		if err != nil {
 			// Only a true "window not found" result means the window closed
