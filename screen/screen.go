@@ -34,9 +34,15 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()
 	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	img, err := sc.Grab(ctx, image.Rect(0, 0, 0, 0))
 	if err != nil {
 		return 0, 0, fmt.Errorf("screen: resolution probe: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
 	}
 	b := img.Bounds()
 	if b.Dx() == 0 || b.Dy() == 0 {
