@@ -104,36 +104,34 @@ func TestParseKeySequence_KeysOnly(t *testing.T) {
 
 // ── parseCombo — modifier aliases ─────────────────────────────────────────────
 
-func TestParseCombo_WinModifier(t *testing.T) {
-	ks, err := ParseKeySend("{win+d}")
-	if err != nil {
-		t.Fatalf("ParseKeySend({win+d}) error = %v", err)
+func TestParseCombo_ModifierAliases(t *testing.T) {
+	cases := []struct {
+		name      string
+		input     string
+		wantKey   string
+		wantSuper bool
+		wantCtrl  bool
+	}{
+		{name: "WinModifier", input: "{win+d}", wantKey: "d", wantSuper: true},
+		{name: "LogoModifier", input: "{logo+l}", wantKey: "l", wantSuper: true},
+		{name: "ControlAlias", input: "{control+c}", wantKey: "c", wantCtrl: true},
 	}
-	if !ks[0].modifiers.super {
-		t.Error("expected super modifier for win alias")
-	}
-	if ks[0].key != "d" {
-		t.Errorf("key = %q, want d", ks[0].key)
-	}
-}
-
-func TestParseCombo_LogoModifier(t *testing.T) {
-	ks, err := ParseKeySend("{logo+l}")
-	if err != nil {
-		t.Fatalf("ParseKeySend({logo+l}) error = %v", err)
-	}
-	if !ks[0].modifiers.super {
-		t.Error("expected super modifier for logo alias")
-	}
-}
-
-func TestParseCombo_ControlAlias(t *testing.T) {
-	ks, err := ParseKeySend("{control+c}")
-	if err != nil {
-		t.Fatalf("ParseKeySend({control+c}) error = %v", err)
-	}
-	if !ks[0].modifiers.ctrl {
-		t.Error("expected ctrl modifier for control alias")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ks, err := ParseKeySend(tc.input)
+			if err != nil {
+				t.Fatalf("ParseKeySend(%q) error = %v", tc.input, err)
+			}
+			if ks[0].key != tc.wantKey {
+				t.Errorf("key = %q, want %q", ks[0].key, tc.wantKey)
+			}
+			if ks[0].modifiers.super != tc.wantSuper {
+				t.Errorf("super = %v, want %v", ks[0].modifiers.super, tc.wantSuper)
+			}
+			if ks[0].modifiers.ctrl != tc.wantCtrl {
+				t.Errorf("ctrl = %v, want %v", ks[0].modifiers.ctrl, tc.wantCtrl)
+			}
+		})
 	}
 }
 

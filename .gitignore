@@ -29,5 +29,5 @@ sway.log
 primary.txt
 clipboard.txt
 /ffprof/
-coverage.out
+coverage*.out
 *.cover

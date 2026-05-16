@@ -174,54 +174,67 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 		if err != nil {
 			return err
 		}
-		if a.modifiers.shift {
-			if err := b.kb.KeyDown(uinput.KeyLeftshift); err != nil {
-				return err
-			}
+		if err := b.typeKeyWithMods(code, a.down, a.modifiers); err != nil {
+			return err
 		}
-		if a.modifiers.ctrl {
-			if err := b.kb.KeyDown(uinput.KeyLeftctrl); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+// typeKeyWithMods presses modifier keys, sends the key action, then releases
+// modifiers in reverse order. If any step fails, already-pressed modifiers
+// are released (best-effort) before the error is returned.
+func (b *UinputBackend) typeKeyWithMods(code int, down bool, mods modifiers) error {
+	// Build ordered list of modifier keycodes.
+	var modKeys []int
+	if mods.shift {
+		modKeys = append(modKeys, uinput.KeyLeftshift)
+	}
+	if mods.ctrl {
+		modKeys = append(modKeys, uinput.KeyLeftctrl)
+	}
+	if mods.alt {
+		modKeys = append(modKeys, uinput.KeyLeftalt)
+	}
+	if mods.super {
+		modKeys = append(modKeys, uinput.KeyLeftmeta)
+	}
+
+	// Press modifiers; release any already-pressed ones on failure.
+	pressed := 0
+	releaseHeld := func() {
+		for i := pressed - 1; i >= 0; i-- {
+			_ = b.kb.KeyUp(modKeys[i])
 		}
-		if a.modifiers.alt {
-			if err := b.kb.KeyDown(uinput.KeyLeftalt); err != nil {
-				return err
-			}
+	}
+	for _, mk := range modKeys {
+		if err := b.kb.KeyDown(mk); err != nil {
+			releaseHeld()
+			return err
 		}
-		if a.modifiers.super {
-			if err := b.kb.KeyDown(uinput.KeyLeftmeta); err != nil {
-				return err
-			}
+		pressed++
+	}
+
+	// Send the key.
+	if down {
+		if err := b.kb.KeyDown(code); err != nil {
+			releaseHeld()
+			return err
 		}
-		if a.down {
-			if err := b.kb.KeyDown(code); err != nil {
-				return err
-			}
-		} else {
-			if err := b.kb.KeyPress(code); err != nil {
-				return err
-			}
+	} else {
+		if err := b.kb.KeyPress(code); err != nil {
+			releaseHeld()
+			return err
 		}
-		if a.modifiers.super {
-			if err := b.kb.KeyUp(uinput.KeyLeftmeta); err != nil {
-				return err
+	}
+
+	// Release modifiers in reverse order.
+	for i := len(modKeys) - 1; i >= 0; i-- {
+		if err := b.kb.KeyUp(modKeys[i]); err != nil {
+			for j := i - 1; j >= 0; j-- {
+				_ = b.kb.KeyUp(modKeys[j])
 			}
-		}
-		if a.modifiers.alt {
-			if err := b.kb.KeyUp(uinput.KeyLeftalt); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.ctrl {
-			if err := b.kb.KeyUp(uinput.KeyLeftctrl); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.shift {
-			if err := b.kb.KeyUp(uinput.KeyLeftshift); err != nil {
-				return err
-			}
+			return err
 		}
 	}
 	return nil

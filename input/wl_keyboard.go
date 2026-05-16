@@ -125,6 +125,39 @@ func (k *wlKeyboard) uploadKeymapAndRestoreMods(keymap string) error {
 	return nil
 }
 
+// applyTempMods applies modBitmask to k.mods and sends the modifier state.
+// If sendModifiers fails, local state is rolled back and error is returned.
+func (k *wlKeyboard) applyTempMods(modBitmask uint32) error {
+	if modBitmask == 0 {
+		return nil
+	}
+	k.mods |= modBitmask
+	if err := k.sendModifiers(); err != nil {
+		k.mods &^= modBitmask
+		return err
+	}
+	return nil
+}
+
+// clearTempMods removes modBitmask from k.mods and sends the update.
+func (k *wlKeyboard) clearTempMods(modBitmask uint32) error {
+	if modBitmask == 0 {
+		return nil
+	}
+	k.mods &^= modBitmask
+	return k.sendModifiers()
+}
+
+// clearTempModsBestEffort is like clearTempMods but ignores errors.
+// Use on error paths where cleanup must be attempted before returning.
+func (k *wlKeyboard) clearTempModsBestEffort(modBitmask uint32) {
+	if modBitmask == 0 {
+		return
+	}
+	k.mods &^= modBitmask
+	_ = k.sendModifiers()
+}
+
 // sendkeys processes a sequence of parsed keySend actions with a single
 // keymap upload. This avoids the modifier-state-reset problem that occurs
 // when pressing multiple keys via separate pressKey calls (each uploads a
@@ -265,11 +298,8 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 			modBitmask |= modMod4
 		}
 
-		if modBitmask != 0 {
-			k.mods |= modBitmask
-			if err := k.sendModifiers(); err != nil {
-				return err
-			}
+		if err := k.applyTempMods(modBitmask); err != nil {
+			return err
 		}
 
 		if kc, _, ok := namedKey(ka.key); ok {
@@ -281,35 +311,43 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 					k.mods &^= bit
 				}
 				if err := k.sendKey(kc, 1); err != nil {
+					k.clearTempModsBestEffort(modBitmask)
 					return err
 				}
 				if !ka.down {
 					if err := k.sendKey(kc, 0); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 				}
 				if err := k.sendModifiers(); err != nil {
+					k.clearTempModsBestEffort(modBitmask)
 					return err
 				}
 			} else {
 				// Named non-modifier key.
 				slot := namedSlots[ka.key]
 				if ka.down {
-					k.held[ka.key] = slot
 					if err := k.sendKey(slot, 1); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
+					k.held[ka.key] = slot
 				} else {
 					if err := k.sendKey(slot, 1); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
 						if upErr := k.sendKey(slot, 0); upErr != nil {
+							k.clearTempModsBestEffort(modBitmask)
 							return upErr
 						}
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 					if err := k.sendKey(slot, 0); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 					delete(k.held, ka.key)
@@ -320,15 +358,18 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 			for _, r := range ka.key {
 				slot := runeSlots[r]
 				if ka.down {
-					k.held[ka.key] = slot
 					if err := k.sendKey(slot, 1); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
+					k.held[ka.key] = slot
 				} else {
 					if err := k.tapContext(ctx, slot); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 				}
@@ -336,11 +377,8 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 		}
 
 		// Release temporary modifiers.
-		if modBitmask != 0 {
-			k.mods &^= modBitmask
-			if err := k.sendModifiers(); err != nil {
-				return err
-			}
+		if err := k.clearTempMods(modBitmask); err != nil {
+			return err
 		}
 	}
 

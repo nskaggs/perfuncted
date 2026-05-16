@@ -4,140 +4,83 @@ import (
 	"testing"
 )
 
-func TestParseKeySend_LiteralText(t *testing.T) {
-	sends, err := ParseKeySend("hello world")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].text != "hello world" {
-		t.Errorf("text = %q, want %q", sends[0].text, "hello world")
-	}
+type keySendCase struct {
+	name  string
+	input string
+	want  keySend
 }
 
-func TestParseKeySend_NamedKey(t *testing.T) {
-	sends, err := ParseKeySend("{enter}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
+func TestParseKeySend_Table(t *testing.T) {
+	cases := []keySendCase{
+		{
+			name:  "LiteralText",
+			input: "hello world",
+			want:  keySend{text: "hello world"},
+		},
+		{
+			name:  "NamedKey",
+			input: "{enter}",
+			want:  keySend{key: "enter"},
+		},
+		{
+			name:  "KeyDown",
+			input: "{ctrl down}",
+			want:  keySend{key: "ctrl", down: true},
+		},
+		{
+			name:  "KeyUp",
+			input: "{shift up}",
+			want:  keySend{key: "shift"},
+		},
+		{
+			name:  "BraceCombo",
+			input: "{ctrl+s}",
+			want:  keySend{key: "s", modifiers: modifiers{ctrl: true}},
+		},
+		{
+			name:  "BraceComboMultipleModifiers",
+			input: "{ctrl+shift+left}",
+			want:  keySend{key: "left", modifiers: modifiers{ctrl: true, shift: true}},
+		},
+		{
+			name:  "BraceComboSuper",
+			input: "{super+tab}",
+			want:  keySend{key: "tab", modifiers: modifiers{super: true}},
+		},
+		{
+			name:  "BraceComboMetaAlias",
+			input: "{meta+tab}",
+			want:  keySend{key: "tab", modifiers: modifiers{super: true}},
+		},
+		{
+			name:  "BraceComboAllModifiers",
+			input: "{ctrl+alt+shift+super+a}",
+			want:  keySend{key: "a", modifiers: modifiers{ctrl: true, alt: true, shift: true, super: true}},
+		},
+		{
+			name:  "CaseInsensitive",
+			input: "{ENTER}",
+			want:  keySend{key: "enter"},
+		},
+		{
+			name:  "BraceComboCaseInsensitive",
+			input: "{CTRL+SHIFT+T}",
+			want:  keySend{key: "t", modifiers: modifiers{ctrl: true, shift: true}},
+		},
 	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].key != "enter" {
-		t.Errorf("key = %q, want %q", sends[0].key, "enter")
-	}
-	if sends[0].down {
-		t.Error("expected down=false for plain key tap")
-	}
-}
-
-func TestParseKeySend_KeyDown(t *testing.T) {
-	sends, err := ParseKeySend("{ctrl down}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].key != "ctrl" {
-		t.Errorf("key = %q, want %q", sends[0].key, "ctrl")
-	}
-	if !sends[0].down {
-		t.Error("expected down=true")
-	}
-}
-
-func TestParseKeySend_KeyUp(t *testing.T) {
-	sends, err := ParseKeySend("{shift up}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].key != "shift" {
-		t.Errorf("key = %q, want %q", sends[0].key, "shift")
-	}
-	if sends[0].down {
-		t.Error("expected down=false for key up")
-	}
-}
-
-func TestParseKeySend_BraceCombo(t *testing.T) {
-	sends, err := ParseKeySend("{ctrl+s}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].key != "s" {
-		t.Errorf("key = %q, want %q", sends[0].key, "s")
-	}
-	if !sends[0].modifiers.ctrl {
-		t.Error("expected ctrl modifier")
-	}
-}
-
-func TestParseKeySend_BraceComboMultipleModifiers(t *testing.T) {
-	sends, err := ParseKeySend("{ctrl+shift+left}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].key != "left" {
-		t.Errorf("key = %q, want %q", sends[0].key, "left")
-	}
-	m := sends[0].modifiers
-	if !m.ctrl || !m.shift || m.alt || m.super {
-		t.Errorf("expected ctrl+shift only, got %+v", m)
-	}
-}
-
-func TestParseKeySend_BraceComboSuper(t *testing.T) {
-	sends, err := ParseKeySend("{super+tab}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	if sends[0].key != "tab" {
-		t.Errorf("key = %q, want %q", sends[0].key, "tab")
-	}
-	if !sends[0].modifiers.super {
-		t.Error("expected super modifier")
-	}
-}
-
-func TestParseKeySend_BraceComboMetaAlias(t *testing.T) {
-	sends, err := ParseKeySend("{meta+tab}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if !sends[0].modifiers.super {
-		t.Error("expected super modifier for meta alias")
-	}
-}
-
-func TestParseKeySend_BraceComboAllModifiers(t *testing.T) {
-	sends, err := ParseKeySend("{ctrl+alt+shift+super+a}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if len(sends) != 1 {
-		t.Fatalf("expected 1 send, got %d", len(sends))
-	}
-	m := sends[0].modifiers
-	if !m.ctrl || !m.alt || !m.shift || !m.super {
-		t.Errorf("expected all modifiers, got %+v", m)
-	}
-	if sends[0].key != "a" {
-		t.Errorf("key = %q, want %q", sends[0].key, "a")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sends, err := ParseKeySend(tc.input)
+			if err != nil {
+				t.Fatalf("ParseKeySend(%q) error = %v", tc.input, err)
+			}
+			if len(sends) != 1 {
+				t.Fatalf("ParseKeySend(%q) returned %d sends, want 1", tc.input, len(sends))
+			}
+			if sends[0] != tc.want {
+				t.Errorf("ParseKeySend(%q) = %+v, want %+v", tc.input, sends[0], tc.want)
+			}
+		})
 	}
 }
 
@@ -180,47 +123,22 @@ func TestParseKeySend_HoldAndRelease(t *testing.T) {
 	}
 }
 
-func TestParseKeySend_UnclosedBrace(t *testing.T) {
-	_, err := ParseKeySend("{enter")
-	if err == nil {
-		t.Fatal("expected error for unclosed brace")
+func TestParseKeySend_Errors(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"UnclosedBrace", "{enter"},
+		{"EmptyBraces", "{}"},
+		{"BraceComboEndsWithModifier", "{ctrl+shift}"},
 	}
-}
-
-func TestParseKeySend_EmptyBraces(t *testing.T) {
-	_, err := ParseKeySend("{}")
-	if err == nil {
-		t.Fatal("expected error for empty braces")
-	}
-}
-
-func TestParseKeySend_BraceComboEndsWithModifier(t *testing.T) {
-	_, err := ParseKeySend("{ctrl+shift}")
-	if err == nil {
-		t.Fatal("expected error for combo ending with modifier")
-	}
-}
-
-func TestParseKeySend_CaseInsensitive(t *testing.T) {
-	sends, err := ParseKeySend("{ENTER}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if sends[0].key != "enter" {
-		t.Errorf("key = %q, want %q", sends[0].key, "enter")
-	}
-}
-
-func TestParseKeySend_BraceComboCaseInsensitive(t *testing.T) {
-	sends, err := ParseKeySend("{CTRL+SHIFT+T}")
-	if err != nil {
-		t.Fatalf("ParseKeySend: %v", err)
-	}
-	if sends[0].key != "t" {
-		t.Errorf("key = %q, want %q", sends[0].key, "t")
-	}
-	if !sends[0].modifiers.ctrl || !sends[0].modifiers.shift {
-		t.Errorf("expected ctrl+shift, got %+v", sends[0].modifiers)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseKeySend(tc.input)
+			if err == nil {
+				t.Fatalf("ParseKeySend(%q) expected error, got nil", tc.input)
+			}
+		})
 	}
 }
 

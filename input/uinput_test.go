@@ -308,3 +308,48 @@ func TestKernelRuneExtraction(t *testing.T) {
 		}
 	}
 }
+
+// failingKeyboard wraps recordingKeyboard and fails on KeyPress calls.
+type failingKeyboard struct {
+	recordingKeyboard
+	failPress bool
+}
+
+func (f *failingKeyboard) KeyPress(key int) error {
+	if f.failPress {
+		return fmt.Errorf("injected KeyPress failure for key %d", key)
+	}
+	return f.recordingKeyboard.KeyPress(key)
+}
+
+// TestTypeKeyWithMods_ModifierReleasedOnKeyPressFailure verifies that modifier
+// keys are released (best-effort) when the key action itself fails. Before the
+// fix, the pressed modifier was leaked (never released).
+func TestTypeKeyWithMods_ModifierReleasedOnKeyPressFailure(t *testing.T) {
+	kb := &failingKeyboard{failPress: true}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap()}
+
+	// {shift+a}: presses shift (succeeds), then KeyPress('a') fails.
+	// The fix should release shift even though KeyPress failed.
+	err := b.TypeContext(context.Background(), "{shift+a}")
+	if err == nil {
+		t.Fatal("expected error from injected failure")
+	}
+
+	// Verify shift KeyDown was called.
+	var downCount, upCount int
+	for _, ev := range kb.events {
+		if ev == fmt.Sprintf("down:%d", uinput.KeyLeftshift) {
+			downCount++
+		}
+		if ev == fmt.Sprintf("up:%d", uinput.KeyLeftshift) {
+			upCount++
+		}
+	}
+	if downCount == 0 {
+		t.Error("shift KeyDown was never called")
+	}
+	if upCount == 0 {
+		t.Errorf("shift KeyUp was never called after failure; events: %v", kb.events)
+	}
+}
