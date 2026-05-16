@@ -226,14 +226,22 @@ func (b *WlVirtualBackend) MouseUp(ctx context.Context, button int) error {
 
 // MouseClick moves to (x,y) then clicks the given button.
 func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
-	time.Sleep(40 * time.Millisecond)
 	if err := b.MouseDown(ctx, button); err != nil {
 		return err
 	}
-	time.Sleep(40 * time.Millisecond)
+	if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
+		if upErr := b.MouseUp(context.Background(), button); upErr != nil {
+			return upErr
+		}
+		return err
+	}
 	return b.MouseUp(ctx, button)
 }
 
@@ -245,13 +253,14 @@ func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
+	ctx = normalizeContext(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	actions, err := ParseKeySend(s)
 	if err != nil {
 		return err
 	}
-	return b.kbd.sendkeys(actions)
+	return b.kbd.sendkeysContext(ctx, actions)
 }
 
 // KeyDown presses and holds a key. Modifier keys update the compositor's

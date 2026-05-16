@@ -158,7 +158,11 @@ func infoCmd() *cobra.Command {
 		Use:   "info",
 		Short: "Probe and display supported backends for this environment",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.ToLower(outputFlag) == "json" {
+			mode, err := parseOutputMode(outputFlag)
+			if err != nil {
+				return err
+			}
+			if mode == outputModeJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				return enc.Encode(buildInfoReport())
@@ -2148,6 +2152,24 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid duration %q: %w", s, err)
 	}
 	return v, nil
+}
+
+type outputMode string
+
+const (
+	outputModePlain outputMode = "plain"
+	outputModeJSON  outputMode = "json"
+)
+
+func parseOutputMode(raw string) (outputMode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", string(outputModePlain):
+		return outputModePlain, nil
+	case string(outputModeJSON):
+		return outputModeJSON, nil
+	default:
+		return "", fmt.Errorf("invalid --output %q: want plain or json", raw)
+	}
 }
 
 func parseHash(s string) (uint32, error) {

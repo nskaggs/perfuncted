@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"sync"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -20,6 +21,15 @@ type XTestBackend struct {
 	conn  x11.Connection
 	root  xproto.Window
 	delay time.Duration
+
+	keymapOnce sync.Once
+	keymap     map[xproto.Keysym]keycodeLevel
+	keymapErr  error
+}
+
+type keycodeLevel struct {
+	keycode xproto.Keycode
+	level   int
 }
 
 // NewXTestBackend connects to the named X11 display and initialises XTEST.
@@ -80,21 +90,49 @@ var keysymForName = map[string]xproto.Keysym{
 // the X server's actual keymap dictate which keysyms need Shift rather than
 // assuming a US QWERTY layout.
 func (b *XTestBackend) keycodeAndLevel(sym xproto.Keysym) (xproto.Keycode, int, error) {
-	setup := b.conn.Setup()
-	first := xproto.Keycode(setup.MinKeycode)
-	count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
-	km, err := b.conn.GetKeyboardMapping(first, count).Reply()
+	mapping, err := b.ensureKeymap()
 	if err != nil {
-		return 0, 0, fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
+		return 0, 0, err
 	}
-	kpk := int(km.KeysymsPerKeycode)
-	min := int(setup.MinKeycode)
-	for i, s := range km.Keysyms {
-		if s == sym {
-			return xproto.Keycode(min + i/kpk), i % kpk, nil
+	kl, ok := mapping[sym]
+	if !ok {
+		return 0, 0, fmt.Errorf("input/xtest: keysym 0x%x not found in keymap", sym)
+	}
+	return kl.keycode, kl.level, nil
+}
+
+func (b *XTestBackend) ensureKeymap() (map[xproto.Keysym]keycodeLevel, error) {
+	b.keymapOnce.Do(func() {
+		setup := b.conn.Setup()
+		first := xproto.Keycode(setup.MinKeycode)
+		count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
+		km, err := b.conn.GetKeyboardMapping(first, count).Reply()
+		if err != nil {
+			b.keymapErr = fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
+			return
 		}
-	}
-	return 0, 0, fmt.Errorf("input/xtest: keysym 0x%x not found in keymap", sym)
+		kpk := int(km.KeysymsPerKeycode)
+		if kpk <= 0 {
+			b.keymapErr = fmt.Errorf("input/xtest: invalid keyboard mapping: keysyms_per_keycode=%d", kpk)
+			return
+		}
+		min := int(setup.MinKeycode)
+		m := make(map[xproto.Keysym]keycodeLevel, len(km.Keysyms))
+		for i, s := range km.Keysyms {
+			if s == 0 {
+				continue
+			}
+			if _, exists := m[s]; exists {
+				continue
+			}
+			m[s] = keycodeLevel{
+				keycode: xproto.Keycode(min + i/kpk),
+				level:   i % kpk,
+			}
+		}
+		b.keymap = m
+	})
+	return b.keymap, b.keymapErr
 }
 
 func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
@@ -117,6 +155,10 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 }
 
 func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	kc, err := b.keycodeFor(key)
 	if err != nil {
 		return err
@@ -126,6 +168,7 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 
 // KeyUp releases a previously held key.
 func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
+	ctx = normalizeContext(ctx)
 	kc, err := b.keycodeFor(key)
 	if err != nil {
 		return err
@@ -138,11 +181,18 @@ func (b *XTestBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	actions, err := ParseKeySend(s)
 	if err != nil {
 		return err
 	}
 	for _, a := range actions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if a.text != "" {
 			if err := b.typeText(ctx, a.text); err != nil {
 				return err
@@ -153,11 +203,11 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 			continue
 		}
 		kc, err := b.keycodeFor(a.key)
-		if err != nil {
-			return err
-		}
-		// Press modifier keys first.
-		if a.modifiers.shift {
+			if err != nil {
+				return err
+			}
+			// Press modifier keys first.
+			if a.modifiers.shift {
 			if err := b.keyDown(ctx, "shift"); err != nil {
 				return err
 			}
@@ -176,41 +226,53 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 			if err := b.keyDown(ctx, "super"); err != nil {
 				return err
 			}
-		}
-		if a.down {
-			if err := b.keyDownKC(ctx, kc); err != nil {
-				return err
 			}
-		} else {
-			if err := b.keyDownKC(ctx, kc); err != nil {
-				return err
+			if a.down {
+				if err := b.keyDownKC(ctx, kc); err != nil {
+					return err
+				}
+			} else {
+				if err := b.keyDownKC(ctx, kc); err != nil {
+					return err
+				}
+				if err := sleepContext(ctx, b.delay); err != nil {
+					if upErr := b.keyUpKC(ctx, kc); upErr != nil {
+						return upErr
+					}
+					return err
+				}
+				if err := b.keyUpKC(ctx, kc); err != nil {
+					return err
+				}
 			}
-			time.Sleep(b.delay)
-			if err := b.keyUpKC(ctx, kc); err != nil {
-				return err
-			}
-		}
 		// Release temporary modifiers.
-		if a.modifiers.super {
-			if err := b.keyUp(ctx, "super"); err != nil {
-				return err
+			releaseModifier := func(key string) error {
+				kc, err := b.keycodeFor(key)
+				if err != nil {
+					return err
+				}
+				return b.keyUpKC(context.Background(), kc)
 			}
-		}
-		if a.modifiers.alt {
-			if err := b.keyUp(ctx, "alt"); err != nil {
-				return err
+			if a.modifiers.super {
+				if err := releaseModifier("super"); err != nil {
+					return err
+				}
 			}
-		}
-		if a.modifiers.ctrl {
-			if err := b.keyUp(ctx, "ctrl"); err != nil {
-				return err
+			if a.modifiers.alt {
+				if err := releaseModifier("alt"); err != nil {
+					return err
+				}
 			}
-		}
-		if a.modifiers.shift {
-			if err := b.keyUp(ctx, "shift"); err != nil {
-				return err
+			if a.modifiers.ctrl {
+				if err := releaseModifier("ctrl"); err != nil {
+					return err
+				}
 			}
-		}
+			if a.modifiers.shift {
+				if err := releaseModifier("shift"); err != nil {
+					return err
+				}
+			}
 	}
 	return nil
 }
@@ -220,7 +282,11 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 // GetKeyboardMapping reply; Shift is held when the keysym lives at level >= 1.
 // This is layout-independent: the X server tells us which keysyms need Shift.
 func (b *XTestBackend) typeText(ctx context.Context, s string) error {
+	ctx = normalizeContext(ctx)
 	for _, ch := range s {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		kc, level, err := b.keycodeAndLevel(xproto.Keysym(ch))
 		if err != nil {
 			return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
@@ -234,7 +300,12 @@ func (b *XTestBackend) typeText(ctx context.Context, s string) error {
 		if err := b.keyDownKC(ctx, kc); err != nil {
 			return err
 		}
-		time.Sleep(b.delay)
+		if err := sleepContext(ctx, b.delay); err != nil {
+			if upErr := b.keyUpKC(ctx, kc); upErr != nil {
+				return upErr
+			}
+			return err
+		}
 		if err := b.keyUpKC(ctx, kc); err != nil {
 			return err
 		}
@@ -272,27 +343,45 @@ func (b *XTestBackend) keyUpKC(_ context.Context, kc xproto.Keycode) error {
 }
 
 func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.conn.FakeInputChecked(xproto.MotionNotify, 0,
 		xproto.TimeCurrentTime, b.root, int16(x), int16(y), 0).Check()
 }
 
 func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
 	if err := b.MouseDown(ctx, button); err != nil {
 		return err
 	}
-	time.Sleep(b.delay)
-	return b.MouseUp(ctx, button)
+	if err := sleepContext(ctx, b.delay); err != nil {
+		if upErr := b.MouseUp(context.Background(), button); upErr != nil {
+			return upErr
+		}
+		return err
+	}
+	return b.MouseUp(context.Background(), button)
 }
 
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.conn.FakeInputChecked(xproto.ButtonPress, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
+	ctx = normalizeContext(ctx)
 	return b.conn.FakeInputChecked(xproto.ButtonRelease, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
@@ -300,7 +389,11 @@ func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 // X11 scroll is button 4 (up) / 5 (down).
 func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
 	for i := 0; i < clicks; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := b.MouseDown(ctx, 4); err != nil {
 			return err
 		}
@@ -313,7 +406,11 @@ func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
 	for i := 0; i < clicks; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := b.MouseDown(ctx, 5); err != nil {
 			return err
 		}
@@ -327,7 +424,11 @@ func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 // X11 scroll is button 6 (left) / 7 (right).
 func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
 	for i := 0; i < clicks; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := b.MouseDown(ctx, 6); err != nil {
 			return err
 		}
@@ -340,7 +441,11 @@ func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
+	ctx = normalizeContext(ctx)
 	for i := 0; i < clicks; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := b.MouseDown(ctx, 7); err != nil {
 			return err
 		}
@@ -352,6 +457,10 @@ func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	rep, err := b.conn.QueryPointer(b.root).Reply()
 	if err != nil {
 		return 0, 0, fmt.Errorf("input/xtest: query pointer: %w", err)
@@ -360,6 +469,10 @@ func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
 }
 
 func (b *XTestBackend) Sync(ctx context.Context) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.conn.Sync()
 	return nil
 }
