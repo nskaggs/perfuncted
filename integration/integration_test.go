@@ -530,16 +530,45 @@ type Verifier struct {
 	pf *perfuncted.Perfuncted
 }
 
+// captureFailure saves a full-screen snapshot for debugging when a test fails.
+func (v *Verifier) captureFailure(label string) {
+	v.t.Helper()
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("fail-%s-%d.png", label, time.Now().Unix()))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	w, h, err := v.pf.Screen.Resolution(ctx)
+	if err != nil {
+		v.t.Logf("failed to resolve screen for failure capture: %v", err)
+		return
+	}
+	
+	if err := v.pf.Screen.CaptureRegion(ctx, image.Rect(0, 0, w, h), path); err != nil {
+		v.t.Logf("failed to capture screen snapshot on failure: %v", err)
+		return
+	}
+	v.t.Logf("Snapshot saved to: %s", path)
+}
+
 // VerifyStableRegion polls a region until it stabilizes, then performs a final validation grab.
 func (v *Verifier) VerifyStableRegion(ctx context.Context, label string, rect image.Rectangle) {
 	v.t.Helper()
-	// Polling for stability is the standard way to ensure the app has finished reacting.
 	if _, err := find.WaitForNoChange(ctx, v.pf.Screen.Screenshotter, rect, 3, 100*time.Millisecond, nil); err != nil {
+		v.captureFailure(label)
 		v.t.Fatalf("%s: wait for region %v to settle: %v", label, rect, err)
 	}
-	// Final validation: ensure we can actually grab the region.
 	if _, err := v.pf.Screen.Grab(ctx, rect); err != nil {
+		v.captureFailure(label)
 		v.t.Fatalf("%s: failed to grab region %v: %v", label, rect, err)
+	}
+}
+
+// WaitForState blocks until a condition is met within a region.
+func (v *Verifier) WaitForState(ctx context.Context, label string, rect image.Rectangle, check func(image.Image) bool) {
+	v.t.Helper()
+	if _, err := v.pf.Screen.WaitForFn(ctx, rect, check, 100*time.Millisecond); err != nil {
+		v.captureFailure(label)
+		v.t.Fatalf("%s: condition not met within timeout: %v", label, err)
 	}
 }
 
