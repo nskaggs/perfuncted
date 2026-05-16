@@ -33,7 +33,7 @@ type chk struct {
 	sc find.Screenshotter // nil when pixel/image assertions are not needed
 }
 
-func newChk(t *testing.T, sc find.Screenshotter) *Verifier {
+func newChk(t *testing.T, sc find.Screenshotter) *chk {
 	t.Helper()
 	return &chk{t: t, sc: sc}
 }
