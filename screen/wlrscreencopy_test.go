@@ -11,6 +11,7 @@ import (
 func TestWithWlrContextCachingAndReset(t *testing.T) {
 	// Create backend with fake connector
 	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 5*time.Minute)
+	defer b.Close()
 	// first call should create a context
 	var firstPtr, secondPtr *wl.Context
 	if err := b.withWlrContext(func(ctx *wl.Context) error {
@@ -46,6 +47,7 @@ func TestWithWlrContextCachingAndReset(t *testing.T) {
 
 func TestWlrCacheJanitorEvicts(t *testing.T) {
 	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock-evict", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 50*time.Millisecond)
+	defer b.Close()
 	// create context
 	if err := b.withWlrContext(func(ctx *wl.Context) error { return nil }); err != nil {
 		t.Fatalf("setup withWlrContext failed: %v", err)

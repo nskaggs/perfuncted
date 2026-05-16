@@ -23,7 +23,7 @@ type MatchResult struct {
 func WaitForPixelColor(sc find.Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int, timeout time.Duration) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	_, err := find.WaitForFn(ctx, sc, rect, func(img image.Image) bool {
+	_, err := find.WaitForFn(ctx, sc, rect, func(_ context.Context, img image.Image) bool {
 		_, ok := find.PixelFound(img, rect, target, tolerance)
 		return ok
 	}, 200*time.Millisecond)

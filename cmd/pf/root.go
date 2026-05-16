@@ -2263,10 +2263,10 @@ func parsePoint(s string) (image.Point, error) {
 	return image.Pt(x, y), nil
 }
 
-func screenPredicate(name string) (func(image.Image) bool, error) {
+func screenPredicate(name string) (func(context.Context, image.Image) bool, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "non-empty", "non-zero":
-		return func(img image.Image) bool {
+		return func(_ context.Context, img image.Image) bool {
 			bounds := img.Bounds()
 			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {
@@ -2279,7 +2279,7 @@ func screenPredicate(name string) (func(image.Image) bool, error) {
 			return false
 		}, nil
 	case "opaque":
-		return func(img image.Image) bool {
+		return func(_ context.Context, img image.Image) bool {
 			bounds := img.Bounds()
 			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {

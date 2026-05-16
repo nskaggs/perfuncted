@@ -150,7 +150,11 @@ test-integration-nested-wayland-debug:
 test-integration: test-integration-headless-x11 test-integration-headless-wayland
     CGO_ENABLED=0 go test -tags=integration ./window ./input ./screen ./clipboard -count=1
 
-# Build, install, and validate the Flatpak bundle in an isolated Flatpak home.
+# Build the Flatpak bundle
+build-flatpak:
+    flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo builddir io.github.nskaggs.perfuncted.yml
+
+# Build, install, and validate the Flatpak bundle
 test-flatpak:
     CGO_ENABLED=0 go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
