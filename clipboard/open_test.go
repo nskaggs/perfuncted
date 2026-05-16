@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"reflect"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
@@ -81,5 +82,36 @@ func TestOpen_PrefersX11WhenXclipAvailable(t *testing.T) {
 	}
 	if _, ok := cb.(*extCmdClipboard); !ok {
 		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb)
+	}
+}
+
+func TestExtCmdClipboardGetTrimsOnlyOneTrailingNewline(t *testing.T) {
+	oldCmd := executil.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	var lastCmd *exec.Cmd
+	executil.CommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, "printf", "hello\n\n")
+		lastCmd = cmd
+		return cmd
+	}
+
+	cb := &extCmdClipboard{
+		getCmd: []string{"fake-get"},
+		env:    []string{"WAYLAND_DISPLAY=wayland-test"},
+	}
+
+	got, err := cb.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "hello\n" {
+		t.Fatalf("Get() = %q, want %q", got, "hello\n")
+	}
+	if lastCmd == nil {
+		t.Fatal("CommandContext was not called")
+	}
+	if !reflect.DeepEqual(lastCmd.Env, cb.env) {
+		t.Fatalf("command env = %v, want %v", lastCmd.Env, cb.env)
 	}
 }

@@ -77,7 +77,7 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	}
 	// Normalize trailing-newline differences between backends by trimming a
 	// single trailing '\n'. This keeps behaviour consistent for callers.
-	return strings.TrimRight(out.String(), "\n"), nil
+	return strings.TrimSuffix(out.String(), "\n"), nil
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
