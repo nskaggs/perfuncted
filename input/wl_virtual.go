@@ -170,6 +170,10 @@ func (b *WlVirtualBackend) ptrFrame() error {
 // MouseMove moves the pointer to absolute position (x, y) in the compositor's
 // output coordinate space (i.e. sway display pixels).
 func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -187,7 +191,11 @@ func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 	return b.ptrFrame()
 }
 
-func (b *WlVirtualBackend) button(code, state uint32) error {
+func (b *WlVirtualBackend) button(ctx context.Context, code, state uint32) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -216,12 +224,12 @@ func btnCode(button int) uint32 {
 
 // MouseDown presses a mouse button.
 func (b *WlVirtualBackend) MouseDown(ctx context.Context, button int) error {
-	return b.button(btnCode(button), 1)
+	return b.button(ctx, btnCode(button), 1)
 }
 
 // MouseUp releases a mouse button.
 func (b *WlVirtualBackend) MouseUp(ctx context.Context, button int) error {
-	return b.button(btnCode(button), 0)
+	return b.button(ctx, btnCode(button), 0)
 }
 
 // MouseClick moves to (x,y) then clicks the given button.
@@ -254,6 +262,9 @@ func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
 
 func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
 	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	actions, err := ParseKeySend(s)
@@ -266,6 +277,10 @@ func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
 // KeyDown presses and holds a key. Modifier keys update the compositor's
 // modifier state; other keys are held until released with KeyUp.
 func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.kbd.pressKey(key)
@@ -273,6 +288,10 @@ func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error {
 
 // KeyUp releases a previously held key.
 func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.kbd.releaseKey(key)
@@ -281,7 +300,11 @@ func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
 // scroll sends an axis event for the given number of discrete scroll notches.
 // axis 0 = vertical, axis 1 = horizontal. Positive values scroll down/right;
 // negative values scroll up/left.
-func (b *WlVirtualBackend) scroll(axis uint32, clicks int) error {
+func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -302,30 +325,35 @@ func (b *WlVirtualBackend) scroll(axis uint32, clicks int) error {
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 func (b *WlVirtualBackend) ScrollUp(ctx context.Context, clicks int) error {
-	return b.scroll(0, -clicks)
+	return b.scroll(ctx, 0, -clicks)
 }
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *WlVirtualBackend) ScrollDown(ctx context.Context, clicks int) error {
-	return b.scroll(0, clicks)
+	return b.scroll(ctx, 0, clicks)
 }
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 func (b *WlVirtualBackend) ScrollLeft(ctx context.Context, clicks int) error {
-	return b.scroll(1, -clicks)
+	return b.scroll(ctx, 1, -clicks)
 }
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
-	return b.scroll(1, clicks)
+	return b.scroll(ctx, 1, clicks)
 }
 
 func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	return 0, 0, fmt.Errorf("input/wl-virtual: pointer location unsupported")
 }
 
 func (b *WlVirtualBackend) Sync(ctx context.Context) error {
-	return nil
+	ctx = normalizeContext(ctx)
+	return ctx.Err()
 }
 
 // Close closes the Wayland connection. Safe to call multiple times and in any
