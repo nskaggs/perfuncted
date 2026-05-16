@@ -143,7 +143,7 @@ func (s ScreenBundle) GetMultiplePixels(ctx context.Context, points []image.Poin
 }
 
 // WaitForFn polls rect every poll interval until fn returns true, or ctx is cancelled.
-func (s ScreenBundle) WaitForFn(ctx context.Context, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+func (s ScreenBundle) WaitForFn(ctx context.Context, rect image.Rectangle, fn func(context.Context, image.Image) bool, poll time.Duration) (image.Image, error) {
 	s.traceAction(fmt.Sprintf("wait-for-fn rect=%s poll=%s", rect, poll))
 	if err := s.checkAvailable(); err != nil {
 		return nil, err

@@ -768,10 +768,10 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 }
 
 // WaitForFn polls rect every poll interval until fn returns true for the
-// grabbed image, or ctx expires. fn receives the raw grabbed image each
-// iteration and may inspect it with any predicate (brightness, color
-// presence, histogram, etc.).
-func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(image.Image) bool, poll time.Duration) (image.Image, error) {
+// grabbed image, or ctx expires. fn receives ctx and the raw grabbed image
+// each iteration so it can respect cancellation and inspect the image with
+// any predicate (brightness, color presence, histogram, etc.).
+func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(context.Context, image.Image) bool, poll time.Duration) (image.Image, error) {
 	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
@@ -780,7 +780,7 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 		if err != nil {
 			return nil, err
 		}
-		if fn(img) {
+		if fn(ctx, img) {
 			return img, nil
 		}
 		select {

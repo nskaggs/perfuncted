@@ -504,7 +504,7 @@ func runScreenSmoke(t *testing.T, s *suite) {
 
 	ctxWait, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if _, err := s.pf.Screen.WaitForFn(ctxWait, rect, func(i image.Image) bool { return i != nil }, 100*time.Millisecond); err != nil {
+	if _, err := s.pf.Screen.WaitForFn(ctxWait, rect, func(_ context.Context, i image.Image) bool { return i != nil }, 100*time.Millisecond); err != nil {
 		t.Fatalf("wait for fn: %v", err)
 	}
 
@@ -533,38 +533,42 @@ type Verifier struct {
 // captureFailure saves a full-screen snapshot for debugging when a test fails.
 func (v *Verifier) captureFailure(label string) {
 	v.t.Helper()
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("fail-%s-%d.png", label, time.Now().Unix()))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	w, h, err := v.pf.Screen.Resolution(ctx)
-	if err != nil {
-		v.t.Logf("failed to resolve screen for failure capture: %v", err)
-		return
-	}
-
-	if err := v.pf.Screen.CaptureRegion(ctx, image.Rect(0, 0, w, h), path); err != nil {
-		v.t.Logf("failed to capture screen snapshot on failure: %v", err)
-		return
-	}
-	v.t.Logf("Snapshot saved to: %s", path)
+	path := filepath.Join(v.t.TempDir(), fmt.Sprintf("fail-%s-%d.png", label, time.Now().UnixNano()))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	v.t.Cleanup(cancel)
+	done := make(chan struct{})
+	v.t.Cleanup(func() { <-done })
+	go func() {
+		defer close(done)
+		w, h, err := v.pf.Screen.Resolution(ctx)
+		if err != nil {
+			v.t.Logf("failed to resolve screen for failure capture: %v", err)
+			return
+		}
+		if err := v.pf.Screen.CaptureRegion(ctx, image.Rect(0, 0, w, h), path); err != nil {
+			v.t.Logf("failed to capture screen snapshot on failure: %v", err)
+			return
+		}
+		v.t.Logf("Snapshot saved to: %s", path)
+	}()
 }
 
 // VerifyStableRegion polls a region until it stabilizes, then performs a final validation grab.
 func (v *Verifier) VerifyStableRegion(ctx context.Context, label string, rect image.Rectangle) {
 	v.t.Helper()
-	if _, err := find.WaitForNoChange(ctx, v.pf.Screen.Screenshotter, rect, 3, 100*time.Millisecond, nil); err != nil {
-		v.captureFailure(label)
-		v.t.Fatalf("%s: wait for region %v to settle: %v", label, rect, err)
-	}
+	_, waitErr := find.WaitForNoChange(ctx, v.pf.Screen.Screenshotter, rect, 3, 100*time.Millisecond, nil)
 	if _, err := v.pf.Screen.Grab(ctx, rect); err != nil {
 		v.captureFailure(label)
 		v.t.Fatalf("%s: failed to grab region %v: %v", label, rect, err)
 	}
+	if waitErr != nil {
+		v.captureFailure(label)
+		v.t.Fatalf("%s: wait for region %v to settle: %v", label, rect, waitErr)
+	}
 }
 
 // WaitForState blocks until a condition is met within a region.
-func (v *Verifier) WaitForState(ctx context.Context, label string, rect image.Rectangle, check func(image.Image) bool) {
+func (v *Verifier) WaitForState(ctx context.Context, label string, rect image.Rectangle, check func(context.Context, image.Image) bool) {
 	v.t.Helper()
 	if _, err := v.pf.Screen.WaitForFn(ctx, rect, check, 100*time.Millisecond); err != nil {
 		v.captureFailure(label)
@@ -650,7 +654,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	verify := Verifier{t: t, pf: s.pf}
 
 	// Wait for editor focus to settle
-	ctxFocus, cancelFocus := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxFocus, cancelFocus := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFocus()
 	verify.VerifyStableRegion(ctxFocus, "post-focus", typingRect)
 
@@ -659,7 +663,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 
 	// Wait for text input settle
-	ctxType, cancelType := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxType, cancelType := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelType()
 	verify.VerifyStableRegion(ctxType, "post-typing", typingRect)
 
@@ -753,7 +757,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	}
 
 	rect := image.Rect(0, 0, 100, 100)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if _, err := find.WaitForNoChange(ctx, s.pf.Screen.Screenshotter, rect, 3, 500*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for stable: %v", err)

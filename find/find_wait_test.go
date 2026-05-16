@@ -174,7 +174,7 @@ func TestWaitForFn_Success(t *testing.T) {
 	initialHash := PixelHash(initialImg, nil)
 
 	// Predicate that checks for a different hash
-	pred := func(img image.Image) bool {
+	pred := func(_ context.Context, img image.Image) bool {
 		return PixelHash(img, nil) != initialHash
 	}
 
@@ -193,7 +193,7 @@ func TestWaitForFn_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	pred := func(img image.Image) bool {
+	pred := func(_ context.Context, img image.Image) bool {
 		return false // never true
 	}
 
@@ -208,7 +208,7 @@ func TestWaitForFnZeroPoll(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := WaitForFn(ctx, sc, image.Rect(0, 0, 10, 10), func(image.Image) bool {
+	_, err := WaitForFn(ctx, sc, image.Rect(0, 0, 10, 10), func(_ context.Context, _ image.Image) bool {
 		return false
 	}, 0)
 	if err == nil {
