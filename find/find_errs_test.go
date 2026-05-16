@@ -26,9 +26,9 @@ type noSubImage struct {
 	w, h int
 }
 
-func (n *noSubImage) ColorModel() color.Model              { return color.RGBAModel }
-func (n *noSubImage) Bounds() image.Rectangle              { return image.Rect(0, 0, n.w, n.h) }
-func (n *noSubImage) At(x, y int) color.Color              { return color.RGBA{R: 1, G: 2, B: 3, A: 255} }
+func (n *noSubImage) ColorModel() color.Model { return color.RGBAModel }
+func (n *noSubImage) Bounds() image.Rectangle { return image.Rect(0, 0, n.w, n.h) }
+func (n *noSubImage) At(x, y int) color.Color { return color.RGBA{R: 1, G: 2, B: 3, A: 255} }
 
 // noSubImageScreen wraps noSubImage in a Screenshotter.
 type noSubImageScreen struct{ img *noSubImage }

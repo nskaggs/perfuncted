@@ -399,17 +399,17 @@ func TestMatchString_AllFields(t *testing.T) {
 	pid := int32(42)
 	id := uint64(7)
 	m := Match{
-		TitleExact:  "Exact",
+		TitleExact:    "Exact",
 		TitleContains: "sub",
-		AppID:       "org.example",
-		Class:       "MyClass",
-		PID:         &pid,
-		ID:          &id,
-		Active:      boolPtr(true),
-		Minimized:   boolPtr(false),
-		Maximized:   boolPtr(true),
-		Fullscreen:  boolPtr(false),
-		VisibleOnly: true,
+		AppID:         "org.example",
+		Class:         "MyClass",
+		PID:           &pid,
+		ID:            &id,
+		Active:        boolPtr(true),
+		Minimized:     boolPtr(false),
+		Maximized:     boolPtr(true),
+		Fullscreen:    boolPtr(false),
+		VisibleOnly:   true,
 	}
 	s := m.String()
 	for _, want := range []string{
