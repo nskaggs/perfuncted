@@ -158,3 +158,48 @@ func TestDecodeBGRARectWithStridePadding(t *testing.T) {
 		t.Errorf("row 1: got RGB(%02x,%02x,%02x) want (16,15,14)", c1.R, c1.G, c1.B)
 	}
 }
+
+func TestDecodeBGRAShortDataDoesNotPanic(t *testing.T) {
+	// 2x2 image, but only the first row is present.
+	data := []byte{
+		0x01, 0x02, 0x03, 0xFF,
+		0x04, 0x05, 0x06, 0xFF,
+	}
+
+	img := decodeBGRA(data, 2, 2, 8)
+	if got := img.Bounds(); got != image.Rect(0, 0, 2, 2) {
+		t.Fatalf("bounds = %v, want 2x2", got)
+	}
+	if c := img.RGBAAt(0, 0); c.R != 0x03 || c.G != 0x02 || c.B != 0x01 || c.A != 0xFF {
+		t.Fatalf("top-left pixel = %+v, want RGBA(03,02,01,FF)", c)
+	}
+	if c := img.RGBAAt(1, 0); c.R != 0x06 || c.G != 0x05 || c.B != 0x04 || c.A != 0xFF {
+		t.Fatalf("top-right pixel = %+v, want RGBA(06,05,04,FF)", c)
+	}
+	if c := img.RGBAAt(0, 1); c != (color.RGBA{}) {
+		t.Fatalf("bottom-left pixel = %+v, want zero value", c)
+	}
+}
+
+func TestDecodeBGRARectShortDataDoesNotPanic(t *testing.T) {
+	// 2x2 image, but only the first row is present.
+	data := []byte{
+		0x01, 0x02, 0x03, 0xFF,
+		0x04, 0x05, 0x06, 0xFF,
+	}
+
+	rect := image.Rect(0, 0, 2, 2)
+	img := decodeBGRARect(data, 2, 2, 8, rect)
+	if got := img.Bounds(); got != rect {
+		t.Fatalf("bounds = %v, want %v", got, rect)
+	}
+	if c := img.RGBAAt(0, 0); c.R != 0x03 || c.G != 0x02 || c.B != 0x01 || c.A != 0xFF {
+		t.Fatalf("top-left pixel = %+v, want RGBA(03,02,01,FF)", c)
+	}
+	if c := img.RGBAAt(1, 0); c.R != 0x06 || c.G != 0x05 || c.B != 0x04 || c.A != 0xFF {
+		t.Fatalf("top-right pixel = %+v, want RGBA(06,05,04,FF)", c)
+	}
+	if c := img.RGBAAt(0, 1); c != (color.RGBA{}) {
+		t.Fatalf("bottom-left pixel = %+v, want zero value", c)
+	}
+}
