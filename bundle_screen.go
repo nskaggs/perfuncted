@@ -135,7 +135,8 @@ func (s ScreenBundle) GetMultiplePixels(ctx context.Context, points []image.Poin
 		return nil, err
 	}
 	for i, p := range points {
-		c := color.RGBAModel.Convert(img.At(p.X, p.Y)).(color.RGBA)
+		ip := translatePointToBounds(p, bounds.Min, img.Bounds().Min)
+		c := color.RGBAModel.Convert(img.At(ip.X, ip.Y)).(color.RGBA)
 		out[i] = c
 	}
 	return out, nil
@@ -167,6 +168,10 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 		return 0, err
 	}
 	return find.WaitForNoChangeFrom(ctx, s.Screenshotter, rect, changed, stable, poll, nil)
+}
+
+func translatePointToBounds(p, fromMin, toMin image.Point) image.Point {
+	return p.Add(toMin.Sub(fromMin))
 }
 
 // WaitForNoChange polls rect every poll interval until its pixel hash is unchanged

@@ -509,7 +509,7 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 					continue
 				}
 				if matchAt(src, reference, x, y) {
-					return image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), nil
+					return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
 				}
 			}
 		}
@@ -522,7 +522,7 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 				continue
 			}
 			if matchAt(src, reference, x, y) {
-				return image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), nil
+				return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
 			}
 		}
 	}
@@ -640,7 +640,7 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 					}
 					r := image.Rect(x, y, x+w, y+h)
 					if PixelHash(sub.SubImage(r), newHash) == refHash {
-						return refHash, r, nil
+						return refHash, translateRect(r, sb.Min, searchArea.Min), nil
 					}
 				}
 			}
@@ -662,7 +662,7 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 					}
 					r := image.Rect(x, y, x+w, y+h)
 					if PixelHash(sub.SubImage(r), newHash) == refHash {
-						return refHash, r, nil
+						return refHash, translateRect(r, sb.Min, searchArea.Min), nil
 					}
 				}
 			}
@@ -674,6 +674,11 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		case <-ticker.C:
 		}
 	}
+}
+
+func translateRect(r image.Rectangle, fromMin, toMin image.Point) image.Rectangle {
+	delta := toMin.Sub(fromMin)
+	return r.Add(delta)
 }
 
 // PixelFound scans img (which was captured for rect) for the first pixel

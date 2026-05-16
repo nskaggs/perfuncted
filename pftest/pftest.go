@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"iter"
 	"strings"
 	"sync"
@@ -22,10 +23,11 @@ import (
 // ── Screenshotter ─────────────────────────────────────────────────────────────
 
 type Screenshotter struct {
-	Frames []image.Image
-	Width  int
-	Height int
-	Err    error
+	Frames     []image.Image
+	Width      int
+	Height     int
+	Err        error
+	ZeroOrigin bool
 
 	mu  sync.Mutex
 	idx int
@@ -51,7 +53,20 @@ func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.I
 	if s.idx < len(s.Frames)-1 {
 		s.idx++
 	}
-	return f, nil
+	if !s.ZeroOrigin {
+		return f, nil
+	}
+	target := rect
+	if target.Empty() {
+		target = f.Bounds()
+	}
+	target = target.Intersect(f.Bounds())
+	if target.Empty() {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0)), nil
+	}
+	out := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
+	draw.Draw(out, out.Bounds(), f, target.Min, draw.Src)
+	return out, nil
 }
 
 func (s *Screenshotter) GrabFullHash(ctx context.Context) (uint32, error) {

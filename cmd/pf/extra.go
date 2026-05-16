@@ -41,8 +41,9 @@ func outputCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), c
 			}
 			switch strings.ToLower(outputFormatFlag) {
 			case "plain":
+				out := cmd.OutOrStdout()
 				for _, o := range outs {
-					fmt.Printf("%s\t%s\tgeometry=%d,%d,%d,%d\tresolution=%dx%d\tscale=%d\n",
+					fmt.Fprintf(out, "%s\t%s\tgeometry=%d,%d,%d,%d\tresolution=%dx%d\tscale=%d\n",
 						o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.ResolutionW, o.ResolutionH, o.Scale)
 				}
 			case "json":
@@ -64,6 +65,7 @@ func outputCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), c
 }
 
 type scriptRunner struct {
+	ctx                 context.Context
 	pf                  *perfuncted.Perfuncted
 	selectedWindowTitle string
 	hasSelection        bool
@@ -92,7 +94,7 @@ func runCmd(root *cobra.Command, openPF func(*cliConfig) func() (*perfuncted.Per
 				return err
 			}
 			defer pf.Close()
-			sr := &scriptRunner{pf: pf}
+			sr := &scriptRunner{ctx: cmd.Context(), pf: pf}
 			return sr.run(r)
 		},
 	}
@@ -102,6 +104,11 @@ func runCmd(root *cobra.Command, openPF func(*cliConfig) func() (*perfuncted.Per
 func (s *scriptRunner) run(r io.Reader) error {
 	scanner := bufio.NewScanner(r)
 	for lineNo := 1; scanner.Scan(); lineNo++ {
+		if s.ctx != nil {
+			if err := s.ctx.Err(); err != nil {
+				return err
+			}
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -204,7 +211,7 @@ func (s *scriptRunner) execWindow(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		wins, err := collectWindowMatches(context.Background(), s.pf.Window.Manager, match)
+		wins, err := collectWindowMatches(s.ctx, s.pf.Window.Manager, match)
 		if err != nil {
 			return err
 		}
@@ -215,14 +222,14 @@ func (s *scriptRunner) execWindow(lineNo int, toks []string) error {
 		s.hasSelection = true
 		return nil
 	case "list":
-		wins, err := s.pf.Window.List(context.Background())
+		wins, err := s.pf.Window.List(s.ctx)
 		if err != nil {
 			return err
 		}
 		printWindowListPlain(wins)
 		return nil
 	case "active":
-		t, err := s.pf.Window.ActiveTitle(context.Background())
+		t, err := s.pf.Window.ActiveTitle(s.ctx)
 		if err != nil {
 			return err
 		}
@@ -239,19 +246,19 @@ func (s *scriptRunner) execWindow(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		return s.pf.Window.Move(context.Background(), title, x, y)
+		return s.pf.Window.Move(s.ctx, title, x, y)
 	case "resize":
 		title, w, h, err := s.parseWindowResizeArgs(toks[1:])
 		if err != nil {
 			return err
 		}
-		return s.pf.Window.Resize(context.Background(), title, w, h)
+		return s.pf.Window.Resize(s.ctx, title, w, h)
 	case "find":
 		match, err := parseWindowMatchArgs(toks[1:])
 		if err != nil {
 			return err
 		}
-		wins, err := collectWindowMatches(context.Background(), s.pf.Window.Manager, match)
+		wins, err := collectWindowMatches(s.ctx, s.pf.Window.Manager, match)
 		if err != nil {
 			return err
 		}
@@ -278,19 +285,19 @@ func (s *scriptRunner) windowTitleArg(args []string) (string, error) {
 func (s *scriptRunner) runWindowAction(action, title string) error {
 	switch action {
 	case "activate":
-		return s.pf.Window.Activate(context.Background(), title)
+		return s.pf.Window.Activate(s.ctx, title)
 	case "close":
-		return s.pf.Window.CloseWindow(context.Background(), title)
+		return s.pf.Window.CloseWindow(s.ctx, title)
 	case "minimize":
-		return s.pf.Window.Minimize(context.Background(), title)
+		return s.pf.Window.Minimize(s.ctx, title)
 	case "maximize":
-		return s.pf.Window.Maximize(context.Background(), title)
+		return s.pf.Window.Maximize(s.ctx, title)
 	case "fullscreen":
-		return s.pf.Window.Fullscreen(context.Background(), title)
+		return s.pf.Window.Fullscreen(s.ctx, title)
 	case "unfullscreen":
-		return s.pf.Window.Unfullscreen(context.Background(), title)
+		return s.pf.Window.Unfullscreen(s.ctx, title)
 	case "restore":
-		return s.pf.Window.Restore(context.Background(), title)
+		return s.pf.Window.Restore(s.ctx, title)
 	default:
 		return fmt.Errorf("unknown window action %q", action)
 	}
@@ -405,9 +412,9 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 			}
 			text = string(b)
 		}
-		return s.pf.Input.Type(context.Background(), text)
+		return s.pf.Input.Type(s.ctx, text)
 	case "location":
-		x, y, err := s.pf.Input.PointerLocation(context.Background())
+		x, y, err := s.pf.Input.PointerLocation(s.ctx)
 		if err != nil {
 			return err
 		}
@@ -446,7 +453,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		return s.pf.Screen.CaptureRegion(context.Background(), r, out)
+		return s.pf.Screen.CaptureRegion(s.ctx, r, out)
 	case "hash":
 		rect := "0,0,1920,1080"
 		for i := 1; i < len(toks); i++ {
@@ -462,7 +469,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		h, err := s.pf.Screen.GrabRegionHash(context.Background(), r)
+		h, err := s.pf.Screen.GrabRegionHash(s.ctx, r)
 		if err != nil {
 			return err
 		}
@@ -477,7 +484,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 	if len(toks) == 0 || toks[0] != "list" {
 		return fmt.Errorf("script line %d: unsupported output subcommand", lineNo)
 	}
-	wins, err := s.pf.Output.List(context.Background())
+	wins, err := s.pf.Output.List(s.ctx)
 	if err != nil {
 		return err
 	}

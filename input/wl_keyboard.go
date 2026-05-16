@@ -5,6 +5,7 @@ package input
 // or named key) is assigned its own keycode slot, making this layout-independent.
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -132,6 +133,11 @@ func (k *wlKeyboard) uploadKeymapAndRestoreMods(keymap string) error {
 // Text and key actions are executed in the order they appear in the input,
 // so "Hello{enter}" types "Hello" before pressing Enter.
 func (k *wlKeyboard) sendkeys(actions []keySend) error {
+	return k.sendkeysContext(context.Background(), actions)
+}
+
+func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) error {
+	ctx = normalizeContext(ctx)
 	if len(actions) == 0 {
 		return nil
 	}
@@ -220,14 +226,19 @@ func (k *wlKeyboard) sendkeys(actions []keySend) error {
 
 	// Second pass: execute actions in order — text and keys interleaved.
 	for _, a := range actions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if a.text != "" {
 			// Type literal text.
 			for _, r := range a.text {
 				slot := runeSlots[r]
-				if err := k.tap(slot); err != nil {
+				if err := k.tapContext(ctx, slot); err != nil {
 					return err
 				}
-				time.Sleep(10 * time.Millisecond)
+				if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -292,7 +303,12 @@ func (k *wlKeyboard) sendkeys(actions []keySend) error {
 					if err := k.sendKey(slot, 1); err != nil {
 						return err
 					}
-					time.Sleep(10 * time.Millisecond)
+					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+						if upErr := k.sendKey(slot, 0); upErr != nil {
+							return upErr
+						}
+						return err
+					}
 					if err := k.sendKey(slot, 0); err != nil {
 						return err
 					}
@@ -309,10 +325,12 @@ func (k *wlKeyboard) sendkeys(actions []keySend) error {
 						return err
 					}
 				} else {
-					if err := k.tap(slot); err != nil {
+					if err := k.tapContext(ctx, slot); err != nil {
 						return err
 					}
-					time.Sleep(10 * time.Millisecond)
+					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -455,10 +473,23 @@ func (k *wlKeyboard) sendModifiers() error {
 }
 
 func (k *wlKeyboard) tap(keycode uint32) error {
+	return k.tapContext(context.Background(), keycode)
+}
+
+func (k *wlKeyboard) tapContext(ctx context.Context, keycode uint32) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := k.sendKey(keycode, 1); err != nil {
 		return err
 	}
-	time.Sleep(10 * time.Millisecond)
+	if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
+		if upErr := k.sendKey(keycode, 0); upErr != nil {
+			return upErr
+		}
+		return err
+	}
 	return k.sendKey(keycode, 0)
 }
 

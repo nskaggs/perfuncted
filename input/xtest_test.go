@@ -5,7 +5,9 @@ package input
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -194,6 +196,80 @@ func TestTypeContextUppercaseUsesShift(t *testing.T) {
 		if got.eventType != exp.eventType || got.detail != exp.detail {
 			t.Errorf("event %d: got (type=%d, detail=%d), want (type=%d, detail=%d)",
 				i, got.eventType, got.detail, exp.eventType, exp.detail)
+		}
+	}
+}
+
+func TestMouseClickCancelsAndReleases(t *testing.T) {
+	b, mc := newXTestMock(t, []xproto.Keysym{0x61})
+	b.delay = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var events []byte
+	mc.FakeInputCheckedFunc = func(eventType, detail byte, tm uint32, window xproto.Window, x, y int16, device byte) x11.XTestFakeInputCookie {
+		events = append(events, eventType)
+		if eventType == xproto.ButtonPress {
+			cancel()
+		}
+		return x11.NewMockXTestFakeInputCookie(nil)
+	}
+
+	err := b.MouseClick(ctx, 100, 200, 1)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("MouseClick returned %v, want context.Canceled", err)
+	}
+	if len(events) < 3 || events[len(events)-1] != xproto.ButtonRelease {
+		t.Fatalf("events = %v, want release cleanup", events)
+	}
+}
+
+func TestTypeContextCachesKeyboardMapping(t *testing.T) {
+	b, mc := newXTestMock(t, []xproto.Keysym{0x61})
+	b.delay = 0
+
+	var mappingCalls int
+	mc.GetKeyboardMappingFunc = func(first xproto.Keycode, count byte) x11.GetKeyboardMappingCookie {
+		mappingCalls++
+		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
+			KeysymsPerKeycode: 1,
+			Keysyms:           []xproto.Keysym{0x61},
+		})
+	}
+
+	if err := b.TypeContext(context.Background(), "a"); err != nil {
+		t.Fatalf("TypeContext #1: %v", err)
+	}
+	if err := b.TypeContext(context.Background(), "a"); err != nil {
+		t.Fatalf("TypeContext #2: %v", err)
+	}
+	if mappingCalls != 1 {
+		t.Fatalf("GetKeyboardMapping calls = %d, want 1", mappingCalls)
+	}
+}
+
+func BenchmarkTypeContextCachedKeymap(b *testing.B) {
+	mc := &x11.MockConnection{}
+	mc.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
+	mc.SetupFunc = func() *xproto.SetupInfo { return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 8} }
+	mc.GetKeyboardMappingFunc = func(_ xproto.Keycode, _ byte) x11.GetKeyboardMappingCookie {
+		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
+			KeysymsPerKeycode: 1,
+			Keysyms:           []xproto.Keysym{0x61},
+		})
+	}
+	backend, err := NewXTestBackendWithConn(mc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	backend.delay = 0
+	if err := backend.TypeContext(context.Background(), "a"); err != nil {
+		b.Fatalf("warmup TypeContext: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := backend.TypeContext(context.Background(), "a"); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

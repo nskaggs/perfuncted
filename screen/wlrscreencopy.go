@@ -38,6 +38,7 @@ type WlrScreencopyBackend struct {
 	ttl         time.Duration
 	initJanitor func()
 	done        chan struct{}
+	closeOnce   sync.Once
 	// last observed output dimensions and scale (1 if unknown)
 	scale  uint32
 	pW, pH int // physical dimensions from mode event
@@ -606,24 +607,26 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 }
 
 func (b *WlrScreencopyBackend) Close() error {
-	if b.done != nil {
-		close(b.done)
-	}
-	b.ctxMu.Lock()
-	if b.ctx != nil {
-		_ = wl.SafeClose(b.ctx)
-		b.ctx = nil
-	}
-	// clean up pooled mmap and associated fd
-	if b.cachedBuf != nil {
-		_ = syscall.Munmap(b.cachedBuf)
-		b.cachedBuf = nil
-	}
-	if b.cachedFd != nil {
-		_ = b.cachedFd.Close()
-		b.cachedFd = nil
-	}
-	b.ctxMu.Unlock()
+	b.closeOnce.Do(func() {
+		if b.done != nil {
+			close(b.done)
+		}
+		b.ctxMu.Lock()
+		if b.ctx != nil {
+			_ = wl.SafeClose(b.ctx)
+			b.ctx = nil
+		}
+		// clean up pooled mmap and associated fd
+		if b.cachedBuf != nil {
+			_ = syscall.Munmap(b.cachedBuf)
+			b.cachedBuf = nil
+		}
+		if b.cachedFd != nil {
+			_ = b.cachedFd.Close()
+			b.cachedFd = nil
+		}
+		b.ctxMu.Unlock()
+	})
 	return nil
 }
 

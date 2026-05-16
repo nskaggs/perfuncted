@@ -110,12 +110,25 @@ func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
 // Grab takes a full workspace screenshot via the portal and returns the
 // requested rectangle. The portal may show a consent dialog on first use.
 func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screen/portal: grab canceled: %w", err)
+	}
+	if b == nil || b.conn == nil {
+		return nil, fmt.Errorf("screen/portal: backend not initialised")
+	}
 	// Build a unique token; the portal embeds it in the request handle path.
 	token := fmt.Sprintf("pf%d", time.Now().UnixNano())
 
 	// Derive the expected handle path from our D-Bus unique name so we can
 	// install the signal match before the call, avoiding any race condition.
-	uniqueName := b.conn.Names()[0]                                             // e.g. ":1.198"
+	names := b.conn.Names()
+	if len(names) == 0 {
+		return nil, fmt.Errorf("screen/portal: no unique bus name available")
+	}
+	uniqueName := names[0]                                                      // e.g. ":1.198"
 	sender := strings.ReplaceAll(strings.TrimPrefix(uniqueName, ":"), ".", "_") // "1_198"
 	handlePath := dbus.ObjectPath(fmt.Sprintf(
 		"/org/freedesktop/portal/desktop/request/%s/%s", sender, token))
@@ -147,6 +160,8 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	defer timer.Stop()
 	for {
 		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
 		case sig := <-ch:
 			if len(sig.Body) < 2 {
 				continue
@@ -191,4 +206,9 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	}
 }
 
-func (b *PortalDBusBackend) Close() error { return b.conn.Close() }
+func (b *PortalDBusBackend) Close() error {
+	if b == nil || b.conn == nil {
+		return nil
+	}
+	return b.conn.Close()
+}

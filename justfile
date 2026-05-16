@@ -20,7 +20,12 @@ lint:
 
 # Check formatting
 check-fmt:
-    test -z "$(gofmt -l .)"
+    @if gofmt -l . | grep -q .; then \
+        echo "  FAIL: Files not formatted. Running 'gofmt -w .' for you."; \
+        gofmt -w .; \
+        echo "  Please stage the formatted files and try again."; \
+        exit 1; \
+    fi
 
 # Run all quality checks
 check: check-fmt vet lint
@@ -74,10 +79,26 @@ check-docs:
 check-api-sync:
     CGO_ENABLED=0 go run ./scripts/verify_cli_api.go
 
-# Pre-commit: generated files + all checks + docs quality + unit tests
-precommit: check-generate check-docs check-api-sync check test-unit
 
-# Build all packages and binaries
+# ── CI & quality ──────────────────────────────────────────────────────────────
+
+# Run essential fast quality checks (formatting, generation, vet)
+# Ideal for pre-commit hooks.
+quality-fast: check-generate check-docs check-api-sync check-fmt vet
+
+# Run the full static quality suite (includes linters and unit tests)
+# This matches the 'quality' job in GitHub Actions.
+quality: quality-fast lint deadcode vulncheck test-unit
+
+# Pre-commit: runs only the fastest essential checks
+precommit: quality-fast
+
+# Run everything CI does: quality + integration + release smoke tests
+# This aggregates all major CI jobs for local reproduction.
+ci: quality test-integration test-release
+
+
+# ── build & install ────────────────────────────────────────────────────────────
 build:
     # Produce a repo-root pf binary used by release tests
     CGO_ENABLED=0 go build -o pf ./cmd/pf

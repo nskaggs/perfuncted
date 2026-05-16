@@ -9,11 +9,11 @@ pf screen wait-for-no-change-from [flags]
 ### Options
 
 ```
-  -h, --help          help for wait-for-no-change-from
-      --initial int   initial CRC32 hash (hex)
-      --poll string   polling interval (e.g. 200ms)
-      --rect string   region to monitor as x0,y0,x1,y1 (default "0,0,1920,1080")
-      --stable int    number of stable samples required
+  -h, --help             help for wait-for-no-change-from
+      --initial string   initial CRC32 hash (decimal or 0xhex)
+      --poll string      polling interval (e.g. 200ms)
+      --rect string      region to monitor as x0,y0,x1,y1 (default "0,0,1920,1080")
+      --stable int       number of stable samples required
 ```
 
 ### Options inherited from parent commands
