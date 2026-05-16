@@ -23,10 +23,10 @@ import (
 // ── Screenshotter ─────────────────────────────────────────────────────────────
 
 type Screenshotter struct {
-	Frames []image.Image
-	Width  int
-	Height int
-	Err    error
+	Frames     []image.Image
+	Width      int
+	Height     int
+	Err        error
 	ZeroOrigin bool
 
 	mu  sync.Mutex

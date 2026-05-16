@@ -6,8 +6,8 @@ package input
 import (
 	"context"
 	"fmt"
-	"time"
 	"sync"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -203,11 +203,11 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 			continue
 		}
 		kc, err := b.keycodeFor(a.key)
-			if err != nil {
-				return err
-			}
-			// Press modifier keys first.
-			if a.modifiers.shift {
+		if err != nil {
+			return err
+		}
+		// Press modifier keys first.
+		if a.modifiers.shift {
 			if err := b.keyDown(ctx, "shift"); err != nil {
 				return err
 			}
@@ -226,53 +226,53 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 			if err := b.keyDown(ctx, "super"); err != nil {
 				return err
 			}
+		}
+		if a.down {
+			if err := b.keyDownKC(ctx, kc); err != nil {
+				return err
 			}
-			if a.down {
-				if err := b.keyDownKC(ctx, kc); err != nil {
-					return err
-				}
-			} else {
-				if err := b.keyDownKC(ctx, kc); err != nil {
-					return err
-				}
-				if err := sleepContext(ctx, b.delay); err != nil {
-					if upErr := b.keyUpKC(ctx, kc); upErr != nil {
-						return upErr
-					}
-					return err
-				}
-				if err := b.keyUpKC(ctx, kc); err != nil {
-					return err
-				}
+		} else {
+			if err := b.keyDownKC(ctx, kc); err != nil {
+				return err
 			}
+			if err := sleepContext(ctx, b.delay); err != nil {
+				if upErr := b.keyUpKC(ctx, kc); upErr != nil {
+					return upErr
+				}
+				return err
+			}
+			if err := b.keyUpKC(ctx, kc); err != nil {
+				return err
+			}
+		}
 		// Release temporary modifiers.
-			releaseModifier := func(key string) error {
-				kc, err := b.keycodeFor(key)
-				if err != nil {
-					return err
-				}
-				return b.keyUpKC(context.Background(), kc)
+		releaseModifier := func(key string) error {
+			kc, err := b.keycodeFor(key)
+			if err != nil {
+				return err
 			}
-			if a.modifiers.super {
-				if err := releaseModifier("super"); err != nil {
-					return err
-				}
+			return b.keyUpKC(context.Background(), kc)
+		}
+		if a.modifiers.super {
+			if err := releaseModifier("super"); err != nil {
+				return err
 			}
-			if a.modifiers.alt {
-				if err := releaseModifier("alt"); err != nil {
-					return err
-				}
+		}
+		if a.modifiers.alt {
+			if err := releaseModifier("alt"); err != nil {
+				return err
 			}
-			if a.modifiers.ctrl {
-				if err := releaseModifier("ctrl"); err != nil {
-					return err
-				}
+		}
+		if a.modifiers.ctrl {
+			if err := releaseModifier("ctrl"); err != nil {
+				return err
 			}
-			if a.modifiers.shift {
-				if err := releaseModifier("shift"); err != nil {
-					return err
-				}
+		}
+		if a.modifiers.shift {
+			if err := releaseModifier("shift"); err != nil {
+				return err
 			}
+		}
 	}
 	return nil
 }

@@ -128,7 +128,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	if len(names) == 0 {
 		return nil, fmt.Errorf("screen/portal: no unique bus name available")
 	}
-	uniqueName := names[0]                                                       // e.g. ":1.198"
+	uniqueName := names[0]                                                      // e.g. ":1.198"
 	sender := strings.ReplaceAll(strings.TrimPrefix(uniqueName, ":"), ".", "_") // "1_198"
 	handlePath := dbus.ObjectPath(fmt.Sprintf(
 		"/org/freedesktop/portal/desktop/request/%s/%s", sender, token))
