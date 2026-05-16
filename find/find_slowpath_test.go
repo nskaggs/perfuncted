@@ -27,7 +27,7 @@ func (s *nrgbaScreen) GrabRegionHash(ctx context.Context, rect image.Rectangle) 
 // solidNRGBA returns a w×h *image.NRGBA filled with c.
 func solidNRGBA(w, h int, c color.RGBA) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	nc := color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A}
+	nc := color.NRGBA(c)
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			img.SetNRGBA(x, y, nc)
@@ -180,7 +180,7 @@ func TestWaitWithTolerance_SlowPath(t *testing.T) {
 
 	// Reference: 2×2 NRGBA image (non-RGBA → forces generic path).
 	ref := image.NewNRGBA(image.Rect(0, 0, 2, 2))
-	refNC := color.NRGBA{R: patternColor.R, G: patternColor.G, B: patternColor.B, A: patternColor.A}
+	refNC := color.NRGBA(patternColor)
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 2; x++ {
 			ref.SetNRGBA(x, y, refNC)
