@@ -1,6 +1,7 @@
 // Package input provides keyboard and mouse injection backends.
-// Backend priority on Wayland: WlInputMethod -> wl-virtual -> uinput.
-// On X11, XTEST is used first; uinput remains the final fallback.
+// Backend priority on Wayland: WlInputMethod -> wl-virtual -> XTEST (when
+// DISPLAY is set) -> uinput. On X11, XTEST is used first; uinput remains the
+// final fallback.
 // uinput requires membership in the "input" group or a udev rule:
 //
 // KERNEL=="uinput", GROUP="input", MODE="0660"
@@ -15,6 +16,22 @@ import (
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
+
+var newWlInputMethodBackend = func(sock string, maxX, maxY int32) (Inputter, error) {
+	return NewWlInputMethodBackend(sock, maxX, maxY)
+}
+
+var newWlVirtualBackend = func(sock string) (Inputter, error) {
+	return NewWlVirtualBackend(sock)
+}
+
+var newUinputBackend = func(maxX, maxY int32) (Inputter, error) {
+	return NewUinputBackend(maxX, maxY)
+}
+
+var newXTestBackend = func(display string) (Inputter, error) {
+	return NewXTestBackend(display)
+}
 
 // Inputter injects keyboard and mouse events.
 //
@@ -77,18 +94,23 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 	// committed UTF-8 text directly and still delegates pointer/key combo
 	// operations to a compositor-scoped backend when available. Fallback order:
 	//
-	//	WlInputMethod -> wl-virtual -> uinput
+	//	WlInputMethod -> wl-virtual -> XTEST (if DISPLAY set) -> uinput
 	if sock := rt.SocketPath(); sock != "" {
-		if b, err := NewWlInputMethodBackend(sock, maxX, maxY); err == nil {
+		if b, err := newWlInputMethodBackend(sock, maxX, maxY); err == nil {
 			return b, nil
 		}
-		if b, err := NewWlVirtualBackend(sock); err == nil {
+		if b, err := newWlVirtualBackend(sock); err == nil {
 			return b, nil
 		}
-		// wl-virtual unavailable (e.g. compositor lacks the extension). uinput is the last
-		// Wayland fallback when the compositor-scoped backends are unavailable.
+		if d := rt.Display(); d != "" {
+			if b, err := newXTestBackend(d); err == nil {
+				return b, nil
+			}
+		}
+		// wl-virtual/XTEST unavailable; uinput is the last Wayland fallback
+		// when the compositor-scoped backends are unavailable.
 		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
-			if b, err := NewUinputBackend(maxX, maxY); err == nil {
+			if b, err := newUinputBackend(maxX, maxY); err == nil {
 				return b, nil
 			}
 		}
@@ -96,14 +118,14 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 
 	// Pure X11 or XWayland: XTest is scoped to the target display.
 	if d := rt.Display(); d != "" {
-		if b, err := NewXTestBackend(d); err == nil {
+		if b, err := newXTestBackend(d); err == nil {
 			return b, nil
 		}
 	}
 
 	// Final fallback: uinput on systems without a Wayland session.
 	if _, err := os.Stat("/dev/uinput"); err == nil {
-		if b, err := NewUinputBackend(maxX, maxY); err == nil {
+		if b, err := newUinputBackend(maxX, maxY); err == nil {
 			return b, nil
 		}
 		// Return uinput error directly—it includes permission hints.
@@ -123,11 +145,15 @@ func Probe() []probe.Result {
 func ProbeRuntime(rt env.Runtime) []probe.Result {
 	if sock := rt.SocketPath(); sock != "" {
 		globs := wl.ListGlobals(sock)
-		return probe.SelectBest([]probe.Result{
+		results := []probe.Result{
 			checkWlInputMethodWithGlobs(sock, globs),
 			checkWlVirtualWithGlobs(sock, globs),
-			checkUinput(),
-		})
+		}
+		if rt.Display() != "" {
+			results = append(results, checkXTest(rt))
+		}
+		results = append(results, checkUinput())
+		return probe.SelectBest(results)
 	}
 	return probe.SelectBest([]probe.Result{
 		checkXTest(rt),
@@ -169,7 +195,7 @@ func checkXTest(rt env.Runtime) probe.Result {
 		r.Reason = "DISPLAY not set"
 		return r
 	}
-	b, err := NewXTestBackend(d)
+	b, err := newXTestBackend(d)
 	if err != nil {
 		r.Reason = fmt.Sprintf("XTEST unavailable on %s: %v", d, err)
 		return r

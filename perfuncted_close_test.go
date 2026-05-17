@@ -22,3 +22,10 @@ func TestPerfunctedCloseCleansManagedSession(t *testing.T) {
 		t.Fatal("managed session was not cleaned")
 	}
 }
+
+func TestPerfunctedCloseNil(t *testing.T) {
+	var p *Perfuncted
+	if err := p.Close(); err != nil {
+		t.Fatalf("nil Close returned error: %v", err)
+	}
+}

@@ -2,6 +2,7 @@ package perfuncted_test
 
 import (
 	"context"
+	"errors"
 	"image"
 	"testing"
 
@@ -256,5 +257,27 @@ func TestInputBundleDragAndDrop(t *testing.T) {
 		if inp.Calls[i] != call {
 			t.Fatalf("call %d = %q, want %q (all calls: %v)", i, inp.Calls[i], call, inp.Calls)
 		}
+	}
+}
+
+func TestInputBundleDoubleClickNilContext(t *testing.T) {
+	inp := &pftest.Inputter{}
+	pf := pftest.New(nil, inp, nil, nil)
+
+	//lint:ignore SA1012 regression test for nil-context handling
+	if err := pf.Input.DoubleClick(nil, 50, 75); err != nil {
+		t.Fatalf("DoubleClick(nil): %v", err)
+	}
+}
+
+func TestInputBundleDragAndDropNilContext(t *testing.T) {
+	boom := errors.New("drag failed")
+	inp := &pftest.Inputter{Err: boom}
+	pf := pftest.New(nil, inp, nil, nil)
+
+	//lint:ignore SA1012 regression test for nil-context handling
+	err := pf.Input.DragAndDrop(nil, 10, 20, 30, 40)
+	if !errors.Is(err, boom) {
+		t.Fatalf("DragAndDrop(nil) error = %v, want %v", err, boom)
 	}
 }

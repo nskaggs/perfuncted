@@ -271,6 +271,9 @@ func (s *Session) CleanupOnSignal(ctx context.Context) func() {
 // Stop tears down the session in reverse order: wl-paste, sway, dbus,
 // then removes the temporary XDG directory.
 func (s *Session) Stop() {
+	if s == nil {
+		return
+	}
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
@@ -428,7 +431,7 @@ func (s *Session) launchWlPaste() {
 // CleanupStaleSessions removes perfuncted session directories older than
 // maxAge when their recorded parent PID is no longer running.
 func CleanupStaleSessions(maxAge time.Duration) {
-	matches, err := filepath.Glob("/tmp/perfuncted-xdg-*")
+	matches, err := filepath.Glob(nestedSessionPattern())
 	if err != nil {
 		slog.Warn("unable to glob nested sessions", "error", err)
 		return

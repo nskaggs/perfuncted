@@ -13,6 +13,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"reflect"
 	"time"
 )
 
@@ -61,9 +62,30 @@ func clampPoll(poll time.Duration) time.Duration {
 
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
-		return context.Canceled
+		return nil
 	}
 	return ctx.Err()
+}
+
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func checkAvailable(sc Screenshotter) error {
+	if sc == nil {
+		return fmt.Errorf("find: screen backend not available")
+	}
+	v := reflect.ValueOf(sc)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		if v.IsNil() {
+			return fmt.Errorf("find: screen backend not available")
+		}
+	}
+	return nil
 }
 
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
@@ -104,6 +126,10 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 // implementations provide a fast GrabRegionHash that avoids allocating an
 // image.RGBA; use that when available.
 func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return 0, err
+	}
 	if newHash == nil {
 		return sc.GrabRegionHash(ctx, rect)
 	}
@@ -116,6 +142,10 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 
 // FirstPixel returns the colour of the top-left pixel of rect captured from sc.
 func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return color.RGBA{}, err
+	}
 	img, err := sc.Grab(ctx, image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Min.Y+1))
 	if err != nil {
 		return color.RGBA{}, fmt.Errorf("find: first pixel: %w", err)
@@ -129,6 +159,10 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 
 // LastPixel returns the colour of the bottom-right pixel of rect captured from sc.
 func LastPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return color.RGBA{}, err
+	}
 	x, y := rect.Max.X-1, rect.Max.Y-1
 	img, err := sc.Grab(ctx, image.Rect(x, y, x+1, y+1))
 	if err != nil {
@@ -148,6 +182,7 @@ type Result struct {
 }
 
 func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(attempt int) (done bool, result uint32, err error)) (uint32, error) {
+	ctx = normalizeContext(ctx)
 	if pollDur <= 0 {
 		attempt := 0
 		for {
@@ -204,6 +239,10 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 // On success, it returns the final hash (which equals want). On timeout, it returns
 // the last observed hash for debugging.
 func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, pollDur time.Duration, newHash Hasher) (uint32, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return 0, err
+	}
 	h, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
@@ -227,6 +266,10 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 // It pairs with WaitForNoChange: use WaitForChange to detect when a transition begins,
 // then WaitForNoChange to detect when it ends.
 func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, pollDur time.Duration, newHash Hasher) (uint32, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return 0, err
+	}
 	h, err := poll(ctx, pollDur, initial, func(attempt int) (bool, uint32, error) {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
@@ -254,6 +297,10 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 // stable must be ≥ 1. A value of 5 with poll=200ms means the region must look
 // identical for one full second before returning.
 func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, stable int, poll time.Duration, newHash Hasher) (uint32, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return 0, err
+	}
 	return WaitForNoChangeFrom(ctx, sc, rect, 0, stable, poll, newHash)
 }
 
@@ -261,6 +308,10 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 // to avoid the first capture if the caller already knows the current state.
 // If initial is 0, the first capture is performed immediately.
 func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, stable int, pollDur time.Duration, newHash Hasher) (uint32, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return 0, err
+	}
 	if stable <= 0 {
 		stable = 1
 	}
@@ -323,6 +374,10 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 // rect areas), ScanFor performs a single sc.Grab of the union bounding box per poll
 // cycle and hashes sub-regions in memory — reducing IPC round-trips from N to 1.
 func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wants []uint32, poll time.Duration, newHash Hasher) (Result, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return Result{}, err
+	}
 	if len(rects) != len(wants) {
 		return Result{}, fmt.Errorf("find: ScanFor: len(rects)=%d != len(wants)=%d", len(rects), len(wants))
 	}
@@ -423,6 +478,10 @@ func (a Anchor) Rect(dx, dy, w, h int) image.Rectangle {
 // LocateExact performs an exact byte-for-byte search of reference within the searchArea.
 // It returns the absolute image.Rectangle where it matches.
 func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return image.Rectangle{}, err
+	}
 	if searchArea.Empty() {
 		return image.Rectangle{}, fmt.Errorf("find: locate search area is empty")
 	}
@@ -526,6 +585,10 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 // search is used: a cheap top-left pixel scan followed by an expensive
 // byte-for-byte match only on promising candidates.
 func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, reference image.Image, radius int, pollDur time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return 0, image.Rectangle{}, err
+	}
 	if radius < 0 {
 		return 0, image.Rectangle{}, fmt.Errorf("find: tolerance radius must be non-negative")
 	}
@@ -619,6 +682,10 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 // target. Returns the absolute (x, y) of the match. Tolerance is applied per
 // channel: |r-r'| ≤ tol && |g-g'| ≤ tol && |b-b'| ≤ tol.
 func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return image.Point{}, err
+	}
 	if tolerance < 0 || tolerance > 255 {
 		return image.Point{}, fmt.Errorf("find: invalid tolerance %d (want 0..255)", tolerance)
 	}
@@ -652,6 +719,10 @@ func abs(x int) int {
 // via exact pixel matching, or ctx expires. Returns the absolute rectangle
 // where the reference was located.
 func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, pollDur time.Duration) (image.Rectangle, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return image.Rectangle{}, err
+	}
 	var foundRect image.Rectangle
 	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		r, err := LocateExact(ctx, sc, searchArea, reference)
@@ -678,6 +749,10 @@ func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Recta
 // each iteration so it can respect cancellation and inspect the image with
 // any predicate (brightness, color presence, histogram, etc.).
 func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(context.Context, image.Image) bool, pollDur time.Duration) (image.Image, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return nil, err
+	}
 	var foundImg image.Image
 	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		img, err := sc.Grab(ctx, rect)

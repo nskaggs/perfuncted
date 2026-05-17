@@ -11,6 +11,7 @@ func TestOpenRuntimeFallsBackToX11WhenWaylandSocketUnresolvable(t *testing.T) {
 	rt := env.FromEnviron([]string{
 		"DISPLAY=:99",
 		"WAYLAND_DISPLAY=wayland-0",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
 	})
 
 	mgr, err := OpenRuntime(rt)
@@ -21,6 +22,6 @@ func TestOpenRuntimeFallsBackToX11WhenWaylandSocketUnresolvable(t *testing.T) {
 		return
 	}
 	if _, ok := mgr.(*X11Backend); !ok {
-		t.Fatalf("OpenRuntime returned %T, want *X11Backend", mgr)
+		t.Fatalf("OpenRuntime type = %T, want *X11Backend", mgr)
 	}
 }

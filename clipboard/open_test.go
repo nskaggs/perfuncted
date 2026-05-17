@@ -2,8 +2,10 @@ package clipboard
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -43,7 +45,15 @@ func TestOpen_PrefersWaylandWhenAvailable(t *testing.T) {
 	defer func() { executil.CommandContext = oldCmd }()
 
 	// Simulate Wayland session.
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	xdg := t.TempDir()
+	sockPath := filepath.Join(xdg, "wayland-2")
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Listen(unix): %v", err)
+	}
+	defer ln.Close()
+
+	t.Setenv("XDG_RUNTIME_DIR", xdg)
 	t.Setenv("WAYLAND_DISPLAY", "wayland-2")
 	os.Unsetenv("DISPLAY")
 
@@ -73,7 +83,7 @@ func TestOpen_FallsBackWhenWaylandSocketUnresolvable(t *testing.T) {
 	defer func() { executil.CommandContext = oldCmd }()
 
 	t.Setenv("WAYLAND_DISPLAY", "wayland-3")
-	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("DISPLAY", ":0")
 
 	cb, err := Open()
@@ -145,5 +155,33 @@ func TestExtCmdClipboardGetTrimsOnlyOneTrailingNewline(t *testing.T) {
 	}
 	if !reflect.DeepEqual(lastCmd.Env, cb.env) {
 		t.Fatalf("command env = %v, want %v", lastCmd.Env, cb.env)
+	}
+}
+
+func TestExtCmdClipboardGetNilContext(t *testing.T) {
+	oldCmd := executil.CommandContext
+	executil.CommandContext = exec.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	cb := &extCmdClipboard{
+		getCmd: []string{"sh", "-c", "exit 0"},
+	}
+	//lint:ignore SA1012 regression test for nil-context handling
+	if _, err := cb.Get(nil); err != nil {
+		t.Fatalf("Get(nil): %v", err)
+	}
+}
+
+func TestExtCmdClipboardSetNilContext(t *testing.T) {
+	oldCmd := executil.CommandContext
+	executil.CommandContext = exec.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	cb := &extCmdClipboard{
+		setCmd: []string{"sh", "-c", "exit 0"},
+	}
+	//lint:ignore SA1012 regression test for nil-context handling
+	if err := cb.Set(nil, "hello"); err != nil {
+		t.Fatalf("Set(nil): %v", err)
 	}
 }

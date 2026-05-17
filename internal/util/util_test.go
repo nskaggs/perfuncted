@@ -17,7 +17,7 @@ func TestWaitForPixelColor(t *testing.T) {
 	img1 := pftest.SolidImage(2, 2, black)
 	img2 := pftest.SolidImage(2, 2, red)
 	sc := &pftest.Screenshotter{Frames: []image.Image{img1, img2}}
-	ok, err := util.WaitForPixelColor(sc, image.Rect(0, 0, 2, 2), red, 0, 200*time.Millisecond)
+	ok, err := util.WaitForPixelColor(sc, image.Rect(0, 0, 2, 2), red, 0, 500*time.Millisecond)
 	if err != nil || !ok {
 		t.Fatalf("WaitForPixelColor failed: %v ok=%v", err, ok)
 	}

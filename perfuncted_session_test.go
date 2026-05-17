@@ -194,6 +194,11 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 	}
 }
 
+func TestSessionStopNil(t *testing.T) {
+	var s *Session
+	s.Stop()
+}
+
 func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {

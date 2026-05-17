@@ -131,3 +131,21 @@ func TestWaitForMatchCloseCanceledContextSkipsIteration(t *testing.T) {
 		t.Fatalf("WaitForMatchClose iterated %d times after context cancellation, want 0", m.iterations)
 	}
 }
+
+func TestFindByTitleNilManager(t *testing.T) {
+	var m Manager = (*fakeManager)(nil)
+
+	_, err := FindByTitle(context.Background(), m, "hello")
+	if err == nil {
+		t.Fatal("expected error for nil manager")
+	}
+}
+
+func TestWaitForMatchNilManager(t *testing.T) {
+	var m Manager = (*fakeManager)(nil)
+
+	_, err := WaitForMatch(context.Background(), m, Match{TitleContains: "hello"}, 10*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error for nil manager")
+	}
+}

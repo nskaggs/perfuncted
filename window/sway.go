@@ -133,6 +133,13 @@ func (m *SwayManager) query(msgType uint32, payload string) ([]byte, error) {
 	return body, nil
 }
 
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
 // List returns all visible windows (leaf containers) in the sway tree.
 func (m *SwayManager) List(ctx context.Context) ([]Info, error) {
 	var out []Info
@@ -264,6 +271,7 @@ func (m *SwayManager) Restore(ctx context.Context, substr string) error {
 // Move repositions the first window whose title contains substr.
 // The window is made floating so it can be placed at an absolute position.
 func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
+	ctx = normalizeContext(ctx)
 	w, err := m.findWindow(ctx, substr)
 	if err != nil {
 		return err

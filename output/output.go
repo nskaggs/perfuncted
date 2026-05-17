@@ -3,6 +3,7 @@ package output
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -48,21 +49,34 @@ func Open() (Lister, error) {
 
 // OpenRuntime returns the best available output lister for rt.
 func OpenRuntime(rt env.Runtime) (Lister, error) {
-	if rt.Display() != "" && rt.SocketPath() == "" {
-		return NewX11Lister(rt.Display())
+	display := rt.Display()
+	sock := rt.SocketPath()
+	if display != "" && sock == "" {
+		return NewX11Lister(display)
 	}
-	if rt.SocketPath() != "" {
-		return NewWaylandLister(rt.SocketPath())
+	if sock != "" {
+		if waylandSocketReachable(sock) {
+			return NewWaylandLister(sock)
+		}
+		if display != "" {
+			return NewX11Lister(display)
+		}
+		return nil, fmt.Errorf("output: WAYLAND_DISPLAY=%q socket unreachable", sock)
 	}
 	return nil, fmt.Errorf("output: no display or Wayland socket available")
 }
 
 // ProbeRuntime reports how the output lister would be selected.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
-	if rt.Display() != "" && rt.SocketPath() == "" {
+	display := rt.Display()
+	sock := rt.SocketPath()
+	if display != "" && sock == "" {
 		return []probe.Result{{Name: "x11", Available: true, Selected: true, Reason: "DISPLAY set"}}
 	}
-	if rt.SocketPath() != "" {
+	if sock != "" {
+		if !waylandSocketReachable(sock) && display != "" {
+			return []probe.Result{{Name: "x11", Available: true, Selected: true, Reason: "WAYLAND socket missing"}}
+		}
 		return []probe.Result{{Name: "wayland", Available: true, Selected: true, Reason: compositor.DetectRuntime(rt).String()}}
 	}
 	return []probe.Result{{Name: "output", Available: false, Reason: "no output source available"}}
@@ -76,4 +90,9 @@ func List(ctx context.Context) ([]Info, error) {
 	}
 	defer l.Close()
 	return l.List(ctx)
+}
+
+func waylandSocketReachable(sock string) bool {
+	info, err := os.Stat(sock)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
