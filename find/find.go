@@ -286,10 +286,9 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA)
 		if sentinelSet && cur != sentinel {
 			sentinel = cur
-			last = 0 // force mismatch on next full hash
 			streak = 0
 			// We skip the hash but must continue polling until stable.
-			return false, 0, nil
+			return false, last, nil
 		}
 		sentinel = cur
 		sentinelSet = true
