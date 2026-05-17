@@ -13,14 +13,11 @@ func TestOpenRuntimeFallsBackToX11WhenWaylandSocketUnresolvable(t *testing.T) {
 		"WAYLAND_DISPLAY=wayland-0",
 	})
 
-	sc, err := OpenRuntime(rt)
-	if err != nil {
-		if !strings.Contains(err.Error(), `screen/x11: connect to display ":99"`) {
-			t.Fatalf("OpenRuntime error = %v, want X11 connection error", err)
-		}
-		return
+	_, err := OpenRuntime(rt)
+	if err == nil {
+		t.Fatal("OpenRuntime succeeded unexpectedly")
 	}
-	if _, ok := sc.(*X11Backend); !ok {
-		t.Fatalf("OpenRuntime returned %T, want *X11Backend", sc)
+	if !strings.Contains(err.Error(), `screen/x11: connect to display ":99"`) {
+		t.Fatalf("OpenRuntime error = %v, want X11 connection error", err)
 	}
 }
