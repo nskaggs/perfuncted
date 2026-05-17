@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Match describes a window selection predicate.
@@ -23,9 +24,67 @@ type Match struct {
 	VisibleOnly   bool
 }
 
+// Matcher is a compiled Match with cached normalized fields for repeated use.
+//
+// Compile a Match once when you expect to apply it to many windows, such as in
+// polling loops or full-window scans.
+type Matcher struct {
+	Match
+
+	titleContainsLower string
+}
+
+type matchCacheKey struct {
+	TitleContains string
+	TitleExact    string
+	AppID         string
+	Class         string
+	PID           int32
+	HasPID        bool
+	ID            uint64
+	HasID         bool
+	Active        bool
+	HasActive     bool
+	Minimized     bool
+	HasMinimized  bool
+	Maximized     bool
+	HasMaximized  bool
+	Fullscreen    bool
+	HasFullscreen bool
+	VisibleOnly   bool
+}
+
+var compiledMatchCache sync.Map
+
+// CompileMatch returns a reusable matcher with cached normalized text fields.
+func CompileMatch(m Match) Matcher {
+	key := matchCacheKeyFromMatch(m)
+	if cached, ok := compiledMatchCache.Load(key); ok {
+		return cached.(Matcher)
+	}
+	compiled := Matcher{
+		Match:              m,
+		titleContainsLower: strings.ToLower(m.TitleContains),
+	}
+	actual, _ := compiledMatchCache.LoadOrStore(key, compiled)
+	return actual.(Matcher)
+}
+
 // Matches reports whether info satisfies m.
 func (m Match) Matches(info Info) bool {
-	if m.TitleContains != "" && !strings.Contains(strings.ToLower(info.Title), strings.ToLower(m.TitleContains)) {
+	if m.TitleContains == "" {
+		return Matcher{Match: m}.matches(info)
+	}
+	return CompileMatch(m).matches(info)
+}
+
+// Matches reports whether info satisfies m.
+func (m Matcher) Matches(info Info) bool {
+	return m.matches(info)
+}
+
+func (m Matcher) matches(info Info) bool {
+	if m.TitleContains != "" && !strings.Contains(strings.ToLower(info.Title), m.titleContainsLower) {
 		return false
 	}
 	if m.TitleExact != "" && !strings.EqualFold(info.Title, m.TitleExact) {
@@ -59,6 +118,41 @@ func (m Match) Matches(info Info) bool {
 		return false
 	}
 	return true
+}
+
+func matchCacheKeyFromMatch(m Match) matchCacheKey {
+	key := matchCacheKey{
+		TitleContains: m.TitleContains,
+		TitleExact:    m.TitleExact,
+		AppID:         m.AppID,
+		Class:         m.Class,
+		VisibleOnly:   m.VisibleOnly,
+	}
+	if m.PID != nil {
+		key.HasPID = true
+		key.PID = *m.PID
+	}
+	if m.ID != nil {
+		key.HasID = true
+		key.ID = *m.ID
+	}
+	if m.Active != nil {
+		key.HasActive = true
+		key.Active = *m.Active
+	}
+	if m.Minimized != nil {
+		key.HasMinimized = true
+		key.Minimized = *m.Minimized
+	}
+	if m.Maximized != nil {
+		key.HasMaximized = true
+		key.Maximized = *m.Maximized
+	}
+	if m.Fullscreen != nil {
+		key.HasFullscreen = true
+		key.Fullscreen = *m.Fullscreen
+	}
+	return key
 }
 
 // String returns a compact human-readable representation of m.
