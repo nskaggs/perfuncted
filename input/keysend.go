@@ -47,39 +47,35 @@ type modifiers struct {
 // ParseKeySend parses a human-readable key string into a sequence of keySend
 // actions. Each action is either literal text to type or a named key to
 // press/release.
+// ParseKeySend parses a key syntax string into a slice of key actions.
+// Literal text is returned as elements with a .text field. Braced expressions
+// {keyname}, {keyname down/up}, or {mod+key} are returned with the .key field.
 func ParseKeySend(input string) ([]keySend, error) {
+	if input == "" {
+		return nil, nil
+	}
 	var sends []keySend
-	i := 0
-	for i < len(input) {
-		ch := input[i]
-
-		// Braced expression: {keyname}, {keyname down/up}, or {mod+key}
-		if ch == '{' {
-			end := strings.Index(input[i:], "}")
+	for i := 0; i < len(input); {
+		if input[i] == '{' {
+			end := strings.IndexByte(input[i:], '}')
 			if end == -1 {
-				return nil, fmt.Errorf("unclosed brace at offset %d", i)
+				return nil, fmt.Errorf("input: unclosed brace at offset %d in %q", i, input)
 			}
-			end += i
-			expr := input[i+1 : end]
+			expr := input[i+1 : i+end]
 			ks, err := parseBraced(expr)
 			if err != nil {
 				return nil, err
 			}
 			sends = append(sends, ks)
-			i = end + 1
-			continue
-		}
-
-		// Literal text: collect consecutive non-special characters
-		start := i
-		for i < len(input) {
-			if input[i] == '{' {
+			i += end + 1
+		} else {
+			next := strings.IndexByte(input[i:], '{')
+			if next == -1 {
+				sends = append(sends, keySend{text: input[i:]})
 				break
 			}
-			i++
-		}
-		if i > start {
-			sends = append(sends, keySend{text: input[start:i]})
+			sends = append(sends, keySend{text: input[i : i+next]})
+			i += next
 		}
 	}
 	return sends, nil
