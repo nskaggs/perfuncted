@@ -2,8 +2,10 @@ package clipboard
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -43,7 +45,15 @@ func TestOpen_PrefersWaylandWhenAvailable(t *testing.T) {
 	defer func() { executil.CommandContext = oldCmd }()
 
 	// Simulate Wayland session.
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	xdg := t.TempDir()
+	sockPath := filepath.Join(xdg, "wayland-2")
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Listen(unix): %v", err)
+	}
+	defer ln.Close()
+
+	t.Setenv("XDG_RUNTIME_DIR", xdg)
 	t.Setenv("WAYLAND_DISPLAY", "wayland-2")
 	os.Unsetenv("DISPLAY")
 
@@ -73,7 +83,7 @@ func TestOpen_FallsBackWhenWaylandSocketUnresolvable(t *testing.T) {
 	defer func() { executil.CommandContext = oldCmd }()
 
 	t.Setenv("WAYLAND_DISPLAY", "wayland-3")
-	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("DISPLAY", ":0")
 
 	cb, err := Open()

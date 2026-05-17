@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -34,29 +35,32 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 	// tools (wl-copy/wl-paste) are invoked against the correct Wayland
 	// compositor when the parent process later calls Set/Get.
 	extraEnv := captureRuntimeEnv(rt)
+	display := rt.Display()
+	sock := rt.SocketPath()
 
-	if isWaylandRuntime(rt) {
-		if _, err := executil.LookPath("wl-copy"); err != nil {
-			return nil, ErrNoClipboardTool
+	if sock != "" && waylandSocketReachable(sock) {
+		if _, err := executil.LookPath("wl-copy"); err == nil {
+			if _, err := executil.LookPath("wl-paste"); err == nil {
+				return &extCmdClipboard{
+					getCmd: []string{"wl-paste", "--no-newline"},
+					setCmd: []string{"wl-copy"},
+					env:    extraEnv,
+				}, nil
+			}
 		}
-		if _, err := executil.LookPath("wl-paste"); err != nil {
-			return nil, ErrNoClipboardTool
-		}
-		return &extCmdClipboard{
-			getCmd: []string{"wl-paste", "--no-newline"},
-			setCmd: []string{"wl-copy"},
-			env:    extraEnv,
-		}, nil
 	}
 
-	if _, err := executil.LookPath("xclip"); err != nil {
-		return nil, ErrNoClipboardTool
+	if display != "" {
+		if _, err := executil.LookPath("xclip"); err == nil {
+			return &extCmdClipboard{
+				getCmd: []string{"xclip", "-selection", "clipboard", "-o"},
+				setCmd: []string{"xclip", "-selection", "clipboard"},
+				env:    extraEnv,
+			}, nil
+		}
 	}
-	return &extCmdClipboard{
-		getCmd: []string{"xclip", "-selection", "clipboard", "-o"},
-		setCmd: []string{"xclip", "-selection", "clipboard"},
-		env:    extraEnv,
-	}, nil
+
+	return nil, ErrNoClipboardTool
 }
 
 type extCmdClipboard struct {
@@ -103,13 +107,14 @@ func captureRuntimeEnv(rt env.Runtime) []string {
 	return rt.EnvList()
 }
 
-func isWaylandRuntime(rt env.Runtime) bool {
-	return rt.SocketPath() != ""
-}
-
 func normalizeContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
 	}
 	return ctx
+}
+
+func waylandSocketReachable(sock string) bool {
+	info, err := os.Stat(sock)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
