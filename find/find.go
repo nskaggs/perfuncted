@@ -6,6 +6,7 @@ package find
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -79,6 +80,11 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 
 	// Fast path: direct Pix access for *image.RGBA.
 	if rgba, ok := img.(*image.RGBA); ok {
+		// Optimization: if the image is contiguous, hash the whole Pix slice at once.
+		if b == rgba.Rect && rgba.Stride == b.Dx()*4 {
+			h.Write(rgba.Pix)
+			return h.Sum32()
+		}
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
 			end := off + b.Dx()*4
@@ -87,14 +93,10 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 		return h.Sum32()
 	}
 
-	// Convert non-RGBA images to RGBA once and then use the fast Pix path.
+	// Convert non-RGBA images to RGBA once and then use the fast contiguous Pix path.
 	rgba := image.NewRGBA(b)
 	draw.Draw(rgba, b, img, b.Min, draw.Src)
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
-		end := off + b.Dx()*4
-		h.Write(rgba.Pix[off:end]) //nolint:errcheck
-	}
+	h.Write(rgba.Pix)
 	return h.Sum32()
 }
 
@@ -145,26 +147,22 @@ type Result struct {
 	Rect image.Rectangle
 }
 
-// WaitFor polls rect every poll interval until its pixel hash equals want, or ctx expires.
-// On success, it returns the final hash (which equals want). On timeout, it returns
-// the last observed hash for debugging.
-func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, poll time.Duration, newHash Hasher) (uint32, error) {
-	// Adaptive poll when poll <= 0: start at 10ms and double up to 200ms.
-	if poll <= 0 {
+func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(attempt int) (done bool, result uint32, err error)) (uint32, error) {
+	if pollDur <= 0 {
 		attempt := 0
 		for {
 			if err := contextErr(ctx); err != nil {
-				return 0, err
+				return onCancel, err
 			}
-			h, err := GrabHash(ctx, sc, rect, newHash)
+			done, res, err := fn(attempt)
 			if err != nil {
-				return 0, err
+				return res, err
 			}
 			if err := contextErr(ctx); err != nil {
-				return h, err
+				return res, err
 			}
-			if h == want {
-				return h, nil
+			if done {
+				return res, nil
 			}
 			d := adaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
 			attempt++
@@ -172,95 +170,80 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 			select {
 			case <-ctx.Done():
 				t.Stop()
-				return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x)", want, h)
+				return res, ctx.Err()
 			case <-t.C:
 			}
 		}
 	}
 
-	// Fixed-interval polling.
-	ticker := time.NewTicker(clampPoll(poll))
+	ticker := time.NewTicker(clampPoll(pollDur))
 	defer ticker.Stop()
-
 	for {
 		if err := contextErr(ctx); err != nil {
-			return 0, err
+			return onCancel, err
 		}
-		h, err := GrabHash(ctx, sc, rect, newHash)
+		done, res, err := fn(0)
 		if err != nil {
-			return 0, err
+			return res, err
 		}
 		if err := contextErr(ctx); err != nil {
-			return h, err
+			return res, err
 		}
-		if h == want {
-			return h, nil
+		if done {
+			return res, nil
 		}
 		select {
 		case <-ctx.Done():
-			return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x)", want, h)
+			return res, ctx.Err()
 		case <-ticker.C:
 		}
 	}
 }
 
+// WaitFor polls rect every poll interval until its pixel hash equals want, or ctx expires.
+// On success, it returns the final hash (which equals want). On timeout, it returns
+// the last observed hash for debugging.
+func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want uint32, pollDur time.Duration, newHash Hasher) (uint32, error) {
+	h, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
+		h, err := GrabHash(ctx, sc, rect, newHash)
+		if err != nil {
+			return false, 0, err
+		}
+		if h == want {
+			return true, h, nil
+		}
+		return false, h, nil
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return h, fmt.Errorf("find: timeout waiting for hash %08x (last: %08x): %w", want, h, ctx.Err())
+		}
+		return 0, err
+	}
+	return h, nil
+}
+
 // WaitForChange polls rect every poll interval until its hash differs from initial, or ctx expires.
 // It pairs with WaitForNoChange: use WaitForChange to detect when a transition begins,
 // then WaitForNoChange to detect when it ends.
-func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, poll time.Duration, newHash Hasher) (uint32, error) {
-	// Adaptive poll when poll <= 0.
-	if poll <= 0 {
-		attempt := 0
-		for {
-			if err := contextErr(ctx); err != nil {
-				return initial, err
-			}
-			h, err := GrabHash(ctx, sc, rect, newHash)
-			if err != nil {
-				return 0, err
-			}
-			if err := contextErr(ctx); err != nil {
-				return h, err
-			}
-			if h != initial {
-				return h, nil
-			}
-			d := adaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
-			attempt++
-			t := time.NewTimer(d)
-			select {
-			case <-ctx.Done():
-				t.Stop()
-				return h, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
-			case <-t.C:
-			}
-		}
-	}
-
-	// Fixed-interval polling.
-	ticker := time.NewTicker(clampPoll(poll))
-	defer ticker.Stop()
-
-	for {
-		if err := contextErr(ctx); err != nil {
-			return initial, err
-		}
+func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, pollDur time.Duration, newHash Hasher) (uint32, error) {
+	h, err := poll(ctx, pollDur, initial, func(attempt int) (bool, uint32, error) {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
-			return 0, err
-		}
-		if err := contextErr(ctx); err != nil {
-			return h, err
+			return false, 0, err
 		}
 		if h != initial {
-			return h, nil
+			return true, h, nil
 		}
-		select {
-		case <-ctx.Done():
-			return h, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x)", rect, initial)
-		case <-ticker.C:
+		return false, h, nil
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return h, fmt.Errorf("find: timeout waiting for change in rect %v (hash stable at %08x): %w", rect, initial, ctx.Err())
 		}
+		return 0, err
 	}
+	return h, nil
 }
 
 // WaitForNoChange polls rect every poll interval until its pixel hash is unchanged for
@@ -277,7 +260,7 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 // WaitForNoChangeFrom is the same as WaitForNoChange but accepts an initial hash
 // to avoid the first capture if the caller already knows the current state.
 // If initial is 0, the first capture is performed immediately.
-func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, stable int, poll time.Duration, newHash Hasher) (uint32, error) {
+func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Rectangle, initial uint32, stable int, pollDur time.Duration, newHash Hasher) (uint32, error) {
 	if stable <= 0 {
 		stable = 1
 	}
@@ -289,88 +272,10 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 	var sentinel color.RGBA
 	sentinelSet := false
 
-	// Adaptive polling when poll <= 0.
-	if poll <= 0 {
-		attempt := 0
-		for {
-			if err := contextErr(ctx); err != nil {
-				return last, err
-			}
-			img, err := sc.Grab(ctx, rect)
-			if err != nil {
-				return 0, err
-			}
-			if err := contextErr(ctx); err != nil {
-				return last, err
-			}
-
-			// Fast pixel check before full CRC32: if the top-left pixel of the
-			// grabbed image changed since the last iteration, the hash is
-			// definitely different — skip the CRC32 and reset the streak.
-			// This is conservative: we only skip when we are certain of a change.
-			b := img.Bounds()
-			cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA)
-			if sentinelSet && cur != sentinel {
-				sentinel = cur
-				last = 0 // force mismatch on next full hash
-				streak = 0
-				select {
-				case <-ctx.Done():
-					return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-				default:
-				}
-				// continue to adaptive backoff sleep
-				// fallthrough
-			}
-			sentinel = cur
-			sentinelSet = true
-
-			h := PixelHash(img, newHash)
-			if streak > 0 && h == last {
-				streak++
-				if err := contextErr(ctx); err != nil {
-					return h, err
-				}
-				if streak >= stable {
-					return h, nil
-				}
-			} else {
-				last = h
-				streak = 1
-			}
-
-			select {
-			case <-ctx.Done():
-				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-			default:
-			}
-
-			d := adaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
-			attempt++
-			t := time.NewTimer(d)
-			select {
-			case <-ctx.Done():
-				t.Stop()
-				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-			case <-t.C:
-			}
-		}
-	}
-
-	// Fixed-interval polling.
-	ticker := time.NewTicker(clampPoll(poll))
-	defer ticker.Stop()
-
-	for {
-		if err := contextErr(ctx); err != nil {
-			return last, err
-		}
+	h, err := poll(ctx, pollDur, last, func(attempt int) (bool, uint32, error) {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
-			return 0, err
-		}
-		if err := contextErr(ctx); err != nil {
-			return last, err
+			return false, 0, err
 		}
 
 		// Fast pixel check before full CRC32: if the top-left pixel of the
@@ -383,12 +288,8 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 			sentinel = cur
 			last = 0 // force mismatch on next full hash
 			streak = 0
-			select {
-			case <-ctx.Done():
-				return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-			case <-ticker.C:
-			}
-			continue
+			// We skip the hash but must continue polling until stable.
+			return false, 0, nil
 		}
 		sentinel = cur
 		sentinelSet = true
@@ -396,22 +297,22 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 		h := PixelHash(img, newHash)
 		if streak > 0 && h == last {
 			streak++
-			if err := contextErr(ctx); err != nil {
-				return h, err
-			}
 			if streak >= stable {
-				return h, nil
+				return true, h, nil
 			}
 		} else {
 			last = h
 			streak = 1
 		}
-		select {
-		case <-ctx.Done():
-			return last, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x)", streak, stable, last)
-		case <-ticker.C:
+		return false, last, nil
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return h, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x): %w", streak, stable, last, ctx.Err())
 		}
+		return 0, err
 	}
+	return h, nil
 }
 
 // ScanFor polls multiple regions in round-robin until one matches its expected hash,
@@ -623,12 +524,9 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 
 // WaitWithTolerance pads expectedRect by radius pixels on all sides, captures the larger
 // region, and performs an exact search for reference within it. A two-stage
-// search is used: a cheap top-left pixel/fingerprint scan followed by an
-// expensive full-rectangle hash only on promising candidates.
-func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, reference image.Image, radius int, poll time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
-	if newHash == nil {
-		newHash = DefaultHasher
-	}
+// search is used: a cheap top-left pixel scan followed by an expensive
+// byte-for-byte match only on promising candidates.
+func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, reference image.Image, radius int, pollDur time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
 	if radius < 0 {
 		return 0, image.Rectangle{}, fmt.Errorf("find: tolerance radius must be non-negative")
 	}
@@ -644,99 +542,37 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		expectedRect.Max.X+radius,
 		expectedRect.Max.Y+radius,
 	)
-	if searchArea.Empty() {
-		return 0, image.Rectangle{}, fmt.Errorf("find: tolerance search area is empty")
-	}
 
-	// Precompute reference hash and top-left pixel for quick rejection.
 	refHash := PixelHash(reference, newHash)
-	rb := reference.Bounds()
-	w, h := rb.Dx(), rb.Dy()
-
-	var refFirst color.RGBA
-	refRGBA, refOk := reference.(*image.RGBA)
-	if refOk {
-		refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
-		refFirst = color.RGBA{
-			R: refRGBA.Pix[refOff0],
-			G: refRGBA.Pix[refOff0+1],
-			B: refRGBA.Pix[refOff0+2],
-			A: refRGBA.Pix[refOff0+3],
-		}
-	} else {
-		refFirst = color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
-	}
-
-	ticker := time.NewTicker(clampPoll(poll))
-	defer ticker.Stop()
-
-	for {
+	var foundRect image.Rectangle
+	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		img, err := sc.Grab(ctx, searchArea)
 		if err != nil {
-			return 0, image.Rectangle{}, fmt.Errorf("find: tolerance grab: %w", err)
+			return false, 0, err
 		}
-		if err := contextErr(ctx); err != nil {
-			return 0, image.Rectangle{}, err
-		}
-
-		sb := img.Bounds()
-		sub, ok := img.(interface {
+		if _, ok := img.(interface {
 			SubImage(r image.Rectangle) image.Image
-		})
-		if !ok {
-			return 0, image.Rectangle{}, fmt.Errorf("find: grabbed image does not support SubImage")
+		}); !ok {
+			return false, 0, fmt.Errorf("find: grabbed image does not support SubImage")
 		}
 
-		srcRGBA, srcOk := img.(*image.RGBA)
-
-		if srcOk && refOk {
-			// Fast path: both images are *image.RGBA. Compare first pixel bytes
-			// directly to reject most positions before hashing.
-			refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
-			refBytes := refRGBA.Pix[refOff0 : refOff0+4]
-			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
-				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
-					off := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
-					_ = srcRGBA.Pix[off+3] // eliminate bounds check
-					if srcRGBA.Pix[off] != refBytes[0] || srcRGBA.Pix[off+1] != refBytes[1] || srcRGBA.Pix[off+2] != refBytes[2] || srcRGBA.Pix[off+3] != refBytes[3] {
-						continue
-					}
-					r := image.Rect(x, y, x+w, y+h)
-					if PixelHash(sub.SubImage(r), newHash) == refHash {
-						return refHash, translateRect(r, sb.Min, searchArea.Min), nil
-					}
-				}
-			}
-		} else {
-			// Generic path: compare the top-left pixel via At()/color conversion
-			// before invoking the expensive full-rectangle hash.
-			for y := sb.Min.Y; y <= sb.Max.Y-h; y++ {
-				for x := sb.Min.X; x <= sb.Max.X-w; x++ {
-					var c color.RGBA
-					if srcOk {
-						off := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
-						p := srcRGBA.Pix[off : off+4]
-						c = color.RGBA{R: p[0], G: p[1], B: p[2], A: p[3]}
-					} else {
-						c = color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
-					}
-					if c != refFirst {
-						continue
-					}
-					r := image.Rect(x, y, x+w, y+h)
-					if PixelHash(sub.SubImage(r), newHash) == refHash {
-						return refHash, translateRect(r, sb.Min, searchArea.Min), nil
-					}
-				}
-			}
+		r, err := LocateExact(ctx, sc, searchArea, reference)
+		if err == nil {
+			foundRect = r
+			return true, refHash, nil
 		}
-
-		select {
-		case <-ctx.Done():
-			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match")
-		case <-ticker.C:
+		if errors.Is(err, ErrNotFound) {
+			return false, 0, nil
 		}
+		return false, 0, err
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match: %w", ctx.Err())
+		}
+		return 0, image.Rectangle{}, err
 	}
+	return refHash, foundRect, nil
 }
 
 func translateRect(r image.Rectangle, fromMin, toMin image.Point) image.Rectangle {
@@ -816,49 +652,50 @@ func abs(x int) int {
 // WaitForLocate polls searchArea every poll interval until reference is found
 // via exact pixel matching, or ctx expires. Returns the absolute rectangle
 // where the reference was located.
-func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, poll time.Duration) (image.Rectangle, error) {
-	ticker := time.NewTicker(clampPoll(poll))
-	defer ticker.Stop()
-
-	for {
+func WaitForLocate(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image, pollDur time.Duration) (image.Rectangle, error) {
+	var foundRect image.Rectangle
+	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		r, err := LocateExact(ctx, sc, searchArea, reference)
 		if err == nil {
-			return r, nil
+			foundRect = r
+			return true, 0, nil
 		}
-		select {
-		case <-ctx.Done():
+		if errors.Is(err, ErrNotFound) {
+			return false, 0, nil
+		}
+		return false, 0, err
+	})
+	if err != nil {
+		if ctx.Err() != nil {
 			return image.Rectangle{}, fmt.Errorf("find: timeout waiting to locate reference image: %w", ctx.Err())
-		case <-ticker.C:
 		}
+		return image.Rectangle{}, err
 	}
+	return foundRect, nil
 }
 
 // WaitForFn polls rect every poll interval until fn returns true for the
 // grabbed image, or ctx expires. fn receives ctx and the raw grabbed image
 // each iteration so it can respect cancellation and inspect the image with
 // any predicate (brightness, color presence, histogram, etc.).
-func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(context.Context, image.Image) bool, poll time.Duration) (image.Image, error) {
-	ticker := time.NewTicker(clampPoll(poll))
-	defer ticker.Stop()
-
-	for {
+func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn func(context.Context, image.Image) bool, pollDur time.Duration) (image.Image, error) {
+	var foundImg image.Image
+	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
-			return nil, err
-		}
-		if err := contextErr(ctx); err != nil {
-			return nil, err
+			return false, 0, err
 		}
 		if fn(ctx, img) {
-			if err := contextErr(ctx); err != nil {
-				return nil, err
-			}
-			return img, nil
+			foundImg = img
+			return true, 0, nil
 		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v", rect)
-		case <-ticker.C:
+		return false, 0, nil
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("find: WaitForFn timeout: predicate never satisfied for rect %v: %w", rect, ctx.Err())
 		}
+		return nil, err
 	}
+	return foundImg, nil
 }
