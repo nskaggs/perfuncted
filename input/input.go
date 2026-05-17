@@ -121,10 +121,11 @@ func Probe() []probe.Result {
 
 // ProbeRuntime returns availability details for rt.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
-	if rt.SocketPath() != "" {
+	if sock := rt.SocketPath(); sock != "" {
+		globs := wl.ListGlobals(sock)
 		return probe.SelectBest([]probe.Result{
-			checkWlInputMethod(rt),
-			checkWlVirtual(rt),
+			checkWlInputMethodWithGlobs(sock, globs),
+			checkWlVirtualWithGlobs(sock, globs),
 			checkUinput(),
 		})
 	}
@@ -135,13 +136,15 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 }
 
 func checkWlInputMethod(rt env.Runtime) probe.Result {
-	r := probe.Result{Name: "wl-input-method"}
 	sock := rt.SocketPath()
 	if sock == "" {
-		r.Reason = "WAYLAND_DISPLAY not set"
-		return r
+		return probe.Result{Name: "wl-input-method", Reason: "WAYLAND_DISPLAY not set"}
 	}
-	globs := wl.ListGlobals(sock)
+	return checkWlInputMethodWithGlobs(sock, wl.ListGlobals(sock))
+}
+
+func checkWlInputMethodWithGlobs(sock string, globs map[string]bool) probe.Result {
+	r := probe.Result{Name: "wl-input-method"}
 	if globs == nil {
 		r.Reason = fmt.Sprintf("connect %s: failed", sock)
 		return r
@@ -178,13 +181,15 @@ func checkXTest(rt env.Runtime) probe.Result {
 }
 
 func checkWlVirtual(rt env.Runtime) probe.Result {
-	r := probe.Result{Name: "wl-virtual"}
 	sock := rt.SocketPath()
 	if sock == "" {
-		r.Reason = "WAYLAND_DISPLAY not set"
-		return r
+		return probe.Result{Name: "wl-virtual", Reason: "WAYLAND_DISPLAY not set"}
 	}
-	globs := wl.ListGlobals(sock)
+	return checkWlVirtualWithGlobs(sock, wl.ListGlobals(sock))
+}
+
+func checkWlVirtualWithGlobs(sock string, globs map[string]bool) probe.Result {
+	r := probe.Result{Name: "wl-virtual"}
 	if globs == nil {
 		r.Reason = fmt.Sprintf("connect %s: failed", sock)
 		return r
