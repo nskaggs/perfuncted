@@ -11,6 +11,7 @@ import (
 
 func TestRetryNilContext(t *testing.T) {
 	calls := 0
+	//lint:ignore SA1012 regression test for nil-context handling
 	if err := perfuncted.Retry(nil, 0, func() error {
 		calls++
 		return nil
