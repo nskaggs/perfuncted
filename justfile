@@ -230,19 +230,20 @@ nested:
 # Run this manually if a session crashes without cleaning up after itself.
 cleanup-nested:
     @echo "Cleaning up stale nested session processes..."
+    @tmpdir="$${TMPDIR:-/tmp}"
     @for f in /proc/[0-9]*/environ; do \
         [ -r "$$f" ] || continue; \
-        tr '\0' '\n' < "$$f" 2>/dev/null | grep -q '^XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-' || continue; \
+        tr '\0' '\n' < "$$f" 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$$tmpdir/perfuncted-xdg-" || continue; \
         pid=$${f%/environ}; pid=$${pid#/proc/}; \
         kill -9 "$$pid" 2>/dev/null || true; \
     done
     @sleep 1
     @echo "Cleaning up stale temp files and sockets..."
-    -for dir in /tmp/perfuncted-xdg-*/gvfs; do [ -d "$$dir" ] && fusermount -u "$$dir" 2>/dev/null || true; done
-    -rm -rf /tmp/perfuncted-xdg-* 2>/dev/null || true
-    -rm -f /tmp/perfuncted-logs/*.log /tmp/perfuncted-logs/*.res 2>/dev/null || true
-    -rm -f /tmp/pf-test-*.png 2>/dev/null || true
-    -rm -f /tmp/*-kwrite.txt 2>/dev/null || true
-    -rm -f /tmp/*-featherpad.txt 2>/dev/null || true
-    -rm -f /tmp/*-gnome-text-editor.txt 2>/dev/null || true
+    -for dir in "$$tmpdir"/perfuncted-xdg-*/gvfs; do [ -d "$$dir" ] && fusermount -u "$$dir" 2>/dev/null || true; done
+    -rm -rf "$$tmpdir"/perfuncted-xdg-* 2>/dev/null || true
+    -rm -f "$$tmpdir"/perfuncted-logs/*.log "$$tmpdir"/perfuncted-logs/*.res 2>/dev/null || true
+    -rm -f "$$tmpdir"/pf-test-*.png 2>/dev/null || true
+    -rm -f "$$tmpdir"/*-kwrite.txt 2>/dev/null || true
+    -rm -f "$$tmpdir"/*-featherpad.txt 2>/dev/null || true
+    -rm -f "$$tmpdir"/*-gnome-text-editor.txt 2>/dev/null || true
     @echo "Cleanup complete."
