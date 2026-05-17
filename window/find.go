@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 func clampPoll(poll time.Duration) time.Duration {
@@ -20,6 +22,12 @@ func Find(ctx context.Context, m Manager, match Match) (Info, error) {
 }
 
 func find(ctx context.Context, m Manager, match Matcher, label string) (Info, error) {
+	if err := util.CheckAvailable("window", m); err != nil {
+		return Info{}, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	for w, err := range m.IterateWindows(ctx) {
 		if err != nil {
 			return Info{}, err
@@ -44,6 +52,9 @@ func WaitFor(ctx context.Context, m Manager, pattern string, poll time.Duration)
 
 // WaitForMatch blocks until a window matching match is found, or ctx expires.
 func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duration) (Info, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	compiled := CompileMatch(match)
 	label := match.String()
 	ticker := time.NewTicker(clampPoll(poll))
@@ -75,6 +86,9 @@ func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Dura
 
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	compiled := CompileMatch(match)
 	label := match.String()
 	ticker := time.NewTicker(clampPoll(poll))

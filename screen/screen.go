@@ -11,6 +11,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -31,6 +32,12 @@ type Screenshotter interface {
 // context. If sc implements Resolver directly, that is used. Otherwise, a
 // full-output grab (zero rect) is tried with ctx.
 func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, error) {
+	if err := util.CheckAvailable("screen", sc); err != nil {
+		return 0, 0, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()
 	}

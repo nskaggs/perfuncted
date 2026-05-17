@@ -147,3 +147,29 @@ func TestExtCmdClipboardGetTrimsOnlyOneTrailingNewline(t *testing.T) {
 		t.Fatalf("command env = %v, want %v", lastCmd.Env, cb.env)
 	}
 }
+
+func TestExtCmdClipboardGetNilContext(t *testing.T) {
+	oldCmd := executil.CommandContext
+	executil.CommandContext = exec.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	cb := &extCmdClipboard{
+		getCmd: []string{"sh", "-c", "exit 0"},
+	}
+	if _, err := cb.Get(nil); err != nil {
+		t.Fatalf("Get(nil): %v", err)
+	}
+}
+
+func TestExtCmdClipboardSetNilContext(t *testing.T) {
+	oldCmd := executil.CommandContext
+	executil.CommandContext = exec.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	cb := &extCmdClipboard{
+		setCmd: []string{"sh", "-c", "exit 0"},
+	}
+	if err := cb.Set(nil, "hello"); err != nil {
+		t.Fatalf("Set(nil): %v", err)
+	}
+}

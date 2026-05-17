@@ -69,12 +69,13 @@ func resolveRuntime(opts Options) (env.Runtime, error) {
 }
 
 func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
-	matches, err := nestedSessionGlob("/tmp/perfuncted-xdg-*")
+	pattern := nestedSessionPattern()
+	matches, err := nestedSessionGlob(pattern)
 	if err != nil {
 		return "", "", "", fmt.Errorf("perfuncted: glob nested sessions: %w", err)
 	}
 	if len(matches) == 0 {
-		return "", "", "", fmt.Errorf("perfuncted: no nested session found in /tmp/perfuncted-xdg-*")
+		return "", "", "", fmt.Errorf("perfuncted: no nested session found in %s", pattern)
 	}
 	type nestedEntry struct {
 		path string
@@ -100,7 +101,7 @@ func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
 		entries = append(entries, nestedEntry{path: xdgDir, mod: mod, wl: wlSocket})
 	}
 	if len(entries) == 0 {
-		return "", "", "", fmt.Errorf("perfuncted: no nested session found with a wayland socket in /tmp/perfuncted-xdg-*")
+		return "", "", "", fmt.Errorf("perfuncted: no nested session found with a wayland socket in %s", pattern)
 	}
 
 	if len(entries) > 1 {
@@ -153,7 +154,7 @@ func DetectSession() (kind string, details map[string]string) {
 	xdg := os.Getenv("XDG_RUNTIME_DIR")
 	wd := os.Getenv("WAYLAND_DISPLAY")
 
-	if strings.HasPrefix(xdg, "/tmp/perfuncted-xdg-") {
+	if strings.HasPrefix(xdg, nestedSessionPrefix()) {
 		details["dir"] = xdg
 		details["wayland_display"] = wd
 		details["dbus_address"] = os.Getenv("DBUS_SESSION_BUS_ADDRESS")
@@ -163,6 +164,14 @@ func DetectSession() (kind string, details map[string]string) {
 	details["current_xdg"] = xdg
 	details["current_wayland"] = wd
 	return "host", details
+}
+
+func nestedSessionPattern() string {
+	return filepath.Join(os.TempDir(), "perfuncted-xdg-*")
+}
+
+func nestedSessionPrefix() string {
+	return filepath.Join(os.TempDir(), "perfuncted-xdg-")
 }
 
 // Perfuncted is the top-level session handle.
@@ -183,6 +192,7 @@ func (p *Perfuncted) Paste(ctx context.Context, text string) error {
 	if p == nil {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
+	ctx = normalizeContext(ctx)
 	p.traceAction(fmt.Sprintf("paste text=%q", text))
 	if p.Clipboard.Clipboard != nil {
 		return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
@@ -246,6 +256,9 @@ func New(opts Options) (*Perfuncted, error) {
 }
 
 func (p *Perfuncted) Close() error {
+	if p == nil {
+		return nil
+	}
 	p.traceAction("close")
 	var errs []error
 	if p.Screen.Screenshotter != nil {
@@ -270,6 +283,10 @@ func (p *Perfuncted) Close() error {
 }
 
 func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
+	ctx = normalizeContext(ctx)
+	if fn == nil {
+		return fmt.Errorf("retry: nil function")
+	}
 	if poll <= 0 {
 		poll = 10 * time.Millisecond
 	}
@@ -294,4 +311,11 @@ func (p *Perfuncted) traceAction(msg string) {
 		return
 	}
 	p.trace.Tracef("perfuncted", "%s", msg)
+}
+
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }

@@ -17,8 +17,8 @@ import (
 // ── DetectSession ─────────────────────────────────────────────────────────────
 
 func TestDetectSession(t *testing.T) {
-	// In the test environment, XDG_RUNTIME_DIR does not start with
-	// "/tmp/perfuncted-xdg-", so DetectSession should return "host".
+	// In the test environment, XDG_RUNTIME_DIR should not look like a nested
+	// perfuncted session, so DetectSession should return "host".
 	kind, details := perfuncted.DetectSession()
 	if kind != "host" {
 		t.Fatalf("DetectSession: got kind=%q, want %q (details=%v)", kind, "host", details)
@@ -29,7 +29,7 @@ func TestDetectSession(t *testing.T) {
 }
 
 func TestDetectSession_Nested(t *testing.T) {
-	const fakeXDG = "/tmp/perfuncted-xdg-test-nested"
+	fakeXDG := filepath.Join(os.TempDir(), "perfuncted-xdg-test-nested")
 	t.Setenv("XDG_RUNTIME_DIR", fakeXDG)
 	t.Setenv("WAYLAND_DISPLAY", "wayland-99")
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/test/bus")

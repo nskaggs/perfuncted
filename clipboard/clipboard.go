@@ -66,6 +66,7 @@ type extCmdClipboard struct {
 }
 
 func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
+	ctx = normalizeContext(ctx)
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
@@ -81,6 +82,7 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
+	ctx = normalizeContext(ctx)
 	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
@@ -103,4 +105,11 @@ func captureRuntimeEnv(rt env.Runtime) []string {
 
 func isWaylandRuntime(rt env.Runtime) bool {
 	return rt.SocketPath() != ""
+}
+
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }

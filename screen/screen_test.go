@@ -47,3 +47,15 @@ func TestResolutionWithContext_CanceledAfterGrab(t *testing.T) {
 		t.Fatalf("ResolutionWithContext returned %dx%d on cancellation, want 0x0", w, h)
 	}
 }
+
+func TestResolutionWithContext_NilScreenshotter(t *testing.T) {
+	var sc *resolutionCancelScreenshotter
+
+	w, h, err := ResolutionWithContext(context.Background(), Screenshotter(sc))
+	if err == nil {
+		t.Fatal("expected error for nil screenshotter")
+	}
+	if w != 0 || h != 0 {
+		t.Fatalf("ResolutionWithContext returned %dx%d for nil screenshotter, want 0x0", w, h)
+	}
+}
