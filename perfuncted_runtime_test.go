@@ -69,3 +69,13 @@ func TestRuntimeSocketPathKeepsAbsoluteWaylandDisplay(t *testing.T) {
 		t.Fatalf("SocketPath = %q, want /run/user/1000/wayland-1", got)
 	}
 }
+
+func TestRuntimeSocketPathReturnsEmptyWithoutRuntimeDir(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"WAYLAND_DISPLAY=wayland-0",
+	})
+
+	if got := rt.SocketPath(); got != "" {
+		t.Fatalf("SocketPath = %q, want empty", got)
+	}
+}

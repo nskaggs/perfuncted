@@ -102,11 +102,5 @@ func captureRuntimeEnv(rt env.Runtime) []string {
 }
 
 func isWaylandRuntime(rt env.Runtime) bool {
-	if rt.Get("XDG_SESSION_TYPE") == "wayland" {
-		return true
-	}
-	if rt.Get("WAYLAND_DISPLAY") != "" && rt.Display() == "" {
-		return true
-	}
-	return false
+	return rt.SocketPath() != ""
 }

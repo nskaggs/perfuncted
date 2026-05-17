@@ -38,13 +38,23 @@ func WaitForPixelColor(sc find.Screenshotter, rect image.Rectangle, target color
 func WaitForImage(sc find.Screenshotter, template image.Image, method string, timeout time.Duration) ([]MatchResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	// Probe full-screen bounds by asking for a zero rect grab; many backends
-	// return the full-output image for a zero rect.
-	img, err := sc.Grab(ctx, image.Rect(0, 0, 0, 0))
-	if err != nil {
-		return nil, fmt.Errorf("util: probe screen bounds: %w", err)
+	searchArea := image.Rectangle{}
+	if r, ok := sc.(interface {
+		Resolution() (int, int, error)
+	}); ok {
+		if w, h, err := r.Resolution(); err == nil && w > 0 && h > 0 {
+			searchArea = image.Rect(0, 0, w, h)
+		}
 	}
-	searchArea := img.Bounds()
+	if searchArea.Empty() {
+		// Probe full-screen bounds by asking for a zero rect grab; many backends
+		// return the full-output image for a zero rect.
+		img, err := sc.Grab(ctx, image.Rect(0, 0, 0, 0))
+		if err != nil {
+			return nil, fmt.Errorf("util: probe screen bounds: %w", err)
+		}
+		searchArea = img.Bounds()
+	}
 	switch method {
 	case "", "exact":
 		r, err := find.WaitForLocate(ctx, sc, searchArea, template, 200*time.Millisecond)

@@ -107,6 +107,24 @@ func TestPutStr_PrependToExistingBuffer(t *testing.T) {
 	}
 }
 
+func TestSocketPathReturnsEmptyWithoutRuntimeDir(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+
+	if got := SocketPath(); got != "" {
+		t.Fatalf("SocketPath = %q, want empty", got)
+	}
+}
+
+func TestSocketPathKeepsAbsoluteDisplay(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "/run/user/1000/wayland-1")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+
+	if got := SocketPath(); got != "/run/user/1000/wayland-1" {
+		t.Fatalf("SocketPath = %q, want /run/user/1000/wayland-1", got)
+	}
+}
+
 func TestRawProxy_Dispatch(t *testing.T) {
 	var gotOpcode uint32
 	var gotData []byte

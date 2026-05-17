@@ -43,6 +43,7 @@ func TestOpen_PrefersWaylandWhenAvailable(t *testing.T) {
 	defer func() { executil.CommandContext = oldCmd }()
 
 	// Simulate Wayland session.
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("WAYLAND_DISPLAY", "wayland-2")
 	os.Unsetenv("DISPLAY")
 
@@ -52,6 +53,37 @@ func TestOpen_PrefersWaylandWhenAvailable(t *testing.T) {
 	}
 	if _, ok := cb.(*extCmdClipboard); !ok {
 		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb)
+	}
+}
+
+func TestOpen_FallsBackWhenWaylandSocketUnresolvable(t *testing.T) {
+	oldLP := executil.LookPath
+	executil.LookPath = func(name string) (string, error) {
+		if name == "xclip" {
+			return "/nonexistent/xclip", nil
+		}
+		return "", os.ErrNotExist
+	}
+	defer func() { executil.LookPath = oldLP }()
+
+	oldCmd := executil.CommandContext
+	executil.CommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+	defer func() { executil.CommandContext = oldCmd }()
+
+	t.Setenv("WAYLAND_DISPLAY", "wayland-3")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("DISPLAY", ":0")
+
+	cb, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if got, ok := cb.(*extCmdClipboard); !ok {
+		t.Fatalf("clipboard type = %T, want *extCmdClipboard", cb)
+	} else if len(got.getCmd) == 0 || got.getCmd[0] != "xclip" {
+		t.Fatalf("clipboard getCmd = %v, want xclip", got.getCmd)
 	}
 }
 
