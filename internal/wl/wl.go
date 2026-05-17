@@ -199,7 +199,24 @@ func putStr(buf []byte, s string) []byte {
 	return buf
 }
 
-// SocketPath returns the absolute path to the Wayland socket from the environment.
+// ResolveSocketPath resolves a Wayland socket path from WAYLAND_DISPLAY and
+// XDG_RUNTIME_DIR. Relative socket names require XDG_RUNTIME_DIR; otherwise
+// the socket cannot be resolved and the empty string is returned.
+func ResolveSocketPath(waylandDisplay, xdgRuntimeDir string) string {
+	if waylandDisplay == "" {
+		return ""
+	}
+	if filepath.IsAbs(waylandDisplay) {
+		return waylandDisplay
+	}
+	if xdgRuntimeDir == "" {
+		return ""
+	}
+	return filepath.Join(xdgRuntimeDir, waylandDisplay)
+}
+
+// SocketPath returns the resolved absolute path to the Wayland socket from the
+// environment, or the empty string when WAYLAND_DISPLAY cannot be resolved.
 var socketPathOverride string
 
 // SetSocketPathOverride sets an explicit Wayland socket path to use instead
@@ -211,18 +228,7 @@ func SocketPath() string {
 	if socketPathOverride != "" {
 		return socketPathOverride
 	}
-	sock := os.Getenv("WAYLAND_DISPLAY")
-	if sock == "" {
-		return ""
-	}
-	if filepath.IsAbs(sock) {
-		return sock
-	}
-	xrd := os.Getenv("XDG_RUNTIME_DIR")
-	if xrd == "" {
-		return sock
-	}
-	return filepath.Join(xrd, sock)
+	return ResolveSocketPath(os.Getenv("WAYLAND_DISPLAY"), os.Getenv("XDG_RUNTIME_DIR"))
 }
 
 // ── Display ───────────────────────────────────────────────────────────────────

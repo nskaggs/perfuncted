@@ -2,9 +2,10 @@ package env
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
 // Runtime is a snapshot of the environment used to route automation requests
@@ -103,20 +104,10 @@ func (r Runtime) Display() string {
 	return r.Get("DISPLAY")
 }
 
-// SocketPath resolves the Wayland socket path for the runtime snapshot.
+// SocketPath resolves the Wayland socket path for the runtime snapshot, or
+// returns the empty string when the socket cannot be resolved.
 func (r Runtime) SocketPath() string {
-	sock := r.Get("WAYLAND_DISPLAY")
-	if sock == "" {
-		return ""
-	}
-	if filepath.IsAbs(sock) {
-		return sock
-	}
-	xrd := r.Get("XDG_RUNTIME_DIR")
-	if xrd == "" {
-		return sock
-	}
-	return filepath.Join(xrd, sock)
+	return wl.ResolveSocketPath(r.Get("WAYLAND_DISPLAY"), r.Get("XDG_RUNTIME_DIR"))
 }
 
 func (r Runtime) clone() Runtime {
