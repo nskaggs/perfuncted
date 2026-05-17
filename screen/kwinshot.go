@@ -24,41 +24,23 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
-// GrabFullHash returns a fast pixel hash of the entire screen.
-func (b *KWinShotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
-	img, err := b.Grab(ctx, image.Rect(0, 0, 0, 0))
-	if err != nil {
-		// KWin CaptureArea may fail with empty rect, so we need to get resolution first
-		w, h, err := ResolutionWithContext(ctx, b)
-		if err != nil {
-			return 0, err
-		}
-		img, err = b.Grab(ctx, image.Rect(0, 0, w, h))
-		if err != nil {
-			return 0, err
-		}
-	}
-	return find.PixelHash(img, nil), nil
-}
-
-// GrabRegionHash computes a CRC32 pixel fingerprint for rect. For KWin this
-// currently falls back to a normal Grab + PixelHash.
-func (b *KWinShotBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
-	img, err := b.Grab(ctx, rect)
-	if err != nil {
-		return 0, err
-	}
-	return find.PixelHash(img, nil), nil
-}
-
 const (
 	kwinShotDest  = "org.kde.KWin"
 	kwinShotPath  = "/org/kde/KWin/ScreenShot2"
 	kwinShotIface = "org.kde.KWin.ScreenShot2"
 )
 
+type kwinShotTransport interface {
+	CaptureArea(context.Context, image.Rectangle) (image.Image, error)
+	CaptureActiveScreen(context.Context) (image.Image, error)
+}
+
 // KWinShotBackend captures the screen via org.kde.KWin.ScreenShot2.
 type KWinShotBackend struct {
+	transport kwinShotTransport
+}
+
+type kwinDBusTransport struct {
 	conn *dbus.Conn
 	kwin dbus.BusObject
 }
@@ -83,7 +65,7 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 		return nil, fmt.Errorf("screen/kwin: %s not on session bus", kwinShotDest)
 	}
 	obj := conn.Object(kwinShotDest, kwinShotPath)
-	b := &KWinShotBackend{conn: conn, kwin: obj}
+	b := &KWinShotBackend{transport: &kwinDBusTransport{conn: conn, kwin: obj}}
 	// Probe grab: verify the process has screenshot authorization.
 	// KDE Plasma 6 requires explicit per-process permission via the xdg
 	// permission store; this check allows Open() to fall back to the portal.
@@ -93,13 +75,63 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 	return b, nil
 }
 
-// Grab captures rect using CaptureArea. KWin writes pixel data to a Unix pipe;
-// the D-Bus reply carries format metadata in an a{sv}. We close our write-end
-// copy after the synchronous call returns (KWin has already written + closed
-// its dup'd copy by then), then drain the read end.
+// Grab captures rect using CaptureArea. An empty rect requests the active
+// screen capture path. KWin writes pixel data to a Unix pipe; the D-Bus reply
+// carries format metadata in an a{sv}. We close our write-end copy after the
+// synchronous call returns (KWin has already written + closed its dup'd copy
+// by then), then drain the read end.
 func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	if b == nil || b.transport == nil {
+		return nil, fmt.Errorf("screen/kwin: backend not initialised")
+	}
+	if rect.Empty() {
+		return b.transport.CaptureActiveScreen(ctx)
+	}
+	return b.transport.CaptureArea(ctx, rect)
+}
+
+// GrabFullHash returns a fast pixel hash of the active screen.
+func (b *KWinShotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
+	img, err := b.Grab(ctx, image.Rectangle{})
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
+// GrabRegionHash computes a CRC32 pixel fingerprint for rect. For KWin this
+// falls back to Grab + PixelHash so the hash stays consistent with GrabFullHash.
+func (b *KWinShotBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect.Empty() {
+		return b.GrabFullHash(ctx)
+	}
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return 0, err
+	}
+	return find.PixelHash(img, nil), nil
+}
+
+func (t *kwinDBusTransport) CaptureArea(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	if rect.Empty() {
 		return nil, fmt.Errorf("screen/kwin: empty rectangle")
+	}
+	return t.capture(ctx, kwinShotIface+".CaptureArea", rect,
+		int32(rect.Min.X), int32(rect.Min.Y),
+		uint32(rect.Dx()), uint32(rect.Dy()),
+	)
+}
+
+func (t *kwinDBusTransport) CaptureActiveScreen(ctx context.Context) (image.Image, error) {
+	return t.capture(ctx, kwinShotIface+".CaptureActiveScreen", image.Rectangle{})
+}
+
+func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect image.Rectangle, args ...interface{}) (image.Image, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screen/kwin: capture canceled: %w", err)
 	}
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -107,22 +139,17 @@ func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image
 	}
 	defer r.Close()
 
+	callArgs := append(args, map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
 	var results map[string]dbus.Variant
-	call := b.kwin.Call(kwinShotIface+".CaptureArea", 0,
-		int32(rect.Min.X), int32(rect.Min.Y),
-		uint32(rect.Dx()), uint32(rect.Dy()),
-		map[string]dbus.Variant{}, // options: use defaults
-		dbus.UnixFD(w.Fd()),
-	)
+	call := t.kwin.Call(method, 0, callArgs...)
 	// Close our copy now; KWin received its own via SCM_RIGHTS and has already
 	// written + closed its copy by the time Call() returns (it's synchronous).
 	w.Close()
 
 	if call.Err != nil {
-		return nil, fmt.Errorf("screen/kwin: CaptureArea: %w", call.Err)
+		return nil, fmt.Errorf("screen/kwin: %s: %w", method, call.Err)
 	}
-	err = call.Store(&results)
-	if err != nil {
+	if err := call.Store(&results); err != nil {
 		return nil, fmt.Errorf("screen/kwin: store results: %w", err)
 	}
 
@@ -146,7 +173,7 @@ func decodeKWinPixels(data []byte, rect image.Rectangle, results map[string]dbus
 		return img, nil
 	}
 
-	w, h := rect.Dx(), rect.Dy()
+	w, h := kwinImageSize(rect, results)
 	stride := w * 4
 	if sv, ok := results["stride"]; ok {
 		if s, ok := sv.Value().(uint32); ok && s > 0 {
@@ -181,6 +208,34 @@ func decodeKWinPixels(data []byte, rect image.Rectangle, results map[string]dbus
 		}
 	}
 	return img, nil
+}
+
+func kwinImageSize(rect image.Rectangle, results map[string]dbus.Variant) (w, h int) {
+	w, h = rect.Dx(), rect.Dy()
+	if results == nil {
+		return w, h
+	}
+	if sv, ok := results["width"]; ok {
+		if s, ok := sv.Value().(uint32); ok && s > 0 {
+			w = int(s)
+		}
+	}
+	if sv, ok := results["height"]; ok {
+		if s, ok := sv.Value().(uint32); ok && s > 0 {
+			h = int(s)
+		}
+	}
+	return w, h
+}
+
+// Resolution returns the active screen dimensions.
+func (b *KWinShotBackend) Resolution() (int, int, error) {
+	img, err := b.Grab(context.Background(), image.Rectangle{})
+	if err != nil {
+		return 0, 0, err
+	}
+	bounds := img.Bounds()
+	return bounds.Dx(), bounds.Dy(), nil
 }
 
 // Close is a no-op; the session bus connection is shared and managed globally.

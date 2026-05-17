@@ -176,7 +176,11 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 	var hash uint32
 	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
 		// Crop rect to the buffer bounds.
-		r := rect.Intersect(image.Rect(0, 0, w, h))
+		scale := int(b.outputScale)
+		if scale <= 0 {
+			scale = 1
+		}
+		r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, w, h))
 		if r.Empty() {
 			hash = 0
 			return nil
@@ -212,7 +216,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		if scale <= 0 {
 			scale = 1
 		}
-		phys := image.Rect(rect.Min.X*scale, rect.Min.Y*scale, rect.Max.X*scale, rect.Max.Y*scale)
+		phys := logicalRectToPhysical(rect, scale)
 		outImg = decodeBGRARect(pixels, w, h, stride, phys)
 		return nil
 	}); err != nil {

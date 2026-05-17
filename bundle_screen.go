@@ -162,7 +162,9 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 	if err != nil {
 		return 0, err
 	}
-	action()
+	if action != nil {
+		action()
+	}
 	changed, err := find.WaitForChange(ctx, s.Screenshotter, rect, before, poll, nil)
 	if err != nil {
 		return 0, err

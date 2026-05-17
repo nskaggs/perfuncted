@@ -175,6 +175,31 @@ func TestScreenBundle_WaitForNoChangeFrom(t *testing.T) {
 	}
 }
 
+func TestScreenBundle_WaitForSettleNilAction(t *testing.T) {
+	red := solidRedImage(4, 4)
+	blue := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			blue.SetRGBA(x, y, color.RGBA{B: 255, A: 255})
+		}
+	}
+
+	sc := &pftest.Screenshotter{Frames: []image.Image{red, blue, blue, blue}}
+	pf := newTestPF(sc)
+	defer pf.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 4, 4), nil, 2, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitForSettle(nil): %v", err)
+	}
+	if h == 0 {
+		t.Fatal("WaitForSettle(nil): returned zero hash")
+	}
+}
+
 func TestScreenBundle_FindColor(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	// Place a blue pixel at (5, 5).

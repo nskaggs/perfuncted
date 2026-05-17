@@ -334,7 +334,12 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 			return nil
 		}
 
-		outImg = decodeBGRARect(pixels, int(bi.width), int(bi.height), int(bi.stride), rect)
+		scale := int(b.scale)
+		if scale <= 0 {
+			scale = 1
+		}
+		phys := logicalRectToPhysical(rect, scale)
+		outImg = decodeBGRARect(pixels, int(bi.width), int(bi.height), int(bi.stride), phys)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -583,7 +588,11 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 		// BGRA bytes using the stride.
 		fullW := int(bi.width)
 		fullH := int(bi.height)
-		r := rect.Intersect(image.Rect(0, 0, fullW, fullH))
+		scale := int(b.scale)
+		if scale <= 0 {
+			scale = 1
+		}
+		r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, fullW, fullH))
 		if r.Empty() {
 			hash = 0
 			return nil
