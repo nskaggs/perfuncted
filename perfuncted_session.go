@@ -34,7 +34,8 @@ type SessionConfig struct {
 	// embedded headless.conf is written to the temp dir and used.
 	SwayConfigPath string
 
-	// LogDir is the directory for sway log output. Defaults to /tmp/perfuncted-logs.
+	// LogDir is the directory for sway log output. Defaults to
+	// filepath.Join(os.TempDir(), "perfuncted-logs").
 	LogDir string
 }
 
@@ -129,7 +130,7 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 		cfg.Resolution = image.Pt(1024, 768)
 	}
 	if cfg.LogDir == "" {
-		cfg.LogDir = "/tmp/perfuncted-logs"
+		cfg.LogDir = filepath.Join(os.TempDir(), "perfuncted-logs")
 	}
 	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
 		return nil, fmt.Errorf("session: mkdir logs: %w", err)
@@ -228,6 +229,9 @@ func (s *Session) XDGRuntimeDir() string { return s.xdgDir }
 
 // WaylandDisplay returns the Wayland display name (e.g. "wayland-1").
 func (s *Session) WaylandDisplay() string { return s.wlDisplay }
+
+// SwayPID returns the PID of the sway process backing the session.
+func (s *Session) SwayPID() int { return s.swayPid }
 
 // DBusAddress returns the D-Bus session bus address.
 func (s *Session) DBusAddress() string { return s.dbusAddr }

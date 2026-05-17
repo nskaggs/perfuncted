@@ -15,7 +15,6 @@ import (
 	"image/png"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +26,7 @@ import (
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	"github.com/nskaggs/perfuncted/internal/wl"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -284,11 +284,15 @@ func sessionCmd() *cobra.Command {
 			if wd == "" {
 				fmt.Fprintln(out, "  [✗] WAYLAND_DISPLAY is not set")
 			} else {
-				sock := filepath.Join(xdg, wd)
-				if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
-					fmt.Fprintf(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd)
+				sock := wl.ResolveSocketPath(wd, xdg)
+				if sock == "" {
+					fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket unresolved without XDG_RUNTIME_DIR)\n", wd)
 				} else {
-					fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing at %s)\n", wd, sock)
+					if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
+						fmt.Fprintf(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd)
+					} else {
+						fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing at %s)\n", wd, sock)
+					}
 				}
 			}
 
@@ -338,7 +342,7 @@ Use the printed env vars in another terminal to connect:
 			fmt.Printf("export XDG_RUNTIME_DIR=%s\n", sess.XDGRuntimeDir())
 			fmt.Printf("export WAYLAND_DISPLAY=%s\n", sess.WaylandDisplay())
 			fmt.Printf("export DBUS_SESSION_BUS_ADDRESS=%s\n", sess.DBusAddress())
-			fmt.Fprintf(os.Stderr, "session: running (XDG=%s, pid sway=%d)\n", sess.XDGRuntimeDir(), os.Getpid())
+			fmt.Fprintf(os.Stderr, "session: running (XDG=%s, pid sway=%d)\n", sess.XDGRuntimeDir(), sess.SwayPID())
 			fmt.Fprintf(os.Stderr, "session: press Ctrl+C to stop\n")
 
 			<-cmd.Context().Done()
