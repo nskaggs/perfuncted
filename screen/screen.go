@@ -70,6 +70,9 @@ func Open() (Screenshotter, error) {
 
 // OpenRuntime returns the best available Screenshotter for rt.
 func OpenRuntime(rt env.Runtime) (Screenshotter, error) {
+	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
+		return NewX11Backend(display)
+	}
 	switch compositor.DetectRuntime(rt) {
 	case compositor.KDE:
 		if b, err := NewKWinShotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
@@ -120,6 +123,9 @@ func OpenRuntime(rt env.Runtime) (Screenshotter, error) {
 		}
 		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
+		}
+		if display := rt.Display(); display != "" {
+			return NewX11Backend(display)
 		}
 		return nil, fmt.Errorf("screen: unsupported Wayland compositor")
 	}

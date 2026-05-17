@@ -87,6 +87,9 @@ func Open() (Manager, error) {
 
 // OpenRuntime returns the best available Manager for rt.
 func OpenRuntime(rt env.Runtime) (Manager, error) {
+	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
+		return NewX11Backend(display)
+	}
 	switch compositor.DetectRuntime(rt) {
 	case compositor.KDE:
 		m, err := NewKWinScriptManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
@@ -115,6 +118,9 @@ func OpenRuntime(rt env.Runtime) (Manager, error) {
 	case compositor.Unknown:
 		if m, err := NewWaylandWindowManagerForSocket(rt.SocketPath()); err == nil {
 			return m, nil
+		}
+		if display := rt.Display(); display != "" {
+			return NewX11Backend(display)
 		}
 		return nil, fmt.Errorf("window: unsupported Wayland compositor")
 
