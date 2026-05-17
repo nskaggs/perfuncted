@@ -16,10 +16,10 @@ func clampPoll(poll time.Duration) time.Duration {
 
 // Find returns the first window matching match.
 func Find(ctx context.Context, m Manager, match Match) (Info, error) {
-	return find(ctx, m, match, match.String())
+	return find(ctx, m, CompileMatch(match), match.String())
 }
 
-func find(ctx context.Context, m Manager, match Match, label string) (Info, error) {
+func find(ctx context.Context, m Manager, match Matcher, label string) (Info, error) {
 	for w, err := range m.IterateWindows(ctx) {
 		if err != nil {
 			return Info{}, err
@@ -34,7 +34,7 @@ func find(ctx context.Context, m Manager, match Match, label string) (Info, erro
 // FindByTitle returns the first window whose title contains substr
 // (case-insensitive). Error messages are standardized for callers.
 func FindByTitle(ctx context.Context, m Manager, substr string) (Info, error) {
-	return find(ctx, m, Match{TitleContains: substr}, substr)
+	return find(ctx, m, CompileMatch(Match{TitleContains: substr}), substr)
 }
 
 // WaitFor blocks until a window matching pattern is found, or ctx expires.
@@ -44,14 +44,16 @@ func WaitFor(ctx context.Context, m Manager, pattern string, poll time.Duration)
 
 // WaitForMatch blocks until a window matching match is found, or ctx expires.
 func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duration) (Info, error) {
+	compiled := CompileMatch(match)
+	label := match.String()
 	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return Info{}, fmt.Errorf("wait for window %q: %w", match.String(), err)
+			return Info{}, fmt.Errorf("wait for window %q: %w", label, err)
 		}
-		info, err := Find(ctx, m, match)
+		info, err := find(ctx, m, compiled, label)
 		if err == nil {
 			return info, nil
 		}
@@ -60,7 +62,7 @@ func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duratio
 		}
 		select {
 		case <-ctx.Done():
-			return Info{}, fmt.Errorf("wait for window %q: %w", match.String(), ctx.Err())
+			return Info{}, fmt.Errorf("wait for window %q: %w", label, ctx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -73,14 +75,16 @@ func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Dura
 
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
+	compiled := CompileMatch(match)
+	label := match.String()
 	ticker := time.NewTicker(clampPoll(poll))
 	defer ticker.Stop()
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("wait for window close %q: %w", match.String(), err)
+			return fmt.Errorf("wait for window close %q: %w", label, err)
 		}
-		_, err := Find(ctx, m, match)
+		_, err := find(ctx, m, compiled, label)
 		if err != nil {
 			// Only a true "window not found" result means the window closed
 			// successfully. Any other error (I/O failure, context cancellation)
@@ -93,7 +97,7 @@ func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Du
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for window close %q: %w", match.String(), ctx.Err())
+			return fmt.Errorf("wait for window close %q: %w", label, ctx.Err())
 		case <-ticker.C:
 		}
 	}

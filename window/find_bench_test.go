@@ -15,6 +15,16 @@ func BenchmarkMatchMatches_TitleContains(b *testing.B) {
 	}
 }
 
+func BenchmarkMatcherMatches_TitleContains(b *testing.B) {
+	info := Info{ID: 1, Title: "Firefox Web Browser", AppID: "org.mozilla.firefox", Active: true}
+	matcher := CompileMatch(Match{TitleContains: "firefox"})
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = matcher.Matches(info)
+	}
+}
+
 func BenchmarkMatchMatches_TitleExact(b *testing.B) {
 	info := Info{ID: 1, Title: "Firefox Web Browser", AppID: "org.mozilla.firefox"}
 	m := Match{TitleExact: "firefox web browser"}

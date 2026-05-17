@@ -393,6 +393,32 @@ func TestMatch_Matches_EmptyMatchAll(t *testing.T) {
 	}
 }
 
+func TestCompileMatch_Matches(t *testing.T) {
+	active := true
+	info := Info{
+		ID:        7,
+		Title:     "Exact Title",
+		AppID:     "org.example",
+		Class:     "Example",
+		PID:       42,
+		Active:    true,
+		Minimized: false,
+	}
+	match := Match{
+		TitleContains: "exact",
+		AppID:         "org.example",
+		Class:         "example",
+		Active:        &active,
+	}
+	compiled := CompileMatch(match)
+	if !compiled.Matches(info) {
+		t.Fatal("compiled matcher should match the same window as Match.Matches")
+	}
+	if !match.Matches(info) {
+		t.Fatal("Match.Matches should match the same window")
+	}
+}
+
 // ── Match.String — all fields ─────────────────────────────────────────────────
 
 func TestMatchString_AllFields(t *testing.T) {
