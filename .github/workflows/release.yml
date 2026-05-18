@@ -30,3 +30,31 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak
+
+      - name: Build Flatpak bundle
+        env:
+          CGO_ENABLED: "0"
+        run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
+
+      - name: Attach Flatpak bundle to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" dist/flatpak/perfuncted.flatpak --clobber
+
+      - name: Generate GitHub release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES=$(gh api -X POST \
+            /repos/${{ github.repository }}/releases/generate-notes \
+            -f tag_name="${{ github.ref_name }}" \
+            -q .body)
+          RELEASE_ID=$(gh api /repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} -q .id)
+          gh api -X PATCH /repos/${{ github.repository }}/releases/$RELEASE_ID \
+            -F body="$NOTES"
