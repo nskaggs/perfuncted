@@ -729,6 +729,61 @@ func TestOutputListInfoAndRun(t *testing.T) {
 	})
 }
 
+func TestClipboardCommands(t *testing.T) {
+	t.Run("clipboard get", func(t *testing.T) {
+		cb := &pftest.Clipboard{Text: "clipboard text"}
+		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "get"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, nil, cb), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if stdout != "clipboard text" {
+			t.Fatalf("stdout = %q, want clipboard text", stdout)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+	})
+
+	t.Run("clipboard set", func(t *testing.T) {
+		cb := &pftest.Clipboard{}
+		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "set", "new text"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, nil, cb), nil
+			}
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+		}
+		if stdout != "" || stderr != "" {
+			t.Fatalf("stdout=%q stderr=%q, want both empty", stdout, stderr)
+		}
+		if cb.Text != "new text" {
+			t.Fatalf("clipboard text = %q, want new text", cb.Text)
+		}
+	})
+
+	t.Run("clipboard set requires argument", func(t *testing.T) {
+		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "set"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+			return func() (*perfuncted.Perfuncted, error) {
+				return pftest.New(nil, nil, nil, &pftest.Clipboard{}), nil
+			}
+		})
+		if code == 0 {
+			t.Fatalf("exit code = 0, want non-zero; stdout=%q stderr=%q", stdout, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+		if !strings.Contains(stderr, "accepts 1 arg") {
+			t.Fatalf("stderr = %q, want argument count error", stderr)
+		}
+	})
+}
+
 func TestInfoSessionAndDocsCommands(t *testing.T) {
 	t.Run("info invalid output", func(t *testing.T) {
 		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "bogus"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
