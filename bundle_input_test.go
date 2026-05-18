@@ -4,10 +4,51 @@ import (
 	"context"
 	"errors"
 	"image"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/window"
 )
+
+type inputPointerSyncSpy struct {
+	pftest.Inputter
+	pointerCalls int
+	syncCalls    int
+}
+
+func (s *inputPointerSyncSpy) PointerLocation(context.Context) (int, int, error) {
+	s.pointerCalls++
+	return 42, 24, nil
+}
+
+func (s *inputPointerSyncSpy) Sync(context.Context) error {
+	s.syncCalls++
+	return nil
+}
+
+type windowSpyManager struct {
+	pftest.Manager
+	moveCalls  []string
+	closeCalls []string
+	syncCalls  int
+}
+
+func (m *windowSpyManager) Move(ctx context.Context, title string, x, y int) error {
+	m.moveCalls = append(m.moveCalls, fmt.Sprintf("%s:%d,%d", title, x, y))
+	return nil
+}
+
+func (m *windowSpyManager) CloseWindow(ctx context.Context, title string) error {
+	m.closeCalls = append(m.closeCalls, title)
+	return nil
+}
+
+func (m *windowSpyManager) Sync(ctx context.Context) error {
+	m.syncCalls++
+	return nil
+}
 
 func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
 	inp := &pftest.Inputter{}
@@ -279,5 +320,96 @@ func TestInputBundleDragAndDropNilContext(t *testing.T) {
 	err := pf.Input.DragAndDrop(nil, 10, 20, 30, 40)
 	if !errors.Is(err, boom) {
 		t.Fatalf("DragAndDrop(nil) error = %v, want %v", err, boom)
+	}
+}
+
+func TestInputBundleMouseMoveDownUpPointerLocationAndSync(t *testing.T) {
+	spy := &inputPointerSyncSpy{}
+	pf := pftest.New(nil, spy, nil, nil)
+	ctx := context.Background()
+
+	if err := pf.Input.MouseMove(ctx, 10, 20); err != nil {
+		t.Fatalf("MouseMove: %v", err)
+	}
+	if err := pf.Input.MouseDown(ctx, 1); err != nil {
+		t.Fatalf("MouseDown: %v", err)
+	}
+	if err := pf.Input.MouseUp(ctx, 1); err != nil {
+		t.Fatalf("MouseUp: %v", err)
+	}
+	x, y, err := pf.Input.PointerLocation(ctx)
+	if err != nil {
+		t.Fatalf("PointerLocation: %v", err)
+	}
+	if err := pf.Input.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	wantCalls := []string{"move:10,20", "mousedown", "mouseup"}
+	if len(spy.Calls) != len(wantCalls) {
+		t.Fatalf("calls = %v, want %v", spy.Calls, wantCalls)
+	}
+	for i, want := range wantCalls {
+		if spy.Calls[i] != want {
+			t.Fatalf("call %d = %q, want %q", i, spy.Calls[i], want)
+		}
+	}
+	if x != 42 || y != 24 {
+		t.Fatalf("PointerLocation = (%d,%d), want (42,24)", x, y)
+	}
+	if spy.pointerCalls != 1 || spy.syncCalls != 1 {
+		t.Fatalf("pointerCalls=%d syncCalls=%d, want 1/1", spy.pointerCalls, spy.syncCalls)
+	}
+}
+
+func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
+	mgr := &windowSpyManager{
+		Manager: pftest.Manager{
+			Titles: []string{"Firefox"},
+			Lists: [][]window.Info{
+				{{ID: 1, Title: "Firefox"}},
+				{},
+			},
+		},
+	}
+	pf := pftest.New(nil, nil, mgr, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	title, err := pf.Window.ActiveTitle(ctx)
+	if err != nil {
+		t.Fatalf("ActiveTitle: %v", err)
+	}
+	if title != "Firefox" {
+		t.Fatalf("ActiveTitle = %q, want Firefox", title)
+	}
+	win, err := pf.Window.WaitForWindow(ctx, "Firefox", time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitForWindow: %v", err)
+	}
+	if win.Title != "Firefox" {
+		t.Fatalf("WaitForWindow title = %q, want Firefox", win.Title)
+	}
+	if err := pf.Window.WaitForClose(ctx, "Firefox", time.Millisecond); err != nil {
+		t.Fatalf("WaitForClose: %v", err)
+	}
+	if err := pf.Window.Move(ctx, "Firefox", 10, 20); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if err := pf.Window.CloseWindow(ctx, "Firefox"); err != nil {
+		t.Fatalf("CloseWindow: %v", err)
+	}
+	if err := pf.Window.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if len(mgr.moveCalls) != 1 || mgr.moveCalls[0] != "Firefox:10,20" {
+		t.Fatalf("moveCalls = %v, want [Firefox:10,20]", mgr.moveCalls)
+	}
+	if len(mgr.closeCalls) != 1 || mgr.closeCalls[0] != "Firefox" {
+		t.Fatalf("closeCalls = %v, want [Firefox]", mgr.closeCalls)
+	}
+	if mgr.syncCalls != 1 {
+		t.Fatalf("syncCalls = %d, want 1", mgr.syncCalls)
 	}
 }
