@@ -245,10 +245,10 @@ func TestOpenRuntimePrefersXTestOnX11(t *testing.T) {
 
 func TestCheckWlInputMethodWithGlobs(t *testing.T) {
 	tests := []struct {
-		name    string
-		globs   map[string]bool
-		want    bool
-		wantRe  string
+		name   string
+		globs  map[string]bool
+		want   bool
+		wantRe string
 	}{
 		{
 			name:   "nil",
@@ -290,10 +290,10 @@ func TestCheckWlInputMethodWithGlobs(t *testing.T) {
 
 func TestCheckWlVirtualWithGlobs(t *testing.T) {
 	tests := []struct {
-		name    string
-		globs   map[string]bool
-		want    bool
-		wantRe  string
+		name   string
+		globs  map[string]bool
+		want   bool
+		wantRe string
 	}{
 		{
 			name:   "nil",

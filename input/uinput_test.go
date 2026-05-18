@@ -60,8 +60,8 @@ func (t *recordingTouchPad) RightRelease() error {
 	t.record("right-release")
 	return nil
 }
-func (t *recordingTouchPad) TouchDown() error { t.record("touch-down"); return nil }
-func (t *recordingTouchPad) TouchUp() error   { t.record("touch-up"); return nil }
+func (t *recordingTouchPad) TouchDown() error              { t.record("touch-down"); return nil }
+func (t *recordingTouchPad) TouchUp() error                { t.record("touch-up"); return nil }
 func (t *recordingTouchPad) FetchSyspath() (string, error) { return "", nil }
 func (t *recordingTouchPad) Close() error                  { t.record("close"); return t.closeErr }
 
@@ -73,20 +73,35 @@ type recordingMouse struct {
 }
 
 func (m *recordingMouse) record(s string) { m.events = append(m.events, s) }
-func (m *recordingMouse) MoveLeft(pixel int32) error  { m.record(fmt.Sprintf("move-left:%d", pixel)); return nil }
-func (m *recordingMouse) MoveRight(pixel int32) error { m.record(fmt.Sprintf("move-right:%d", pixel)); return nil }
-func (m *recordingMouse) MoveUp(pixel int32) error    { m.record(fmt.Sprintf("move-up:%d", pixel)); return nil }
-func (m *recordingMouse) MoveDown(pixel int32) error  { m.record(fmt.Sprintf("move-down:%d", pixel)); return nil }
-func (m *recordingMouse) Move(x, y int32) error       { m.record(fmt.Sprintf("move:%d,%d", x, y)); return nil }
-func (m *recordingMouse) LeftClick() error            { m.record("left-click"); return nil }
-func (m *recordingMouse) RightClick() error           { m.record("right-click"); return nil }
-func (m *recordingMouse) MiddleClick() error          { m.record("middle-click"); return nil }
-func (m *recordingMouse) LeftPress() error            { m.record("left-press"); return nil }
-func (m *recordingMouse) LeftRelease() error          { m.record("left-release"); return nil }
-func (m *recordingMouse) RightPress() error           { m.record("right-press"); return nil }
-func (m *recordingMouse) RightRelease() error         { m.record("right-release"); return nil }
-func (m *recordingMouse) MiddlePress() error          { m.record("middle-press"); return nil }
-func (m *recordingMouse) MiddleRelease() error        { m.record("middle-release"); return nil }
+func (m *recordingMouse) MoveLeft(pixel int32) error {
+	m.record(fmt.Sprintf("move-left:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) MoveRight(pixel int32) error {
+	m.record(fmt.Sprintf("move-right:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) MoveUp(pixel int32) error {
+	m.record(fmt.Sprintf("move-up:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) MoveDown(pixel int32) error {
+	m.record(fmt.Sprintf("move-down:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) Move(x, y int32) error {
+	m.record(fmt.Sprintf("move:%d,%d", x, y))
+	return nil
+}
+func (m *recordingMouse) LeftClick() error     { m.record("left-click"); return nil }
+func (m *recordingMouse) RightClick() error    { m.record("right-click"); return nil }
+func (m *recordingMouse) MiddleClick() error   { m.record("middle-click"); return nil }
+func (m *recordingMouse) LeftPress() error     { m.record("left-press"); return nil }
+func (m *recordingMouse) LeftRelease() error   { m.record("left-release"); return nil }
+func (m *recordingMouse) RightPress() error    { m.record("right-press"); return nil }
+func (m *recordingMouse) RightRelease() error  { m.record("right-release"); return nil }
+func (m *recordingMouse) MiddlePress() error   { m.record("middle-press"); return nil }
+func (m *recordingMouse) MiddleRelease() error { m.record("middle-release"); return nil }
 func (m *recordingMouse) Wheel(horizontal bool, delta int32) error {
 	m.record(fmt.Sprintf("wheel:%t:%d", horizontal, delta))
 	return nil

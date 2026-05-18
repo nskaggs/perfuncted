@@ -3,8 +3,8 @@ package perfuncted_test
 import (
 	"context"
 	"errors"
-	"image"
 	"fmt"
+	"image"
 	"testing"
 	"time"
 
