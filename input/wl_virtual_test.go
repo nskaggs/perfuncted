@@ -4,8 +4,15 @@
 package input
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -85,6 +92,202 @@ func TestScroll_SignConvention(t *testing.T) {
 	downValue := int32(3 * 15 * 256)
 	if downValue != 11520 {
 		t.Errorf("3 notches down = %d, want 11520", downValue)
+	}
+}
+
+func newCapturedWlVirtualBackend(t *testing.T) (*WlVirtualBackend, *net.UnixConn) {
+	t.Helper()
+	sock := filepath.Join(os.TempDir(), fmt.Sprintf("pf-wl-%d.sock", time.Now().UnixNano()))
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+
+	accepted := make(chan *net.UnixConn, 1)
+	acceptErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.AcceptUnix()
+		if err != nil {
+			acceptErr <- err
+			return
+		}
+		accepted <- conn
+	}()
+
+	ctx, err := wl.Connect(sock)
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("Connect: %v", err)
+	}
+
+	var serverConn *net.UnixConn
+	select {
+	case serverConn = <-accepted:
+	case err := <-acceptErr:
+		_ = listener.Close()
+		_ = ctx.Close()
+		t.Fatalf("AcceptUnix: %v", err)
+	case <-time.After(time.Second):
+		_ = listener.Close()
+		_ = ctx.Close()
+		t.Fatal("AcceptUnix timed out")
+	}
+
+	b := &WlVirtualBackend{
+		display: wl.NewDisplay(ctx),
+		ptr:     &wl.RawProxy{},
+		outW:    1920,
+		outH:    1080,
+	}
+	b.ptr.SetID(7)
+
+	t.Cleanup(func() {
+		_ = ctx.Close()
+		_ = serverConn.Close()
+		_ = listener.Close()
+		_ = os.Remove(sock)
+	})
+
+	return b, serverConn
+}
+
+func readCapturedWlWrites(t *testing.T, conn *net.UnixConn) [][]byte {
+	t.Helper()
+	var buf bytes.Buffer
+	scratch := make([]byte, 4096)
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		n, err := conn.Read(scratch)
+		if n > 0 {
+			buf.Write(scratch[:n])
+			continue
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				break
+			}
+			t.Fatalf("read captured writes: %v", err)
+		} else {
+			break
+		}
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+	data := buf.Bytes()
+	var msgs [][]byte
+	for len(data) > 0 {
+		if len(data) < 8 {
+			t.Fatalf("captured truncated message: %d bytes", len(data))
+		}
+		size := int(wl.Uint32(data[4:8]) >> 16)
+		if size < 8 || size > len(data) {
+			t.Fatalf("invalid Wayland message size %d (remaining=%d)", size, len(data))
+		}
+		msgs = append(msgs, append([]byte(nil), data[:size]...))
+		data = data[size:]
+	}
+	return msgs
+}
+
+func TestWlVirtualBackend_MouseMoveWritesMotionAndFrame(t *testing.T) {
+	b, conn := newCapturedWlVirtualBackend(t)
+
+	if err := b.MouseMove(context.Background(), 123, 456); err != nil {
+		t.Fatalf("MouseMove: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	msgs := readCapturedWlWrites(t, conn)
+	if len(msgs) != 2 {
+		t.Fatalf("writes = %d, want 2", len(msgs))
+	}
+	first := msgs[0]
+	if got := wl.Uint32(first[0:4]); got != 7 {
+		t.Fatalf("sender id = %d, want 7", got)
+	}
+	if got := wl.Uint32(first[4:8]) & 0xffff; got != 1 {
+		t.Fatalf("opcode = %d, want motion_absolute", got)
+	}
+	if got := wl.Uint32(first[12:16]); got != 123 || wl.Uint32(first[16:20]) != 456 {
+		t.Fatalf("motion coords = (%d,%d), want (123,456)", wl.Uint32(first[12:16]), wl.Uint32(first[16:20]))
+	}
+	if got := wl.Uint32(first[20:24]); got != 1920 || wl.Uint32(first[24:28]) != 1080 {
+		t.Fatalf("motion size = (%d,%d), want (1920,1080)", wl.Uint32(first[20:24]), wl.Uint32(first[24:28]))
+	}
+	second := msgs[1]
+	if got := wl.Uint32(second[4:8]) & 0xffff; got != 4 {
+		t.Fatalf("frame opcode = %d, want 4", got)
+	}
+}
+
+func TestWlVirtualBackend_MouseClickWritesSequence(t *testing.T) {
+	b, conn := newCapturedWlVirtualBackend(t)
+
+	if err := b.MouseClick(context.Background(), 10, 20, 1); err != nil {
+		t.Fatalf("MouseClick: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	msgs := readCapturedWlWrites(t, conn)
+	if len(msgs) != 6 {
+		t.Fatalf("writes = %d, want 6", len(msgs))
+	}
+	if got := wl.Uint32(msgs[0][4:8]) & 0xffff; got != 1 {
+		t.Fatalf("first opcode = %d, want motion_absolute", got)
+	}
+	if got := wl.Uint32(msgs[2][4:8]) & 0xffff; got != 2 {
+		t.Fatalf("third opcode = %d, want button", got)
+	}
+	if got := wl.Uint32(msgs[4][4:8]) & 0xffff; got != 2 {
+		t.Fatalf("fifth opcode = %d, want button release", got)
+	}
+}
+
+func TestWlVirtualBackend_ScrollWritesAxis(t *testing.T) {
+	b, conn := newCapturedWlVirtualBackend(t)
+
+	if err := b.ScrollRight(context.Background(), 2); err != nil {
+		t.Fatalf("ScrollRight: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	msgs := readCapturedWlWrites(t, conn)
+	if len(msgs) != 2 {
+		t.Fatalf("writes = %d, want 2", len(msgs))
+	}
+	first := msgs[0]
+	if got := wl.Uint32(first[4:8]) & 0xffff; got != 3 {
+		t.Fatalf("opcode = %d, want axis", got)
+	}
+	if got := int32(wl.Uint32(first[16:20])); got != 2*15*256 {
+		t.Fatalf("scroll value = %d, want %d", got, 2*15*256)
+	}
+	second := msgs[1]
+	if got := wl.Uint32(second[4:8]) & 0xffff; got != 4 {
+		t.Fatalf("frame opcode = %d, want 4", got)
+	}
+}
+
+func TestWlVirtualBackend_PointerLocationUnsupported(t *testing.T) {
+	b := &WlVirtualBackend{}
+	if _, _, err := b.PointerLocation(context.Background()); err == nil {
+		t.Fatal("PointerLocation succeeded unexpectedly")
+	}
+}
+
+func TestWlVirtualBackend_CloseUsesDisplayContextWhenSessionMissing(t *testing.T) {
+	b, conn := newCapturedWlVirtualBackend(t)
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	msgs := readCapturedWlWrites(t, conn)
+	if len(msgs) != 0 {
+		t.Fatalf("close captured %d writes, want 0", len(msgs))
 	}
 }
 

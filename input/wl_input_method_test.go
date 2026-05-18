@@ -6,6 +6,7 @@ package input
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -112,12 +113,148 @@ func TestWlInputMethodBackend_New_Unreachable(t *testing.T) {
 	t.Logf("got expected error: %v", err)
 }
 
-func TestWlInputMethodBackend_Delegate_NoOther(t *testing.T) {
-	// We can't easily construct a WlInputMethodBackend without a real connection,
-	// but we can verify the delegation pattern by checking that methods return
-	// errors when other is nil.
-	// This requires a real Wayland connection, so we just verify the error path.
-	t.Log("Delegation test requires real Wayland connection; skipping full test")
+type recordingOtherInputter struct {
+	Calls    []string
+	closed   bool
+	closeErr error
+}
+
+func (r *recordingOtherInputter) record(s string) { r.Calls = append(r.Calls, s) }
+func (r *recordingOtherInputter) KeyDown(ctx context.Context, key string) error {
+	r.record("down:" + key)
+	return nil
+}
+func (r *recordingOtherInputter) KeyUp(ctx context.Context, key string) error {
+	r.record("up:" + key)
+	return nil
+}
+func (r *recordingOtherInputter) Type(ctx context.Context, s string) error {
+	r.record("type:" + s)
+	return nil
+}
+func (r *recordingOtherInputter) MouseMove(ctx context.Context, x, y int) error {
+	r.record("move")
+	return nil
+}
+func (r *recordingOtherInputter) MouseClick(ctx context.Context, x, y, button int) error {
+	r.record("click")
+	return nil
+}
+func (r *recordingOtherInputter) MouseDown(ctx context.Context, button int) error {
+	r.record("mousedown")
+	return nil
+}
+func (r *recordingOtherInputter) MouseUp(ctx context.Context, button int) error {
+	r.record("mouseup")
+	return nil
+}
+func (r *recordingOtherInputter) ScrollUp(ctx context.Context, clicks int) error {
+	r.record("scroll-up")
+	return nil
+}
+func (r *recordingOtherInputter) ScrollDown(ctx context.Context, clicks int) error {
+	r.record("scroll-down")
+	return nil
+}
+func (r *recordingOtherInputter) ScrollLeft(ctx context.Context, clicks int) error {
+	r.record("scroll-left")
+	return nil
+}
+func (r *recordingOtherInputter) ScrollRight(ctx context.Context, clicks int) error {
+	r.record("scroll-right")
+	return nil
+}
+func (r *recordingOtherInputter) PointerLocation(ctx context.Context) (int, int, error) {
+	r.record("pointer")
+	return 42, 24, nil
+}
+func (r *recordingOtherInputter) Sync(ctx context.Context) error {
+	r.record("sync")
+	return nil
+}
+func (r *recordingOtherInputter) Close() error {
+	r.closed = true
+	r.record("close")
+	return r.closeErr
+}
+
+func TestWlInputMethodBackend_NoOtherReturnsUnsupported(t *testing.T) {
+	b := &WlInputMethodBackend{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "Type", run: func() error { return b.Type(ctx, "text") }},
+		{name: "KeyDown", run: func() error { return b.KeyDown(ctx, "a") }},
+		{name: "MouseMove", run: func() error { return b.MouseMove(ctx, 1, 2) }},
+		{name: "ScrollUp", run: func() error { return b.ScrollUp(ctx, 1) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.run()
+			if err == nil {
+				t.Fatalf("%s succeeded unexpectedly", tt.name)
+			}
+		})
+	}
+	x, y, err := b.PointerLocation(ctx)
+	if err == nil {
+		t.Fatal("PointerLocation succeeded unexpectedly")
+	}
+	if x != 0 || y != 0 {
+		t.Fatalf("PointerLocation = (%d,%d), want zeros", x, y)
+	}
+	if err := b.Sync(ctx); err != nil {
+		t.Fatalf("Sync without other backend = %v, want nil", err)
+	}
+}
+
+func TestWlInputMethodBackend_DelegatesToOther(t *testing.T) {
+	other := &recordingOtherInputter{}
+	b := &WlInputMethodBackend{other: other}
+	ctx := context.Background()
+
+	if err := b.Type(ctx, "hello"); err != nil {
+		t.Fatalf("Type: %v", err)
+	}
+	if err := b.KeyDown(ctx, "a"); err != nil {
+		t.Fatalf("KeyDown: %v", err)
+	}
+	if err := b.MouseMove(ctx, 10, 20); err != nil {
+		t.Fatalf("MouseMove: %v", err)
+	}
+	if err := b.ScrollRight(ctx, 3); err != nil {
+		t.Fatalf("ScrollRight: %v", err)
+	}
+	if err := b.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	want := []string{"type:hello", "down:a", "move", "scroll-right", "sync"}
+	if len(other.Calls) != len(want) {
+		t.Fatalf("calls = %v, want %v", other.Calls, want)
+	}
+	for i, exp := range want {
+		if other.Calls[i] != exp {
+			t.Fatalf("call %d = %q, want %q", i, other.Calls[i], exp)
+		}
+	}
+}
+
+func TestWlInputMethodBackend_CloseClosesOther(t *testing.T) {
+	closeErr := errors.New("other close failed")
+	other := &recordingOtherInputter{closeErr: closeErr}
+	b := &WlInputMethodBackend{other: other}
+
+	err := b.Close()
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("Close error = %v, want %v", err, closeErr)
+	}
+	if !other.closed {
+		t.Fatal("Close did not close subordinate backend")
+	}
 }
 
 func TestWlInputMethodBackend_CanceledContextShortCircuitsNoOther(t *testing.T) {

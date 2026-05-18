@@ -31,6 +31,20 @@ func newXTestMock(t *testing.T, keysyms []xproto.Keysym) (*XTestBackend, *x11.Mo
 	return b, mc
 }
 
+type closeSpyX11Connection struct {
+	x11.MockConnection
+	closed bool
+	synced bool
+}
+
+func (c *closeSpyX11Connection) Close() {
+	c.closed = true
+}
+
+func (c *closeSpyX11Connection) Sync() {
+	c.synced = true
+}
+
 func TestKeyDownMapsToFakeInput(t *testing.T) {
 	b, mc := newXTestMock(t, []xproto.Keysym{0x61}) // 'a'
 	if err := b.KeyDown(context.Background(), "a"); err != nil {
@@ -72,6 +86,157 @@ func TestMouseMoveUsesMotionNotify(t *testing.T) {
 	}
 }
 
+func TestMouseClickUsesMotionPressRelease(t *testing.T) {
+	b, mc := newXTestMock(t, nil)
+	b.delay = 0
+
+	var events []struct {
+		eventType byte
+		detail    byte
+	}
+	mc.FakeInputCheckedFunc = func(eventType, detail byte, _ uint32, _ xproto.Window, _, _ int16, _ byte) x11.XTestFakeInputCookie {
+		events = append(events, struct {
+			eventType byte
+			detail    byte
+		}{eventType: eventType, detail: detail})
+		return x11.NewMockXTestFakeInputCookie(nil)
+	}
+
+	if err := b.MouseClick(context.Background(), 11, 22, 1); err != nil {
+		t.Fatalf("MouseClick: %v", err)
+	}
+
+	want := []struct {
+		eventType byte
+		detail    byte
+	}{
+		{eventType: xproto.MotionNotify, detail: 0},
+		{eventType: xproto.ButtonPress, detail: 1},
+		{eventType: xproto.ButtonRelease, detail: 1},
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i, exp := range want {
+		if events[i] != exp {
+			t.Fatalf("event %d = %+v, want %+v", i, events[i], exp)
+		}
+	}
+}
+
+func TestScrollMethodsUseExpectedButtons(t *testing.T) {
+	b, mc := newXTestMock(t, nil)
+	var events []struct {
+		eventType byte
+		detail    byte
+	}
+	mc.FakeInputCheckedFunc = func(eventType, detail byte, _ uint32, _ xproto.Window, _, _ int16, _ byte) x11.XTestFakeInputCookie {
+		events = append(events, struct {
+			eventType byte
+			detail    byte
+		}{eventType: eventType, detail: detail})
+		return x11.NewMockXTestFakeInputCookie(nil)
+	}
+
+	tests := []struct {
+		name string
+		run  func() error
+		want byte
+	}{
+		{name: "ScrollUp", run: func() error { return b.ScrollUp(context.Background(), 1) }, want: 4},
+		{name: "ScrollDown", run: func() error { return b.ScrollDown(context.Background(), 1) }, want: 5},
+		{name: "ScrollLeft", run: func() error { return b.ScrollLeft(context.Background(), 1) }, want: 6},
+		{name: "ScrollRight", run: func() error { return b.ScrollRight(context.Background(), 1) }, want: 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events = events[:0]
+			if err := tt.run(); err != nil {
+				t.Fatalf("%s: %v", tt.name, err)
+			}
+			want := []struct {
+				eventType byte
+				detail    byte
+			}{
+				{eventType: xproto.ButtonPress, detail: tt.want},
+				{eventType: xproto.ButtonRelease, detail: tt.want},
+			}
+			if len(events) != len(want) {
+				t.Fatalf("events = %v, want %v", events, want)
+			}
+			for i, exp := range want {
+				if events[i] != exp {
+					t.Fatalf("event %d = %+v, want %+v", i, events[i], exp)
+				}
+			}
+		})
+	}
+}
+
+func TestPointerLocationReportsCurrentPosition(t *testing.T) {
+	b, mc := newXTestMock(t, nil)
+	mc.QueryPointerFunc = func(xproto.Window) x11.QueryPointerCookie {
+		return x11.NewMockQueryPointerCookie(&xproto.QueryPointerReply{
+			RootX: 321,
+			RootY: 654,
+		})
+	}
+
+	x, y, err := b.PointerLocation(context.Background())
+	if err != nil {
+		t.Fatalf("PointerLocation: %v", err)
+	}
+	if x != 321 || y != 654 {
+		t.Fatalf("PointerLocation = (%d,%d), want (321,654)", x, y)
+	}
+}
+
+func TestXTestBackend_CloseInvokesConnectionClose(t *testing.T) {
+	spy := &closeSpyX11Connection{}
+	spy.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
+	spy.SetupFunc = func() *xproto.SetupInfo { return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 8} }
+	spy.GetKeyboardMappingFunc = func(_ xproto.Keycode, _ byte) x11.GetKeyboardMappingCookie {
+		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
+			KeysymsPerKeycode: 1,
+			Keysyms:           []xproto.Keysym{0x61},
+		})
+	}
+
+	b, err := NewXTestBackendWithConn(spy)
+	if err != nil {
+		t.Fatalf("NewXTestBackendWithConn: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !spy.closed {
+		t.Fatal("Close did not close underlying connection")
+	}
+}
+
+func TestXTestBackend_SyncInvokesConnectionSync(t *testing.T) {
+	spy := &closeSpyX11Connection{}
+	spy.DefaultScreenFunc = func() *xproto.ScreenInfo { return &xproto.ScreenInfo{Root: xproto.Window(1)} }
+	spy.SetupFunc = func() *xproto.SetupInfo { return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 8} }
+	spy.GetKeyboardMappingFunc = func(_ xproto.Keycode, _ byte) x11.GetKeyboardMappingCookie {
+		return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
+			KeysymsPerKeycode: 1,
+			Keysyms:           []xproto.Keysym{0x61},
+		})
+	}
+
+	b, err := NewXTestBackendWithConn(spy)
+	if err != nil {
+		t.Fatalf("NewXTestBackendWithConn: %v", err)
+	}
+	if err := b.Sync(context.Background()); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if !spy.synced {
+		t.Fatal("Sync did not call underlying connection Sync")
+	}
+}
+
 func TestTypeCtrlA(t *testing.T) {
 	// Map ctrl (0xffe3=65507) and 'a' (0x61=97) each to separate keycodes.
 	mc := &x11.MockConnection{}
@@ -96,8 +261,8 @@ func TestTypeCtrlA(t *testing.T) {
 	}
 
 	// Type("{ctrl+a}") should press Ctrl, tap A, release Ctrl = 4 events
-	if err := b.TypeContext(context.Background(), "{ctrl+a}"); err != nil {
-		t.Fatalf("TypeContext: %v", err)
+	if err := b.Type(context.Background(), "{ctrl+a}"); err != nil {
+		t.Fatalf("Type: %v", err)
 	}
 	if len(events) != 4 {
 		t.Fatalf("expected 4 events, got %d: %v", len(events), events)

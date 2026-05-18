@@ -5,6 +5,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -12,7 +13,8 @@ import (
 )
 
 type recordingKeyboard struct {
-	events []string
+	events   []string
+	closeErr error
 }
 
 func (k *recordingKeyboard) KeyPress(key int) error {
@@ -32,9 +34,83 @@ func (k *recordingKeyboard) KeyUp(key int) error {
 
 func (k *recordingKeyboard) FetchSyspath() (string, error) { return "", nil }
 
-func (k *recordingKeyboard) Close() error { return nil }
+func (k *recordingKeyboard) Close() error { return k.closeErr }
 
 var _ uinput.Keyboard = (*recordingKeyboard)(nil)
+
+type recordingTouchPad struct {
+	events   []string
+	closeErr error
+}
+
+func (t *recordingTouchPad) record(s string) { t.events = append(t.events, s) }
+func (t *recordingTouchPad) MoveTo(x int32, y int32) error {
+	t.record(fmt.Sprintf("move:%d,%d", x, y))
+	return nil
+}
+func (t *recordingTouchPad) LeftClick() error  { t.record("left-click"); return nil }
+func (t *recordingTouchPad) RightClick() error { t.record("right-click"); return nil }
+func (t *recordingTouchPad) LeftPress() error  { t.record("left-press"); return nil }
+func (t *recordingTouchPad) LeftRelease() error {
+	t.record("left-release")
+	return nil
+}
+func (t *recordingTouchPad) RightPress() error { t.record("right-press"); return nil }
+func (t *recordingTouchPad) RightRelease() error {
+	t.record("right-release")
+	return nil
+}
+func (t *recordingTouchPad) TouchDown() error              { t.record("touch-down"); return nil }
+func (t *recordingTouchPad) TouchUp() error                { t.record("touch-up"); return nil }
+func (t *recordingTouchPad) FetchSyspath() (string, error) { return "", nil }
+func (t *recordingTouchPad) Close() error                  { t.record("close"); return t.closeErr }
+
+var _ uinput.TouchPad = (*recordingTouchPad)(nil)
+
+type recordingMouse struct {
+	events   []string
+	closeErr error
+}
+
+func (m *recordingMouse) record(s string) { m.events = append(m.events, s) }
+func (m *recordingMouse) MoveLeft(pixel int32) error {
+	m.record(fmt.Sprintf("move-left:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) MoveRight(pixel int32) error {
+	m.record(fmt.Sprintf("move-right:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) MoveUp(pixel int32) error {
+	m.record(fmt.Sprintf("move-up:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) MoveDown(pixel int32) error {
+	m.record(fmt.Sprintf("move-down:%d", pixel))
+	return nil
+}
+func (m *recordingMouse) Move(x, y int32) error {
+	m.record(fmt.Sprintf("move:%d,%d", x, y))
+	return nil
+}
+func (m *recordingMouse) LeftClick() error     { m.record("left-click"); return nil }
+func (m *recordingMouse) RightClick() error    { m.record("right-click"); return nil }
+func (m *recordingMouse) MiddleClick() error   { m.record("middle-click"); return nil }
+func (m *recordingMouse) LeftPress() error     { m.record("left-press"); return nil }
+func (m *recordingMouse) LeftRelease() error   { m.record("left-release"); return nil }
+func (m *recordingMouse) RightPress() error    { m.record("right-press"); return nil }
+func (m *recordingMouse) RightRelease() error  { m.record("right-release"); return nil }
+func (m *recordingMouse) MiddlePress() error   { m.record("middle-press"); return nil }
+func (m *recordingMouse) MiddleRelease() error { m.record("middle-release"); return nil }
+func (m *recordingMouse) Wheel(horizontal bool, delta int32) error {
+	m.record(fmt.Sprintf("wheel:%t:%d", horizontal, delta))
+	return nil
+}
+func (m *recordingMouse) FetchSyspath() (string, error) { return "", nil }
+func (m *recordingMouse) FetchSysPath() (string, error) { return "", nil }
+func (m *recordingMouse) Close() error                  { m.record("close"); return m.closeErr }
+
+var _ uinput.Mouse = (*recordingMouse)(nil)
 
 // newTestBackend creates a UinputBackend with a recording keyboard and the
 // QWERTY fallback rune map for tests that don't depend on kernel keymap probing.
@@ -47,11 +123,44 @@ func newTestBackend(t *testing.T) (*UinputBackend, *recordingKeyboard) {
 	}, kb
 }
 
+func newUinputActionBackend() (*UinputBackend, *recordingKeyboard, *recordingTouchPad, *recordingMouse) {
+	kb := &recordingKeyboard{}
+	tp := &recordingTouchPad{}
+	mouse := &recordingMouse{}
+	return &UinputBackend{
+		kb:         kb,
+		touchpad:   tp,
+		mouse:      mouse,
+		charToRune: qwertyRuneMap(),
+	}, kb, tp, mouse
+}
+
+func TestUinputKeyDownAndUp(t *testing.T) {
+	b, kb := newTestBackend(t)
+
+	if err := b.KeyDown(context.Background(), "a"); err != nil {
+		t.Fatalf("KeyDown: %v", err)
+	}
+	if err := b.KeyUp(context.Background(), "a"); err != nil {
+		t.Fatalf("KeyUp: %v", err)
+	}
+
+	want := []string{fmt.Sprintf("down:%d", uinput.KeyA), fmt.Sprintf("up:%d", uinput.KeyA)}
+	if len(kb.events) != len(want) {
+		t.Fatalf("events = %v, want %v", kb.events, want)
+	}
+	for i, exp := range want {
+		if kb.events[i] != exp {
+			t.Fatalf("event %d = %q, want %q", i, kb.events[i], exp)
+		}
+	}
+}
+
 func TestUinputTypeContextUppercaseUsesShift(t *testing.T) {
 	b, kb := newTestBackend(t)
 
-	if err := b.TypeContext(context.Background(), "A"); err != nil {
-		t.Fatalf("TypeContext: %v", err)
+	if err := b.Type(context.Background(), "A"); err != nil {
+		t.Fatalf("Type: %v", err)
 	}
 
 	want := []string{
@@ -174,6 +283,116 @@ func TestUinputTypeContextWithKeyCombo(t *testing.T) {
 		if kb.events[i] != event {
 			t.Fatalf("event %d = %q, want %q (all events: %v)", i, kb.events[i], event, kb.events)
 		}
+	}
+}
+
+func TestUinputMouseActionsAndScroll(t *testing.T) {
+	b, _, tp, mouse := newUinputActionBackend()
+
+	t.Run("MouseMove", func(t *testing.T) {
+		tp.events = nil
+		if err := b.MouseMove(context.Background(), 11, 22); err != nil {
+			t.Fatalf("MouseMove: %v", err)
+		}
+		want := []string{"move:11,22"}
+		if len(tp.events) != len(want) {
+			t.Fatalf("events = %v, want %v", tp.events, want)
+		}
+		for i, exp := range want {
+			if tp.events[i] != exp {
+				t.Fatalf("event %d = %q, want %q", i, tp.events[i], exp)
+			}
+		}
+	})
+
+	t.Run("MouseClick", func(t *testing.T) {
+		tp.events = nil
+		if err := b.MouseClick(context.Background(), 3, 4, 1); err != nil {
+			t.Fatalf("MouseClick: %v", err)
+		}
+		want := []string{"move:3,4", "left-press", "left-release"}
+		if len(tp.events) != len(want) {
+			t.Fatalf("events = %v, want %v", tp.events, want)
+		}
+		for i, exp := range want {
+			if tp.events[i] != exp {
+				t.Fatalf("event %d = %q, want %q", i, tp.events[i], exp)
+			}
+		}
+	})
+
+	t.Run("MouseButtons", func(t *testing.T) {
+		tp.events = nil
+		mouse.events = nil
+
+		if err := b.MouseDown(context.Background(), 1); err != nil {
+			t.Fatalf("MouseDown left: %v", err)
+		}
+		if err := b.MouseUp(context.Background(), 3); err != nil {
+			t.Fatalf("MouseUp right: %v", err)
+		}
+		if err := b.MouseDown(context.Background(), 2); err != nil {
+			t.Fatalf("MouseDown middle: %v", err)
+		}
+		if err := b.MouseUp(context.Background(), 2); err != nil {
+			t.Fatalf("MouseUp middle: %v", err)
+		}
+
+		if got := tp.events; len(got) != 2 || got[0] != "left-press" || got[1] != "right-release" {
+			t.Fatalf("touchpad events = %v, want [left-press right-release]", got)
+		}
+		if got := mouse.events; len(got) != 2 || got[0] != "middle-press" || got[1] != "middle-release" {
+			t.Fatalf("mouse events = %v, want [middle-press middle-release]", got)
+		}
+	})
+
+	t.Run("Scroll", func(t *testing.T) {
+		mouse.events = nil
+		if err := b.ScrollUp(context.Background(), 2); err != nil {
+			t.Fatalf("ScrollUp: %v", err)
+		}
+		if err := b.ScrollRight(context.Background(), 3); err != nil {
+			t.Fatalf("ScrollRight: %v", err)
+		}
+		if len(mouse.events) != 2 {
+			t.Fatalf("mouse events = %v, want 2 entries", mouse.events)
+		}
+		if mouse.events[0] != "wheel:false:-2" {
+			t.Fatalf("ScrollUp event = %q, want wheel:false:-2", mouse.events[0])
+		}
+		if mouse.events[1] != "wheel:true:3" {
+			t.Fatalf("ScrollRight event = %q, want wheel:true:3", mouse.events[1])
+		}
+	})
+}
+
+func TestUinputPointerLocationUnsupported(t *testing.T) {
+	b, _ := newTestBackend(t)
+	if _, _, err := b.PointerLocation(context.Background()); err == nil {
+		t.Fatal("PointerLocation succeeded unexpectedly")
+	}
+}
+
+func TestUinputCloseClosesAllDevices(t *testing.T) {
+	kb := &recordingKeyboard{closeErr: errors.New("keyboard close failed")}
+	tp := &recordingTouchPad{closeErr: errors.New("touchpad close failed")}
+	mouse := &recordingMouse{closeErr: errors.New("mouse close failed")}
+	b := &UinputBackend{
+		kb:         kb,
+		touchpad:   tp,
+		mouse:      mouse,
+		charToRune: qwertyRuneMap(),
+	}
+
+	err := b.Close()
+	if !errors.Is(err, kb.closeErr) || !errors.Is(err, tp.closeErr) || !errors.Is(err, mouse.closeErr) {
+		t.Fatalf("Close error = %v, want joined close errors", err)
+	}
+	if len(kb.events) != 0 || len(tp.events) != 1 || len(mouse.events) != 1 {
+		t.Fatalf("close events = kb:%v tp:%v mouse:%v", kb.events, tp.events, mouse.events)
+	}
+	if tp.events[0] != "close" || mouse.events[0] != "close" {
+		t.Fatalf("close events = tp:%v mouse:%v, want close entries", tp.events, mouse.events)
 	}
 }
 
