@@ -896,6 +896,33 @@ func TestWindowList_Lifecycle(t *testing.T) {
 	}
 }
 
+// TestOutputList_ReportsGeometry verifies that the output backend returns at
+// least one output with a stable geometry and backend tag in the live session.
+func TestOutputList_ReportsGeometry(t *testing.T) {
+	s := mustSuite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	outs, err := s.pf.Output.List(ctx)
+	if err != nil {
+		t.Fatalf("Output.List: %v", err)
+	}
+	if len(outs) == 0 {
+		t.Fatal("Output.List returned no outputs")
+	}
+	for i, out := range outs {
+		if out.Name == "" {
+			t.Errorf("output %d missing name: %+v", i, out)
+		}
+		if out.Backend == "" {
+			t.Errorf("output %d missing backend: %+v", i, out)
+		}
+		if out.Geometry.W <= 0 || out.Geometry.H <= 0 {
+			t.Errorf("output %d has invalid geometry: %+v", i, out)
+		}
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen resolution sanity check
 // ─────────────────────────────────────────────────────────────────────────────
