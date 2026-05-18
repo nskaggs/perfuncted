@@ -97,6 +97,62 @@ func TestScreenBundle_GrabRegion(t *testing.T) {
 	}
 }
 
+func TestScreenBundle_GetPixel(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	want := color.RGBA{R: 12, G: 34, B: 56, A: 255}
+	img.SetRGBA(3, 4, want)
+	sc := &pftest.Screenshotter{Frames: []image.Image{img}, ZeroOrigin: true}
+	pf := newTestPF(sc)
+	defer pf.Close()
+
+	got, err := pf.Screen.GetPixel(context.Background(), 3, 4)
+	if err != nil {
+		t.Fatalf("GetPixel: %v", err)
+	}
+	if got != want {
+		t.Fatalf("GetPixel: got %#v, want %#v", got, want)
+	}
+}
+
+func TestScreenBundle_GetMultiplePixelsTranslatesBounds(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 20, 30))
+	first := color.RGBA{R: 10, A: 255}
+	second := color.RGBA{G: 20, A: 255}
+	img.SetRGBA(11, 22, first)
+	img.SetRGBA(16, 26, second)
+	sc := &pftest.Screenshotter{Frames: []image.Image{img}, ZeroOrigin: true}
+	pf := newTestPF(sc)
+	defer pf.Close()
+
+	got, err := pf.Screen.GetMultiplePixels(context.Background(), []image.Point{
+		{X: 11, Y: 22},
+		{X: 16, Y: 26},
+	})
+	if err != nil {
+		t.Fatalf("GetMultiplePixels: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("GetMultiplePixels len = %d, want 2", len(got))
+	}
+	if got[0] != first || got[1] != second {
+		t.Fatalf("GetMultiplePixels = %#v, want %#v/%#v", got, first, second)
+	}
+}
+
+func TestScreenBundle_GetMultiplePixelsEmpty(t *testing.T) {
+	sc := &pftest.Screenshotter{Width: 4, Height: 4}
+	pf := newTestPF(sc)
+	defer pf.Close()
+
+	got, err := pf.Screen.GetMultiplePixels(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetMultiplePixels(nil): %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("GetMultiplePixels(nil) len = %d, want 0", len(got))
+	}
+}
+
 func TestScreenBundle_CaptureRegion(t *testing.T) {
 	sc := &pftest.Screenshotter{Width: 8, Height: 8}
 	pf := newTestPF(sc)
