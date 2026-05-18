@@ -277,7 +277,7 @@ func TestMultiWindow_FindIsolation(t *testing.T) {
 	}
 	appA := app
 	appA.saveFile = fileA
-	cmdA, err := launchApp(s.rt, s.session, appA, appA.extraEnvFor(s.mode)...)
+	cmdA, err := launchApp(s.rt, appA, appA.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch window A: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestMultiWindow_FindIsolation(t *testing.T) {
 	}
 	appB := app
 	appB.saveFile = fileB
-	cmdB, err := launchApp(s.rt, s.session, appB, appB.extraEnvFor(s.mode)...)
+	cmdB, err := launchApp(s.rt, appB, appB.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch window B: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestMultiWindow_WaitForStateIsolation(t *testing.T) {
 	}
 	appA := app
 	appA.saveFile = fileA
-	cmdA, err := launchApp(s.rt, s.session, appA, appA.extraEnvFor(s.mode)...)
+	cmdA, err := launchApp(s.rt, appA, appA.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch window A: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestMultiWindow_WaitForStateIsolation(t *testing.T) {
 	}
 	appB := app
 	appB.saveFile = fileB
-	cmdB, err := launchApp(s.rt, s.session, appB, appB.extraEnvFor(s.mode)...)
+	cmdB, err := launchApp(s.rt, appB, appB.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch window B: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestMultiWindow_ActivateSwitching(t *testing.T) {
 	}
 	appA := app
 	appA.saveFile = fileA
-	cmdA, err := launchApp(s.rt, s.session, appA, appA.extraEnvFor(s.mode)...)
+	cmdA, err := launchApp(s.rt, appA, appA.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch A: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestMultiWindow_ActivateSwitching(t *testing.T) {
 	}
 	appB := app
 	appB.saveFile = fileB
-	cmdB, err := launchApp(s.rt, s.session, appB, appB.extraEnvFor(s.mode)...)
+	cmdB, err := launchApp(s.rt, appB, appB.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch B: %v", err)
 	}

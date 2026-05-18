@@ -23,6 +23,7 @@ import (
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/internal/x11test"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -46,14 +47,10 @@ type appSpec struct {
 }
 
 type suite struct {
-	mode displayMode
-	rt   env.Runtime
-	pf   *perfuncted.Perfuncted
-
-	session *perfuncted.Session
-	xvfb    *exec.Cmd
-	xephyr  *exec.Cmd
-	openbox *exec.Cmd
+	mode     displayMode
+	rt       env.Runtime
+	pf       *perfuncted.Perfuncted
+	cleanups []func()
 }
 
 var currentSuite *suite
@@ -130,34 +127,48 @@ func newSuite(mode displayMode) (*suite, error) {
 	traceWriter, traceDelay := traceConfigFromEnv()
 	switch mode {
 	case displayHeadlessX11:
-		display, xvfb, openbox, err := startX11Session()
+		display, stop, err := startHeadlessX11Session()
 		if err != nil {
 			return nil, err
 		}
-		s.xvfb = xvfb
-		s.openbox = openbox
+		s.addCleanup(stop)
 		s.rt = configureX11Runtime(display)
 	case displayNestedX11:
-		display, xephyr, openbox, err := startNestedX11Session()
+		if os.Getenv("DISPLAY") == "" {
+			display, stop, err := x11test.StartXvfb()
+			if err != nil {
+				return nil, fmt.Errorf("start nested x11 host: %w", err)
+			}
+			os.Setenv("DISPLAY", display)
+			s.addCleanup(stop)
+		}
+		display, stop, err := startNestedX11Session()
 		if err != nil {
 			return nil, err
 		}
-		s.xephyr = xephyr
-		s.openbox = openbox
+		s.addCleanup(stop)
 		s.rt = configureX11Runtime(display)
 	case displayHeadlessWayland:
-		sess, err := perfuncted.StartSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
+		sess, err := perfuncted.StartSession(sessionConfig("headless-wayland"))
 		if err != nil {
 			return nil, err
 		}
-		s.session = sess
+		s.addCleanup(sess.Stop)
 		s.rt = configureWaylandRuntime(sess)
 	case displayNestedWayland:
-		sess, err := perfuncted.StartNestedSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
+		if env.Current().SocketPath() == "" {
+			hostSess, err := perfuncted.StartSession(sessionConfig("nested-wayland-host"))
+			if err != nil {
+				return nil, fmt.Errorf("start nested wayland host: %w", err)
+			}
+			s.addCleanup(hostSess.Stop)
+			s.rt = configureWaylandRuntime(hostSess)
+		}
+		sess, err := perfuncted.StartNestedSession(sessionConfig("nested-wayland-inner"))
 		if err != nil {
 			return nil, err
 		}
-		s.session = sess
+		s.addCleanup(sess.Stop)
 		s.rt = configureWaylandRuntime(sess)
 	default:
 		return nil, fmt.Errorf("unknown PF_TEST_DISPLAY_SERVER=%q", mode)
@@ -175,6 +186,23 @@ func newSuite(mode displayMode) (*suite, error) {
 	}
 	s.pf = pf
 	return s, nil
+}
+
+func (s *suite) addCleanup(fn func()) {
+	if fn != nil {
+		s.cleanups = append(s.cleanups, fn)
+	}
+}
+
+func sessionConfig(role string) perfuncted.SessionConfig {
+	return perfuncted.SessionConfig{
+		Resolution: image.Pt(1024, 768),
+		LogDir:     sessionLogDir(role),
+	}
+}
+
+func sessionLogDir(role string) string {
+	return filepath.Join(os.TempDir(), "perfuncted-logs", fmt.Sprintf("%s-%d", role, os.Getpid()))
 }
 
 func configureX11Runtime(display string) env.Runtime {
@@ -208,12 +236,9 @@ func (s *suite) Close() error {
 	if s.pf != nil {
 		errs = append(errs, s.pf.Close())
 	}
-	if s.session != nil {
-		s.session.Stop()
+	for i := len(s.cleanups) - 1; i >= 0; i-- {
+		s.cleanups[i]()
 	}
-	terminateCmd(s.openbox, 2*time.Second)
-	terminateCmd(s.xephyr, 2*time.Second)
-	terminateCmd(s.xvfb, 2*time.Second)
 	return joinErrors(errs...)
 }
 
@@ -259,90 +284,61 @@ func joinErrors(errs ...error) error {
 	}
 }
 
-func startX11Session() (display string, xvfb *exec.Cmd, openbox *exec.Cmd, err error) {
-	if _, err := executil.LookPath("Xvfb"); err != nil {
-		return "", nil, nil, fmt.Errorf("x11 integration requires Xvfb: %w", err)
-	}
+func startHeadlessX11Session() (display string, stop func(), err error) {
 	if _, err := executil.LookPath("openbox"); err != nil {
-		return "", nil, nil, fmt.Errorf("x11 integration requires openbox: %w", err)
+		return "", nil, fmt.Errorf("x11 integration requires openbox: %w", err)
 	}
 
-	const dispNum = 99
-	display = fmt.Sprintf(":%d", dispNum)
-	xvfb = exec.Command("Xvfb", display, "-screen", "0", "1024x768x24")
-	xvfb.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := xvfb.Start(); err != nil {
-		return "", nil, nil, fmt.Errorf("start Xvfb: %w", err)
+	display, stopXvfb, err := x11test.StartXvfb()
+	if err != nil {
+		return "", nil, err
 	}
 
-	lockFile := fmt.Sprintf("/tmp/.X%d-lock", dispNum)
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, statErr := os.Stat(lockFile); statErr == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, statErr := os.Stat(lockFile); statErr != nil {
-		_ = xvfb.Process.Kill()
-		_ = xvfb.Wait()
-		return "", nil, nil, fmt.Errorf("Xvfb did not start within 10s (lock %s not found)", lockFile)
+	openbox, err := startOpenbox(display)
+	if err != nil {
+		stopXvfb()
+		return "", nil, err
 	}
 
-	openbox = exec.Command("openbox")
-	openbox.Env = append(os.Environ(), "DISPLAY="+display)
-	openbox.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := openbox.Start(); err != nil {
-		_ = xvfb.Process.Kill()
-		_ = xvfb.Wait()
-		return "", nil, nil, fmt.Errorf("start openbox: %w", err)
+	stop = func() {
+		terminateCmd(openbox, 2*time.Second)
+		stopXvfb()
 	}
-	time.Sleep(600 * time.Millisecond)
-	return display, xvfb, openbox, nil
+	return display, stop, nil
 }
 
-func startNestedX11Session() (display string, xephyr *exec.Cmd, openbox *exec.Cmd, err error) {
-	if _, err := executil.LookPath("Xephyr"); err != nil {
-		return "", nil, nil, fmt.Errorf("nested x11 integration requires Xephyr: %w", err)
-	}
+func startNestedX11Session() (display string, stop func(), err error) {
 	if _, err := executil.LookPath("openbox"); err != nil {
-		return "", nil, nil, fmt.Errorf("nested x11 integration requires openbox: %w", err)
-	}
-	if os.Getenv("DISPLAY") == "" {
-		return "", nil, nil, fmt.Errorf("nested x11 requires host DISPLAY to be set")
+		return "", nil, fmt.Errorf("x11 integration requires openbox: %w", err)
 	}
 
-	const dispNum = 100
-	display = fmt.Sprintf(":%d", dispNum)
-	xephyr = exec.Command("Xephyr", display, "-screen", "1024x768", "-ac", "-br", "-reset")
-	xephyr.Env = append(os.Environ(), "DISPLAY="+os.Getenv("DISPLAY"))
-	xephyr.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := xephyr.Start(); err != nil {
-		return "", nil, nil, fmt.Errorf("start Xephyr: %w", err)
+	display, stopXephyr, err := x11test.StartXephyr(os.Getenv("DISPLAY"))
+	if err != nil {
+		return "", nil, err
 	}
 
-	lockFile := fmt.Sprintf("/tmp/.X%d-lock", dispNum)
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, statErr := os.Stat(lockFile); statErr == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, statErr := os.Stat(lockFile); statErr != nil {
-		terminateCmd(xephyr, 500*time.Millisecond)
-		return "", nil, nil, fmt.Errorf("Xephyr did not start within 10s (lock %s not found)", lockFile)
+	openbox, err := startOpenbox(display)
+	if err != nil {
+		stopXephyr()
+		return "", nil, err
 	}
 
-	openbox = exec.Command("openbox")
+	stop = func() {
+		terminateCmd(openbox, 2*time.Second)
+		stopXephyr()
+	}
+	return display, stop, nil
+}
+
+func startOpenbox(display string) (*exec.Cmd, error) {
+	openbox := exec.Command("openbox")
 	openbox.Env = append(os.Environ(), "DISPLAY="+display)
 	openbox.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := openbox.Start(); err != nil {
-		terminateCmd(xephyr, 500*time.Millisecond)
-		return "", nil, nil, fmt.Errorf("start openbox: %w", err)
+		return nil, fmt.Errorf("start openbox: %w", err)
 	}
 	time.Sleep(600 * time.Millisecond)
-	return display, xephyr, openbox, nil
+	return openbox, nil
 }
 
 func TestIntegration(t *testing.T) {
@@ -392,7 +388,7 @@ func TestSessionLifecycle(t *testing.T) {
 		}
 	}
 
-	cmd, err := launchApp(rt, sess, app, app.extraEnvFor(displayHeadlessWayland)...)
+	cmd, err := launchApp(rt, app, app.extraEnvFor(displayHeadlessWayland)...)
 	if err != nil {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
@@ -586,7 +582,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("create %s: %v", saveFile, err)
 	}
 
-	cmd, err := launchApp(s.rt, s.session, app, app.extraEnvFor(s.mode)...)
+	cmd, err := launchApp(s.rt, app, app.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
@@ -730,7 +726,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 
 func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	t.Helper()
-	cmd, err := launchApp(s.rt, s.session, app, app.extraEnvFor(s.mode)...)
+	cmd, err := launchApp(s.rt, app, app.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
@@ -764,7 +760,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	}
 }
 
-func launchApp(rt env.Runtime, sess *perfuncted.Session, app appSpec, extraEnv ...string) (*exec.Cmd, error) {
+func launchApp(rt env.Runtime, app appSpec, extraEnv ...string) (*exec.Cmd, error) {
 	args := append([]string{}, app.launch[1:]...)
 	if app.saveFile != "" && !app.isBrowser {
 		args = append(args, app.saveFile)
@@ -776,15 +772,12 @@ func launchApp(rt env.Runtime, sess *perfuncted.Session, app appSpec, extraEnv .
 		}
 		args = append(args, "--profile", profileDir)
 		extraEnv = append(extraEnv, "MOZ_DISABLE_CONTENT_SANDBOX=1")
-		if sess != nil {
+		if rt.SocketPath() != "" {
 			extraEnv = append(extraEnv, "MOZ_ENABLE_WAYLAND=1")
 		}
 	}
 
 	baseEnv := rt.EnvList()
-	if sess != nil {
-		baseEnv = sess.Env()
-	}
 	path, err := executil.LookPath(app.launch[0])
 	if err != nil {
 		return nil, err

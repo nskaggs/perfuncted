@@ -386,7 +386,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	}
 	kbApp := app
 	kbApp.saveFile = kbFile
-	cmdKB, err := launchApp(s.rt, s.session, kbApp, kbApp.extraEnvFor(s.mode)...)
+	cmdKB, err := launchApp(s.rt, kbApp, kbApp.extraEnvFor(s.mode)...)
 	v.NoError(err, "launch keyboard editor")
 	t.Cleanup(func() { terminateCmd(cmdKB, 5*time.Second) })
 
@@ -414,7 +414,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	}
 	cbApp := app
 	cbApp.saveFile = cbFile
-	cmdCB, err := launchApp(s.rt, s.session, cbApp, cbApp.extraEnvFor(s.mode)...)
+	cmdCB, err := launchApp(s.rt, cbApp, cbApp.extraEnvFor(s.mode)...)
 	v.NoError(err, "launch clipboard editor")
 	t.Cleanup(func() { terminateCmd(cmdCB, 5*time.Second) })
 
@@ -473,7 +473,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	}
 	appA := app
 	appA.saveFile = fileA
-	cmdA, err := launchApp(s.rt, s.session, appA, appA.extraEnvFor(s.mode)...)
+	cmdA, err := launchApp(s.rt, appA, appA.extraEnvFor(s.mode)...)
 	v.NoError(err, "launch window A")
 	t.Cleanup(func() { terminateCmd(cmdA, 5*time.Second) })
 
@@ -488,7 +488,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	}
 	appB := app
 	appB.saveFile = fileB
-	cmdB, err := launchApp(s.rt, s.session, appB, appB.extraEnvFor(s.mode)...)
+	cmdB, err := launchApp(s.rt, appB, appB.extraEnvFor(s.mode)...)
 	v.NoError(err, "launch window B")
 	t.Cleanup(func() { terminateCmd(cmdB, 5*time.Second) })
 
@@ -538,7 +538,7 @@ func TestWindowClose_VerifiedGoneFromList(t *testing.T) {
 	}
 	closeApp := app
 	closeApp.saveFile = closeFile
-	cmd, err := launchApp(s.rt, s.session, closeApp, closeApp.extraEnvFor(s.mode)...)
+	cmd, err := launchApp(s.rt, closeApp, closeApp.extraEnvFor(s.mode)...)
 	v.NoError(err, "launch editor")
 	t.Cleanup(func() { terminateCmd(cmd, 5*time.Second) })
 
@@ -832,7 +832,7 @@ func TestWindowList_Lifecycle(t *testing.T) {
 	}
 	winApp := app
 	winApp.saveFile = saveFile
-	cmd, err := launchApp(s.rt, s.session, winApp, winApp.extraEnvFor(s.mode)...)
+	cmd, err := launchApp(s.rt, winApp, winApp.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch app: %v", err)
 	}
@@ -957,7 +957,7 @@ func TestFind_WaitForChangeDetectsChange(t *testing.T) {
 	}
 	wfcApp := app
 	wfcApp.saveFile = saveFile
-	cmd, err := launchApp(s.rt, s.session, wfcApp, wfcApp.extraEnvFor(s.mode)...)
+	cmd, err := launchApp(s.rt, wfcApp, wfcApp.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch app: %v", err)
 	}
