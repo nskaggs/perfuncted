@@ -7,18 +7,17 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/x11test"
 )
 
 // TestMain starts a throwaway Xvfb display for all integration tests in this
 // package, sets DISPLAY, then tears the server down on exit.
 func TestMain(m *testing.M) {
-	display, stop, err := startXvfb()
+	display, stop, err := x11test.StartXvfb()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "input integration: start Xvfb: %v\n", err)
 		os.Exit(1)
@@ -27,39 +26,6 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	stop()
 	os.Exit(code)
-}
-
-// startXvfb launches Xvfb on a free display number and returns the display
-// string plus a stop function.
-func startXvfb() (display string, stop func(), err error) {
-	const dispNum = 98
-	display = fmt.Sprintf(":%d", dispNum)
-
-	cmd := exec.Command("Xvfb", display, "-screen", "0", "1024x768x24")
-	if err := cmd.Start(); err != nil {
-		return "", nil, fmt.Errorf("exec Xvfb: %w", err)
-	}
-
-	lockFile := fmt.Sprintf("/tmp/.X%d-lock", dispNum)
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(lockFile); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if _, err := os.Stat(lockFile); err != nil {
-		cmd.Process.Kill() //nolint:errcheck
-		return "", nil, fmt.Errorf("Xvfb did not start within 10 s (lock %s not found)", lockFile)
-	}
-
-	stop = func() {
-		cmd.Process.Kill() //nolint:errcheck
-		cmd.Wait()         //nolint:errcheck
-		os.Remove(lockFile)
-		os.Remove(fmt.Sprintf("/tmp/.X11-unix/X%s", strconv.Itoa(dispNum)))
-	}
-	return display, stop, nil
 }
 
 // TestXTestBackend_Integration_Type connects to the Xvfb display and fires

@@ -25,8 +25,42 @@ jobs:
       - name: Run Quality Checks
         run: just quality
 
-  integration:
-    name: Integration (Headless)
+  integration-suite:
+    name: Integration (${{ matrix.display }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        display:
+          - headless-x11
+          - nested-x11
+          - headless-wayland
+          - nested-wayland
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+          cache: true
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sway openbox xserver-xephyr dbus-x11 libwayland-client0 \
+                                 libwayland-server0 libwlroots-dev libx11-dev libxtst-dev \
+                                 x11-utils xclip wl-clipboard xdg-utils xvfb kwrite featherpad
+      - name: Run Integration Tests
+        run: just test-integration-suite "${{ matrix.display }}"
+      - name: Upload integration logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ matrix.display }}
+          path: /tmp/perfuncted-logs/**/*.log
+          if-no-files-found: ignore
+
+  integration-session:
+    name: Integration (Session Lifecycle)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,11 +72,44 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway openbox dbus-x11 libwayland-client0 libwayland-server0 \
-                                 libwlroots-dev libx11-dev libxtst-dev x11-utils xclip \
-                                 wl-clipboard xdg-utils xvfb kwrite gnome-text-editor featherpad
-      - name: Run Integration Tests
-        run: just test-integration
+          sudo apt-get install -y sway openbox xserver-xephyr dbus-x11 libwayland-client0 \
+                                 libwayland-server0 libwlroots-dev libx11-dev libxtst-dev \
+                                 x11-utils xclip wl-clipboard xdg-utils xvfb kwrite featherpad
+      - name: Run Session Lifecycle Test
+        run: just test-session
+      - name: Upload integration logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-session
+          path: /tmp/perfuncted-logs/**/*.log
+          if-no-files-found: ignore
+
+  integration-backends:
+    name: Integration (Backends)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+          cache: true
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sway openbox xserver-xephyr dbus-x11 libwayland-client0 \
+                                 libwayland-server0 libwlroots-dev libx11-dev libxtst-dev \
+                                 x11-utils xclip wl-clipboard xdg-utils xvfb kwrite featherpad
+      - name: Run Backend Integration Tests
+        run: just test-integration-backends
+      - name: Upload integration logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-backends
+          path: /tmp/perfuncted-logs/**/*.log
+          if-no-files-found: ignore
 
   release-smoke:
     name: Release Smoke Test
@@ -74,4 +141,3 @@ jobs:
           BIN=$(find dist/ -name 'pf' -type f | head -1)
           echo "Testing binary: $BIN"
           just test-release-binary "$BIN"
-

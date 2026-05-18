@@ -118,37 +118,50 @@ test-unit:
 # Run unit tests (default alias)
 test: test-unit
 
+# Run the shared integration suite in one display mode.
+test-integration-suite MODE:
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^TestIntegration$' -count=1
+
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run TestSessionLifecycle -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run '^TestSessionLifecycle$' -count=1
 
 # Run the shared integration suite against headless X11.
 test-integration-headless-x11:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-x11 go test -tags=integration ./integration -count=1
+    just test-integration-suite headless-x11
 
 # Run the shared integration suite against nested X11.
 test-integration-nested-x11:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1
+    just test-integration-suite nested-x11
 
 # Integration suite against nested X11 with tracing and slower execution
 test-integration-nested-x11-debug:
-    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -count=1 -v
+    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -run '^TestIntegration$' -count=1 -v
 
 # Run the shared integration suite against headless Wayland.
 test-integration-headless-wayland:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -count=1
+    just test-integration-suite headless-wayland
 
 # Run the shared integration suite against nested Wayland.
 test-integration-nested-wayland:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1
+    just test-integration-suite nested-wayland
 
 # Integration suite against nested Wayland with tracing and slower execution
 test-integration-nested-wayland-debug:
-    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -count=1 -v
+    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -run '^TestIntegration$' -count=1 -v
+
+# Run the package-level backend integration tests.
+test-integration-backends:
+    CGO_ENABLED=0 go test -p 1 -tags=integration ./window ./input ./screen ./clipboard -count=1
     
-# Run all integration checks: shared suite plus package-level backend integrations.
-test-integration: test-integration-headless-x11 test-integration-headless-wayland
-    CGO_ENABLED=0 go test -tags=integration ./window ./input ./screen ./clipboard -count=1
+# Run all integration checks: shared suite across every environment plus session and backend coverage.
+test-integration:
+    just test-integration-suite headless-x11
+    just test-integration-suite nested-x11
+    just test-integration-suite headless-wayland
+    just test-integration-suite nested-wayland
+    just test-session
+    just test-integration-backends
 
 # Build the Flatpak bundle
 build-flatpak:
@@ -241,7 +254,7 @@ cleanup-nested:
     @echo "Cleaning up stale temp files and sockets..."
     -for dir in "$$tmpdir"/perfuncted-xdg-*/gvfs; do [ -d "$$dir" ] && fusermount -u "$$dir" 2>/dev/null || true; done
     -rm -rf "$$tmpdir"/perfuncted-xdg-* 2>/dev/null || true
-    -rm -f "$$tmpdir"/perfuncted-logs/*.log "$$tmpdir"/perfuncted-logs/*.res 2>/dev/null || true
+    -rm -rf "$$tmpdir"/perfuncted-logs 2>/dev/null || true
     -rm -f "$$tmpdir"/pf-test-*.png 2>/dev/null || true
     -rm -f "$$tmpdir"/*-kwrite.txt 2>/dev/null || true
     -rm -f "$$tmpdir"/*-featherpad.txt 2>/dev/null || true
