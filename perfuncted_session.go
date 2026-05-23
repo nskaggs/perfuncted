@@ -25,6 +25,16 @@ import (
 //go:embed configs/headless.conf configs/nested.conf
 var embeddedConfigs embed.FS
 
+var cleanupStaleSessionsMu sync.Mutex
+
+const sessionOwnerPIDFile = "perfuncted.pid"
+
+var sessionChildPIDFiles = []string{
+	"dbus.pid",
+	"sway.pid",
+	"wl-paste.pid",
+}
+
 // SessionConfig controls session creation.
 type SessionConfig struct {
 	// Resolution sets the headless output size. Zero value defaults to 1024x768.
@@ -60,6 +70,7 @@ type Session struct {
 	logDir     string
 	mu         sync.Mutex
 	stopped    bool
+	unregister func()
 }
 
 // managedProc wraps a started process for unified lifecycle management.
@@ -154,11 +165,11 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 	}
 
 	// Write a pidfile so future starts can detect and reap stale sessions.
-	pidPath := filepath.Join(s.xdgDir, "perfuncted.pid")
+	pidPath := filepath.Join(s.xdgDir, sessionOwnerPIDFile)
 	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
 
 	// Register signal cleanup automatically so sessions are reaped on SIGINT/SIGTERM.
-	_ = s.CleanupOnSignal(context.Background())
+	s.unregister = s.CleanupOnSignal(context.Background())
 
 	// 1. Launch dbus-daemon.
 	err = s.launchDBus()
@@ -250,6 +261,9 @@ func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
 // receives an interrupt/termination signal. It returns a function that
 // unregisters the handler without stopping the session.
 func (s *Session) CleanupOnSignal(ctx context.Context) func() {
+	if s == nil {
+		return func() {}
+	}
 	var done <-chan struct{}
 	if ctx != nil {
 		done = ctx.Done()
@@ -284,7 +298,13 @@ func (s *Session) Stop() {
 		return
 	}
 	s.stopped = true
+	unregister := s.unregister
+	s.unregister = nil
 	s.mu.Unlock()
+
+	if unregister != nil {
+		unregister()
+	}
 
 	s.stopManagedProcess(s.wlPasteCmd, s.wlPastePid, 200*time.Millisecond)
 	s.stopManagedProcess(s.swayCmd, s.swayPid, 500*time.Millisecond)
@@ -338,6 +358,7 @@ func (s *Session) launchDBus() error {
 	}
 	s.dbusPid = cmd.Process.Pid
 	s.dbusCmd = cmd
+	s.writeChildPID("dbus.pid", s.dbusPid)
 
 	// Wait for dbus socket to appear.
 	busPath := filepath.Join(s.xdgDir, "bus")
@@ -393,6 +414,7 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 	}
 	s.swayPid = cmd.Process.Pid
 	s.swayCmd = cmd
+	s.writeChildPID("sway.pid", s.swayPid)
 	logFile.Close()
 
 	// Wait for the Wayland and sway IPC sockets in parallel so startup is gated
@@ -426,6 +448,7 @@ func (s *Session) launchWlPaste() {
 	if err == nil {
 		s.wlPastePid = cmd.Process.Pid
 		s.wlPasteCmd = cmd
+		s.writeChildPID("wl-paste.pid", s.wlPastePid)
 		return
 	}
 	// Best-effort background helper failed to start; log so users see the reason.
@@ -435,6 +458,9 @@ func (s *Session) launchWlPaste() {
 // CleanupStaleSessions removes perfuncted session directories older than
 // maxAge when their recorded parent PID is no longer running.
 func CleanupStaleSessions(maxAge time.Duration) {
+	cleanupStaleSessionsMu.Lock()
+	defer cleanupStaleSessionsMu.Unlock()
+
 	matches, err := filepath.Glob(nestedSessionPattern())
 	if err != nil {
 		slog.Warn("unable to glob nested sessions", "error", err)
@@ -443,7 +469,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 	now := time.Now()
 	for _, d := range matches {
 		// Read pidfile if present.
-		pidPath := filepath.Join(d, "perfuncted.pid")
+		pidPath := filepath.Join(d, sessionOwnerPIDFile)
 		data, err := os.ReadFile(pidPath)
 		if err != nil {
 			// If no pidfile, consider removal only if directory is older than maxAge.
@@ -452,7 +478,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 				continue
 			}
 			if now.Sub(fi.ModTime()) > maxAge {
-				_ = os.RemoveAll(d)
+				reapSessionDir(d)
 				slog.Info("reaped stale session dir", "path", d, "reason", "no pidfile")
 			}
 			continue
@@ -463,14 +489,14 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			// malformed pidfile: remove if old enough
 			fi, statErr := os.Stat(d)
 			if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
-				_ = os.RemoveAll(d)
+				reapSessionDir(d)
 				slog.Info("reaped stale session dir", "path", d, "reason", "bad pidfile")
 			}
 			continue
 		}
 		// Check if process is alive.
 		if !pidAlive(pid) {
-			_ = os.RemoveAll(d)
+			reapSessionDir(d)
 			slog.Info("reaped stale session dir", "path", d, "pid", pid, "reason", "not running")
 			continue
 		}
@@ -490,6 +516,36 @@ func pidAlive(pid int) bool {
 	}
 	err := syscall.Kill(pid, 0)
 	return err == nil || err == syscall.EPERM
+}
+
+func (s *Session) writeChildPID(name string, pid int) {
+	if s == nil || s.xdgDir == "" || pid <= 0 {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(s.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600)
+}
+
+func reapSessionDir(dir string) {
+	for _, name := range sessionChildPIDFiles {
+		pid, err := readPIDFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		(&managedProc{pid: pid}).stop(100 * time.Millisecond)
+	}
+	_ = os.RemoveAll(dir)
+}
+
+func readPIDFile(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, fmt.Errorf("invalid pid in %s", path)
+	}
+	return pid, nil
 }
 
 func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {
