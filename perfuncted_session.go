@@ -29,6 +29,8 @@ var cleanupStaleSessionsMu sync.Mutex
 
 const sessionOwnerPIDFile = "perfuncted.pid"
 
+const noPIDFileReapGrace = 5 * time.Minute
+
 var sessionChildPIDFiles = []string{
 	"dbus.pid",
 	"sway.pid",
@@ -477,7 +479,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			if statErr != nil {
 				continue
 			}
-			if now.Sub(fi.ModTime()) > maxAge {
+			if now.Sub(fi.ModTime()) > staleNoPIDThreshold(maxAge) {
 				reapSessionDir(d)
 				slog.Info("reaped stale session dir", "path", d, "reason", "no pidfile")
 			}
@@ -546,6 +548,13 @@ func readPIDFile(path string) (int, error) {
 		return 0, fmt.Errorf("invalid pid in %s", path)
 	}
 	return pid, nil
+}
+
+func staleNoPIDThreshold(maxAge time.Duration) time.Duration {
+	if maxAge <= 0 || maxAge > noPIDFileReapGrace {
+		return noPIDFileReapGrace
+	}
+	return maxAge
 }
 
 func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {
