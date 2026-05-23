@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -174,6 +175,21 @@ func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
 	t.Fatalf("session was not stopped on context cancellation")
 }
 
+func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
+	xdgDir := filepath.Join(t.TempDir(), "xdg")
+	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
+		t.Fatalf("mkdir xdg: %v", err)
+	}
+	s := &Session{xdgDir: xdgDir}
+	s.unregister = s.CleanupOnSignal(context.Background())
+
+	s.Stop()
+
+	if s.unregister != nil {
+		t.Fatal("signal handler unregister function was not cleared")
+	}
+}
+
 func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 	xdgDir := filepath.Join(t.TempDir(), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
@@ -213,6 +229,78 @@ func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
 
 	CleanupStaleSessions(24 * time.Hour)
 
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsConcurrentNoPidfileIsIdempotent(t *testing.T) {
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			CleanupStaleSessions(24 * time.Hour)
+		}()
+	}
+	wg.Wait()
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale no-pidfile session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	cmd := helperCommand(t)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+	if err := os.WriteFile(filepath.Join(dir, "sway.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("recorded child process still alive")
+	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("stale session dir still exists: %v", err)
 	}
