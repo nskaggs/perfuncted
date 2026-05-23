@@ -262,6 +262,46 @@ func TestCleanupStaleSessionsConcurrentNoPidfileIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCleanupStaleSessionsKeepsRecentNoPidfileDir(t *testing.T) {
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	recent := time.Now().Add(-1 * time.Minute)
+	if err := os.Chtimes(dir, recent, recent); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("recent no-pidfile session dir was removed: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	stale := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(dir, stale, stale); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale no-pidfile session dir still exists: %v", err)
+	}
+}
+
 func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
