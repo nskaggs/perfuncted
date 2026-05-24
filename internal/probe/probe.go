@@ -16,6 +16,7 @@ type Result struct {
 func SelectBest(results []Result) []Result {
 	selected := false
 	for i := range results {
+		results[i].Selected = false
 		if results[i].Available && !selected {
 			results[i].Selected = true
 			selected = true

@@ -37,18 +37,22 @@ func TestSelectBestLeavesUnavailableUnselected(t *testing.T) {
 	}
 }
 
-func TestSelectBestPreservesExistingSelectedFlags(t *testing.T) {
+func TestSelectBestClearsStaleSelectedFlags(t *testing.T) {
 	t.Parallel()
 
 	got := SelectBest([]Result{
 		{Name: "forced", Selected: true},
 		{Name: "available", Available: true},
+		{Name: "also-stale", Available: true, Selected: true},
 	})
 
-	if !got[0].Selected {
-		t.Fatalf("existing selected flag was cleared")
+	if got[0].Selected {
+		t.Fatalf("unavailable stale selected flag remained set")
 	}
 	if !got[1].Selected {
 		t.Fatalf("first available result was not selected")
+	}
+	if got[2].Selected {
+		t.Fatalf("later stale selected flag remained set")
 	}
 }
