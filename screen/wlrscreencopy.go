@@ -234,9 +234,12 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error {
 	return display.RoundTrip()
 }
 
-func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	var outImg image.Image
-	if err := b.withWlrContext(func(wlctx *wl.Context) error {
+// captureFrame handles the shared frame capture lifecycle: create frame proxy,
+// capture output, set up SHM pool+buffer, wait for frame ready, and pass the
+// raw pixel data to fn for processing. This eliminates ~100 lines of duplication
+// between Grab, GrabFullHash, and GrabRegionHash.
+func (b *WlrScreencopyBackend) captureFrame(fn func(pixels []byte, bi bufInfo) error) error {
+	return b.withWlrContext(func(wlctx *wl.Context) error {
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
 
@@ -279,7 +282,6 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 		if b.cachedBuf != nil && b.cachedBI == bi && len(b.cachedBuf) >= size {
 			pixels = b.cachedBuf[:size]
 		} else {
-			// Tear down any existing cached mapping.
 			if b.cachedBuf != nil {
 				_ = syscall.Munmap(b.cachedBuf)
 				b.cachedBuf = nil
@@ -292,7 +294,6 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 			if err != nil {
 				return fmt.Errorf("screen/wlr: shm file: %w", err)
 			}
-			// Keep the file open and the mapping cached on the backend struct.
 			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 			if err != nil {
 				f.Close()
@@ -329,11 +330,17 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
 		}
 
+		return fn(pixels, bi)
+	})
+}
+
+func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	var outImg image.Image
+	if err := b.captureFrame(func(pixels []byte, bi bufInfo) error {
 		if rect.Dx() <= 0 || rect.Dy() <= 0 {
 			outImg = decodeBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride))
 			return nil
 		}
-
 		scale := int(b.scale)
 		if scale <= 0 {
 			scale = 1
@@ -349,97 +356,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 
 func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
-	if err := b.withWlrContext(func(wlctx *wl.Context) error {
-		frameProxy := &wlRawProxy{}
-		wlctx.Register(frameProxy)
-
-		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: capture_output: %w", err)
-		}
-
-		var bi bufInfo
-		var ready, failed, bufDone bool
-
-		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
-			switch opcode {
-			case 0: // buffer
-				bi.format = wl.Uint32(data[0:4])
-				bi.width = wl.Uint32(data[4:8])
-				bi.height = wl.Uint32(data[8:12])
-				bi.stride = wl.Uint32(data[12:16])
-			case 2: // ready
-				ready = true
-			case 3: // failed
-				failed = true
-			case 6: // buffer_done (protocol v2+)
-				bufDone = true
-			}
-		}
-
-		for !bufDone && bi.width == 0 && !failed {
-			if err := wlctx.Dispatch(); err != nil {
-				return fmt.Errorf("screen/wlr: dispatch: %w", err)
-			}
-		}
-		if failed {
-			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
-		}
-
-		size := int(bi.stride * bi.height)
-
-		// Reuse a pooled mmap if the buffer geometry hasn't changed.
-		var pixels []byte
-		if b.cachedBuf != nil && b.cachedBI == bi && len(b.cachedBuf) >= size {
-			pixels = b.cachedBuf[:size]
-		} else {
-			if b.cachedBuf != nil {
-				_ = syscall.Munmap(b.cachedBuf)
-				b.cachedBuf = nil
-			}
-			if b.cachedFd != nil {
-				_ = b.cachedFd.Close()
-				b.cachedFd = nil
-			}
-			f, err := shmutil.CreateFile(int64(size))
-			if err != nil {
-				return fmt.Errorf("screen/wlr: shm file: %w", err)
-			}
-			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-			if err != nil {
-				f.Close()
-				return fmt.Errorf("screen/wlr: mmap: %w", err)
-			}
-			b.cachedFd = f
-			b.cachedBuf = px
-			b.cachedBI = bi
-			pixels = b.cachedBuf[:size]
-		}
-
-		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_pool: %w", err)
-		}
-		defer pool.Destroy() //nolint:errcheck
-
-		buf, err := pool.CreateBuffer(0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
-		}
-		defer buf.Destroy() //nolint:errcheck
-
-		if err := wlSendFrameCopy(wlctx, frameProxy.ID(), buf.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: frame copy: %w", err)
-		}
-
-		for !ready && !failed {
-			if err := wlctx.Dispatch(); err != nil {
-				return fmt.Errorf("screen/wlr: dispatch: %w", err)
-			}
-		}
-		if failed {
-			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
-		}
-
+	if err := b.captureFrame(func(pixels []byte, bi bufInfo) error {
 		if int(bi.stride) == int(bi.width)*4 {
 			hash = crc32.ChecksumIEEE(pixels)
 		} else {
@@ -451,6 +368,41 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 			}
 			hash = h.Sum32()
 		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return hash, nil
+}
+
+func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect.Empty() {
+		return b.GrabFullHash(ctx)
+	}
+	var hash uint32
+	if err := b.captureFrame(func(pixels []byte, bi bufInfo) error {
+		fullW := int(bi.width)
+		fullH := int(bi.height)
+		scale := int(b.scale)
+		if scale <= 0 {
+			scale = 1
+		}
+		r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, fullW, fullH))
+		if r.Empty() {
+			hash = 0
+			return nil
+		}
+		h := crc32.NewIEEE()
+		rowBytes := r.Dx() * 4
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			start := y*int(bi.stride) + r.Min.X*4
+			end := start + rowBytes
+			if start < 0 || end > len(pixels) {
+				return fmt.Errorf("screen/wlr: invalid region bounds for hash: %v (buf %d)", r, len(pixels))
+			}
+			_, _ = h.Write(pixels[start:end]) //nolint:errcheck
+		}
+		hash = h.Sum32()
 		return nil
 	}); err != nil {
 		return 0, err
@@ -482,137 +434,6 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 		h /= int(scale)
 	}
 	return w, h, nil
-}
-
-// GrabRegionHash provides a fast CRC32 hash for a sub-rectangle. Implement
-// a raw-buffer fast path that computes CRC32 directly from the compositor's
-// BGRA pixel bytes, avoiding image allocation and BGRA→RGBA conversion.
-func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
-	// An empty rect is the convention for "full-screen" in callers.
-	if rect.Empty() {
-		return b.GrabFullHash(ctx)
-	}
-	var hash uint32
-	if err := b.withWlrContext(func(wlctx *wl.Context) error {
-		frameProxy := &wlRawProxy{}
-		wlctx.Register(frameProxy)
-
-		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: capture_output: %w", err)
-		}
-
-		var bi bufInfo
-		var ready, failed, bufDone bool
-
-		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
-			switch opcode {
-			case 0: // buffer
-				bi.format = wl.Uint32(data[0:4])
-				bi.width = wl.Uint32(data[4:8])
-				bi.height = wl.Uint32(data[8:12])
-				bi.stride = wl.Uint32(data[12:16])
-			case 2: // ready
-				ready = true
-			case 3: // failed
-				failed = true
-			case 6: // buffer_done (protocol v2+)
-				bufDone = true
-			}
-		}
-
-		for !bufDone && bi.width == 0 && !failed {
-			if err := wlctx.Dispatch(); err != nil {
-				return fmt.Errorf("screen/wlr: dispatch: %w", err)
-			}
-		}
-		if failed {
-			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
-		}
-
-		size := int(bi.stride * bi.height)
-
-		// Reuse pooled mmap if geometry matches.
-		var pixels []byte
-		if b.cachedBuf != nil && b.cachedBI == bi && len(b.cachedBuf) >= size {
-			pixels = b.cachedBuf[:size]
-		} else {
-			if b.cachedBuf != nil {
-				_ = syscall.Munmap(b.cachedBuf)
-				b.cachedBuf = nil
-			}
-			if b.cachedFd != nil {
-				_ = b.cachedFd.Close()
-				b.cachedFd = nil
-			}
-			f, err := shmutil.CreateFile(int64(size))
-			if err != nil {
-				return fmt.Errorf("screen/wlr: shm file: %w", err)
-			}
-			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-			if err != nil {
-				f.Close()
-				return fmt.Errorf("screen/wlr: mmap: %w", err)
-			}
-			b.cachedFd = f
-			b.cachedBuf = px
-			b.cachedBI = bi
-			pixels = b.cachedBuf[:size]
-		}
-
-		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_pool: %w", err)
-		}
-		defer pool.Destroy() //nolint:errcheck
-
-		buf, err := pool.CreateBuffer(0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
-		}
-		defer buf.Destroy() //nolint:errcheck
-
-		if err := wlSendFrameCopy(wlctx, frameProxy.ID(), buf.ID()); err != nil {
-			return fmt.Errorf("screen/wlr: frame copy: %w", err)
-		}
-
-		for !ready && !failed {
-			if err := wlctx.Dispatch(); err != nil {
-				return fmt.Errorf("screen/wlr: dispatch: %w", err)
-			}
-		}
-		if failed {
-			return fmt.Errorf("screen/wlr: compositor signalled frame failed after copy")
-		}
-
-		// Compute CRC32 over the requested rectangle directly from the raw
-		// BGRA bytes using the stride.
-		fullW := int(bi.width)
-		fullH := int(bi.height)
-		scale := int(b.scale)
-		if scale <= 0 {
-			scale = 1
-		}
-		r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, fullW, fullH))
-		if r.Empty() {
-			hash = 0
-			return nil
-		}
-		h := crc32.NewIEEE()
-		rowBytes := r.Dx() * 4
-		for y := r.Min.Y; y < r.Max.Y; y++ {
-			start := y*int(bi.stride) + r.Min.X*4
-			end := start + rowBytes
-			if start < 0 || end > len(pixels) {
-				return fmt.Errorf("screen/wlr: invalid region bounds for hash: %v (buf %d)", r, len(pixels))
-			}
-			_, _ = h.Write(pixels[start:end]) //nolint:errcheck
-		}
-		hash = h.Sum32()
-		return nil
-	}); err != nil {
-		return 0, err
-	}
-	return hash, nil
 }
 
 func (b *WlrScreencopyBackend) Close() error {

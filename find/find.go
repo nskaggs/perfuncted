@@ -49,10 +49,6 @@ func adaptivePoll(attempt int, base, max time.Duration) time.Duration {
 	return d
 }
 
-// Prevent staticcheck from flagging adaptivePoll as unused while it is wired
-// into wait loops in a follow-up commit.
-var _ = adaptivePoll
-
 func clampPoll(poll time.Duration) time.Duration {
 	if poll <= 0 {
 		return 10 * time.Millisecond
@@ -475,25 +471,16 @@ func (a Anchor) Rect(dx, dy, w, h int) image.Rectangle {
 	return image.Rect(a.X+dx, a.Y+dy, a.X+dx+w, a.Y+dy+h)
 }
 
-// LocateExact performs an exact byte-for-byte search of reference within the searchArea.
-// It returns the absolute image.Rectangle where it matches.
-func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
-	ctx = normalizeContext(ctx)
-	if err := checkAvailable(sc); err != nil {
-		return image.Rectangle{}, err
-	}
+// LocateExactInImage performs an exact byte-for-byte search of reference within src.
+// searchArea describes the screen-area that src was captured from, so returned
+// coordinates can be translated back to screen space. This avoids the caller
+// having to perform a second Grab.
+func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
 	if searchArea.Empty() {
 		return image.Rectangle{}, fmt.Errorf("find: locate search area is empty")
 	}
 	if reference.Bounds().Empty() {
 		return image.Rectangle{}, fmt.Errorf("find: reference image is empty")
-	}
-	src, err := sc.Grab(ctx, searchArea)
-	if err != nil {
-		return image.Rectangle{}, fmt.Errorf("find: locate grab: %w", err)
-	}
-	if err := contextErr(ctx); err != nil {
-		return image.Rectangle{}, err
 	}
 
 	sb := src.Bounds()
@@ -546,6 +533,23 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 		}
 	}
 	return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
+}
+
+// LocateExact performs an exact byte-for-byte search of reference within the searchArea.
+// It returns the absolute image.Rectangle where it matches.
+func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+	ctx = normalizeContext(ctx)
+	if err := checkAvailable(sc); err != nil {
+		return image.Rectangle{}, err
+	}
+	src, err := sc.Grab(ctx, searchArea)
+	if err != nil {
+		return image.Rectangle{}, fmt.Errorf("find: locate grab: %w", err)
+	}
+	if err := contextErr(ctx); err != nil {
+		return image.Rectangle{}, err
+	}
+	return LocateExactInImage(src, searchArea, reference)
 }
 
 func matchAt(src, ref image.Image, ox, oy int) bool {
@@ -612,13 +616,8 @@ func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image
 		if err != nil {
 			return false, 0, err
 		}
-		if _, ok := img.(interface {
-			SubImage(r image.Rectangle) image.Image
-		}); !ok {
-			return false, 0, fmt.Errorf("find: grabbed image does not support SubImage")
-		}
 
-		r, err := LocateExact(ctx, sc, searchArea, reference)
+		r, err := LocateExactInImage(img, searchArea, reference)
 		if err == nil {
 			foundRect = r
 			return true, refHash, nil

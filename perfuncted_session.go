@@ -502,12 +502,9 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			slog.Info("reaped stale session dir", "path", d, "pid", pid, "reason", "not running")
 			continue
 		}
-		// If we reach here, the PID is alive — but also remove if the dir is
-		// older than maxAge and the PID doesn't match (defensive).
-		fi, statErr := os.Stat(d)
-		if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
-			// Don't remove an active PID's dir.
-			slog.Info("leaving session dir", "path", d, "pid", pid, "reason", "still running")
+		// PID is alive — leave the directory in place.
+		if fi, err := os.Stat(d); err == nil && now.Sub(fi.ModTime()) > maxAge {
+			slog.Debug("leaving active session dir", "path", d, "pid", pid)
 		}
 	}
 }

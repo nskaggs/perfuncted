@@ -427,6 +427,12 @@ type Output struct{ BaseProxy }
 // Dispatch implements Proxy (wl_output events are ignored).
 func (o *Output) Dispatch(_ uint32, _ int, _ []byte) {}
 
+// SocketReachable checks whether sock is an existing Wayland socket.
+func SocketReachable(sock string) bool {
+	info, err := os.Stat(sock)
+	return err == nil && info.Mode()&os.ModeSocket != 0
+}
+
 // ListGlobals connects to sock, enumerates all advertised globals, and returns
 // a set of interface names. Returns nil if the socket is unreachable.
 func ListGlobals(sock string) map[string]bool {

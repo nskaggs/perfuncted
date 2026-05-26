@@ -117,9 +117,11 @@ func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
 		return err
 	}
 	// Small pause to emulate human double-click timing.
+	t := time.NewTimer(20 * time.Millisecond)
 	select {
-	case <-time.After(20 * time.Millisecond):
+	case <-t.C:
 	case <-ctx.Done():
+		t.Stop()
 		return ctx.Err()
 	}
 	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
