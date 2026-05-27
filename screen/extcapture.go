@@ -332,6 +332,9 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	}
 
 	for !ready && !failed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := wlctx.Dispatch(); err != nil {
 			return fmt.Errorf("screen/ext: dispatch: %w", err)
 		}
@@ -344,6 +347,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 }
 
 func (b *ExtCaptureBackend) Close() error {
+	b.mu.Lock()
 	// clean up pooled mmap and associated fd
 	if b.cachedBuf != nil {
 		_ = syscall.Munmap(b.cachedBuf)
@@ -353,6 +357,7 @@ func (b *ExtCaptureBackend) Close() error {
 		_ = b.cachedFd.Close()
 		b.cachedFd = nil
 	}
+	b.mu.Unlock()
 	if b.session != nil {
 		return b.session.Close()
 	}

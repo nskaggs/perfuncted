@@ -211,8 +211,11 @@ func TestWlVirtualBackend_MouseMoveWritesMotionAndFrame(t *testing.T) {
 	if got := wl.Uint32(first[4:8]) & 0xffff; got != 1 {
 		t.Fatalf("opcode = %d, want motion_absolute", got)
 	}
-	if got := wl.Uint32(first[12:16]); got != 123 || wl.Uint32(first[16:20]) != 456 {
-		t.Fatalf("motion coords = (%d,%d), want (123,456)", wl.Uint32(first[12:16]), wl.Uint32(first[16:20]))
+	if got, want := wl.Uint32(first[12:16]), uint32(123*256); got != want {
+		t.Fatalf("motion x = %d, want %d (123 << 8)", got, want)
+	}
+	if got, want := wl.Uint32(first[16:20]), uint32(456*256); got != want {
+		t.Fatalf("motion y = %d, want %d (456 << 8)", got, want)
 	}
 	if got := wl.Uint32(first[20:24]); got != 1920 || wl.Uint32(first[24:28]) != 1080 {
 		t.Fatalf("motion size = (%d,%d), want (1920,1080)", wl.Uint32(first[20:24]), wl.Uint32(first[24:28]))

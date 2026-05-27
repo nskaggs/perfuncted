@@ -181,8 +181,8 @@ func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 28<<16|1) // size=28, opcode=1 (motion_absolute)
 	wl.PutUint32(buf[8:], b.now())
-	wl.PutUint32(buf[12:], uint32(x))
-	wl.PutUint32(buf[16:], uint32(y))
+	wl.PutUint32(buf[12:], uint32(x*256)) // wl_fixed_t (24.8 fixed-point)
+	wl.PutUint32(buf[16:], uint32(y*256))
 	wl.PutUint32(buf[20:], b.outW)
 	wl.PutUint32(buf[24:], b.outH)
 	if err := b.display.Context().WriteMsg(buf[:], nil); err != nil {
