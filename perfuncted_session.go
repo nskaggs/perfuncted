@@ -31,8 +31,8 @@ var (
 )
 
 const (
-	sessionOwnerPIDFile    = "perfuncted.pid"
-	noPIDFileReapGrace     = 5 * time.Minute
+	sessionOwnerPIDFile     = "perfuncted.pid"
+	noPIDFileReapGrace      = 5 * time.Minute
 	cleanupStaleMinInterval = 30 * time.Second
 )
 

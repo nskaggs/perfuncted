@@ -3,7 +3,6 @@ package find
 import (
 	"context"
 	"errors"
-	"fmt"
 	"image"
 	"image/color"
 	"testing"
@@ -287,22 +286,22 @@ func TestWaitWithTolerance_EmptyExpectedRect(t *testing.T) {
 	}
 }
 
-func TestWaitWithTolerance_NoSubImageError(t *testing.T) {
-	// noSubImageScreen makes WaitWithTolerance return an error.
+func TestWaitWithTolerance_NoSubImage_Timeout(t *testing.T) {
+	// noSubImageScreen returns images that don't support SubImage.
+	// LocateExactInImage falls back to the slow path; with a non-matching
+	// reference the poll should time out rather than panic.
 	sc := &noSubImageScreen{img: &noSubImage{w: 10, h: 10}}
 	ref := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 2; x++ {
-			ref.SetRGBA(x, y, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+			ref.SetRGBA(x, y, color.RGBA{R: 255, G: 0, B: 0, A: 255})
 		}
 	}
-	_, _, err := WaitWithTolerance(context.Background(), sc, image.Rect(0, 0, 4, 4), ref, 0, 1*time.Millisecond, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, _, err := WaitWithTolerance(ctx, sc, image.Rect(0, 0, 4, 4), ref, 0, 10*time.Millisecond, nil)
 	if err == nil {
-		t.Fatal("expected error when image has no SubImage support")
-	}
-	if !errors.Is(err, fmt.Errorf("x")) {
-		// Just check it's non-nil; exact message is an implementation detail.
-		_ = err
+		t.Fatal("expected timeout when reference not found")
 	}
 }
 
