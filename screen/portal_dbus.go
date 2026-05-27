@@ -96,6 +96,9 @@ func NewPortalDBusBackend() (*PortalDBusBackend, error) {
 // NewPortalDBusBackendForBus verifies that the xdg-desktop-portal Screenshot
 // interface is reachable on the session bus at addr.
 func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("screen/portal: D-Bus session unset")
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/portal: D-Bus session: %w", err)

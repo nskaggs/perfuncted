@@ -206,6 +206,10 @@ func checkExtCapture(globals map[string]bool) probe.Result {
 
 func checkPortalDbus(rt env.Runtime) probe.Result {
 	r := probe.Result{Name: "portal"}
+	if rt.Get("DBUS_SESSION_BUS_ADDRESS") == "" {
+		r.Reason = "D-Bus session unavailable"
+		return r
+	}
 	conn, err := dbusutil.SessionBusAddress(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		r.Reason = "D-Bus session unavailable"

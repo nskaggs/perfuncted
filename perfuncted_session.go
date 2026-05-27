@@ -25,11 +25,16 @@ import (
 //go:embed configs/headless.conf configs/nested.conf
 var embeddedConfigs embed.FS
 
-var cleanupStaleSessionsMu sync.Mutex
+var (
+	cleanupStaleSessionsMu sync.Mutex
+	lastCleanupTime        time.Time
+)
 
-const sessionOwnerPIDFile = "perfuncted.pid"
-
-const noPIDFileReapGrace = 5 * time.Minute
+const (
+	sessionOwnerPIDFile    = "perfuncted.pid"
+	noPIDFileReapGrace     = 5 * time.Minute
+	cleanupStaleMinInterval = 30 * time.Second
+)
 
 var sessionChildPIDFiles = []string{
 	"dbus.pid",
@@ -462,6 +467,11 @@ func (s *Session) launchWlPaste() {
 func CleanupStaleSessions(maxAge time.Duration) {
 	cleanupStaleSessionsMu.Lock()
 	defer cleanupStaleSessionsMu.Unlock()
+
+	if time.Now().Sub(lastCleanupTime) < cleanupStaleMinInterval {
+		return
+	}
+	lastCleanupTime = time.Now()
 
 	matches, err := filepath.Glob(nestedSessionPattern())
 	if err != nil {

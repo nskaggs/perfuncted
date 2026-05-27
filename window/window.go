@@ -156,6 +156,10 @@ func checkKWinScript(rt env.Runtime, kind compositor.Session) probe.Result {
 		r.Reason = "not a KDE Plasma session"
 		return r
 	}
+	if rt.Get("DBUS_SESSION_BUS_ADDRESS") == "" {
+		r.Reason = "D-Bus unavailable"
+		return r
+	}
 	conn, err := dbusutil.SessionBusAddress(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		r.Reason = fmt.Sprintf("D-Bus unavailable: %v", err)

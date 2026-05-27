@@ -16,18 +16,8 @@ import (
 // GrabFullHash returns a CRC32 checksum of the entire screen.
 func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	rect := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
-	drawable := xproto.Drawable(b.root)
-
-	if b.hasComposite {
-		rawID, err := b.conn.NewId()
-		if err == nil {
-			pid := xproto.Pixmap(rawID)
-			if b.conn.NameWindowPixmap(b.root, pid).Check() == nil {
-				drawable = xproto.Drawable(pid)
-				defer b.conn.FreePixmap(pid) //nolint:errcheck
-			}
-		}
-	}
+	drawable, free := b.compositeDrawableForRoot()
+	defer free()
 
 	x := int16(rect.Min.X)
 	y := int16(rect.Min.Y)
@@ -54,17 +44,8 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 		return b.GrabFullHash(ctx)
 	}
 
-	drawable := xproto.Drawable(b.root)
-	if b.hasComposite {
-		rawID, err := b.conn.NewId()
-		if err == nil {
-			pid := xproto.Pixmap(rawID)
-			if b.conn.NameWindowPixmap(b.root, pid).Check() == nil {
-				drawable = xproto.Drawable(pid)
-				defer b.conn.FreePixmap(pid) //nolint:errcheck
-			}
-		}
-	}
+	drawable, free := b.compositeDrawableForRoot()
+	defer free()
 
 	x := int16(rect.Min.X)
 	y := int16(rect.Min.Y)
@@ -85,7 +66,21 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 }
 
 // X11Backend captures screen regions via XGetImage on an X11 or XWayland display.
-//
+
+func (b *X11Backend) compositeDrawableForRoot() (xproto.Drawable, func()) {
+	drawable := xproto.Drawable(b.root)
+	if b.hasComposite {
+		rawID, err := b.conn.NewId()
+		if err == nil {
+			pid := xproto.Pixmap(rawID)
+			if b.conn.NameWindowPixmap(b.root, pid).Check() == nil {
+				return xproto.Drawable(pid), func() { _ = b.conn.FreePixmap(pid) } //nolint:errcheck
+			}
+		}
+	}
+	return drawable, func() {}
+}
+
 // On composited sessions (KDE/GNOME Wayland via XWayland) the root window is
 // not directly readable with XGetImage. This backend automatically uses the
 // Composite extension (NameWindowPixmap) when available, falling back to a
@@ -122,20 +117,8 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	if rect.Empty() {
 		rect = image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	}
-	drawable := xproto.Drawable(b.root)
-
-	if b.hasComposite {
-		// NameWindowPixmap gives us a pixmap containing the composited root
-		// contents — necessary on XWayland where direct root GetImage fails.
-		rawID, err := b.conn.NewId()
-		if err == nil {
-			pid := xproto.Pixmap(rawID)
-			if b.conn.NameWindowPixmap(b.root, pid).Check() == nil {
-				drawable = xproto.Drawable(pid)
-				defer b.conn.FreePixmap(pid) //nolint:errcheck
-			}
-		}
-	}
+	drawable, free := b.compositeDrawableForRoot()
+	defer free()
 
 	x := int16(rect.Min.X)
 	y := int16(rect.Min.Y)

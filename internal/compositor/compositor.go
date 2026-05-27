@@ -127,6 +127,9 @@ func probeGlobals(rt env.Runtime) (Session, bool) {
 }
 
 func kwinOnBus(addr string) bool {
+	if addr == "" {
+		return false
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return false

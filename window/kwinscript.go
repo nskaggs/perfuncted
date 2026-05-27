@@ -52,6 +52,9 @@ func NewKWinScriptManager() (*KWinScriptManager, error) {
 // NewKWinScriptManagerForBus returns a KWinScriptManager for the session bus
 // at addr if the KWin scripting interface is accessible.
 func NewKWinScriptManagerForBus(addr string) (*KWinScriptManager, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("window/kwinscript: D-Bus session unset")
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("window/kwinscript: D-Bus: %w", err)
