@@ -7,11 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
 var ErrNoClipboardTool = errors.New("no supported clipboard tool found (install wl-clipboard or xclip)")
@@ -38,7 +38,7 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 	display := rt.Display()
 	sock := rt.SocketPath()
 
-	if sock != "" && waylandSocketReachable(sock) {
+	if sock != "" && wl.SocketReachable(sock) {
 		if _, err := executil.LookPath("wl-copy"); err == nil {
 			if _, err := executil.LookPath("wl-paste"); err == nil {
 				return &extCmdClipboard{
@@ -112,9 +112,4 @@ func normalizeContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
-}
-
-func waylandSocketReachable(sock string) bool {
-	info, err := os.Stat(sock)
-	return err == nil && info.Mode()&os.ModeSocket != 0
 }

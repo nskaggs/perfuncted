@@ -32,6 +32,9 @@ func NewGnomeManager() (*GnomeManager, error) {
 // NewGnomeManagerForBus opens a D-Bus connection at addr and verifies that
 // org.gnome.Shell.Eval is accessible.
 func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("gnome: session bus unset")
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("gnome: session bus: %w", err)

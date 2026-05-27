@@ -25,11 +25,24 @@ import (
 //go:embed configs/headless.conf configs/nested.conf
 var embeddedConfigs embed.FS
 
-var cleanupStaleSessionsMu sync.Mutex
+var (
+	cleanupStaleSessionsMu sync.Mutex
+	lastCleanupTime        time.Time
+)
 
-const sessionOwnerPIDFile = "perfuncted.pid"
+const (
+	sessionOwnerPIDFile     = "perfuncted.pid"
+	noPIDFileReapGrace      = 5 * time.Minute
+	cleanupStaleMinInterval = 30 * time.Second
+)
 
-const noPIDFileReapGrace = 5 * time.Minute
+// ResetCleanupStaleRateLimit clears the rate-limit state so the next call
+// to CleanupStaleSessions proceeds immediately. Exported for tests only.
+func ResetCleanupStaleRateLimit() {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+}
 
 var sessionChildPIDFiles = []string{
 	"dbus.pid",
@@ -462,6 +475,11 @@ func (s *Session) launchWlPaste() {
 func CleanupStaleSessions(maxAge time.Duration) {
 	cleanupStaleSessionsMu.Lock()
 	defer cleanupStaleSessionsMu.Unlock()
+
+	if time.Since(lastCleanupTime) < cleanupStaleMinInterval {
+		return
+	}
+	lastCleanupTime = time.Now()
 
 	matches, err := filepath.Glob(nestedSessionPattern())
 	if err != nil {

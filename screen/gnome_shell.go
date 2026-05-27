@@ -57,6 +57,9 @@ func NewGnomeShellScreenshotBackend() (*GnomeShellScreenshotBackend, error) {
 // NewGnomeShellScreenshotBackendForBus returns a backend for the session bus at
 // addr when GNOME Shell's screenshot service is reachable and authorized.
 func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBackend, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("screen/gnome-shell: D-Bus session unset")
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: D-Bus session: %w", err)

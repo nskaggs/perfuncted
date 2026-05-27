@@ -57,6 +57,9 @@ func NewKWinShotBackend() (*KWinShotBackend, error) {
 // NewKWinShotBackendForBus opens a KWin screenshot backend on the session bus
 // at addr and verifies that the caller is authorized to capture the screen.
 func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("screen/kwin: D-Bus session unset")
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/kwin: D-Bus session: %w", err)

@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"math/bits"
-	"reflect"
 	"time"
 
 	"github.com/nskaggs/perfuncted/find"
@@ -37,7 +36,7 @@ func WaitForPixelColor(sc find.Screenshotter, rect image.Rectangle, target color
 // WaitForImage waits until template is found in the full screen using method.
 // Supported methods: "exact" (pixel-perfect). Returns a slice of MatchResult.
 func WaitForImage(sc find.Screenshotter, template image.Image, method string, timeout time.Duration) ([]MatchResult, error) {
-	if err := checkAvailable(sc); err != nil {
+	if err := CheckAvailable("util", sc); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -69,20 +68,6 @@ func WaitForImage(sc find.Screenshotter, template image.Image, method string, ti
 	default:
 		return nil, fmt.Errorf("util: unsupported match method %q", method)
 	}
-}
-
-func checkAvailable(resource any) error {
-	if resource == nil {
-		return fmt.Errorf("util: resource not available")
-	}
-	v := reflect.ValueOf(resource)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
-		if v.IsNil() {
-			return fmt.Errorf("util: resource not available")
-		}
-	}
-	return nil
 }
 
 // ImageHashCompare returns true when the Hamming distance between two 32-bit

@@ -103,11 +103,7 @@ func (s *Screenshotter) Close() error { return nil }
 
 func SolidImage(w, h int, c color.RGBA) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			img.Set(x, y, c)
-		}
-	}
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: c}, image.Point{}, draw.Src)
 	return img
 }
 
