@@ -699,8 +699,8 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("paste: %v", err)
 	}
 
-	if err := s.pf.Input.ClickCenter(ctx, rect); err != nil {
-		t.Fatalf("refocus before save: %v", err)
+	if err := s.pf.Window.Activate(ctx, app.winMatch); err != nil {
+		t.Fatalf("activate before save: %v", err)
 	}
 	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("ctrl+s: %v", err)
