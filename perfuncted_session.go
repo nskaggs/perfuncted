@@ -36,6 +36,14 @@ const (
 	cleanupStaleMinInterval = 30 * time.Second
 )
 
+// ResetCleanupStaleRateLimit clears the rate-limit state so the next call
+// to CleanupStaleSessions proceeds immediately. Exported for tests only.
+func ResetCleanupStaleRateLimit() {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+}
+
 var sessionChildPIDFiles = []string{
 	"dbus.pid",
 	"sway.pid",
@@ -468,7 +476,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 	cleanupStaleSessionsMu.Lock()
 	defer cleanupStaleSessionsMu.Unlock()
 
-	if time.Now().Sub(lastCleanupTime) < cleanupStaleMinInterval {
+	if time.Since(lastCleanupTime) < cleanupStaleMinInterval {
 		return
 	}
 	lastCleanupTime = time.Now()
