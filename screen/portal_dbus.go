@@ -87,6 +87,32 @@ func fileURIPath(fileURI string) (string, error) {
 	return b.String(), nil
 }
 
+func portalUniqueName(names []string) (string, error) {
+	for _, name := range names {
+		if strings.HasPrefix(name, ":") {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no unique bus name available")
+}
+
+func portalRequestPath(uniqueName, token string) dbus.ObjectPath {
+	sender := strings.ReplaceAll(strings.TrimPrefix(uniqueName, ":"), ".", "_")
+	return dbus.ObjectPath(fmt.Sprintf("/org/freedesktop/portal/desktop/request/%s/%s", sender, token))
+}
+
+func portalSignalMatches(sig *dbus.Signal, paths ...dbus.ObjectPath) bool {
+	if sig == nil {
+		return false
+	}
+	for _, path := range paths {
+		if path != "" && sig.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
 // NewPortalDBusBackend verifies that the xdg-desktop-portal Screenshot
 // interface is reachable on the session bus.
 func NewPortalDBusBackend() (*PortalDBusBackend, error) {
@@ -125,24 +151,22 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	// Build a unique token; the portal embeds it in the request handle path.
 	token := fmt.Sprintf("pf%d", time.Now().UnixNano())
 
-	// Derive the expected handle path from our D-Bus unique name so we can
-	// install the signal match before the call, avoiding any race condition.
-	names := b.conn.Names()
-	if len(names) == 0 {
-		return nil, fmt.Errorf("screen/portal: no unique bus name available")
+	// Listen for all portal screenshot responses before making the request so we
+	// do not miss a fast reply if the returned handle differs from the predicted
+	// path.
+	uniqueName, err := portalUniqueName(b.conn.Names())
+	if err != nil {
+		return nil, fmt.Errorf("screen/portal: %w", err)
 	}
-	uniqueName := names[0]                                                      // e.g. ":1.198"
-	sender := strings.ReplaceAll(strings.TrimPrefix(uniqueName, ":"), ".", "_") // "1_198"
-	handlePath := dbus.ObjectPath(fmt.Sprintf(
-		"/org/freedesktop/portal/desktop/request/%s/%s", sender, token))
+	expectedHandlePath := portalRequestPath(uniqueName, token)
 
 	ch := make(chan *dbus.Signal, 4)
 	b.conn.Signal(ch)
 	defer b.conn.RemoveSignal(ch)
 	if err := b.conn.AddMatchSignal(
+		dbus.WithMatchSender(portalDest),
 		dbus.WithMatchInterface(portalReqIf),
 		dbus.WithMatchMember("Response"),
-		dbus.WithMatchObjectPath(handlePath),
 	); err != nil {
 		return nil, fmt.Errorf("screen/portal: AddMatch: %w", err)
 	}
@@ -156,6 +180,9 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	if err := obj.Call(portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
 		return nil, fmt.Errorf("screen/portal: Screenshot: %w", err)
 	}
+	if gotHandle == "" {
+		gotHandle = expectedHandlePath
+	}
 
 	// Wait for the portal response. The compositor may block for user consent.
 	// Timeout is 30s to allow time for the user to respond to the consent dialog.
@@ -166,7 +193,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		case <-ctx.Done():
 			return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
 		case sig := <-ch:
-			if len(sig.Body) < 2 {
+			if !portalSignalMatches(sig, gotHandle, expectedHandlePath) || len(sig.Body) < 2 {
 				continue
 			}
 			code, _ := sig.Body[0].(uint32)
