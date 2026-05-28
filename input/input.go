@@ -33,6 +33,16 @@ var newXTestBackend = func(display string) (Inputter, error) {
 	return NewXTestBackend(display)
 }
 
+var statUinput = func() error {
+	_, err := os.Stat("/dev/uinput")
+	return err
+}
+
+func hasDelegatingBackend(b Inputter) bool {
+	im, ok := b.(*WlInputMethodBackend)
+	return !ok || im.other != nil
+}
+
 // Inputter injects keyboard and mouse events.
 //
 // Keyboard methods accept key names ("a", "ctrl", "return", "f5", etc.).
@@ -81,11 +91,12 @@ func Open(maxX, maxY int32) (Inputter, error) {
 func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 	// Allow forcing a particular backend for debugging in CI/local runs.
 	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
-		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
-			if b, err := NewUinputBackend(maxX, maxY); err == nil {
+		if statErr := statUinput(); statErr == nil {
+			if b, err := newUinputBackend(maxX, maxY); err == nil {
 				return b, nil
+			} else {
+				return nil, fmt.Errorf("forced uinput selected: %w", err)
 			}
-			return nil, fmt.Errorf("forced uinput selected but failed to initialize")
 		}
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
@@ -97,7 +108,10 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 	//	WlInputMethod -> wl-virtual -> XTEST (if DISPLAY set) -> uinput
 	if sock := rt.SocketPath(); sock != "" {
 		if b, err := newWlInputMethodBackend(sock, maxX, maxY); err == nil {
-			return b, nil
+			if hasDelegatingBackend(b) {
+				return b, nil
+			}
+			_ = b.Close()
 		}
 		if b, err := newWlVirtualBackend(sock); err == nil {
 			return b, nil
@@ -109,7 +123,7 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 		}
 		// wl-virtual/XTEST unavailable; uinput is the last Wayland fallback
 		// when the compositor-scoped backends are unavailable.
-		if _, statErr := os.Stat("/dev/uinput"); statErr == nil {
+		if statErr := statUinput(); statErr == nil {
 			if b, err := newUinputBackend(maxX, maxY); err == nil {
 				return b, nil
 			}
@@ -124,12 +138,13 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 	}
 
 	// Final fallback: uinput on systems without a Wayland session.
-	if _, err := os.Stat("/dev/uinput"); err == nil {
+	if err := statUinput(); err == nil {
 		if b, err := newUinputBackend(maxX, maxY); err == nil {
 			return b, nil
+		} else {
+			// Return uinput error directly—it includes permission hints.
+			return nil, err
 		}
-		// Return uinput error directly—it includes permission hints.
-		return nil, err
 	}
 
 	return nil, fmt.Errorf("input: no backend available (uinput inaccessible, DISPLAY not set)")
