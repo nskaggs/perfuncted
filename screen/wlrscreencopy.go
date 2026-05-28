@@ -238,7 +238,7 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error {
 // capture output, set up SHM pool+buffer, wait for frame ready, and pass the
 // raw pixel data to fn for processing. This eliminates ~100 lines of duplication
 // between Grab, GrabFullHash, and GrabRegionHash.
-func (b *WlrScreencopyBackend) captureFrame(fn func(pixels []byte, bi bufInfo) error) error {
+func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels []byte, bi bufInfo) error) error {
 	return b.withWlrContext(func(wlctx *wl.Context) error {
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
@@ -267,6 +267,9 @@ func (b *WlrScreencopyBackend) captureFrame(fn func(pixels []byte, bi bufInfo) e
 		}
 
 		for !bufDone && bi.width == 0 && !failed {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := wlctx.Dispatch(); err != nil {
 				return fmt.Errorf("screen/wlr: dispatch: %w", err)
 			}
@@ -322,6 +325,9 @@ func (b *WlrScreencopyBackend) captureFrame(fn func(pixels []byte, bi bufInfo) e
 		}
 
 		for !ready && !failed {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := wlctx.Dispatch(); err != nil {
 				return fmt.Errorf("screen/wlr: dispatch: %w", err)
 			}
@@ -336,7 +342,7 @@ func (b *WlrScreencopyBackend) captureFrame(fn func(pixels []byte, bi bufInfo) e
 
 func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	var outImg image.Image
-	if err := b.captureFrame(func(pixels []byte, bi bufInfo) error {
+	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
 		if rect.Dx() <= 0 || rect.Dy() <= 0 {
 			outImg = decodeBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride))
 			return nil
@@ -356,7 +362,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 
 func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
-	if err := b.captureFrame(func(pixels []byte, bi bufInfo) error {
+	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
 		if int(bi.stride) == int(bi.width)*4 {
 			hash = crc32.ChecksumIEEE(pixels)
 		} else {
@@ -380,7 +386,7 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 		return b.GrabFullHash(ctx)
 	}
 	var hash uint32
-	if err := b.captureFrame(func(pixels []byte, bi bufInfo) error {
+	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
 		fullW := int(bi.width)
 		fullH := int(bi.height)
 		scale := int(b.scale)
