@@ -74,8 +74,11 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 		return []probe.Result{{Name: "x11", Available: true, Selected: true, Reason: "DISPLAY set"}}
 	}
 	if sock != "" {
-		if !wl.SocketReachable(sock) && display != "" {
-			return []probe.Result{{Name: "x11", Available: true, Selected: true, Reason: "WAYLAND socket missing"}}
+		if !wl.SocketReachable(sock) {
+			if display != "" {
+				return []probe.Result{{Name: "x11", Available: true, Selected: true, Reason: "WAYLAND socket missing"}}
+			}
+			return []probe.Result{{Name: "wayland", Available: false, Reason: fmt.Sprintf("WAYLAND_DISPLAY=%q socket unreachable", sock)}}
 		}
 		return []probe.Result{{Name: "wayland", Available: true, Selected: true, Reason: compositor.DetectRuntime(rt).String()}}
 	}

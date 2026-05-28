@@ -58,6 +58,27 @@ func TestProbeRuntimeFallsBackToX11WhenWaylandSocketUnresolvable(t *testing.T) {
 	}
 }
 
+func TestProbeRuntime_UnreachableWaylandWithoutX11ReportsUnavailable(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"WAYLAND_DISPLAY=wayland-0",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+	})
+
+	got := ProbeRuntime(rt)
+	if len(got) != 1 {
+		t.Fatalf("ProbeRuntime len = %d, want 1", len(got))
+	}
+	if got[0].Name != "wayland" {
+		t.Fatalf("ProbeRuntime name = %q, want wayland", got[0].Name)
+	}
+	if got[0].Available || got[0].Selected {
+		t.Fatalf("ProbeRuntime available=%v selected=%v, want false/false", got[0].Available, got[0].Selected)
+	}
+	if !strings.Contains(got[0].Reason, "socket unreachable") {
+		t.Fatalf("ProbeRuntime reason = %q, want unreachable socket message", got[0].Reason)
+	}
+}
+
 func TestProbeRuntime_NoSessionReportsUnavailable(t *testing.T) {
 	rt := env.FromEnviron([]string{})
 
