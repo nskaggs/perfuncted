@@ -325,6 +325,7 @@ func (s *Session) Stop() {
 	s.stopManagedProcess(s.swayCmd, s.swayPid, 500*time.Millisecond)
 	s.stopManagedProcess(s.dbusCmd, s.dbusPid, 200*time.Millisecond)
 	if s.xdgDir != "" {
+		unmountSubdirs(s.xdgDir)
 		os.RemoveAll(s.xdgDir)
 	}
 }
@@ -550,7 +551,36 @@ func reapSessionDir(dir string) {
 		}
 		(&managedProc{pid: pid}).stop(100 * time.Millisecond)
 	}
+	unmountSubdirs(dir)
 	_ = os.RemoveAll(dir)
+}
+
+// unmountSubdirs unmounts any FUSE filesystems mounted under dir.
+// Firefox sessions cause gvfsd-fuse and xdg-desktop-portal to create FUSE
+// mounts at $XDG_RUNTIME_DIR/gvfs and $XDG_RUNTIME_DIR/doc respectively.
+// os.RemoveAll cannot remove a FUSE mount point, so calling this before
+// RemoveAll ensures the directory tree is fully cleaned up.
+func unmountSubdirs(dir string) {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return
+	}
+	prefix := dir + "/"
+	var mounts []string
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		mountpoint := fields[1]
+		if strings.HasPrefix(mountpoint, prefix) || mountpoint == dir {
+			mounts = append(mounts, mountpoint)
+		}
+	}
+	// Unmount in reverse order to handle nested mounts.
+	for i := len(mounts) - 1; i >= 0; i-- {
+		exec.Command("fusermount", "-u", mounts[i]).Run() //nolint:errcheck
+	}
 }
 
 func readPIDFile(path string) (int, error) {
