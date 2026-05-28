@@ -2,6 +2,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -63,6 +64,78 @@ func TestOpenRuntimeFallsBackToXTestWhenWaylandSocketUnresolvable(t *testing.T) 
 	}
 	if _, ok := inp.(noopInputter); !ok {
 		t.Fatalf("OpenRuntime type = %T, want noopInputter", inp)
+	}
+}
+
+func TestOpenRuntimeSkipsHalfFunctionalWlInputMethod(t *testing.T) {
+	oldWlInputMethod := newWlInputMethodBackend
+	oldWlVirtual := newWlVirtualBackend
+	oldXTest := newXTestBackend
+	oldUinput := newUinputBackend
+	t.Cleanup(func() {
+		newWlInputMethodBackend = oldWlInputMethod
+		newWlVirtualBackend = oldWlVirtual
+		newXTestBackend = oldXTest
+		newUinputBackend = oldUinput
+	})
+
+	var inputMethodCalls, virtualCalls, xTestCalls int
+	newWlInputMethodBackend = func(string, int32, int32) (Inputter, error) {
+		inputMethodCalls++
+		return &WlInputMethodBackend{}, nil
+	}
+	newWlVirtualBackend = func(string) (Inputter, error) {
+		virtualCalls++
+		return nil, os.ErrNotExist
+	}
+	newXTestBackend = func(string) (Inputter, error) {
+		xTestCalls++
+		return noopInputter{}, nil
+	}
+	newUinputBackend = func(int32, int32) (Inputter, error) {
+		return nil, os.ErrNotExist
+	}
+
+	t.Setenv("PF_FORCE_INPUT", "")
+	rt := env.FromEnviron([]string{
+		"DISPLAY=:99",
+		"WAYLAND_DISPLAY=wayland-0",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+	})
+
+	inp, err := OpenRuntime(rt, 1024, 768)
+	if err != nil {
+		t.Fatalf("OpenRuntime: %v", err)
+	}
+	if _, ok := inp.(noopInputter); !ok {
+		t.Fatalf("OpenRuntime type = %T, want noopInputter", inp)
+	}
+	if inputMethodCalls != 1 || virtualCalls != 1 || xTestCalls != 1 {
+		t.Fatalf("constructor calls = im:%d virtual:%d xtest:%d, want 1/1/1", inputMethodCalls, virtualCalls, xTestCalls)
+	}
+}
+
+func TestOpenRuntimeForcedUinputWrapsInitError(t *testing.T) {
+	oldUinput := newUinputBackend
+	oldStatUinput := statUinput
+	t.Cleanup(func() {
+		newUinputBackend = oldUinput
+		statUinput = oldStatUinput
+	})
+
+	want := errors.New("uinput init failed")
+	newUinputBackend = func(int32, int32) (Inputter, error) {
+		return nil, want
+	}
+	statUinput = func() error { return nil }
+
+	t.Setenv("PF_FORCE_INPUT", "uinput")
+	err := func() error {
+		_, err := OpenRuntime(env.FromEnviron(nil), 1024, 768)
+		return err
+	}()
+	if !errors.Is(err, want) {
+		t.Fatalf("OpenRuntime error = %v, want wrapped %v", err, want)
 	}
 }
 
