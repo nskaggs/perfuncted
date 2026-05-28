@@ -90,7 +90,17 @@ func (r *pfReceiver) ReportWindows(data string) *dbus.Error {
 //	callDBus(svc, '/', svc, 'ReportWindows', <result string>);
 //
 // where svc is the value passed to buildJS.
-func (k *KWinScriptManager) runScript(buildJS func(svc string) string) (string, error) {
+func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc string) string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if k == nil || k.conn == nil {
+		return "", fmt.Errorf("window/kwinscript: backend not initialised")
+	}
+
 	svc := fmt.Sprintf("org.kde.pflist%d", os.Getpid())
 
 	reply, err := k.conn.RequestName(svc, dbus.NameFlagDoNotQueue)
@@ -130,13 +140,53 @@ func (k *KWinScriptManager) runScript(buildJS func(svc string) string) (string, 
 	scr.Call(kwinScriptIface+".start", 0) //nolint:errcheck
 
 	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
 	case data := <-recv.ch:
-		timer.Stop()
 		return data, nil
 	case <-timer.C:
 		return "", fmt.Errorf("window/kwinscript: timeout — script %d did not call back (is KWin scripting enabled?)", scriptID)
 	}
+}
+
+func parseKWinWindowList(data string) []Info {
+	var infos []Info
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 9)
+		var info Info
+		if len(parts) >= 1 {
+			if id, err := strconv.ParseUint(strings.TrimSpace(parts[0]), 0, 64); err == nil {
+				info.ID = id
+			}
+		}
+		if len(parts) >= 2 {
+			info.Title = parts[1]
+		}
+		if len(parts) >= 3 {
+			info.AppID = parts[2]
+		}
+		if len(parts) >= 4 {
+			info.Class = parts[3]
+		}
+		if len(parts) >= 5 {
+			if pid, err := strconv.ParseInt(strings.TrimSpace(parts[4]), 10, 32); err == nil {
+				info.PID = int32(pid)
+			}
+		}
+		if len(parts) >= 9 {
+			info.X = parseInt(parts[5])
+			info.Y = parseInt(parts[6])
+			info.W = parseInt(parts[7])
+			info.H = parseInt(parts[8])
+		}
+		infos = append(infos, info)
+	}
+	return infos
 }
 
 func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
@@ -153,7 +203,7 @@ func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all top-level windows.
 func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
-		data, err := k.runScript(func(svc string) string {
+		data, err := k.runScript(ctx, func(svc string) string {
 			return fmt.Sprintf(`
 var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
 var wins = listFunc();
@@ -176,32 +226,7 @@ callDBus('%s', '/', '%s', 'ReportWindows', lines.join('\n'));
 			return
 		}
 
-		for i, line := range strings.Split(strings.TrimSpace(data), "\n") {
-			if line == "" {
-				continue
-			}
-			parts := strings.SplitN(line, "\t", 9)
-			info := Info{ID: uint64(i + 1)}
-			if len(parts) >= 2 {
-				info.Title = parts[1]
-			}
-			if len(parts) >= 3 {
-				info.AppID = parts[2]
-			}
-			if len(parts) >= 4 {
-				info.Class = parts[3]
-			}
-			if len(parts) >= 5 {
-				if pid, err := strconv.ParseInt(strings.TrimSpace(parts[4]), 10, 32); err == nil {
-					info.PID = int32(pid)
-				}
-			}
-			if len(parts) >= 9 {
-				info.X = parseInt(parts[5])
-				info.Y = parseInt(parts[6])
-				info.W = parseInt(parts[7])
-				info.H = parseInt(parts[8])
-			}
+		for _, info := range parseKWinWindowList(data) {
 			if !yield(info, nil) {
 				return
 			}
@@ -248,7 +273,7 @@ callDBus('%s', '/', '%s', 'ReportWindows', found);
 // Activate raises and focuses the first window whose title contains substr.
 func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindWindowScript(safe, svc,
 			"w.minimized = false;\n            (typeof workspace.activateWindow === \"function\") ? workspace.activateWindow(w) : workspace.activeClient = w;")
 	})
@@ -264,7 +289,7 @@ func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
 // Restore restores the first window whose title contains substr.
 func (k *KWinScriptManager) Restore(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindWindowScript(safe, svc, "w.setMaximize(false, false); w.minimized = false;")
 	})
 	if err != nil {
@@ -278,7 +303,7 @@ func (k *KWinScriptManager) Restore(ctx context.Context, title string) error {
 
 // ActiveTitle returns the caption of the currently focused window.
 func (k *KWinScriptManager) ActiveTitle(ctx context.Context) (string, error) {
-	return k.runScript(func(svc string) string {
+	return k.runScript(ctx, func(svc string) string {
 		return fmt.Sprintf(`
 var w = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;
 callDBus('%s', '/', '%s', 'ReportWindows', w ? w.caption : '');
@@ -289,7 +314,7 @@ callDBus('%s', '/', '%s', 'ReportWindows', w ? w.caption : '');
 // Move repositions the first window whose title contains substr via KWin scripting.
 func (k *KWinScriptManager) Move(ctx context.Context, title string, x, y int) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		action := fmt.Sprintf(
 			"var g = w.frameGeometry;\n            w.frameGeometry = {x: %d, y: %d, width: Math.round(g.width), height: Math.round(g.height)};",
 			x, y)
@@ -307,7 +332,7 @@ func (k *KWinScriptManager) Move(ctx context.Context, title string, x, y int) er
 // Resize changes the dimensions of the first window whose title contains substr via KWin scripting.
 func (k *KWinScriptManager) Resize(ctx context.Context, title string, w, h int) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		action := fmt.Sprintf(
 			"var g = w.frameGeometry;\n            w.frameGeometry = {x: Math.round(g.x), y: Math.round(g.y), width: %d, height: %d};",
 			w, h)
@@ -328,7 +353,7 @@ func (k *KWinScriptManager) Close() error { return nil }
 // CloseWindow closes the first window whose title contains substr.
 func (k *KWinScriptManager) CloseWindow(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindWindowScript(safe, svc, "w.closeWindow();")
 	})
 	if err != nil {
@@ -343,7 +368,7 @@ func (k *KWinScriptManager) CloseWindow(ctx context.Context, title string) error
 // Minimize minimizes the first window whose title contains substr.
 func (k *KWinScriptManager) Minimize(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindWindowScript(safe, svc, "w.minimized = true;")
 	})
 	if err != nil {
@@ -358,7 +383,7 @@ func (k *KWinScriptManager) Minimize(ctx context.Context, title string) error {
 // Maximize maximizes the first window whose title contains substr.
 func (k *KWinScriptManager) Maximize(ctx context.Context, title string) error {
 	safe := strings.ReplaceAll(strings.ToLower(title), "'", "\\'")
-	result, err := k.runScript(func(svc string) string {
+	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindWindowScript(safe, svc, "w.setMaximize(true, true);")
 	})
 	if err != nil {
