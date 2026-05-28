@@ -633,8 +633,8 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("capture rect %v fell outside the screen %dx%d", rect, screenW, screenH)
 	}
 
-	if err := s.pf.Input.ClickCenter(ctx, rect); err != nil {
-		t.Fatalf("click center: %v", err)
+	if err := s.pf.Window.Activate(ctx, app.winMatch); err != nil {
+		t.Fatalf("activate before typing: %v", err)
 	}
 
 	typingRect := image.Rect(
