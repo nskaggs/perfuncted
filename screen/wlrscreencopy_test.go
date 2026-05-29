@@ -8,6 +8,39 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+func TestWlrResolutionReturnsPhysicalDimensions(t *testing.T) {
+	b := &WlrScreencopyBackend{pW: 1920, pH: 1080, scale: 2}
+	w, h, err := b.Resolution()
+	if err != nil {
+		t.Fatalf("Resolution() error = %v", err)
+	}
+	if w != 1920 || h != 1080 {
+		t.Fatalf("Resolution() = %dx%d, want 1920x1080", w, h)
+	}
+}
+
+func TestWlrResolutionIgnoresScaleOneAndZero(t *testing.T) {
+	tests := []struct {
+		name  string
+		scale uint32
+	}{
+		{name: "scale zero", scale: 0},
+		{name: "scale one", scale: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &WlrScreencopyBackend{pW: 1366, pH: 768, scale: tt.scale}
+			w, h, err := b.Resolution()
+			if err != nil {
+				t.Fatalf("Resolution() error = %v", err)
+			}
+			if w != 1366 || h != 768 {
+				t.Fatalf("Resolution() = %dx%d, want 1366x768", w, h)
+			}
+		})
+	}
+}
+
 func TestWithWlrContextCachingAndReset(t *testing.T) {
 	// Create backend with fake connector
 	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 5*time.Minute)

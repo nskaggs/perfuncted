@@ -418,13 +418,10 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 
 func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 	b.ctxMu.Lock()
-	pW, pH, scale := b.pW, b.pH, b.scale
+	pW, pH := b.pW, b.pH
 	b.ctxMu.Unlock()
 
 	if pW > 0 && pH > 0 {
-		if scale > 1 {
-			return pW / int(scale), pH / int(scale), nil
-		}
 		return pW, pH, nil
 	}
 
@@ -433,13 +430,7 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 		return 0, 0, err
 	}
 	bounds := img.Bounds()
-	w := bounds.Dx()
-	h := bounds.Dy()
-	if scale > 1 {
-		w /= int(scale)
-		h /= int(scale)
-	}
-	return w, h, nil
+	return bounds.Dx(), bounds.Dy(), nil
 }
 
 func (b *WlrScreencopyBackend) Close() error {
