@@ -182,6 +182,7 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 	type keyAction struct {
 		key  string
 		down bool
+		up   bool
 		mod  modifiers
 	}
 	var keys []keyAction
@@ -196,7 +197,7 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 			}
 			continue
 		}
-		keys = append(keys, keyAction{key: a.key, down: a.down, mod: a.modifiers})
+		keys = append(keys, keyAction{key: a.key, down: a.down, up: a.up, mod: a.modifiers})
 	}
 
 	// Build a keymap that includes all needed runes and named keys.
@@ -305,35 +306,73 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 		if kc, _, ok := namedKey(ka.key); ok {
 			if bit := modBit(ka.key); bit != 0 {
 				// This key is itself a modifier.
-				if ka.down {
-					k.mods |= bit
-				} else {
-					k.mods &^= bit
-				}
-				if err := k.sendKey(kc, 1); err != nil {
-					k.clearTempModsBestEffort(modBitmask)
-					return err
-				}
-				if !ka.down {
+				switch {
+				case ka.up:
+					if k.mods&bit == 0 {
+						k.clearTempModsBestEffort(modBitmask)
+						return fmt.Errorf("keyboard: key %q not held", ka.key)
+					}
 					if err := k.sendKey(kc, 0); err != nil {
 						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
-				}
-				if err := k.sendModifiers(); err != nil {
-					k.clearTempModsBestEffort(modBitmask)
-					return err
+					k.mods &^= bit
+					if err := k.sendModifiers(); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+				case ka.down:
+					if err := k.sendKey(kc, 1); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+					k.mods |= bit
+					if err := k.sendModifiers(); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+				default:
+					if err := k.sendKey(kc, 1); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+					k.mods |= bit
+					if err := k.sendModifiers(); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+					if err := k.sendKey(kc, 0); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+					k.mods &^= bit
+					if err := k.sendModifiers(); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
 				}
 			} else {
 				// Named non-modifier key.
 				slot := namedSlots[ka.key]
-				if ka.down {
+				switch {
+				case ka.up:
+					heldSlot, held := k.held[ka.key]
+					if !held {
+						k.clearTempModsBestEffort(modBitmask)
+						return fmt.Errorf("keyboard: key %q not held", ka.key)
+					}
+					if err := k.sendKey(heldSlot, 0); err != nil {
+						k.clearTempModsBestEffort(modBitmask)
+						return err
+					}
+					delete(k.held, ka.key)
+				case ka.down:
 					if err := k.sendKey(slot, 1); err != nil {
 						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
 					k.held[ka.key] = slot
-				} else {
+				default:
 					if err := k.sendKey(slot, 1); err != nil {
 						k.clearTempModsBestEffort(modBitmask)
 						return err
@@ -350,20 +389,37 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
-					delete(k.held, ka.key)
 				}
 			}
 		} else {
-			// Literal character(s) — tap each rune.
-			for _, r := range ka.key {
-				slot := runeSlots[r]
-				if ka.down {
-					if err := k.sendKey(slot, 1); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
-						return err
-					}
-					k.held[ka.key] = slot
-				} else {
+			// Literal character(s) — tap each rune, or hold/release single-rune keys.
+			switch {
+			case ka.up:
+				heldSlot, held := k.held[ka.key]
+				if !held {
+					k.clearTempModsBestEffort(modBitmask)
+					return fmt.Errorf("keyboard: key %q not held", ka.key)
+				}
+				if err := k.sendKey(heldSlot, 0); err != nil {
+					k.clearTempModsBestEffort(modBitmask)
+					return err
+				}
+				delete(k.held, ka.key)
+			case ka.down:
+				runes := []rune(ka.key)
+				if len(runes) != 1 {
+					k.clearTempModsBestEffort(modBitmask)
+					return fmt.Errorf("keyboard: cannot hold multi-character key %q", ka.key)
+				}
+				slot := runeSlots[runes[0]]
+				if err := k.sendKey(slot, 1); err != nil {
+					k.clearTempModsBestEffort(modBitmask)
+					return err
+				}
+				k.held[ka.key] = slot
+			default:
+				for _, r := range ka.key {
+					slot := runeSlots[r]
 					if err := k.tapContext(ctx, slot); err != nil {
 						k.clearTempModsBestEffort(modBitmask)
 						return err

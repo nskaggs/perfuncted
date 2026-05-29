@@ -230,7 +230,11 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 				return err
 			}
 		}
-		if a.down {
+		if a.up {
+			if err := b.keyUpKC(ctx, kc); err != nil {
+				return err
+			}
+		} else if a.down {
 			if err := b.keyDownKC(ctx, kc); err != nil {
 				return err
 			}

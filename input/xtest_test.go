@@ -275,6 +275,31 @@ func TestTypeCtrlA(t *testing.T) {
 	}
 }
 
+func TestTypeExplicitKeyUpReleasesHeldKey(t *testing.T) {
+	b, mc := newXTestMock(t, []xproto.Keysym{0x61})
+	b.delay = 0
+
+	var events []byte
+	mc.FakeInputCheckedFunc = func(eventType, _ byte, _ uint32, _ xproto.Window, _, _ int16, _ byte) x11.XTestFakeInputCookie {
+		events = append(events, eventType)
+		return x11.NewMockXTestFakeInputCookie(nil)
+	}
+
+	if err := b.TypeContext(context.Background(), "{a down}{a up}"); err != nil {
+		t.Fatalf("TypeContext: %v", err)
+	}
+
+	want := []byte{xproto.KeyPress, xproto.KeyRelease}
+	if len(events) != len(want) {
+		t.Fatalf("expected %d events, got %d: %v", len(want), len(events), events)
+	}
+	for i, exp := range want {
+		if events[i] != exp {
+			t.Fatalf("event %d = %d, want %d (all events: %v)", i, events[i], exp, events)
+		}
+	}
+}
+
 func TestTypeContextUppercaseUsesShift(t *testing.T) {
 	// Setup: MinKeycode=8, MaxKeycode=12 (5 keycodes), 2 keysyms per keycode.
 	// Level 0: lowercase, Level 1: uppercase (standard US QWERTY layout).

@@ -156,6 +156,27 @@ func TestUinputKeyDownAndUp(t *testing.T) {
 	}
 }
 
+func TestUinputTypeContextExplicitKeyUpReleasesHeldKey(t *testing.T) {
+	b, kb := newTestBackend(t)
+
+	if err := b.TypeContext(context.Background(), "{ctrl down}{ctrl up}"); err != nil {
+		t.Fatalf("TypeContext: %v", err)
+	}
+
+	want := []string{
+		fmt.Sprintf("down:%d", uinput.KeyLeftctrl),
+		fmt.Sprintf("up:%d", uinput.KeyLeftctrl),
+	}
+	if len(kb.events) != len(want) {
+		t.Fatalf("unexpected events: got %v want %v", kb.events, want)
+	}
+	for i, event := range want {
+		if kb.events[i] != event {
+			t.Fatalf("event %d = %q, want %q (all events: %v)", i, kb.events[i], event, kb.events)
+		}
+	}
+}
+
 func TestUinputTypeContextUppercaseUsesShift(t *testing.T) {
 	b, kb := newTestBackend(t)
 
