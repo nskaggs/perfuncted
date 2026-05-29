@@ -249,6 +249,32 @@ func TestSendkeys_ComboOnly(t *testing.T) {
 	}
 }
 
+func TestSendkeys_ExplicitModifierReleaseOnlySendsKeyUp(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	actions, err := ParseKeySend("{ctrl down}{ctrl up}")
+	if err != nil {
+		t.Fatalf("ParseKeySend: %v", err)
+	}
+	if err := k.sendkeys(actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	if rc.writes != 5 {
+		t.Fatalf("expected 5 writes for ctrl hold/release, got %d", rc.writes)
+	}
+	if state := wl.Uint32(rc.msgs[1][16:20]); state != 1 {
+		t.Fatalf("press state = %d, want 1", state)
+	}
+	if mods := wl.Uint32(rc.msgs[2][8:12]); mods != modControl {
+		t.Fatalf("mods after ctrl down = 0x%x, want 0x%x", mods, modControl)
+	}
+	if state := wl.Uint32(rc.msgs[3][16:20]); state != 0 {
+		t.Fatalf("release state = %d, want 0", state)
+	}
+	if mods := wl.Uint32(rc.msgs[4][8:12]); mods != 0 {
+		t.Fatalf("mods after ctrl up = 0x%x, want 0", mods)
+	}
+}
+
 func TestSendkeys_TextBeforeCombo_OrderedCorrectly(t *testing.T) {
 	k, rc := newSendkeysTestKeyboard()
 	// "ab{enter}" — text before combo. The text must be typed BEFORE the enter key.

@@ -189,7 +189,7 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 		if err != nil {
 			return err
 		}
-		if err := b.typeKeyWithMods(ctx, code, a.down, a.modifiers); err != nil {
+		if err := b.typeKeyWithMods(ctx, code, a.down, a.up, a.modifiers); err != nil {
 			return err
 		}
 	}
@@ -199,7 +199,7 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 // typeKeyWithMods presses modifier keys, sends the key action, then releases
 // modifiers in reverse order. If any step fails, already-pressed modifiers
 // are released (best-effort) before the error is returned.
-func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down bool, mods modifiers) error {
+func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up bool, mods modifiers) error {
 	ctx = normalizeContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -244,7 +244,12 @@ func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down bool
 		releaseHeld()
 		return err
 	}
-	if down {
+	if up {
+		if err := b.kb.KeyUp(code); err != nil {
+			releaseHeld()
+			return err
+		}
+	} else if down {
 		if err := b.kb.KeyDown(code); err != nil {
 			releaseHeld()
 			return err

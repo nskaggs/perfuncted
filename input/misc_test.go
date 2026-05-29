@@ -179,6 +179,9 @@ func TestParseBraced_UpSuffix(t *testing.T) {
 	if sends[0].down {
 		t.Error("expected down=false for {tab up}")
 	}
+	if !sends[0].up {
+		t.Error("expected up=true for {tab up}")
+	}
 	if sends[0].key != "tab" {
 		t.Errorf("key = %q, want tab", sends[0].key)
 	}

@@ -30,7 +30,7 @@ func TestParseKeySend_Table(t *testing.T) {
 		{
 			name:  "KeyUp",
 			input: "{shift up}",
-			want:  keySend{key: "shift"},
+			want:  keySend{key: "shift", up: true},
 		},
 		{
 			name:  "BraceCombo",
@@ -118,7 +118,7 @@ func TestParseKeySend_HoldAndRelease(t *testing.T) {
 	if sends[1].text != "v" {
 		t.Errorf("sends[1].text = %q, want %q", sends[1].text, "v")
 	}
-	if sends[2].key != "ctrl" || sends[2].down {
+	if sends[2].key != "ctrl" || sends[2].down || !sends[2].up {
 		t.Error("expected ctrl up")
 	}
 }

@@ -30,9 +30,11 @@ type keySend struct {
 	// key is a named key to press (e.g. "enter", "f1", "ctrl").
 	// Mutually exclusive with text.
 	key string
-	// down is true if this is a key-down action, false for key-up.
-	// Only relevant when key is set.
+	// down is true for an explicit key-down action.
+	// When both down and up are false, the action is a tap (press+release).
 	down bool
+	// up is true for an explicit key-up action.
+	up bool
 	// modifiers to apply to this key.
 	modifiers modifiers
 }
@@ -90,6 +92,7 @@ func parseBraced(expr string) (keySend, error) {
 
 	// Check for {keyname down} / {keyname up}
 	down := false
+	up := false
 	name := lower
 	if strings.HasSuffix(lower, " down") {
 		name = strings.TrimSuffix(lower, " down")
@@ -98,6 +101,7 @@ func parseBraced(expr string) (keySend, error) {
 	} else if strings.HasSuffix(lower, " up") {
 		name = strings.TrimSuffix(lower, " up")
 		name = strings.TrimSpace(name)
+		up = true
 	}
 
 	if name == "" {
@@ -106,18 +110,19 @@ func parseBraced(expr string) (keySend, error) {
 
 	// Check for modifier+key syntax: ctrl+s, ctrl+shift+t, alt+f4, etc.
 	if strings.Contains(name, "+") {
-		return parseCombo(name, down)
+		return parseCombo(name, down, up)
 	}
 
 	return keySend{
 		key:  name,
 		down: down,
+		up:   up,
 	}, nil
 }
 
 // parseCombo parses a braced expression containing "+" separators like
 // "ctrl+s", "ctrl+shift+t", "alt+f4", "shift+left".
-func parseCombo(name string, down bool) (keySend, error) {
+func parseCombo(name string, down, up bool) (keySend, error) {
 	parts := strings.Split(name, "+")
 	if len(parts) < 2 {
 		return keySend{}, fmt.Errorf("invalid key combo %q", name)
@@ -156,6 +161,7 @@ func parseCombo(name string, down bool) (keySend, error) {
 	return keySend{
 		key:       key,
 		down:      down,
+		up:        up,
 		modifiers: mod,
 	}, nil
 }
