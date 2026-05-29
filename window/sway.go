@@ -82,20 +82,31 @@ func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
 	return nil, fmt.Errorf("window/sway: no reachable sway IPC socket found (set SWAYSOCK or start sway)")
 }
 
-func (m *SwayManager) query(msgType uint32, payload string) ([]byte, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.conn == nil {
-		conn, err := net.DialTimeout("unix", m.sock, 5*time.Second)
-		if err != nil {
-			return nil, err
-		}
-		m.conn = conn
+func swayQueryDeadline(ctx context.Context) time.Time {
+	deadline := time.Now().Add(5 * time.Second)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		return ctxDeadline
 	}
+	return deadline
+}
 
-	// Set a deadline for this specific operation.
-	m.conn.SetDeadline(time.Now().Add(5 * time.Second))
+func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := conn.SetDeadline(swayQueryDeadline(ctx)); err != nil {
+		return nil, err
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+	defer close(done)
 
 	// Write: magic(6) + length(4 LE) + type(4 LE) + payload
 	pb := []byte(payload)
@@ -105,28 +116,58 @@ func (m *SwayManager) query(msgType uint32, payload string) ([]byte, error) {
 	binary.LittleEndian.PutUint32(msg[10:14], msgType)
 	copy(msg[14:], pb)
 
-	if _, err := m.conn.Write(msg); err != nil {
-		m.conn.Close()
-		m.conn = nil
+	if _, err := conn.Write(msg); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 
 	// Read header: magic(6) + length(4 LE) + type(4 LE)
 	hdr := make([]byte, 14)
-	if _, err := io.ReadFull(m.conn, hdr); err != nil {
-		m.conn.Close()
-		m.conn = nil
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 	if string(hdr[0:6]) != string(swayMagic[:]) {
-		m.conn.Close()
-		m.conn = nil
 		return nil, fmt.Errorf("bad magic")
 	}
 	bodyLen := binary.LittleEndian.Uint32(hdr[6:10])
 	body := make([]byte, bodyLen)
-	if _, err := io.ReadFull(m.conn, body); err != nil {
-		m.conn.Close()
+	if _, err := io.ReadFull(conn, body); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, err
+	}
+	return body, nil
+}
+
+func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string) ([]byte, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.conn == nil {
+		dialer := net.Dialer{Timeout: 5 * time.Second}
+		conn, err := dialer.DialContext(ctx, "unix", m.sock)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			return nil, err
+		}
+		m.conn = conn
+	}
+
+	body, err := swayQueryConn(ctx, m.conn, msgType, payload)
+	if err != nil {
+		_ = m.conn.Close()
 		m.conn = nil
 		return nil, err
 	}
@@ -155,7 +196,7 @@ func (m *SwayManager) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all visible windows in the sway tree.
 func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
-		raw, err := m.query(swayMsgGetTree, "")
+		raw, err := m.query(ctx, swayMsgGetTree, "")
 		if err != nil {
 			yield(Info{}, fmt.Errorf("window/sway: get_tree: %w", err))
 			return
@@ -208,7 +249,7 @@ func walkTree(n *swayNode, fn func(*swayNode) bool) bool {
 
 // ActiveTitle returns the title of the currently focused window.
 func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
-	raw, err := m.query(swayMsgGetTree, "")
+	raw, err := m.query(ctx, swayMsgGetTree, "")
 	if err != nil {
 		return "", fmt.Errorf("window/sway: get_tree: %w", err)
 	}
@@ -239,8 +280,8 @@ func (m *SwayManager) findWindow(ctx context.Context, substr string) (Info, erro
 }
 
 // swayCmd runs a sway IPC command and returns an error if sway reports failure.
-func (m *SwayManager) swayCmd(cmd string) error {
-	resp, err := m.query(swayMsgRunCommand, cmd)
+func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
+	resp, err := m.query(ctx, swayMsgRunCommand, cmd)
 	if err != nil {
 		return err
 	}
@@ -260,7 +301,7 @@ func (m *SwayManager) Activate(ctx context.Context, substr string) error {
 	if err != nil {
 		return err
 	}
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] focus", int64(w.ID)))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] focus", int64(w.ID)))
 }
 
 // Restore is a no-op on sway as it does not have a formal restore action for scratchpad/fullscreen.
@@ -276,7 +317,7 @@ func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
 	if err != nil {
 		return err
 	}
-	if err := m.swayCmd(fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
+	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
 		return err
 	}
 
@@ -305,7 +346,7 @@ loop:
 		}
 	}
 
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] move position %d %d", int64(w.ID), x, y))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move position %d %d", int64(w.ID), x, y))
 }
 
 // Resize changes the dimensions of the first window whose title contains substr.
@@ -314,11 +355,11 @@ func (m *SwayManager) Resize(ctx context.Context, substr string, width, height i
 	if err != nil {
 		return err
 	}
-	if err := m.swayCmd(fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
+	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
 		return err
 	}
 	cmd := fmt.Sprintf("[con_id=%d] resize set %d %d", int64(w.ID), width, height)
-	return m.swayCmd(cmd)
+	return m.swayCmd(ctx, cmd)
 }
 
 // Close releases the persistent IPC connection.
@@ -343,7 +384,7 @@ func (m *SwayManager) CloseWindow(ctx context.Context, substr string) error {
 	if err != nil {
 		return err
 	}
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] kill", int64(w.ID)))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] kill", int64(w.ID)))
 }
 
 // Minimize moves the first matching window to the scratchpad (sway's minimization).
@@ -352,7 +393,7 @@ func (m *SwayManager) Minimize(ctx context.Context, substr string) error {
 	if err != nil {
 		return err
 	}
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] move scratchpad", int64(w.ID)))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move scratchpad", int64(w.ID)))
 }
 
 // Maximize toggles fullscreen on the first matching window.
@@ -361,7 +402,7 @@ func (m *SwayManager) Maximize(ctx context.Context, substr string) error {
 	if err != nil {
 		return err
 	}
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
 }
 
 func (m *SwayManager) Fullscreen(ctx context.Context, substr string) error {
@@ -369,7 +410,7 @@ func (m *SwayManager) Fullscreen(ctx context.Context, substr string) error {
 	if err != nil {
 		return err
 	}
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
 }
 
 func (m *SwayManager) Unfullscreen(ctx context.Context, substr string) error {
@@ -377,41 +418,24 @@ func (m *SwayManager) Unfullscreen(ctx context.Context, substr string) error {
 	if err != nil {
 		return err
 	}
-	return m.swayCmd(fmt.Sprintf("[con_id=%d] fullscreen disable", int64(w.ID)))
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen disable", int64(w.ID)))
 }
 
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.
 func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) {
-	conn, err := net.DialTimeout("unix", sock, 5*time.Second)
+	return swayQueryOnceContext(context.Background(), sock, msgType, payload)
+}
+
+func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) ([]byte, error) {
+	ctx = normalizeContext(ctx)
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(ctx, "unix", sock)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
-
-	// Write: magic(6) + length(4 LE) + type(4 LE) + payload
-	pb := []byte(payload)
-	msg := make([]byte, 14+len(pb))
-	copy(msg[0:6], swayMagic[:])
-	binary.LittleEndian.PutUint32(msg[6:10], uint32(len(pb)))
-	binary.LittleEndian.PutUint32(msg[10:14], msgType)
-	copy(msg[14:], pb)
-	if _, err := conn.Write(msg); err != nil {
-		return nil, err
-	}
-
-	// Read header: magic(6) + length(4 LE) + type(4 LE)
-	hdr := make([]byte, 14)
-	if _, err := io.ReadFull(conn, hdr); err != nil {
-		return nil, err
-	}
-	if string(hdr[0:6]) != string(swayMagic[:]) {
-		return nil, fmt.Errorf("bad magic")
-	}
-	bodyLen := binary.LittleEndian.Uint32(hdr[6:10])
-	body := make([]byte, bodyLen)
-	if _, err := io.ReadFull(conn, body); err != nil {
-		return nil, err
-	}
-	return body, nil
+	return swayQueryConn(ctx, conn, msgType, payload)
 }
