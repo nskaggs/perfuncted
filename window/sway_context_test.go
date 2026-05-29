@@ -1,7 +1,9 @@
 package window
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -60,6 +62,33 @@ func (c *stubSwayConn) snapshot() (time.Time, int, int, bool) {
 	return c.deadline, c.setDeadlineCalls, c.writeCalls, c.closed
 }
 
+type successSwayConn struct {
+	stubSwayConn
+	readBuf bytes.Buffer
+}
+
+func newSuccessSwayConn(body []byte) *successSwayConn {
+	hdr := make([]byte, 14)
+	copy(hdr[0:6], swayMagic[:])
+	binary.LittleEndian.PutUint32(hdr[6:10], uint32(len(body)))
+	binary.LittleEndian.PutUint32(hdr[10:14], swayMsgGetTree)
+	c := &successSwayConn{}
+	c.readBuf.Write(hdr)
+	c.readBuf.Write(body)
+	return c
+}
+
+func (c *successSwayConn) Read(p []byte) (int, error) {
+	return c.readBuf.Read(p)
+}
+
+func (c *successSwayConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeCalls++
+	return len(p), nil
+}
+
 func TestSwayQueryConnCanceledContextShortCircuits(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -115,5 +144,37 @@ func TestSwayQueryConnUsesContextDeadline(t *testing.T) {
 	}
 	if until := time.Until(gotDeadline); until > time.Second {
 		t.Fatalf("deadline too far in the future: %v", until)
+	}
+}
+
+func TestSwayQueryCancelableContextDoesNotReusePersistentConn(t *testing.T) {
+	origDial := swayDialContext
+	defer func() { swayDialContext = origDial }()
+
+	persistent := &stubSwayConn{}
+	transient := newSuccessSwayConn([]byte(`{"ok":true}`))
+	swayDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return transient, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	m := &SwayManager{sock: "ignored", conn: persistent}
+	body, err := m.query(ctx, swayMsgGetTree, "")
+	if err != nil {
+		t.Fatalf("query error = %v", err)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Fatalf("query body = %s, want JSON body", body)
+	}
+	if _, _, persistentWrites, _ := persistent.snapshot(); persistentWrites != 0 {
+		t.Fatalf("persistent conn writeCalls = %d, want 0", persistentWrites)
+	}
+	if _, _, transientWrites, transientClosed := transient.snapshot(); transientWrites == 0 || !transientClosed {
+		t.Fatalf("transient conn writeCalls=%d closed=%v, want write and close", transientWrites, transientClosed)
+	}
+	if m.conn != persistent {
+		t.Fatal("query replaced persistent conn for cancelable context")
 	}
 }

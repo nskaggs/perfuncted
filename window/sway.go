@@ -98,15 +98,6 @@ func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload s
 	if err := conn.SetDeadline(swayQueryDeadline(ctx)); err != nil {
 		return nil, err
 	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = conn.Close()
-		case <-done:
-		}
-	}()
-	defer close(done)
 
 	// Write: magic(6) + length(4 LE) + type(4 LE) + payload
 	pb := []byte(payload)
@@ -150,12 +141,15 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if ctx.Done() != nil {
+		return swayQueryOnceContext(ctx, m.sock, msgType, payload)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.conn == nil {
-		dialer := net.Dialer{Timeout: 5 * time.Second}
-		conn, err := dialer.DialContext(ctx, "unix", m.sock)
+		conn, err := swayDialContext(ctx, "unix", m.sock)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
@@ -426,10 +420,14 @@ func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) 
 	return swayQueryOnceContext(context.Background(), sock, msgType, payload)
 }
 
+var swayDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	return dialer.DialContext(ctx, network, address)
+}
+
 func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) ([]byte, error) {
 	ctx = normalizeContext(ctx)
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := dialer.DialContext(ctx, "unix", sock)
+	conn, err := swayDialContext(ctx, "unix", sock)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
@@ -437,5 +435,16 @@ func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payl
 		return nil, err
 	}
 	defer conn.Close()
+	if ctx.Done() != nil {
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = conn.Close()
+			case <-done:
+			}
+		}()
+		defer close(done)
+	}
 	return swayQueryConn(ctx, conn, msgType, payload)
 }
