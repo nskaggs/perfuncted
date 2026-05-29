@@ -200,11 +200,16 @@ func (p *Perfuncted) Paste(ctx context.Context, text string) error {
 	return p.Input.typeContext(ctx, text)
 }
 
-func New(opts Options) (*Perfuncted, error) {
+func New(opts Options) (_ *Perfuncted, err error) {
 	rt, err := resolveRuntime(opts)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil && opts.ManagedSession != nil {
+			opts.ManagedSession.Cleanup()
+		}
+	}()
 
 	session := compositor.DetectRuntime(rt)
 

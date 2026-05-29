@@ -94,7 +94,7 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	cmd.Stdin = bytes.NewBufferString(text)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("clipboard set: %w", ctx.Err())
+			return fmt.Errorf("clipboard set: %w", errors.Join(err, ctx.Err()))
 		}
 		return fmt.Errorf("clipboard set: %w", err)
 	}

@@ -263,7 +263,7 @@ func (s *Session) SwayPID() int { return s.swayPid }
 func (s *Session) DBusAddress() string { return s.dbusAddr }
 
 // Perfuncted returns a connected perfuncted instance targeting this session.
-// The returned instance should be closed separately from the session.
+// Closing the returned instance also cleans up the managed session.
 func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
 	opts.XDGRuntimeDir = s.xdgDir
 	opts.WaylandDisplay = s.wlDisplay

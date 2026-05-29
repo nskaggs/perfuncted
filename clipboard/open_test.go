@@ -2,11 +2,13 @@ package clipboard
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
@@ -183,5 +185,29 @@ func TestExtCmdClipboardSetNilContext(t *testing.T) {
 	//lint:ignore SA1012 regression test for nil-context handling
 	if err := cb.Set(nil, "hello"); err != nil {
 		t.Fatalf("Set(nil): %v", err)
+	}
+}
+
+func TestExtCmdClipboardSetPreservesCommandErrorWhenContextCancelled(t *testing.T) {
+	oldCmd := executil.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	executil.CommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.Command("sh", "-c", "exit 7")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cb := &extCmdClipboard{setCmd: []string{"fake-set"}}
+	err := cb.Set(ctx, "hello")
+	if err == nil {
+		t.Fatal("Set succeeded unexpectedly")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Set error = %v, want context canceled in chain", err)
+	}
+	if !strings.Contains(err.Error(), "exit status 7") {
+		t.Fatalf("Set error = %v, want command failure preserved", err)
 	}
 }
