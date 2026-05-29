@@ -194,14 +194,14 @@ func TestWlInputMethodBackend_NoOtherReturnsUnsupported(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.run()
-			if err == nil {
-				t.Fatalf("%s succeeded unexpectedly", tt.name)
+			if !errors.Is(err, ErrNotSupported) {
+				t.Fatalf("%s error = %v, want ErrNotSupported", tt.name, err)
 			}
 		})
 	}
 	x, y, err := b.PointerLocation(ctx)
-	if err == nil {
-		t.Fatal("PointerLocation succeeded unexpectedly")
+	if !errors.Is(err, ErrNotSupported) {
+		t.Fatalf("PointerLocation error = %v, want ErrNotSupported", err)
 	}
 	if x != 0 || y != 0 {
 		t.Fatalf("PointerLocation = (%d,%d), want zeros", x, y)

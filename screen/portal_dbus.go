@@ -223,13 +223,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 			if rect.Empty() {
 				return img, nil
 			}
-			type subImager interface {
-				SubImage(image.Rectangle) image.Image
-			}
-			if si, ok := img.(subImager); ok {
-				return si.SubImage(rect), nil
-			}
-			return img, nil
+			return cropImage(img, rect), nil
 		case <-timer.C:
 			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (30s)")
 		}

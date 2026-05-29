@@ -255,6 +255,8 @@ func kwinJSString(s string) string {
 // finds the first window whose lowercased caption contains substrJS, runs
 // actionJS on it, and calls back via callDBus with the matched caption
 // (or empty string if not found). substrJS must already be a quoted JS string literal.
+const kwinScriptErrorPrefix = "__pf_error__:"
+
 func kwinFindWindowScript(substrJS, svc, actionJS string) string {
 	return fmt.Sprintf(`
 var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
@@ -269,9 +271,21 @@ try {
             break;
         }
     }
-} catch(e) {}
+} catch(e) {
+    found = %q + String(e);
+}
 callDBus('%s', '/', '%s', 'ReportWindows', found);
-`, substrJS, actionJS, svc, svc)
+`, substrJS, actionJS, kwinScriptErrorPrefix, svc, svc)
+}
+
+func kwinWindowActionResult(title, result string) error {
+	if strings.HasPrefix(result, kwinScriptErrorPrefix) {
+		return fmt.Errorf("window/kwinscript: action on %q failed: %s", title, strings.TrimPrefix(result, kwinScriptErrorPrefix))
+	}
+	if result == "" {
+		return fmt.Errorf("window: window matching %q not found", title)
+	}
+	return nil
 }
 
 // Activate raises and focuses the first window whose title contains substr.
@@ -284,10 +298,7 @@ func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 // Restore restores the first window whose title contains substr.
@@ -299,10 +310,7 @@ func (k *KWinScriptManager) Restore(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 // ActiveTitle returns the caption of the currently focused window.
@@ -327,10 +335,7 @@ func (k *KWinScriptManager) Move(ctx context.Context, title string, x, y int) er
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 // Resize changes the dimensions of the first window whose title contains substr via KWin scripting.
@@ -345,10 +350,7 @@ func (k *KWinScriptManager) Resize(ctx context.Context, title string, w, h int) 
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 // Close is a no-op; the session bus connection is shared and managed globally.
@@ -363,10 +365,7 @@ func (k *KWinScriptManager) CloseWindow(ctx context.Context, title string) error
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 // Minimize minimizes the first window whose title contains substr.
@@ -378,10 +377,7 @@ func (k *KWinScriptManager) Minimize(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 // Maximize maximizes the first window whose title contains substr.
@@ -393,10 +389,7 @@ func (k *KWinScriptManager) Maximize(ctx context.Context, title string) error {
 	if err != nil {
 		return err
 	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
+	return kwinWindowActionResult(title, result)
 }
 
 func (k *KWinScriptManager) Fullscreen(ctx context.Context, title string) error {

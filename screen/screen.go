@@ -237,7 +237,7 @@ func checkGnomeShellScreenshot(rt env.Runtime, kind compositor.Session) probe.Re
 		case strings.Contains(err.Error(), "not on session bus"):
 			r.Reason = "org.gnome.Shell.Screenshot not on session bus"
 		default:
-			r.Reason = "unsafe mode disabled or access denied"
+			r.Reason = err.Error()
 		}
 		return r
 	}

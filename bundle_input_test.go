@@ -234,9 +234,8 @@ func TestInputBundleModifierDown(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	// modifierDown is an alias for KeyDown.
-	if err := pf.Input.KeyDown(ctx, "ctrl"); err != nil {
-		t.Fatalf("KeyDown: %v", err)
+	if err := pf.Input.ModifierDown(ctx, "ctrl"); err != nil {
+		t.Fatalf("ModifierDown: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {
@@ -252,9 +251,8 @@ func TestInputBundleModifierUp(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	// modifierUp is an alias for KeyUp.
-	if err := pf.Input.KeyUp(ctx, "shift"); err != nil {
-		t.Fatalf("KeyUp: %v", err)
+	if err := pf.Input.ModifierUp(ctx, "shift"); err != nil {
+		t.Fatalf("ModifierUp: %v", err)
 	}
 
 	if len(inp.Calls) != 1 {

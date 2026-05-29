@@ -6,6 +6,7 @@ package input
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -278,8 +279,8 @@ func TestWlVirtualBackend_ScrollWritesAxis(t *testing.T) {
 
 func TestWlVirtualBackend_PointerLocationUnsupported(t *testing.T) {
 	b := &WlVirtualBackend{}
-	if _, _, err := b.PointerLocation(context.Background()); err == nil {
-		t.Fatal("PointerLocation succeeded unexpectedly")
+	if _, _, err := b.PointerLocation(context.Background()); !errors.Is(err, ErrNotSupported) {
+		t.Fatalf("PointerLocation error = %v, want ErrNotSupported", err)
 	}
 }
 

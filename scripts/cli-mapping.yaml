@@ -27,6 +27,10 @@ input:
     skip: true
   KeyUp:
     skip: true
+  ModifierDown:
+    skip: true
+  ModifierUp:
+    skip: true
   MouseClick:
     skip: true
   MouseDown:

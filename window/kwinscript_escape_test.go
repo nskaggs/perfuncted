@@ -29,4 +29,19 @@ func TestKWinFindWindowScriptUsesQuotedLiteral(t *testing.T) {
 	if strings.Contains(script, legacy) {
 		t.Fatalf("kwinFindWindowScript regressed to legacy single-quoted literal: %q", legacy)
 	}
+	if !strings.Contains(script, kwinScriptErrorPrefix) {
+		t.Fatalf("kwinFindWindowScript missing error prefix in script:\n%s", script)
+	}
+}
+
+func TestKWinWindowActionResult(t *testing.T) {
+	if err := kwinWindowActionResult("Firefox", "Firefox"); err != nil {
+		t.Fatalf("kwinWindowActionResult success: %v", err)
+	}
+	if err := kwinWindowActionResult("Firefox", ""); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("kwinWindowActionResult not found = %v", err)
+	}
+	if err := kwinWindowActionResult("Firefox", kwinScriptErrorPrefix+"boom"); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("kwinWindowActionResult script error = %v", err)
+	}
 }

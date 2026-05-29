@@ -111,7 +111,7 @@ func OpenRuntime(rt env.Runtime) (Manager, error) {
 	case compositor.GNOME:
 		m, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 		if err != nil {
-			return nil, fmt.Errorf("window: GNOME Shell Eval not available: %w", err)
+			return nil, fmt.Errorf("window: GNOME Shell Eval unavailable (unsafe mode required): %w", err)
 		}
 		return m, nil
 
@@ -189,7 +189,7 @@ func checkGnomeShellEval(rt env.Runtime, kind compositor.Session) probe.Result {
 	}
 	g, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
-		r.Reason = "unsafe mode disabled or access denied"
+		r.Reason = err.Error()
 		return r
 	}
 	g.Close()

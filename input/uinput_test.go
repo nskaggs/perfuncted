@@ -389,8 +389,8 @@ func TestUinputMouseActionsAndScroll(t *testing.T) {
 
 func TestUinputPointerLocationUnsupported(t *testing.T) {
 	b, _ := newTestBackend(t)
-	if _, _, err := b.PointerLocation(context.Background()); err == nil {
-		t.Fatal("PointerLocation succeeded unexpectedly")
+	if _, _, err := b.PointerLocation(context.Background()); !errors.Is(err, ErrNotSupported) {
+		t.Fatalf("PointerLocation error = %v, want ErrNotSupported", err)
 	}
 }
 

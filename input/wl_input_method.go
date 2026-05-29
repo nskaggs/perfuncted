@@ -138,7 +138,7 @@ func (b *WlInputMethodBackend) TypeContext(ctx context.Context, s string) error 
 	if b.other != nil {
 		return b.other.Type(ctx, s)
 	}
-	return fmt.Errorf("input/wl-im: no subordinate backend for typing")
+	return unsupportedError("input/wl-im", "typing")
 }
 
 // Delegate other methods to the underlying backend when present.
@@ -148,7 +148,7 @@ func (b *WlInputMethodBackend) KeyDown(ctx context.Context, key string) error {
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: KeyDown unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "key-down")
 	}
 	return b.other.KeyDown(ctx, key)
 }
@@ -158,7 +158,7 @@ func (b *WlInputMethodBackend) KeyUp(ctx context.Context, key string) error {
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: KeyUp unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "key-up")
 	}
 	return b.other.KeyUp(ctx, key)
 }
@@ -168,7 +168,7 @@ func (b *WlInputMethodBackend) MouseMove(ctx context.Context, x, y int) error {
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: MouseMove unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "mouse-move")
 	}
 	return b.other.MouseMove(ctx, x, y)
 }
@@ -178,7 +178,7 @@ func (b *WlInputMethodBackend) MouseClick(ctx context.Context, x, y, button int)
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: MouseClick unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "mouse-click")
 	}
 	return b.other.MouseClick(ctx, x, y, button)
 }
@@ -188,7 +188,7 @@ func (b *WlInputMethodBackend) MouseDown(ctx context.Context, button int) error 
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: MouseDown unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "mouse-down")
 	}
 	return b.other.MouseDown(ctx, button)
 }
@@ -198,7 +198,7 @@ func (b *WlInputMethodBackend) MouseUp(ctx context.Context, button int) error {
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: MouseUp unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "mouse-up")
 	}
 	return b.other.MouseUp(ctx, button)
 }
@@ -208,7 +208,7 @@ func (b *WlInputMethodBackend) ScrollUp(ctx context.Context, clicks int) error {
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: ScrollUp unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "scroll-up")
 	}
 	return b.other.ScrollUp(ctx, clicks)
 }
@@ -218,7 +218,7 @@ func (b *WlInputMethodBackend) ScrollDown(ctx context.Context, clicks int) error
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: ScrollDown unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "scroll-down")
 	}
 	return b.other.ScrollDown(ctx, clicks)
 }
@@ -228,7 +228,7 @@ func (b *WlInputMethodBackend) ScrollLeft(ctx context.Context, clicks int) error
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: ScrollLeft unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "scroll-left")
 	}
 	return b.other.ScrollLeft(ctx, clicks)
 }
@@ -238,7 +238,7 @@ func (b *WlInputMethodBackend) ScrollRight(ctx context.Context, clicks int) erro
 		return err
 	}
 	if b.other == nil {
-		return fmt.Errorf("input/wl-im: ScrollRight unsupported (no subordinate backend)")
+		return unsupportedError("input/wl-im", "scroll-right")
 	}
 	return b.other.ScrollRight(ctx, clicks)
 }
@@ -249,7 +249,7 @@ func (b *WlInputMethodBackend) PointerLocation(ctx context.Context) (int, int, e
 		return 0, 0, err
 	}
 	if b.other == nil {
-		return 0, 0, fmt.Errorf("input/wl-im: pointer location unsupported (no subordinate backend)")
+		return 0, 0, unsupportedError("input/wl-im", "pointer location")
 	}
 	return b.other.PointerLocation(ctx)
 }

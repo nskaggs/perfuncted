@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+type solidTestImage struct {
+	rect image.Rectangle
+	c    color.RGBA
+}
+
+func (s solidTestImage) ColorModel() color.Model { return color.RGBAModel }
+func (s solidTestImage) Bounds() image.Rectangle { return s.rect }
+func (s solidTestImage) At(x, y int) color.Color {
+	if !image.Pt(x, y).In(s.rect) {
+		return color.RGBA{}
+	}
+	return s.c
+}
+
 func TestDecodeBGRA(t *testing.T) {
 	// 2x2 image, tightly packed (stride=8).
 	data := []byte{
@@ -80,6 +94,17 @@ func TestCropRGBA(t *testing.T) {
 	got = cropped.RGBAAt(2, 2)
 	if got != expected {
 		t.Errorf("(2,2): got %v want %v", got, expected)
+	}
+}
+
+func TestCropImageCopiesNonSubImage(t *testing.T) {
+	src := solidTestImage{rect: image.Rect(0, 0, 4, 4), c: color.RGBA{R: 7, G: 8, B: 9, A: 255}}
+	cropped := cropImage(src, image.Rect(1, 1, 3, 3))
+	if got, want := cropped.Bounds(), image.Rect(1, 1, 3, 3); got != want {
+		t.Fatalf("cropImage bounds = %v, want %v", got, want)
+	}
+	if got := color.RGBAModel.Convert(cropped.At(1, 1)).(color.RGBA); got != src.c {
+		t.Fatalf("cropImage pixel = %#v, want %#v", got, src.c)
 	}
 }
 

@@ -2,6 +2,7 @@ package screen
 
 import (
 	"image"
+	"image/draw"
 )
 
 // decodeBGRA decodes raw BGRA pixel data (little-endian byte order) into an
@@ -94,5 +95,26 @@ func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
 		dstOff := (dstY+y)*out.Stride + dstX*4
 		copy(out.Pix[dstOff:dstOff+w4], src.Pix[srcOff:srcOff+w4])
 	}
+	return out
+}
+
+func cropImage(img image.Image, rect image.Rectangle) image.Image {
+	if rect.Empty() {
+		return img
+	}
+	if rgba, ok := img.(*image.RGBA); ok {
+		return cropRGBA(rgba, rect)
+	}
+	if si, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	}); ok {
+		return si.SubImage(rect.Intersect(img.Bounds()))
+	}
+	r := rect.Intersect(img.Bounds())
+	if r.Empty() {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+	out := image.NewRGBA(r)
+	draw.Draw(out, out.Bounds(), img, r.Min, draw.Src)
 	return out
 }

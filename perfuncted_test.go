@@ -51,13 +51,12 @@ func TestBundleSmoke(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Input", func(t *testing.T) {
-		// TODO: ModifierDown and ModifierUp methods are not yet implemented
-		// if err := pf.Input.ModifierDown("ctrl"); err != nil {
-		// 	t.Fatal(err)
-		// }
-		// if err := pf.Input.ModifierUp("ctrl"); err != nil {
-		// 	t.Fatal(err)
-		// }
+		if err := pf.Input.ModifierDown(ctx, "ctrl"); err != nil {
+			t.Fatal(err)
+		}
+		if err := pf.Input.ModifierUp(ctx, "ctrl"); err != nil {
+			t.Fatal(err)
+		}
 		if err := pf.Input.Type(ctx, "hello"); err != nil {
 			t.Fatal(err)
 		}

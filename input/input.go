@@ -9,6 +9,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -36,6 +37,13 @@ var newXTestBackend = func(display string) (Inputter, error) {
 var statUinput = func() error {
 	_, err := os.Stat("/dev/uinput")
 	return err
+}
+
+// ErrNotSupported is returned when the selected input backend cannot perform an operation.
+var ErrNotSupported = errors.New("input: operation not supported on this backend")
+
+func unsupportedError(backend, operation string) error {
+	return fmt.Errorf("%s: %s: %w", backend, operation, ErrNotSupported)
 }
 
 func hasDelegatingBackend(b Inputter) bool {

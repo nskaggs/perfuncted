@@ -72,6 +72,16 @@ func (i InputBundle) keyUpContext(ctx context.Context, key string) error {
 	return i.Inputter.KeyUp(ctx, key)
 }
 
+// ModifierDown is an alias for KeyDown.
+func (i InputBundle) ModifierDown(ctx context.Context, key string) error {
+	return i.keyDownContext(ctx, key)
+}
+
+// ModifierUp is an alias for KeyUp.
+func (i InputBundle) ModifierUp(ctx context.Context, key string) error {
+	return i.keyUpContext(ctx, key)
+}
+
 func (i InputBundle) MouseClick(ctx context.Context, x, y, button int) error {
 	return i.mouseClickContext(ctx, x, y, button)
 }

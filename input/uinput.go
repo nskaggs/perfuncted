@@ -435,7 +435,7 @@ func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
-	return 0, 0, fmt.Errorf("input/uinput: pointer location unsupported")
+	return 0, 0, unsupportedError("input/uinput", "pointer location")
 }
 
 func (b *UinputBackend) Sync(ctx context.Context) error {

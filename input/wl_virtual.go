@@ -348,7 +348,7 @@ func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
-	return 0, 0, fmt.Errorf("input/wl-virtual: pointer location unsupported")
+	return 0, 0, unsupportedError("input/wl-virtual", "pointer location")
 }
 
 func (b *WlVirtualBackend) Sync(ctx context.Context) error {
