@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"net"
 	"path/filepath"
 	"sync"
@@ -291,7 +292,10 @@ func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
 		Success bool   `json:"success"`
 		Error   string `json:"error"`
 	}
-	if err := json.Unmarshal(resp, &results); err == nil && len(results) > 0 && !results[0].Success {
+	if err := json.Unmarshal(resp, &results); err != nil {
+		return fmt.Errorf("window/sway: decode response: %w", err)
+	}
+	if len(results) > 0 && !results[0].Success {
 		return fmt.Errorf("window/sway: command failed: %s", results[0].Error)
 	}
 	return nil
@@ -329,14 +333,16 @@ func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
 	if reflowTimeout <= 0 {
 		reflowTimeout = defaultReflowTimeout
 	}
-	ticker := time.NewTicker(20 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
 	timeout := time.After(reflowTimeout)
 loop:
 	for {
 		wins, err := m.List(ctx)
-		if err == nil {
+		if err != nil {
+			slog.Debug("reflow poll: List failed", "error", err)
+		} else {
 			for _, win := range wins {
 				if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
 					break loop
@@ -447,16 +453,24 @@ func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payl
 		return nil, err
 	}
 	defer conn.Close()
-	if ctx.Done() != nil {
-		done := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = conn.Close()
-			case <-done:
-			}
-		}()
-		defer close(done)
+
+	type queryResult struct {
+		data []byte
+		err  error
 	}
-	return swayQueryConn(ctx, conn, msgType, payload)
+
+	ch := make(chan queryResult, 1)
+	go func() {
+		data, err := swayQueryConn(ctx, conn, msgType, payload)
+		ch <- queryResult{data, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		conn.SetDeadline(time.Now())
+		<-ch
+		return nil, ctx.Err()
+	case r := <-ch:
+		return r.data, r.err
+	}
 }

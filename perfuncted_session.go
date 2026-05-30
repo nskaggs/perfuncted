@@ -86,6 +86,8 @@ type Session struct {
 	mu         sync.Mutex
 	stopped    bool
 	unregister func()
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // managedProc wraps a started process for unified lifecycle management.
@@ -178,6 +180,7 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 		dbusAddr:  fmt.Sprintf("unix:path=%s/bus", xdgDir),
 		logDir:    cfg.LogDir,
 	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	// Write a pidfile so future starts can detect and reap stale sessions.
 	pidPath := filepath.Join(s.xdgDir, sessionOwnerPIDFile)
@@ -187,7 +190,7 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 	}
 
 	// Register signal cleanup automatically so sessions are reaped on SIGINT/SIGTERM.
-	s.unregister = s.CleanupOnSignal(context.Background())
+	s.unregister = s.CleanupOnSignal(s.ctx)
 
 	// 1. Launch dbus-daemon.
 	err = s.launchDBus()
@@ -238,7 +241,7 @@ func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*ex
 	if err != nil {
 		return nil, fmt.Errorf("session: %s not found: %w", name, err)
 	}
-	cmd := executil.CommandContext(context.Background(), path, args...)
+	cmd := executil.CommandContext(s.ctx, path, args...)
 	cmd.Env = env.Merge(s.Env(), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -324,6 +327,10 @@ func (s *Session) Stop() {
 		unregister()
 	}
 
+	if s.cancel != nil {
+		s.cancel()
+	}
+
 	s.stopManagedProcess(s.wlPasteCmd, s.wlPastePid, 200*time.Millisecond)
 	s.stopManagedProcess(s.swayCmd, s.swayPid, 500*time.Millisecond)
 	s.stopManagedProcess(s.dbusCmd, s.dbusPid, 200*time.Millisecond)
@@ -364,7 +371,7 @@ func (s *Session) IsCleaned() bool {
 }
 
 func (s *Session) launchDBus() error {
-	cmd := executil.CommandContext(context.Background(), "dbus-daemon", "--session",
+	cmd := executil.CommandContext(s.ctx, "dbus-daemon", "--session",
 		"--address="+s.dbusAddr,
 		"--nofork", "--nopidfile")
 	cmd.Env = env.Current().
@@ -394,7 +401,7 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 		return fmt.Errorf("create log: %w", err)
 	}
 
-	cmd := executil.CommandContext(context.Background(), "sway", "--unsupported-gpu", "-c", confPath)
+	cmd := executil.CommandContext(s.ctx, "sway", "--unsupported-gpu", "-c", confPath)
 	// Start the compositor with its target runtime variables, but do not pass
 	// SWAYSOCK=. Sway owns this variable and uses it for its IPC socket path.
 	runtime := env.Current().
@@ -460,7 +467,7 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 }
 
 func (s *Session) launchWlPaste() {
-	cmd := executil.CommandContext(context.Background(), "wl-paste", "--watch", "cat")
+	cmd := executil.CommandContext(s.ctx, "wl-paste", "--watch", "cat")
 	cmd.Env = s.Env()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	err := cmd.Start()
