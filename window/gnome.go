@@ -14,6 +14,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
+var _ Manager = (*GnomeManager)(nil)
+
 // gnomeShellService is the D-Bus service name for GNOME Shell's Eval interface.
 const gnomeShellService = "org.gnome.Shell"
 
@@ -180,7 +182,10 @@ func (g *GnomeManager) Unfullscreen(ctx context.Context, title string) error {
 }
 
 func (g *GnomeManager) Close() error {
-	return nil
+	if g.conn == nil {
+		return nil
+	}
+	return g.conn.Close()
 }
 
 func (g *GnomeManager) Sync(ctx context.Context) error {

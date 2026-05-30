@@ -24,6 +24,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
+var _ Screenshotter = (*KWinShotBackend)(nil)
+
 const (
 	kwinShotDest  = "org.kde.KWin"
 	kwinShotPath  = "/org/kde/KWin/ScreenShot2"

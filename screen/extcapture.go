@@ -13,6 +13,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+var _ Screenshotter = (*ExtCaptureBackend)(nil)
+
 // ExtCaptureBackend captures the screen using ext_image_copy_capture_manager_v1.
 // This protocol is detected by probing compositor globals at runtime; it is
 // available where the compositor advertises ext_image_copy_capture_manager_v1.

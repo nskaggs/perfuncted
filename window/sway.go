@@ -42,6 +42,10 @@ type swayRect struct {
 	H int `json:"height"`
 }
 
+var _ Manager = (*SwayManager)(nil)
+
+const defaultReflowTimeout = 500 * time.Millisecond
+
 // SwayManager implements Manager via sway's IPC socket (i3-ipc protocol).
 // It does not require any Wayland protocol machinery — it uses a simple
 // Unix socket with length-prefixed JSON messages.
@@ -49,6 +53,10 @@ type SwayManager struct {
 	sock string
 	mu   sync.Mutex
 	conn net.Conn
+
+	// ReflowTimeout controls how long Move waits for float layout reflow
+	// after enabling floating on a tiled window. Zero means the default (500ms).
+	ReflowTimeout time.Duration
 }
 
 // NewSwayManager returns a SwayManager connected to the nearest sway IPC
@@ -316,11 +324,15 @@ func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
 	}
 
 	// Wait for sway to report the window away from its tiled origin, indicating
-	// the float layout reflow is complete (up to ~500 ms).
+	// the float layout reflow is complete.
+	reflowTimeout := m.ReflowTimeout
+	if reflowTimeout <= 0 {
+		reflowTimeout = defaultReflowTimeout
+	}
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
-	timeout := time.After(500 * time.Millisecond)
+	timeout := time.After(reflowTimeout)
 loop:
 	for {
 		wins, err := m.List(ctx)

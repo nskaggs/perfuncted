@@ -13,6 +13,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
+var _ Screenshotter = (*X11Backend)(nil)
+
 // GrabFullHash returns a CRC32 checksum of the entire screen.
 func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	rect := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
