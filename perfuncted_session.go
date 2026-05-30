@@ -181,7 +181,10 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 
 	// Write a pidfile so future starts can detect and reap stale sessions.
 	pidPath := filepath.Join(s.xdgDir, sessionOwnerPIDFile)
-	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		slog.Warn("failed to write owner pidfile, stale session reaping may be degraded",
+			"path", pidPath, "error", err)
+	}
 
 	// Register signal cleanup automatically so sessions are reaped on SIGINT/SIGTERM.
 	s.unregister = s.CleanupOnSignal(context.Background())
@@ -540,7 +543,10 @@ func (s *Session) writeChildPID(name string, pid int) {
 	if s == nil || s.xdgDir == "" || pid <= 0 {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(s.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600)
+	if err := os.WriteFile(filepath.Join(s.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600); err != nil {
+		slog.Warn("failed to write child pidfile",
+			"name", name, "pid", pid, "path", filepath.Join(s.xdgDir, name), "error", err)
+	}
 }
 
 func reapSessionDir(dir string) {

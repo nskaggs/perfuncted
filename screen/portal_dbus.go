@@ -18,6 +18,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
+var _ Screenshotter = (*PortalDBusBackend)(nil)
+
 // GrabFullHash returns a fast pixel hash of the entire screen.
 func (b *PortalDBusBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	img, err := b.Grab(ctx, image.Rectangle{})

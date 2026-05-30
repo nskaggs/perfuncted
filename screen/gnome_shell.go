@@ -15,6 +15,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
+var _ Screenshotter = (*GnomeShellScreenshotBackend)(nil)
+
 // GrabFullHash returns a fast pixel hash of the entire screen.
 func (b *GnomeShellScreenshotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	img, err := b.Grab(ctx, image.Rectangle{})

@@ -32,6 +32,8 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
+var _ Manager = (*KWinScriptManager)(nil)
+
 const (
 	kwinScriptSvc   = "org.kde.KWin"
 	kwinScriptPath  = dbus.ObjectPath("/Scripting")
