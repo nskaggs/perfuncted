@@ -243,5 +243,13 @@ func (b *KWinShotBackend) Resolution() (int, int, error) {
 	return bounds.Dx(), bounds.Dy(), nil
 }
 
-// Close is a no-op; the session bus connection is shared and managed globally.
-func (b *KWinShotBackend) Close() error { return nil }
+// Close closes the D-Bus connection held by the backend.
+func (b *KWinShotBackend) Close() error {
+	if b == nil || b.transport == nil {
+		return nil
+	}
+	if t, ok := b.transport.(*kwinDBusTransport); ok && t.conn != nil {
+		return t.conn.Close()
+	}
+	return nil
+}
