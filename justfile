@@ -1,5 +1,10 @@
 # justfile — dev workflow for github.com/nskaggs/perfuncted
 # Run `just` to see available recipes. Requires: just, staticcheck, govulncheck, deadcode.
+#
+# Match CI exactly: GitHub Actions uses Go 1.26.3, and it checks this repo out
+# without the parent workspace, so local just recipes should do the same.
+export GOTOOLCHAIN := "go1.26.3"
+export GOWORK := "off"
 
 default:
     @just --list

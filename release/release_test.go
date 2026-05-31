@@ -470,7 +470,8 @@ func TestBinaryLive(t *testing.T) {
 		if code != 0 {
 			// wl-virtual (headless Wayland) does not support pointer location.
 			// Accept this as a known capability gap.
-			if strings.Contains(stderr, "unsupported") {
+			lowerStderr := strings.ToLower(stderr)
+			if strings.Contains(lowerStderr, "unsupported") || strings.Contains(lowerStderr, "not supported on this backend") {
 				t.Skipf("input location unsupported by backend (headless): %s", strings.TrimSpace(stderr))
 			}
 			t.Fatalf("input location exit code = %d, want 0\nstdout=%q\nstderr=%q", code, stdout, stderr)
