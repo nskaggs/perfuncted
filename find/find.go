@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/ctxutil"
+	pollpkg "github.com/nskaggs/perfuncted/poll"
 )
 
 // ErrNotFound is returned when a pixel pattern or color could not be located.
@@ -37,19 +38,6 @@ type Hasher func() hash.Hash32
 
 // DefaultHasher uses CRC32 IEEE.
 var DefaultHasher Hasher = crc32.NewIEEE
-
-// adaptivePoll returns an exponentially backing-off poll duration. base is
-// the starting duration and max is the cap.
-func adaptivePoll(attempt int, base, max time.Duration) time.Duration {
-	if attempt < 0 {
-		attempt = 0
-	}
-	d := base * time.Duration(1<<attempt)
-	if d > max {
-		return max
-	}
-	return d
-}
 
 func clampPoll(poll time.Duration) time.Duration {
 	if poll <= 0 {
@@ -190,7 +178,7 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 			if done {
 				return res, nil
 			}
-			d := adaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
+			d := pollpkg.AdaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
 			attempt++
 			t := time.NewTimer(d)
 			select {

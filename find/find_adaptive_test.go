@@ -50,33 +50,6 @@ func solidRGBA(c color.RGBA) *image.RGBA {
 	return img
 }
 
-// ── adaptivePoll unit tests ───────────────────────────────────────────────────
-
-func TestAdaptivePoll(t *testing.T) {
-	tests := []struct {
-		attempt int
-		base    time.Duration
-		max     time.Duration
-		want    time.Duration
-	}{
-		{0, 10 * time.Millisecond, 200 * time.Millisecond, 10 * time.Millisecond},
-		{1, 10 * time.Millisecond, 200 * time.Millisecond, 20 * time.Millisecond},
-		{2, 10 * time.Millisecond, 200 * time.Millisecond, 40 * time.Millisecond},
-		{3, 10 * time.Millisecond, 200 * time.Millisecond, 80 * time.Millisecond},
-		{4, 10 * time.Millisecond, 200 * time.Millisecond, 160 * time.Millisecond},
-		{5, 10 * time.Millisecond, 200 * time.Millisecond, 200 * time.Millisecond}, // capped
-		{6, 10 * time.Millisecond, 200 * time.Millisecond, 200 * time.Millisecond}, // still capped
-		// Negative attempt is treated as 0.
-		{-1, 10 * time.Millisecond, 200 * time.Millisecond, 10 * time.Millisecond},
-	}
-	for _, tc := range tests {
-		got := adaptivePoll(tc.attempt, tc.base, tc.max)
-		if got != tc.want {
-			t.Errorf("adaptivePoll(%d, %v, %v) = %v, want %v", tc.attempt, tc.base, tc.max, got, tc.want)
-		}
-	}
-}
-
 // ── WaitFor adaptive path ─────────────────────────────────────────────────────
 
 // TestWaitFor_AdaptivePoll_Success verifies that WaitFor with poll=0 returns the
