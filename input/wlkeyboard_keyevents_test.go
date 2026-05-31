@@ -162,7 +162,7 @@ func TestSendModifiers_ZeroMods(t *testing.T) {
 
 func TestTap_PressAndRelease(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.tap(15); err != nil {
+	if err := k.tap(context.Background(), 15); err != nil {
 		t.Fatalf("tap: %v", err)
 	}
 	// tap sends key down then key up = 2 messages
@@ -218,7 +218,7 @@ func TestUploadKeymapAndRestoreMods_NoMods(t *testing.T) {
 
 func TestTypeString_Empty(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.typeString(""); err != nil {
+	if err := 	k.typeString(context.Background(), ""); err != nil {
 		t.Fatalf("typeString: %v", err)
 	}
 	if rc.writes != 0 {
@@ -228,7 +228,7 @@ func TestTypeString_Empty(t *testing.T) {
 
 func TestTypeString_SingleChar(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.typeString("a"); err != nil {
+	if err := k.typeString(context.Background(), "a"); err != nil {
 		t.Fatalf("typeString: %v", err)
 	}
 	// 1 keymap upload + 2 key events (press+release) = 3 writes
@@ -251,7 +251,7 @@ func TestTypeString_SingleChar(t *testing.T) {
 
 func TestTypeString_MultipleChars(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.typeString("ab"); err != nil {
+	if err := k.typeString(context.Background(), "ab"); err != nil {
 		t.Fatalf("typeString: %v", err)
 	}
 	// 1 keymap upload + 4 key events (2 chars × press+release) = 5 writes
@@ -262,7 +262,7 @@ func TestTypeString_MultipleChars(t *testing.T) {
 
 func TestTypeString_RepeatedChar(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.typeString("aa"); err != nil {
+	if err := k.typeString(context.Background(), "aa"); err != nil {
 		t.Fatalf("typeString: %v", err)
 	}
 	// 1 keymap upload + 4 key events = 5 writes
@@ -273,7 +273,7 @@ func TestTypeString_RepeatedChar(t *testing.T) {
 
 func TestTapKey_NamedKey(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.tapKey("return"); err != nil {
+	if err := k.tapKey(context.Background(), "return"); err != nil {
 		t.Fatalf("tapKey: %v", err)
 	}
 	// 1 keymap upload + 2 key events = 3 writes
@@ -291,7 +291,7 @@ func TestTapKey_NamedKey(t *testing.T) {
 
 func TestTapKey_SingleChar(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.tapKey("x"); err != nil {
+	if err := k.tapKey(context.Background(), "x"); err != nil {
 		t.Fatalf("tapKey: %v", err)
 	}
 	// 1 keymap upload + 2 key events = 3 writes
@@ -443,7 +443,7 @@ func TestTypeString_TooManyUniqueRunes(t *testing.T) {
 	for i := range runes {
 		runes[i] = rune(0x10000 + i) // use high Unicode to avoid collisions
 	}
-	err := k.typeString(string(runes))
+	err := k.typeString(context.Background(), string(runes))
 	if err == nil {
 		t.Fatal("expected error for too many unique runes")
 	}
@@ -457,7 +457,7 @@ func TestTypeString_ExactMaxSlots(t *testing.T) {
 	for i := range runes {
 		runes[i] = rune(0x10000 + i)
 	}
-	err := k.typeString(string(runes))
+	err := k.typeString(context.Background(), string(runes))
 	if err != nil {
 		t.Fatalf("typeString with max slots should succeed: %v", err)
 	}
@@ -541,7 +541,7 @@ func testUniqueRunes(s string) []rune {
 	return out
 }
 
-func (k *wlKeyboard) typeString(s string) error {
+func (k *wlKeyboard) typeString(ctx context.Context, s string) error {
 	if s == "" {
 		return nil
 	}
@@ -557,7 +557,7 @@ func (k *wlKeyboard) typeString(s string) error {
 		slot[r] = kcDynBase + uint32(i)
 	}
 	for _, r := range s {
-		if err := k.tap(slot[r]); err != nil {
+		if err := k.tap(ctx, slot[r]); err != nil {
 			return err
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -565,14 +565,14 @@ func (k *wlKeyboard) typeString(s string) error {
 	return nil
 }
 
-func (k *wlKeyboard) tapKey(key string) error {
+func (k *wlKeyboard) tapKey(ctx context.Context, key string) error {
 	if kc, sym, ok := namedKey(key); ok {
 		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
 			return err
 		}
-		return k.tap(kc)
+		return k.tap(ctx, kc)
 	}
-	return k.typeString(key)
+	return k.typeString(ctx, key)
 }
 
 // maxDynSlots is exported for tests that reference it by name.
@@ -587,7 +587,7 @@ func uniqueRunes(s string) []rune {
 // populated when the sendKey call for a key-down action fails. Before the fix,
 // k.held was set before sendKey, leaving a phantom held key on failure.
 func TestSendkeysContext_HeldNotSetOnSendKeyFailure(t *testing.T) {
-	// sendkeysContext does 1 write for keymap upload; the next write is sendKey.
+	// sendkeys does 1 write for keymap upload; the next write is sendKey.
 	// Allow 1 write (keymap) then fail.
 	k, _ := newFailingKeyboard(1)
 
@@ -596,7 +596,7 @@ func TestSendkeysContext_HeldNotSetOnSendKeyFailure(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	// Should fail because sendKey (write 1) fails.
-	if err := k.sendkeysContext(context.Background(), actions); err == nil {
+	if err := k.sendkeys(context.Background(), actions); err == nil {
 		t.Fatal("expected error from injected write failure")
 	}
 	if len(k.held) != 0 {
@@ -620,7 +620,7 @@ func TestSendkeysContext_ModifierClearedOnSendKeyFailure(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	initialMods := k.mods
-	if err := k.sendkeysContext(context.Background(), actions); err == nil {
+	if err := k.sendkeys(context.Background(), actions); err == nil {
 		t.Fatal("expected error from injected write failure")
 	}
 	if k.mods != initialMods {

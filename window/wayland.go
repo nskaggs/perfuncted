@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"sync"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -36,9 +37,10 @@ type WaylandWindowManager struct {
 	extMgrID uint32
 	wlrMgrID uint32
 	// wl_seat global name (if advertised) and a bound proxy for activate requests.
-	seatID    uint32
-	seat      *wl.RawProxy
-	toplevels map[uint32]*Info
+	seatID      uint32
+	seat        *wl.RawProxy
+	toplevels   map[uint32]*Info
+	toplevelsMu sync.Mutex
 }
 
 func (m *WaylandWindowManager) canControlToplevels() bool {
@@ -138,7 +140,9 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 		}
 		handleID := wl.Uint32(data[0:4])
 		info := &Info{ID: uint64(handleID)}
+		m.toplevelsMu.Lock()
 		m.toplevels[handleID] = info
+		m.toplevelsMu.Unlock()
 		handle := &wl.RawProxy{}
 		ctx.SetProxy(handleID, handle)
 		// Each handle emits title/app_id/state/output_enter/leave/closed events.
@@ -191,6 +195,8 @@ func (m *WaylandWindowManager) sendHandleRequest(handleID uint32, opcode uint32,
 }
 
 func (m *WaylandWindowManager) findToplevel(title string) (uint32, *Info, bool) {
+	m.toplevelsMu.Lock()
+	defer m.toplevelsMu.Unlock()
 	for id, info := range m.toplevels {
 		if strings.Contains(strings.ToLower(info.Title), strings.ToLower(title)) {
 			return id, info, true
@@ -217,11 +223,14 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			yield(Info{}, fmt.Errorf("window/wayland: round-trip: %w", err))
 			return
 		}
+		m.toplevelsMu.Lock()
 		for _, v := range m.toplevels {
 			if !yield(*v, nil) {
+				m.toplevelsMu.Unlock()
 				return
 			}
 		}
+		m.toplevelsMu.Unlock()
 	}
 }
 
@@ -230,6 +239,8 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 	if err := m.display.RoundTrip(); err != nil {
 		return "", fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
+	m.toplevelsMu.Lock()
+	defer m.toplevelsMu.Unlock()
 	for _, v := range m.toplevels {
 		if v.Active {
 			return v.Title, nil
