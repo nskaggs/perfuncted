@@ -13,6 +13,7 @@ import (
 	"unsafe"
 
 	"github.com/bendahl/uinput"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/keymap"
 )
 
@@ -136,7 +137,7 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 }
 
 func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 }
 
 func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -164,7 +165,7 @@ func (b *UinputBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -200,7 +201,7 @@ func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
 // modifiers in reverse order. If any step fails, already-pressed modifiers
 // are released (best-effort) before the error is returned.
 func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up bool, mods modifiers) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -277,7 +278,7 @@ func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up 
 // to determine the correct evdev keycode and shift state for each rune.
 // This is layout-independent: on AZERTY 'a' is at KEY_Q position, on QWERTY it's KEY_A, etc.
 func (b *UinputBackend) typeText(ctx context.Context, s string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	for _, ch := range s {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -307,7 +308,7 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 }
 
 func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -315,7 +316,7 @@ func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
 }
 
 func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -329,7 +330,7 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 }
 
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -352,7 +353,7 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 }
 
 func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -387,7 +388,7 @@ func (b *UinputBackend) ensureMouse() error {
 }
 
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -398,7 +399,7 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -409,7 +410,7 @@ func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -420,7 +421,7 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -431,7 +432,7 @@ func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
@@ -439,7 +440,7 @@ func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
 }
 
 func (b *UinputBackend) Sync(ctx context.Context) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	return ctx.Err()
 }
 

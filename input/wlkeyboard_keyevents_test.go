@@ -218,7 +218,7 @@ func TestUploadKeymapAndRestoreMods_NoMods(t *testing.T) {
 
 func TestTypeString_Empty(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := 	k.typeString(context.Background(), ""); err != nil {
+	if err := k.typeString(context.Background(), ""); err != nil {
 		t.Fatalf("typeString: %v", err)
 	}
 	if rc.writes != 0 {

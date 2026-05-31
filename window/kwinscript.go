@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
@@ -93,9 +94,7 @@ func (r *pfReceiver) ReportWindows(data string) *dbus.Error {
 //
 // where svc is the value passed to buildJS.
 func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc string) string) (string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

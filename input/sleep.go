@@ -3,17 +3,12 @@ package input
 import (
 	"context"
 	"time"
+
+	"github.com/nskaggs/perfuncted/ctxutil"
 )
 
-func normalizeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-
 func sleepContext(ctx context.Context, d time.Duration) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if d <= 0 {
 		return ctx.Err()
 	}

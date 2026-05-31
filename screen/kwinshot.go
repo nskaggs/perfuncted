@@ -20,6 +20,7 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
@@ -132,9 +133,7 @@ func (t *kwinDBusTransport) CaptureActiveScreen(ctx context.Context) (image.Imag
 }
 
 func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect image.Rectangle, args ...interface{}) (image.Image, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/kwin: capture canceled: %w", err)
 	}

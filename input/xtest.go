@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
@@ -155,7 +156,7 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 }
 
 func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -168,7 +169,7 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 
 // KeyUp releases a previously held key.
 func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -184,7 +185,7 @@ func (b *XTestBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -289,7 +290,7 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 // GetKeyboardMapping reply; Shift is held when the keysym lives at level >= 1.
 // This is layout-independent: the X server tells us which keysyms need Shift.
 func (b *XTestBackend) typeText(ctx context.Context, s string) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	for _, ch := range s {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -350,7 +351,7 @@ func (b *XTestBackend) keyUpKC(_ context.Context, kc xproto.Keycode) error {
 }
 
 func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -359,7 +360,7 @@ func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
 }
 
 func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -379,7 +380,7 @@ func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 }
 
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -388,7 +389,7 @@ func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 }
 
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -399,7 +400,7 @@ func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 // X11 scroll is button 4 (up) / 5 (down).
 func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	for i := 0; i < clicks; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -416,7 +417,7 @@ func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	for i := 0; i < clicks; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -434,7 +435,7 @@ func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 // X11 scroll is button 6 (left) / 7 (right).
 func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	for i := 0; i < clicks; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -451,7 +452,7 @@ func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	for i := 0; i < clicks; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -467,7 +468,7 @@ func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
@@ -479,7 +480,7 @@ func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
 }
 
 func (b *XTestBackend) Sync(ctx context.Context) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
