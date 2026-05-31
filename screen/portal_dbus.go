@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
@@ -141,9 +142,7 @@ func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
 // Grab takes a full workspace screenshot via the portal and returns the
 // requested rectangle. The portal may show a consent dialog on first use.
 func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/portal: grab canceled: %w", err)
 	}

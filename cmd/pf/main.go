@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/ctxutil"
 )
 
 var (
@@ -28,9 +29,7 @@ func run(ctx context.Context, args []string) int {
 }
 
 func runWithFactory(ctx context.Context, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) int {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxutil.Default(ctx)
 	cmd := newRootCmd(openPFFactory)
 	cmd.SetArgs(args)
 	if err := cmd.ExecuteContext(ctx); err != nil {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/clipboard"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -192,7 +193,7 @@ func (p *Perfuncted) Paste(ctx context.Context, text string) error {
 	if p == nil {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	p.traceAction(fmt.Sprintf("paste text=%q", text))
 	if p.Clipboard.Clipboard != nil {
 		return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
@@ -283,7 +284,7 @@ func (p *Perfuncted) Close() error {
 }
 
 func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if fn == nil {
 		return fmt.Errorf("retry: nil function")
 	}
@@ -311,11 +312,4 @@ func (p *Perfuncted) traceAction(msg string) {
 		return
 	}
 	p.trace.Tracef("perfuncted", "%s", msg)
-}
-
-func normalizeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
 }

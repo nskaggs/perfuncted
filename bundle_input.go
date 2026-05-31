@@ -6,6 +6,7 @@ import (
 	"image"
 	"time"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/util"
 )
@@ -112,7 +113,7 @@ func (i InputBundle) DoubleClick(ctx context.Context, x, y int) error {
 }
 
 func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	i.traceAction(fmt.Sprintf("double-click x=%d y=%d", x, y))
 	if err := i.checkAvailable(); err != nil {
 		return err
@@ -247,7 +248,7 @@ func (i InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error 
 }
 
 func (i InputBundle) dragAndDropContext(ctx context.Context, x1, y1, x2, y2 int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	i.traceAction(fmt.Sprintf("drag-and-drop x1=%d y1=%d x2=%d y2=%d", x1, y1, x2, y2))
 	if err := i.checkAvailable(); err != nil {
 		return err

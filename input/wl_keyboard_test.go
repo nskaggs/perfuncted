@@ -198,7 +198,7 @@ func TestUploadKeymap_Caching(t *testing.T) {
 
 func TestSendkeys_Empty(t *testing.T) {
 	k, rc := newSendkeysTestKeyboard()
-		if err := k.sendkeys(context.Background(), nil); err != nil {
+	if err := k.sendkeys(context.Background(), nil); err != nil {
 		t.Fatalf("sendkeys(nil): %v", err)
 	}
 	if rc.writes != 0 {
@@ -215,7 +215,7 @@ func TestSendkeys_Empty(t *testing.T) {
 func TestSendkeys_PlainText(t *testing.T) {
 	k, rc := newSendkeysTestKeyboard()
 	actions := []keySend{{text: "ab"}}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	// 1 keymap upload + 4 key events (2 chars × press+release) = 5 writes
@@ -241,7 +241,7 @@ func TestSendkeys_ComboOnly(t *testing.T) {
 	actions := []keySend{
 		{key: "enter", modifiers: modifiers{}},
 	}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	// 1 keymap upload + 2 key events (press+release of enter) = 3 writes
@@ -256,7 +256,7 @@ func TestSendkeys_ExplicitModifierReleaseOnlySendsKeyUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseKeySend: %v", err)
 	}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	if rc.writes != 5 {
@@ -283,7 +283,7 @@ func TestSendkeys_TextBeforeCombo_OrderedCorrectly(t *testing.T) {
 		{text: "ab"},
 		{key: "enter"},
 	}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	// 1 keymap upload + 4 key events for "ab" + 2 key events for enter = 7 writes
@@ -309,7 +309,7 @@ func TestSendkeys_ComboBeforeText_OrderedCorrectly(t *testing.T) {
 		{key: "enter"},
 		{text: "ab"},
 	}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	// 1 keymap upload + 2 key events for enter + 4 key events for "ab" = 7 writes
@@ -332,7 +332,7 @@ func TestSendkeys_ModifierCombo(t *testing.T) {
 	actions := []keySend{
 		{key: "a", modifiers: modifiers{ctrl: true}},
 	}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	// Expected writes:
@@ -365,7 +365,7 @@ func TestSendkeys_MixedTextAndCombo_AllRunesInKeymap(t *testing.T) {
 		{key: "enter"},
 		{text: "World"},
 	}
-	if err := k.sendkeys(context.Background(),actions); err != nil {
+	if err := k.sendkeys(context.Background(), actions); err != nil {
 		t.Fatalf("sendkeys: %v", err)
 	}
 	// Total: 1 keymap + 4 for Hi + 2 for enter + 10 for World = 17

@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"sync"
 	"time"
 
@@ -100,7 +102,7 @@ func swayQueryDeadline(ctx context.Context) time.Time {
 }
 
 func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -146,7 +148,7 @@ func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload s
 }
 
 func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string) ([]byte, error) {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -175,13 +177,6 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 		return nil, err
 	}
 	return body, nil
-}
-
-func normalizeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
 }
 
 // List returns all visible windows (leaf containers) in the sway tree.
@@ -318,7 +313,7 @@ func (m *SwayManager) Restore(ctx context.Context, substr string) error {
 // Move repositions the first window whose title contains substr.
 // The window is made floating so it can be placed at an absolute position.
 func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	w, err := m.findWindow(ctx, substr)
 	if err != nil {
 		return err
@@ -444,7 +439,7 @@ var swayDialContext = func(ctx context.Context, network, address string) (net.Co
 }
 
 func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) ([]byte, error) {
-	ctx = normalizeContext(ctx)
+	ctx = ctxutil.Default(ctx)
 	conn, err := swayDialContext(ctx, "unix", sock)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {

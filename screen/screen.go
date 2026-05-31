@@ -7,6 +7,7 @@ import (
 	"image"
 	"strings"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -35,9 +36,7 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 	if err := util.CheckAvailable("screen", sc); err != nil {
 		return 0, 0, err
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = ctxutil.Default(ctx)
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()
 	}
