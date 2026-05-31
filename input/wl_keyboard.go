@@ -165,11 +165,7 @@ func (k *wlKeyboard) clearTempModsBestEffort(modBitmask uint32) {
 //
 // Text and key actions are executed in the order they appear in the input,
 // so "Hello{enter}" types "Hello" before pressing Enter.
-func (k *wlKeyboard) sendkeys(actions []keySend) error {
-	return k.sendkeysContext(context.Background(), actions)
-}
-
-func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) error {
+func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error {
 	ctx = normalizeContext(ctx)
 	if len(actions) == 0 {
 		return nil
@@ -267,7 +263,7 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 			// Type literal text.
 			for _, r := range a.text {
 				slot := runeSlots[r]
-				if err := k.tapContext(ctx, slot); err != nil {
+				if err := k.tap(ctx, slot); err != nil {
 					return err
 				}
 				if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
@@ -420,7 +416,7 @@ func (k *wlKeyboard) sendkeysContext(ctx context.Context, actions []keySend) err
 			default:
 				for _, r := range ka.key {
 					slot := runeSlots[r]
-					if err := k.tapContext(ctx, slot); err != nil {
+					if err := k.tap(ctx, slot); err != nil {
 						k.clearTempModsBestEffort(modBitmask)
 						return err
 					}
@@ -566,11 +562,7 @@ func (k *wlKeyboard) sendModifiers() error {
 	return k.ctx.WriteMsg(buf[:], nil)
 }
 
-func (k *wlKeyboard) tap(keycode uint32) error {
-	return k.tapContext(context.Background(), keycode)
-}
-
-func (k *wlKeyboard) tapContext(ctx context.Context, keycode uint32) error {
+func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 	ctx = normalizeContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err

@@ -114,7 +114,9 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	// send SIGKILL and wait again briefly.
 	done := make(chan struct{})
 	go func() {
-		_ = m.cmd.Wait()
+		if err := m.cmd.Wait(); err != nil {
+			slog.Debug("session: process wait", "pid", m.pid, "error", err)
+		}
 		close(done)
 	}()
 	outer := time.NewTimer(waitTimeout)
@@ -336,7 +338,9 @@ func (s *Session) Stop() {
 	s.stopManagedProcess(s.dbusCmd, s.dbusPid, 200*time.Millisecond)
 	if s.xdgDir != "" {
 		unmountSubdirs(s.xdgDir)
-		os.RemoveAll(s.xdgDir)
+		if err := os.RemoveAll(s.xdgDir); err != nil {
+			slog.Debug("session: remove xdg dir", "path", s.xdgDir, "error", err)
+		}
 	}
 }
 
@@ -418,7 +422,7 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 	case sessionModeNested:
 		hostSocket := env.Current().SocketPath()
 		if hostSocket == "" {
-			logFile.Close()
+			logFileClose(logFile)
 			return fmt.Errorf("nested session requires a host Wayland socket")
 		}
 		runtime = runtime.With("WAYLAND_DISPLAY", hostSocket)
@@ -427,7 +431,7 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 			"WLR_RENDERER=pixman",
 		)
 	default:
-		logFile.Close()
+		logFileClose(logFile)
 		return fmt.Errorf("unknown session mode %d", mode)
 	}
 	cmd.Stdout = logFile
@@ -435,13 +439,13 @@ func (s *Session) launchSway(confPath string, mode sessionMode) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
-		logFile.Close()
+		logFileClose(logFile)
 		return err
 	}
 	s.swayPid = cmd.Process.Pid
 	s.swayCmd = cmd
 	s.writeChildPID("sway.pid", s.swayPid)
-	logFile.Close()
+	logFileClose(logFile)
 
 	// Wait for the Wayland and sway IPC sockets in parallel so startup is gated
 	// by the slower of the two readiness checks instead of the sum.
@@ -565,7 +569,9 @@ func reapSessionDir(dir string) {
 		(&managedProc{pid: pid}).stop(100 * time.Millisecond)
 	}
 	unmountSubdirs(dir)
-	_ = os.RemoveAll(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		slog.Debug("session: reap remove dir", "path", dir, "error", err)
+	}
 }
 
 // unmountSubdirs unmounts any FUSE filesystems mounted under dir.
@@ -621,6 +627,14 @@ func (s *Session) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Du
 
 // waitForFile checks for the existence of the given path up to attempts times,
 // at interval between tries.
+func logFileClose(f *os.File) {
+	if f != nil {
+		if err := f.Close(); err != nil {
+			slog.Debug("session: close log file", "error", err)
+		}
+	}
+}
+
 func waitForFile(path string, attempts int, interval time.Duration) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

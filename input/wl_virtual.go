@@ -271,7 +271,7 @@ func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
 	if err != nil {
 		return err
 	}
-	return b.kbd.sendkeysContext(ctx, actions)
+	return b.kbd.sendkeys(ctx, actions)
 }
 
 // KeyDown presses and holds a key. Modifier keys update the compositor's
