@@ -20,6 +20,9 @@ func TestAdaptivePoll(t *testing.T) {
 		{5, 10 * time.Millisecond, 200 * time.Millisecond, 200 * time.Millisecond},
 		{6, 10 * time.Millisecond, 200 * time.Millisecond, 200 * time.Millisecond},
 		{-1, 10 * time.Millisecond, 200 * time.Millisecond, 10 * time.Millisecond},
+		{1000, 10 * time.Millisecond, 200 * time.Millisecond, 200 * time.Millisecond},
+		{1, 0, 200 * time.Millisecond, 0},
+		{1, 10 * time.Millisecond, 0, 0},
 	}
 	for _, tc := range tests {
 		got := AdaptivePoll(tc.attempt, tc.base, tc.max)

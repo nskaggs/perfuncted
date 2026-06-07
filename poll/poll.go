@@ -18,9 +18,19 @@ func AdaptivePoll(attempt int, base, max time.Duration) time.Duration {
 	if attempt < 0 {
 		attempt = 0
 	}
-	d := base * time.Duration(1<<attempt)
-	if d > max {
+	if base <= 0 || max <= 0 {
+		return 0
+	}
+	if base >= max {
 		return max
+	}
+
+	d := base
+	for range attempt {
+		if d > max-d {
+			return max
+		}
+		d *= 2
 	}
 	return d
 }
