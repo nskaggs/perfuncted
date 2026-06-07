@@ -16,7 +16,8 @@ func TestDefault_nonNil(t *testing.T) {
 }
 
 func TestDefault_nil(t *testing.T) {
-	got := Default(nil)
+	var nilCtx context.Context
+	got := Default(nilCtx)
 	if got == nil {
 		t.Fatal("expected non-nil context")
 	}
