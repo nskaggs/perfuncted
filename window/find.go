@@ -8,14 +8,8 @@ import (
 
 	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/util"
+	pollpkg "github.com/nskaggs/perfuncted/poll"
 )
-
-func clampPoll(poll time.Duration) time.Duration {
-	if poll <= 0 {
-		return 10 * time.Millisecond
-	}
-	return poll
-}
 
 // Find returns the first window matching match.
 func Find(ctx context.Context, m Manager, match Match) (Info, error) {
@@ -54,7 +48,7 @@ func WaitForMatch(ctx context.Context, m Manager, match Match, poll time.Duratio
 	ctx = ctxutil.Default(ctx)
 	compiled := CompileMatch(match)
 	label := match.String()
-	ticker := time.NewTicker(clampPoll(poll))
+	ticker := time.NewTicker(pollpkg.Clamp(poll))
 	defer ticker.Stop()
 
 	for {
@@ -86,7 +80,7 @@ func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Du
 	ctx = ctxutil.Default(ctx)
 	compiled := CompileMatch(match)
 	label := match.String()
-	ticker := time.NewTicker(clampPoll(poll))
+	ticker := time.NewTicker(pollpkg.Clamp(poll))
 	defer ticker.Stop()
 
 	for {
