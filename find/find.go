@@ -39,13 +39,6 @@ type Hasher func() hash.Hash32
 // DefaultHasher uses CRC32 IEEE.
 var DefaultHasher Hasher = crc32.NewIEEE
 
-func clampPoll(poll time.Duration) time.Duration {
-	if poll <= 0 {
-		return 10 * time.Millisecond
-	}
-	return poll
-}
-
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
 		return nil
@@ -190,7 +183,7 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 		}
 	}
 
-	ticker := time.NewTicker(clampPoll(pollDur))
+	ticker := time.NewTicker(pollpkg.Clamp(pollDur))
 	defer ticker.Stop()
 	for {
 		if err := contextErr(ctx); err != nil {
@@ -379,7 +372,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	bboxArea := bbox.Dx() * bbox.Dy()
 	useBbox := bboxArea <= 2*totalArea
 
-	ticker := time.NewTicker(clampPoll(poll))
+	ticker := time.NewTicker(pollpkg.Clamp(poll))
 	defer ticker.Stop()
 
 	for {

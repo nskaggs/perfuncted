@@ -35,7 +35,7 @@ func AdaptivePoll(attempt int, base, max time.Duration) time.Duration {
 	return d
 }
 
-func clamp(d time.Duration) time.Duration {
+func Clamp(d time.Duration) time.Duration {
 	if d <= 0 {
 		return 10 * time.Millisecond
 	}
@@ -50,7 +50,7 @@ func WaitFunc[T any](ctx context.Context, pollInterval time.Duration, fn func() 
 		var zero T
 		return zero, fmt.Errorf("poll.WaitFunc: %w", ErrNilFunction)
 	}
-	pollInterval = clamp(pollInterval)
+	pollInterval = Clamp(pollInterval)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
