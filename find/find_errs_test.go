@@ -7,6 +7,8 @@ import (
 	"image/color"
 	"testing"
 	"time"
+
+	pollpkg "github.com/nskaggs/perfuncted/poll"
 )
 
 // errScreen always returns an error from Grab.
@@ -308,23 +310,23 @@ func TestWaitWithTolerance_NoSubImage_Timeout(t *testing.T) {
 // ── clampPoll ─────────────────────────────────────────────────────────────────
 
 func TestClampPoll_ZeroReturnsDefault(t *testing.T) {
-	got := clampPoll(0)
+	got := pollpkg.Clamp(0)
 	if got != 10*time.Millisecond {
-		t.Fatalf("clampPoll(0) = %v, want 10ms", got)
+		t.Fatalf("Clamp(0) = %v, want 10ms", got)
 	}
 }
 
 func TestClampPoll_NegativeReturnsDefault(t *testing.T) {
-	got := clampPoll(-1)
+	got := pollpkg.Clamp(-1)
 	if got != 10*time.Millisecond {
-		t.Fatalf("clampPoll(-1) = %v, want 10ms", got)
+		t.Fatalf("Clamp(-1) = %v, want 10ms", got)
 	}
 }
 
 func TestClampPoll_PositivePassThrough(t *testing.T) {
-	got := clampPoll(50 * time.Millisecond)
+	got := pollpkg.Clamp(50 * time.Millisecond)
 	if got != 50*time.Millisecond {
-		t.Fatalf("clampPoll(50ms) = %v, want 50ms", got)
+		t.Fatalf("Clamp(50ms) = %v, want 50ms", got)
 	}
 }
 
