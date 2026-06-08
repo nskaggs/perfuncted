@@ -15,7 +15,7 @@ var (
 	errHTTPNotFound           = errors.New("404 not found")
 	errBareConnectionReset    = errors.New("connection reset by peer")
 	errBareClosedNetwork      = errors.New("closed network connection")
-	errContextDeadlineStr    = errors.New("operation failed: context deadline exceeded")
+	errContextDeadlineStr     = errors.New("operation failed: context deadline exceeded")
 	errUnexpectedScriptResult = errors.New("unexpected script result")
 )
 
