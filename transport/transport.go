@@ -46,6 +46,8 @@ func Classify(err error) Classification {
 		return ClassConnectionClosed
 	case strings.Contains(msg, "i/o timeout"):
 		return ClassTimeout
+	case strings.Contains(msg, "context deadline exceeded"):
+		return ClassTimeout
 	default:
 		return ClassUnknown
 	}
