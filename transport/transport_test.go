@@ -15,6 +15,7 @@ var (
 	errHTTPNotFound           = errors.New("404 not found")
 	errBareConnectionReset    = errors.New("connection reset by peer")
 	errBareClosedNetwork      = errors.New("closed network connection")
+	errContextDeadlineStr     = errors.New("operation failed: context deadline exceeded")
 	errUnexpectedScriptResult = errors.New("unexpected script result")
 )
 
@@ -28,6 +29,7 @@ func TestClassify(t *testing.T) {
 		{name: "deadline exceeded", err: context.DeadlineExceeded, want: ClassTimeout},
 		{name: "wrapped deadline exceeded", err: fmt.Errorf("read: %w", context.DeadlineExceeded), want: ClassTimeout},
 		{name: "io timeout", err: errIOTimeout, want: ClassTimeout},
+		{name: "context deadline string", err: errContextDeadlineStr, want: ClassTimeout},
 		{name: "broken pipe", err: errBrokenPipe, want: ClassConnectionReset},
 		{name: "connection reset", err: errConnectionReset, want: ClassConnectionReset},
 		{name: "closed connection", err: errClosedNetwork, want: ClassConnectionClosed},
