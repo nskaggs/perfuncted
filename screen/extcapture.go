@@ -20,6 +20,7 @@ var _ Screenshotter = (*ExtCaptureBackend)(nil)
 // available where the compositor advertises ext_image_copy_capture_manager_v1.
 // Do not assume specific compositor versions — rely solely on protocol presence.
 type ExtCaptureBackend struct {
+	// mu protects display, registry, shm, manager globals, and outputProxy.
 	mu           sync.Mutex
 	session      *wl.Session
 	display      *wl.Display

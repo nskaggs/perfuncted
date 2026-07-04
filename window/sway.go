@@ -54,6 +54,7 @@ const defaultReflowTimeout = 500 * time.Millisecond
 // Unix socket with length-prefixed JSON messages.
 type SwayManager struct {
 	sock string
+	// mu protects conn.
 	mu   sync.Mutex
 	conn net.Conn
 

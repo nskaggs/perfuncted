@@ -32,6 +32,7 @@ const (
 
 // WlVirtualBackend implements Inputter for wlroots Wayland compositors.
 type WlVirtualBackend struct {
+	// mu protects session, display, ptr, kbd, and output dimensions.
 	mu       sync.Mutex
 	session  *wl.Session
 	display  *wl.Display

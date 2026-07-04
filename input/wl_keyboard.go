@@ -60,6 +60,7 @@ type wlKeyboard struct {
 	held map[string]uint32 // non-modifier held keys: canonical name → keycode
 	// lastKeymap caches the most recently uploaded keymap text to avoid
 	// re-uploading identical keymaps repeatedly.
+	// lastMu protects lastKeymap.
 	lastMu     sync.Mutex
 	lastKeymap string
 }

@@ -40,6 +40,7 @@ type WaylandWindowManager struct {
 	seatID      uint32
 	seat        *wl.RawProxy
 	toplevels   map[uint32]*Info
+	// toplevelsMu protects toplevels map.
 	toplevelsMu sync.Mutex
 }
 

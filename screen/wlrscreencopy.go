@@ -31,6 +31,7 @@ type bufInfo struct{ format, width, height, stride uint32 }
 
 type WlrScreencopyBackend struct {
 	sock        string
+	// ctxMu protects ctx and lastUsed.
 	ctxMu       sync.Mutex
 	ctx         *wl.Context
 	lastUsed    time.Time

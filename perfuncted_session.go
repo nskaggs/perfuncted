@@ -229,12 +229,18 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 // Launch starts a subprocess inside the session with the correct environment.
 // The caller is responsible for waiting on or killing the returned Cmd.
 func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
+	if s == nil {
+		return nil, nil
+	}
 	return s.LaunchEnv(nil, name, args...)
 }
 
 // LaunchEnv starts a subprocess inside the session with the correct
 // environment plus any additional overrides in extraEnv.
 func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*exec.Cmd, error) {
+	if s == nil {
+		return nil, nil
+	}
 	path, err := executil.LookPath(name)
 	if err != nil {
 		return nil, fmt.Errorf("session: %s not found: %w", name, err)
@@ -251,24 +257,50 @@ func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*ex
 // Env returns a complete environment variable slice for child processes
 // running inside this session. It overlays session vars on the host env.
 func (s *Session) Env() []string {
+	if s == nil {
+		return nil
+	}
 	return env.Environ(s.xdgDir, s.wlDisplay, s.dbusAddr)
 }
 
 // XDGRuntimeDir returns the temporary directory path for this session.
-func (s *Session) XDGRuntimeDir() string { return s.xdgDir }
+func (s *Session) XDGRuntimeDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.xdgDir
+}
 
 // WaylandDisplay returns the Wayland display name (e.g. "wayland-1").
-func (s *Session) WaylandDisplay() string { return s.wlDisplay }
+func (s *Session) WaylandDisplay() string {
+	if s == nil {
+		return ""
+	}
+	return s.wlDisplay
+}
 
 // SwayPID returns the PID of the sway process backing the session.
-func (s *Session) SwayPID() int { return s.swayPid }
+func (s *Session) SwayPID() int {
+	if s == nil {
+		return 0
+	}
+	return s.swayPid
+}
 
 // DBusAddress returns the D-Bus session bus address.
-func (s *Session) DBusAddress() string { return s.dbusAddr }
+func (s *Session) DBusAddress() string {
+	if s == nil {
+		return ""
+	}
+	return s.dbusAddr
+}
 
 // Perfuncted returns a connected perfuncted instance targeting this session.
 // The returned instance should be closed separately from the session.
 func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
+	if s == nil {
+		return nil, nil
+	}
 	opts.XDGRuntimeDir = s.xdgDir
 	opts.WaylandDisplay = s.wlDisplay
 	opts.DBusSessionAddress = s.dbusAddr
@@ -349,6 +381,9 @@ func (s *Session) Cleanup() {
 
 // IsStopped returns true if Stop has been called.
 func (s *Session) IsStopped() bool {
+	if s == nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stopped
