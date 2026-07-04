@@ -37,9 +37,9 @@ type WaylandWindowManager struct {
 	extMgrID uint32
 	wlrMgrID uint32
 	// wl_seat global name (if advertised) and a bound proxy for activate requests.
-	seatID      uint32
-	seat        *wl.RawProxy
-	toplevels   map[uint32]*Info
+	seatID    uint32
+	seat      *wl.RawProxy
+	toplevels map[uint32]*Info
 	// toplevelsMu protects toplevels map.
 	toplevelsMu sync.Mutex
 }
