@@ -28,6 +28,15 @@ import (
 
 var nestedSessionGlob = filepath.Glob
 
+// Injectable backend constructors for testing.
+var (
+	openScreen    = screen.OpenRuntime
+	openInput     = input.OpenRuntime
+	openWindow    = window.OpenRuntime
+	openOutput    = output.OpenRuntime
+	openClipboard = clipboard.OpenRuntime
+)
+
 // Options controls backend selection.
 type Options struct {
 	MaxX, MaxY int32
@@ -117,7 +126,7 @@ func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
 			}
 			return 0
 		})
-		fmt.Fprintf(os.Stderr, "warning: multiple nested sessions found, picking %s\n", entries[0].path)
+		slog.Warn("multiple nested sessions found, picking most recent", "path", entries[0].path)
 	}
 
 	xdgDir := entries[0].path
@@ -209,29 +218,29 @@ func New(opts Options) (*Perfuncted, error) {
 
 	session := compositor.DetectRuntime(rt)
 
-	scr, err := screen.OpenRuntime(rt)
+	scr, err := openScreen(rt)
 	if err != nil {
 		return nil, err
 	}
-	inp, err := input.OpenRuntime(rt, opts.MaxX, opts.MaxY)
+	inp, err := openInput(rt, opts.MaxX, opts.MaxY)
 	if err != nil {
 		scr.Close()
 		return nil, err
 	}
-	win, err := window.OpenRuntime(rt)
+	win, err := openWindow(rt)
 	if err != nil {
 		scr.Close()
 		inp.Close()
 		return nil, err
 	}
-	out, err := output.OpenRuntime(rt)
+	out, err := openOutput(rt)
 	if err != nil {
 		scr.Close()
 		inp.Close()
 		win.Close()
 		return nil, err
 	}
-	cb, err := clipboard.OpenRuntime(rt)
+	cb, err := openClipboard(rt)
 	if err != nil {
 		scr.Close()
 		inp.Close()

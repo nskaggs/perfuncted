@@ -152,8 +152,9 @@ func (s ScreenBundle) WaitForFn(ctx context.Context, rect image.Rectangle, fn fu
 }
 
 // WaitForSettle grabs a hash before calling action, waits for the region to
-// change, then waits for it to stabilise over stable consecutive polls.
-func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, action func(), stable int, poll time.Duration) (uint32, error) {
+// change (if action returned nil), then waits for it to stabilise over stable
+// consecutive polls. If action returns an error, it is returned immediately.
+func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, action func() error, stable int, poll time.Duration) (uint32, error) {
 	s.traceAction(fmt.Sprintf("wait-for-settle rect=%s stable=%d poll=%s", rect, stable, poll))
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
@@ -163,7 +164,10 @@ func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, a
 		return 0, err
 	}
 	if action != nil {
-		action()
+		actionErr := action()
+		if actionErr != nil {
+			return 0, actionErr
+		}
 	}
 	changed, err := find.WaitForChange(ctx, s.Screenshotter, rect, before, poll, nil)
 	if err != nil {

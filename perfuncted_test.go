@@ -331,7 +331,7 @@ func TestWaitForVisibleChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() {}, 2, 10*time.Millisecond)
+	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() error { return nil }, 2, 10*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,8 +353,8 @@ func TestWaitForSettle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() {
-		// simulate action that causes change
+	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() error {
+		return nil
 	}, 3, 10*time.Millisecond)
 
 	if err != nil {

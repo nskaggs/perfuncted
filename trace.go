@@ -13,7 +13,8 @@ type actionTracer struct {
 	w      io.Writer
 	logger *slog.Logger
 	delay  time.Duration
-	mu     sync.Mutex
+	// mu serializes writes to the underlying writer.
+	mu sync.Mutex
 }
 
 func newActionTracer(w io.Writer, logger *slog.Logger, delay time.Duration) *actionTracer {

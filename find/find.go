@@ -21,7 +21,7 @@ import (
 )
 
 // ErrNotFound is returned when a pixel pattern or color could not be located.
-var ErrNotFound = fmt.Errorf("find: not found")
+var ErrNotFound = errors.New("not found")
 
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
 // It also includes a fast region-hash path to avoid image allocations when

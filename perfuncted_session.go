@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"image"
 	"log/slog"
@@ -29,6 +30,9 @@ var (
 	cleanupStaleSessionsMu sync.Mutex
 	lastCleanupTime        time.Time
 )
+
+// ErrNilSession is returned when an operation requires a live Session.
+var ErrNilSession = errors.New("nil session")
 
 const (
 	sessionOwnerPIDFile     = "perfuncted.pid"
@@ -83,6 +87,7 @@ type Session struct {
 	dbusCmd    *exec.Cmd
 	wlPasteCmd *exec.Cmd
 	logDir     string
+	// mu protects stopped and unregister fields.
 	mu         sync.Mutex
 	stopped    bool
 	unregister func()
@@ -103,38 +108,39 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	if m == nil || m.pid <= 0 {
 		return
 	}
-	// First try graceful termination of the process group.
-	_ = syscall.Kill(-m.pid, syscall.SIGTERM)
+	if err := syscall.Kill(-m.pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		slog.Debug("session: terminate process group", "pid", m.pid, "error", err)
+	}
 	if m.cmd == nil {
 		time.Sleep(waitTimeout)
 		return
 	}
-	// Use cmd.Wait in a goroutine to avoid busy-polling the PID. If Wait
-	// returns within the timeout, the process exited cleanly; otherwise
-	// send SIGKILL and wait again briefly.
-	done := make(chan struct{})
-	go func() {
-		if err := m.cmd.Wait(); err != nil {
-			slog.Debug("session: process wait", "pid", m.pid, "error", err)
-		}
-		close(done)
-	}()
-	outer := time.NewTimer(waitTimeout)
-	select {
-	case <-done:
-		outer.Stop()
+	if waitForProc(m.pid, waitTimeout) {
 		return
-	case <-outer.C:
-		// Force kill the process group.
-		_ = syscall.Kill(-m.pid, syscall.SIGKILL)
-		inner := time.NewTimer(waitTimeout)
-		select {
-		case <-done:
-			inner.Stop()
-			return
-		case <-inner.C:
-			return
+	}
+	if err := syscall.Kill(-m.pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		slog.Debug("session: kill process group", "pid", m.pid, "error", err)
+	}
+	waitForProc(m.pid, waitTimeout)
+}
+
+func waitForProc(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		var status syscall.WaitStatus
+		waited, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+		switch {
+		case waited == pid:
+			return true
+		case errors.Is(err, syscall.ECHILD):
+			return true
+		case errors.Is(err, syscall.EINTR):
+			continue
 		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -233,12 +239,18 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 // Launch starts a subprocess inside the session with the correct environment.
 // The caller is responsible for waiting on or killing the returned Cmd.
 func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
+	if s == nil {
+		return nil, ErrNilSession
+	}
 	return s.LaunchEnv(nil, name, args...)
 }
 
 // LaunchEnv starts a subprocess inside the session with the correct
 // environment plus any additional overrides in extraEnv.
 func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*exec.Cmd, error) {
+	if s == nil {
+		return nil, ErrNilSession
+	}
 	path, err := executil.LookPath(name)
 	if err != nil {
 		return nil, fmt.Errorf("session: %s not found: %w", name, err)
@@ -255,24 +267,50 @@ func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*ex
 // Env returns a complete environment variable slice for child processes
 // running inside this session. It overlays session vars on the host env.
 func (s *Session) Env() []string {
+	if s == nil {
+		return nil
+	}
 	return env.Environ(s.xdgDir, s.wlDisplay, s.dbusAddr)
 }
 
 // XDGRuntimeDir returns the temporary directory path for this session.
-func (s *Session) XDGRuntimeDir() string { return s.xdgDir }
+func (s *Session) XDGRuntimeDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.xdgDir
+}
 
 // WaylandDisplay returns the Wayland display name (e.g. "wayland-1").
-func (s *Session) WaylandDisplay() string { return s.wlDisplay }
+func (s *Session) WaylandDisplay() string {
+	if s == nil {
+		return ""
+	}
+	return s.wlDisplay
+}
 
 // SwayPID returns the PID of the sway process backing the session.
-func (s *Session) SwayPID() int { return s.swayPid }
+func (s *Session) SwayPID() int {
+	if s == nil {
+		return 0
+	}
+	return s.swayPid
+}
 
 // DBusAddress returns the D-Bus session bus address.
-func (s *Session) DBusAddress() string { return s.dbusAddr }
+func (s *Session) DBusAddress() string {
+	if s == nil {
+		return ""
+	}
+	return s.dbusAddr
+}
 
 // Perfuncted returns a connected perfuncted instance targeting this session.
 // The returned instance should be closed separately from the session.
 func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
+	if s == nil {
+		return nil, ErrNilSession
+	}
 	opts.XDGRuntimeDir = s.xdgDir
 	opts.WaylandDisplay = s.wlDisplay
 	opts.DBusSessionAddress = s.dbusAddr
@@ -353,6 +391,9 @@ func (s *Session) Cleanup() {
 
 // IsStopped returns true if Stop has been called.
 func (s *Session) IsStopped() bool {
+	if s == nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stopped
@@ -580,18 +621,20 @@ func reapSessionDir(dir string) {
 // os.RemoveAll cannot remove a FUSE mount point, so calling this before
 // RemoveAll ensures the directory tree is fully cleaned up.
 func unmountSubdirs(dir string) {
-	data, err := os.ReadFile("/proc/mounts")
+	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
 		return
 	}
 	prefix := dir + "/"
 	var mounts []string
 	for _, line := range strings.Split(string(data), "\n") {
+		// mountinfo(5): id parent major:minor root mount_point ...
+		// Fields are space-separated; mount_point is field 4 (0-indexed).
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < 5 {
 			continue
 		}
-		mountpoint := fields[1]
+		mountpoint := fields[4]
 		if strings.HasPrefix(mountpoint, prefix) || mountpoint == dir {
 			mounts = append(mounts, mountpoint)
 		}

@@ -356,7 +356,7 @@ uses a no-op action so it still works as a pure readiness probe.`,
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForSettle(ctx, r, func() {}, stable, poll)
+			h, err := pf.Screen.WaitForSettle(ctx, r, func() error { return nil }, stable, poll)
 			if err != nil {
 				return err
 			}
