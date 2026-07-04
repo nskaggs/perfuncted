@@ -103,38 +103,33 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	if m == nil || m.pid <= 0 {
 		return
 	}
-	// First try graceful termination of the process group.
 	_ = syscall.Kill(-m.pid, syscall.SIGTERM)
 	if m.cmd == nil {
 		time.Sleep(waitTimeout)
 		return
 	}
-	// Use cmd.Wait in a goroutine to avoid busy-polling the PID. If Wait
-	// returns within the timeout, the process exited cleanly; otherwise
-	// send SIGKILL and wait again briefly.
-	done := make(chan struct{})
-	go func() {
-		if err := m.cmd.Wait(); err != nil {
-			slog.Debug("session: process wait", "pid", m.pid, "error", err)
-		}
-		close(done)
-	}()
-	outer := time.NewTimer(waitTimeout)
-	select {
-	case <-done:
-		outer.Stop()
+	if waitForProc(m.pid, waitTimeout) {
 		return
-	case <-outer.C:
-		// Force kill the process group.
-		_ = syscall.Kill(-m.pid, syscall.SIGKILL)
-		inner := time.NewTimer(waitTimeout)
-		select {
-		case <-done:
-			inner.Stop()
-			return
-		case <-inner.C:
-			return
+	}
+	_ = syscall.Kill(-m.pid, syscall.SIGKILL)
+	waitForProc(m.pid, waitTimeout)
+}
+
+func waitForProc(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		var status syscall.WaitStatus
+		waited, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+		switch {
+		case waited == pid:
+			return true
+		case err == syscall.ECHILD:
+			return true
 		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -580,18 +575,20 @@ func reapSessionDir(dir string) {
 // os.RemoveAll cannot remove a FUSE mount point, so calling this before
 // RemoveAll ensures the directory tree is fully cleaned up.
 func unmountSubdirs(dir string) {
-	data, err := os.ReadFile("/proc/mounts")
+	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
 		return
 	}
 	prefix := dir + "/"
 	var mounts []string
 	for _, line := range strings.Split(string(data), "\n") {
+		// mountinfo(5): id parent major:minor root mount_point ...
+		// Fields are space-separated; mount_point is field 4 (0-indexed).
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < 5 {
 			continue
 		}
-		mountpoint := fields[1]
+		mountpoint := fields[4]
 		if strings.HasPrefix(mountpoint, prefix) || mountpoint == dir {
 			mounts = append(mounts, mountpoint)
 		}
