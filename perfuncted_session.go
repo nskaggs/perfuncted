@@ -82,7 +82,8 @@ type Session struct {
 	swayCmd    *exec.Cmd
 	dbusCmd    *exec.Cmd
 	wlPasteCmd *exec.Cmd
-	logDir     string
+	logDir string
+	// mu protects stopped and unregister fields.
 	mu         sync.Mutex
 	stopped    bool
 	unregister func()
