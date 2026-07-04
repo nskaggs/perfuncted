@@ -9,6 +9,8 @@ import (
 	"github.com/nskaggs/perfuncted"
 )
 
+var errRetryPending = errors.New("retry pending")
+
 func TestRetry_SuccessOnFirstCall(t *testing.T) {
 	t.Parallel()
 	calls := 0
@@ -30,7 +32,7 @@ func TestRetry_SuccessAfterRetries(t *testing.T) {
 	err := perfuncted.Retry(context.Background(), time.Millisecond, func() error {
 		calls++
 		if calls < 3 {
-			return errors.New("not yet")
+			return errRetryPending
 		}
 		return nil
 	})
@@ -50,7 +52,7 @@ func TestRetry_ZeroPollDefaultsTo10ms(t *testing.T) {
 	calls := 0
 	err := perfuncted.Retry(ctx, 0, func() error {
 		calls++
-		return errors.New("always fails")
+		return errRetryPending
 	})
 	if err == nil {
 		t.Fatal("expected error from timed-out retry")

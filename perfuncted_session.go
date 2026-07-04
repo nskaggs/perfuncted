@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"image"
 	"log/slog"
@@ -29,6 +30,9 @@ var (
 	cleanupStaleSessionsMu sync.Mutex
 	lastCleanupTime        time.Time
 )
+
+// ErrNilSession is returned when an operation requires a live Session.
+var ErrNilSession = errors.New("nil session")
 
 const (
 	sessionOwnerPIDFile     = "perfuncted.pid"
@@ -82,7 +86,7 @@ type Session struct {
 	swayCmd    *exec.Cmd
 	dbusCmd    *exec.Cmd
 	wlPasteCmd *exec.Cmd
-	logDir string
+	logDir     string
 	// mu protects stopped and unregister fields.
 	mu         sync.Mutex
 	stopped    bool
@@ -104,7 +108,9 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	if m == nil || m.pid <= 0 {
 		return
 	}
-	_ = syscall.Kill(-m.pid, syscall.SIGTERM)
+	if err := syscall.Kill(-m.pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		slog.Debug("session: terminate process group", "pid", m.pid, "error", err)
+	}
 	if m.cmd == nil {
 		time.Sleep(waitTimeout)
 		return
@@ -112,7 +118,9 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	if waitForProc(m.pid, waitTimeout) {
 		return
 	}
-	_ = syscall.Kill(-m.pid, syscall.SIGKILL)
+	if err := syscall.Kill(-m.pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		slog.Debug("session: kill process group", "pid", m.pid, "error", err)
+	}
 	waitForProc(m.pid, waitTimeout)
 }
 
@@ -124,8 +132,10 @@ func waitForProc(pid int, timeout time.Duration) bool {
 		switch {
 		case waited == pid:
 			return true
-		case err == syscall.ECHILD:
+		case errors.Is(err, syscall.ECHILD):
 			return true
+		case errors.Is(err, syscall.EINTR):
+			continue
 		}
 		if time.Now().After(deadline) {
 			return false
@@ -230,7 +240,7 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 // The caller is responsible for waiting on or killing the returned Cmd.
 func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
 	if s == nil {
-		return nil, nil
+		return nil, ErrNilSession
 	}
 	return s.LaunchEnv(nil, name, args...)
 }
@@ -239,7 +249,7 @@ func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
 // environment plus any additional overrides in extraEnv.
 func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*exec.Cmd, error) {
 	if s == nil {
-		return nil, nil
+		return nil, ErrNilSession
 	}
 	path, err := executil.LookPath(name)
 	if err != nil {
@@ -299,7 +309,7 @@ func (s *Session) DBusAddress() string {
 // The returned instance should be closed separately from the session.
 func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
 	if s == nil {
-		return nil, nil
+		return nil, ErrNilSession
 	}
 	opts.XDGRuntimeDir = s.xdgDir
 	opts.WaylandDisplay = s.wlDisplay
