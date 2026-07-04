@@ -10,6 +10,25 @@ env:
   CGO_ENABLED: "0"
 
 jobs:
+  performance:
+    name: Race & Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+          cache: true
+      - name: Run race detector
+        run: go test -race -short ./...
+      - name: Run core benchmarks
+        run: go test ./find -run '^$' -bench 'Pixel(Hash|Found)' -benchmem -count=5 | tee benchmarks.txt
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks.txt
+
   quality:
     name: Build & Quality
     runs-on: ubuntu-latest
