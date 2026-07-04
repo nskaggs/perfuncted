@@ -641,6 +641,25 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 		return image.Point{}, false
 	}
 
+	// NRGBA is the native layout returned by several screenshot backends.
+	// Scan its Pix buffer directly; calling At and converting through
+	// color.RGBAModel allocates for every pixel.
+	if nrgba, ok := img.(*image.NRGBA); ok {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			off := (y-nrgba.Rect.Min.Y)*nrgba.Stride + (b.Min.X-nrgba.Rect.Min.X)*4
+			for x := b.Min.X; x < b.Max.X; x++ {
+				_ = nrgba.Pix[off+3]
+				if abs(int(nrgba.Pix[off])-int(target.R)) <= tolerance &&
+					abs(int(nrgba.Pix[off+1])-int(target.G)) <= tolerance &&
+					abs(int(nrgba.Pix[off+2])-int(target.B)) <= tolerance {
+					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
+				}
+				off += 4
+			}
+		}
+		return image.Point{}, false
+	}
+
 	// Slow path: generic image via At() + colour model conversion.
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {

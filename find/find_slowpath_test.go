@@ -219,13 +219,13 @@ func BenchmarkPixelFound_FastPath(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = PixelFound(img, rect, target, 0)
 	}
 }
 
-// BenchmarkPixelFound_SlowPath benchmarks PixelFound with *image.NRGBA (slow path).
-func BenchmarkPixelFound_SlowPath(b *testing.B) {
+// BenchmarkPixelFound_NRGBA benchmarks the native screenshot image layout.
+func BenchmarkPixelFound_NRGBA(b *testing.B) {
 	img := solidNRGBA(256, 256, color.RGBA{R: 80, G: 80, B: 80, A: 255})
 	img.SetNRGBA(200, 200, color.NRGBA{R: 255, G: 0, B: 0, A: 255})
 	target := color.RGBA{R: 255, G: 0, B: 0, A: 255}
@@ -233,7 +233,19 @@ func BenchmarkPixelFound_SlowPath(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = PixelFound(img, rect, target, 0)
+	}
+}
+
+func TestPixelFoundNRGBAAllocations(t *testing.T) {
+	img := solidNRGBA(256, 256, color.RGBA{R: 80, G: 80, B: 80, A: 255})
+	target := color.RGBA{R: 255, G: 0, B: 0, A: 255}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		_, _ = PixelFound(img, img.Bounds(), target, 0)
+	})
+	if allocs != 0 {
+		t.Fatalf("PixelFound NRGBA allocations = %v, want 0", allocs)
 	}
 }
