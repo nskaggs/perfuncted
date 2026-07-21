@@ -197,7 +197,7 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 	}
 
 	s := &Session{xdgDir: xdgDir}
-	s.Cleanup()
+	s.Stop()
 
 	if !s.IsStopped() {
 		t.Fatal("session was not marked stopped")

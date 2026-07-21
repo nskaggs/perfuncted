@@ -287,7 +287,7 @@ func (p *Perfuncted) Close() error {
 		errs = append(errs, p.Clipboard.close())
 	}
 	if p.managed != nil {
-		p.managed.Cleanup()
+		p.managed.Stop()
 	}
 	return errors.Join(errs...)
 }
