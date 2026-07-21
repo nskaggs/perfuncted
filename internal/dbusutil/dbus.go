@@ -6,12 +6,6 @@ package dbusutil
 
 import "github.com/godbus/dbus/v5"
 
-var sessionAddressOverride string
-
-// SetSessionAddressOverride sets an explicit DBus session address to use for
-// subsequent SessionBus calls. Pass empty string to clear the override.
-func SetSessionAddressOverride(addr string) { sessionAddressOverride = addr }
-
 // SessionBusAddress returns a session bus connection using addr when provided.
 // When addr is empty it falls back to the current process session bus.
 func SessionBusAddress(addr string) (*dbus.Conn, error) {
@@ -31,13 +25,6 @@ func SessionBusAddress(addr string) (*dbus.Conn, error) {
 		return nil, err
 	}
 	return conn, nil
-}
-
-// SessionBus returns a session bus connection. If a session address override
-// has been configured, it connects directly to that address instead of using
-// dbus.SessionBus().
-func SessionBus() (*dbus.Conn, error) {
-	return SessionBusAddress(sessionAddressOverride)
 }
 
 // HasService reports whether the given service name is present on the session bus.

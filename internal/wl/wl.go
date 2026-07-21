@@ -217,17 +217,7 @@ func ResolveSocketPath(waylandDisplay, xdgRuntimeDir string) string {
 
 // SocketPath returns the resolved absolute path to the Wayland socket from the
 // environment, or the empty string when WAYLAND_DISPLAY cannot be resolved.
-var socketPathOverride string
-
-// SetSocketPathOverride sets an explicit Wayland socket path to use instead
-// of reading WAYLAND_DISPLAY/XDG_RUNTIME_DIR from the process environment.
-// Pass an empty string to clear the override.
-func SetSocketPathOverride(sock string) { socketPathOverride = sock }
-
 func SocketPath() string {
-	if socketPathOverride != "" {
-		return socketPathOverride
-	}
 	return ResolveSocketPath(os.Getenv("WAYLAND_DISPLAY"), os.Getenv("XDG_RUNTIME_DIR"))
 }
 
