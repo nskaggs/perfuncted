@@ -116,12 +116,6 @@ func portalSignalMatches(sig *dbus.Signal, paths ...dbus.ObjectPath) bool {
 	return false
 }
 
-// NewPortalDBusBackend verifies that the xdg-desktop-portal Screenshot
-// interface is reachable on the session bus.
-func NewPortalDBusBackend() (*PortalDBusBackend, error) {
-	return NewPortalDBusBackendForBus("")
-}
-
 // NewPortalDBusBackendForBus verifies that the xdg-desktop-portal Screenshot
 // interface is reachable on the session bus at addr.
 func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {

@@ -45,12 +45,6 @@ type ExtCaptureBackend struct {
 	cachedBI  bufInfo
 }
 
-// NewExtCaptureBackend returns an ExtCaptureBackend if the compositor advertises
-// the full ext-image-copy stack needed for output capture, otherwise an error.
-func NewExtCaptureBackend() (*ExtCaptureBackend, error) {
-	return NewExtCaptureBackendForSocket(wl.SocketPath())
-}
-
 // NewExtCaptureBackendForSocket returns an ExtCaptureBackend for sock if the
 // compositor advertises the full ext-image-copy stack needed for capture.
 func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) {

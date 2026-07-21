@@ -42,11 +42,6 @@ type Lister interface {
 	Close() error
 }
 
-// Open returns the best available output lister for the current environment.
-func Open() (Lister, error) {
-	return OpenRuntime(env.Current())
-}
-
 // OpenRuntime returns the best available output lister for rt.
 func OpenRuntime(rt env.Runtime) (Lister, error) {
 	display := rt.Display()
@@ -85,12 +80,4 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 	return []probe.Result{{Name: "output", Available: false, Reason: "no output source available"}}
 }
 
-// List returns outputs from the current process environment.
-func List(ctx context.Context) ([]Info, error) {
-	l, err := Open()
-	if err != nil {
-		return nil, err
-	}
-	defer l.Close()
-	return l.List(ctx)
-}
+

@@ -458,12 +458,6 @@ func (b *WlrScreencopyBackend) Close() error {
 	return nil
 }
 
-func SetWlrCacheTTL(d time.Duration) { defaultWlrCacheTTL = d }
-
-func NewWlrScreencopyBackend() (*WlrScreencopyBackend, error) {
-	return NewWlrScreencopyBackendForSocket(wl.SocketPath())
-}
-
 func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("screen/wlr: WAYLAND_DISPLAY not set")

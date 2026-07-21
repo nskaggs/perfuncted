@@ -46,12 +46,6 @@ type KWinScriptManager struct {
 	conn *dbus.Conn
 }
 
-// NewKWinScriptManager returns a KWinScriptManager if the KWin scripting
-// interface is accessible on the session bus.
-func NewKWinScriptManager() (*KWinScriptManager, error) {
-	return NewKWinScriptManagerForBus("")
-}
-
 // NewKWinScriptManagerForBus returns a KWinScriptManager for the session bus
 // at addr if the KWin scripting interface is accessible.
 func NewKWinScriptManagerForBus(addr string) (*KWinScriptManager, error) {
