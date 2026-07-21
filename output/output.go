@@ -79,5 +79,3 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 	}
 	return []probe.Result{{Name: "output", Available: false, Reason: "no output source available"}}
 }
-
-

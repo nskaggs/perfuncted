@@ -39,5 +39,3 @@ func (o OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	}
 	return o.Lister.List(ctx)
 }
-
-
