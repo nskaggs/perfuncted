@@ -80,11 +80,6 @@ type Manager interface {
 	Close() error
 }
 
-// Open returns the best available Manager for the current environment.
-func Open() (Manager, error) {
-	return OpenRuntime(env.Current())
-}
-
 // OpenRuntime returns the best available Manager for rt.
 func OpenRuntime(rt env.Runtime) (Manager, error) {
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
