@@ -38,15 +38,6 @@ func (r Runtime) Get(key string) string {
 	return r.vars[key]
 }
 
-// Has reports whether key is present, even if it is explicitly set to empty.
-func (r Runtime) Has(key string) bool {
-	if r.vars == nil {
-		return false
-	}
-	_, ok := r.vars[key]
-	return ok
-}
-
 // With returns a copy of r with key set to value.
 func (r Runtime) With(key, value string) Runtime {
 	out := r.clone()

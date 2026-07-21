@@ -63,13 +63,6 @@ type SwayManager struct {
 	ReflowTimeout time.Duration
 }
 
-// NewSwayManager returns a SwayManager connected to the nearest sway IPC
-// socket. It checks $SWAYSOCK first, then globs all sway-ipc sockets in
-// $XDG_RUNTIME_DIR and tries each until one responds.
-func NewSwayManager() (*SwayManager, error) {
-	return NewSwayManagerRuntime(env.Current())
-}
-
 // NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
 func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
 	sock := rt.Get("SWAYSOCK")

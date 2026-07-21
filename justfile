@@ -109,6 +109,8 @@ build:
     CGO_ENABLED=0 go build -o pf ./cmd/pf
     # Also build all packages for parity
     CGO_ENABLED=0 go build ./...
+    # Check for dead (unreachable) code
+    deadcode -test ./...
 
 # Build and install the pf CLI to $GOPATH/bin
 install: build

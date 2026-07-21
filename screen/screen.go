@@ -69,11 +69,6 @@ type Resolver interface {
 	Resolution() (width, height int, err error)
 }
 
-// Open returns the best available Screenshotter for the current environment.
-func Open() (Screenshotter, error) {
-	return OpenRuntime(env.Current())
-}
-
 // OpenRuntime returns the best available Screenshotter for rt.
 func OpenRuntime(rt env.Runtime) (Screenshotter, error) {
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {

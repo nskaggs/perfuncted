@@ -2,7 +2,6 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
@@ -39,11 +38,4 @@ func (o OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 		return nil, err
 	}
 	return o.Lister.List(ctx)
-}
-
-func (o OutputBundle) String() string {
-	if o.Lister == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("%T", o.Lister)
 }

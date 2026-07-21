@@ -48,15 +48,6 @@ type kwinDBusTransport struct {
 	kwin dbus.BusObject
 }
 
-// NewKWinShotBackend returns a KWinShotBackend if org.kde.KWin is reachable
-// on the session bus and the process is authorized to capture the screen.
-// A 1×1 probe grab is performed at construction time to verify authorization;
-// if KDE has not granted capture permission, the constructor returns an error
-// so the caller can fall back to another backend (e.g. the portal).
-func NewKWinShotBackend() (*KWinShotBackend, error) {
-	return NewKWinShotBackendForBus("")
-}
-
 // NewKWinShotBackendForBus opens a KWin screenshot backend on the session bus
 // at addr and verifies that the caller is authorized to capture the screen.
 func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {

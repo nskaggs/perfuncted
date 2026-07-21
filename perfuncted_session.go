@@ -236,34 +236,6 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 	return s, nil
 }
 
-// Launch starts a subprocess inside the session with the correct environment.
-// The caller is responsible for waiting on or killing the returned Cmd.
-func (s *Session) Launch(name string, args ...string) (*exec.Cmd, error) {
-	if s == nil {
-		return nil, ErrNilSession
-	}
-	return s.LaunchEnv(nil, name, args...)
-}
-
-// LaunchEnv starts a subprocess inside the session with the correct
-// environment plus any additional overrides in extraEnv.
-func (s *Session) LaunchEnv(extraEnv []string, name string, args ...string) (*exec.Cmd, error) {
-	if s == nil {
-		return nil, ErrNilSession
-	}
-	path, err := executil.LookPath(name)
-	if err != nil {
-		return nil, fmt.Errorf("session: %s not found: %w", name, err)
-	}
-	cmd := executil.CommandContext(s.ctx, path, args...)
-	cmd.Env = env.Merge(s.Env(), extraEnv...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("session: start %s: %w", name, err)
-	}
-	return cmd, nil
-}
-
 // Env returns a complete environment variable slice for child processes
 // running inside this session. It overlays session vars on the host env.
 func (s *Session) Env() []string {
@@ -303,19 +275,6 @@ func (s *Session) DBusAddress() string {
 		return ""
 	}
 	return s.dbusAddr
-}
-
-// Perfuncted returns a connected perfuncted instance targeting this session.
-// The returned instance should be closed separately from the session.
-func (s *Session) Perfuncted(opts Options) (*Perfuncted, error) {
-	if s == nil {
-		return nil, ErrNilSession
-	}
-	opts.XDGRuntimeDir = s.xdgDir
-	opts.WaylandDisplay = s.wlDisplay
-	opts.DBusSessionAddress = s.dbusAddr
-	opts.ManagedSession = s
-	return New(opts)
 }
 
 // CleanupOnSignal stops the session when ctx is cancelled or when the process
@@ -380,13 +339,6 @@ func (s *Session) Stop() {
 			slog.Debug("session: remove xdg dir", "path", s.xdgDir, "error", err)
 		}
 	}
-}
-
-// Cleanup is an alias for Stop. It exists to make the lifecycle explicit for
-// callers that want teardown to include both process shutdown and temp-dir
-// removal.
-func (s *Session) Cleanup() {
-	s.Stop()
 }
 
 // IsStopped returns true if Stop has been called.

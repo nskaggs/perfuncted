@@ -48,14 +48,6 @@ type GnomeShellScreenshotBackend struct {
 	obj  dbus.BusObject
 }
 
-// NewGnomeShellScreenshotBackend returns a backend when GNOME Shell's screenshot
-// service is reachable and the current process is allowed to call it. A 1x1
-// probe screenshot is performed at construction time so callers can fall back to
-// the portal when unsafe mode is disabled.
-func NewGnomeShellScreenshotBackend() (*GnomeShellScreenshotBackend, error) {
-	return NewGnomeShellScreenshotBackendForBus("")
-}
-
 // NewGnomeShellScreenshotBackendForBus returns a backend for the session bus at
 // addr when GNOME Shell's screenshot service is reachable and authorized.
 func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBackend, error) {

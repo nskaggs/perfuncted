@@ -25,12 +25,6 @@ type GnomeManager struct {
 	conn *dbus.Conn
 }
 
-// NewGnomeManager opens a D-Bus connection and verifies that
-// org.gnome.Shell.Eval is accessible.
-func NewGnomeManager() (*GnomeManager, error) {
-	return NewGnomeManagerForBus("")
-}
-
 // NewGnomeManagerForBus opens a D-Bus connection at addr and verifies that
 // org.gnome.Shell.Eval is accessible.
 func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
