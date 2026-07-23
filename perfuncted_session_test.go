@@ -218,6 +218,11 @@ func TestSessionStopNil(t *testing.T) {
 	s.Stop()
 }
 
+func TestStartNestedSessionCompiles(t *testing.T) {
+	t.Skip("requires display server (Wayland)")
+	_, _ = StartNestedSession(SessionConfig{})
+}
+
 func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
 	cleanupStaleSessionsMu.Lock()
 	lastCleanupTime = time.Time{}

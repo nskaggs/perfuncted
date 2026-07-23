@@ -232,22 +232,10 @@ func NewMockGetPropertyCookieError(err error) GetPropertyCookie {
 	return &MockGetPropertyCookie{err: err}
 }
 
-func NewMockGetKeyboardMappingCookie(rep *xproto.GetKeyboardMappingReply) GetKeyboardMappingCookie {
-	return &MockGetKeyboardMappingCookie{reply: rep}
-}
-
-func NewMockXTestFakeInputCookie(err error) XTestFakeInputCookie {
-	return &MockXTestFakeInputCookie{err: err}
-}
-
 func NewMockGetGeometryCookie(rep *xproto.GetGeometryReply) GetGeometryCookie {
 	return &MockGetGeometryCookie{reply: rep}
 }
 
 func NewMockTranslateCoordinatesCookie(rep *xproto.TranslateCoordinatesReply) TranslateCoordinatesCookie {
 	return &MockTranslateCoordinatesCookie{reply: rep}
-}
-
-func NewMockQueryPointerCookie(rep *xproto.QueryPointerReply) QueryPointerCookie {
-	return &MockQueryPointerCookie{reply: rep}
 }

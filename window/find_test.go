@@ -37,17 +37,6 @@ func (f *fakeManager) Fullscreen(ctx context.Context, _ string) error       { re
 func (f *fakeManager) Unfullscreen(ctx context.Context, _ string) error     { return nil }
 func (f *fakeManager) Restore(ctx context.Context, _ string) error          { return nil }
 func (f *fakeManager) Close() error                                         { return nil }
-
-type countingManager struct {
-	fakeManager
-	iterations int
-}
-
-func (m *countingManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
-	m.iterations++
-	return m.fakeManager.IterateWindows(ctx)
-}
-
 func TestFindByTitle_FindsMatch(t *testing.T) {
 	m := &fakeManager{wins: []Info{{ID: 1, Title: "Hello World"}, {ID: 2, Title: "Other"}}}
 	w, err := FindByTitle(context.Background(), m, "world")

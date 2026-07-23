@@ -9,6 +9,14 @@ import (
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
+func TestOpenCompiles(t *testing.T) {
+	t.Skip("requires Wayland/X11 display server")
+	_, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+}
+
 func TestExtCmdClipboardGetTrimsOnlyOneTrailingNewline(t *testing.T) {
 	oldCmd := executil.CommandContext
 	defer func() { executil.CommandContext = oldCmd }()
