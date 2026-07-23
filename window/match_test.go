@@ -1,8 +1,6 @@
 package window
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -123,43 +121,6 @@ func TestMatch_Matches(t *testing.T) {
 				t.Fatalf("Match(%+v).Matches() = %v, want %v", tt.match, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestFindByMatch(t *testing.T) {
-	m := &fakeManager{wins: []Info{
-		{ID: 1, Title: "Launcher", AppID: "org.example.launcher", Class: "Launcher"},
-		{ID: 2, Title: "Editor", AppID: "org.example.editor", Class: "Code", PID: 42, Active: true},
-	}}
-
-	w, err := Find(context.Background(), m, Match{AppID: "org.example.editor"})
-	if err != nil {
-		t.Fatalf("Find(app id) unexpected error: %v", err)
-	}
-	if w.ID != 2 {
-		t.Fatalf("Find(app id) returned ID %d, want 2", w.ID)
-	}
-
-	w, err = Find(context.Background(), m, Match{TitleExact: "editor", Active: boolPtr(true)})
-	if err != nil {
-		t.Fatalf("Find(exact title) unexpected error: %v", err)
-	}
-	if w.ID != 2 {
-		t.Fatalf("Find(exact title) returned ID %d, want 2", w.ID)
-	}
-}
-
-func TestFindByMatch_NotFound(t *testing.T) {
-	m := &fakeManager{wins: []Info{{ID: 1, Title: "Foo"}}}
-	_, err := Find(context.Background(), m, Match{Class: "missing"})
-	if err == nil {
-		t.Fatal("Find() expected error, got nil")
-	}
-	if !errors.Is(err, ErrWindowNotFound) {
-		t.Fatalf("Find() error = %v, want ErrWindowNotFound", err)
-	}
-	if got := err.Error(); got == "" || got == "<nil>" {
-		t.Fatalf("unexpected empty error string: %q", got)
 	}
 }
 

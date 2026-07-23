@@ -156,12 +156,12 @@ func TestWaylandWindowManager_New(t *testing.T) {
 	os.Unsetenv("WAYLAND_DISPLAY")
 	defer os.Setenv("WAYLAND_DISPLAY", originalSocketPath)
 
-	wm, err := NewWaylandWindowManager()
+	wm, err := NewWaylandWindowManagerForSocket("")
 	if err == nil || !strings.Contains(err.Error(), "window/wayland: WAYLAND_DISPLAY not set") {
-		t.Fatalf("NewWaylandWindowManager() error = %v", err)
+		t.Fatalf("NewWaylandWindowManagerForSocket() error = %v", err)
 	}
 	if wm != nil {
-		t.Fatal("expected nil manager when WAYLAND_DISPLAY is unset")
+		t.Fatal("expected nil manager when socket is empty")
 	}
 }
 

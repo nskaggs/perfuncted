@@ -48,15 +48,6 @@ func NewXTestBackend(displayName string) (*XTestBackend, error) {
 	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
 }
 
-// NewXTestBackendWithConn returns a backend using an existing x11.Connection (for tests).
-func NewXTestBackendWithConn(conn x11.Connection) (*XTestBackend, error) {
-	if err := conn.InitXTest(); err != nil {
-		return nil, fmt.Errorf("input/xtest: init XTEST: %w", err)
-	}
-	root := conn.DefaultScreen().Root
-	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
-}
-
 // keysymForName maps a key name to an X11 keysym value.
 // Letters map to their correct keysyms (A→0x41, a→0x61); typeText queries
 // the server keymap to determine which level each keysym lives at and holds

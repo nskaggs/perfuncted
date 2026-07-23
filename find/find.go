@@ -129,24 +129,6 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA), nil
 }
 
-// LastPixel returns the colour of the bottom-right pixel of rect captured from sc.
-func LastPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
-	ctx = ctxutil.Default(ctx)
-	if err := checkAvailable(sc); err != nil {
-		return color.RGBA{}, err
-	}
-	x, y := rect.Max.X-1, rect.Max.Y-1
-	img, err := sc.Grab(ctx, image.Rect(x, y, x+1, y+1))
-	if err != nil {
-		return color.RGBA{}, fmt.Errorf("find: last pixel: %w", err)
-	}
-	if err := contextErr(ctx); err != nil {
-		return color.RGBA{}, err
-	}
-	b := img.Bounds()
-	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA), nil
-}
-
 // Result pairs a hash with the rectangle it was captured from.
 type Result struct {
 	Hash uint32
@@ -442,11 +424,6 @@ type Anchor struct {
 	X, Y int
 }
 
-// Rect returns a rectangle relative to the anchor's origin.
-func (a Anchor) Rect(dx, dy, w, h int) image.Rectangle {
-	return image.Rect(a.X+dx, a.Y+dy, a.X+dx+w, a.Y+dy+h)
-}
-
 // LocateExactInImage performs an exact byte-for-byte search of reference within src.
 // searchArea describes the screen-area that src was captured from, so returned
 // coordinates can be translated back to screen space. This avoids the caller
@@ -558,58 +535,6 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 		}
 	}
 	return true
-}
-
-// WaitWithTolerance pads expectedRect by radius pixels on all sides, captures the larger
-// region, and performs an exact search for reference within it. A two-stage
-// search is used: a cheap top-left pixel scan followed by an expensive
-// byte-for-byte match only on promising candidates.
-func WaitWithTolerance(ctx context.Context, sc Screenshotter, expectedRect image.Rectangle, reference image.Image, radius int, pollDur time.Duration, newHash Hasher) (uint32, image.Rectangle, error) {
-	ctx = ctxutil.Default(ctx)
-	if err := checkAvailable(sc); err != nil {
-		return 0, image.Rectangle{}, err
-	}
-	if radius < 0 {
-		return 0, image.Rectangle{}, fmt.Errorf("find: tolerance radius must be non-negative")
-	}
-	if expectedRect.Empty() {
-		return 0, image.Rectangle{}, fmt.Errorf("find: expected rect is empty")
-	}
-	if reference.Bounds().Empty() {
-		return 0, image.Rectangle{}, fmt.Errorf("find: reference image is empty")
-	}
-	searchArea := image.Rect(
-		expectedRect.Min.X-radius,
-		expectedRect.Min.Y-radius,
-		expectedRect.Max.X+radius,
-		expectedRect.Max.Y+radius,
-	)
-
-	refHash := PixelHash(reference, newHash)
-	var foundRect image.Rectangle
-	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
-		img, err := sc.Grab(ctx, searchArea)
-		if err != nil {
-			return false, 0, err
-		}
-
-		r, err := LocateExactInImage(img, searchArea, reference)
-		if err == nil {
-			foundRect = r
-			return true, refHash, nil
-		}
-		if errors.Is(err, ErrNotFound) {
-			return false, 0, nil
-		}
-		return false, 0, err
-	})
-	if err != nil {
-		if ctx.Err() != nil {
-			return 0, image.Rectangle{}, fmt.Errorf("find: timeout waiting for tolerance match: %w", ctx.Err())
-		}
-		return 0, image.Rectangle{}, err
-	}
-	return refHash, foundRect, nil
 }
 
 func translateRect(r image.Rectangle, fromMin, toMin image.Point) image.Rectangle {

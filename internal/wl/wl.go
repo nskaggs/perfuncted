@@ -215,12 +215,6 @@ func ResolveSocketPath(waylandDisplay, xdgRuntimeDir string) string {
 	return filepath.Join(xdgRuntimeDir, waylandDisplay)
 }
 
-// SocketPath returns the resolved absolute path to the Wayland socket from the
-// environment, or the empty string when WAYLAND_DISPLAY cannot be resolved.
-func SocketPath() string {
-	return ResolveSocketPath(os.Getenv("WAYLAND_DISPLAY"), os.Getenv("XDG_RUNTIME_DIR"))
-}
-
 // ── Display ───────────────────────────────────────────────────────────────────
 
 // Display represents wl_display, which is always object ID 1.
@@ -410,12 +404,6 @@ func (b *Buffer) Destroy() error {
 	PutUint32(buf[4:], 8<<16) // size=8, opcode=0 (destroy)
 	return b.ctx.WriteMsg(buf[:], nil)
 }
-
-// Output wraps wl_output (only its ID is needed for screen capture calls).
-type Output struct{ BaseProxy }
-
-// Dispatch implements Proxy (wl_output events are ignored).
-func (o *Output) Dispatch(_ uint32, _ int, _ []byte) {}
 
 // SocketReachable checks whether sock is an existing Wayland socket.
 func SocketReachable(sock string) bool {

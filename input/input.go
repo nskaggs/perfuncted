@@ -90,11 +90,6 @@ type Inputter interface {
 	Close() error
 }
 
-// Open returns the best available Inputter for the current process environment.
-func Open(maxX, maxY int32) (Inputter, error) {
-	return OpenRuntime(env.Current(), maxX, maxY)
-}
-
 // OpenRuntime returns the best available Inputter for rt.
 func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 	// Allow forcing a particular backend for debugging in CI/local runs.
@@ -184,14 +179,6 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 	})
 }
 
-func checkWlInputMethod(rt env.Runtime) probe.Result {
-	sock := rt.SocketPath()
-	if sock == "" {
-		return probe.Result{Name: "wl-input-method", Reason: "WAYLAND_DISPLAY not set"}
-	}
-	return checkWlInputMethodWithGlobs(sock, wl.ListGlobals(sock))
-}
-
 func checkWlInputMethodWithGlobs(sock string, globs map[string]bool) probe.Result {
 	r := probe.Result{Name: "wl-input-method"}
 	if globs == nil {
@@ -227,14 +214,6 @@ func checkXTest(rt env.Runtime) probe.Result {
 	r.Available = true
 	r.Reason = fmt.Sprintf("XTEST available on %s", d)
 	return r
-}
-
-func checkWlVirtual(rt env.Runtime) probe.Result {
-	sock := rt.SocketPath()
-	if sock == "" {
-		return probe.Result{Name: "wl-virtual", Reason: "WAYLAND_DISPLAY not set"}
-	}
-	return checkWlVirtualWithGlobs(sock, wl.ListGlobals(sock))
 }
 
 func checkWlVirtualWithGlobs(sock string, globs map[string]bool) probe.Result {

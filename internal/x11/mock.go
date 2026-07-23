@@ -6,9 +6,7 @@ import (
 	"github.com/jezek/xgb/xproto"
 )
 
-// Minimal mock connection for unit tests. Tests can set the Func fields to
-// customize behavior; defaults return benign zero values so tests only need to
-// configure the methods that matter to them.
+// Minimal mock connection for unit tests.
 
 type MockGetPropertyCookie struct {
 	reply *xproto.GetPropertyReply
@@ -35,7 +33,6 @@ type MockGetGeometryCookie struct {
 
 func (m *MockGetGeometryCookie) Reply() (*xproto.GetGeometryReply, error) { return m.reply, nil }
 
-// MockTranslateCoordinatesCookie implements TranslateCoordinatesCookie for tests.
 type MockTranslateCoordinatesCookie struct {
 	reply *xproto.TranslateCoordinatesReply
 }
@@ -44,26 +41,22 @@ func (m *MockTranslateCoordinatesCookie) Reply() (*xproto.TranslateCoordinatesRe
 	return m.reply, nil
 }
 
-// MockQueryPointerCookie implements QueryPointerCookie for tests.
 type MockQueryPointerCookie struct {
 	reply *xproto.QueryPointerReply
 }
 
 func (m *MockQueryPointerCookie) Reply() (*xproto.QueryPointerReply, error) { return m.reply, nil }
 
-// MockXTestFakeInputCookie implements the XTest check cookie for tests.
 type MockXTestFakeInputCookie struct{ err error }
 
 func (m *MockXTestFakeInputCookie) Check() error { return m.err }
 
-// MockInternAtomCookie implements InternAtomCookie for tests.
 type MockInternAtomCookie struct {
 	reply *xproto.InternAtomReply
 }
 
 func (m *MockInternAtomCookie) Reply() (*xproto.InternAtomReply, error) { return m.reply, nil }
 
-// MockGetImageCookie implements GetImageCookie for tests.
 type MockGetImageCookie struct {
 	reply *xproto.GetImageReply
 	err   error
@@ -76,12 +69,10 @@ func (m *MockGetImageCookie) Reply() (*xproto.GetImageReply, error) {
 	return &xproto.GetImageReply{}, m.err
 }
 
-// NewMockGetImageCookie returns a GetImageCookie returning the given reply and error.
 func NewMockGetImageCookie(reply *xproto.GetImageReply, err error) GetImageCookie {
 	return &MockGetImageCookie{reply: reply, err: err}
 }
 
-// MockConnection implements the Connection interface with user-provided hooks.
 type MockConnection struct {
 	mu sync.Mutex
 
@@ -105,7 +96,6 @@ type MockConnection struct {
 	GetKeyboardMappingFunc func(first xproto.Keycode, count byte) GetKeyboardMappingCookie
 	FakeInputCheckedFunc   func(eventType byte, detail byte, tm uint32, window xproto.Window, x, y int16, device byte) XTestFakeInputCookie
 
-	// helpers for tests
 	LastFakeInput struct {
 		EventType byte
 		Detail    byte
@@ -213,7 +203,6 @@ func (m *MockConnection) GetKeyboardMapping(first xproto.Keycode, count byte) Ge
 	if m.GetKeyboardMappingFunc != nil {
 		return m.GetKeyboardMappingFunc(first, count)
 	}
-	// default empty mapping
 	return &MockGetKeyboardMappingCookie{reply: &xproto.GetKeyboardMappingReply{KeysymsPerKeycode: 1, Keysyms: []xproto.Keysym{}}}
 }
 
@@ -239,7 +228,6 @@ func NewMockGetPropertyCookie(rep *xproto.GetPropertyReply) GetPropertyCookie {
 	return &MockGetPropertyCookie{reply: rep}
 }
 
-// NewMockGetPropertyCookieError returns a GetPropertyCookie whose Reply returns the given error.
 func NewMockGetPropertyCookieError(err error) GetPropertyCookie {
 	return &MockGetPropertyCookie{err: err}
 }

@@ -39,17 +39,6 @@ var (
 // continue to own that live connection.
 const DefaultSessionCacheTTL = 24 * time.Hour
 
-// CleanupStaleSessions prunes cache entries older than ttl. It is safe to call
-// from tests or maintenance code to keep the in-memory cache bounded.
-func CleanupStaleSessions(ttl time.Duration) {
-	if ttl <= 0 {
-		ttl = DefaultSessionCacheTTL
-	}
-	sessionCacheMu.Lock()
-	defer sessionCacheMu.Unlock()
-	cleanupStaleSessionsLocked(time.Now(), ttl)
-}
-
 func cleanupStaleSessionsLocked(now time.Time, ttl time.Duration) {
 	for sock, ref := range sessionCache {
 		if ref == nil || ref.lastUsed.IsZero() {

@@ -218,9 +218,9 @@ func TestOpenUsesCurrentEnvironment(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("DISPLAY", ":99")
 
-	inp, err := Open(1024, 768)
+	inp, err := OpenRuntime(env.FromEnviron(os.Environ()), 1024, 768)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenRuntime: %v", err)
 	}
 	if _, ok := inp.(noopInputter); !ok {
 		t.Fatalf("Open type = %T, want noopInputter", inp)

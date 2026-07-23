@@ -40,14 +40,6 @@ const (
 	cleanupStaleMinInterval = 30 * time.Second
 )
 
-// ResetCleanupStaleRateLimit clears the rate-limit state so the next call
-// to CleanupStaleSessions proceeds immediately. Exported for tests only.
-func ResetCleanupStaleRateLimit() {
-	cleanupStaleSessionsMu.Lock()
-	lastCleanupTime = time.Time{}
-	cleanupStaleSessionsMu.Unlock()
-}
-
 var sessionChildPIDFiles = []string{
 	"dbus.pid",
 	"sway.pid",
@@ -339,32 +331,6 @@ func (s *Session) Stop() {
 			slog.Debug("session: remove xdg dir", "path", s.xdgDir, "error", err)
 		}
 	}
-}
-
-// IsStopped returns true if Stop has been called.
-func (s *Session) IsStopped() bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.stopped
-}
-
-// IsCleaned returns true when Stop/Cleanup has been called and the session's
-// XDG runtime directory no longer exists.
-func (s *Session) IsCleaned() bool {
-	if s == nil || s.xdgDir == "" {
-		return true
-	}
-	s.mu.Lock()
-	stopped := s.stopped
-	s.mu.Unlock()
-	if !stopped {
-		return false
-	}
-	_, err := os.Stat(s.xdgDir)
-	return os.IsNotExist(err)
 }
 
 func (s *Session) launchDBus() error {

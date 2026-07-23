@@ -158,16 +158,6 @@ func (w WindowBundle) FindByTitle(ctx context.Context, pattern string) (window.I
 	return window.FindByTitle(ctx, w.Manager, pattern)
 }
 
-// WaitForWindow polls until a window matching pattern is found, or ctx is
-// cancelled.
-func (w WindowBundle) WaitForWindow(ctx context.Context, pattern string, poll time.Duration) (window.Info, error) {
-	w.traceAction(fmt.Sprintf("wait-for-window pattern=%q poll=%s", pattern, poll))
-	if err := w.checkAvailable(); err != nil {
-		return window.Info{}, err
-	}
-	return window.WaitFor(ctx, w.Manager, pattern, poll)
-}
-
 // WaitForClose polls until no window matches pattern (window is gone), or ctx
 // is cancelled.
 func (w WindowBundle) WaitForClose(ctx context.Context, pattern string, poll time.Duration) error {

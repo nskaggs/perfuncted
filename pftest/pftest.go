@@ -29,7 +29,6 @@ type Screenshotter struct {
 	Err        error
 	ZeroOrigin bool
 
-	// mu protects idx for concurrent Grab calls.
 	mu  sync.Mutex
 	idx int
 }
@@ -114,7 +113,6 @@ type Inputter struct {
 	Calls []string
 	Err   error
 
-	// mu protects Calls for concurrent access.
 	mu sync.Mutex
 }
 
@@ -194,7 +192,6 @@ type Manager struct {
 	Err       error
 	Activated []string
 
-	// mu protects listIdx and titleIdx for concurrent access.
 	mu       sync.Mutex
 	listIdx  int
 	titleIdx int

@@ -165,7 +165,10 @@ func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if s.IsStopped() {
+		s.mu.Lock()
+		stopped := s.stopped
+		s.mu.Unlock()
+		if stopped {
 			if _, err := os.Stat(xdgDir); os.IsNotExist(err) {
 				return
 			}
@@ -199,11 +202,11 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 	s := &Session{xdgDir: xdgDir}
 	s.Stop()
 
-	if !s.IsStopped() {
+	s.mu.Lock()
+	stopped := s.stopped
+	s.mu.Unlock()
+	if !stopped {
 		t.Fatal("session was not marked stopped")
-	}
-	if !s.IsCleaned() {
-		t.Fatal("session was not marked cleaned")
 	}
 	if _, err := os.Stat(xdgDir); !os.IsNotExist(err) {
 		t.Fatalf("xdg dir still exists after cleanup: %v", err)
@@ -216,7 +219,9 @@ func TestSessionStopNil(t *testing.T) {
 }
 
 func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
-	ResetCleanupStaleRateLimit()
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
@@ -236,7 +241,9 @@ func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
 }
 
 func TestCleanupStaleSessionsConcurrentNoPidfileIsIdempotent(t *testing.T) {
-	ResetCleanupStaleRateLimit()
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
@@ -265,7 +272,9 @@ func TestCleanupStaleSessionsConcurrentNoPidfileIsIdempotent(t *testing.T) {
 }
 
 func TestCleanupStaleSessionsKeepsRecentNoPidfileDir(t *testing.T) {
-	ResetCleanupStaleRateLimit()
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
@@ -286,7 +295,9 @@ func TestCleanupStaleSessionsKeepsRecentNoPidfileDir(t *testing.T) {
 }
 
 func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
-	ResetCleanupStaleRateLimit()
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
@@ -307,7 +318,9 @@ func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
 }
 
 func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
-	ResetCleanupStaleRateLimit()
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
@@ -352,7 +365,9 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 }
 
 func TestCleanupStaleSessionsKeepsLivePIDDir(t *testing.T) {
-	ResetCleanupStaleRateLimit()
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
 	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)

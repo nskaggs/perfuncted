@@ -61,28 +61,6 @@ func TestLocateExactZeroOriginCapture(t *testing.T) {
 	}
 }
 
-func TestWaitWithToleranceZeroOriginCapture(t *testing.T) {
-	full := image.NewRGBA(image.Rect(10, 20, 30, 40))
-	ref := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
-			c := color.RGBA{R: 200, G: uint8(10 + x), B: uint8(40 + y), A: 255}
-			full.SetRGBA(15+x, 25+y, c)
-			ref.SetRGBA(x, y, c)
-		}
-	}
-
-	sc := &zeroOriginScreenshotter{frame: full}
-	_, found, err := WaitWithTolerance(context.Background(), sc, image.Rect(14, 24, 16, 26), ref, 2, 1*time.Millisecond, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := image.Rect(15, 25, 17, 27)
-	if found != want {
-		t.Fatalf("found = %v, want %v", found, want)
-	}
-}
-
 func TestScanForZeroOriginCapture(t *testing.T) {
 	full := image.NewRGBA(image.Rect(10, 20, 30, 40))
 	region1 := image.Rect(12, 22, 14, 24)

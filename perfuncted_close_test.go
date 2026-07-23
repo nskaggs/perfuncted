@@ -18,7 +18,7 @@ func TestPerfunctedCloseCleansManagedSession(t *testing.T) {
 	if err := pf.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if !sess.IsCleaned() {
+	if _, err := os.Stat(xdgDir); !os.IsNotExist(err) {
 		t.Fatal("managed session was not cleaned")
 	}
 }

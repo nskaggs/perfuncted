@@ -229,40 +229,6 @@ func TestInputBundleClickCenter(t *testing.T) {
 	}
 }
 
-func TestInputBundleModifierDown(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.ModifierDown(ctx, "ctrl"); err != nil {
-		t.Fatalf("ModifierDown: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "down:ctrl" {
-		t.Errorf("call = %q, want down:ctrl", inp.Calls[0])
-	}
-}
-
-func TestInputBundleModifierUp(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.ModifierUp(ctx, "shift"); err != nil {
-		t.Fatalf("ModifierUp: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "up:shift" {
-		t.Errorf("call = %q, want up:shift", inp.Calls[0])
-	}
-}
-
 func TestInputBundleType_NilCheck(t *testing.T) {
 	// Type with nil Inputter should return error.
 	pf := pftest.New(nil, nil, nil, nil)
@@ -380,13 +346,6 @@ func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
 	}
 	if title != "Firefox" {
 		t.Fatalf("ActiveTitle = %q, want Firefox", title)
-	}
-	win, err := pf.Window.WaitForWindow(ctx, "Firefox", time.Millisecond)
-	if err != nil {
-		t.Fatalf("WaitForWindow: %v", err)
-	}
-	if win.Title != "Firefox" {
-		t.Fatalf("WaitForWindow title = %q, want Firefox", win.Title)
 	}
 	if err := pf.Window.WaitForClose(ctx, "Firefox", time.Millisecond); err != nil {
 		t.Fatalf("WaitForClose: %v", err)

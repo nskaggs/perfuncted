@@ -51,10 +51,10 @@ func TestBundleSmoke(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Input", func(t *testing.T) {
-		if err := pf.Input.ModifierDown(ctx, "ctrl"); err != nil {
+		if err := pf.Input.KeyDown(ctx, "ctrl"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input.ModifierUp(ctx, "ctrl"); err != nil {
+		if err := pf.Input.KeyUp(ctx, "ctrl"); err != nil {
 			t.Fatal(err)
 		}
 		if err := pf.Input.Type(ctx, "hello"); err != nil {

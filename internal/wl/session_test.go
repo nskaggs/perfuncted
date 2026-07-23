@@ -260,7 +260,9 @@ func TestCleanupStaleSessionsPrunesOldCacheEntries(t *testing.T) {
 	sessionCache[freshSock] = &sessionRef{sess: &Session{Sock: freshSock, Ctx: &Context{}}, refs: 1, lastUsed: now}
 	sessionCacheMu.Unlock()
 
-	CleanupStaleSessions(24 * time.Hour)
+	sessionCacheMu.Lock()
+	cleanupStaleSessionsLocked(time.Now(), 24*time.Hour)
+	sessionCacheMu.Unlock()
 
 	sessionCacheMu.Lock()
 	_, oldExists := sessionCache[oldSock]

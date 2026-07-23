@@ -24,11 +24,6 @@ type Clipboard interface {
 	Close() error
 }
 
-// Open detects the environment and returns the appropriate Clipboard backend.
-func Open() (Clipboard, error) {
-	return OpenRuntime(env.Current())
-}
-
 // OpenRuntime detects the environment represented by rt and returns the
 // appropriate Clipboard backend.
 func OpenRuntime(rt env.Runtime) (Clipboard, error) {
