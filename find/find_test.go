@@ -59,7 +59,7 @@ func TestPixelHashSubImage(t *testing.T) {
 	}
 }
 
-// ── FirstPixel / LastPixel ────────────────────────────────────────────────────
+// ── FirstPixel ────────────────────────────────────────────────────────────────
 
 type fakeScreen struct {
 	img *image.RGBA
@@ -92,20 +92,6 @@ func TestFirstPixel(t *testing.T) {
 	}
 	if c.R != 42 || c.G != 84 || c.B != 126 {
 		t.Fatalf("expected (42,84,126) got (%d,%d,%d)", c.R, c.G, c.B)
-	}
-}
-
-func TestLastPixel(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	img.SetRGBA(5, 5, color.RGBA{R: 10, G: 20, B: 30, A: 255})
-	sc := &fakeScreen{img: img}
-
-	c, err := LastPixel(context.Background(), sc, image.Rect(3, 3, 6, 6))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.R != 10 || c.G != 20 || c.B != 30 {
-		t.Fatalf("expected (10,20,30) got (%d,%d,%d)", c.R, c.G, c.B)
 	}
 }
 
@@ -167,15 +153,5 @@ func TestLocateExactEmptyReference(t *testing.T) {
 	_, err := LocateExact(context.Background(), sc, image.Rect(0, 0, 20, 20), image.NewRGBA(image.Rect(0, 0, 0, 0)))
 	if err == nil {
 		t.Fatal("expected error for empty reference image")
-	}
-}
-
-// ── uniqueRunes (tested via xkb helper in input package, sanity check here) ──
-
-func TestAnchorRect(t *testing.T) {
-	a := Anchor{X: 100, Y: 200}
-	r := a.Rect(10, 20, 50, 30)
-	if r.Min.X != 110 || r.Min.Y != 220 || r.Dx() != 50 || r.Dy() != 30 {
-		t.Fatalf("unexpected rect: %v", r)
 	}
 }

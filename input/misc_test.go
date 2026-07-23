@@ -67,43 +67,6 @@ func TestSleepContext_NilContext_PositiveDuration(t *testing.T) {
 	}
 }
 
-// ── ParseKeySequence — error path ─────────────────────────────────────────────
-
-func TestParseKeySequence_Error(t *testing.T) {
-	_, err := ParseKeySequence("{unclosed")
-	if err == nil {
-		t.Fatal("ParseKeySequence: expected error for unclosed brace, got nil")
-	}
-}
-
-func TestParseKeySequence_Empty(t *testing.T) {
-	seq, err := ParseKeySequence("")
-	if err != nil {
-		t.Fatalf("ParseKeySequence(\"\") error = %v", err)
-	}
-	if len(seq) != 0 {
-		t.Fatalf("ParseKeySequence(\"\") = %v, want empty", seq)
-	}
-}
-
-func TestParseKeySequence_KeysOnly(t *testing.T) {
-	seq, err := ParseKeySequence("{ctrl+s}{enter}")
-	if err != nil {
-		t.Fatalf("ParseKeySequence error = %v", err)
-	}
-	if len(seq) != 2 {
-		t.Fatalf("got %d elements, want 2: %v", len(seq), seq)
-	}
-	// The combo key is "s"; the modifier is captured in the keySend struct
-	// but ParseKeySequence returns just the key name.
-	if seq[0] != "s" {
-		t.Errorf("seq[0] = %q, want \"s\"", seq[0])
-	}
-	if seq[1] != "enter" {
-		t.Errorf("seq[1] = %q, want \"enter\"", seq[1])
-	}
-}
-
 // ── parseCombo — modifier aliases ─────────────────────────────────────────────
 
 func TestParseCombo_ModifierAliases(t *testing.T) {
@@ -186,25 +149,5 @@ func TestParseBraced_UpSuffix(t *testing.T) {
 	}
 	if sends[0].key != "tab" {
 		t.Errorf("key = %q, want tab", sends[0].key)
-	}
-}
-
-// ── RuneFromKey — edge cases ──────────────────────────────────────────────────
-
-func TestRuneFromKey_MultiByteRune(t *testing.T) {
-	// "é" is a single rune but multi-byte UTF-8.
-	r, ok := RuneFromKey("é")
-	if !ok {
-		t.Fatal("RuneFromKey(\"é\") ok = false, want true")
-	}
-	if r != 'é' {
-		t.Fatalf("RuneFromKey(\"é\") = %q, want é", r)
-	}
-}
-
-func TestRuneFromKey_TwoRunes(t *testing.T) {
-	_, ok := RuneFromKey("ab")
-	if ok {
-		t.Fatal("RuneFromKey(\"ab\") ok = true, want false (two runes)")
 	}
 }

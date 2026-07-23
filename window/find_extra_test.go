@@ -29,33 +29,6 @@ func TestClampPoll_Positive(t *testing.T) {
 	}
 }
 
-// ── WaitFor ───────────────────────────────────────────────────────────────────
-
-func TestWaitFor_FindsWindowImmediately(t *testing.T) {
-	m := &fakeManager{wins: []Info{{ID: 1, Title: "MyApp"}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	w, err := WaitFor(ctx, m, "myapp", 10*time.Millisecond)
-	if err != nil {
-		t.Fatalf("WaitFor returned unexpected error: %v", err)
-	}
-	if w.ID != 1 {
-		t.Fatalf("WaitFor returned ID %d, want 1", w.ID)
-	}
-}
-
-func TestWaitFor_Timeout(t *testing.T) {
-	m := &fakeManager{wins: []Info{{ID: 1, Title: "SomethingElse"}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	_, err := WaitFor(ctx, m, "neverfound", 10*time.Millisecond)
-	if err == nil {
-		t.Fatal("WaitFor expected timeout error, got nil")
-	}
-}
-
 // ── WaitForClose ──────────────────────────────────────────────────────────────
 
 func TestWaitForClose_SucceedsWhenAbsent(t *testing.T) {

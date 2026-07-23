@@ -68,12 +68,6 @@ func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
 	return true
 }
 
-// NewWaylandWindowManager connects and returns a WaylandWindowManager if the
-// compositor advertises at least one foreign-toplevel protocol.
-func NewWaylandWindowManager() (*WaylandWindowManager, error) {
-	return NewWaylandWindowManagerForSocket(wl.SocketPath())
-}
-
 // NewWaylandWindowManagerForSocket connects to sock and returns a manager if
 // the compositor advertises at least one foreign-toplevel protocol.
 func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error) {

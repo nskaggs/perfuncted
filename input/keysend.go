@@ -20,7 +20,6 @@ package input
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 // keySend represents a parsed key-send action produced by ParseKeySend.
@@ -172,34 +171,4 @@ func isModifierName(s string) bool {
 		return true
 	}
 	return false
-}
-
-// ParseKeySequence is a convenience for callers that want to parse a string
-// into a flat list of key names and text segments. Unlike ParseKeySend it
-// returns strings only.
-func ParseKeySequence(input string) ([]string, error) {
-	sends, err := ParseKeySend(input)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, s := range sends {
-		if s.text != "" {
-			out = append(out, s.text)
-		} else {
-			out = append(out, s.key)
-		}
-	}
-	return out, nil
-}
-
-// RuneFromKey attempts to convert a single-character key name to its rune.
-// Returns the rune and true if successful, or 0 and false if the key name
-// is longer than one character or not valid UTF-8.
-func RuneFromKey(key string) (rune, bool) {
-	if utf8.RuneCountInString(key) != 1 {
-		return 0, false
-	}
-	r, _ := utf8.DecodeRuneInString(key)
-	return r, r != utf8.RuneError
 }

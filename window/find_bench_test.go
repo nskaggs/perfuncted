@@ -71,6 +71,6 @@ func BenchmarkFind_MatchByAppID(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = Find(context.Background(), m, match)
+		_, _ = FindByTitle(context.Background(), m, match.TitleContains)
 	}
 }

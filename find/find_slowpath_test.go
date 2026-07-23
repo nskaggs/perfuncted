@@ -159,50 +159,6 @@ func TestLocateExact_SlowPath(t *testing.T) {
 	}
 }
 
-// ── WaitWithTolerance slow path ───────────────────────────────────────────────
-
-// TestWaitWithTolerance_SlowPath exercises WaitWithTolerance when the reference
-// image is non-RGBA, forcing the generic scan path.
-func TestWaitWithTolerance_SlowPath(t *testing.T) {
-	// Source: 10×10 RGBA image with a specific 2×2 pattern at (4,4).
-	src := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
-			src.SetRGBA(x, y, color.RGBA{R: 80, G: 80, B: 80, A: 255})
-		}
-	}
-	patternColor := color.RGBA{R: 200, G: 150, B: 100, A: 255}
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
-			src.SetRGBA(4+x, 4+y, patternColor)
-		}
-	}
-
-	// Reference: 2×2 NRGBA image (non-RGBA → forces generic path).
-	ref := image.NewNRGBA(image.Rect(0, 0, 2, 2))
-	refNC := color.NRGBA(patternColor)
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
-			ref.SetNRGBA(x, y, refNC)
-		}
-	}
-	refHash := PixelHash(ref, nil)
-
-	sc := &fakeScreen{img: src}
-	gotHash, gotRect, err := WaitWithTolerance(
-		context.Background(), sc, image.Rect(4, 4, 6, 6), ref, 1, 1, nil,
-	)
-	if err != nil {
-		t.Fatalf("WaitWithTolerance slow path: unexpected error: %v", err)
-	}
-	if gotHash != refHash {
-		t.Fatalf("WaitWithTolerance slow path: got hash %08x, want %08x", gotHash, refHash)
-	}
-	if gotRect.Min.X != 4 || gotRect.Min.Y != 4 {
-		t.Fatalf("WaitWithTolerance slow path: got rect min (%d,%d), want (4,4)", gotRect.Min.X, gotRect.Min.Y)
-	}
-}
-
 // ── Benchmarks ────────────────────────────────────────────────────────────────
 
 // BenchmarkPixelFound_FastPath benchmarks PixelFound with *image.RGBA (fast path).

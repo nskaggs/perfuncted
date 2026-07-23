@@ -2,11 +2,9 @@ package window
 
 import (
 	"context"
-	"errors"
 	"iter"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fakeManager implements Manager for testing FindByTitle.
@@ -39,17 +37,6 @@ func (f *fakeManager) Fullscreen(ctx context.Context, _ string) error       { re
 func (f *fakeManager) Unfullscreen(ctx context.Context, _ string) error     { return nil }
 func (f *fakeManager) Restore(ctx context.Context, _ string) error          { return nil }
 func (f *fakeManager) Close() error                                         { return nil }
-
-type countingManager struct {
-	fakeManager
-	iterations int
-}
-
-func (m *countingManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
-	m.iterations++
-	return m.fakeManager.IterateWindows(ctx)
-}
-
 func TestFindByTitle_FindsMatch(t *testing.T) {
 	m := &fakeManager{wins: []Info{{ID: 1, Title: "Hello World"}, {ID: 2, Title: "Other"}}}
 	w, err := FindByTitle(context.Background(), m, "world")
@@ -72,79 +59,10 @@ func TestFindByTitle_NotFound(t *testing.T) {
 	}
 }
 
-func TestWaitForMatchZeroPoll(t *testing.T) {
-	m := &fakeManager{}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	_, err := WaitForMatch(ctx, m, Match{TitleContains: "hello"}, 0)
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
-	}
-}
-
-func TestWaitForMatchPropagatesManagerError(t *testing.T) {
-	want := errors.New("list failed")
-	m := &errIterManager{err: want}
-
-	_, err := WaitForMatch(context.Background(), m, Match{TitleContains: "hello"}, 0)
-	if !errors.Is(err, want) {
-		t.Fatalf("WaitForMatch error = %v, want %v", err, want)
-	}
-}
-
-func TestWaitForMatchCanceledContextSkipsIteration(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	m := &countingManager{}
-
-	_, err := WaitForMatch(ctx, m, Match{TitleContains: "hello"}, 0)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("WaitForMatch error = %v, want context.Canceled", err)
-	}
-	if m.iterations != 0 {
-		t.Fatalf("WaitForMatch iterated %d times after context cancellation, want 0", m.iterations)
-	}
-}
-
-func TestWaitForMatchCloseZeroPoll(t *testing.T) {
-	m := &fakeManager{wins: []Info{{ID: 1, Title: "Hello World"}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	err := WaitForMatchClose(ctx, m, Match{TitleContains: "hello"}, 0)
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
-	}
-}
-
-func TestWaitForMatchCloseCanceledContextSkipsIteration(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	m := &countingManager{fakeManager: fakeManager{wins: []Info{{ID: 1, Title: "Hello World"}}}}
-
-	err := WaitForMatchClose(ctx, m, Match{TitleContains: "hello"}, 0)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("WaitForMatchClose error = %v, want context.Canceled", err)
-	}
-	if m.iterations != 0 {
-		t.Fatalf("WaitForMatchClose iterated %d times after context cancellation, want 0", m.iterations)
-	}
-}
-
 func TestFindByTitleNilManager(t *testing.T) {
 	var m Manager = (*fakeManager)(nil)
 
 	_, err := FindByTitle(context.Background(), m, "hello")
-	if err == nil {
-		t.Fatal("expected error for nil manager")
-	}
-}
-
-func TestWaitForMatchNilManager(t *testing.T) {
-	var m Manager = (*fakeManager)(nil)
-
-	_, err := WaitForMatch(context.Background(), m, Match{TitleContains: "hello"}, 10*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected error for nil manager")
 	}

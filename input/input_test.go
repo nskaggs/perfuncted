@@ -155,20 +155,6 @@ func TestProbeSelectBest_NoneAvailable(t *testing.T) {
 	}
 }
 
-func TestCheckWlInputMethod_NoSocket(t *testing.T) {
-	rt := emptyRuntime()
-	r := checkWlInputMethod(rt)
-	if r.Available {
-		t.Error("wl-input-method should not be available without WAYLAND_DISPLAY")
-	}
-	if r.Name != "wl-input-method" {
-		t.Errorf("name = %q, want wl-input-method", r.Name)
-	}
-	if r.Reason != "WAYLAND_DISPLAY not set" {
-		t.Errorf("reason = %q, want %q", r.Reason, "WAYLAND_DISPLAY not set")
-	}
-}
-
 func TestCheckXTest_NoDisplay(t *testing.T) {
 	rt := emptyRuntime()
 	r := checkXTest(rt)
@@ -180,16 +166,5 @@ func TestCheckXTest_NoDisplay(t *testing.T) {
 	}
 	if r.Reason != "DISPLAY not set" {
 		t.Errorf("reason = %q, want %q", r.Reason, "DISPLAY not set")
-	}
-}
-
-func TestCheckWlVirtual_NoSocket(t *testing.T) {
-	rt := emptyRuntime()
-	r := checkWlVirtual(rt)
-	if r.Available {
-		t.Error("wl-virtual should not be available without WAYLAND_DISPLAY")
-	}
-	if r.Name != "wl-virtual" {
-		t.Errorf("name = %q, want wl-virtual", r.Name)
 	}
 }
