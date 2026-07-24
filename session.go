@@ -78,87 +78,235 @@ type Session struct {
 	Outputs   *OutputBundle
 	Clipboard *ClipboardBundle
 
-	config SessionConfig
-	env    env.Runtime
-	tracer *actionTracer
-	infra  *sessionInfra
-	appMu  sync.Mutex
-	apps   map[*Application]struct{}
+	config       SessionConfig
+	target       DesktopTarget
+	env          env.Runtime
+	tracer       *actionTracer
+	infra        *sessionInfra
+	capabilities map[Capability]CapabilityStatus
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	lifecycleMu sync.Mutex
+	closed      bool
+	apps        []*Application
+
+	closeOnce sync.Once
+	closeDone chan struct{}
+	closeErr  error
+
+	hubOnce sync.Once
+	hubMu   sync.RWMutex
+	hub     *invalidationHub
 }
 
 // Open creates a new Session, resolving backends and optionally starting
 // an isolated desktop session.
 func Open(ctx context.Context, opts ...Option) (*Session, error) {
-	cfg := SessionConfig{Desktop: TargetHost}
-	for _, o := range opts {
-		o(&cfg)
+	if ctx == nil {
+		return nil, errors.New("perfuncted: open: nil context")
 	}
 
-	CleanupStaleSessions(24 * time.Hour)
+	cfg := openConfig{
+		required: make(map[Capability]struct{}),
+		optional: make(map[Capability]struct{}),
+		target: targetSelection{
+			kind: TargetHost,
+		},
+	}
+	for _, option := range opts {
+		if option == nil {
+			continue
+		}
+		if err := option(&cfg); err != nil {
+			return nil, err
+		}
+	}
 
 	s := &Session{
-		config: cfg,
-		apps:   make(map[*Application]struct{}),
+		config:       cfg.target.config,
+		capabilities: make(map[Capability]CapabilityStatus, len(allCapabilities)),
+		closeDone:    make(chan struct{}),
+	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	if cfg.trace {
+		s.tracer = newActionTracer(cfg.traceOut, cfg.logger, cfg.traceDelay)
 	}
 
-	if cfg.Trace {
-		s.tracer = newActionTracer(cfg.TraceOut, cfg.Logger, cfg.TraceDelay)
-	}
-
-	if err := s.resolveRuntime(); err != nil {
+	if err := s.resolveRuntime(ctx, cfg.target); err != nil {
+		s.cancel()
 		return nil, err
 	}
 
-	s.initializeCapabilities()
+	if err := s.initializeCapabilities(cfg); err != nil {
+		closeErr := s.Close()
+		return nil, errors.Join(err, closeErr)
+	}
 
 	return s, nil
 }
 
-func (s *Session) resolveRuntime() error {
-	switch s.config.Desktop {
+func (s *Session) resolveRuntime(ctx context.Context, target targetSelection) error {
+	switch target.kind {
 	case TargetHost:
 		s.env = env.Current()
+	case TargetExplicit:
+		s.env = env.FromEnviron(target.target.Env())
 	case TargetHeadless:
-		infra, err := s.startSession(sessionModeHeadless)
+		CleanupStaleSessions(24 * time.Hour)
+		infra, err := s.startSession(ctx, sessionModeHeadless, target.config)
 		if err != nil {
 			return err
 		}
 		s.infra = infra
 		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr)
 	case TargetNested:
-		infra, err := s.startSession(sessionModeNested)
+		CleanupStaleSessions(24 * time.Hour)
+		infra, err := s.startSession(ctx, sessionModeNested, target.config)
 		if err != nil {
 			return err
 		}
 		s.infra = infra
 		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr)
+	default:
+		return fmt.Errorf("perfuncted: unknown target kind %q", target.kind)
+	}
+	s.target = DesktopTarget{
+		kind: target.kind,
+		env:  s.env.EnvList(),
 	}
 	return nil
 }
 
-func (s *Session) initializeCapabilities() {
-	if sgr, err := openScreen(s.env); err == nil {
-		s.Screen = &ScreenBundle{Screenshotter: sgr, bundleBase: bundleBase{tracer: s.tracer}}
+func (s *Session) initializeCapabilities(cfg openConfig) error {
+	s.Screen = &ScreenBundle{bundleBase: s.bundleBase(CapabilityScreen)}
+	s.Input = &InputBundle{bundleBase: s.bundleBase(CapabilityInput)}
+	s.Windows = &WindowBundle{
+		bundleBase: s.bundleBase(CapabilityWindows),
+		session:    s,
+	}
+	s.Outputs = &OutputBundle{bundleBase: s.bundleBase(CapabilityOutputs)}
+	s.Clipboard = &ClipboardBundle{bundleBase: s.bundleBase(CapabilityClipboard)}
+
+	for _, capability := range allCapabilities {
+		_, required := cfg.required[capability]
+		_, optional := cfg.optional[capability]
+		s.capabilities[capability] = CapabilityStatus{
+			Capability: capability,
+			Requested:  required || optional,
+			Required:   required,
+		}
 	}
 
-	inp, err := openInput(s.env, 0, 0)
-	if err == nil {
-		s.Input = &InputBundle{Inputter: inp, bundleBase: bundleBase{tracer: s.tracer}}
+	for _, capability := range allCapabilities {
+		status := s.capabilities[capability]
+		if !status.Requested {
+			continue
+		}
+		backend, err := s.openCapability(capability)
+		status.Failure = err
+		status.Available = err == nil
+		if err == nil {
+			status.Backend = fmt.Sprintf("%T", backend)
+			status.Operations = supportedOperations(capability, backend)
+		}
+		s.capabilities[capability] = status
+		s.setCapabilityFailure(capability, err)
+		if err != nil && status.Required {
+			return &CapabilityError{
+				Capability: capability,
+				Operation:  "open",
+				Err:        err,
+			}
+		}
 	}
 
-	win, err := openWindow(s.env)
-	if err == nil {
-		s.Windows = &WindowBundle{Manager: win, bundleBase: bundleBase{tracer: s.tracer}}
-	}
+	return nil
+}
 
-	out, err := openOutput(s.env)
-	if err == nil {
-		s.Outputs = &OutputBundle{Lister: out, bundleBase: bundleBase{tracer: s.tracer}}
+func supportedOperations(capability Capability, backend any) []string {
+	if capability == CapabilityWindows {
+		if reporter, ok := backend.(interface {
+			SupportedOperations() []string
+		}); ok {
+			return reporter.SupportedOperations()
+		}
 	}
+	return capabilityOperations(capability)
+}
 
-	cb, err := openClipboard(s.env)
-	if err == nil {
-		s.Clipboard = &ClipboardBundle{Clipboard: cb, bundleBase: bundleBase{tracer: s.tracer}}
+func (s *Session) bundleBase(capability Capability) bundleBase {
+	return bundleBase{
+		capability: capability,
+		tracer:     s.tracer,
+	}
+}
+
+func (s *Session) openCapability(capability Capability) (any, error) {
+	switch capability {
+	case CapabilityScreen:
+		backend, err := openScreen(s.env)
+		if err == nil {
+			s.Screen.Screenshotter = backend
+		}
+		closeFailedBackend(backend, err)
+		return backend, err
+	case CapabilityInput:
+		backend, err := openInput(s.env, 0, 0)
+		if err == nil {
+			s.Input.Inputter = backend
+		}
+		closeFailedBackend(backend, err)
+		return backend, err
+	case CapabilityWindows:
+		backend, err := openWindow(s.env)
+		if err == nil {
+			s.Windows.Manager = backend
+		}
+		closeFailedBackend(backend, err)
+		return backend, err
+	case CapabilityOutputs:
+		backend, err := openOutput(s.env)
+		if err == nil {
+			s.Outputs.Lister = backend
+		}
+		closeFailedBackend(backend, err)
+		return backend, err
+	case CapabilityClipboard:
+		backend, err := openClipboard(s.env)
+		if err == nil {
+			s.Clipboard.Clipboard = backend
+		}
+		closeFailedBackend(backend, err)
+		return backend, err
+	default:
+		return nil, fmt.Errorf("unknown capability %q", capability)
+	}
+}
+
+func closeFailedBackend(backend any, openErr error) {
+	if openErr == nil || backend == nil {
+		return
+	}
+	if closer, ok := backend.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+}
+
+func (s *Session) setCapabilityFailure(capability Capability, err error) {
+	switch capability {
+	case CapabilityScreen:
+		s.Screen.failure = err
+	case CapabilityInput:
+		s.Input.failure = err
+	case CapabilityWindows:
+		s.Windows.failure = err
+	case CapabilityOutputs:
+		s.Outputs.failure = err
+	case CapabilityClipboard:
+		s.Clipboard.failure = err
 	}
 }
 
@@ -167,8 +315,34 @@ func (s *Session) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.closeOnce.Do(func() {
+		s.closeErr = s.close()
+		if s.closeDone != nil {
+			close(s.closeDone)
+		}
+	})
+	if s.closeDone != nil {
+		<-s.closeDone
+	}
+	return s.closeErr
+}
+
+func (s *Session) close() error {
+	s.lifecycleMu.Lock()
+	s.closed = true
+	apps := make([]*Application, len(s.apps))
+	copy(apps, s.apps)
+	s.lifecycleMu.Unlock()
+	if s.cancel != nil {
+		s.cancel()
+	}
 
 	var errs []error
+	for i := len(apps) - 1; i >= 0; i-- {
+		if err := s.stopApplication(apps[i]); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if s.Screen != nil && s.Screen.Screenshotter != nil {
 		errs = append(errs, s.Screen.Screenshotter.Close())
 	}
@@ -197,39 +371,61 @@ func (s *Session) Has(cap Capability) bool {
 	if s == nil {
 		return false
 	}
-	switch cap {
-	case CapabilityScreen:
-		return s.Screen != nil && s.Screen.Screenshotter != nil
-	case CapabilityInput:
-		return s.Input != nil && s.Input.Inputter != nil
-	case CapabilityWindows:
-		return s.Windows != nil && s.Windows.Manager != nil
-	case CapabilityOutputs:
-		return s.Outputs != nil && s.Outputs.Lister != nil
-	case CapabilityClipboard:
-		return s.Clipboard != nil && s.Clipboard.Clipboard != nil
-	}
-	return false
+	status, ok := s.capabilities[cap]
+	return ok && status.Available
 }
 
-// Capability returns nil if the capability is available, or a CapabilityError
-// indicating the missing capability.
-func (s *Session) Capability(cap Capability) error {
-	if s.Has(cap) {
-		return nil
-	}
-	return &CapabilityError{Cap: cap, Err: ErrNotAvailable}
-}
-
-// Capabilities returns the set of capabilities available in this session.
-func (s *Session) Capabilities() []Capability {
-	var caps []Capability
-	for _, c := range []Capability{CapabilityScreen, CapabilityInput, CapabilityWindows, CapabilityOutputs, CapabilityClipboard} {
-		if s.Has(c) {
-			caps = append(caps, c)
+// Capability returns the immutable resolution status for cap.
+func (s *Session) Capability(cap Capability) CapabilityStatus {
+	if s == nil {
+		return CapabilityStatus{
+			Capability: cap,
+			Failure:    ErrNilSession,
 		}
 	}
-	return caps
+	status, ok := s.capabilities[cap]
+	if !ok {
+		return CapabilityStatus{Capability: cap}
+	}
+	return status.clone()
+}
+
+// Capabilities returns every capability's immutable resolution status.
+func (s *Session) Capabilities() []CapabilityStatus {
+	statuses := make([]CapabilityStatus, 0, len(allCapabilities))
+	for _, capability := range allCapabilities {
+		statuses = append(statuses, s.Capability(capability))
+	}
+	return statuses
+}
+
+// Target returns the exact immutable desktop target.
+func (s *Session) Target() DesktopTarget {
+	if s == nil {
+		return DesktopTarget{}
+	}
+	return s.target.clone()
+}
+
+// Env returns a copy of the process environment that routes child processes to
+// the Session's target.
+func (s *Session) Env() []string {
+	if s == nil {
+		return []string{}
+	}
+	return s.env.EnvList()
+}
+
+// Paste writes text through the clipboard when available and otherwise types
+// it directly.
+func (s *Session) Paste(ctx context.Context, text string) error {
+	if s == nil {
+		return ErrNilSession
+	}
+	if s.Has(CapabilityClipboard) {
+		return s.Clipboard.pasteWithInputContext(ctx, text, s.Input)
+	}
+	return s.Input.typeContext(ctx, text)
 }
 
 // XDG returns the resolved XDG runtime directory for the session.
@@ -262,7 +458,18 @@ func (s *Session) Runtime() env.Runtime {
 
 // ---------- infrastructure launchers ----------
 
-func (s *Session) startSession(mode sessionMode) (*sessionInfra, error) {
+func (s *Session) startSession(
+	ctx context.Context,
+	mode sessionMode,
+	config SessionConfig,
+) (*sessionInfra, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("session: startup: %w", err)
+	}
+	if config.Resolution == (image.Point{}) {
+		config.Resolution = image.Pt(1024, 768)
+	}
+
 	xdgDir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
 		return nil, fmt.Errorf("session: mkdirtemp: %w", err)
@@ -272,7 +479,10 @@ func (s *Session) startSession(mode sessionMode) (*sessionInfra, error) {
 		return nil, fmt.Errorf("session: chmod: %w", err)
 	}
 
-	logDir := filepath.Join(os.TempDir(), "perfuncted-logs")
+	logDir := config.LogDir
+	if logDir == "" {
+		logDir = filepath.Join(os.TempDir(), "perfuncted-logs")
+	}
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		os.RemoveAll(xdgDir)
 		return nil, fmt.Errorf("session: mkdir logs: %w", err)
@@ -290,17 +500,21 @@ func (s *Session) startSession(mode sessionMode) (*sessionInfra, error) {
 
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-		slog.Warn("failed to write owner pidfile", "path", pidPath, "error", err)
+		infra.stop()
+		return nil, fmt.Errorf("session: write owner pidfile: %w", err)
 	}
 
-	infra.unregister = infra.CleanupOnSignal(ctx)
+	infra.unregister = infra.CleanupOnSignal(infra.ctx)
 
 	if err := infra.launchDBus(); err != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: dbus: %w", err)
 	}
 
-	swayConf, err := infra.resolveSwayConfig(mode, image.Pt(1024, 768))
+	swayConf := config.SwayConfigPath
+	if swayConf == "" {
+		swayConf, err = infra.resolveSwayConfig(mode, config.Resolution)
+	}
 	if err != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: sway config: %w", err)

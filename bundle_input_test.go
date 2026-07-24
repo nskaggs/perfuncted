@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -40,8 +41,26 @@ func (m *windowSpyManager) Move(ctx context.Context, title string, x, y int) err
 	return nil
 }
 
+func (m *windowSpyManager) MoveByID(
+	ctx context.Context,
+	id string,
+	x int,
+	y int,
+) error {
+	m.moveCalls = append(m.moveCalls, fmt.Sprintf("%s:%d,%d", id, x, y))
+	return nil
+}
+
 func (m *windowSpyManager) CloseWindow(ctx context.Context, title string) error {
 	m.closeCalls = append(m.closeCalls, title)
+	return nil
+}
+
+func (m *windowSpyManager) CloseWindowByID(
+	ctx context.Context,
+	id string,
+) error {
+	m.closeCalls = append(m.closeCalls, id)
 	return nil
 }
 
@@ -338,31 +357,38 @@ func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	title, err := pf.Window.ActiveTitle(ctx)
+	title, err := pf.Windows.ActiveTitle(ctx)
 	if err != nil {
 		t.Fatalf("ActiveTitle: %v", err)
 	}
 	if title != "Firefox" {
 		t.Fatalf("ActiveTitle = %q, want Firefox", title)
 	}
-	if err := pf.Window.WaitForClose(ctx, "Firefox", time.Millisecond); err != nil {
+	target, err := pf.Windows.Find(
+		ctx,
+		perfuncted.WindowMatch{TitleContains: "Firefox"},
+	)
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if err := target.WaitClosed(ctx); err != nil {
 		t.Fatalf("WaitForClose: %v", err)
 	}
-	if err := pf.Window.Move(ctx, "Firefox", 10, 20); err != nil {
+	if err := target.Move(ctx, 10, 20); err != nil {
 		t.Fatalf("Move: %v", err)
 	}
-	if err := pf.Window.CloseWindow(ctx, "Firefox"); err != nil {
+	if err := target.Close(ctx); err != nil {
 		t.Fatalf("CloseWindow: %v", err)
 	}
-	if err := pf.Window.Sync(ctx); err != nil {
+	if err := pf.Windows.Sync(ctx); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	if len(mgr.moveCalls) != 1 || mgr.moveCalls[0] != "Firefox:10,20" {
-		t.Fatalf("moveCalls = %v, want [Firefox:10,20]", mgr.moveCalls)
+	if len(mgr.moveCalls) != 1 || mgr.moveCalls[0] != "1:10,20" {
+		t.Fatalf("moveCalls = %v, want [1:10,20]", mgr.moveCalls)
 	}
-	if len(mgr.closeCalls) != 1 || mgr.closeCalls[0] != "Firefox" {
-		t.Fatalf("closeCalls = %v, want [Firefox]", mgr.closeCalls)
+	if len(mgr.closeCalls) != 1 || mgr.closeCalls[0] != "1" {
+		t.Fatalf("closeCalls = %v, want [1]", mgr.closeCalls)
 	}
 	if mgr.syncCalls != 1 {
 		t.Fatalf("syncCalls = %d, want 1", mgr.syncCalls)

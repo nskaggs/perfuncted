@@ -12,15 +12,15 @@ type OutputBundle struct {
 }
 
 func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
-	if b.Lister == nil {
-		return nil, &CapabilityError{Cap: CapabilityOutputs, Err: ErrNotAvailable}
+	if b == nil || b.Lister == nil {
+		return nil, b.unavailable("list")
 	}
 	b.traceAction("output", "list")
 	return b.Lister.List(ctx)
 }
 
 func (b *OutputBundle) close() error {
-	if b.Lister == nil {
+	if b == nil || b.Lister == nil {
 		return nil
 	}
 	return b.Lister.Close()

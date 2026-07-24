@@ -35,8 +35,8 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	if err := pf.Input.Type(ctx, "^c"); err != nil {
 		t.Errorf("Type ctrl+c: %v", err)
 	}
-	if pf.Window.Manager != mgr {
-		t.Error("pf.Window.Manager not correctly assigned")
+	if pf.Windows.Manager != mgr {
+		t.Error("pf.Windows.Manager not correctly assigned")
 	}
 	if pf.Clipboard.Clipboard != cb {
 		t.Error("pf.Clipboard.Clipboard not correctly assigned")
@@ -81,10 +81,22 @@ func TestBundleSmoke(t *testing.T) {
 	})
 
 	t.Run("Window", func(t *testing.T) {
-		_ = pf.Window.Resize(ctx, "Firefox", 800, 600)
-		_ = pf.Window.Minimize(ctx, "Firefox")
-		_ = pf.Window.Maximize(ctx, "Firefox")
-		_ = pf.Window.Restore(ctx, "Firefox")
+		mgr.Lists = [][]window.Info{{{
+			ID:       1,
+			NativeID: "1",
+			Title:    "Firefox",
+		}}}
+		browserWindow, err := pf.Windows.Find(
+			ctx,
+			perfuncted.WindowMatch{TitleContains: "Firefox"},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = browserWindow.Resize(ctx, 800, 600)
+		_ = browserWindow.Minimize(ctx)
+		_ = browserWindow.Maximize(ctx)
+		_ = browserWindow.Restore(ctx)
 	})
 }
 
@@ -192,17 +204,12 @@ func TestBundleMethodsPropagateContext(t *testing.T) {
 	mgr := &contextSpyManager{}
 	cb := &contextSpyClipboard{}
 	sc := &contextSpyScreenshotter{}
-	pf := &perfuncted.Perfuncted{
-		Screen:    perfuncted.ScreenBundle{Screenshotter: sc},
-		Input:     perfuncted.InputBundle{Inputter: inp},
-		Window:    perfuncted.WindowBundle{Manager: mgr},
-		Clipboard: perfuncted.ClipboardBundle{Clipboard: cb},
-	}
+	pf := pftest.New(sc, inp, mgr, cb)
 
 	if err := pf.Input.Type(ctx, "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pf.Window.List(ctx); err != nil {
+	if _, err := pf.Windows.List(ctx, perfuncted.WindowMatch{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := pf.Clipboard.Set(ctx, "clipboard"); err != nil {
@@ -253,14 +260,12 @@ func TestCloseJoinsErrors(t *testing.T) {
 	windowErr := errors.New("window close failed")
 	clipboardErr := errors.New("clipboard close failed")
 
-	pf := &perfuncted.Perfuncted{
-		Screen: perfuncted.ScreenBundle{Screenshotter: &closeErrScreen{err: screenErr}},
-		Input:  perfuncted.InputBundle{Inputter: &closeErrInput{err: inputErr}},
-		Window: perfuncted.WindowBundle{Manager: &closeErrWindow{err: windowErr}},
-		Clipboard: perfuncted.ClipboardBundle{
-			Clipboard: &closeErrClipboard{err: clipboardErr},
-		},
-	}
+	pf := pftest.New(
+		&closeErrScreen{err: screenErr},
+		&closeErrInput{err: inputErr},
+		&closeErrWindow{err: windowErr},
+		&closeErrClipboard{err: clipboardErr},
+	)
 
 	err := pf.Close()
 	if !errors.Is(err, screenErr) || !errors.Is(err, inputErr) ||
@@ -278,18 +283,18 @@ func TestWindowBundle(t *testing.T) {
 	pf := pftest.New(nil, nil, mgr, nil)
 	ctx := context.Background()
 
-	wins, err := pf.Window.List(ctx)
+	wins, err := pf.Windows.List(ctx, perfuncted.WindowMatch{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wins) != 1 || wins[0].Title != "Firefox" {
+	if len(wins) != 1 || wins[0].Title() != "Firefox" {
 		t.Errorf("unexpected list: %v", wins)
 	}
 
-	if err := pf.Window.Activate(ctx, "Firefox"); err != nil {
+	if err := wins[0].Activate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(mgr.Activated) != 1 || mgr.Activated[0] != "Firefox" {
+	if len(mgr.Activated) != 1 || mgr.Activated[0] != "1" {
 		t.Errorf("unexpected activated: %v", mgr.Activated)
 	}
 }

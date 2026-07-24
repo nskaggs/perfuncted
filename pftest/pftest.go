@@ -4,6 +4,7 @@ package pftest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -11,11 +12,13 @@ import (
 	"iter"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -284,6 +287,60 @@ func (m *Manager) Unfullscreen(ctx context.Context, title string) error     { re
 func (m *Manager) Restore(ctx context.Context, title string) error          { return m.Err }
 func (m *Manager) Close() error                                             { return nil }
 
+func (m *Manager) ActivateByID(ctx context.Context, id string) error {
+	return m.ActivateContext(ctx, id)
+}
+func (m *Manager) MoveByID(ctx context.Context, id string, x, y int) error {
+	return m.Err
+}
+func (m *Manager) ResizeByID(ctx context.Context, id string, w, h int) error {
+	return m.Err
+}
+func (m *Manager) CloseWindowByID(ctx context.Context, id string) error {
+	return m.Err
+}
+func (m *Manager) MinimizeByID(ctx context.Context, id string) error { return m.Err }
+func (m *Manager) MaximizeByID(ctx context.Context, id string) error { return m.Err }
+func (m *Manager) FullscreenByID(ctx context.Context, id string) error {
+	return m.Err
+}
+func (m *Manager) UnfullscreenByID(ctx context.Context, id string) error {
+	return m.Err
+}
+func (m *Manager) RestoreByID(ctx context.Context, id string) error {
+	return m.Err
+}
+func (m *Manager) InfoByID(
+	ctx context.Context,
+	id string,
+) (window.Info, error) {
+	windows, err := m.List(ctx)
+	if err != nil {
+		return window.Info{}, err
+	}
+	for _, info := range windows {
+		if info.StableID() == id {
+			return info, nil
+		}
+	}
+	return window.Info{}, window.ErrWindowNotFound
+}
+func (m *Manager) WaitClosedByID(ctx context.Context, id string) error {
+	for {
+		if _, err := m.InfoByID(ctx, id); err != nil {
+			if errors.Is(err, window.ErrWindowNotFound) {
+				return nil
+			}
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	m.listIdx = 0
@@ -306,19 +363,17 @@ func (c *Clipboard) Close() error                               { return nil }
 
 // ── Assembly ──────────────────────────────────────────────────────────────────
 
-func New(sc screen.Screenshotter, inp input.Inputter, mgr window.Manager, cb clipboard.Clipboard) *perfuncted.Perfuncted {
-	pf := &perfuncted.Perfuncted{}
-	if sc != nil {
-		pf.Screen = perfuncted.ScreenBundle{Screenshotter: sc}
-	}
-	if inp != nil {
-		pf.Input = perfuncted.InputBundle{Inputter: inp}
-	}
-	if mgr != nil {
-		pf.Window = perfuncted.WindowBundle{Manager: mgr}
-	}
-	if cb != nil {
-		pf.Clipboard = perfuncted.ClipboardBundle{Clipboard: cb}
-	}
-	return pf
+func New(sc screen.Screenshotter, inp input.Inputter, mgr window.Manager, cb clipboard.Clipboard) *perfuncted.Session {
+	return perfuncted.NewSessionForTesting(sc, inp, mgr, nil, cb)
+}
+
+// NewWithOutputs assembles a Session that also provides output discovery.
+func NewWithOutputs(
+	sc screen.Screenshotter,
+	inp input.Inputter,
+	mgr window.Manager,
+	out output.Lister,
+	cb clipboard.Clipboard,
+) *perfuncted.Session {
+	return perfuncted.NewSessionForTesting(sc, inp, mgr, out, cb)
 }

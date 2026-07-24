@@ -122,12 +122,12 @@ func TestEmbeddedConfigs(t *testing.T) {
 }
 
 func TestStopManagedProcessReapsChild(t *testing.T) {
-	s := &Session{}
+	infra := &sessionInfra{}
 	cmd := helperCommand(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	s.stopManagedProcess(cmd, cmd.Process.Pid, 500*time.Millisecond)
+	infra.stopManagedProcess(cmd, cmd.Process.Pid, 500*time.Millisecond)
 	if err := syscall.Kill(cmd.Process.Pid, 0); err != syscall.ESRCH {
 		t.Fatalf("expected process to be gone, got %v", err)
 	}
@@ -155,19 +155,19 @@ func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
 	if err := os.MkdirAll(xdgDir, 0700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
-	s := &Session{xdgDir: xdgDir}
+	infra := &sessionInfra{xdgDir: xdgDir}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	unregister := s.CleanupOnSignal(ctx)
+	unregister := infra.CleanupOnSignal(ctx)
 	defer unregister()
 	cancel()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		s.mu.Lock()
-		stopped := s.stopped
-		s.mu.Unlock()
+		infra.mu.Lock()
+		stopped := infra.stopped
+		infra.mu.Unlock()
 		if stopped {
 			if _, err := os.Stat(xdgDir); os.IsNotExist(err) {
 				return
@@ -183,12 +183,12 @@ func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
-	s := &Session{xdgDir: xdgDir}
-	s.unregister = s.CleanupOnSignal(context.Background())
+	infra := &sessionInfra{xdgDir: xdgDir}
+	infra.unregister = infra.CleanupOnSignal(context.Background())
 
-	s.Stop()
+	infra.stop()
 
-	if s.unregister != nil {
+	if infra.unregister != nil {
 		t.Fatal("signal handler unregister function was not cleared")
 	}
 }
@@ -199,12 +199,12 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
 
-	s := &Session{xdgDir: xdgDir}
-	s.Stop()
+	infra := &sessionInfra{xdgDir: xdgDir}
+	infra.stop()
 
-	s.mu.Lock()
-	stopped := s.stopped
-	s.mu.Unlock()
+	infra.mu.Lock()
+	stopped := infra.stopped
+	infra.mu.Unlock()
 	if !stopped {
 		t.Fatal("session was not marked stopped")
 	}
@@ -214,13 +214,13 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 }
 
 func TestSessionStopNil(t *testing.T) {
-	var s *Session
-	s.Stop()
+	var infra *sessionInfra
+	infra.stop()
 }
 
 func TestStartNestedSessionCompiles(t *testing.T) {
 	t.Skip("requires display server (Wayland)")
-	_, _ = StartNestedSession(SessionConfig{})
+	_, _ = Open(context.Background(), WithNested(SessionConfig{}))
 }
 
 func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {

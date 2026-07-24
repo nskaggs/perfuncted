@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,8 @@ type WaylandWindowManager struct {
 	toplevels map[uint32]*Info
 	// toplevelsMu protects toplevels map.
 	toplevelsMu sync.Mutex
+	changesOnce sync.Once
+	changes     chan struct{}
 }
 
 func (m *WaylandWindowManager) canControlToplevels() bool {
@@ -125,6 +128,7 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 	if regName == 0 {
 		iface, regName, ver = "zwlr_foreign_toplevel_manager_v1", m.wlrMgrID, uint32(3)
 	}
+	isWLR := iface == "zwlr_foreign_toplevel_manager_v1"
 	if err := m.registry.Bind(regName, iface, ver, mgrProxy.ID()); err != nil {
 		return fmt.Errorf("window/wayland: bind %s: %w", iface, err)
 	}
@@ -135,48 +139,125 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 			return
 		}
 		handleID := wl.Uint32(data[0:4])
-		info := &Info{ID: uint64(handleID)}
+		info := &Info{
+			ID:       uint64(handleID),
+			NativeID: strconv.FormatUint(uint64(handleID), 10),
+		}
 		m.toplevelsMu.Lock()
 		m.toplevels[handleID] = info
 		m.toplevelsMu.Unlock()
+		m.notifyWindowChange()
 		handle := &wl.RawProxy{}
 		ctx.SetProxy(handleID, handle)
 		// Each handle emits title/app_id/state/output_enter/leave/closed events.
 		handle.OnEvent = func(op uint32, _ int, d []byte) {
-			// title and app_id are strings (arg[0] = byte-length, arg[1..] = string)
-			if applyToplevelString(info, op, d) {
+			if !isWLR {
+				m.handleExtToplevelEvent(handleID, info, op, d)
 				return
 			}
-			// state is an array of uint32 and lists active states (maximized=0,
-			// minimized=1, activated=2, fullscreen=3). Update the Info flags.
-			if op == 4 && len(d) >= 4 {
-				bytes := int(wl.Uint32(d[0:4]))
-				if bytes%4 == 0 && bytes <= len(d)-4 {
-					// clear previous
-					info.Active = false
-					info.Minimized = false
-					info.Maximized = false
-					info.Fullscreen = false
-					n := bytes / 4
-					for i := 0; i < n; i++ {
-						v := wl.Uint32(d[4+i*4 : 8+i*4])
-						switch v {
-						case 0:
-							info.Maximized = true
-						case 1:
-							info.Minimized = true
-						case 2:
-							info.Active = true
-						case 3:
-							info.Fullscreen = true
-						}
-					}
-				}
-				return
-			}
+			m.handleWLRToplevelEvent(handleID, info, op, d)
 		}
 	}
 	return m.display.RoundTrip()
+}
+
+func (m *WaylandWindowManager) handleWLRToplevelEvent(
+	handleID uint32,
+	info *Info,
+	op uint32,
+	data []byte,
+) {
+	m.toplevelsMu.Lock()
+	defer m.toplevelsMu.Unlock()
+	defer m.notifyWindowChange()
+
+	// title and app_id are strings (arg[0] = byte-length, arg[1..] = string)
+	if applyToplevelString(info, op, data) {
+		return
+	}
+	// state is an array of uint32 and lists active states (maximized=0,
+	// minimized=1, activated=2, fullscreen=3). Update the Info flags.
+	if op == 4 && len(data) >= 4 {
+		bytes := int(wl.Uint32(data[0:4]))
+		if bytes%4 == 0 && bytes <= len(data)-4 {
+			// state is an array of uint32 and lists active states (maximized=0,
+			// minimized=1, activated=2, fullscreen=3).
+			info.Active = false
+			info.Minimized = false
+			info.Maximized = false
+			info.Fullscreen = false
+			n := bytes / 4
+			for i := 0; i < n; i++ {
+				value := wl.Uint32(data[4+i*4 : 8+i*4])
+				switch value {
+				case 0:
+					info.Maximized = true
+				case 1:
+					info.Minimized = true
+				case 2:
+					info.Active = true
+				case 3:
+					info.Fullscreen = true
+				}
+			}
+		}
+	}
+	if op == 6 {
+		delete(m.toplevels, handleID)
+	}
+}
+
+func (m *WaylandWindowManager) handleExtToplevelEvent(
+	handleID uint32,
+	info *Info,
+	op uint32,
+	data []byte,
+) {
+	m.toplevelsMu.Lock()
+	defer m.toplevelsMu.Unlock()
+	defer m.notifyWindowChange()
+
+	switch op {
+	case 0: // closed
+		delete(m.toplevels, handleID)
+	case 2: // title
+		info.Title = decodeWaylandString(data)
+	case 3: // app_id
+		info.AppID = decodeWaylandString(data)
+	case 4: // stable protocol identifier
+		if identifier := decodeWaylandString(data); identifier != "" {
+			info.NativeID = identifier
+		}
+	}
+}
+
+func decodeWaylandString(data []byte) string {
+	if len(data) < 4 {
+		return ""
+	}
+	length := int(wl.Uint32(data[:4]))
+	if length > len(data)-4 {
+		return ""
+	}
+	return strings.TrimRight(string(data[4:4+length]), "\x00")
+}
+
+func (m *WaylandWindowManager) notifyWindowChange() {
+	m.changesOnce.Do(func() {
+		m.changes = make(chan struct{}, 1)
+	})
+	select {
+	case m.changes <- struct{}{}:
+	default:
+	}
+}
+
+// WindowChanges exposes coalesced foreign-toplevel protocol hints.
+func (m *WaylandWindowManager) WindowChanges() <-chan struct{} {
+	m.changesOnce.Do(func() {
+		m.changes = make(chan struct{}, 1)
+	})
+	return m.changes
 }
 
 // helper to send a request to a zwlr_foreign_toplevel_handle_v1 object.
@@ -190,15 +271,15 @@ func (m *WaylandWindowManager) sendHandleRequest(handleID uint32, opcode uint32,
 	return m.display.Context().WriteMsg(buf, nil)
 }
 
-func (m *WaylandWindowManager) findToplevel(title string) (uint32, *Info, bool) {
+func (m *WaylandWindowManager) findToplevel(title string) (uint32, Info, bool) {
 	m.toplevelsMu.Lock()
 	defer m.toplevelsMu.Unlock()
 	for id, info := range m.toplevels {
 		if strings.Contains(strings.ToLower(info.Title), strings.ToLower(title)) {
-			return id, info, true
+			return id, *info, true
 		}
 	}
-	return 0, nil, false
+	return 0, Info{}, false
 }
 
 func (m *WaylandWindowManager) List(ctx context.Context) ([]Info, error) {
@@ -399,20 +480,34 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	return m.display.RoundTrip()
 }
 
-// --- Handle-based operations ---
-
-func (m *WaylandWindowManager) lookupByID(id uint64) (uint32, *Info, error) {
-	m.toplevelsMu.Lock()
-	defer m.toplevelsMu.Unlock()
-	hid := uint32(id)
-	info, ok := m.toplevels[hid]
-	if !ok {
-		return 0, nil, ErrWindowNotFound
+func (m *WaylandWindowManager) SupportedOperations() []string {
+	if !m.canControlToplevels() {
+		return []string{"discover"}
 	}
-	return hid, info, nil
+	return []string{
+		"discover",
+		"activate",
+		"close",
+		"minimize",
+		"maximize",
+		"restore",
+	}
 }
 
-func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id uint64) error {
+// --- Handle-based operations ---
+
+func (m *WaylandWindowManager) lookupByID(id string) (uint32, Info, error) {
+	m.toplevelsMu.Lock()
+	defer m.toplevelsMu.Unlock()
+	for handleID, info := range m.toplevels {
+		if info.StableID() == id {
+			return handleID, *info, nil
+		}
+	}
+	return 0, Info{}, ErrWindowNotFound
+}
+
+func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -442,15 +537,15 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id uint64) erro
 	return m.sendHandleRequest(hid, 4, payload)
 }
 
-func (m *WaylandWindowManager) MoveByID(_ context.Context, _ uint64, _, _ int) error {
+func (m *WaylandWindowManager) MoveByID(_ context.Context, _ string, _, _ int) error {
 	return ErrNotSupported
 }
 
-func (m *WaylandWindowManager) ResizeByID(_ context.Context, _ uint64, _, _ int) error {
+func (m *WaylandWindowManager) ResizeByID(_ context.Context, _ string, _, _ int) error {
 	return ErrNotSupported
 }
 
-func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id uint64) error {
+func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -464,7 +559,7 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id uint64) e
 	return m.sendHandleRequest(hid, 5, nil)
 }
 
-func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id uint64) error {
+func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -478,7 +573,7 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id uint64) erro
 	return m.sendHandleRequest(hid, 2, nil)
 }
 
-func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id uint64) error {
+func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -492,15 +587,15 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id uint64) erro
 	return m.sendHandleRequest(hid, 0, nil)
 }
 
-func (m *WaylandWindowManager) FullscreenByID(_ context.Context, _ uint64) error {
+func (m *WaylandWindowManager) FullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *WaylandWindowManager) UnfullscreenByID(_ context.Context, _ uint64) error {
+func (m *WaylandWindowManager) UnfullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id uint64) error {
+func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error {
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -517,7 +612,7 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id uint64) error
 	return m.sendHandleRequest(hid, 3, nil)
 }
 
-func (m *WaylandWindowManager) InfoByID(ctx context.Context, id uint64) (Info, error) {
+func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	if err := m.display.RoundTrip(); err != nil {
 		return Info{}, err
 	}
@@ -525,10 +620,10 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id uint64) (Info, e
 	if err != nil {
 		return Info{}, err
 	}
-	return *info, nil
+	return info, nil
 }
 
-func (m *WaylandWindowManager) WaitClosedByID(ctx context.Context, id uint64) error {
+func (m *WaylandWindowManager) WaitClosedByID(ctx context.Context, id string) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {

@@ -155,7 +155,8 @@ func parseKWinWindowList(data string) []Info {
 		parts := strings.SplitN(line, "\t", 9)
 		var info Info
 		if len(parts) >= 1 {
-			if id, err := strconv.ParseUint(strings.TrimSpace(parts[0]), 0, 64); err == nil {
+			info.NativeID = strings.TrimSpace(parts[0])
+			if id, err := strconv.ParseUint(info.NativeID, 0, 64); err == nil {
 				info.ID = id
 			}
 		}
@@ -399,19 +400,32 @@ func (k *KWinScriptManager) Sync(ctx context.Context) error {
 	return nil
 }
 
+func (k *KWinScriptManager) SupportedOperations() []string {
+	return []string{
+		"discover",
+		"activate",
+		"move",
+		"resize",
+		"close",
+		"minimize",
+		"maximize",
+		"restore",
+	}
+}
+
 // --- Handle-based operations ---
 
-func kwinFindByIDScript(id uint64, svc, actionJS string) string {
+func kwinFindByIDScript(id, svc, actionJS string) string {
 	return fmt.Sprintf(`
 var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
 var wins = listFunc();
 var found = '';
-var targetId = %d;
+var targetId = %s;
 try {
     for (var i = 0; i < wins.length; i++) {
         var w = wins[i];
         var wid = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;
-        if (wid === targetId) {
+        if (String(wid) === targetId) {
             found = w.caption;
             %s
             break;
@@ -421,12 +435,16 @@ try {
     found = %q + String(e);
 }
 callDBus('%s', '/', '%s', 'ReportWindows', found);
-`, id, actionJS, kwinScriptErrorPrefix, svc, svc)
+`, strconv.Quote(id), actionJS, kwinScriptErrorPrefix, svc, svc)
 }
 
-func kwinActionResultByID(id uint64, result string) error {
+func kwinActionResultByID(id, result string) error {
 	if strings.HasPrefix(result, kwinScriptErrorPrefix) {
-		return fmt.Errorf("window/kwinscript: action on id=%d failed: %s", id, strings.TrimPrefix(result, kwinScriptErrorPrefix))
+		return fmt.Errorf(
+			"window/kwinscript: action on id=%q failed: %s",
+			id,
+			strings.TrimPrefix(result, kwinScriptErrorPrefix),
+		)
 	}
 	if result == "" {
 		return ErrWindowNotFound
@@ -434,7 +452,7 @@ func kwinActionResultByID(id uint64, result string) error {
 	return nil
 }
 
-func (k *KWinScriptManager) ActivateByID(ctx context.Context, id uint64) error {
+func (k *KWinScriptManager) ActivateByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc,
 			"w.minimized = false;\n            (typeof workspace.activateWindow === \"function\") ? workspace.activateWindow(w) : workspace.activeClient = w;")
@@ -445,7 +463,7 @@ func (k *KWinScriptManager) ActivateByID(ctx context.Context, id uint64) error {
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) MoveByID(ctx context.Context, id uint64, x, y int) error {
+func (k *KWinScriptManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		action := fmt.Sprintf(
 			"var g = w.frameGeometry;\n            w.frameGeometry = {x: %d, y: %d, width: Math.round(g.width), height: Math.round(g.height)};",
@@ -458,7 +476,7 @@ func (k *KWinScriptManager) MoveByID(ctx context.Context, id uint64, x, y int) e
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) ResizeByID(ctx context.Context, id uint64, width, height int) error {
+func (k *KWinScriptManager) ResizeByID(ctx context.Context, id string, width, height int) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		action := fmt.Sprintf(
 			"var g = w.frameGeometry;\n            w.frameGeometry = {x: Math.round(g.x), y: Math.round(g.y), width: %d, height: %d};",
@@ -471,7 +489,7 @@ func (k *KWinScriptManager) ResizeByID(ctx context.Context, id uint64, width, he
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) CloseWindowByID(ctx context.Context, id uint64) error {
+func (k *KWinScriptManager) CloseWindowByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.closeWindow();")
 	})
@@ -481,7 +499,7 @@ func (k *KWinScriptManager) CloseWindowByID(ctx context.Context, id uint64) erro
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) MinimizeByID(ctx context.Context, id uint64) error {
+func (k *KWinScriptManager) MinimizeByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.minimized = true;")
 	})
@@ -491,7 +509,7 @@ func (k *KWinScriptManager) MinimizeByID(ctx context.Context, id uint64) error {
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) MaximizeByID(ctx context.Context, id uint64) error {
+func (k *KWinScriptManager) MaximizeByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.setMaximize(true, true);")
 	})
@@ -501,15 +519,15 @@ func (k *KWinScriptManager) MaximizeByID(ctx context.Context, id uint64) error {
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) FullscreenByID(_ context.Context, _ uint64) error {
+func (k *KWinScriptManager) FullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (k *KWinScriptManager) UnfullscreenByID(_ context.Context, _ uint64) error {
+func (k *KWinScriptManager) UnfullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (k *KWinScriptManager) RestoreByID(ctx context.Context, id uint64) error {
+func (k *KWinScriptManager) RestoreByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.setMaximize(false, false); w.minimized = false;")
 	})
@@ -519,19 +537,19 @@ func (k *KWinScriptManager) RestoreByID(ctx context.Context, id uint64) error {
 	return kwinActionResultByID(id, result)
 }
 
-func (k *KWinScriptManager) InfoByID(ctx context.Context, id uint64) (Info, error) {
+func (k *KWinScriptManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	for info, err := range k.IterateWindows(ctx) {
 		if err != nil {
 			return Info{}, err
 		}
-		if info.ID == id {
+		if info.StableID() == id {
 			return info, nil
 		}
 	}
 	return Info{}, ErrWindowNotFound
 }
 
-func (k *KWinScriptManager) WaitClosedByID(ctx context.Context, id uint64) error {
+func (k *KWinScriptManager) WaitClosedByID(ctx context.Context, id string) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {

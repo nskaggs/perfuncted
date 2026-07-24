@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -22,6 +23,9 @@ var ErrNotSupported = errors.New("window: operation not supported on this compos
 // criteria could not be located.
 var ErrWindowNotFound = errors.New("window: not found")
 
+// ErrWindowAmbiguous is returned when a match identifies multiple windows.
+var ErrWindowAmbiguous = errors.New("window: ambiguous match")
+
 // Info describes a managed window.
 // Note: Geometry fields (X,Y,W,H) are best-effort. Wayland's foreign-toplevel
 // protocols do not always provide bounds; backends may leave them zero. Do not
@@ -29,13 +33,18 @@ var ErrWindowNotFound = errors.New("window: not found")
 // advisory. For Wayland, clients requiring accurate geometry should use a
 // compositor-specific protocol (xdg-output) when available.
 type Info struct {
-	ID    uint64
-	Title string
-	AppID string
-	Class string
-	PID   int32
-	X, Y  int
-	W, H  int
+	// ID preserves the backend's numeric identifier when one exists.
+	ID uint64
+	// NativeID is the authoritative backend identifier. It is numeric text for
+	// X11, Sway, GNOME, and foreign-toplevel backends, and may be an opaque
+	// string such as a KWin UUID.
+	NativeID string
+	Title    string
+	AppID    string
+	Class    string
+	PID      int32
+	X, Y     int
+	W, H     int
 	// Runtime state gathered from the foreign-toplevel protocol.
 	Active     bool
 	Minimized  bool
@@ -78,24 +87,53 @@ type Manager interface {
 	Restore(ctx context.Context, title string) error
 	// Close releases backend resources.
 	Close() error
+}
 
+// IDManager controls windows by stable native ID. Runtime backends returned by
+// OpenRuntime implement this interface; it is separate from Manager so
+// discovery-only fakes and integrations do not need meaningless control
+// methods.
+type IDManager interface {
+	Manager
 	// Handle-based operations target windows by their stable ID rather than
 	// title substring. These avoid ambiguity when multiple windows share a
 	// title prefix. Backends that cannot resolve a window by ID should return
 	// ErrWindowNotFound.
-	ActivateByID(ctx context.Context, id uint64) error
-	MoveByID(ctx context.Context, id uint64, x, y int) error
-	ResizeByID(ctx context.Context, id uint64, w, h int) error
-	CloseWindowByID(ctx context.Context, id uint64) error
-	MinimizeByID(ctx context.Context, id uint64) error
-	MaximizeByID(ctx context.Context, id uint64) error
-	FullscreenByID(ctx context.Context, id uint64) error
-	UnfullscreenByID(ctx context.Context, id uint64) error
-	RestoreByID(ctx context.Context, id uint64) error
+	ActivateByID(ctx context.Context, id string) error
+	MoveByID(ctx context.Context, id string, x, y int) error
+	ResizeByID(ctx context.Context, id string, w, h int) error
+	CloseWindowByID(ctx context.Context, id string) error
+	MinimizeByID(ctx context.Context, id string) error
+	MaximizeByID(ctx context.Context, id string) error
+	FullscreenByID(ctx context.Context, id string) error
+	UnfullscreenByID(ctx context.Context, id string) error
+	RestoreByID(ctx context.Context, id string) error
 	// InfoByID returns fresh window info for the given ID.
-	InfoByID(ctx context.Context, id uint64) (Info, error)
+	InfoByID(ctx context.Context, id string) (Info, error)
 	// WaitClosedByID blocks until the window with the given ID disappears.
-	WaitClosedByID(ctx context.Context, id uint64) error
+	WaitClosedByID(ctx context.Context, id string) error
+}
+
+// OperationReporter advertises the operations implemented by a window
+// backend. Discovery is always present for a usable Manager.
+type OperationReporter interface {
+	SupportedOperations() []string
+}
+
+// NativeID returns the stable backend identifier for info.
+func (info Info) StableID() string {
+	if info.NativeID != "" {
+		return info.NativeID
+	}
+	return fmt.Sprintf("%d", info.ID)
+}
+
+func numericID(id string) (uint64, error) {
+	value, err := strconv.ParseUint(id, 0, 64)
+	if err != nil {
+		return 0, fmt.Errorf("window: invalid numeric id %q: %w", id, err)
+	}
+	return value, nil
 }
 
 // OpenRuntime returns the best available Manager for rt.

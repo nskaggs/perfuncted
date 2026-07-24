@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
 	"time"
 
@@ -257,6 +258,7 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			appID, class := b.windowClass(id)
 			info := Info{
 				ID:        uint64(id),
+				NativeID:  strconv.FormatUint(uint64(id), 10),
 				Title:     b.windowTitle(id),
 				AppID:     appID,
 				Class:     class,
@@ -376,6 +378,20 @@ func (b *X11Backend) Sync(ctx context.Context) error {
 	return nil
 }
 
+func (b *X11Backend) SupportedOperations() []string {
+	return []string{
+		"discover",
+		"activate",
+		"move",
+		"resize",
+		"close",
+		"minimize",
+		"maximize",
+		"fullscreen",
+		"restore",
+	}
+}
+
 // CloseWindow sends a WM_DELETE_WINDOW message to close the window gracefully.
 func (b *X11Backend) CloseWindow(ctx context.Context, title string) error {
 	win, err := b.findByTitle(ctx, title)
@@ -453,8 +469,19 @@ func (b *X11Backend) Unfullscreen(ctx context.Context, title string) error {
 
 // --- Handle-based operations ---
 
-func (b *X11Backend) ActivateByID(ctx context.Context, id uint64) error {
-	win := xproto.Window(id)
+func x11WindowID(id string) (xproto.Window, error) {
+	numeric, err := numericID(id)
+	if err != nil {
+		return 0, err
+	}
+	return xproto.Window(numeric), nil
+}
+
+func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
 	data := []uint32{1, uint32(xproto.TimeCurrentTime), 0, 0, 0}
 	return b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
@@ -466,20 +493,31 @@ func (b *X11Backend) ActivateByID(ctx context.Context, id uint64) error {
 		}.Bytes())).Check()
 }
 
-func (b *X11Backend) MoveByID(ctx context.Context, id uint64, x, y int) error {
-	return b.conn.ConfigureWindowChecked(xproto.Window(id),
+func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.conn.ConfigureWindowChecked(win,
 		xproto.ConfigWindowX|xproto.ConfigWindowY,
 		[]uint32{uint32(x), uint32(y)}).Check()
 }
 
-func (b *X11Backend) ResizeByID(ctx context.Context, id uint64, w, h int) error {
-	return b.conn.ConfigureWindowChecked(xproto.Window(id),
+func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.conn.ConfigureWindowChecked(win,
 		xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
 		[]uint32{uint32(w), uint32(h)}).Check()
 }
 
-func (b *X11Backend) CloseWindowByID(ctx context.Context, id uint64) error {
-	win := xproto.Window(id)
+func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
 	const wmDeleteWindow = "WM_DELETE_WINDOW"
 	const wmProtocols = "WM_PROTOCOLS"
 	delAtom, err := b.conn.InternAtom(false, uint16(len(wmDeleteWindow)), wmDeleteWindow).Reply()
@@ -500,8 +538,11 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id uint64) error {
 		}.Bytes())).Check()
 }
 
-func (b *X11Backend) MinimizeByID(ctx context.Context, id uint64) error {
-	win := xproto.Window(id)
+func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
 	const wmChangeState = "WM_CHANGE_STATE"
 	csAtom, err := b.conn.InternAtom(false, uint16(len(wmChangeState)), wmChangeState).Reply()
 	if err != nil {
@@ -518,45 +559,58 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id uint64) error {
 		}.Bytes())).Check()
 }
 
-func (b *X11Backend) MaximizeByID(ctx context.Context, id uint64) error {
-	return b.setWMState(xproto.Window(id), 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
+func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
 }
 
-func (b *X11Backend) FullscreenByID(ctx context.Context, id uint64) error {
-	return b.setWMState(xproto.Window(id), 1, b.atomNetWMStateFullscreen)
+func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.setWMState(win, 1, b.atomNetWMStateFullscreen)
 }
 
-func (b *X11Backend) UnfullscreenByID(ctx context.Context, id uint64) error {
-	return b.setWMState(xproto.Window(id), 0, b.atomNetWMStateFullscreen)
+func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.setWMState(win, 0, b.atomNetWMStateFullscreen)
 }
 
-func (b *X11Backend) RestoreByID(ctx context.Context, id uint64) error {
-	win := xproto.Window(id)
+func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
 	if err := b.setWMState(win, 0, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz); err != nil {
 		return err
 	}
 	return b.conn.MapWindowChecked(win).Check()
 }
 
-func (b *X11Backend) InfoByID(ctx context.Context, id uint64) (Info, error) {
-	win := xproto.Window(id)
-	x, y, w, h := b.windowGeometry(win)
-	minimized, maximized := b.windowState(win)
-	appID, class := b.windowClass(win)
-	return Info{
-		ID:    id,
-		Title: b.windowTitle(win),
-		AppID: appID,
-		Class: class,
-		PID:   b.windowPID(win),
-		X:     x, Y: y, W: w, H: h,
-		Minimized: minimized,
-		Maximized: maximized,
-		Active:    win == xproto.Window(func() uint64 { aid, _ := b.activeWindow(); return uint64(aid) }()),
-	}, nil
+func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return Info{}, err
+	}
+	for info, listErr := range b.IterateWindows(ctx) {
+		if listErr != nil {
+			return Info{}, listErr
+		}
+		if info.ID == uint64(win) {
+			return info, nil
+		}
+	}
+	return Info{}, ErrWindowNotFound
 }
 
-func (b *X11Backend) WaitClosedByID(ctx context.Context, id uint64) error {
+func (b *X11Backend) WaitClosedByID(ctx context.Context, id string) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {

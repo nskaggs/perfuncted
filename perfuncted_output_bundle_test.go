@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/output"
+	"github.com/nskaggs/perfuncted/pftest"
 )
 
 type outputSpyLister struct {
@@ -46,11 +46,9 @@ func TestOutputBundleListAndClose(t *testing.T) {
 		closeErr: closeErr,
 	}
 
-	pf := &perfuncted.Perfuncted{
-		Output: perfuncted.OutputBundle{Lister: spy},
-	}
+	pf := pftest.NewWithOutputs(nil, nil, nil, spy, nil)
 
-	got, err := pf.Output.List(ctx)
+	got, err := pf.Outputs.List(ctx)
 	if err != nil {
 		t.Fatalf("Output.List: %v", err)
 	}

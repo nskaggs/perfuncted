@@ -496,3 +496,45 @@ func TestWaylandWindowManager_ActivateRequiresSeat(t *testing.T) {
 		t.Fatalf("Activate() sent a request without a seat")
 	}
 }
+
+func TestWaylandExtEventsPreserveStableIdentifierAndNotify(t *testing.T) {
+	info := &Info{ID: 41, NativeID: "41"}
+	manager := &WaylandWindowManager{
+		toplevels: map[uint32]*Info{41: info},
+	}
+	changes := manager.WindowChanges()
+
+	manager.handleExtToplevelEvent(
+		41,
+		info,
+		4,
+		encodeWaylandTestString("opaque-window-id"),
+	)
+	if info.NativeID != "opaque-window-id" {
+		t.Fatalf("NativeID = %q, want opaque-window-id", info.NativeID)
+	}
+	if _, _, err := manager.lookupByID("opaque-window-id"); err != nil {
+		t.Fatalf("lookupByID: %v", err)
+	}
+	select {
+	case <-changes:
+	default:
+		t.Fatal("stable identifier event did not notify")
+	}
+
+	manager.handleExtToplevelEvent(41, info, 0, nil)
+	if _, _, err := manager.lookupByID("opaque-window-id"); !errors.Is(
+		err,
+		ErrWindowNotFound,
+	) {
+		t.Fatalf("lookup after closed event = %v", err)
+	}
+}
+
+func encodeWaylandTestString(value string) []byte {
+	length := len(value) + 1
+	data := make([]byte, 4+length)
+	wl.PutUint32(data[:4], uint32(length))
+	copy(data[4:], value)
+	return data
+}
