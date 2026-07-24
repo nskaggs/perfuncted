@@ -22,7 +22,7 @@ func (s ScreenBundle) close() error {
 		return nil
 	}
 	s.traceAction("screen", "close")
-	return s.Screenshotter.Close()
+	return s.Close()
 }
 
 func (s ScreenBundle) checkAvailable() error {
@@ -35,7 +35,7 @@ func (s ScreenBundle) grabHash(ctx context.Context, rect image.Rectangle) (uint3
 		return 0, err
 	}
 	if rect.Empty() {
-		return s.Screenshotter.GrabFullHash(ctx)
+		return s.GrabFullHash(ctx)
 	}
 	return find.GrabHash(ctx, s.Screenshotter, rect, nil)
 }
@@ -46,9 +46,9 @@ func (s ScreenBundle) grab(ctx context.Context, rect image.Rectangle) (image.Ima
 		return nil, err
 	}
 	if rect.Empty() {
-		return s.Screenshotter.Grab(ctx, image.Rectangle{})
+		return s.Grab(ctx, image.Rectangle{})
 	}
-	return s.Screenshotter.Grab(ctx, rect)
+	return s.Grab(ctx, rect)
 }
 
 func (s ScreenBundle) GetAllPixels(ctx context.Context) (image.Image, error) {
@@ -119,7 +119,7 @@ func (s ScreenBundle) GetMultiplePixels(ctx context.Context, points []image.Poin
 	}
 	for i, p := range points {
 		ip := translatePointToBounds(p, bounds.Min, img.Bounds().Min)
-		c := color.RGBAModel.Convert(img.At(ip.X, ip.Y)).(color.RGBA)
+		c := color.RGBAModel.Convert(img.At(ip.X, ip.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 		out[i] = c
 	}
 	return out, nil

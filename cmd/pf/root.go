@@ -70,12 +70,12 @@ func newRootCmd(openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, e
 
 	openPF := openPFFactory(cfg)
 	root.AddCommand(
-		screenCmd(openPF, cfg),
+		screenCmd(openPF),
 		inputCmd(openPF, cfg),
 		windowCmd(openPF, cfg),
 		outputCmd(openPFFactory, cfg),
 		findCmd(openPF),
-		runCmd(root, openPFFactory, cfg),
+		runCmd(openPFFactory, cfg),
 		clipboardCmd(openPF),
 		infoCmd(),
 		sessionCmd(),

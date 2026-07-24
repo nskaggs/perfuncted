@@ -56,8 +56,7 @@ func TestExtCmdClipboardGetNilContext(t *testing.T) {
 	cb := &extCmdClipboard{
 		getCmd: []string{"sh", "-c", "exit 0"},
 	}
-	//lint:ignore SA1012 regression test for nil-context handling
-	if _, err := cb.Get(nil); err != nil {
+	if _, err := cb.Get(context.TODO()); err != nil {
 		t.Fatalf("Get(nil): %v", err)
 	}
 }
@@ -70,8 +69,7 @@ func TestExtCmdClipboardSetNilContext(t *testing.T) {
 	cb := &extCmdClipboard{
 		setCmd: []string{"sh", "-c", "exit 0"},
 	}
-	//lint:ignore SA1012 regression test for nil-context handling
-	if err := cb.Set(nil, "hello"); err != nil {
+	if err := cb.Set(context.TODO(), "hello"); err != nil {
 		t.Fatalf("Set(nil): %v", err)
 	}
 }

@@ -35,8 +35,8 @@ func StartXephyr(hostDisplay string) (display string, stop func(), err error) {
 }
 
 func startServer(name, hostDisplay string, argsFn func() []string) (display string, stop func(), err error) {
-	if _, err := executil.LookPath(name); err != nil {
-		return "", nil, fmt.Errorf("x11test: %s not found: %w", name, err)
+	if _, lookErr := executil.LookPath(name); lookErr != nil {
+		return "", nil, fmt.Errorf("x11test: %s not found: %w", name, lookErr)
 	}
 
 	var stderr bytes.Buffer
@@ -76,6 +76,7 @@ func startServer(name, hostDisplay string, argsFn func() []string) (display stri
 	select {
 	case res := <-displayCh:
 		if res.err != nil {
+			_ = cmd.Wait()
 			stopDisplay(cmd)
 			return "", nil, fmt.Errorf("x11test: %s did not report a display: %w; stderr: %s", name, res.err, strings.TrimSpace(stderr.String()))
 		}
@@ -85,6 +86,7 @@ func startServer(name, hostDisplay string, argsFn func() []string) (display stri
 		}
 		return display, stop, nil
 	case <-time.After(startupTimeout):
+		_ = cmd.Wait()
 		stopDisplay(cmd)
 		return "", nil, fmt.Errorf("x11test: %s did not become ready within %s; stderr: %s", name, startupTimeout, strings.TrimSpace(stderr.String()))
 	}

@@ -96,7 +96,7 @@ func (b *XTestBackend) keycodeAndLevel(sym xproto.Keysym) (xproto.Keycode, int, 
 func (b *XTestBackend) ensureKeymap() (map[xproto.Keysym]keycodeLevel, error) {
 	b.keymapOnce.Do(func() {
 		setup := b.conn.Setup()
-		first := xproto.Keycode(setup.MinKeycode)
+		first := setup.MinKeycode
 		count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
 		km, err := b.conn.GetKeyboardMapping(first, count).Reply()
 		if err != nil {
@@ -175,7 +175,7 @@ func (b *XTestBackend) Type(ctx context.Context, s string) error {
 	return b.TypeContext(ctx, s)
 }
 
-func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
+func (b *XTestBackend) TypeContext(ctx context.Context, s string) error { //nolint:gocyclo
 	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -222,15 +222,16 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 				return err
 			}
 		}
-		if a.up {
+		switch {
+		case a.up:
 			if err := b.keyUpKC(ctx, kc); err != nil {
 				return err
 			}
-		} else if a.down {
+		case a.down:
 			if err := b.keyDownKC(ctx, kc); err != nil {
 				return err
 			}
-		} else {
+		default:
 			if err := b.keyDownKC(ctx, kc); err != nil {
 				return err
 			}
@@ -245,7 +246,7 @@ func (b *XTestBackend) TypeContext(ctx context.Context, s string) error {
 			}
 		}
 		// Release temporary modifiers.
-		releaseModifier := func(key string) error {
+		releaseModifier := func(key string) error { //nolint:contextcheck // intentional: cleanup closure uses background context
 			kc, err := b.keycodeFor(key)
 			if err != nil {
 				return err
@@ -362,12 +363,12 @@ func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 		return err
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
-		if upErr := b.MouseUp(context.Background(), button); upErr != nil {
+		if upErr := b.MouseUp(context.Background(), button); upErr != nil { //nolint:contextcheck // intentional: release button even if context cancelled
 			return upErr
 		}
 		return err
 	}
-	return b.MouseUp(context.Background(), button)
+	return b.MouseUp(context.Background(), button) //nolint:contextcheck // intentional: release button even if context cancelled
 }
 
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {

@@ -87,7 +87,7 @@ type MockConnection struct {
 	SendEventCheckedFunc       func(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie
 	MapWindowCheckedFunc       func(Window xproto.Window) MapWindowCookie
 	ConfigureWindowCheckedFunc func(Window xproto.Window, ValueMask uint16, ValueList []uint32) ConfigureWindowCookie
-	NewIdFunc                  func() (uint32, error)
+	NewIDFunc                  func() (uint32, error)
 	GetImageFunc               func(Format byte, Drawable xproto.Drawable, X, Y int16, Width, Height uint16, PlaneMask uint32) GetImageCookie
 	FreePixmapFunc             func(Pixmap xproto.Pixmap) FreePixmapCookie
 	InitCompositeFunc          func() error
@@ -168,9 +168,9 @@ func (m *MockConnection) ConfigureWindowChecked(Window xproto.Window, ValueMask 
 	}
 	return &MockCheckCookie{}
 }
-func (m *MockConnection) NewId() (uint32, error) {
-	if m.NewIdFunc != nil {
-		return m.NewIdFunc()
+func (m *MockConnection) NewID() (uint32, error) {
+	if m.NewIDFunc != nil {
+		return m.NewIDFunc()
 	}
 	return 42, nil
 }

@@ -75,7 +75,7 @@ func NewWaylandLister(sock string) (*WaylandLister, error) {
 	return l, nil
 }
 
-func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) {
+func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 	proxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 		switch opcode {
 		case 0: // geometry
@@ -155,10 +155,10 @@ func readWlString(data []byte, off int) (string, int, bool) {
 	}
 	raw := string(data[off:end])
 	padded := (n + 3) &^ 3
-	if off+int(padded) > len(data) {
+	if off+padded > len(data) {
 		return "", off, false
 	}
-	return raw, off + int(padded), true
+	return raw, off + padded, true
 }
 
 func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {

@@ -48,7 +48,7 @@ func TestX11Backend_Grab(t *testing.T) {
 	}
 }
 
-func TestX11Backend_Grab_EmptyRect(t *testing.T) {
+func TestX11Backend_Grab_EmptyRect(t *testing.T) { //nolint:dupl
 	b, mc := newStubScreenX11Backend(t, false)
 	// Empty rect should grab full screen - set up mock to return full screen data
 	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
@@ -72,7 +72,7 @@ func TestX11Backend_Grab_EmptyRect(t *testing.T) {
 func TestX11Backend_Grab_WithComposite(t *testing.T) {
 	var pixmapCreated bool
 	b, mc := newStubScreenX11Backend(t, true)
-	mc.NewIdFunc = func() (uint32, error) {
+	mc.NewIDFunc = func() (uint32, error) {
 		return 100, nil
 	}
 	mc.NameWindowPixmapFunc = func(w xproto.Window, p xproto.Pixmap) x11.NameWindowPixmapCookie {
@@ -100,7 +100,7 @@ func TestX11Backend_Grab_WithComposite(t *testing.T) {
 	}
 }
 
-func TestX11Backend_Grab_WithoutComposite(t *testing.T) {
+func TestX11Backend_Grab_WithoutComposite(t *testing.T) { //nolint:dupl
 	b, mc := newStubScreenX11Backend(t, false)
 	// Set up GetImage to return data for 100x100 image
 	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
@@ -158,7 +158,7 @@ func TestX11Backend_GrabFullHash_WithComposite(t *testing.T) {
 	b, mc := newStubScreenX11Backend(t, true)
 	b.screen.WidthInPixels = 2
 	b.screen.HeightInPixels = 1
-	mc.NewIdFunc = func() (uint32, error) {
+	mc.NewIDFunc = func() (uint32, error) {
 		return 100, nil
 	}
 	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {
@@ -218,7 +218,7 @@ func TestX11Backend_GrabRegionHash_WithComposite(t *testing.T) {
 	expectedHash := crc32.ChecksumIEEE(data)
 
 	b, mc := newStubScreenX11Backend(t, true)
-	mc.NewIdFunc = func() (uint32, error) {
+	mc.NewIDFunc = func() (uint32, error) {
 		return 100, nil
 	}
 	mc.GetImageFunc = func(format byte, drawable xproto.Drawable, x, y int16, width, height uint16, planeMask uint32) x11.GetImageCookie {

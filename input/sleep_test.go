@@ -2,6 +2,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -10,7 +11,7 @@ func TestSleepContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := sleepContext(ctx, 10*time.Millisecond); err != context.Canceled {
+	if err := sleepContext(ctx, 10*time.Millisecond); !errors.Is(err, context.Canceled) {
 		t.Fatalf("sleepContext returned %v, want context.Canceled", err)
 	}
 }

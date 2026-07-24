@@ -102,7 +102,7 @@ func waitForWindowCloseMatch(ctx context.Context, m window.Manager, match window
 	}
 }
 
-func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command { //nolint:gocyclo
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
 	syncIf := func(pf *perfuncted.Perfuncted) error {
 		if cfg != nil && cfg.sync {
@@ -460,11 +460,12 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			}
 			defer pf.Close()
 			_, err = pf.Window.FindByTitle(cmd.Context(), args[0])
-			if err == nil {
+			switch {
+			case err == nil:
 				fmt.Println("true")
-			} else if errors.Is(err, window.ErrWindowNotFound) {
+			case errors.Is(err, window.ErrWindowNotFound):
 				fmt.Println("false")
-			} else {
+			default:
 				return err
 			}
 			return nil

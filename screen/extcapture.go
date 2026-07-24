@@ -47,7 +47,7 @@ type ExtCaptureBackend struct {
 
 // NewExtCaptureBackendForSocket returns an ExtCaptureBackend for sock if the
 // compositor advertises the full ext-image-copy stack needed for capture.
-func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) {
+func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //nolint:gocyclo
 	if sock == "" {
 		return nil, fmt.Errorf("screen/ext: WAYLAND_DISPLAY not set")
 	}
@@ -222,7 +222,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	return outImg, nil
 }
 
-func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error {
+func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error { //nolint:gocyclo
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

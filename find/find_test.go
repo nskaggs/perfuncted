@@ -42,7 +42,7 @@ func TestPixelHashSubImage(t *testing.T) {
 			full.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 42, A: 255})
 		}
 	}
-	sub := full.SubImage(image.Rect(2, 2, 5, 5)).(*image.RGBA)
+	sub := full.SubImage(image.Rect(2, 2, 5, 5)).(*image.RGBA) //nolint:errcheck // SubImage on *image.RGBA always returns *image.RGBA
 
 	// Build an equivalent standalone image.
 	equiv := image.NewRGBA(image.Rect(0, 0, 3, 3))

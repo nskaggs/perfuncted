@@ -134,7 +134,7 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 	}
 	defer r.Close()
 
-	callArgs := append(args, map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
+	callArgs := append(append(make([]interface{}, 0, len(args)+2), args...), map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
 	var results map[string]dbus.Variant
 	call := t.kwin.Call(method, 0, callArgs...)
 	// Close our copy now; KWin received its own via SCM_RIGHTS and has already
@@ -144,8 +144,8 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 	if call.Err != nil {
 		return nil, fmt.Errorf("screen/kwin: %s: %w", method, call.Err)
 	}
-	if err := call.Store(&results); err != nil {
-		return nil, fmt.Errorf("screen/kwin: store results: %w", err)
+	if storeErr := call.Store(&results); storeErr != nil {
+		return nil, fmt.Errorf("screen/kwin: store results: %w", storeErr)
 	}
 
 	data, err := io.ReadAll(r)

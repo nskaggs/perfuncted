@@ -17,7 +17,7 @@ func (w WindowBundle) close() error {
 		return nil
 	}
 	w.traceAction("window", "close")
-	return w.Manager.Close()
+	return w.Close()
 }
 
 func (w WindowBundle) checkAvailable() error {

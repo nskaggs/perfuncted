@@ -307,7 +307,7 @@ func TestUinputTypeContextWithKeyCombo(t *testing.T) {
 	}
 }
 
-func TestUinputMouseActionsAndScroll(t *testing.T) {
+func TestUinputMouseActionsAndScroll(t *testing.T) { //nolint:gocyclo
 	b, _, tp, mouse := newUinputActionBackend()
 
 	t.Run("MouseMove", func(t *testing.T) {
@@ -417,7 +417,7 @@ func TestUinputCloseClosesAllDevices(t *testing.T) {
 	}
 }
 
-func TestQwertyRuneMapCompleteness(t *testing.T) {
+func TestQwertyRuneMapCompleteness(t *testing.T) { //nolint:gocyclo
 	m := qwertyRuneMap()
 
 	// All lowercase letters
@@ -620,7 +620,7 @@ func TestUinputBackend_CanceledContextSuppressesKeyboardEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b, kb := newTestBackend(t)
 
-			if err := tt.run(b); err != context.Canceled {
+			if err := tt.run(b); !errors.Is(err, context.Canceled) {
 				t.Fatalf("%s canceled error = %v, want context.Canceled", tt.name, err)
 			}
 			if len(kb.events) != 0 {
@@ -687,7 +687,7 @@ func TestUinputBackend_CanceledContextShortCircuitsPointerMethods(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.run(); err != context.Canceled {
+			if err := tt.run(); !errors.Is(err, context.Canceled) {
 				t.Fatalf("%s canceled error = %v, want context.Canceled", tt.name, err)
 			}
 		})

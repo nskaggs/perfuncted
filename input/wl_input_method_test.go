@@ -326,7 +326,7 @@ func TestWlInputMethodBackend_CanceledContextShortCircuitsNoOther(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.run(); err != context.Canceled {
+			if err := tt.run(); !errors.Is(err, context.Canceled) {
 				t.Fatalf("%s canceled error = %v, want context.Canceled", tt.name, err)
 			}
 		})

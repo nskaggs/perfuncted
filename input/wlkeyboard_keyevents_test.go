@@ -55,7 +55,7 @@ func (f *failingCtx) WriteMsg(data, oob []byte) error {
 	return f.recordingCtx.WriteMsg(data, oob)
 }
 
-func newFailingKeyboard(successWrites int) (*wlKeyboard, *failingCtx) {
+func newFailingKeyboard(successWrites int) (*wlKeyboard, *failingCtx) { //nolint:unparam
 	k := &wlKeyboard{held: make(map[string]uint32)}
 	rp := &wl.RawProxy{}
 	rp.SetID(42)

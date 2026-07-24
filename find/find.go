@@ -52,7 +52,7 @@ func checkAvailable(sc Screenshotter) error {
 	}
 	v := reflect.ValueOf(sc)
 	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice: //nolint:govet // inline: reflect.Ptr is the idiomatic constant to use here
 		if v.IsNil() {
 			return fmt.Errorf("find: screen backend not available")
 		}
@@ -126,7 +126,7 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 		return color.RGBA{}, err
 	}
 	b := img.Bounds()
-	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA), nil
+	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA), nil //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 }
 
 // Result pairs a hash with the rectangle it was captured from.
@@ -135,7 +135,7 @@ type Result struct {
 	Rect image.Rectangle
 }
 
-func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(attempt int) (done bool, result uint32, err error)) (uint32, error) {
+func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(attempt int) (done bool, result uint32, err error)) (uint32, error) { //nolint:gocyclo
 	ctx = ctxutil.Default(ctx)
 	if pollDur <= 0 {
 		attempt := 0
@@ -288,7 +288,7 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 		// definitely different — skip the CRC32 and reset the streak.
 		// This is conservative: we only skip when we are certain of a change.
 		b := img.Bounds()
-		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA)
+		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 		if sentinelSet && cur != sentinel {
 			sentinel = cur
 			streak = 0
@@ -327,7 +327,7 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 // When the regions are spatially compact (bounding-box area ≤ 2× the sum of individual
 // rect areas), ScanFor performs a single sc.Grab of the union bounding box per poll
 // cycle and hashes sub-regions in memory — reducing IPC round-trips from N to 1.
-func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wants []uint32, poll time.Duration, newHash Hasher) (Result, error) {
+func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wants []uint32, poll time.Duration, newHash Hasher) (Result, error) { //nolint:gocyclo
 	ctx = ctxutil.Default(ctx)
 	if err := checkAvailable(sc); err != nil {
 		return Result{}, err
@@ -428,7 +428,7 @@ type Anchor struct {
 // searchArea describes the screen-area that src was captured from, so returned
 // coordinates can be translated back to screen space. This avoids the caller
 // having to perform a second Grab.
-func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) {
+func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) { //nolint:gocyclo
 	if searchArea.Empty() {
 		return image.Rectangle{}, fmt.Errorf("find: locate search area is empty")
 	}
@@ -446,7 +446,7 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 	// Precompute the top-left pixel of the reference. Most candidate positions
 	// can be rejected with a single pixel comparison before calling matchAt
 	// (which does rb.Dx() × rb.Dy() comparisons per position).
-	refFirst := color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA)
+	refFirst := color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 
 	// Fast path: direct Pix access when both images are *image.RGBA.
 	srcRGBA, srcOk := src.(*image.RGBA)
@@ -477,7 +477,7 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 
 	for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
 		for x := sb.Min.X; x <= sb.Max.X-rb.Dx(); x++ {
-			if color.RGBAModel.Convert(src.At(x, y)).(color.RGBA) != refFirst {
+			if color.RGBAModel.Convert(src.At(x, y)).(color.RGBA) != refFirst { //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 				continue
 			}
 			if matchAt(src, reference, x, y) {
@@ -527,8 +527,8 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 	// Slow path: generic image via At() + colour model conversion.
 	for y := 0; y < rb.Dy(); y++ {
 		for x := 0; x < rb.Dx(); x++ {
-			cSrc := color.RGBAModel.Convert(src.At(ox+x, oy+y)).(color.RGBA)
-			cRef := color.RGBAModel.Convert(ref.At(rb.Min.X+x, rb.Min.Y+y)).(color.RGBA)
+			cSrc := color.RGBAModel.Convert(src.At(ox+x, oy+y)).(color.RGBA)             //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
+			cRef := color.RGBAModel.Convert(ref.At(rb.Min.X+x, rb.Min.Y+y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 			if cSrc != cRef {
 				return false
 			}
@@ -545,7 +545,7 @@ func translateRect(r image.Rectangle, fromMin, toMin image.Point) image.Rectangl
 // PixelFound scans img (which was captured for rect) for the first pixel
 // whose colour is within tolerance of target. Returns the absolute screen
 // coordinate and true if found.
-func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, bool) {
+func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, bool) { //nolint:gocyclo
 	b := img.Bounds()
 
 	// Fast path: read directly from Pix for *image.RGBA, avoiding per-pixel
@@ -588,7 +588,7 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 	// Slow path: generic image via At() + colour model conversion.
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
-			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 			if colorClose(c, target, tolerance) {
 				return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 			}
@@ -600,7 +600,7 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 // FindColor scans rect for the first pixel whose colour is within tolerance of
 // target. Returns the absolute (x, y) of the match. Tolerance is applied per
 // channel: |r-r'| ≤ tol && |g-g'| ≤ tol && |b-b'| ≤ tol.
-func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
+func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) { //nolint:revive // exported API name is intentional
 	ctx = ctxutil.Default(ctx)
 	if err := checkAvailable(sc); err != nil {
 		return image.Point{}, err

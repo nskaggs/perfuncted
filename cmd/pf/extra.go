@@ -65,13 +65,13 @@ func outputCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), c
 }
 
 type scriptRunner struct {
-	ctx                 context.Context
+	ctx                 context.Context //nolint:containedctx // intentional: script runner holds context for its lifetime
 	pf                  *perfuncted.Perfuncted
 	selectedWindowTitle string
 	hasSelection        bool
 }
 
-func runCmd(root *cobra.Command, openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func runCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run FILE",
 		Short: "Run CLI commands from a script file or stdin",
@@ -205,7 +205,7 @@ func (s *scriptRunner) exec(lineNo int, toks []string) error {
 	}
 }
 
-func (s *scriptRunner) execWindow(lineNo int, toks []string) error {
+func (s *scriptRunner) execWindow(lineNo int, toks []string) error { //nolint:gocyclo
 	if len(toks) == 0 {
 		return fmt.Errorf("script line %d: missing window subcommand", lineNo)
 	}

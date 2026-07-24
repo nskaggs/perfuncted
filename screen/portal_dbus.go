@@ -135,7 +135,7 @@ func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
 
 // Grab takes a full workspace screenshot via the portal and returns the
 // requested rectangle. The portal may show a consent dialog on first use.
-func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) { //nolint:gocyclo
 	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/portal: grab canceled: %w", err)

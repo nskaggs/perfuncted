@@ -16,7 +16,7 @@ func (o OutputBundle) close() error {
 		return nil
 	}
 	o.traceAction("output", "close")
-	return o.Lister.Close()
+	return o.Close()
 }
 
 func (o OutputBundle) checkAvailable() error {

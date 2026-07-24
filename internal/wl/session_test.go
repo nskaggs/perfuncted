@@ -22,7 +22,7 @@ func TestNewSession_CacheHit(t *testing.T) {
 	sock := "wayland-test-cache"
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
-	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1, lastUsed: time.Now()}
 	sessionCacheMu.Unlock()
 
 	// NewSession should return the cached session and increment refcount.
@@ -79,7 +79,7 @@ func TestNewSession_CloseDecrementsRefcount(t *testing.T) {
 	sock := "wayland-test-refcount"
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
-	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1, lastUsed: time.Now()}
 	sessionCacheMu.Unlock()
 
 	// Get two references.
@@ -149,7 +149,7 @@ func TestSessionCloseRemovesCacheAtZeroRefs(t *testing.T) {
 	sock := "wayland-test-zero"
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
-	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1, lastUsed: time.Now()}
 	sessionCacheMu.Unlock()
 
 	if err := fakeSess.Close(); err != nil {
@@ -179,7 +179,7 @@ func TestNewSessionCacheConcurrentHitAndClose(t *testing.T) {
 	sock := "wayland-test-concurrent"
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
-	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1}
+	sessionCache[sock] = &sessionRef{sess: fakeSess, refs: 1, lastUsed: time.Now()}
 	sessionCacheMu.Unlock()
 
 	var wg sync.WaitGroup

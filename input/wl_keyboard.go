@@ -167,7 +167,7 @@ func (k *wlKeyboard) clearTempModsBestEffort(modBitmask uint32) {
 //
 // Text and key actions are executed in the order they appear in the input,
 // so "Hello{enter}" types "Hello" before pressing Enter.
-func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error {
+func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //nolint:gocyclo
 	ctx = ctxutil.Default(ctx)
 	if len(actions) == 0 {
 		return nil
@@ -674,7 +674,7 @@ func xkbKeysym(r rune) string {
 // ── Lookup tables ─────────────────────────────────────────────────────────────
 
 // namedKey maps a key name to its fixed keycode and XKB keysym string.
-func namedKey(key string) (kc uint32, sym string, ok bool) {
+func namedKey(key string) (kc uint32, sym string, ok bool) { //nolint:gocyclo
 	if k, found := keymap.FromString(key); found {
 		switch k {
 		case keymap.KeyShift:
