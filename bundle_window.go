@@ -116,3 +116,93 @@ func (b *WindowBundle) close() error {
 	}
 	return b.Manager.Close()
 }
+
+// --- Handle-based operations ---
+
+func (b *WindowBundle) ActivateByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "activate-by-id %d", id)
+	return b.Manager.ActivateByID(ctx, id)
+}
+
+func (b *WindowBundle) MoveByID(ctx context.Context, id uint64, x, y int) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "move-by-id %d %d,%d", id, x, y)
+	return b.Manager.MoveByID(ctx, id, x, y)
+}
+
+func (b *WindowBundle) ResizeByID(ctx context.Context, id uint64, w, h int) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "resize-by-id %d %dx%d", id, w, h)
+	return b.Manager.ResizeByID(ctx, id, w, h)
+}
+
+func (b *WindowBundle) CloseWindowByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "close-window-by-id %d", id)
+	return b.Manager.CloseWindowByID(ctx, id)
+}
+
+func (b *WindowBundle) MinimizeByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "minimize-by-id %d", id)
+	return b.Manager.MinimizeByID(ctx, id)
+}
+
+func (b *WindowBundle) MaximizeByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "maximize-by-id %d", id)
+	return b.Manager.MaximizeByID(ctx, id)
+}
+
+func (b *WindowBundle) FullscreenByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "fullscreen-by-id %d", id)
+	return b.Manager.FullscreenByID(ctx, id)
+}
+
+func (b *WindowBundle) UnfullscreenByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "unfullscreen-by-id %d", id)
+	return b.Manager.UnfullscreenByID(ctx, id)
+}
+
+func (b *WindowBundle) RestoreByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "restore-by-id %d", id)
+	return b.Manager.RestoreByID(ctx, id)
+}
+
+func (b *WindowBundle) InfoByID(ctx context.Context, id uint64) (window.Info, error) {
+	if b.Manager == nil {
+		return window.Info{}, &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "info-by-id %d", id)
+	return b.Manager.InfoByID(ctx, id)
+}
+
+func (b *WindowBundle) WaitClosedByID(ctx context.Context, id uint64) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "wait-closed-by-id %d", id)
+	return b.Manager.WaitClosedByID(ctx, id)
+}

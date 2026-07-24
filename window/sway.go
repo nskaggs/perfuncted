@@ -422,6 +422,125 @@ func (m *SwayManager) Unfullscreen(ctx context.Context, substr string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen disable", int64(w.ID)))
 }
 
+// --- Handle-based operations ---
+
+func (m *SwayManager) findByID(ctx context.Context, id uint64) error {
+	// Verify the window exists by iterating the tree.
+	_, err := FindByID(ctx, m, id)
+	return err
+}
+
+func (m *SwayManager) ActivateByID(ctx context.Context, id uint64) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] focus", int64(id)))
+}
+
+func (m *SwayManager) MoveByID(ctx context.Context, id uint64, x, y int) error {
+	ctx = ctxutil.Default(ctx)
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(id))); err != nil {
+		return err
+	}
+	reflowTimeout := m.ReflowTimeout
+	if reflowTimeout <= 0 {
+		reflowTimeout = defaultReflowTimeout
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(reflowTimeout)
+loop:
+	for {
+		wins, err := m.List(ctx)
+		if err == nil {
+			for _, win := range wins {
+				if win.ID == id {
+					break loop
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			break loop
+		case <-ticker.C:
+		}
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move position %d %d", int64(id), x, y))
+}
+
+func (m *SwayManager) ResizeByID(ctx context.Context, id uint64, width, height int) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(id))); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] resize set %d %d", int64(id), width, height))
+}
+
+func (m *SwayManager) CloseWindowByID(ctx context.Context, id uint64) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] kill", int64(id)))
+}
+
+func (m *SwayManager) MinimizeByID(ctx context.Context, id uint64) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move scratchpad", int64(id)))
+}
+
+func (m *SwayManager) MaximizeByID(ctx context.Context, id uint64) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(id)))
+}
+
+func (m *SwayManager) FullscreenByID(ctx context.Context, id uint64) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(id)))
+}
+
+func (m *SwayManager) UnfullscreenByID(ctx context.Context, id uint64) error {
+	if err := m.findByID(ctx, id); err != nil {
+		return err
+	}
+	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen disable", int64(id)))
+}
+
+func (m *SwayManager) RestoreByID(_ context.Context, _ uint64) error {
+	return ErrNotSupported
+}
+
+func (m *SwayManager) InfoByID(ctx context.Context, id uint64) (Info, error) {
+	return FindByID(ctx, m, id)
+}
+
+func (m *SwayManager) WaitClosedByID(ctx context.Context, id uint64) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if _, err := m.InfoByID(ctx, id); err != nil {
+				return nil
+			}
+		}
+	}
+}
+
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.
 func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) {
 	return swayQueryOnceContext(context.Background(), sock, msgType, payload)

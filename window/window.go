@@ -78,6 +78,24 @@ type Manager interface {
 	Restore(ctx context.Context, title string) error
 	// Close releases backend resources.
 	Close() error
+
+	// Handle-based operations target windows by their stable ID rather than
+	// title substring. These avoid ambiguity when multiple windows share a
+	// title prefix. Backends that cannot resolve a window by ID should return
+	// ErrWindowNotFound.
+	ActivateByID(ctx context.Context, id uint64) error
+	MoveByID(ctx context.Context, id uint64, x, y int) error
+	ResizeByID(ctx context.Context, id uint64, w, h int) error
+	CloseWindowByID(ctx context.Context, id uint64) error
+	MinimizeByID(ctx context.Context, id uint64) error
+	MaximizeByID(ctx context.Context, id uint64) error
+	FullscreenByID(ctx context.Context, id uint64) error
+	UnfullscreenByID(ctx context.Context, id uint64) error
+	RestoreByID(ctx context.Context, id uint64) error
+	// InfoByID returns fresh window info for the given ID.
+	InfoByID(ctx context.Context, id uint64) (Info, error)
+	// WaitClosedByID blocks until the window with the given ID disappears.
+	WaitClosedByID(ctx context.Context, id uint64) error
 }
 
 // OpenRuntime returns the best available Manager for rt.

@@ -38,36 +38,97 @@ func (w *Window) Title() string { return w.handle.title }
 // ID returns the window ID.
 func (w *Window) ID() uint64 { return w.handle.id }
 
-// Activate brings this window to focus.
+// Activate brings this window to focus via its stable ID.
 func (w *Window) Activate(ctx context.Context) error {
 	if w.session == nil || w.session.Windows == nil {
 		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
 	}
-	return w.session.Windows.Activate(ctx, w.handle.title)
+	return w.session.Windows.ActivateByID(ctx, w.handle.id)
 }
 
-// Move positions the window at (x, y).
+// Move positions the window at (x, y) via its stable ID.
 func (w *Window) Move(ctx context.Context, x, y int) error {
 	if w.session == nil || w.session.Windows == nil {
 		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
 	}
-	return w.session.Windows.Move(ctx, w.handle.title, x, y)
+	return w.session.Windows.MoveByID(ctx, w.handle.id, x, y)
 }
 
-// Minimize minimizes the window.
+// Minimize minimizes the window via its stable ID.
 func (w *Window) Minimize(ctx context.Context) error {
 	if w.session == nil || w.session.Windows == nil {
 		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
 	}
-	return w.session.Windows.Minimize(ctx, w.handle.title)
+	return w.session.Windows.MinimizeByID(ctx, w.handle.id)
 }
 
-// Maximize maximizes the window.
+// Maximize maximizes the window via its stable ID.
 func (w *Window) Maximize(ctx context.Context) error {
 	if w.session == nil || w.session.Windows == nil {
 		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
 	}
-	return w.session.Windows.Maximize(ctx, w.handle.title)
+	return w.session.Windows.MaximizeByID(ctx, w.handle.id)
+}
+
+// Resize changes the window dimensions via its stable ID.
+func (w *Window) Resize(ctx context.Context, width, height int) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	return w.session.Windows.ResizeByID(ctx, w.handle.id, width, height)
+}
+
+// CloseWindow requests the window to close via its stable ID.
+func (w *Window) CloseWindow(ctx context.Context) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	return w.session.Windows.CloseWindowByID(ctx, w.handle.id)
+}
+
+// Fullscreen requests fullscreen state via its stable ID.
+func (w *Window) Fullscreen(ctx context.Context) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	return w.session.Windows.FullscreenByID(ctx, w.handle.id)
+}
+
+// Unfullscreen exits fullscreen state via its stable ID.
+func (w *Window) Unfullscreen(ctx context.Context) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	return w.session.Windows.UnfullscreenByID(ctx, w.handle.id)
+}
+
+// Restore restores the window to normal state via its stable ID.
+func (w *Window) Restore(ctx context.Context) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	return w.session.Windows.RestoreByID(ctx, w.handle.id)
+}
+
+// Refresh updates the window info from the backend.
+func (w *Window) Refresh(ctx context.Context) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	info, err := w.session.Windows.InfoByID(ctx, w.handle.id)
+	if err != nil {
+		return err
+	}
+	w.handle.title = info.Title
+	return nil
+}
+
+// WaitClosed blocks until this window disappears.
+func (w *Window) WaitClosed(ctx context.Context) error {
+	if w.session == nil || w.session.Windows == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	return w.session.Windows.WaitClosedByID(ctx, w.handle.id)
 }
 
 // ---------- List / Find ----------

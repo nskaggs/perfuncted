@@ -6,6 +6,7 @@ import (
 	"iter"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -396,4 +397,148 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 		return nil
 	}
 	return m.display.RoundTrip()
+}
+
+// --- Handle-based operations ---
+
+func (m *WaylandWindowManager) lookupByID(id uint64) (uint32, *Info, error) {
+	m.toplevelsMu.Lock()
+	defer m.toplevelsMu.Unlock()
+	hid := uint32(id)
+	info, ok := m.toplevels[hid]
+	if !ok {
+		return 0, nil, ErrWindowNotFound
+	}
+	return hid, info, nil
+}
+
+func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id uint64) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	hid, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	if m.seat == nil {
+		if m.seatID == 0 {
+			return ErrNotSupported
+		}
+		seatProxy := &wl.RawProxy{}
+		m.display.Context().Register(seatProxy)
+		if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+			return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
+		}
+		m.seat = seatProxy
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+	}
+	payload := make([]byte, 4)
+	wl.PutUint32(payload, m.seat.ID())
+	return m.sendHandleRequest(hid, 4, payload)
+}
+
+func (m *WaylandWindowManager) MoveByID(_ context.Context, _ uint64, _, _ int) error {
+	return ErrNotSupported
+}
+
+func (m *WaylandWindowManager) ResizeByID(_ context.Context, _ uint64, _, _ int) error {
+	return ErrNotSupported
+}
+
+func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id uint64) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	hid, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	return m.sendHandleRequest(hid, 5, nil)
+}
+
+func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id uint64) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	hid, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	return m.sendHandleRequest(hid, 2, nil)
+}
+
+func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id uint64) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	hid, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	return m.sendHandleRequest(hid, 0, nil)
+}
+
+func (m *WaylandWindowManager) FullscreenByID(_ context.Context, _ uint64) error {
+	return ErrNotSupported
+}
+
+func (m *WaylandWindowManager) UnfullscreenByID(_ context.Context, _ uint64) error {
+	return ErrNotSupported
+}
+
+func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id uint64) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	hid, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	if err := m.sendHandleRequest(hid, 1, nil); err != nil {
+		return err
+	}
+	return m.sendHandleRequest(hid, 3, nil)
+}
+
+func (m *WaylandWindowManager) InfoByID(ctx context.Context, id uint64) (Info, error) {
+	if err := m.display.RoundTrip(); err != nil {
+		return Info{}, err
+	}
+	_, info, err := m.lookupByID(id)
+	if err != nil {
+		return Info{}, err
+	}
+	return *info, nil
+}
+
+func (m *WaylandWindowManager) WaitClosedByID(ctx context.Context, id uint64) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if _, err := m.InfoByID(ctx, id); err != nil {
+				return nil
+			}
+		}
+	}
 }

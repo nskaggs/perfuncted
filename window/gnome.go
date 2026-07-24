@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
@@ -184,4 +185,79 @@ func (g *GnomeManager) Close() error {
 
 func (g *GnomeManager) Sync(ctx context.Context) error {
 	return nil
+}
+
+// --- Handle-based operations ---
+
+func (g *GnomeManager) findWindowByID(id uint64) string {
+	return fmt.Sprintf(`global.get_window_actors().map(a=>a.get_meta_window()).find(w=>w.get_stable_sequence()===%d)`, id)
+}
+
+func (g *GnomeManager) actOnWindowByID(id uint64, action string) error {
+	js := fmt.Sprintf(`(function(){ let w=%s; if(!w) throw "not found"; %s; return "ok"; })()`, g.findWindowByID(id), action)
+	_, err := g.eval(js)
+	return err
+}
+
+func (g *GnomeManager) ActivateByID(_ context.Context, id uint64) error {
+	return g.actOnWindowByID(id, `w.activate(global.get_current_time())`)
+}
+
+func (g *GnomeManager) MoveByID(_ context.Context, id uint64, x, y int) error {
+	return g.actOnWindowByID(id, fmt.Sprintf(`w.move_frame(true, %d, %d)`, x, y))
+}
+
+func (g *GnomeManager) ResizeByID(_ context.Context, id uint64, w, h int) error {
+	return g.actOnWindowByID(id, fmt.Sprintf(`w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, %d, %d)`, w, h))
+}
+
+func (g *GnomeManager) CloseWindowByID(_ context.Context, id uint64) error {
+	return g.actOnWindowByID(id, `w.delete(global.get_current_time())`)
+}
+
+func (g *GnomeManager) MinimizeByID(_ context.Context, id uint64) error {
+	return g.actOnWindowByID(id, `w.minimize()`)
+}
+
+func (g *GnomeManager) MaximizeByID(_ context.Context, id uint64) error {
+	return g.actOnWindowByID(id, `w.maximize(3)`)
+}
+
+func (g *GnomeManager) FullscreenByID(_ context.Context, _ uint64) error {
+	return ErrNotSupported
+}
+
+func (g *GnomeManager) UnfullscreenByID(_ context.Context, _ uint64) error {
+	return ErrNotSupported
+}
+
+func (g *GnomeManager) RestoreByID(_ context.Context, id uint64) error {
+	return g.actOnWindowByID(id, `w.unminimize(); w.unmaximize(3)`)
+}
+
+func (g *GnomeManager) InfoByID(ctx context.Context, id uint64) (Info, error) {
+	for info, err := range g.IterateWindows(ctx) {
+		if err != nil {
+			return Info{}, err
+		}
+		if info.ID == id {
+			return info, nil
+		}
+	}
+	return Info{}, ErrWindowNotFound
+}
+
+func (g *GnomeManager) WaitClosedByID(ctx context.Context, id uint64) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if _, err := g.InfoByID(ctx, id); err != nil {
+				return nil
+			}
+		}
+	}
 }

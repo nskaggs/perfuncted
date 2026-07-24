@@ -39,6 +39,11 @@ func FindByTitle(ctx context.Context, m Manager, substr string) (Info, error) {
 	return find(ctx, m, CompileMatch(Match{TitleContains: substr}), substr)
 }
 
+// FindByID returns the window with the given stable ID.
+func FindByID(ctx context.Context, m Manager, id uint64) (Info, error) {
+	return find(ctx, m, CompileMatch(Match{ID: &id}), fmt.Sprintf("id=%d", id))
+}
+
 // WaitForClose blocks until no window matches pattern, or ctx expires.
 func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Duration) error {
 	return WaitForMatchClose(ctx, m, Match{TitleContains: pattern}, poll)
