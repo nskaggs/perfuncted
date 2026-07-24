@@ -2,39 +2,28 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"time"
 
 	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/util"
 )
 
-// InputBundle wraps per-compositor input backends.
 type InputBundle struct {
 	input.Inputter
-	tracer *actionTracer
+	bundleBase
 }
 
-// close delegates to the underlying Inputter Close method.
 func (i InputBundle) close() error {
 	if i.Inputter == nil {
 		return nil
 	}
-	i.traceAction("close")
+	i.traceAction("input", "close")
 	return i.Inputter.Close()
 }
 
 func (i InputBundle) checkAvailable() error {
-	return util.CheckAvailable("input", i.Inputter)
-}
-
-func (i InputBundle) traceAction(msg string) {
-	if i.tracer == nil {
-		return
-	}
-	i.tracer.Tracef("input", "%s", msg)
+	return checkAvailable(i.Inputter, "input")
 }
 
 func (i InputBundle) Type(ctx context.Context, text string) error {
@@ -42,7 +31,7 @@ func (i InputBundle) Type(ctx context.Context, text string) error {
 }
 
 func (i InputBundle) typeContext(ctx context.Context, text string) error {
-	i.traceAction(fmt.Sprintf("type text=%q", text))
+	i.traceAction("input", "type text=%q", text)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -54,7 +43,7 @@ func (i InputBundle) KeyDown(ctx context.Context, key string) error {
 }
 
 func (i InputBundle) keyDownContext(ctx context.Context, key string) error {
-	i.traceAction(fmt.Sprintf("key-down key=%q", key))
+	i.traceAction("input", "key-down key=%q", key)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -66,7 +55,7 @@ func (i InputBundle) KeyUp(ctx context.Context, key string) error {
 }
 
 func (i InputBundle) keyUpContext(ctx context.Context, key string) error {
-	i.traceAction(fmt.Sprintf("key-up key=%q", key))
+	i.traceAction("input", "key-up key=%q", key)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -78,7 +67,7 @@ func (i InputBundle) MouseClick(ctx context.Context, x, y, button int) error {
 }
 
 func (i InputBundle) mouseClickContext(ctx context.Context, x, y, button int) error {
-	i.traceAction(fmt.Sprintf("mouse-click x=%d y=%d button=%d", x, y, button))
+	i.traceAction("input", "mouse-click x=%d y=%d button=%d", x, y, button)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -90,7 +79,7 @@ func (i InputBundle) ClickCenter(ctx context.Context, rect image.Rectangle) erro
 }
 
 func (i InputBundle) clickCenterContext(ctx context.Context, rect image.Rectangle) error {
-	i.traceAction(fmt.Sprintf("click-center rect=%s", rect))
+	i.traceAction("input", "click-center rect=%s", rect)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -104,7 +93,7 @@ func (i InputBundle) DoubleClick(ctx context.Context, x, y int) error {
 
 func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
 	ctx = ctxutil.Default(ctx)
-	i.traceAction(fmt.Sprintf("double-click x=%d y=%d", x, y))
+	i.traceAction("input", "double-click x=%d y=%d", x, y)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -117,7 +106,6 @@ func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
 	if err := i.Inputter.MouseUp(ctx, 1); err != nil {
 		return err
 	}
-	// Small pause to emulate human double-click timing.
 	t := time.NewTimer(20 * time.Millisecond)
 	select {
 	case <-t.C:
@@ -136,7 +124,7 @@ func (i InputBundle) MouseMove(ctx context.Context, x, y int) error {
 }
 
 func (i InputBundle) mouseMoveContext(ctx context.Context, x, y int) error {
-	i.traceAction(fmt.Sprintf("mouse-move x=%d y=%d", x, y))
+	i.traceAction("input", "mouse-move x=%d y=%d", x, y)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -148,7 +136,7 @@ func (i InputBundle) MouseDown(ctx context.Context, button int) error {
 }
 
 func (i InputBundle) mouseDownContext(ctx context.Context, button int) error {
-	i.traceAction(fmt.Sprintf("mouse-down button=%d", button))
+	i.traceAction("input", "mouse-down button=%d", button)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -160,7 +148,7 @@ func (i InputBundle) MouseUp(ctx context.Context, button int) error {
 }
 
 func (i InputBundle) mouseUpContext(ctx context.Context, button int) error {
-	i.traceAction(fmt.Sprintf("mouse-up button=%d", button))
+	i.traceAction("input", "mouse-up button=%d", button)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -172,7 +160,7 @@ func (i InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 }
 
 func (i InputBundle) scrollUpContext(ctx context.Context, clicks int) error {
-	i.traceAction(fmt.Sprintf("scroll-up clicks=%d", clicks))
+	i.traceAction("input", "scroll-up clicks=%d", clicks)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -184,7 +172,7 @@ func (i InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 }
 
 func (i InputBundle) scrollDownContext(ctx context.Context, clicks int) error {
-	i.traceAction(fmt.Sprintf("scroll-down clicks=%d", clicks))
+	i.traceAction("input", "scroll-down clicks=%d", clicks)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -196,7 +184,7 @@ func (i InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 }
 
 func (i InputBundle) scrollLeftContext(ctx context.Context, clicks int) error {
-	i.traceAction(fmt.Sprintf("scroll-left clicks=%d", clicks))
+	i.traceAction("input", "scroll-left clicks=%d", clicks)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -208,7 +196,7 @@ func (i InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 func (i InputBundle) scrollRightContext(ctx context.Context, clicks int) error {
-	i.traceAction(fmt.Sprintf("scroll-right clicks=%d", clicks))
+	i.traceAction("input", "scroll-right clicks=%d", clicks)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}
@@ -216,7 +204,7 @@ func (i InputBundle) scrollRightContext(ctx context.Context, clicks int) error {
 }
 
 func (i InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
-	i.traceAction("pointer-location")
+	i.traceAction("input", "pointer-location")
 	if err := i.checkAvailable(); err != nil {
 		return 0, 0, err
 	}
@@ -239,7 +227,7 @@ func (i InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error 
 
 func (i InputBundle) dragAndDropContext(ctx context.Context, x1, y1, x2, y2 int) error {
 	ctx = ctxutil.Default(ctx)
-	i.traceAction(fmt.Sprintf("drag-and-drop x1=%d y1=%d x2=%d y2=%d", x1, y1, x2, y2))
+	i.traceAction("input", "drag-and-drop x1=%d y1=%d x2=%d y2=%d", x1, y1, x2, y2)
 	if err := i.checkAvailable(); err != nil {
 		return err
 	}

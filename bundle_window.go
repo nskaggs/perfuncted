@@ -2,37 +2,26 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
 
-// WindowBundle wraps window management utilities.
 type WindowBundle struct {
 	window.Manager
-	tracer *actionTracer
+	bundleBase
 }
 
-// close delegates to the underlying Manager Close method.
 func (w WindowBundle) close() error {
 	if w.Manager == nil {
 		return nil
 	}
-	w.traceAction("close")
+	w.traceAction("window", "close")
 	return w.Manager.Close()
 }
 
 func (w WindowBundle) checkAvailable() error {
-	return util.CheckAvailable("window", w.Manager)
-}
-
-func (w WindowBundle) traceAction(msg string) {
-	if w.tracer == nil {
-		return
-	}
-	w.tracer.Tracef("window", "%s", msg)
+	return checkAvailable(w.Manager, "window")
 }
 
 func (w WindowBundle) sync(ctx context.Context) error {
@@ -49,119 +38,104 @@ func (w WindowBundle) Sync(ctx context.Context) error {
 	return w.sync(ctx)
 }
 
-// List returns all visible top-level windows.
 func (w WindowBundle) List(ctx context.Context) ([]window.Info, error) {
-	w.traceAction("list")
+	w.traceAction("window", "list")
 	if err := w.checkAvailable(); err != nil {
 		return nil, err
 	}
 	return w.Manager.List(ctx)
 }
 
-// Activate raises and focuses the window matching pattern.
 func (w WindowBundle) Activate(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("activate pattern=%q", pattern))
+	w.traceAction("window", "activate pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Activate(ctx, pattern)
 }
 
-// Move repositions the window matching pattern.
 func (w WindowBundle) Move(ctx context.Context, pattern string, x, y int) error {
-	w.traceAction(fmt.Sprintf("move pattern=%q x=%d y=%d", pattern, x, y))
+	w.traceAction("window", "move pattern=%q x=%d y=%d", pattern, x, y)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Move(ctx, pattern, x, y)
 }
 
-// ActiveTitle returns the title of the currently focused window.
 func (w WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
-	w.traceAction("active-title")
+	w.traceAction("window", "active-title")
 	if err := w.checkAvailable(); err != nil {
 		return "", err
 	}
 	return w.Manager.ActiveTitle(ctx)
 }
 
-// CloseWindow closes the window matching pattern.
 func (w WindowBundle) CloseWindow(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("close-window pattern=%q", pattern))
+	w.traceAction("window", "close-window pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.CloseWindow(ctx, pattern)
 }
 
-// Resize sets the dimensions of the window matching pattern.
 func (w WindowBundle) Resize(ctx context.Context, pattern string, width, height int) error {
-	w.traceAction(fmt.Sprintf("resize pattern=%q width=%d height=%d", pattern, width, height))
+	w.traceAction("window", "resize pattern=%q width=%d height=%d", pattern, width, height)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Resize(ctx, pattern, width, height)
 }
 
-// Minimize minimises the window matching pattern.
 func (w WindowBundle) Minimize(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("minimize pattern=%q", pattern))
+	w.traceAction("window", "minimize pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Minimize(ctx, pattern)
 }
 
-// Maximize maximises the window matching pattern.
 func (w WindowBundle) Maximize(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("maximize pattern=%q", pattern))
+	w.traceAction("window", "maximize pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Maximize(ctx, pattern)
 }
 
-// Fullscreen toggles fullscreen for the matching window.
 func (w WindowBundle) Fullscreen(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("fullscreen pattern=%q", pattern))
+	w.traceAction("window", "fullscreen pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Fullscreen(ctx, pattern)
 }
 
-// Unfullscreen exits fullscreen for the matching window.
 func (w WindowBundle) Unfullscreen(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("unfullscreen pattern=%q", pattern))
+	w.traceAction("window", "unfullscreen pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Unfullscreen(ctx, pattern)
 }
 
-// Restore restores the window matching pattern to its previous size.
 func (w WindowBundle) Restore(ctx context.Context, pattern string) error {
-	w.traceAction(fmt.Sprintf("restore pattern=%q", pattern))
+	w.traceAction("window", "restore pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}
 	return w.Manager.Restore(ctx, pattern)
 }
 
-// FindByTitle returns the first window whose title contains pattern
-// (case-insensitive).
 func (w WindowBundle) FindByTitle(ctx context.Context, pattern string) (window.Info, error) {
-	w.traceAction(fmt.Sprintf("find-by-title pattern=%q", pattern))
+	w.traceAction("window", "find-by-title pattern=%q", pattern)
 	if err := w.checkAvailable(); err != nil {
 		return window.Info{}, err
 	}
 	return window.FindByTitle(ctx, w.Manager, pattern)
 }
 
-// WaitForClose polls until no window matches pattern (window is gone), or ctx
-// is cancelled.
 func (w WindowBundle) WaitForClose(ctx context.Context, pattern string, poll time.Duration) error {
-	w.traceAction(fmt.Sprintf("wait-for-close pattern=%q poll=%s", pattern, poll))
+	w.traceAction("window", "wait-for-close pattern=%q poll=%s", pattern, poll)
 	if err := w.checkAvailable(); err != nil {
 		return err
 	}

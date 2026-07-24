@@ -2,36 +2,25 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/internal/util"
 )
 
-// ClipboardBundle wraps the clipboard interface.
 type ClipboardBundle struct {
 	clipboard.Clipboard
-	tracer *actionTracer
+	bundleBase
 }
 
-// close delegates to the underlying Clipboard Close method.
 func (c ClipboardBundle) close() error {
 	if c.Clipboard == nil {
 		return nil
 	}
-	c.traceAction("close")
+	c.traceAction("clipboard", "close")
 	return c.Clipboard.Close()
 }
 
 func (c ClipboardBundle) checkAvailable() error {
-	return util.CheckAvailable("clipboard", c.Clipboard)
-}
-
-func (c ClipboardBundle) traceAction(msg string) {
-	if c.tracer == nil {
-		return
-	}
-	c.tracer.Tracef("clipboard", "%s", msg)
+	return checkAvailable(c.Clipboard, "clipboard")
 }
 
 func (c ClipboardBundle) Get(ctx context.Context) (string, error) {
@@ -39,7 +28,7 @@ func (c ClipboardBundle) Get(ctx context.Context) (string, error) {
 }
 
 func (c ClipboardBundle) getContext(ctx context.Context) (string, error) {
-	c.traceAction("get")
+	c.traceAction("clipboard", "get")
 	if err := c.checkAvailable(); err != nil {
 		return "", err
 	}
@@ -51,7 +40,7 @@ func (c ClipboardBundle) Set(ctx context.Context, text string) error {
 }
 
 func (c ClipboardBundle) setContext(ctx context.Context, text string) error {
-	c.traceAction(fmt.Sprintf("set text=%q", text))
+	c.traceAction("clipboard", "set text=%q", text)
 	if err := c.checkAvailable(); err != nil {
 		return err
 	}
@@ -59,7 +48,7 @@ func (c ClipboardBundle) setContext(ctx context.Context, text string) error {
 }
 
 func (c ClipboardBundle) pasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
-	c.traceAction(fmt.Sprintf("paste-with-input text=%q", text))
+	c.traceAction("clipboard", "paste-with-input text=%q", text)
 	if err := c.setContext(ctx, text); err != nil {
 		return err
 	}

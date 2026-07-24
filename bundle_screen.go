@@ -2,7 +2,6 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -10,38 +9,28 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/screen"
 )
 
-// ScreenBundle wraps a screen.Screenshotter with additional find utilities.
 type ScreenBundle struct {
 	screen.Screenshotter
-	tracer *actionTracer
+	bundleBase
 }
 
-// close delegates to the underlying Screenshotter Close method.
 func (s ScreenBundle) close() error {
 	if s.Screenshotter == nil {
 		return nil
 	}
-	s.traceAction("close")
+	s.traceAction("screen", "close")
 	return s.Screenshotter.Close()
 }
 
 func (s ScreenBundle) checkAvailable() error {
-	return util.CheckAvailable("screen", s.Screenshotter)
-}
-
-func (s ScreenBundle) traceAction(msg string) {
-	if s.tracer == nil {
-		return
-	}
-	s.tracer.Tracef("screen", "%s", msg)
+	return checkAvailable(s.Screenshotter, "screen")
 }
 
 func (s ScreenBundle) grabHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
-	s.traceAction(fmt.Sprintf("grab-hash rect=%s", rect))
+	s.traceAction("screen", "grab-hash rect=%s", rect)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
@@ -52,7 +41,7 @@ func (s ScreenBundle) grabHash(ctx context.Context, rect image.Rectangle) (uint3
 }
 
 func (s ScreenBundle) grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	s.traceAction(fmt.Sprintf("grab rect=%s", rect))
+	s.traceAction("screen", "grab rect=%s", rect)
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
@@ -62,22 +51,18 @@ func (s ScreenBundle) grab(ctx context.Context, rect image.Rectangle) (image.Ima
 	return s.Screenshotter.Grab(ctx, rect)
 }
 
-// GetAllPixels captures the entire screen and returns it as an image.Image.
 func (s ScreenBundle) GetAllPixels(ctx context.Context) (image.Image, error) {
-	s.traceAction("get-all-pixels")
+	s.traceAction("screen", "get-all-pixels")
 	return s.grab(ctx, image.Rectangle{})
 }
 
-// GrabRegion captures the specified screen region and returns it as an image.Image.
-// If rect is empty, it captures the entire screen.
 func (s ScreenBundle) GrabRegion(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	s.traceAction(fmt.Sprintf("grab-region rect=%s", rect))
+	s.traceAction("screen", "grab-region rect=%s", rect)
 	return s.grab(ctx, rect)
 }
 
-// CaptureRegion captures the given screen region and saves it as a PNG file at path.
 func (s ScreenBundle) CaptureRegion(ctx context.Context, rect image.Rectangle, path string) error {
-	s.traceAction(fmt.Sprintf("capture-region rect=%s path=%q", rect, path))
+	s.traceAction("screen", "capture-region rect=%s path=%q", rect, path)
 	img, err := s.grab(ctx, rect)
 	if err != nil {
 		return err
@@ -90,9 +75,8 @@ func (s ScreenBundle) CaptureRegion(ctx context.Context, rect image.Rectangle, p
 	return png.Encode(f, img)
 }
 
-// GetPixel returns the colour of the pixel at (x, y).
 func (s ScreenBundle) GetPixel(ctx context.Context, x, y int) (color.RGBA, error) {
-	s.traceAction(fmt.Sprintf("get-pixel x=%d y=%d", x, y))
+	s.traceAction("screen", "get-pixel x=%d y=%d", x, y)
 	if err := s.checkAvailable(); err != nil {
 		return color.RGBA{}, err
 	}
@@ -103,9 +87,8 @@ func (s ScreenBundle) GetPixel(ctx context.Context, x, y int) (color.RGBA, error
 	return c, nil
 }
 
-// GetMultiplePixels returns the colours of all given points in a single grab.
 func (s ScreenBundle) GetMultiplePixels(ctx context.Context, points []image.Point) ([]color.RGBA, error) {
-	s.traceAction(fmt.Sprintf("get-multiple-pixels count=%d", len(points)))
+	s.traceAction("screen", "get-multiple-pixels count=%d", len(points))
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
@@ -142,20 +125,16 @@ func (s ScreenBundle) GetMultiplePixels(ctx context.Context, points []image.Poin
 	return out, nil
 }
 
-// WaitForFn polls rect every poll interval until fn returns true, or ctx is cancelled.
 func (s ScreenBundle) WaitForFn(ctx context.Context, rect image.Rectangle, fn func(context.Context, image.Image) bool, poll time.Duration) (image.Image, error) {
-	s.traceAction(fmt.Sprintf("wait-for-fn rect=%s poll=%s", rect, poll))
+	s.traceAction("screen", "wait-for-fn rect=%s poll=%s", rect, poll)
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
 	return find.WaitForFn(ctx, s.Screenshotter, rect, fn, poll)
 }
 
-// WaitForSettle grabs a hash before calling action, waits for the region to
-// change (if action returned nil), then waits for it to stabilise over stable
-// consecutive polls. If action returns an error, it is returned immediately.
 func (s ScreenBundle) WaitForSettle(ctx context.Context, rect image.Rectangle, action func() error, stable int, poll time.Duration) (uint32, error) {
-	s.traceAction(fmt.Sprintf("wait-for-settle rect=%s stable=%d poll=%s", rect, stable, poll))
+	s.traceAction("screen", "wait-for-settle rect=%s stable=%d poll=%s", rect, stable, poll)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
@@ -180,69 +159,56 @@ func translatePointToBounds(p, fromMin, toMin image.Point) image.Point {
 	return p.Add(toMin.Sub(fromMin))
 }
 
-// WaitForNoChange polls rect every poll interval until its pixel hash is unchanged
-// for stable consecutive samples, then returns the stable hash.
 func (s ScreenBundle) WaitForNoChange(ctx context.Context, rect image.Rectangle, stable int, poll time.Duration) (uint32, error) {
-	s.traceAction(fmt.Sprintf("wait-for-no-change rect=%s stable=%d poll=%s", rect, stable, poll))
+	s.traceAction("screen", "wait-for-no-change rect=%s stable=%d poll=%s", rect, stable, poll)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
 	return find.WaitForNoChange(ctx, s.Screenshotter, rect, stable, poll, nil)
 }
 
-// WaitForNoChangeFrom is the same as WaitForNoChange but accepts an initial hash
-// to avoid the first capture if the caller already knows the current state.
 func (s ScreenBundle) WaitForNoChangeFrom(ctx context.Context, rect image.Rectangle, initial uint32, stable int, poll time.Duration) (uint32, error) {
-	s.traceAction(fmt.Sprintf("wait-for-no-change-from rect=%s initial=%08x stable=%d poll=%s", rect, initial, stable, poll))
+	s.traceAction("screen", "wait-for-no-change-from rect=%s initial=%08x stable=%d poll=%s", rect, initial, stable, poll)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
 	return find.WaitForNoChangeFrom(ctx, s.Screenshotter, rect, initial, stable, poll, nil)
 }
 
-// FindColor searches rect for the first pixel matching target within tolerance.
-
 func (s ScreenBundle) FindColor(ctx context.Context, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, error) {
-	s.traceAction(fmt.Sprintf("find-color rect=%s tolerance=%d", rect, tolerance))
+	s.traceAction("screen", "find-color rect=%s tolerance=%d", rect, tolerance)
 	if err := s.checkAvailable(); err != nil {
 		return image.Point{}, err
 	}
 	return find.FindColor(ctx, s.Screenshotter, rect, target, tolerance)
 }
 
-// WaitForChange polls rect every poll interval until its hash differs from
-// initial, or ctx is cancelled.
 func (s ScreenBundle) WaitForChange(ctx context.Context, rect image.Rectangle, initial uint32, poll time.Duration) (uint32, error) {
-	s.traceAction(fmt.Sprintf("wait-for-change rect=%s initial=%08x poll=%s", rect, initial, poll))
+	s.traceAction("screen", "wait-for-change rect=%s initial=%08x poll=%s", rect, initial, poll)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
 	return find.WaitForChange(ctx, s.Screenshotter, rect, initial, poll, nil)
 }
 
-// WaitFor polls rect every poll interval until its hash equals want, or ctx
-// is cancelled.
 func (s ScreenBundle) WaitFor(ctx context.Context, rect image.Rectangle, want uint32, poll time.Duration) (uint32, error) {
-	s.traceAction(fmt.Sprintf("wait-for rect=%s want=%08x poll=%s", rect, want, poll))
+	s.traceAction("screen", "wait-for rect=%s want=%08x poll=%s", rect, want, poll)
 	if err := s.checkAvailable(); err != nil {
 		return 0, err
 	}
 	return find.WaitFor(ctx, s.Screenshotter, rect, want, poll, nil)
 }
 
-// ScanFor polls multiple regions in round-robin until one matches its
-// expected hash, or ctx is cancelled.
 func (s ScreenBundle) ScanFor(ctx context.Context, rects []image.Rectangle, wants []uint32, poll time.Duration) (find.Result, error) {
-	s.traceAction(fmt.Sprintf("scan-for rects=%d wants=%d poll=%s", len(rects), len(wants), poll))
+	s.traceAction("screen", "scan-for rects=%d wants=%d poll=%s", len(rects), len(wants), poll)
 	if err := s.checkAvailable(); err != nil {
 		return find.Result{}, err
 	}
 	return find.ScanFor(ctx, s.Screenshotter, rects, wants, poll, nil)
 }
 
-// Resolution returns the current screen dimensions.
 func (s ScreenBundle) Resolution(ctx context.Context) (int, int, error) {
-	s.traceAction("resolution")
+	s.traceAction("screen", "resolution")
 	if err := s.checkAvailable(); err != nil {
 		return 0, 0, err
 	}

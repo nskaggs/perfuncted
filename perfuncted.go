@@ -203,7 +203,7 @@ func (p *Perfuncted) Paste(ctx context.Context, text string) error {
 		return fmt.Errorf("perfuncted: nil Perfuncted")
 	}
 	ctx = ctxutil.Default(ctx)
-	p.traceAction(fmt.Sprintf("paste text=%q", text))
+	p.traceAction("paste text=%q", text)
 	if p.Clipboard.Clipboard != nil {
 		return p.Clipboard.pasteWithInputContext(ctx, text, p.Input)
 	}
@@ -254,11 +254,11 @@ func New(opts Options) (*Perfuncted, error) {
 	}
 
 	return &Perfuncted{
-		Screen:    ScreenBundle{Screenshotter: scr, tracer: tracer},
-		Input:     InputBundle{Inputter: inp, tracer: tracer},
-		Window:    WindowBundle{Manager: win, tracer: tracer},
-		Output:    OutputBundle{Lister: out, tracer: tracer},
-		Clipboard: ClipboardBundle{Clipboard: cb, tracer: tracer},
+		Screen:    ScreenBundle{Screenshotter: scr, bundleBase: bundleBase{tracer: tracer}},
+		Input:     InputBundle{Inputter: inp, bundleBase: bundleBase{tracer: tracer}},
+		Window:    WindowBundle{Manager: win, bundleBase: bundleBase{tracer: tracer}},
+		Output:    OutputBundle{Lister: out, bundleBase: bundleBase{tracer: tracer}},
+		Clipboard: ClipboardBundle{Clipboard: cb, bundleBase: bundleBase{tracer: tracer}},
 		session:   session,
 		managed:   opts.ManagedSession,
 		trace:     tracer,
@@ -316,9 +316,9 @@ func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
 	}
 }
 
-func (p *Perfuncted) traceAction(msg string) {
+func (p *Perfuncted) traceAction(format string, args ...any) {
 	if p == nil || p.trace == nil {
 		return
 	}
-	p.trace.Tracef("perfuncted", "%s", msg)
+	p.trace.Tracef("perfuncted", format, args...)
 }
