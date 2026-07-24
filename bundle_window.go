@@ -8,23 +8,23 @@ import (
 
 // WindowBundle is the session-bound window discovery and control facade.
 type WindowBundle struct {
-	window.Manager
+	backend window.Manager
 	bundleBase
 	session *Session
 }
 
 func (b *WindowBundle) checkAvailable(operation string) error {
-	if b == nil || b.Manager == nil {
+	if b == nil || b.backend == nil {
 		return b.unavailable(operation)
 	}
 	return nil
 }
 
 func (b *WindowBundle) close() error {
-	if b == nil || b.Manager == nil {
+	if b == nil || b.backend == nil {
 		return nil
 	}
-	return b.Manager.Close()
+	return b.backend.Close()
 }
 
 func (b *WindowBundle) Sync(ctx context.Context) error {
@@ -34,7 +34,7 @@ func (b *WindowBundle) Sync(ctx context.Context) error {
 	type syncer interface {
 		Sync(context.Context) error
 	}
-	if backend, ok := b.Manager.(syncer); ok {
+	if backend, ok := b.backend.(syncer); ok {
 		return backend.Sync(ctx)
 	}
 	return nil
@@ -44,5 +44,5 @@ func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	if err := b.checkAvailable("active-title"); err != nil {
 		return "", err
 	}
-	return b.Manager.ActiveTitle(ctx)
+	return b.backend.ActiveTitle(ctx)
 }

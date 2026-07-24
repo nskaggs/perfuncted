@@ -201,7 +201,7 @@ func WindowClosed(target *Window) Condition {
 					"perfuncted: window belongs to another session",
 				)
 			}
-			backend, ok := session.Windows.Manager.(interface {
+			backend, ok := session.Windows.backend.(interface {
 				InfoByID(context.Context, string) (window.Info, error)
 			})
 			if !ok {
@@ -383,10 +383,10 @@ func (s *Session) waitChanges() <-chan struct{} {
 		s.hubMu.Lock()
 		s.hub = hub
 		s.hubMu.Unlock()
-		if s.Windows == nil || s.Windows.Manager == nil {
+		if s.Windows == nil || s.Windows.backend == nil {
 			return
 		}
-		source, ok := s.Windows.Manager.(windowChangeSource)
+		source, ok := s.Windows.backend.(windowChangeSource)
 		if !ok {
 			return
 		}

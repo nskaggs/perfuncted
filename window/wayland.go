@@ -490,6 +490,7 @@ func (m *WaylandWindowManager) SupportedOperations() []string {
 		"close",
 		"minimize",
 		"maximize",
+		"fullscreen",
 		"restore",
 	}
 }
@@ -587,12 +588,39 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 	return m.sendHandleRequest(hid, 0, nil)
 }
 
-func (m *WaylandWindowManager) FullscreenByID(_ context.Context, _ string) error {
-	return ErrNotSupported
+func (m *WaylandWindowManager) FullscreenByID(
+	ctx context.Context,
+	id string,
+) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	handleID, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	// A null wl_output lets the compositor choose the target output.
+	return m.sendHandleRequest(handleID, 8, make([]byte, 4))
 }
 
-func (m *WaylandWindowManager) UnfullscreenByID(_ context.Context, _ string) error {
-	return ErrNotSupported
+func (m *WaylandWindowManager) UnfullscreenByID(
+	ctx context.Context,
+	id string,
+) error {
+	if err := m.display.RoundTrip(); err != nil {
+		return err
+	}
+	handleID, _, err := m.lookupByID(id)
+	if err != nil {
+		return err
+	}
+	if !m.canControlToplevels() {
+		return ErrNotSupported
+	}
+	return m.sendHandleRequest(handleID, 9, nil)
 }
 
 func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error {

@@ -35,24 +35,24 @@ func NewSessionForTesting(
 	}
 	session.ctx, session.cancel = context.WithCancel(context.Background())
 	session.Screen = &ScreenBundle{
-		Screenshotter: screenshotter,
-		bundleBase:    session.bundleBase(CapabilityScreen),
+		backend:    screenshotter,
+		bundleBase: session.bundleBase(CapabilityScreen),
 	}
 	session.Input = &InputBundle{
-		Inputter:   inputter,
+		backend:    inputter,
 		bundleBase: session.bundleBase(CapabilityInput),
 	}
 	session.Windows = &WindowBundle{
-		Manager:    windowManager,
+		backend:    windowManager,
 		bundleBase: session.bundleBase(CapabilityWindows),
 		session:    session,
 	}
 	session.Outputs = &OutputBundle{
-		Lister:     outputLister,
+		backend:    outputLister,
 		bundleBase: session.bundleBase(CapabilityOutputs),
 	}
 	session.Clipboard = &ClipboardBundle{
-		Clipboard: clipboardBackend,
+		backend: clipboardBackend,
 		bundleBase: session.bundleBase(
 			CapabilityClipboard,
 		),

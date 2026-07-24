@@ -249,35 +249,35 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 	case CapabilityScreen:
 		backend, err := openScreen(s.env)
 		if err == nil {
-			s.Screen.Screenshotter = backend
+			s.Screen.backend = backend
 		}
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityInput:
 		backend, err := openInput(s.env, 0, 0)
 		if err == nil {
-			s.Input.Inputter = backend
+			s.Input.backend = backend
 		}
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityWindows:
 		backend, err := openWindow(s.env)
 		if err == nil {
-			s.Windows.Manager = backend
+			s.Windows.backend = backend
 		}
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityOutputs:
 		backend, err := openOutput(s.env)
 		if err == nil {
-			s.Outputs.Lister = backend
+			s.Outputs.backend = backend
 		}
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityClipboard:
 		backend, err := openClipboard(s.env)
 		if err == nil {
-			s.Clipboard.Clipboard = backend
+			s.Clipboard.backend = backend
 		}
 		closeFailedBackend(backend, err)
 		return backend, err
@@ -343,11 +343,11 @@ func (s *Session) close() error {
 			errs = append(errs, err)
 		}
 	}
-	if s.Screen != nil && s.Screen.Screenshotter != nil {
-		errs = append(errs, s.Screen.Screenshotter.Close())
+	if s.Screen != nil && s.Screen.backend != nil {
+		errs = append(errs, s.Screen.backend.Close())
 	}
-	if s.Input != nil && s.Input.Inputter != nil {
-		errs = append(errs, s.Input.Inputter.Close())
+	if s.Input != nil && s.Input.backend != nil {
+		errs = append(errs, s.Input.backend.Close())
 	}
 	if s.Windows != nil {
 		errs = append(errs, s.Windows.close())

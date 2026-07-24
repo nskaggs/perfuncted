@@ -7,31 +7,31 @@ import (
 )
 
 type ClipboardBundle struct {
-	clipboard.Clipboard
+	backend clipboard.Clipboard
 	bundleBase
 }
 
 func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
-	if b == nil || b.Clipboard == nil {
+	if b == nil || b.backend == nil {
 		return "", b.unavailable("get")
 	}
 	b.traceAction("clipboard", "get")
-	return b.Clipboard.Get(ctx)
+	return b.backend.Get(ctx)
 }
 
 func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
-	if b == nil || b.Clipboard == nil {
+	if b == nil || b.backend == nil {
 		return b.unavailable("set")
 	}
 	b.traceAction("clipboard", "set")
-	return b.Clipboard.Set(ctx, text)
+	return b.backend.Set(ctx, text)
 }
 
 func (b *ClipboardBundle) close() error {
-	if b == nil || b.Clipboard == nil {
+	if b == nil || b.backend == nil {
 		return nil
 	}
-	return b.Clipboard.Close()
+	return b.backend.Close()
 }
 
 func (b *ClipboardBundle) pasteWithInputContext(

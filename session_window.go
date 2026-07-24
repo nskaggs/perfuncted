@@ -86,7 +86,7 @@ func (w *Window) backend(operation string) (window.IDManager, error) {
 	if err := w.session.Windows.checkAvailable(operation); err != nil {
 		return nil, err
 	}
-	backend, ok := w.session.Windows.Manager.(window.IDManager)
+	backend, ok := w.session.Windows.backend.(window.IDManager)
 	if !ok {
 		return nil, fmt.Errorf(
 			"perfuncted: window backend does not support stable handles: %w",
@@ -197,7 +197,7 @@ func (b *WindowBundle) List(
 	if err := b.checkAvailable("discover"); err != nil {
 		return nil, err
 	}
-	infos, err := b.Manager.List(ctx)
+	infos, err := b.backend.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -253,6 +253,7 @@ func (b *WindowBundle) Find(
 func (b *WindowBundle) Wait(
 	ctx context.Context,
 	match WindowMatch,
+	options ...WaitOption,
 ) (*Window, error) {
 	if b == nil || b.session == nil {
 		return nil, ErrNilSession
@@ -273,7 +274,7 @@ func (b *WindowBundle) Wait(
 			}
 		},
 	)
-	if err := b.session.Wait(ctx, condition); err != nil {
+	if err := b.session.Wait(ctx, condition, options...); err != nil {
 		return nil, err
 	}
 	return matched, nil

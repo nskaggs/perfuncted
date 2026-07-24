@@ -25,8 +25,11 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	pf := pftest.New(sc, inp, mgr, cb)
 	defer pf.Close()
 
-	if pf.Screen.Screenshotter != sc {
-		t.Error("pf.Screen.Screenshotter not correctly assigned")
+	if _, err := pf.Screen.Grab(
+		ctx,
+		image.Rect(0, 0, 1, 1),
+	); err != nil {
+		t.Errorf("Screen.Grab: %v", err)
 	}
 	// pf.Input uses InputBundle which wraps inp.
 	if err := pf.Input.Type(ctx, "a"); err != nil {
@@ -35,11 +38,14 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	if err := pf.Input.Type(ctx, "^c"); err != nil {
 		t.Errorf("Type ctrl+c: %v", err)
 	}
-	if pf.Windows.Manager != mgr {
-		t.Error("pf.Windows.Manager not correctly assigned")
+	if _, err := pf.Windows.List(ctx, perfuncted.WindowMatch{}); err != nil {
+		t.Errorf("Windows.List: %v", err)
 	}
-	if pf.Clipboard.Clipboard != cb {
-		t.Error("pf.Clipboard.Clipboard not correctly assigned")
+	if err := pf.Clipboard.Set(ctx, "assembled"); err != nil {
+		t.Errorf("Clipboard.Set: %v", err)
+	}
+	if got, err := pf.Clipboard.Get(ctx); err != nil || got != "assembled" {
+		t.Errorf("Clipboard.Get = %q, %v", got, err)
 	}
 }
 

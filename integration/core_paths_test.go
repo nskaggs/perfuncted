@@ -113,9 +113,9 @@ func (v *chk) ImageNotLocated(ctx context.Context, searchArea image.Rectangle, r
 
 // WindowExists asserts a window matching pattern is currently visible and
 // returns its Info.
-func (v *chk) WindowExists(ctx context.Context, pf *perfuncted.Perfuncted, pattern string) window.Info {
+func (v *chk) WindowExists(ctx context.Context, pf *perfuncted.Session, pattern string) window.Info {
 	v.t.Helper()
-	info, err := pf.Window.FindByTitle(ctx, pattern)
+	info, err := findWindowInfo(pf, ctx, pattern)
 	if err != nil {
 		v.t.Fatalf("WindowExists %q: %v", pattern, err)
 	}
@@ -123,9 +123,9 @@ func (v *chk) WindowExists(ctx context.Context, pf *perfuncted.Perfuncted, patte
 }
 
 // WindowAbsent asserts no window matching pattern is currently visible.
-func (v *chk) WindowAbsent(ctx context.Context, pf *perfuncted.Perfuncted, pattern string) {
+func (v *chk) WindowAbsent(ctx context.Context, pf *perfuncted.Session, pattern string) {
 	v.t.Helper()
-	_, err := pf.Window.FindByTitle(ctx, pattern)
+	_, err := findWindowInfo(pf, ctx, pattern)
 	if err == nil {
 		v.t.Errorf("WindowAbsent: window %q still visible", pattern)
 	}
@@ -162,15 +162,15 @@ func solidColorImage(w, h int, c color.RGBA) *image.RGBA {
 	return img
 }
 
-// pollActiveTitle polls pf.Window.ActiveTitle until it contains substr
+// pollActiveTitle polls pf.Windows.ActiveTitle until it contains substr
 // (case-insensitive) or ctx expires. Returns the last observed title and
 // whether the match succeeded.
-func pollActiveTitle(ctx context.Context, pf *perfuncted.Perfuncted, substr string) (string, bool) {
+func pollActiveTitle(ctx context.Context, pf *perfuncted.Session, substr string) (string, bool) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	var last string
 	for {
-		title, err := pf.Window.ActiveTitle(ctx)
+		title, err := pf.Windows.ActiveTitle(ctx)
 		if err == nil {
 			last = title
 			if strings.Contains(strings.ToLower(title), strings.ToLower(substr)) {
@@ -210,7 +210,7 @@ func TestClipboardRoundTrip_Unicode(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	const text = "Hello 世界 🌍 Ñoño αβγδ ∑∫∂"
 	v.NoError(s.pf.Clipboard.Set(ctx, text), "clipboard set unicode")
@@ -231,7 +231,7 @@ func TestClipboardRoundTrip_Whitespace(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	const text = "  leading  \t\ttabs\t  nested   trailing  "
 	v.NoError(s.pf.Clipboard.Set(ctx, text), "clipboard set whitespace")
@@ -252,7 +252,7 @@ func TestClipboardRoundTrip_Newlines(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	const text = "line one\nline two\nline three\nfinal"
 	v.NoError(s.pf.Clipboard.Set(ctx, text), "clipboard set newlines")
@@ -305,7 +305,7 @@ func TestClipboard_NoContamination(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	const first = "first-clipboard-value-abc"
 	const second = "second-clipboard-value-xyz"
@@ -338,7 +338,7 @@ func TestTypeFast_SetsClipboard(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	// Establish a known initial clipboard state.
 	const sentinel = "SENTINEL_BEFORE_PASTE"
@@ -375,7 +375,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	const typeText = "TypeFastMatchesType"
 
@@ -396,7 +396,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 
 	kbCtx, kbCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer kbCancel()
-	v.NoError(s.pf.Window.Activate(kbCtx, kbDocName), "activate keyboard editor")
+	v.NoError(activateWindow(s.pf, kbCtx, kbDocName), "activate keyboard editor")
 	time.Sleep(500 * time.Millisecond)
 	v.NoError(s.pf.Input.Type(kbCtx, typeText), "type via keyboard")
 	time.Sleep(300 * time.Millisecond)
@@ -404,7 +404,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 
 	kbContent, err := waitForFileContains(kbCtx, kbFile, typeText, 10*time.Second)
 	v.NoError(err, "wait for keyboard file content")
-	v.NoError(s.pf.Window.CloseWindow(kbCtx, kbDocName), "close keyboard editor")
+	v.NoError(closeWindow(s.pf, kbCtx, kbDocName), "close keyboard editor")
 	time.Sleep(500 * time.Millisecond)
 
 	// ── clipboard-paste path ──────────────────────────────────────────────────
@@ -424,7 +424,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 
 	cbCtx, cbCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cbCancel()
-	v.NoError(s.pf.Window.Activate(cbCtx, cbDocName), "activate clipboard editor")
+	v.NoError(activateWindow(s.pf, cbCtx, cbDocName), "activate clipboard editor")
 	time.Sleep(500 * time.Millisecond)
 	v.NoError(s.pf.Paste(cbCtx, typeText), "paste via clipboard")
 	time.Sleep(300 * time.Millisecond)
@@ -432,7 +432,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 
 	cbContent, err := waitForFileContains(cbCtx, cbFile, typeText, 10*time.Second)
 	v.NoError(err, "wait for clipboard file content")
-	v.NoError(s.pf.Window.CloseWindow(cbCtx, cbDocName), "close clipboard editor")
+	v.NoError(closeWindow(s.pf, cbCtx, cbDocName), "close clipboard editor")
 
 	// Both methods must produce files that contain the same typed text.
 	kbTrimmed := strings.TrimSpace(kbContent)
@@ -455,7 +455,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 
 // TestWindowFocus_SwitchBetweenWindows opens two editor instances and verifies
 // that Activate transfers keyboard focus between them, as reported by
-// pf.Window.ActiveTitle.
+// pf.Windows.ActiveTitle.
 func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	app, ok := firstAvailableApp(t)
 	if !ok {
@@ -464,7 +464,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	// ── open window A ─────────────────────────────────────────────────────────
 	fileA := filepath.Join(t.TempDir(), "focusA.txt")
@@ -497,7 +497,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	v.NoError(err, "wait for window B")
 
 	// ── activate A; confirm title reflects it ─────────────────────────────────
-	v.NoError(s.pf.Window.Activate(ctx, docA), "activate window A")
+	v.NoError(activateWindow(s.pf, ctx, docA), "activate window A")
 	focusCtxA, cancelFocusA := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFocusA()
 	titleA, gotA := pollActiveTitle(focusCtxA, s.pf, docA)
@@ -506,7 +506,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	}
 
 	// ── activate B; confirm title changed ─────────────────────────────────────
-	v.NoError(s.pf.Window.Activate(ctx, docB), "activate window B")
+	v.NoError(activateWindow(s.pf, ctx, docB), "activate window B")
 	focusCtxB, cancelFocusB := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFocusB()
 	titleB, gotB := pollActiveTitle(focusCtxB, s.pf, docB)
@@ -520,7 +520,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 }
 
 // TestWindowClose_VerifiedGoneFromList opens a text editor, closes it via
-// pf.Window.CloseWindow, waits for it to disappear, and verifies it is absent
+// pf.Windows.CloseWindow, waits for it to disappear, and verifies it is absent
 // from the live window list.
 func TestWindowClose_VerifiedGoneFromList(t *testing.T) {
 	app, ok := firstAvailableApp(t)
@@ -530,7 +530,7 @@ func TestWindowClose_VerifiedGoneFromList(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	closeFile := filepath.Join(t.TempDir(), "closetest.txt")
 	if err := os.WriteFile(closeFile, nil, 0o644); err != nil {
@@ -550,14 +550,15 @@ func TestWindowClose_VerifiedGoneFromList(t *testing.T) {
 	v.WindowExists(ctx, s.pf, docName)
 
 	// Close the unmodified window — no save dialog is expected.
-	v.NoError(s.pf.Window.Activate(ctx, docName), "activate before close")
+	v.NoError(activateWindow(s.pf, ctx, docName), "activate before close")
 	time.Sleep(300 * time.Millisecond)
-	v.NoError(s.pf.Window.CloseWindow(ctx, docName), "close window")
+	v.NoError(closeWindow(s.pf, ctx, docName), "close window")
 
 	// Wait until the window manager reports the window is gone.
-	closeCtx, cancelClose := context.WithTimeout(ctx, 15*time.Second)
-	defer cancelClose()
-	v.NoError(s.pf.Window.WaitForClose(closeCtx, docName, 200*time.Millisecond), "wait for window close")
+	v.NoError(
+		waitForWindowClose(s.pf, docName, 15*time.Second),
+		"wait for window close",
+	)
 
 	// Final confirmation: FindByTitle must now return an error.
 	v.WindowAbsent(ctx, s.pf, docName)
@@ -574,7 +575,7 @@ func TestScreenCapture_SelfLocate(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	screenW, screenH, err := s.pf.Screen.Resolution(ctx)
 	v.NoError(err, "screen resolution")
@@ -642,7 +643,7 @@ func TestScreenCapture_PixelPresent(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
 	screenW, screenH, err := s.pf.Screen.Resolution(ctx)
 	v.NoError(err, "live screen resolution")
@@ -720,7 +721,7 @@ func TestFind_LocateAll_KnownPosition(t *testing.T) {
 // return a meaningful error rather than panicking.
 func TestErrorPath_NilClipboard(t *testing.T) {
 	ctx := context.Background()
-	pf := &perfuncted.Perfuncted{}
+	pf := &perfuncted.Session{}
 
 	err := pf.Clipboard.Set(ctx, "test")
 	if err == nil {
@@ -737,7 +738,7 @@ func TestErrorPath_NilClipboard(t *testing.T) {
 // returns an error rather than panicking.
 func TestErrorPath_NilInput(t *testing.T) {
 	ctx := context.Background()
-	pf := &perfuncted.Perfuncted{}
+	pf := &perfuncted.Session{}
 
 	err := pf.Input.Type(ctx, "hello")
 	if err == nil {
@@ -751,9 +752,9 @@ func TestErrorPath_WindowNotFound(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen.Screenshotter)
+	v := newChk(t, s.pf.Screen)
 
-	_, err := s.pf.Window.FindByTitle(ctx, "xyzzy-nonexistent-window-pfinttest-8675309")
+	_, err := findWindowInfo(s.pf, ctx, "xyzzy-nonexistent-window-pfinttest-8675309")
 	if err == nil {
 		t.Fatal("FindByTitle for nonexistent window should return an error")
 	}
@@ -846,7 +847,7 @@ func TestWindowList_Lifecycle(t *testing.T) {
 	// Verify the window appears in Window.List.
 	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer listCancel()
-	wins, err := s.pf.Window.List(listCtx)
+	wins, err := listWindowInfos(s.pf, listCtx)
 	if err != nil {
 		t.Fatalf("Window.List: %v", err)
 	}
@@ -864,7 +865,7 @@ func TestWindowList_Lifecycle(t *testing.T) {
 	// Activate the window and verify ActiveTitle reflects the focus change.
 	activateCtx, activateCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer activateCancel()
-	if err := s.pf.Window.Activate(activateCtx, docName); err != nil {
+	if err := activateWindow(s.pf, activateCtx, docName); err != nil {
 		t.Fatalf("activate window: %v", err)
 	}
 	activeTitle, titleOk := pollActiveTitle(activateCtx, s.pf, app.winMatch)
@@ -875,7 +876,7 @@ func TestWindowList_Lifecycle(t *testing.T) {
 	// Close the window and verify it disappears from Window.List.
 	closeCtx, closeCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer closeCancel()
-	if err := s.pf.Window.CloseWindow(closeCtx, docName); err != nil {
+	if err := closeWindow(s.pf, closeCtx, docName); err != nil {
 		t.Fatalf("close window: %v", err)
 	}
 	if err := waitForWindowClose(s.pf, docName, 15*time.Second); err != nil {
@@ -884,7 +885,7 @@ func TestWindowList_Lifecycle(t *testing.T) {
 
 	absentCtx, absentCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer absentCancel()
-	wins2, err := s.pf.Window.List(absentCtx)
+	wins2, err := listWindowInfos(s.pf, absentCtx)
 	if err != nil {
 		t.Fatalf("Window.List after close: %v", err)
 	}
@@ -903,7 +904,7 @@ func TestOutputList_ReportsGeometry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	outs, err := s.pf.Output.List(ctx)
+	outs, err := s.pf.Outputs.List(ctx)
 	if err != nil {
 		t.Fatalf("Output.List: %v", err)
 	}
@@ -1004,5 +1005,5 @@ func TestFind_WaitForChangeDetectsChange(t *testing.T) {
 	}
 
 	// Leave the desktop clean.
-	_ = s.pf.Window.CloseWindow(ctx, filepath.Base(saveFile))
+	_ = closeWindow(s.pf, ctx, filepath.Base(saveFile))
 }

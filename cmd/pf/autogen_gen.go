@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
+func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
 	// grab: wrapper for perfuncted.Grab
@@ -206,7 +206,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cob
 	cmds = append(cmds, cmd_screen_wait_for_no_change_from)
 	return cmds
 }
-func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
+func autogenInputCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
 	// location: wrapper for perfuncted.PointerLocation
@@ -232,86 +232,11 @@ func autogenInputCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobr
 	cmds = append(cmds, cmd_input_location)
 	return cmds
 }
-func autogenWindowCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
+func autogenWindowCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
-
-	// fullscreen: wrapper for perfuncted.Fullscreen
-	var cmd_window_fullscreen_pattern string
-	cmd_window_fullscreen := &cobra.Command{
-		Use:   "fullscreen",
-		Short: "Put a window into fullscreen mode",
-		Long:  "Finds the first window whose title contains --pattern and puts it into\nfullscreen mode. The match is case-insensitive.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_window_fullscreen_pattern (string)
-			if err := pf.Window.Fullscreen(cmd.Context(), cmd_window_fullscreen_pattern); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_window_fullscreen.Flags().StringVar(&cmd_window_fullscreen_pattern, "pattern", "", "substring to match against window titles (case-insensitive)")
-
-	cmds = append(cmds, cmd_window_fullscreen)
-
-	// unfullscreen: wrapper for perfuncted.Unfullscreen
-	var cmd_window_unfullscreen_pattern string
-	cmd_window_unfullscreen := &cobra.Command{
-		Use:   "unfullscreen",
-		Short: "Exit fullscreen mode for a window",
-		Long:  "Finds the first window whose title contains --pattern and takes it out of\nfullscreen mode. The match is case-insensitive.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_window_unfullscreen_pattern (string)
-			if err := pf.Window.Unfullscreen(cmd.Context(), cmd_window_unfullscreen_pattern); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_window_unfullscreen.Flags().StringVar(&cmd_window_unfullscreen_pattern, "pattern", "", "substring to match against window titles (case-insensitive)")
-
-	cmds = append(cmds, cmd_window_unfullscreen)
-
-	// wait-for-close: wrapper for perfuncted.WaitForClose
-	var cmd_window_wait_for_close_pattern string
-	var cmd_window_wait_for_close_poll string
-	cmd_window_wait_for_close := &cobra.Command{
-		Use:   "wait-for-close",
-		Short: "Block until a window matching the title pattern closes",
-		Long:  "Polls window titles at the given interval until no window whose title contains\n--pattern is found. Exits cleanly when the window is gone, or returns an error\nif the context deadline is exceeded.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			// flag cmd_window_wait_for_close_pattern (string)
-			cmd_window_wait_for_close_poll_dur, err := parseDuration(cmd_window_wait_for_close_poll, 0)
-			if err != nil {
-				return err
-			}
-			if err := pf.Window.WaitForClose(cmd.Context(), cmd_window_wait_for_close_pattern, cmd_window_wait_for_close_poll_dur); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_window_wait_for_close.Flags().StringVar(&cmd_window_wait_for_close_pattern, "pattern", "", "substring to match against window titles (case-insensitive)")
-	cmd_window_wait_for_close.Flags().StringVar(&cmd_window_wait_for_close_poll, "poll", "", "polling interval (e.g. 200ms); leave empty to use the default")
-
-	cmds = append(cmds, cmd_window_wait_for_close)
 	return cmds
 }
-func autogenClipboardCommands(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {
+func autogenClipboardCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
 	// get: wrapper for perfuncted.Get

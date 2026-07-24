@@ -15,20 +15,20 @@ import (
 // ScreenBundle exposes screen operations without exposing an absent backend to
 // callers. A Session always initializes this facade.
 type ScreenBundle struct {
-	screen.Screenshotter
+	backend screen.Screenshotter
 	bundleBase
 }
 
 func (s *ScreenBundle) close() error {
-	if s == nil || s.Screenshotter == nil {
+	if s == nil || s.backend == nil {
 		return nil
 	}
 	s.traceAction("screen", "close")
-	return s.Screenshotter.Close()
+	return s.backend.Close()
 }
 
 func (s *ScreenBundle) checkAvailable(operation string) error {
-	if s == nil || s.Screenshotter == nil {
+	if s == nil || s.backend == nil {
 		return s.unavailable(operation)
 	}
 	return nil
@@ -43,9 +43,9 @@ func (s *ScreenBundle) grabHash(
 		return 0, err
 	}
 	if rect.Empty() {
-		return s.Screenshotter.GrabFullHash(ctx)
+		return s.backend.GrabFullHash(ctx)
 	}
-	return find.GrabHash(ctx, s.Screenshotter, rect, nil)
+	return find.GrabHash(ctx, s.backend, rect, nil)
 }
 
 func (s *ScreenBundle) grab(
@@ -56,7 +56,7 @@ func (s *ScreenBundle) grab(
 	if err := s.checkAvailable("capture"); err != nil {
 		return nil, err
 	}
-	return s.Screenshotter.Grab(ctx, rect)
+	return s.backend.Grab(ctx, rect)
 }
 
 func (s *ScreenBundle) Grab(
@@ -119,7 +119,7 @@ func (s *ScreenBundle) GetPixel(
 	}
 	pixel, err := find.FirstPixel(
 		ctx,
-		s.Screenshotter,
+		s.backend,
 		image.Rect(x, y, x+1, y+1),
 	)
 	if err != nil {
@@ -185,7 +185,7 @@ func (s *ScreenBundle) WaitForFn(
 	if err := s.checkAvailable("wait"); err != nil {
 		return nil, err
 	}
-	return find.WaitForFn(ctx, s.Screenshotter, rect, fn, poll)
+	return find.WaitForFn(ctx, s.backend, rect, fn, poll)
 }
 
 func (s *ScreenBundle) WaitForSettle(
@@ -216,7 +216,7 @@ func (s *ScreenBundle) WaitForSettle(
 	}
 	changed, err := find.WaitForChange(
 		ctx,
-		s.Screenshotter,
+		s.backend,
 		rect,
 		before,
 		poll,
@@ -227,7 +227,7 @@ func (s *ScreenBundle) WaitForSettle(
 	}
 	return find.WaitForNoChangeFrom(
 		ctx,
-		s.Screenshotter,
+		s.backend,
 		rect,
 		changed,
 		stable,
@@ -255,7 +255,7 @@ func (s *ScreenBundle) WaitForNoChange(
 	}
 	return find.WaitForNoChange(
 		ctx,
-		s.Screenshotter,
+		s.backend,
 		rect,
 		stable,
 		poll,
@@ -275,7 +275,7 @@ func (s *ScreenBundle) WaitForNoChangeFrom(
 	}
 	return find.WaitForNoChangeFrom(
 		ctx,
-		s.Screenshotter,
+		s.backend,
 		rect,
 		initial,
 		stable,
@@ -293,7 +293,7 @@ func (s *ScreenBundle) FindColor(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return image.Point{}, err
 	}
-	return find.FindColor(ctx, s.Screenshotter, rect, target, tolerance)
+	return find.FindColor(ctx, s.backend, rect, target, tolerance)
 }
 
 func (s *ScreenBundle) WaitForChange(
@@ -307,7 +307,7 @@ func (s *ScreenBundle) WaitForChange(
 	}
 	return find.WaitForChange(
 		ctx,
-		s.Screenshotter,
+		s.backend,
 		rect,
 		initial,
 		poll,
@@ -324,7 +324,7 @@ func (s *ScreenBundle) WaitFor(
 	if err := s.checkAvailable("wait"); err != nil {
 		return 0, err
 	}
-	return find.WaitFor(ctx, s.Screenshotter, rect, want, poll, nil)
+	return find.WaitFor(ctx, s.backend, rect, want, poll, nil)
 }
 
 func (s *ScreenBundle) ScanFor(
@@ -336,12 +336,12 @@ func (s *ScreenBundle) ScanFor(
 	if err := s.checkAvailable("wait"); err != nil {
 		return find.Result{}, err
 	}
-	return find.ScanFor(ctx, s.Screenshotter, rects, wants, poll, nil)
+	return find.ScanFor(ctx, s.backend, rects, wants, poll, nil)
 }
 
 func (s *ScreenBundle) Resolution(ctx context.Context) (int, int, error) {
 	if err := s.checkAvailable("resolution"); err != nil {
 		return 0, 0, err
 	}
-	return screen.ResolutionWithContext(ctx, s.Screenshotter)
+	return screen.ResolutionWithContext(ctx, s.backend)
 }

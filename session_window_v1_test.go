@@ -332,8 +332,10 @@ func TestWindowFindRejectsAmbiguousAndForeignHandles(t *testing.T) {
 	t.Cleanup(func() {
 		_ = other.Close()
 	})
-	foreign := *target
-	foreign.session = other
+	foreign := &Window{
+		session: other,
+		id:      target.id,
+	}
 	if err := foreign.Activate(context.Background()); err == nil {
 		t.Fatal("foreign-session handle activated")
 	}

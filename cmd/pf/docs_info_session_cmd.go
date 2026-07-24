@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 
 	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/wl"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -53,80 +50,64 @@ func versionCmd() *cobra.Command {
 
 // ── info ────────────────────────────────────────────────────────────────────────────
 
-func infoCmd() *cobra.Command {
+func infoCmd(
+	openPF func() (*perfuncted.Session, error),
+) *cobra.Command {
 	var outputFlag string
 	cmd := &cobra.Command{
 		Use:   "info",
-		Short: "Probe and display supported backends for this environment",
+		Short: "Display resolved capabilities for this environment",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mode, err := parseOutputMode(outputFlag)
 			if err != nil {
 				return err
 			}
+			session, err := openPF()
+			if err != nil {
+				return err
+			}
+			defer session.Close()
+			report := buildInfoReport(session)
 			if mode == outputModeJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(buildInfoReport())
+				return enc.Encode(report)
 			}
 			out := cmd.OutOrStdout()
-			kind := compositor.Detect()
 
 			fmt.Fprintln(out, "── Environment ────────────────────────────────────")
-			fmt.Fprintf(out, "  Compositor:       %s\n", kind)
-			if d := os.Getenv("WAYLAND_DISPLAY"); d != "" {
-				fmt.Fprintf(out, "  WAYLAND_DISPLAY:  %s\n", d)
-			}
-			if d := os.Getenv("DISPLAY"); d != "" {
-				fmt.Fprintf(out, "  DISPLAY:          %s\n", d)
-			}
-			if d := os.Getenv("XDG_CURRENT_DESKTOP"); d != "" {
-				fmt.Fprintf(out, "  XDG_CURRENT_DESKTOP: %s\n", d)
-			}
-
-			fmt.Fprintln(out, "\n── Screen ──────────────────────────────────────────")
-			for _, r := range screen.Probe() {
-				fmt.Fprintf(out, "%s %-26s %s\n", probeMarker(r.Selected, r.Available), r.Name, r.Reason)
+			fmt.Fprintf(out, "  Target:           %s\n", report.Target)
+			fmt.Fprintf(out, "  Compositor:       %s\n", report.Compositor)
+			for _, key := range []string{
+				"WAYLAND_DISPLAY",
+				"DISPLAY",
+				"XDG_CURRENT_DESKTOP",
+				"XDG_RUNTIME_DIR",
+			} {
+				if value := report.Environment[key]; value != "" {
+					fmt.Fprintf(out, "  %-18s %s\n", key+":", value)
+				}
 			}
 
-			fmt.Fprintln(out, "\n── Window ──────────────────────────────────────────")
-			for _, r := range window.Probe() {
-				fmt.Fprintf(out, "%s %-26s %s\n", probeMarker(r.Selected, r.Available), r.Name, r.Reason)
-			}
-
-			fmt.Fprintln(out, "\n── Input ───────────────────────────────────────────")
-			for _, r := range input.Probe() {
-				fmt.Fprintf(out, "%s %-26s %s\n", probeMarker(r.Selected, r.Available), r.Name, r.Reason)
-			}
-
-			fmt.Fprintln(out, "\n── Capability matrix ───────────────────────────────")
-			switch kind {
-			case compositor.KDE:
-				fmt.Fprintln(out, "  screen capture   ✓  KWin.ScreenShot2, ext capture when advertised, portal fallback")
-				fmt.Fprintln(out, "  window list      ✓  KWin scripting")
-				fmt.Fprintln(out, "  window control   ✓  KWin scripting")
-				fmt.Fprintln(out, "  input injection  ✓  /dev/uinput")
-				fmt.Fprintln(out, "  pixel scanning   ✓")
-			case compositor.Wlroots:
-				fmt.Fprintln(out, "  screen capture   ✓  wlr-screencopy / ext-image-copy-capture")
-				fmt.Fprintln(out, "  window list      ✓  wlr-foreign-toplevel")
-				fmt.Fprintln(out, "  window control   ✓  wlr-foreign-toplevel")
-				fmt.Fprintln(out, "  input injection  ✓  wl-virtual")
-				fmt.Fprintln(out, "  pixel scanning   ✓")
-			case compositor.GNOME:
-				fmt.Fprintln(out, "  screen capture   ✓  gnome-shell screenshot (unsafe mode), portal fallback")
-				fmt.Fprintln(out, "  window list      ✓  gnome-shell Eval (unsafe mode)")
-				fmt.Fprintln(out, "  window control   ✓  gnome-shell Eval (unsafe mode)")
-				fmt.Fprintln(out, "  input injection  ✓  /dev/uinput")
-				fmt.Fprintln(out, "  clipboard        ✓  wl-copy/wl-paste")
-				fmt.Fprintln(out, "  pixel scanning   ✓")
-			case compositor.X11:
-				fmt.Fprintln(out, "  screen capture   ✓  XGetImage")
-				fmt.Fprintln(out, "  window list      ✓  EWMH")
-				fmt.Fprintln(out, "  window control   ✓  EWMH")
-				fmt.Fprintln(out, "  input injection  ✓  XTEST")
-				fmt.Fprintln(out, "  pixel scanning   ✓")
-			default:
-				fmt.Fprintln(out, "  Unknown compositor — run inside a nested sway session.")
+			fmt.Fprintln(out, "\n── Capabilities ────────────────────────────────────")
+			for _, status := range session.Capabilities() {
+				entry := report.Capabilities[string(status.Capability)]
+				marker := "[ ]"
+				if entry.Supported {
+					marker = "[✓]"
+				}
+				fmt.Fprintf(
+					out,
+					"  %s %-10s backend=%s operations=%s",
+					marker,
+					status.Capability,
+					entry.Backend,
+					strings.Join(entry.Operations, ","),
+				)
+				if entry.Reason != "" {
+					fmt.Fprintf(out, " failure=%s", entry.Reason)
+				}
+				fmt.Fprintln(out)
 			}
 			return nil
 		},
@@ -237,21 +218,41 @@ Use the printed env vars in another terminal to connect:
 			}
 			cfg.SwayConfigPath = startSwayConf
 
-			sess, err := perfuncted.StartSession(cfg)
+			session, err := perfuncted.Open(
+				cmd.Context(),
+				perfuncted.WithHeadless(cfg),
+			)
 			if err != nil {
 				return err
 			}
+			defer session.Close()
+			runtime := environmentMap(session.Env())
 
-			fmt.Printf("export XDG_RUNTIME_DIR=%s\n", sess.XDGRuntimeDir())
-			fmt.Printf("export WAYLAND_DISPLAY=%s\n", sess.WaylandDisplay())
-			fmt.Printf("export DBUS_SESSION_BUS_ADDRESS=%s\n", sess.DBusAddress())
-			fmt.Fprintf(os.Stderr, "session: running (XDG=%s, pid sway=%d)\n", sess.XDGRuntimeDir(), sess.SwayPID())
+			fmt.Printf(
+				"export XDG_RUNTIME_DIR=%s\n",
+				runtime["XDG_RUNTIME_DIR"],
+			)
+			fmt.Printf(
+				"export WAYLAND_DISPLAY=%s\n",
+				runtime["WAYLAND_DISPLAY"],
+			)
+			fmt.Printf(
+				"export DBUS_SESSION_BUS_ADDRESS=%s\n",
+				runtime["DBUS_SESSION_BUS_ADDRESS"],
+			)
+			fmt.Fprintf(
+				os.Stderr,
+				"session: running (XDG=%s)\n",
+				runtime["XDG_RUNTIME_DIR"],
+			)
 			fmt.Fprintf(os.Stderr, "session: press Ctrl+C to stop\n")
 
 			<-cmd.Context().Done()
 
 			fmt.Fprintf(os.Stderr, "\nsession: stopping...\n")
-			sess.Stop()
+			if err := session.Close(); err != nil {
+				return err
+			}
 			fmt.Fprintf(os.Stderr, "session: stopped\n")
 			return nil
 		},

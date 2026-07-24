@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/find"
 	"github.com/spf13/cobra"
 )
 
-func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command { //nolint:gocyclo
+func findCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
 	var (
@@ -141,7 +140,12 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			h, err := find.WaitForNoChange(ctx, pf.Screen.Screenshotter, r, stableCount, poll, nil)
+			h, err := pf.Screen.WaitForNoChange(
+				ctx,
+				r,
+				stableCount,
+				poll,
+			)
 			if err != nil {
 				return err
 			}
@@ -240,7 +244,12 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 				return err
 			}
 			if vfStable > 1 {
-				h, err = find.WaitForNoChange(ctx, pf.Screen.Screenshotter, r, vfStable, poll, nil)
+				h, err = pf.Screen.WaitForNoChange(
+					ctx,
+					r,
+					vfStable,
+					poll,
+				)
 				if err != nil {
 					return err
 				}

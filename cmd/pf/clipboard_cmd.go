@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func clipboardCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+func clipboardCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "clipboard", Short: "Clipboard operations"}
 
 	get := &cobra.Command{

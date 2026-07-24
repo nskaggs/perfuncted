@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command { //nolint:gocyclo
+func inputCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
-	syncIf := func(pf *perfuncted.Perfuncted) error {
+	syncIf := func(pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
 			return pf.Input.Sync(context.Background())
 		}
@@ -169,16 +169,16 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *co
 			}
 			defer pf.Close()
 			text := ""
-			switch {
-			case typeStdin:
+			useStdin := typeStdin
+			if useStdin {
 				b, err := io.ReadAll(os.Stdin)
 				if err != nil {
 					return err
 				}
 				text = string(b)
-			case len(args) == 1:
+			} else if len(args) == 1 {
 				text = args[0]
-			default:
+			} else {
 				return fmt.Errorf("type requires text or --stdin")
 			}
 			if err := pf.Input.Type(cmd.Context(), text); err != nil {
@@ -340,9 +340,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *co
 
 // ── scroll ─────────────────────────────────────────────────────────────────────────────
 
-func scrollCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
-	syncIf := func(pf *perfuncted.Perfuncted) error {
+	syncIf := func(pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
 			return pf.Input.Sync(context.Background())
 		}

@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,8 +18,6 @@ import (
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
-
-var nestedSessionGlob = filepath.Glob
 
 // Injectable backend constructors for testing.
 var (
@@ -38,86 +34,6 @@ func nestedSessionPattern() string {
 
 func nestedSessionPrefix() string {
 	return filepath.Join(os.TempDir(), "perfuncted-xdg-")
-}
-
-// NestedEnv locates a running nested session and returns its XDG runtime
-// directory, Wayland display, and D-Bus address.
-func NestedEnv() (xdgRuntimeDir, waylandDisplay, dbusAddr string, err error) {
-	pattern := nestedSessionPattern()
-	matches, err := nestedSessionGlob(pattern)
-	if err != nil {
-		return "", "", "", fmt.Errorf("perfuncted: glob nested sessions: %w", err)
-	}
-	if len(matches) == 0 {
-		return "", "", "", fmt.Errorf("perfuncted: no nested session found in %s", pattern)
-	}
-	type nestedEntry struct {
-		path string
-		mod  time.Time
-		wl   string
-	}
-
-	var entries []nestedEntry
-	for _, xdgDir := range matches {
-		wlSocket, socketErr := nestedWaylandSocket(xdgDir)
-		if socketErr != nil {
-			continue
-		}
-		if !nestedSessionPIDAlive(xdgDir) {
-			continue
-		}
-
-		fi, statErr := os.Stat(xdgDir)
-		mod := time.Time{}
-		if statErr == nil {
-			mod = fi.ModTime()
-		}
-		entries = append(entries, nestedEntry{path: xdgDir, mod: mod, wl: wlSocket})
-	}
-	if len(entries) == 0 {
-		return "", "", "", fmt.Errorf("perfuncted: no nested session found with a wayland socket in %s", pattern)
-	}
-
-	if len(entries) > 1 {
-		slices.SortFunc(entries, func(a, b nestedEntry) int {
-			if a.mod.After(b.mod) {
-				return -1
-			}
-			if a.mod.Before(b.mod) {
-				return 1
-			}
-			return 0
-		})
-	}
-
-	xdgDir := entries[0].path
-	return xdgDir, entries[0].wl, fmt.Sprintf("unix:path=%s/bus", xdgDir), nil
-}
-
-func nestedWaylandSocket(xdgDir string) (string, error) {
-	sockets, err := filepath.Glob(filepath.Join(xdgDir, "wayland-*"))
-	if err != nil {
-		return "", fmt.Errorf("perfuncted: glob wayland sockets: %w", err)
-	}
-	for _, sock := range sockets {
-		if strings.HasSuffix(sock, ".lock") {
-			continue
-		}
-		return filepath.Base(sock), nil
-	}
-	return "", fmt.Errorf("perfuncted: no wayland socket in %s", xdgDir)
-}
-
-func nestedSessionPIDAlive(xdgDir string) bool {
-	data, err := os.ReadFile(filepath.Join(xdgDir, "perfuncted.pid"))
-	if err != nil {
-		return false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return false
-	}
-	return pidAlive(pid)
 }
 
 func pidAlive(pid int) bool {

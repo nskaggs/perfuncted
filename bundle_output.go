@@ -7,21 +7,21 @@ import (
 )
 
 type OutputBundle struct {
-	output.Lister
+	backend output.Lister
 	bundleBase
 }
 
 func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
-	if b == nil || b.Lister == nil {
+	if b == nil || b.backend == nil {
 		return nil, b.unavailable("list")
 	}
 	b.traceAction("output", "list")
-	return b.Lister.List(ctx)
+	return b.backend.List(ctx)
 }
 
 func (b *OutputBundle) close() error {
-	if b == nil || b.Lister == nil {
+	if b == nil || b.backend == nil {
 		return nil
 	}
-	return b.Lister.Close()
+	return b.backend.Close()
 }

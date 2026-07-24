@@ -78,7 +78,7 @@ func TestErrorPath_FindByTitle_EmptyPattern(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	info, err := s.pf.Window.FindByTitle(ctx, "")
+	info, err := findWindowInfo(s.pf, ctx, "")
 	if err != nil {
 		if !errors.Is(err, window.ErrWindowNotFound) {
 			t.Logf("FindByTitle(\"\") returned non-ErrWindowNotFound error (acceptable): %v", err)
@@ -95,7 +95,7 @@ func TestErrorPath_ContextCancelledWindowActivate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := s.pf.Window.Activate(ctx, "xyzzy-never-exists-cancelled")
+	err := activateWindow(s.pf, ctx, "xyzzy-never-exists-cancelled")
 	if err == nil {
 		t.Error("Activate: expected error with pre-cancelled context, got nil")
 	}
@@ -304,7 +304,7 @@ func TestMultiWindow_FindIsolation(t *testing.T) {
 	}
 
 	// FindByTitle(A) must contain A's doc name, not B's.
-	infoA, err := s.pf.Window.FindByTitle(ctx, docA)
+	infoA, err := findWindowInfo(s.pf, ctx, docA)
 	if err != nil {
 		t.Fatalf("FindByTitle(A): %v", err)
 	}
@@ -316,7 +316,7 @@ func TestMultiWindow_FindIsolation(t *testing.T) {
 	}
 
 	// FindByTitle(B) must contain B's doc name, not A's.
-	infoB, err := s.pf.Window.FindByTitle(ctx, docB)
+	infoB, err := findWindowInfo(s.pf, ctx, docB)
 	if err != nil {
 		t.Fatalf("FindByTitle(B): %v", err)
 	}
@@ -330,7 +330,7 @@ func TestMultiWindow_FindIsolation(t *testing.T) {
 	// Close A; B must remain in the window list.
 	closeCtxA, cancelCloseA := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelCloseA()
-	if err := s.pf.Window.CloseWindow(closeCtxA, docA); err != nil {
+	if err := closeWindow(s.pf, closeCtxA, docA); err != nil {
 		t.Fatalf("CloseWindow(A): %v", err)
 	}
 	if err := waitForWindowClose(s.pf, docA, 15*time.Second); err != nil {
@@ -339,7 +339,7 @@ func TestMultiWindow_FindIsolation(t *testing.T) {
 
 	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer listCancel()
-	wins, err := s.pf.Window.List(listCtx)
+	wins, err := listWindowInfos(s.pf, listCtx)
 	if err != nil {
 		t.Fatalf("Window.List after close A: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestMultiWindow_WaitForStateIsolation(t *testing.T) {
 	}
 
 	// Re-query A's bounds after B opened (compositor may have rearranged).
-	infoA, err := s.pf.Window.FindByTitle(ctx, docA)
+	infoA, err := findWindowInfo(s.pf, ctx, docA)
 	if err != nil {
 		t.Fatalf("re-find window A: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestMultiWindow_ActivateSwitching(t *testing.T) {
 	}
 	for i, st := range sequence {
 		activateCtx, activateCancel := context.WithTimeout(ctx, 10*time.Second)
-		if err := s.pf.Window.Activate(activateCtx, st.doc); err != nil {
+		if err := activateWindow(s.pf, activateCtx, st.doc); err != nil {
 			activateCancel()
 			t.Fatalf("round %d: activate %q: %v", i+1, st.doc, err)
 		}

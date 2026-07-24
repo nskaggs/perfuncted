@@ -29,7 +29,11 @@ func run(ctx context.Context, args []string) int {
 	return runWithFactory(ctx, args, defaultOpenPFFactory)
 }
 
-func runWithFactory(ctx context.Context, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) int {
+func runWithFactory(
+	ctx context.Context,
+	args []string,
+	openPFFactory func(*cliConfig) func() (*perfuncted.Session, error),
+) int {
 	ctx = ctxutil.Default(ctx)
 	cmd := newRootCmd(openPFFactory) //nolint:contextcheck // cobra command doesn't accept context at construction time
 	cmd.SetArgs(args)

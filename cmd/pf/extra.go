@@ -24,18 +24,18 @@ import (
 
 var outputFormatFlag = "plain"
 
-func outputCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func outputCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 	cmd := &cobra.Command{Use: "output", Short: "Output discovery and metadata"}
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List outputs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF(cfg)()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			outs, err := pf.Output.List(cmd.Context())
+			outs, err := pf.Outputs.List(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -65,13 +65,15 @@ func outputCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), c
 }
 
 type scriptRunner struct {
-	ctx                 context.Context //nolint:containedctx // intentional: script runner holds context for its lifetime
-	pf                  *perfuncted.Perfuncted
-	selectedWindowTitle string
-	hasSelection        bool
+	ctx            context.Context
+	pf             *perfuncted.Session
+	selectedWindow *perfuncted.Window
 }
 
-func runCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func runCmd(
+	root *cobra.Command,
+	openPF func() (*perfuncted.Session, error),
+) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run FILE",
 		Short: "Run CLI commands from a script file or stdin",
@@ -89,7 +91,7 @@ func runCmd(openPF func(*cliConfig) func() (*perfuncted.Perfuncted, error), cfg 
 				defer f.Close()
 				r = f
 			}
-			pf, err := openPF(cfg)()
+			pf, err := openPF()
 			if err != nil {
 				return err
 			}
@@ -205,7 +207,7 @@ func (s *scriptRunner) exec(lineNo int, toks []string) error {
 	}
 }
 
-func (s *scriptRunner) execWindow(lineNo int, toks []string) error { //nolint:gocyclo
+func (s *scriptRunner) execWindow(lineNo int, toks []string) error {
 	if len(toks) == 0 {
 		return fmt.Errorf("script line %d: missing window subcommand", lineNo)
 	}
@@ -218,54 +220,62 @@ func (s *scriptRunner) execWindow(lineNo int, toks []string) error { //nolint:go
 		if err != nil {
 			return err
 		}
-		wins, err := collectWindowMatches(s.ctx, s.pf.Window.Manager, match)
+		target, err := s.pf.Windows.Find(s.ctx, match)
 		if err != nil {
 			return err
 		}
-		if len(wins) == 0 {
-			return windowNotFoundError(match)
-		}
-		s.selectedWindowTitle = wins[0].Title
-		s.hasSelection = true
+		s.selectedWindow = target
 		return nil
 	case "list":
-		wins, err := s.pf.Window.List(s.ctx)
+		wins, err := collectWindowMatches(
+			s.ctx,
+			s.pf.Windows,
+			window.Match{},
+		)
 		if err != nil {
 			return err
 		}
 		printWindowListPlain(wins)
 		return nil
 	case "active":
-		t, err := s.pf.Window.ActiveTitle(s.ctx)
+		t, err := s.pf.Windows.ActiveTitle(s.ctx)
 		if err != nil {
 			return err
 		}
 		fmt.Println(t)
 		return nil
 	case "activate", "close", "minimize", "maximize", "fullscreen", "unfullscreen", "restore":
-		title, err := s.windowTitleArg(toks[1:])
+		target, err := s.windowTarget(toks[1:])
 		if err != nil {
 			return err
 		}
-		return s.runWindowAction(toks[0], title)
+		return s.runWindowAction(toks[0], target)
 	case "move":
 		title, x, y, err := s.parseWindowMoveArgs(toks[1:])
 		if err != nil {
 			return err
 		}
-		return s.pf.Window.Move(s.ctx, title, x, y)
+		target, err := s.targetForTitle(title)
+		if err != nil {
+			return err
+		}
+		return target.Move(s.ctx, x, y)
 	case "resize":
 		title, w, h, err := s.parseWindowResizeArgs(toks[1:])
 		if err != nil {
 			return err
 		}
-		return s.pf.Window.Resize(s.ctx, title, w, h)
+		target, err := s.targetForTitle(title)
+		if err != nil {
+			return err
+		}
+		return target.Resize(s.ctx, w, h)
 	case "find":
 		match, err := parseWindowMatchArgs(toks[1:])
 		if err != nil {
 			return err
 		}
-		wins, err := collectWindowMatches(s.ctx, s.pf.Window.Manager, match)
+		wins, err := collectWindowMatches(s.ctx, s.pf.Windows, match)
 		if err != nil {
 			return err
 		}
@@ -279,32 +289,53 @@ func (s *scriptRunner) execWindow(lineNo int, toks []string) error { //nolint:go
 	}
 }
 
-func (s *scriptRunner) windowTitleArg(args []string) (string, error) {
+func (s *scriptRunner) windowTarget(
+	args []string,
+) (*perfuncted.Window, error) {
 	if len(args) > 0 {
-		return strings.Join(args, " "), nil
+		return s.targetForTitle(strings.Join(args, " "))
 	}
-	if s.hasSelection {
-		return s.selectedWindowTitle, nil
+	if s.selectedWindow != nil {
+		return s.selectedWindow, nil
 	}
-	return "", fmt.Errorf("window command requires a title or a prior window select")
+	return nil, fmt.Errorf(
+		"window command requires a title or a prior window select",
+	)
 }
 
-func (s *scriptRunner) runWindowAction(action, title string) error {
+func (s *scriptRunner) targetForTitle(
+	title string,
+) (*perfuncted.Window, error) {
+	if title != "" {
+		return findWindowByTitle(s.ctx, s.pf.Windows, title)
+	}
+	if s.selectedWindow != nil {
+		return s.selectedWindow, nil
+	}
+	return nil, fmt.Errorf(
+		"window command requires a title or a prior window select",
+	)
+}
+
+func (s *scriptRunner) runWindowAction(
+	action string,
+	target *perfuncted.Window,
+) error {
 	switch action {
 	case "activate":
-		return s.pf.Window.Activate(s.ctx, title)
+		return target.Activate(s.ctx)
 	case "close":
-		return s.pf.Window.CloseWindow(s.ctx, title)
+		return target.Close(s.ctx)
 	case "minimize":
-		return s.pf.Window.Minimize(s.ctx, title)
+		return target.Minimize(s.ctx)
 	case "maximize":
-		return s.pf.Window.Maximize(s.ctx, title)
+		return target.Maximize(s.ctx)
 	case "fullscreen":
-		return s.pf.Window.Fullscreen(s.ctx, title)
+		return target.Fullscreen(s.ctx)
 	case "unfullscreen":
-		return s.pf.Window.Unfullscreen(s.ctx, title)
+		return target.Unfullscreen(s.ctx)
 	case "restore":
-		return s.pf.Window.Restore(s.ctx, title)
+		return target.Restore(s.ctx)
 	default:
 		return fmt.Errorf("unknown window action %q", action)
 	}
@@ -346,9 +377,6 @@ func (s *scriptRunner) parseWindowMoveArgs(args []string) (title string, x, y in
 			}
 		}
 	}
-	if title == "" {
-		title, err = s.windowTitleArg(nil)
-	}
 	return
 }
 
@@ -385,9 +413,6 @@ func (s *scriptRunner) parseWindowResizeArgs(args []string) (title string, w, h 
 				title = args[i]
 			}
 		}
-	}
-	if title == "" {
-		title, err = s.windowTitleArg(nil)
 	}
 	return
 }
@@ -491,7 +516,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 	if len(toks) == 0 || toks[0] != "list" {
 		return fmt.Errorf("script line %d: unsupported output subcommand", lineNo)
 	}
-	wins, err := s.pf.Output.List(s.ctx)
+	wins, err := s.pf.Outputs.List(s.ctx)
 	if err != nil {
 		return err
 	}
@@ -506,7 +531,7 @@ func (s *scriptRunner) execInfo(lineNo int, toks []string) error {
 	_ = toks
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(buildInfoReport())
+	return enc.Encode(buildInfoReport(s.pf))
 }
 
 func outputInfoJSON(o output.Info) map[string]any {
@@ -528,24 +553,23 @@ func outputInfoJSON(o output.Info) map[string]any {
 
 type infoReport struct {
 	Compositor   string                     `json:"compositor"`
+	Target       string                     `json:"target"`
 	Environment  map[string]string          `json:"environment"`
 	Probes       map[string][]probe.Result  `json:"probes"`
 	Capabilities map[string]capabilityEntry `json:"capabilities"`
 }
 
 type capabilityEntry struct {
-	Supported bool   `json:"supported"`
-	Backend   string `json:"backend,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	Requested  bool     `json:"requested"`
+	Required   bool     `json:"required"`
+	Supported  bool     `json:"supported"`
+	Backend    string   `json:"backend,omitempty"`
+	Reason     string   `json:"reason,omitempty"`
+	Operations []string `json:"operations,omitempty"`
 }
 
-func buildInfoReport() infoReport {
-	envVars := map[string]string{
-		"WAYLAND_DISPLAY":     os.Getenv("WAYLAND_DISPLAY"),
-		"DISPLAY":             os.Getenv("DISPLAY"),
-		"XDG_CURRENT_DESKTOP": os.Getenv("XDG_CURRENT_DESKTOP"),
-		"XDG_RUNTIME_DIR":     os.Getenv("XDG_RUNTIME_DIR"),
-	}
+func buildInfoReport(session *perfuncted.Session) infoReport {
+	envVars := environmentMap(session.Env())
 	kind := compositor.Detect()
 	caps := map[string]capabilityEntry{}
 
@@ -554,12 +578,23 @@ func buildInfoReport() infoReport {
 	inputProbes := input.Probe()
 	outputProbes := output.ProbeRuntime(env.Current())
 
-	caps["screen"] = capabilityFromProbes(screenProbes)
-	caps["window"] = capabilityFromProbes(windowProbes)
-	caps["input"] = capabilityFromProbes(inputProbes)
-	caps["output"] = capabilityFromProbes(outputProbes)
+	for _, status := range session.Capabilities() {
+		reason := ""
+		if status.Failure != nil {
+			reason = status.Failure.Error()
+		}
+		caps[string(status.Capability)] = capabilityEntry{
+			Requested:  status.Requested,
+			Required:   status.Required,
+			Supported:  status.Available,
+			Backend:    status.Backend,
+			Reason:     reason,
+			Operations: status.Operations,
+		}
+	}
 	return infoReport{
 		Compositor:  kind.String(),
+		Target:      string(session.Target().Kind()),
 		Environment: envVars,
 		Probes: map[string][]probe.Result{
 			"screen": screenProbes,
@@ -571,14 +606,13 @@ func buildInfoReport() infoReport {
 	}
 }
 
-func capabilityFromProbes(results []probe.Result) capabilityEntry {
-	for _, r := range results {
-		if r.Selected {
-			return capabilityEntry{Supported: r.Available, Backend: r.Name, Reason: r.Reason}
+func environmentMap(environment []string) map[string]string {
+	values := make(map[string]string, len(environment))
+	for _, entry := range environment {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			values[key] = value
 		}
 	}
-	if len(results) > 0 {
-		return capabilityEntry{Supported: results[0].Available, Backend: results[0].Name, Reason: results[0].Reason}
-	}
-	return capabilityEntry{}
+	return values
 }

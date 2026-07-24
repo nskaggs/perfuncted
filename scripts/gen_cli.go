@@ -565,7 +565,7 @@ func main() {
 
 			// build call string
 			recv := "pf"
-			bundleField := map[string]string{"screen": "Screen", "input": "Input", "window": "Window", "clipboard": "Clipboard"}[grp]
+			bundleField := map[string]string{"screen": "Screen", "input": "Input", "window": "Windows", "clipboard": "Clipboard"}[grp]
 			callStr := fmt.Sprintf("%s.%s(%s)", recv+"."+bundleField, mn, strings.Join(callParams, ", "))
 
 			if produce == "image" {
@@ -694,7 +694,7 @@ func main() {
 	// Emit autogen functions
 	for _, grp := range []string{"screen", "input", "window", "clipboard"} {
 		funcName := fmt.Sprintf("autogen%sCommands", strings.Title(grp))
-		fmt.Fprintf(outBuf, "func %s(openPF func() (*perfuncted.Perfuncted, error)) []*cobra.Command {\n", funcName)
+		fmt.Fprintf(outBuf, "func %s(openPF func() (*perfuncted.Session, error)) []*cobra.Command {\n", funcName)
 		fmt.Fprintln(outBuf, "\tcmds := []*cobra.Command{}")
 		for _, block := range generated[grp] {
 			fmt.Fprintln(outBuf, block)
