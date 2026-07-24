@@ -33,12 +33,6 @@ var (
 	sessionCache   = make(map[string]*sessionRef)
 )
 
-// DefaultSessionCacheTTL limits how long a cached session can sit unused
-// before being evicted from the in-memory cache. The underlying connection is
-// not forcibly closed during TTL eviction; callers still holding a Session
-// continue to own that live connection.
-const DefaultSessionCacheTTL = 24 * time.Hour
-
 func cleanupStaleSessionsLocked(now time.Time, ttl time.Duration) {
 	for sock, ref := range sessionCache {
 		if ref == nil || ref.lastUsed.IsZero() {
@@ -50,19 +44,28 @@ func cleanupStaleSessionsLocked(now time.Time, ttl time.Duration) {
 	}
 }
 
+// DefaultSessionCacheTTL limits how long a cached session can sit unused
+// before being evicted from the in-memory cache. The underlying connection is
+// not forcibly closed during TTL eviction; callers still holding a Session
+// continue to own that live connection.
+const DefaultSessionCacheTTL = 24 * time.Hour
+
 // NewSession returns a cached, reference-counted Session for sock. If no
 // session exists, a new connection is established and cached. Call Close() on
 // the returned Session to release the reference.
 func NewSession(sock string) (*Session, error) {
 	now := time.Now()
 	sessionCacheMu.Lock()
-	cleanupStaleSessionsLocked(now, DefaultSessionCacheTTL)
 	if ref, ok := sessionCache[sock]; ok {
-		ref.refs++
-		ref.lastUsed = now
-		s := ref.sess
-		sessionCacheMu.Unlock()
-		return s, nil
+		if now.Sub(ref.lastUsed) > DefaultSessionCacheTTL {
+			delete(sessionCache, sock)
+		} else {
+			ref.refs++
+			ref.lastUsed = now
+			s := ref.sess
+			sessionCacheMu.Unlock()
+			return s, nil
+		}
 	}
 	sessionCacheMu.Unlock()
 

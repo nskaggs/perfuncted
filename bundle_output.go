@@ -3,37 +3,28 @@ package perfuncted
 import (
 	"context"
 
-	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
 )
 
-// OutputBundle wraps read-only output listing.
 type OutputBundle struct {
 	output.Lister
-	tracer *actionTracer
+	bundleBase
 }
 
 func (o OutputBundle) close() error {
 	if o.Lister == nil {
 		return nil
 	}
-	o.traceAction("close")
+	o.traceAction("output", "close")
 	return o.Lister.Close()
 }
 
 func (o OutputBundle) checkAvailable() error {
-	return util.CheckAvailable("output", o.Lister)
-}
-
-func (o OutputBundle) traceAction(msg string) {
-	if o.tracer == nil {
-		return
-	}
-	o.tracer.Tracef("output", "%s", msg)
+	return checkAvailable(o.Lister, "output")
 }
 
 func (o OutputBundle) List(ctx context.Context) ([]output.Info, error) {
-	o.traceAction("list")
+	o.traceAction("output", "list")
 	if err := o.checkAvailable(); err != nil {
 		return nil, err
 	}

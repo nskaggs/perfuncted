@@ -3,7 +3,7 @@
 #
 # Match CI exactly: GitHub Actions uses Go 1.26.3, and it checks this repo out
 # without the parent workspace, so local just recipes should do the same.
-export GOTOOLCHAIN := "go1.26.3"
+export GOTOOLCHAIN := "go1.26.5"
 export GOWORK := "off"
 
 default:
@@ -19,9 +19,9 @@ fmt:
 vet:
     go vet ./...
 
-# Run staticcheck linter
+# Run golangci-lint
 lint:
-    staticcheck ./...
+    golangci-lint run ./...
 
 # Check formatting
 check-fmt:
@@ -50,7 +50,7 @@ tidy:
 
 # Install development tools
 install-dev-tools:
-    CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest
+    CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
     CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@latest
     CGO_ENABLED=0 go install golang.org/x/tools/cmd/deadcode@latest
 
@@ -121,6 +121,10 @@ install: build
 # Run short (unit) tests only
 test-unit:
     CGO_ENABLED=0 go test -short ./...
+
+# Run unit tests with race detector
+test-race:
+    CGO_ENABLED=1 go test -race -short -count=1 ./...
 
 # Run unit tests (default alias)
 test: test-unit
