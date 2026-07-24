@@ -51,7 +51,7 @@ type modifiers struct {
 // ParseKeySend parses a key syntax string into a slice of key actions.
 // Literal text is returned as elements with a .text field. Braced expressions
 // {keyname}, {keyname down/up}, or {mod+key} are returned with the .key field.
-func ParseKeySend(input string) ([]keySend, error) {
+func ParseKeySend(input string) ([]keySend, error) { //nolint:revive // returns unexported type by design for internal use
 	if input == "" {
 		return nil, nil
 	}

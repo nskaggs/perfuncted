@@ -32,7 +32,7 @@ func (t *actionTracer) Tracef(action, format string, args ...any) {
 	msg.WriteString(action)
 	if format != "" {
 		msg.WriteByte(' ')
-		msg.WriteString(fmt.Sprintf(format, args...))
+		fmt.Fprintf(&msg, format, args...)
 	}
 
 	t.mu.Lock()

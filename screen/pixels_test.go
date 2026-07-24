@@ -103,7 +103,7 @@ func TestCropImageCopiesNonSubImage(t *testing.T) {
 	if got, want := cropped.Bounds(), image.Rect(1, 1, 3, 3); got != want {
 		t.Fatalf("cropImage bounds = %v, want %v", got, want)
 	}
-	if got := color.RGBAModel.Convert(cropped.At(1, 1)).(color.RGBA); got != src.c {
+	if got := color.RGBAModel.Convert(cropped.At(1, 1)).(color.RGBA); got != src.c { //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 		t.Fatalf("cropImage pixel = %#v, want %#v", got, src.c)
 	}
 }

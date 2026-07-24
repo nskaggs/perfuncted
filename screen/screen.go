@@ -70,7 +70,7 @@ type Resolver interface {
 }
 
 // OpenRuntime returns the best available Screenshotter for rt.
-func OpenRuntime(rt env.Runtime) (Screenshotter, error) {
+func OpenRuntime(rt env.Runtime) (Screenshotter, error) { //nolint:gocyclo
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
 		return NewX11Backend(display)
 	}

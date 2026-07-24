@@ -47,7 +47,7 @@ type WlVirtualBackend struct {
 
 // NewWlVirtualBackend connects to sock and initialises virtual pointer and keyboard.
 // The output dimensions are probed from the first wl_output advertised.
-func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
+func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocyclo
 	// Use the helper to connect and enumerate globals.
 	s, err := wl.NewSession(sock)
 	if err != nil {
@@ -92,9 +92,9 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 	ctx := s.Ctx
 	mgrProxy := &wl.RawProxy{}
 	ctx.Register(mgrProxy)
-	if err := registry.Bind(ptrMgrID, "zwlr_virtual_pointer_manager_v1", min(ptrMgrVer, 2), mgrProxy.ID()); err != nil {
+	if bindErr := registry.Bind(ptrMgrID, "zwlr_virtual_pointer_manager_v1", min(ptrMgrVer, 2), mgrProxy.ID()); bindErr != nil {
 		_ = s.Close()
-		return nil, fmt.Errorf("input/wl-virtual: bind virtual pointer manager: %w", err)
+		return nil, fmt.Errorf("input/wl-virtual: bind virtual pointer manager: %w", bindErr)
 	}
 
 	// Bind wl_output to read dimensions.
@@ -102,7 +102,7 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 	ctx.Register(outProxy)
 	b.outW, b.outH = 1920, 1080 // fallback
 	if outID != 0 {
-		if err := registry.Bind(outID, "wl_output", 1, outProxy.ID()); err == nil {
+		if bindErr := registry.Bind(outID, "wl_output", 1, outProxy.ID()); bindErr == nil {
 			// Handle mode (physical size) and scale events and maintain logical dims.
 			outProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 				switch opcode {
@@ -143,9 +143,9 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) {
 	wl.PutUint32(buf[4:], 16<<16) // size=16, opcode=0 (create_virtual_pointer)
 	wl.PutUint32(buf[8:], 0)      // seat = null
 	wl.PutUint32(buf[12:], b.ptr.ID())
-	if err := ctx.WriteMsg(buf[:], nil); err != nil {
+	if writeErr := ctx.WriteMsg(buf[:], nil); writeErr != nil {
 		_ = s.Close()
-		return nil, fmt.Errorf("input/wl-virtual: create virtual pointer: %w", err)
+		return nil, fmt.Errorf("input/wl-virtual: create virtual pointer: %w", writeErr)
 	}
 
 	kbd, err := newWlKeyboard(ctx, registry, kbdMgrID, kbdMgrVer, seatID)
@@ -247,7 +247,7 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 		return err
 	}
 	if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
-		if upErr := b.MouseUp(context.Background(), button); upErr != nil {
+		if upErr := b.MouseUp(context.Background(), button); upErr != nil { //nolint:contextcheck // intentional: release button even if context cancelled
 			return upErr
 		}
 		return err

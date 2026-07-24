@@ -134,13 +134,13 @@ func TestMockConnection_Defaults(t *testing.T) {
 		t.Errorf("Setup keycodes = %d-%d, want 8-255", setup.MinKeycode, setup.MaxKeycode)
 	}
 
-	// NewId returns default 42.
-	id, err := m.NewId()
+	// NewID returns default 42.
+	id, err := m.NewID()
 	if err != nil {
-		t.Fatalf("NewId: %v", err)
+		t.Fatalf("NewID: %v", err)
 	}
 	if id != 42 {
-		t.Errorf("NewId = %d, want 42", id)
+		t.Errorf("NewID = %d, want 42", id)
 	}
 
 	// InitComposite and InitXTest succeed by default.

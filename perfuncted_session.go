@@ -83,7 +83,7 @@ type Session struct {
 	mu         sync.Mutex
 	stopped    bool
 	unregister func()
-	ctx        context.Context
+	ctx        context.Context //nolint:containedctx // intentional: session owns context for its lifetime
 	cancel     context.CancelFunc
 }
 
@@ -184,9 +184,9 @@ func startSession(cfg SessionConfig, mode sessionMode) (*Session, error) {
 
 	// Write a pidfile so future starts can detect and reap stale sessions.
 	pidPath := filepath.Join(s.xdgDir, sessionOwnerPIDFile)
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+	if writeErr := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); writeErr != nil {
 		slog.Warn("failed to write owner pidfile, stale session reaping may be degraded",
-			"path", pidPath, "error", err)
+			"path", pidPath, "error", writeErr)
 	}
 
 	// Register signal cleanup automatically so sessions are reaped on SIGINT/SIGTERM.

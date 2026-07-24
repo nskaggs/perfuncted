@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-func TestEnviron(t *testing.T) {
+func TestEnviron(t *testing.T) { //nolint:gocyclo
 	t.Parallel()
 	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
 

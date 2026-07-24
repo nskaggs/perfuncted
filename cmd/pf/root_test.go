@@ -138,7 +138,7 @@ func TestRunWithFactoryReportsParseError(t *testing.T) {
 	}
 }
 
-func TestWindowCommands(t *testing.T) {
+func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 	t.Run("list plain", func(t *testing.T) {
 		mgr := &pftest.Manager{Lists: [][]window.Info{{
 			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42, Active: true},
@@ -251,7 +251,7 @@ func TestWindowCommands(t *testing.T) {
 	})
 }
 
-func TestScreenAndInputCommands(t *testing.T) {
+func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 	t.Run("get-multiple-pixels", func(t *testing.T) {
 		img := image.NewRGBA(image.Rect(10, 20, 13, 23))
 		img.Set(10, 20, color.RGBA{R: 1, G: 2, B: 3, A: 4})
@@ -400,7 +400,7 @@ func TestScreenHashAndWatch(t *testing.T) {
 		img := pftest.SolidImage(2, 2, color.RGBA{R: 4, G: 5, B: 6, A: 255})
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		stdout, stderr, code := captureRunIOContext(t, ctx, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
 			return func() (*perfuncted.Perfuncted, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}}, nil, nil, nil), nil
 			}
@@ -448,7 +448,7 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 		if got, wantBounds := img.Bounds(), image.Rect(0, 0, 2, 2); got != wantBounds {
 			t.Fatalf("bounds = %v, want %v", got, wantBounds)
 		}
-		if got := color.RGBAModel.Convert(img.At(1, 1)).(color.RGBA); got != want {
+		if got := color.RGBAModel.Convert(img.At(1, 1)).(color.RGBA); got != want { //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 			t.Fatalf("pixel = %+v, want %+v", got, want)
 		}
 	})
@@ -591,7 +591,7 @@ func TestWindowWatchAndOutputValidation(t *testing.T) {
 		}}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		stdout, stderr, code := captureRunIOContext(t, ctx, []string{"window", "watch", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
+		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"window", "watch", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Perfuncted, error) {
 			return func() (*perfuncted.Perfuncted, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
@@ -644,7 +644,7 @@ func (f *fakeOutputLister) List(ctx context.Context) ([]output.Info, error) {
 
 func (f *fakeOutputLister) Close() error { return nil }
 
-func TestOutputListInfoAndRun(t *testing.T) {
+func TestOutputListInfoAndRun(t *testing.T) { //nolint:gocyclo
 	t.Run("output list json", func(t *testing.T) {
 		fake := &fakeOutputLister{infos: []output.Info{{
 			Name:        "HDMI-A-1",
@@ -857,10 +857,10 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 
 func captureRunIO(t *testing.T, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) (string, string, int) {
 	t.Helper()
-	return captureRunIOContext(t, context.Background(), args, openPFFactory)
+	return captureRunIOContext(context.Background(), t, args, openPFFactory)
 }
 
-func captureRunIOContext(t *testing.T, ctx context.Context, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) (string, string, int) {
+func captureRunIOContext(ctx context.Context, t *testing.T, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Perfuncted, error)) (string, string, int) {
 	t.Helper()
 
 	oldStdout := os.Stdout
@@ -916,7 +916,7 @@ func captureRunIOWithStdin(t *testing.T, stdin string, args []string, openPFFact
 		rIn.Close()
 	}()
 
-	return captureRunIOContext(t, context.Background(), args, openPFFactory)
+	return captureRunIOContext(context.Background(), t, args, openPFFactory)
 }
 
 func TestVersionCmd(t *testing.T) {

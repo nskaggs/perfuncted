@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command {
+func findCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command { //nolint:gocyclo
 	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
 	var (

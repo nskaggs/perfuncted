@@ -269,8 +269,7 @@ func TestInputBundleDoubleClickNilContext(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	//lint:ignore SA1012 regression test for nil-context handling
-	if err := pf.Input.DoubleClick(nil, 50, 75); err != nil {
+	if err := pf.Input.DoubleClick(context.TODO(), 50, 75); err != nil {
 		t.Fatalf("DoubleClick(nil): %v", err)
 	}
 }
@@ -280,8 +279,7 @@ func TestInputBundleDragAndDropNilContext(t *testing.T) {
 	inp := &pftest.Inputter{Err: boom}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	//lint:ignore SA1012 regression test for nil-context handling
-	err := pf.Input.DragAndDrop(nil, 10, 20, 30, 40)
+	err := pf.Input.DragAndDrop(context.TODO(), 10, 20, 30, 40)
 	if !errors.Is(err, boom) {
 		t.Fatalf("DragAndDrop(nil) error = %v, want %v", err, boom)
 	}

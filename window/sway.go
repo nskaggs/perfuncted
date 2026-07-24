@@ -456,7 +456,7 @@ func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payl
 
 	select {
 	case <-ctx.Done():
-		conn.SetDeadline(time.Now())
+		_ = conn.SetDeadline(time.Now()) // best-effort cancel on context deadline
 		<-ch
 		return nil, ctx.Err()
 	case r := <-ch:

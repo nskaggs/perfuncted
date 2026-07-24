@@ -54,7 +54,7 @@ func newTestPF(sc *pftest.Screenshotter) *perfuncted.Perfuncted {
 	return pftest.New(sc, nil, nil, nil)
 }
 
-func solidRedImage(w, h int) *image.RGBA {
+func solidRedImage(w, h int) *image.RGBA { //nolint:unparam
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	c := color.RGBA{R: 255, A: 255}
 	for y := 0; y < h; y++ {

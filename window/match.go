@@ -60,14 +60,14 @@ var compiledMatchCache sync.Map
 func CompileMatch(m Match) Matcher {
 	key := matchCacheKeyFromMatch(m)
 	if cached, ok := compiledMatchCache.Load(key); ok {
-		return cached.(Matcher)
+		return cached.(Matcher) //nolint:errcheck // sync.Map stores Matcher values
 	}
 	compiled := Matcher{
 		Match:              m,
 		titleContainsLower: strings.ToLower(m.TitleContains),
 	}
 	actual, _ := compiledMatchCache.LoadOrStore(key, compiled)
-	return actual.(Matcher)
+	return actual.(Matcher) //nolint:errcheck // sync.Map stores Matcher values
 }
 
 // Matches reports whether info satisfies m.
@@ -83,7 +83,7 @@ func (m Matcher) Matches(info Info) bool {
 	return m.matches(info)
 }
 
-func (m Matcher) matches(info Info) bool {
+func (m Matcher) matches(info Info) bool { //nolint:gocyclo
 	if m.TitleContains != "" && !strings.Contains(strings.ToLower(info.Title), m.titleContainsLower) {
 		return false
 	}
@@ -205,7 +205,7 @@ func (m Match) String() string {
 //   - title~=<substring>
 //   - app_id=..., class=..., pid=..., id=...
 //   - active, minimized, maximized, fullscreen, visible-only
-func ParseMatchSpec(spec string) (Match, error) {
+func ParseMatchSpec(spec string) (Match, error) { //nolint:gocyclo
 	tokens, err := tokenizeMatchSpec(spec)
 	if err != nil {
 		return Match{}, err
@@ -267,7 +267,7 @@ func ParseMatchSpec(spec string) (Match, error) {
 			if err != nil {
 				return Match{}, fmt.Errorf("window: parse id %q: %w", val, err)
 			}
-			id := uint64(v)
+			id := v
 			m.ID = &id
 		case "state":
 			if err := applyMatchState(&m, val); err != nil {

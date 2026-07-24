@@ -72,7 +72,7 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 func (b *X11Backend) compositeDrawableForRoot() (xproto.Drawable, func()) {
 	drawable := xproto.Drawable(b.root)
 	if b.hasComposite {
-		rawID, err := b.conn.NewId()
+		rawID, err := b.conn.NewID()
 		if err == nil {
 			pid := xproto.Pixmap(rawID)
 			if b.conn.NameWindowPixmap(b.root, pid).Check() == nil {

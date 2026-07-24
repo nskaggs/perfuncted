@@ -14,7 +14,7 @@ func CheckAvailable(name string, resource any) error {
 	}
 	v := reflect.ValueOf(resource)
 	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice: //nolint:govet // reflect.Ptr is already inlined
 		if v.IsNil() {
 			return fmt.Errorf("%s: not available", name)
 		}

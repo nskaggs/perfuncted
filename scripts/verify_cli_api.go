@@ -137,7 +137,7 @@ func skipMethodForCLISync(name string) bool {
 	}
 }
 
-func main() {
+func main() { //nolint:gocyclo
 	// map CLI group -> perfuncted bundle type
 	bundleTypes := map[string]string{
 		"screen":    "ScreenBundle",

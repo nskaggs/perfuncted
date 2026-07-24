@@ -19,7 +19,7 @@ func (i InputBundle) close() error {
 		return nil
 	}
 	i.traceAction("input", "close")
-	return i.Inputter.Close()
+	return i.Close()
 }
 
 func (i InputBundle) checkAvailable() error {

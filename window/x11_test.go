@@ -209,7 +209,7 @@ func TestX11Backend_Restore(t *testing.T) {
 	})
 }
 
-func TestX11Backend_Move(t *testing.T) {
+func TestX11Backend_Move(t *testing.T) { //nolint:dupl
 	t.Run("Window exists", func(t *testing.T) {
 		var cfg []struct {
 			mask   uint16
@@ -239,7 +239,7 @@ func TestX11Backend_Move(t *testing.T) {
 	})
 }
 
-func TestX11Backend_Resize(t *testing.T) {
+func TestX11Backend_Resize(t *testing.T) { //nolint:dupl
 	t.Run("Window exists", func(t *testing.T) {
 		var cfg []struct {
 			mask   uint16
@@ -511,27 +511,30 @@ func TestX11Backend_windowState_Maximized(t *testing.T) {
 	}
 }
 
+// encodeWMStateAtoms encodes three atom uint32 values into a 12-byte little-endian slice
+// suitable for a _NET_WM_STATE property reply.
+func encodeWMStateAtoms(a, b, c xproto.Atom) []byte {
+	atomBytes := make([]byte, 12)
+	atomBytes[0] = byte(a)
+	atomBytes[1] = byte(a >> 8)
+	atomBytes[2] = byte(a >> 16)
+	atomBytes[3] = byte(a >> 24)
+	atomBytes[4] = byte(b)
+	atomBytes[5] = byte(b >> 8)
+	atomBytes[6] = byte(b >> 16)
+	atomBytes[7] = byte(b >> 24)
+	atomBytes[8] = byte(c)
+	atomBytes[9] = byte(c >> 8)
+	atomBytes[10] = byte(c >> 16)
+	atomBytes[11] = byte(c >> 24)
+	return atomBytes
+}
+
 func TestX11Backend_windowState_Both(t *testing.T) {
 	b, conn := newStubX11Backend(t, false, "")
 	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
 		if p == b.atomNetWMState {
-			// Return hidden, maximized vert, and maximized horz (12 bytes = 3 atoms * 4 bytes each)
-			atomBytes := make([]byte, 12)
-			// _NET_WM_STATE_HIDDEN
-			atomBytes[0] = byte(b.atomNetWMStateHidden)
-			atomBytes[1] = byte(b.atomNetWMStateHidden >> 8)
-			atomBytes[2] = byte(b.atomNetWMStateHidden >> 16)
-			atomBytes[3] = byte(b.atomNetWMStateHidden >> 24)
-			// _NET_WM_STATE_MAXIMIZED_VERT
-			atomBytes[4] = byte(b.atomNetWMStateMaximizedVert)
-			atomBytes[5] = byte(b.atomNetWMStateMaximizedVert >> 8)
-			atomBytes[6] = byte(b.atomNetWMStateMaximizedVert >> 16)
-			atomBytes[7] = byte(b.atomNetWMStateMaximizedVert >> 24)
-			// _NET_WM_STATE_MAXIMIZED_HORZ
-			atomBytes[8] = byte(b.atomNetWMStateMaximizedHorz)
-			atomBytes[9] = byte(b.atomNetWMStateMaximizedHorz >> 8)
-			atomBytes[10] = byte(b.atomNetWMStateMaximizedHorz >> 16)
-			atomBytes[11] = byte(b.atomNetWMStateMaximizedHorz >> 24)
+			atomBytes := encodeWMStateAtoms(b.atomNetWMStateHidden, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
 			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
 		}
 		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
@@ -565,23 +568,7 @@ func TestX11Backend_IterateWindows_MinimizedMaximized(t *testing.T) {
 	origFn := conn.GetPropertyFunc
 	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
 		if p == b.atomNetWMState {
-			// Return both hidden and maximized (12 bytes = 3 atoms * 4 bytes each)
-			atomBytes := make([]byte, 12)
-			// _NET_WM_STATE_HIDDEN
-			atomBytes[0] = byte(b.atomNetWMStateHidden)
-			atomBytes[1] = byte(b.atomNetWMStateHidden >> 8)
-			atomBytes[2] = byte(b.atomNetWMStateHidden >> 16)
-			atomBytes[3] = byte(b.atomNetWMStateHidden >> 24)
-			// _NET_WM_STATE_MAXIMIZED_VERT
-			atomBytes[4] = byte(b.atomNetWMStateMaximizedVert)
-			atomBytes[5] = byte(b.atomNetWMStateMaximizedVert >> 8)
-			atomBytes[6] = byte(b.atomNetWMStateMaximizedVert >> 16)
-			atomBytes[7] = byte(b.atomNetWMStateMaximizedVert >> 24)
-			// _NET_WM_STATE_MAXIMIZED_HORZ
-			atomBytes[8] = byte(b.atomNetWMStateMaximizedHorz)
-			atomBytes[9] = byte(b.atomNetWMStateMaximizedHorz >> 8)
-			atomBytes[10] = byte(b.atomNetWMStateMaximizedHorz >> 16)
-			atomBytes[11] = byte(b.atomNetWMStateMaximizedHorz >> 24)
+			atomBytes := encodeWMStateAtoms(b.atomNetWMStateHidden, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
 			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
 		}
 		// Call original function for other properties

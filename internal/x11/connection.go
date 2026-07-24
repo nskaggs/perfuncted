@@ -23,7 +23,7 @@ type Connection interface {
 	SendEventChecked(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie
 	MapWindowChecked(Window xproto.Window) MapWindowCookie
 	ConfigureWindowChecked(Window xproto.Window, ValueMask uint16, ValueList []uint32) ConfigureWindowCookie
-	NewId() (uint32, error)
+	NewID() (uint32, error)
 	GetImage(Format byte, Drawable xproto.Drawable, X, Y int16, Width, Height uint16, PlaneMask uint32) GetImageCookie
 	FreePixmap(Pixmap xproto.Pixmap) FreePixmapCookie
 	InitComposite() error
@@ -104,7 +104,7 @@ func (c *XgbConnection) ConfigureWindowChecked(Window xproto.Window, ValueMask u
 	return NewXProtoConfigureWindowCookie(cookie)
 }
 
-func (c *XgbConnection) NewId() (uint32, error) {
+func (c *XgbConnection) NewID() (uint32, error) {
 	return c.conn.NewId()
 }
 

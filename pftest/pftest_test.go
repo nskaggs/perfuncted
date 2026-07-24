@@ -64,7 +64,7 @@ func TestScreenshotterZeroOrigin(t *testing.T) {
 	if got.Bounds() != image.Rect(0, 0, 2, 2) {
 		t.Fatalf("bounds = %v, want zero-origin 2x2", got.Bounds())
 	}
-	if c := color.RGBAModel.Convert(got.At(1, 1)).(color.RGBA); c != want {
+	if c := color.RGBAModel.Convert(got.At(1, 1)).(color.RGBA); c != want { //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 		t.Fatalf("pixel = %+v, want %+v", c, want)
 	}
 }

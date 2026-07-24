@@ -16,7 +16,7 @@ func (c ClipboardBundle) close() error {
 		return nil
 	}
 	c.traceAction("clipboard", "close")
-	return c.Clipboard.Close()
+	return c.Close()
 }
 
 func (c ClipboardBundle) checkAvailable() error {

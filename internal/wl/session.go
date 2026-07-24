@@ -57,15 +57,14 @@ func NewSession(sock string) (*Session, error) {
 	now := time.Now()
 	sessionCacheMu.Lock()
 	if ref, ok := sessionCache[sock]; ok {
-		if now.Sub(ref.lastUsed) > DefaultSessionCacheTTL {
-			delete(sessionCache, sock)
-		} else {
+		if now.Sub(ref.lastUsed) <= DefaultSessionCacheTTL {
 			ref.refs++
 			ref.lastUsed = now
 			s := ref.sess
 			sessionCacheMu.Unlock()
 			return s, nil
 		}
+		delete(sessionCache, sock)
 	}
 	sessionCacheMu.Unlock()
 

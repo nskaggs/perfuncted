@@ -105,11 +105,11 @@ func newCapturedWlVirtualBackend(t *testing.T) (*WlVirtualBackend, *net.UnixConn
 	}
 
 	accepted := make(chan *net.UnixConn, 1)
-	acceptErr := make(chan error, 1)
+	acceptErrCh := make(chan error, 1)
 	go func() {
-		conn, err := listener.AcceptUnix()
-		if err != nil {
-			acceptErr <- err
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			acceptErrCh <- acceptErr
 			return
 		}
 		accepted <- conn
@@ -124,7 +124,7 @@ func newCapturedWlVirtualBackend(t *testing.T) (*WlVirtualBackend, *net.UnixConn
 	var serverConn *net.UnixConn
 	select {
 	case serverConn = <-accepted:
-	case err := <-acceptErr:
+	case err := <-acceptErrCh:
 		_ = listener.Close()
 		_ = ctx.Close()
 		t.Fatalf("AcceptUnix: %v", err)
@@ -164,16 +164,16 @@ func readCapturedWlWrites(t *testing.T, conn *net.UnixConn) [][]byte {
 			continue
 		}
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var ne net.Error
+			if errors.As(err, &ne) {
 				break
 			}
 			t.Fatalf("read captured writes: %v", err)
-		} else {
-			break
 		}
+		break
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	data := buf.Bytes()
@@ -364,7 +364,7 @@ func TestWlVirtualBackend_CanceledContextShortCircuitsMethods(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.run(); err != context.Canceled {
+			if err := tt.run(); !errors.Is(err, context.Canceled) {
 				t.Fatalf("%s canceled error = %v, want context.Canceled", tt.name, err)
 			}
 		})

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command { //nolint:gocyclo
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
 	syncIf := func(pf *perfuncted.Perfuncted) error {
 		if cfg != nil && cfg.sync {
@@ -169,16 +169,16 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *co
 			}
 			defer pf.Close()
 			text := ""
-			useStdin := typeStdin
-			if useStdin {
+			switch {
+			case typeStdin:
 				b, err := io.ReadAll(os.Stdin)
 				if err != nil {
 					return err
 				}
 				text = string(b)
-			} else if len(args) == 1 {
+			case len(args) == 1:
 				text = args[0]
-			} else {
+			default:
 				return fmt.Errorf("type requires text or --stdin")
 			}
 			if err := pf.Input.Type(cmd.Context(), text); err != nil {

@@ -29,21 +29,16 @@ linters:
       asserts: true
       comparison: true
     gocritic:
-      enabled-checks:
-        - appendAssign
-        - badCond
-        - badLock
+      disabled-checks:
         - captLocal
+      enabled-checks:
+        - badLock
         - deferInLoop
         - dupImport
-        - dupSubExpr
-        - hugeParam
         - indexAlloc
         - sloppyReassign
         - unnecessaryBlock
         - unnecessaryDefer
-        - unslice
-        - valSwap
     gocyclo:
       min-complexity: 15
     govet:

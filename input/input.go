@@ -18,9 +18,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
-var newWlInputMethodBackend = func(sock string, maxX, maxY int32) (Inputter, error) {
-	return NewWlInputMethodBackend(sock, maxX, maxY)
-}
+var newWlInputMethodBackend = NewWlInputMethodBackend
 
 var newWlVirtualBackend = func(sock string) (Inputter, error) {
 	return NewWlVirtualBackend(sock)
@@ -91,15 +89,15 @@ type Inputter interface {
 }
 
 // OpenRuntime returns the best available Inputter for rt.
-func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
+func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:gocyclo
 	// Allow forcing a particular backend for debugging in CI/local runs.
 	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
 		if statErr := statUinput(); statErr == nil {
-			if b, err := newUinputBackend(maxX, maxY); err == nil {
+			b, err := newUinputBackend(maxX, maxY)
+			if err == nil {
 				return b, nil
-			} else {
-				return nil, fmt.Errorf("forced uinput selected: %w", err)
 			}
+			return nil, fmt.Errorf("forced uinput selected: %w", err)
 		}
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
@@ -142,12 +140,12 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) {
 
 	// Final fallback: uinput on systems without a Wayland session.
 	if err := statUinput(); err == nil {
-		if b, err := newUinputBackend(maxX, maxY); err == nil {
+		b, err := newUinputBackend(maxX, maxY)
+		if err == nil {
 			return b, nil
-		} else {
-			// Return uinput error directly—it includes permission hints.
-			return nil, err
 		}
+		// Return uinput error directly—it includes permission hints.
+		return nil, err
 	}
 
 	return nil, fmt.Errorf("input: no backend available (uinput inaccessible, DISPLAY not set)")
