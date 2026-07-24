@@ -2,7 +2,7 @@ package perfuncted
 
 import (
 	"context"
-	"time"
+	"iter"
 
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -12,132 +12,107 @@ type WindowBundle struct {
 	bundleBase
 }
 
-func (w WindowBundle) close() error {
-	if w.Manager == nil {
+func (b *WindowBundle) List(ctx context.Context) ([]window.Info, error) {
+	if b.Manager == nil {
+		return nil, &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "list")
+	return b.Manager.List(ctx)
+}
+
+func (b *WindowBundle) IterateWindows(ctx context.Context) iter.Seq2[window.Info, error] {
+	if b.Manager == nil {
+		return func(yield func(window.Info, error) bool) {
+			yield(window.Info{}, &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable})
+		}
+	}
+	b.traceAction("window", "iterate")
+	return b.Manager.IterateWindows(ctx)
+}
+
+func (b *WindowBundle) Activate(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "activate %s", title)
+	return b.Manager.Activate(ctx, title)
+}
+
+func (b *WindowBundle) Move(ctx context.Context, title string, x, y int) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "move %s %d,%d", title, x, y)
+	return b.Manager.Move(ctx, title, x, y)
+}
+
+func (b *WindowBundle) Resize(ctx context.Context, title string, w, h int) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "resize %s %dx%d", title, w, h)
+	return b.Manager.Resize(ctx, title, w, h)
+}
+
+func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
+	if b.Manager == nil {
+		return "", &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "active-title")
+	return b.Manager.ActiveTitle(ctx)
+}
+
+func (b *WindowBundle) CloseWindow(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "close-window %s", title)
+	return b.Manager.CloseWindow(ctx, title)
+}
+
+func (b *WindowBundle) Minimize(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "minimize %s", title)
+	return b.Manager.Minimize(ctx, title)
+}
+
+func (b *WindowBundle) Maximize(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "maximize %s", title)
+	return b.Manager.Maximize(ctx, title)
+}
+
+func (b *WindowBundle) Fullscreen(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "fullscreen %s", title)
+	return b.Manager.Fullscreen(ctx, title)
+}
+
+func (b *WindowBundle) Unfullscreen(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "unfullscreen %s", title)
+	return b.Manager.Unfullscreen(ctx, title)
+}
+
+func (b *WindowBundle) Restore(ctx context.Context, title string) error {
+	if b.Manager == nil {
+		return &CapabilityError{Cap: CapabilityWindows, Err: ErrNotAvailable}
+	}
+	b.traceAction("window", "restore %s", title)
+	return b.Manager.Restore(ctx, title)
+}
+
+func (b *WindowBundle) close() error {
+	if b.Manager == nil {
 		return nil
 	}
-	w.traceAction("window", "close")
-	return w.Close()
-}
-
-func (w WindowBundle) checkAvailable() error {
-	return checkAvailable(w.Manager, "window")
-}
-
-func (w WindowBundle) sync(ctx context.Context) error {
-	type syncer interface {
-		Sync(context.Context) error
-	}
-	if s, ok := w.Manager.(syncer); ok {
-		return s.Sync(ctx)
-	}
-	return nil
-}
-
-func (w WindowBundle) Sync(ctx context.Context) error {
-	return w.sync(ctx)
-}
-
-func (w WindowBundle) List(ctx context.Context) ([]window.Info, error) {
-	w.traceAction("window", "list")
-	if err := w.checkAvailable(); err != nil {
-		return nil, err
-	}
-	return w.Manager.List(ctx)
-}
-
-func (w WindowBundle) Activate(ctx context.Context, pattern string) error {
-	w.traceAction("window", "activate pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Activate(ctx, pattern)
-}
-
-func (w WindowBundle) Move(ctx context.Context, pattern string, x, y int) error {
-	w.traceAction("window", "move pattern=%q x=%d y=%d", pattern, x, y)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Move(ctx, pattern, x, y)
-}
-
-func (w WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
-	w.traceAction("window", "active-title")
-	if err := w.checkAvailable(); err != nil {
-		return "", err
-	}
-	return w.Manager.ActiveTitle(ctx)
-}
-
-func (w WindowBundle) CloseWindow(ctx context.Context, pattern string) error {
-	w.traceAction("window", "close-window pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.CloseWindow(ctx, pattern)
-}
-
-func (w WindowBundle) Resize(ctx context.Context, pattern string, width, height int) error {
-	w.traceAction("window", "resize pattern=%q width=%d height=%d", pattern, width, height)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Resize(ctx, pattern, width, height)
-}
-
-func (w WindowBundle) Minimize(ctx context.Context, pattern string) error {
-	w.traceAction("window", "minimize pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Minimize(ctx, pattern)
-}
-
-func (w WindowBundle) Maximize(ctx context.Context, pattern string) error {
-	w.traceAction("window", "maximize pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Maximize(ctx, pattern)
-}
-
-func (w WindowBundle) Fullscreen(ctx context.Context, pattern string) error {
-	w.traceAction("window", "fullscreen pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Fullscreen(ctx, pattern)
-}
-
-func (w WindowBundle) Unfullscreen(ctx context.Context, pattern string) error {
-	w.traceAction("window", "unfullscreen pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Unfullscreen(ctx, pattern)
-}
-
-func (w WindowBundle) Restore(ctx context.Context, pattern string) error {
-	w.traceAction("window", "restore pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return w.Manager.Restore(ctx, pattern)
-}
-
-func (w WindowBundle) FindByTitle(ctx context.Context, pattern string) (window.Info, error) {
-	w.traceAction("window", "find-by-title pattern=%q", pattern)
-	if err := w.checkAvailable(); err != nil {
-		return window.Info{}, err
-	}
-	return window.FindByTitle(ctx, w.Manager, pattern)
-}
-
-func (w WindowBundle) WaitForClose(ctx context.Context, pattern string, poll time.Duration) error {
-	w.traceAction("window", "wait-for-close pattern=%q poll=%s", pattern, poll)
-	if err := w.checkAvailable(); err != nil {
-		return err
-	}
-	return window.WaitForClose(ctx, w.Manager, pattern, poll)
+	return b.Manager.Close()
 }

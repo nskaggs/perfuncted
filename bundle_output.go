@@ -11,22 +11,17 @@ type OutputBundle struct {
 	bundleBase
 }
 
-func (o OutputBundle) close() error {
-	if o.Lister == nil {
+func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
+	if b.Lister == nil {
+		return nil, &CapabilityError{Cap: CapabilityOutputs, Err: ErrNotAvailable}
+	}
+	b.traceAction("output", "list")
+	return b.Lister.List(ctx)
+}
+
+func (b *OutputBundle) close() error {
+	if b.Lister == nil {
 		return nil
 	}
-	o.traceAction("output", "close")
-	return o.Close()
-}
-
-func (o OutputBundle) checkAvailable() error {
-	return checkAvailable(o.Lister, "output")
-}
-
-func (o OutputBundle) List(ctx context.Context) ([]output.Info, error) {
-	o.traceAction("output", "list")
-	if err := o.checkAvailable(); err != nil {
-		return nil, err
-	}
-	return o.Lister.List(ctx)
+	return b.Lister.Close()
 }
