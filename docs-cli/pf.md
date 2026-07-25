@@ -8,7 +8,7 @@ perfuncted — screen automation CLI
   -h, --help                   help for pf
       --max-x int32            input coordinate space width (default 1920)
       --max-y int32            input coordinate space height (default 1080)
-      --nested                 auto-detect and connect to a nested Wayland session in /tmp
+      --nested                 start and target a new nested Wayland session
       --sync                   sync after observable mutating commands when supported
       --trace-actions          print each API action to stderr as it runs
       --trace-delay duration   sleep after each traced action
@@ -20,7 +20,7 @@ perfuncted — screen automation CLI
 * [pf completion](pf_completion.md)	 - Generate the autocompletion script for the specified shell
 * [pf docs](pf_docs.md)	 - Generate markdown documentation for the CLI
 * [pf find](pf_find.md)	 - Pixel scanning and wait utilities
-* [pf info](pf_info.md)	 - Probe and display supported backends for this environment
+* [pf info](pf_info.md)	 - Display resolved capabilities for this environment
 * [pf input](pf_input.md)	 - Mouse and keyboard injection
 * [pf output](pf_output.md)	 - Output discovery and metadata
 * [pf run](pf_run.md)	 - Run CLI commands from a script file or stdin

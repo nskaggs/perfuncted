@@ -7,11 +7,11 @@ import (
 )
 
 func TestParseKWinWindowListPreservesWindowIDs(t *testing.T) {
-	data := "42\tWindow One\torg.app.one\tAppOne\t101\t10\t20\t300.5\t400\n0x2b\tWindow Two\torg.app.two\tAppTwo\t202\t30.9\t40\t500\t600.1\n"
+	data := "42\tWindow One\torg.app.one\tAppOne\t101\t10\t20\t300.5\t400\n0x2b\tWindow Two\torg.app.two\tAppTwo\t202\t30.9\t40\t500\t600.1\n{bfe19e8e-18f4-4d48}\tWindow Three\torg.app.three\tAppThree\t303\t1\t2\t3\t4\n"
 
 	got := parseKWinWindowList(data)
-	if len(got) != 2 {
-		t.Fatalf("parseKWinWindowList len = %d, want 2", len(got))
+	if len(got) != 3 {
+		t.Fatalf("parseKWinWindowList len = %d, want 3", len(got))
 	}
 	if got[0].ID != 42 {
 		t.Fatalf("first ID = %d, want 42", got[0].ID)
@@ -27,6 +27,10 @@ func TestParseKWinWindowListPreservesWindowIDs(t *testing.T) {
 	}
 	if got[1].X != 30 || got[1].H != 600 {
 		t.Fatalf("second geometry = %+v", got[1])
+	}
+	if got[2].NativeID != "{bfe19e8e-18f4-4d48}" ||
+		got[2].StableID() != "{bfe19e8e-18f4-4d48}" {
+		t.Fatalf("third stable ID = %q", got[2].StableID())
 	}
 }
 

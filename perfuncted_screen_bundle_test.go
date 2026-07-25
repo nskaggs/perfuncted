@@ -50,7 +50,7 @@ func TestDetectSession_Nested(t *testing.T) {
 
 // newTestPF creates a Perfuncted with a mock screenshotter backed by a solid
 // 100×100 red image.
-func newTestPF(sc *pftest.Screenshotter) *perfuncted.Perfuncted {
+func newTestPF(sc *pftest.Screenshotter) *perfuncted.Session {
 	return pftest.New(sc, nil, nil, nil)
 }
 

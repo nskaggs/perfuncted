@@ -49,7 +49,7 @@ type appSpec struct {
 type suite struct {
 	mode     displayMode
 	rt       env.Runtime
-	pf       *perfuncted.Perfuncted
+	pf       *perfuncted.Session
 	cleanups []func()
 }
 
@@ -125,6 +125,7 @@ func envBool(raw string) bool {
 func newSuite(mode displayMode) (*suite, error) {
 	s := &suite{mode: mode}
 	traceWriter, traceDelay := traceConfigFromEnv()
+	var targetOption perfuncted.Option
 	switch mode {
 	case displayHeadlessX11:
 		display, stop, err := startHeadlessX11Session()
@@ -133,6 +134,9 @@ func newSuite(mode displayMode) (*suite, error) {
 		}
 		s.addCleanup(stop)
 		s.rt = configureX11Runtime(display)
+		targetOption = perfuncted.WithTarget(
+			perfuncted.EnvironmentTarget(s.rt.EnvList()),
+		)
 	case displayNestedX11:
 		if os.Getenv("DISPLAY") == "" {
 			display, stop, err := x11test.StartXvfb()
@@ -148,43 +152,63 @@ func newSuite(mode displayMode) (*suite, error) {
 		}
 		s.addCleanup(stop)
 		s.rt = configureX11Runtime(display)
+		targetOption = perfuncted.WithTarget(
+			perfuncted.EnvironmentTarget(s.rt.EnvList()),
+		)
 	case displayHeadlessWayland:
-		sess, err := perfuncted.StartSession(sessionConfig("headless-wayland"))
-		if err != nil {
-			return nil, err
-		}
-		s.addCleanup(sess.Stop)
-		s.rt = configureWaylandRuntime(sess)
+		targetOption = perfuncted.WithHeadless(
+			sessionConfig("headless-wayland"),
+		)
 	case displayNestedWayland:
 		if env.Current().SocketPath() == "" {
-			hostSess, err := perfuncted.StartSession(sessionConfig("nested-wayland-host"))
+			hostSession, err := perfuncted.Open(
+				context.Background(),
+				perfuncted.WithHeadless(
+					sessionConfig("nested-wayland-host"),
+				),
+			)
 			if err != nil {
 				return nil, fmt.Errorf("start nested wayland host: %w", err)
 			}
-			s.addCleanup(hostSess.Stop)
-			s.rt = configureWaylandRuntime(hostSess)
+			s.addCleanup(func() {
+				_ = hostSession.Close()
+			})
+			s.rt = configureWaylandRuntime(hostSession)
 		}
-		sess, err := perfuncted.StartNestedSession(sessionConfig("nested-wayland-inner"))
-		if err != nil {
-			return nil, err
-		}
-		s.addCleanup(sess.Stop)
-		s.rt = configureWaylandRuntime(sess)
+		targetOption = perfuncted.WithNested(
+			sessionConfig("nested-wayland-inner"),
+		)
 	default:
 		return nil, fmt.Errorf("unknown PF_TEST_DISPLAY_SERVER=%q", mode)
 	}
 
-	pf, err := perfuncted.New(perfuncted.Options{
-		MaxX:        1024,
-		MaxY:        768,
-		TraceWriter: traceWriter,
-		TraceDelay:  traceDelay,
-	})
+	options := []perfuncted.Option{
+		targetOption,
+		perfuncted.Require(
+			perfuncted.CapabilityScreen,
+			perfuncted.CapabilityInput,
+			perfuncted.CapabilityWindows,
+			perfuncted.CapabilityOutputs,
+			perfuncted.CapabilityClipboard,
+		),
+	}
+	if traceWriter != nil {
+		options = append(
+			options,
+			perfuncted.WithTrace(true),
+			perfuncted.WithTraceOut(traceWriter),
+		)
+	}
+	if traceDelay > 0 {
+		options = append(options, perfuncted.WithTraceDelay(traceDelay))
+	}
+	pf, err := perfuncted.Open(context.Background(), options...)
 	if err != nil {
 		_ = s.Close()
 		return nil, err
 	}
 	s.pf = pf
+	s.rt = env.FromEnviron(pf.Env())
 	return s, nil
 }
 
@@ -224,11 +248,15 @@ func configureX11Runtime(display string) env.Runtime {
 }
 
 func configureWaylandRuntime(sess *perfuncted.Session) env.Runtime {
-	os.Setenv("XDG_RUNTIME_DIR", sess.XDGRuntimeDir())
-	os.Setenv("WAYLAND_DISPLAY", sess.WaylandDisplay())
-	os.Setenv("DBUS_SESSION_BUS_ADDRESS", sess.DBusAddress())
+	runtime := env.FromEnviron(sess.Env())
+	os.Setenv("XDG_RUNTIME_DIR", runtime.Get("XDG_RUNTIME_DIR"))
+	os.Setenv("WAYLAND_DISPLAY", runtime.Get("WAYLAND_DISPLAY"))
+	os.Setenv(
+		"DBUS_SESSION_BUS_ADDRESS",
+		runtime.Get("DBUS_SESSION_BUS_ADDRESS"),
+	)
 	os.Unsetenv("DISPLAY")
-	return env.Current().WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
+	return runtime
 }
 
 func (s *suite) Close() error {
@@ -358,23 +386,23 @@ func TestIntegration(t *testing.T) {
 }
 
 func TestSessionLifecycle(t *testing.T) {
-	sess, err := perfuncted.StartSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
+	session, err := perfuncted.Open(
+		context.Background(),
+		perfuncted.WithHeadless(perfuncted.SessionConfig{
+			Resolution: image.Pt(1024, 768),
+		}),
+		perfuncted.Require(
+			perfuncted.CapabilityScreen,
+			perfuncted.CapabilityInput,
+			perfuncted.CapabilityWindows,
+		),
+	)
 	if err != nil {
 		t.Fatalf("session lifecycle requires sway/dbus/wl-paste: %v", err)
 	}
-	t.Cleanup(sess.Stop)
-
-	rt := env.Current().WithSession(sess.XDGRuntimeDir(), sess.WaylandDisplay(), sess.DBusAddress())
-	t.Setenv("XDG_RUNTIME_DIR", sess.XDGRuntimeDir())
-	t.Setenv("WAYLAND_DISPLAY", sess.WaylandDisplay())
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", sess.DBusAddress())
-	t.Setenv("DISPLAY", "")
-
-	pf, err := perfuncted.New(perfuncted.Options{MaxX: 1024, MaxY: 768})
-	if err != nil {
-		t.Fatalf("perfuncted.New: %v", err)
-	}
-	t.Cleanup(func() { _ = pf.Close() })
+	t.Cleanup(func() {
+		_ = session.Close()
+	})
 
 	apps := requiredApps(t)
 	if len(apps) == 0 {
@@ -388,40 +416,65 @@ func TestSessionLifecycle(t *testing.T) {
 		}
 	}
 
-	cmd, err := launchApp(rt, app, app.extraEnvFor(displayHeadlessWayland)...)
+	application, err := session.Launch(
+		context.Background(),
+		perfuncted.Command{
+			Name:   app.launch[0],
+			Args:   app.launch[1:],
+			Env:    env.Merge(os.Environ(), app.extraEnvFor(displayHeadlessWayland)...),
+			Stdout: os.Stderr,
+			Stderr: os.Stderr,
+		},
+	)
 	if err != nil {
 		t.Fatalf("launch %s: %v", app.name, err)
 	}
-	t.Cleanup(func() {
-		terminateCmd(cmd, 5*time.Second)
-	})
-	ctx := context.Background()
-
-	if _, err := waitForWindow(pf, app.winMatch, 30*time.Second); err != nil {
+	windowCtx, cancelWindow := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	defer cancelWindow()
+	target, err := application.WaitForWindow(
+		windowCtx,
+		perfuncted.WindowMatch{TitleContains: app.winMatch},
+	)
+	if err != nil {
 		t.Fatalf("wait for %s window: %v", app.name, err)
 	}
-	if err := pf.Window.Activate(ctx, app.winMatch); err != nil {
+	initialID := target.ID()
+	if err := target.Activate(context.Background()); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
 	// Give the editor a moment to fully focus before typing.
 	time.Sleep(1 * time.Second)
-	if err := pf.Input.Type(ctx, "session test"); err != nil {
+	if err := session.Input.Type(context.Background(), "session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
-	// Wait for the editor to process the typed text before saving.
 	time.Sleep(500 * time.Millisecond)
-	if err := pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
-		t.Fatalf("save: %v", err)
+	if _, err := target.Info(context.Background()); err != nil {
+		t.Fatalf("refresh stable window after title/state change: %v", err)
 	}
-	// Wait for the save to complete before closing.
-	time.Sleep(1 * time.Second)
-	if err := pf.Window.CloseWindow(ctx, app.winMatch); err != nil {
-		t.Fatalf("close window: %v", err)
+	if target.ID() != initialID {
+		t.Fatalf(
+			"window ID changed from %s to %s",
+			initialID,
+			target.ID(),
+		)
 	}
-	// Give the close dialog a moment to appear and process.
-	time.Sleep(1 * time.Second)
-	if err := waitForWindowClose(pf, app.winMatch, 30*time.Second); err != nil {
-		t.Fatalf("wait for close: %v", err)
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+	waitCtx, cancelWait := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
+	defer cancelWait()
+	if err := application.Wait(waitCtx); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("wait for reaped application: %v", err)
+		}
 	}
 }
 
@@ -523,7 +576,7 @@ func runScreenSmoke(t *testing.T, s *suite) {
 // Verifier centralizes test assertions about application state (screen, window, etc.)
 type Verifier struct {
 	t  *testing.T
-	pf *perfuncted.Perfuncted
+	pf *perfuncted.Session
 }
 
 // captureFailure saves a full-screen snapshot for debugging when a test fails.
@@ -552,7 +605,7 @@ func (v *Verifier) captureFailure(label string) {
 // VerifyStableRegion polls a region until it stabilizes, then performs a final validation grab.
 func (v *Verifier) VerifyStableRegion(ctx context.Context, label string, rect image.Rectangle) {
 	v.t.Helper()
-	_, waitErr := find.WaitForNoChange(ctx, v.pf.Screen.Screenshotter, rect, 3, 100*time.Millisecond, nil)
+	_, waitErr := find.WaitForNoChange(ctx, v.pf.Screen, rect, 3, 100*time.Millisecond, nil)
 	if _, err := v.pf.Screen.Grab(ctx, rect); err != nil {
 		v.captureFailure(label)
 		v.t.Fatalf("%s: failed to grab region %v: %v", label, rect, err)
@@ -596,11 +649,11 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 	ctx := context.Background()
 
-	if err := s.pf.Window.Activate(ctx, app.winMatch); err != nil {
+	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
 
-	if err := s.pf.Window.Maximize(ctx, app.winMatch); err != nil {
+	if err := maximizeWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("maximize window %v", err)
 	}
 
@@ -608,7 +661,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := waitForWindow(s.pf, docName, 20*time.Second); err != nil {
 		t.Fatalf("wait for %s document title %q: %v", app.name, docName, err)
 	}
-	active, err := s.pf.Window.ActiveTitle(ctx)
+	active, err := s.pf.Windows.ActiveTitle(ctx)
 	if err != nil {
 		t.Fatalf("active title: %v", err)
 	}
@@ -616,7 +669,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("active title %q does not match %q", active, app.winMatch)
 	}
 
-	info, err := s.pf.Window.FindByTitle(ctx, app.winMatch)
+	info, err := findWindowInfo(s.pf, ctx, app.winMatch)
 	if err != nil {
 		t.Fatalf("find window: %v", err)
 	}
@@ -633,7 +686,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("capture rect %v fell outside the screen %dx%d", rect, screenW, screenH)
 	}
 
-	if err := s.pf.Window.Activate(ctx, app.winMatch); err != nil {
+	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate before typing: %v", err)
 	}
 
@@ -699,7 +752,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("paste: %v", err)
 	}
 
-	if err := s.pf.Window.Activate(ctx, app.winMatch); err != nil {
+	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate before save: %v", err)
 	}
 	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
@@ -713,10 +766,10 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("saved file %q does not contain typed text", saveFile)
 	}
 
-	if err := s.pf.Window.Resize(ctx, app.winMatch, 800, 600); err != nil {
+	if err := resizeWindow(s.pf, ctx, app.winMatch, 800, 600); err != nil {
 		t.Fatalf("resize: %v", err)
 	}
-	if err := s.pf.Window.CloseWindow(ctx, app.winMatch); err != nil {
+	if err := closeWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("close window: %v", err)
 	}
 	if err := waitForWindowClose(s.pf, app.winMatch, 30*time.Second); err != nil {
@@ -738,7 +791,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("wait for browser window: %v", err)
 	}
 	ctx := context.Background()
-	if err := s.pf.Window.Activate(ctx, app.winMatch); err != nil {
+	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate browser: %v", err)
 	}
 
@@ -755,7 +808,7 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 	rect := image.Rect(0, 0, 100, 100)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if _, err := find.WaitForNoChange(ctx, s.pf.Screen.Screenshotter, rect, 3, 500*time.Millisecond, nil); err != nil {
+	if _, err := find.WaitForNoChange(ctx, s.pf.Screen, rect, 3, 500*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for stable: %v", err)
 	}
 }
@@ -793,40 +846,131 @@ func launchApp(rt env.Runtime, app appSpec, extraEnv ...string) (*exec.Cmd, erro
 	return cmd, nil
 }
 
-func waitForWindow(pf *perfuncted.Perfuncted, pattern string, timeout time.Duration) (window.Info, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		info, err := pf.Window.FindByTitle(ctx, pattern)
-		if err == nil {
-			return info, nil
-		}
-		select {
-		case <-ctx.Done():
-			return window.Info{}, fmt.Errorf("wait for window %q: timed out after %s", pattern, timeout)
-		case <-ticker.C:
-		}
-	}
+func findWindowHandle(
+	pf *perfuncted.Session,
+	ctx context.Context,
+	pattern string,
+) (*perfuncted.Window, error) {
+	return pf.Windows.Find(
+		ctx,
+		perfuncted.WindowMatch{TitleContains: pattern},
+	)
 }
 
-func waitForWindowClose(pf *perfuncted.Perfuncted, pattern string, timeout time.Duration) error {
+func findWindowInfo(
+	pf *perfuncted.Session,
+	ctx context.Context,
+	pattern string,
+) (window.Info, error) {
+	target, err := findWindowHandle(pf, ctx, pattern)
+	if err != nil {
+		return window.Info{}, err
+	}
+	return target.Info(ctx)
+}
+
+func activateWindow(
+	pf *perfuncted.Session,
+	ctx context.Context,
+	pattern string,
+) error {
+	target, err := findWindowHandle(pf, ctx, pattern)
+	if err != nil {
+		return err
+	}
+	return target.Activate(ctx)
+}
+
+func closeWindow(
+	pf *perfuncted.Session,
+	ctx context.Context,
+	pattern string,
+) error {
+	target, err := findWindowHandle(pf, ctx, pattern)
+	if err != nil {
+		return err
+	}
+	return target.Close(ctx)
+}
+
+func maximizeWindow(
+	pf *perfuncted.Session,
+	ctx context.Context,
+	pattern string,
+) error {
+	target, err := findWindowHandle(pf, ctx, pattern)
+	if err != nil {
+		return err
+	}
+	return target.Maximize(ctx)
+}
+
+func resizeWindow(
+	pf *perfuncted.Session,
+	ctx context.Context,
+	pattern string,
+	width int,
+	height int,
+) error {
+	target, err := findWindowHandle(pf, ctx, pattern)
+	if err != nil {
+		return err
+	}
+	return target.Resize(ctx, width, height)
+}
+
+func listWindowInfos(
+	pf *perfuncted.Session,
+	ctx context.Context,
+) ([]window.Info, error) {
+	handles, err := pf.Windows.List(ctx, perfuncted.WindowMatch{})
+	if err != nil {
+		return nil, err
+	}
+	infos := make([]window.Info, 0, len(handles))
+	for _, handle := range handles {
+		info, err := handle.Info(ctx)
+		if err != nil {
+			return nil, err
+		}
+		infos = append(infos, info)
+	}
+	return infos, nil
+}
+
+func waitForWindow(
+	pf *perfuncted.Session,
+	pattern string,
+	timeout time.Duration,
+) (window.Info, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		_, err := pf.Window.FindByTitle(ctx, pattern)
-		if err != nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for window close %q: timed out after %s", pattern, timeout)
-		case <-ticker.C:
-		}
+	target, err := pf.Windows.Wait(
+		ctx,
+		perfuncted.WindowMatch{TitleContains: pattern},
+		perfuncted.WaitEvery(500*time.Millisecond),
+	)
+	if err != nil {
+		return window.Info{}, fmt.Errorf(
+			"wait for window %q: %w",
+			pattern,
+			err,
+		)
 	}
+	return target.Info(ctx)
+}
+
+func waitForWindowClose(pf *perfuncted.Session, pattern string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	target, err := findWindowHandle(pf, ctx, pattern)
+	if errors.Is(err, perfuncted.ErrWindowNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return target.WaitClosed(ctx)
 }
 
 func waitForFileContains(ctx context.Context, path, want string, timeout time.Duration) (string, error) {

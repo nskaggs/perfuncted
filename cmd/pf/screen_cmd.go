@@ -16,7 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func screenCmd(openPF func() (*perfuncted.Perfuncted, error)) *cobra.Command { //nolint:gocyclo
+//nolint:gocyclo // Cobra command assembly is intentionally centralized
+func screenCmd(
+	openPF func() (*perfuncted.Session, error),
+) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
 	var rectFlag, outFlag string

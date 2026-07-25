@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -256,6 +258,7 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			appID, class := b.windowClass(id)
 			info := Info{
 				ID:        uint64(id),
+				NativeID:  strconv.FormatUint(uint64(id), 10),
 				Title:     b.windowTitle(id),
 				AppID:     appID,
 				Class:     class,
@@ -275,44 +278,6 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 	}
 }
 
-// findByTitle returns the first window whose title contains the given string (case-insensitive).
-func (b *X11Backend) findByTitle(ctx context.Context, title string) (xproto.Window, error) {
-	info, err := FindByTitle(ctx, b, title)
-	if err != nil {
-		return 0, fmt.Errorf("window/x11: %w", err)
-	}
-	return xproto.Window(info.ID), nil
-}
-
-// Activate raises and focuses a window by title using _NET_ACTIVE_WINDOW.
-func (b *X11Backend) Activate(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	data := []uint32{1, uint32(xproto.TimeCurrentTime), 0, 0, 0}
-	return b.conn.SendEventChecked(false, b.root,
-		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
-		string(xproto.ClientMessageEvent{
-			Format: 32,
-			Window: win,
-			Type:   b.atomNetActiveWindow,
-			Data:   xproto.ClientMessageDataUnionData32New(data),
-		}.Bytes())).Check()
-}
-
-// Restore restores the window by removing maximized states and mapping it.
-func (b *X11Backend) Restore(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	if err := b.setWMState(win, 0, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz); err != nil {
-		return err
-	}
-	return b.conn.MapWindowChecked(win).Check()
-}
-
 func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xproto.Atom) error {
 	var data [5]uint32
 	data[0] = action
@@ -328,28 +293,6 @@ func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xprot
 			Type:   b.atomNetWMState,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
 		}.Bytes())).Check()
-}
-
-// Move repositions a window by title.
-func (b *X11Backend) Move(ctx context.Context, title string, x, y int) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.conn.ConfigureWindowChecked(win,
-		xproto.ConfigWindowX|xproto.ConfigWindowY,
-		[]uint32{uint32(x), uint32(y)}).Check()
-}
-
-// Resize changes window dimensions by title.
-func (b *X11Backend) Resize(ctx context.Context, title string, w, h int) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.conn.ConfigureWindowChecked(win,
-		xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
-		[]uint32{uint32(w), uint32(h)}).Check()
 }
 
 // ActiveTitle returns the title of the currently focused window.
@@ -375,13 +318,71 @@ func (b *X11Backend) Sync(ctx context.Context) error {
 	return nil
 }
 
-// CloseWindow sends a WM_DELETE_WINDOW message to close the window gracefully.
-func (b *X11Backend) CloseWindow(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
+func (b *X11Backend) SupportedOperations() []string {
+	return []string{
+		"discover",
+		"activate",
+		"move",
+		"resize",
+		"close",
+		"minimize",
+		"maximize",
+		"fullscreen",
+		"restore",
+	}
+}
+
+// --- Handle-based operations ---
+
+func x11WindowID(id string) (xproto.Window, error) {
+	numeric, err := numericID(id)
+	if err != nil {
+		return 0, err
+	}
+	return xproto.Window(numeric), nil
+}
+
+func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
 	if err != nil {
 		return err
 	}
-	// Intern WM_DELETE_WINDOW and WM_PROTOCOLS atoms.
+	data := []uint32{1, uint32(xproto.TimeCurrentTime), 0, 0, 0}
+	return b.conn.SendEventChecked(false, b.root,
+		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
+		string(xproto.ClientMessageEvent{
+			Format: 32,
+			Window: win,
+			Type:   b.atomNetActiveWindow,
+			Data:   xproto.ClientMessageDataUnionData32New(data),
+		}.Bytes())).Check()
+}
+
+func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.conn.ConfigureWindowChecked(win,
+		xproto.ConfigWindowX|xproto.ConfigWindowY,
+		[]uint32{uint32(x), uint32(y)}).Check()
+}
+
+func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	return b.conn.ConfigureWindowChecked(win,
+		xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
+		[]uint32{uint32(w), uint32(h)}).Check()
+}
+
+func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
 	const wmDeleteWindow = "WM_DELETE_WINDOW"
 	const wmProtocols = "WM_PROTOCOLS"
 	delAtom, err := b.conn.InternAtom(false, uint16(len(wmDeleteWindow)), wmDeleteWindow).Reply()
@@ -402,19 +403,17 @@ func (b *X11Backend) CloseWindow(ctx context.Context, title string) error {
 		}.Bytes())).Check()
 }
 
-// Minimize iconifies the window by setting _NET_WM_STATE_HIDDEN via the WM.
-func (b *X11Backend) Minimize(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
+func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
 	if err != nil {
 		return err
 	}
-	// Use XIconifyWindow via ChangeProperty with WM_CHANGE_STATE.
 	const wmChangeState = "WM_CHANGE_STATE"
 	csAtom, err := b.conn.InternAtom(false, uint16(len(wmChangeState)), wmChangeState).Reply()
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: %w", err)
 	}
-	data := [5]uint32{3 /* IconicState */, 0, 0, 0, 0}
+	data := [5]uint32{3, 0, 0, 0, 0}
 	return b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
 		string(xproto.ClientMessageEvent{
@@ -425,27 +424,68 @@ func (b *X11Backend) Minimize(ctx context.Context, title string) error {
 		}.Bytes())).Check()
 }
 
-// Maximize sets _NET_WM_STATE_MAXIMIZED_VERT and _NET_WM_STATE_MAXIMIZED_HORZ.
-func (b *X11Backend) Maximize(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
+func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
 	if err != nil {
 		return err
 	}
 	return b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
 }
 
-func (b *X11Backend) Fullscreen(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
+func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
 	if err != nil {
 		return err
 	}
 	return b.setWMState(win, 1, b.atomNetWMStateFullscreen)
 }
 
-func (b *X11Backend) Unfullscreen(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
+func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
 	if err != nil {
 		return err
 	}
 	return b.setWMState(win, 0, b.atomNetWMStateFullscreen)
+}
+
+func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return err
+	}
+	if err := b.setWMState(win, 0, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz); err != nil {
+		return err
+	}
+	return b.conn.MapWindowChecked(win).Check()
+}
+
+func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
+	win, err := x11WindowID(id)
+	if err != nil {
+		return Info{}, err
+	}
+	for info, listErr := range b.IterateWindows(ctx) {
+		if listErr != nil {
+			return Info{}, listErr
+		}
+		if info.ID == uint64(win) {
+			return info, nil
+		}
+	}
+	return Info{}, ErrWindowNotFound
+}
+
+func (b *X11Backend) WaitClosedByID(ctx context.Context, id string) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if _, err := b.InfoByID(ctx, id); err != nil {
+				return nil
+			}
+		}
+	}
 }

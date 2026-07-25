@@ -13,7 +13,7 @@ Window management
 ```
       --max-x int32            input coordinate space width (default 1920)
       --max-y int32            input coordinate space height (default 1080)
-      --nested                 auto-detect and connect to a nested Wayland session in /tmp
+      --nested                 start and target a new nested Wayland session
       --sync                   sync after observable mutating commands when supported
       --trace-actions          print each API action to stderr as it runs
       --trace-delay duration   sleep after each traced action
@@ -38,6 +38,5 @@ Window management
 * [pf window unfullscreen](pf_window_unfullscreen.md)	 - Exit fullscreen for a window by title
 * [pf window wait-close](pf_window_wait-close.md)	 - Wait until matching windows disappear
 * [pf window wait-for](pf_window_wait-for.md)	 - Wait until a matching window appears
-* [pf window wait-for-close](pf_window_wait-for-close.md)	 - Block until a window matching the title pattern closes
 * [pf window watch](pf_window_watch.md)	 - Stream window list changes
 

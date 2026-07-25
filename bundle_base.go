@@ -1,9 +1,9 @@
 package perfuncted
 
-import "fmt"
-
 type bundleBase struct {
-	tracer *actionTracer
+	capability Capability
+	failure    error
+	tracer     *actionTracer
 }
 
 func (b *bundleBase) traceAction(component, format string, args ...any) {
@@ -13,9 +13,20 @@ func (b *bundleBase) traceAction(component, format string, args ...any) {
 	b.tracer.Tracef(component, format, args...)
 }
 
-func checkAvailable(resource any, name string) error {
-	if resource == nil {
-		return fmt.Errorf("%s: not available", name)
+func (b *bundleBase) unavailable(operation string) error {
+	if b == nil {
+		return &CapabilityError{
+			Operation: operation,
+			Err:       ErrNotAvailable,
+		}
 	}
-	return nil
+	err := b.failure
+	if err == nil {
+		err = ErrNotAvailable
+	}
+	return &CapabilityError{
+		Capability: b.capability,
+		Operation:  operation,
+		Err:        err,
+	}
 }

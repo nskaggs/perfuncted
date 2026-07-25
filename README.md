@@ -17,25 +17,43 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pf, _ := perfuncted.New(perfuncted.Options{})
-	defer pf.Close()
+	session, _ := perfuncted.Open(
+		ctx,
+		perfuncted.Require(
+			perfuncted.CapabilityInput,
+			perfuncted.CapabilityWindows,
+		),
+	)
+	defer session.Close()
 
-	_ = pf.Window.Activate(ctx, "Firefox")
-	_ = pf.Input.Type(ctx, "hello world")
-	_ = pf.Input.Type(ctx, "{ctrl+s}")
+	firefox, _ := session.Windows.Find(
+		ctx,
+		perfuncted.WindowMatch{TitleContains: "Firefox"},
+	)
+	_ = firefox.Activate(ctx)
+	_ = session.Input.Type(ctx, "hello world")
+	_ = session.Input.Type(ctx, "{ctrl+s}")
 }
 ```
 
 ## Backend support
 
-| Session | Screen capture | Input | Window management |
-|---|---|---|---|
-| X11 | XGetImage ✅ | XTEST / uinput ✅ | EWMH ✅ |
-| wlroots Wayland (Sway, Hyprland) | wlr-screencopy ✅ | wl-virtual / uinput ✅ | Sway IPC / wlr-foreign-toplevel ✅ |
-| KDE Plasma Wayland | KWin.ScreenShot2 / ext-image-copy-capture / xdg-desktop-portal ✅ | uinput ✅ | KWin D-Bus scripting ✅ |
-| GNOME Wayland | gnome-shell screenshot / xdg-desktop-portal ⚠️ | uinput ✅ | Shell.Eval ⚠️ (foreign-toplevel typically restricted) |
+| Session/backend | Screen capture | Input | Window discovery | Window control |
+|---|---|---|---|---|
+| X11 | XGetImage | XTEST or uinput | EWMH | activate, move, resize, close, minimize, maximize, fullscreen, restore |
+| Sway | wlr-screencopy | wl-virtual or uinput | dedicated Sway IPC | activate, move, resize, close, minimize, maximize, fullscreen |
+| wlr foreign-toplevel | compositor capture protocol | wl-virtual or uinput | `zwlr_foreign_toplevel_manager_v1` | activate, close, minimize, maximize, restore |
+| ext foreign-toplevel | compositor capture protocol or portal | compositor-specific or uinput | `ext_foreign_toplevel_list_v1` | list-only |
+| KDE Plasma Wayland | KWin.ScreenShot2, ext capture, or portal | uinput | KWin D-Bus scripting | activate, move, resize, close, minimize, maximize, restore |
+| GNOME Wayland | Shell screenshot or portal | uinput | Shell.Eval when unsafe mode is enabled | activate, move, resize, close, minimize, maximize, restore |
 
-> **KDE:** wl-virtual input protocols are wlroots-only; KDE uses uinput.
+`pf info` reports the backend actually opened, failures for unavailable optional
+capabilities, and the exact operation list. Discovery does not imply that every
+control operation is available.
+
+Wayland portal capture may show a consent dialog. Perfuncted does not implement
+portal input: input needs a compositor injection protocol or permission to open
+`/dev/uinput`. KDE and GNOME normally use uinput.
 >
 > **GNOME (Mutter):** The compositor intentionally restricts some window-management protocols. There are two paths:
 >
@@ -46,8 +64,6 @@ func main() {
 > 3. foreign-toplevel protocol: `zwlr_foreign_toplevel_manager_v1` supports list plus basic actions (activate, close, minimize, maximize), while `ext_foreign_toplevel_list_v1` is list-only. Mutter typically does not advertise either one.
 >
 > Therefore, on GNOME you will usually rely on org.gnome.Shell.Eval (if enabled) or use a nested wlroots compositor (e.g., nested sway) for full automation.
-
-Run `pf info` to see exactly which backends are active on your system.
 
 ## Install
 
@@ -81,14 +97,23 @@ go get github.com/nskaggs/perfuncted
 
 ## Library API
 
-Four top-level bundles are available after `perfuncted.New(...)`:
+`perfuncted.Open` creates one explicit desktop session. The host desktop is the
+default; `WithTarget`, `WithHeadless`, and `WithNested` select other mutually
+exclusive targets. Ask only for the capabilities you need with `Require` or
+`Optional`.
 
-- **`pf.Screen`** — capture regions, compute pixel hashes, locate images, wait for visual changes
-- **`pf.Input`** — type text, tap keys, click and drag, scroll
-- **`pf.Window`** — list, activate, resize, move, and wait for windows
-- **`pf.Clipboard`** — get and set clipboard contents in the selected target session
+Every session has non-nil capability facades:
 
-All bundle operations that talk to a backend or can block take `ctx context.Context` as their first argument.
+- `session.Screen` captures regions, computes hashes, locates images, and waits for visual changes.
+- `session.Input` types, presses keys, clicks, drags, and scrolls.
+- `session.Windows` discovers windows and returns stable, session-bound handles for control.
+- `session.Outputs` lists displays.
+- `session.Clipboard` gets and sets clipboard contents.
+
+Unavailable facade calls return `*perfuncted.CapabilityError`. Use
+`Session.Launch` for owned applications and `Session.Wait` with `All`, `Any`,
+`Not`, or `Predicate` for composable waits. Contexts provide cancellation and
+timeouts.
 
 Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted)
 

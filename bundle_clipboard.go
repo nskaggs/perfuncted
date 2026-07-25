@@ -7,50 +7,40 @@ import (
 )
 
 type ClipboardBundle struct {
-	clipboard.Clipboard
+	backend clipboard.Clipboard
 	bundleBase
 }
 
-func (c ClipboardBundle) close() error {
-	if c.Clipboard == nil {
+func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
+	if b == nil || b.backend == nil {
+		return "", b.unavailable("get")
+	}
+	b.traceAction("clipboard", "get")
+	return b.backend.Get(ctx)
+}
+
+func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
+	if b == nil || b.backend == nil {
+		return b.unavailable("set")
+	}
+	b.traceAction("clipboard", "set")
+	return b.backend.Set(ctx, text)
+}
+
+func (b *ClipboardBundle) close() error {
+	if b == nil || b.backend == nil {
 		return nil
 	}
-	c.traceAction("clipboard", "close")
-	return c.Close()
+	return b.backend.Close()
 }
 
-func (c ClipboardBundle) checkAvailable() error {
-	return checkAvailable(c.Clipboard, "clipboard")
-}
-
-func (c ClipboardBundle) Get(ctx context.Context) (string, error) {
-	return c.getContext(ctx)
-}
-
-func (c ClipboardBundle) getContext(ctx context.Context) (string, error) {
-	c.traceAction("clipboard", "get")
-	if err := c.checkAvailable(); err != nil {
-		return "", err
-	}
-	return c.Clipboard.Get(ctx)
-}
-
-func (c ClipboardBundle) Set(ctx context.Context, text string) error {
-	return c.setContext(ctx, text)
-}
-
-func (c ClipboardBundle) setContext(ctx context.Context, text string) error {
-	c.traceAction("clipboard", "set text=%q", text)
-	if err := c.checkAvailable(); err != nil {
+func (b *ClipboardBundle) pasteWithInputContext(
+	ctx context.Context,
+	text string,
+	input *InputBundle,
+) error {
+	if err := b.Set(ctx, text); err != nil {
 		return err
 	}
-	return c.Clipboard.Set(ctx, text)
-}
-
-func (c ClipboardBundle) pasteWithInputContext(ctx context.Context, text string, inp InputBundle) error {
-	c.traceAction("clipboard", "paste-with-input text=%q", text)
-	if err := c.setContext(ctx, text); err != nil {
-		return err
-	}
-	return inp.typeContext(ctx, "{ctrl+v}")
+	return input.typeContext(ctx, "{ctrl+v}")
 }

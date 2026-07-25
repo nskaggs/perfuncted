@@ -103,52 +103,16 @@ screen:
       poll: "polling interval (e.g. 200ms)"
 
 window:
-  Activate:
-    skip: true
   ActiveTitle:
     skip: true
-  CloseWindow:
-    skip: true
-  FindByTitle:
-    skip: true
-  GetGeometry:
-    skip: true
-  IsVisible:
+  Find:
     skip: true
   List:
     skip: true
-  Maximize:
-    skip: true
-  Minimize:
-    skip: true
-  Move:
-    skip: true
-  Resize:
-    skip: true
-  Restore:
-    skip: true
   Sync:
     skip: true
-  WaitFor:
+  Wait:
     skip: true
-  WaitForTitleChange:
-    skip: true
-  Fullscreen:
-    short: "Put a window into fullscreen mode"
-    long: "Finds the first window whose title contains --pattern and puts it into\nfullscreen mode. The match is case-insensitive."
-    flags:
-      pattern: "substring to match against window titles (case-insensitive)"
-  Unfullscreen:
-    short: "Exit fullscreen mode for a window"
-    long: "Finds the first window whose title contains --pattern and takes it out of\nfullscreen mode. The match is case-insensitive."
-    flags:
-      pattern: "substring to match against window titles (case-insensitive)"
-  WaitForClose:
-    short: "Block until a window matching the title pattern closes"
-    long: "Polls window titles at the given interval until no window whose title contains\n--pattern is found. Exits cleanly when the window is gone, or returns an error\nif the context deadline is exceeded."
-    flags:
-      pattern: "substring to match against window titles (case-insensitive)"
-      poll: "polling interval (e.g. 200ms); leave empty to use the default"
 
 clipboard:
   Get:

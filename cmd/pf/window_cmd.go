@@ -27,16 +27,22 @@ func parseWindowMatchArgs(args []string) (window.Match, error) {
 	return window.ParseMatchSpec(strings.Join(args, " "))
 }
 
-func collectWindowMatches(ctx context.Context, m window.Manager, match window.Match) ([]window.Info, error) {
-	wins, err := m.List(ctx)
+func collectWindowMatches(
+	ctx context.Context,
+	bundle *perfuncted.WindowBundle,
+	match window.Match,
+) ([]window.Info, error) {
+	handles, err := bundle.List(ctx, match)
 	if err != nil {
 		return nil, err
 	}
-	var matched []window.Info
-	for _, w := range wins {
-		if match.Matches(w) {
-			matched = append(matched, w)
+	matched := make([]window.Info, 0, len(handles))
+	for _, handle := range handles {
+		info, err := handle.Info(ctx)
+		if err != nil {
+			return nil, err
 		}
+		matched = append(matched, info)
 	}
 	return matched, nil
 }
@@ -46,8 +52,12 @@ func windowNotFoundError(match window.Match) error {
 }
 
 func printWindowPlain(w window.Info) {
-	fmt.Printf("0x%x\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
-		w.ID, w.Title, w.AppID, w.PID, w.Active, w.Minimized, w.Maximized, w.Fullscreen)
+	id := w.StableID()
+	if w.ID != 0 {
+		id = fmt.Sprintf("0x%x", w.ID)
+	}
+	fmt.Printf("%s\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
+		id, w.Title, w.AppID, w.PID, w.Active, w.Minimized, w.Maximized, w.Fullscreen)
 }
 
 func printWindowListPlain(wins []window.Info) {
@@ -56,57 +66,58 @@ func printWindowListPlain(wins []window.Info) {
 	}
 }
 
-func waitForWindowMatch(ctx context.Context, m window.Manager, match window.Match, poll time.Duration) (window.Info, error) {
+func waitForWindowMatch(
+	ctx context.Context,
+	bundle *perfuncted.WindowBundle,
+	match window.Match,
+	poll time.Duration,
+) (window.Info, error) {
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	ticker := time.NewTicker(poll)
-	defer ticker.Stop()
-
-	for {
-		wins, err := collectWindowMatches(ctx, m, match)
-		if err != nil {
-			return window.Info{}, err
-		}
-		if len(wins) > 0 {
-			return wins[0], nil
-		}
-		select {
-		case <-ctx.Done():
-			return window.Info{}, fmt.Errorf("wait for window %q: %w", match.String(), ctx.Err())
-		case <-ticker.C:
-		}
+	handle, err := bundle.Wait(ctx, match, perfuncted.WaitEvery(poll))
+	if err != nil {
+		return window.Info{}, err
 	}
+	return handle.Info(ctx)
 }
 
-func waitForWindowCloseMatch(ctx context.Context, m window.Manager, match window.Match, poll time.Duration) error {
+func waitForWindowCloseMatch(
+	ctx context.Context,
+	session *perfuncted.Session,
+	match window.Match,
+	poll time.Duration,
+) error {
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	ticker := time.NewTicker(poll)
-	defer ticker.Stop()
-
-	for {
-		wins, err := collectWindowMatches(ctx, m, match)
-		if err != nil {
-			return err
-		}
-		if len(wins) == 0 {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for window close %q: %w", match.String(), ctx.Err())
-		case <-ticker.C:
-		}
-	}
+	return session.Wait(
+		ctx,
+		perfuncted.Not(perfuncted.WindowExists(match)),
+		perfuncted.WaitEvery(poll),
+	)
 }
 
-func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command { //nolint:gocyclo
+func findWindowByTitle(
+	ctx context.Context,
+	bundle *perfuncted.WindowBundle,
+	title string,
+) (*perfuncted.Window, error) {
+	return bundle.Find(
+		ctx,
+		perfuncted.WindowMatch{TitleContains: title},
+	)
+}
+
+//nolint:gocyclo // Cobra command assembly is intentionally centralized
+func windowCmd(
+	openPF func() (*perfuncted.Session, error),
+	cfg *cliConfig,
+) *cobra.Command {
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
-	syncIf := func(pf *perfuncted.Perfuncted) error {
+	syncIf := func(pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Window.Sync(context.Background())
+			return pf.Windows.Sync(context.Background())
 		}
 		return nil
 	}
@@ -121,7 +132,11 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			wins, err := pf.Window.List(cmd.Context())
+			wins, err := collectWindowMatches(
+				cmd.Context(),
+				pf.Windows,
+				window.Match{},
+			)
 			if err != nil {
 				return err
 			}
@@ -150,7 +165,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Activate(cmd.Context(), args[0]); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Activate(cmd.Context()); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -170,7 +193,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			t, err := pf.Window.ActiveTitle(cmd.Context())
+			t, err := pf.Windows.ActiveTitle(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -190,7 +213,11 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			info, err := pf.Window.FindByTitle(cmd.Context(), mvTitle)
+			target, err := findWindowByTitle(cmd.Context(), pf.Windows, mvTitle)
+			if err != nil {
+				return err
+			}
+			info, err := target.Info(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -208,7 +235,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			if unchanged {
 				y = info.Y
 			}
-			if err := pf.Window.Move(cmd.Context(), mvTitle, x, y); err != nil {
+			if err := target.Move(cmd.Context(), x, y); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -234,7 +261,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Resize(cmd.Context(), rsTitle, rsW, rsH); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				rsTitle,
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Resize(cmd.Context(), rsW, rsH); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -259,7 +294,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Fullscreen(cmd.Context(), args[0]); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Fullscreen(cmd.Context()); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -280,7 +323,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Unfullscreen(cmd.Context(), args[0]); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Unfullscreen(cmd.Context()); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -308,7 +359,11 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			if err != nil {
 				return err
 			}
-			wins, err := collectWindowMatches(cmd.Context(), pf.Window.Manager, match)
+			wins, err := collectWindowMatches(
+				cmd.Context(),
+				pf.Windows,
+				match,
+			)
 			if err != nil {
 				return err
 			}
@@ -344,7 +399,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			w, err := waitForWindowMatch(ctx, pf.Window.Manager, match, poll)
+			w, err := waitForWindowMatch(ctx, pf.Windows, match, poll)
 			if err != nil {
 				return err
 			}
@@ -380,7 +435,7 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			if err := waitForWindowCloseMatch(ctx, pf.Window.Manager, match, poll); err != nil {
+			if err := waitForWindowCloseMatch(ctx, pf, match, poll); err != nil {
 				return err
 			}
 			return nil
@@ -404,7 +459,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			info, err := pf.Window.FindByTitle(cmd.Context(), args[0])
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			info, err := target.Info(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -438,7 +501,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			info, err := pf.Window.FindByTitle(cmd.Context(), args[0])
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			info, err := target.Info(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -459,7 +530,11 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			_, err = pf.Window.FindByTitle(cmd.Context(), args[0])
+			_, err = findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
 			switch {
 			case err == nil:
 				fmt.Println("true")
@@ -497,7 +572,11 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 					return nil
 				case <-ticker.C:
 				}
-				wins, err := pf.Window.List(ctx)
+				wins, err := collectWindowMatches(
+					ctx,
+					pf.Windows,
+					window.Match{},
+				)
 				if err != nil {
 					return err
 				}
@@ -534,7 +613,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.CloseWindow(cmd.Context(), args[0]); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Close(cmd.Context()); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -555,7 +642,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Minimize(cmd.Context(), args[0]); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Minimize(cmd.Context()); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {
@@ -576,7 +671,15 @@ func windowCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *c
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Window.Maximize(cmd.Context(), args[0]); err != nil {
+			target, err := findWindowByTitle(
+				cmd.Context(),
+				pf.Windows,
+				args[0],
+			)
+			if err != nil {
+				return err
+			}
+			if err := target.Maximize(cmd.Context()); err != nil {
 				return err
 			}
 			if err := syncIf(pf); err != nil {

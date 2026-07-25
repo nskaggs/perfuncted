@@ -11,9 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command { //nolint:gocyclo
+//nolint:gocyclo // Cobra command assembly is intentionally centralized
+func inputCmd(
+	openPF func() (*perfuncted.Session, error),
+	cfg *cliConfig,
+) *cobra.Command {
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
-	syncIf := func(pf *perfuncted.Perfuncted) error {
+	syncIf := func(pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
 			return pf.Input.Sync(context.Background())
 		}
@@ -340,9 +344,9 @@ func inputCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *co
 
 // ── scroll ─────────────────────────────────────────────────────────────────────────────
 
-func scrollCmd(openPF func() (*perfuncted.Perfuncted, error), cfg *cliConfig) *cobra.Command {
+func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
-	syncIf := func(pf *perfuncted.Perfuncted) error {
+	syncIf := func(pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
 			return pf.Input.Sync(context.Background())
 		}

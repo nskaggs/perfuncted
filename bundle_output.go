@@ -7,26 +7,21 @@ import (
 )
 
 type OutputBundle struct {
-	output.Lister
+	backend output.Lister
 	bundleBase
 }
 
-func (o OutputBundle) close() error {
-	if o.Lister == nil {
+func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
+	if b == nil || b.backend == nil {
+		return nil, b.unavailable("list")
+	}
+	b.traceAction("output", "list")
+	return b.backend.List(ctx)
+}
+
+func (b *OutputBundle) close() error {
+	if b == nil || b.backend == nil {
 		return nil
 	}
-	o.traceAction("output", "close")
-	return o.Close()
-}
-
-func (o OutputBundle) checkAvailable() error {
-	return checkAvailable(o.Lister, "output")
-}
-
-func (o OutputBundle) List(ctx context.Context) ([]output.Info, error) {
-	o.traceAction("output", "list")
-	if err := o.checkAvailable(); err != nil {
-		return nil, err
-	}
-	return o.Lister.List(ctx)
+	return b.backend.Close()
 }

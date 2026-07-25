@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
@@ -83,9 +82,7 @@ func TestClipboardBundleContextErrorsAndClose(t *testing.T) {
 	ctx := context.WithValue(context.Background(), contextKey{}, "clipboard-token")
 	closeErr := errors.New("clipboard close failed")
 	cb := &clipboardSpy{closeErr: closeErr}
-	pf := &perfuncted.Perfuncted{
-		Clipboard: perfuncted.ClipboardBundle{Clipboard: cb},
-	}
+	pf := pftest.New(nil, nil, nil, cb)
 
 	if err := pf.Clipboard.Set(ctx, "hello"); err != nil {
 		t.Fatalf("Clipboard.Set: %v", err)

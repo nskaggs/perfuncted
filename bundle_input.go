@@ -9,244 +9,205 @@ import (
 	"github.com/nskaggs/perfuncted/input"
 )
 
+// InputBundle exposes input operations through a capability-safe facade.
 type InputBundle struct {
-	input.Inputter
+	backend input.Inputter
 	bundleBase
 }
 
-func (i InputBundle) close() error {
-	if i.Inputter == nil {
-		return nil
-	}
-	i.traceAction("input", "close")
-	return i.Close()
-}
-
-func (i InputBundle) checkAvailable() error {
-	return checkAvailable(i.Inputter, "input")
-}
-
-func (i InputBundle) Type(ctx context.Context, text string) error {
-	return i.typeContext(ctx, text)
-}
-
-func (i InputBundle) typeContext(ctx context.Context, text string) error {
-	i.traceAction("input", "type text=%q", text)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.Type(ctx, text)
-}
-
-func (i InputBundle) KeyDown(ctx context.Context, key string) error {
-	return i.keyDownContext(ctx, key)
-}
-
-func (i InputBundle) keyDownContext(ctx context.Context, key string) error {
-	i.traceAction("input", "key-down key=%q", key)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.KeyDown(ctx, key)
-}
-
-func (i InputBundle) KeyUp(ctx context.Context, key string) error {
-	return i.keyUpContext(ctx, key)
-}
-
-func (i InputBundle) keyUpContext(ctx context.Context, key string) error {
-	i.traceAction("input", "key-up key=%q", key)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.KeyUp(ctx, key)
-}
-
-func (i InputBundle) MouseClick(ctx context.Context, x, y, button int) error {
-	return i.mouseClickContext(ctx, x, y, button)
-}
-
-func (i InputBundle) mouseClickContext(ctx context.Context, x, y, button int) error {
-	i.traceAction("input", "mouse-click x=%d y=%d button=%d", x, y, button)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.MouseClick(ctx, x, y, button)
-}
-
-func (i InputBundle) ClickCenter(ctx context.Context, rect image.Rectangle) error {
-	return i.clickCenterContext(ctx, rect)
-}
-
-func (i InputBundle) clickCenterContext(ctx context.Context, rect image.Rectangle) error {
-	i.traceAction("input", "click-center rect=%s", rect)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	x, y := rect.Min.X+rect.Dx()/2, rect.Min.Y+rect.Dy()/2
-	return i.Inputter.MouseClick(ctx, x, y, 1)
-}
-
-func (i InputBundle) DoubleClick(ctx context.Context, x, y int) error {
-	return i.doubleClickContext(ctx, x, y)
-}
-
-func (i InputBundle) doubleClickContext(ctx context.Context, x, y int) error {
-	ctx = ctxutil.Default(ctx)
-	i.traceAction("input", "double-click x=%d y=%d", x, y)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	if err := i.Inputter.MouseMove(ctx, x, y); err != nil {
-		return err
-	}
-	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
-		return err
-	}
-	if err := i.Inputter.MouseUp(ctx, 1); err != nil {
-		return err
-	}
-	t := time.NewTimer(20 * time.Millisecond)
-	select {
-	case <-t.C:
-	case <-ctx.Done():
-		t.Stop()
-		return ctx.Err()
-	}
-	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
-		return err
-	}
-	return i.Inputter.MouseUp(ctx, 1)
-}
-
-func (i InputBundle) MouseMove(ctx context.Context, x, y int) error {
-	return i.mouseMoveContext(ctx, x, y)
-}
-
-func (i InputBundle) mouseMoveContext(ctx context.Context, x, y int) error {
-	i.traceAction("input", "mouse-move x=%d y=%d", x, y)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.MouseMove(ctx, x, y)
-}
-
-func (i InputBundle) MouseDown(ctx context.Context, button int) error {
-	return i.mouseDownContext(ctx, button)
-}
-
-func (i InputBundle) mouseDownContext(ctx context.Context, button int) error {
-	i.traceAction("input", "mouse-down button=%d", button)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.MouseDown(ctx, button)
-}
-
-func (i InputBundle) MouseUp(ctx context.Context, button int) error {
-	return i.mouseUpContext(ctx, button)
-}
-
-func (i InputBundle) mouseUpContext(ctx context.Context, button int) error {
-	i.traceAction("input", "mouse-up button=%d", button)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.MouseUp(ctx, button)
-}
-
-func (i InputBundle) ScrollUp(ctx context.Context, clicks int) error {
-	return i.scrollUpContext(ctx, clicks)
-}
-
-func (i InputBundle) scrollUpContext(ctx context.Context, clicks int) error {
-	i.traceAction("input", "scroll-up clicks=%d", clicks)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.ScrollUp(ctx, clicks)
-}
-
-func (i InputBundle) ScrollDown(ctx context.Context, clicks int) error {
-	return i.scrollDownContext(ctx, clicks)
-}
-
-func (i InputBundle) scrollDownContext(ctx context.Context, clicks int) error {
-	i.traceAction("input", "scroll-down clicks=%d", clicks)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.ScrollDown(ctx, clicks)
-}
-
-func (i InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
-	return i.scrollLeftContext(ctx, clicks)
-}
-
-func (i InputBundle) scrollLeftContext(ctx context.Context, clicks int) error {
-	i.traceAction("input", "scroll-left clicks=%d", clicks)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.ScrollLeft(ctx, clicks)
-}
-
-func (i InputBundle) ScrollRight(ctx context.Context, clicks int) error {
-	return i.scrollRightContext(ctx, clicks)
-}
-
-func (i InputBundle) scrollRightContext(ctx context.Context, clicks int) error {
-	i.traceAction("input", "scroll-right clicks=%d", clicks)
-	if err := i.checkAvailable(); err != nil {
-		return err
-	}
-	return i.Inputter.ScrollRight(ctx, clicks)
-}
-
-func (i InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
-	i.traceAction("input", "pointer-location")
-	if err := i.checkAvailable(); err != nil {
-		return 0, 0, err
-	}
-	return i.Inputter.PointerLocation(ctx)
-}
-
-func (i InputBundle) Sync(ctx context.Context) error {
-	type syncer interface {
-		Sync(context.Context) error
-	}
-	if s, ok := i.Inputter.(syncer); ok {
-		return s.Sync(ctx)
+func (b *InputBundle) checkAvailable(operation string) error {
+	if b == nil || b.backend == nil {
+		return b.unavailable(operation)
 	}
 	return nil
 }
 
-func (i InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
-	return i.dragAndDropContext(ctx, x1, y1, x2, y2)
+func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
+	if err := b.checkAvailable("keyboard"); err != nil {
+		return err
+	}
+	b.traceAction("input", "key-down %s", key)
+	return b.backend.KeyDown(ctx, key)
 }
 
-func (i InputBundle) dragAndDropContext(ctx context.Context, x1, y1, x2, y2 int) error {
+func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
+	if err := b.checkAvailable("keyboard"); err != nil {
+		return err
+	}
+	b.traceAction("input", "key-up %s", key)
+	return b.backend.KeyUp(ctx, key)
+}
+
+func (b *InputBundle) Type(ctx context.Context, text string) error {
+	return b.typeContext(ctx, text)
+}
+
+func (b *InputBundle) typeContext(ctx context.Context, text string) error {
+	if err := b.checkAvailable("keyboard"); err != nil {
+		return err
+	}
+	b.traceAction("input", "type")
+	return b.backend.Type(ctx, text)
+}
+
+func (b *InputBundle) MouseMove(
+	ctx context.Context,
+	x int,
+	y int,
+) error {
+	if err := b.checkAvailable("pointer"); err != nil {
+		return err
+	}
+	b.traceAction("input", "mouse-move %d,%d", x, y)
+	return b.backend.MouseMove(ctx, x, y)
+}
+
+func (b *InputBundle) MouseClick(
+	ctx context.Context,
+	x int,
+	y int,
+	button int,
+) error {
+	if err := b.checkAvailable("click"); err != nil {
+		return err
+	}
+	b.traceAction("input", "mouse-click %d,%d,%d", x, y, button)
+	return b.backend.MouseClick(ctx, x, y, button)
+}
+
+func (b *InputBundle) ClickCenter(
+	ctx context.Context,
+	rect image.Rectangle,
+) error {
+	return b.MouseClick(
+		ctx,
+		rect.Min.X+rect.Dx()/2,
+		rect.Min.Y+rect.Dy()/2,
+		1,
+	)
+}
+
+func (b *InputBundle) DoubleClick(
+	ctx context.Context,
+	x int,
+	y int,
+) error {
 	ctx = ctxutil.Default(ctx)
-	i.traceAction("input", "drag-and-drop x1=%d y1=%d x2=%d y2=%d", x1, y1, x2, y2)
-	if err := i.checkAvailable(); err != nil {
+	if err := b.checkAvailable("click"); err != nil {
 		return err
 	}
-	if err := i.Inputter.MouseMove(ctx, x1, y1); err != nil {
+	if err := b.backend.MouseMove(ctx, x, y); err != nil {
 		return err
 	}
-	if err := i.Inputter.MouseDown(ctx, 1); err != nil {
+	if err := b.backend.MouseDown(ctx, 1); err != nil {
+		return err
+	}
+	if err := b.backend.MouseUp(ctx, 1); err != nil {
+		return err
+	}
+	timer := time.NewTimer(20 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+	if err := b.backend.MouseDown(ctx, 1); err != nil {
+		return err
+	}
+	return b.backend.MouseUp(ctx, 1)
+}
+
+func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
+	if err := b.checkAvailable("click"); err != nil {
+		return err
+	}
+	b.traceAction("input", "mouse-down %d", button)
+	return b.backend.MouseDown(ctx, button)
+}
+
+func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
+	if err := b.checkAvailable("click"); err != nil {
+		return err
+	}
+	b.traceAction("input", "mouse-up %d", button)
+	return b.backend.MouseUp(ctx, button)
+}
+
+func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
+	if err := b.checkAvailable("scroll"); err != nil {
+		return err
+	}
+	return b.backend.ScrollUp(ctx, clicks)
+}
+
+func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
+	if err := b.checkAvailable("scroll"); err != nil {
+		return err
+	}
+	return b.backend.ScrollDown(ctx, clicks)
+}
+
+func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
+	if err := b.checkAvailable("scroll"); err != nil {
+		return err
+	}
+	return b.backend.ScrollLeft(ctx, clicks)
+}
+
+func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
+	if err := b.checkAvailable("scroll"); err != nil {
+		return err
+	}
+	return b.backend.ScrollRight(ctx, clicks)
+}
+
+func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
+	if err := b.checkAvailable("pointer"); err != nil {
+		return 0, 0, err
+	}
+	return b.backend.PointerLocation(ctx)
+}
+
+func (b *InputBundle) Sync(ctx context.Context) error {
+	if err := b.checkAvailable("sync"); err != nil {
+		return err
+	}
+	type syncer interface {
+		Sync(context.Context) error
+	}
+	if backend, ok := b.backend.(syncer); ok {
+		return backend.Sync(ctx)
+	}
+	return nil
+}
+
+func (b *InputBundle) DragAndDrop(
+	ctx context.Context,
+	x1 int,
+	y1 int,
+	x2 int,
+	y2 int,
+) error {
+	ctx = ctxutil.Default(ctx)
+	if err := b.checkAvailable("drag"); err != nil {
+		return err
+	}
+	if err := b.backend.MouseMove(ctx, x1, y1); err != nil {
+		return err
+	}
+	if err := b.backend.MouseDown(ctx, 1); err != nil {
 		return err
 	}
 	released := false
 	defer func() {
 		if !released {
-			cleanupCtx := context.WithoutCancel(ctx)
-			_ = i.Inputter.MouseUp(cleanupCtx, 1)
+			_ = b.backend.MouseUp(context.WithoutCancel(ctx), 1)
 		}
 	}()
-	if err := i.Inputter.MouseMove(ctx, x2, y2); err != nil {
+	if err := b.backend.MouseMove(ctx, x2, y2); err != nil {
 		return err
 	}
 	released = true
-	return i.Inputter.MouseUp(ctx, 1)
+	return b.backend.MouseUp(ctx, 1)
 }
