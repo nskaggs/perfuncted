@@ -430,10 +430,10 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 
 // XDG returns the resolved XDG runtime directory for the session.
 func (s *Session) XDG() string {
-	if s.infra != nil {
-		return s.infra.xdgDir
+	if s == nil {
+		return ""
 	}
-	return os.Getenv("XDG_RUNTIME_DIR")
+	return s.env.Get("XDG_RUNTIME_DIR")
 }
 
 // DBusAddress returns the session D-Bus bus address.

@@ -251,9 +251,15 @@ func TestLaunchRoutesEnvironmentAndIgnoresLaterContextCancellation(
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
+	if app.Exited() {
+		t.Fatal("application reported exited immediately after launch")
+	}
 	cancel()
 	if err := app.Wait(context.Background()); err != nil {
 		t.Fatalf("Wait after launch cancellation: %v", err)
+	}
+	if !app.Exited() {
+		t.Fatal("application did not report exited after Wait")
 	}
 	if got := stdout.String(); got != "caller|target-wayland" {
 		t.Fatalf("stdout = %q", got)

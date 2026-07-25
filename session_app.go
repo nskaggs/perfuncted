@@ -172,6 +172,19 @@ func (a *Application) Path() string {
 	return a.path
 }
 
+// Exited reports whether the application has been reaped.
+func (a *Application) Exited() bool {
+	if a == nil {
+		return true
+	}
+	select {
+	case <-a.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Stop sends SIGTERM to the application process group and waits for ctx.
 func (a *Application) Stop(ctx context.Context) error {
 	if a == nil || a.pid <= 0 {
