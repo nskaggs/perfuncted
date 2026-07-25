@@ -15,14 +15,6 @@ type InputBundle struct {
 	bundleBase
 }
 
-func (b *InputBundle) close() error {
-	if b == nil || b.backend == nil {
-		return nil
-	}
-	b.traceAction("input", "close")
-	return b.backend.Close()
-}
-
 func (b *InputBundle) checkAvailable(operation string) error {
 	if b == nil || b.backend == nil {
 		return b.unavailable(operation)

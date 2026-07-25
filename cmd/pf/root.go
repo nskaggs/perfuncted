@@ -137,12 +137,12 @@ func newRootCmd(openPFFactory func(*cliConfig) func() (*perfuncted.Session, erro
 	infoOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	runOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	root.AddCommand(
-		screenCmd(screenOpen, cfg),
+		screenCmd(screenOpen),
 		inputCmd(inputOpen, cfg),
 		windowCmd(windowOpen, cfg),
 		outputCmd(outputOpen),
 		findCmd(screenOpen),
-		runCmd(root, runOpen),
+		runCmd(runOpen),
 		clipboardCmd(clipboardOpen),
 		infoCmd(infoOpen),
 		sessionCmd(),

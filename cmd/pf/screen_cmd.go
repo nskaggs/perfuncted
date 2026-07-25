@@ -16,7 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func screenCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobra.Command {
+//nolint:gocyclo // Cobra command assembly is intentionally centralized
+func screenCmd(
+	openPF func() (*perfuncted.Session, error),
+) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
 	var rectFlag, outFlag string
@@ -219,7 +222,8 @@ Runs until --duration expires or Ctrl+C.`,
 					return err
 				}
 				ts := time.Now().Format("15:04:05.000")
-				if first {
+				switch {
+				case first:
 					if mode == outputModeJSON {
 						if err := enc.Encode(map[string]any{"timestamp": ts, "hash": fmt.Sprintf("0x%08x", h), "event": "initial"}); err != nil {
 							return err
@@ -230,7 +234,7 @@ Runs until --duration expires or Ctrl+C.`,
 					last = h
 					first = false
 					streak = 1
-				} else if h != last {
+				case h != last:
 					elapsed := time.Since(start)
 					if mode == outputModeJSON {
 						if err := enc.Encode(map[string]any{"timestamp": ts, "hash": fmt.Sprintf("0x%08x", h), "event": "change", "elapsed": elapsed.Round(time.Millisecond).String(), "stable": streak}); err != nil {
@@ -242,7 +246,7 @@ Runs until --duration expires or Ctrl+C.`,
 					last = h
 					start = time.Now()
 					streak = 1
-				} else {
+				default:
 					streak++
 				}
 				timer := time.NewTimer(poll)

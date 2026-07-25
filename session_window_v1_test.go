@@ -282,8 +282,10 @@ func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 		NativeID: "kwin-{opaque-id}",
 		Title:    "New title",
 	})
-	if err := target.Activate(context.Background()); err != nil {
-		t.Fatalf("Activate: %v", err)
+	if activateErr := target.Activate(
+		context.Background(),
+	); activateErr != nil {
+		t.Fatalf("Activate: %v", activateErr)
 	}
 	info, err := target.Info(context.Background())
 	if err != nil {

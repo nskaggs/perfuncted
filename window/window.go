@@ -52,39 +52,14 @@ type Info struct {
 	Fullscreen bool
 }
 
-// Manager lists and controls desktop windows.
-//
-// All title-based methods use case-insensitive substring matching as a
-// shorthand; more specific matching is exposed via window.Match helpers.
+// Manager discovers desktop windows.
 type Manager interface {
 	// List returns all visible top-level windows.
 	List(ctx context.Context) ([]Info, error)
 	// IterateWindows returns an iterator over all visible top-level windows.
 	IterateWindows(ctx context.Context) iter.Seq2[Info, error]
-	// Activate brings the window matching title to the foreground.
-	Activate(ctx context.Context, title string) error
-	// Move repositions the window matching title to (x, y).
-	Move(ctx context.Context, title string, x, y int) error
-	// Resize changes the dimensions of the window matching title.
-	Resize(ctx context.Context, title string, w, h int) error
 	// ActiveTitle returns the title of the currently focused window.
 	ActiveTitle(ctx context.Context) (string, error)
-	// CloseWindow closes the window matching title.
-	CloseWindow(ctx context.Context, title string) error
-	// Minimize minimizes the window matching title.
-	Minimize(ctx context.Context, title string) error
-	// Maximize maximizes the window matching title.
-	Maximize(ctx context.Context, title string) error
-	// Fullscreen requests fullscreen state for the window matching title.
-	Fullscreen(ctx context.Context, title string) error
-	// Unfullscreen exits fullscreen state for the window matching title.
-	Unfullscreen(ctx context.Context, title string) error
-	// Restore restores the window matching title.
-	//
-	// The semantics are backend-defined but should aim to return the window to
-	// a normal (unminimized, unmaximized) visible state. If a backend cannot
-	// perform a restore, it should return ErrNotSupported.
-	Restore(ctx context.Context, title string) error
 	// Close releases backend resources.
 	Close() error
 }

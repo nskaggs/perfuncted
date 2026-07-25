@@ -62,7 +62,7 @@ type sessionInfra struct {
 	swayCmd    *exec.Cmd
 	dbusCmd    *exec.Cmd
 	wlPasteCmd *exec.Cmd
-	ctx        context.Context
+	ctx        context.Context //nolint:containedctx // infrastructure owns this context
 	cancel     context.CancelFunc
 	mu         sync.Mutex
 	stopped    bool
@@ -85,7 +85,7 @@ type Session struct {
 	infra        *sessionInfra
 	capabilities map[Capability]CapabilityStatus
 
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // session owns this context
 	cancel context.CancelFunc
 
 	lifecycleMu sync.Mutex
@@ -141,7 +141,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	}
 
 	if err := s.initializeCapabilities(cfg); err != nil {
-		closeErr := s.Close()
+		closeErr := s.Close() //nolint:contextcheck // Close owns its shutdown contexts
 		return nil, errors.Join(err, closeErr)
 	}
 
@@ -474,18 +474,18 @@ func (s *Session) startSession(
 	if err != nil {
 		return nil, fmt.Errorf("session: mkdirtemp: %w", err)
 	}
-	if err := os.Chmod(xdgDir, 0700); err != nil {
+	if chmodErr := os.Chmod(xdgDir, 0700); chmodErr != nil {
 		os.RemoveAll(xdgDir)
-		return nil, fmt.Errorf("session: chmod: %w", err)
+		return nil, fmt.Errorf("session: chmod: %w", chmodErr)
 	}
 
 	logDir := config.LogDir
 	if logDir == "" {
 		logDir = filepath.Join(os.TempDir(), "perfuncted-logs")
 	}
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if mkdirErr := os.MkdirAll(logDir, 0755); mkdirErr != nil {
 		os.RemoveAll(xdgDir)
-		return nil, fmt.Errorf("session: mkdir logs: %w", err)
+		return nil, fmt.Errorf("session: mkdir logs: %w", mkdirErr)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -499,16 +499,22 @@ func (s *Session) startSession(
 	}
 
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+	if writeErr := os.WriteFile(
+		pidPath,
+		[]byte(strconv.Itoa(os.Getpid())),
+		0644,
+	); writeErr != nil {
 		infra.stop()
-		return nil, fmt.Errorf("session: write owner pidfile: %w", err)
+		return nil, fmt.Errorf("session: write owner pidfile: %w", writeErr)
 	}
 
-	infra.unregister = infra.CleanupOnSignal(infra.ctx)
+	infra.unregister = infra.CleanupOnSignal( //nolint:contextcheck // infrastructure owns this lifecycle
+		infra.ctx,
+	)
 
-	if err := infra.launchDBus(); err != nil {
+	if launchErr := infra.launchDBus(); launchErr != nil {
 		infra.stop()
-		return nil, fmt.Errorf("session: dbus: %w", err)
+		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
 
 	swayConf := config.SwayConfigPath

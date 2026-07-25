@@ -243,71 +243,7 @@ func parseInt(s string) int {
 	return 0
 }
 
-func kwinJSString(s string) string {
-	return strconv.Quote(strings.ToLower(s))
-}
-
-// kwinFindWindowScript generates JS that iterates workspace.windowList(),
-// finds the first window whose lowercased caption contains substrJS, runs
-// actionJS on it, and calls back via callDBus with the matched caption
-// (or empty string if not found). substrJS must already be a quoted JS string literal.
 const kwinScriptErrorPrefix = "__pf_error__:"
-
-func kwinFindWindowScript(substrJS, svc, actionJS string) string {
-	return fmt.Sprintf(`
-var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
-var wins = listFunc();
-var found = '';
-try {
-    for (var i = 0; i < wins.length; i++) {
-        var w = wins[i];
-        if (w.caption.toLowerCase().indexOf(%s) !== -1) {
-            found = w.caption;
-            %s
-            break;
-        }
-    }
-} catch(e) {
-    found = %q + String(e);
-}
-callDBus('%s', '/', '%s', 'ReportWindows', found);
-`, substrJS, actionJS, kwinScriptErrorPrefix, svc, svc)
-}
-
-func kwinWindowActionResult(title, result string) error {
-	if strings.HasPrefix(result, kwinScriptErrorPrefix) {
-		return fmt.Errorf("window/kwinscript: action on %q failed: %s", title, strings.TrimPrefix(result, kwinScriptErrorPrefix))
-	}
-	if result == "" {
-		return fmt.Errorf("window: window matching %q not found", title)
-	}
-	return nil
-}
-
-// Activate raises and focuses the first window whose title contains substr.
-func (k *KWinScriptManager) Activate(ctx context.Context, title string) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		return kwinFindWindowScript(safe, svc,
-			"w.minimized = false;\n            (typeof workspace.activateWindow === \"function\") ? workspace.activateWindow(w) : workspace.activeClient = w;")
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
-
-// Restore restores the first window whose title contains substr.
-func (k *KWinScriptManager) Restore(ctx context.Context, title string) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		return kwinFindWindowScript(safe, svc, "w.setMaximize(false, false); w.minimized = false;")
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
 
 // ActiveTitle returns the caption of the currently focused window.
 func (k *KWinScriptManager) ActiveTitle(ctx context.Context) (string, error) {
@@ -319,82 +255,8 @@ callDBus('%s', '/', '%s', 'ReportWindows', w ? w.caption : '');
 	})
 }
 
-// Move repositions the first window whose title contains substr via KWin scripting.
-func (k *KWinScriptManager) Move(ctx context.Context, title string, x, y int) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		action := fmt.Sprintf(
-			"var g = w.frameGeometry;\n            w.frameGeometry = {x: %d, y: %d, width: Math.round(g.width), height: Math.round(g.height)};",
-			x, y)
-		return kwinFindWindowScript(safe, svc, action)
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
-
-// Resize changes the dimensions of the first window whose title contains substr via KWin scripting.
-func (k *KWinScriptManager) Resize(ctx context.Context, title string, w, h int) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		action := fmt.Sprintf(
-			"var g = w.frameGeometry;\n            w.frameGeometry = {x: Math.round(g.x), y: Math.round(g.y), width: %d, height: %d};",
-			w, h)
-		return kwinFindWindowScript(safe, svc, action)
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
-
 // Close is a no-op; the session bus connection is shared and managed globally.
 func (k *KWinScriptManager) Close() error { return nil }
-
-// CloseWindow closes the first window whose title contains substr.
-func (k *KWinScriptManager) CloseWindow(ctx context.Context, title string) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		return kwinFindWindowScript(safe, svc, "w.closeWindow();")
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
-
-// Minimize minimizes the first window whose title contains substr.
-func (k *KWinScriptManager) Minimize(ctx context.Context, title string) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		return kwinFindWindowScript(safe, svc, "w.minimized = true;")
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
-
-// Maximize maximizes the first window whose title contains substr.
-func (k *KWinScriptManager) Maximize(ctx context.Context, title string) error {
-	safe := kwinJSString(title)
-	result, err := k.runScript(ctx, func(svc string) string {
-		return kwinFindWindowScript(safe, svc, "w.setMaximize(true, true);")
-	})
-	if err != nil {
-		return err
-	}
-	return kwinWindowActionResult(title, result)
-}
-
-func (k *KWinScriptManager) Fullscreen(ctx context.Context, title string) error {
-	return ErrNotSupported
-}
-
-func (k *KWinScriptManager) Unfullscreen(ctx context.Context, title string) error {
-	return ErrNotSupported
-}
 
 func (k *KWinScriptManager) Sync(ctx context.Context) error {
 	return nil

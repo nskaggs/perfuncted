@@ -126,62 +126,61 @@ func TestX11Backend_List_UnexpectedFormat(t *testing.T) {
 	}
 }
 
-// runX11ActionTest is a table-helper for window actions that find a window by
-// title then send an event (Activate, CloseWindow, Minimize, Maximize).
-func runX11ActionTest(t *testing.T, name, title string, action func(*X11Backend, context.Context, string) error) {
+// runX11ActionTest is a table-helper for ID-based actions that send an event.
+func runX11ActionTest(t *testing.T, name string, action func(*X11Backend, context.Context, string) error) {
 	t.Helper()
-	t.Run("Window exists", func(t *testing.T) {
+	t.Run("valid ID", func(t *testing.T) {
 		var events []string
-		b, conn := newStubX11Backend(t, true, title)
+		b, conn := newStubX11Backend(t, true, name)
 		conn.SendEventCheckedFunc = func(p bool, dest xproto.Window, mask uint32, ev string) x11.SendEventCookie {
 			events = append(events, ev)
 			return &x11.MockCheckCookie{}
 		}
-		if err := action(b, context.Background(), title); err != nil {
+		if err := action(b, context.Background(), "50"); err != nil {
 			t.Errorf("%s() unexpected error: %v", name, err)
 		}
 		if len(events) == 0 {
 			t.Errorf("%s() did not send event", name)
 		}
 	})
-	t.Run("Window does not exist", func(t *testing.T) {
+	t.Run("invalid ID", func(t *testing.T) {
 		b, _ := newStubX11Backend(t, false, "")
-		err := action(b, context.Background(), "Nonexistent")
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("%s() error = %v, want error containing %q", name, err, "not found")
+		err := action(b, context.Background(), "not-a-number")
+		if err == nil {
+			t.Errorf("%s() error = nil, want invalid ID error", name)
 		}
 	})
 }
 
-func TestX11Backend_Activate(t *testing.T) {
-	runX11ActionTest(t, "Activate", "ActivateMe", func(b *X11Backend, ctx context.Context, title string) error {
-		return b.Activate(ctx, title)
+func TestX11Backend_ActivateByID(t *testing.T) {
+	runX11ActionTest(t, "ActivateByID", func(b *X11Backend, ctx context.Context, id string) error {
+		return b.ActivateByID(ctx, id)
 	})
 }
 
-func TestX11Backend_CloseWindow(t *testing.T) {
-	runX11ActionTest(t, "CloseWindow", "CloseMe", func(b *X11Backend, ctx context.Context, title string) error {
-		return b.CloseWindow(ctx, title)
+func TestX11Backend_CloseWindowByID(t *testing.T) {
+	runX11ActionTest(t, "CloseWindowByID", func(b *X11Backend, ctx context.Context, id string) error {
+		return b.CloseWindowByID(ctx, id)
 	})
 }
 
-func TestX11Backend_Minimize(t *testing.T) {
-	runX11ActionTest(t, "Minimize", "MinimizeMe", func(b *X11Backend, ctx context.Context, title string) error {
-		return b.Minimize(ctx, title)
+func TestX11Backend_MinimizeByID(t *testing.T) {
+	runX11ActionTest(t, "MinimizeByID", func(b *X11Backend, ctx context.Context, id string) error {
+		return b.MinimizeByID(ctx, id)
 	})
 }
 
-func TestX11Backend_Maximize(t *testing.T) {
-	runX11ActionTest(t, "Maximize", "MaximizeMe", func(b *X11Backend, ctx context.Context, title string) error {
-		return b.Maximize(ctx, title)
+func TestX11Backend_MaximizeByID(t *testing.T) {
+	runX11ActionTest(t, "MaximizeByID", func(b *X11Backend, ctx context.Context, id string) error {
+		return b.MaximizeByID(ctx, id)
 	})
 }
 
-func TestX11Backend_Restore(t *testing.T) {
-	t.Run("Window exists", func(t *testing.T) {
+func TestX11Backend_RestoreByID(t *testing.T) {
+	t.Run("valid ID", func(t *testing.T) {
 		var events []string
 		var mapped []xproto.Window
-		b, conn := newStubX11Backend(t, true, "RestoreMe")
+		b, conn := newStubX11Backend(t, true, "RestoreByID")
 		conn.SendEventCheckedFunc = func(p bool, dest xproto.Window, mask uint32, ev string) x11.SendEventCookie {
 			events = append(events, ev)
 			return &x11.MockCheckCookie{}
@@ -190,27 +189,26 @@ func TestX11Backend_Restore(t *testing.T) {
 			mapped = append(mapped, w)
 			return &x11.MockCheckCookie{}
 		}
-		if err := b.Restore(context.Background(), "RestoreMe"); err != nil {
-			t.Errorf("Restore() unexpected error: %v", err)
+		if err := b.RestoreByID(context.Background(), "50"); err != nil {
+			t.Errorf("RestoreByID() unexpected error: %v", err)
 		}
 		if len(events) == 0 {
-			t.Errorf("Restore() did not send event")
+			t.Errorf("RestoreByID() did not send event")
 		}
 		if len(mapped) == 0 {
-			t.Errorf("Restore() did not map window")
+			t.Errorf("RestoreByID() did not map window")
 		}
 	})
-	t.Run("Window does not exist", func(t *testing.T) {
+	t.Run("invalid ID", func(t *testing.T) {
 		b, _ := newStubX11Backend(t, false, "")
-		err := b.Restore(context.Background(), "Nonexistent")
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("Restore() error = %v, want error containing %q", err, "not found")
+		if err := b.RestoreByID(context.Background(), "not-a-number"); err == nil {
+			t.Error("RestoreByID() error = nil, want invalid ID error")
 		}
 	})
 }
 
-func TestX11Backend_Move(t *testing.T) { //nolint:dupl
-	t.Run("Window exists", func(t *testing.T) {
+func TestX11Backend_MoveByID(t *testing.T) { //nolint:dupl
+	t.Run("valid ID", func(t *testing.T) {
 		var cfg []struct {
 			mask   uint16
 			values []uint32
@@ -223,24 +221,23 @@ func TestX11Backend_Move(t *testing.T) { //nolint:dupl
 			}{mask, vals})
 			return &x11.MockCheckCookie{}
 		}
-		if err := b.Move(context.Background(), "MoveMe", 100, 200); err != nil {
-			t.Errorf("Move() unexpected error: %v", err)
+		if err := b.MoveByID(context.Background(), "50", 100, 200); err != nil {
+			t.Errorf("MoveByID() unexpected error: %v", err)
 		}
 		if len(cfg) == 0 {
-			t.Errorf("Move() did not configure window")
+			t.Errorf("MoveByID() did not configure window")
 		}
 	})
-	t.Run("Window does not exist", func(t *testing.T) {
+	t.Run("invalid ID", func(t *testing.T) {
 		b, _ := newStubX11Backend(t, false, "")
-		err := b.Move(context.Background(), "Nonexistent", 100, 200)
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("Move() error = %v, want error containing %q", err, "not found")
+		if err := b.MoveByID(context.Background(), "not-a-number", 100, 200); err == nil {
+			t.Error("MoveByID() error = nil, want invalid ID error")
 		}
 	})
 }
 
-func TestX11Backend_Resize(t *testing.T) { //nolint:dupl
-	t.Run("Window exists", func(t *testing.T) {
+func TestX11Backend_ResizeByID(t *testing.T) { //nolint:dupl
+	t.Run("valid ID", func(t *testing.T) {
 		var cfg []struct {
 			mask   uint16
 			values []uint32
@@ -253,18 +250,17 @@ func TestX11Backend_Resize(t *testing.T) { //nolint:dupl
 			}{mask, vals})
 			return &x11.MockCheckCookie{}
 		}
-		if err := b.Resize(context.Background(), "ResizeMe", 1024, 768); err != nil {
-			t.Errorf("Resize() unexpected error: %v", err)
+		if err := b.ResizeByID(context.Background(), "50", 1024, 768); err != nil {
+			t.Errorf("ResizeByID() unexpected error: %v", err)
 		}
 		if len(cfg) == 0 {
-			t.Errorf("Resize() did not configure window")
+			t.Errorf("ResizeByID() did not configure window")
 		}
 	})
-	t.Run("Window does not exist", func(t *testing.T) {
+	t.Run("invalid ID", func(t *testing.T) {
 		b, _ := newStubX11Backend(t, false, "")
-		err := b.Resize(context.Background(), "Nonexistent", 1024, 768)
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("Resize() error = %v, want error containing %q", err, "not found")
+		if err := b.ResizeByID(context.Background(), "not-a-number", 1024, 768); err == nil {
+			t.Error("ResizeByID() error = nil, want invalid ID error")
 		}
 	})
 }
@@ -298,21 +294,6 @@ func TestX11Backend_ActiveTitle_NoActive(t *testing.T) {
 	}
 	if title != "" {
 		t.Errorf("ActiveTitle() = %q, want empty", title)
-	}
-}
-
-func TestX11Backend_findByTitle(t *testing.T) {
-	b, _ := newStubX11Backend(t, true, "My Test Window")
-	win, err := b.findByTitle(context.Background(), "My Test Window")
-	if err != nil {
-		t.Errorf("findByTitle(exact) unexpected error: %v", err)
-	}
-	if win != xproto.Window(50) {
-		t.Errorf("findByTitle(exact) = %d, want 50", win)
-	}
-	_, err = b.findByTitle(context.Background(), "Nonexistent")
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Errorf("findByTitle(no match) error = %v, want error containing %q", err, "not found")
 	}
 }
 

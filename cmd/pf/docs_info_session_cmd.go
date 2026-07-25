@@ -116,17 +116,6 @@ func infoCmd(
 	return cmd
 }
 
-func probeMarker(selected, available bool) string {
-	switch {
-	case selected:
-		return "  [✓]"
-	case available:
-		return "  [·]"
-	default:
-		return "  [ ]"
-	}
-}
-
 // ── session ───────────────────────────────────────────────────────────────────────────
 
 func sessionCmd() *cobra.Command {

@@ -278,44 +278,6 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 	}
 }
 
-// findByTitle returns the first window whose title contains the given string (case-insensitive).
-func (b *X11Backend) findByTitle(ctx context.Context, title string) (xproto.Window, error) {
-	info, err := FindByTitle(ctx, b, title)
-	if err != nil {
-		return 0, fmt.Errorf("window/x11: %w", err)
-	}
-	return xproto.Window(info.ID), nil
-}
-
-// Activate raises and focuses a window by title using _NET_ACTIVE_WINDOW.
-func (b *X11Backend) Activate(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	data := []uint32{1, uint32(xproto.TimeCurrentTime), 0, 0, 0}
-	return b.conn.SendEventChecked(false, b.root,
-		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
-		string(xproto.ClientMessageEvent{
-			Format: 32,
-			Window: win,
-			Type:   b.atomNetActiveWindow,
-			Data:   xproto.ClientMessageDataUnionData32New(data),
-		}.Bytes())).Check()
-}
-
-// Restore restores the window by removing maximized states and mapping it.
-func (b *X11Backend) Restore(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	if err := b.setWMState(win, 0, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz); err != nil {
-		return err
-	}
-	return b.conn.MapWindowChecked(win).Check()
-}
-
 func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xproto.Atom) error {
 	var data [5]uint32
 	data[0] = action
@@ -331,28 +293,6 @@ func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xprot
 			Type:   b.atomNetWMState,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
 		}.Bytes())).Check()
-}
-
-// Move repositions a window by title.
-func (b *X11Backend) Move(ctx context.Context, title string, x, y int) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.conn.ConfigureWindowChecked(win,
-		xproto.ConfigWindowX|xproto.ConfigWindowY,
-		[]uint32{uint32(x), uint32(y)}).Check()
-}
-
-// Resize changes window dimensions by title.
-func (b *X11Backend) Resize(ctx context.Context, title string, w, h int) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.conn.ConfigureWindowChecked(win,
-		xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
-		[]uint32{uint32(w), uint32(h)}).Check()
 }
 
 // ActiveTitle returns the title of the currently focused window.
@@ -390,81 +330,6 @@ func (b *X11Backend) SupportedOperations() []string {
 		"fullscreen",
 		"restore",
 	}
-}
-
-// CloseWindow sends a WM_DELETE_WINDOW message to close the window gracefully.
-func (b *X11Backend) CloseWindow(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	// Intern WM_DELETE_WINDOW and WM_PROTOCOLS atoms.
-	const wmDeleteWindow = "WM_DELETE_WINDOW"
-	const wmProtocols = "WM_PROTOCOLS"
-	delAtom, err := b.conn.InternAtom(false, uint16(len(wmDeleteWindow)), wmDeleteWindow).Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: %w", err)
-	}
-	protoAtom, err := b.conn.InternAtom(false, uint16(len(wmProtocols)), wmProtocols).Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: %w", err)
-	}
-	data := [5]uint32{uint32(delAtom.Atom), uint32(xproto.TimeCurrentTime), 0, 0, 0}
-	return b.conn.SendEventChecked(false, win, 0,
-		string(xproto.ClientMessageEvent{
-			Format: 32,
-			Window: win,
-			Type:   protoAtom.Atom,
-			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
-		}.Bytes())).Check()
-}
-
-// Minimize iconifies the window by setting _NET_WM_STATE_HIDDEN via the WM.
-func (b *X11Backend) Minimize(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	// Use XIconifyWindow via ChangeProperty with WM_CHANGE_STATE.
-	const wmChangeState = "WM_CHANGE_STATE"
-	csAtom, err := b.conn.InternAtom(false, uint16(len(wmChangeState)), wmChangeState).Reply()
-	if err != nil {
-		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: %w", err)
-	}
-	data := [5]uint32{3 /* IconicState */, 0, 0, 0, 0}
-	return b.conn.SendEventChecked(false, b.root,
-		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
-		string(xproto.ClientMessageEvent{
-			Format: 32,
-			Window: win,
-			Type:   csAtom.Atom,
-			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
-		}.Bytes())).Check()
-}
-
-// Maximize sets _NET_WM_STATE_MAXIMIZED_VERT and _NET_WM_STATE_MAXIMIZED_HORZ.
-func (b *X11Backend) Maximize(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
-}
-
-func (b *X11Backend) Fullscreen(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.setWMState(win, 1, b.atomNetWMStateFullscreen)
-}
-
-func (b *X11Backend) Unfullscreen(ctx context.Context, title string) error {
-	win, err := b.findByTitle(ctx, title)
-	if err != nil {
-		return err
-	}
-	return b.setWMState(win, 0, b.atomNetWMStateFullscreen)
 }
 
 // --- Handle-based operations ---

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"iter"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -134,57 +133,9 @@ JSON.stringify(
 	}
 }
 
-func (g *GnomeManager) findWindow(title string) string {
-	lower := strings.ToLower(title)
-	// Returns JS expression that evaluates to the Meta.Window or null.
-	return fmt.Sprintf(`global.get_window_actors().map(a=>a.get_meta_window()).find(w=>(w.get_title()||"").toLowerCase().includes(%q))`, lower)
-}
-
-func (g *GnomeManager) actOnWindow(title, action string) error {
-	js := fmt.Sprintf(`(function(){ let w=%s; if(!w) throw "not found"; %s; return "ok"; })()`, g.findWindow(title), action)
-	_, err := g.eval(js)
-	return err
-}
-
-func (g *GnomeManager) Activate(ctx context.Context, title string) error {
-	return g.actOnWindow(title, `w.activate(global.get_current_time())`)
-}
-
-func (g *GnomeManager) Restore(ctx context.Context, title string) error {
-	return g.actOnWindow(title, `w.unminimize(); w.unmaximize(3)`)
-}
-
-func (g *GnomeManager) Move(ctx context.Context, title string, x, y int) error {
-	return g.actOnWindow(title, fmt.Sprintf(`w.move_frame(true, %d, %d)`, x, y))
-}
-
-func (g *GnomeManager) Resize(ctx context.Context, title string, w, h int) error {
-	return g.actOnWindow(title, fmt.Sprintf(`w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, %d, %d)`, w, h))
-}
-
 func (g *GnomeManager) ActiveTitle(ctx context.Context) (string, error) {
 	js := `(function(){ let f=global.display.get_focus_window(); return f ? f.get_title() : ""; })()`
 	return g.eval(js)
-}
-
-func (g *GnomeManager) CloseWindow(ctx context.Context, title string) error {
-	return g.actOnWindow(title, `w.delete(global.get_current_time())`)
-}
-
-func (g *GnomeManager) Minimize(ctx context.Context, title string) error {
-	return g.actOnWindow(title, `w.minimize()`)
-}
-
-func (g *GnomeManager) Maximize(ctx context.Context, title string) error {
-	return g.actOnWindow(title, `w.maximize(3)`) // 3 = Meta.MaximizeFlags.BOTH
-}
-
-func (g *GnomeManager) Fullscreen(ctx context.Context, title string) error {
-	return ErrNotSupported
-}
-
-func (g *GnomeManager) Unfullscreen(ctx context.Context, title string) error {
-	return ErrNotSupported
 }
 
 func (g *GnomeManager) Close() error {

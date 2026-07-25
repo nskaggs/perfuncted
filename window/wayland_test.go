@@ -221,26 +221,25 @@ func sawAnyHandleRequest(ctx *mockWaylandContext, handleID uint32) bool {
 	return false
 }
 
-// TestWaylandWindowManager_Activate tests the Activate method.
-func TestWaylandWindowManager_Activate(t *testing.T) {
+func TestWaylandWindowManager_ActivateByID(t *testing.T) {
 	testCases := []struct {
 		name          string
-		windowTitle   string
+		windowID      string
 		windowExists  bool
 		expectedCmd   string
 		expectedError string
 	}{
 		{
 			name:         "Window exists",
-			windowTitle:  "Test Window",
+			windowID:     "50",
 			windowExists: true,
 			expectedCmd:  "activate", // Check for the presence of the activate request
 		},
 		{
 			name:          "Window does not exist",
-			windowTitle:   "Nonexistent Window",
+			windowID:      "999",
 			windowExists:  false,
-			expectedError: `window/wayland: window matching "Nonexistent Window" not found`,
+			expectedError: ErrWindowNotFound.Error(),
 		},
 	}
 
@@ -252,20 +251,20 @@ func TestWaylandWindowManager_Activate(t *testing.T) {
 			}
 			wm, ctx, handleID := newStubWaylandManager(title, true, tc.windowExists)
 
-			err := wm.Activate(context.Background(), tc.windowTitle)
+			err := wm.ActivateByID(context.Background(), tc.windowID)
 
 			if tc.expectedError != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.expectedError) {
-					t.Errorf("Activate(%q) error = %v, expected error containing %q", tc.windowTitle, err, tc.expectedError)
+					t.Errorf("ActivateByID(%q) error = %v, expected error containing %q", tc.windowID, err, tc.expectedError)
 				}
 			} else if err != nil {
-				t.Errorf("Activate(%q) unexpected error: %v", tc.windowTitle, err)
+				t.Errorf("ActivateByID(%q) unexpected error: %v", tc.windowID, err)
 			}
 
 			// Check if the correct message was sent
 			if tc.expectedCmd != "" && tc.expectedError == "" {
 				if !sawHandleRequest(ctx, handleID, 4) {
-					t.Errorf("Activate(%q) did not send the expected activate request", tc.windowTitle)
+					t.Errorf("ActivateByID(%q) did not send the expected activate request", tc.windowID)
 				}
 			}
 		})
@@ -282,20 +281,20 @@ func runWindowActionTest(
 	t.Helper()
 	testCases := []struct {
 		name          string
-		windowTitle   string
+		windowID      string
 		windowExists  bool
 		expectedError string
 	}{
 		{
 			name:         "Window exists",
-			windowTitle:  existingTitle,
+			windowID:     "50",
 			windowExists: true,
 		},
 		{
 			name:          "Window does not exist",
-			windowTitle:   "Nonexistent Window",
+			windowID:      "999",
 			windowExists:  false,
-			expectedError: `window/wayland: window matching "Nonexistent Window" not found`,
+			expectedError: ErrWindowNotFound.Error(),
 		},
 	}
 
@@ -307,19 +306,19 @@ func runWindowActionTest(
 			}
 			wm, ctx, handleID := newStubWaylandManager(title, true, false)
 
-			err := action(wm, context.Background(), tc.windowTitle)
+			err := action(wm, context.Background(), tc.windowID)
 
 			if tc.expectedError != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.expectedError) {
-					t.Errorf("%s(%q) error = %v, expected error containing %q", actionName, tc.windowTitle, err, tc.expectedError)
+					t.Errorf("%s(%q) error = %v, expected error containing %q", actionName, tc.windowID, err, tc.expectedError)
 				}
 			} else if err != nil {
-				t.Errorf("%s(%q) unexpected error: %v", actionName, tc.windowTitle, err)
+				t.Errorf("%s(%q) unexpected error: %v", actionName, tc.windowID, err)
 			}
 
 			if tc.expectedError == "" {
 				if !sawHandleRequest(ctx, handleID, expectedOpcode) {
-					t.Errorf("%s(%q) did not send the expected request", actionName, tc.windowTitle)
+					t.Errorf("%s(%q) did not send the expected request", actionName, tc.windowID)
 				}
 			}
 		})
@@ -327,40 +326,40 @@ func runWindowActionTest(
 }
 
 // TestWaylandWindowManager_CloseWindow tests the CloseWindow method.
-func TestWaylandWindowManager_CloseWindow(t *testing.T) {
+func TestWaylandWindowManager_CloseWindowByID(t *testing.T) {
 	runWindowActionTest(
 		t,
 		"CloseWindow",
 		"CloseMe",
 		5,
-		func(wm *WaylandWindowManager, ctx context.Context, title string) error {
-			return wm.CloseWindow(ctx, title)
+		func(wm *WaylandWindowManager, ctx context.Context, id string) error {
+			return wm.CloseWindowByID(ctx, id)
 		},
 	)
 }
 
 // TestWaylandWindowManager_Minimize tests the Minimize method.
-func TestWaylandWindowManager_Minimize(t *testing.T) {
+func TestWaylandWindowManager_MinimizeByID(t *testing.T) {
 	runWindowActionTest(
 		t,
 		"Minimize",
 		"MinimizeMe",
 		2,
-		func(wm *WaylandWindowManager, ctx context.Context, title string) error {
-			return wm.Minimize(ctx, title)
+		func(wm *WaylandWindowManager, ctx context.Context, id string) error {
+			return wm.MinimizeByID(ctx, id)
 		},
 	)
 }
 
 // TestWaylandWindowManager_Maximize tests the Maximize method.
-func TestWaylandWindowManager_Maximize(t *testing.T) {
+func TestWaylandWindowManager_MaximizeByID(t *testing.T) {
 	runWindowActionTest(
 		t,
 		"Maximize",
 		"MaximizeMe",
 		0,
-		func(wm *WaylandWindowManager, ctx context.Context, title string) error {
-			return wm.Maximize(ctx, title)
+		func(wm *WaylandWindowManager, ctx context.Context, id string) error {
+			return wm.MaximizeByID(ctx, id)
 		},
 	)
 }
@@ -468,10 +467,10 @@ func TestWaylandWindowManager_ExtForeignToplevelIsListOnly(t *testing.T) {
 	wm, ctx, _ := newStubWaylandManager("Ext Window", false, false)
 
 	for name, fn := range map[string]func() error{
-		"activate": func() error { return wm.Activate(context.Background(), "Ext Window") },
-		"close":    func() error { return wm.CloseWindow(context.Background(), "Ext Window") },
-		"minimize": func() error { return wm.Minimize(context.Background(), "Ext Window") },
-		"maximize": func() error { return wm.Maximize(context.Background(), "Ext Window") },
+		"activate": func() error { return wm.ActivateByID(context.Background(), "50") },
+		"close":    func() error { return wm.CloseWindowByID(context.Background(), "50") },
+		"minimize": func() error { return wm.MinimizeByID(context.Background(), "50") },
+		"maximize": func() error { return wm.MaximizeByID(context.Background(), "50") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := fn(); !errors.Is(err, ErrNotSupported) {
@@ -488,7 +487,7 @@ func TestWaylandWindowManager_ExtForeignToplevelIsListOnly(t *testing.T) {
 func TestWaylandWindowManager_ActivateRequiresSeat(t *testing.T) {
 	wm, ctx, _ := newStubWaylandManager("Seatless", true, false)
 
-	err := wm.Activate(context.Background(), "Seatless")
+	err := wm.ActivateByID(context.Background(), "50")
 	if !errors.Is(err, ErrNotSupported) {
 		t.Fatalf("Activate() error = %v, want ErrNotSupported", err)
 	}

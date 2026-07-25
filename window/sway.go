@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"log/slog"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -283,14 +282,6 @@ func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
 	return title, nil
 }
 
-func (m *SwayManager) findWindow(ctx context.Context, substr string) (Info, error) {
-	w, err := FindByTitle(ctx, m, substr)
-	if err != nil {
-		return Info{}, fmt.Errorf("window/sway: %w", err)
-	}
-	return w, nil
-}
-
 // swayCmd runs a sway IPC command and returns an error if sway reports failure.
 func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
 	resp, err := m.query(ctx, swayMsgRunCommand, cmd)
@@ -308,79 +299,6 @@ func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
 		return fmt.Errorf("window/sway: command failed: %s", results[0].Error)
 	}
 	return nil
-}
-
-// Activate focuses the first window whose title contains substr (case-insensitive).
-func (m *SwayManager) Activate(ctx context.Context, substr string) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] focus", int64(w.ID)))
-}
-
-// Restore is a no-op on sway as it does not have a formal restore action for scratchpad/fullscreen.
-func (m *SwayManager) Restore(ctx context.Context, substr string) error {
-	return ErrNotSupported
-}
-
-// Move repositions the first window whose title contains substr.
-// The window is made floating so it can be placed at an absolute position.
-func (m *SwayManager) Move(ctx context.Context, substr string, x, y int) error {
-	ctx = ctxutil.Default(ctx)
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
-		return err
-	}
-
-	// Wait for sway to report the window away from its tiled origin, indicating
-	// the float layout reflow is complete.
-	reflowTimeout := m.ReflowTimeout
-	if reflowTimeout <= 0 {
-		reflowTimeout = defaultReflowTimeout
-	}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	timeout := time.After(reflowTimeout)
-loop:
-	for {
-		wins, err := m.List(ctx)
-		if err != nil {
-			slog.Debug("reflow poll: List failed", "error", err)
-		} else {
-			for _, win := range wins {
-				if win.ID == w.ID && (win.X != w.X || win.Y != w.Y) {
-					break loop
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout:
-			break loop
-		case <-ticker.C:
-		}
-	}
-
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move position %d %d", int64(w.ID), x, y))
-}
-
-// Resize changes the dimensions of the first window whose title contains substr.
-func (m *SwayManager) Resize(ctx context.Context, substr string, width, height int) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(w.ID))); err != nil {
-		return err
-	}
-	cmd := fmt.Sprintf("[con_id=%d] resize set %d %d", int64(w.ID), width, height)
-	return m.swayCmd(ctx, cmd)
 }
 
 // Close releases the persistent IPC connection.
@@ -502,49 +420,6 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 		default:
 		}
 	}
-}
-
-// CloseWindow kills the first window whose title contains substr.
-func (m *SwayManager) CloseWindow(ctx context.Context, substr string) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] kill", int64(w.ID)))
-}
-
-// Minimize moves the first matching window to the scratchpad (sway's minimization).
-func (m *SwayManager) Minimize(ctx context.Context, substr string) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move scratchpad", int64(w.ID)))
-}
-
-// Maximize toggles fullscreen on the first matching window.
-func (m *SwayManager) Maximize(ctx context.Context, substr string) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
-}
-
-func (m *SwayManager) Fullscreen(ctx context.Context, substr string) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(w.ID)))
-}
-
-func (m *SwayManager) Unfullscreen(ctx context.Context, substr string) error {
-	w, err := m.findWindow(ctx, substr)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen disable", int64(w.ID)))
 }
 
 // --- Handle-based operations ---

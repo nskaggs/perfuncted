@@ -236,16 +236,15 @@ func (m *Manager) IterateWindows(ctx context.Context) iter.Seq2[window.Info, err
 	}
 }
 
-func (m *Manager) Activate(ctx context.Context, title string) error {
-	return m.ActivateContext(ctx, title)
-}
-
-func (m *Manager) ActivateContext(ctx context.Context, title string) error {
+func (m *Manager) activateContext(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if m.Err != nil {
 		return m.Err
 	}
 	m.mu.Lock()
-	m.Activated = append(m.Activated, title)
+	m.Activated = append(m.Activated, id)
 	m.mu.Unlock()
 	return nil
 }
@@ -277,18 +276,10 @@ func (m *Manager) FindByTitle(ctx context.Context, pattern string) (window.Info,
 	return window.FindByTitle(ctx, m, pattern)
 }
 
-func (m *Manager) Move(ctx context.Context, title string, x, y int) error   { return m.Err }
-func (m *Manager) Resize(ctx context.Context, title string, w, h int) error { return m.Err }
-func (m *Manager) CloseWindow(ctx context.Context, title string) error      { return m.Err }
-func (m *Manager) Minimize(ctx context.Context, title string) error         { return m.Err }
-func (m *Manager) Maximize(ctx context.Context, title string) error         { return m.Err }
-func (m *Manager) Fullscreen(ctx context.Context, title string) error       { return m.Err }
-func (m *Manager) Unfullscreen(ctx context.Context, title string) error     { return m.Err }
-func (m *Manager) Restore(ctx context.Context, title string) error          { return m.Err }
-func (m *Manager) Close() error                                             { return nil }
+func (m *Manager) Close() error { return nil }
 
 func (m *Manager) ActivateByID(ctx context.Context, id string) error {
-	return m.ActivateContext(ctx, id)
+	return m.activateContext(ctx, id)
 }
 func (m *Manager) MoveByID(ctx context.Context, id string, x, y int) error {
 	return m.Err

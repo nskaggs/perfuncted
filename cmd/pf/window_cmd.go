@@ -109,7 +109,11 @@ func findWindowByTitle(
 	)
 }
 
-func windowCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobra.Command {
+//nolint:gocyclo // Cobra command assembly is intentionally centralized
+func windowCmd(
+	openPF func() (*perfuncted.Session, error),
+	cfg *cliConfig,
+) *cobra.Command {
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
 	syncIf := func(pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
@@ -531,11 +535,12 @@ func windowCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 				pf.Windows,
 				args[0],
 			)
-			if err == nil {
+			switch {
+			case err == nil:
 				fmt.Println("true")
-			} else if errors.Is(err, window.ErrWindowNotFound) {
+			case errors.Is(err, window.ErrWindowNotFound):
 				fmt.Println("false")
-			} else {
+			default:
 				return err
 			}
 			return nil

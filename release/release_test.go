@@ -248,7 +248,7 @@ func TestBinaryStatic(t *testing.T) {
 // pf binary rather than the Go API.  Requires a running display server.
 //
 // It spins up a headless Wayland session via pf session start (the same way
-// the integration suite uses perfuncted.StartSession), runs a series of pf
+// the integration suite uses perfuncted.Open), runs a series of pf
 // subcommands inside it, then tears the session down.
 func TestBinaryLive(t *testing.T) {
 	displayMode := strings.ToLower(os.Getenv("PF_TEST_DISPLAY_SERVER"))
@@ -272,12 +272,19 @@ func TestBinaryLive(t *testing.T) {
 		// integration suite does.  We can't use `pf session start` here because it
 		// blocks until interrupted — use the Go API to get the env vars and pass
 		// them to subsequent `pf` invocations.
-		sess, err := perfuncted.StartSession(perfuncted.SessionConfig{Resolution: image.Pt(1024, 768)})
+		sess, err := perfuncted.Open(
+			context.Background(),
+			perfuncted.WithHeadless(perfuncted.SessionConfig{
+				Resolution: image.Pt(1024, 768),
+			}),
+		)
 		if err != nil {
 			t.Skipf("could not start headless Wayland session: %v", err)
 		}
-		t.Cleanup(sess.Stop)
-		xdgRuntimeDir = sess.XDGRuntimeDir()
+		t.Cleanup(func() {
+			_ = sess.Close()
+		})
+		xdgRuntimeDir = sess.XDG()
 		waylandDisplay = sess.WaylandDisplay()
 		dbusAddress = sess.DBusAddress()
 

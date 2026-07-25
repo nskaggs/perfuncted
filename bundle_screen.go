@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -17,14 +18,6 @@ import (
 type ScreenBundle struct {
 	backend screen.Screenshotter
 	bundleBase
-}
-
-func (s *ScreenBundle) close() error {
-	if s == nil || s.backend == nil {
-		return nil
-	}
-	s.traceAction("screen", "close")
-	return s.backend.Close()
 }
 
 func (s *ScreenBundle) checkAvailable(operation string) error {
@@ -168,9 +161,13 @@ func (s *ScreenBundle) GetMultiplePixels(
 			bounds.Min,
 			img.Bounds().Min,
 		)
-		out[i] = color.RGBAModel.Convert(
+		rgba, ok := color.RGBAModel.Convert(
 			img.At(imagePoint.X, imagePoint.Y),
 		).(color.RGBA)
+		if !ok {
+			return nil, errors.New("screen: RGBA conversion returned unexpected type")
+		}
+		out[i] = rgba
 	}
 	return out, nil
 }
@@ -210,8 +207,8 @@ func (s *ScreenBundle) WaitForSettle(
 		return 0, err
 	}
 	if action != nil {
-		if err := action(); err != nil {
-			return 0, err
+		if actionErr := action(); actionErr != nil {
+			return 0, actionErr
 		}
 	}
 	changed, err := find.WaitForChange(

@@ -9,7 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func findCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
+//nolint:gocyclo // Cobra command assembly is intentionally centralized
+func findCmd(
+	openPF func() (*perfuncted.Session, error),
+) *cobra.Command {
 	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
 	var (

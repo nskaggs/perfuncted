@@ -65,13 +65,12 @@ func outputCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 }
 
 type scriptRunner struct {
-	ctx            context.Context
+	ctx            context.Context //nolint:containedctx // runner owns command context
 	pf             *perfuncted.Session
 	selectedWindow *perfuncted.Window
 }
 
 func runCmd(
-	root *cobra.Command,
 	openPF func() (*perfuncted.Session, error),
 ) *cobra.Command {
 	cmd := &cobra.Command{
@@ -207,7 +206,11 @@ func (s *scriptRunner) exec(lineNo int, toks []string) error {
 	}
 }
 
-func (s *scriptRunner) execWindow(lineNo int, toks []string) error {
+//nolint:gocyclo // command dispatch mirrors the window subcommand surface
+func (s *scriptRunner) execWindow(
+	lineNo int,
+	toks []string,
+) error {
 	if len(toks) == 0 {
 		return fmt.Errorf("script line %d: missing window subcommand", lineNo)
 	}
