@@ -20,6 +20,7 @@ modules:
       env:
         CGO_ENABLED: '0'
         GOROOT: /usr/lib/sdk/golang
+        GOTOOLCHAIN: 'local'
     build-commands:
       - ${GOROOT}/bin/go build -mod=vendor -trimpath -buildvcs=false -ldflags "-s -w -X main.builtBy=flatpak" -o "${FLATPAK_DEST}/bin/pf" ./cmd/pf
       - install -Dm0644 LICENSE "${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/perfuncted/LICENSE"
