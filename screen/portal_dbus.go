@@ -101,7 +101,7 @@ func portalUniqueName(names []string) (string, error) {
 
 func portalRequestPath(uniqueName, token string) dbus.ObjectPath {
 	sender := strings.ReplaceAll(strings.TrimPrefix(uniqueName, ":"), ".", "_")
-	return dbus.ObjectPath(fmt.Sprintf("/org/freedesktop/portal/desktop/request/%s/%s", sender, token))
+	return dbus.ObjectPath("/org/freedesktop/portal/desktop/request/" + sender + "/" + token)
 }
 
 func portalSignalMatches(sig *dbus.Signal, paths ...dbus.ObjectPath) bool {

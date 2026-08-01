@@ -667,7 +667,7 @@ func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string
 
 	conf := string(data)
 	if res.X > 0 && res.Y > 0 {
-		resStr := fmt.Sprintf("%dx%d", res.X, res.Y)
+		resStr := strconv.Itoa(res.X) + "x" + strconv.Itoa(res.Y)
 		conf = strings.ReplaceAll(conf, "1024x768", resStr)
 	}
 

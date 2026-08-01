@@ -200,22 +200,7 @@ func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
 func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
 		data, err := k.runScript(ctx, func(svc string) string {
-			return fmt.Sprintf(`
-var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
-var wins = listFunc();
-var lines = [];
-for (var i = 0; i < wins.length; i++) {
-    var w = wins[i];
-    if (w.normalWindow) {
-        var g = w.frameGeometry;
-        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;
-        lines.push(id + '\t' + w.caption + '\t' + (w.resourceName || '')
-            + '\t' + (w.resourceClass || '') + '\t' + w.pid
-            + '\t' + g.x + '\t' + g.y + '\t' + g.width + '\t' + g.height);
-    }
-}
-callDBus('%s', '/', '%s', 'ReportWindows', lines.join('\n'));
-`, svc, svc)
+			return "\nvar listFunc = (typeof workspace.windowList === \"function\") ? workspace.windowList : workspace.clientList;\nvar wins = listFunc();\nvar lines = [];\nfor (var i = 0; i < wins.length; i++) {\n    var w = wins[i];\n    if (w.normalWindow) {\n        var g = w.frameGeometry;\n        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;\n        lines.push(id + '\\t' + w.caption + '\\t' + (w.resourceName || '')\n            + '\\t' + (w.resourceClass || '') + '\\t' + w.pid\n            + '\\t' + g.x + '\\t' + g.y + '\\t' + g.width + '\\t' + g.height);\n    }\n}\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', lines.join('\\n'));\n"
 		})
 		if err != nil {
 			yield(Info{}, err)
@@ -248,10 +233,7 @@ const kwinScriptErrorPrefix = "__pf_error__:"
 // ActiveTitle returns the caption of the currently focused window.
 func (k *KWinScriptManager) ActiveTitle(ctx context.Context) (string, error) {
 	return k.runScript(ctx, func(svc string) string {
-		return fmt.Sprintf(`
-var w = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;
-callDBus('%s', '/', '%s', 'ReportWindows', w ? w.caption : '');
-`, svc, svc)
+		return "\nvar w = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', w ? w.caption : '');\n"
 	})
 }
 
