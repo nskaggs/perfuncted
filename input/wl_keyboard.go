@@ -7,6 +7,7 @@ package input
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -617,35 +618,7 @@ func xkbWithNamed(kc uint32, sym string) string {
 }
 
 func xkbBuild(maximum uint32, keycodes, symbols string) string {
-	return fmt.Sprintf(`xkb_keymap {
-  xkb_keycodes "perfuncted" {
-    minimum = 8;
-    maximum = %d;
-%s  };
-  xkb_types "perfuncted" {
-    type "ONE_LEVEL" {
-      modifiers = none;
-      map[none] = Level1;
-      level_name[Level1] = "Any";
-    };
-  };
-  xkb_compatibility "perfuncted" {
-    interpret Shift_L+AnyOf(all) {
-      action = SetMods(modifiers=Shift);
-    };
-    interpret Control_L+AnyOf(all) {
-      action = SetMods(modifiers=Control);
-    };
-    interpret Alt_L+AnyOf(all) {
-      action = SetMods(modifiers=Mod1);
-    };
-    interpret Super_L+AnyOf(all) {
-      action = SetMods(modifiers=Mod4);
-    };
-  };
-  xkb_symbols "perfuncted" {
-%s  };
-};`, maximum, keycodes, symbols)
+	return "xkb_keymap {\n  xkb_keycodes \"perfuncted\" {\n    minimum = 8;\n    maximum = " + strconv.FormatUint(uint64(maximum), 10) + ";\n" + keycodes + "  };\n  xkb_types \"perfuncted\" {\n    type \"ONE_LEVEL\" {\n      modifiers = none;\n      map[none] = Level1;\n      level_name[Level1] = \"Any\";\n    };\n  };\n  xkb_compatibility \"perfuncted\" {\n    interpret Shift_L+AnyOf(all) {\n      action = SetMods(modifiers=Shift);\n    };\n    interpret Control_L+AnyOf(all) {\n      action = SetMods(modifiers=Control);\n    };\n    interpret Alt_L+AnyOf(all) {\n      action = SetMods(modifiers=Mod1);\n    };\n    interpret Super_L+AnyOf(all) {\n      action = SetMods(modifiers=Mod4);\n    };\n  };\n  xkb_symbols \"perfuncted\" {\n" + symbols + "  };\n};"
 }
 
 func xkbModKeycodes() string {

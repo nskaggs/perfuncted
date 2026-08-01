@@ -173,7 +173,7 @@ func (g *GnomeManager) actOnWindowByID(id string, action string) error {
 	if err != nil {
 		return err
 	}
-	js := fmt.Sprintf(`(function(){ let w=%s; if(!w) throw "not found"; %s; return "ok"; })()`, g.findWindowByID(numeric), action)
+	js := "(function(){ let w=" + g.findWindowByID(numeric) + "; if(!w) throw \"not found\"; " + action + "; return \"ok\"; })()"
 	_, err = g.eval(js)
 	return err
 }
@@ -183,11 +183,11 @@ func (g *GnomeManager) ActivateByID(_ context.Context, id string) error {
 }
 
 func (g *GnomeManager) MoveByID(_ context.Context, id string, x, y int) error {
-	return g.actOnWindowByID(id, fmt.Sprintf(`w.move_frame(true, %d, %d)`, x, y))
+	return g.actOnWindowByID(id, "w.move_frame(true, "+strconv.Itoa(x)+", "+strconv.Itoa(y)+")")
 }
 
 func (g *GnomeManager) ResizeByID(_ context.Context, id string, w, h int) error {
-	return g.actOnWindowByID(id, fmt.Sprintf(`w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, %d, %d)`, w, h))
+	return g.actOnWindowByID(id, "w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, "+strconv.Itoa(w)+", "+strconv.Itoa(h)+")")
 }
 
 func (g *GnomeManager) CloseWindowByID(_ context.Context, id string) error {

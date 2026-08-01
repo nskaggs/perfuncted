@@ -479,7 +479,7 @@ loop:
 		case <-ticker.C:
 		}
 	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move position %d %d", int64(numeric), x, y))
+	return m.swayCmd(ctx, "[con_id="+strconv.FormatInt(int64(numeric), 10)+"] move position "+strconv.Itoa(x)+" "+strconv.Itoa(y))
 }
 
 func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height int) error {
@@ -490,7 +490,7 @@ func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height i
 	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(numeric))); err != nil {
 		return err
 	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] resize set %d %d", int64(numeric), width, height))
+	return m.swayCmd(ctx, "[con_id="+strconv.FormatInt(int64(numeric), 10)+"] resize set "+strconv.Itoa(width)+" "+strconv.Itoa(height))
 }
 
 func (m *SwayManager) CloseWindowByID(ctx context.Context, id string) error {

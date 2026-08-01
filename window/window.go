@@ -100,7 +100,7 @@ func (info Info) StableID() string {
 	if info.NativeID != "" {
 		return info.NativeID
 	}
-	return fmt.Sprintf("%d", info.ID)
+	return strconv.FormatUint(info.ID, 10)
 }
 
 func numericID(id string) (uint64, error) {

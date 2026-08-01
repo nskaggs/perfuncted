@@ -12,9 +12,9 @@ type UnsupportedError struct {
 func (e UnsupportedError) Error() string {
 	switch {
 	case e.Surface != "" && e.Backend != "" && e.Reason != "":
-		return fmt.Sprintf("%s: unsupported on %s: %s", e.Surface, e.Backend, e.Reason)
+		return e.Surface + ": unsupported on " + e.Backend + ": " + e.Reason
 	case e.Surface != "" && e.Reason != "":
-		return fmt.Sprintf("%s: unsupported: %s", e.Surface, e.Reason)
+		return e.Surface + ": unsupported: " + e.Reason
 	case e.Surface != "":
 		return fmt.Sprintf("%s: unsupported", e.Surface)
 	default:

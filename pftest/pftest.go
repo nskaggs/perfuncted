@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/draw"
 	"iter"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -156,11 +157,11 @@ func (m *Inputter) ScrollRight(ctx context.Context, n int) error {
 	return m.Err
 }
 func (m *Inputter) MouseMove(ctx context.Context, x, y int) error {
-	m.record(fmt.Sprintf("move:%d,%d", x, y))
+	m.record("move:" + strconv.Itoa(x) + "," + strconv.Itoa(y))
 	return m.Err
 }
 func (m *Inputter) MouseClick(ctx context.Context, x, y, b int) error {
-	m.record(fmt.Sprintf("click:%d,%d", x, y))
+	m.record("click:" + strconv.Itoa(x) + "," + strconv.Itoa(y))
 	return m.Err
 }
 func (m *Inputter) PointerLocation(ctx context.Context) (int, int, error) {
