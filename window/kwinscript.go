@@ -309,15 +309,18 @@ func (k *KWinScriptManager) ActivateByID(ctx context.Context, id string) error {
 
 func (k *KWinScriptManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	result, err := k.runScript(ctx, func(svc string) string {
-		action := fmt.Sprintf(
-			"var g = w.frameGeometry;\n            w.frameGeometry = {x: %d, y: %d, width: Math.round(g.width), height: Math.round(g.height)};",
-			x, y)
-		return kwinFindByIDScript(id, svc, action)
+		return kwinFindByIDScript(id, svc, kwinMoveAction(x, y))
 	})
 	if err != nil {
 		return err
 	}
 	return kwinActionResultByID(id, result)
+}
+
+func kwinMoveAction(x, y int) string {
+	return fmt.Sprintf(
+		"var g = w.frameGeometry;\n            w.frameGeometry = {x: %d, y: %d, width: Math.round(g.width), height: Math.round(g.height)};",
+		x, y)
 }
 
 func (k *KWinScriptManager) ResizeByID(ctx context.Context, id string, width, height int) error {
