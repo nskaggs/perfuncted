@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Match describes a window selection predicate.
@@ -84,7 +86,7 @@ func (m Matcher) Matches(info Info) bool {
 }
 
 func (m Matcher) matches(info Info) bool { //nolint:gocyclo
-	if m.TitleContains != "" && !strings.Contains(strings.ToLower(info.Title), m.titleContainsLower) {
+	if m.TitleContains != "" && !containsFoldLower(info.Title, m.titleContainsLower) {
 		return false
 	}
 	if m.TitleExact != "" && !strings.EqualFold(info.Title, m.TitleExact) {
@@ -395,4 +397,43 @@ func parseMatchBool(v string) (bool, error) {
 	default:
 		return false, fmt.Errorf("invalid boolean %q", v)
 	}
+}
+
+// containsFoldLower reports whether s contains the already-lowercased substr
+// using the exact semantics of strings.Contains(strings.ToLower(s), substr),
+// without allocating a lowercased copy of s. Folding is applied per rune with
+// the same simple mapping strings.ToLower uses, so the two forms are
+// equivalent for every UTF-8 input, including runes whose lowercase form has a
+// different byte length.
+func containsFoldLower(s, lowerSub string) bool {
+	if lowerSub == "" {
+		return true
+	}
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); {
+		if foldMatches(s[i:], lowerSub) {
+			return true
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return false
+}
+
+// foldMatches reports whether the runes of segment, folded via the same
+// simple case mapping strings.ToLower applies, equal the runes of lowerSub.
+func foldMatches(segment, lowerSub string) bool {
+	for _, want := range lowerSub {
+		if len(segment) == 0 {
+			return false
+		}
+		r, size := utf8.DecodeRuneInString(segment)
+		if unicode.ToLower(r) != want {
+			return false
+		}
+		segment = segment[size:]
+	}
+	return true
 }
