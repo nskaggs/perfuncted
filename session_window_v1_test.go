@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"image"
 	"iter"
 	"sync"
 	"testing"
@@ -302,7 +303,7 @@ func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 	}
 }
 
-func TestWindowFindRejectsAmbiguousAndForeignHandles(t *testing.T) {
+func TestWindowFindRejectsAmbiguous(t *testing.T) {
 	manager := newHandleWindowManager(
 		window.Info{NativeID: "1", Title: "Editor"},
 		window.Info{NativeID: "2", Title: "Editor"},
@@ -319,28 +320,6 @@ func TestWindowFindRejectsAmbiguousAndForeignHandles(t *testing.T) {
 		t.Fatalf("Find error = %v", err)
 	}
 
-	manager.setWindows(false, window.Info{
-		NativeID: "1",
-		Title:    "Editor",
-	})
-	target, err := session.Windows.Find(
-		context.Background(),
-		WindowMatch{TitleExact: "Editor"},
-	)
-	if err != nil {
-		t.Fatalf("Find unique: %v", err)
-	}
-	other := NewSessionForTesting(nil, nil, manager, nil, nil)
-	t.Cleanup(func() {
-		_ = other.Close()
-	})
-	foreign := &Window{
-		session: other,
-		id:      target.id,
-	}
-	if err := foreign.Activate(context.Background()); err == nil {
-		t.Fatal("foreign-session handle activated")
-	}
 }
 
 func TestWaitUsesEventsAndPollingRecovery(t *testing.T) {
@@ -470,15 +449,47 @@ func TestClosedSessionRejectsWindowWork(t *testing.T) {
 		nil,
 		nil,
 	)
+	retained := session.Windows.window(window.Info{NativeID: "retained"})
 	if err := session.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	if _, err := session.Windows.List(context.Background(), WindowMatch{}); !errors.Is(err, ErrSessionClosed) {
-		t.Fatalf("List after Close error = %v, want ErrSessionClosed", err)
+	checks := []struct {
+		name string
+		call func() error
+	}{
+		{name: "screen", call: func() error {
+			_, err := session.Screen.Grab(context.Background(), image.Rectangle{})
+			return err
+		}},
+		{name: "input", call: func() error {
+			return session.Input.KeyDown(context.Background(), "a")
+		}},
+		{name: "windows list", call: func() error {
+			_, err := session.Windows.List(context.Background(), WindowMatch{})
+			return err
+		}},
+		{name: "windows wait", call: func() error {
+			return session.Wait(context.Background(), WindowExists(WindowMatch{}))
+		}},
+		{name: "retained window", call: func() error {
+			return retained.Close(context.Background())
+		}},
+		{name: "outputs", call: func() error {
+			_, err := session.Outputs.List(context.Background())
+			return err
+		}},
+		{name: "clipboard", call: func() error {
+			_, err := session.Clipboard.Get(context.Background())
+			return err
+		}},
 	}
-	if err := session.Wait(context.Background(), WindowExists(WindowMatch{})); !errors.Is(err, ErrSessionClosed) {
-		t.Fatalf("Wait after Close error = %v, want ErrSessionClosed", err)
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.call(); !errors.Is(err, ErrSessionClosed) {
+				t.Fatalf("operation after Close error = %v, want ErrSessionClosed", err)
+			}
+		})
 	}
 }
 

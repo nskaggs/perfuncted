@@ -251,10 +251,6 @@ func (m *Manager) activateContext(ctx context.Context, id string) error {
 }
 
 func (m *Manager) ActiveTitle(ctx context.Context) (string, error) {
-	return m.ActiveTitleContext(ctx)
-}
-
-func (m *Manager) ActiveTitleContext(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

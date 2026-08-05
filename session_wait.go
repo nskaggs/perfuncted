@@ -187,10 +187,10 @@ func WindowClosed(target *Window) Condition {
 	return sessionCondition(
 		"window closed",
 		func(ctx context.Context, session *Session) (bool, error) {
-			if target == nil || target.session == nil {
+			if target == nil || target.id.session == nil {
 				return false, ErrNilSession
 			}
-			if target.session != session || target.id.session != session {
+			if target.id.session != session {
 				return false, errors.New(
 					"perfuncted: window belongs to another session",
 				)

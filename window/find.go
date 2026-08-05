@@ -44,11 +44,6 @@ func FindByID(ctx context.Context, m Manager, id uint64) (Info, error) {
 	return find(ctx, m, CompileMatch(Match{ID: &id}), fmt.Sprintf("id=%d", id))
 }
 
-// WaitForClose blocks until no window matches pattern, or ctx expires.
-func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Duration) error {
-	return WaitForMatchClose(ctx, m, Match{TitleContains: pattern}, poll)
-}
-
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
 	ctx = ctxutil.Default(ctx)

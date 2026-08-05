@@ -7,6 +7,7 @@ import (
 	"image"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,23 @@ func (s *capabilityScreen) Close() error {
 }
 
 type capabilityClipboard struct{}
+
+type cancelDuringOpenContext struct {
+	context.Context //nolint:containedctx // deterministic test context
+	done            chan struct{}
+	cancelOnce      sync.Once
+	checks          atomic.Int32
+}
+
+func (c *cancelDuringOpenContext) Err() error {
+	if c.checks.Add(1) > 1 {
+		c.cancelOnce.Do(func() { close(c.done) })
+		return context.Canceled
+	}
+	return nil
+}
+
+func (c *cancelDuringOpenContext) Done() <-chan struct{} { return c.done }
 
 func (*capabilityClipboard) Get(context.Context) (string, error) {
 	return "", nil
@@ -130,6 +148,19 @@ func TestOpenRejectsCanceledContext(t *testing.T) {
 
 	if _, err := Open(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context.Canceled", err)
+	}
+}
+
+func TestOpenRejectsContextCanceledDuringInitialization(t *testing.T) {
+	ctx := &cancelDuringOpenContext{
+		Context: context.Background(),
+		done:    make(chan struct{}),
+	}
+
+	if session, err := Open(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Open error = %v, want context.Canceled", err)
+	} else if session != nil {
+		t.Fatal("Open returned a session after cancellation")
 	}
 }
 

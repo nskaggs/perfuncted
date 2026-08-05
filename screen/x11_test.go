@@ -274,7 +274,7 @@ func TestX11Backend_Grab_ColorCheck(t *testing.T) {
 
 func TestX11Backend_Resolution(t *testing.T) {
 	b, _ := newStubScreenX11Backend(t, false)
-	w, h, err := Resolution(b)
+	w, h, err := b.Resolution()
 	if err != nil {
 		t.Fatalf("Resolution() unexpected error: %v", err)
 	}

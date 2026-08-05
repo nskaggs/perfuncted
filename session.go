@@ -56,9 +56,6 @@ type sessionInfra struct {
 	wlDisplay  string
 	dbusAddr   string
 	logDir     string
-	swayPid    int
-	dbusPid    int
-	wlPastePid int
 	swayCmd    *exec.Cmd
 	dbusCmd    *exec.Cmd
 	wlPasteCmd *exec.Cmd
@@ -147,6 +144,10 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 		closeErr := s.Close() //nolint:contextcheck // Close owns its shutdown contexts
 		return nil, errors.Join(err, closeErr)
 	}
+	if err := ctx.Err(); err != nil {
+		closeErr := s.Close() //nolint:contextcheck // Close owns its shutdown contexts
+		return nil, errors.Join(err, closeErr)
+	}
 
 	return s, nil
 }
@@ -215,7 +216,6 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 			status.Operations = supportedOperations(capability, backend)
 		}
 		s.capabilities[capability] = status
-		s.setCapabilityFailure(capability, err)
 		if err != nil && status.Required {
 			return &CapabilityError{
 				Capability: capability,
@@ -243,7 +243,6 @@ func (s *Session) bundleBase(capability Capability) bundleBase {
 	return bundleBase{
 		session:    s,
 		capability: capability,
-		tracer:     s.tracer,
 	}
 }
 
@@ -311,21 +310,6 @@ func closeFailedBackend(backend any, openErr error) {
 	}
 	if closer, ok := backend.(interface{ Close() error }); ok {
 		_ = closer.Close()
-	}
-}
-
-func (s *Session) setCapabilityFailure(capability Capability, err error) {
-	switch capability {
-	case CapabilityScreen:
-		s.Screen.failure = err
-	case CapabilityInput:
-		s.Input.failure = err
-	case CapabilityWindows:
-		s.Windows.failure = err
-	case CapabilityOutputs:
-		s.Outputs.failure = err
-	case CapabilityClipboard:
-		s.Clipboard.failure = err
 	}
 }
 
@@ -581,9 +565,8 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	i.dbusPid = cmd.Process.Pid
 	i.dbusCmd = cmd
-	i.writeChildPID("dbus.pid", i.dbusPid)
+	i.writeChildPID("dbus.pid", cmd.Process.Pid)
 
 	busPath := filepath.Join(i.xdgDir, "bus")
 	if err := waitForFile(ctx, busPath, 100, 100*time.Millisecond); err != nil {
@@ -638,9 +621,8 @@ func (i *sessionInfra) launchSway(
 		logFileClose(logFile)
 		return err
 	}
-	i.swayPid = cmd.Process.Pid
 	i.swayCmd = cmd
-	i.writeChildPID("sway.pid", i.swayPid)
+	i.writeChildPID("sway.pid", cmd.Process.Pid)
 	logFileClose(logFile)
 
 	socketPath := filepath.Join(i.xdgDir, i.wlDisplay)
@@ -667,9 +649,8 @@ func (i *sessionInfra) launchWlPaste() {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	err := cmd.Start()
 	if err == nil {
-		i.wlPastePid = cmd.Process.Pid
 		i.wlPasteCmd = cmd
-		i.writeChildPID("wl-paste.pid", i.wlPastePid)
+		i.writeChildPID("wl-paste.pid", cmd.Process.Pid)
 		return
 	}
 	slog.Warn("wl-paste helper failed to start", "error", err)
@@ -755,9 +736,9 @@ func (i *sessionInfra) stop() {
 		i.cancel()
 	}
 
-	i.stopManagedProcess(i.wlPasteCmd, i.wlPastePid, 200*time.Millisecond)
-	i.stopManagedProcess(i.swayCmd, i.swayPid, 500*time.Millisecond)
-	i.stopManagedProcess(i.dbusCmd, i.dbusPid, 200*time.Millisecond)
+	i.stopManagedProcess(i.wlPasteCmd, 200*time.Millisecond)
+	i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
+	i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
 	if i.xdgDir != "" {
 		unmountSubdirs(i.xdgDir)
 		if err := os.RemoveAll(i.xdgDir); err != nil {
@@ -766,8 +747,11 @@ func (i *sessionInfra) stop() {
 	}
 }
 
-func (i *sessionInfra) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {
-	(&managedProc{cmd: cmd, pid: pid}).stop(waitTimeout)
+func (i *sessionInfra) stopManagedProcess(cmd *exec.Cmd, waitTimeout time.Duration) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(waitTimeout)
 }
 
 // ---------- managed process ----------

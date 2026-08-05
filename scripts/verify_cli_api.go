@@ -126,7 +126,6 @@ func skipMethodForCLISync(name string) bool {
 		"ScanFor",
 		"WaitFor",
 		"WaitForChange",
-		"WaitForClose",
 		"WaitForFn",
 		"WaitForSettle",
 		"WaitForWindow",
