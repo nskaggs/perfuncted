@@ -177,14 +177,6 @@ func (w *Window) WaitClosed(ctx context.Context) error {
 	return w.id.session.Wait(ctx, WindowClosed(w))
 }
 
-// CloseWait closes w and waits for its disappearance.
-func (w *Window) CloseWait(ctx context.Context) error {
-	if err := w.Close(ctx); err != nil {
-		return err
-	}
-	return w.WaitClosed(ctx)
-}
-
 // List returns every window satisfying match.
 func (b *WindowBundle) List(
 	ctx context.Context,

@@ -289,13 +289,16 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			return
 		}
 		m.toplevelsMu.Lock()
+		windows := make([]Info, 0, len(m.toplevels))
 		for _, v := range m.toplevels {
-			if !yield(*v, nil) {
-				m.toplevelsMu.Unlock()
+			windows = append(windows, *v)
+		}
+		m.toplevelsMu.Unlock()
+		for _, v := range windows {
+			if !yield(v, nil) {
 				return
 			}
 		}
-		m.toplevelsMu.Unlock()
 	}
 }
 

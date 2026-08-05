@@ -20,11 +20,9 @@ var _ Screenshotter = (*ExtCaptureBackend)(nil)
 // available where the compositor advertises ext_image_copy_capture_manager_v1.
 // Do not assume specific compositor versions — rely solely on protocol presence.
 type ExtCaptureBackend struct {
-	// mu protects display, registry, shm, manager globals, and outputProxy.
+	// mu protects the session-owned protocol state, shm, manager globals, and outputProxy.
 	mu           sync.Mutex
 	session      *wl.Session
-	display      *wl.Display
-	registry     *wl.Registry
 	shm          *wl.Shm
 	mgrID        uint32
 	mgrVer       uint32
@@ -56,9 +54,8 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 		return nil, fmt.Errorf("screen/ext: %w", err)
 	}
 	ctx := s.Ctx
-	display := s.Display
 	registry := s.Registry
-	b := &ExtCaptureBackend{session: s, display: display, registry: registry}
+	b := &ExtCaptureBackend{session: s}
 
 	if ev, ok := s.Globals["ext_image_copy_capture_manager_v1"]; ok {
 		b.mgrID = ev.Name
@@ -226,7 +223,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	wlctx := b.display.Context()
+	wlctx := b.session.Display.Context()
 
 	// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
 	type sessInfo struct{ width, height, format uint32 }
@@ -243,7 +240,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 			stopped = true
 		}
 	}
-	if err := b.display.RoundTrip(); err != nil {
+	if err := b.session.Display.RoundTrip(); err != nil {
 		return fmt.Errorf("screen/ext: session round-trip: %w", err)
 	}
 	if stopped {
@@ -357,9 +354,6 @@ func (b *ExtCaptureBackend) Close() error {
 	b.mu.Unlock()
 	if b.session != nil {
 		return b.session.Close()
-	}
-	if b.display != nil {
-		return b.display.Context().Close()
 	}
 	return nil
 }

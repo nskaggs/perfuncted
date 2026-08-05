@@ -165,15 +165,6 @@ func (ctx *Context) Close() error {
 	return ctx.conn.Close()
 }
 
-// SafeClose closes ctx if non-nil and its underlying connection is non-nil.
-// Use when callers may construct partial contexts in tests.
-func SafeClose(ctx *Context) error {
-	if ctx == nil || ctx.conn == nil {
-		return nil
-	}
-	return ctx.conn.Close()
-}
-
 // ── Wire encoding helpers ─────────────────────────────────────────────────────
 
 // PutUint32 encodes v into b[0:4] in little-endian byte order.

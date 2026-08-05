@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -460,6 +461,33 @@ func TestWaylandWindowManager_List_RoundTripError(t *testing.T) {
 	_, err := wm.List(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "window/wayland: round-trip: simulated roundtrip error") {
 		t.Errorf("List() error = %v, expected error containing %q", err, "window/wayland: round-trip: simulated roundtrip error")
+	}
+}
+
+func TestWaylandWindowManager_IterateWindowsAllowsReentrantCallbacks(t *testing.T) {
+	wm, _, _ := newStubWaylandManager("Reentrant", false, false)
+
+	done := make(chan error, 1)
+	go func() {
+		for info, err := range wm.IterateWindows(context.Background()) {
+			if err != nil {
+				done <- err
+				return
+			}
+			_, _, err = wm.lookupByID(info.StableID())
+			done <- err
+			return
+		}
+		done <- errors.New("iterator yielded no windows")
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("reentrant callback: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("reentrant callback deadlocked")
 	}
 }
 

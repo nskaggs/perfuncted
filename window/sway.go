@@ -464,11 +464,12 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 loop:
 	for {
 		wins, err := m.List(ctx)
-		if err == nil {
-			for _, win := range wins {
-				if win.ID == numeric {
-					break loop
-				}
+		if err != nil {
+			return err
+		}
+		for _, win := range wins {
+			if win.ID == numeric {
+				break loop
 			}
 		}
 		select {

@@ -3,7 +3,6 @@ package wl
 import (
 	"fmt"
 	"sync"
-	"time"
 )
 
 // Session encapsulates a Wayland connection and the display/registry helpers.
@@ -23,9 +22,8 @@ type Session struct {
 
 // sessionRef tracks a cached session and its reference count.
 type sessionRef struct {
-	sess     *Session
-	refs     int
-	lastUsed time.Time
+	sess *Session
+	refs int
 }
 
 var (
@@ -33,38 +31,16 @@ var (
 	sessionCache   = make(map[string]*sessionRef)
 )
 
-func cleanupStaleSessionsLocked(now time.Time, ttl time.Duration) {
-	for sock, ref := range sessionCache {
-		if ref == nil || ref.lastUsed.IsZero() {
-			continue
-		}
-		if now.Sub(ref.lastUsed) > ttl {
-			delete(sessionCache, sock)
-		}
-	}
-}
-
-// DefaultSessionCacheTTL limits how long a cached session can sit unused
-// before being evicted from the in-memory cache. The underlying connection is
-// not forcibly closed during TTL eviction; callers still holding a Session
-// continue to own that live connection.
-const DefaultSessionCacheTTL = 24 * time.Hour
-
 // NewSession returns a cached, reference-counted Session for sock. If no
 // session exists, a new connection is established and cached. Call Close() on
 // the returned Session to release the reference.
 func NewSession(sock string) (*Session, error) {
-	now := time.Now()
 	sessionCacheMu.Lock()
 	if ref, ok := sessionCache[sock]; ok {
-		if now.Sub(ref.lastUsed) <= DefaultSessionCacheTTL {
-			ref.refs++
-			ref.lastUsed = now
-			s := ref.sess
-			sessionCacheMu.Unlock()
-			return s, nil
-		}
-		delete(sessionCache, sock)
+		ref.refs++
+		s := ref.sess
+		sessionCacheMu.Unlock()
+		return s, nil
 	}
 	sessionCacheMu.Unlock()
 
@@ -89,13 +65,12 @@ func NewSession(sock string) (*Session, error) {
 	// Another goroutine may have created the session while we were dialing.
 	if ref, ok := sessionCache[sock]; ok {
 		ref.refs++
-		ref.lastUsed = now
 		sessionCacheMu.Unlock()
 		// Close newly created ctx; use the existing cached session instead.
 		_ = ctx.Close()
 		return ref.sess, nil
 	}
-	sessionCache[sock] = &sessionRef{sess: s, refs: 1, lastUsed: now}
+	sessionCache[sock] = &sessionRef{sess: s, refs: 1}
 	sessionCacheMu.Unlock()
 	return s, nil
 }

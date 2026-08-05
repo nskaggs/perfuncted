@@ -1,7 +1,6 @@
 // Package input provides keyboard and mouse injection backends.
-// Backend priority on Wayland: WlInputMethod -> wl-virtual -> XTEST (when
-// DISPLAY is set) -> uinput. On X11, XTEST is used first; uinput remains the
-// final fallback.
+// Backend priority on Wayland: wl-virtual -> XTEST (when DISPLAY is set) ->
+// uinput. On X11, XTEST is used first; uinput remains the final fallback.
 // uinput requires membership in the "input" group or a udev rule:
 //
 // KERNEL=="uinput", GROUP="input", MODE="0660"
@@ -17,8 +16,6 @@ import (
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
-
-var newWlInputMethodBackend = NewWlInputMethodBackend
 
 var newWlVirtualBackend = func(sock string) (Inputter, error) {
 	return NewWlVirtualBackend(sock)
@@ -42,11 +39,6 @@ var ErrNotSupported = errors.New("input: operation not supported on this backend
 
 func unsupportedError(backend, operation string) error {
 	return fmt.Errorf("%s: %s: %w", backend, operation, ErrNotSupported)
-}
-
-func hasDelegatingBackend(b Inputter) bool {
-	im, ok := b.(*WlInputMethodBackend)
-	return !ok || im.other != nil
 }
 
 // Inputter injects keyboard and mouse events.
@@ -102,18 +94,10 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
 
-	// On Wayland, prefer the input-method path for text-heavy apps. It handles
-	// committed UTF-8 text directly and still delegates pointer/key combo
-	// operations to a compositor-scoped backend when available. Fallback order:
+	// On Wayland, prefer the compositor-scoped virtual backend. Fallback order:
 	//
-	//	WlInputMethod -> wl-virtual -> XTEST (if DISPLAY set) -> uinput
+	//	wl-virtual -> XTEST (if DISPLAY set) -> uinput
 	if sock := rt.SocketPath(); sock != "" {
-		if b, err := newWlInputMethodBackend(sock, maxX, maxY); err == nil {
-			if hasDelegatingBackend(b) {
-				return b, nil
-			}
-			_ = b.Close()
-		}
 		if b, err := newWlVirtualBackend(sock); err == nil {
 			return b, nil
 		}
@@ -162,7 +146,6 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 	if sock := rt.SocketPath(); sock != "" {
 		globs := wl.ListGlobals(sock)
 		results := []probe.Result{
-			checkWlInputMethodWithGlobs(sock, globs),
 			checkWlVirtualWithGlobs(sock, globs),
 		}
 		if rt.Display() != "" {
@@ -175,25 +158,6 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 		checkXTest(rt),
 		checkUinput(),
 	})
-}
-
-func checkWlInputMethodWithGlobs(sock string, globs map[string]bool) probe.Result {
-	r := probe.Result{Name: "wl-input-method"}
-	if globs == nil {
-		r.Reason = fmt.Sprintf("connect %s: failed", sock)
-		return r
-	}
-	if !globs["zwp_input_method_manager_v2"] {
-		r.Reason = "zwp_input_method_manager_v2 not advertised"
-		return r
-	}
-	if !globs["wl_seat"] {
-		r.Reason = "wl_seat not advertised"
-		return r
-	}
-	r.Available = true
-	r.Reason = "zwp_input_method_manager_v2 + wl_seat available"
-	return r
 }
 
 func checkXTest(rt env.Runtime) probe.Result {

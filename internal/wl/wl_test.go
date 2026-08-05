@@ -247,18 +247,6 @@ func TestContext_Close_NilConn(t *testing.T) {
 	}
 }
 
-func TestSafeClose(t *testing.T) {
-	// nil context
-	if err := SafeClose(nil); err != nil {
-		t.Errorf("SafeClose(nil) = %v", err)
-	}
-	// context with nil conn
-	ctx := &Context{}
-	if err := SafeClose(ctx); err != nil {
-		t.Errorf("SafeClose(zero-ctx) = %v", err)
-	}
-}
-
 func TestRegistry_BindMessageLayout(t *testing.T) {
 	// Verify that Registry.Bind produces the correct wire format.
 	// We can't call Bind without a real ctx, but we can test the encoding

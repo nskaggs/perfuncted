@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
 	"sync"
 	"time"
 
@@ -209,69 +208,6 @@ func WindowClosed(target *Window) Condition {
 				return true, nil
 			}
 			return false, err
-		},
-	)
-}
-
-// ApplicationExited succeeds after app has been reaped.
-func ApplicationExited(app *Application) Condition {
-	return sessionCondition(
-		"application exited",
-		func(_ context.Context, session *Session) (bool, error) {
-			if app == nil || app.session != session {
-				return false, errors.New(
-					"perfuncted: application belongs to another session",
-				)
-			}
-			select {
-			case <-app.done:
-				return true, nil
-			default:
-				return false, nil
-			}
-		},
-	)
-}
-
-// ScreenChanged succeeds when rect's hash differs from initial.
-func ScreenChanged(rect image.Rectangle, initial uint32) Condition {
-	return sessionCondition(
-		"screen changed",
-		func(ctx context.Context, session *Session) (bool, error) {
-			hash, err := session.Screen.grabHash(ctx, rect)
-			return hash != initial, err
-		},
-	)
-}
-
-// ScreenStable succeeds after consecutiveSamples identical observations.
-func ScreenStable(
-	rect image.Rectangle,
-	consecutiveSamples int,
-) Condition {
-	var (
-		mu       sync.Mutex
-		lastHash uint32
-		haveHash bool
-		stable   int
-	)
-	return sessionCondition(
-		"screen stable",
-		func(ctx context.Context, session *Session) (bool, error) {
-			hash, err := session.Screen.grabHash(ctx, rect)
-			if err != nil {
-				return false, err
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			if !haveHash || hash != lastHash {
-				lastHash = hash
-				haveHash = true
-				stable = 1
-			} else {
-				stable++
-			}
-			return stable >= max(1, consecutiveSamples), nil
 		},
 	)
 }

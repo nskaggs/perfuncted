@@ -63,43 +63,6 @@ func hyphenate(s string) string {
 	return strings.Join(words, "-")
 }
 
-var commonPrefixes = []string{
-	"Mouse", "Key", "Grab", "Find", "WaitFor", "Wait", "Get", "Set", "List", "Active", "Activate", "Press", "Scroll", "Close", "Pointer",
-}
-
-func candidatesFromMethod(name string) []string {
-	c := []string{}
-	c = append(c, hyphenate(name))
-	c = append(c, strings.ToLower(name))
-	for _, p := range commonPrefixes {
-		if strings.HasPrefix(name, p) {
-			s := strings.TrimPrefix(name, p)
-			if s != "" {
-				c = append(c, hyphenate(s))
-				c = append(c, strings.ToLower(s))
-			}
-		}
-	}
-	if strings.HasSuffix(name, "Hash") {
-		c = append(c, "hash")
-		base := strings.TrimSuffix(name, "Hash")
-		c = append(c, hyphenate(base))
-	}
-	// uniq
-	m := map[string]bool{}
-	out := []string{}
-	for _, x := range c {
-		if x == "" {
-			continue
-		}
-		if !m[x] {
-			m[x] = true
-			out = append(out, x)
-		}
-	}
-	return out
-}
-
 func methodsForType(pkg *packages.Package, typeName string) ([]*types.Func, error) {
 	obj := pkg.Types.Scope().Lookup(typeName)
 	if obj == nil {

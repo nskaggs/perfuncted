@@ -83,7 +83,7 @@ func NewWlrScreencopyBackendWithConnector(sock string, connect func(string) (*wl
 					if b.ctx != nil {
 						idle := time.Since(b.lastUsed)
 						if idle > b.ttl {
-							_ = wl.SafeClose(b.ctx)
+							_ = b.ctx.Close()
 							b.ctx = nil
 						}
 					}
@@ -125,7 +125,7 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 					}
 				}
 				if oldest != nil {
-					_ = wl.SafeClose(oldest)
+					_ = oldest.Close()
 					delete(globalWlrCtxs, oldest)
 				}
 			}
@@ -136,7 +136,7 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 
 	if b.mgrProxy == nil {
 		if err := b.setupProxies(b.ctx); err != nil {
-			_ = wl.SafeClose(b.ctx)
+			_ = b.ctx.Close()
 			globalWlrMu.Lock()
 			delete(globalWlrCtxs, b.ctx)
 			globalWlrMu.Unlock()
@@ -146,7 +146,7 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 	}
 
 	if err := fn(b.ctx); err != nil {
-		_ = wl.SafeClose(b.ctx)
+		_ = b.ctx.Close()
 		globalWlrMu.Lock()
 		delete(globalWlrCtxs, b.ctx)
 		globalWlrMu.Unlock()
@@ -441,7 +441,7 @@ func (b *WlrScreencopyBackend) Close() error {
 		}
 		b.ctxMu.Lock()
 		if b.ctx != nil {
-			_ = wl.SafeClose(b.ctx)
+			_ = b.ctx.Close()
 			b.ctx = nil
 		}
 		// clean up pooled mmap and associated fd

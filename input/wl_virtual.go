@@ -35,7 +35,6 @@ type WlVirtualBackend struct {
 	// mu protects session, display, ptr, kbd, and output dimensions.
 	mu       sync.Mutex
 	session  *wl.Session
-	display  *wl.Display
 	ptr      *wl.RawProxy // zwlr_virtual_pointer_v1
 	kbd      *wlKeyboard
 	outW     uint32 // logical output width
@@ -53,7 +52,7 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocy
 	if err != nil {
 		return nil, fmt.Errorf("input/wl-virtual: %w", err)
 	}
-	b := &WlVirtualBackend{session: s, display: s.Display}
+	b := &WlVirtualBackend{session: s}
 
 	var ptrMgrID, ptrMgrVer uint32
 	var kbdMgrID, kbdMgrVer uint32
@@ -131,7 +130,7 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocy
 					}
 				}
 			}
-			b.display.RoundTrip() //nolint:errcheck
+			s.Display.RoundTrip() //nolint:errcheck
 		}
 	}
 
@@ -166,7 +165,7 @@ func (b *WlVirtualBackend) ptrFrame() error {
 	var buf [8]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 8<<16|4) // size=8, opcode=4 (frame)
-	return b.display.Context().WriteMsg(buf[:], nil)
+	return b.session.Display.Context().WriteMsg(buf[:], nil)
 }
 
 // MouseMove moves the pointer to absolute position (x, y) in the compositor's
@@ -187,7 +186,7 @@ func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 	wl.PutUint32(buf[16:], uint32(y*256))
 	wl.PutUint32(buf[20:], b.outW)
 	wl.PutUint32(buf[24:], b.outH)
-	if err := b.display.Context().WriteMsg(buf[:], nil); err != nil {
+	if err := b.session.Display.Context().WriteMsg(buf[:], nil); err != nil {
 		return err
 	}
 	return b.ptrFrame()
@@ -207,7 +206,7 @@ func (b *WlVirtualBackend) button(ctx context.Context, code, state uint32) error
 	wl.PutUint32(buf[8:], b.now())
 	wl.PutUint32(buf[12:], code)
 	wl.PutUint32(buf[16:], state)
-	if err := b.display.Context().WriteMsg(buf[:], nil); err != nil {
+	if err := b.session.Display.Context().WriteMsg(buf[:], nil); err != nil {
 		return err
 	}
 	return b.ptrFrame()
@@ -319,7 +318,7 @@ func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) 
 	wl.PutUint32(buf[8:], b.now())
 	wl.PutUint32(buf[12:], axis)          // 0=vertical, 1=horizontal
 	wl.PutUint32(buf[16:], uint32(value)) // wl_fixed_t signed value
-	if err := b.display.Context().WriteMsg(buf[:], nil); err != nil {
+	if err := b.session.Display.Context().WriteMsg(buf[:], nil); err != nil {
 		return err
 	}
 	return b.ptrFrame()
@@ -363,12 +362,6 @@ func (b *WlVirtualBackend) Sync(ctx context.Context) error {
 func (b *WlVirtualBackend) Close() error {
 	if b.session != nil {
 		return b.session.Close()
-	}
-	// b.display.Context() returns Ctx whose concrete type is *Context.
-	// When the underlying *Context is nil, Context.Close() handles it
-	// gracefully via its nil-receiver check.
-	if b.display != nil {
-		return b.display.Context().Close()
 	}
 	return nil
 }
