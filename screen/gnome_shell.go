@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
@@ -84,6 +85,10 @@ func newTempScreenshotFile(prefix string) (*os.File, error) {
 // Grab captures rect using GNOME Shell's native screenshot service. A zero rect
 // requests a full-screen capture; a non-empty rect uses ScreenshotArea.
 func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	ctx = ctxutil.Default(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("screen/gnome-shell: capture canceled: %w", ctxErr)
+	}
 	tmp, err := newTempScreenshotFile("perfuncted-gnome-*.png")
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: temp file: %w", err)
@@ -96,7 +101,7 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	var used string
 
 	if rect.Empty() {
-		call := b.obj.Call(gnomeShellShotIface+".Screenshot", 0, false, false, path)
+		call := b.obj.CallWithContext(ctx, gnomeShellShotIface+".Screenshot", 0, false, false, path)
 		if call.Err != nil {
 			return nil, fmt.Errorf("screen/gnome-shell: Screenshot: %w", call.Err)
 		}
@@ -105,7 +110,7 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 			return nil, fmt.Errorf("screen/gnome-shell: Screenshot reply: %w", err)
 		}
 	} else {
-		call := b.obj.Call(gnomeShellShotIface+".ScreenshotArea", 0,
+		call := b.obj.CallWithContext(ctx, gnomeShellShotIface+".ScreenshotArea", 0,
 			int32(rect.Min.X), int32(rect.Min.Y), int32(rect.Dx()), int32(rect.Dy()),
 			false, path,
 		)
@@ -150,4 +155,9 @@ func (b *GnomeShellScreenshotBackend) Resolution() (int, int, error) {
 	return bounds.Dx(), bounds.Dy(), nil
 }
 
-func (b *GnomeShellScreenshotBackend) Close() error { return b.conn.Close() }
+func (b *GnomeShellScreenshotBackend) Close() error {
+	if b == nil || b.conn == nil {
+		return nil
+	}
+	return b.conn.Close()
+}

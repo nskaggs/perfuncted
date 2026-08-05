@@ -172,7 +172,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		"interactive":  dbus.MakeVariant(false),
 	}
 	var gotHandle dbus.ObjectPath
-	if err := obj.Call(portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
+	if err := obj.CallWithContext(ctx, portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
 		return nil, fmt.Errorf("screen/portal: Screenshot: %w", err)
 	}
 	if gotHandle == "" {
@@ -187,7 +187,10 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
-		case sig := <-ch:
+		case sig, ok := <-ch:
+			if !ok {
+				return nil, fmt.Errorf("screen/portal: D-Bus signal channel closed")
+			}
 			if !portalSignalMatches(sig, gotHandle, expectedHandlePath) || len(sig.Body) < 2 {
 				continue
 			}

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -220,6 +221,10 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 }
 
 func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error { //nolint:gocyclo
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("screen/ext: capture canceled: %w", err)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -245,6 +250,9 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	}
 	if stopped {
 		return fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("screen/ext: capture canceled: %w", err)
 	}
 	if si.width == 0 || si.height == 0 {
 		return fmt.Errorf("screen/ext: session did not report buffer size")

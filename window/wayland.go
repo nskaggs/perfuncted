@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -284,6 +285,11 @@ func (m *WaylandWindowManager) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all top-level windows.
 func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
+		ctx = ctxutil.Default(ctx)
+		if err := ctx.Err(); err != nil {
+			yield(Info{}, fmt.Errorf("window/wayland: iterate canceled: %w", err))
+			return
+		}
 		if err := m.display.RoundTrip(); err != nil {
 			yield(Info{}, fmt.Errorf("window/wayland: round-trip: %w", err))
 			return
@@ -304,6 +310,10 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 
 // ActiveTitle returns the title of the currently focused window, if available.
 func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("window/wayland: active title canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return "", fmt.Errorf("window/wayland: round-trip: %w", err)
 	}
@@ -328,6 +338,10 @@ func (m *WaylandWindowManager) Close() error {
 }
 
 func (m *WaylandWindowManager) Sync(ctx context.Context) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: sync canceled: %w", err)
+	}
 	if m.display == nil {
 		return nil
 	}
@@ -363,6 +377,10 @@ func (m *WaylandWindowManager) lookupByID(id string) (uint32, Info, error) {
 }
 
 func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: activate canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -387,6 +405,9 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 			return err
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: activate canceled: %w", err)
+	}
 	payload := make([]byte, 4)
 	wl.PutUint32(payload, m.seat.ID())
 	return m.sendHandleRequest(hid, 4, payload)
@@ -401,6 +422,10 @@ func (m *WaylandWindowManager) ResizeByID(_ context.Context, _ string, _, _ int)
 }
 
 func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: close canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -410,11 +435,18 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 	}
 	if !m.canControlToplevels() {
 		return ErrNotSupported
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: close canceled: %w", err)
 	}
 	return m.sendHandleRequest(hid, 5, nil)
 }
 
 func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -424,11 +456,18 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 	}
 	if !m.canControlToplevels() {
 		return ErrNotSupported
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
 	}
 	return m.sendHandleRequest(hid, 2, nil)
 }
 
 func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -438,6 +477,9 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 	}
 	if !m.canControlToplevels() {
 		return ErrNotSupported
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
 	}
 	return m.sendHandleRequest(hid, 0, nil)
 }
@@ -446,6 +488,10 @@ func (m *WaylandWindowManager) FullscreenByID(
 	ctx context.Context,
 	id string,
 ) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -455,6 +501,9 @@ func (m *WaylandWindowManager) FullscreenByID(
 	}
 	if !m.canControlToplevels() {
 		return ErrNotSupported
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 	}
 	// A null wl_output lets the compositor choose the target output.
 	return m.sendHandleRequest(handleID, 8, make([]byte, 4))
@@ -464,6 +513,10 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 	ctx context.Context,
 	id string,
 ) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -474,10 +527,17 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 	if !m.canControlToplevels() {
 		return ErrNotSupported
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
+	}
 	return m.sendHandleRequest(handleID, 9, nil)
 }
 
 func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: restore canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return err
 	}
@@ -488,6 +548,9 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 	if !m.canControlToplevels() {
 		return ErrNotSupported
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/wayland: restore canceled: %w", err)
+	}
 	if err := m.sendHandleRequest(hid, 1, nil); err != nil {
 		return err
 	}
@@ -495,6 +558,10 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 }
 
 func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, error) {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return Info{}, fmt.Errorf("window/wayland: info canceled: %w", err)
+	}
 	if err := m.display.RoundTrip(); err != nil {
 		return Info{}, err
 	}

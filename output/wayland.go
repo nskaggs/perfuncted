@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -145,6 +146,10 @@ func readWlString(data []byte, off int) (string, int, bool) {
 }
 
 func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
+	}
 	if l == nil || l.session == nil {
 		return nil, capability.Unsupported("output", "wayland", "not available")
 	}

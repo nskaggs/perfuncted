@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -17,12 +18,8 @@ import (
 var _ Screenshotter = (*WlrScreencopyBackend)(nil)
 
 var (
-	// default TTL for cached contexts; tests may override via SetWlrCacheTTL
+	// default TTL for a backend's cached context.
 	defaultWlrCacheTTL = 5 * time.Minute
-	// global wlr cached contexts: cap and bookkeeping
-	maxWlrCachedContexts = 4
-	globalWlrMu          sync.Mutex
-	globalWlrCtxs        = make(map[*wl.Context]time.Time)
 )
 
 // bufInfo describes the raw buffer provided by the compositor (format, dims).
@@ -112,53 +109,29 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 		b.output = nil
 		b.mgrProxy = nil
 
-		globalWlrMu.Lock()
-		globalWlrCtxs[b.ctx] = time.Now()
-		if len(globalWlrCtxs) > maxWlrCachedContexts {
-			for len(globalWlrCtxs) > maxWlrCachedContexts {
-				var oldest *wl.Context
-				var oldestT time.Time
-				for c, t := range globalWlrCtxs {
-					if oldest == nil || t.Before(oldestT) {
-						oldest = c
-						oldestT = t
-					}
-				}
-				if oldest != nil {
-					_ = oldest.Close()
-					delete(globalWlrCtxs, oldest)
-				}
-			}
-		}
-		globalWlrMu.Unlock()
 	}
 	b.lastUsed = time.Now()
 
 	if b.mgrProxy == nil {
 		if err := b.setupProxies(b.ctx); err != nil {
 			_ = b.ctx.Close()
-			globalWlrMu.Lock()
-			delete(globalWlrCtxs, b.ctx)
-			globalWlrMu.Unlock()
 			b.ctx = nil
 			return err
 		}
 	}
 
-	if err := fn(b.ctx); err != nil {
+	var fnErr error
+	if op, ok := interface{}(b.ctx).(interface{ WithOperation(func() error) error }); ok {
+		fnErr = op.WithOperation(func() error { return fn(b.ctx) })
+	} else {
+		fnErr = fn(b.ctx)
+	}
+	if fnErr != nil {
 		_ = b.ctx.Close()
-		globalWlrMu.Lock()
-		delete(globalWlrCtxs, b.ctx)
-		globalWlrMu.Unlock()
 		b.ctx = nil
-		return err
+		return fnErr
 	}
 	b.lastUsed = time.Now()
-	globalWlrMu.Lock()
-	if b.ctx != nil {
-		globalWlrCtxs[b.ctx] = b.lastUsed
-	}
-	globalWlrMu.Unlock()
 	return nil
 }
 
@@ -240,7 +213,14 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error { //nolint:go
 // raw pixel data to fn for processing. This eliminates ~100 lines of duplication
 // between Grab, GrabFullHash, and GrabRegionHash.
 func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels []byte, bi bufInfo) error) error { //nolint:gocyclo
+	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("screen/wlr: capture canceled: %w", err)
+	}
 	return b.withWlrContext(func(wlctx *wl.Context) error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("screen/wlr: capture canceled: %w", err)
+		}
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
 

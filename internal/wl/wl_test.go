@@ -2,6 +2,7 @@ package wl
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 )
 
@@ -244,6 +245,43 @@ func TestContext_Close_NilConn(t *testing.T) {
 	ctx := &Context{}
 	if err := ctx.Close(); err != nil {
 		t.Errorf("Close on nil conn returned error: %v", err)
+	}
+}
+
+func TestContextRegisterConcurrent(t *testing.T) {
+	ctx := &Context{}
+	const count = 100
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx.Register(&RawProxy{})
+		}()
+	}
+	wg.Wait()
+
+	ctx.objectsMu.RLock()
+	got := len(ctx.objects)
+	ctx.objectsMu.RUnlock()
+	if got != count {
+		t.Fatalf("registered proxy count = %d, want %d", got, count)
+	}
+}
+
+func TestContextWithOperationAllowsReentrantStateChanges(t *testing.T) {
+	ctx := &Context{}
+	if err := ctx.WithOperation(func() error {
+		ctx.Register(&RawProxy{})
+		ctx.SetProxy(100, &RawProxy{})
+		return nil
+	}); err != nil {
+		t.Fatalf("WithOperation: %v", err)
+	}
+	ctx.objectsMu.RLock()
+	defer ctx.objectsMu.RUnlock()
+	if len(ctx.objects) != 2 {
+		t.Fatalf("object count = %d, want 2", len(ctx.objects))
 	}
 }
 

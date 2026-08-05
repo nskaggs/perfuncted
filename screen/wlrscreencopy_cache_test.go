@@ -8,41 +8,6 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
-// TestGlobalWlrCacheLimit verifies that the global wlr cache does not exceed the configured cap.
-func TestGlobalWlrCacheLimit(t *testing.T) {
-	orig := maxWlrCachedContexts
-	maxWlrCachedContexts = 3
-	defer func() { maxWlrCachedContexts = orig }()
-
-	var backends []*WlrScreencopyBackend
-	defer func() {
-		for _, b := range backends {
-			b.Close()
-		}
-		// Clean global state to prevent cross-test pollution.
-		globalWlrMu.Lock()
-		globalWlrCtxs = make(map[*wl.Context]time.Time)
-		globalWlrMu.Unlock()
-	}()
-
-	for i := 0; i < 6; i++ {
-		b := NewWlrScreencopyBackendWithConnector("/tmp/fake", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 50*time.Millisecond)
-		backends = append(backends, b)
-		if err := b.withWlrContext(func(ctx *wl.Context) error { return nil }); err != nil {
-			t.Fatalf("withWlrContext failed: %v", err)
-		}
-	}
-
-	// wait for janitors to trim
-	time.Sleep(200 * time.Millisecond)
-	globalWlrMu.Lock()
-	n := len(globalWlrCtxs)
-	globalWlrMu.Unlock()
-	if n > maxWlrCachedContexts {
-		t.Fatalf("global cache size %d exceeds cap %d", n, maxWlrCachedContexts)
-	}
-}
-
 // TestWithWlrContextReconnect simulates a protocol error on the first context
 // and ensures withWlrContext resets the cached ctx and reconnects on next call.
 func TestWithWlrContextReconnect(t *testing.T) {
