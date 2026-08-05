@@ -2,6 +2,9 @@ package wl
 
 import (
 	"bytes"
+	"io"
+	"net"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -282,6 +285,57 @@ func TestContextWithOperationAllowsReentrantStateChanges(t *testing.T) {
 	defer ctx.objectsMu.RUnlock()
 	if len(ctx.objects) != 2 {
 		t.Fatalf("object count = %d, want 2", len(ctx.objects))
+	}
+}
+
+func TestContextRoundTripUnregistersCallbacks(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		var request [12]byte
+		for {
+			if _, readErr := io.ReadFull(conn, request[:]); readErr != nil {
+				return
+			}
+			var event [8]byte
+			PutUint32(event[0:], Uint32(request[8:12]))
+			PutUint32(event[4:], 8<<16)
+			if _, writeErr := conn.Write(event[:]); writeErr != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		if err := ctx.RoundTrip(); err != nil {
+			t.Fatalf("RoundTrip %d: %v", i, err)
+		}
+	}
+	if err := ctx.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	<-serverDone
+
+	ctx.objectsMu.RLock()
+	defer ctx.objectsMu.RUnlock()
+	if got := len(ctx.objects); got != 0 {
+		t.Fatalf("object count after round trips = %d, want 0", got)
 	}
 }
 

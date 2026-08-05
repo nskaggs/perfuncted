@@ -158,13 +158,17 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	ch := make(chan *dbus.Signal, 4)
 	b.conn.Signal(ch)
 	defer b.conn.RemoveSignal(ch)
-	if err := b.conn.AddMatchSignal(
+	matchOptions := []dbus.MatchOption{
 		dbus.WithMatchSender(portalDest),
 		dbus.WithMatchInterface(portalReqIf),
 		dbus.WithMatchMember("Response"),
-	); err != nil {
+	}
+	if err := b.conn.AddMatchSignalContext(ctx, matchOptions...); err != nil {
 		return nil, fmt.Errorf("screen/portal: AddMatch: %w", err)
 	}
+	defer func(cleanupCtx context.Context) {
+		_ = b.conn.RemoveMatchSignalContext(cleanupCtx, matchOptions...)
+	}(context.WithoutCancel(ctx))
 
 	obj := b.conn.Object(portalDest, portalPath)
 	opts := map[string]dbus.Variant{

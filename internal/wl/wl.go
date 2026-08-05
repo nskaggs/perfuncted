@@ -114,6 +114,14 @@ func (ctx *Context) SetProxy(id uint32, p Proxy) {
 	ctx.objects[id] = p
 }
 
+func (ctx *Context) unregister(id uint32, expected Proxy) {
+	ctx.objectsMu.Lock()
+	defer ctx.objectsMu.Unlock()
+	if current, ok := ctx.objects[id]; ok && current == expected {
+		delete(ctx.objects, id)
+	}
+}
+
 // WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
 // If the underlying connection is nil (tests may construct zero-value Contexts),
 // treat it as a no-op rather than panicking.
@@ -289,6 +297,7 @@ func (ctx *Context) RoundTrip() error {
 
 	cb := &Callback{}
 	ctx.Register(cb)
+	defer ctx.unregister(cb.ID(), cb)
 	var buf [12]byte
 	PutUint32(buf[0:], 1)
 	PutUint32(buf[4:], 12<<16)
