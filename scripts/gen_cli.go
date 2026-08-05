@@ -4,8 +4,8 @@
 // Command generator: produce cobra command wrappers from perfuncted API.
 // Usage: go run -tags=gencli ./scripts/gen_cli.go
 //
-// It reads scripts/cli-mapping.yaml and docs-cli/ to avoid generating commands
-// that already exist in the hand-written CLI docs.
+// It reads scripts/cli-mapping.yaml to avoid generating commands that already
+// exist in the hand-written CLI.
 //
 // Every non-skipped method MUST have a "short" entry in cli-mapping.yaml.
 // The generator will refuse to emit a bare placeholder description and will
@@ -18,8 +18,6 @@ import (
 	"go/format"
 	"go/types"
 	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -137,39 +135,6 @@ func loadMapping(path string) (Mapping, error) {
 	}
 	err = yaml.Unmarshal(b, &m)
 	return m, err
-}
-
-func collectDocs() (map[string]map[string]bool, error) {
-	out := map[string]map[string]bool{}
-	files, err := filepath.Glob("docs-cli/pf_*.md")
-	if err != nil {
-		return nil, err
-	}
-	re := regexpForDocs()
-	for _, f := range files {
-		base := filepath.Base(f)
-		if base == "pf.md" || strings.HasPrefix(base, "pf_completion") || base == "pf_docs.md" {
-			continue
-		}
-		m := re.FindStringSubmatch(base)
-		if m == nil {
-			continue
-		}
-		grp := m[1]
-		// Docs filenames use underscores in some command names; normalize to the
-		// hyphenated CLI form so we can compare against generated candidates.
-		cmd := strings.ReplaceAll(strings.TrimSuffix(m[2], ".md"), "_", "-")
-		if out[grp] == nil {
-			out[grp] = map[string]bool{}
-		}
-		out[grp][cmd] = true
-	}
-	return out, nil
-}
-
-func regexpForDocs() *regexp.Regexp {
-	// compile here to avoid importing regexp at top-level prematurely
-	return regexp.MustCompile(`^pf_([a-z0-9-]+)_(.+)\.md$`)
 }
 
 // Type helpers --------------------------------------------------------------

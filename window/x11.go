@@ -473,7 +473,3 @@ func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
 	}
 	return Info{}, ErrWindowNotFound
 }
-
-func (b *X11Backend) WaitClosedByID(ctx context.Context, id string) error {
-	return waitClosedByID(ctx, id, b.InfoByID)
-}

@@ -252,7 +252,7 @@ func (s *Session) isClosed() bool {
 	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
-	return s.closed
+	return s.closed || s.ctx == nil
 }
 
 func (s *Session) ensureOpen() error {

@@ -85,14 +85,6 @@ type IDManager interface {
 	RestoreByID(ctx context.Context, id string) error
 	// InfoByID returns fresh window info for the given ID.
 	InfoByID(ctx context.Context, id string) (Info, error)
-	// WaitClosedByID blocks until the window with the given ID disappears.
-	WaitClosedByID(ctx context.Context, id string) error
-}
-
-// OperationReporter advertises the operations implemented by a window
-// backend. Discovery is always present for a usable Manager.
-type OperationReporter interface {
-	SupportedOperations() []string
 }
 
 // NativeID returns the stable backend identifier for info.

@@ -246,22 +246,6 @@ func (m *handleWindowManager) InfoByID(
 	return window.Info{}, window.ErrWindowNotFound
 }
 
-func (m *handleWindowManager) WaitClosedByID(
-	ctx context.Context,
-	id string,
-) error {
-	for {
-		if _, err := m.InfoByID(ctx, id); err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-m.changes:
-		}
-	}
-}
-
 func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{
 		NativeID: "kwin-{opaque-id}",
@@ -503,6 +487,17 @@ func TestWaitRejectsCanceledContextBeforeSatisfiedCondition(t *testing.T) {
 		return true, nil
 	})); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Wait error = %v, want context.Canceled", err)
+	}
+}
+
+func TestWaitRejectsZeroValueSession(t *testing.T) {
+	if err := (&Session{}).Wait(
+		context.Background(),
+		Predicate("never", func(context.Context) (bool, error) {
+			return false, nil
+		}),
+	); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("Wait on zero-value session error = %v, want %v", err, ErrSessionClosed)
 	}
 }
 

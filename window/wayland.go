@@ -501,7 +501,3 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, e
 	}
 	return info, nil
 }
-
-func (m *WaylandWindowManager) WaitClosedByID(ctx context.Context, id string) error {
-	return waitClosedByID(ctx, id, m.InfoByID)
-}

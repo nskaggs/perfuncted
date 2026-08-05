@@ -545,10 +545,6 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	return FindByID(ctx, m, numeric)
 }
 
-func (m *SwayManager) WaitClosedByID(ctx context.Context, id string) error {
-	return waitClosedByID(ctx, id, m.InfoByID)
-}
-
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.
 func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) {
 	return swayQueryOnceContext(context.Background(), sock, msgType, payload)

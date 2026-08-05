@@ -224,7 +224,3 @@ func (g *GnomeManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	}
 	return Info{}, ErrWindowNotFound
 }
-
-func (g *GnomeManager) WaitClosedByID(ctx context.Context, id string) error {
-	return waitClosedByID(ctx, id, g.InfoByID)
-}

@@ -391,7 +391,3 @@ func (k *KWinScriptManager) InfoByID(ctx context.Context, id string) (Info, erro
 	}
 	return Info{}, ErrWindowNotFound
 }
-
-func (k *KWinScriptManager) WaitClosedByID(ctx context.Context, id string) error {
-	return waitClosedByID(ctx, id, k.InfoByID)
-}

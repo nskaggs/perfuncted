@@ -55,31 +55,6 @@ func TestWaitForMatchClose_PropagatesIOError(t *testing.T) {
 	}
 }
 
-func TestWaitClosedByID_PropagatesIOError(t *testing.T) {
-	ioErr := fmt.Errorf("backend: connection lost")
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	err := waitClosedByID(ctx, "anything", func(context.Context, string) (Info, error) {
-		return Info{}, ioErr
-	})
-	if !errors.Is(err, ioErr) {
-		t.Fatalf("waitClosedByID error = %v, want %v", err, ioErr)
-	}
-}
-
-func TestWaitClosedByID_SucceedsOnNotFound(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	err := waitClosedByID(ctx, "anything", func(context.Context, string) (Info, error) {
-		return Info{}, ErrWindowNotFound
-	})
-	if err != nil {
-		t.Fatalf("waitClosedByID error = %v, want nil", err)
-	}
-}
-
 // TestWaitForMatchClose_SucceedsOnErrWindowNotFound verifies that the
 // ErrWindowNotFound path still works correctly after the fix: the function
 // must return nil when the window genuinely disappears.

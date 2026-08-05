@@ -4,7 +4,6 @@ package pftest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/clipboard"
@@ -313,22 +311,6 @@ func (m *Manager) InfoByID(
 	}
 	return window.Info{}, window.ErrWindowNotFound
 }
-func (m *Manager) WaitClosedByID(ctx context.Context, id string) error {
-	for {
-		if _, err := m.InfoByID(ctx, id); err != nil {
-			if errors.Is(err, window.ErrWindowNotFound) {
-				return nil
-			}
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Millisecond):
-		}
-	}
-}
-
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	m.listIdx = 0
