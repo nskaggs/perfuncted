@@ -3,18 +3,17 @@ package main
 import (
 	"fmt"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
 )
 
-func clipboardCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
+func clipboardCmd(openPF sessionOpener) *cobra.Command {
 	cmd := &cobra.Command{Use: "clipboard", Short: "Clipboard operations"}
 
 	get := &cobra.Command{
 		Use:   "get",
 		Short: "Print clipboard contents",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -23,7 +22,7 @@ func clipboardCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Print(s)
+			fmt.Fprint(cmd.OutOrStdout(), s)
 			return nil
 		},
 	}
@@ -33,7 +32,7 @@ func clipboardCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 		Short: "Set clipboard contents",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}

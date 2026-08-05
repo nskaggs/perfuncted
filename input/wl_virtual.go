@@ -259,17 +259,17 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 // Literal text is typed as-is; {keyname} sends named keys; modifier+key combos
 // and {keyname down/up} are supported.
 func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
-	return b.TypeContext(ctx, s)
+	return b.typeContext(ctx, s)
 }
 
-func (b *WlVirtualBackend) TypeContext(ctx context.Context, s string) error {
+func (b *WlVirtualBackend) typeContext(ctx context.Context, s string) error {
 	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	actions, err := ParseKeySend(s)
+	actions, err := parseKeySend(s)
 	if err != nil {
 		return err
 	}

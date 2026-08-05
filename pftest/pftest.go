@@ -132,9 +132,9 @@ func (m *Inputter) KeyDown(ctx context.Context, key string) error {
 }
 func (m *Inputter) KeyUp(ctx context.Context, key string) error { m.record("up:" + key); return m.Err }
 func (m *Inputter) Type(ctx context.Context, s string) error {
-	return m.TypeContext(ctx, s)
+	return m.typeContext(ctx, s)
 }
-func (m *Inputter) TypeContext(ctx context.Context, s string) error {
+func (m *Inputter) typeContext(_ context.Context, s string) error {
 	m.record("type:" + s)
 	return m.Err
 }

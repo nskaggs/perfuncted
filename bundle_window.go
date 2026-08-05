@@ -14,10 +14,10 @@ type WindowBundle struct {
 }
 
 func (b *WindowBundle) checkAvailable(operation string) error {
-	if b == nil || b.backend == nil {
-		return b.unavailable(operation)
+	if b == nil {
+		return (&bundleBase{}).unavailable(operation)
 	}
-	return nil
+	return b.bundleBase.checkAvailable(operation, b.backend != nil)
 }
 
 func (b *WindowBundle) close() error {

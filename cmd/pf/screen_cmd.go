@@ -11,14 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/spf13/cobra"
 )
 
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func screenCmd(
-	openPF func() (*perfuncted.Session, error),
+	openPF sessionOpener,
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
@@ -28,7 +27,7 @@ func screenCmd(
 		Use:   "grab",
 		Short: "Capture a screen region and save as PNG",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -44,7 +43,7 @@ func screenCmd(
 			if err := pf.Screen.CaptureRegion(cmd.Context(), r, out); err != nil {
 				return err
 			}
-			fmt.Println(out)
+			fmt.Fprintln(cmd.OutOrStdout(), out)
 			return nil
 		},
 	}
@@ -55,7 +54,7 @@ func screenCmd(
 		Use:   "hash",
 		Short: "Print the CRC32 pixel hash of a screen region",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -68,7 +67,7 @@ func screenCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -79,7 +78,7 @@ func screenCmd(
 		Use:   "pixel",
 		Short: "Print the RGB colour of a single pixel",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -88,7 +87,7 @@ func screenCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Printf("R=%d G=%d B=%d\n", c.R, c.G, c.B)
+			fmt.Fprintf(cmd.OutOrStdout(), "R=%d G=%d B=%d\n", c.R, c.G, c.B)
 			return nil
 		},
 	}
@@ -103,7 +102,7 @@ func screenCmd(
 		Long: `Captures the entire screen and writes the raw 8-bit RGBA pixel data
 directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -128,7 +127,7 @@ directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`
 If --out is not provided or is '-', the PNG data is written to stdout.
 Otherwise, it is saved to the specified file.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -152,7 +151,7 @@ Otherwise, it is saved to the specified file.`,
 			if err := png.Encode(f, img); err != nil {
 				return err
 			}
-			fmt.Fprintln(os.Stderr, grabRegionOut)
+			fmt.Fprintln(cmd.ErrOrStderr(), grabRegionOut)
 			return nil
 		},
 	}
@@ -179,7 +178,7 @@ Runs until --duration expires or Ctrl+C.`,
 			if err != nil {
 				return err
 			}
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -269,7 +268,7 @@ Runs until --duration expires or Ctrl+C.`,
 		Use:   "resolution",
 		Short: "Print the screen resolution",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -278,7 +277,7 @@ Runs until --duration expires or Ctrl+C.`,
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%dx%d\n", w, h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%dx%d\n", w, h)
 			return nil
 		},
 	}
@@ -293,7 +292,7 @@ Runs until --duration expires or Ctrl+C.`,
 predicates. This is useful when the caller wants a higher-level readiness
 check than a raw hash comparison.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -320,7 +319,7 @@ check than a raw hash comparison.`,
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", find.PixelHash(img, nil))
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", find.PixelHash(img, nil))
 			return nil
 		},
 	}
@@ -337,7 +336,7 @@ check than a raw hash comparison.`,
 then waits for the region to change and become stable again. The CLI version
 uses a no-op action so it still works as a pure readiness probe.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -364,7 +363,7 @@ uses a no-op action so it still works as a pure readiness probe.`,
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -381,7 +380,7 @@ uses a no-op action so it still works as a pure readiness probe.`,
 colour of each point in order. Use --output json for machine parsing, or the
 plain format for quick interactive checks.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}

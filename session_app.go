@@ -190,6 +190,9 @@ func (a *Application) Stop(ctx context.Context) error {
 	if a == nil || a.pid <= 0 {
 		return nil
 	}
+	if ctx == nil {
+		return errors.New("perfuncted: stop application: nil context")
+	}
 	select {
 	case <-a.done:
 		return nil

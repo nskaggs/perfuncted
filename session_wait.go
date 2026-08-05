@@ -182,12 +182,6 @@ func WindowExists(match WindowMatch) Condition {
 	)
 }
 
-// WindowState is an alias for WindowExists that emphasizes state fields in
-// WindowMatch.
-func WindowState(match WindowMatch) Condition {
-	return WindowExists(match)
-}
-
 // WindowClosed succeeds when the stable window handle no longer exists.
 func WindowClosed(target *Window) Condition {
 	return sessionCondition(
@@ -326,6 +320,17 @@ func (s *Session) Wait(
 		}
 	}
 
+	return s.wait(ctx, condition, config)
+}
+
+func (s *Session) wait(
+	ctx context.Context,
+	condition Condition,
+	config waitConfig,
+) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
 	for {

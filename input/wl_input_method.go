@@ -123,16 +123,16 @@ func NewWlInputMethodBackend(sock string, maxX, maxY int32) (Inputter, error) {
 	return backend, nil
 }
 
-// Type delegates to the wl-virtual keyboard backend via TypeContext.
+// Type delegates to the wl-virtual keyboard backend via the internal typing helper.
 func (b *WlInputMethodBackend) Type(ctx context.Context, s string) error {
-	return b.TypeContext(ctx, s)
+	return b.typeContext(ctx, s)
 }
 
-// TypeContext delegates to the wl-virtual keyboard backend (other), which
+// typeContext delegates to the wl-virtual keyboard backend (other), which
 // handles both literal text and {key combos} via a custom XKB keymap.
 // The input-method protocol (commit_string) requires compositor-side activation
 // which is unreliable in headless CI environments.
-func (b *WlInputMethodBackend) TypeContext(ctx context.Context, s string) error {
+func (b *WlInputMethodBackend) typeContext(ctx context.Context, s string) error {
 	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err

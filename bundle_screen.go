@@ -21,10 +21,10 @@ type ScreenBundle struct {
 }
 
 func (s *ScreenBundle) checkAvailable(operation string) error {
-	if s == nil || s.backend == nil {
-		return s.unavailable(operation)
+	if s == nil {
+		return (&bundleBase{}).unavailable(operation)
 	}
-	return nil
+	return s.bundleBase.checkAvailable(operation, s.backend != nil)
 }
 
 func (s *ScreenBundle) grabHash(

@@ -269,7 +269,7 @@ func TestWlInputMethodBackend_CanceledContextShortCircuitsNoOther(t *testing.T) 
 	}{
 		{
 			name: "TypeContext",
-			run:  func() error { return b.TypeContext(ctx, "text") },
+			run:  func() error { return b.typeContext(ctx, "text") },
 		},
 		{
 			name: "KeyDown",

@@ -159,7 +159,7 @@ func TestUinputKeyDownAndUp(t *testing.T) {
 func TestUinputTypeContextExplicitKeyUpReleasesHeldKey(t *testing.T) {
 	b, kb := newTestBackend(t)
 
-	if err := b.TypeContext(context.Background(), "{ctrl down}{ctrl up}"); err != nil {
+	if err := b.typeContext(context.Background(), "{ctrl down}{ctrl up}"); err != nil {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestUinputTypeContextUppercaseUsesShift(t *testing.T) {
 func TestUinputTypeContextLowercaseDoesNotUseShift(t *testing.T) {
 	b, kb := newTestBackend(t)
 
-	if err := b.TypeContext(context.Background(), "a"); err != nil {
+	if err := b.typeContext(context.Background(), "a"); err != nil {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestUinputTypeContextLowercaseDoesNotUseShift(t *testing.T) {
 func TestUinputTypeContextSymbolUsesShift(t *testing.T) {
 	b, kb := newTestBackend(t)
 
-	if err := b.TypeContext(context.Background(), "!"); err != nil {
+	if err := b.typeContext(context.Background(), "!"); err != nil {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
@@ -242,7 +242,7 @@ func TestUinputTypeContextSymbolUsesShift(t *testing.T) {
 func TestUinputTypeContextMixedText(t *testing.T) {
 	b, kb := newTestBackend(t)
 
-	if err := b.TypeContext(context.Background(), "Hi!"); err != nil {
+	if err := b.typeContext(context.Background(), "Hi!"); err != nil {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
@@ -272,7 +272,7 @@ func TestUinputTypeContextUnsupportedChar(t *testing.T) {
 	b, kb := newTestBackend(t)
 
 	// Euro sign is not in the QWERTY fallback map
-	err := b.TypeContext(context.Background(), "€")
+	err := b.typeContext(context.Background(), "€")
 	if err == nil {
 		t.Fatal("expected error for unsupported character, got nil")
 	}
@@ -285,7 +285,7 @@ func TestUinputTypeContextWithKeyCombo(t *testing.T) {
 	b, kb := newTestBackend(t)
 
 	// {ctrl+a} should use resolveKey path, not charToRune
-	if err := b.TypeContext(context.Background(), "{ctrl+a}"); err != nil {
+	if err := b.typeContext(context.Background(), "{ctrl+a}"); err != nil {
 		t.Fatalf("TypeContext: %v", err)
 	}
 
@@ -571,7 +571,7 @@ func TestTypeKeyWithMods_ModifierReleasedOnKeyPressFailure(t *testing.T) {
 
 	// {shift+a}: presses shift (succeeds), then KeyPress('a') fails.
 	// The fix should release shift even though KeyPress failed.
-	err := b.TypeContext(context.Background(), "{shift+a}")
+	err := b.typeContext(context.Background(), "{shift+a}")
 	if err == nil {
 		t.Fatal("expected error from injected failure")
 	}
@@ -612,7 +612,7 @@ func TestUinputBackend_CanceledContextSuppressesKeyboardEvents(t *testing.T) {
 		},
 		{
 			name: "TypeContext",
-			run:  func(b *UinputBackend) error { return b.TypeContext(ctx, "A{ctrl+a}") },
+			run:  func(b *UinputBackend) error { return b.typeContext(ctx, "A{ctrl+a}") },
 		},
 	}
 

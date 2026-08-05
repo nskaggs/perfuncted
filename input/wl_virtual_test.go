@@ -323,7 +323,7 @@ func TestWlVirtualBackend_CanceledContextShortCircuitsMethods(t *testing.T) {
 		},
 		{
 			name: "TypeContext",
-			run:  func() error { return b.TypeContext(ctx, "A{ctrl+a}") },
+			run:  func() error { return b.typeContext(ctx, "A{ctrl+a}") },
 		},
 		{
 			name: "KeyDown",

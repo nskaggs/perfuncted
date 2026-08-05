@@ -267,8 +267,7 @@ func main() {
 	fmt.Fprintln(outBuf, "")
 
 	imports := map[string]bool{
-		"github.com/spf13/cobra":        true,
-		"github.com/nskaggs/perfuncted": true,
+		"github.com/spf13/cobra": true,
 	}
 	// We'll populate imports as we discover uses.
 
@@ -488,7 +487,7 @@ func main() {
 				}
 			}
 			sb.WriteString("\t\tRunE: func(cmd *cobra.Command, args []string) error {\n")
-			sb.WriteString("\t\t\tpf, err := openPF()\n\t\t\tif err != nil { return err }\n\t\t\tdefer pf.Close()\n")
+			sb.WriteString("\t\t\tpf, err := openPF(cmd.Context())\n\t\t\tif err != nil { return err }\n\t\t\tdefer pf.Close()\n")
 			// parse params
 			rectIndex := 0
 			for i := start; i < params.Len(); i++ {
@@ -584,32 +583,36 @@ func main() {
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
 				sb.WriteString("\t\t\tdefer f.Close()\n")
 				sb.WriteString(fmt.Sprintf("\t\t\tif err := png.Encode(f, img); err != nil { return err }\n"))
-				sb.WriteString("\t\t\tfmt.Println(out)\n")
+				sb.WriteString("\t\t\tfmt.Fprintln(cmd.OutOrStdout(), out)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "uint32" {
 				sb.WriteString(fmt.Sprintf("\t\t\th, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%08x\\n\", h)\n")
+				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%08x\\n\", h)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "uint32-rect" {
 				sb.WriteString(fmt.Sprintf("\t\t\th, rect, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)\n")
+				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "string" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Print(res)\n")
+				sb.WriteString("\t\t\tfmt.Fprint(cmd.OutOrStdout(), res)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "int-int" {
 				sb.WriteString(fmt.Sprintf("\t\t\tw, h, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%dx%d\\n\", w, h)\n")
+				if grp == "input" && mn == "PointerLocation" {
+					sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%d,%d\\n\", w, h)\n")
+				} else {
+					sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%dx%d\\n\", w, h)\n")
+				}
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "int" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%d\\n\", res)\n")
+				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%d\\n\", res)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else {
 				// error-only or no-return
@@ -694,7 +697,7 @@ func main() {
 	// Emit autogen functions
 	for _, grp := range []string{"screen", "input", "window", "clipboard"} {
 		funcName := fmt.Sprintf("autogen%sCommands", strings.Title(grp))
-		fmt.Fprintf(outBuf, "func %s(openPF func() (*perfuncted.Session, error)) []*cobra.Command {\n", funcName)
+		fmt.Fprintf(outBuf, "func %s(openPF sessionOpener) []*cobra.Command {\n", funcName)
 		fmt.Fprintln(outBuf, "\tcmds := []*cobra.Command{}")
 		for _, block := range generated[grp] {
 			fmt.Fprintln(outBuf, block)

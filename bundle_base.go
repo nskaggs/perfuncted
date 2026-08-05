@@ -1,6 +1,7 @@
 package perfuncted
 
 type bundleBase struct {
+	session    *Session
 	capability Capability
 	failure    error
 	tracer     *actionTracer
@@ -29,4 +30,17 @@ func (b *bundleBase) unavailable(operation string) error {
 		Operation:  operation,
 		Err:        err,
 	}
+}
+
+func (b *bundleBase) checkAvailable(operation string, available bool) error {
+	if b == nil {
+		return b.unavailable(operation)
+	}
+	if b.session != nil && b.session.isClosed() {
+		return ErrSessionClosed
+	}
+	if !available {
+		return b.unavailable(operation)
+	}
+	return nil
 }

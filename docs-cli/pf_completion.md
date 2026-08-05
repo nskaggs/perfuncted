@@ -17,8 +17,6 @@ See each sub-command's help for details on how to use the generated script.
 ### Options inherited from parent commands
 
 ```
-      --max-x int32            input coordinate space width (default 1920)
-      --max-y int32            input coordinate space height (default 1080)
       --nested                 start and target a new nested Wayland session
       --sync                   sync after observable mutating commands when supported
       --trace-actions          print each API action to stderr as it runs

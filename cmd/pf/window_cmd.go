@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -51,18 +52,18 @@ func windowNotFoundError(match window.Match) error {
 	return fmt.Errorf("window matching %q not found: %w", match.String(), window.ErrWindowNotFound)
 }
 
-func printWindowPlain(w window.Info) {
+func printWindowPlain(out io.Writer, w window.Info) {
 	id := w.StableID()
 	if w.ID != 0 {
 		id = fmt.Sprintf("0x%x", w.ID)
 	}
-	fmt.Printf("%s\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
+	fmt.Fprintf(out, "%s\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
 		id, w.Title, w.AppID, w.PID, w.Active, w.Minimized, w.Maximized, w.Fullscreen)
 }
 
-func printWindowListPlain(wins []window.Info) {
+func printWindowListPlain(out io.Writer, wins []window.Info) {
 	for _, w := range wins {
-		printWindowPlain(w)
+		printWindowPlain(out, w)
 	}
 }
 
@@ -111,13 +112,13 @@ func findWindowByTitle(
 
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func windowCmd(
-	openPF func() (*perfuncted.Session, error),
+	openPF sessionOpener,
 	cfg *cliConfig,
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
-	syncIf := func(pf *perfuncted.Session) error {
+	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Windows.Sync(context.Background())
+			return pf.Windows.Sync(ctx)
 		}
 		return nil
 	}
@@ -127,7 +128,7 @@ func windowCmd(
 		Use:   "list",
 		Short: "List windows",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -142,7 +143,7 @@ func windowCmd(
 			}
 			switch strings.ToLower(listOutputFlag) {
 			case string(windowOutputPlain):
-				printWindowListPlain(wins)
+				printWindowListPlain(cmd.OutOrStdout(), wins)
 			case string(windowOutputJSON):
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(wins); err != nil {
 					return err
@@ -160,7 +161,7 @@ func windowCmd(
 		Short: "Bring a window to the foreground by title substring (case-insensitive)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -176,10 +177,10 @@ func windowCmd(
 			if err := target.Activate(cmd.Context()); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("activated: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "activated: %s\n", args[0])
 			return nil
 		},
 	}
@@ -188,7 +189,7 @@ func windowCmd(
 		Use:   "active",
 		Short: "Print the title of the currently focused window",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -197,7 +198,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Println(t)
+			fmt.Fprintln(cmd.OutOrStdout(), t)
 			return nil
 		},
 	}
@@ -208,7 +209,7 @@ func windowCmd(
 		Use:   "move",
 		Short: "Move a window to absolute screen coordinates",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -238,10 +239,10 @@ func windowCmd(
 			if err := target.Move(cmd.Context(), x, y); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("moved %q to %d,%d\n", mvTitle, x, y)
+			fmt.Fprintf(cmd.OutOrStdout(), "moved %q to %d,%d\n", mvTitle, x, y)
 			return nil
 		},
 	}
@@ -256,7 +257,7 @@ func windowCmd(
 		Use:   "resize",
 		Short: "Resize a window",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -272,10 +273,10 @@ func windowCmd(
 			if err := target.Resize(cmd.Context(), rsW, rsH); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("resized %q to %dx%d\n", rsTitle, rsW, rsH)
+			fmt.Fprintf(cmd.OutOrStdout(), "resized %q to %dx%d\n", rsTitle, rsW, rsH)
 			return nil
 		},
 	}
@@ -289,7 +290,7 @@ func windowCmd(
 		Short: "Fullscreen a window by title",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -305,10 +306,10 @@ func windowCmd(
 			if err := target.Fullscreen(cmd.Context()); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("fullscreen: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "fullscreen: %s\n", args[0])
 			return nil
 		},
 	}
@@ -318,7 +319,7 @@ func windowCmd(
 		Short: "Exit fullscreen for a window by title",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -334,10 +335,10 @@ func windowCmd(
 			if err := target.Unfullscreen(cmd.Context()); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("unfullscreen: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "unfullscreen: %s\n", args[0])
 			return nil
 		},
 	}
@@ -350,7 +351,7 @@ func windowCmd(
 		Short: "Find matching windows and print them",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -370,7 +371,7 @@ func windowCmd(
 			if len(wins) == 0 {
 				return windowNotFoundError(match)
 			}
-			printWindowListPlain(wins)
+			printWindowListPlain(cmd.OutOrStdout(), wins)
 			return nil
 		},
 	}
@@ -380,7 +381,7 @@ func windowCmd(
 		Short: "Wait until a matching window appears",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -403,7 +404,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			printWindowPlain(w)
+			printWindowPlain(cmd.OutOrStdout(), w)
 			return nil
 		},
 	}
@@ -416,7 +417,7 @@ func windowCmd(
 		Short: "Wait until matching windows disappear",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -454,7 +455,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -496,7 +497,7 @@ func windowCmd(
 		Short: "Find a window by title and print info",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -513,9 +514,9 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Printf("0x%x\t%s\n", info.ID, info.Title)
-			fmt.Printf("x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
-			fmt.Printf("pid=%d\n", info.PID)
+			fmt.Fprintf(cmd.OutOrStdout(), "0x%x\t%s\n", info.ID, info.Title)
+			fmt.Fprintf(cmd.OutOrStdout(), "x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
+			fmt.Fprintf(cmd.OutOrStdout(), "pid=%d\n", info.PID)
 			return nil
 		},
 	}
@@ -525,7 +526,7 @@ func windowCmd(
 		Short: "Return whether a window is visible",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -537,9 +538,9 @@ func windowCmd(
 			)
 			switch {
 			case err == nil:
-				fmt.Println("true")
+				fmt.Fprintln(cmd.OutOrStdout(), "true")
 			case errors.Is(err, window.ErrWindowNotFound):
-				fmt.Println("false")
+				fmt.Fprintln(cmd.OutOrStdout(), "false")
 			default:
 				return err
 			}
@@ -556,7 +557,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -595,7 +596,7 @@ func windowCmd(
 					}
 					continue
 				}
-				printWindowListPlain(wins)
+				printWindowListPlain(cmd.OutOrStdout(), wins)
 			}
 		},
 	}
@@ -608,7 +609,7 @@ func windowCmd(
 		Short: "Close a window by title",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -624,10 +625,10 @@ func windowCmd(
 			if err := target.Close(cmd.Context()); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("closed: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "closed: %s\n", args[0])
 			return nil
 		},
 	}
@@ -637,7 +638,7 @@ func windowCmd(
 		Short: "Minimize a window by title",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -653,10 +654,10 @@ func windowCmd(
 			if err := target.Minimize(cmd.Context()); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("minimized: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "minimized: %s\n", args[0])
 			return nil
 		},
 	}
@@ -666,7 +667,7 @@ func windowCmd(
 		Short: "Maximize a window by title",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -682,10 +683,10 @@ func windowCmd(
 			if err := target.Maximize(cmd.Context()); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("maximized: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "maximized: %s\n", args[0])
 			return nil
 		},
 	}

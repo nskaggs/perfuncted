@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/ctxutil"
 )
 
@@ -32,7 +31,7 @@ func run(ctx context.Context, args []string) int {
 func runWithFactory(
 	ctx context.Context,
 	args []string,
-	openPFFactory func(*cliConfig) func() (*perfuncted.Session, error),
+	openPFFactory cliOpenFactory,
 ) int {
 	ctx = ctxutil.Default(ctx)
 	cmd := newRootCmd(openPFFactory) //nolint:contextcheck // cobra command doesn't accept context at construction time

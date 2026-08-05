@@ -161,15 +161,15 @@ func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 }
 
 func (b *UinputBackend) Type(ctx context.Context, s string) error {
-	return b.TypeContext(ctx, s)
+	return b.typeContext(ctx, s)
 }
 
-func (b *UinputBackend) TypeContext(ctx context.Context, s string) error {
+func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	actions, err := ParseKeySend(s)
+	actions, err := parseKeySend(s)
 	if err != nil {
 		return err
 	}

@@ -12,8 +12,11 @@ type OutputBundle struct {
 }
 
 func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
-	if b == nil || b.backend == nil {
-		return nil, b.unavailable("list")
+	if b == nil {
+		return nil, (&bundleBase{}).unavailable("list")
+	}
+	if err := b.checkAvailable("list", b.backend != nil); err != nil {
+		return nil, err
 	}
 	b.traceAction("output", "list")
 	return b.backend.List(ctx)

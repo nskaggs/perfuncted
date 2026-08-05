@@ -462,6 +462,26 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 	}
 }
 
+func TestClosedSessionRejectsWindowWork(t *testing.T) {
+	session := NewSessionForTesting(
+		nil,
+		nil,
+		newHandleWindowManager(),
+		nil,
+		nil,
+	)
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if _, err := session.Windows.List(context.Background(), WindowMatch{}); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("List after Close error = %v, want ErrSessionClosed", err)
+	}
+	if err := session.Wait(context.Background(), WindowExists(WindowMatch{})); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("Wait after Close error = %v, want ErrSessionClosed", err)
+	}
+}
+
 func TestApplicationWaitForWindowAndExitBeforeWindow(t *testing.T) {
 	manager := newHandleWindowManager()
 	session := NewSessionForTesting(nil, nil, manager, nil, nil)

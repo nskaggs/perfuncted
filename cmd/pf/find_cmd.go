@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
 )
 
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func findCmd(
-	openPF func() (*perfuncted.Session, error),
+	openPF sessionOpener,
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
@@ -30,7 +29,7 @@ func findCmd(
 		Use:   "wait-for",
 		Short: "Wait until a region's pixel hash equals the provided hash",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -57,7 +56,7 @@ func findCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -71,7 +70,7 @@ func findCmd(
 		Use:   "wait-for-change",
 		Short: "Wait until a region's pixel hash changes from an initial value",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -104,7 +103,7 @@ func findCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -124,7 +123,7 @@ func findCmd(
 samples. Pairs with wait-for-change: use wait-for-change to detect when something
 starts (e.g. navigation begins), then wait-for-no-change to detect when it finishes.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -152,7 +151,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -166,7 +165,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 		Use:   "scan-for",
 		Short: "Scan multiple regions until one matches its expected hash",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -199,7 +198,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Printf("match %v -> %08x\n", res.Rect, res.Hash)
+			fmt.Fprintf(cmd.OutOrStdout(), "match %v -> %08x\n", res.Rect, res.Hash)
 			return nil
 		},
 	}
@@ -219,7 +218,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 		Use:   "wait-for-visible-change",
 		Short: "Wait until a region's visible content changes (useful for animations/loads)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -257,7 +256,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 					return err
 				}
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -272,7 +271,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 		Use:   "color",
 		Short: "Find the first pixel matching a colour within tolerance",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -289,7 +288,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%d,%d\n", pt.X, pt.Y)
+			fmt.Fprintf(cmd.OutOrStdout(), "%d,%d\n", pt.X, pt.Y)
 			return nil
 		},
 	}

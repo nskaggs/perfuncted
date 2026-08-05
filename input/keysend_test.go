@@ -70,22 +70,22 @@ func TestParseKeySend_Table(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sends, err := ParseKeySend(tc.input)
+			sends, err := parseKeySend(tc.input)
 			if err != nil {
-				t.Fatalf("ParseKeySend(%q) error = %v", tc.input, err)
+				t.Fatalf("parseKeySend(%q) error = %v", tc.input, err)
 			}
 			if len(sends) != 1 {
-				t.Fatalf("ParseKeySend(%q) returned %d sends, want 1", tc.input, len(sends))
+				t.Fatalf("parseKeySend(%q) returned %d sends, want 1", tc.input, len(sends))
 			}
 			if sends[0] != tc.want {
-				t.Errorf("ParseKeySend(%q) = %+v, want %+v", tc.input, sends[0], tc.want)
+				t.Errorf("parseKeySend(%q) = %+v, want %+v", tc.input, sends[0], tc.want)
 			}
 		})
 	}
 }
 
 func TestParseKeySend_MixedTextAndKeys(t *testing.T) {
-	sends, err := ParseKeySend("hello{enter}world")
+	sends, err := parseKeySend("hello{enter}world")
 	if err != nil {
 		t.Fatalf("ParseKeySend: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestParseKeySend_MixedTextAndKeys(t *testing.T) {
 }
 
 func TestParseKeySend_HoldAndRelease(t *testing.T) {
-	sends, err := ParseKeySend("{ctrl down}v{ctrl up}")
+	sends, err := parseKeySend("{ctrl down}v{ctrl up}")
 	if err != nil {
 		t.Fatalf("ParseKeySend: %v", err)
 	}
@@ -134,9 +134,9 @@ func TestParseKeySend_Errors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ParseKeySend(tc.input)
+			_, err := parseKeySend(tc.input)
 			if err == nil {
-				t.Fatalf("ParseKeySend(%q) expected error, got nil", tc.input)
+				t.Fatalf("parseKeySend(%q) expected error, got nil", tc.input)
 			}
 		})
 	}
@@ -145,7 +145,7 @@ func TestParseKeySend_Errors(t *testing.T) {
 func TestParseKeySend_LiteralBracesInOutput(t *testing.T) {
 	// Literal text is never wrapped in braces by ParseKeySend.
 	// The braces are stripped during parsing.
-	sends, err := ParseKeySend("a{b}c")
+	sends, err := parseKeySend("a{b}c")
 	if err != nil {
 		t.Fatalf("ParseKeySend: %v", err)
 	}
