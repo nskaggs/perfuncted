@@ -693,17 +693,6 @@ func windowCmd(
 
 	cmd.AddCommand(closeWin, minimize, maximize)
 
-	// append auto-generated window commands (avoid duplicates)
-	existing := map[string]bool{}
-	for _, c := range cmd.Commands() {
-		existing[c.Name()] = true
-	}
-	for _, ac := range autogenWindowCommands(openPF) {
-		if !existing[ac.Name()] {
-			cmd.AddCommand(ac)
-		}
-	}
-
 	return cmd
 }
 

@@ -696,6 +696,9 @@ func main() {
 
 	// Emit autogen functions
 	for _, grp := range []string{"screen", "input", "window", "clipboard"} {
+		if len(generated[grp]) == 0 {
+			continue
+		}
 		funcName := fmt.Sprintf("autogen%sCommands", strings.Title(grp))
 		fmt.Fprintf(outBuf, "func %s(openPF sessionOpener) []*cobra.Command {\n", funcName)
 		fmt.Fprintln(outBuf, "\tcmds := []*cobra.Command{}")

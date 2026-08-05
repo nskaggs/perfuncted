@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"iter"
 	"strconv"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
@@ -227,16 +226,5 @@ func (g *GnomeManager) InfoByID(ctx context.Context, id string) (Info, error) {
 }
 
 func (g *GnomeManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := g.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
+	return waitClosedByID(ctx, id, g.InfoByID)
 }

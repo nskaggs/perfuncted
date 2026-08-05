@@ -334,10 +334,19 @@ func (s *Session) wait(
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
 	for {
+		if err := s.waitState(ctx); err != nil {
+			return err
+		}
 		wake := s.waitChanges()
 		ok, err := condition.evaluate(ctx, s)
 		if err != nil {
+			if stateErr := s.waitState(ctx); stateErr != nil {
+				return stateErr
+			}
 			return fmt.Errorf("wait %s: %w", condition.describe(), err)
+		}
+		if err := s.waitState(ctx); err != nil {
+			return err
 		}
 		if ok {
 			return nil
@@ -354,6 +363,13 @@ func (s *Session) wait(
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Session) waitState(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.ensureOpen()
 }
 
 type invalidationHub struct {

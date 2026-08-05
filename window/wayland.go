@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -504,16 +503,5 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, e
 }
 
 func (m *WaylandWindowManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := m.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
+	return waitClosedByID(ctx, id, m.InfoByID)
 }

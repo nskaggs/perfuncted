@@ -43,17 +43,6 @@ func clipboardCmd(openPF sessionOpener) *cobra.Command {
 
 	cmd.AddCommand(get, set)
 
-	// append auto-generated clipboard commands (avoid duplicates)
-	existing := map[string]bool{}
-	for _, c := range cmd.Commands() {
-		existing[c.Name()] = true
-	}
-	for _, ac := range autogenClipboardCommands(openPF) {
-		if !existing[ac.Name()] {
-			cmd.AddCommand(ac)
-		}
-	}
-
 	return cmd
 }
 

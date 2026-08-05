@@ -9,7 +9,6 @@ import (
 	"iter"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -476,16 +475,5 @@ func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
 }
 
 func (b *X11Backend) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := b.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
+	return waitClosedByID(ctx, id, b.InfoByID)
 }

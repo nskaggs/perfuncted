@@ -493,6 +493,19 @@ func TestClosedSessionRejectsWindowWork(t *testing.T) {
 	}
 }
 
+func TestWaitRejectsCanceledContextBeforeSatisfiedCondition(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := session.Wait(ctx, Predicate("already satisfied", func(context.Context) (bool, error) {
+		return true, nil
+	})); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Wait error = %v, want context.Canceled", err)
+	}
+}
+
 func TestApplicationWaitForWindowAndExitBeforeWindow(t *testing.T) {
 	manager := newHandleWindowManager()
 	session := NewSessionForTesting(nil, nil, manager, nil, nil)

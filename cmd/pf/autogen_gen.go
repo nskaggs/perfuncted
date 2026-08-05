@@ -32,34 +32,6 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 
 	cmds = append(cmds, cmd_screen_grab_full_hash)
 
-	// grab-region-hash: wrapper for perfuncted.GrabRegionHash
-	var cmd_screen_grab_region_hash_rect string
-	cmd_screen_grab_region_hash := &cobra.Command{
-		Use:   "grab-region-hash",
-		Short: "Print the CRC32 hash of a screen region",
-		Long:  "Captures the specified screen region and prints its CRC32 pixel hash as a\nzero-padded hex integer. Useful for polling whether a region has changed.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_grab_region_hash_rect)
-			if err != nil {
-				return err
-			}
-			h, err := pf.Screen.GrabRegionHash(cmd.Context(), r_0)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
-		},
-	}
-	cmd_screen_grab_region_hash.Flags().StringVar(&cmd_screen_grab_region_hash_rect, "rect", "0,0,1920,1080", "region to hash as x0,y0,x1,y1")
-
-	cmds = append(cmds, cmd_screen_grab_region_hash)
-
 	// wait-for-no-change: wrapper for perfuncted.WaitForNoChange
 	var cmd_screen_wait_for_no_change_rect string
 	var cmd_screen_wait_for_no_change_stable int
@@ -137,17 +109,5 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_poll, "poll", "", "polling interval (e.g. 200ms)")
 
 	cmds = append(cmds, cmd_screen_wait_for_no_change_from)
-	return cmds
-}
-func autogenInputCommands(openPF sessionOpener) []*cobra.Command {
-	cmds := []*cobra.Command{}
-	return cmds
-}
-func autogenWindowCommands(openPF sessionOpener) []*cobra.Command {
-	cmds := []*cobra.Command{}
-	return cmds
-}
-func autogenClipboardCommands(openPF sessionOpener) []*cobra.Command {
-	cmds := []*cobra.Command{}
 	return cmds
 }

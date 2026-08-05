@@ -206,12 +206,6 @@ func main() { //nolint:gocyclo
 	}
 
 	// Normalize known CLI aliases that don't map directly to method names.
-	if docs["screen"] != nil {
-		if docs["screen"]["watch"] {
-			docs["screen"]["grab-hash"] = true
-			delete(docs["screen"], "watch")
-		}
-	}
 	if docs["window"] != nil {
 		// New window CLI names are intentionally shorter aliases.
 		if docs["window"]["wait-close"] {
@@ -250,6 +244,7 @@ func main() { //nolint:gocyclo
 			"pixel":               true,
 			"resolution":          true,
 			"grab-hash":           true,
+			"watch":               true,
 			"wait-for":            true,
 			"wait-for-change":     true,
 			"wait-for-fn":         true,
@@ -346,8 +341,7 @@ func main() { //nolint:gocyclo
 	fmt.Println("\nThis is a best-effort check. Some commands map to multiple API calls or use different names.")
 	fmt.Println("If these warnings are expected, whitelist them or improve mapping rules in scripts/verify_cli_api.go")
 
-	// Exit non-zero only when docs reference missing API methods (missingInAPI).
-	if len(missingInAPI) > 0 {
+	if len(missingInAPI) > 0 || len(missingInCLI) > 0 {
 		os.Exit(1)
 	}
 	os.Exit(0)

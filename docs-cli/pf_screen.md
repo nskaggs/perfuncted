@@ -25,7 +25,6 @@ Screen capture operations
 * [pf screen grab](pf_screen_grab.md)	 - Capture a screen region and save as PNG
 * [pf screen grab-full-hash](pf_screen_grab-full-hash.md)	 - Print the CRC32 hash of the full screen contents
 * [pf screen grab-region](pf_screen_grab-region.md)	 - Capture a specific screen region
-* [pf screen grab-region-hash](pf_screen_grab-region-hash.md)	 - Print the CRC32 hash of a screen region
 * [pf screen hash](pf_screen_hash.md)	 - Print the CRC32 pixel hash of a screen region
 * [pf screen pixel](pf_screen_pixel.md)	 - Print the RGB colour of a single pixel
 * [pf screen resolution](pf_screen_resolution.md)	 - Print the screen resolution
@@ -34,4 +33,3 @@ Screen capture operations
 * [pf screen wait-for-no-change-from](pf_screen_wait-for-no-change-from.md)	 - Wait for a screen region to stop changing, starting from an initial hash
 * [pf screen wait-for-settle](pf_screen_wait-for-settle.md)	 - Wait for a screen region to change and then settle
 * [pf screen watch](pf_screen_watch.md)	 - Continuously print hash changes in a screen region
-

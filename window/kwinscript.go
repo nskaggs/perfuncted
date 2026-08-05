@@ -393,16 +393,5 @@ func (k *KWinScriptManager) InfoByID(ctx context.Context, id string) (Info, erro
 }
 
 func (k *KWinScriptManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := k.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
+	return waitClosedByID(ctx, id, k.InfoByID)
 }

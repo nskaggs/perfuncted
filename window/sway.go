@@ -546,18 +546,7 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 }
 
 func (m *SwayManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := m.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
+	return waitClosedByID(ctx, id, m.InfoByID)
 }
 
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.

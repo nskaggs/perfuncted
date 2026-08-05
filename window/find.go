@@ -44,6 +44,32 @@ func FindByID(ctx context.Context, m Manager, id uint64) (Info, error) {
 	return find(ctx, m, CompileMatch(Match{ID: &id}), fmt.Sprintf("id=%d", id))
 }
 
+func waitClosedByID(
+	ctx context.Context,
+	id string,
+	infoByID func(context.Context, string) (Info, error),
+) error {
+	ctx = ctxutil.Default(ctx)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			_, err := infoByID(ctx, id)
+			switch {
+			case err == nil:
+				continue
+			case errors.Is(err, ErrWindowNotFound):
+				return nil
+			default:
+				return err
+			}
+		}
+	}
+}
+
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
 	ctx = ctxutil.Default(ctx)

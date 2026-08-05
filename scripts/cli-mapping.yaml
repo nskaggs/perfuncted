@@ -78,10 +78,7 @@ screen:
     short: "Print the CRC32 hash of the full screen contents"
     long: "Captures the full screen and prints the CRC32 pixel hash as a zero-padded\nhex integer. Useful as a quick change-detection probe without saving any files."
   GrabRegionHash:
-    short: "Print the CRC32 hash of a screen region"
-    long: "Captures the specified screen region and prints its CRC32 pixel hash as a\nzero-padded hex integer. Useful for polling whether a region has changed."
-    flags:
-      rect: "region to hash as x0,y0,x1,y1"
+    skip: true
   Resolution:
     skip: true
   WaitForNoChange:
