@@ -66,76 +66,74 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 		b.sourceMgrID = ev.Name
 		b.sourceMgrVer = ev.Version
 	}
-	if ev, ok := s.Globals["wl_output"]; ok {
-		out := &wlRawProxy{}
-		ctx.Register(out)
-		if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
-			b.outputProxy = out
-			// record output scale via dispatchFn
-			out.dispatchFn = func(op uint32, _ int, data []byte) {
-				if op == 3 && len(data) >= 4 { // scale
-					b.outputScale = wl.Uint32(data[0:4])
-					if b.outputScale == 0 {
-						b.outputScale = 1
+	initErr := wl.WithOperation(ctx, func() error {
+		if ev, ok := s.Globals["wl_output"]; ok {
+			out := &wlRawProxy{}
+			ctx.Register(out)
+			if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
+				b.outputProxy = out
+				// record output scale via dispatchFn
+				out.dispatchFn = func(op uint32, _ int, data []byte) {
+					if op == 3 && len(data) >= 4 { // scale
+						b.outputScale = wl.Uint32(data[0:4])
+						if b.outputScale == 0 {
+							b.outputScale = 1
+						}
 					}
 				}
 			}
 		}
-	}
-	if ev, ok := s.Globals["wl_shm"]; ok {
-		shm := &wl.Shm{}
-		ctx.Register(shm)
-		if err := registry.Bind(ev.Name, ev.Interface, 1, shm.ID()); err == nil {
-			b.shm = shm
+		if ev, ok := s.Globals["wl_shm"]; ok {
+			shm := &wl.Shm{}
+			ctx.Register(shm)
+			if err := registry.Bind(ev.Name, ev.Interface, 1, shm.ID()); err == nil {
+				b.shm = shm
+			}
 		}
-	}
 
-	if b.mgrID == 0 {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: compositor does not advertise ext_image_copy_capture_manager_v1")
-	}
-	if b.sourceMgrID == 0 {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: compositor does not advertise ext_output_image_capture_source_manager_v1")
-	}
-	if b.outputProxy == nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: wl_output not advertised")
-	}
-	if b.shm == nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: wl_shm not advertised")
-	}
+		if b.mgrID == 0 {
+			return fmt.Errorf("screen/ext: compositor does not advertise ext_image_copy_capture_manager_v1")
+		}
+		if b.sourceMgrID == 0 {
+			return fmt.Errorf("screen/ext: compositor does not advertise ext_output_image_capture_source_manager_v1")
+		}
+		if b.outputProxy == nil {
+			return fmt.Errorf("screen/ext: wl_output not advertised")
+		}
+		if b.shm == nil {
+			return fmt.Errorf("screen/ext: wl_shm not advertised")
+		}
 
-	// Initialize persistent proxies.
-	b.mgrProxy = &wlRawProxy{}
-	ctx.Register(b.mgrProxy)
-	if err := registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), b.mgrProxy.ID()); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: bind manager: %w", err)
-	}
+		// Initialize persistent proxies.
+		b.mgrProxy = &wlRawProxy{}
+		ctx.Register(b.mgrProxy)
+		if err := registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), b.mgrProxy.ID()); err != nil {
+			return fmt.Errorf("screen/ext: bind manager: %w", err)
+		}
 
-	b.sourceMgrProxy = &wlRawProxy{}
-	ctx.Register(b.sourceMgrProxy)
-	if err := registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), b.sourceMgrProxy.ID()); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: bind output source manager: %w", err)
-	}
+		b.sourceMgrProxy = &wlRawProxy{}
+		ctx.Register(b.sourceMgrProxy)
+		if err := registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), b.sourceMgrProxy.ID()); err != nil {
+			return fmt.Errorf("screen/ext: bind output source manager: %w", err)
+		}
 
-	b.sourceProxy = &wlRawProxy{}
-	ctx.Register(b.sourceProxy)
-	if err := sendExtOutputCreateSource(ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: create_source: %w", err)
-	}
+		b.sourceProxy = &wlRawProxy{}
+		ctx.Register(b.sourceProxy)
+		if err := sendExtOutputCreateSource(ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
+			return fmt.Errorf("screen/ext: create_source: %w", err)
+		}
 
-	b.sessProxy = &wlRawProxy{}
-	ctx.Register(b.sessProxy)
-	if err := sendExtCreateSession(ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
+		b.sessProxy = &wlRawProxy{}
+		ctx.Register(b.sessProxy)
+		if err := sendExtCreateSession(ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
+			return fmt.Errorf("screen/ext: create_session: %w", err)
+		}
+		return nil
+	})
+	if initErr != nil {
 		_ = s.Close()
-		return nil, fmt.Errorf("screen/ext: create_session: %w", err)
+		return nil, initErr
 	}
-
 	return b, nil
 }
 
@@ -229,123 +227,125 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	defer b.mu.Unlock()
 
 	wlctx := b.session.Display.Context()
+	return wl.WithOperation(wlctx, func() error {
 
-	// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
-	type sessInfo struct{ width, height, format uint32 }
-	var si sessInfo
-	var stopped bool
-	b.sessProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
-		switch opcode {
-		case 0: // buffer_size
-			si.width = wl.Uint32(data[0:4])
-			si.height = wl.Uint32(data[4:8])
-		case 1: // shm_format
-			si.format = wl.Uint32(data[0:4])
-		case 5: // stopped
-			stopped = true
+		// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
+		type sessInfo struct{ width, height, format uint32 }
+		var si sessInfo
+		var stopped bool
+		b.sessProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
+			switch opcode {
+			case 0: // buffer_size
+				si.width = wl.Uint32(data[0:4])
+				si.height = wl.Uint32(data[4:8])
+			case 1: // shm_format
+				si.format = wl.Uint32(data[0:4])
+			case 5: // stopped
+				stopped = true
+			}
 		}
-	}
-	if err := b.session.Display.RoundTrip(); err != nil {
-		return fmt.Errorf("screen/ext: session round-trip: %w", err)
-	}
-	if stopped {
-		return fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("screen/ext: capture canceled: %w", err)
-	}
-	if si.width == 0 || si.height == 0 {
-		return fmt.Errorf("screen/ext: session did not report buffer size")
-	}
-
-	stride := si.width * 4
-	size := int(stride * si.height)
-
-	// Reuse a pooled mmap if the buffer geometry hasn't changed.
-	var pixels []byte
-	wantedBI := bufInfo{format: si.format, width: si.width, height: si.height, stride: stride}
-	if b.cachedBuf != nil && b.cachedBI == wantedBI && len(b.cachedBuf) >= size {
-		pixels = b.cachedBuf[:size]
-	} else {
-		// Tear down any existing cached mapping.
-		if b.cachedBuf != nil {
-			_ = syscall.Munmap(b.cachedBuf)
-			b.cachedBuf = nil
+		if err := b.session.Display.RoundTrip(); err != nil {
+			return fmt.Errorf("screen/ext: session round-trip: %w", err)
 		}
-		if b.cachedFd != nil {
-			_ = b.cachedFd.Close()
-			b.cachedFd = nil
+		if stopped {
+			return fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
 		}
-		f, err := shmutil.CreateFile(int64(size))
-		if err != nil {
-			return fmt.Errorf("screen/ext: shm file: %w", err)
-		}
-		px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-		if err != nil {
-			f.Close()
-			return fmt.Errorf("screen/ext: mmap: %w", err)
-		}
-		b.cachedFd = f
-		b.cachedBuf = px
-		b.cachedBI = bufInfo{format: si.format, width: si.width, height: si.height, stride: stride}
-		pixels = b.cachedBuf[:size]
-	}
-
-	pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
-	if err != nil {
-		return fmt.Errorf("screen/ext: create_pool: %w", err)
-	}
-	defer pool.Destroy() //nolint:errcheck
-
-	wlbuf, err := pool.CreateBuffer(0, int32(si.width), int32(si.height), int32(stride), si.format)
-	if err != nil {
-		return fmt.Errorf("screen/ext: create_buffer: %w", err)
-	}
-	defer wlbuf.Destroy() //nolint:errcheck
-
-	// create_frame(new_id) — session opcode 1.
-	frameProxy := &wlRawProxy{}
-	wlctx.Register(frameProxy)
-	if err := sendExtCreateFrame(wlctx, b.sessProxy.ID(), frameProxy.ID()); err != nil {
-		return fmt.Errorf("screen/ext: create_frame: %w", err)
-	}
-	defer sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil) //nolint:errcheck
-
-	// attach_buffer(buffer) — frame opcode 1.
-	if err := sendExtAttachBuffer(wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {
-		return fmt.Errorf("screen/ext: attach_buffer: %w", err)
-	}
-	if err := sendExtDamageBuffer(wlctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
-		return fmt.Errorf("screen/ext: damage_buffer: %w", err)
-	}
-
-	// capture — frame opcode 3.
-	var ready, failed bool
-	frameProxy.dispatchFn = func(opcode uint32, _ int, _ []byte) {
-		switch opcode {
-		case 3: // ready
-			ready = true
-		case 4: // failed
-			failed = true
-		}
-	}
-	if err := sendExtCapture(wlctx, frameProxy.ID()); err != nil {
-		return fmt.Errorf("screen/ext: capture: %w", err)
-	}
-
-	for !ready && !failed {
 		if err := ctx.Err(); err != nil {
-			return err
+			return fmt.Errorf("screen/ext: capture canceled: %w", err)
 		}
-		if err := wlctx.Dispatch(); err != nil {
-			return fmt.Errorf("screen/ext: dispatch: %w", err)
+		if si.width == 0 || si.height == 0 {
+			return fmt.Errorf("screen/ext: session did not report buffer size")
 		}
-	}
-	if failed {
-		return fmt.Errorf("screen/ext: compositor signalled frame failed")
-	}
 
-	return fn(pixels, int(si.width), int(si.height), int(stride))
+		stride := si.width * 4
+		size := int(stride * si.height)
+
+		// Reuse a pooled mmap if the buffer geometry hasn't changed.
+		var pixels []byte
+		wantedBI := bufInfo{format: si.format, width: si.width, height: si.height, stride: stride}
+		if b.cachedBuf != nil && b.cachedBI == wantedBI && len(b.cachedBuf) >= size {
+			pixels = b.cachedBuf[:size]
+		} else {
+			// Tear down any existing cached mapping.
+			if b.cachedBuf != nil {
+				_ = syscall.Munmap(b.cachedBuf)
+				b.cachedBuf = nil
+			}
+			if b.cachedFd != nil {
+				_ = b.cachedFd.Close()
+				b.cachedFd = nil
+			}
+			f, err := shmutil.CreateFile(int64(size))
+			if err != nil {
+				return fmt.Errorf("screen/ext: shm file: %w", err)
+			}
+			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+			if err != nil {
+				f.Close()
+				return fmt.Errorf("screen/ext: mmap: %w", err)
+			}
+			b.cachedFd = f
+			b.cachedBuf = px
+			b.cachedBI = bufInfo{format: si.format, width: si.width, height: si.height, stride: stride}
+			pixels = b.cachedBuf[:size]
+		}
+
+		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
+		if err != nil {
+			return fmt.Errorf("screen/ext: create_pool: %w", err)
+		}
+		defer pool.Destroy() //nolint:errcheck
+
+		wlbuf, err := pool.CreateBuffer(0, int32(si.width), int32(si.height), int32(stride), si.format)
+		if err != nil {
+			return fmt.Errorf("screen/ext: create_buffer: %w", err)
+		}
+		defer wlbuf.Destroy() //nolint:errcheck
+
+		// create_frame(new_id) — session opcode 1.
+		frameProxy := &wlRawProxy{}
+		wlctx.Register(frameProxy)
+		if err := sendExtCreateFrame(wlctx, b.sessProxy.ID(), frameProxy.ID()); err != nil {
+			return fmt.Errorf("screen/ext: create_frame: %w", err)
+		}
+		defer sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil) //nolint:errcheck
+
+		// attach_buffer(buffer) — frame opcode 1.
+		if err := sendExtAttachBuffer(wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {
+			return fmt.Errorf("screen/ext: attach_buffer: %w", err)
+		}
+		if err := sendExtDamageBuffer(wlctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
+			return fmt.Errorf("screen/ext: damage_buffer: %w", err)
+		}
+
+		// capture — frame opcode 3.
+		var ready, failed bool
+		frameProxy.dispatchFn = func(opcode uint32, _ int, _ []byte) {
+			switch opcode {
+			case 3: // ready
+				ready = true
+			case 4: // failed
+				failed = true
+			}
+		}
+		if err := sendExtCapture(wlctx, frameProxy.ID()); err != nil {
+			return fmt.Errorf("screen/ext: capture: %w", err)
+		}
+
+		for !ready && !failed {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := wlctx.Dispatch(); err != nil {
+				return fmt.Errorf("screen/ext: dispatch: %w", err)
+			}
+		}
+		if failed {
+			return fmt.Errorf("screen/ext: compositor signalled frame failed")
+		}
+
+		return fn(pixels, int(si.width), int(si.height), int(stride))
+	})
 }
 
 func (b *ExtCaptureBackend) Close() error {

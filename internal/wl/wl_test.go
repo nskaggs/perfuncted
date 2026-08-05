@@ -6,7 +6,9 @@ import (
 	"net"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestPutUint32(t *testing.T) {
@@ -285,6 +287,36 @@ func TestContextWithOperationAllowsReentrantStateChanges(t *testing.T) {
 	defer ctx.objectsMu.RUnlock()
 	if len(ctx.objects) != 2 {
 		t.Fatalf("object count = %d, want 2", len(ctx.objects))
+	}
+}
+
+func TestContextWithOperationSerializesCalls(t *testing.T) {
+	ctx := &Context{}
+	var active, maxActive int32
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := ctx.WithOperation(func() error {
+				current := atomic.AddInt32(&active, 1)
+				for {
+					old := atomic.LoadInt32(&maxActive)
+					if current <= old || atomic.CompareAndSwapInt32(&maxActive, old, current) {
+						break
+					}
+				}
+				time.Sleep(time.Millisecond)
+				atomic.AddInt32(&active, -1)
+				return nil
+			}); err != nil {
+				t.Errorf("WithOperation: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := atomic.LoadInt32(&maxActive); got != 1 {
+		t.Fatalf("maximum concurrent operations = %d, want 1", got)
 	}
 }
 

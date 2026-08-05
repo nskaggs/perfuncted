@@ -26,6 +26,16 @@ type Ctx interface {
 	Close() error
 }
 
+// WithOperation serializes a multi-message protocol operation on a context.
+// Test contexts that do not share a real connection may omit the optional
+// operation guard and execute fn directly.
+func WithOperation(ctx Ctx, fn func() error) error {
+	if op, ok := ctx.(interface{ WithOperation(func() error) error }); ok {
+		return op.WithOperation(fn)
+	}
+	return fn()
+}
+
 // Proxy is implemented by all Wayland protocol objects.
 type Proxy interface {
 	ID() uint32

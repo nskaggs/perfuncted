@@ -102,19 +102,20 @@ func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error
 	// reference a valid seat object. Binding now avoids a race when Activate()
 	// is called later and the caller expects the request to contain a real
 	// seat object id.
-	if m.seatID != 0 {
-		seatProxy := &wl.RawProxy{}
-		m.display.Context().Register(seatProxy)
-		if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
-			_ = s.Close()
-			return nil, fmt.Errorf("window/wayland: bind wl_seat: %w", err)
+	initErr := wl.WithOperation(m.display.Context(), func() error {
+		if m.seatID != 0 {
+			seatProxy := &wl.RawProxy{}
+			m.display.Context().Register(seatProxy)
+			if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+				return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
+			}
+			m.seat = seatProxy
 		}
-		m.seat = seatProxy
-	}
-
-	if err := m.fetchToplevels(); err != nil {
+		return m.fetchToplevels()
+	})
+	if initErr != nil {
 		_ = s.Close()
-		return nil, err
+		return nil, initErr
 	}
 	return m, nil
 }
@@ -271,6 +272,13 @@ func (m *WaylandWindowManager) sendHandleRequest(handleID uint32, opcode uint32,
 	return m.display.Context().WriteMsg(buf, nil)
 }
 
+func (m *WaylandWindowManager) withOperation(fn func() error) error {
+	if m == nil || m.display == nil {
+		return fmt.Errorf("window/wayland: manager not initialised")
+	}
+	return wl.WithOperation(m.display.Context(), fn)
+}
+
 func (m *WaylandWindowManager) List(ctx context.Context) ([]Info, error) {
 	var out []Info
 	for win, err := range m.IterateWindows(ctx) {
@@ -290,16 +298,22 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			yield(Info{}, fmt.Errorf("window/wayland: iterate canceled: %w", err))
 			return
 		}
-		if err := m.display.RoundTrip(); err != nil {
-			yield(Info{}, fmt.Errorf("window/wayland: round-trip: %w", err))
+		var windows []Info
+		if err := m.withOperation(func() error {
+			if err := m.display.RoundTrip(); err != nil {
+				return fmt.Errorf("window/wayland: round-trip: %w", err)
+			}
+			m.toplevelsMu.Lock()
+			defer m.toplevelsMu.Unlock()
+			windows = make([]Info, 0, len(m.toplevels))
+			for _, v := range m.toplevels {
+				windows = append(windows, *v)
+			}
+			return nil
+		}); err != nil {
+			yield(Info{}, err)
 			return
 		}
-		m.toplevelsMu.Lock()
-		windows := make([]Info, 0, len(m.toplevels))
-		for _, v := range m.toplevels {
-			windows = append(windows, *v)
-		}
-		m.toplevelsMu.Unlock()
 		for _, v := range windows {
 			if !yield(v, nil) {
 				return
@@ -314,17 +328,22 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("window/wayland: active title canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return "", fmt.Errorf("window/wayland: round-trip: %w", err)
-	}
-	m.toplevelsMu.Lock()
-	defer m.toplevelsMu.Unlock()
-	for _, v := range m.toplevels {
-		if v.Active {
-			return v.Title, nil
+	var title string
+	err := m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return fmt.Errorf("window/wayland: round-trip: %w", err)
 		}
-	}
-	return "", ErrNotSupported
+		m.toplevelsMu.Lock()
+		defer m.toplevelsMu.Unlock()
+		for _, v := range m.toplevels {
+			if v.Active {
+				title = v.Title
+				return nil
+			}
+		}
+		return ErrNotSupported
+	})
+	return title, err
 }
 
 func (m *WaylandWindowManager) Close() error {
@@ -345,7 +364,7 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	if m.display == nil {
 		return nil
 	}
-	return m.display.RoundTrip()
+	return m.withOperation(m.display.RoundTrip)
 }
 
 func (m *WaylandWindowManager) SupportedOperations() []string {
@@ -381,36 +400,38 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: activate canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	hid, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if m.seat == nil {
-		if m.seatID == 0 {
-			return ErrNotSupported
-		}
-		seatProxy := &wl.RawProxy{}
-		m.display.Context().Register(seatProxy)
-		if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
-			return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
-		}
-		m.seat = seatProxy
+	return m.withOperation(func() error {
 		if err := m.display.RoundTrip(); err != nil {
 			return err
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: activate canceled: %w", err)
-	}
-	payload := make([]byte, 4)
-	wl.PutUint32(payload, m.seat.ID())
-	return m.sendHandleRequest(hid, 4, payload)
+		hid, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if m.seat == nil {
+			if m.seatID == 0 {
+				return ErrNotSupported
+			}
+			seatProxy := &wl.RawProxy{}
+			m.display.Context().Register(seatProxy)
+			if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+				return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
+			}
+			m.seat = seatProxy
+			if err := m.display.RoundTrip(); err != nil {
+				return err
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: activate canceled: %w", err)
+		}
+		payload := make([]byte, 4)
+		wl.PutUint32(payload, m.seat.ID())
+		return m.sendHandleRequest(hid, 4, payload)
+	})
 }
 
 func (m *WaylandWindowManager) MoveByID(_ context.Context, _ string, _, _ int) error {
@@ -426,20 +447,22 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: close canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	hid, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: close canceled: %w", err)
-	}
-	return m.sendHandleRequest(hid, 5, nil)
+	return m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		hid, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: close canceled: %w", err)
+		}
+		return m.sendHandleRequest(hid, 5, nil)
+	})
 }
 
 func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) error {
@@ -447,20 +470,22 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	hid, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
-	}
-	return m.sendHandleRequest(hid, 2, nil)
+	return m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		hid, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: minimize canceled: %w", err)
+		}
+		return m.sendHandleRequest(hid, 2, nil)
+	})
 }
 
 func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) error {
@@ -468,20 +493,22 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	hid, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
-	}
-	return m.sendHandleRequest(hid, 0, nil)
+	return m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		hid, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: maximize canceled: %w", err)
+		}
+		return m.sendHandleRequest(hid, 0, nil)
+	})
 }
 
 func (m *WaylandWindowManager) FullscreenByID(
@@ -492,21 +519,23 @@ func (m *WaylandWindowManager) FullscreenByID(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	handleID, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
-	}
-	// A null wl_output lets the compositor choose the target output.
-	return m.sendHandleRequest(handleID, 8, make([]byte, 4))
+	return m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		handleID, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
+		}
+		// A null wl_output lets the compositor choose the target output.
+		return m.sendHandleRequest(handleID, 8, make([]byte, 4))
+	})
 }
 
 func (m *WaylandWindowManager) UnfullscreenByID(
@@ -517,20 +546,22 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	handleID, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
-	}
-	return m.sendHandleRequest(handleID, 9, nil)
+	return m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		handleID, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
+		}
+		return m.sendHandleRequest(handleID, 9, nil)
+	})
 }
 
 func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error {
@@ -538,23 +569,25 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: restore canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return err
-	}
-	hid, _, err := m.lookupByID(id)
-	if err != nil {
-		return err
-	}
-	if !m.canControlToplevels() {
-		return ErrNotSupported
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("window/wayland: restore canceled: %w", err)
-	}
-	if err := m.sendHandleRequest(hid, 1, nil); err != nil {
-		return err
-	}
-	return m.sendHandleRequest(hid, 3, nil)
+	return m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		hid, _, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		if !m.canControlToplevels() {
+			return ErrNotSupported
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("window/wayland: restore canceled: %w", err)
+		}
+		if err := m.sendHandleRequest(hid, 1, nil); err != nil {
+			return err
+		}
+		return m.sendHandleRequest(hid, 3, nil)
+	})
 }
 
 func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, error) {
@@ -562,12 +595,17 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, e
 	if err := ctx.Err(); err != nil {
 		return Info{}, fmt.Errorf("window/wayland: info canceled: %w", err)
 	}
-	if err := m.display.RoundTrip(); err != nil {
-		return Info{}, err
-	}
-	_, info, err := m.lookupByID(id)
-	if err != nil {
-		return Info{}, err
-	}
-	return info, nil
+	var info Info
+	err := m.withOperation(func() error {
+		if err := m.display.RoundTrip(); err != nil {
+			return err
+		}
+		_, found, err := m.lookupByID(id)
+		if err != nil {
+			return err
+		}
+		info = found
+		return nil
+	})
+	return info, err
 }

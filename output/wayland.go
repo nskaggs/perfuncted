@@ -28,33 +28,34 @@ func NewWaylandLister(sock string) (*WaylandLister, error) {
 	}
 	l := &WaylandLister{session: s}
 
-	for _, ev := range s.Globals {
-		if ev.Interface != "wl_output" {
-			continue
+	initErr := wl.WithOperation(s.Ctx, func() error {
+		for _, ev := range s.Globals {
+			if ev.Interface != "wl_output" {
+				continue
+			}
+			out := &waylandOutput{
+				info: Info{
+					Name:    fmt.Sprintf("wl-output-%d", ev.Name),
+					Backend: "wayland",
+					Scale:   1,
+				},
+			}
+			l.outputs = append(l.outputs, out)
+			proxy := &wl.RawProxy{}
+			s.Ctx.Register(proxy)
+			if err := s.Registry.Bind(ev.Name, "wl_output", minUint32(ev.Version, 4), proxy.ID()); err != nil {
+				return fmt.Errorf("output/wayland: bind wl_output: %w", err)
+			}
+			out.updateProxy(proxy)
 		}
-		out := &waylandOutput{
-			info: Info{
-				Name:    fmt.Sprintf("wl-output-%d", ev.Name),
-				Backend: "wayland",
-				Scale:   1,
-			},
+		if len(l.outputs) == 0 {
+			return capability.Unsupported("output", "wayland", "no wl_output globals advertised")
 		}
-		l.outputs = append(l.outputs, out)
-		proxy := &wl.RawProxy{}
-		s.Ctx.Register(proxy)
-		if err := s.Registry.Bind(ev.Name, "wl_output", minUint32(ev.Version, 4), proxy.ID()); err != nil {
-			_ = s.Close()
-			return nil, fmt.Errorf("output/wayland: bind wl_output: %w", err)
-		}
-		out.updateProxy(proxy)
-	}
-	if len(l.outputs) == 0 {
+		return s.Display.RoundTrip()
+	})
+	if initErr != nil {
 		_ = s.Close()
-		return nil, capability.Unsupported("output", "wayland", "no wl_output globals advertised")
-	}
-	if err := s.Display.RoundTrip(); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("output/wayland: initial round-trip: %w", err)
+		return nil, fmt.Errorf("output/wayland: initialize: %w", initErr)
 	}
 	return l, nil
 }

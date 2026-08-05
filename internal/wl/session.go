@@ -97,7 +97,10 @@ func newSessionHandle(ref *sessionRef) *Session {
 // sync callback is received. Mirrors Display.RoundTrip but operates on the
 // Session's Display and Context.
 func (s *Session) Sync() error {
-	return s.Display.RoundTrip()
+	if s == nil || s.Display == nil {
+		return nil
+	}
+	return WithOperation(s.Ctx, s.Display.RoundTrip)
 }
 
 // Close decrements the cached session's reference count and closes the
