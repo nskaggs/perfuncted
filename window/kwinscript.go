@@ -26,6 +26,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -40,6 +41,8 @@ const (
 	kwinScriptPath  = dbus.ObjectPath("/Scripting")
 	kwinScriptIface = "org.kde.kwin.Scripting"
 )
+
+var kwinScriptSequence uint64
 
 // KWinScriptManager implements Manager for KDE Plasma Wayland.
 type KWinScriptManager struct {
@@ -59,9 +62,11 @@ func NewKWinScriptManagerForBus(addr string) (*KWinScriptManager, error) {
 	var intro string
 	obj := conn.Object(kwinScriptSvc, kwinScriptPath)
 	if err := obj.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Store(&intro); err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("window/kwinscript: KWin Scripting not on session bus: %w", err)
 	}
 	if !strings.Contains(intro, kwinScriptIface) {
+		_ = conn.Close()
 		return nil, fmt.Errorf("window/kwinscript: %s interface absent", kwinScriptIface)
 	}
 	return &KWinScriptManager{conn: conn}, nil
@@ -96,19 +101,20 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 		return "", fmt.Errorf("window/kwinscript: backend not initialised")
 	}
 
-	svc := fmt.Sprintf("org.kde.pflist%d", os.Getpid())
+	svc := fmt.Sprintf("org.kde.pflist%d_%d", os.Getpid(), atomic.AddUint64(&kwinScriptSequence, 1))
 
-	reply, err := k.conn.RequestName(svc, dbus.NameFlagDoNotQueue)
-	if err != nil {
+	var rawReply uint32
+	if err := k.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.RequestName", 0, svc, dbus.NameFlagDoNotQueue).Store(&rawReply); err != nil {
 		return "", fmt.Errorf("window/kwinscript: RequestName: %w", err)
 	}
+	reply := dbus.RequestNameReply(rawReply)
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		return "", fmt.Errorf("window/kwinscript: D-Bus name %s already taken", svc)
 	}
 	defer k.conn.ReleaseName(svc) //nolint:errcheck
 
 	recv := &pfReceiver{ch: make(chan string, 1)}
-	err = k.conn.Export(recv, "/", svc)
+	err := k.conn.Export(recv, "/", svc)
 	if err != nil {
 		return "", fmt.Errorf("window/kwinscript: Export: %w", err)
 	}
@@ -127,12 +133,14 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 
 	scr := k.conn.Object(kwinScriptSvc, kwinScriptPath)
 	var scriptID int
-	if err := scr.Call(kwinScriptIface+".loadScript", 0, f.Name()).Store(&scriptID); err != nil {
+	if err := scr.CallWithContext(ctx, kwinScriptIface+".loadScript", 0, f.Name()).Store(&scriptID); err != nil {
 		return "", fmt.Errorf("window/kwinscript: loadScript: %w", err)
 	}
 	// start() triggers the scripting engine to execute loaded scripts.
 	// Without this call the script is registered but never runs.
-	scr.Call(kwinScriptIface+".start", 0) //nolint:errcheck
+	if err := scr.CallWithContext(ctx, kwinScriptIface+".start", 0).Err; err != nil {
+		return "", fmt.Errorf("window/kwinscript: start: %w", err)
+	}
 
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
@@ -237,8 +245,13 @@ func (k *KWinScriptManager) ActiveTitle(ctx context.Context) (string, error) {
 	})
 }
 
-// Close is a no-op; the session bus connection is shared and managed globally.
-func (k *KWinScriptManager) Close() error { return nil }
+// Close closes the private D-Bus connection owned by the manager.
+func (k *KWinScriptManager) Close() error {
+	if k == nil || k.conn == nil {
+		return nil
+	}
+	return k.conn.Close()
+}
 
 func (k *KWinScriptManager) Sync(ctx context.Context) error {
 	return nil
@@ -390,19 +403,4 @@ func (k *KWinScriptManager) InfoByID(ctx context.Context, id string) (Info, erro
 		}
 	}
 	return Info{}, ErrWindowNotFound
-}
-
-func (k *KWinScriptManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := k.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
 }

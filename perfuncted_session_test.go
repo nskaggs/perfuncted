@@ -127,7 +127,7 @@ func TestStopManagedProcessReapsChild(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	infra.stopManagedProcess(cmd, cmd.Process.Pid, 500*time.Millisecond)
+	infra.stopManagedProcess(cmd, 500*time.Millisecond)
 	if err := syscall.Kill(cmd.Process.Pid, 0); err != syscall.ESRCH {
 		t.Fatalf("expected process to be gone, got %v", err)
 	}

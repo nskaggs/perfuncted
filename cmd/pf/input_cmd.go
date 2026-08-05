@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
@@ -13,13 +12,13 @@ import (
 
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func inputCmd(
-	openPF func() (*perfuncted.Session, error),
+	openPF sessionOpener,
 	cfg *cliConfig,
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
-	syncIf := func(pf *perfuncted.Session) error {
+	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Input.Sync(context.Background())
+			return pf.Input.Sync(ctx)
 		}
 		return nil
 	}
@@ -31,7 +30,7 @@ func inputCmd(
 		Use:   "move",
 		Short: "Move mouse to absolute coordinates",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -39,10 +38,10 @@ func inputCmd(
 			if err := pf.Input.MouseMove(cmd.Context(), mx, my); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("moved to %d,%d\n", mx, my)
+			fmt.Fprintf(cmd.OutOrStdout(), "moved to %d,%d\n", mx, my)
 			return nil
 		},
 	}
@@ -55,7 +54,7 @@ func inputCmd(
 		Use:   "click",
 		Short: "Click a mouse button at coordinates",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -76,10 +75,10 @@ func inputCmd(
 					time.Sleep(delay)
 				}
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("clicked button %d at %d,%d\n", button, mx, my)
+			fmt.Fprintf(cmd.OutOrStdout(), "clicked button %d at %d,%d\n", button, mx, my)
 			return nil
 		},
 	}
@@ -93,7 +92,7 @@ func inputCmd(
 		Use:   "double-click",
 		Short: "Double-click at coordinates",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -101,10 +100,10 @@ func inputCmd(
 			if err := pf.Input.DoubleClick(cmd.Context(), mx, my); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("double-clicked at %d,%d\n", mx, my)
+			fmt.Fprintf(cmd.OutOrStdout(), "double-clicked at %d,%d\n", mx, my)
 			return nil
 		},
 	}
@@ -116,7 +115,7 @@ func inputCmd(
 		Use:   "drag-and-drop",
 		Short: "Drag from one coordinate to another (press, move, release)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -124,10 +123,10 @@ func inputCmd(
 			if err := pf.Input.DragAndDrop(cmd.Context(), x1, y1, x2, y2); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("dragged %d,%d to %d,%d\n", x1, y1, x2, y2)
+			fmt.Fprintf(cmd.OutOrStdout(), "dragged %d,%d to %d,%d\n", x1, y1, x2, y2)
 			return nil
 		},
 	}
@@ -141,7 +140,7 @@ func inputCmd(
 		Use:   "click-center",
 		Short: "Click the center of a rectangle",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -153,10 +152,10 @@ func inputCmd(
 			if err := pf.Input.ClickCenter(cmd.Context(), r); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
+			fmt.Fprintf(cmd.OutOrStdout(), "clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
 			return nil
 		},
 	}
@@ -167,7 +166,7 @@ func inputCmd(
 		Short: "Type a string or send keys (e.g. {enter}, {ctrl+s})",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -175,7 +174,7 @@ func inputCmd(
 			text := ""
 			switch {
 			case typeStdin:
-				b, err := io.ReadAll(os.Stdin)
+				b, err := io.ReadAll(cmd.InOrStdin())
 				if err != nil {
 					return err
 				}
@@ -188,7 +187,7 @@ func inputCmd(
 			if err := pf.Input.Type(cmd.Context(), text); err != nil {
 				return err
 			}
-			return syncIf(pf)
+			return syncIf(cmd.Context(), pf)
 		},
 	}
 	typeCmd.Flags().BoolVar(&typeStdin, "stdin", false, "read text from stdin")
@@ -198,7 +197,7 @@ func inputCmd(
 		Short: "Press and hold a key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -206,10 +205,10 @@ func inputCmd(
 			if err := pf.Input.KeyDown(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("keydown %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "keydown %s\n", args[0])
 			return nil
 		},
 	}
@@ -219,7 +218,7 @@ func inputCmd(
 		Short: "Release a held key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -227,10 +226,10 @@ func inputCmd(
 			if err := pf.Input.KeyUp(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("keyup %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "keyup %s\n", args[0])
 			return nil
 		},
 	}
@@ -240,7 +239,7 @@ func inputCmd(
 		Use:   "mousedown",
 		Short: "Press a mouse button (optional coords)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -253,10 +252,10 @@ func inputCmd(
 			if err := pf.Input.MouseDown(cmd.Context(), mdButton); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
+			fmt.Fprintf(cmd.OutOrStdout(), "mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
 			return nil
 		},
 	}
@@ -269,7 +268,7 @@ func inputCmd(
 		Use:   "mouseup",
 		Short: "Release a mouse button (optional coords)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -282,10 +281,10 @@ func inputCmd(
 			if err := pf.Input.MouseUp(cmd.Context(), muButton); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("mouseup button %d at %d,%d\n", muButton, mux, muy)
+			fmt.Fprintf(cmd.OutOrStdout(), "mouseup button %d at %d,%d\n", muButton, mux, muy)
 			return nil
 		},
 	}
@@ -297,7 +296,7 @@ func inputCmd(
 		Use:   "location",
 		Short: "Print current pointer location",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -306,7 +305,7 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%d,%d\n", x, y)
+			fmt.Fprintf(cmd.OutOrStdout(), "%d,%d\n", x, y)
 			return nil
 		},
 	}
@@ -318,7 +317,7 @@ func inputCmd(
 		Use:   "sync",
 		Short: "Synchronize the input backend with the compositor",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -328,27 +327,16 @@ func inputCmd(
 	}
 	cmd.AddCommand(sync)
 
-	// append auto-generated input commands (avoid duplicates)
-	existing := map[string]bool{}
-	for _, c := range cmd.Commands() {
-		existing[c.Name()] = true
-	}
-	for _, ac := range autogenInputCommands(openPF) {
-		if !existing[ac.Name()] {
-			cmd.AddCommand(ac)
-		}
-	}
-
 	return cmd
 }
 
 // ── scroll ─────────────────────────────────────────────────────────────────────────────
 
-func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobra.Command {
+func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
-	syncIf := func(pf *perfuncted.Session) error {
+	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Input.Sync(context.Background())
+			return pf.Input.Sync(ctx)
 		}
 		return nil
 	}
@@ -359,7 +347,7 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 		Use:   "up",
 		Short: "Scroll up by N clicks",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -367,10 +355,10 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 			if err := pf.Input.ScrollUp(cmd.Context(), clicks); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("scrolled up %d\n", clicks)
+			fmt.Fprintf(cmd.OutOrStdout(), "scrolled up %d\n", clicks)
 			return nil
 		},
 	}
@@ -380,7 +368,7 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 		Use:   "down",
 		Short: "Scroll down by N clicks",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -388,10 +376,10 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 			if err := pf.Input.ScrollDown(cmd.Context(), clicks); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("scrolled down %d\n", clicks)
+			fmt.Fprintf(cmd.OutOrStdout(), "scrolled down %d\n", clicks)
 			return nil
 		},
 	}
@@ -403,7 +391,7 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 		Use:   "left",
 		Short: "Scroll left by N clicks",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -411,10 +399,10 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 			if err := pf.Input.ScrollLeft(cmd.Context(), clicks); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("scrolled left %d\n", clicks)
+			fmt.Fprintf(cmd.OutOrStdout(), "scrolled left %d\n", clicks)
 			return nil
 		},
 	}
@@ -424,7 +412,7 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 		Use:   "right",
 		Short: "Scroll right by N clicks",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -432,10 +420,10 @@ func scrollCmd(openPF func() (*perfuncted.Session, error), cfg *cliConfig) *cobr
 			if err := pf.Input.ScrollRight(cmd.Context(), clicks); err != nil {
 				return err
 			}
-			if err := syncIf(pf); err != nil {
+			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Printf("scrolled right %d\n", clicks)
+			fmt.Fprintf(cmd.OutOrStdout(), "scrolled right %d\n", clicks)
 			return nil
 		},
 	}

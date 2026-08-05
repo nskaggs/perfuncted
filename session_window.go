@@ -34,8 +34,7 @@ func (id WindowID) String() string {
 
 // Window is a stable, session-bound handle to one native window.
 type Window struct {
-	session *Session
-	id      WindowID
+	id WindowID
 
 	mu       sync.RWMutex
 	snapshot window.Info
@@ -77,16 +76,13 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 }
 
 func (w *Window) backend(operation string) (window.IDManager, error) {
-	if w == nil || w.session == nil {
+	if w == nil || w.id.session == nil {
 		return nil, ErrNilSession
 	}
-	if w.id.session != w.session {
-		return nil, errors.New("perfuncted: window belongs to another session")
-	}
-	if err := w.session.Windows.checkAvailable(operation); err != nil {
+	if err := w.id.session.Windows.checkAvailable(operation); err != nil {
 		return nil, err
 	}
-	backend, ok := w.session.Windows.backend.(window.IDManager)
+	backend, ok := w.id.session.Windows.backend.(window.IDManager)
 	if !ok {
 		return nil, fmt.Errorf(
 			"perfuncted: window backend does not support stable handles: %w",
@@ -175,18 +171,10 @@ func (w *Window) Restore(ctx context.Context) error {
 
 // WaitClosed waits until the authoritative backend no longer reports w.
 func (w *Window) WaitClosed(ctx context.Context) error {
-	if w == nil || w.session == nil {
+	if w == nil || w.id.session == nil {
 		return ErrNilSession
 	}
-	return w.session.Wait(ctx, WindowClosed(w))
-}
-
-// CloseWait closes w and waits for its disappearance.
-func (w *Window) CloseWait(ctx context.Context) error {
-	if err := w.Close(ctx); err != nil {
-		return err
-	}
-	return w.WaitClosed(ctx)
+	return w.id.session.Wait(ctx, WindowClosed(w))
 }
 
 // List returns every window satisfying match.
@@ -219,7 +207,6 @@ func (b *WindowBundle) window(info window.Info) *Window {
 		native:  nativeID,
 	}
 	return &Window{
-		session:  b.session,
 		id:       id,
 		snapshot: info,
 	}

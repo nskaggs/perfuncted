@@ -24,13 +24,13 @@ import (
 
 var outputFormatFlag = "plain"
 
-func outputCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
+func outputCmd(openPF sessionOpener) *cobra.Command {
 	cmd := &cobra.Command{Use: "output", Short: "Output discovery and metadata"}
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List outputs",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -66,12 +66,14 @@ func outputCmd(openPF func() (*perfuncted.Session, error)) *cobra.Command {
 
 type scriptRunner struct {
 	ctx            context.Context //nolint:containedctx // runner owns command context
+	in             io.Reader
+	out            io.Writer
 	pf             *perfuncted.Session
 	selectedWindow *perfuncted.Window
 }
 
 func runCmd(
-	openPF func() (*perfuncted.Session, error),
+	openPF sessionOpener,
 ) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run FILE",
@@ -90,12 +92,17 @@ func runCmd(
 				defer f.Close()
 				r = f
 			}
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			sr := &scriptRunner{ctx: cmd.Context(), pf: pf}
+			sr := &scriptRunner{
+				ctx: cmd.Context(),
+				in:  cmd.InOrStdin(),
+				out: cmd.OutOrStdout(),
+				pf:  pf,
+			}
 			return sr.run(r)
 		},
 	}
@@ -238,14 +245,14 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		printWindowListPlain(wins)
+		printWindowListPlain(s.out, wins)
 		return nil
 	case "active":
 		t, err := s.pf.Windows.ActiveTitle(s.ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Println(t)
+		fmt.Fprintln(s.out, t)
 		return nil
 	case "activate", "close", "minimize", "maximize", "fullscreen", "unfullscreen", "restore":
 		target, err := s.windowTarget(toks[1:])
@@ -285,7 +292,7 @@ func (s *scriptRunner) execWindow(
 		if len(wins) == 0 {
 			return windowNotFoundError(match)
 		}
-		printWindowPlain(wins[0])
+		printWindowPlain(s.out, wins[0])
 		return nil
 	default:
 		return fmt.Errorf("script line %d: unsupported window subcommand %q", lineNo, toks[0])
@@ -441,7 +448,7 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 			}
 		}
 		if stdin {
-			b, err := io.ReadAll(os.Stdin)
+			b, err := io.ReadAll(s.in)
 			if err != nil {
 				return err
 			}
@@ -453,7 +460,7 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%d,%d\n", x, y)
+		fmt.Fprintf(s.out, "%d,%d\n", x, y)
 		return nil
 	default:
 		return fmt.Errorf("script line %d: unsupported input subcommand %q", lineNo, toks[0])
@@ -508,7 +515,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%08x\n", h)
+		fmt.Fprintf(s.out, "%08x\n", h)
 		return nil
 	default:
 		return fmt.Errorf("script line %d: unsupported screen subcommand %q", lineNo, toks[0])
@@ -524,7 +531,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 		return err
 	}
 	for _, o := range wins {
-		fmt.Printf("%s\t%s\t%d,%d,%d,%d\tscale=%d\tresolution=%dx%d\n", o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.Scale, o.ResolutionW, o.ResolutionH)
+		fmt.Fprintf(s.out, "%s\t%s\t%d,%d,%d,%d\tscale=%d\tresolution=%dx%d\n", o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.Scale, o.ResolutionW, o.ResolutionH)
 	}
 	return nil
 }
@@ -532,7 +539,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 func (s *scriptRunner) execInfo(lineNo int, toks []string) error {
 	_ = lineNo
 	_ = toks
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(s.out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(buildInfoReport(s.pf))
 }

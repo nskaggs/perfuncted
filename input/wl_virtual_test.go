@@ -54,19 +54,18 @@ func TestBtnCode(t *testing.T) {
 }
 
 func TestWlVirtualBackend_Close_NilSession(t *testing.T) {
-	// Close with nil session and nil display should not panic.
+	// Close with a nil session should not panic.
 	b := &WlVirtualBackend{}
 	if err := b.Close(); err != nil {
-		t.Fatalf("Close with nil session/display: %v", err)
+		t.Fatalf("Close with nil session: %v", err)
 	}
 }
 
 func TestWlVirtualBackend_Close_NilDisplayContext(t *testing.T) {
-	// Close with session nil but display non-nil where Context() returns nil
-	// should not panic (bug #4 was fixed).
-	b := &WlVirtualBackend{display: &wl.Display{}}
+	// Close with a partial session should not panic.
+	b := &WlVirtualBackend{session: &wl.Session{Display: &wl.Display{}}}
 	if err := b.Close(); err != nil {
-		t.Fatalf("Close with nil display context: %v", err)
+		t.Fatalf("Close with partial session: %v", err)
 	}
 }
 
@@ -135,7 +134,7 @@ func newCapturedWlVirtualBackend(t *testing.T) (*WlVirtualBackend, *net.UnixConn
 	}
 
 	b := &WlVirtualBackend{
-		display: wl.NewDisplay(ctx),
+		session: &wl.Session{Sock: sock, Ctx: ctx, Display: wl.NewDisplay(ctx)},
 		ptr:     &wl.RawProxy{},
 		outW:    1920,
 		outH:    1080,
@@ -284,7 +283,7 @@ func TestWlVirtualBackend_PointerLocationUnsupported(t *testing.T) {
 	}
 }
 
-func TestWlVirtualBackend_CloseUsesDisplayContextWhenSessionMissing(t *testing.T) {
+func TestWlVirtualBackend_CloseUsesSessionContext(t *testing.T) {
 	b, conn := newCapturedWlVirtualBackend(t)
 	if err := b.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -323,7 +322,7 @@ func TestWlVirtualBackend_CanceledContextShortCircuitsMethods(t *testing.T) {
 		},
 		{
 			name: "TypeContext",
-			run:  func() error { return b.TypeContext(ctx, "A{ctrl+a}") },
+			run:  func() error { return b.typeContext(ctx, "A{ctrl+a}") },
 		},
 		{
 			name: "KeyDown",

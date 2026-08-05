@@ -4,7 +4,6 @@ package pftest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/clipboard"
@@ -132,9 +130,9 @@ func (m *Inputter) KeyDown(ctx context.Context, key string) error {
 }
 func (m *Inputter) KeyUp(ctx context.Context, key string) error { m.record("up:" + key); return m.Err }
 func (m *Inputter) Type(ctx context.Context, s string) error {
-	return m.TypeContext(ctx, s)
+	return m.typeContext(ctx, s)
 }
-func (m *Inputter) TypeContext(ctx context.Context, s string) error {
+func (m *Inputter) typeContext(_ context.Context, s string) error {
 	m.record("type:" + s)
 	return m.Err
 }
@@ -251,10 +249,6 @@ func (m *Manager) activateContext(ctx context.Context, id string) error {
 }
 
 func (m *Manager) ActiveTitle(ctx context.Context) (string, error) {
-	return m.ActiveTitleContext(ctx)
-}
-
-func (m *Manager) ActiveTitleContext(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -317,22 +311,6 @@ func (m *Manager) InfoByID(
 	}
 	return window.Info{}, window.ErrWindowNotFound
 }
-func (m *Manager) WaitClosedByID(ctx context.Context, id string) error {
-	for {
-		if _, err := m.InfoByID(ctx, id); err != nil {
-			if errors.Is(err, window.ErrWindowNotFound) {
-				return nil
-			}
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Millisecond):
-		}
-	}
-}
-
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	m.listIdx = 0

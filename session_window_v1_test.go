@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"image"
 	"iter"
 	"sync"
 	"testing"
@@ -245,22 +246,6 @@ func (m *handleWindowManager) InfoByID(
 	return window.Info{}, window.ErrWindowNotFound
 }
 
-func (m *handleWindowManager) WaitClosedByID(
-	ctx context.Context,
-	id string,
-) error {
-	for {
-		if _, err := m.InfoByID(ctx, id); err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-m.changes:
-		}
-	}
-}
-
 func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{
 		NativeID: "kwin-{opaque-id}",
@@ -302,7 +287,7 @@ func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 	}
 }
 
-func TestWindowFindRejectsAmbiguousAndForeignHandles(t *testing.T) {
+func TestWindowFindRejectsAmbiguous(t *testing.T) {
 	manager := newHandleWindowManager(
 		window.Info{NativeID: "1", Title: "Editor"},
 		window.Info{NativeID: "2", Title: "Editor"},
@@ -319,28 +304,6 @@ func TestWindowFindRejectsAmbiguousAndForeignHandles(t *testing.T) {
 		t.Fatalf("Find error = %v", err)
 	}
 
-	manager.setWindows(false, window.Info{
-		NativeID: "1",
-		Title:    "Editor",
-	})
-	target, err := session.Windows.Find(
-		context.Background(),
-		WindowMatch{TitleExact: "Editor"},
-	)
-	if err != nil {
-		t.Fatalf("Find unique: %v", err)
-	}
-	other := NewSessionForTesting(nil, nil, manager, nil, nil)
-	t.Cleanup(func() {
-		_ = other.Close()
-	})
-	foreign := &Window{
-		session: other,
-		id:      target.id,
-	}
-	if err := foreign.Activate(context.Background()); err == nil {
-		t.Fatal("foreign-session handle activated")
-	}
 }
 
 func TestWaitUsesEventsAndPollingRecovery(t *testing.T) {
@@ -459,6 +422,82 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("session shutdown did not release waiter")
+	}
+}
+
+func TestClosedSessionRejectsWindowWork(t *testing.T) {
+	session := NewSessionForTesting(
+		nil,
+		nil,
+		newHandleWindowManager(),
+		nil,
+		nil,
+	)
+	retained := session.Windows.window(window.Info{NativeID: "retained"})
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	checks := []struct {
+		name string
+		call func() error
+	}{
+		{name: "screen", call: func() error {
+			_, err := session.Screen.Grab(context.Background(), image.Rectangle{})
+			return err
+		}},
+		{name: "input", call: func() error {
+			return session.Input.KeyDown(context.Background(), "a")
+		}},
+		{name: "windows list", call: func() error {
+			_, err := session.Windows.List(context.Background(), WindowMatch{})
+			return err
+		}},
+		{name: "windows wait", call: func() error {
+			return session.Wait(context.Background(), WindowExists(WindowMatch{}))
+		}},
+		{name: "retained window", call: func() error {
+			return retained.Close(context.Background())
+		}},
+		{name: "outputs", call: func() error {
+			_, err := session.Outputs.List(context.Background())
+			return err
+		}},
+		{name: "clipboard", call: func() error {
+			_, err := session.Clipboard.Get(context.Background())
+			return err
+		}},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.call(); !errors.Is(err, ErrSessionClosed) {
+				t.Fatalf("operation after Close error = %v, want ErrSessionClosed", err)
+			}
+		})
+	}
+}
+
+func TestWaitRejectsCanceledContextBeforeSatisfiedCondition(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := session.Wait(ctx, Predicate("already satisfied", func(context.Context) (bool, error) {
+		return true, nil
+	})); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Wait error = %v, want context.Canceled", err)
+	}
+}
+
+func TestWaitRejectsZeroValueSession(t *testing.T) {
+	if err := (&Session{}).Wait(
+		context.Background(),
+		Predicate("never", func(context.Context) (bool, error) {
+			return false, nil
+		}),
+	); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("Wait on zero-value session error = %v, want %v", err, ErrSessionClosed)
 	}
 }
 

@@ -3,7 +3,6 @@ package wl
 import (
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestNewSession_CacheHit(t *testing.T) {
@@ -23,9 +22,8 @@ func TestNewSession_CacheHit(t *testing.T) {
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
 	sessionCache[sock] = &sessionRef{
-		sess:     fakeSess,
-		refs:     1,
-		lastUsed: time.Now(),
+		sess: fakeSess,
+		refs: 1,
 	}
 	sessionCacheMu.Unlock()
 
@@ -34,8 +32,8 @@ func TestNewSession_CacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if s != fakeSess {
-		t.Fatal("NewSession did not return cached session")
+	if s == fakeSess {
+		t.Fatal("NewSession returned the cache owner instead of a close handle")
 	}
 	if s.Sock != sock {
 		t.Errorf("sock = %q, want %q", s.Sock, sock)
@@ -47,6 +45,7 @@ func TestNewSession_CacheHit(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if ref == nil {
 		t.Fatal("session not in cache")
+		return
 	}
 	if ref.refs != 2 {
 		t.Errorf("refcount = %d, want 2", ref.refs)
@@ -61,6 +60,7 @@ func TestNewSession_CacheHit(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if ref == nil {
 		t.Fatal("session should still be in cache")
+		return
 	}
 	if ref.refs != 1 {
 		t.Errorf("refcount after close = %d, want 1", ref.refs)
@@ -84,9 +84,8 @@ func TestNewSession_CloseDecrementsRefcount(t *testing.T) {
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
 	sessionCache[sock] = &sessionRef{
-		sess:     fakeSess,
-		refs:     1,
-		lastUsed: time.Now(),
+		sess: fakeSess,
+		refs: 1,
 	}
 	sessionCacheMu.Unlock()
 
@@ -99,8 +98,8 @@ func TestNewSession_CloseDecrementsRefcount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession 2: %v", err)
 	}
-	if s1 != s2 {
-		t.Fatal("s1 and s2 should be the same session")
+	if s1 == s2 {
+		t.Fatal("session acquisitions should have distinct close handles")
 	}
 
 	// Refcount should be 3 (initial 1 + 2 calls).
@@ -158,9 +157,8 @@ func TestSessionCloseRemovesCacheAtZeroRefs(t *testing.T) {
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
 	sessionCache[sock] = &sessionRef{
-		sess:     fakeSess,
-		refs:     1,
-		lastUsed: time.Now(),
+		sess: fakeSess,
+		refs: 1,
 	}
 	sessionCacheMu.Unlock()
 
@@ -192,9 +190,8 @@ func TestNewSessionCacheConcurrentHitAndClose(t *testing.T) {
 	fakeSess := &Session{Sock: sock, Ctx: &Context{}}
 	sessionCacheMu.Lock()
 	sessionCache[sock] = &sessionRef{
-		sess:     fakeSess,
-		refs:     1,
-		lastUsed: time.Now(),
+		sess: fakeSess,
+		refs: 1,
 	}
 	sessionCacheMu.Unlock()
 
@@ -220,9 +217,48 @@ func TestNewSessionCacheConcurrentHitAndClose(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if ref == nil {
 		t.Fatal("original cached session was removed")
+		return
 	}
 	if ref.refs != 1 {
 		t.Fatalf("refcount = %d, want 1", ref.refs)
+	}
+}
+
+func TestSessionCloseDoesNotReleaseReplacementSession(t *testing.T) {
+	sessionCacheMu.Lock()
+	savedCache := sessionCache
+	sessionCache = make(map[string]*sessionRef)
+	sessionCacheMu.Unlock()
+	defer func() {
+		sessionCacheMu.Lock()
+		sessionCache = savedCache
+		sessionCacheMu.Unlock()
+	}()
+
+	sock := "wayland-test-replacement"
+	first := &Session{Sock: sock, Ctx: &Context{}}
+	firstRef := &sessionRef{sess: first, refs: 1}
+	second := &Session{Sock: sock, Ctx: &Context{}}
+	secondRef := &sessionRef{sess: second, refs: 1}
+	sessionCacheMu.Lock()
+	sessionCache[sock] = firstRef
+	sessionCacheMu.Unlock()
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	sessionCacheMu.Lock()
+	sessionCache[sock] = secondRef
+	sessionCacheMu.Unlock()
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("repeated first Close: %v", err)
+	}
+	sessionCacheMu.Lock()
+	ref := sessionCache[sock]
+	sessionCacheMu.Unlock()
+	if ref != secondRef || ref.refs != 1 {
+		t.Fatalf("replacement session was modified: ref=%p refs=%d", ref, ref.refs)
 	}
 }
 
@@ -253,42 +289,6 @@ func TestNewSession_NotInCache(t *testing.T) {
 	sessionCacheMu.Unlock()
 	if exists {
 		t.Error("failed session should not be cached")
-	}
-}
-
-func TestCleanupStaleSessionsPrunesOldCacheEntries(t *testing.T) {
-	sessionCacheMu.Lock()
-	savedCache := sessionCache
-	sessionCache = make(map[string]*sessionRef)
-	sessionCacheMu.Unlock()
-
-	defer func() {
-		sessionCacheMu.Lock()
-		sessionCache = savedCache
-		sessionCacheMu.Unlock()
-	}()
-
-	oldSock := "wayland-test-stale"
-	freshSock := "wayland-test-fresh"
-	now := time.Now()
-	sessionCacheMu.Lock()
-	sessionCache[oldSock] = &sessionRef{sess: &Session{Sock: oldSock, Ctx: &Context{}}, refs: 1, lastUsed: now.Add(-48 * time.Hour)}
-	sessionCache[freshSock] = &sessionRef{sess: &Session{Sock: freshSock, Ctx: &Context{}}, refs: 1, lastUsed: now}
-	sessionCacheMu.Unlock()
-
-	sessionCacheMu.Lock()
-	cleanupStaleSessionsLocked(time.Now(), 24*time.Hour)
-	sessionCacheMu.Unlock()
-
-	sessionCacheMu.Lock()
-	_, oldExists := sessionCache[oldSock]
-	freshRef := sessionCache[freshSock]
-	sessionCacheMu.Unlock()
-	if oldExists {
-		t.Fatal("stale cache entry remained after CleanupStaleSessions")
-	}
-	if freshRef == nil {
-		t.Fatal("fresh cache entry was pruned unexpectedly")
 	}
 }
 

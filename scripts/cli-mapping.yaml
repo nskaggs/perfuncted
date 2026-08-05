@@ -51,7 +51,7 @@ input:
     skip: true
   PointerLocation:
     name: location
-    short: "Print the current pointer (mouse cursor) position as x,y"
+    skip: true
   Sync:
     skip: true
   Type:
@@ -73,21 +73,14 @@ screen:
   WaitForChange:
     skip: true
   Grab:
-    short: "Capture a screen region and save as PNG"
-    long: "Captures the specified screen region and writes it as a PNG file.\nIf --out is omitted the image is written to /tmp/pf-grab.png and the path is printed to stdout."
-    flags:
-      rect: "region to capture as x0,y0,x1,y1"
-      out: "output file path (default /tmp/pf-grab.png)"
+    skip: true
   GrabFullHash:
     short: "Print the CRC32 hash of the full screen contents"
     long: "Captures the full screen and prints the CRC32 pixel hash as a zero-padded\nhex integer. Useful as a quick change-detection probe without saving any files."
   GrabRegionHash:
-    short: "Print the CRC32 hash of a screen region"
-    long: "Captures the specified screen region and prints its CRC32 pixel hash as a\nzero-padded hex integer. Useful for polling whether a region has changed."
-    flags:
-      rect: "region to hash as x0,y0,x1,y1"
+    skip: true
   Resolution:
-    short: "Print the screen resolution as WxH"
+    skip: true
   WaitForNoChange:
     short: "Wait for a screen region to stop changing"
     flags:
@@ -116,7 +109,6 @@ window:
 
 clipboard:
   Get:
-    short: "Print the current clipboard contents"
+    skip: true
   Set:
-    short: "Set the clipboard contents"
-    positional: true
+    skip: true

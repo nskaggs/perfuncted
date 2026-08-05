@@ -16,10 +16,10 @@ type InputBundle struct {
 }
 
 func (b *InputBundle) checkAvailable(operation string) error {
-	if b == nil || b.backend == nil {
-		return b.unavailable(operation)
+	if b == nil {
+		return (&bundleBase{}).unavailable(operation)
 	}
-	return nil
+	return b.bundleBase.checkAvailable(operation, b.backend != nil)
 }
 
 func (b *InputBundle) KeyDown(ctx context.Context, key string) error {

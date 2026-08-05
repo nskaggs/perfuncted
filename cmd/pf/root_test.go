@@ -27,8 +27,8 @@ import (
 )
 
 func TestNewRootCmdConfiguresCobra(t *testing.T) {
-	cmd := newRootCmd(func(*cliConfig) func() (*perfuncted.Session, error) {
-		return func() (*perfuncted.Session, error) { return nil, nil }
+	cmd := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
 	})
 
 	if got, want := cmd.Use, "pf"; got != want {
@@ -62,6 +62,77 @@ func TestNewRootCmdConfiguresCobra(t *testing.T) {
 	}
 }
 
+func TestRootCommandRemovesNoopCoordinateFlags(t *testing.T) {
+	cmd := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return nil, nil
+		}
+	})
+
+	for _, name := range []string{"max-x", "max-y"} {
+		if flag := cmd.PersistentFlags().Lookup(name); flag != nil {
+			t.Fatalf("persistent flag %q still exists", name)
+		}
+	}
+}
+
+func TestCLIUsesCommandContextAndOutputWriter(t *testing.T) {
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "marker")
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	cmd := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(openCtx context.Context) (*perfuncted.Session, error) {
+			if got := openCtx.Value(contextKey{}); got != "marker" {
+				return nil, fmt.Errorf("command context value = %v, want marker", got)
+			}
+			return pftest.New(
+				&pftest.Screenshotter{Width: 8, Height: 8},
+				nil,
+				nil,
+				nil,
+			), nil
+		}
+	})
+	cmd.SetArgs([]string{"screen", "resolution"})
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("ExecuteContext: %v", err)
+	}
+	if got, want := out.String(), "8x8\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestGeneratedCLIUsesCommandOutputWriter(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return pftest.New(
+				&pftest.Screenshotter{Width: 8, Height: 8},
+				nil,
+				nil,
+				nil,
+			), nil
+		}
+	})
+	cmd.SetArgs([]string{"screen", "grab-full-hash"})
+	cmd.SetOut(&out)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext: %v", err)
+	}
+	if got := out.String(); !strings.HasSuffix(got, "\n") || len(strings.TrimSpace(got)) != 8 {
+		t.Fatalf("generated stdout = %q, want an eight-digit hash", got)
+	}
+}
+
 func findCommandPath(cmd *cobra.Command, path ...string) *cobra.Command {
 	if len(path) == 0 {
 		return cmd
@@ -75,8 +146,8 @@ func findCommandPath(cmd *cobra.Command, path ...string) *cobra.Command {
 }
 
 func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
-	root := newRootCmd(func(*cliConfig) func() (*perfuncted.Session, error) {
-		return func() (*perfuncted.Session, error) { return nil, nil }
+	root := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
 	})
 
 	for _, path := range [][]string{
@@ -103,8 +174,8 @@ func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
 }
 
 func TestRunWithFactoryCapturesStdout(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"screen", "resolution"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-		return func() (*perfuncted.Session, error) {
+	stdout, stderr, code := captureRunIO(t, []string{"screen", "resolution"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
 			sc := &pftest.Screenshotter{Width: 8, Height: 8}
 			return pftest.New(sc, nil, nil, nil), nil
 		}
@@ -122,8 +193,8 @@ func TestRunWithFactoryCapturesStdout(t *testing.T) {
 }
 
 func TestRunWithFactoryReportsParseError(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"screen", "grab", "--rect", "bad", "--out", "/tmp/pf-test.png"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-		return func() (*perfuncted.Session, error) {
+	stdout, stderr, code := captureRunIO(t, []string{"screen", "grab", "--rect", "bad", "--out", "/tmp/pf-test.png"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
 			return pftest.New(&pftest.Screenshotter{Width: 8, Height: 8}, nil, nil, nil), nil
 		}
 	})
@@ -236,7 +307,7 @@ func TestCLIRequestsOnlyItsCapability(t *testing.T) {
 			_, stderr, code := captureRunIO(
 				t,
 				test.args,
-				func(config *cliConfig) func() (*perfuncted.Session, error) {
+				func(config *cliConfig) sessionOpener {
 					gotRequired = append(
 						[]perfuncted.Capability(nil),
 						config.required...,
@@ -245,7 +316,7 @@ func TestCLIRequestsOnlyItsCapability(t *testing.T) {
 						[]perfuncted.Capability(nil),
 						config.optional...,
 					)
-					return func() (*perfuncted.Session, error) {
+					return func(context.Context) (*perfuncted.Session, error) {
 						return test.session(), nil
 					}
 				},
@@ -277,8 +348,8 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42, Active: true},
 			{ID: 8, Title: "Terminal", AppID: "org.gnome.Terminal", PID: 99},
 		}}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "list", "--output", "plain"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "list", "--output", "plain"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -294,8 +365,8 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 		mgr := &pftest.Manager{Lists: [][]window.Info{{
 			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42, Active: true},
 		}}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "list", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "list", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -316,8 +387,8 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 			{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42},
 			{ID: 8, Title: "Firefox Settings", AppID: "firefox", PID: 43},
 		}}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "find", "app_id:firefox", "state:-minimized"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "find", "app_id:firefox", "state:-minimized"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -334,8 +405,8 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 			{},
 			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
 		}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-for", "title:Firefox", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-for", "title:Firefox", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -352,8 +423,8 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
 			{},
 		}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -370,8 +441,8 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
 			{},
 		}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "0s", "--timeout", "250ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "0s", "--timeout", "250ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -390,8 +461,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 		img.Set(10, 20, color.RGBA{R: 1, G: 2, B: 3, A: 4})
 		img.Set(12, 22, color.RGBA{R: 10, G: 20, B: 30, A: 255})
 
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "get-multiple-pixels", "--points", "10,20;12,22", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "get-multiple-pixels", "--points", "10,20;12,22", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}, ZeroOrigin: true}, nil, nil, nil), nil
 			}
 		})
@@ -419,8 +490,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 			pftest.SolidImage(2, 2, color.RGBA{}),
 			pftest.SolidImage(2, 2, color.RGBA{R: 255, A: 255}),
 		}}
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-fn", "--rect", "0,0,2,2", "--predicate", "non-empty", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-fn", "--rect", "0,0,2,2", "--predicate", "non-empty", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(sc, nil, nil, nil), nil
 			}
 		})
@@ -433,8 +504,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 	})
 
 	t.Run("scan-for empty", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"find", "scan-for", "--rects", "", "--wants", ""}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"find", "scan-for", "--rects", "", "--wants", ""}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Width: 2, Height: 2}, nil, nil, nil), nil
 			}
 		})
@@ -452,8 +523,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 			pftest.SolidImage(2, 2, color.RGBA{G: 255, A: 255}),
 			pftest.SolidImage(2, 2, color.RGBA{G: 255, A: 255}),
 		}}
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-settle", "--rect", "0,0,2,2", "--stable", "2", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-settle", "--rect", "0,0,2,2", "--stable", "2", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(sc, nil, nil, nil), nil
 			}
 		})
@@ -469,8 +540,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 		frame := pftest.SolidImage(2, 2, color.RGBA{B: 255, A: 255})
 		want := find.PixelHash(frame, nil)
 		sc := &pftest.Screenshotter{Frames: []image.Image{frame}}
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-no-change-from", "--rect", "0,0,2,2", "--initial", "0x" + strconv.FormatUint(uint64(want), 16), "--stable", "1", "--poll", "1ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "wait-for-no-change-from", "--rect", "0,0,2,2", "--initial", "0x" + strconv.FormatUint(uint64(want), 16), "--stable", "1", "--poll", "1ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(sc, nil, nil, nil), nil
 			}
 		})
@@ -483,8 +554,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 	})
 
 	t.Run("input sync", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"input", "sync"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"input", "sync"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, &pftest.Inputter{}, nil, nil), nil
 			}
 		})
@@ -499,8 +570,8 @@ func TestScreenAndInputCommands(t *testing.T) { //nolint:gocyclo
 
 func TestScreenHashAndWatch(t *testing.T) {
 	t.Run("hash", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "hash", "--rect", "0,0,2,2"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "hash", "--rect", "0,0,2,2"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				img := pftest.SolidImage(2, 2, color.RGBA{R: 1, G: 2, B: 3, A: 255})
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}}, nil, nil, nil), nil
 			}
@@ -516,8 +587,8 @@ func TestScreenHashAndWatch(t *testing.T) {
 	t.Run("watch json stable", func(t *testing.T) {
 		imgA := pftest.SolidImage(2, 2, color.RGBA{R: 4, G: 5, B: 6, A: 255})
 		imgB := pftest.SolidImage(2, 2, color.RGBA{R: 9, G: 8, B: 7, A: 255})
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--duration", "20ms", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--duration", "20ms", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{imgA, imgA, imgB}}, nil, nil, nil), nil
 			}
 		})
@@ -533,8 +604,8 @@ func TestScreenHashAndWatch(t *testing.T) {
 		img := pftest.SolidImage(2, 2, color.RGBA{R: 4, G: 5, B: 6, A: 255})
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"screen", "watch", "--rect", "0,0,2,2", "--poll", "1ms", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{img}}, nil, nil, nil), nil
 			}
 		})
@@ -547,8 +618,8 @@ func TestScreenHashAndWatch(t *testing.T) {
 	})
 
 	t.Run("watch invalid output", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "watch", "--rect", "0,0,2,2", "--output", "bogus"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "watch", "--rect", "0,0,2,2", "--output", "bogus"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{pftest.SolidImage(2, 2, color.RGBA{A: 255})}}, nil, nil, nil), nil
 			}
 		})
@@ -566,8 +637,8 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 		frame := image.NewRGBA(image.Rect(10, 20, 14, 24))
 		want := color.RGBA{R: 11, G: 22, B: 33, A: 255}
 		frame.SetRGBA(12, 22, want)
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "grab-region", "--rect", "11,21,13,23", "--out", "-"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "grab-region", "--rect", "11,21,13,23", "--out", "-"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{frame}, ZeroOrigin: true}, nil, nil, nil), nil
 			}
 		})
@@ -596,8 +667,8 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 		frame := image.NewRGBA(image.Rect(0, 0, 2, 1))
 		frame.SetRGBA(0, 0, color.RGBA{R: 1, G: 2, B: 3, A: 4})
 		frame.SetRGBA(1, 0, color.RGBA{R: 5, G: 6, B: 7, A: 8})
-		stdout, stderr, code := captureRunIO(t, []string{"screen", "get-all-pixels"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"screen", "get-all-pixels"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(&pftest.Screenshotter{Frames: []image.Image{frame}}, nil, nil, nil), nil
 			}
 		})
@@ -611,8 +682,8 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 
 	t.Run("input type stdin", func(t *testing.T) {
 		inp := &pftest.Inputter{}
-		stdout, stderr, code := captureRunIOWithStdin(t, "hello\n", []string{"input", "type", "--stdin"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIOWithStdin(t, "hello\n", []string{"input", "type", "--stdin"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, inp, nil, nil), nil
 			}
 		})
@@ -629,8 +700,8 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 
 	t.Run("click repeat", func(t *testing.T) {
 		inp := &pftest.Inputter{}
-		stdout, stderr, code := captureRunIO(t, []string{"input", "click", "--x", "7", "--y", "9", "--button", "2", "--repeat", "3", "--delay", "1ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"input", "click", "--x", "7", "--y", "9", "--button", "2", "--repeat", "3", "--delay", "1ms"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, inp, nil, nil), nil
 			}
 		})
@@ -649,8 +720,8 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 func TestFindWaitForVisibleChange(t *testing.T) {
 	initial := pftest.SolidImage(2, 2, color.RGBA{A: 255})
 	changed := pftest.SolidImage(2, 2, color.RGBA{R: 200, G: 20, B: 10, A: 255})
-	stdout, stderr, code := captureRunIO(t, []string{"find", "wait-for-visible-change", "--rect", "0,0,2,2", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-		return func() (*perfuncted.Session, error) {
+	stdout, stderr, code := captureRunIO(t, []string{"find", "wait-for-visible-change", "--rect", "0,0,2,2", "--poll", "1ms", "--timeout", "50ms"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
 			return pftest.New(&pftest.Screenshotter{Frames: []image.Image{initial, changed}}, nil, nil, nil), nil
 		}
 	})
@@ -666,8 +737,8 @@ func TestWindowGeometryAndVisibility(t *testing.T) {
 	mgr := &pftest.Manager{Lists: [][]window.Info{{{ID: 7, Title: "Firefox", AppID: "firefox", X: 10, Y: 20, W: 100, H: 200}}}}
 
 	t.Run("geometry", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"window", "get-geometry", "Firefox"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "get-geometry", "Firefox"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -680,8 +751,8 @@ func TestWindowGeometryAndVisibility(t *testing.T) {
 	})
 
 	t.Run("visible", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Firefox"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Firefox"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -694,8 +765,8 @@ func TestWindowGeometryAndVisibility(t *testing.T) {
 	})
 
 	t.Run("not-found", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Terminal"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Terminal"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -708,8 +779,8 @@ func TestWindowGeometryAndVisibility(t *testing.T) {
 	})
 
 	t.Run("backend error", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Firefox"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "is-visible", "Firefox"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, &pftest.Manager{Err: errors.New("boom")}, nil), nil
 			}
 		})
@@ -730,8 +801,8 @@ func TestWindowWatchAndOutputValidation(t *testing.T) {
 		}}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"window", "watch", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"window", "watch", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
 		})
@@ -744,8 +815,8 @@ func TestWindowWatchAndOutputValidation(t *testing.T) {
 	})
 
 	t.Run("watch invalid output", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"window", "watch", "--output", "bogus"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "watch", "--output", "bogus"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, &pftest.Manager{Lists: [][]window.Info{{}}}, nil), nil
 			}
 		})
@@ -758,8 +829,8 @@ func TestWindowWatchAndOutputValidation(t *testing.T) {
 	})
 
 	t.Run("geometry invalid output", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"window", "get-geometry", "Firefox", "--output", "bogus"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"window", "get-geometry", "Firefox", "--output", "bogus"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				mgr := &pftest.Manager{Lists: [][]window.Info{{{ID: 7, Title: "Firefox", AppID: "firefox", X: 10, Y: 20, W: 100, H: 200}}}}
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
@@ -793,8 +864,8 @@ func TestOutputListInfoAndRun(t *testing.T) { //nolint:gocyclo
 			ResolutionH: 1080,
 			Scale:       2,
 		}}}
-		stdout, stderr, code := captureRunIO(t, []string{"output", "list", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"output", "list", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.NewWithOutputs(
 					nil,
 					nil,
@@ -818,8 +889,8 @@ func TestOutputListInfoAndRun(t *testing.T) { //nolint:gocyclo
 
 	t.Run("output list invalid output", func(t *testing.T) {
 		fake := &fakeOutputLister{infos: []output.Info{{Name: "HDMI-A-1", Backend: "wayland"}}}
-		stdout, stderr, code := captureRunIO(t, []string{"output", "list", "--output", "bogus"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"output", "list", "--output", "bogus"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.NewWithOutputs(
 					nil,
 					nil,
@@ -838,8 +909,8 @@ func TestOutputListInfoAndRun(t *testing.T) { //nolint:gocyclo
 	})
 
 	t.Run("info json", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "json"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "json"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return nil, nil
 			}
 		})
@@ -862,8 +933,8 @@ func TestOutputListInfoAndRun(t *testing.T) { //nolint:gocyclo
 		if err := os.WriteFile(script, []byte("# comment\ninfo\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		stdout, stderr, code := captureRunIO(t, []string{"run", script}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"run", script}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return &perfuncted.Session{}, nil
 			}
 		})
@@ -883,8 +954,8 @@ func TestOutputListInfoAndRun(t *testing.T) { //nolint:gocyclo
 func TestClipboardCommands(t *testing.T) {
 	t.Run("clipboard get", func(t *testing.T) {
 		cb := &pftest.Clipboard{Text: "clipboard text"}
-		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "get"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "get"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, nil, cb), nil
 			}
 		})
@@ -901,8 +972,8 @@ func TestClipboardCommands(t *testing.T) {
 
 	t.Run("clipboard set", func(t *testing.T) {
 		cb := &pftest.Clipboard{}
-		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "set", "new text"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "set", "new text"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, nil, cb), nil
 			}
 		})
@@ -918,8 +989,8 @@ func TestClipboardCommands(t *testing.T) {
 	})
 
 	t.Run("clipboard set requires argument", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "set"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) {
+		stdout, stderr, code := captureRunIO(t, []string{"clipboard", "set"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, nil, &pftest.Clipboard{}), nil
 			}
 		})
@@ -937,8 +1008,8 @@ func TestClipboardCommands(t *testing.T) {
 
 func TestInfoSessionAndDocsCommands(t *testing.T) {
 	t.Run("info invalid output", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "bogus"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) { return nil, nil }
+		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "bogus"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
 		})
 		if code == 0 {
 			t.Fatalf("exit code = 0, want non-zero; stdout=%q stderr=%q", stdout, stderr)
@@ -949,8 +1020,8 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 	})
 
 	t.Run("session type", func(t *testing.T) {
-		stdout, stderr, code := captureRunIO(t, []string{"session", "type"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) { return nil, nil }
+		stdout, stderr, code := captureRunIO(t, []string{"session", "type"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
 		})
 		if code != 0 {
 			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
@@ -972,8 +1043,8 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 		t.Setenv("WAYLAND_DISPLAY", "wayland-1")
 		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/tmp/dbus-test")
 
-		stdout, stderr, code := captureRunIO(t, []string{"session", "check"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) { return nil, nil }
+		stdout, stderr, code := captureRunIO(t, []string{"session", "check"}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
 		})
 		if code != 0 {
 			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
@@ -991,8 +1062,8 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 
 	t.Run("docs", func(t *testing.T) {
 		dir := t.TempDir()
-		stdout, stderr, code := captureRunIO(t, []string{"docs", "--dir", dir}, func(*cliConfig) func() (*perfuncted.Session, error) {
-			return func() (*perfuncted.Session, error) { return nil, nil }
+		stdout, stderr, code := captureRunIO(t, []string{"docs", "--dir", dir}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
 		})
 		if code != 0 {
 			t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
@@ -1006,7 +1077,7 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 	})
 }
 
-func captureRunIO(t *testing.T, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Session, error)) (string, string, int) {
+func captureRunIO(t *testing.T, args []string, openPFFactory cliOpenFactory) (string, string, int) {
 	t.Helper()
 	return captureRunIOContext(
 		context.Background(),
@@ -1020,7 +1091,7 @@ func captureRunIOContext(
 	ctx context.Context,
 	t *testing.T,
 	args []string,
-	openPFFactory func(*cliConfig) func() (*perfuncted.Session, error),
+	openPFFactory cliOpenFactory,
 ) (string, string, int) {
 	t.Helper()
 
@@ -1057,7 +1128,7 @@ func captureRunIOContext(
 	return string(outBytes), string(errBytes), code
 }
 
-func captureRunIOWithStdin(t *testing.T, stdin string, args []string, openPFFactory func(*cliConfig) func() (*perfuncted.Session, error)) (string, string, int) {
+func captureRunIOWithStdin(t *testing.T, stdin string, args []string, openPFFactory cliOpenFactory) (string, string, int) {
 	t.Helper()
 
 	oldStdin := os.Stdin
@@ -1086,8 +1157,8 @@ func captureRunIOWithStdin(t *testing.T, stdin string, args []string, openPFFact
 }
 
 func TestVersionCmd(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"version"}, func(*cliConfig) func() (*perfuncted.Session, error) {
-		return func() (*perfuncted.Session, error) {
+	stdout, stderr, code := captureRunIO(t, []string{"version"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
 			return nil, nil
 		}
 	})

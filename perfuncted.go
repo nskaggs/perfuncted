@@ -4,13 +4,10 @@
 package perfuncted
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
@@ -61,29 +58,4 @@ func DetectSession() (kind string, details map[string]string) {
 	details["current_xdg"] = xdg
 	details["current_wayland"] = wd
 	return "host", details
-}
-
-// Retry polls fn until it succeeds or ctx is cancelled. It calls fn
-// immediately, then retries at the given poll interval.
-func Retry(ctx context.Context, poll time.Duration, fn func() error) error {
-	if fn == nil {
-		return fmt.Errorf("retry: nil function")
-	}
-	if poll <= 0 {
-		poll = 10 * time.Millisecond
-	}
-	ticker := time.NewTicker(poll)
-	defer ticker.Stop()
-
-	for {
-		err := fn()
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("retry: timed out: %w", err)
-		case <-ticker.C:
-		}
-	}
 }

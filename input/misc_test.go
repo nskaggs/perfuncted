@@ -84,9 +84,9 @@ func TestParseCombo_ModifierAliases(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ks, err := ParseKeySend(tc.input)
+			ks, err := parseKeySend(tc.input)
 			if err != nil {
-				t.Fatalf("ParseKeySend(%q) error = %v", tc.input, err)
+				t.Fatalf("parseKeySend(%q) error = %v", tc.input, err)
 			}
 			if ks[0].key != tc.wantKey {
 				t.Errorf("key = %q, want %q", ks[0].key, tc.wantKey)
@@ -102,14 +102,14 @@ func TestParseCombo_ModifierAliases(t *testing.T) {
 }
 
 func TestParseCombo_UnknownModifier(t *testing.T) {
-	_, err := ParseKeySend("{bogus+s}")
+	_, err := parseKeySend("{bogus+s}")
 	if err == nil {
 		t.Fatal("expected error for unknown modifier bogus")
 	}
 }
 
 func TestParseCombo_EmptyKey(t *testing.T) {
-	_, err := ParseKeySend("{ctrl+}")
+	_, err := parseKeySend("{ctrl+}")
 	if err == nil {
 		t.Fatal("expected error for empty key after +")
 	}
@@ -118,16 +118,16 @@ func TestParseCombo_EmptyKey(t *testing.T) {
 // ── parseBraced — edge cases ──────────────────────────────────────────────────
 
 func TestParseBraced_WhitespaceOnly(t *testing.T) {
-	_, err := ParseKeySend("{   }")
+	_, err := parseKeySend("{   }")
 	if err == nil {
 		t.Fatal("expected error for whitespace-only braced expression")
 	}
 }
 
 func TestParseBraced_DownSuffix(t *testing.T) {
-	sends, err := ParseKeySend("{enter down}")
+	sends, err := parseKeySend("{enter down}")
 	if err != nil {
-		t.Fatalf("ParseKeySend({enter down}) error = %v", err)
+		t.Fatalf("parseKeySend({enter down}) error = %v", err)
 	}
 	if !sends[0].down {
 		t.Error("expected down=true for {enter down}")
@@ -138,9 +138,9 @@ func TestParseBraced_DownSuffix(t *testing.T) {
 }
 
 func TestParseBraced_UpSuffix(t *testing.T) {
-	sends, err := ParseKeySend("{tab up}")
+	sends, err := parseKeySend("{tab up}")
 	if err != nil {
-		t.Fatalf("ParseKeySend({tab up}) error = %v", err)
+		t.Fatalf("parseKeySend({tab up}) error = %v", err)
 	}
 	if sends[0].down {
 		t.Error("expected down=false for {tab up}")

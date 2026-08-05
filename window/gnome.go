@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"iter"
 	"strconv"
-	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
@@ -38,17 +38,19 @@ func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
 	}
 	g := &GnomeManager{conn: conn}
 	// Probe to ensure Eval works.
-	_, err = g.eval(`"ok"`)
+	_, err = g.eval(context.Background(), `"ok"`)
 	if err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("gnome: Shell Eval not available: %w", err)
 	}
 	return g, nil
 }
 
 // eval runs JavaScript in gnome-shell and returns the result string.
-func (g *GnomeManager) eval(js string) (string, error) {
+func (g *GnomeManager) eval(ctx context.Context, js string) (string, error) {
+	ctx = ctxutil.Default(ctx)
 	obj := g.conn.Object(gnomeShellService, "/org/gnome/Shell")
-	call := obj.Call("org.gnome.Shell.Eval", 0, js)
+	call := obj.CallWithContext(ctx, "org.gnome.Shell.Eval", 0, js)
 	if call.Err != nil {
 		return "", call.Err
 	}
@@ -96,7 +98,7 @@ JSON.stringify(
       };
     })
 )`
-		raw, err := g.eval(js)
+		raw, err := g.eval(ctx, js)
 		if err != nil {
 			yield(Info{}, err)
 			return
@@ -135,7 +137,7 @@ JSON.stringify(
 
 func (g *GnomeManager) ActiveTitle(ctx context.Context) (string, error) {
 	js := `(function(){ let f=global.display.get_focus_window(); return f ? f.get_title() : ""; })()`
-	return g.eval(js)
+	return g.eval(ctx, js)
 }
 
 func (g *GnomeManager) Close() error {
@@ -168,38 +170,38 @@ func (g *GnomeManager) findWindowByID(id uint64) string {
 	return fmt.Sprintf(`global.get_window_actors().map(a=>a.get_meta_window()).find(w=>w.get_stable_sequence()===%d)`, id)
 }
 
-func (g *GnomeManager) actOnWindowByID(id string, action string) error {
+func (g *GnomeManager) actOnWindowByID(ctx context.Context, id string, action string) error {
 	numeric, err := numericID(id)
 	if err != nil {
 		return err
 	}
 	js := "(function(){ let w=" + g.findWindowByID(numeric) + "; if(!w) throw \"not found\"; " + action + "; return \"ok\"; })()"
-	_, err = g.eval(js)
+	_, err = g.eval(ctx, js)
 	return err
 }
 
-func (g *GnomeManager) ActivateByID(_ context.Context, id string) error {
-	return g.actOnWindowByID(id, `w.activate(global.get_current_time())`)
+func (g *GnomeManager) ActivateByID(ctx context.Context, id string) error {
+	return g.actOnWindowByID(ctx, id, `w.activate(global.get_current_time())`)
 }
 
-func (g *GnomeManager) MoveByID(_ context.Context, id string, x, y int) error {
-	return g.actOnWindowByID(id, "w.move_frame(true, "+strconv.Itoa(x)+", "+strconv.Itoa(y)+")")
+func (g *GnomeManager) MoveByID(ctx context.Context, id string, x, y int) error {
+	return g.actOnWindowByID(ctx, id, "w.move_frame(true, "+strconv.Itoa(x)+", "+strconv.Itoa(y)+")")
 }
 
-func (g *GnomeManager) ResizeByID(_ context.Context, id string, w, h int) error {
-	return g.actOnWindowByID(id, "w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, "+strconv.Itoa(w)+", "+strconv.Itoa(h)+")")
+func (g *GnomeManager) ResizeByID(ctx context.Context, id string, w, h int) error {
+	return g.actOnWindowByID(ctx, id, "w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, "+strconv.Itoa(w)+", "+strconv.Itoa(h)+")")
 }
 
-func (g *GnomeManager) CloseWindowByID(_ context.Context, id string) error {
-	return g.actOnWindowByID(id, `w.delete(global.get_current_time())`)
+func (g *GnomeManager) CloseWindowByID(ctx context.Context, id string) error {
+	return g.actOnWindowByID(ctx, id, `w.delete(global.get_current_time())`)
 }
 
-func (g *GnomeManager) MinimizeByID(_ context.Context, id string) error {
-	return g.actOnWindowByID(id, `w.minimize()`)
+func (g *GnomeManager) MinimizeByID(ctx context.Context, id string) error {
+	return g.actOnWindowByID(ctx, id, `w.minimize()`)
 }
 
-func (g *GnomeManager) MaximizeByID(_ context.Context, id string) error {
-	return g.actOnWindowByID(id, `w.maximize(3)`)
+func (g *GnomeManager) MaximizeByID(ctx context.Context, id string) error {
+	return g.actOnWindowByID(ctx, id, `w.maximize(3)`)
 }
 
 func (g *GnomeManager) FullscreenByID(_ context.Context, _ string) error {
@@ -210,8 +212,8 @@ func (g *GnomeManager) UnfullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (g *GnomeManager) RestoreByID(_ context.Context, id string) error {
-	return g.actOnWindowByID(id, `w.unminimize(); w.unmaximize(3)`)
+func (g *GnomeManager) RestoreByID(ctx context.Context, id string) error {
+	return g.actOnWindowByID(ctx, id, `w.unminimize(); w.unmaximize(3)`)
 }
 
 func (g *GnomeManager) InfoByID(ctx context.Context, id string) (Info, error) {
@@ -224,19 +226,4 @@ func (g *GnomeManager) InfoByID(ctx context.Context, id string) (Info, error) {
 		}
 	}
 	return Info{}, ErrWindowNotFound
-}
-
-func (g *GnomeManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := g.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
 }

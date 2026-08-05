@@ -7,6 +7,7 @@ import (
 	"image"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,23 @@ func (s *capabilityScreen) Close() error {
 }
 
 type capabilityClipboard struct{}
+
+type cancelDuringOpenContext struct {
+	context.Context //nolint:containedctx // deterministic test context
+	done            chan struct{}
+	cancelOnce      sync.Once
+	checks          atomic.Int32
+}
+
+func (c *cancelDuringOpenContext) Err() error {
+	if c.checks.Add(1) > 1 {
+		c.cancelOnce.Do(func() { close(c.done) })
+		return context.Canceled
+	}
+	return nil
+}
+
+func (c *cancelDuringOpenContext) Done() <-chan struct{} { return c.done }
 
 func (*capabilityClipboard) Get(context.Context) (string, error) {
 	return "", nil
@@ -121,6 +139,28 @@ func TestOpenLeavesUnrequestedCapabilitiesClosed(t *testing.T) {
 		session.Outputs == nil ||
 		session.Clipboard == nil {
 		t.Fatal("Open exposed a nil capability facade")
+	}
+}
+
+func TestOpenRejectsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := Open(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Open error = %v, want context.Canceled", err)
+	}
+}
+
+func TestOpenRejectsContextCanceledDuringInitialization(t *testing.T) {
+	ctx := &cancelDuringOpenContext{
+		Context: context.Background(),
+		done:    make(chan struct{}),
+	}
+
+	if session, err := Open(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Open error = %v, want context.Canceled", err)
+	} else if session != nil {
+		t.Fatal("Open returned a session after cancellation")
 	}
 }
 
@@ -306,5 +346,62 @@ func TestSessionCloseStopsApplicationsInReverseLaunchOrder(t *testing.T) {
 		Command{Name: "true"},
 	); !errors.Is(err, ErrSessionClosed) {
 		t.Fatalf("Launch after Close error = %v", err)
+	}
+}
+
+func TestApplicationStopRejectsNilContext(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	app, err := session.Launch(
+		context.Background(),
+		Command{Name: "sleep", Args: []string{"10"}},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	var nilCtx context.Context
+	if err := app.Stop(nilCtx); err == nil {
+		t.Fatal("Stop(nil) returned nil")
+	} else if !strings.Contains(err.Error(), "nil context") {
+		t.Fatalf("Stop(nil) error = %v, want nil-context error", err)
+	}
+
+	if app.Exited() {
+		t.Fatal("Stop(nil) terminated the application")
+	}
+	if err := app.Kill(); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	if err := app.Wait(context.Background()); err == nil {
+		t.Fatal("Wait after Kill returned nil")
+	}
+}
+
+func TestStartupWaitHelpersHonorContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	for _, test := range []struct {
+		name string
+		wait func(context.Context) error
+	}{
+		{
+			name: "file",
+			wait: func(ctx context.Context) error {
+				return waitForFile(ctx, t.TempDir()+"/missing", 100, time.Second)
+			},
+		},
+		{
+			name: "glob",
+			wait: func(ctx context.Context) error {
+				return waitForGlob(ctx, t.TempDir()+"/*", 100, time.Second)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.wait(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("wait error = %v, want context.Canceled", err)
+			}
+		})
 	}
 }

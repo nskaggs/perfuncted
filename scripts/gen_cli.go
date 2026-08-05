@@ -4,8 +4,8 @@
 // Command generator: produce cobra command wrappers from perfuncted API.
 // Usage: go run -tags=gencli ./scripts/gen_cli.go
 //
-// It reads scripts/cli-mapping.yaml and docs-cli/ to avoid generating commands
-// that already exist in the hand-written CLI docs.
+// It reads scripts/cli-mapping.yaml to avoid generating commands that already
+// exist in the hand-written CLI.
 //
 // Every non-skipped method MUST have a "short" entry in cli-mapping.yaml.
 // The generator will refuse to emit a bare placeholder description and will
@@ -18,8 +18,6 @@ import (
 	"go/format"
 	"go/types"
 	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -65,43 +63,6 @@ func hyphenate(s string) string {
 	return strings.Join(words, "-")
 }
 
-var commonPrefixes = []string{
-	"Mouse", "Key", "Grab", "Find", "WaitFor", "Wait", "Get", "Set", "List", "Active", "Activate", "Press", "Scroll", "Close", "Pointer",
-}
-
-func candidatesFromMethod(name string) []string {
-	c := []string{}
-	c = append(c, hyphenate(name))
-	c = append(c, strings.ToLower(name))
-	for _, p := range commonPrefixes {
-		if strings.HasPrefix(name, p) {
-			s := strings.TrimPrefix(name, p)
-			if s != "" {
-				c = append(c, hyphenate(s))
-				c = append(c, strings.ToLower(s))
-			}
-		}
-	}
-	if strings.HasSuffix(name, "Hash") {
-		c = append(c, "hash")
-		base := strings.TrimSuffix(name, "Hash")
-		c = append(c, hyphenate(base))
-	}
-	// uniq
-	m := map[string]bool{}
-	out := []string{}
-	for _, x := range c {
-		if x == "" {
-			continue
-		}
-		if !m[x] {
-			m[x] = true
-			out = append(out, x)
-		}
-	}
-	return out
-}
-
 func methodsForType(pkg *packages.Package, typeName string) ([]*types.Func, error) {
 	obj := pkg.Types.Scope().Lookup(typeName)
 	if obj == nil {
@@ -137,39 +98,6 @@ func loadMapping(path string) (Mapping, error) {
 	}
 	err = yaml.Unmarshal(b, &m)
 	return m, err
-}
-
-func collectDocs() (map[string]map[string]bool, error) {
-	out := map[string]map[string]bool{}
-	files, err := filepath.Glob("docs-cli/pf_*.md")
-	if err != nil {
-		return nil, err
-	}
-	re := regexpForDocs()
-	for _, f := range files {
-		base := filepath.Base(f)
-		if base == "pf.md" || strings.HasPrefix(base, "pf_completion") || base == "pf_docs.md" {
-			continue
-		}
-		m := re.FindStringSubmatch(base)
-		if m == nil {
-			continue
-		}
-		grp := m[1]
-		// Docs filenames use underscores in some command names; normalize to the
-		// hyphenated CLI form so we can compare against generated candidates.
-		cmd := strings.ReplaceAll(strings.TrimSuffix(m[2], ".md"), "_", "-")
-		if out[grp] == nil {
-			out[grp] = map[string]bool{}
-		}
-		out[grp][cmd] = true
-	}
-	return out, nil
-}
-
-func regexpForDocs() *regexp.Regexp {
-	// compile here to avoid importing regexp at top-level prematurely
-	return regexp.MustCompile(`^pf_([a-z0-9-]+)_(.+)\.md$`)
 }
 
 // Type helpers --------------------------------------------------------------
@@ -267,8 +195,7 @@ func main() {
 	fmt.Fprintln(outBuf, "")
 
 	imports := map[string]bool{
-		"github.com/spf13/cobra":        true,
-		"github.com/nskaggs/perfuncted": true,
+		"github.com/spf13/cobra": true,
 	}
 	// We'll populate imports as we discover uses.
 
@@ -488,7 +415,7 @@ func main() {
 				}
 			}
 			sb.WriteString("\t\tRunE: func(cmd *cobra.Command, args []string) error {\n")
-			sb.WriteString("\t\t\tpf, err := openPF()\n\t\t\tif err != nil { return err }\n\t\t\tdefer pf.Close()\n")
+			sb.WriteString("\t\t\tpf, err := openPF(cmd.Context())\n\t\t\tif err != nil { return err }\n\t\t\tdefer pf.Close()\n")
 			// parse params
 			rectIndex := 0
 			for i := start; i < params.Len(); i++ {
@@ -584,32 +511,36 @@ func main() {
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
 				sb.WriteString("\t\t\tdefer f.Close()\n")
 				sb.WriteString(fmt.Sprintf("\t\t\tif err := png.Encode(f, img); err != nil { return err }\n"))
-				sb.WriteString("\t\t\tfmt.Println(out)\n")
+				sb.WriteString("\t\t\tfmt.Fprintln(cmd.OutOrStdout(), out)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "uint32" {
 				sb.WriteString(fmt.Sprintf("\t\t\th, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%08x\\n\", h)\n")
+				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%08x\\n\", h)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "uint32-rect" {
 				sb.WriteString(fmt.Sprintf("\t\t\th, rect, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)\n")
+				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "string" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Print(res)\n")
+				sb.WriteString("\t\t\tfmt.Fprint(cmd.OutOrStdout(), res)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "int-int" {
 				sb.WriteString(fmt.Sprintf("\t\t\tw, h, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%dx%d\\n\", w, h)\n")
+				if grp == "input" && mn == "PointerLocation" {
+					sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%d,%d\\n\", w, h)\n")
+				} else {
+					sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%dx%d\\n\", w, h)\n")
+				}
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "int" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Printf(\"%d\\n\", res)\n")
+				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%d\\n\", res)\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else {
 				// error-only or no-return
@@ -693,8 +624,11 @@ func main() {
 
 	// Emit autogen functions
 	for _, grp := range []string{"screen", "input", "window", "clipboard"} {
+		if len(generated[grp]) == 0 {
+			continue
+		}
 		funcName := fmt.Sprintf("autogen%sCommands", strings.Title(grp))
-		fmt.Fprintf(outBuf, "func %s(openPF func() (*perfuncted.Session, error)) []*cobra.Command {\n", funcName)
+		fmt.Fprintf(outBuf, "func %s(openPF sessionOpener) []*cobra.Command {\n", funcName)
 		fmt.Fprintln(outBuf, "\tcmds := []*cobra.Command{}")
 		for _, block := range generated[grp] {
 			fmt.Fprintln(outBuf, block)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -177,4 +178,42 @@ func TestSwayQueryCancelableContextDoesNotReusePersistentConn(t *testing.T) {
 	if m.conn != persistent {
 		t.Fatal("query replaced persistent conn for cancelable context")
 	}
+}
+
+func TestSwayMoveByIDPropagatesReflowListError(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		responses := [][]byte{
+			[]byte(`{"id":1,"type":"root","nodes":[{"id":42,"type":"con","name":"window"}]} `),
+			[]byte(`[{"success":true}]`),
+			[]byte(`not-json`),
+			[]byte(`[{"success":true}]`),
+		}
+		for _, response := range responses {
+			header := make([]byte, 14)
+			if _, err := io.ReadFull(server, header); err != nil {
+				return
+			}
+			body := make([]byte, binary.LittleEndian.Uint32(header[6:10]))
+			if _, err := io.ReadFull(server, body); err != nil {
+				return
+			}
+			if err := writeSwayMessage(server, swayMsgGetTree, string(response)); err != nil {
+				return
+			}
+		}
+	}()
+
+	m := &SwayManager{conn: client, ReflowTimeout: 20 * time.Millisecond}
+	err := m.MoveByID(context.Background(), "42", 10, 20)
+	if err == nil || !strings.Contains(err.Error(), "window/sway: parse tree") {
+		t.Fatalf("MoveByID error = %v, want reflow list parse error", err)
+	}
+	_ = client.Close()
+	<-serverDone
 }

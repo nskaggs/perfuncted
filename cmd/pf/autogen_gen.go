@@ -3,56 +3,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/nskaggs/perfuncted"
 	"github.com/spf13/cobra"
-	"image/png"
-	"os"
 )
 
-func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
+func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 	cmds := []*cobra.Command{}
-
-	// grab: wrapper for perfuncted.Grab
-	var cmd_screen_grab_rect string
-	var cmd_screen_grab_out string
-	cmd_screen_grab := &cobra.Command{
-		Use:   "grab",
-		Short: "Capture a screen region and save as PNG",
-		Long:  "Captures the specified screen region and writes it as a PNG file.\nIf --out is omitted the image is written to /tmp/pf-grab.png and the path is printed to stdout.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_grab_rect)
-			if err != nil {
-				return err
-			}
-			img, err := pf.Screen.Grab(cmd.Context(), r_0)
-			if err != nil {
-				return err
-			}
-			out := cmd_screen_grab_out
-			if out == "" {
-				out = "/tmp/pf-grab.png"
-			}
-			f, err := os.Create(out)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
-				return err
-			}
-			fmt.Println(out)
-			return nil
-		},
-	}
-	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_rect, "rect", "0,0,1920,1080", "region to capture as x0,y0,x1,y1")
-	cmd_screen_grab.Flags().StringVar(&cmd_screen_grab_out, "out", "", "output path")
-
-	cmds = append(cmds, cmd_screen_grab)
 
 	// grab-full-hash: wrapper for perfuncted.GrabFullHash
 
@@ -61,7 +16,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 		Short: "Print the CRC32 hash of the full screen contents",
 		Long:  "Captures the full screen and prints the CRC32 pixel hash as a zero-padded\nhex integer. Useful as a quick change-detection probe without saving any files.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -70,62 +25,12 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
 
 	cmds = append(cmds, cmd_screen_grab_full_hash)
-
-	// grab-region-hash: wrapper for perfuncted.GrabRegionHash
-	var cmd_screen_grab_region_hash_rect string
-	cmd_screen_grab_region_hash := &cobra.Command{
-		Use:   "grab-region-hash",
-		Short: "Print the CRC32 hash of a screen region",
-		Long:  "Captures the specified screen region and prints its CRC32 pixel hash as a\nzero-padded hex integer. Useful for polling whether a region has changed.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			r_0, err := parseRect(cmd_screen_grab_region_hash_rect)
-			if err != nil {
-				return err
-			}
-			h, err := pf.Screen.GrabRegionHash(cmd.Context(), r_0)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%08x\n", h)
-			return nil
-		},
-	}
-	cmd_screen_grab_region_hash.Flags().StringVar(&cmd_screen_grab_region_hash_rect, "rect", "0,0,1920,1080", "region to hash as x0,y0,x1,y1")
-
-	cmds = append(cmds, cmd_screen_grab_region_hash)
-
-	// resolution: wrapper for perfuncted.Resolution
-
-	cmd_screen_resolution := &cobra.Command{
-		Use:   "resolution",
-		Short: "Print the screen resolution as WxH",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			w, h, err := pf.Screen.Resolution(cmd.Context())
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%dx%d\n", w, h)
-			return nil
-		},
-	}
-
-	cmds = append(cmds, cmd_screen_resolution)
 
 	// wait-for-no-change: wrapper for perfuncted.WaitForNoChange
 	var cmd_screen_wait_for_no_change_rect string
@@ -135,7 +40,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 		Use:   "wait-for-no-change",
 		Short: "Wait for a screen region to stop changing",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -153,7 +58,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -172,7 +77,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 		Use:   "wait-for-no-change-from",
 		Short: "Wait for a screen region to stop changing, starting from an initial hash",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
+			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -194,7 +99,7 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%08x\n", h)
+			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
 			return nil
 		},
 	}
@@ -204,85 +109,5 @@ func autogenScreenCommands(openPF func() (*perfuncted.Session, error)) []*cobra.
 	cmd_screen_wait_for_no_change_from.Flags().StringVar(&cmd_screen_wait_for_no_change_from_poll, "poll", "", "polling interval (e.g. 200ms)")
 
 	cmds = append(cmds, cmd_screen_wait_for_no_change_from)
-	return cmds
-}
-func autogenInputCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
-	cmds := []*cobra.Command{}
-
-	// location: wrapper for perfuncted.PointerLocation
-
-	cmd_input_location := &cobra.Command{
-		Use:   "location",
-		Short: "Print the current pointer (mouse cursor) position as x,y",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			w, h, err := pf.Input.PointerLocation(cmd.Context())
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%dx%d\n", w, h)
-			return nil
-		},
-	}
-
-	cmds = append(cmds, cmd_input_location)
-	return cmds
-}
-func autogenWindowCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
-	cmds := []*cobra.Command{}
-	return cmds
-}
-func autogenClipboardCommands(openPF func() (*perfuncted.Session, error)) []*cobra.Command {
-	cmds := []*cobra.Command{}
-
-	// get: wrapper for perfuncted.Get
-
-	cmd_clipboard_get := &cobra.Command{
-		Use:   "get",
-		Short: "Print the current clipboard contents",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			res, err := pf.Clipboard.Get(cmd.Context())
-			if err != nil {
-				return err
-			}
-			fmt.Print(res)
-			return nil
-		},
-	}
-
-	cmds = append(cmds, cmd_clipboard_get)
-
-	// set: wrapper for perfuncted.Set
-	var cmd_clipboard_set_text string
-	cmd_clipboard_set := &cobra.Command{
-		Use:   "set",
-		Short: "Set the clipboard contents",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF()
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			var cmd_clipboard_set_text string
-			cmd_clipboard_set_text = args[0]
-			if err := pf.Clipboard.Set(cmd.Context(), cmd_clipboard_set_text); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	cmd_clipboard_set.Flags().StringVar(&cmd_clipboard_set_text, "text", "", "text")
-
-	cmds = append(cmds, cmd_clipboard_set)
 	return cmds
 }

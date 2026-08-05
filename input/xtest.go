@@ -172,15 +172,15 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 }
 
 func (b *XTestBackend) Type(ctx context.Context, s string) error {
-	return b.TypeContext(ctx, s)
+	return b.typeContext(ctx, s)
 }
 
-func (b *XTestBackend) TypeContext(ctx context.Context, s string) error { //nolint:gocyclo
+func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //nolint:gocyclo
 	ctx = ctxutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	actions, err := ParseKeySend(s)
+	actions, err := parseKeySend(s)
 	if err != nil {
 		return err
 	}

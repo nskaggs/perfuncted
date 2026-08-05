@@ -37,6 +37,9 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 		return 0, 0, err
 	}
 	ctx = ctxutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()
 	}
@@ -55,11 +58,6 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 		return 0, 0, fmt.Errorf("screen: resolution probe returned zero-size image")
 	}
 	return b.Dx(), b.Dy(), nil
-}
-
-// Resolution is a convenience wrapper that uses context.Background().
-func Resolution(sc Screenshotter) (int, int, error) {
-	return ResolutionWithContext(context.Background(), sc)
 }
 
 // Resolver reports the output resolution. Backends that track output geometry

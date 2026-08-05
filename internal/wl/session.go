@@ -3,7 +3,6 @@ package wl
 import (
 	"fmt"
 	"sync"
-	"time"
 )
 
 // Session encapsulates a Wayland connection and the display/registry helpers.
@@ -19,13 +18,16 @@ type Session struct {
 	Display  *Display
 	Registry *Registry
 	Globals  map[string]GlobalEvent
+
+	ref       *sessionRef
+	closeMu   sync.Mutex
+	closeDone bool
 }
 
 // sessionRef tracks a cached session and its reference count.
 type sessionRef struct {
-	sess     *Session
-	refs     int
-	lastUsed time.Time
+	sess *Session
+	refs int
 }
 
 var (
@@ -33,38 +35,16 @@ var (
 	sessionCache   = make(map[string]*sessionRef)
 )
 
-func cleanupStaleSessionsLocked(now time.Time, ttl time.Duration) {
-	for sock, ref := range sessionCache {
-		if ref == nil || ref.lastUsed.IsZero() {
-			continue
-		}
-		if now.Sub(ref.lastUsed) > ttl {
-			delete(sessionCache, sock)
-		}
-	}
-}
-
-// DefaultSessionCacheTTL limits how long a cached session can sit unused
-// before being evicted from the in-memory cache. The underlying connection is
-// not forcibly closed during TTL eviction; callers still holding a Session
-// continue to own that live connection.
-const DefaultSessionCacheTTL = 24 * time.Hour
-
 // NewSession returns a cached, reference-counted Session for sock. If no
 // session exists, a new connection is established and cached. Call Close() on
 // the returned Session to release the reference.
 func NewSession(sock string) (*Session, error) {
-	now := time.Now()
 	sessionCacheMu.Lock()
 	if ref, ok := sessionCache[sock]; ok {
-		if now.Sub(ref.lastUsed) <= DefaultSessionCacheTTL {
-			ref.refs++
-			ref.lastUsed = now
-			s := ref.sess
-			sessionCacheMu.Unlock()
-			return s, nil
-		}
-		delete(sessionCache, sock)
+		ref.refs++
+		s := newSessionHandle(ref)
+		sessionCacheMu.Unlock()
+		return s, nil
 	}
 	sessionCacheMu.Unlock()
 
@@ -78,8 +58,8 @@ func NewSession(sock string) (*Session, error) {
 		_ = ctx.Close()
 		return nil, fmt.Errorf("wl: get registry: %w", err)
 	}
-	s := &Session{Sock: sock, Ctx: ctx, Display: d, Registry: r, Globals: make(map[string]GlobalEvent)}
-	r.SetGlobalHandler(func(ev GlobalEvent) { s.Globals[ev.Interface] = ev })
+	canonical := &Session{Sock: sock, Ctx: ctx, Display: d, Registry: r, Globals: make(map[string]GlobalEvent)}
+	r.SetGlobalHandler(func(ev GlobalEvent) { canonical.Globals[ev.Interface] = ev })
 	if err := d.RoundTrip(); err != nil {
 		_ = ctx.Close()
 		return nil, fmt.Errorf("wl: registry round-trip: %w", err)
@@ -89,53 +69,71 @@ func NewSession(sock string) (*Session, error) {
 	// Another goroutine may have created the session while we were dialing.
 	if ref, ok := sessionCache[sock]; ok {
 		ref.refs++
-		ref.lastUsed = now
 		sessionCacheMu.Unlock()
 		// Close newly created ctx; use the existing cached session instead.
 		_ = ctx.Close()
-		return ref.sess, nil
+		return newSessionHandle(ref), nil
 	}
-	sessionCache[sock] = &sessionRef{sess: s, refs: 1, lastUsed: now}
+	ref := &sessionRef{sess: canonical, refs: 1}
+	canonical.ref = ref
+	sessionCache[sock] = ref
 	sessionCacheMu.Unlock()
-	return s, nil
+	return newSessionHandle(ref), nil
+}
+
+func newSessionHandle(ref *sessionRef) *Session {
+	canonical := ref.sess
+	return &Session{
+		Sock:     canonical.Sock,
+		Ctx:      canonical.Ctx,
+		Display:  canonical.Display,
+		Registry: canonical.Registry,
+		Globals:  canonical.Globals,
+		ref:      ref,
+	}
 }
 
 // Sync performs a synchronous wl_display.sync, pumping events until the
 // sync callback is received. Mirrors Display.RoundTrip but operates on the
 // Session's Display and Context.
 func (s *Session) Sync() error {
-	cb, err := s.Display.Sync()
-	if err != nil {
-		return err
+	if s == nil || s.Display == nil {
+		return nil
 	}
-	done := make(chan struct{}, 1)
-	cb.SetDoneHandler(func() { close(done) })
-	for {
-		if err := s.Ctx.Dispatch(); err != nil {
-			return err
-		}
-		select {
-		case <-done:
-			return nil
-		default:
-		}
-	}
+	return WithOperation(s.Ctx, s.Display.RoundTrip)
 }
 
 // Close decrements the cached session's reference count and closes the
 // underlying connection when it reaches zero.
 func (s *Session) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.closeMu.Lock()
+	if s.closeDone {
+		s.closeMu.Unlock()
+		return nil
+	}
+	s.closeDone = true
+	s.closeMu.Unlock()
+
 	sessionCacheMu.Lock()
 	ref, ok := sessionCache[s.Sock]
-	if !ok {
+	if !ok || (s.ref != nil && ref != s.ref) || (s.ref == nil && ref.sess != s) {
 		sessionCacheMu.Unlock()
-		// Not in cache: just close underlying ctx
+		// The handle was already released, or it was never cached.
+		if s.ref != nil || s.Ctx == nil {
+			return nil
+		}
 		return s.Ctx.Close()
 	}
 	ref.refs--
 	if ref.refs <= 0 {
 		delete(sessionCache, s.Sock)
 		sessionCacheMu.Unlock()
+		if ref.sess.Ctx == nil {
+			return nil
+		}
 		return ref.sess.Ctx.Close()
 	}
 	sessionCacheMu.Unlock()

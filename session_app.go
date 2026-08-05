@@ -45,7 +45,6 @@ type Application struct {
 	session *Session
 	cmd     *exec.Cmd
 	pid     int
-	pgid    int
 	path    string
 
 	done chan struct{}
@@ -104,7 +103,6 @@ func (s *Session) Launch(
 		session: s,
 		cmd:     execCommand,
 		pid:     execCommand.Process.Pid,
-		pgid:    execCommand.Process.Pid,
 		path:    resolved,
 		done:    make(chan struct{}),
 	}
@@ -190,12 +188,15 @@ func (a *Application) Stop(ctx context.Context) error {
 	if a == nil || a.pid <= 0 {
 		return nil
 	}
+	if ctx == nil {
+		return errors.New("perfuncted: stop application: nil context")
+	}
 	select {
 	case <-a.done:
 		return nil
 	default:
 	}
-	if err := signalProcessGroup(a.pgid, syscall.SIGTERM); err != nil {
+	if err := signalProcessGroup(a.pid, syscall.SIGTERM); err != nil {
 		return fmt.Errorf("perfuncted: stop application %d: %w", a.pid, err)
 	}
 	select {
@@ -216,7 +217,7 @@ func (a *Application) Kill() error {
 		return nil
 	default:
 	}
-	if err := signalProcessGroup(a.pgid, syscall.SIGKILL); err != nil {
+	if err := signalProcessGroup(a.pid, syscall.SIGKILL); err != nil {
 		return fmt.Errorf("perfuncted: kill application %d: %w", a.pid, err)
 	}
 	return nil
@@ -268,7 +269,7 @@ func (a *Application) ownsPID(pid int32) bool {
 		return false
 	}
 	pgid, err := syscall.Getpgid(int(pid))
-	return err == nil && pgid == a.pgid
+	return err == nil && pgid == a.pid
 }
 
 // LogPath returns the log directory used by owned session infrastructure.

@@ -761,26 +761,6 @@ func TestErrorPath_WindowNotFound(t *testing.T) {
 	v.ErrorIs(err, window.ErrWindowNotFound, "FindByTitle nonexistent window")
 }
 
-// TestErrorPath_ContextCancelled verifies that perfuncted.Retry stops
-// promptly and returns a non-nil error when the context is already cancelled
-// before the call.
-func TestErrorPath_ContextCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel before the first call
-
-	calls := 0
-	err := perfuncted.Retry(ctx, 0, func() error {
-		calls++
-		return errors.New("always fails")
-	})
-	if err == nil {
-		t.Error("Retry should return an error when context is already cancelled")
-	}
-	if calls == 0 {
-		t.Error("Retry should call the function at least once before giving up")
-	}
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Extra clipboard tests
 // ─────────────────────────────────────────────────────────────────────────────

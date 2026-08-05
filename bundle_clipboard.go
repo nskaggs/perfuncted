@@ -12,16 +12,22 @@ type ClipboardBundle struct {
 }
 
 func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
-	if b == nil || b.backend == nil {
-		return "", b.unavailable("get")
+	if b == nil {
+		return "", (&bundleBase{}).unavailable("get")
+	}
+	if err := b.checkAvailable("get", b.backend != nil); err != nil {
+		return "", err
 	}
 	b.traceAction("clipboard", "get")
 	return b.backend.Get(ctx)
 }
 
 func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
-	if b == nil || b.backend == nil {
-		return b.unavailable("set")
+	if b == nil {
+		return (&bundleBase{}).unavailable("set")
+	}
+	if err := b.checkAvailable("set", b.backend != nil); err != nil {
+		return err
 	}
 	b.traceAction("clipboard", "set")
 	return b.backend.Set(ctx, text)

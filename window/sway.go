@@ -464,11 +464,12 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 loop:
 	for {
 		wins, err := m.List(ctx)
-		if err == nil {
-			for _, win := range wins {
-				if win.ID == numeric {
-					break loop
-				}
+		if err != nil {
+			return err
+		}
+		for _, win := range wins {
+			if win.ID == numeric {
+				break loop
 			}
 		}
 		select {
@@ -543,21 +544,6 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 		return Info{}, err
 	}
 	return FindByID(ctx, m, numeric)
-}
-
-func (m *SwayManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := m.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
 }
 
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.
