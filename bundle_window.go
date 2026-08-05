@@ -10,7 +10,6 @@ import (
 type WindowBundle struct {
 	backend window.Manager
 	bundleBase
-	session *Session
 }
 
 func (b *WindowBundle) checkAvailable(operation string) error {

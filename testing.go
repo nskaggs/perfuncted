@@ -45,7 +45,6 @@ func NewSessionForTesting(
 	session.Windows = &WindowBundle{
 		backend:    windowManager,
 		bundleBase: session.bundleBase(CapabilityWindows),
-		session:    session,
 	}
 	session.Outputs = &OutputBundle{
 		backend:    outputLister,

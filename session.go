@@ -188,7 +188,6 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 	s.Input = &InputBundle{bundleBase: s.bundleBase(CapabilityInput)}
 	s.Windows = &WindowBundle{
 		bundleBase: s.bundleBase(CapabilityWindows),
-		session:    s,
 	}
 	s.Outputs = &OutputBundle{bundleBase: s.bundleBase(CapabilityOutputs)}
 	s.Clipboard = &ClipboardBundle{bundleBase: s.bundleBase(CapabilityClipboard)}
