@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -293,7 +293,7 @@ func (m *WaylandWindowManager) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all top-level windows.
 func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
-		ctx = ctxutil.Default(ctx)
+		ctx = contextutil.Default(ctx)
 		if err := ctx.Err(); err != nil {
 			yield(Info{}, fmt.Errorf("window/wayland: iterate canceled: %w", err))
 			return
@@ -324,7 +324,7 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 
 // ActiveTitle returns the title of the currently focused window, if available.
 func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("window/wayland: active title canceled: %w", err)
 	}
@@ -357,7 +357,7 @@ func (m *WaylandWindowManager) Close() error {
 }
 
 func (m *WaylandWindowManager) Sync(ctx context.Context) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: sync canceled: %w", err)
 	}
@@ -396,7 +396,7 @@ func (m *WaylandWindowManager) lookupByID(id string) (uint32, Info, error) {
 }
 
 func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: activate canceled: %w", err)
 	}
@@ -443,7 +443,7 @@ func (m *WaylandWindowManager) ResizeByID(_ context.Context, _ string, _, _ int)
 }
 
 func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: close canceled: %w", err)
 	}
@@ -466,7 +466,7 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 }
 
 func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
 	}
@@ -489,7 +489,7 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 }
 
 func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
 	}
@@ -515,7 +515,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 	ctx context.Context,
 	id string,
 ) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 	}
@@ -542,7 +542,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 	ctx context.Context,
 	id string,
 ) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
 	}
@@ -565,7 +565,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 }
 
 func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: restore canceled: %w", err)
 	}
@@ -591,7 +591,7 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 }
 
 func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return Info{}, fmt.Errorf("window/wayland: info canceled: %w", err)
 	}

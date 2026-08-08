@@ -41,21 +41,34 @@ func pidAlive(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// DetectSession determines the session kind and environment details from the
-// current process environment.
-func DetectSession() (kind string, details map[string]string) {
-	details = make(map[string]string)
+// SessionDetection is an immutable snapshot of the environment used to
+// classify the current desktop session. It replaces the historical
+// string-plus-map DetectSession result, whose keys and mutability were not a
+// stable contract.
+type SessionDetection struct {
+	// Kind is the detected host or nested session classification.
+	Kind TargetKind
+	// XDGRuntimeDir is the detected XDG runtime directory.
+	XDGRuntimeDir string
+	// WaylandDisplay is the detected Wayland display name, if any.
+	WaylandDisplay string
+	// DBusAddress is the detected session bus address, if any.
+	DBusAddress string
+}
+
+// DetectSession determines the current session kind and returns typed
+// environment fields. It does not open a backend or claim ownership of the
+// detected session.
+func DetectSession() SessionDetection {
 	xdg := os.Getenv("XDG_RUNTIME_DIR")
-	wd := os.Getenv("WAYLAND_DISPLAY")
-
-	if strings.HasPrefix(xdg, nestedSessionPrefix()) {
-		details["dir"] = xdg
-		details["wayland_display"] = wd
-		details["dbus_address"] = os.Getenv("DBUS_SESSION_BUS_ADDRESS")
-		return "nested", details
+	detection := SessionDetection{
+		Kind:           TargetHost,
+		XDGRuntimeDir:  xdg,
+		WaylandDisplay: os.Getenv("WAYLAND_DISPLAY"),
+		DBusAddress:    os.Getenv("DBUS_SESSION_BUS_ADDRESS"),
 	}
-
-	details["current_xdg"] = xdg
-	details["current_wayland"] = wd
-	return "host", details
+	if strings.HasPrefix(xdg, nestedSessionPrefix()) {
+		detection.Kind = TargetNested
+	}
+	return detection
 }

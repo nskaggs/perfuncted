@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/jezek/xgb/xproto"
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
@@ -228,7 +228,7 @@ func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all top-level windows.
 func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
-		ctx = ctxutil.Default(ctx)
+		ctx = contextutil.Default(ctx)
 		if err := ctx.Err(); err != nil {
 			yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", err))
 			return
@@ -306,7 +306,7 @@ func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xprot
 
 // ActiveTitle returns the title of the currently focused window.
 func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("window/x11: active title canceled: %w", err)
 	}
@@ -327,7 +327,7 @@ func (b *X11Backend) Close() error {
 }
 
 func (b *X11Backend) Sync(ctx context.Context) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: sync canceled: %w", err)
 	}
@@ -360,7 +360,7 @@ func x11WindowID(id string) (xproto.Window, error) {
 }
 
 func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: activate canceled: %w", err)
 	}
@@ -380,7 +380,7 @@ func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: move canceled: %w", err)
 	}
@@ -394,7 +394,7 @@ func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
 }
 
 func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: resize canceled: %w", err)
 	}
@@ -408,7 +408,7 @@ func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error 
 }
 
 func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: close canceled: %w", err)
 	}
@@ -437,7 +437,7 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: minimize canceled: %w", err)
 	}
@@ -462,7 +462,7 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: maximize canceled: %w", err)
 	}
@@ -474,7 +474,7 @@ func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: fullscreen canceled: %w", err)
 	}
@@ -486,7 +486,7 @@ func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: unfullscreen canceled: %w", err)
 	}
@@ -498,7 +498,7 @@ func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: restore canceled: %w", err)
 	}
@@ -513,7 +513,7 @@ func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
 }
 
 func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return Info{}, fmt.Errorf("window/x11: info canceled: %w", err)
 	}

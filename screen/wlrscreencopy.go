@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -29,14 +29,16 @@ type bufInfo struct{ format, width, height, stride uint32 }
 type WlrScreencopyBackend struct {
 	sock string
 	// ctxMu protects ctx and lastUsed.
-	ctxMu       sync.Mutex
-	ctx         *wl.Context
-	lastUsed    time.Time
-	connect     func(string) (*wl.Context, error)
-	ttl         time.Duration
-	initJanitor func()
-	done        chan struct{}
-	closeOnce   sync.Once
+	ctxMu        sync.Mutex
+	ctx          *wl.Context
+	lastUsed     time.Time
+	connect      func(string) (*wl.Context, error)
+	ttl          time.Duration
+	initJanitor  func()
+	done         chan struct{}
+	closeOnce    sync.Once
+	activeMu     sync.Mutex
+	activeCancel context.CancelFunc
 	// last observed output dimensions and scale (1 if unknown)
 	scale  uint32
 	pW, pH int // physical dimensions from mode event
@@ -95,10 +97,30 @@ func NewWlrScreencopyBackendWithConnector(sock string, connect func(string) (*wl
 }
 
 func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) error {
+	return b.withWlrContextContext(context.Background(), func(ctx *wl.Context, _ context.Context) error {
+		return fn(ctx)
+	})
+}
+
+func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn func(*wl.Context, context.Context) error) error {
 	b.initJanitor()
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	b.ctxMu.Lock()
 	defer b.ctxMu.Unlock()
+	operationCtx, cancel := context.WithCancel(ctx)
+	b.activeMu.Lock()
+	b.activeCancel = cancel
+	b.activeMu.Unlock()
+	defer func() {
+		cancel()
+		b.activeMu.Lock()
+		b.activeCancel = nil
+		b.activeMu.Unlock()
+	}()
 	if b.ctx == nil {
 		ctx, err := b.connect(b.sock)
 		if err != nil {
@@ -113,7 +135,7 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 	b.lastUsed = time.Now()
 
 	if b.mgrProxy == nil {
-		if err := b.setupProxies(b.ctx); err != nil {
+		if err := b.setupProxies(operationCtx, b.ctx); err != nil {
 			_ = b.ctx.Close()
 			b.ctx = nil
 			return err
@@ -122,9 +144,9 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 
 	var fnErr error
 	if op, ok := interface{}(b.ctx).(interface{ WithOperation(func() error) error }); ok {
-		fnErr = op.WithOperation(func() error { return fn(b.ctx) })
+		fnErr = op.WithOperation(func() error { return fn(b.ctx, operationCtx) })
 	} else {
-		fnErr = fn(b.ctx)
+		fnErr = fn(b.ctx, operationCtx)
 	}
 	if fnErr != nil {
 		_ = b.ctx.Close()
@@ -135,7 +157,7 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 	return nil
 }
 
-func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error { //nolint:gocyclo
+func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *wl.Context) error { //nolint:gocyclo
 	display := wl.NewDisplay(ctx)
 	registry, err := display.GetRegistry()
 	if err != nil {
@@ -163,7 +185,7 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error { //nolint:go
 		}
 	})
 
-	if err := display.RoundTrip(); err != nil {
+	if err := display.RoundTripContext(operationCtx); err != nil {
 		return fmt.Errorf("screen/wlr: registry round-trip: %w", err)
 	}
 	// If no manager was discovered, allow nil/standalone test contexts to proceed.
@@ -205,7 +227,7 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error { //nolint:go
 			}
 		}
 	}
-	return display.RoundTrip()
+	return display.RoundTripContext(operationCtx)
 }
 
 // captureFrame handles the shared frame capture lifecycle: create frame proxy,
@@ -213,11 +235,11 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error { //nolint:go
 // raw pixel data to fn for processing. This eliminates ~100 lines of duplication
 // between Grab, GrabFullHash, and GrabRegionHash.
 func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels []byte, bi bufInfo) error) error { //nolint:gocyclo
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 	}
-	return b.withWlrContext(func(wlctx *wl.Context) error {
+	return b.withWlrContextContext(ctx, func(wlctx *wl.Context, operationCtx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 		}
@@ -251,7 +273,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := wlctx.Dispatch(); err != nil {
+			if err := wlctx.DispatchContext(operationCtx); err != nil {
 				return fmt.Errorf("screen/wlr: dispatch: %w", err)
 			}
 		}
@@ -309,7 +331,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := wlctx.Dispatch(); err != nil {
+			if err := wlctx.DispatchContext(operationCtx); err != nil {
 				return fmt.Errorf("screen/wlr: dispatch: %w", err)
 			}
 		}
@@ -398,6 +420,14 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 }
 
 func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
+	return b.ResolutionWithContext(context.Background())
+}
+
+func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, int, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	b.ctxMu.Lock()
 	pW, pH := b.pW, b.pH
 	b.ctxMu.Unlock()
@@ -406,7 +436,7 @@ func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 		return pW, pH, nil
 	}
 
-	img, err := b.Grab(context.Background(), image.Rect(0, 0, 0, 0))
+	img, err := b.Grab(ctx, image.Rect(0, 0, 0, 0))
 	if err != nil {
 		return 0, 0, err
 	}
@@ -419,6 +449,11 @@ func (b *WlrScreencopyBackend) Close() error {
 		if b.done != nil {
 			close(b.done)
 		}
+		b.activeMu.Lock()
+		if b.activeCancel != nil {
+			b.activeCancel()
+		}
+		b.activeMu.Unlock()
 		b.ctxMu.Lock()
 		if b.ctx != nil {
 			_ = b.ctx.Close()

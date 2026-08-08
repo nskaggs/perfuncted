@@ -11,7 +11,7 @@ import (
 	"strconv"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
@@ -48,7 +48,7 @@ func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
 
 // eval runs JavaScript in gnome-shell and returns the result string.
 func (g *GnomeManager) eval(ctx context.Context, js string) (string, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	obj := g.conn.Object(gnomeShellService, "/org/gnome/Shell")
 	call := obj.CallWithContext(ctx, "org.gnome.Shell.Eval", 0, js)
 	if call.Err != nil {

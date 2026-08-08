@@ -9,7 +9,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -219,7 +219,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 }
 
 func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error { //nolint:gocyclo
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("screen/ext: capture canceled: %w", err)
 	}
@@ -244,7 +244,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 				stopped = true
 			}
 		}
-		if err := b.session.Display.RoundTrip(); err != nil {
+		if err := b.session.Display.RoundTripContext(ctx); err != nil {
 			return fmt.Errorf("screen/ext: session round-trip: %w", err)
 		}
 		if stopped {

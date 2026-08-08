@@ -6,30 +6,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
-// ── ctxutil.Default ──────────────────────────────────────────────────────────
+// ── contextutil.Default ──────────────────────────────────────────────────────────
 
 func TestNormalizeContext_NilReturnsBackground(t *testing.T) {
 	var nilCtx context.Context //nolint:SA1012 // testing nil handling
-	got := ctxutil.Default(nilCtx)
+	got := contextutil.Default(nilCtx)
 	if got == nil {
-		t.Fatal("ctxutil.Default(nil) returned nil, want non-nil context")
+		t.Fatal("contextutil.Default(nil) returned nil, want non-nil context")
 	}
 	// Should be equivalent to context.Background(): no deadline, never cancelled.
 	select {
 	case <-got.Done():
-		t.Fatal("ctxutil.Default(nil) returned a cancelled context")
+		t.Fatal("contextutil.Default(nil) returned a cancelled context")
 	default:
 	}
 }
 
 func TestNormalizeContext_NonNilPassThrough(t *testing.T) {
 	ctx := context.Background()
-	got := ctxutil.Default(ctx)
+	got := contextutil.Default(ctx)
 	if got != ctx {
-		t.Fatal("ctxutil.Default(non-nil) should return the same context")
+		t.Fatal("contextutil.Default(non-nil) should return the same context")
 	}
 }
 

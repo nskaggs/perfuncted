@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/keymap"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -169,7 +169,7 @@ func (k *wlKeyboard) clearTempModsBestEffort(modBitmask uint32) {
 // Text and key actions are executed in the order they appear in the input,
 // so "Hello{enter}" types "Hello" before pressing Enter.
 func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //nolint:gocyclo
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if len(actions) == 0 {
 		return nil
 	}
@@ -566,7 +566,7 @@ func (k *wlKeyboard) sendModifiers() error {
 }
 
 func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

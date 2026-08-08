@@ -66,7 +66,7 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 	}
 	info, err := backend.InfoByID(ctx, w.id.native)
 	if err != nil {
-		return window.Info{}, err
+		return window.Info{}, w.id.session.Windows.operationError("info", err)
 	}
 	info.NativeID = w.id.native
 	w.mu.Lock()
@@ -97,7 +97,7 @@ func (w *Window) Activate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.ActivateByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("activate", backend.ActivateByID(ctx, w.id.native))
 }
 
 func (w *Window) Move(ctx context.Context, x int, y int) error {
@@ -105,7 +105,7 @@ func (w *Window) Move(ctx context.Context, x int, y int) error {
 	if err != nil {
 		return err
 	}
-	return backend.MoveByID(ctx, w.id.native, x, y)
+	return w.id.session.Windows.operationError("move", backend.MoveByID(ctx, w.id.native, x, y))
 }
 
 func (w *Window) Resize(
@@ -117,7 +117,7 @@ func (w *Window) Resize(
 	if err != nil {
 		return err
 	}
-	return backend.ResizeByID(ctx, w.id.native, width, height)
+	return w.id.session.Windows.operationError("resize", backend.ResizeByID(ctx, w.id.native, width, height))
 }
 
 // Close requests that the window close.
@@ -126,7 +126,7 @@ func (w *Window) Close(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.CloseWindowByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("close", backend.CloseWindowByID(ctx, w.id.native))
 }
 
 func (w *Window) Minimize(ctx context.Context) error {
@@ -134,7 +134,7 @@ func (w *Window) Minimize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.MinimizeByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("minimize", backend.MinimizeByID(ctx, w.id.native))
 }
 
 func (w *Window) Maximize(ctx context.Context) error {
@@ -142,7 +142,7 @@ func (w *Window) Maximize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.MaximizeByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("maximize", backend.MaximizeByID(ctx, w.id.native))
 }
 
 func (w *Window) Fullscreen(ctx context.Context) error {
@@ -150,7 +150,7 @@ func (w *Window) Fullscreen(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.FullscreenByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("fullscreen", backend.FullscreenByID(ctx, w.id.native))
 }
 
 func (w *Window) Unfullscreen(ctx context.Context) error {
@@ -158,7 +158,7 @@ func (w *Window) Unfullscreen(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.UnfullscreenByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("fullscreen", backend.UnfullscreenByID(ctx, w.id.native))
 }
 
 func (w *Window) Restore(ctx context.Context) error {
@@ -166,7 +166,7 @@ func (w *Window) Restore(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.RestoreByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("restore", backend.RestoreByID(ctx, w.id.native))
 }
 
 // WaitClosed waits until the authoritative backend no longer reports w.
@@ -187,7 +187,7 @@ func (b *WindowBundle) List(
 	}
 	infos, err := b.backend.List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, b.operationError("discover", err)
 	}
 	windows := make([]*Window, 0, len(infos))
 	for _, info := range infos {

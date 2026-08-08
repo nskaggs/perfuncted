@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -71,7 +71,7 @@ type extCmdClipboard struct {
 }
 
 func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
@@ -87,7 +87,7 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env

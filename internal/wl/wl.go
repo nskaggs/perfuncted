@@ -2,6 +2,7 @@
 package wl
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -191,6 +192,38 @@ func (ctx *Context) Dispatch() error {
 	return nil
 }
 
+// DispatchContext reads and dispatches one Wayland message, interrupting the
+// socket read when cancel is done. Closing the socket is safe here because the
+// owning operation serializes dispatch and treats cancellation as a failed
+// operation; the caller will discard the connection before reusing it.
+func (ctx *Context) DispatchContext(cancel context.Context) error {
+	if cancel == nil {
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
+	}
+	if err := cancel.Err(); err != nil {
+		return err
+	}
+
+	finished := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-cancel.Done():
+			_ = ctx.Close()
+		case <-finished:
+		}
+	}()
+
+	err := ctx.Dispatch()
+	close(finished)
+	<-watcherDone
+	if cancelErr := cancel.Err(); cancelErr != nil {
+		return cancelErr
+	}
+	return err
+}
+
 // Close closes the Wayland socket connection.
 // If the receiver or its underlying connection is nil (tests may construct
 // partial contexts), treat it as a no-op rather than panicking.
@@ -295,12 +328,34 @@ func (d *Display) RoundTrip() error {
 	return d.ctx.RoundTrip()
 }
 
+// RoundTripContext performs a synchronous wl_display.sync, pumping events
+// until done or cancel is canceled.
+func (d *Display) RoundTripContext(cancel context.Context) error {
+	if d == nil || d.ctx == nil {
+		return nil
+	}
+	return d.ctx.RoundTripContext(cancel)
+}
+
 // RoundTrip performs a synchronous wl_display.sync using this context. The
 // round-trip lock prevents concurrent callers from consuming each other's sync
 // callbacks on a shared connection.
 func (ctx *Context) RoundTrip() error {
+	return ctx.RoundTripContext(context.Background()) //nolint:contextcheck // RoundTrip is the non-cancelable convenience API.
+}
+
+// RoundTripContext performs a synchronous wl_display.sync, pumping events
+// until done or cancel is canceled. The round-trip lock prevents concurrent
+// callers from consuming each other's sync callbacks on a shared connection.
+func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:contextcheck // cancel is the first method argument after the receiver.
 	if ctx == nil || ctx.conn == nil {
 		return nil
+	}
+	if cancel == nil {
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
+	}
+	if err := cancel.Err(); err != nil {
+		return err
 	}
 	ctx.roundTripMu.Lock()
 	defer ctx.roundTripMu.Unlock()
@@ -318,7 +373,7 @@ func (ctx *Context) RoundTrip() error {
 	done := make(chan struct{}, 1)
 	cb.SetDoneHandler(func() { done <- struct{}{} })
 	for {
-		if err := ctx.Dispatch(); err != nil {
+		if err := ctx.DispatchContext(cancel); err != nil {
 			return err
 		}
 		select {

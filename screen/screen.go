@@ -7,8 +7,8 @@ import (
 	"image"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
@@ -30,15 +30,20 @@ type Screenshotter interface {
 }
 
 // ResolutionWithContext returns the screen resolution of sc using the provided
-// context. If sc implements Resolver directly, that is used. Otherwise, a
-// full-output grab (zero rect) is tried with ctx.
+// context. A context-aware resolver is preferred, then the legacy Resolver
+// interface, and finally a full-output grab (zero rect) is tried with ctx.
 func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, error) {
 	if err := util.CheckAvailable("screen", sc); err != nil {
 		return 0, 0, err
 	}
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
+	}
+	if r, ok := sc.(interface {
+		ResolutionWithContext(context.Context) (width, height int, err error)
+	}); ok {
+		return r.ResolutionWithContext(ctx)
 	}
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()
