@@ -244,7 +244,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 				stopped = true
 			}
 		}
-		if err := b.session.Display.RoundTrip(); err != nil {
+		if err := b.session.Display.RoundTripContext(ctx); err != nil {
 			return fmt.Errorf("screen/ext: session round-trip: %w", err)
 		}
 		if stopped {

@@ -198,7 +198,7 @@ func (ctx *Context) Dispatch() error {
 // operation; the caller will discard the connection before reusing it.
 func (ctx *Context) DispatchContext(cancel context.Context) error {
 	if cancel == nil {
-		cancel = context.Background()
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}
 	if err := cancel.Err(); err != nil {
 		return err
@@ -341,18 +341,18 @@ func (d *Display) RoundTripContext(cancel context.Context) error {
 // round-trip lock prevents concurrent callers from consuming each other's sync
 // callbacks on a shared connection.
 func (ctx *Context) RoundTrip() error {
-	return ctx.RoundTripContext(context.Background())
+	return ctx.RoundTripContext(context.Background()) //nolint:contextcheck // RoundTrip is the non-cancelable convenience API.
 }
 
 // RoundTripContext performs a synchronous wl_display.sync, pumping events
 // until done or cancel is canceled. The round-trip lock prevents concurrent
 // callers from consuming each other's sync callbacks on a shared connection.
-func (ctx *Context) RoundTripContext(cancel context.Context) error {
+func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:contextcheck // cancel is the first method argument after the receiver.
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
 	if cancel == nil {
-		cancel = context.Background()
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}
 	if err := cancel.Err(); err != nil {
 		return err

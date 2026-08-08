@@ -135,7 +135,7 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	b.lastUsed = time.Now()
 
 	if b.mgrProxy == nil {
-		if err := b.setupProxies(b.ctx, operationCtx); err != nil {
+		if err := b.setupProxies(operationCtx, b.ctx); err != nil {
 			_ = b.ctx.Close()
 			b.ctx = nil
 			return err
@@ -157,7 +157,7 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	return nil
 }
 
-func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context, operationCtx context.Context) error { //nolint:gocyclo
+func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *wl.Context) error { //nolint:gocyclo
 	display := wl.NewDisplay(ctx)
 	registry, err := display.GetRegistry()
 	if err != nil {
