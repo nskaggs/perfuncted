@@ -17,8 +17,8 @@ Listingwatch:
 5. No module-local `replace` directives or workspace-only compatibility APIs
    were added.
 
-The remaining release-boundary check is to compile each downstream module with
-`GOWORK=off` after an unreleased v1 candidate is published. The current module
-files intentionally remain pinned to the latest released versions because this
-work does not create or publish releases; the workspace `go.work` overlay is
-development validation only.
+Perfuncted `v1.0.0-rc1` is published. Snatchblock `v0.6.2` and Listingwatch
+`v0.1.1` consume that candidate through fetchable module versions and both have
+passed their `GOWORK=off` validation. The final `v1.0.0` release remains a
+separate release decision; the workspace `go.work` overlay is development
+convenience only and is not release evidence.
