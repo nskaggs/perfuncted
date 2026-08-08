@@ -128,12 +128,12 @@ func sessionCmd() *cobra.Command {
 		Use:   "type",
 		Short: "Print whether the current session is nested or host",
 		Run: func(cmd *cobra.Command, _ []string) {
-			kind, details := perfuncted.DetectSession()
+			detection := perfuncted.DetectSession()
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "session: %s\n", kind)
-			for k, v := range details {
-				fmt.Fprintf(out, "  %s: %s\n", k, v)
-			}
+			fmt.Fprintf(out, "session: %s\n", detection.Kind)
+			fmt.Fprintf(out, "  xdg_runtime_dir: %s\n", detection.XDGRuntimeDir)
+			fmt.Fprintf(out, "  wayland_display: %s\n", detection.WaylandDisplay)
+			fmt.Fprintf(out, "  dbus_address: %s\n", detection.DBusAddress)
 		},
 	}
 

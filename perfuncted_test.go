@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,8 +199,9 @@ func TestInputBundleErrors(t *testing.T) {
 	ctx := context.Background()
 
 	err := pf.Input.Type(ctx, "a")
-	if err == nil || err.Error() != "type error" {
-		t.Errorf("expected 'type error', got %v", err)
+	if err == nil || !errors.Is(err, perfuncted.ErrOperationFailed) ||
+		!strings.Contains(err.Error(), "type error") {
+		t.Errorf("expected an operation failure containing 'type error', got %v", err)
 	}
 }
 

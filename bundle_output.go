@@ -19,7 +19,8 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 		return nil, err
 	}
 	b.traceAction("output", "list")
-	return b.backend.List(ctx)
+	items, err := b.backend.List(ctx)
+	return items, b.operationError("list", err)
 }
 
 func (b *OutputBundle) close() error {

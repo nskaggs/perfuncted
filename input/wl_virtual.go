@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -215,7 +215,7 @@ func (b *WlVirtualBackend) buttonEvent(ctx wl.Ctx, code, state uint32) error {
 // MouseMove moves the pointer to absolute position (x, y) in the compositor's
 // output coordinate space (i.e. sway display pixels).
 func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 }
 
 func (b *WlVirtualBackend) button(ctx context.Context, code, state uint32) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func (b *WlVirtualBackend) MouseUp(ctx context.Context, button int) error {
 
 // MouseClick moves to (x,y) then clicks the given button.
 func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -289,7 +289,7 @@ func (b *WlVirtualBackend) Type(ctx context.Context, s string) error {
 }
 
 func (b *WlVirtualBackend) typeContext(ctx context.Context, s string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -305,7 +305,7 @@ func (b *WlVirtualBackend) typeContext(ctx context.Context, s string) error {
 // KeyDown presses and holds a key. Modifier keys update the compositor's
 // modifier state; other keys are held until released with KeyUp.
 func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error {
 
 // KeyUp releases a previously held key.
 func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -329,7 +329,7 @@ func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
 // axis 0 = vertical, axis 1 = horizontal. Positive values scroll down/right;
 // negative values scroll up/left.
 func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -371,7 +371,7 @@ func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
@@ -379,7 +379,7 @@ func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error
 }
 
 func (b *WlVirtualBackend) Sync(ctx context.Context) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	return ctx.Err()
 }
 

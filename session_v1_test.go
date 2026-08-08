@@ -118,7 +118,7 @@ func TestOpenLeavesUnrequestedCapabilitiesClosed(t *testing.T) {
 		return nil, errors.New("unexpected clipboard open")
 	}
 
-	session, err := Open(context.Background())
+	session, err := Open(context.Background(), WithLogger(nil))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -240,6 +240,43 @@ func TestOpenRequiredFailureCleansPartialCapabilities(t *testing.T) {
 			"screen close calls = %d, want 1",
 			screenBackend.closeCalls.Load(),
 		)
+	}
+}
+
+func TestOpenTreatsNilBackendAsUnavailable(t *testing.T) {
+	preserveOpeners(t)
+	openScreen = func(env.Runtime) (screen.Screenshotter, error) {
+		return nil, nil
+	}
+
+	session, err := Open(context.Background(), Require(CapabilityScreen))
+	if session != nil {
+		t.Fatal("Open returned a session for a nil backend")
+	}
+	var capabilityErr *CapabilityError
+	if !errors.As(err, &capabilityErr) ||
+		capabilityErr.Capability != CapabilityScreen ||
+		!errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Open error = %v, want screen unavailable capability error", err)
+	}
+}
+
+func TestOpenTreatsTypedNilBackendAsUnavailable(t *testing.T) {
+	preserveOpeners(t)
+	var backend *capabilityScreen
+	openScreen = func(env.Runtime) (screen.Screenshotter, error) {
+		return backend, nil
+	}
+
+	session, err := Open(context.Background(), Require(CapabilityScreen))
+	if session != nil {
+		t.Fatal("Open returned a session for a typed nil backend")
+	}
+	var capabilityErr *CapabilityError
+	if !errors.As(err, &capabilityErr) ||
+		capabilityErr.Capability != CapabilityScreen ||
+		!errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Open error = %v, want screen unavailable capability error", err)
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,8 +21,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/window"
 )
 
 //go:embed configs/headless.conf configs/nested.conf
@@ -102,7 +106,7 @@ type Session struct {
 // an isolated desktop session.
 func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	if ctx == nil {
-		return nil, errors.New("perfuncted: open: nil context")
+		return nil, fmt.Errorf("perfuncted: open: %w: nil context", ErrInvalidArgument)
 	}
 
 	cfg := openConfig{
@@ -209,18 +213,20 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 			continue
 		}
 		backend, err := s.openCapability(capability)
-		status.Failure = err
+		if err != nil {
+			status.Failure = errors.Join(ErrUnavailable, err)
+		}
 		status.Available = err == nil
 		if err == nil {
 			status.Backend = fmt.Sprintf("%T", backend)
-			status.Operations = supportedOperations(capability, backend)
+			status.Operations = slices.Clone(supportedOperations(capability, backend))
 		}
 		s.capabilities[capability] = status
 		if err != nil && status.Required {
 			return &CapabilityError{
 				Capability: capability,
 				Operation:  "open",
-				Err:        err,
+				Err:        status.Failure,
 			}
 		}
 	}
@@ -229,14 +235,58 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 }
 
 func supportedOperations(capability Capability, backend any) []string {
-	if capability == CapabilityWindows {
-		if reporter, ok := backend.(interface {
-			SupportedOperations() []string
-		}); ok {
-			return reporter.SupportedOperations()
+	if reporter, ok := backend.(interface {
+		SupportedOperations() []string
+	}); ok {
+		operations := slices.Clone(reporter.SupportedOperations())
+		if capability == CapabilityWindows {
+			if _, ok := backend.(interface {
+				ActiveTitle(context.Context) (string, error)
+			}); ok {
+				operations = appendUniqueOperation(operations, "active-title")
+			}
+			if _, ok := backend.(interface{ Sync(context.Context) error }); ok {
+				operations = appendUniqueOperation(operations, "sync")
+			}
+			if _, ok := backend.(interface {
+				InfoByID(context.Context, string) (window.Info, error)
+			}); ok {
+				operations = appendUniqueOperation(operations, "info")
+			}
 		}
+		return operations
 	}
-	return capabilityOperations(capability)
+	if capability == CapabilityWindows {
+		operations := capabilityops.Operations(
+			"windows",
+			"sync",
+			"info",
+			"activate",
+			"move",
+			"resize",
+			"close",
+			"minimize",
+			"maximize",
+			"fullscreen",
+			"restore",
+		)
+		if _, ok := backend.(window.IDManager); ok {
+			operations = capabilityops.Operations("windows", "sync")
+		}
+		if _, ok := backend.(interface{ Sync(context.Context) error }); ok {
+			operations = append(operations, "sync")
+		}
+		return operations
+	}
+	operations := capabilityOperations(capability)
+	return operations
+}
+
+func appendUniqueOperation(operations []string, operation string) []string {
+	if slices.Contains(operations, operation) {
+		return operations
+	}
+	return append(operations, operation)
 }
 
 func (s *Session) bundleBase(capability Capability) bundleBase {
@@ -266,6 +316,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 	switch capability {
 	case CapabilityScreen:
 		backend, err := openScreen(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Screen.backend = backend
 		}
@@ -273,6 +324,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityInput:
 		backend, err := openInput(s.env, 0, 0)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Input.backend = backend
 		}
@@ -280,6 +332,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityWindows:
 		backend, err := openWindow(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Windows.backend = backend
 		}
@@ -287,6 +340,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityOutputs:
 		backend, err := openOutput(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Outputs.backend = backend
 		}
@@ -294,6 +348,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityClipboard:
 		backend, err := openClipboard(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Clipboard.backend = backend
 		}
@@ -304,8 +359,32 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 	}
 }
 
+func validateBackend[T any](capability Capability, backend T, err error) (T, error) {
+	if err == nil && nilBackend(backend) {
+		err = nilBackendError(capability)
+	}
+	return backend, err
+}
+
+func nilBackend(backend any) bool {
+	if backend == nil {
+		return true
+	}
+	value := reflect.ValueOf(backend)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func nilBackendError(capability Capability) error {
+	return fmt.Errorf("perfuncted: %s backend returned nil: %w", capability, ErrUnavailable)
+}
+
 func closeFailedBackend(backend any, openErr error) {
-	if openErr == nil || backend == nil {
+	if openErr == nil || nilBackend(backend) {
 		return
 	}
 	if closer, ok := backend.(interface{ Close() error }); ok {
@@ -371,7 +450,7 @@ func (s *Session) close() error {
 
 // Has reports whether the session provides the given capability.
 func (s *Session) Has(cap Capability) bool {
-	if s == nil {
+	if s == nil || s.isClosed() {
 		return false
 	}
 	status, ok := s.capabilities[cap]
@@ -425,8 +504,17 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 	if s == nil {
 		return ErrNilSession
 	}
+	if ctx == nil {
+		return fmt.Errorf("perfuncted: paste: %w: nil context", ErrInvalidArgument)
+	}
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if s.Has(CapabilityClipboard) {
 		return s.Clipboard.pasteWithInputContext(ctx, text, s.Input)
+	}
+	if s.Input == nil {
+		return ErrUnavailable
 	}
 	return s.Input.typeContext(ctx, text)
 }
@@ -452,11 +540,6 @@ func (s *Session) WaylandDisplay() string {
 // X11Display returns the session X11 display string.
 func (s *Session) X11Display() string {
 	return s.env.Display()
-}
-
-// Runtime returns the full environment snapshot used by this session.
-func (s *Session) Runtime() env.Runtime {
-	return s.env
 }
 
 // ---------- infrastructure launchers ----------

@@ -190,15 +190,22 @@ func WindowClosed(target *Window) Condition {
 				return false, ErrNilSession
 			}
 			if target.id.session != session {
-				return false, errors.New(
-					"perfuncted: window belongs to another session",
+				return false, fmt.Errorf(
+					"perfuncted: window belongs to another session: %w",
+					ErrInvalidArgument,
 				)
+			}
+			if err := session.Windows.checkAvailable("info"); err != nil {
+				return false, err
 			}
 			backend, ok := session.Windows.backend.(interface {
 				InfoByID(context.Context, string) (window.Info, error)
 			})
 			if !ok {
-				return false, window.ErrNotSupported
+				return false, session.Windows.operationError(
+					"info",
+					errors.Join(ErrUnsupported, window.ErrNotSupported),
+				)
 			}
 			_, err := backend.InfoByID(
 				ctx,
@@ -207,7 +214,7 @@ func WindowClosed(target *Window) Condition {
 			if errors.Is(err, ErrWindowNotFound) {
 				return true, nil
 			}
-			return false, err
+			return false, session.Windows.operationError("info", err)
 		},
 	)
 }
@@ -223,7 +230,7 @@ type waitConfig struct {
 func WaitEvery(interval time.Duration) WaitOption {
 	return func(config *waitConfig) error {
 		if interval <= 0 {
-			return errors.New("perfuncted: wait interval must be positive")
+			return fmt.Errorf("perfuncted: %w: wait interval must be positive", ErrInvalidArgument)
 		}
 		config.interval = interval
 		return nil
@@ -241,10 +248,10 @@ func (s *Session) Wait(
 		return ErrNilSession
 	}
 	if ctx == nil {
-		return errors.New("perfuncted: wait: nil context")
+		return fmt.Errorf("perfuncted: wait: %w: nil context", ErrInvalidArgument)
 	}
 	if condition == nil {
-		return errors.New("perfuncted: wait: nil condition")
+		return fmt.Errorf("perfuncted: wait: %w: nil condition", ErrInvalidArgument)
 	}
 	config := waitConfig{interval: defaultWaitInterval}
 	for _, option := range options {

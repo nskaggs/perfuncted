@@ -36,9 +36,11 @@ func (s *ScreenBundle) grabHash(
 		return 0, err
 	}
 	if rect.Empty() {
-		return s.backend.GrabFullHash(ctx)
+		hash, err := s.backend.GrabFullHash(ctx)
+		return hash, s.operationError("hash", err)
 	}
-	return find.GrabHash(ctx, s.backend, rect, nil)
+	hash, err := find.GrabHash(ctx, s.backend, rect, nil)
+	return hash, s.operationError("hash", err)
 }
 
 func (s *ScreenBundle) grab(
@@ -49,7 +51,8 @@ func (s *ScreenBundle) grab(
 	if err := s.checkAvailable("capture"); err != nil {
 		return nil, err
 	}
-	return s.backend.Grab(ctx, rect)
+	img, err := s.backend.Grab(ctx, rect)
+	return img, s.operationError("capture", err)
 }
 
 func (s *ScreenBundle) Grab(
@@ -116,7 +119,7 @@ func (s *ScreenBundle) GetPixel(
 		image.Rect(x, y, x+1, y+1),
 	)
 	if err != nil {
-		return color.RGBA{}, err
+		return color.RGBA{}, s.operationError("pixel", err)
 	}
 	return pixel, nil
 }
@@ -182,7 +185,8 @@ func (s *ScreenBundle) WaitForFn(
 	if err := s.checkAvailable("wait"); err != nil {
 		return nil, err
 	}
-	return find.WaitForFn(ctx, s.backend, rect, fn, poll)
+	img, err := find.WaitForFn(ctx, s.backend, rect, fn, poll)
+	return img, s.operationError("wait", err)
 }
 
 func (s *ScreenBundle) WaitForSettle(
@@ -220,9 +224,9 @@ func (s *ScreenBundle) WaitForSettle(
 		nil,
 	)
 	if err != nil {
-		return 0, err
+		return 0, s.operationError("wait-change", err)
 	}
-	return find.WaitForNoChangeFrom(
+	stableHash, err := find.WaitForNoChangeFrom(
 		ctx,
 		s.backend,
 		rect,
@@ -231,6 +235,7 @@ func (s *ScreenBundle) WaitForSettle(
 		poll,
 		nil,
 	)
+	return stableHash, s.operationError("wait-stable", err)
 }
 
 func translatePointToBounds(
@@ -250,7 +255,7 @@ func (s *ScreenBundle) WaitForNoChange(
 	if err := s.checkAvailable("wait-stable"); err != nil {
 		return 0, err
 	}
-	return find.WaitForNoChange(
+	hash, err := find.WaitForNoChange(
 		ctx,
 		s.backend,
 		rect,
@@ -258,6 +263,7 @@ func (s *ScreenBundle) WaitForNoChange(
 		poll,
 		nil,
 	)
+	return hash, s.operationError("wait-stable", err)
 }
 
 func (s *ScreenBundle) WaitForNoChangeFrom(
@@ -270,7 +276,7 @@ func (s *ScreenBundle) WaitForNoChangeFrom(
 	if err := s.checkAvailable("wait-stable"); err != nil {
 		return 0, err
 	}
-	return find.WaitForNoChangeFrom(
+	hash, err := find.WaitForNoChangeFrom(
 		ctx,
 		s.backend,
 		rect,
@@ -279,6 +285,7 @@ func (s *ScreenBundle) WaitForNoChangeFrom(
 		poll,
 		nil,
 	)
+	return hash, s.operationError("wait-stable", err)
 }
 
 func (s *ScreenBundle) FindColor(
@@ -290,7 +297,8 @@ func (s *ScreenBundle) FindColor(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return image.Point{}, err
 	}
-	return find.FindColor(ctx, s.backend, rect, target, tolerance)
+	point, err := find.FindColor(ctx, s.backend, rect, target, tolerance)
+	return point, s.operationError("pixel", err)
 }
 
 func (s *ScreenBundle) WaitForChange(
@@ -302,7 +310,7 @@ func (s *ScreenBundle) WaitForChange(
 	if err := s.checkAvailable("wait-change"); err != nil {
 		return 0, err
 	}
-	return find.WaitForChange(
+	hash, err := find.WaitForChange(
 		ctx,
 		s.backend,
 		rect,
@@ -310,6 +318,7 @@ func (s *ScreenBundle) WaitForChange(
 		poll,
 		nil,
 	)
+	return hash, s.operationError("wait-change", err)
 }
 
 func (s *ScreenBundle) WaitFor(
@@ -321,7 +330,8 @@ func (s *ScreenBundle) WaitFor(
 	if err := s.checkAvailable("wait"); err != nil {
 		return 0, err
 	}
-	return find.WaitFor(ctx, s.backend, rect, want, poll, nil)
+	hash, err := find.WaitFor(ctx, s.backend, rect, want, poll, nil)
+	return hash, s.operationError("wait", err)
 }
 
 func (s *ScreenBundle) ScanFor(
@@ -333,12 +343,14 @@ func (s *ScreenBundle) ScanFor(
 	if err := s.checkAvailable("wait"); err != nil {
 		return find.Result{}, err
 	}
-	return find.ScanFor(ctx, s.backend, rects, wants, poll, nil)
+	result, err := find.ScanFor(ctx, s.backend, rects, wants, poll, nil)
+	return result, s.operationError("wait", err)
 }
 
 func (s *ScreenBundle) Resolution(ctx context.Context) (int, int, error) {
 	if err := s.checkAvailable("resolution"); err != nil {
 		return 0, 0, err
 	}
-	return screen.ResolutionWithContext(ctx, s.backend)
+	width, height, err := screen.ResolutionWithContext(ctx, s.backend)
+	return width, height, s.operationError("resolution", err)
 }

@@ -110,10 +110,23 @@ Every session has non-nil capability facades:
 - `session.Outputs` lists displays.
 - `session.Clipboard` gets and sets clipboard contents.
 
-Unavailable facade calls return `*perfuncted.CapabilityError`. Use
-`Session.Launch` for owned applications and `Session.Wait` with `All`, `Any`,
-`Not`, or `Predicate` for composable waits. Contexts provide cancellation and
-timeouts.
+Unavailable facade calls return `*perfuncted.CapabilityError`; inspect
+`errors.Is(err, perfuncted.ErrUnavailable)` or
+`errors.Is(err, perfuncted.ErrUnsupported)` rather than parsing messages.
+Supported backend failures are reported as `*perfuncted.OperationError` and
+retain their underlying cause for `errors.Is`/`errors.As`. Use
+`Session.Launch` for session-owned applications and `Session.Wait` with `All`,
+`Any`, `Not`, or `Predicate` for composable waits. `Close` is idempotent and
+invalidates child handles. Root session operations reject nil contexts with
+`ErrInvalidArgument`; contexts provide cancellation and timeouts.
+
+`DetectSession` returns a typed `SessionDetection` snapshot. It only classifies
+the environment; `Open` is the API that establishes and owns a session.
+
+The historical `ctxutil` helper package and string/map detection result are
+not part of v1. See [V1_API_AUDIT.md](V1_API_AUDIT.md) and
+[V1_MIGRATION.md](V1_MIGRATION.md) for the full public-boundary audit and
+downstream migration notes.
 
 Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted)
 

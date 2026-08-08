@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -213,7 +213,7 @@ func (b *WlrScreencopyBackend) setupProxies(ctx *wl.Context) error { //nolint:go
 // raw pixel data to fn for processing. This eliminates ~100 lines of duplication
 // between Grab, GrabFullHash, and GrabRegionHash.
 func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels []byte, bi bufInfo) error) error { //nolint:gocyclo
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 	}

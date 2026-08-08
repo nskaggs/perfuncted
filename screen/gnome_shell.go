@@ -11,8 +11,8 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
@@ -85,7 +85,7 @@ func newTempScreenshotFile(prefix string) (*os.File, error) {
 // Grab captures rect using GNOME Shell's native screenshot service. A zero rect
 // requests a full-screen capture; a non-empty rect uses ScreenshotArea.
 func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: capture canceled: %w", ctxErr)
 	}

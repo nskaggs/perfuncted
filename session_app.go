@@ -62,13 +62,13 @@ func (s *Session) Launch(
 		return nil, ErrNilSession
 	}
 	if ctx == nil {
-		return nil, errors.New("perfuncted: launch: nil context")
+		return nil, fmt.Errorf("perfuncted: launch: %w: nil context", ErrInvalidArgument)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if command.Name == "" {
-		return nil, errors.New("perfuncted: launch: command name is empty")
+		return nil, fmt.Errorf("perfuncted: launch: %w: command name is empty", ErrInvalidArgument)
 	}
 
 	resolved, err := exec.LookPath(command.Name)
@@ -142,7 +142,7 @@ func (a *Application) Wait(ctx context.Context) error {
 		return nil
 	}
 	if ctx == nil {
-		return errors.New("perfuncted: application wait: nil context")
+		return fmt.Errorf("perfuncted: application wait: %w: nil context", ErrInvalidArgument)
 	}
 	select {
 	case <-ctx.Done():
@@ -189,7 +189,7 @@ func (a *Application) Stop(ctx context.Context) error {
 		return nil
 	}
 	if ctx == nil {
-		return errors.New("perfuncted: stop application: nil context")
+		return fmt.Errorf("perfuncted: stop application: %w: nil context", ErrInvalidArgument)
 	}
 	select {
 	case <-a.done:

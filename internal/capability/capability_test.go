@@ -59,3 +59,12 @@ func TestUnsupportedReturnsTypedError(t *testing.T) {
 		t.Fatalf("Unsupported fields = %+v, want clipboard/x11/xclip missing", got)
 	}
 }
+
+func TestOperationsReturnsDefensiveCopy(t *testing.T) {
+	got := Operations("screen")
+	got[0] = "mutated"
+
+	if fresh := Operations("screen"); fresh[0] != "capture" {
+		t.Fatalf("Operations mutated canonical registry: %v", fresh)
+	}
+}

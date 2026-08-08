@@ -8,11 +8,22 @@ import (
 	"log/slog"
 	"slices"
 	"time"
+
+	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 )
 
 var (
-	// ErrNotAvailable indicates that a capability has no usable backend.
-	ErrNotAvailable = errors.New("not available")
+	// ErrUnsupported indicates that the selected backend does not implement an
+	// operation. It is safe to inspect with errors.Is.
+	ErrUnsupported = errors.New("operation unsupported")
+	// ErrUnavailable indicates that a requested capability or backend could not
+	// be opened for the current session.
+	ErrUnavailable = errors.New("backend unavailable")
+	// ErrInvalidArgument indicates invalid caller input.
+	ErrInvalidArgument = errors.New("invalid argument")
+	// ErrOperationFailed identifies an operation that was supported but failed
+	// while executing. The underlying backend error remains wrapped.
+	ErrOperationFailed = errors.New("operation failed")
 	// ErrNilSession is returned when operating on a nil Session.
 	ErrNilSession = errors.New("session is nil")
 	// ErrSessionClosed is returned when starting work on a closed Session.
@@ -43,43 +54,7 @@ func validCapability(cap Capability) bool {
 }
 
 func capabilityOperations(cap Capability) []string {
-	switch cap {
-	case CapabilityScreen:
-		return []string{
-			"capture",
-			"hash",
-			"pixel",
-			"resolution",
-			"wait-change",
-			"wait-stable",
-		}
-	case CapabilityInput:
-		return []string{
-			"keyboard",
-			"pointer",
-			"click",
-			"scroll",
-			"drag",
-		}
-	case CapabilityWindows:
-		return []string{
-			"discover",
-			"activate",
-			"move",
-			"resize",
-			"close",
-			"minimize",
-			"maximize",
-			"fullscreen",
-			"restore",
-		}
-	case CapabilityOutputs:
-		return []string{"list"}
-	case CapabilityClipboard:
-		return []string{"get", "set"}
-	default:
-		return []string{}
-	}
+	return capabilityops.Operations(string(cap))
 }
 
 // CapabilityError reports why an operation cannot use a capability.
@@ -87,6 +62,33 @@ type CapabilityError struct {
 	Capability Capability
 	Operation  string
 	Err        error
+}
+
+// OperationError reports a failure from an operation that the active backend
+// advertised as supported. The backend cause is available through errors.Is,
+// errors.As, and Unwrap.
+type OperationError struct {
+	Capability Capability
+	Operation  string
+	Err        error
+}
+
+func (e *OperationError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("%s capability %s: %v", e.Capability, e.Operation, e.Err)
+}
+
+func (e *OperationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func (e *OperationError) Is(target error) bool {
+	return target == ErrOperationFailed
 }
 
 func (e *CapabilityError) Error() string {
@@ -104,6 +106,21 @@ func (e *CapabilityError) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+// Is makes capability errors branchable by stable v1 category while retaining
+// the wrapped backend cause through Unwrap.
+func (e *CapabilityError) Is(target error) bool {
+	if e == nil {
+		return false
+	}
+	if target == ErrUnsupported {
+		return errors.Is(e.Err, ErrUnsupported)
+	}
+	if target == ErrUnavailable {
+		return errors.Is(e.Err, ErrUnavailable)
+	}
+	return false
 }
 
 // CapabilityStatus describes how one capability was resolved for a Session.
@@ -207,7 +224,7 @@ type Option func(*openConfig) error
 func WithTarget(target DesktopTarget) Option {
 	return func(cfg *openConfig) error {
 		if cfg.selected {
-			return errors.New("perfuncted: desktop target options are mutually exclusive")
+			return fmt.Errorf("perfuncted: %w: desktop target options are mutually exclusive", ErrInvalidArgument)
 		}
 		cfg.selected = true
 		cfg.target = targetSelection{
@@ -232,7 +249,7 @@ func WithNested(sessionConfig SessionConfig) Option {
 func selectManagedTarget(kind TargetKind, sessionConfig SessionConfig) Option {
 	return func(cfg *openConfig) error {
 		if cfg.selected {
-			return errors.New("perfuncted: desktop target options are mutually exclusive")
+			return fmt.Errorf("perfuncted: %w: desktop target options are mutually exclusive", ErrInvalidArgument)
 		}
 		cfg.selected = true
 		cfg.target = targetSelection{
@@ -258,17 +275,17 @@ func requestCapabilities(required bool, capabilities []Capability) Option {
 	return func(cfg *openConfig) error {
 		for _, cap := range capabilities {
 			if !validCapability(cap) {
-				return fmt.Errorf("perfuncted: unknown capability %q", cap)
+				return fmt.Errorf("perfuncted: %w: unknown capability %q", ErrInvalidArgument, cap)
 			}
 			if required {
 				if _, ok := cfg.optional[cap]; ok {
-					return fmt.Errorf("perfuncted: capability %q cannot be both required and optional", cap)
+					return fmt.Errorf("perfuncted: %w: capability %q cannot be both required and optional", ErrInvalidArgument, cap)
 				}
 				cfg.required[cap] = struct{}{}
 				continue
 			}
 			if _, ok := cfg.required[cap]; ok {
-				return fmt.Errorf("perfuncted: capability %q cannot be both required and optional", cap)
+				return fmt.Errorf("perfuncted: %w: capability %q cannot be both required and optional", ErrInvalidArgument, cap)
 			}
 			cfg.optional[cap] = struct{}{}
 		}
