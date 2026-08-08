@@ -30,8 +30,8 @@ type Screenshotter interface {
 }
 
 // ResolutionWithContext returns the screen resolution of sc using the provided
-// context. If sc implements Resolver directly, that is used. Otherwise, a
-// full-output grab (zero rect) is tried with ctx.
+// context. A context-aware resolver is preferred, then the legacy Resolver
+// interface, and finally a full-output grab (zero rect) is tried with ctx.
 func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, error) {
 	if err := util.CheckAvailable("screen", sc); err != nil {
 		return 0, 0, err
@@ -39,6 +39,11 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
+	}
+	if r, ok := sc.(interface {
+		ResolutionWithContext(context.Context) (width, height int, err error)
+	}); ok {
+		return r.ResolutionWithContext(ctx)
 	}
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()

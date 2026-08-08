@@ -14,6 +14,8 @@ type resolutionCancelScreenshotter struct {
 
 type resolutionResolver struct{}
 
+type contextResolutionResolver struct{}
+
 func (resolutionResolver) Grab(context.Context, image.Rectangle) (image.Image, error) {
 	return image.NewRGBA(image.Rect(0, 0, 11, 7)), nil
 }
@@ -27,6 +29,27 @@ func (resolutionResolver) GrabRegionHash(context.Context, image.Rectangle) (uint
 func (resolutionResolver) Resolution() (int, int, error) { return 11, 7, nil }
 
 func (resolutionResolver) Close() error { return nil }
+
+func (contextResolutionResolver) Grab(context.Context, image.Rectangle) (image.Image, error) {
+	return image.NewRGBA(image.Rect(0, 0, 17, 13)), nil
+}
+
+func (contextResolutionResolver) GrabFullHash(context.Context) (uint32, error) { return 0, nil }
+
+func (contextResolutionResolver) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	return 0, nil
+}
+
+func (contextResolutionResolver) Resolution() (int, int, error) { return 1, 1, nil }
+
+func (contextResolutionResolver) ResolutionWithContext(ctx context.Context) (int, int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	return 17, 13, nil
+}
+
+func (contextResolutionResolver) Close() error { return nil }
 
 func (s *resolutionCancelScreenshotter) cancelOnce() {
 	if s.cancel != nil {
@@ -82,5 +105,15 @@ func TestResolutionWithContext_CanceledResolver(t *testing.T) {
 
 	if _, _, err := ResolutionWithContext(ctx, resolutionResolver{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("ResolutionWithContext error = %v, want context.Canceled", err)
+	}
+}
+
+func TestResolutionWithContext_PrefersContextAwareResolver(t *testing.T) {
+	w, h, err := ResolutionWithContext(context.Background(), contextResolutionResolver{})
+	if err != nil {
+		t.Fatalf("ResolutionWithContext error = %v", err)
+	}
+	if w != 17 || h != 13 {
+		t.Fatalf("ResolutionWithContext returned %dx%d, want 17x13", w, h)
 	}
 }

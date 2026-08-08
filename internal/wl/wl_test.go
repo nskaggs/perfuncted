@@ -2,6 +2,8 @@ package wl
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"net"
 	"path/filepath"
@@ -243,6 +245,53 @@ func TestContext_Dispatch_NilConn(t *testing.T) {
 	if err := ctx.Dispatch(); err != nil {
 		t.Errorf("Dispatch on nil conn returned error: %v", err)
 	}
+}
+
+func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		var buf [1]byte
+		_, _ = conn.Read(buf[:])
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+	<-accepted
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	dispatchDone := make(chan error, 1)
+	go func() { dispatchDone <- ctx.DispatchContext(cancelCtx) }()
+	cancel()
+
+	select {
+	case err := <-dispatchDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("DispatchContext error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("DispatchContext did not unblock after cancellation")
+	}
+	_ = ctx.Close()
+	listener.Close()
+	<-serverDone
 }
 
 func TestContext_Close_NilConn(t *testing.T) {
