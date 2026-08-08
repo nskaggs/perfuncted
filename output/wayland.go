@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/wl"

@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
