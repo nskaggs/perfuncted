@@ -21,6 +21,22 @@ func NewSessionForTesting(
 	outputLister output.Lister,
 	clipboardBackend clipboard.Clipboard,
 ) *Session {
+	if nilBackend(screenshotter) {
+		screenshotter = nil
+	}
+	if nilBackend(inputter) {
+		inputter = nil
+	}
+	if nilBackend(windowManager) {
+		windowManager = nil
+	}
+	if nilBackend(outputLister) {
+		outputLister = nil
+	}
+	if nilBackend(clipboardBackend) {
+		clipboardBackend = nil
+	}
+
 	session := &Session{
 		capabilities: make(
 			map[Capability]CapabilityStatus,

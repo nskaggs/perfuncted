@@ -24,6 +24,14 @@ type capabilityScreen struct {
 	closeCalls atomic.Int32
 }
 
+type operationReportingScreen struct {
+	capabilityScreen
+}
+
+func (*operationReportingScreen) SupportedOperations() []string {
+	return []string{"hash"}
+}
+
 func (s *capabilityScreen) Grab(
 	context.Context,
 	image.Rectangle,
@@ -277,6 +285,40 @@ func TestOpenTreatsTypedNilBackendAsUnavailable(t *testing.T) {
 		capabilityErr.Capability != CapabilityScreen ||
 		!errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Open error = %v, want screen unavailable capability error", err)
+	}
+}
+
+func TestNewSessionForTestingTreatsTypedNilBackendAsUnavailable(t *testing.T) {
+	var backend *capabilityScreen
+	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	if session.Has(CapabilityScreen) {
+		t.Fatal("typed-nil screen backend was reported as available")
+	}
+	_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("typed-nil screen operation error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestSessionEnforcesBackendOperationReport(t *testing.T) {
+	session := NewSessionForTesting(
+		&operationReportingScreen{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	t.Cleanup(func() { _ = session.Close() })
+
+	status := session.Capability(CapabilityScreen)
+	if !status.Available || status.Supports("capture") {
+		t.Fatalf("screen status = %+v, want available without capture", status)
+	}
+	_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unadvertised capture error = %v, want ErrUnsupported", err)
 	}
 }
 
