@@ -27,9 +27,12 @@ Packages under `internal/` are implementation-only.
 
 ## Symbol disposition
 
-The following is the complete top-level symbol disposition. Exported methods
-and fields on retained types follow the same disposition as their containing
-type unless called out in the breaking changes below.
+The complete current-source export inventory, including exported methods and
+fields, is recorded in [V1_API_SYMBOLS.md](V1_API_SYMBOLS.md). Each inventory
+entry inherits the disposition of its package below unless called out in the
+breaking changes table. The inventory excludes test-only declarations and
+historical symbols that no longer exist in the v1 source; those removals are
+recorded explicitly below.
 
 ### Root package: retain
 
@@ -108,3 +111,9 @@ The audit is paired with compile/behavior coverage in `session_v1_test.go`,
 `session_window_v1_test.go`, `perfuncted_close_test.go`, the capability bundle
 tests, and `example_test.go`. Release checks are recorded in the final task
 handoff; release tagging and pushing are deliberately outside this change.
+
+The current-source inventory was checked against the non-test declarations in
+the supported packages (`perfuncted`, `screen`, `input`, `window`, `output`,
+`clipboard`, `find`, `poll`, `transport`, `pftest`, and the `cmd/pf`/`scripts`
+tooling packages). `ctxutil` is absent from the package graph and remains
+covered by the explicit removal entry above.
