@@ -56,20 +56,38 @@ type matchCacheKey struct {
 	VisibleOnly   bool
 }
 
-var compiledMatchCache sync.Map
+const compiledMatchCacheLimit = 1024
+
+var (
+	compiledMatchCacheMu sync.RWMutex
+	compiledMatchCache   = make(map[matchCacheKey]Matcher)
+)
 
 // CompileMatch returns a reusable matcher with cached normalized text fields.
 func CompileMatch(m Match) Matcher {
 	key := matchCacheKeyFromMatch(m)
-	if cached, ok := compiledMatchCache.Load(key); ok {
-		return cached.(Matcher) //nolint:errcheck // sync.Map stores Matcher values
+	compiledMatchCacheMu.RLock()
+	if cached, ok := compiledMatchCache[key]; ok {
+		compiledMatchCacheMu.RUnlock()
+		return cached
 	}
+	compiledMatchCacheMu.RUnlock()
+
 	compiled := Matcher{
 		Match:              m,
 		titleContainsLower: strings.ToLower(m.TitleContains),
 	}
-	actual, _ := compiledMatchCache.LoadOrStore(key, compiled)
-	return actual.(Matcher) //nolint:errcheck // sync.Map stores Matcher values
+
+	compiledMatchCacheMu.Lock()
+	if cached, ok := compiledMatchCache[key]; ok {
+		compiledMatchCacheMu.Unlock()
+		return cached
+	}
+	if len(compiledMatchCache) < compiledMatchCacheLimit {
+		compiledMatchCache[key] = compiled
+	}
+	compiledMatchCacheMu.Unlock()
+	return compiled
 }
 
 // Matches reports whether info satisfies m.
