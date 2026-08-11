@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -147,6 +148,52 @@ func TestScreenBundle_GetMultiplePixelsEmpty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("GetMultiplePixels(nil) len = %d, want 0", len(got))
+	}
+}
+
+func TestScreenBundle_GetPixelRejectsEmptyCapture(t *testing.T) {
+	sc := &pftest.Screenshotter{
+		Frames:     []image.Image{image.NewRGBA(image.Rectangle{})},
+		ZeroOrigin: true,
+	}
+	p := newTestPF(sc)
+	defer p.Close()
+
+	if _, err := p.Screen.GetPixel(context.Background(), 5, 5); err == nil {
+		t.Fatal("GetPixel succeeded with an empty capture")
+	}
+}
+
+func TestScreenBundle_GetMultiplePixelsRejectsMissingPoint(t *testing.T) {
+	sc := &pftest.Screenshotter{
+		Frames:     []image.Image{image.NewRGBA(image.Rect(0, 0, 1, 1))},
+		ZeroOrigin: true,
+	}
+	p := newTestPF(sc)
+	defer p.Close()
+
+	if _, err := p.Screen.GetMultiplePixels(context.Background(), []image.Point{{X: 5, Y: 5}}); err == nil {
+		t.Fatal("GetMultiplePixels succeeded without a captured requested point")
+	}
+}
+
+func TestScreenBundle_GetPixelRejectsCoordinateOverflow(t *testing.T) {
+	sc := &pftest.Screenshotter{Width: 2, Height: 2}
+	p := newTestPF(sc)
+	defer p.Close()
+
+	if _, err := p.Screen.GetPixel(context.Background(), math.MaxInt, 0); err == nil {
+		t.Fatal("GetPixel succeeded with an overflowing coordinate")
+	}
+}
+
+func TestScreenBundle_GetMultiplePixelsRejectsCoordinateOverflow(t *testing.T) {
+	sc := &pftest.Screenshotter{Width: 2, Height: 2}
+	p := newTestPF(sc)
+	defer p.Close()
+
+	if _, err := p.Screen.GetMultiplePixels(context.Background(), []image.Point{{X: math.MaxInt, Y: 0}}); err == nil {
+		t.Fatal("GetMultiplePixels succeeded with an overflowing coordinate")
 	}
 }
 

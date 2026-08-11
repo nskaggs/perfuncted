@@ -134,3 +134,27 @@ func TestWlrScreencopyBackendCloseIsIdempotent(t *testing.T) {
 		t.Fatalf("second Close() error: %v", err)
 	}
 }
+
+func TestWlrScreencopyBackendRejectsOperationsAfterClose(t *testing.T) {
+	connectCalls := 0
+	b := NewWlrScreencopyBackendWithConnector(
+		"fake-after-close",
+		func(string) (*wl.Context, error) {
+			connectCalls++
+			return &wl.Context{}, nil
+		},
+		time.Minute,
+	)
+	if err := b.withWlrContext(func(*wl.Context) error { return nil }); err != nil {
+		t.Fatalf("initial withWlrContext: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := b.withWlrContext(func(*wl.Context) error { return nil }); err == nil {
+		t.Fatal("withWlrContext succeeded after Close")
+	}
+	if connectCalls != 1 {
+		t.Fatalf("connector calls = %d, want 1 after close", connectCalls)
+	}
+}

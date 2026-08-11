@@ -37,6 +37,7 @@ type WlrScreencopyBackend struct {
 	initJanitor  func()
 	done         chan struct{}
 	closeOnce    sync.Once
+	closed       bool
 	activeMu     sync.Mutex
 	activeCancel context.CancelFunc
 	// last observed output dimensions and scale (1 if unknown)
@@ -103,14 +104,23 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 }
 
 func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn func(*wl.Context, context.Context) error) error {
-	b.initJanitor()
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	b.ctxMu.Lock()
+	closed := b.closed
+	b.ctxMu.Unlock()
+	if closed {
+		return fmt.Errorf("screen/wlr: backend is closed")
+	}
+	b.initJanitor()
 
 	b.ctxMu.Lock()
 	defer b.ctxMu.Unlock()
+	if b.closed {
+		return fmt.Errorf("screen/wlr: backend is closed")
+	}
 	operationCtx, cancel := context.WithCancel(ctx)
 	b.activeMu.Lock()
 	b.activeCancel = cancel
@@ -450,6 +460,7 @@ func (b *WlrScreencopyBackend) Close() error {
 		}
 		b.activeMu.Unlock()
 		b.ctxMu.Lock()
+		b.closed = true
 		if b.ctx != nil {
 			_ = b.ctx.Close()
 			b.ctx = nil

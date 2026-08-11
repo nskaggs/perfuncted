@@ -60,12 +60,29 @@ func checkAvailable(sc Screenshotter) error {
 	return nil
 }
 
+func checkImage(img image.Image, operation string) error {
+	if img == nil {
+		return fmt.Errorf("find: %s returned nil image", operation)
+	}
+	v := reflect.ValueOf(img)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice: //nolint:govet // inline: reflect.Ptr is the idiomatic constant to use here
+		if v.IsNil() {
+			return fmt.Errorf("find: %s returned nil image", operation)
+		}
+	}
+	return nil
+}
+
 // PixelHash computes a 32-bit hash of all RGBA pixels in img.
 // For *image.RGBA images it uses a fast path that reads pixel bytes directly
 // from the underlying Pix slice, avoiding per-pixel interface calls and
 // colour-model conversions. Non-RGBA images are converted once to RGBA and
 // then hashed using the same fast loop.
 func PixelHash(img image.Image, newHash Hasher) uint32 {
+	if checkImage(img, "hash") != nil {
+		return 0
+	}
 	if newHash == nil {
 		newHash = DefaultHasher
 	}
@@ -109,6 +126,9 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 	if err != nil {
 		return 0, err
 	}
+	if err := checkImage(img, "grab"); err != nil {
+		return 0, err
+	}
 	return PixelHash(img, newHash), nil
 }
 
@@ -122,10 +142,16 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 	if err != nil {
 		return color.RGBA{}, fmt.Errorf("find: first pixel: %w", err)
 	}
+	if err := checkImage(img, "first pixel grab"); err != nil {
+		return color.RGBA{}, err
+	}
 	if err := contextErr(ctx); err != nil {
 		return color.RGBA{}, err
 	}
 	b := img.Bounds()
+	if b.Empty() {
+		return color.RGBA{}, fmt.Errorf("find: first pixel grab returned empty image")
+	}
 	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA), nil //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 }
 
@@ -367,6 +393,9 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 			if err != nil {
 				return Result{}, err
 			}
+			if err := checkImage(img, "scan grab"); err != nil {
+				return Result{}, err
+			}
 			if err := contextErr(ctx); err != nil {
 				return Result{}, err
 			}
@@ -431,6 +460,12 @@ type Anchor struct {
 func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference image.Image) (image.Rectangle, error) { //nolint:gocyclo
 	if searchArea.Empty() {
 		return image.Rectangle{}, fmt.Errorf("find: locate search area is empty")
+	}
+	if err := checkImage(src, "locate source"); err != nil {
+		return image.Rectangle{}, err
+	}
+	if err := checkImage(reference, "locate reference"); err != nil {
+		return image.Rectangle{}, err
 	}
 	if reference.Bounds().Empty() {
 		return image.Rectangle{}, fmt.Errorf("find: reference image is empty")
@@ -546,6 +581,9 @@ func translateRect(r image.Rectangle, fromMin, toMin image.Point) image.Rectangl
 // whose colour is within tolerance of target. Returns the absolute screen
 // coordinate and true if found.
 func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolerance int) (image.Point, bool) { //nolint:gocyclo
+	if checkImage(img, "pixel scan") != nil {
+		return image.Point{}, false
+	}
 	b := img.Bounds()
 
 	// Fast path: read directly from Pix for *image.RGBA, avoiding per-pixel
@@ -612,6 +650,9 @@ func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, targ
 	if err != nil {
 		return image.Point{}, fmt.Errorf("find: find-color grab: %w", err)
 	}
+	if err := checkImage(img, "find-color grab"); err != nil {
+		return image.Point{}, err
+	}
 	if err := contextErr(ctx); err != nil {
 		return image.Point{}, err
 	}
@@ -676,6 +717,9 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		img, err := sc.Grab(ctx, rect)
 		if err != nil {
+			return false, 0, err
+		}
+		if err := checkImage(img, "predicate grab"); err != nil {
 			return false, 0, err
 		}
 		if fn(ctx, img) {

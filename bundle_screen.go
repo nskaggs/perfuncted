@@ -3,9 +3,11 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"time"
 
@@ -113,6 +115,9 @@ func (s *ScreenBundle) GetPixel(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return color.RGBA{}, err
 	}
+	if x == math.MaxInt || y == math.MaxInt {
+		return color.RGBA{}, s.operationError("pixel", fmt.Errorf("screen: pixel coordinate overflows one-pixel capture: (%d,%d)", x, y))
+	}
 	pixel, err := find.FirstPixel(
 		ctx,
 		s.backend,
@@ -140,6 +145,9 @@ func (s *ScreenBundle) GetMultiplePixels(
 	minX, minY := points[0].X, points[0].Y
 	maxX, maxY := minX, minY
 	for _, point := range points {
+		if point.X == math.MaxInt || point.Y == math.MaxInt {
+			return nil, s.operationError("pixel", fmt.Errorf("screen: pixel coordinate overflows capture bounds: %v", point))
+		}
 		if point.X < minX {
 			minX = point.X
 		}
@@ -158,12 +166,22 @@ func (s *ScreenBundle) GetMultiplePixels(
 	if err != nil {
 		return nil, err
 	}
+	if img == nil {
+		return nil, s.operationError("pixel", errors.New("screen: capture returned nil image"))
+	}
+	imgBounds := img.Bounds()
 	for i, point := range points {
 		imagePoint := translatePointToBounds(
 			point,
 			bounds.Min,
-			img.Bounds().Min,
+			imgBounds.Min,
 		)
+		if !imagePoint.In(imgBounds) {
+			return nil, s.operationError(
+				"pixel",
+				fmt.Errorf("screen: capture bounds %v do not contain requested point %v", imgBounds, point),
+			)
+		}
 		rgba, ok := color.RGBAModel.Convert(
 			img.At(imagePoint.X, imagePoint.Y),
 		).(color.RGBA)
