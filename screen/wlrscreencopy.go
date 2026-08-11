@@ -255,19 +255,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		var ready, failed, bufDone bool
 
 		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
-			switch opcode {
-			case 0: // buffer
-				bi.format = wl.Uint32(data[0:4])
-				bi.width = wl.Uint32(data[4:8])
-				bi.height = wl.Uint32(data[8:12])
-				bi.stride = wl.Uint32(data[12:16])
-			case 2: // ready
-				ready = true
-			case 3: // failed
-				failed = true
-			case 6: // buffer_done (protocol v2+)
-				bufDone = true
-			}
+			applyWlrFrameEvent(&bi, &ready, &failed, &bufDone, opcode, data)
 		}
 
 		for !bufDone && bi.width == 0 && !failed {
@@ -282,7 +270,10 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
 		}
 
-		size := int(bi.stride * bi.height)
+		size, err := captureBufferSize(bi.width, bi.height, bi.stride)
+		if err != nil {
+			return fmt.Errorf("screen/wlr: invalid buffer geometry: %w", err)
+		}
 
 		// Reuse a pooled mmap if the buffer geometry hasn't changed.
 		var pixels []byte
@@ -493,6 +484,26 @@ func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error
 type wlRawProxy struct {
 	wl.BaseProxy
 	dispatchFn func(opcode uint32, fd int, data []byte)
+}
+
+func applyWlrFrameEvent(bi *bufInfo, ready, failed, bufDone *bool, opcode uint32, data []byte) {
+	switch opcode {
+	case 0: // buffer
+		if len(data) < 16 {
+			*failed = true
+			return
+		}
+		bi.format = wl.Uint32(data[0:4])
+		bi.width = wl.Uint32(data[4:8])
+		bi.height = wl.Uint32(data[8:12])
+		bi.stride = wl.Uint32(data[12:16])
+	case 2: // ready
+		*ready = true
+	case 3: // failed
+		*failed = true
+	case 6: // buffer_done (protocol v2+)
+		*bufDone = true
+	}
 }
 
 func (p *wlRawProxy) Dispatch(opcode uint32, fd int, data []byte) {

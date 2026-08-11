@@ -44,6 +44,30 @@ type ExtCaptureBackend struct {
 	cachedBI  bufInfo
 }
 
+type extSessionInfo struct {
+	width, height, format uint32
+}
+
+func applyExtSessionEvent(si *extSessionInfo, stopped, invalid *bool, opcode uint32, data []byte) {
+	switch opcode {
+	case 0: // buffer_size
+		if len(data) < 8 {
+			*invalid = true
+			return
+		}
+		si.width = wl.Uint32(data[0:4])
+		si.height = wl.Uint32(data[4:8])
+	case 1: // shm_format
+		if len(data) < 4 {
+			*invalid = true
+			return
+		}
+		si.format = wl.Uint32(data[0:4])
+	case 5: // stopped
+		*stopped = true
+	}
+}
+
 // NewExtCaptureBackendForSocket returns an ExtCaptureBackend for sock if the
 // compositor advertises the full ext-image-copy stack needed for capture.
 func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //nolint:gocyclo
@@ -230,22 +254,16 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	return wl.WithOperation(wlctx, func() error {
 
 		// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
-		type sessInfo struct{ width, height, format uint32 }
-		var si sessInfo
-		var stopped bool
+		var si extSessionInfo
+		var stopped, invalidEvent bool
 		b.sessProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
-			switch opcode {
-			case 0: // buffer_size
-				si.width = wl.Uint32(data[0:4])
-				si.height = wl.Uint32(data[4:8])
-			case 1: // shm_format
-				si.format = wl.Uint32(data[0:4])
-			case 5: // stopped
-				stopped = true
-			}
+			applyExtSessionEvent(&si, &stopped, &invalidEvent, opcode, data)
 		}
 		if err := b.session.Display.RoundTripContext(ctx); err != nil {
 			return fmt.Errorf("screen/ext: session round-trip: %w", err)
+		}
+		if invalidEvent {
+			return fmt.Errorf("screen/ext: compositor sent malformed session constraints")
 		}
 		if stopped {
 			return fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
@@ -257,8 +275,15 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 			return fmt.Errorf("screen/ext: session did not report buffer size")
 		}
 
-		stride := si.width * 4
-		size := int(stride * si.height)
+		stride64 := uint64(si.width) * 4
+		if stride64 > uint64(^uint32(0)) {
+			return fmt.Errorf("screen/ext: capture width is too large")
+		}
+		stride := uint32(stride64)
+		size, err := captureBufferSize(si.width, si.height, stride)
+		if err != nil {
+			return fmt.Errorf("screen/ext: invalid buffer geometry: %w", err)
+		}
 
 		// Reuse a pooled mmap if the buffer geometry hasn't changed.
 		var pixels []byte
