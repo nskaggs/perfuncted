@@ -187,8 +187,16 @@ func decodeKWinPixels(data []byte, rect image.Rectangle, results map[string]dbus
 		}
 	}
 
-	if len(data) < h*stride {
-		return nil, fmt.Errorf("screen/kwin: short pixel buffer: got %d bytes, want %d (stride=%d)", len(data), h*stride, stride)
+	if w <= 0 || h <= 0 {
+		return nil, fmt.Errorf("screen/kwin: invalid pixel dimensions %dx%d", w, h)
+	}
+	rowBytes := uint64(w) * 4
+	if stride <= 0 || uint64(stride) < rowBytes {
+		return nil, fmt.Errorf("screen/kwin: invalid pixel stride %d for width %d", stride, w)
+	}
+	required := uint64(h) * uint64(stride)
+	if required > uint64(len(data)) {
+		return nil, fmt.Errorf("screen/kwin: short pixel buffer: got %d bytes, want %d (stride=%d)", len(data), required, stride)
 	}
 
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))

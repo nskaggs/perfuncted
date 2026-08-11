@@ -152,3 +152,34 @@ func TestDecodeKWinPixels_UsesResultDimensions(t *testing.T) {
 		t.Fatalf("decodeKWinPixels hash = %08x, want %08x", got, want)
 	}
 }
+
+func TestDecodeKWinPixelsRejectsInvalidGeometry(t *testing.T) {
+	tests := []struct {
+		name    string
+		results map[string]dbus.Variant
+	}{
+		{
+			name: "short stride",
+			results: map[string]dbus.Variant{
+				"width":  dbus.MakeVariant(uint32(2)),
+				"height": dbus.MakeVariant(uint32(1)),
+				"stride": dbus.MakeVariant(uint32(4)),
+			},
+		},
+		{
+			name: "zero dimensions",
+			results: map[string]dbus.Variant{
+				"width":  dbus.MakeVariant(uint32(0)),
+				"height": dbus.MakeVariant(uint32(1)),
+				"stride": dbus.MakeVariant(uint32(4)),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := decodeKWinPixels(make([]byte, 8), image.Rectangle{}, tt.results); err == nil {
+				t.Fatal("decodeKWinPixels unexpectedly accepted invalid geometry")
+			}
+		})
+	}
+}
