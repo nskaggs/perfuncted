@@ -245,6 +245,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		}
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
+		defer wl.Unregister(wlctx, frameProxy)
 
 		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)

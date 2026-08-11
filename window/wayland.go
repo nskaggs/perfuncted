@@ -154,9 +154,12 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 		handle.OnEvent = func(op uint32, _ int, d []byte) {
 			if !isWLR {
 				m.handleExtToplevelEvent(handleID, info, op, d)
-				return
+			} else {
+				m.handleWLRToplevelEvent(handleID, info, op, d)
 			}
-			m.handleWLRToplevelEvent(handleID, info, op, d)
+			if (isWLR && op == 6) || (!isWLR && op == 0) {
+				wl.Unregister(ctx, handle)
+			}
 		}
 	}
 	return m.display.RoundTrip()

@@ -133,6 +133,26 @@ func (ctx *Context) unregister(id uint32, expected Proxy) {
 	}
 }
 
+// Unregister removes p from the client-side object registry when it is still
+// registered under the same ID. It is safe to call after a protocol destroy.
+func (ctx *Context) Unregister(p Proxy) {
+	if ctx == nil || p == nil {
+		return
+	}
+	ctx.unregister(p.ID(), p)
+}
+
+// Unregister removes p from a context that supports registry cleanup. The
+// optional interface keeps lightweight test contexts source-compatible.
+func Unregister(ctx Ctx, p Proxy) {
+	if ctx == nil || p == nil {
+		return
+	}
+	if registry, ok := ctx.(interface{ Unregister(Proxy) }); ok {
+		registry.Unregister(p)
+	}
+}
+
 // WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
 // If the underlying connection is nil (tests may construct zero-value Contexts),
 // treat it as a no-op rather than panicking.
@@ -469,7 +489,11 @@ func (s *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 	PutUint32(buf[4:], 16<<16) // size=16, opcode=0 (create_pool)
 	PutUint32(buf[8:], pool.ID())
 	PutUint32(buf[12:], uint32(size))
-	return pool, s.ctx.WriteMsg(buf[:], syscall.UnixRights(fd))
+	if err := s.ctx.WriteMsg(buf[:], syscall.UnixRights(fd)); err != nil {
+		Unregister(s.ctx, pool)
+		return nil, err
+	}
+	return pool, nil
 }
 
 // ShmPool wraps wl_shm_pool.
@@ -491,7 +515,11 @@ func (p *ShmPool) CreateBuffer(offset, width, height, stride int32, format uint3
 	PutUint32(buf[20:], uint32(height))
 	PutUint32(buf[24:], uint32(stride))
 	PutUint32(buf[28:], format)
-	return b, p.ctx.WriteMsg(buf[:], nil)
+	if err := p.ctx.WriteMsg(buf[:], nil); err != nil {
+		Unregister(p.ctx, b)
+		return nil, err
+	}
+	return b, nil
 }
 
 // Destroy sends wl_shm_pool.destroy.
@@ -499,7 +527,11 @@ func (p *ShmPool) Destroy() error {
 	var buf [8]byte
 	PutUint32(buf[0:], p.ID())
 	PutUint32(buf[4:], 8<<16|1) // size=8, opcode=1 (destroy)
-	return p.ctx.WriteMsg(buf[:], nil)
+	if err := p.ctx.WriteMsg(buf[:], nil); err != nil {
+		return err
+	}
+	Unregister(p.ctx, p)
+	return nil
 }
 
 // Buffer wraps wl_buffer.
@@ -513,7 +545,11 @@ func (b *Buffer) Destroy() error {
 	var buf [8]byte
 	PutUint32(buf[0:], b.ID())
 	PutUint32(buf[4:], 8<<16) // size=8, opcode=0 (destroy)
-	return b.ctx.WriteMsg(buf[:], nil)
+	if err := b.ctx.WriteMsg(buf[:], nil); err != nil {
+		return err
+	}
+	Unregister(b.ctx, b)
+	return nil
 }
 
 // SocketReachable checks whether sock is an existing Wayland socket.
