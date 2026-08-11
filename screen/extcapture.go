@@ -364,7 +364,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := wlctx.Dispatch(); err != nil {
+			if err := wl.DispatchContext(wlctx, ctx); err != nil {
 				return fmt.Errorf("screen/ext: dispatch: %w", err)
 			}
 		}

@@ -320,6 +320,9 @@ func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("DispatchContext did not unblock after cancellation")
 	}
+	if err := ctx.WriteMsg([]byte{0}, nil); err != nil {
+		t.Fatalf("connection unusable after canceled dispatch: %v", err)
+	}
 	_ = ctx.Close()
 	listener.Close()
 	<-serverDone

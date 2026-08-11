@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 )
 
 var le = binary.LittleEndian
@@ -35,6 +36,17 @@ func WithOperation(ctx Ctx, fn func() error) error {
 		return op.WithOperation(fn)
 	}
 	return fn()
+}
+
+// DispatchContext reads one message when the context supports cancellation;
+// lightweight test contexts fall back to their regular dispatch method.
+func DispatchContext(ctx Ctx, cancel context.Context) error {
+	if dispatcher, ok := ctx.(interface {
+		DispatchContext(context.Context) error
+	}); ok {
+		return dispatcher.DispatchContext(cancel)
+	}
+	return ctx.Dispatch()
 }
 
 // Proxy is implemented by all Wayland protocol objects.
@@ -213,15 +225,18 @@ func (ctx *Context) Dispatch() error {
 }
 
 // DispatchContext reads and dispatches one Wayland message, interrupting the
-// socket read when cancel is done. Closing the socket is safe here because the
-// owning operation serializes dispatch and treats cancellation as a failed
-// operation; the caller will discard the connection before reusing it.
+// socket read when cancel is done. A read deadline preserves the connection for
+// other users of a reference-counted session; callers decide whether a failed
+// operation should discard it.
 func (ctx *Context) DispatchContext(cancel context.Context) error {
 	if cancel == nil {
 		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}
 	if err := cancel.Err(); err != nil {
 		return err
+	}
+	if ctx == nil || ctx.conn == nil {
+		return nil
 	}
 
 	finished := make(chan struct{})
@@ -230,7 +245,9 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 		defer close(watcherDone)
 		select {
 		case <-cancel.Done():
-			_ = ctx.Close()
+			if err := ctx.conn.SetReadDeadline(time.Now()); err != nil {
+				_ = ctx.Close()
+			}
 		case <-finished:
 		}
 	}()
@@ -238,6 +255,7 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 	err := ctx.Dispatch()
 	close(finished)
 	<-watcherDone
+	_ = ctx.conn.SetReadDeadline(time.Time{})
 	if cancelErr := cancel.Err(); cancelErr != nil {
 		return cancelErr
 	}
