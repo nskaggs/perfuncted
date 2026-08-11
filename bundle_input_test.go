@@ -21,11 +21,13 @@ type inputPointerSyncSpy struct {
 
 type dragCleanupInput struct {
 	pftest.Inputter
-	moveCalls    int
-	mouseUpCalls int
-	moveErr      error
-	mouseDownErr error
-	mouseUpErr   error
+	moveCalls       int
+	mouseDownCalls  int
+	mouseUpCalls    int
+	moveErr         error
+	mouseDownErr    error
+	mouseDownFailAt int
+	mouseUpErr      error
 }
 
 func (s *dragCleanupInput) MouseMove(ctx context.Context, x, y int) error {
@@ -43,8 +45,12 @@ func (s *dragCleanupInput) MouseUp(ctx context.Context, button int) error {
 }
 
 func (s *dragCleanupInput) MouseDown(ctx context.Context, button int) error {
+	s.mouseDownCalls++
 	_ = s.Inputter.MouseDown(ctx, button)
-	return s.mouseDownErr
+	if s.mouseDownErr != nil && (s.mouseDownFailAt == 0 || s.mouseDownCalls == s.mouseDownFailAt) {
+		return s.mouseDownErr
+	}
+	return nil
 }
 
 func (s *inputPointerSyncSpy) PointerLocation(context.Context) (int, int, error) {
@@ -187,6 +193,26 @@ func TestInputBundleDoubleClick(t *testing.T) {
 		if inp.Calls[i] != call {
 			t.Fatalf("call %d = %q, want %q (all calls: %v)", i, inp.Calls[i], call, inp.Calls)
 		}
+	}
+}
+
+func TestInputBundleDoubleClickCleansUpAfterSecondMouseDownFailure(t *testing.T) {
+	pressErr := errors.New("second press failed")
+	inp := &dragCleanupInput{
+		mouseDownErr:    pressErr,
+		mouseDownFailAt: 2,
+	}
+	p := pftest.New(nil, inp, nil, nil)
+
+	err := p.Input.DoubleClick(context.Background(), 1, 2)
+	if !errors.Is(err, pressErr) {
+		t.Fatalf("DoubleClick error = %v, want second press error", err)
+	}
+	if inp.mouseDownCalls != 2 {
+		t.Fatalf("MouseDown calls = %d, want 2", inp.mouseDownCalls)
+	}
+	if inp.mouseUpCalls != 2 {
+		t.Fatalf("MouseUp calls = %d, want first release and cleanup release", inp.mouseUpCalls)
 	}
 }
 

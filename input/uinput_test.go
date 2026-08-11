@@ -67,6 +67,19 @@ func (t *recordingTouchPad) Close() error                  { t.record("close"); 
 
 var _ uinput.TouchPad = (*recordingTouchPad)(nil)
 
+type cancelingTouchPad struct {
+	recordingTouchPad
+	cancel context.CancelFunc
+}
+
+func (t *cancelingTouchPad) LeftPress() error {
+	t.record("left-press")
+	t.cancel()
+	return nil
+}
+
+var _ uinput.TouchPad = (*cancelingTouchPad)(nil)
+
 type recordingMouse struct {
 	events   []string
 	closeErr error
@@ -385,6 +398,21 @@ func TestUinputMouseActionsAndScroll(t *testing.T) { //nolint:gocyclo
 			t.Fatalf("ScrollRight event = %q, want wheel:true:3", mouse.events[1])
 		}
 	})
+}
+
+func TestUinputMouseClickReleasesAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	tp := &cancelingTouchPad{cancel: cancel}
+	b := &UinputBackend{touchpad: tp}
+
+	err := b.MouseClick(ctx, 3, 4, 1)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("MouseClick error = %v, want context.Canceled", err)
+	}
+	want := []string{"move:3,4", "left-press", "left-release"}
+	if fmt.Sprint(tp.events) != fmt.Sprint(want) {
+		t.Fatalf("touchpad events = %v, want %v", tp.events, want)
+	}
 }
 
 func TestUinputPointerLocationUnsupported(t *testing.T) {

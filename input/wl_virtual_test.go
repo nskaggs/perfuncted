@@ -36,17 +36,21 @@ func TestNewWlVirtualBackend_Unreachable(t *testing.T) {
 
 func TestBtnCode(t *testing.T) {
 	tests := []struct {
-		button int
-		want   uint32
+		button  int
+		want    uint32
+		wantErr bool
 	}{
-		{1, btnLeft},
-		{2, btnMiddle},
-		{3, btnRight},
-		{0, btnLeft},  // default
-		{99, btnLeft}, // default
+		{1, btnLeft, false},
+		{2, btnMiddle, false},
+		{3, btnRight, false},
+		{0, 0, true},
+		{99, 0, true},
 	}
 	for _, tc := range tests {
-		got := btnCode(tc.button)
+		got, err := btnCode(tc.button)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("btnCode(%d) error = %v, wantErr %t", tc.button, err, tc.wantErr)
+		}
 		if got != tc.want {
 			t.Errorf("btnCode(%d) = %d, want %d", tc.button, got, tc.want)
 		}

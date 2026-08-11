@@ -254,6 +254,10 @@ func (k *KWinScriptManager) Close() error {
 }
 
 func (k *KWinScriptManager) Sync(ctx context.Context) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/kwinscript: sync canceled: %w", err)
+	}
 	return nil
 }
 

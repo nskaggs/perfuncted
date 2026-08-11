@@ -148,6 +148,10 @@ func (g *GnomeManager) Close() error {
 }
 
 func (g *GnomeManager) Sync(ctx context.Context) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("gnome: sync canceled: %w", err)
+	}
 	return nil
 }
 

@@ -41,6 +41,13 @@ func unsupportedError(backend, operation string) error {
 	return fmt.Errorf("%s: %s: %w", backend, operation, ErrNotSupported)
 }
 
+func validateScrollClicks(clicks int) error {
+	if clicks < 0 {
+		return fmt.Errorf("input: scroll clicks must be non-negative, got %d", clicks)
+	}
+	return nil
+}
+
 // Inputter injects keyboard and mouse events.
 //
 // Keyboard methods accept key names ("a", "ctrl", "return", "f5", etc.).

@@ -327,7 +327,10 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 	if err := b.MouseDown(ctx, button); err != nil {
 		return err
 	}
-	return b.MouseUp(ctx, button)
+	if err := b.MouseUp(context.WithoutCancel(ctx), button); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
@@ -393,6 +396,9 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -402,6 +408,9 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
 	if err := b.ensureMouse(); err != nil {
@@ -415,6 +424,9 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	if err := b.ensureMouse(); err != nil {
 		return err
 	}
@@ -424,6 +436,9 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
 	if err := b.ensureMouse(); err != nil {

@@ -234,31 +234,45 @@ func (b *WlVirtualBackend) button(ctx context.Context, code, state uint32) error
 	})
 }
 
-func btnCode(button int) uint32 {
+func btnCode(button int) (uint32, error) {
 	switch button {
+	case 1:
+		return btnLeft, nil
 	case 2:
-		return btnMiddle
+		return btnMiddle, nil
 	case 3:
-		return btnRight
+		return btnRight, nil
 	default:
-		return btnLeft
+		return 0, fmt.Errorf("input/wl-virtual: unsupported mouse button %d", button)
 	}
 }
 
 // MouseDown presses a mouse button.
 func (b *WlVirtualBackend) MouseDown(ctx context.Context, button int) error {
-	return b.button(ctx, btnCode(button), 1)
+	code, err := btnCode(button)
+	if err != nil {
+		return err
+	}
+	return b.button(ctx, code, 1)
 }
 
 // MouseUp releases a mouse button.
 func (b *WlVirtualBackend) MouseUp(ctx context.Context, button int) error {
-	return b.button(ctx, btnCode(button), 0)
+	code, err := btnCode(button)
+	if err != nil {
+		return err
+	}
+	return b.button(ctx, code, 0)
 }
 
 // MouseClick moves to (x,y) then clicks the given button.
 func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	code, err := btnCode(button)
+	if err != nil {
 		return err
 	}
 	return b.withOperation(func(wlctx wl.Ctx) error {
@@ -268,16 +282,16 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.buttonEvent(wlctx, btnCode(button), 1); err != nil {
+		if err := b.buttonEvent(wlctx, code, 1); err != nil {
 			return err
 		}
 		if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
-			if upErr := b.buttonEvent(wlctx, btnCode(button), 0); upErr != nil {
+			if upErr := b.buttonEvent(wlctx, code, 0); upErr != nil {
 				return upErr
 			}
 			return err
 		}
-		return b.buttonEvent(wlctx, btnCode(button), 0)
+		return b.buttonEvent(wlctx, code, 0)
 	})
 }
 
@@ -352,21 +366,33 @@ func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) 
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 func (b *WlVirtualBackend) ScrollUp(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.scroll(ctx, 0, -clicks)
 }
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *WlVirtualBackend) ScrollDown(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.scroll(ctx, 0, clicks)
 }
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 func (b *WlVirtualBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.scroll(ctx, 1, -clicks)
 }
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.scroll(ctx, 1, clicks)
 }
 

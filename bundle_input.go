@@ -69,8 +69,8 @@ func (b *InputBundle) MouseClick(
 	y int,
 	button int,
 ) error {
-	if err := b.checkAvailable("click"); err != nil {
-		return err
+	if checkErr := b.checkAvailable("click"); checkErr != nil {
+		return checkErr
 	}
 	b.traceAction("input", "mouse-click %d,%d,%d", x, y, button)
 	return b.operationError("click", b.backend.MouseClick(ctx, x, y, button))
@@ -92,17 +92,31 @@ func (b *InputBundle) DoubleClick(
 	ctx context.Context,
 	x int,
 	y int,
-) error {
+) (err error) {
 	ctx = contextutil.Default(ctx)
-	if err := b.checkAvailable("click"); err != nil {
-		return err
+	if checkErr := b.checkAvailable("click"); checkErr != nil {
+		return checkErr
 	}
+	released := true
+	defer func() {
+		if !released {
+			cleanupErr := b.operationError(
+				"click",
+				b.backend.MouseUp(context.WithoutCancel(ctx), 1),
+			)
+			if cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
+		}
+	}()
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x, y)); err != nil {
 		return err
 	}
+	released = false
 	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
+	released = true
 	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
 		return err
 	}
@@ -113,9 +127,11 @@ func (b *InputBundle) DoubleClick(
 		return ctx.Err()
 	case <-timer.C:
 	}
+	released = false
 	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
+	released = true
 	return b.operationError("click", b.backend.MouseUp(ctx, 1))
 }
 

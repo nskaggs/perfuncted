@@ -331,6 +331,10 @@ func (m *SwayManager) Close() error {
 }
 
 func (m *SwayManager) Sync(ctx context.Context) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/sway: sync canceled: %w", err)
+	}
 	return nil
 }
 
