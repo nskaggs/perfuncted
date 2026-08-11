@@ -41,6 +41,22 @@ func TestWlrResolutionIgnoresScaleOneAndZero(t *testing.T) {
 	}
 }
 
+func TestWlrFrameDestroyRequest(t *testing.T) {
+	ctx := &extCaptureTestCtx{}
+	if err := wlSendFrameDestroy(ctx, 42); err != nil {
+		t.Fatalf("wlSendFrameDestroy: %v", err)
+	}
+	if len(ctx.msgs) != 1 {
+		t.Fatalf("messages = %d, want 1", len(ctx.msgs))
+	}
+	if got := wl.Uint32(ctx.msgs[0][0:4]); got != 42 {
+		t.Fatalf("sender = %d, want 42", got)
+	}
+	if got := wl.Uint32(ctx.msgs[0][4:8]); got != 8<<16 {
+		t.Fatalf("destroy request header = %#x, want %#x", got, uint32(8<<16))
+	}
+}
+
 func TestWithWlrContextCachingAndReset(t *testing.T) {
 	// Create backend with fake connector
 	b := NewWlrScreencopyBackendWithConnector("/tmp/fake-wl-sock", func(sock string) (*wl.Context, error) { return &wl.Context{}, nil }, 5*time.Minute)

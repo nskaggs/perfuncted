@@ -245,7 +245,10 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		}
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
-		defer wl.Unregister(wlctx, frameProxy)
+		defer func() {
+			_ = wlSendFrameDestroy(wlctx, frameProxy.ID())
+			wl.Unregister(wlctx, frameProxy)
+		}()
 
 		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)
@@ -528,11 +531,19 @@ func wlSendCaptureOutput(ctx *wl.Context, mgrID, overlayCursor, outputID, frameI
 	return ctx.WriteMsg(buf[:], nil)
 }
 
-func wlSendFrameCopy(ctx *wl.Context, frameID, bufID uint32) error {
+func wlSendFrameCopy(ctx wl.Ctx, frameID, bufID uint32) error {
 	const msgSize = 8 + 4
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], frameID)
 	wl.PutUint32(buf[4:], uint32(msgSize<<16))
 	wl.PutUint32(buf[8:], bufID)
+	return ctx.WriteMsg(buf[:], nil)
+}
+
+func wlSendFrameDestroy(ctx wl.Ctx, frameID uint32) error {
+	const msgSize = 8
+	var buf [msgSize]byte
+	wl.PutUint32(buf[0:], frameID)
+	wl.PutUint32(buf[4:], uint32(msgSize<<16))
 	return ctx.WriteMsg(buf[:], nil)
 }
