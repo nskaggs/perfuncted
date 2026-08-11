@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
@@ -122,5 +123,18 @@ func TestPerfunctedPasteFallsBackToInputWhenClipboardUnavailable(t *testing.T) {
 	}
 	if got := inp.Typed(); got != "typed fallback" {
 		t.Fatalf("Paste fallback typed = %q, want %q", got, "typed fallback")
+	}
+}
+
+func TestPerfunctedPasteDoesNotModifyClipboardWithoutInput(t *testing.T) {
+	cb := &pftest.Clipboard{Text: "original"}
+	pf := pftest.New(nil, nil, nil, cb)
+
+	err := pf.Paste(context.Background(), "replacement")
+	if !errors.Is(err, perfuncted.ErrUnavailable) {
+		t.Fatalf("Paste error = %v, want unavailable", err)
+	}
+	if cb.Text != "original" {
+		t.Fatalf("clipboard text = %q after failed paste, want original", cb.Text)
 	}
 }
