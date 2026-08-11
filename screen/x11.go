@@ -10,6 +10,7 @@ import (
 	"image"
 
 	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
@@ -17,6 +18,10 @@ var _ Screenshotter = (*X11Backend)(nil)
 
 // GrabFullHash returns a CRC32 checksum of the entire screen.
 func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	}
 	rect := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	drawable, free := b.compositeDrawableForRoot()
 	defer free()
@@ -42,6 +47,10 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 // GrabRegionHash returns a fast CRC32 hash for the specified rect. It uses
 // XGetImage on the requested rectangle to avoid an intermediate image decode.
 func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
@@ -116,6 +125,10 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 // On composited displays it snapshots the root via NameWindowPixmap so that
 // the actual composited framebuffer is captured rather than the bare root pixmap.
 func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	}
 	if rect.Empty() {
 		rect = image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	}

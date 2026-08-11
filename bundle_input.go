@@ -5,8 +5,8 @@ import (
 	"image"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 // InputBundle exposes input operations through a capability-safe facade.
@@ -16,10 +16,10 @@ type InputBundle struct {
 }
 
 func (b *InputBundle) checkAvailable(operation string) error {
-	if b == nil || b.backend == nil {
-		return b.unavailable(operation)
+	if b == nil {
+		return (&bundleBase{}).unavailable(operation)
 	}
-	return nil
+	return b.bundleBase.checkAvailable(operation, b.backend != nil)
 }
 
 func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
@@ -27,7 +27,7 @@ func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 		return err
 	}
 	b.traceAction("input", "key-down %s", key)
-	return b.backend.KeyDown(ctx, key)
+	return b.operationError("keyboard", b.backend.KeyDown(ctx, key))
 }
 
 func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
@@ -35,7 +35,7 @@ func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
 		return err
 	}
 	b.traceAction("input", "key-up %s", key)
-	return b.backend.KeyUp(ctx, key)
+	return b.operationError("keyboard", b.backend.KeyUp(ctx, key))
 }
 
 func (b *InputBundle) Type(ctx context.Context, text string) error {
@@ -47,7 +47,7 @@ func (b *InputBundle) typeContext(ctx context.Context, text string) error {
 		return err
 	}
 	b.traceAction("input", "type")
-	return b.backend.Type(ctx, text)
+	return b.operationError("keyboard", b.backend.Type(ctx, text))
 }
 
 func (b *InputBundle) MouseMove(
@@ -59,7 +59,7 @@ func (b *InputBundle) MouseMove(
 		return err
 	}
 	b.traceAction("input", "mouse-move %d,%d", x, y)
-	return b.backend.MouseMove(ctx, x, y)
+	return b.operationError("pointer", b.backend.MouseMove(ctx, x, y))
 }
 
 func (b *InputBundle) MouseClick(
@@ -72,7 +72,7 @@ func (b *InputBundle) MouseClick(
 		return err
 	}
 	b.traceAction("input", "mouse-click %d,%d,%d", x, y, button)
-	return b.backend.MouseClick(ctx, x, y, button)
+	return b.operationError("click", b.backend.MouseClick(ctx, x, y, button))
 }
 
 func (b *InputBundle) ClickCenter(
@@ -92,17 +92,17 @@ func (b *InputBundle) DoubleClick(
 	x int,
 	y int,
 ) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := b.checkAvailable("click"); err != nil {
 		return err
 	}
-	if err := b.backend.MouseMove(ctx, x, y); err != nil {
+	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x, y)); err != nil {
 		return err
 	}
-	if err := b.backend.MouseDown(ctx, 1); err != nil {
+	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
-	if err := b.backend.MouseUp(ctx, 1); err != nil {
+	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
 		return err
 	}
 	timer := time.NewTimer(20 * time.Millisecond)
@@ -112,10 +112,10 @@ func (b *InputBundle) DoubleClick(
 		return ctx.Err()
 	case <-timer.C:
 	}
-	if err := b.backend.MouseDown(ctx, 1); err != nil {
+	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
-	return b.backend.MouseUp(ctx, 1)
+	return b.operationError("click", b.backend.MouseUp(ctx, 1))
 }
 
 func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
@@ -123,7 +123,7 @@ func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
 		return err
 	}
 	b.traceAction("input", "mouse-down %d", button)
-	return b.backend.MouseDown(ctx, button)
+	return b.operationError("click", b.backend.MouseDown(ctx, button))
 }
 
 func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
@@ -131,42 +131,43 @@ func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
 		return err
 	}
 	b.traceAction("input", "mouse-up %d", button)
-	return b.backend.MouseUp(ctx, button)
+	return b.operationError("click", b.backend.MouseUp(ctx, button))
 }
 
 func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
-	return b.backend.ScrollUp(ctx, clicks)
+	return b.operationError("scroll", b.backend.ScrollUp(ctx, clicks))
 }
 
 func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
-	return b.backend.ScrollDown(ctx, clicks)
+	return b.operationError("scroll", b.backend.ScrollDown(ctx, clicks))
 }
 
 func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
-	return b.backend.ScrollLeft(ctx, clicks)
+	return b.operationError("scroll", b.backend.ScrollLeft(ctx, clicks))
 }
 
 func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
-	return b.backend.ScrollRight(ctx, clicks)
+	return b.operationError("scroll", b.backend.ScrollRight(ctx, clicks))
 }
 
 func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
-	if err := b.checkAvailable("pointer"); err != nil {
+	if err := b.checkAvailable("pointer-location"); err != nil {
 		return 0, 0, err
 	}
-	return b.backend.PointerLocation(ctx)
+	x, y, err := b.backend.PointerLocation(ctx)
+	return x, y, b.operationError("pointer-location", err)
 }
 
 func (b *InputBundle) Sync(ctx context.Context) error {
@@ -177,9 +178,9 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 		Sync(context.Context) error
 	}
 	if backend, ok := b.backend.(syncer); ok {
-		return backend.Sync(ctx)
+		return b.operationError("sync", backend.Sync(ctx))
 	}
-	return nil
+	return b.operationError("sync", ErrUnsupported)
 }
 
 func (b *InputBundle) DragAndDrop(
@@ -189,14 +190,14 @@ func (b *InputBundle) DragAndDrop(
 	x2 int,
 	y2 int,
 ) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := b.checkAvailable("drag"); err != nil {
 		return err
 	}
-	if err := b.backend.MouseMove(ctx, x1, y1); err != nil {
+	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); err != nil {
 		return err
 	}
-	if err := b.backend.MouseDown(ctx, 1); err != nil {
+	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
 	released := false
@@ -205,9 +206,9 @@ func (b *InputBundle) DragAndDrop(
 			_ = b.backend.MouseUp(context.WithoutCancel(ctx), 1)
 		}
 	}()
-	if err := b.backend.MouseMove(ctx, x2, y2); err != nil {
+	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x2, y2)); err != nil {
 		return err
 	}
 	released = true
-	return b.backend.MouseUp(ctx, 1)
+	return b.operationError("click", b.backend.MouseUp(ctx, 1))
 }

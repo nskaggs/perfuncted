@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 // ErrNilFunction is returned when a poll helper receives a nil callback.
@@ -45,7 +45,7 @@ func Clamp(d time.Duration) time.Duration {
 // WaitFunc polls fn every poll interval until fn returns a value with no error,
 // or ctx is done.
 func WaitFunc[T any](ctx context.Context, pollInterval time.Duration, fn func() (T, error)) (T, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if fn == nil {
 		var zero T
 		return zero, fmt.Errorf("poll.WaitFunc: %w", ErrNilFunction)

@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 func sleepContext(ctx context.Context, d time.Duration) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if d <= 0 {
 		return ctx.Err()
 	}

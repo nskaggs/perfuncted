@@ -22,7 +22,7 @@ import (
 	"strings"
 )
 
-// keySend represents a parsed key-send action produced by ParseKeySend.
+// keySend represents a parsed key-send action produced by parseKeySend.
 type keySend struct {
 	// text is literal text to type (no special keys).
 	text string
@@ -45,13 +45,12 @@ type modifiers struct {
 	super bool
 }
 
-// ParseKeySend parses a human-readable key string into a sequence of keySend
+// parseKeySend parses a human-readable key string into a sequence of keySend
 // actions. Each action is either literal text to type or a named key to
 // press/release.
-// ParseKeySend parses a key syntax string into a slice of key actions.
 // Literal text is returned as elements with a .text field. Braced expressions
 // {keyname}, {keyname down/up}, or {mod+key} are returned with the .key field.
-func ParseKeySend(input string) ([]keySend, error) { //nolint:revive // returns unexported type by design for internal use
+func parseKeySend(input string) ([]keySend, error) {
 	if input == "" {
 		return nil, nil
 	}

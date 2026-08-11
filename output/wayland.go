@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -21,56 +22,40 @@ func NewWaylandLister(sock string) (*WaylandLister, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("output/wayland: WAYLAND_DISPLAY not set")
 	}
-	ctx, err := wl.Connect(sock)
+	s, err := wl.NewSession(sock)
 	if err != nil {
 		return nil, fmt.Errorf("output/wayland: connect: %w", err)
 	}
-	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
-	if err != nil {
-		_ = ctx.Close()
-		return nil, fmt.Errorf("output/wayland: get registry: %w", err)
-	}
+	l := &WaylandLister{session: s}
 
-	l := &WaylandLister{
-		session: &wl.Session{Sock: sock, Ctx: ctx, Display: display, Registry: registry, Globals: make(map[string]wl.GlobalEvent)},
-	}
-	var globals []wl.GlobalEvent
-	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
-		globals = append(globals, ev)
+	initErr := wl.WithOperation(s.Ctx, func() error {
+		for _, ev := range s.Globals {
+			if ev.Interface != "wl_output" {
+				continue
+			}
+			out := &waylandOutput{
+				info: Info{
+					Name:    fmt.Sprintf("wl-output-%d", ev.Name),
+					Backend: "wayland",
+					Scale:   1,
+				},
+			}
+			l.outputs = append(l.outputs, out)
+			proxy := &wl.RawProxy{}
+			s.Ctx.Register(proxy)
+			if err := s.Registry.Bind(ev.Name, "wl_output", minUint32(ev.Version, 4), proxy.ID()); err != nil {
+				return fmt.Errorf("output/wayland: bind wl_output: %w", err)
+			}
+			out.updateProxy(proxy)
+		}
+		if len(l.outputs) == 0 {
+			return capability.Unsupported("output", "wayland", "no wl_output globals advertised")
+		}
+		return s.Display.RoundTrip()
 	})
-	if err := display.RoundTrip(); err != nil {
-		_ = ctx.Close()
-		return nil, fmt.Errorf("output/wayland: registry round-trip: %w", err)
-	}
-
-	for _, ev := range globals {
-		if ev.Interface != "wl_output" {
-			continue
-		}
-		out := &waylandOutput{
-			info: Info{
-				Name:    fmt.Sprintf("wl-output-%d", ev.Name),
-				Backend: "wayland",
-				Scale:   1,
-			},
-		}
-		l.outputs = append(l.outputs, out)
-		proxy := &wl.RawProxy{}
-		ctx.Register(proxy)
-		if err := registry.Bind(ev.Name, "wl_output", minUint32(ev.Version, 4), proxy.ID()); err != nil {
-			_ = ctx.Close()
-			return nil, fmt.Errorf("output/wayland: bind wl_output: %w", err)
-		}
-		out.updateProxy(proxy)
-	}
-	if len(l.outputs) == 0 {
-		_ = ctx.Close()
-		return nil, capability.Unsupported("output", "wayland", "no wl_output globals advertised")
-	}
-	if err := display.RoundTrip(); err != nil {
-		_ = ctx.Close()
-		return nil, fmt.Errorf("output/wayland: initial round-trip: %w", err)
+	if initErr != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("output/wayland: initialize: %w", initErr)
 	}
 	return l, nil
 }
@@ -162,6 +147,10 @@ func readWlString(data []byte, off int) (string, int, bool) {
 }
 
 func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
+	}
 	if l == nil || l.session == nil {
 		return nil, capability.Unsupported("output", "wayland", "not available")
 	}

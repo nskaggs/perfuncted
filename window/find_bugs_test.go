@@ -55,24 +55,6 @@ func TestWaitForMatchClose_PropagatesIOError(t *testing.T) {
 	}
 }
 
-// TestWaitForClose_PropagatesIOError is the same as above for the
-// pattern-string convenience wrapper WaitForClose.
-func TestWaitForClose_PropagatesIOError(t *testing.T) {
-	ioErr := fmt.Errorf("backend: socket closed")
-	m := &errIterManager{err: ioErr}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	err := WaitForClose(ctx, m, "anything", 10*time.Millisecond)
-	if err == nil {
-		t.Fatal("WaitForClose: got nil but expected the underlying I/O error to be propagated")
-	}
-	if !errors.Is(err, ioErr) {
-		t.Fatalf("WaitForClose: got %v, want error wrapping %v", err, ioErr)
-	}
-}
-
 // TestWaitForMatchClose_SucceedsOnErrWindowNotFound verifies that the
 // ErrWindowNotFound path still works correctly after the fix: the function
 // must return nil when the window genuinely disappears.

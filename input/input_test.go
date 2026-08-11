@@ -70,18 +70,15 @@ func TestProbeRuntime_Wayland(t *testing.T) {
 	rt := waylandRuntime("/nonexistent.sock")
 	results := ProbeRuntime(rt)
 
-	// Should have 3 results: wl-input-method, wl-virtual, uinput
-	if len(results) != 3 {
-		t.Fatalf("expected 3 probe results, got %d", len(results))
+	// Should have 2 results: wl-virtual, uinput.
+	if len(results) != 2 {
+		t.Fatalf("expected 2 probe results, got %d", len(results))
 	}
-	if results[0].Name != "wl-input-method" {
-		t.Errorf("first = %q, want wl-input-method", results[0].Name)
+	if results[0].Name != "wl-virtual" {
+		t.Errorf("first = %q, want wl-virtual", results[0].Name)
 	}
-	if results[1].Name != "wl-virtual" {
-		t.Errorf("second = %q, want wl-virtual", results[1].Name)
-	}
-	if results[2].Name != "uinput" {
-		t.Errorf("third = %q, want uinput", results[2].Name)
+	if results[1].Name != "uinput" {
+		t.Errorf("second = %q, want uinput", results[1].Name)
 	}
 	// All should be unavailable (socket unreachable, /dev/uinput likely absent)
 	for _, r := range results {

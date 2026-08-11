@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 )
 
@@ -105,7 +105,7 @@ func swayQueryDeadline(ctx context.Context) time.Time {
 }
 
 func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func readSwayMessage(conn net.Conn) (uint32, []byte, error) {
 }
 
 func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string) ([]byte, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -446,7 +446,7 @@ func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
 }
 
 func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
 		return err
@@ -464,11 +464,12 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 loop:
 	for {
 		wins, err := m.List(ctx)
-		if err == nil {
-			for _, win := range wins {
-				if win.ID == numeric {
-					break loop
-				}
+		if err != nil {
+			return err
+		}
+		for _, win := range wins {
+			if win.ID == numeric {
+				break loop
 			}
 		}
 		select {
@@ -545,21 +546,6 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	return FindByID(ctx, m, numeric)
 }
 
-func (m *SwayManager) WaitClosedByID(ctx context.Context, id string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if _, err := m.InfoByID(ctx, id); err != nil {
-				return nil
-			}
-		}
-	}
-}
-
 // swayQueryOnce sends a single IPC request and returns the raw JSON response.
 func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) {
 	return swayQueryOnceContext(context.Background(), sock, msgType, payload)
@@ -571,7 +557,7 @@ var swayDialContext = func(ctx context.Context, network, address string) (net.Co
 }
 
 func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) ([]byte, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	conn, err := swayDialContext(ctx, "unix", sock)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {

@@ -20,8 +20,8 @@ import (
 	"os"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
@@ -59,6 +59,7 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 		return nil, fmt.Errorf("screen/kwin: D-Bus session: %w", err)
 	}
 	if !dbusutil.HasService(conn, kwinShotDest) {
+		_ = conn.Close()
 		return nil, fmt.Errorf("screen/kwin: %s not on session bus", kwinShotDest)
 	}
 	obj := conn.Object(kwinShotDest, kwinShotPath)
@@ -67,6 +68,7 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 	// KDE Plasma 6 requires explicit per-process permission via the xdg
 	// permission store; this check allows Open() to fall back to the portal.
 	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("screen/kwin: authorization check failed: %w", err)
 	}
 	return b, nil
@@ -124,7 +126,7 @@ func (t *kwinDBusTransport) CaptureActiveScreen(ctx context.Context) (image.Imag
 }
 
 func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect image.Rectangle, args ...interface{}) (image.Image, error) {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/kwin: capture canceled: %w", err)
 	}
@@ -136,7 +138,7 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 
 	callArgs := append(append(make([]interface{}, 0, len(args)+2), args...), map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
 	var results map[string]dbus.Variant
-	call := t.kwin.Call(method, 0, callArgs...)
+	call := t.kwin.CallWithContext(ctx, method, 0, callArgs...)
 	// Close our copy now; KWin received its own via SCM_RIGHTS and has already
 	// written + closed its copy by the time Call() returns (it's synchronous).
 	w.Close()

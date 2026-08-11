@@ -591,7 +591,7 @@ func TestSendkeysContext_HeldNotSetOnSendKeyFailure(t *testing.T) {
 	// Allow 1 write (keymap) then fail.
 	k, _ := newFailingKeyboard(1)
 
-	actions, err := ParseKeySend("{enter down}")
+	actions, err := parseKeySend("{enter down}")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestSendkeysContext_ModifierClearedOnSendKeyFailure(t *testing.T) {
 	// Allow 2 writes (keymap + sendModifiers) then fail.
 	k, _ := newFailingKeyboard(2)
 
-	actions, err := ParseKeySend("{ctrl+s}")
+	actions, err := parseKeySend("{ctrl+s}")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

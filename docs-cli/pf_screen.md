@@ -11,8 +11,6 @@ Screen capture operations
 ### Options inherited from parent commands
 
 ```
-      --max-x int32            input coordinate space width (default 1920)
-      --max-y int32            input coordinate space height (default 1080)
       --nested                 start and target a new nested Wayland session
       --sync                   sync after observable mutating commands when supported
       --trace-actions          print each API action to stderr as it runs
@@ -27,7 +25,6 @@ Screen capture operations
 * [pf screen grab](pf_screen_grab.md)	 - Capture a screen region and save as PNG
 * [pf screen grab-full-hash](pf_screen_grab-full-hash.md)	 - Print the CRC32 hash of the full screen contents
 * [pf screen grab-region](pf_screen_grab-region.md)	 - Capture a specific screen region
-* [pf screen grab-region-hash](pf_screen_grab-region-hash.md)	 - Print the CRC32 hash of a screen region
 * [pf screen hash](pf_screen_hash.md)	 - Print the CRC32 pixel hash of a screen region
 * [pf screen pixel](pf_screen_pixel.md)	 - Print the RGB colour of a single pixel
 * [pf screen resolution](pf_screen_resolution.md)	 - Print the screen resolution

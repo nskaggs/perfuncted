@@ -2,12 +2,14 @@
 package wl
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 )
 
@@ -23,6 +25,16 @@ type Ctx interface {
 	WriteMsg(data, oob []byte) error
 	Dispatch() error
 	Close() error
+}
+
+// WithOperation serializes a multi-message protocol operation on a context.
+// Test contexts that do not share a real connection may omit the optional
+// operation guard and execute fn directly.
+func WithOperation(ctx Ctx, fn func() error) error {
+	if op, ok := ctx.(interface{ WithOperation(func() error) error }); ok {
+		return op.WithOperation(fn)
+	}
+	return fn()
 }
 
 // Proxy is implemented by all Wayland protocol objects.
@@ -65,6 +77,12 @@ type Context struct {
 	objects map[uint32]Proxy
 	nextID  uint32
 	buf     []byte
+
+	objectsMu   sync.RWMutex
+	writeMu     sync.Mutex
+	dispatchMu  sync.Mutex
+	roundTripMu sync.Mutex
+	operationMu sync.Mutex
 }
 
 // Connect opens a Wayland connection to addr (must be an absolute socket path).
@@ -83,6 +101,8 @@ func Connect(addr string) (*Context, error) {
 
 // Register assigns the next client-side object ID to p and tracks it.
 func (ctx *Context) Register(p Proxy) {
+	ctx.objectsMu.Lock()
+	defer ctx.objectsMu.Unlock()
 	if ctx.objects == nil {
 		ctx.objects = make(map[uint32]Proxy)
 	}
@@ -95,12 +115,22 @@ func (ctx *Context) Register(p Proxy) {
 // SetProxy registers p with a specific compositor-assigned ID.
 // Use this for server-created objects (new_id events from compositor side).
 func (ctx *Context) SetProxy(id uint32, p Proxy) {
+	ctx.objectsMu.Lock()
+	defer ctx.objectsMu.Unlock()
 	if ctx.objects == nil {
 		ctx.objects = make(map[uint32]Proxy)
 	}
 	p.SetID(id)
 	p.SetCtx(ctx)
 	ctx.objects[id] = p
+}
+
+func (ctx *Context) unregister(id uint32, expected Proxy) {
+	ctx.objectsMu.Lock()
+	defer ctx.objectsMu.Unlock()
+	if current, ok := ctx.objects[id]; ok && current == expected {
+		delete(ctx.objects, id)
+	}
 }
 
 // WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
@@ -110,6 +140,8 @@ func (ctx *Context) WriteMsg(data, oob []byte) error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	ctx.writeMu.Lock()
+	defer ctx.writeMu.Unlock()
 	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
 	if err != nil {
 		return err
@@ -128,6 +160,8 @@ func (ctx *Context) Dispatch() error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	ctx.dispatchMu.Lock()
+	defer ctx.dispatchMu.Unlock()
 	var hdr [8]byte
 	if _, err := io.ReadFull(ctx.conn, hdr[:]); err != nil {
 		return fmt.Errorf("wl: %w", err)
@@ -149,10 +183,45 @@ func (ctx *Context) Dispatch() error {
 			return fmt.Errorf("wl: %w", err)
 		}
 	}
-	if p, ok := ctx.objects[senderID]; ok {
+	ctx.objectsMu.RLock()
+	p, ok := ctx.objects[senderID]
+	ctx.objectsMu.RUnlock()
+	if ok {
 		p.Dispatch(opcode, -1, data)
 	}
 	return nil
+}
+
+// DispatchContext reads and dispatches one Wayland message, interrupting the
+// socket read when cancel is done. Closing the socket is safe here because the
+// owning operation serializes dispatch and treats cancellation as a failed
+// operation; the caller will discard the connection before reusing it.
+func (ctx *Context) DispatchContext(cancel context.Context) error {
+	if cancel == nil {
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
+	}
+	if err := cancel.Err(); err != nil {
+		return err
+	}
+
+	finished := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-cancel.Done():
+			_ = ctx.Close()
+		case <-finished:
+		}
+	}()
+
+	err := ctx.Dispatch()
+	close(finished)
+	<-watcherDone
+	if cancelErr := cancel.Err(); cancelErr != nil {
+		return cancelErr
+	}
+	return err
 }
 
 // Close closes the Wayland socket connection.
@@ -162,16 +231,19 @@ func (ctx *Context) Close() error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	ctx.writeMu.Lock()
+	defer ctx.writeMu.Unlock()
 	return ctx.conn.Close()
 }
 
-// SafeClose closes ctx if non-nil and its underlying connection is non-nil.
-// Use when callers may construct partial contexts in tests.
-func SafeClose(ctx *Context) error {
-	if ctx == nil || ctx.conn == nil {
-		return nil
-	}
-	return ctx.conn.Close()
+// WithOperation serializes a multi-message protocol operation on this
+// connection. Callbacks may still re-enter Register, SetProxy, and WriteMsg;
+// those operations use separate locks. It is intentionally optional through
+// the wl.Ctx interface so protocol test doubles do not need to implement it.
+func (ctx *Context) WithOperation(fn func() error) error {
+	ctx.operationMu.Lock()
+	defer ctx.operationMu.Unlock()
+	return fn()
 }
 
 // ── Wire encoding helpers ─────────────────────────────────────────────────────
@@ -250,19 +322,58 @@ func (d *Display) Sync() (*Callback, error) {
 
 // RoundTrip performs a synchronous wl_display.sync, pumping events until done.
 func (d *Display) RoundTrip() error {
-	cb, err := d.Sync()
-	if err != nil {
-		return err
-	}
-	// If the underlying connection is nil (tests may use zero-value Context),
-	// treat RoundTrip as a no-op since no events are expected.
-	if d.ctx == nil || d.ctx.conn == nil {
+	if d == nil || d.ctx == nil {
 		return nil
 	}
+	return d.ctx.RoundTrip()
+}
+
+// RoundTripContext performs a synchronous wl_display.sync, pumping events
+// until done or cancel is canceled.
+func (d *Display) RoundTripContext(cancel context.Context) error {
+	if d == nil || d.ctx == nil {
+		return nil
+	}
+	return d.ctx.RoundTripContext(cancel)
+}
+
+// RoundTrip performs a synchronous wl_display.sync using this context. The
+// round-trip lock prevents concurrent callers from consuming each other's sync
+// callbacks on a shared connection.
+func (ctx *Context) RoundTrip() error {
+	return ctx.RoundTripContext(context.Background()) //nolint:contextcheck // RoundTrip is the non-cancelable convenience API.
+}
+
+// RoundTripContext performs a synchronous wl_display.sync, pumping events
+// until done or cancel is canceled. The round-trip lock prevents concurrent
+// callers from consuming each other's sync callbacks on a shared connection.
+func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:contextcheck // cancel is the first method argument after the receiver.
+	if ctx == nil || ctx.conn == nil {
+		return nil
+	}
+	if cancel == nil {
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
+	}
+	if err := cancel.Err(); err != nil {
+		return err
+	}
+	ctx.roundTripMu.Lock()
+	defer ctx.roundTripMu.Unlock()
+
+	cb := &Callback{}
+	ctx.Register(cb)
+	defer ctx.unregister(cb.ID(), cb)
+	var buf [12]byte
+	PutUint32(buf[0:], 1)
+	PutUint32(buf[4:], 12<<16)
+	PutUint32(buf[8:], cb.ID())
+	if err := ctx.WriteMsg(buf[:], nil); err != nil {
+		return err
+	}
 	done := make(chan struct{}, 1)
-	cb.doneHandler = func() { done <- struct{}{} }
+	cb.SetDoneHandler(func() { done <- struct{}{} })
 	for {
-		if err := d.ctx.Dispatch(); err != nil {
+		if err := ctx.DispatchContext(cancel); err != nil {
 			return err
 		}
 		select {

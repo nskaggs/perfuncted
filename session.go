@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,8 +21,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/window"
 )
 
 //go:embed configs/headless.conf configs/nested.conf
@@ -56,9 +60,6 @@ type sessionInfra struct {
 	wlDisplay  string
 	dbusAddr   string
 	logDir     string
-	swayPid    int
-	dbusPid    int
-	wlPastePid int
 	swayCmd    *exec.Cmd
 	dbusCmd    *exec.Cmd
 	wlPasteCmd *exec.Cmd
@@ -105,7 +106,7 @@ type Session struct {
 // an isolated desktop session.
 func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	if ctx == nil {
-		return nil, errors.New("perfuncted: open: nil context")
+		return nil, fmt.Errorf("perfuncted: open: %w: nil context", ErrInvalidArgument)
 	}
 
 	cfg := openConfig{
@@ -122,6 +123,9 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 		if err := option(&cfg); err != nil {
 			return nil, err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	s := &Session{
@@ -141,6 +145,10 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	}
 
 	if err := s.initializeCapabilities(cfg); err != nil {
+		closeErr := s.Close() //nolint:contextcheck // Close owns its shutdown contexts
+		return nil, errors.Join(err, closeErr)
+	}
+	if err := ctx.Err(); err != nil {
 		closeErr := s.Close() //nolint:contextcheck // Close owns its shutdown contexts
 		return nil, errors.Join(err, closeErr)
 	}
@@ -185,7 +193,6 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 	s.Input = &InputBundle{bundleBase: s.bundleBase(CapabilityInput)}
 	s.Windows = &WindowBundle{
 		bundleBase: s.bundleBase(CapabilityWindows),
-		session:    s,
 	}
 	s.Outputs = &OutputBundle{bundleBase: s.bundleBase(CapabilityOutputs)}
 	s.Clipboard = &ClipboardBundle{bundleBase: s.bundleBase(CapabilityClipboard)}
@@ -206,19 +213,20 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 			continue
 		}
 		backend, err := s.openCapability(capability)
-		status.Failure = err
+		if err != nil {
+			status.Failure = errors.Join(ErrUnavailable, err)
+		}
 		status.Available = err == nil
 		if err == nil {
 			status.Backend = fmt.Sprintf("%T", backend)
-			status.Operations = supportedOperations(capability, backend)
+			status.Operations = slices.Clone(supportedOperations(capability, backend))
 		}
 		s.capabilities[capability] = status
-		s.setCapabilityFailure(capability, err)
 		if err != nil && status.Required {
 			return &CapabilityError{
 				Capability: capability,
 				Operation:  "open",
-				Err:        err,
+				Err:        status.Failure,
 			}
 		}
 	}
@@ -227,27 +235,88 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 }
 
 func supportedOperations(capability Capability, backend any) []string {
-	if capability == CapabilityWindows {
-		if reporter, ok := backend.(interface {
-			SupportedOperations() []string
-		}); ok {
-			return reporter.SupportedOperations()
+	if reporter, ok := backend.(interface {
+		SupportedOperations() []string
+	}); ok {
+		operations := slices.Clone(reporter.SupportedOperations())
+		if capability == CapabilityWindows {
+			if _, ok := backend.(interface {
+				ActiveTitle(context.Context) (string, error)
+			}); ok {
+				operations = appendUniqueOperation(operations, "active-title")
+			}
+			if _, ok := backend.(interface{ Sync(context.Context) error }); ok {
+				operations = appendUniqueOperation(operations, "sync")
+			}
+			if _, ok := backend.(interface {
+				InfoByID(context.Context, string) (window.Info, error)
+			}); ok {
+				operations = appendUniqueOperation(operations, "info")
+			}
 		}
+		return operations
 	}
-	return capabilityOperations(capability)
+	if capability == CapabilityWindows {
+		operations := capabilityops.Operations(
+			"windows",
+			"sync",
+			"info",
+			"activate",
+			"move",
+			"resize",
+			"close",
+			"minimize",
+			"maximize",
+			"fullscreen",
+			"restore",
+		)
+		if _, ok := backend.(window.IDManager); ok {
+			operations = capabilityops.Operations("windows", "sync")
+		}
+		if _, ok := backend.(interface{ Sync(context.Context) error }); ok {
+			operations = append(operations, "sync")
+		}
+		return operations
+	}
+	operations := capabilityOperations(capability)
+	return operations
+}
+
+func appendUniqueOperation(operations []string, operation string) []string {
+	if slices.Contains(operations, operation) {
+		return operations
+	}
+	return append(operations, operation)
 }
 
 func (s *Session) bundleBase(capability Capability) bundleBase {
 	return bundleBase{
+		session:    s,
 		capability: capability,
-		tracer:     s.tracer,
 	}
+}
+
+func (s *Session) isClosed() bool {
+	if s == nil {
+		return true
+	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	return s.closed || s.ctx == nil
+}
+
+func (s *Session) ensureOpen() error {
+	if s.isClosed() {
+		return ErrSessionClosed
+	}
+	return nil
 }
 
 func (s *Session) openCapability(capability Capability) (any, error) {
 	switch capability {
 	case CapabilityScreen:
 		backend, err := openScreen(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Screen.backend = backend
 		}
@@ -255,6 +324,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityInput:
 		backend, err := openInput(s.env, 0, 0)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Input.backend = backend
 		}
@@ -262,6 +332,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityWindows:
 		backend, err := openWindow(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Windows.backend = backend
 		}
@@ -269,6 +340,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityOutputs:
 		backend, err := openOutput(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Outputs.backend = backend
 		}
@@ -276,6 +348,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		return backend, err
 	case CapabilityClipboard:
 		backend, err := openClipboard(s.env)
+		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Clipboard.backend = backend
 		}
@@ -286,27 +359,36 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 	}
 }
 
+func validateBackend[T any](capability Capability, backend T, err error) (T, error) {
+	if err == nil && nilBackend(backend) {
+		err = nilBackendError(capability)
+	}
+	return backend, err
+}
+
+func nilBackend(backend any) bool {
+	if backend == nil {
+		return true
+	}
+	value := reflect.ValueOf(backend)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func nilBackendError(capability Capability) error {
+	return fmt.Errorf("perfuncted: %s backend returned nil: %w", capability, ErrUnavailable)
+}
+
 func closeFailedBackend(backend any, openErr error) {
-	if openErr == nil || backend == nil {
+	if openErr == nil || nilBackend(backend) {
 		return
 	}
 	if closer, ok := backend.(interface{ Close() error }); ok {
 		_ = closer.Close()
-	}
-}
-
-func (s *Session) setCapabilityFailure(capability Capability, err error) {
-	switch capability {
-	case CapabilityScreen:
-		s.Screen.failure = err
-	case CapabilityInput:
-		s.Input.failure = err
-	case CapabilityWindows:
-		s.Windows.failure = err
-	case CapabilityOutputs:
-		s.Outputs.failure = err
-	case CapabilityClipboard:
-		s.Clipboard.failure = err
 	}
 }
 
@@ -368,7 +450,7 @@ func (s *Session) close() error {
 
 // Has reports whether the session provides the given capability.
 func (s *Session) Has(cap Capability) bool {
-	if s == nil {
+	if s == nil || s.isClosed() {
 		return false
 	}
 	status, ok := s.capabilities[cap]
@@ -422,8 +504,17 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 	if s == nil {
 		return ErrNilSession
 	}
+	if ctx == nil {
+		return fmt.Errorf("perfuncted: paste: %w: nil context", ErrInvalidArgument)
+	}
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if s.Has(CapabilityClipboard) {
 		return s.Clipboard.pasteWithInputContext(ctx, text, s.Input)
+	}
+	if s.Input == nil {
+		return ErrUnavailable
 	}
 	return s.Input.typeContext(ctx, text)
 }
@@ -449,11 +540,6 @@ func (s *Session) WaylandDisplay() string {
 // X11Display returns the session X11 display string.
 func (s *Session) X11Display() string {
 	return s.env.Display()
-}
-
-// Runtime returns the full environment snapshot used by this session.
-func (s *Session) Runtime() env.Runtime {
-	return s.env
 }
 
 // ---------- infrastructure launchers ----------
@@ -488,13 +574,13 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: mkdir logs: %w", mkdirErr)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	infraCtx, cancel := context.WithCancel(context.Background())
 	infra := &sessionInfra{
 		xdgDir:    xdgDir,
 		wlDisplay: "wayland-1",
 		dbusAddr:  fmt.Sprintf("unix:path=%s/bus", xdgDir),
 		logDir:    logDir,
-		ctx:       ctx,
+		ctx:       infraCtx,
 		cancel:    cancel,
 	}
 
@@ -512,7 +598,7 @@ func (s *Session) startSession(
 		infra.ctx,
 	)
 
-	if launchErr := infra.launchDBus(); launchErr != nil {
+	if launchErr := infra.launchDBus(ctx); launchErr != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
@@ -526,9 +612,13 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: sway config: %w", err)
 	}
 
-	if err := infra.launchSway(swayConf, mode); err != nil {
+	if err := infra.launchSway(ctx, swayConf, mode); err != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: sway: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		infra.stop()
+		return nil, fmt.Errorf("session: startup: %w", err)
 	}
 
 	infra.launchWlPaste()
@@ -546,8 +636,8 @@ func (i *sessionInfra) resolveSwayConfig(mode sessionMode, res image.Point) (str
 	return "", fmt.Errorf("session: unknown mode %d", mode)
 }
 
-func (i *sessionInfra) launchDBus() error {
-	cmd := executil.CommandContext(i.ctx, "dbus-daemon", "--session",
+func (i *sessionInfra) launchDBus(ctx context.Context) error {
+	cmd := executil.CommandContext(i.ctx, "dbus-daemon", "--session", //nolint:contextcheck // process lifetime outlives startup context
 		"--address="+i.dbusAddr,
 		"--nofork", "--nopidfile")
 	cmd.Env = env.Current().
@@ -558,25 +648,28 @@ func (i *sessionInfra) launchDBus() error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	i.dbusPid = cmd.Process.Pid
 	i.dbusCmd = cmd
-	i.writeChildPID("dbus.pid", i.dbusPid)
+	i.writeChildPID("dbus.pid", cmd.Process.Pid)
 
 	busPath := filepath.Join(i.xdgDir, "bus")
-	if err := waitForFile(busPath, 100, 100*time.Millisecond); err != nil {
+	if err := waitForFile(ctx, busPath, 100, 100*time.Millisecond); err != nil {
 		return fmt.Errorf("dbus socket %s did not appear within 10s: %w", busPath, err)
 	}
 	return nil
 }
 
-func (i *sessionInfra) launchSway(confPath string, mode sessionMode) error {
+func (i *sessionInfra) launchSway(
+	ctx context.Context,
+	confPath string,
+	mode sessionMode,
+) error {
 	logPath := filepath.Join(i.logDir, "sway-session.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return fmt.Errorf("create log: %w", err)
 	}
 
-	cmd := executil.CommandContext(i.ctx, "sway", "--unsupported-gpu", "-c", confPath)
+	cmd := executil.CommandContext(i.ctx, "sway", "--unsupported-gpu", "-c", confPath) //nolint:contextcheck // process lifetime outlives startup context
 	runtime := env.Current().
 		With("XDG_RUNTIME_DIR", i.xdgDir).
 		With("DBUS_SESSION_BUS_ADDRESS", i.dbusAddr).
@@ -611,22 +704,21 @@ func (i *sessionInfra) launchSway(confPath string, mode sessionMode) error {
 		logFileClose(logFile)
 		return err
 	}
-	i.swayPid = cmd.Process.Pid
 	i.swayCmd = cmd
-	i.writeChildPID("sway.pid", i.swayPid)
+	i.writeChildPID("sway.pid", cmd.Process.Pid)
 	logFileClose(logFile)
 
 	socketPath := filepath.Join(i.xdgDir, i.wlDisplay)
 	ipcGlob := filepath.Join(i.xdgDir, "sway-ipc.*.sock")
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		if err := waitForFile(socketPath, 150, 200*time.Millisecond); err != nil {
+		if err := waitForFile(ctx, socketPath, 150, 200*time.Millisecond); err != nil {
 			return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
 		}
 		return nil
 	})
 	g.Go(func() error {
-		if err := waitForGlob(ipcGlob, 150, 200*time.Millisecond); err != nil {
+		if err := waitForGlob(ctx, ipcGlob, 150, 200*time.Millisecond); err != nil {
 			return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", i.xdgDir, err)
 		}
 		return nil
@@ -640,9 +732,8 @@ func (i *sessionInfra) launchWlPaste() {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	err := cmd.Start()
 	if err == nil {
-		i.wlPastePid = cmd.Process.Pid
 		i.wlPasteCmd = cmd
-		i.writeChildPID("wl-paste.pid", i.wlPastePid)
+		i.writeChildPID("wl-paste.pid", cmd.Process.Pid)
 		return
 	}
 	slog.Warn("wl-paste helper failed to start", "error", err)
@@ -728,9 +819,9 @@ func (i *sessionInfra) stop() {
 		i.cancel()
 	}
 
-	i.stopManagedProcess(i.wlPasteCmd, i.wlPastePid, 200*time.Millisecond)
-	i.stopManagedProcess(i.swayCmd, i.swayPid, 500*time.Millisecond)
-	i.stopManagedProcess(i.dbusCmd, i.dbusPid, 200*time.Millisecond)
+	i.stopManagedProcess(i.wlPasteCmd, 200*time.Millisecond)
+	i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
+	i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
 	if i.xdgDir != "" {
 		unmountSubdirs(i.xdgDir)
 		if err := os.RemoveAll(i.xdgDir); err != nil {
@@ -739,8 +830,11 @@ func (i *sessionInfra) stop() {
 	}
 }
 
-func (i *sessionInfra) stopManagedProcess(cmd *exec.Cmd, pid int, waitTimeout time.Duration) {
-	(&managedProc{cmd: cmd, pid: pid}).stop(waitTimeout)
+func (i *sessionInfra) stopManagedProcess(cmd *exec.Cmd, waitTimeout time.Duration) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(waitTimeout)
 }
 
 // ---------- managed process ----------
@@ -893,34 +987,58 @@ func staleNoPIDThreshold(maxAge time.Duration) time.Duration {
 	return maxAge
 }
 
-func waitForFile(path string, attempts int, interval time.Duration) error {
+func waitForFile(
+	ctx context.Context,
+	path string,
+	attempts int,
+	interval time.Duration,
+) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for i := 0; i < attempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, err := os.Stat(path); err == nil {
 			return nil
 		}
 		if i == attempts-1 {
 			break
 		}
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 	return fmt.Errorf("%s did not appear within %s", path, time.Duration(attempts)*interval)
 }
 
-func waitForGlob(pattern string, attempts int, interval time.Duration) error {
+func waitForGlob(
+	ctx context.Context,
+	pattern string,
+	attempts int,
+	interval time.Duration,
+) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for i := 0; i < attempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
 			return nil
 		}
 		if i == attempts-1 {
 			break
 		}
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 	return fmt.Errorf("pattern %s did not match within %s", pattern, time.Duration(attempts)*interval)
 }

@@ -252,7 +252,7 @@ func TestSendkeys_ComboOnly(t *testing.T) {
 
 func TestSendkeys_ExplicitModifierReleaseOnlySendsKeyUp(t *testing.T) {
 	k, rc := newSendkeysTestKeyboard()
-	actions, err := ParseKeySend("{ctrl down}{ctrl up}")
+	actions, err := parseKeySend("{ctrl down}{ctrl up}")
 	if err != nil {
 		t.Fatalf("ParseKeySend: %v", err)
 	}

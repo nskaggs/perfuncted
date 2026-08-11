@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
 	"sync"
 	"time"
 
@@ -182,30 +181,31 @@ func WindowExists(match WindowMatch) Condition {
 	)
 }
 
-// WindowState is an alias for WindowExists that emphasizes state fields in
-// WindowMatch.
-func WindowState(match WindowMatch) Condition {
-	return WindowExists(match)
-}
-
 // WindowClosed succeeds when the stable window handle no longer exists.
 func WindowClosed(target *Window) Condition {
 	return sessionCondition(
 		"window closed",
 		func(ctx context.Context, session *Session) (bool, error) {
-			if target == nil || target.session == nil {
+			if target == nil || target.id.session == nil {
 				return false, ErrNilSession
 			}
-			if target.session != session || target.id.session != session {
-				return false, errors.New(
-					"perfuncted: window belongs to another session",
+			if target.id.session != session {
+				return false, fmt.Errorf(
+					"perfuncted: window belongs to another session: %w",
+					ErrInvalidArgument,
 				)
+			}
+			if err := session.Windows.checkAvailable("info"); err != nil {
+				return false, err
 			}
 			backend, ok := session.Windows.backend.(interface {
 				InfoByID(context.Context, string) (window.Info, error)
 			})
 			if !ok {
-				return false, window.ErrNotSupported
+				return false, session.Windows.operationError(
+					"info",
+					errors.Join(ErrUnsupported, window.ErrNotSupported),
+				)
 			}
 			_, err := backend.InfoByID(
 				ctx,
@@ -214,70 +214,7 @@ func WindowClosed(target *Window) Condition {
 			if errors.Is(err, ErrWindowNotFound) {
 				return true, nil
 			}
-			return false, err
-		},
-	)
-}
-
-// ApplicationExited succeeds after app has been reaped.
-func ApplicationExited(app *Application) Condition {
-	return sessionCondition(
-		"application exited",
-		func(_ context.Context, session *Session) (bool, error) {
-			if app == nil || app.session != session {
-				return false, errors.New(
-					"perfuncted: application belongs to another session",
-				)
-			}
-			select {
-			case <-app.done:
-				return true, nil
-			default:
-				return false, nil
-			}
-		},
-	)
-}
-
-// ScreenChanged succeeds when rect's hash differs from initial.
-func ScreenChanged(rect image.Rectangle, initial uint32) Condition {
-	return sessionCondition(
-		"screen changed",
-		func(ctx context.Context, session *Session) (bool, error) {
-			hash, err := session.Screen.grabHash(ctx, rect)
-			return hash != initial, err
-		},
-	)
-}
-
-// ScreenStable succeeds after consecutiveSamples identical observations.
-func ScreenStable(
-	rect image.Rectangle,
-	consecutiveSamples int,
-) Condition {
-	var (
-		mu       sync.Mutex
-		lastHash uint32
-		haveHash bool
-		stable   int
-	)
-	return sessionCondition(
-		"screen stable",
-		func(ctx context.Context, session *Session) (bool, error) {
-			hash, err := session.Screen.grabHash(ctx, rect)
-			if err != nil {
-				return false, err
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			if !haveHash || hash != lastHash {
-				lastHash = hash
-				haveHash = true
-				stable = 1
-			} else {
-				stable++
-			}
-			return stable >= max(1, consecutiveSamples), nil
+			return false, session.Windows.operationError("info", err)
 		},
 	)
 }
@@ -293,7 +230,7 @@ type waitConfig struct {
 func WaitEvery(interval time.Duration) WaitOption {
 	return func(config *waitConfig) error {
 		if interval <= 0 {
-			return errors.New("perfuncted: wait interval must be positive")
+			return fmt.Errorf("perfuncted: %w: wait interval must be positive", ErrInvalidArgument)
 		}
 		config.interval = interval
 		return nil
@@ -311,10 +248,10 @@ func (s *Session) Wait(
 		return ErrNilSession
 	}
 	if ctx == nil {
-		return errors.New("perfuncted: wait: nil context")
+		return fmt.Errorf("perfuncted: wait: %w: nil context", ErrInvalidArgument)
 	}
 	if condition == nil {
-		return errors.New("perfuncted: wait: nil condition")
+		return fmt.Errorf("perfuncted: wait: %w: nil condition", ErrInvalidArgument)
 	}
 	config := waitConfig{interval: defaultWaitInterval}
 	for _, option := range options {
@@ -326,13 +263,33 @@ func (s *Session) Wait(
 		}
 	}
 
+	return s.wait(ctx, condition, config)
+}
+
+func (s *Session) wait(
+	ctx context.Context,
+	condition Condition,
+	config waitConfig,
+) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
 	for {
+		if err := s.waitState(ctx); err != nil {
+			return err
+		}
 		wake := s.waitChanges()
 		ok, err := condition.evaluate(ctx, s)
 		if err != nil {
+			if stateErr := s.waitState(ctx); stateErr != nil {
+				return stateErr
+			}
 			return fmt.Errorf("wait %s: %w", condition.describe(), err)
+		}
+		if err := s.waitState(ctx); err != nil {
+			return err
 		}
 		if ok {
 			return nil
@@ -349,6 +306,13 @@ func (s *Session) Wait(
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Session) waitState(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.ensureOpen()
 }
 
 type invalidationHub struct {

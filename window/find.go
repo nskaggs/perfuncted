@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nskaggs/perfuncted/ctxutil"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/util"
 )
 
@@ -21,7 +21,7 @@ func find(ctx context.Context, m Manager, match Matcher, label string) (Info, er
 	if err := util.CheckAvailable("window", m); err != nil {
 		return Info{}, err
 	}
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	for w, err := range m.IterateWindows(ctx) {
 		if err != nil {
 			return Info{}, err
@@ -44,14 +44,9 @@ func FindByID(ctx context.Context, m Manager, id uint64) (Info, error) {
 	return find(ctx, m, CompileMatch(Match{ID: &id}), fmt.Sprintf("id=%d", id))
 }
 
-// WaitForClose blocks until no window matches pattern, or ctx expires.
-func WaitForClose(ctx context.Context, m Manager, pattern string, poll time.Duration) error {
-	return WaitForMatchClose(ctx, m, Match{TitleContains: pattern}, poll)
-}
-
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	compiled := CompileMatch(match)
 	label := match.String()
 	ticker := time.NewTicker(clampPoll(poll))

@@ -18,15 +18,17 @@ type cliConfig struct {
 	nested       bool
 	traceActions bool
 	traceDelay   time.Duration
-	maxX         int32
-	maxY         int32
 	sync         bool
 	required     []perfuncted.Capability
 	optional     []perfuncted.Capability
 }
 
-func defaultOpenPFFactory(cfg *cliConfig) func() (*perfuncted.Session, error) {
-	return func() (*perfuncted.Session, error) {
+type sessionOpener func(context.Context) (*perfuncted.Session, error)
+
+type cliOpenFactory func(*cliConfig) sessionOpener
+
+func defaultOpenPFFactory(cfg *cliConfig) sessionOpener {
+	return func(ctx context.Context) (*perfuncted.Session, error) {
 		var opts []perfuncted.Option
 		if cfg.nested {
 			opts = append(opts, perfuncted.WithNested(perfuncted.SessionConfig{}))
@@ -43,37 +45,37 @@ func defaultOpenPFFactory(cfg *cliConfig) func() (*perfuncted.Session, error) {
 		if cfg.traceDelay > 0 {
 			opts = append(opts, perfuncted.WithTraceDelay(cfg.traceDelay))
 		}
-		return perfuncted.Open(context.Background(), opts...)
+		return perfuncted.Open(ctx, opts...)
 	}
 }
 
 func openRequired(
-	factory func(*cliConfig) func() (*perfuncted.Session, error),
+	factory cliOpenFactory,
 	cfg *cliConfig,
 	capabilities ...perfuncted.Capability,
-) func() (*perfuncted.Session, error) {
-	return func() (*perfuncted.Session, error) {
+) sessionOpener {
+	return func(ctx context.Context) (*perfuncted.Session, error) {
 		scoped := *cfg
 		scoped.required = append([]perfuncted.Capability(nil), capabilities...)
 		scoped.optional = nil
-		return factory(&scoped)()
+		return factory(&scoped)(ctx)
 	}
 }
 
 func openOptional(
-	factory func(*cliConfig) func() (*perfuncted.Session, error),
+	factory cliOpenFactory,
 	cfg *cliConfig,
 	capabilities ...perfuncted.Capability,
-) func() (*perfuncted.Session, error) {
-	return func() (*perfuncted.Session, error) {
+) sessionOpener {
+	return func(ctx context.Context) (*perfuncted.Session, error) {
 		scoped := *cfg
 		scoped.required = nil
 		scoped.optional = append([]perfuncted.Capability(nil), capabilities...)
-		return factory(&scoped)()
+		return factory(&scoped)(ctx)
 	}
 }
 
-func newRootCmd(openPFFactory func(*cliConfig) func() (*perfuncted.Session, error)) *cobra.Command {
+func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 	cfg := &cliConfig{}
 	if envBool(os.Getenv("PF_TRACE_ACTIONS")) {
 		cfg.traceActions = true
@@ -91,10 +93,6 @@ func newRootCmd(openPFFactory func(*cliConfig) func() (*perfuncted.Session, erro
 	}
 	root.PersistentFlags().BoolVar(&cfg.nested, "nested", false,
 		"start and target a new nested Wayland session")
-	root.PersistentFlags().Int32Var(&cfg.maxX, "max-x", 0,
-		"input coordinate space width (default 1920)")
-	root.PersistentFlags().Int32Var(&cfg.maxY, "max-y", 0,
-		"input coordinate space height (default 1080)")
 	root.PersistentFlags().BoolVar(&cfg.traceActions, "trace-actions", cfg.traceActions,
 		"print each API action to stderr as it runs")
 	root.PersistentFlags().DurationVar(&cfg.traceDelay, "trace-delay", cfg.traceDelay,

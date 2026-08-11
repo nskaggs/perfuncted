@@ -19,12 +19,9 @@ import (
 func TestDetectSession(t *testing.T) {
 	// In the test environment, XDG_RUNTIME_DIR should not look like a nested
 	// perfuncted session, so DetectSession should return "host".
-	kind, details := perfuncted.DetectSession()
-	if kind != "host" {
-		t.Fatalf("DetectSession: got kind=%q, want %q (details=%v)", kind, "host", details)
-	}
-	if _, ok := details["current_xdg"]; !ok {
-		t.Error("DetectSession host: expected 'current_xdg' key in details")
+	detection := perfuncted.DetectSession()
+	if detection.Kind != perfuncted.TargetHost {
+		t.Fatalf("DetectSession: got kind=%q, want %q", detection.Kind, perfuncted.TargetHost)
 	}
 }
 
@@ -34,15 +31,15 @@ func TestDetectSession_Nested(t *testing.T) {
 	t.Setenv("WAYLAND_DISPLAY", "wayland-99")
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/test/bus")
 
-	kind, details := perfuncted.DetectSession()
-	if kind != "nested" {
-		t.Fatalf("DetectSession: got kind=%q, want %q", kind, "nested")
+	detection := perfuncted.DetectSession()
+	if detection.Kind != perfuncted.TargetNested {
+		t.Fatalf("DetectSession: got kind=%q, want %q", detection.Kind, perfuncted.TargetNested)
 	}
-	if details["dir"] != fakeXDG {
-		t.Errorf("details[dir]=%q, want %q", details["dir"], fakeXDG)
+	if detection.XDGRuntimeDir != fakeXDG {
+		t.Errorf("XDGRuntimeDir=%q, want %q", detection.XDGRuntimeDir, fakeXDG)
 	}
-	if details["wayland_display"] != "wayland-99" {
-		t.Errorf("details[wayland_display]=%q, want %q", details["wayland_display"], "wayland-99")
+	if detection.WaylandDisplay != "wayland-99" {
+		t.Errorf("WaylandDisplay=%q, want %q", detection.WaylandDisplay, "wayland-99")
 	}
 }
 

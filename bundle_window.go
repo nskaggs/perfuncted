@@ -10,14 +10,13 @@ import (
 type WindowBundle struct {
 	backend window.Manager
 	bundleBase
-	session *Session
 }
 
 func (b *WindowBundle) checkAvailable(operation string) error {
-	if b == nil || b.backend == nil {
-		return b.unavailable(operation)
+	if b == nil {
+		return (&bundleBase{}).unavailable(operation)
 	}
-	return nil
+	return b.bundleBase.checkAvailable(operation, b.backend != nil)
 }
 
 func (b *WindowBundle) close() error {
@@ -35,14 +34,15 @@ func (b *WindowBundle) Sync(ctx context.Context) error {
 		Sync(context.Context) error
 	}
 	if backend, ok := b.backend.(syncer); ok {
-		return backend.Sync(ctx)
+		return b.operationError("sync", backend.Sync(ctx))
 	}
-	return nil
+	return b.operationError("sync", ErrUnsupported)
 }
 
 func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	if err := b.checkAvailable("active-title"); err != nil {
 		return "", err
 	}
-	return b.backend.ActiveTitle(ctx)
+	title, err := b.backend.ActiveTitle(ctx)
+	return title, b.operationError("active-title", err)
 }

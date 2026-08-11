@@ -45,7 +45,6 @@ type Application struct {
 	session *Session
 	cmd     *exec.Cmd
 	pid     int
-	pgid    int
 	path    string
 
 	done chan struct{}
@@ -63,13 +62,13 @@ func (s *Session) Launch(
 		return nil, ErrNilSession
 	}
 	if ctx == nil {
-		return nil, errors.New("perfuncted: launch: nil context")
+		return nil, fmt.Errorf("perfuncted: launch: %w: nil context", ErrInvalidArgument)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if command.Name == "" {
-		return nil, errors.New("perfuncted: launch: command name is empty")
+		return nil, fmt.Errorf("perfuncted: launch: %w: command name is empty", ErrInvalidArgument)
 	}
 
 	resolved, err := exec.LookPath(command.Name)
@@ -104,7 +103,6 @@ func (s *Session) Launch(
 		session: s,
 		cmd:     execCommand,
 		pid:     execCommand.Process.Pid,
-		pgid:    execCommand.Process.Pid,
 		path:    resolved,
 		done:    make(chan struct{}),
 	}
@@ -144,7 +142,7 @@ func (a *Application) Wait(ctx context.Context) error {
 		return nil
 	}
 	if ctx == nil {
-		return errors.New("perfuncted: application wait: nil context")
+		return fmt.Errorf("perfuncted: application wait: %w: nil context", ErrInvalidArgument)
 	}
 	select {
 	case <-ctx.Done():
@@ -190,12 +188,15 @@ func (a *Application) Stop(ctx context.Context) error {
 	if a == nil || a.pid <= 0 {
 		return nil
 	}
+	if ctx == nil {
+		return fmt.Errorf("perfuncted: stop application: %w: nil context", ErrInvalidArgument)
+	}
 	select {
 	case <-a.done:
 		return nil
 	default:
 	}
-	if err := signalProcessGroup(a.pgid, syscall.SIGTERM); err != nil {
+	if err := signalProcessGroup(a.pid, syscall.SIGTERM); err != nil {
 		return fmt.Errorf("perfuncted: stop application %d: %w", a.pid, err)
 	}
 	select {
@@ -216,7 +217,7 @@ func (a *Application) Kill() error {
 		return nil
 	default:
 	}
-	if err := signalProcessGroup(a.pgid, syscall.SIGKILL); err != nil {
+	if err := signalProcessGroup(a.pid, syscall.SIGKILL); err != nil {
 		return fmt.Errorf("perfuncted: kill application %d: %w", a.pid, err)
 	}
 	return nil
@@ -268,7 +269,7 @@ func (a *Application) ownsPID(pid int32) bool {
 		return false
 	}
 	pgid, err := syscall.Getpgid(int(pid))
-	return err == nil && pgid == a.pgid
+	return err == nil && pgid == a.pid
 }
 
 // LogPath returns the log directory used by owned session infrastructure.

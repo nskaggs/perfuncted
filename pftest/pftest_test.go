@@ -20,6 +20,7 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	pf := pftest.New(sc, inp, mgr, cb)
 	if pf == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 
 	// Exercise each bundle through the assembled Perfuncted.
@@ -38,6 +39,7 @@ func TestNewNilBackends(t *testing.T) {
 	pf := pftest.New(nil, nil, nil, nil)
 	if pf == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	// All bundles are zero-valued; operations should return errors, not panic.
 	if _, _, err := pf.Screen.Resolution(context.Background()); err == nil {

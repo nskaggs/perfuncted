@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,8 +199,61 @@ func TestInputBundleErrors(t *testing.T) {
 	ctx := context.Background()
 
 	err := pf.Input.Type(ctx, "a")
-	if err == nil || err.Error() != "type error" {
-		t.Errorf("expected 'type error', got %v", err)
+	if err == nil || !errors.Is(err, perfuncted.ErrOperationFailed) ||
+		!strings.Contains(err.Error(), "type error") {
+		t.Errorf("expected an operation failure containing 'type error', got %v", err)
+	}
+}
+
+func TestOperationErrorPreservesStableErrorCategories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		cause      error
+		wantFailed bool
+		wantCause  error
+	}{
+		{
+			name:       "backend failure",
+			cause:      errors.New("backend failed"),
+			wantFailed: true,
+			wantCause:  nil,
+		},
+		{
+			name:       "unsupported",
+			cause:      errors.Join(perfuncted.ErrUnsupported, errors.New("not implemented")),
+			wantFailed: false,
+			wantCause:  perfuncted.ErrUnsupported,
+		},
+		{
+			name:       "unavailable",
+			cause:      perfuncted.ErrUnavailable,
+			wantFailed: false,
+			wantCause:  perfuncted.ErrUnavailable,
+		},
+		{
+			name:       "invalid argument",
+			cause:      perfuncted.ErrInvalidArgument,
+			wantFailed: false,
+			wantCause:  perfuncted.ErrInvalidArgument,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := &perfuncted.OperationError{
+				Capability: perfuncted.CapabilityInput,
+				Operation:  "test",
+				Err:        test.cause,
+			}
+			if got := errors.Is(err, perfuncted.ErrOperationFailed); got != test.wantFailed {
+				t.Fatalf("errors.Is(ErrOperationFailed) = %v, want %v; err = %v", got, test.wantFailed, err)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("errors.Is(%v) = false; err = %v", test.wantCause, err)
+			}
+		})
 	}
 }
 
@@ -239,23 +293,6 @@ func TestBundleMethodsPropagateContext(t *testing.T) {
 	}
 	if sc.ctxValue != "token" {
 		t.Fatalf("screen ctx = %v, want token", sc.ctxValue)
-	}
-}
-
-func TestRetryZeroPoll(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	calls := 0
-	err := perfuncted.Retry(ctx, 0, func() error {
-		calls++
-		return errors.New("try again")
-	})
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
-	}
-	if calls == 0 {
-		t.Fatal("expected retry function to be called")
 	}
 }
 

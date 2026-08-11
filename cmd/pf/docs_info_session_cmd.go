@@ -51,7 +51,7 @@ func versionCmd() *cobra.Command {
 // ── info ────────────────────────────────────────────────────────────────────────────
 
 func infoCmd(
-	openPF func() (*perfuncted.Session, error),
+	openPF sessionOpener,
 ) *cobra.Command {
 	var outputFlag string
 	cmd := &cobra.Command{
@@ -62,7 +62,7 @@ func infoCmd(
 			if err != nil {
 				return err
 			}
-			session, err := openPF()
+			session, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -128,12 +128,12 @@ func sessionCmd() *cobra.Command {
 		Use:   "type",
 		Short: "Print whether the current session is nested or host",
 		Run: func(cmd *cobra.Command, _ []string) {
-			kind, details := perfuncted.DetectSession()
+			detection := perfuncted.DetectSession()
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "session: %s\n", kind)
-			for k, v := range details {
-				fmt.Fprintf(out, "  %s: %s\n", k, v)
-			}
+			fmt.Fprintf(out, "session: %s\n", detection.Kind)
+			fmt.Fprintf(out, "  xdg_runtime_dir: %s\n", detection.XDGRuntimeDir)
+			fmt.Fprintf(out, "  wayland_display: %s\n", detection.WaylandDisplay)
+			fmt.Fprintf(out, "  dbus_address: %s\n", detection.DBusAddress)
 		},
 	}
 
@@ -217,32 +217,35 @@ Use the printed env vars in another terminal to connect:
 			defer session.Close()
 			runtime := environmentMap(session.Env())
 
-			fmt.Printf(
+			fmt.Fprintf(
+				cmd.OutOrStdout(),
 				"export XDG_RUNTIME_DIR=%s\n",
 				runtime["XDG_RUNTIME_DIR"],
 			)
-			fmt.Printf(
+			fmt.Fprintf(
+				cmd.OutOrStdout(),
 				"export WAYLAND_DISPLAY=%s\n",
 				runtime["WAYLAND_DISPLAY"],
 			)
-			fmt.Printf(
+			fmt.Fprintf(
+				cmd.OutOrStdout(),
 				"export DBUS_SESSION_BUS_ADDRESS=%s\n",
 				runtime["DBUS_SESSION_BUS_ADDRESS"],
 			)
 			fmt.Fprintf(
-				os.Stderr,
+				cmd.ErrOrStderr(),
 				"session: running (XDG=%s)\n",
 				runtime["XDG_RUNTIME_DIR"],
 			)
-			fmt.Fprintf(os.Stderr, "session: press Ctrl+C to stop\n")
+			fmt.Fprintln(cmd.ErrOrStderr(), "session: press Ctrl+C to stop")
 
 			<-cmd.Context().Done()
 
-			fmt.Fprintf(os.Stderr, "\nsession: stopping...\n")
+			fmt.Fprintln(cmd.ErrOrStderr(), "\nsession: stopping...")
 			if err := session.Close(); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "session: stopped\n")
+			fmt.Fprintln(cmd.ErrOrStderr(), "session: stopped")
 			return nil
 		},
 	}

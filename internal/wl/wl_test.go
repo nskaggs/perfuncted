@@ -2,7 +2,15 @@ package wl
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"io"
+	"net"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestPutUint32(t *testing.T) {
@@ -239,6 +247,53 @@ func TestContext_Dispatch_NilConn(t *testing.T) {
 	}
 }
 
+func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		var buf [1]byte
+		_, _ = conn.Read(buf[:])
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+	<-accepted
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	dispatchDone := make(chan error, 1)
+	go func() { dispatchDone <- ctx.DispatchContext(cancelCtx) }()
+	cancel()
+
+	select {
+	case err := <-dispatchDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("DispatchContext error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("DispatchContext did not unblock after cancellation")
+	}
+	_ = ctx.Close()
+	listener.Close()
+	<-serverDone
+}
+
 func TestContext_Close_NilConn(t *testing.T) {
 	// Context with nil conn (test construction) should be a no-op (not panic).
 	ctx := &Context{}
@@ -247,15 +302,121 @@ func TestContext_Close_NilConn(t *testing.T) {
 	}
 }
 
-func TestSafeClose(t *testing.T) {
-	// nil context
-	if err := SafeClose(nil); err != nil {
-		t.Errorf("SafeClose(nil) = %v", err)
-	}
-	// context with nil conn
+func TestContextRegisterConcurrent(t *testing.T) {
 	ctx := &Context{}
-	if err := SafeClose(ctx); err != nil {
-		t.Errorf("SafeClose(zero-ctx) = %v", err)
+	const count = 100
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx.Register(&RawProxy{})
+		}()
+	}
+	wg.Wait()
+
+	ctx.objectsMu.RLock()
+	got := len(ctx.objects)
+	ctx.objectsMu.RUnlock()
+	if got != count {
+		t.Fatalf("registered proxy count = %d, want %d", got, count)
+	}
+}
+
+func TestContextWithOperationAllowsReentrantStateChanges(t *testing.T) {
+	ctx := &Context{}
+	if err := ctx.WithOperation(func() error {
+		ctx.Register(&RawProxy{})
+		ctx.SetProxy(100, &RawProxy{})
+		return nil
+	}); err != nil {
+		t.Fatalf("WithOperation: %v", err)
+	}
+	ctx.objectsMu.RLock()
+	defer ctx.objectsMu.RUnlock()
+	if len(ctx.objects) != 2 {
+		t.Fatalf("object count = %d, want 2", len(ctx.objects))
+	}
+}
+
+func TestContextWithOperationSerializesCalls(t *testing.T) {
+	ctx := &Context{}
+	var active, maxActive int32
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := ctx.WithOperation(func() error {
+				current := atomic.AddInt32(&active, 1)
+				for {
+					old := atomic.LoadInt32(&maxActive)
+					if current <= old || atomic.CompareAndSwapInt32(&maxActive, old, current) {
+						break
+					}
+				}
+				time.Sleep(time.Millisecond)
+				atomic.AddInt32(&active, -1)
+				return nil
+			}); err != nil {
+				t.Errorf("WithOperation: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := atomic.LoadInt32(&maxActive); got != 1 {
+		t.Fatalf("maximum concurrent operations = %d, want 1", got)
+	}
+}
+
+func TestContextRoundTripUnregistersCallbacks(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		var request [12]byte
+		for {
+			if _, readErr := io.ReadFull(conn, request[:]); readErr != nil {
+				return
+			}
+			var event [8]byte
+			PutUint32(event[0:], Uint32(request[8:12]))
+			PutUint32(event[4:], 8<<16)
+			if _, writeErr := conn.Write(event[:]); writeErr != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		if err := ctx.RoundTrip(); err != nil {
+			t.Fatalf("RoundTrip %d: %v", i, err)
+		}
+	}
+	if err := ctx.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	<-serverDone
+
+	ctx.objectsMu.RLock()
+	defer ctx.objectsMu.RUnlock()
+	if got := len(ctx.objects); got != 0 {
+		t.Fatalf("object count after round trips = %d, want 0", got)
 	}
 }
 

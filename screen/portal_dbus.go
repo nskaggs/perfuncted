@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/ctxutil"
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 )
 
@@ -136,7 +136,7 @@ func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
 // Grab takes a full workspace screenshot via the portal and returns the
 // requested rectangle. The portal may show a consent dialog on first use.
 func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) { //nolint:gocyclo
-	ctx = ctxutil.Default(ctx)
+	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/portal: grab canceled: %w", err)
 	}
@@ -158,13 +158,17 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	ch := make(chan *dbus.Signal, 4)
 	b.conn.Signal(ch)
 	defer b.conn.RemoveSignal(ch)
-	if err := b.conn.AddMatchSignal(
+	matchOptions := []dbus.MatchOption{
 		dbus.WithMatchSender(portalDest),
 		dbus.WithMatchInterface(portalReqIf),
 		dbus.WithMatchMember("Response"),
-	); err != nil {
+	}
+	if err := b.conn.AddMatchSignalContext(ctx, matchOptions...); err != nil {
 		return nil, fmt.Errorf("screen/portal: AddMatch: %w", err)
 	}
+	defer func(cleanupCtx context.Context) {
+		_ = b.conn.RemoveMatchSignalContext(cleanupCtx, matchOptions...)
+	}(context.WithoutCancel(ctx))
 
 	obj := b.conn.Object(portalDest, portalPath)
 	opts := map[string]dbus.Variant{
@@ -172,7 +176,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		"interactive":  dbus.MakeVariant(false),
 	}
 	var gotHandle dbus.ObjectPath
-	if err := obj.Call(portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
+	if err := obj.CallWithContext(ctx, portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
 		return nil, fmt.Errorf("screen/portal: Screenshot: %w", err)
 	}
 	if gotHandle == "" {
@@ -187,7 +191,10 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
-		case sig := <-ch:
+		case sig, ok := <-ch:
+			if !ok {
+				return nil, fmt.Errorf("screen/portal: D-Bus signal channel closed")
+			}
 			if !portalSignalMatches(sig, gotHandle, expectedHandlePath) || len(sig.Body) < 2 {
 				continue
 			}

@@ -34,8 +34,7 @@ func (id WindowID) String() string {
 
 // Window is a stable, session-bound handle to one native window.
 type Window struct {
-	session *Session
-	id      WindowID
+	id WindowID
 
 	mu       sync.RWMutex
 	snapshot window.Info
@@ -67,7 +66,7 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 	}
 	info, err := backend.InfoByID(ctx, w.id.native)
 	if err != nil {
-		return window.Info{}, err
+		return window.Info{}, w.id.session.Windows.operationError("info", err)
 	}
 	info.NativeID = w.id.native
 	w.mu.Lock()
@@ -77,16 +76,13 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 }
 
 func (w *Window) backend(operation string) (window.IDManager, error) {
-	if w == nil || w.session == nil {
+	if w == nil || w.id.session == nil {
 		return nil, ErrNilSession
 	}
-	if w.id.session != w.session {
-		return nil, errors.New("perfuncted: window belongs to another session")
-	}
-	if err := w.session.Windows.checkAvailable(operation); err != nil {
+	if err := w.id.session.Windows.checkAvailable(operation); err != nil {
 		return nil, err
 	}
-	backend, ok := w.session.Windows.backend.(window.IDManager)
+	backend, ok := w.id.session.Windows.backend.(window.IDManager)
 	if !ok {
 		return nil, fmt.Errorf(
 			"perfuncted: window backend does not support stable handles: %w",
@@ -101,7 +97,7 @@ func (w *Window) Activate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.ActivateByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("activate", backend.ActivateByID(ctx, w.id.native))
 }
 
 func (w *Window) Move(ctx context.Context, x int, y int) error {
@@ -109,7 +105,7 @@ func (w *Window) Move(ctx context.Context, x int, y int) error {
 	if err != nil {
 		return err
 	}
-	return backend.MoveByID(ctx, w.id.native, x, y)
+	return w.id.session.Windows.operationError("move", backend.MoveByID(ctx, w.id.native, x, y))
 }
 
 func (w *Window) Resize(
@@ -121,7 +117,7 @@ func (w *Window) Resize(
 	if err != nil {
 		return err
 	}
-	return backend.ResizeByID(ctx, w.id.native, width, height)
+	return w.id.session.Windows.operationError("resize", backend.ResizeByID(ctx, w.id.native, width, height))
 }
 
 // Close requests that the window close.
@@ -130,7 +126,7 @@ func (w *Window) Close(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.CloseWindowByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("close", backend.CloseWindowByID(ctx, w.id.native))
 }
 
 func (w *Window) Minimize(ctx context.Context) error {
@@ -138,7 +134,7 @@ func (w *Window) Minimize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.MinimizeByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("minimize", backend.MinimizeByID(ctx, w.id.native))
 }
 
 func (w *Window) Maximize(ctx context.Context) error {
@@ -146,7 +142,7 @@ func (w *Window) Maximize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.MaximizeByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("maximize", backend.MaximizeByID(ctx, w.id.native))
 }
 
 func (w *Window) Fullscreen(ctx context.Context) error {
@@ -154,7 +150,7 @@ func (w *Window) Fullscreen(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.FullscreenByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("fullscreen", backend.FullscreenByID(ctx, w.id.native))
 }
 
 func (w *Window) Unfullscreen(ctx context.Context) error {
@@ -162,7 +158,7 @@ func (w *Window) Unfullscreen(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.UnfullscreenByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("fullscreen", backend.UnfullscreenByID(ctx, w.id.native))
 }
 
 func (w *Window) Restore(ctx context.Context) error {
@@ -170,23 +166,15 @@ func (w *Window) Restore(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.RestoreByID(ctx, w.id.native)
+	return w.id.session.Windows.operationError("restore", backend.RestoreByID(ctx, w.id.native))
 }
 
 // WaitClosed waits until the authoritative backend no longer reports w.
 func (w *Window) WaitClosed(ctx context.Context) error {
-	if w == nil || w.session == nil {
+	if w == nil || w.id.session == nil {
 		return ErrNilSession
 	}
-	return w.session.Wait(ctx, WindowClosed(w))
-}
-
-// CloseWait closes w and waits for its disappearance.
-func (w *Window) CloseWait(ctx context.Context) error {
-	if err := w.Close(ctx); err != nil {
-		return err
-	}
-	return w.WaitClosed(ctx)
+	return w.id.session.Wait(ctx, WindowClosed(w))
 }
 
 // List returns every window satisfying match.
@@ -199,7 +187,7 @@ func (b *WindowBundle) List(
 	}
 	infos, err := b.backend.List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, b.operationError("discover", err)
 	}
 	windows := make([]*Window, 0, len(infos))
 	for _, info := range infos {
@@ -219,7 +207,6 @@ func (b *WindowBundle) window(info window.Info) *Window {
 		native:  nativeID,
 	}
 	return &Window{
-		session:  b.session,
 		id:       id,
 		snapshot: info,
 	}
