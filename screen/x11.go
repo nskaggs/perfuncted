@@ -23,6 +23,9 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
 	}
 	rect := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
+	if err := validateX11Rect(rect); err != nil {
+		return 0, err
+	}
 	drawable, free := b.compositeDrawableForRoot()
 	defer free()
 
@@ -53,6 +56,9 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
+	}
+	if err := validateX11Rect(rect); err != nil {
+		return 0, err
 	}
 
 	drawable, free := b.compositeDrawableForRoot()
@@ -132,6 +138,9 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	if rect.Empty() {
 		rect = image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	}
+	if err := validateX11Rect(rect); err != nil {
+		return nil, err
+	}
 	drawable, free := b.compositeDrawableForRoot()
 	defer free()
 
@@ -165,9 +174,26 @@ func (b *X11Backend) Close() error {
 }
 
 func validateX11PixelBuffer(data []byte, w, h int) error {
-	expected := w * h * 4
-	if len(data) < expected {
+	if w <= 0 || h <= 0 {
+		return fmt.Errorf("screen/x11: invalid pixel dimensions %dx%d", w, h)
+	}
+	expected := uint64(w) * uint64(h) * 4
+	if expected > uint64(len(data)) {
 		return fmt.Errorf("screen/x11: short pixel buffer: got %d bytes, want %d", len(data), expected)
+	}
+	return nil
+}
+
+func validateX11Rect(rect image.Rectangle) error {
+	if rect.Empty() {
+		return fmt.Errorf("screen/x11: empty capture rectangle")
+	}
+	if rect.Min.X < -32768 || rect.Min.X > 32767 || rect.Min.Y < -32768 || rect.Min.Y > 32767 {
+		return fmt.Errorf("screen/x11: rectangle origin out of range: %v", rect)
+	}
+	const maxDimension = int(^uint16(0))
+	if rect.Max.X > rect.Min.X+maxDimension || rect.Max.Y > rect.Min.Y+maxDimension {
+		return fmt.Errorf("screen/x11: rectangle dimensions exceed X11 limits: %v", rect)
 	}
 	return nil
 }

@@ -435,3 +435,19 @@ func TestX11Backend_ShortPixelBufferErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateX11RectRejectsWireTruncation(t *testing.T) {
+	tests := []image.Rectangle{
+		image.Rect(32768, 0, 32769, 1),
+		image.Rect(0, 0, 65536, 1),
+		image.Rect(0, 0, 1, 65536),
+	}
+	for _, rect := range tests {
+		if err := validateX11Rect(rect); err == nil {
+			t.Errorf("validateX11Rect(%v) unexpectedly accepted", rect)
+		}
+	}
+	if err := validateX11Rect(image.Rect(-32768, -32768, 32767, 32767)); err != nil {
+		t.Fatalf("valid X11 rectangle rejected: %v", err)
+	}
+}
