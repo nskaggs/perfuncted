@@ -24,6 +24,7 @@ type dragCleanupInput struct {
 	moveCalls    int
 	mouseUpCalls int
 	moveErr      error
+	mouseDownErr error
 	mouseUpErr   error
 }
 
@@ -39,6 +40,11 @@ func (s *dragCleanupInput) MouseUp(ctx context.Context, button int) error {
 	s.mouseUpCalls++
 	_ = s.Inputter.MouseUp(ctx, button)
 	return s.mouseUpErr
+}
+
+func (s *dragCleanupInput) MouseDown(ctx context.Context, button int) error {
+	_ = s.Inputter.MouseDown(ctx, button)
+	return s.mouseDownErr
 }
 
 func (s *inputPointerSyncSpy) PointerLocation(context.Context) (int, int, error) {
@@ -199,6 +205,24 @@ func TestInputBundleDragAndDropReportsCleanupFailure(t *testing.T) {
 	}
 	if !errors.Is(err, cleanupErr) {
 		t.Fatalf("DragAndDrop error = %v, want cleanup error", err)
+	}
+	if inp.mouseUpCalls != 1 {
+		t.Fatalf("cleanup MouseUp calls = %d, want 1", inp.mouseUpCalls)
+	}
+}
+
+func TestInputBundleDragAndDropCleansUpAfterMouseDownFailure(t *testing.T) {
+	downErr := errors.New("drag press failed")
+	cleanupErr := errors.New("drag cleanup failed")
+	inp := &dragCleanupInput{
+		mouseDownErr: downErr,
+		mouseUpErr:   cleanupErr,
+	}
+	pf := pftest.New(nil, inp, nil, nil)
+
+	err := pf.Input.DragAndDrop(context.Background(), 1, 2, 3, 4)
+	if !errors.Is(err, downErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("DragAndDrop error = %v, want press and cleanup errors", err)
 	}
 	if inp.mouseUpCalls != 1 {
 		t.Fatalf("cleanup MouseUp calls = %d, want 1", inp.mouseUpCalls)

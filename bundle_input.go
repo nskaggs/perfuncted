@@ -198,9 +198,6 @@ func (b *InputBundle) DragAndDrop(
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); err != nil {
 		return err
 	}
-	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
-		return err
-	}
 	released := false
 	defer func() {
 		if !released {
@@ -213,6 +210,9 @@ func (b *InputBundle) DragAndDrop(
 			}
 		}
 	}()
+	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
+		return err
+	}
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x2, y2)); err != nil {
 		return err
 	}
