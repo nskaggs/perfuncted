@@ -79,7 +79,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway openbox xserver-xephyr dbus-x11 libwayland-client0 \
+          sudo apt-get install -y sway openbox xserver-xephyr xwayland dbus-x11 libwayland-client0 \
                                  libwayland-server0 libwlroots-dev libx11-dev libxtst-dev \
                                  x11-utils xclip wl-clipboard xdg-utils xvfb kwrite featherpad
       - name: Run Integration Tests
@@ -108,7 +108,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway openbox xserver-xephyr dbus-x11 libwayland-client0 \
+          sudo apt-get install -y sway openbox xserver-xephyr xwayland dbus-x11 libwayland-client0 \
                                  libwayland-server0 libwlroots-dev libx11-dev libxtst-dev \
                                  x11-utils xclip wl-clipboard xdg-utils xvfb kwrite featherpad
       - name: Run Session Lifecycle Test
@@ -134,7 +134,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway openbox xserver-xephyr dbus-x11 libwayland-client0 \
+          sudo apt-get install -y sway openbox xserver-xephyr xwayland dbus-x11 libwayland-client0 \
                                  libwayland-server0 libwlroots-dev libx11-dev libxtst-dev \
                                  x11-utils xclip wl-clipboard xdg-utils xvfb kwrite featherpad
       - name: Run Backend Integration Tests
@@ -162,7 +162,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y sway dbus-x11 libwayland-client0 libwayland-server0 \
+          sudo apt-get install -y sway xwayland dbus-x11 libwayland-client0 libwayland-server0 \
                                  wl-clipboard xdg-utils
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
