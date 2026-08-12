@@ -119,7 +119,7 @@ func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload s
 		}
 		return nil, err
 	}
-	_, body, err := readSwayMessage(conn)
+	body, err := readSwayResponse(conn, msgType)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
@@ -136,8 +136,14 @@ func writeSwayMessage(conn net.Conn, msgType uint32, payload string) error {
 	binary.LittleEndian.PutUint32(msg[6:10], uint32(len(pb)))
 	binary.LittleEndian.PutUint32(msg[10:14], msgType)
 	copy(msg[14:], pb)
-	_, err := conn.Write(msg)
-	return err
+	n, err := conn.Write(msg)
+	if err != nil {
+		return err
+	}
+	if n != len(msg) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 func readSwayMessage(conn net.Conn) (uint32, []byte, error) {
@@ -157,6 +163,17 @@ func readSwayMessage(conn net.Conn) (uint32, []byte, error) {
 		return 0, nil, err
 	}
 	return binary.LittleEndian.Uint32(hdr[10:14]), body, nil
+}
+
+func readSwayResponse(conn net.Conn, expectedType uint32) ([]byte, error) {
+	messageType, body, err := readSwayMessage(conn)
+	if err != nil {
+		return nil, err
+	}
+	if messageType != expectedType {
+		return nil, fmt.Errorf("unexpected response type %d (want %d)", messageType, expectedType)
+	}
+	return body, nil
 }
 
 func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string) ([]byte, error) {
@@ -295,8 +312,13 @@ func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
 	if err := json.Unmarshal(resp, &results); err != nil {
 		return fmt.Errorf("window/sway: decode response: %w", err)
 	}
-	if len(results) > 0 && !results[0].Success {
-		return fmt.Errorf("window/sway: command failed: %s", results[0].Error)
+	if len(results) == 0 {
+		return fmt.Errorf("window/sway: command returned no command result")
+	}
+	for _, result := range results {
+		if !result.Success {
+			return fmt.Errorf("window/sway: command failed: %s", result.Error)
+		}
 	}
 	return nil
 }
@@ -403,7 +425,7 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 	if err := writeSwayMessage(conn, swayMsgSubscribe, `["window"]`); err != nil {
 		return
 	}
-	if _, _, err := readSwayMessage(conn); err != nil {
+	if _, err := readSwayResponse(conn, swayMsgSubscribe); err != nil {
 		return
 	}
 	if err := conn.SetDeadline(time.Time{}); err != nil {

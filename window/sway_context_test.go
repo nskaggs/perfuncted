@@ -23,6 +23,7 @@ type stubSwayConn struct {
 	deadline         time.Time
 	setDeadlineCalls int
 	writeCalls       int
+	writeLimit       int
 	closed           bool
 }
 
@@ -34,7 +35,10 @@ func (c *stubSwayConn) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.writeCalls++
-	return 0, io.EOF
+	if c.writeLimit > 0 && len(p) > c.writeLimit {
+		return c.writeLimit, nil
+	}
+	return len(p), nil
 }
 
 func (c *stubSwayConn) Close() error {
@@ -148,6 +152,77 @@ func TestSwayQueryConnUsesContextDeadline(t *testing.T) {
 	}
 }
 
+func TestWriteSwayMessageRejectsShortWrite(t *testing.T) {
+	conn := &stubSwayConn{writeLimit: 1}
+
+	err := writeSwayMessage(conn, swayMsgGetTree, "payload")
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("writeSwayMessage error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+func TestSwayQueryConnRejectsUnexpectedResponseType(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	serverDone := make(chan error, 1)
+	go func() {
+		_, _, err := readSwayMessage(server)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		serverDone <- writeSwayMessage(server, swayMsgRunCommand, `{"unexpected":true}`)
+	}()
+
+	_, err := swayQueryConn(context.Background(), client, swayMsgGetTree, "")
+	if err == nil || !strings.Contains(err.Error(), "unexpected response type") {
+		t.Fatalf("swayQueryConn error = %v, want unexpected response type", err)
+	}
+	if serverErr := <-serverDone; serverErr != nil {
+		t.Fatalf("server: %v", serverErr)
+	}
+}
+
+func TestSwayCmdRequiresSuccessfulCommandResults(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		want     string
+	}{
+		{name: "empty result list", response: `[]`, want: "no command result"},
+		{name: "later command failure", response: `[{"success":true},{"success":false,"error":"rejected"}]`, want: "command failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+
+			serverDone := make(chan error, 1)
+			go func() {
+				_, _, err := readSwayMessage(server)
+				if err != nil {
+					serverDone <- err
+					return
+				}
+				serverDone <- writeSwayMessage(server, swayMsgRunCommand, tt.response)
+			}()
+
+			m := &SwayManager{conn: client}
+			err := m.swayCmd(context.Background(), "focus")
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("swayCmd error = %v, want %q", err, tt.want)
+			}
+			if serverErr := <-serverDone; serverErr != nil {
+				t.Fatalf("server: %v", serverErr)
+			}
+		})
+	}
+}
+
 func TestSwayQueryCancelableContextDoesNotReusePersistentConn(t *testing.T) {
 	origDial := swayDialContext
 	defer func() { swayDialContext = origDial }()
@@ -188,11 +263,14 @@ func TestSwayMoveByIDPropagatesReflowListError(t *testing.T) {
 	serverDone := make(chan struct{})
 	go func() {
 		defer close(serverDone)
-		responses := [][]byte{
-			[]byte(`{"id":1,"type":"root","nodes":[{"id":42,"type":"con","name":"window"}]} `),
-			[]byte(`[{"success":true}]`),
-			[]byte(`not-json`),
-			[]byte(`[{"success":true}]`),
+		responses := []struct {
+			messageType uint32
+			body        []byte
+		}{
+			{messageType: swayMsgGetTree, body: []byte(`{"id":1,"type":"root","nodes":[{"id":42,"type":"con","name":"window"}]} `)},
+			{messageType: swayMsgRunCommand, body: []byte(`[{"success":true}]`)},
+			{messageType: swayMsgGetTree, body: []byte(`not-json`)},
+			{messageType: swayMsgRunCommand, body: []byte(`[{"success":true}]`)},
 		}
 		for _, response := range responses {
 			header := make([]byte, 14)
@@ -203,7 +281,7 @@ func TestSwayMoveByIDPropagatesReflowListError(t *testing.T) {
 			if _, err := io.ReadFull(server, body); err != nil {
 				return
 			}
-			if err := writeSwayMessage(server, swayMsgGetTree, string(response)); err != nil {
+			if err := writeSwayMessage(server, response.messageType, string(response.body)); err != nil {
 				return
 			}
 		}
