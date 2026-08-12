@@ -205,6 +205,58 @@ func TestInputBundleErrors(t *testing.T) {
 	}
 }
 
+func TestOperationErrorPreservesStableErrorCategories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		cause      error
+		wantFailed bool
+		wantCause  error
+	}{
+		{
+			name:       "backend failure",
+			cause:      errors.New("backend failed"),
+			wantFailed: true,
+			wantCause:  nil,
+		},
+		{
+			name:       "unsupported",
+			cause:      errors.Join(perfuncted.ErrUnsupported, errors.New("not implemented")),
+			wantFailed: false,
+			wantCause:  perfuncted.ErrUnsupported,
+		},
+		{
+			name:       "unavailable",
+			cause:      perfuncted.ErrUnavailable,
+			wantFailed: false,
+			wantCause:  perfuncted.ErrUnavailable,
+		},
+		{
+			name:       "invalid argument",
+			cause:      perfuncted.ErrInvalidArgument,
+			wantFailed: false,
+			wantCause:  perfuncted.ErrInvalidArgument,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := &perfuncted.OperationError{
+				Capability: perfuncted.CapabilityInput,
+				Operation:  "test",
+				Err:        test.cause,
+			}
+			if got := errors.Is(err, perfuncted.ErrOperationFailed); got != test.wantFailed {
+				t.Fatalf("errors.Is(ErrOperationFailed) = %v, want %v; err = %v", got, test.wantFailed, err)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("errors.Is(%v) = false; err = %v", test.wantCause, err)
+			}
+		})
+	}
+}
+
 func TestBundleMethodsPropagateContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), contextKey{}, "token")

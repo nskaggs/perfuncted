@@ -217,8 +217,9 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 				return nil, fmt.Errorf("screen/portal: open %s: %w", path, err)
 			}
 			img, err := png.Decode(f)
-			f.Close()
-			os.Remove(path) //nolint:errcheck
+			if closeErr := f.Close(); err == nil && closeErr != nil {
+				return nil, fmt.Errorf("screen/portal: close %s: %w", path, closeErr)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("screen/portal: decode PNG: %w", err)
 			}

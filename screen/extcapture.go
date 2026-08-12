@@ -305,10 +305,13 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		// create_frame(new_id) — session opcode 1.
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
+		defer func() {
+			_ = sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil)
+			wl.Unregister(wlctx, frameProxy)
+		}()
 		if err := sendExtCreateFrame(wlctx, b.sessProxy.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: create_frame: %w", err)
 		}
-		defer sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil) //nolint:errcheck
 
 		// attach_buffer(buffer) — frame opcode 1.
 		if err := sendExtAttachBuffer(wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {

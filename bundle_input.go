@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"image"
 	"time"
 
@@ -189,7 +190,7 @@ func (b *InputBundle) DragAndDrop(
 	y1 int,
 	x2 int,
 	y2 int,
-) error {
+) (err error) {
 	ctx = contextutil.Default(ctx)
 	if err := b.checkAvailable("drag"); err != nil {
 		return err
@@ -203,7 +204,13 @@ func (b *InputBundle) DragAndDrop(
 	released := false
 	defer func() {
 		if !released {
-			_ = b.backend.MouseUp(context.WithoutCancel(ctx), 1)
+			cleanupErr := b.operationError(
+				"click",
+				b.backend.MouseUp(context.WithoutCancel(ctx), 1),
+			)
+			if cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
 		}
 	}()
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x2, y2)); err != nil {

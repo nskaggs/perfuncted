@@ -157,6 +157,37 @@ func TestBaseProxy_Ctx(t *testing.T) {
 	}
 }
 
+func TestShmObjectsUnregisterAfterDestroy(t *testing.T) {
+	ctx := &Context{}
+	shm := &Shm{}
+	shm.SetCtx(ctx)
+
+	pool, err := shm.CreatePool(0, 4)
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	buf, err := pool.CreateBuffer(0, 1, 1, 4, 0)
+	if err != nil {
+		t.Fatalf("CreateBuffer: %v", err)
+	}
+	if got := len(ctx.objects); got != 2 {
+		t.Fatalf("registered SHM objects = %d, want 2", got)
+	}
+
+	if err := buf.Destroy(); err != nil {
+		t.Fatalf("Buffer.Destroy: %v", err)
+	}
+	if got := len(ctx.objects); got != 1 {
+		t.Fatalf("registered objects after buffer destroy = %d, want 1", got)
+	}
+	if err := pool.Destroy(); err != nil {
+		t.Fatalf("ShmPool.Destroy: %v", err)
+	}
+	if got := len(ctx.objects); got != 0 {
+		t.Fatalf("registered objects after pool destroy = %d, want 0", got)
+	}
+}
+
 func TestRegistry_Dispatch_GlobalEvent(t *testing.T) {
 	var got GlobalEvent
 	r := &Registry{}

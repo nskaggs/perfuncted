@@ -82,6 +82,12 @@ func newTempScreenshotFile(prefix string) (*os.File, error) {
 	return f, nil
 }
 
+func removeScreenshotIfOwned(path, requestedPath string) {
+	if path == requestedPath {
+		_ = os.Remove(path)
+	}
+}
+
 // Grab captures rect using GNOME Shell's native screenshot service. A zero rect
 // requests a full-screen capture; a non-empty rect uses ScreenshotArea.
 func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
@@ -95,7 +101,7 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	}
 	path := tmp.Name()
 	tmp.Close()
-	defer os.Remove(path) //nolint:errcheck
+	defer removeScreenshotIfOwned(path, path)
 
 	var success bool
 	var used string
@@ -128,9 +134,6 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	}
 	if used == "" {
 		used = path
-	}
-	if used != path {
-		defer os.Remove(used) //nolint:errcheck
 	}
 
 	f, err := os.Open(used)

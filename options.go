@@ -88,7 +88,21 @@ func (e *OperationError) Unwrap() error {
 }
 
 func (e *OperationError) Is(target error) bool {
-	return target == ErrOperationFailed
+	if e == nil || target != ErrOperationFailed {
+		return false
+	}
+	for _, category := range []error{
+		ErrUnsupported,
+		ErrUnavailable,
+		ErrInvalidArgument,
+		ErrNilSession,
+		ErrSessionClosed,
+	} {
+		if errors.Is(e.Err, category) {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *CapabilityError) Error() string {

@@ -49,6 +49,9 @@ func (b *ClipboardBundle) pasteWithInputContext(
 	if input == nil {
 		return ErrUnavailable
 	}
+	if err := input.checkAvailable("keyboard"); err != nil {
+		return err
+	}
 	if err := b.Set(ctx, text); err != nil {
 		return err
 	}
