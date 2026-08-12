@@ -579,7 +579,7 @@ type capabilityEntry struct {
 }
 
 func buildInfoReport(session *perfuncted.Session) infoReport {
-	envVars := environmentMap(session.Env())
+	envVars := diagnosticEnvironment(session.Env())
 	kind := compositor.Detect()
 	caps := map[string]capabilityEntry{}
 
@@ -622,6 +622,27 @@ func environmentMap(environment []string) map[string]string {
 		key, value, ok := strings.Cut(entry, "=")
 		if ok {
 			values[key] = value
+		}
+	}
+	return values
+}
+
+func diagnosticEnvironment(environment []string) map[string]string {
+	all := environmentMap(environment)
+	values := make(map[string]string, 6)
+	for _, key := range []string{
+		"DISPLAY",
+		"WAYLAND_DISPLAY",
+		"XDG_CURRENT_DESKTOP",
+		"XDG_SESSION_TYPE",
+	} {
+		if value := all[key]; value != "" {
+			values[key] = value
+		}
+	}
+	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
+		if all[key] != "" {
+			values[key] = "<set>"
 		}
 	}
 	return values

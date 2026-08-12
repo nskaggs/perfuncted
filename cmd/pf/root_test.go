@@ -717,6 +717,60 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 	})
 }
 
+func TestDiagnosticsDoNotExposeSensitiveEnvironment(t *testing.T) {
+	const secret = "synthetic-cli-secret-2f8a"
+	dbusAddress := "unix:path=/run/user/1000/bus;nonce=" + secret
+	runtimeDir := "/run/user/1000/" + secret
+	t.Setenv("PF_AUDIT_SECRET", secret)
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", dbusAddress)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "info json",
+			args: []string{"info", "--output", "json"},
+			want: `"environment"`,
+		},
+		{
+			name: "session type",
+			args: []string{"session", "type"},
+			want: "dbus_address: <set>",
+		},
+		{
+			name: "session check",
+			args: []string{"session", "check"},
+			want: "DBUS_SESSION_BUS_ADDRESS=<set>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			openFactory := func(*cliConfig) sessionOpener {
+				return func(ctx context.Context) (*perfuncted.Session, error) {
+					return perfuncted.Open(ctx)
+				}
+			}
+			stdout, stderr, code := captureRunIO(t, tt.args, openFactory)
+			if code != 0 {
+				t.Fatalf("exit code = %d; stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			if strings.Contains(stdout, secret) || strings.Contains(stdout, dbusAddress) {
+				t.Fatalf("stdout exposes sensitive environment data: %q", stdout)
+			}
+			if strings.Contains(stdout, "PF_AUDIT_SECRET") {
+				t.Fatalf("stdout exposes inherited environment key: %q", stdout)
+			}
+			if !strings.Contains(stdout, tt.want) {
+				t.Fatalf("stdout = %q, want marker %q", stdout, tt.want)
+			}
+		})
+	}
+}
+
 func TestFindWaitForVisibleChange(t *testing.T) {
 	initial := pftest.SolidImage(2, 2, color.RGBA{A: 255})
 	changed := pftest.SolidImage(2, 2, color.RGBA{R: 200, G: 20, B: 10, A: 255})
@@ -1052,7 +1106,7 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 		for _, want := range []string{
 			"XDG_RUNTIME_DIR=",
 			"WAYLAND_DISPLAY=wayland-1",
-			"DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-test",
+			"DBUS_SESSION_BUS_ADDRESS=<set>",
 		} {
 			if !strings.Contains(stdout, want) {
 				t.Fatalf("stdout = %q, want %q", stdout, want)

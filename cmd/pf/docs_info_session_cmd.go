@@ -131,9 +131,9 @@ func sessionCmd() *cobra.Command {
 			detection := perfuncted.DetectSession()
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "session: %s\n", detection.Kind)
-			fmt.Fprintf(out, "  xdg_runtime_dir: %s\n", detection.XDGRuntimeDir)
+			fmt.Fprintf(out, "  xdg_runtime_dir: %s\n", diagnosticValue(detection.XDGRuntimeDir))
 			fmt.Fprintf(out, "  wayland_display: %s\n", detection.WaylandDisplay)
-			fmt.Fprintf(out, "  dbus_address: %s\n", detection.DBusAddress)
+			fmt.Fprintf(out, "  dbus_address: %s\n", diagnosticValue(detection.DBusAddress))
 		},
 	}
 
@@ -148,9 +148,9 @@ func sessionCmd() *cobra.Command {
 			if xdg == "" {
 				fmt.Fprintln(out, "  [✗] XDG_RUNTIME_DIR is not set")
 			} else if info, err := os.Stat(xdg); err == nil && info.IsDir() {
-				fmt.Fprintf(out, "  [✓] XDG_RUNTIME_DIR=%s\n", xdg)
+				fmt.Fprintln(out, "  [✓] XDG_RUNTIME_DIR=<set>")
 			} else {
-				fmt.Fprintf(out, "  [✗] XDG_RUNTIME_DIR=%s (not found)\n", xdg)
+				fmt.Fprintln(out, "  [✗] XDG_RUNTIME_DIR=<set> (not found)")
 			}
 
 			wd := os.Getenv("WAYLAND_DISPLAY")
@@ -164,13 +164,13 @@ func sessionCmd() *cobra.Command {
 					if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
 						fmt.Fprintf(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd)
 					} else {
-						fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing at %s)\n", wd, sock)
+						fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing)\n", wd)
 					}
 				}
 			}
 
 			if addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); addr != "" {
-				fmt.Fprintf(out, "  [✓] DBUS_SESSION_BUS_ADDRESS=%s\n", addr)
+				fmt.Fprintln(out, "  [✓] DBUS_SESSION_BUS_ADDRESS=<set>")
 			} else {
 				fmt.Fprintln(out, "  [✗] DBUS_SESSION_BUS_ADDRESS is not set")
 			}
@@ -255,4 +255,11 @@ Use the printed env vars in another terminal to connect:
 
 	cmd.AddCommand(typeCmd, check, startCmd)
 	return cmd
+}
+
+func diagnosticValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	return "<set>"
 }
