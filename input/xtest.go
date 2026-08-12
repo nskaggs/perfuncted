@@ -188,115 +188,57 @@ func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //noli
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if a.text != "" {
-			if err := b.typeText(ctx, a.text); err != nil {
-				return err
-			}
-			continue
-		}
-		if a.key == "" {
-			continue
-		}
-		kc, err := b.keycodeFor(a.key)
-		if err != nil {
+		if err := b.typeAction(ctx, a); err != nil {
 			return err
-		}
-		// Press modifier keys first.
-		if a.modifiers.shift {
-			if err := b.keyDown(ctx, "shift"); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.ctrl {
-			if err := b.keyDown(ctx, "ctrl"); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.alt {
-			if err := b.keyDown(ctx, "alt"); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.super {
-			if err := b.keyDown(ctx, "super"); err != nil {
-				return err
-			}
-		}
-		switch {
-		case a.up:
-			if err := b.keyUpKC(ctx, kc); err != nil {
-				return err
-			}
-		case a.down:
-			if err := b.keyDownKC(ctx, kc); err != nil {
-				return err
-			}
-		default:
-			if err := b.keyDownKC(ctx, kc); err != nil {
-				return err
-			}
-			if err := sleepContext(ctx, b.delay); err != nil {
-				if upErr := b.keyUpKC(ctx, kc); upErr != nil {
-					return upErr
-				}
-				return err
-			}
-			if err := b.keyUpKC(ctx, kc); err != nil {
-				return err
-			}
-		}
-		// Release temporary modifiers.
-		releaseModifier := func(key string) error { //nolint:contextcheck // intentional: cleanup closure uses background context
-			kc, err := b.keycodeFor(key)
-			if err != nil {
-				return err
-			}
-			return b.keyUpKC(context.Background(), kc)
-		}
-		if a.modifiers.super {
-			if err := releaseModifier("super"); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.alt {
-			if err := releaseModifier("alt"); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.ctrl {
-			if err := releaseModifier("ctrl"); err != nil {
-				return err
-			}
-		}
-		if a.modifiers.shift {
-			if err := releaseModifier("shift"); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
 }
 
-// typeText types literal text character-by-character using the XTEST keysym
-// mapping. Each character's keysym is looked up directly in the server's
-// GetKeyboardMapping reply; Shift is held when the keysym lives at level >= 1.
-// This is layout-independent: the X server tells us which keysyms need Shift.
-func (b *XTestBackend) typeText(ctx context.Context, s string) error {
-	ctx = contextutil.Default(ctx)
-	for _, ch := range s {
-		if err := ctx.Err(); err != nil {
+func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error {
+	if a.text != "" {
+		return b.typeText(ctx, a.text)
+	}
+	if a.key == "" {
+		return nil
+	}
+	kc, err := b.keycodeFor(a.key)
+	if err != nil {
+		return err
+	}
+	modKeys, err := b.temporaryModifierKeycodes(a.modifiers)
+	if err != nil {
+		return err
+	}
+
+	pressedMods := make([]xproto.Keycode, 0, len(modKeys))
+	cleanupNeeded := true
+	defer func() {
+		if !cleanupNeeded {
+			return
+		}
+		for i := len(pressedMods) - 1; i >= 0; i-- {
+			_ = b.keyUpKC(context.Background(), pressedMods[i]) //nolint:contextcheck // cleanup must outlive cancellation
+		}
+	}()
+
+	for _, modKey := range modKeys {
+		if err := b.keyDownKC(ctx, modKey); err != nil {
 			return err
 		}
-		kc, level, err := b.keycodeAndLevel(xproto.Keysym(ch))
-		if err != nil {
-			return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
+		pressedMods = append(pressedMods, modKey)
+	}
+
+	switch {
+	case a.up:
+		if err := b.keyUpKC(ctx, kc); err != nil {
+			return err
 		}
-		needShift := level >= 1
-		if needShift {
-			if err := b.keyDown(ctx, "shift"); err != nil {
-				return err
-			}
+	case a.down:
+		if err := b.keyDownKC(ctx, kc); err != nil {
+			return err
 		}
+	default:
 		if err := b.keyDownKC(ctx, kc); err != nil {
 			return err
 		}
@@ -309,11 +251,101 @@ func (b *XTestBackend) typeText(ctx context.Context, s string) error {
 		if err := b.keyUpKC(ctx, kc); err != nil {
 			return err
 		}
-		if needShift {
-			if err := b.keyUp(ctx, "shift"); err != nil {
-				return err
-			}
+	}
+
+	for i := len(pressedMods) - 1; i >= 0; i-- {
+		if err := b.keyUpKC(context.Background(), pressedMods[i]); err != nil { //nolint:contextcheck // cleanup must outlive cancellation
+			return err
 		}
+		pressedMods = pressedMods[:i]
+	}
+	cleanupNeeded = false
+	return nil
+}
+
+func (b *XTestBackend) temporaryModifierKeycodes(mod modifiers) ([]xproto.Keycode, error) {
+	keys := make([]string, 0, 4)
+	if mod.shift {
+		keys = append(keys, "shift")
+	}
+	if mod.ctrl {
+		keys = append(keys, "ctrl")
+	}
+	if mod.alt {
+		keys = append(keys, "alt")
+	}
+	if mod.super {
+		keys = append(keys, "super")
+	}
+
+	out := make([]xproto.Keycode, 0, len(keys))
+	for _, key := range keys {
+		kc, err := b.keycodeFor(key)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, kc)
+	}
+	return out, nil
+}
+
+// typeText types literal text character-by-character using the XTEST keysym
+// mapping. Each character's keysym is looked up directly in the server's
+// GetKeyboardMapping reply; Shift is held when the keysym lives at level >= 1.
+// This is layout-independent: the X server tells us which keysyms need Shift.
+func (b *XTestBackend) typeText(ctx context.Context, s string) error {
+	ctx = contextutil.Default(ctx)
+	for _, ch := range s {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := b.typeTextRune(ctx, ch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) error {
+	kc, level, err := b.keycodeAndLevel(xproto.Keysym(ch))
+	if err != nil {
+		return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
+	}
+	shiftHeld := false
+	var shiftKC xproto.Keycode
+	if level >= 1 {
+		shiftKC, err = b.keycodeFor("shift")
+		if err != nil {
+			return err
+		}
+		if err := b.keyDownKC(ctx, shiftKC); err != nil {
+			return err
+		}
+		shiftHeld = true
+	}
+	defer func() {
+		if shiftHeld {
+			_ = b.keyUpKC(context.Background(), shiftKC) //nolint:contextcheck // cleanup must outlive cancellation
+		}
+	}()
+
+	if err := b.keyDownKC(ctx, kc); err != nil {
+		return err
+	}
+	if err := sleepContext(ctx, b.delay); err != nil {
+		if upErr := b.keyUpKC(ctx, kc); upErr != nil {
+			return upErr
+		}
+		return err
+	}
+	if err := b.keyUpKC(ctx, kc); err != nil {
+		return err
+	}
+	if shiftHeld {
+		if err := b.keyUpKC(context.Background(), shiftKC); err != nil { //nolint:contextcheck // cleanup must outlive cancellation
+			return err
+		}
+		shiftHeld = false
 	}
 	return nil
 }

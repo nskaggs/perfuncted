@@ -23,6 +23,11 @@ func (m *MockGetKeyboardMappingCookie) Reply() (*xproto.GetKeyboardMappingReply,
 	return m.reply, nil
 }
 
+// NewMockGetKeyboardMappingCookie returns a keyboard-mapping cookie for tests.
+func NewMockGetKeyboardMappingCookie(reply *xproto.GetKeyboardMappingReply) GetKeyboardMappingCookie {
+	return &MockGetKeyboardMappingCookie{reply: reply}
+}
+
 type MockCheckCookie struct{}
 
 func (m *MockCheckCookie) Check() error { return nil }
@@ -50,6 +55,11 @@ func (m *MockQueryPointerCookie) Reply() (*xproto.QueryPointerReply, error) { re
 type MockXTestFakeInputCookie struct{ err error }
 
 func (m *MockXTestFakeInputCookie) Check() error { return m.err }
+
+// NewMockXTestFakeInputCookie returns an XTEST fake-input cookie for tests.
+func NewMockXTestFakeInputCookie(err error) XTestFakeInputCookie {
+	return &MockXTestFakeInputCookie{err: err}
+}
 
 type MockInternAtomCookie struct {
 	reply *xproto.InternAtomReply
