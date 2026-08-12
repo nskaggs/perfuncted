@@ -165,7 +165,7 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 //
 //	17 = Format_RGBA8888  → bytes: R, G, B, A
 //	 4 = Format_ARGB32    → bytes on LE: B, G, R, A  (default GPU framebuffer)
-func decodeKWinPixels(data []byte, rect image.Rectangle, results map[string]dbus.Variant) (image.Image, error) {
+func decodeKWinPixels(data []byte, rect image.Rectangle, results map[string]dbus.Variant) (image.Image, error) { //nolint:gocyclo // raw pixel decoding has format-specific validation branches
 	if img, err := png.Decode(bytes.NewReader(data)); err == nil {
 		return img, nil
 	}

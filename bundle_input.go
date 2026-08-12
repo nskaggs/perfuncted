@@ -211,11 +211,11 @@ func (b *InputBundle) DragAndDrop(
 	y2 int,
 ) (err error) {
 	ctx = contextutil.Default(ctx)
-	if err := b.checkAvailable("drag"); err != nil {
-		return err
+	if checkErr := b.checkAvailable("drag"); checkErr != nil {
+		return checkErr
 	}
-	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); err != nil {
-		return err
+	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
+		return moveErr
 	}
 	released := false
 	defer func() {

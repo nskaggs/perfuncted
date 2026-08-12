@@ -195,7 +195,7 @@ func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //noli
 	return nil
 }
 
-func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error {
+func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error { //nolint:gocyclo // modifier and key state transitions are intentionally explicit
 	if a.text != "" {
 		return b.typeText(ctx, a.text)
 	}
@@ -218,12 +218,12 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error {
 			return
 		}
 		for i := len(pressedMods) - 1; i >= 0; i-- {
-			_ = b.keyUpKC(context.Background(), pressedMods[i]) //nolint:contextcheck // cleanup must outlive cancellation
+			_ = b.keyUpKC(pressedMods[i])
 		}
 	}()
 
 	for _, modKey := range modKeys {
-		if err := b.keyDownKC(ctx, modKey); err != nil {
+		if err := b.keyDownKC(modKey); err != nil {
 			return err
 		}
 		pressedMods = append(pressedMods, modKey)
@@ -231,30 +231,30 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error {
 
 	switch {
 	case a.up:
-		if err := b.keyUpKC(ctx, kc); err != nil {
+		if err := b.keyUpKC(kc); err != nil {
 			return err
 		}
 	case a.down:
-		if err := b.keyDownKC(ctx, kc); err != nil {
+		if err := b.keyDownKC(kc); err != nil {
 			return err
 		}
 	default:
-		if err := b.keyDownKC(ctx, kc); err != nil {
+		if err := b.keyDownKC(kc); err != nil {
 			return err
 		}
 		if err := sleepContext(ctx, b.delay); err != nil {
-			if upErr := b.keyUpKC(ctx, kc); upErr != nil {
+			if upErr := b.keyUpKC(kc); upErr != nil {
 				return upErr
 			}
 			return err
 		}
-		if err := b.keyUpKC(ctx, kc); err != nil {
+		if err := b.keyUpKC(kc); err != nil {
 			return err
 		}
 	}
 
 	for i := len(pressedMods) - 1; i >= 0; i-- {
-		if err := b.keyUpKC(context.Background(), pressedMods[i]); err != nil { //nolint:contextcheck // cleanup must outlive cancellation
+		if err := b.keyUpKC(pressedMods[i]); err != nil {
 			return err
 		}
 		pressedMods = pressedMods[:i]
@@ -318,31 +318,31 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) error {
 		if err != nil {
 			return err
 		}
-		if err := b.keyDownKC(ctx, shiftKC); err != nil {
+		if err := b.keyDownKC(shiftKC); err != nil {
 			return err
 		}
 		shiftHeld = true
 	}
 	defer func() {
 		if shiftHeld {
-			_ = b.keyUpKC(context.Background(), shiftKC) //nolint:contextcheck // cleanup must outlive cancellation
+			_ = b.keyUpKC(shiftKC)
 		}
 	}()
 
-	if err := b.keyDownKC(ctx, kc); err != nil {
+	if err := b.keyDownKC(kc); err != nil {
 		return err
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
-		if upErr := b.keyUpKC(ctx, kc); upErr != nil {
+		if upErr := b.keyUpKC(kc); upErr != nil {
 			return upErr
 		}
 		return err
 	}
-	if err := b.keyUpKC(ctx, kc); err != nil {
+	if err := b.keyUpKC(kc); err != nil {
 		return err
 	}
 	if shiftHeld {
-		if err := b.keyUpKC(context.Background(), shiftKC); err != nil { //nolint:contextcheck // cleanup must outlive cancellation
+		if err := b.keyUpKC(shiftKC); err != nil {
 			return err
 		}
 		shiftHeld = false
@@ -350,27 +350,11 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) error {
 	return nil
 }
 
-func (b *XTestBackend) keyDown(ctx context.Context, key string) error {
-	kc, err := b.keycodeFor(key)
-	if err != nil {
-		return err
-	}
-	return b.keyDownKC(ctx, kc)
-}
-
-func (b *XTestBackend) keyUp(ctx context.Context, key string) error {
-	kc, err := b.keycodeFor(key)
-	if err != nil {
-		return err
-	}
-	return b.keyUpKC(ctx, kc)
-}
-
-func (b *XTestBackend) keyDownKC(_ context.Context, kc xproto.Keycode) error {
+func (b *XTestBackend) keyDownKC(kc xproto.Keycode) error {
 	return b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
-func (b *XTestBackend) keyUpKC(_ context.Context, kc xproto.Keycode) error {
+func (b *XTestBackend) keyUpKC(kc xproto.Keycode) error {
 	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 

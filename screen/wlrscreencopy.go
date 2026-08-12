@@ -301,14 +301,14 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 				_ = b.cachedFd.Close()
 				b.cachedFd = nil
 			}
-			f, err := shmutil.CreateFile(int64(size))
-			if err != nil {
-				return fmt.Errorf("screen/wlr: shm file: %w", err)
+			f, createErr := shmutil.CreateFile(int64(size))
+			if createErr != nil {
+				return fmt.Errorf("screen/wlr: shm file: %w", createErr)
 			}
-			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-			if err != nil {
+			px, mmapErr := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+			if mmapErr != nil {
 				f.Close()
-				return fmt.Errorf("screen/wlr: mmap: %w", err)
+				return fmt.Errorf("screen/wlr: mmap: %w", mmapErr)
 			}
 			b.cachedFd = f
 			b.cachedBuf = px

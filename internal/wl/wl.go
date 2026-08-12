@@ -40,7 +40,7 @@ func WithOperation(ctx Ctx, fn func() error) error {
 
 // DispatchContext reads one message when the context supports cancellation;
 // lightweight test contexts fall back to their regular dispatch method.
-func DispatchContext(ctx Ctx, cancel context.Context) error {
+func DispatchContext(cancel context.Context, ctx Ctx) error {
 	if dispatcher, ok := ctx.(interface {
 		DispatchContext(context.Context) error
 	}); ok {

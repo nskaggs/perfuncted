@@ -300,14 +300,14 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 				_ = b.cachedFd.Close()
 				b.cachedFd = nil
 			}
-			f, err := shmutil.CreateFile(int64(size))
-			if err != nil {
-				return fmt.Errorf("screen/ext: shm file: %w", err)
+			f, createErr := shmutil.CreateFile(int64(size))
+			if createErr != nil {
+				return fmt.Errorf("screen/ext: shm file: %w", createErr)
 			}
-			px, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-			if err != nil {
+			px, mmapErr := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+			if mmapErr != nil {
 				f.Close()
-				return fmt.Errorf("screen/ext: mmap: %w", err)
+				return fmt.Errorf("screen/ext: mmap: %w", mmapErr)
 			}
 			b.cachedFd = f
 			b.cachedBuf = px
@@ -364,7 +364,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := wl.DispatchContext(wlctx, ctx); err != nil {
+			if err := wl.DispatchContext(ctx, wlctx); err != nil {
 				return fmt.Errorf("screen/ext: dispatch: %w", err)
 			}
 		}

@@ -1060,7 +1060,7 @@ func TestClipboardCommands(t *testing.T) {
 	})
 }
 
-func TestInfoSessionAndDocsCommands(t *testing.T) {
+func TestInfoSessionAndDocsCommands(t *testing.T) { //nolint:gocyclo // subtests cover independent CLI command paths
 	t.Run("info invalid output", func(t *testing.T) {
 		stdout, stderr, code := captureRunIO(t, []string{"info", "--output", "bogus"}, func(*cliConfig) sessionOpener {
 			return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
