@@ -1060,6 +1060,41 @@ func TestInfoSessionAndDocsCommands(t *testing.T) {
 		}
 	})
 
+	t.Run("session cleanup", func(t *testing.T) {
+		var cleanedMaxAge time.Duration
+		cmd := sessionCmdWithCleaner(func(maxAge time.Duration) {
+			cleanedMaxAge = maxAge
+		})
+		var stdout bytes.Buffer
+		cmd.SetOut(&stdout)
+		cmd.SetArgs([]string{"cleanup", "--max-age", "2h"})
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("session cleanup: %v", err)
+		}
+		if cleanedMaxAge != 2*time.Hour {
+			t.Fatalf("cleanup max age = %s, want 2h", cleanedMaxAge)
+		}
+		if !strings.Contains(stdout.String(), "cleanup pass completed") {
+			t.Fatalf("stdout = %q, want cleanup summary", stdout.String())
+		}
+	})
+
+	t.Run("session cleanup rejects unsafe age", func(t *testing.T) {
+		called := false
+		cmd := sessionCmdWithCleaner(func(time.Duration) {
+			called = true
+		})
+		cmd.SetArgs([]string{"cleanup", "--max-age", "1m"})
+
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "at least 5m0s") {
+			t.Fatalf("session cleanup error = %v, want minimum-age error", err)
+		}
+		if called {
+			t.Fatal("cleanup ran with invalid max age")
+		}
+	})
+
 	t.Run("docs", func(t *testing.T) {
 		dir := t.TempDir()
 		stdout, stderr, code := captureRunIO(t, []string{"docs", "--dir", dir}, func(*cliConfig) sessionOpener {

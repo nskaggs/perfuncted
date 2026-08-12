@@ -6,6 +6,7 @@ import (
 	"image"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -119,6 +120,12 @@ func infoCmd(
 // ── session ───────────────────────────────────────────────────────────────────────────
 
 func sessionCmd() *cobra.Command {
+	return sessionCmdWithCleaner(perfuncted.CleanupStaleSessions)
+}
+
+func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Command {
+	const minimumCleanupAge = 5 * time.Minute
+
 	cmd := &cobra.Command{
 		Use:   "session",
 		Short: "Session diagnostics and utilities",
@@ -253,6 +260,26 @@ Use the printed env vars in another terminal to connect:
 	startCmd.Flags().IntVar(&startResY, "res-y", 768, "vertical resolution")
 	startCmd.Flags().StringVar(&startSwayConf, "sway-config", "", "path to custom sway config (default: embedded)")
 
-	cmd.AddCommand(typeCmd, check, startCmd)
+	var cleanupMaxAge time.Duration
+	cleanupCmd := &cobra.Command{
+		Use:   "cleanup",
+		Short: "Safely clean stale managed session runtimes",
+		Long: `Clean stale Perfuncted runtime directories through the library's
+ownership-aware cleanup path. Live owner processes are retained, and recorded
+child process IDs are only terminated when their XDG runtime directory matches
+the stale session being removed.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cleanupMaxAge < minimumCleanupAge {
+				return fmt.Errorf("--max-age must be at least %s", minimumCleanupAge)
+			}
+			cleanStaleSessions(cleanupMaxAge)
+			fmt.Fprintf(cmd.OutOrStdout(), "stale session cleanup pass completed (max age %s)\n", cleanupMaxAge)
+			return nil
+		},
+	}
+	cleanupCmd.Flags().DurationVar(&cleanupMaxAge, "max-age", 24*time.Hour, "age threshold for stale runtimes (minimum 5m)")
+
+	cmd.AddCommand(typeCmd, check, startCmd, cleanupCmd)
 	return cmd
 }

@@ -165,7 +165,12 @@ Requires: [`just`](https://github.com/casey/just), [`staticcheck`](https://stati
 just check       # fmt + vet + staticcheck
 just precommit   # full pre-commit gate (format, vet, lint, tidy, docs)
 just pf info     # probe backend availability on the current session
+just cleanup-nested # safely reap stale managed sessions after a crash
 ```
+
+`cleanup-nested` uses the same ownership-aware cleanup as the library. It
+retains live session owners and will not signal a recorded child whose
+`XDG_RUNTIME_DIR` belongs to a different runtime.
 
 ## License
 
