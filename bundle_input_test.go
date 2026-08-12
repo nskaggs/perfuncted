@@ -53,6 +53,22 @@ func (s *dragCleanupInput) MouseDown(ctx context.Context, button int) error {
 	return nil
 }
 
+type releaseRetryInput struct {
+	pftest.Inputter
+	mouseUpCalls int
+	failAt       int
+	releaseErr   error
+}
+
+func (s *releaseRetryInput) MouseUp(ctx context.Context, button int) error {
+	s.mouseUpCalls++
+	_ = s.Inputter.MouseUp(ctx, button)
+	if s.mouseUpCalls == s.failAt {
+		return s.releaseErr
+	}
+	return nil
+}
+
 func (s *inputPointerSyncSpy) PointerLocation(context.Context) (int, int, error) {
 	s.pointerCalls++
 	return 42, 24, nil
@@ -216,6 +232,34 @@ func TestInputBundleDoubleClickCleansUpAfterSecondMouseDownFailure(t *testing.T)
 	}
 }
 
+func TestInputBundleDoubleClickRetriesReleaseAfterReleaseFailure(t *testing.T) {
+	releaseErr := errors.New("first release failed")
+	inp := &releaseRetryInput{failAt: 1, releaseErr: releaseErr}
+	p := pftest.New(nil, inp, nil, nil)
+
+	err := p.Input.DoubleClick(context.Background(), 1, 2)
+	if !errors.Is(err, releaseErr) {
+		t.Fatalf("DoubleClick error = %v, want first release error", err)
+	}
+	if inp.mouseUpCalls != 2 {
+		t.Fatalf("MouseUp calls = %d, want failed release plus cleanup retry", inp.mouseUpCalls)
+	}
+}
+
+func TestInputBundleDoubleClickRetriesSecondReleaseAfterReleaseFailure(t *testing.T) {
+	releaseErr := errors.New("second release failed")
+	inp := &releaseRetryInput{failAt: 2, releaseErr: releaseErr}
+	p := pftest.New(nil, inp, nil, nil)
+
+	err := p.Input.DoubleClick(context.Background(), 1, 2)
+	if !errors.Is(err, releaseErr) {
+		t.Fatalf("DoubleClick error = %v, want second release error", err)
+	}
+	if inp.mouseUpCalls != 3 {
+		t.Fatalf("MouseUp calls = %d, want two releases plus cleanup retry", inp.mouseUpCalls)
+	}
+}
+
 func TestInputBundleDragAndDropReportsCleanupFailure(t *testing.T) {
 	moveErr := errors.New("drag move failed")
 	cleanupErr := errors.New("drag cleanup failed")
@@ -252,6 +296,20 @@ func TestInputBundleDragAndDropCleansUpAfterMouseDownFailure(t *testing.T) {
 	}
 	if inp.mouseUpCalls != 1 {
 		t.Fatalf("cleanup MouseUp calls = %d, want 1", inp.mouseUpCalls)
+	}
+}
+
+func TestInputBundleDragAndDropRetriesReleaseAfterReleaseFailure(t *testing.T) {
+	releaseErr := errors.New("first release failed")
+	inp := &releaseRetryInput{failAt: 1, releaseErr: releaseErr}
+	p := pftest.New(nil, inp, nil, nil)
+
+	err := p.Input.DragAndDrop(context.Background(), 1, 2, 3, 4)
+	if !errors.Is(err, releaseErr) {
+		t.Fatalf("DragAndDrop error = %v, want first release error", err)
+	}
+	if inp.mouseUpCalls != 2 {
+		t.Fatalf("MouseUp calls = %d, want failed release plus cleanup retry", inp.mouseUpCalls)
 	}
 }
 

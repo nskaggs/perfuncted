@@ -116,10 +116,10 @@ func (b *InputBundle) DoubleClick(
 	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
-	released = true
 	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
 		return err
 	}
+	released = true
 	timer := time.NewTimer(20 * time.Millisecond)
 	defer timer.Stop()
 	select {
@@ -131,8 +131,11 @@ func (b *InputBundle) DoubleClick(
 	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
+	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
+		return err
+	}
 	released = true
-	return b.operationError("click", b.backend.MouseUp(ctx, 1))
+	return nil
 }
 
 func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
@@ -232,6 +235,9 @@ func (b *InputBundle) DragAndDrop(
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x2, y2)); err != nil {
 		return err
 	}
+	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
+		return err
+	}
 	released = true
-	return b.operationError("click", b.backend.MouseUp(ctx, 1))
+	return nil
 }
