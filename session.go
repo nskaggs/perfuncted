@@ -912,8 +912,10 @@ func waitForProc(pid int, timeout time.Duration) bool {
 
 // ---------- stale session cleanup ----------
 
-// CleanupStaleSessions removes perfuncted session directories older than
-// maxAge when their recorded parent PID is no longer running.
+// CleanupStaleSessions removes perfuncted session directories immediately when
+// their recorded parent PID is no longer running. Missing ownership metadata
+// gets a five-minute creation grace; malformed metadata uses maxAge, clamped
+// to that same minimum.
 func CleanupStaleSessions(maxAge time.Duration) {
 	cleanupStaleSessionsMu.Lock()
 	defer cleanupStaleSessionsMu.Unlock()
@@ -937,7 +939,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 			if statErr != nil {
 				continue
 			}
-			if now.Sub(fi.ModTime()) > staleNoPIDThreshold(maxAge) {
+			if now.Sub(fi.ModTime()) > noPIDFileReapGrace {
 				reapSessionDir(d)
 			}
 			continue
@@ -946,7 +948,7 @@ func CleanupStaleSessions(maxAge time.Duration) {
 		pid, perr := strconv.Atoi(pidStr)
 		if perr != nil {
 			fi, statErr := os.Stat(d)
-			if statErr == nil && now.Sub(fi.ModTime()) > maxAge {
+			if statErr == nil && now.Sub(fi.ModTime()) > staleMalformedPIDThreshold(maxAge) {
 				reapSessionDir(d)
 			}
 			continue
@@ -964,7 +966,14 @@ func reapSessionDir(dir string) {
 		if err != nil {
 			continue
 		}
-		(&managedProc{pid: pid}).stop(100 * time.Millisecond)
+		if !stopRecordedProcess(pid, dir, 100*time.Millisecond) {
+			slog.Debug(
+				"session: skip stale child with mismatched runtime directory",
+				"pid", pid,
+				"path", dir,
+			)
+			continue
+		}
 	}
 	unmountSubdirs(dir)
 	if err := os.RemoveAll(dir); err != nil {
@@ -1006,8 +1015,53 @@ func readPIDFile(path string) (int, error) {
 	return pid, nil
 }
 
-func staleNoPIDThreshold(maxAge time.Duration) time.Duration {
-	if maxAge <= 0 || maxAge > noPIDFileReapGrace {
+func processUsesRuntimeDir(pid int, dir string) bool {
+	return processUsesRuntimeDirAt("/proc", pid, dir)
+}
+
+func processUsesRuntimeDirAt(procRoot string, pid int, dir string) bool {
+	if pid <= 0 || dir == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return false
+	}
+	want := "XDG_RUNTIME_DIR=" + dir
+	for value := range strings.SplitSeq(string(data), "\x00") {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func stopRecordedProcess(pid int, dir string, grace time.Duration) bool {
+	if !processUsesRuntimeDir(pid, dir) {
+		return false
+	}
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		slog.Debug("session: terminate stale process group", "pid", pid, "error", err)
+	}
+
+	deadline := time.Now().Add(grace)
+	for time.Now().Before(deadline) {
+		if !processUsesRuntimeDir(pid, dir) {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !processUsesRuntimeDir(pid, dir) {
+		return true
+	}
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		slog.Debug("session: kill stale process group", "pid", pid, "error", err)
+	}
+	return true
+}
+
+func staleMalformedPIDThreshold(maxAge time.Duration) time.Duration {
+	if maxAge < noPIDFileReapGrace {
 		return noPIDFileReapGrace
 	}
 	return maxAge

@@ -1,8 +1,9 @@
 # justfile — dev workflow for github.com/nskaggs/perfuncted
 # Run `just` to see available recipes. Requires: just, staticcheck, govulncheck, deadcode.
 #
-# Match CI exactly: GitHub Actions uses Go 1.26.3, and it checks this repo out
-# without the parent workspace, so local just recipes should do the same.
+# CI reads the supported Go line from go.mod and checks this repository out
+# without the parent workspace. Local recipes pin the validated patch release
+# and disable the workspace overlay for equivalent module resolution.
 export GOTOOLCHAIN := "go1.26.5"
 export GOWORK := "off"
 
@@ -253,21 +254,4 @@ nested:
 # Clean up stale nested session processes and sockets.
 # Run this manually if a session crashes without cleaning up after itself.
 cleanup-nested:
-    @echo "Cleaning up stale nested session processes..."
-    @tmpdir="$${TMPDIR:-/tmp}"
-    @for f in /proc/[0-9]*/environ; do \
-        [ -r "$$f" ] || continue; \
-        tr '\0' '\n' < "$$f" 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$$tmpdir/perfuncted-xdg-" || continue; \
-        pid=$${f%/environ}; pid=$${pid#/proc/}; \
-        kill -9 "$$pid" 2>/dev/null || true; \
-    done
-    @sleep 1
-    @echo "Cleaning up stale temp files and sockets..."
-    -for dir in "$$tmpdir"/perfuncted-xdg-*/gvfs; do [ -d "$$dir" ] && fusermount -u "$$dir" 2>/dev/null || true; done
-    -rm -rf "$$tmpdir"/perfuncted-xdg-* 2>/dev/null || true
-    -rm -rf "$$tmpdir"/perfuncted-logs 2>/dev/null || true
-    -rm -f "$$tmpdir"/pf-test-*.png 2>/dev/null || true
-    -rm -f "$$tmpdir"/*-kwrite.txt 2>/dev/null || true
-    -rm -f "$$tmpdir"/*-featherpad.txt 2>/dev/null || true
-    -rm -f "$$tmpdir"/*-gnome-text-editor.txt 2>/dev/null || true
-    @echo "Cleanup complete."
+    CGO_ENABLED=0 go run ./cmd/pf session cleanup --max-age 24h

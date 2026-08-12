@@ -5,6 +5,7 @@ import (
 	"image"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -183,6 +184,14 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
+	if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+		if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
+			if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+				os.Exit(2)
+			}
+		}
+	}
 	for {
 		time.Sleep(10 * time.Second)
 	}
@@ -254,6 +263,38 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 func TestSessionStopNil(t *testing.T) {
 	var infra *sessionInfra
 	infra.stop()
+}
+
+func TestProcessUsesRuntimeDirAt(t *testing.T) {
+	procRoot := t.TempDir()
+	pidDir := filepath.Join(procRoot, "123")
+	if err := os.Mkdir(pidDir, 0o700); err != nil {
+		t.Fatalf("mkdir process dir: %v", err)
+	}
+	environPath := filepath.Join(pidDir, "environ")
+
+	writeEnvironment := func(values ...string) {
+		t.Helper()
+		if err := os.WriteFile(environPath, []byte(strings.Join(values, "\x00")+"\x00"), 0o600); err != nil {
+			t.Fatalf("write environ: %v", err)
+		}
+	}
+
+	writeEnvironment("PATH=/usr/bin", "XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-owned")
+	if !processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-owned") {
+		t.Fatal("matching runtime directory was not recognized")
+	}
+	if processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-other") {
+		t.Fatal("mismatched runtime directory was accepted")
+	}
+
+	writeEnvironment("PATH=/usr/bin", "OTHER=/tmp/perfuncted-xdg-owned")
+	if processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-owned") {
+		t.Fatal("runtime directory value under another key was accepted")
+	}
+	if processUsesRuntimeDirAt(procRoot, 999, "/tmp/perfuncted-xdg-owned") {
+		t.Fatal("missing process was accepted")
+	}
 }
 
 func TestStartNestedSessionCompiles(t *testing.T) {
@@ -337,6 +378,30 @@ func TestCleanupStaleSessionsKeepsRecentNoPidfileDir(t *testing.T) {
 	}
 }
 
+func TestCleanupStaleSessionsClampsUnsafeMetadataAge(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("invalid"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+	recent := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(dir, recent, recent); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(0)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("recent malformed-owner session dir was removed: %v", err)
+	}
+}
+
 func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
 	cleanupStaleSessionsMu.Lock()
 	lastCleanupTime = time.Time{}
@@ -376,6 +441,7 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 	}
 
 	cmd := helperCommand(t)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR="+dir)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
@@ -401,6 +467,106 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 	case <-waitCh:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("recorded child process still alive")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsEscalatesForOwnedChild(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(
+		cmd.Env,
+		"XDG_RUNTIME_DIR="+dir,
+		"GO_WANT_IGNORE_SIGTERM=1",
+		"GO_HELPER_READY="+readyPath,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+	if err := waitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+		t.Fatalf("wait for helper readiness: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("owned child process ignored cleanup escalation")
+	}
+}
+
+func TestCleanupStaleSessionsDoesNotTerminateMismatchedChild(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(
+		filepath.Join(dir, sessionOwnerPIDFile),
+		[]byte("99999999"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-other")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
+		t.Fatalf("mismatched child process was terminated: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("stale session dir still exists: %v", err)
