@@ -146,6 +146,7 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 	return kc, err
 }
 
+// KeyDown presses and holds key through XTEST.
 func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -171,6 +172,7 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
+// Type sends text through XTEST using the input key syntax.
 func (b *XTestBackend) Type(ctx context.Context, s string) error {
 	return b.typeContext(ctx, s)
 }
@@ -358,6 +360,7 @@ func (b *XTestBackend) keyUpKC(kc xproto.Keycode) error {
 	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
+// MouseMove moves the pointer to absolute coordinates x and y.
 func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -367,6 +370,7 @@ func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
 		xproto.TimeCurrentTime, b.root, int16(x), int16(y), 0).Check()
 }
 
+// MouseClick moves to x and y and clicks button.
 func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -387,6 +391,7 @@ func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	return b.MouseUp(context.Background(), button) //nolint:contextcheck // intentional: release button even if context cancelled
 }
 
+// MouseDown presses button.
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -396,6 +401,7 @@ func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
+// MouseUp releases button.
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -487,6 +493,7 @@ func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return nil
 }
 
+// PointerLocation returns the pointer coordinates from XTEST.
 func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -499,6 +506,7 @@ func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	return int(rep.RootX), int(rep.RootY), nil
 }
 
+// Sync flushes pending XTEST events.
 func (b *XTestBackend) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -508,6 +516,7 @@ func (b *XTestBackend) Sync(ctx context.Context) error {
 	return nil
 }
 
+// Close releases the X11 connection.
 func (b *XTestBackend) Close() error {
 	b.conn.Close()
 	return nil

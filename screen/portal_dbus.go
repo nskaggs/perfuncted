@@ -30,6 +30,7 @@ func (b *PortalDBusBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	return find.PixelHash(img, nil), nil
 }
 
+// GrabRegionHash returns a fast pixel hash of rect.
 func (b *PortalDBusBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	img, err := b.Grab(ctx, rect)
 	if err != nil {
@@ -233,6 +234,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	}
 }
 
+// Close releases the portal D-Bus connection.
 func (b *PortalDBusBackend) Close() error {
 	if b == nil || b.conn == nil {
 		return nil

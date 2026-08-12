@@ -26,6 +26,7 @@ func (b *WindowBundle) close() error {
 	return b.backend.Close()
 }
 
+// Sync refreshes pending window-backend state when supported.
 func (b *WindowBundle) Sync(ctx context.Context) error {
 	if err := b.checkAvailable("sync"); err != nil {
 		return err
@@ -39,6 +40,7 @@ func (b *WindowBundle) Sync(ctx context.Context) error {
 	return b.operationError("sync", ErrUnsupported)
 }
 
+// ActiveTitle returns the title of the focused window.
 func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	if err := b.checkAvailable("active-title"); err != nil {
 		return "", err

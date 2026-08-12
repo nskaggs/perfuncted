@@ -39,16 +39,26 @@ type Info struct {
 	// X11, Sway, GNOME, and foreign-toplevel backends, and may be an opaque
 	// string such as a KWin UUID.
 	NativeID string
-	Title    string
-	AppID    string
-	Class    string
-	PID      int32
-	X, Y     int
-	W, H     int
+	// Title is the current window title.
+	Title string
+	// AppID is the application identifier when reported by the backend.
+	AppID string
+	// Class is the window class when reported by the backend.
+	Class string
+	// PID is the owning process ID when reported by the backend.
+	PID int32
+	// X and Y are best-effort window coordinates.
+	X, Y int
+	// W and H are best-effort window dimensions.
+	W, H int
 	// Runtime state gathered from the foreign-toplevel protocol.
-	Active     bool
-	Minimized  bool
-	Maximized  bool
+	// Active reports whether the window is focused.
+	Active bool
+	// Minimized reports whether the window is minimized.
+	Minimized bool
+	// Maximized reports whether the window is maximized.
+	Maximized bool
+	// Fullscreen reports whether the window is fullscreen.
 	Fullscreen bool
 }
 
@@ -87,7 +97,7 @@ type IDManager interface {
 	InfoByID(ctx context.Context, id string) (Info, error)
 }
 
-// NativeID returns the stable backend identifier for info.
+// StableID returns the stable backend identifier for info.
 func (info Info) StableID() string {
 	if info.NativeID != "" {
 		return info.NativeID

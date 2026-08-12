@@ -193,6 +193,7 @@ func parseKWinWindowList(data string) []Info {
 	return infos
 }
 
+// List returns windows reported by KWin scripting.
 func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
 	var out []Info
 	for win, err := range k.IterateWindows(ctx) {
@@ -253,6 +254,7 @@ func (k *KWinScriptManager) Close() error {
 	return k.conn.Close()
 }
 
+// Sync verifies that the KWin scripting connection is usable.
 func (k *KWinScriptManager) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -261,6 +263,7 @@ func (k *KWinScriptManager) Sync(ctx context.Context) error {
 	return nil
 }
 
+// SupportedOperations returns operations supported by KWin scripting.
 func (k *KWinScriptManager) SupportedOperations() []string {
 	return []string{
 		"discover",
@@ -313,6 +316,7 @@ func kwinActionResultByID(id, result string) error {
 	return nil
 }
 
+// ActivateByID focuses the window identified by id.
 func (k *KWinScriptManager) ActivateByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc,
@@ -324,6 +328,7 @@ func (k *KWinScriptManager) ActivateByID(ctx context.Context, id string) error {
 	return kwinActionResultByID(id, result)
 }
 
+// MoveByID positions the window identified by id.
 func (k *KWinScriptManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, kwinMoveAction(x, y))
@@ -338,6 +343,7 @@ func kwinMoveAction(x, y int) string {
 	return "var g = w.frameGeometry;\\n            w.frameGeometry = {x: " + strconv.Itoa(x) + ", y: " + strconv.Itoa(y) + ", width: Math.round(g.width), height: Math.round(g.height)};"
 }
 
+// ResizeByID resizes the window identified by id.
 func (k *KWinScriptManager) ResizeByID(ctx context.Context, id string, width, height int) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		action := "var g = w.frameGeometry;\\n            w.frameGeometry = {x: Math.round(g.x), y: Math.round(g.y), width: " + strconv.Itoa(width) + ", height: " + strconv.Itoa(height) + "};"
@@ -349,6 +355,7 @@ func (k *KWinScriptManager) ResizeByID(ctx context.Context, id string, width, he
 	return kwinActionResultByID(id, result)
 }
 
+// CloseWindowByID closes the window identified by id.
 func (k *KWinScriptManager) CloseWindowByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.closeWindow();")
@@ -359,6 +366,7 @@ func (k *KWinScriptManager) CloseWindowByID(ctx context.Context, id string) erro
 	return kwinActionResultByID(id, result)
 }
 
+// MinimizeByID minimizes the window identified by id.
 func (k *KWinScriptManager) MinimizeByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.minimized = true;")
@@ -369,6 +377,7 @@ func (k *KWinScriptManager) MinimizeByID(ctx context.Context, id string) error {
 	return kwinActionResultByID(id, result)
 }
 
+// MaximizeByID maximizes the window identified by id.
 func (k *KWinScriptManager) MaximizeByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.setMaximize(true, true);")
@@ -379,14 +388,17 @@ func (k *KWinScriptManager) MaximizeByID(ctx context.Context, id string) error {
 	return kwinActionResultByID(id, result)
 }
 
+// FullscreenByID reports that KWin scripting does not expose this operation.
 func (k *KWinScriptManager) FullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
+// UnfullscreenByID reports that KWin scripting does not expose this operation.
 func (k *KWinScriptManager) UnfullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
+// RestoreByID restores the window identified by id.
 func (k *KWinScriptManager) RestoreByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc, "w.setMaximize(false, false); w.minimized = false;")
@@ -397,6 +409,7 @@ func (k *KWinScriptManager) RestoreByID(ctx context.Context, id string) error {
 	return kwinActionResultByID(id, result)
 }
 
+// InfoByID returns fresh information for the window identified by id.
 func (k *KWinScriptManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	for info, err := range k.IterateWindows(ctx) {
 		if err != nil {

@@ -73,10 +73,15 @@ type sessionInfra struct {
 // Session is the central orchestrator of perfuncted. It owns all backends and
 // manages the desktop session lifecycle.
 type Session struct {
-	Screen    *ScreenBundle
-	Input     *InputBundle
-	Windows   *WindowBundle
-	Outputs   *OutputBundle
+	// Screen exposes screen-capture operations for this session.
+	Screen *ScreenBundle
+	// Input exposes keyboard and pointer operations for this session.
+	Input *InputBundle
+	// Windows exposes window discovery and control for this session.
+	Windows *WindowBundle
+	// Outputs exposes display-output discovery for this session.
+	Outputs *OutputBundle
+	// Clipboard exposes clipboard access for this session.
 	Clipboard *ClipboardBundle
 
 	config       SessionConfig

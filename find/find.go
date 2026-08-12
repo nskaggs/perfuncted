@@ -157,7 +157,9 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 
 // Result pairs a hash with the rectangle it was captured from.
 type Result struct {
+	// Hash is the matching pixel hash.
 	Hash uint32
+	// Rect is the rectangle that produced Hash.
 	Rect image.Rectangle
 }
 
@@ -450,6 +452,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 
 // Anchor represents an absolute coordinate reference point on the screen.
 type Anchor struct {
+	// X is the horizontal screen coordinate.
 	X, Y int
 }
 

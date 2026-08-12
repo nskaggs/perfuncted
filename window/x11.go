@@ -214,6 +214,7 @@ func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 	return x, y, w, h
 }
 
+// List returns top-level windows from the X11 client list.
 func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
 	var out []Info
 	for win, err := range b.IterateWindows(ctx) {
@@ -326,6 +327,7 @@ func (b *X11Backend) Close() error {
 	return nil
 }
 
+// Sync flushes pending X11 requests.
 func (b *X11Backend) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -335,6 +337,7 @@ func (b *X11Backend) Sync(ctx context.Context) error {
 	return nil
 }
 
+// SupportedOperations returns operations supported by EWMH.
 func (b *X11Backend) SupportedOperations() []string {
 	return []string{
 		"discover",
@@ -359,6 +362,7 @@ func x11WindowID(id string) (xproto.Window, error) {
 	return xproto.Window(numeric), nil
 }
 
+// ActivateByID focuses the window identified by id.
 func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -379,6 +383,7 @@ func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
 		}.Bytes())).Check()
 }
 
+// MoveByID positions the window identified by id.
 func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -393,6 +398,7 @@ func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
 		[]uint32{uint32(x), uint32(y)}).Check()
 }
 
+// ResizeByID resizes the window identified by id.
 func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -407,6 +413,7 @@ func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error 
 		[]uint32{uint32(w), uint32(h)}).Check()
 }
 
+// CloseWindowByID closes the window identified by id.
 func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -436,6 +443,7 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 		}.Bytes())).Check()
 }
 
+// MinimizeByID minimizes the window identified by id.
 func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -461,6 +469,7 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 		}.Bytes())).Check()
 }
 
+// MaximizeByID maximizes the window identified by id.
 func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -473,6 +482,7 @@ func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
 	return b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
 }
 
+// FullscreenByID enables fullscreen mode for the window identified by id.
 func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -485,6 +495,7 @@ func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
 	return b.setWMState(win, 1, b.atomNetWMStateFullscreen)
 }
 
+// UnfullscreenByID disables fullscreen mode for the window identified by id.
 func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -497,6 +508,7 @@ func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
 	return b.setWMState(win, 0, b.atomNetWMStateFullscreen)
 }
 
+// RestoreByID restores the window identified by id.
 func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -512,6 +524,7 @@ func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
 	return b.conn.MapWindowChecked(win).Check()
 }
 
+// InfoByID returns fresh information for the window identified by id.
 func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

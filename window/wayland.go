@@ -282,6 +282,7 @@ func (m *WaylandWindowManager) withOperation(fn func() error) error {
 	return wl.WithOperation(m.display.Context(), fn)
 }
 
+// List returns windows reported by the foreign-toplevel protocol.
 func (m *WaylandWindowManager) List(ctx context.Context) ([]Info, error) {
 	var out []Info
 	for win, err := range m.IterateWindows(ctx) {
@@ -349,6 +350,7 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 	return title, err
 }
 
+// Close releases the Wayland connection.
 func (m *WaylandWindowManager) Close() error {
 	if m.session != nil {
 		return m.session.Close()
@@ -359,6 +361,7 @@ func (m *WaylandWindowManager) Close() error {
 	return nil
 }
 
+// Sync flushes and processes pending Wayland events.
 func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -370,6 +373,7 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	return m.withOperation(m.display.RoundTrip)
 }
 
+// SupportedOperations returns operations exposed by the foreign-toplevel protocol.
 func (m *WaylandWindowManager) SupportedOperations() []string {
 	if !m.canControlToplevels() {
 		return []string{"discover"}
@@ -398,6 +402,7 @@ func (m *WaylandWindowManager) lookupByID(id string) (uint32, Info, error) {
 	return 0, Info{}, ErrWindowNotFound
 }
 
+// ActivateByID focuses the window identified by id.
 func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -437,14 +442,17 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 	})
 }
 
+// MoveByID reports that the foreign-toplevel protocol does not move windows.
 func (m *WaylandWindowManager) MoveByID(_ context.Context, _ string, _, _ int) error {
 	return ErrNotSupported
 }
 
+// ResizeByID reports that the foreign-toplevel protocol does not resize windows.
 func (m *WaylandWindowManager) ResizeByID(_ context.Context, _ string, _, _ int) error {
 	return ErrNotSupported
 }
 
+// CloseWindowByID closes the window identified by id.
 func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -468,6 +476,7 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 	})
 }
 
+// MinimizeByID minimizes the window identified by id.
 func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -491,6 +500,7 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 	})
 }
 
+// MaximizeByID maximizes the window identified by id.
 func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -514,6 +524,7 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 	})
 }
 
+// FullscreenByID changes the fullscreen state of the window identified by id.
 func (m *WaylandWindowManager) FullscreenByID(
 	ctx context.Context,
 	id string,
@@ -541,6 +552,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 	})
 }
 
+// UnfullscreenByID clears fullscreen state for the window identified by id.
 func (m *WaylandWindowManager) UnfullscreenByID(
 	ctx context.Context,
 	id string,
@@ -567,6 +579,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 	})
 }
 
+// RestoreByID restores the window identified by id.
 func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -593,6 +606,7 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 	})
 }
 
+// InfoByID returns fresh information for the window identified by id.
 func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

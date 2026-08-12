@@ -7,10 +7,12 @@ import (
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
+// X11Lister lists the root X11 screen as a display output.
 type X11Lister struct {
 	conn *x11.XgbConnection
 }
 
+// NewX11Lister connects to an X11 display.
 func NewX11Lister(display string) (*X11Lister, error) {
 	conn, err := x11.NewXgbConnection(display)
 	if err != nil {
@@ -19,6 +21,7 @@ func NewX11Lister(display string) (*X11Lister, error) {
 	return &X11Lister{conn: conn}, nil
 }
 
+// List returns the default X11 screen as an output.
 func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
 	screen := l.conn.DefaultScreen()
 	if screen == nil {
@@ -37,6 +40,7 @@ func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
 	}, nil
 }
 
+// Close releases the X11 connection.
 func (l *X11Lister) Close() error {
 	if l.conn != nil {
 		l.conn.Close()

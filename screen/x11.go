@@ -98,7 +98,8 @@ func (b *X11Backend) compositeDrawableForRoot() (xproto.Drawable, func()) {
 	return drawable, func() {}
 }
 
-// On composited sessions (KDE/GNOME Wayland via XWayland) the root window is
+// X11Backend captures pixels from an X11 or XWayland display. On composited
+// sessions (KDE/GNOME Wayland via XWayland) the root window is
 // not directly readable with XGetImage. This backend automatically uses the
 // Composite extension (NameWindowPixmap) when available, falling back to a
 // direct root-window GetImage for plain X11 sessions.

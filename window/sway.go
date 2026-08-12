@@ -352,6 +352,7 @@ func (m *SwayManager) Close() error {
 	return queryErr
 }
 
+// Sync verifies that the Sway IPC connection is usable.
 func (m *SwayManager) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -360,6 +361,7 @@ func (m *SwayManager) Sync(ctx context.Context) error {
 	return nil
 }
 
+// SupportedOperations returns operations supported by Sway IPC.
 func (m *SwayManager) SupportedOperations() []string {
 	return []string{
 		"discover",
@@ -463,6 +465,7 @@ func (m *SwayManager) findByID(
 	return numeric, err
 }
 
+// ActivateByID focuses the window identified by id.
 func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -471,6 +474,7 @@ func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] focus", int64(numeric)))
 }
 
+// MoveByID positions the window identified by id.
 func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	ctx = contextutil.Default(ctx)
 	numeric, err := m.findByID(ctx, id)
@@ -509,6 +513,7 @@ loop:
 	return m.swayCmd(ctx, "[con_id="+strconv.FormatInt(int64(numeric), 10)+"] move position "+strconv.Itoa(x)+" "+strconv.Itoa(y))
 }
 
+// ResizeByID resizes the window identified by id.
 func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height int) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -520,6 +525,7 @@ func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height i
 	return m.swayCmd(ctx, "[con_id="+strconv.FormatInt(int64(numeric), 10)+"] resize set "+strconv.Itoa(width)+" "+strconv.Itoa(height))
 }
 
+// CloseWindowByID closes the window identified by id.
 func (m *SwayManager) CloseWindowByID(ctx context.Context, id string) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -528,6 +534,7 @@ func (m *SwayManager) CloseWindowByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] kill", int64(numeric)))
 }
 
+// MinimizeByID moves the window identified by id to the scratchpad.
 func (m *SwayManager) MinimizeByID(ctx context.Context, id string) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -536,6 +543,7 @@ func (m *SwayManager) MinimizeByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move scratchpad", int64(numeric)))
 }
 
+// MaximizeByID enables fullscreen mode for the window identified by id.
 func (m *SwayManager) MaximizeByID(ctx context.Context, id string) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -544,6 +552,7 @@ func (m *SwayManager) MaximizeByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(numeric)))
 }
 
+// FullscreenByID enables fullscreen mode for the window identified by id.
 func (m *SwayManager) FullscreenByID(ctx context.Context, id string) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -552,6 +561,7 @@ func (m *SwayManager) FullscreenByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(numeric)))
 }
 
+// UnfullscreenByID disables fullscreen mode for the window identified by id.
 func (m *SwayManager) UnfullscreenByID(ctx context.Context, id string) error {
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
@@ -560,10 +570,12 @@ func (m *SwayManager) UnfullscreenByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen disable", int64(numeric)))
 }
 
+// RestoreByID reports that Sway does not expose a separate restore operation.
 func (m *SwayManager) RestoreByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
+// InfoByID returns fresh information for the window identified by id.
 func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	numeric, err := numericID(id)
 	if err != nil {

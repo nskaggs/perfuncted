@@ -396,6 +396,7 @@ func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return b.scroll(ctx, 1, clicks)
 }
 
+// PointerLocation returns the compositor-reported pointer coordinates.
 func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -404,6 +405,7 @@ func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error
 	return 0, 0, unsupportedError("input/wl-virtual", "pointer location")
 }
 
+// Sync flushes pending virtual-input events.
 func (b *WlVirtualBackend) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	return ctx.Err()

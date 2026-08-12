@@ -23,6 +23,7 @@ func (b *InputBundle) checkAvailable(operation string) error {
 	return b.bundleBase.checkAvailable(operation, b.backend != nil)
 }
 
+// KeyDown presses and holds key.
 func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
@@ -31,6 +32,7 @@ func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 	return b.operationError("keyboard", b.backend.KeyDown(ctx, key))
 }
 
+// KeyUp releases key.
 func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
@@ -39,6 +41,7 @@ func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
 	return b.operationError("keyboard", b.backend.KeyUp(ctx, key))
 }
 
+// Type sends text using the input backend's key syntax.
 func (b *InputBundle) Type(ctx context.Context, text string) error {
 	return b.typeContext(ctx, text)
 }
@@ -51,6 +54,7 @@ func (b *InputBundle) typeContext(ctx context.Context, text string) error {
 	return b.operationError("keyboard", b.backend.Type(ctx, text))
 }
 
+// MouseMove moves the pointer to screen coordinates x and y.
 func (b *InputBundle) MouseMove(
 	ctx context.Context,
 	x int,
@@ -63,6 +67,7 @@ func (b *InputBundle) MouseMove(
 	return b.operationError("pointer", b.backend.MouseMove(ctx, x, y))
 }
 
+// MouseClick moves to x and y and clicks button.
 func (b *InputBundle) MouseClick(
 	ctx context.Context,
 	x int,
@@ -76,6 +81,7 @@ func (b *InputBundle) MouseClick(
 	return b.operationError("click", b.backend.MouseClick(ctx, x, y, button))
 }
 
+// ClickCenter clicks the center of rect with the primary button.
 func (b *InputBundle) ClickCenter(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -88,6 +94,7 @@ func (b *InputBundle) ClickCenter(
 	)
 }
 
+// DoubleClick performs two primary-button clicks at x and y.
 func (b *InputBundle) DoubleClick(
 	ctx context.Context,
 	x int,
@@ -138,6 +145,7 @@ func (b *InputBundle) DoubleClick(
 	return nil
 }
 
+// MouseDown presses button without releasing it.
 func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
 	if err := b.checkAvailable("click"); err != nil {
 		return err
@@ -146,6 +154,7 @@ func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
 	return b.operationError("click", b.backend.MouseDown(ctx, button))
 }
 
+// MouseUp releases button.
 func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
 	if err := b.checkAvailable("click"); err != nil {
 		return err
@@ -154,6 +163,7 @@ func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
 	return b.operationError("click", b.backend.MouseUp(ctx, button))
 }
 
+// ScrollUp scrolls upward by clicks.
 func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
@@ -161,6 +171,7 @@ func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 	return b.operationError("scroll", b.backend.ScrollUp(ctx, clicks))
 }
 
+// ScrollDown scrolls downward by clicks.
 func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
@@ -168,6 +179,7 @@ func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 	return b.operationError("scroll", b.backend.ScrollDown(ctx, clicks))
 }
 
+// ScrollLeft scrolls left by clicks.
 func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
@@ -175,6 +187,7 @@ func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 	return b.operationError("scroll", b.backend.ScrollLeft(ctx, clicks))
 }
 
+// ScrollRight scrolls right by clicks.
 func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
@@ -182,6 +195,7 @@ func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 	return b.operationError("scroll", b.backend.ScrollRight(ctx, clicks))
 }
 
+// PointerLocation returns the current pointer coordinates.
 func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 	if err := b.checkAvailable("pointer-location"); err != nil {
 		return 0, 0, err
@@ -190,6 +204,7 @@ func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 	return x, y, b.operationError("pointer-location", err)
 }
 
+// Sync flushes pending input when the backend supports synchronization.
 func (b *InputBundle) Sync(ctx context.Context) error {
 	if err := b.checkAvailable("sync"); err != nil {
 		return err
@@ -203,6 +218,7 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 	return b.operationError("sync", ErrUnsupported)
 }
 
+// DragAndDrop drags the primary button from (x1, y1) to (x2, y2).
 func (b *InputBundle) DragAndDrop(
 	ctx context.Context,
 	x1 int,
