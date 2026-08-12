@@ -5,6 +5,7 @@ import (
 	"image"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -144,6 +145,14 @@ func helperCommand(t *testing.T) *exec.Cmd {
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
+	}
+	if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+		if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
+			if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+				os.Exit(2)
+			}
+		}
 	}
 	for {
 		time.Sleep(10 * time.Second)
@@ -331,6 +340,30 @@ func TestCleanupStaleSessionsKeepsRecentNoPidfileDir(t *testing.T) {
 	}
 }
 
+func TestCleanupStaleSessionsClampsUnsafeMetadataAge(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("invalid"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+	recent := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(dir, recent, recent); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(0)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("recent malformed-owner session dir was removed: %v", err)
+	}
+}
+
 func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
 	cleanupStaleSessionsMu.Lock()
 	lastCleanupTime = time.Time{}
@@ -399,6 +432,62 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsEscalatesForOwnedChild(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(
+		cmd.Env,
+		"XDG_RUNTIME_DIR="+dir,
+		"GO_WANT_IGNORE_SIGTERM=1",
+		"GO_HELPER_READY="+readyPath,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+	if err := waitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+		t.Fatalf("wait for helper readiness: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("owned child process ignored cleanup escalation")
 	}
 }
 

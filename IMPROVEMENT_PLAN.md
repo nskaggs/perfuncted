@@ -17,12 +17,14 @@ the host toolchain, one worker, and the parent workspace disabled.
 | Priority | Item | Decision and completion evidence |
 | --- | --- | --- |
 | High | Never terminate a reused or unrelated recorded PID | Completed by `9bd9a8d`; `/proc/<pid>/environ` must identify the stale runtime before its process group is stopped. |
+| High | Reap owned children that ignore graceful termination | Implemented: recheck runtime ownership after the SIGTERM grace period before escalating the still-owned process group to SIGKILL. |
 | High | Remove the unsafe manual cleanup bypass | Implemented: `just cleanup-nested` now calls `pf session cleanup`, which delegates to `CleanupStaleSessions` instead of scanning all processes, sending unconditional SIGKILL, and recursively deleting every matching path. |
 | Medium | Make cleanup usable and testable from the CLI | Implemented: `pf session cleanup --max-age` enforces the library's five-minute creation grace, emits a completion summary, and accepts an injected cleaner in unit tests so tests never touch real runtime directories. |
 | Medium | Keep CLI docs synchronized | Generate the new command reference and retain `check-generate` as the drift gate. |
 | Medium | Keep validation isolated and small | Use `GOWORK=off`, `GOTOOLCHAIN=local`, `GOMAXPROCS=1`, `go test -p 1`, and focused packages before considering the full suite. |
 | Medium | State toolchain policy accurately | Local just recipes pin the validated patch release; CI reads the supported Go line from `go.mod`. |
 | Medium | Describe cleanup timing precisely | Document that dead owners are immediate, missing metadata keeps the creation grace, and `--max-age` governs malformed owner metadata. |
+| Medium | Bound unsafe library cleanup ages | Implemented: incomplete or malformed ownership metadata is retained for at least five minutes even when a library caller passes zero or a negative duration. |
 
 ## Deferred or rejected expansion
 
@@ -58,6 +60,9 @@ the host toolchain, one worker, and the parent workspace disabled.
 - Confirm ages below the five-minute session-creation grace cannot reach the
   cleanup implementation.
 - Confirm reused child PIDs with a mismatched runtime remain alive.
+- Confirm an owned recorded child that ignores SIGTERM is escalated only after
+  its runtime ownership is rechecked.
+- Confirm zero or negative ages cannot bypass the five-minute metadata grace.
 - Confirm generated help describes ownership checks without promising that
   every corrupt directory will be removed.
 - Search maintenance recipes for any remaining wildcard process kills or
