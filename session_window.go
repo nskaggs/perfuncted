@@ -28,6 +28,7 @@ type WindowID struct {
 	native  string
 }
 
+// String returns the native identifier represented by id.
 func (id WindowID) String() string {
 	return id.native
 }
@@ -92,6 +93,7 @@ func (w *Window) backend(operation string) (window.IDManager, error) {
 	return backend, nil
 }
 
+// Activate focuses the window.
 func (w *Window) Activate(ctx context.Context) error {
 	backend, err := w.backend("activate")
 	if err != nil {
@@ -100,6 +102,7 @@ func (w *Window) Activate(ctx context.Context) error {
 	return w.id.session.Windows.operationError("activate", backend.ActivateByID(ctx, w.id.native))
 }
 
+// Move positions the window at x and y.
 func (w *Window) Move(ctx context.Context, x int, y int) error {
 	backend, err := w.backend("move")
 	if err != nil {
@@ -108,6 +111,7 @@ func (w *Window) Move(ctx context.Context, x int, y int) error {
 	return w.id.session.Windows.operationError("move", backend.MoveByID(ctx, w.id.native, x, y))
 }
 
+// Resize changes the window size to width by height.
 func (w *Window) Resize(
 	ctx context.Context,
 	width int,
@@ -129,6 +133,7 @@ func (w *Window) Close(ctx context.Context) error {
 	return w.id.session.Windows.operationError("close", backend.CloseWindowByID(ctx, w.id.native))
 }
 
+// Minimize minimizes the window.
 func (w *Window) Minimize(ctx context.Context) error {
 	backend, err := w.backend("minimize")
 	if err != nil {
@@ -137,6 +142,7 @@ func (w *Window) Minimize(ctx context.Context) error {
 	return w.id.session.Windows.operationError("minimize", backend.MinimizeByID(ctx, w.id.native))
 }
 
+// Maximize maximizes the window.
 func (w *Window) Maximize(ctx context.Context) error {
 	backend, err := w.backend("maximize")
 	if err != nil {
@@ -145,6 +151,7 @@ func (w *Window) Maximize(ctx context.Context) error {
 	return w.id.session.Windows.operationError("maximize", backend.MaximizeByID(ctx, w.id.native))
 }
 
+// Fullscreen makes the window occupy the screen.
 func (w *Window) Fullscreen(ctx context.Context) error {
 	backend, err := w.backend("fullscreen")
 	if err != nil {
@@ -153,6 +160,7 @@ func (w *Window) Fullscreen(ctx context.Context) error {
 	return w.id.session.Windows.operationError("fullscreen", backend.FullscreenByID(ctx, w.id.native))
 }
 
+// Unfullscreen restores the window from fullscreen mode.
 func (w *Window) Unfullscreen(ctx context.Context) error {
 	backend, err := w.backend("fullscreen")
 	if err != nil {
@@ -161,6 +169,7 @@ func (w *Window) Unfullscreen(ctx context.Context) error {
 	return w.id.session.Windows.operationError("fullscreen", backend.UnfullscreenByID(ctx, w.id.native))
 }
 
+// Restore returns the window to its normal state.
 func (w *Window) Restore(ctx context.Context) error {
 	backend, err := w.backend("restore")
 	if err != nil {

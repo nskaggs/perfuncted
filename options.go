@@ -34,10 +34,15 @@ var (
 type Capability string
 
 const (
-	CapabilityScreen    Capability = "screen"
-	CapabilityInput     Capability = "input"
-	CapabilityWindows   Capability = "windows"
-	CapabilityOutputs   Capability = "outputs"
+	// CapabilityScreen identifies screen capture operations.
+	CapabilityScreen Capability = "screen"
+	// CapabilityInput identifies keyboard and pointer input operations.
+	CapabilityInput Capability = "input"
+	// CapabilityWindows identifies window discovery and control operations.
+	CapabilityWindows Capability = "windows"
+	// CapabilityOutputs identifies display-output listing operations.
+	CapabilityOutputs Capability = "outputs"
+	// CapabilityClipboard identifies clipboard get and set operations.
 	CapabilityClipboard Capability = "clipboard"
 )
 
@@ -59,18 +64,24 @@ func capabilityOperations(cap Capability) []string {
 
 // CapabilityError reports why an operation cannot use a capability.
 type CapabilityError struct {
+	// Capability identifies the unavailable capability.
 	Capability Capability
-	Operation  string
-	Err        error
+	// Operation identifies the requested operation, when known.
+	Operation string
+	// Err is the underlying capability error.
+	Err error
 }
 
 // OperationError reports a failure from an operation that the active backend
 // advertised as supported. The backend cause is available through errors.Is,
 // errors.As, and Unwrap.
 type OperationError struct {
+	// Capability identifies the capability that failed.
 	Capability Capability
-	Operation  string
-	Err        error
+	// Operation identifies the operation that failed.
+	Operation string
+	// Err is the underlying backend error.
+	Err error
 }
 
 func (e *OperationError) Error() string {
@@ -87,6 +98,7 @@ func (e *OperationError) Unwrap() error {
 	return e.Err
 }
 
+// Is reports whether the operation belongs to target's stable error category.
 func (e *OperationError) Is(target error) bool {
 	if e == nil || target != ErrOperationFailed {
 		return false
@@ -122,7 +134,7 @@ func (e *CapabilityError) Unwrap() error {
 	return e.Err
 }
 
-// Is makes capability errors branchable by stable v1 category while retaining
+// Is makes capability errors match stable category sentinels while retaining
 // the wrapped backend cause through Unwrap.
 func (e *CapabilityError) Is(target error) bool {
 	if e == nil {
@@ -141,12 +153,19 @@ func (e *CapabilityError) Is(target error) bool {
 // Operations is an immutable snapshot of the operations exposed by the
 // selected backend.
 type CapabilityStatus struct {
+	// Capability identifies the capability.
 	Capability Capability
-	Requested  bool
-	Required   bool
-	Available  bool
-	Backend    string
-	Failure    error
+	// Requested reports whether the caller requested the capability.
+	Requested bool
+	// Required reports whether failure to open the capability fails Open.
+	Required bool
+	// Available reports whether a backend was opened successfully.
+	Available bool
+	// Backend names the selected backend when one was opened.
+	Backend string
+	// Failure contains the opening error when the capability is unavailable.
+	Failure error
+	// Operations lists the operations advertised by the selected backend.
 	Operations []string
 }
 
@@ -164,9 +183,13 @@ func (s CapabilityStatus) clone() CapabilityStatus {
 type TargetKind string
 
 const (
-	TargetHost     TargetKind = "host"
+	// TargetHost routes operations to the current desktop session.
+	TargetHost TargetKind = "host"
+	// TargetHeadless routes operations to a session created without a display.
 	TargetHeadless TargetKind = "headless"
-	TargetNested   TargetKind = "nested"
+	// TargetNested routes operations to a compositor nested in the host session.
+	TargetNested TargetKind = "nested"
+	// TargetExplicit routes operations to the supplied environment.
 	TargetExplicit TargetKind = "explicit"
 )
 
@@ -206,9 +229,13 @@ func (t DesktopTarget) clone() DesktopTarget {
 // SessionConfig controls infrastructure created by WithHeadless or
 // WithNested.
 type SessionConfig struct {
-	Resolution             image.Point
-	SwayConfigPath         string
-	LogDir                 string
+	// Resolution is the requested managed-session size.
+	Resolution image.Point
+	// SwayConfigPath selects the Sway configuration file.
+	SwayConfigPath string
+	// LogDir receives managed-session logs when set.
+	LogDir string
+	// ApplicationGracePeriod controls how long managed applications receive to stop.
 	ApplicationGracePeriod time.Duration
 }
 

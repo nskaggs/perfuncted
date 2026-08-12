@@ -376,6 +376,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	})
 }
 
+// Close releases the ext-image-copy protocol resources.
 func (b *ExtCaptureBackend) Close() error {
 	b.mu.Lock()
 	// clean up pooled mmap and associated fd

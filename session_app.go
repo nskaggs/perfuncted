@@ -31,12 +31,19 @@ var sessionRoutingKeys = []string{
 
 // Command describes an external program to launch as an Application.
 type Command struct {
-	Name   string
-	Args   []string
-	Dir    string
-	Env    []string
-	Stdin  io.Reader
+	// Name is the executable to start.
+	Name string
+	// Args contains arguments passed to Name.
+	Args []string
+	// Dir is the child working directory.
+	Dir string
+	// Env supplies child environment entries in addition to session routing values.
+	Env []string
+	// Stdin supplies standard input to the child.
+	Stdin io.Reader
+	// Stdout receives child standard output.
 	Stdout io.Writer
+	// Stderr receives child standard error.
 	Stderr io.Writer
 }
 

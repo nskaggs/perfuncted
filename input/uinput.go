@@ -136,6 +136,7 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 	return 0, fmt.Errorf("input/uinput: unknown key %q", key)
 }
 
+// KeyDown presses and holds key through uinput.
 func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -148,6 +149,7 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 	return b.kb.KeyDown(code)
 }
 
+// KeyUp releases key through uinput.
 func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -160,6 +162,7 @@ func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 	return b.kb.KeyUp(code)
 }
 
+// Type sends text through uinput using the input key syntax.
 func (b *UinputBackend) Type(ctx context.Context, s string) error {
 	return b.typeContext(ctx, s)
 }
@@ -308,6 +311,7 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 	return nil
 }
 
+// MouseMove moves the pointer to absolute coordinates x and y.
 func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -316,6 +320,7 @@ func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
 	return b.touchpad.MoveTo(int32(x), int32(y))
 }
 
+// MouseClick moves to x and y and clicks button.
 func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -333,6 +338,7 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 	return ctx.Err()
 }
 
+// MouseDown presses button.
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -356,6 +362,7 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 	}
 }
 
+// MouseUp releases button.
 func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -391,6 +398,7 @@ func (b *UinputBackend) ensureMouse() error {
 	return nil
 }
 
+// ScrollUp scrolls upward by clicks.
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -405,6 +413,7 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(false, int32(-clicks))
 }
 
+// ScrollDown scrolls downward by clicks.
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -419,6 +428,7 @@ func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(false, int32(clicks))
 }
 
+// ScrollLeft scrolls left by clicks.
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -433,6 +443,7 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(true, int32(-clicks))
 }
 
+// ScrollRight scrolls right by clicks.
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -447,6 +458,7 @@ func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
 	return b.mouse.Wheel(true, int32(clicks))
 }
 
+// PointerLocation returns the pointer coordinates when available.
 func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -455,11 +467,13 @@ func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	return 0, 0, unsupportedError("input/uinput", "pointer location")
 }
 
+// Sync flushes pending uinput events.
 func (b *UinputBackend) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	return ctx.Err()
 }
 
+// Close releases the uinput device.
 func (b *UinputBackend) Close() error {
 	var errs []error
 	if err := b.kb.Close(); err != nil {

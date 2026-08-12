@@ -42,9 +42,7 @@ func pidAlive(pid int) bool {
 }
 
 // SessionDetection is an immutable snapshot of the environment used to
-// classify the current desktop session. It replaces the historical
-// string-plus-map DetectSession result, whose keys and mutability were not a
-// stable contract.
+// classify the current desktop session.
 type SessionDetection struct {
 	// Kind is the detected host or nested session classification.
 	Kind TargetKind

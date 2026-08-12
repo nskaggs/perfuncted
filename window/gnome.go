@@ -65,6 +65,7 @@ func (g *GnomeManager) eval(ctx context.Context, js string) (string, error) {
 	return result, nil
 }
 
+// List returns visible windows reported by GNOME Shell.
 func (g *GnomeManager) List(ctx context.Context) ([]Info, error) {
 	var out []Info
 	for win, err := range g.IterateWindows(ctx) {
@@ -135,11 +136,13 @@ JSON.stringify(
 	}
 }
 
+// ActiveTitle returns the title of the focused window.
 func (g *GnomeManager) ActiveTitle(ctx context.Context) (string, error) {
 	js := `(function(){ let f=global.display.get_focus_window(); return f ? f.get_title() : ""; })()`
 	return g.eval(ctx, js)
 }
 
+// Close releases the GNOME Shell D-Bus connection.
 func (g *GnomeManager) Close() error {
 	if g.conn == nil {
 		return nil
@@ -147,6 +150,7 @@ func (g *GnomeManager) Close() error {
 	return g.conn.Close()
 }
 
+// Sync refreshes the GNOME Shell connection when supported.
 func (g *GnomeManager) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -155,6 +159,7 @@ func (g *GnomeManager) Sync(ctx context.Context) error {
 	return nil
 }
 
+// SupportedOperations returns operations supported by GNOME Shell.
 func (g *GnomeManager) SupportedOperations() []string {
 	return []string{
 		"discover",
@@ -184,42 +189,52 @@ func (g *GnomeManager) actOnWindowByID(ctx context.Context, id string, action st
 	return err
 }
 
+// ActivateByID focuses the window identified by id.
 func (g *GnomeManager) ActivateByID(ctx context.Context, id string) error {
 	return g.actOnWindowByID(ctx, id, `w.activate(global.get_current_time())`)
 }
 
+// MoveByID positions the window identified by id.
 func (g *GnomeManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	return g.actOnWindowByID(ctx, id, "w.move_frame(true, "+strconv.Itoa(x)+", "+strconv.Itoa(y)+")")
 }
 
+// ResizeByID resizes the window identified by id.
 func (g *GnomeManager) ResizeByID(ctx context.Context, id string, w, h int) error {
 	return g.actOnWindowByID(ctx, id, "w.move_resize_frame(true, w.get_frame_rect().x, w.get_frame_rect().y, "+strconv.Itoa(w)+", "+strconv.Itoa(h)+")")
 }
 
+// CloseWindowByID closes the window identified by id.
 func (g *GnomeManager) CloseWindowByID(ctx context.Context, id string) error {
 	return g.actOnWindowByID(ctx, id, `w.delete(global.get_current_time())`)
 }
 
+// MinimizeByID minimizes the window identified by id.
 func (g *GnomeManager) MinimizeByID(ctx context.Context, id string) error {
 	return g.actOnWindowByID(ctx, id, `w.minimize()`)
 }
 
+// MaximizeByID maximizes the window identified by id.
 func (g *GnomeManager) MaximizeByID(ctx context.Context, id string) error {
 	return g.actOnWindowByID(ctx, id, `w.maximize(3)`)
 }
 
+// FullscreenByID reports that GNOME Shell does not expose this operation.
 func (g *GnomeManager) FullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
+// UnfullscreenByID reports that GNOME Shell does not expose this operation.
 func (g *GnomeManager) UnfullscreenByID(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
+// RestoreByID restores the window identified by id.
 func (g *GnomeManager) RestoreByID(ctx context.Context, id string) error {
 	return g.actOnWindowByID(ctx, id, `w.unminimize(); w.unmaximize(3)`)
 }
 
+// InfoByID returns fresh information for the window identified by id.
 func (g *GnomeManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	for info, err := range g.IterateWindows(ctx) {
 		if err != nil {

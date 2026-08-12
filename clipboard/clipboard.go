@@ -15,12 +15,16 @@ import (
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
+// ErrNoClipboardTool reports that no supported clipboard executable is installed.
 var ErrNoClipboardTool = errors.New("no supported clipboard tool found (install wl-clipboard or xclip)")
 
 // Clipboard is the interface for system clipboard access.
 type Clipboard interface {
+	// Get returns the current clipboard text.
 	Get(ctx context.Context) (string, error)
+	// Set replaces the clipboard text.
 	Set(ctx context.Context, text string) error
+	// Close releases clipboard resources.
 	Close() error
 }
 

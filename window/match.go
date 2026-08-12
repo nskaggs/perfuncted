@@ -13,17 +13,28 @@ import (
 //
 // Zero-value fields mean "do not care". Text matches are case-insensitive.
 type Match struct {
+	// TitleContains matches a case-insensitive title substring.
 	TitleContains string
-	TitleExact    string
-	AppID         string
-	Class         string
-	PID           *int32
-	ID            *uint64
-	Active        *bool
-	Minimized     *bool
-	Maximized     *bool
-	Fullscreen    *bool
-	VisibleOnly   bool
+	// TitleExact matches a case-insensitive complete title.
+	TitleExact string
+	// AppID matches the application identifier.
+	AppID string
+	// Class matches the window class.
+	Class string
+	// PID matches the owning process ID.
+	PID *int32
+	// ID matches the backend numeric identifier.
+	ID *uint64
+	// Active matches the focused state when non-nil.
+	Active *bool
+	// Minimized matches the minimized state when non-nil.
+	Minimized *bool
+	// Maximized matches the maximized state when non-nil.
+	Maximized *bool
+	// Fullscreen matches the fullscreen state when non-nil.
+	Fullscreen *bool
+	// VisibleOnly excludes minimized windows.
+	VisibleOnly bool
 }
 
 // Matcher is a compiled Match with cached normalized fields for repeated use.

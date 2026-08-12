@@ -26,6 +26,7 @@ var (
 // It is used to detect when a pooled mmap + shm file must be reallocated.
 type bufInfo struct{ format, width, height, stride uint32 }
 
+// WlrScreencopyBackend captures pixels through wlr-screencopy.
 type WlrScreencopyBackend struct {
 	sock string
 	// ctxMu protects ctx and lastUsed.
@@ -347,6 +348,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 	})
 }
 
+// Grab captures rect, or the full output when rect is empty.
 func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	var outImg image.Image
 	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
@@ -367,6 +369,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 	return outImg, nil
 }
 
+// GrabFullHash returns a fast pixel hash of the full output.
 func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
 	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
@@ -388,6 +391,7 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 	return hash, nil
 }
 
+// GrabRegionHash returns a fast pixel hash of rect.
 func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
@@ -423,10 +427,12 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 	return hash, nil
 }
 
+// Resolution returns the cached output dimensions.
 func (b *WlrScreencopyBackend) Resolution() (int, int, error) {
 	return b.ResolutionWithContext(context.Background())
 }
 
+// ResolutionWithContext returns output dimensions after synchronizing the compositor.
 func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, int, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -448,6 +454,7 @@ func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, 
 	return bounds.Dx(), bounds.Dy(), nil
 }
 
+// Close releases the wlr-screencopy connection and cached resources.
 func (b *WlrScreencopyBackend) Close() error {
 	b.closeOnce.Do(func() {
 		if b.done != nil {
@@ -478,6 +485,7 @@ func (b *WlrScreencopyBackend) Close() error {
 	return nil
 }
 
+// NewWlrScreencopyBackendForSocket connects to sock and creates a wlr backend.
 func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("screen/wlr: WAYLAND_DISPLAY not set")

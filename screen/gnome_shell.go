@@ -27,6 +27,7 @@ func (b *GnomeShellScreenshotBackend) GrabFullHash(ctx context.Context) (uint32,
 	return find.PixelHash(img, nil), nil
 }
 
+// GrabRegionHash returns a fast pixel hash of rect.
 func (b *GnomeShellScreenshotBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	img, err := b.Grab(ctx, rect)
 	if err != nil {
@@ -149,6 +150,7 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	return img, nil
 }
 
+// Resolution returns the dimensions reported by GNOME Shell.
 func (b *GnomeShellScreenshotBackend) Resolution() (int, int, error) {
 	img, err := b.Grab(context.Background(), image.Rect(0, 0, 0, 0))
 	if err != nil {
@@ -158,6 +160,7 @@ func (b *GnomeShellScreenshotBackend) Resolution() (int, int, error) {
 	return bounds.Dx(), bounds.Dy(), nil
 }
 
+// Close releases the GNOME Shell D-Bus connection.
 func (b *GnomeShellScreenshotBackend) Close() error {
 	if b == nil || b.conn == nil {
 		return nil

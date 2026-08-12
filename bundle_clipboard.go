@@ -6,11 +6,13 @@ import (
 	"github.com/nskaggs/perfuncted/clipboard"
 )
 
+// ClipboardBundle exposes clipboard operations through a Session.
 type ClipboardBundle struct {
 	backend clipboard.Clipboard
 	bundleBase
 }
 
+// Get returns the current clipboard text.
 func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	if b == nil {
 		return "", (&bundleBase{}).unavailable("get")
@@ -23,6 +25,7 @@ func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	return text, b.operationError("get", err)
 }
 
+// Set replaces the clipboard text.
 func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable("set")

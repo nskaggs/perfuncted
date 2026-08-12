@@ -6,11 +6,13 @@ import (
 	"github.com/nskaggs/perfuncted/output"
 )
 
+// OutputBundle exposes display-output operations through a Session.
 type OutputBundle struct {
 	backend output.Lister
 	bundleBase
 }
 
+// List returns the displays visible to the active output backend.
 func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	if b == nil {
 		return nil, (&bundleBase{}).unavailable("list")

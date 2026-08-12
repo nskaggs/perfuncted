@@ -11,28 +11,45 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"github.com/nskaggs/perfuncted"
 )
 
 func main() {
 	ctx := context.Background()
-	session, _ := perfuncted.Open(
+	session, err := perfuncted.Open(
 		ctx,
 		perfuncted.Require(
 			perfuncted.CapabilityInput,
 			perfuncted.CapabilityWindows,
 		),
 	)
-	defer session.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := session.Close(); err != nil {
+			log.Print(err)
+		}
+	}()
 
-	firefox, _ := session.Windows.Find(
+	firefox, err := session.Windows.Find(
 		ctx,
 		perfuncted.WindowMatch{TitleContains: "Firefox"},
 	)
-	_ = firefox.Activate(ctx)
-	_ = session.Input.Type(ctx, "hello world")
-	_ = session.Input.Type(ctx, "{ctrl+s}")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := firefox.Activate(ctx); err != nil {
+		log.Fatal(err)
+	}
+	if err := session.Input.Type(ctx, "hello world"); err != nil {
+		log.Fatal(err)
+	}
+	if err := session.Input.Type(ctx, "{ctrl+s}"); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
@@ -41,11 +58,11 @@ func main() {
 | Session/backend | Screen capture | Input | Window discovery | Window control |
 |---|---|---|---|---|
 | X11 | XGetImage | XTEST or uinput | EWMH | activate, move, resize, close, minimize, maximize, fullscreen, restore |
-| Sway | wlr-screencopy | wl-virtual or uinput | dedicated Sway IPC | activate, move, resize, close, minimize, maximize, fullscreen |
-| wlr foreign-toplevel | compositor capture protocol | wl-virtual or uinput | `zwlr_foreign_toplevel_manager_v1` | activate, close, minimize, maximize, restore |
-| ext foreign-toplevel | compositor capture protocol or portal | compositor-specific or uinput | `ext_foreign_toplevel_list_v1` | list-only |
-| KDE Plasma Wayland | KWin.ScreenShot2, ext capture, or portal | uinput | KWin D-Bus scripting | activate, move, resize, close, minimize, maximize, restore |
-| GNOME Wayland | Shell screenshot or portal | uinput | Shell.Eval when unsafe mode is enabled | activate, move, resize, close, minimize, maximize, restore |
+| Sway | wlr-screencopy | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | dedicated Sway IPC | activate, move, resize, close, minimize, maximize, fullscreen |
+| wlr foreign-toplevel | compositor capture protocol | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `zwlr_foreign_toplevel_manager_v1` | activate, close, minimize, maximize, restore |
+| ext foreign-toplevel | compositor capture protocol or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `ext_foreign_toplevel_list_v1` | list-only |
+| KDE Plasma Wayland | KWin.ScreenShot2, ext capture, or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | KWin D-Bus scripting | activate, move, resize, close, minimize, maximize, restore |
+| GNOME Wayland | Shell screenshot or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | Shell.Eval when unsafe mode is enabled | activate, move, resize, close, minimize, maximize, restore |
 
 `pf info` reports the backend actually opened, failures for unavailable optional
 capabilities, and the exact operation list. Discovery does not imply that every
@@ -54,22 +71,18 @@ control operation is available.
 Wayland portal capture may show a consent dialog. Perfuncted does not implement
 portal input: input needs a compositor injection protocol or permission to open
 `/dev/uinput`. KDE and GNOME normally use uinput.
->
-> **GNOME (Mutter):** The compositor intentionally restricts some window-management protocols. There are two paths:
->
-> 1. GnomeManager (org.gnome.Shell.Eval): when available it runs JavaScript inside gnome-shell and supports List, Activate, Move, Resize, ActiveTitle, Close, Minimize, Maximize. On many distributions org.gnome.Shell.Eval is disabled by default (GNOME 41+); enabling it requires unsafe-mode and is a security risk.
->
-> 2. GnomeShellScreenshotBackend (org.gnome.Shell.Screenshot): when GNOME Shell is running in unsafe mode it can capture full-screen or rectangular PNGs directly, avoiding portal consent prompts. In safe mode perfuncted falls back to xdg-desktop-portal Screenshot.
->
-> 3. foreign-toplevel protocol: `zwlr_foreign_toplevel_manager_v1` supports list plus basic actions (activate, close, minimize, maximize), while `ext_foreign_toplevel_list_v1` is list-only. Mutter typically does not advertise either one.
->
-> Therefore, on GNOME you will usually rely on org.gnome.Shell.Eval (if enabled) or use a nested wlroots compositor (e.g., nested sway) for full automation.
+
+**GNOME (Mutter):** Window control uses `org.gnome.Shell.Eval` when it is
+available and enabled. Screen capture uses the Shell screenshot interface when
+available and otherwise uses the desktop portal. Foreign-toplevel protocols
+provide discovery and limited control where the compositor advertises them.
 
 ## Install
 
 **Flatpak bundle (CI artifact):**
 
-The Flatpak workflow attaches `dist/flatpak/perfuncted.flatpak` as an artifact.
+The Flatpak workflow builds `dist/flatpak/perfuncted.flatpak` for tagged
+releases and workflow dispatches. Download that artifact before installing it.
 
 ```bash
 flatpak install --user -y ./dist/flatpak/perfuncted.flatpak
@@ -92,7 +105,13 @@ go get github.com/nskaggs/perfuncted
 
 | Dependency | Required for |
 |---|---|
-| `udev` rule or `input` group | `/dev/uinput` access (see Setup below) |
+| `wl-clipboard` | Clipboard access on Wayland |
+| `xclip` | Clipboard access on X11 |
+| `udev` rule or `input` group | `/dev/uinput` access when compositor-scoped or XTEST input is unavailable (see Setup below) |
+
+The selected session also needs its compositor/session services and display
+socket available. The integration suite installs additional headless display,
+Wayland, X11, D-Bus, and test-application packages in CI.
 
 
 ## Library API
@@ -123,16 +142,12 @@ invalidates child handles. Root session operations reject nil contexts with
 `DetectSession` returns a typed `SessionDetection` snapshot. It only classifies
 the environment; `Open` is the API that establishes and owns a session.
 
-The historical `ctxutil` helper package and string/map detection result are
-not part of v1. See [V1_API_AUDIT.md](V1_API_AUDIT.md) and
-[V1_MIGRATION.md](V1_MIGRATION.md) for the full public-boundary audit and
-downstream migration notes.
-
-Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted)
+Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted).
+See the generated [CLI reference](docs-cli/pf.md) for `pf` commands.
 
 ## Setup
 
-**uinput permission** (required for input on all Wayland sessions and as X11 fallback):
+**uinput permission** (needed when the selected input fallbacks reach uinput):
 
 ```bash
 echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | \
@@ -151,19 +166,25 @@ just test-integration-headless-x11
 just test-integration-headless-wayland
 just test-integration-nested-x11
 just test-integration-nested-wayland
-just test-integration   # CI headless matrix
+just test-integration   # all local integration modes
 just test-flatpak      # build, install, and validate the Flatpak bundle
 ```
 
-Optional: install `wl-clipboard` for Wayland clipboard round-trip verification and `xclip` for X11 clipboard round-trip verification.
+The integration recipes need the same system packages listed in the CI
+workflow. Install `wl-clipboard` for Wayland clipboard round-trip verification
+and `xclip` for X11 clipboard round-trip verification.
 
 ## Development
 
-Requires: [`just`](https://github.com/casey/just), [`staticcheck`](https://staticcheck.io).
+Requires Go 1.26.5, [`just`](https://github.com/casey/just), and the tools
+installed by `just install-dev-tools`.
 
 ```bash
-just check       # fmt + vet + staticcheck
-just precommit   # full pre-commit gate (format, vet, lint, tidy, docs)
+just install-dev-tools
+just check       # fmt + vet + lint
+just precommit   # fast generation, docs, formatting, and vet checks
+just quality     # full static quality suite and unit tests
+just docs        # regenerate docs-cli
 just pf info     # probe backend availability on the current session
 just cleanup-nested # safely reap stale managed sessions after a crash
 ```
@@ -171,6 +192,9 @@ just cleanup-nested # safely reap stale managed sessions after a crash
 `cleanup-nested` uses the same ownership-aware cleanup as the library. It
 retains live session owners and will not signal a recorded child whose
 `XDG_RUNTIME_DIR` belongs to a different runtime.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checks and
+[RELEASE.md](RELEASE.md) for the current release workflow.
 
 ## License
 

@@ -1,3 +1,4 @@
+// Package output lists display outputs exposed by X11 and Wayland sessions.
 package output
 
 import (
@@ -12,33 +13,53 @@ import (
 
 // Geometry describes an output rectangle in compositor coordinates.
 type Geometry struct {
+	// X is the left coordinate in compositor space.
 	X int `json:"x"`
+	// Y is the top coordinate in compositor space.
 	Y int `json:"y"`
+	// W is the output width in compositor space.
 	W int `json:"w"`
+	// H is the output height in compositor space.
 	H int `json:"h"`
 }
 
 // Info describes a read-only display output.
 type Info struct {
-	Name        string   `json:"name,omitempty"`
-	Backend     string   `json:"backend"`
-	Geometry    Geometry `json:"geometry"`
-	ResolutionW int      `json:"resolution_w,omitempty"`
-	ResolutionH int      `json:"resolution_h,omitempty"`
-	Scale       int      `json:"scale,omitempty"`
-	PhysicalW   int      `json:"physical_w,omitempty"`
-	PhysicalH   int      `json:"physical_h,omitempty"`
-	Make        string   `json:"make,omitempty"`
-	Model       string   `json:"model,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Primary     bool     `json:"primary,omitempty"`
-	Available   bool     `json:"available,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
+	// Name is the compositor-provided output name, when available.
+	Name string `json:"name,omitempty"`
+	// Backend identifies the backend that reported the output.
+	Backend string `json:"backend"`
+	// Geometry is the output rectangle in compositor coordinates.
+	Geometry Geometry `json:"geometry"`
+	// ResolutionW is the physical pixel width, when available.
+	ResolutionW int `json:"resolution_w,omitempty"`
+	// ResolutionH is the physical pixel height, when available.
+	ResolutionH int `json:"resolution_h,omitempty"`
+	// Scale is the compositor scale factor.
+	Scale int `json:"scale,omitempty"`
+	// PhysicalW is the physical width in millimeters, when available.
+	PhysicalW int `json:"physical_w,omitempty"`
+	// PhysicalH is the physical height in millimeters, when available.
+	PhysicalH int `json:"physical_h,omitempty"`
+	// Make is the output manufacturer, when available.
+	Make string `json:"make,omitempty"`
+	// Model is the output model, when available.
+	Model string `json:"model,omitempty"`
+	// Description is the compositor-provided output description.
+	Description string `json:"description,omitempty"`
+	// Primary reports whether the output is the primary display.
+	Primary bool `json:"primary,omitempty"`
+	// Available reports whether the output can currently be queried.
+	Available bool `json:"available,omitempty"`
+	// Reason describes an unavailable output when applicable.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Lister lists available outputs.
 type Lister interface {
+	// List returns the outputs visible to the backend.
 	List(ctx context.Context) ([]Info, error)
+	// Close releases backend resources.
 	Close() error
 }
 

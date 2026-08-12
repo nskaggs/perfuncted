@@ -1,3 +1,4 @@
+// Package poll provides context-aware polling helpers.
 package poll
 
 import (
@@ -35,6 +36,7 @@ func AdaptivePoll(attempt int, base, max time.Duration) time.Duration {
 	return d
 }
 
+// Clamp returns d, replacing non-positive durations with the default interval.
 func Clamp(d time.Duration) time.Duration {
 	if d <= 0 {
 		return 10 * time.Millisecond

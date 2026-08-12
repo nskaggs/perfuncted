@@ -18,6 +18,7 @@ import (
 
 // Screenshotter captures a rectangular region of the screen.
 type Screenshotter interface {
+	// Grab captures rect, or the full screen when rect is empty.
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
 	// GrabFullHash returns a fast pixel hash of the entire screen.
 	// Backends should optimize this to avoid intermediate image allocations.
@@ -26,11 +27,12 @@ type Screenshotter interface {
 	// Implementations should avoid allocating an image or doing BGRA->RGBA
 	// decoding when possible (use raw buffer hashing).
 	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
+	// Close releases capture resources.
 	Close() error
 }
 
 // ResolutionWithContext returns the screen resolution of sc using the provided
-// context. A context-aware resolver is preferred, then the legacy Resolver
+// context. A context-aware resolver is preferred, then Resolver
 // interface, and finally a full-output grab (zero rect) is tried with ctx.
 func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, error) {
 	if err := util.CheckAvailable("screen", sc); err != nil {

@@ -57,6 +57,7 @@ func (s *ScreenBundle) grab(
 	return img, s.operationError("capture", err)
 }
 
+// Grab captures rect, or the full screen when rect is empty.
 func (s *ScreenBundle) Grab(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -64,10 +65,12 @@ func (s *ScreenBundle) Grab(
 	return s.grab(ctx, rect)
 }
 
+// GrabFullHash returns a hash of the full screen.
 func (s *ScreenBundle) GrabFullHash(ctx context.Context) (uint32, error) {
 	return s.grabHash(ctx, image.Rectangle{})
 }
 
+// GrabRegionHash returns a hash of rect.
 func (s *ScreenBundle) GrabRegionHash(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -75,11 +78,13 @@ func (s *ScreenBundle) GrabRegionHash(
 	return s.grabHash(ctx, rect)
 }
 
+// GetAllPixels captures the full screen.
 func (s *ScreenBundle) GetAllPixels(ctx context.Context) (image.Image, error) {
 	s.traceAction("screen", "get-all-pixels")
 	return s.grab(ctx, image.Rectangle{})
 }
 
+// GrabRegion captures rect.
 func (s *ScreenBundle) GrabRegion(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -88,6 +93,7 @@ func (s *ScreenBundle) GrabRegion(
 	return s.grab(ctx, rect)
 }
 
+// CaptureRegion captures rect and writes it as a PNG to path.
 func (s *ScreenBundle) CaptureRegion(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -106,6 +112,7 @@ func (s *ScreenBundle) CaptureRegion(
 	return png.Encode(file, img)
 }
 
+// GetPixel returns the pixel at x and y.
 func (s *ScreenBundle) GetPixel(
 	ctx context.Context,
 	x int,
@@ -129,6 +136,7 @@ func (s *ScreenBundle) GetPixel(
 	return pixel, nil
 }
 
+// GetMultiplePixels returns pixels at points in the same order.
 func (s *ScreenBundle) GetMultiplePixels(
 	ctx context.Context,
 	points []image.Point,
@@ -193,6 +201,7 @@ func (s *ScreenBundle) GetMultiplePixels(
 	return out, nil
 }
 
+// WaitForFn waits for fn to accept a captured image.
 func (s *ScreenBundle) WaitForFn(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -207,6 +216,7 @@ func (s *ScreenBundle) WaitForFn(
 	return img, s.operationError("wait", err)
 }
 
+// WaitForSettle runs action and waits for the region to stabilize.
 func (s *ScreenBundle) WaitForSettle(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -264,6 +274,7 @@ func translatePointToBounds(
 	return point.Add(toMin.Sub(fromMin))
 }
 
+// WaitForNoChange waits until rect remains unchanged for stable samples.
 func (s *ScreenBundle) WaitForNoChange(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -284,6 +295,7 @@ func (s *ScreenBundle) WaitForNoChange(
 	return hash, s.operationError("wait-stable", err)
 }
 
+// WaitForNoChangeFrom waits for rect to remain unchanged from initial.
 func (s *ScreenBundle) WaitForNoChangeFrom(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -306,6 +318,7 @@ func (s *ScreenBundle) WaitForNoChangeFrom(
 	return hash, s.operationError("wait-stable", err)
 }
 
+// FindColor returns the first pixel in rect within tolerance of target.
 func (s *ScreenBundle) FindColor(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -319,6 +332,7 @@ func (s *ScreenBundle) FindColor(
 	return point, s.operationError("pixel", err)
 }
 
+// WaitForChange waits until rect differs from initial.
 func (s *ScreenBundle) WaitForChange(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -339,6 +353,7 @@ func (s *ScreenBundle) WaitForChange(
 	return hash, s.operationError("wait-change", err)
 }
 
+// WaitFor waits until rect has the requested hash.
 func (s *ScreenBundle) WaitFor(
 	ctx context.Context,
 	rect image.Rectangle,
@@ -352,6 +367,7 @@ func (s *ScreenBundle) WaitFor(
 	return hash, s.operationError("wait", err)
 }
 
+// ScanFor waits for any requested hash across the supplied rectangles.
 func (s *ScreenBundle) ScanFor(
 	ctx context.Context,
 	rects []image.Rectangle,
@@ -365,6 +381,7 @@ func (s *ScreenBundle) ScanFor(
 	return result, s.operationError("wait", err)
 }
 
+// Resolution returns the active capture resolution.
 func (s *ScreenBundle) Resolution(ctx context.Context) (int, int, error) {
 	if err := s.checkAvailable("resolution"); err != nil {
 		return 0, 0, err

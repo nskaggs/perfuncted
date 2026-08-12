@@ -13,11 +13,13 @@ type waylandOutput struct {
 	info Info
 }
 
+// WaylandLister lists outputs through the wl_output protocol.
 type WaylandLister struct {
 	session *wl.Session
 	outputs []*waylandOutput
 }
 
+// NewWaylandLister connects to the Wayland socket and discovers outputs.
 func NewWaylandLister(sock string) (*WaylandLister, error) {
 	if sock == "" {
 		return nil, fmt.Errorf("output/wayland: WAYLAND_DISPLAY not set")
@@ -146,6 +148,7 @@ func readWlString(data []byte, off int) (string, int, bool) {
 	return raw, off + padded, true
 }
 
+// List returns the outputs discovered from the Wayland compositor.
 func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -167,6 +170,7 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	return out, nil
 }
 
+// Close releases the Wayland connection.
 func (l *WaylandLister) Close() error {
 	if l.session != nil {
 		return l.session.Close()
