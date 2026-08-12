@@ -267,7 +267,9 @@ Use the printed env vars in another terminal to connect:
 		Long: `Clean stale Perfuncted runtime directories through the library's
 ownership-aware cleanup path. Live owner processes are retained, and recorded
 child process IDs are only terminated when their XDG runtime directory matches
-the stale session being removed.`,
+the stale session being removed. Dead owner PIDs are reaped immediately;
+missing owner files retain a five-minute creation grace, while --max-age
+governs malformed owner metadata.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cleanupMaxAge < minimumCleanupAge {
@@ -278,7 +280,7 @@ the stale session being removed.`,
 			return nil
 		},
 	}
-	cleanupCmd.Flags().DurationVar(&cleanupMaxAge, "max-age", 24*time.Hour, "age threshold for stale runtimes (minimum 5m)")
+	cleanupCmd.Flags().DurationVar(&cleanupMaxAge, "max-age", 24*time.Hour, "age threshold for malformed owner metadata (minimum 5m)")
 
 	cmd.AddCommand(typeCmd, check, startCmd, cleanupCmd)
 	return cmd

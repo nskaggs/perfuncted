@@ -7,7 +7,9 @@ Safely clean stale managed session runtimes
 Clean stale Perfuncted runtime directories through the library's
 ownership-aware cleanup path. Live owner processes are retained, and recorded
 child process IDs are only terminated when their XDG runtime directory matches
-the stale session being removed.
+the stale session being removed. Dead owner PIDs are reaped immediately;
+missing owner files retain a five-minute creation grace, while --max-age
+governs malformed owner metadata.
 
 ```
 pf session cleanup [flags]
@@ -17,7 +19,7 @@ pf session cleanup [flags]
 
 ```
   -h, --help               help for cleanup
-      --max-age duration   age threshold for stale runtimes (minimum 5m) (default 24h0m0s)
+      --max-age duration   age threshold for malformed owner metadata (minimum 5m) (default 24h0m0s)
 ```
 
 ### Options inherited from parent commands

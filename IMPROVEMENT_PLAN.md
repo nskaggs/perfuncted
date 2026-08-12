@@ -22,6 +22,7 @@ the host toolchain, one worker, and the parent workspace disabled.
 | Medium | Keep CLI docs synchronized | Generate the new command reference and retain `check-generate` as the drift gate. |
 | Medium | Keep validation isolated and small | Use `GOWORK=off`, `GOTOOLCHAIN=local`, `GOMAXPROCS=1`, `go test -p 1`, and focused packages before considering the full suite. |
 | Medium | State toolchain policy accurately | Local just recipes pin the validated patch release; CI reads the supported Go line from `go.mod`. |
+| Medium | Describe cleanup timing precisely | Document that dead owners are immediate, missing metadata keeps the creation grace, and `--max-age` governs malformed owner metadata. |
 
 ## Deferred or rejected expansion
 
