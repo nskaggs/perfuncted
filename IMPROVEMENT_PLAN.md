@@ -26,6 +26,20 @@ the host toolchain, one worker, and the parent workspace disabled.
 | Medium | Describe cleanup timing precisely | Document that dead owners are immediate, missing metadata keeps the creation grace, and `--max-age` governs malformed owner metadata. |
 | Medium | Bound unsafe library cleanup ages | Implemented: incomplete or malformed ownership metadata is retained for at least five minutes even when a library caller passes zero or a negative duration. |
 
+## Current pass evidence
+
+Commit `0fd9384` adds ownership-rechecked escalation and the metadata-age
+floor without changing the frozen v1 API. The full root package, focused CLI
+cleanup/docs tests, and generated-document comparison pass with one worker.
+The broader CLI package reaches only the pre-existing sandbox restriction in
+`session_check`: `setsockopt: operation not permitted`.
+
+Independent review was unavailable on this host. Repeated OpenCode DeepSeek
+and Big Pickle attempts each reported `OpenCode executable not found:
+opencode`; the host-wide audit also found no `agy`, Copilot, or callable Luna
+route. These provider failures are availability records, not review evidence;
+the pass used an explicit local adversarial review instead.
+
 ## Deferred or rejected expansion
 
 - Do not weaken the v1 freeze with compatibility aliases, duplicate context
