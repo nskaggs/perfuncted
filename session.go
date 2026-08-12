@@ -938,6 +938,14 @@ func reapSessionDir(dir string) {
 		if err != nil {
 			continue
 		}
+		if !processUsesRuntimeDir(pid, dir) {
+			slog.Debug(
+				"session: skip stale child with mismatched runtime directory",
+				"pid", pid,
+				"path", dir,
+			)
+			continue
+		}
 		(&managedProc{pid: pid}).stop(100 * time.Millisecond)
 	}
 	unmountSubdirs(dir)
@@ -978,6 +986,27 @@ func readPIDFile(path string) (int, error) {
 		return 0, fmt.Errorf("invalid pid in %s", path)
 	}
 	return pid, nil
+}
+
+func processUsesRuntimeDir(pid int, dir string) bool {
+	return processUsesRuntimeDirAt("/proc", pid, dir)
+}
+
+func processUsesRuntimeDirAt(procRoot string, pid int, dir string) bool {
+	if pid <= 0 || dir == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return false
+	}
+	want := "XDG_RUNTIME_DIR=" + dir
+	for value := range strings.SplitSeq(string(data), "\x00") {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func staleNoPIDThreshold(maxAge time.Duration) time.Duration {

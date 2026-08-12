@@ -218,6 +218,38 @@ func TestSessionStopNil(t *testing.T) {
 	infra.stop()
 }
 
+func TestProcessUsesRuntimeDirAt(t *testing.T) {
+	procRoot := t.TempDir()
+	pidDir := filepath.Join(procRoot, "123")
+	if err := os.Mkdir(pidDir, 0o700); err != nil {
+		t.Fatalf("mkdir process dir: %v", err)
+	}
+	environPath := filepath.Join(pidDir, "environ")
+
+	writeEnvironment := func(values ...string) {
+		t.Helper()
+		if err := os.WriteFile(environPath, []byte(strings.Join(values, "\x00")+"\x00"), 0o600); err != nil {
+			t.Fatalf("write environ: %v", err)
+		}
+	}
+
+	writeEnvironment("PATH=/usr/bin", "XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-owned")
+	if !processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-owned") {
+		t.Fatal("matching runtime directory was not recognized")
+	}
+	if processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-other") {
+		t.Fatal("mismatched runtime directory was accepted")
+	}
+
+	writeEnvironment("PATH=/usr/bin", "OTHER=/tmp/perfuncted-xdg-owned")
+	if processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-owned") {
+		t.Fatal("runtime directory value under another key was accepted")
+	}
+	if processUsesRuntimeDirAt(procRoot, 999, "/tmp/perfuncted-xdg-owned") {
+		t.Fatal("missing process was accepted")
+	}
+}
+
 func TestStartNestedSessionCompiles(t *testing.T) {
 	t.Skip("requires display server (Wayland)")
 	_, _ = Open(context.Background(), WithNested(SessionConfig{}))
@@ -338,6 +370,7 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 	}
 
 	cmd := helperCommand(t)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR="+dir)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
@@ -363,6 +396,50 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 	case <-waitCh:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("recorded child process still alive")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsDoesNotTerminateMismatchedChild(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(
+		filepath.Join(dir, sessionOwnerPIDFile),
+		[]byte("99999999"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-other")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
+		t.Fatalf("mismatched child process was terminated: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("stale session dir still exists: %v", err)
