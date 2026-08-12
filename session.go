@@ -851,17 +851,43 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	if err := syscall.Kill(-m.pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		slog.Debug("session: terminate process group", "pid", m.pid, "error", err)
 	}
+	leaderExited := false
 	if m.cmd == nil {
-		time.Sleep(waitTimeout)
-		return
+		leaderExited = !pidAlive(m.pid)
+	} else {
+		leaderExited = waitForProc(m.pid, waitTimeout)
 	}
-	if waitForProc(m.pid, waitTimeout) {
+	if leaderExited && !processGroupAlive(m.pid) {
 		return
 	}
 	if err := syscall.Kill(-m.pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		slog.Debug("session: kill process group", "pid", m.pid, "error", err)
 	}
-	waitForProc(m.pid, waitTimeout)
+	if m.cmd != nil {
+		waitForProc(m.pid, waitTimeout)
+	}
+	waitForProcessGroupGone(m.pid, waitTimeout)
+}
+
+func processGroupAlive(pgid int) bool {
+	if pgid <= 0 {
+		return false
+	}
+	err := syscall.Kill(-pgid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+func waitForProcessGroupGone(pgid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !processGroupAlive(pgid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func waitForProc(pid int, timeout time.Duration) bool {

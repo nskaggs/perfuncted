@@ -133,6 +133,44 @@ func TestStopManagedProcessReapsChild(t *testing.T) {
 	}
 }
 
+func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	cmd := exec.Command(
+		"sh",
+		"-c",
+		`(trap '' TERM; sleep 30) & child=$!; printf '%s' "$child" > "$CHILD_PID"; exit 0`,
+	)
+	cmd.Env = env.Merge(os.Environ(), "CHILD_PID="+childPIDPath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start process group: %v", err)
+	}
+	childPID := 0
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if childPID > 0 {
+			_ = syscall.Kill(childPID, syscall.SIGKILL)
+		}
+	})
+	if err := waitForFile(context.Background(), childPIDPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	childPID, err := readPIDFile(childPIDPath)
+	if err != nil {
+		t.Fatalf("read child pid: %v", err)
+	}
+
+	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(100 * time.Millisecond)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for pidAlive(childPID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pidAlive(childPID) {
+		t.Fatalf("process-group child %d survived managed shutdown", childPID)
+	}
+}
+
 func helperCommand(t *testing.T) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
