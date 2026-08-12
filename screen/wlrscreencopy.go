@@ -256,7 +256,6 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
 		defer func() {
-			_ = wlSendFrameDestroy(wlctx, frameProxy.ID())
 			wl.Unregister(wlctx, frameProxy)
 		}()
 

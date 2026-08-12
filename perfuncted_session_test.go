@@ -184,13 +184,13 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
+	if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
+		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+			os.Exit(2)
+		}
+	}
 	if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
 		signal.Ignore(syscall.SIGTERM)
-		if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
-			if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
-				os.Exit(2)
-			}
-		}
 	}
 	for {
 		time.Sleep(10 * time.Second)
@@ -440,8 +440,9 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 		t.Fatalf("WriteFile owner pid: %v", err)
 	}
 
+	readyPath := filepath.Join(t.TempDir(), "ready")
 	cmd := helperCommand(t)
-	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR="+dir)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR="+dir, "GO_HELPER_READY="+readyPath)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
@@ -457,6 +458,9 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 		case <-time.After(2 * time.Second):
 		}
 	})
+	if err := waitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+		t.Fatalf("wait for helper readiness: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "sway.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
 		t.Fatalf("WriteFile child pid: %v", err)
 	}
