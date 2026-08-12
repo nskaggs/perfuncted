@@ -579,14 +579,16 @@ type capabilityEntry struct {
 }
 
 func buildInfoReport(session *perfuncted.Session) infoReport {
-	envVars := diagnosticEnvironment(session.Env())
+	sessionEnv := session.Env()
+	envVars := diagnosticEnvironment(sessionEnv)
 	kind := compositor.Detect()
 	caps := map[string]capabilityEntry{}
 
-	screenProbes := screen.Probe()
-	windowProbes := window.Probe()
-	inputProbes := input.Probe()
+	screenProbes := diagnosticProbeResults(screen.Probe(), sessionEnv)
+	windowProbes := diagnosticProbeResults(window.Probe(), sessionEnv)
+	inputProbes := diagnosticProbeResults(input.Probe(), sessionEnv)
 	outputProbes := output.ProbeRuntime(env.Current())
+	outputProbes = diagnosticProbeResults(outputProbes, sessionEnv)
 
 	for _, status := range session.Capabilities() {
 		reason := ""
@@ -614,6 +616,27 @@ func buildInfoReport(session *perfuncted.Session) infoReport {
 		},
 		Capabilities: caps,
 	}
+}
+
+func diagnosticProbeResults(results []probe.Result, environment []string) []probe.Result {
+	if len(results) == 0 {
+		return nil
+	}
+	redacted := append([]probe.Result(nil), results...)
+	for i := range redacted {
+		redacted[i].Reason = redactDiagnosticText(redacted[i].Reason, environment)
+	}
+	return redacted
+}
+
+func redactDiagnosticText(text string, environment []string) string {
+	values := environmentMap(environment)
+	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
+		if value := values[key]; value != "" {
+			text = strings.ReplaceAll(text, value, "<set>")
+		}
+	}
+	return text
 }
 
 func environmentMap(environment []string) map[string]string {
