@@ -521,7 +521,7 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 	if s.Input == nil {
 		return ErrUnavailable
 	}
-	return s.Input.typeContext(ctx, text)
+	return s.Input.TypeLiteral(ctx, text)
 }
 
 // XDG returns the resolved XDG runtime directory for the session.

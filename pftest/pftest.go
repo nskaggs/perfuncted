@@ -158,6 +158,12 @@ func (m *Inputter) typeContext(_ context.Context, s string) error {
 	return m.Err
 }
 
+// TypeLiteral records typed text without key-syntax interpretation.
+func (m *Inputter) TypeLiteral(_ context.Context, s string) error {
+	m.record("type-literal:" + s)
+	return m.Err
+}
+
 // MouseDown records a mouse-button press.
 func (m *Inputter) MouseDown(ctx context.Context, b int) error { m.record("mousedown"); return m.Err }
 
@@ -218,6 +224,10 @@ func (m *Inputter) Typed() string {
 	var b strings.Builder
 	for _, c := range m.Calls {
 		if t, ok := strings.CutPrefix(c, "type:"); ok {
+			b.WriteString(t)
+			continue
+		}
+		if t, ok := strings.CutPrefix(c, "type-literal:"); ok {
 			b.WriteString(t)
 		}
 	}

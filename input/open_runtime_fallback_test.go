@@ -14,6 +14,7 @@ type noopInputter struct{}
 func (noopInputter) KeyDown(context.Context, string) error             { return nil }
 func (noopInputter) KeyUp(context.Context, string) error               { return nil }
 func (noopInputter) Type(context.Context, string) error                { return nil }
+func (noopInputter) TypeLiteral(context.Context, string) error         { return nil }
 func (noopInputter) MouseMove(context.Context, int, int) error         { return nil }
 func (noopInputter) MouseClick(context.Context, int, int, int) error   { return nil }
 func (noopInputter) MouseDown(context.Context, int) error              { return nil }

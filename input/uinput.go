@@ -167,6 +167,15 @@ func (b *UinputBackend) Type(ctx context.Context, s string) error {
 	return b.typeContext(ctx, s)
 }
 
+// TypeLiteral sends text literally, without interpreting key syntax.
+func (b *UinputBackend) TypeLiteral(ctx context.Context, s string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.typeText(ctx, s)
+}
+
 func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

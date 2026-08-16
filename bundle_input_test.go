@@ -149,7 +149,7 @@ func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
 }
 
 func TestPerfunctedPaste_FallbackToType(t *testing.T) {
-	// When clipboard is nil, Paste should fall back to Type.
+	// When clipboard is nil, Paste should fall back to literal typing.
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
@@ -158,16 +158,41 @@ func TestPerfunctedPaste_FallbackToType(t *testing.T) {
 		t.Fatalf("Paste: %v", err)
 	}
 
-	// Should have called Type with the full string.
+	// Should have invoked the literal-typing path with the full string.
 	found := false
 	for _, call := range inp.Calls {
-		if call == "type:abc" {
+		if call == "type-literal:abc" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected type:abc in calls: %v", inp.Calls)
+		t.Errorf("expected type-literal:abc in calls: %v", inp.Calls)
+	}
+}
+
+func TestPerfunctedPaste_FallbackTypesArbitraryTextLiterally(t *testing.T) {
+	// Arbitrary text that resembles key syntax (braces, modifiers) must
+	// round-trip unchanged when the clipboard is unavailable. Previously the
+	// fallback routed text through key-syntax parsing, which failed on braces.
+	inp := &pftest.Inputter{}
+	pf := pftest.New(nil, inp, nil, nil)
+	ctx := context.Background()
+
+	js := `(function(){const x = a && { b: 1, c: "}" } + "{" ; return x})()`
+	if err := pf.Paste(ctx, js); err != nil {
+		t.Fatalf("Paste with braces: %v", err)
+	}
+
+	found := false
+	for _, call := range inp.Calls {
+		if call == "type-literal:"+js {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected literal paste in calls: %v", inp.Calls)
 	}
 }
 

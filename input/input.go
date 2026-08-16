@@ -63,6 +63,10 @@ type Inputter interface {
 	KeyUp(ctx context.Context, key string) error
 	// Type sends a string as a sequence of key events using key syntax.
 	Type(ctx context.Context, s string) error
+	// TypeLiteral sends a string as text without interpreting key syntax.
+	// Braces and other key-syntax characters are typed literally, so arbitrary
+	// text such as pasted JavaScript round-trips unchanged.
+	TypeLiteral(ctx context.Context, s string) error
 	// MouseMove moves the pointer to absolute coordinates (x, y).
 	MouseMove(ctx context.Context, x, y int) error
 	// Click moves to (x, y) and clicks the given button.

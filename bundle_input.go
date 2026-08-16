@@ -54,6 +54,16 @@ func (b *InputBundle) typeContext(ctx context.Context, text string) error {
 	return b.operationError("keyboard", b.backend.Type(ctx, text))
 }
 
+// TypeLiteral sends text as-is without interpreting key syntax, so arbitrary
+// text (including braces and modifier characters) round-trips unchanged.
+func (b *InputBundle) TypeLiteral(ctx context.Context, text string) error {
+	if err := b.checkAvailable("keyboard"); err != nil {
+		return err
+	}
+	b.traceAction("input", "type-literal")
+	return b.operationError("keyboard", b.backend.TypeLiteral(ctx, text))
+}
+
 // MouseMove moves the pointer to screen coordinates x and y.
 func (b *InputBundle) MouseMove(
 	ctx context.Context,
