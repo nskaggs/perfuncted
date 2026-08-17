@@ -103,10 +103,11 @@ func CompileMatch(m Match) Matcher {
 
 // Matches reports whether info satisfies m.
 func (m Match) Matches(info Info) bool {
-	if m.TitleContains == "" {
-		return Matcher{Match: m}.matches(info)
+	matcher := Matcher{Match: m}
+	if m.TitleContains != "" {
+		matcher.titleContainsLower = strings.ToLower(m.TitleContains)
 	}
-	return CompileMatch(m).matches(info)
+	return matcher.matches(info)
 }
 
 // Matches reports whether info satisfies m.
@@ -441,12 +442,45 @@ func containsFoldLower(s, lowerSub string) bool {
 	if len(s) == 0 {
 		return false
 	}
+	if isASCII(s) && isASCII(lowerSub) {
+		return containsFoldASCIILower(s, lowerSub)
+	}
 	for i := 0; i < len(s); {
 		if foldMatches(s[i:], lowerSub) {
 			return true
 		}
 		_, size := utf8.DecodeRuneInString(s[i:])
 		i += size
+	}
+	return false
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
+func containsFoldASCIILower(s, lowerSub string) bool {
+	if len(s) < len(lowerSub) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(lowerSub); i++ {
+		for j := 0; j < len(lowerSub); j++ {
+			c := s[i+j]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if c != lowerSub[j] {
+				break
+			}
+			if j == len(lowerSub)-1 {
+				return true
+			}
+		}
 	}
 	return false
 }

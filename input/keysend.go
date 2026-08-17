@@ -121,15 +121,24 @@ func parseBraced(expr string) (keySend, error) {
 // parseCombo parses a braced expression containing "+" separators like
 // "ctrl+s", "ctrl+shift+t", "alt+f4", "shift+left".
 func parseCombo(name string, down, up bool) (keySend, error) {
-	parts := strings.Split(name, "+")
-	if len(parts) < 2 {
+	if !strings.Contains(name, "+") {
 		return keySend{}, fmt.Errorf("invalid key combo %q", name)
 	}
-
 	var mod modifiers
-	// All parts except the last are modifiers.
-	for _, p := range parts[:len(parts)-1] {
-		p = strings.TrimSpace(p)
+	start := 0
+	for {
+		separator := strings.IndexByte(name[start:], '+')
+		if separator == -1 {
+			key := strings.TrimSpace(name[start:])
+			if key == "" {
+				return keySend{}, fmt.Errorf("empty key in combo %q", name)
+			}
+			if isModifierName(key) {
+				return keySend{}, fmt.Errorf("combo %q ends with a modifier; add a non-modifier key", name)
+			}
+			return keySend{key: key, down: down, up: up, modifiers: mod}, nil
+		}
+		p := strings.TrimSpace(name[start : start+separator])
 		switch p {
 		case "ctrl", "control":
 			mod.ctrl = true
@@ -142,26 +151,8 @@ func parseCombo(name string, down, up bool) (keySend, error) {
 		default:
 			return keySend{}, fmt.Errorf("unknown modifier %q in combo %q", p, name)
 		}
+		start += separator + 1
 	}
-
-	key := strings.TrimSpace(parts[len(parts)-1])
-	if key == "" {
-		return keySend{}, fmt.Errorf("empty key in combo %q", name)
-	}
-
-	// Validate: if the "key" part is actually a modifier name, that's
-	// ambiguous — treat it as a modifier too (e.g. {ctrl+shift} means
-	// press both ctrl and shift).
-	if isModifierName(key) {
-		return keySend{}, fmt.Errorf("combo %q ends with a modifier; add a non-modifier key", name)
-	}
-
-	return keySend{
-		key:       key,
-		down:      down,
-		up:        up,
-		modifiers: mod,
-	}, nil
 }
 
 func isModifierName(s string) bool {

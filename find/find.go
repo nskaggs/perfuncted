@@ -167,6 +167,7 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 	ctx = contextutil.Default(ctx)
 	if pollDur <= 0 {
 		attempt := 0
+		var t *time.Timer
 		for {
 			if err := contextErr(ctx); err != nil {
 				return onCancel, err
@@ -183,7 +184,11 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 			}
 			d := pollpkg.AdaptivePoll(attempt, 10*time.Millisecond, 200*time.Millisecond)
 			attempt++
-			t := time.NewTimer(d)
+			if t == nil {
+				t = time.NewTimer(d)
+			} else {
+				t.Reset(d)
+			}
 			select {
 			case <-ctx.Done():
 				t.Stop()
@@ -498,16 +503,23 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 			B: refRGBA.Pix[refOff0+2],
 			A: refRGBA.Pix[refOff0+3],
 		}
+		refFirstBytes := refRGBA.Pix[refOff0 : refOff0+4]
 		for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
-			for x := sb.Min.X; x <= sb.Max.X-rb.Dx(); x++ {
-				srcOff := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (x-srcRGBA.Rect.Min.X)*4
-				_ = srcRGBA.Pix[srcOff+3] // eliminate bounds check
-				if srcRGBA.Pix[srcOff] != refFirst.R || srcRGBA.Pix[srcOff+1] != refFirst.G || srcRGBA.Pix[srcOff+2] != refFirst.B || srcRGBA.Pix[srcOff+3] != refFirst.A {
-					continue
+			rowStart := (y - srcRGBA.Rect.Min.Y) * srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
+			row := srcRGBA.Pix[rowStart : rowStart+sb.Dx()*4]
+			for from := 0; from < len(row); {
+				offset := bytes.Index(row[from:], refFirstBytes)
+				if offset < 0 {
+					break
 				}
-				if matchAt(src, reference, x, y) {
-					return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
+				pixelOffset := from + offset
+				if pixelOffset%4 == 0 {
+					x := sb.Min.X + pixelOffset/4
+					if x <= sb.Max.X-rb.Dx() && matchAt(src, reference, x, y) {
+						return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
+					}
 				}
+				from = pixelOffset + 1
 			}
 		}
 		return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
@@ -596,9 +608,14 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
 			for x := b.Min.X; x < b.Max.X; x++ {
 				_ = rgba.Pix[off+3] // eliminate bounds check
-				if abs(int(rgba.Pix[off+0])-int(target.R)) <= tolerance &&
-					abs(int(rgba.Pix[off+1])-int(target.G)) <= tolerance &&
-					abs(int(rgba.Pix[off+2])-int(target.B)) <= tolerance {
+				if (tolerance == 0 &&
+					rgba.Pix[off+0] == target.R &&
+					rgba.Pix[off+1] == target.G &&
+					rgba.Pix[off+2] == target.B) ||
+					(tolerance != 0 &&
+						abs(int(rgba.Pix[off+0])-int(target.R)) <= tolerance &&
+						abs(int(rgba.Pix[off+1])-int(target.G)) <= tolerance &&
+						abs(int(rgba.Pix[off+2])-int(target.B)) <= tolerance) {
 					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 				}
 				off += 4
@@ -615,9 +632,14 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 			off := (y-nrgba.Rect.Min.Y)*nrgba.Stride + (b.Min.X-nrgba.Rect.Min.X)*4
 			for x := b.Min.X; x < b.Max.X; x++ {
 				_ = nrgba.Pix[off+3]
-				if abs(int(nrgba.Pix[off])-int(target.R)) <= tolerance &&
-					abs(int(nrgba.Pix[off+1])-int(target.G)) <= tolerance &&
-					abs(int(nrgba.Pix[off+2])-int(target.B)) <= tolerance {
+				if (tolerance == 0 &&
+					nrgba.Pix[off] == target.R &&
+					nrgba.Pix[off+1] == target.G &&
+					nrgba.Pix[off+2] == target.B) ||
+					(tolerance != 0 &&
+						abs(int(nrgba.Pix[off])-int(target.R)) <= tolerance &&
+						abs(int(nrgba.Pix[off+1])-int(target.G)) <= tolerance &&
+						abs(int(nrgba.Pix[off+2])-int(target.B)) <= tolerance) {
 					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 				}
 				off += 4
