@@ -12,8 +12,12 @@ docs/
 !docs-cli/*.md
 !CONTRIBUTING.md
 !RELEASE.md
+/notes/
 /localsource/
 /ref/
+
+# Local development hook
+/.githooks/pre-commit
 
 # IDEs
 .vscode/
