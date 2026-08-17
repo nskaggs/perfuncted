@@ -327,6 +327,17 @@ func inputCmd(
 	}
 	cmd.AddCommand(sync)
 
+	// append auto-generated input commands (avoid duplicates)
+	existing := map[string]bool{}
+	for _, c := range cmd.Commands() {
+		existing[c.Name()] = true
+	}
+	for _, ac := range autogenInputCommands(openPF) {
+		if !existing[ac.Name()] {
+			cmd.AddCommand(ac)
+		}
+	}
+
 	return cmd
 }
 

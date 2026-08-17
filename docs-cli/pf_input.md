@@ -33,4 +33,5 @@ Mouse and keyboard injection
 * [pf input scroll](pf_input_scroll.md)	 - Scroll the mouse wheel
 * [pf input sync](pf_input_sync.md)	 - Synchronize the input backend with the compositor
 * [pf input type](pf_input_type.md)	 - Type a string or send keys (e.g. {enter}, {ctrl+s})
+* [pf input type-literal](pf_input_type-literal.md)	 - Type text literally without interpreting key syntax
 

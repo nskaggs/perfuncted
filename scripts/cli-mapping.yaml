@@ -56,6 +56,9 @@ input:
     skip: true
   Type:
     skip: true
+  TypeLiteral:
+    positional: true
+    short: "Type text literally without interpreting key syntax"
   TypeWithDelay:
     skip: true
 

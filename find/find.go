@@ -495,17 +495,11 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 	srcRGBA, srcOk := src.(*image.RGBA)
 	refRGBA, refOk := reference.(*image.RGBA)
 	if srcOk && refOk {
-		// Read refFirst directly from Pix (avoids color model conversion in inner loop).
+		// Read the reference bytes directly from Pix (avoids color model conversion in inner loop).
 		refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
-		refFirst = color.RGBA{
-			R: refRGBA.Pix[refOff0],
-			G: refRGBA.Pix[refOff0+1],
-			B: refRGBA.Pix[refOff0+2],
-			A: refRGBA.Pix[refOff0+3],
-		}
 		refFirstBytes := refRGBA.Pix[refOff0 : refOff0+4]
 		for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
-			rowStart := (y - srcRGBA.Rect.Min.Y) * srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
+			rowStart := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
 			row := srcRGBA.Pix[rowStart : rowStart+sb.Dx()*4]
 			for from := 0; from < len(row); {
 				offset := bytes.Index(row[from:], refFirstBytes)
