@@ -415,6 +415,63 @@ func TestFindColor(t *testing.T) {
 	}
 }
 
+func TestPixelFoundPackedImages(t *testing.T) {
+	const (
+		minX = 10
+		minY = 20
+	)
+	bounds := image.Rect(minX, minY, minX+4, minY+4)
+	wantColor := color.RGBA{R: 100, G: 120, B: 140, A: 255}
+
+	rgba := image.NewRGBA(bounds)
+	rgba.SetRGBA(12, 22, wantColor)
+	nrgba := image.NewNRGBA(bounds)
+	nrgba.SetNRGBA(12, 22, color.NRGBA(wantColor))
+
+	tests := []struct {
+		name      string
+		img       image.Image
+		target    color.RGBA
+		tolerance int
+		want      image.Point
+		wantFound bool
+	}{
+		{
+			name:      "rgba exact",
+			img:       rgba,
+			target:    wantColor,
+			want:      image.Pt(12, 22),
+			wantFound: true,
+		},
+		{
+			name:      "nrgba within tolerance",
+			img:       nrgba,
+			target:    color.RGBA{R: 99, G: 119, B: 139, A: 255},
+			tolerance: 1,
+			want:      image.Pt(12, 22),
+			wantFound: true,
+		},
+		{
+			name:      "packed pixel absent",
+			img:       rgba,
+			target:    color.RGBA{R: 1, G: 2, B: 3, A: 255},
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, found := PixelFound(tt.img, bounds, tt.target, tt.tolerance)
+			if found != tt.wantFound {
+				t.Fatalf("PixelFound found = %t, want %t", found, tt.wantFound)
+			}
+			if found && got != tt.want {
+				t.Fatalf("PixelFound point = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestWaitForLocate tests WaitForLocate.
 func TestWaitForLocate(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))

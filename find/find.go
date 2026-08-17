@@ -598,48 +598,14 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 	// Fast path: read directly from Pix for *image.RGBA, avoiding per-pixel
 	// At() calls and colour model conversion.
 	if rgba, ok := img.(*image.RGBA); ok {
-		for y := b.Min.Y; y < b.Max.Y; y++ {
-			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
-			for x := b.Min.X; x < b.Max.X; x++ {
-				_ = rgba.Pix[off+3] // eliminate bounds check
-				if (tolerance == 0 &&
-					rgba.Pix[off+0] == target.R &&
-					rgba.Pix[off+1] == target.G &&
-					rgba.Pix[off+2] == target.B) ||
-					(tolerance != 0 &&
-						abs(int(rgba.Pix[off+0])-int(target.R)) <= tolerance &&
-						abs(int(rgba.Pix[off+1])-int(target.G)) <= tolerance &&
-						abs(int(rgba.Pix[off+2])-int(target.B)) <= tolerance) {
-					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
-				}
-				off += 4
-			}
-		}
-		return image.Point{}, false
+		return scanPackedPixels(rgba.Pix, rgba.Rect, rgba.Stride, rect, target, tolerance)
 	}
 
 	// NRGBA is the native layout returned by several screenshot backends.
 	// Scan its Pix buffer directly; calling At and converting through
 	// color.RGBAModel allocates for every pixel.
 	if nrgba, ok := img.(*image.NRGBA); ok {
-		for y := b.Min.Y; y < b.Max.Y; y++ {
-			off := (y-nrgba.Rect.Min.Y)*nrgba.Stride + (b.Min.X-nrgba.Rect.Min.X)*4
-			for x := b.Min.X; x < b.Max.X; x++ {
-				_ = nrgba.Pix[off+3]
-				if (tolerance == 0 &&
-					nrgba.Pix[off] == target.R &&
-					nrgba.Pix[off+1] == target.G &&
-					nrgba.Pix[off+2] == target.B) ||
-					(tolerance != 0 &&
-						abs(int(nrgba.Pix[off])-int(target.R)) <= tolerance &&
-						abs(int(nrgba.Pix[off+1])-int(target.G)) <= tolerance &&
-						abs(int(nrgba.Pix[off+2])-int(target.B)) <= tolerance) {
-					return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
-				}
-				off += 4
-			}
-		}
-		return image.Point{}, false
+		return scanPackedPixels(nrgba.Pix, nrgba.Rect, nrgba.Stride, rect, target, tolerance)
 	}
 
 	// Slow path: generic image via At() + colour model conversion.
@@ -649,6 +615,34 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 			if colorClose(c, target, tolerance) {
 				return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
 			}
+		}
+	}
+	return image.Point{}, false
+}
+
+func scanPackedPixels(
+	pix []byte,
+	bounds image.Rectangle,
+	stride int,
+	rect image.Rectangle,
+	target color.RGBA,
+	tolerance int,
+) (image.Point, bool) {
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		off := (y - bounds.Min.Y) * stride
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			_ = pix[off+3] // eliminate bounds check
+			if (tolerance == 0 &&
+				pix[off] == target.R &&
+				pix[off+1] == target.G &&
+				pix[off+2] == target.B) ||
+				(tolerance != 0 &&
+					abs(int(pix[off])-int(target.R)) <= tolerance &&
+					abs(int(pix[off+1])-int(target.G)) <= tolerance &&
+					abs(int(pix[off+2])-int(target.B)) <= tolerance) {
+				return image.Pt(rect.Min.X+x-bounds.Min.X, rect.Min.Y+y-bounds.Min.Y), true
+			}
+			off += 4
 		}
 	}
 	return image.Point{}, false
