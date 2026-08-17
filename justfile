@@ -5,7 +5,7 @@
 # CI reads the supported Go line from go.mod and checks this repository out
 # without the parent workspace. Local recipes pin the validated patch release
 # and disable the workspace overlay for equivalent module resolution.
-export GOTOOLCHAIN := "go1.26.5"
+export GOTOOLCHAIN := "go1.26.6"
 export GOWORK := "off"
 
 default:
