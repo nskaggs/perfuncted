@@ -26,7 +26,7 @@ type WaylandWindowManager struct {
 	display interface {
 		Context() wl.Ctx
 		GetRegistry() (*wl.Registry, error)
-		RoundTrip() error
+		RoundTripContext(context.Context) error
 	}
 	registry interface {
 		Bind(name uint32, iface string, ver, newID uint32) error
@@ -111,7 +111,7 @@ func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error
 			}
 			m.seat = seatProxy
 		}
-		return m.fetchToplevels()
+		return m.fetchToplevels(context.Background())
 	})
 	if initErr != nil {
 		_ = s.Close()
@@ -120,10 +120,10 @@ func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error
 	return m, nil
 }
 
-func (m *WaylandWindowManager) fetchToplevels() error {
-	ctx := m.display.Context()
+func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
+	wlctx := m.display.Context()
 	mgrProxy := &wl.RawProxy{}
-	ctx.Register(mgrProxy)
+	wlctx.Register(mgrProxy)
 
 	iface, regName, ver := "ext_foreign_toplevel_list_v1", m.extMgrID, uint32(1)
 	if regName == 0 {
@@ -149,7 +149,7 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 		m.toplevelsMu.Unlock()
 		m.notifyWindowChange()
 		handle := &wl.RawProxy{}
-		ctx.SetProxy(handleID, handle)
+		wlctx.SetProxy(handleID, handle)
 		// Each handle emits title/app_id/state/output_enter/leave/closed events.
 		handle.OnEvent = func(op uint32, _ int, d []byte) {
 			if !isWLR {
@@ -158,11 +158,11 @@ func (m *WaylandWindowManager) fetchToplevels() error {
 				m.handleWLRToplevelEvent(handleID, info, op, d)
 			}
 			if (isWLR && op == 6) || (!isWLR && op == 0) {
-				wl.Unregister(ctx, handle)
+				wl.Unregister(wlctx, handle)
 			}
 		}
 	}
-	return m.display.RoundTrip()
+	return m.display.RoundTripContext(ctx)
 }
 
 func (m *WaylandWindowManager) handleWLRToplevelEvent(
@@ -304,7 +304,7 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 		}
 		var windows []Info
 		if err := m.withOperation(func() error {
-			if err := m.display.RoundTrip(); err != nil {
+			if err := m.display.RoundTripContext(ctx); err != nil {
 				return fmt.Errorf("window/wayland: round-trip: %w", err)
 			}
 			m.toplevelsMu.Lock()
@@ -334,7 +334,7 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 	}
 	var title string
 	err := m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return fmt.Errorf("window/wayland: round-trip: %w", err)
 		}
 		m.toplevelsMu.Lock()
@@ -370,7 +370,7 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	if m.display == nil {
 		return nil
 	}
-	return m.withOperation(m.display.RoundTrip)
+	return m.withOperation(func() error { return m.display.RoundTripContext(ctx) })
 }
 
 // SupportedOperations returns operations exposed by the foreign-toplevel protocol.
@@ -409,7 +409,7 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 		return fmt.Errorf("window/wayland: activate canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		hid, _, err := m.lookupByID(id)
@@ -429,7 +429,7 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 				return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
 			}
 			m.seat = seatProxy
-			if err := m.display.RoundTrip(); err != nil {
+			if err := m.display.RoundTripContext(ctx); err != nil {
 				return err
 			}
 		}
@@ -459,7 +459,7 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 		return fmt.Errorf("window/wayland: close canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		hid, _, err := m.lookupByID(id)
@@ -483,7 +483,7 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		hid, _, err := m.lookupByID(id)
@@ -507,7 +507,7 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		hid, _, err := m.lookupByID(id)
@@ -534,7 +534,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		handleID, _, err := m.lookupByID(id)
@@ -562,7 +562,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		handleID, _, err := m.lookupByID(id)
@@ -586,7 +586,7 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 		return fmt.Errorf("window/wayland: restore canceled: %w", err)
 	}
 	return m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		hid, _, err := m.lookupByID(id)
@@ -614,7 +614,7 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, e
 	}
 	var info Info
 	err := m.withOperation(func() error {
-		if err := m.display.RoundTrip(); err != nil {
+		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		_, found, err := m.lookupByID(id)

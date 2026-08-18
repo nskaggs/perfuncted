@@ -80,7 +80,10 @@ func (d *mockWaylandDisplay) Sync() (*wl.Callback, error) {
 	}
 	return cb, nil
 }
-func (d *mockWaylandDisplay) RoundTrip() error {
+func (d *mockWaylandDisplay) RoundTripContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Mock RoundTrip: simulate a done event immediately
 	cb, err := d.Sync()
 	if err != nil {
@@ -91,6 +94,17 @@ func (d *mockWaylandDisplay) RoundTrip() error {
 		cb.Dispatch(0, -1, nil) // opcode 0 for done event
 	})
 	return d.ctx.Dispatch() // Process the sync and done
+}
+
+type blockingWaylandDisplay struct {
+	*mockWaylandDisplay
+	started chan struct{}
+}
+
+func (d *blockingWaylandDisplay) RoundTripContext(ctx context.Context) error {
+	close(d.started)
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func put32(buf []byte, v uint32) []byte {
@@ -461,6 +475,78 @@ func TestWaylandWindowManager_List_RoundTripError(t *testing.T) {
 	_, err := wm.List(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "window/wayland: round-trip: simulated roundtrip error") {
 		t.Errorf("List() error = %v, expected error containing %q", err, "window/wayland: round-trip: simulated roundtrip error")
+	}
+}
+
+func TestWaylandWindowManager_ListHonorsCancellationDuringRoundTrip(t *testing.T) {
+	ctx := &mockWaylandContext{objects: make(map[uint32]wl.Proxy)}
+	display := &blockingWaylandDisplay{
+		mockWaylandDisplay: &mockWaylandDisplay{ctx: ctx},
+		started:            make(chan struct{}),
+	}
+	wm := &WaylandWindowManager{
+		display:   display,
+		toplevels: make(map[uint32]*Info),
+	}
+
+	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := wm.List(requestCtx)
+		done <- err
+	}()
+
+	select {
+	case <-display.started:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("List did not enter the cancellable round trip")
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("List error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("List did not return after cancellation")
+	}
+}
+
+func TestWaylandWindowManager_ActionHonorsCancellationDuringRoundTrip(t *testing.T) {
+	ctx := &mockWaylandContext{objects: make(map[uint32]wl.Proxy)}
+	display := &blockingWaylandDisplay{
+		mockWaylandDisplay: &mockWaylandDisplay{ctx: ctx},
+		started:            make(chan struct{}),
+	}
+	wm := &WaylandWindowManager{
+		display:   display,
+		toplevels: map[uint32]*Info{50: {ID: 50, NativeID: "50"}},
+		wlrMgrID:  1,
+	}
+
+	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- wm.CloseWindowByID(requestCtx, "50")
+	}()
+
+	select {
+	case <-display.started:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("CloseWindowByID did not enter the cancellable round trip")
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("CloseWindowByID error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CloseWindowByID did not return after cancellation")
 	}
 }
 
