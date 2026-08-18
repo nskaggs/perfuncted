@@ -91,9 +91,11 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 
 	// Fast path: direct Pix access for *image.RGBA.
 	if rgba, ok := img.(*image.RGBA); ok {
-		// Optimization: if the image is contiguous, hash the whole Pix slice at once.
+		// Optimization: if the visible rows are contiguous, hash them at once.
+		// A full-width subimage can have trailing rows in Pix, so bound the slice
+		// to the image's height rather than hashing the entire backing buffer.
 		if b == rgba.Rect && rgba.Stride == b.Dx()*4 {
-			h.Write(rgba.Pix)
+			h.Write(rgba.Pix[:rgba.Stride*b.Dy()])
 			return h.Sum32()
 		}
 		for y := b.Min.Y; y < b.Max.Y; y++ {

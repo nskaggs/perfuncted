@@ -59,6 +59,26 @@ func TestPixelHashSubImage(t *testing.T) {
 	}
 }
 
+func TestPixelHashFullWidthSubImage(t *testing.T) {
+	const width = 4
+	full := image.NewRGBA(image.Rect(0, 0, width, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < width; x++ {
+			full.SetRGBA(x, y, color.RGBA{R: uint8(y + 1), G: uint8(x), A: 255})
+		}
+	}
+
+	sub := full.SubImage(image.Rect(0, 1, width, 2)).(*image.RGBA) //nolint:errcheck // SubImage on *image.RGBA always returns *image.RGBA
+	equiv := image.NewRGBA(image.Rect(0, 0, width, 1))
+	for x := 0; x < width; x++ {
+		equiv.SetRGBA(x, 0, full.RGBAAt(x, 1))
+	}
+
+	if got, want := PixelHash(sub, nil), PixelHash(equiv, nil); got != want {
+		t.Fatalf("full-width subimage hash %08x != equivalent hash %08x", got, want)
+	}
+}
+
 // ── FirstPixel ────────────────────────────────────────────────────────────────
 
 type fakeScreen struct {
