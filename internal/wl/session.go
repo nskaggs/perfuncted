@@ -1,6 +1,7 @@
 package wl
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -97,10 +98,19 @@ func newSessionHandle(ref *sessionRef) *Session {
 // sync callback is received. Mirrors Display.RoundTrip but operates on the
 // Session's Display and Context.
 func (s *Session) Sync() error {
+	return s.SyncContext(context.Background())
+}
+
+// SyncContext performs a synchronous wl_display.sync that can be interrupted
+// by ctx. It preserves the session's operation serialization for shared
+// reference-counted connections.
+func (s *Session) SyncContext(ctx context.Context) error {
 	if s == nil || s.Display == nil {
 		return nil
 	}
-	return WithOperation(s.Ctx, s.Display.RoundTrip)
+	return WithOperation(s.Ctx, func() error {
+		return s.Display.RoundTripContext(ctx)
+	})
 }
 
 // Close decrements the cached session's reference count and closes the

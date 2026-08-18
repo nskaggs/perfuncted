@@ -1,7 +1,12 @@
 package output
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -13,6 +18,77 @@ func wlStringData(s string) []byte {
 	wl.PutUint32(out[0:4], n)
 	copy(out[4:], s)
 	return out
+}
+
+func TestWaylandListerListCancelsBlockedRoundTrip(t *testing.T) {
+	sock := t.TempDir() + "/wayland.sock"
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	serverConn := make(chan net.Conn, 1)
+	requestRead := make(chan struct{})
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverErr <- acceptErr
+			return
+		}
+		serverConn <- conn
+		var request [12]byte
+		_, readErr := io.ReadFull(conn, request[:])
+		if readErr != nil {
+			serverErr <- readErr
+			return
+		}
+		close(requestRead)
+	}()
+
+	waylandCtx, err := wl.Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer waylandCtx.Close()
+	conn := <-serverConn
+	defer conn.Close()
+
+	lister := &WaylandLister{
+		session: &wl.Session{
+			Sock:    sock,
+			Ctx:     waylandCtx,
+			Display: wl.NewDisplay(waylandCtx),
+		},
+		outputs: []*waylandOutput{{info: Info{Name: "test", Backend: "wayland"}}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listDone := make(chan error, 1)
+	go func() {
+		_, listErr := lister.List(ctx)
+		listDone <- listErr
+	}()
+
+	select {
+	case <-requestRead:
+	case err := <-serverErr:
+		t.Fatalf("server read: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("Wayland sync request was not sent")
+	}
+	cancel()
+
+	select {
+	case err := <-listDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("List error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("List did not return after context cancellation")
+	}
 }
 
 func appendWlStringData(dst []byte, s string) []byte {

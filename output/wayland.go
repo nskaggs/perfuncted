@@ -160,7 +160,7 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	for _, out := range l.outputs {
 		out.info.Backend = "wayland"
 	}
-	if err := l.session.Sync(); err != nil {
+	if err := l.session.SyncContext(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]Info, 0, len(l.outputs))
