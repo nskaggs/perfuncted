@@ -674,6 +674,25 @@ func TestContextRoundTripUnregistersCallbacks(t *testing.T) {
 	}
 }
 
+func TestDisplayCreationUnregistersProxyAfterCanceledWrite(t *testing.T) {
+	ctx := &Context{}
+	display := NewDisplay(ctx)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if registry, err := display.GetRegistryContext(canceled); !errors.Is(err, context.Canceled) || registry != nil {
+		t.Fatalf("GetRegistryContext() = (%v, %v), want (nil, context.Canceled)", registry, err)
+	}
+	if callback, err := display.SyncContext(canceled); !errors.Is(err, context.Canceled) || callback != nil {
+		t.Fatalf("SyncContext() = (%v, %v), want (nil, context.Canceled)", callback, err)
+	}
+	ctx.objectsMu.RLock()
+	defer ctx.objectsMu.RUnlock()
+	if got := len(ctx.objects); got != 0 {
+		t.Fatalf("registered objects after canceled creation = %d, want 0", got)
+	}
+}
+
 func TestRegistry_BindMessageLayout(t *testing.T) {
 	// Verify that Registry.Bind produces the correct wire format.
 	// We can't call Bind without a real ctx, but we can test the encoding

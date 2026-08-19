@@ -505,7 +505,11 @@ func (d *Display) GetRegistryContext(cancel context.Context) (*Registry, error) 
 	PutUint32(buf[0:], 1)        // wl_display is always ID 1
 	PutUint32(buf[4:], 12<<16|1) // size=12, opcode=1 (get_registry)
 	PutUint32(buf[8:], reg.ID())
-	return reg, d.ctx.WriteMsgContext(cancel, buf[:], nil)
+	if err := d.ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
+		Unregister(d.ctx, reg)
+		return nil, err
+	}
+	return reg, nil
 }
 
 // Sync sends wl_display.sync and returns a Callback object.
@@ -521,7 +525,11 @@ func (d *Display) SyncContext(cancel context.Context) (*Callback, error) {
 	PutUint32(buf[0:], 1)      // wl_display is always ID 1
 	PutUint32(buf[4:], 12<<16) // size=12, opcode=0 (sync)
 	PutUint32(buf[8:], cb.ID())
-	return cb, d.ctx.WriteMsgContext(cancel, buf[:], nil)
+	if err := d.ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
+		Unregister(d.ctx, cb)
+		return nil, err
+	}
+	return cb, nil
 }
 
 // RoundTrip performs a synchronous wl_display.sync, pumping events until done.
