@@ -83,6 +83,9 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("clipboard get: %w", ctx.Err())
+		}
 		return "", fmt.Errorf("clipboard get: %w", err)
 	}
 	// Normalize trailing-newline differences between backends by trimming a

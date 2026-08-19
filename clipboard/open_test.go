@@ -2,9 +2,11 @@ package clipboard
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
@@ -58,6 +60,45 @@ func TestExtCmdClipboardGetNilContext(t *testing.T) {
 	}
 	if _, err := cb.Get(context.TODO()); err != nil {
 		t.Fatalf("Get(nil): %v", err)
+	}
+}
+
+func TestExtCmdClipboardGetPreservesContextError(t *testing.T) {
+	oldCmd := executil.CommandContext
+	executil.CommandContext = exec.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	cb := &extCmdClipboard{getCmd: []string{"false"}}
+	tests := []struct {
+		name       string
+		newContext func() (context.Context, context.CancelFunc)
+		want       error
+	}{
+		{
+			name: "canceled",
+			newContext: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, cancel
+			},
+			want: context.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			newContext: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			},
+			want: context.DeadlineExceeded,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := tt.newContext()
+			defer cancel()
+			if _, err := cb.Get(ctx); !errors.Is(err, tt.want) {
+				t.Fatalf("Get error = %v, want errors.Is(..., %v)", err, tt.want)
+			}
+		})
 	}
 }
 
