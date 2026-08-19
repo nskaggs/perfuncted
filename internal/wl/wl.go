@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -97,6 +98,9 @@ type Context struct {
 	buf     []byte
 
 	objectsMu         sync.RWMutex
+	closed            atomic.Bool
+	closeOnce         sync.Once
+	closeErr          error
 	writeGateOnce     sync.Once
 	writeGate         chan struct{}
 	dispatchGateOnce  sync.Once
@@ -105,6 +109,20 @@ type Context struct {
 	roundTripGate     chan struct{}
 	operationGateOnce sync.Once
 	operationGate     chan struct{}
+}
+
+func (ctx *Context) ensureOpen() error {
+	if ctx == nil || ctx.conn == nil || !ctx.closed.Load() {
+		return nil
+	}
+	return net.ErrClosed
+}
+
+func (ctx *Context) checkOpen(cancel context.Context) error {
+	if err := ctx.ensureOpen(); err != nil {
+		return err
+	}
+	return cancel.Err()
 }
 
 // Connect opens a Wayland connection to addr (must be an absolute socket path).
@@ -191,6 +209,9 @@ func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) er
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	if err := ctx.ensureOpen(); err != nil {
+		return err
+	}
 
 	select {
 	case <-cancel.Done():
@@ -198,7 +219,7 @@ func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) er
 	case <-ctx.writeGateChannel():
 	}
 	defer func() { ctx.writeGateChannel() <- struct{}{} }()
-	if err := cancel.Err(); err != nil {
+	if err := ctx.checkOpen(cancel); err != nil {
 		return err
 	}
 
@@ -313,7 +334,7 @@ func (ctx *Context) dispatch() error {
 // socket read when cancel is done. A read deadline preserves the connection for
 // other users of a reference-counted session; callers decide whether a failed
 // operation should discard it.
-func (ctx *Context) DispatchContext(cancel context.Context) error {
+func (ctx *Context) DispatchContext(cancel context.Context) error { //nolint:contextcheck // cancel is the caller-owned context used to interrupt socket I/O.
 	if cancel == nil {
 		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}
@@ -323,6 +344,9 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	if err := ctx.ensureOpen(); err != nil {
+		return err
+	}
 	gate := ctx.dispatchGateChannel()
 	select {
 	case <-cancel.Done():
@@ -330,10 +354,13 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 	case <-gate:
 	}
 	defer func() { gate <- struct{}{} }()
-	if err := cancel.Err(); err != nil {
+	if err := ctx.checkOpen(cancel); err != nil {
 		return err
 	}
+	return ctx.dispatchWithCancellation(cancel)
+}
 
+func (ctx *Context) dispatchWithCancellation(cancel context.Context) error {
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
 	go func() {
@@ -366,17 +393,23 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 	return err
 }
 
-// Close closes the Wayland socket connection.
+// Close marks the context closed and closes the Wayland socket connection.
+// It is safe to call concurrently and interrupts active socket I/O.
 // If the receiver or its underlying connection is nil (tests may construct
 // partial contexts), treat it as a no-op rather than panicking.
 func (ctx *Context) Close() error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
-	gate := ctx.writeGateChannel()
-	<-gate
-	defer func() { gate <- struct{}{} }()
-	return ctx.conn.Close()
+	ctx.closeOnce.Do(func() {
+		// Mark the context before closing the socket so operations queued after
+		// shutdown cannot start using the connection. Closing the socket itself
+		// is deliberately not serialized behind an I/O gate: net.Conn.Close is
+		// what interrupts an already-blocked read or write.
+		ctx.closed.Store(true)
+		ctx.closeErr = ctx.conn.Close()
+	})
+	return ctx.closeErr
 }
 
 // WithOperation serializes a multi-message protocol operation using a
@@ -427,6 +460,9 @@ func (ctx *Context) WithOperationContext(cancel context.Context, fn func() error
 	if err := cancel.Err(); err != nil {
 		return err
 	}
+	if err := ctx.ensureOpen(); err != nil {
+		return err
+	}
 	gate := ctx.operationGateChannel()
 	select {
 	case <-cancel.Done():
@@ -434,7 +470,7 @@ func (ctx *Context) WithOperationContext(cancel context.Context, fn func() error
 	case <-gate:
 	}
 	defer func() { gate <- struct{}{} }()
-	if err := cancel.Err(); err != nil {
+	if err := ctx.checkOpen(cancel); err != nil {
 		return err
 	}
 	return fn()
@@ -569,6 +605,9 @@ func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:co
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	if err := ctx.ensureOpen(); err != nil {
+		return err
+	}
 	gate := ctx.roundTripGateChannel()
 	select {
 	case <-cancel.Done():
@@ -576,7 +615,7 @@ func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:co
 	case <-gate:
 	}
 	defer func() { gate <- struct{}{} }()
-	if err := cancel.Err(); err != nil {
+	if err := ctx.checkOpen(cancel); err != nil {
 		return err
 	}
 

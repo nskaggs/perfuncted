@@ -407,6 +407,135 @@ blocked:
 	<-serverDone
 }
 
+func TestContextCloseInterruptsBlockedWrite(t *testing.T) { //nolint:gocyclo // deterministically drives the socket into a blocked-write state.
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		<-releaseServer
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	<-accepted
+
+	var releaseOnce sync.Once
+	writerExited := make(chan struct{})
+	cleanup := func() {
+		// Closing the raw socket is the emergency cleanup path if an assertion
+		// below catches a regression that leaves Close waiting on the writer.
+		_ = ctx.conn.Close()
+		select {
+		case <-writerExited:
+		case <-time.After(time.Second):
+		}
+		releaseOnce.Do(func() { close(releaseServer) })
+		<-serverDone
+	}
+	t.Cleanup(cleanup)
+
+	writeDone := make(chan error, 1)
+	progress := make(chan struct{}, 1)
+	go func() {
+		defer close(writerExited)
+		chunk := make([]byte, 4096)
+		for {
+			if err := ctx.WriteMsg(chunk, nil); err != nil {
+				writeDone <- err
+				return
+			}
+			select {
+			case progress <- struct{}{}:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-progress:
+	case err := <-writeDone:
+		t.Fatalf("WriteMsg returned before the blocked write: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("WriteMsg made no progress while filling the socket")
+	}
+
+	stallTimer := time.NewTimer(50 * time.Millisecond)
+	defer stallTimer.Stop()
+	for {
+		select {
+		case <-progress:
+			if !stallTimer.Stop() {
+				select {
+				case <-stallTimer.C:
+				default:
+				}
+			}
+			stallTimer.Reset(50 * time.Millisecond)
+		case err := <-writeDone:
+			t.Fatalf("WriteMsg returned before Close: %v", err)
+		case <-stallTimer.C:
+			goto blocked
+		}
+	}
+
+blocked:
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- ctx.Close() }()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked behind the active socket write")
+	}
+
+	select {
+	case err := <-writeDone:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("WriteMsg error = %v, want net.ErrClosed", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked WriteMsg did not return after Close")
+	}
+
+	if err := ctx.WriteMsg([]byte{1}, nil); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("WriteMsg after Close = %v, want net.ErrClosed", err)
+	}
+	if err := ctx.DispatchContext(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("DispatchContext after Close = %v, want net.ErrClosed", err)
+	}
+	if err := ctx.RoundTripContext(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("RoundTripContext after Close = %v, want net.ErrClosed", err)
+	}
+	called := false
+	if err := ctx.WithOperationContext(context.Background(), func() error {
+		called = true
+		return nil
+	}); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("WithOperationContext after Close = %v, want net.ErrClosed", err)
+	}
+	if called {
+		t.Fatal("WithOperationContext callback ran after Close")
+	}
+}
+
 func TestContextWithOperationContextCancelsQueuedAdmission(t *testing.T) {
 	ctx := &Context{}
 	started := make(chan struct{})
