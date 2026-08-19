@@ -22,7 +22,18 @@ var _ Screenshotter = (*ExtCaptureBackend)(nil)
 // Do not assume specific compositor versions — rely solely on protocol presence.
 type ExtCaptureBackend struct {
 	// mu protects the session-owned protocol state, shm, manager globals, and outputProxy.
-	mu           sync.Mutex
+	mu sync.Mutex
+	// lifecycleMu protects closed, closeDone, and active capture cancellation.
+	// It is deliberately separate from mu: Close must be able to cancel a
+	// blocked Wayland operation without waiting for that operation's resource
+	// lock.
+	lifecycleMu  sync.Mutex
+	closed       bool
+	closeDone    chan struct{}
+	closeErr     error
+	active       map[uint64]context.CancelFunc
+	activeDone   chan struct{}
+	nextCapture  uint64
 	session      *wl.Session
 	shm          *wl.Shm
 	mgrID        uint32
@@ -247,8 +258,17 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("screen/ext: capture canceled: %w", err)
 	}
+	captureCtx, finish, err := b.beginCapture(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if err := captureCtx.Err(); err != nil {
+		return fmt.Errorf("screen/ext: capture canceled: %w", err)
+	}
 
 	wlctx := b.session.Display.Context()
 	return wl.WithOperation(wlctx, func() error {
@@ -259,7 +279,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		b.sessProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
 			applyExtSessionEvent(&si, &stopped, &invalidEvent, opcode, data)
 		}
-		if err := b.session.Display.RoundTripContext(ctx); err != nil {
+		if err := b.session.Display.RoundTripContext(captureCtx); err != nil {
 			return fmt.Errorf("screen/ext: session round-trip: %w", err)
 		}
 		if invalidEvent {
@@ -268,7 +288,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		if stopped {
 			return fmt.Errorf("screen/ext: capture session stopped before constraints arrived")
 		}
-		if err := ctx.Err(); err != nil {
+		if err := captureCtx.Err(); err != nil {
 			return fmt.Errorf("screen/ext: capture canceled: %w", err)
 		}
 		if si.width == 0 || si.height == 0 {
@@ -361,10 +381,10 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		}
 
 		for !ready && !failed {
-			if err := ctx.Err(); err != nil {
+			if err := captureCtx.Err(); err != nil {
 				return err
 			}
-			if err := wl.DispatchContext(ctx, wlctx); err != nil {
+			if err := wl.DispatchContext(captureCtx, wlctx); err != nil {
 				return fmt.Errorf("screen/ext: dispatch: %w", err)
 			}
 		}
@@ -376,8 +396,78 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	})
 }
 
+// beginCapture admits a capture and returns a context that Close can cancel.
+// Admission is recorded before grabInternal takes mu, so Close cannot observe
+// an operation as absent and then race with it acquiring the resource lock.
+func (b *ExtCaptureBackend) beginCapture(ctx context.Context) (context.Context, func(), error) {
+	ctx = contextutil.Default(ctx)
+	captureCtx, cancel := context.WithCancel(ctx)
+
+	b.lifecycleMu.Lock()
+	if b.closed {
+		b.lifecycleMu.Unlock()
+		cancel()
+		return nil, nil, fmt.Errorf("screen/ext: backend is closed")
+	}
+	if b.active == nil {
+		b.active = make(map[uint64]context.CancelFunc)
+	}
+	if len(b.active) == 0 {
+		b.activeDone = make(chan struct{})
+	}
+	b.nextCapture++
+	id := b.nextCapture
+	b.active[id] = cancel
+	b.lifecycleMu.Unlock()
+
+	var finishOnce sync.Once
+	finish := func() {
+		finishOnce.Do(func() {
+			cancel()
+			b.lifecycleMu.Lock()
+			delete(b.active, id)
+			if len(b.active) == 0 && b.activeDone != nil {
+				close(b.activeDone)
+			}
+			b.lifecycleMu.Unlock()
+		})
+	}
+	return captureCtx, finish, nil
+}
+
 // Close releases the ext-image-copy protocol resources.
 func (b *ExtCaptureBackend) Close() error {
+	b.lifecycleMu.Lock()
+	if b.closed {
+		done := b.closeDone
+		b.lifecycleMu.Unlock()
+		if done != nil {
+			<-done
+		}
+		b.lifecycleMu.Lock()
+		err := b.closeErr
+		b.lifecycleMu.Unlock()
+		return err
+	}
+	b.closed = true
+	b.closeDone = make(chan struct{})
+	done := b.closeDone
+	activeDone := b.activeDone
+	cancels := make([]context.CancelFunc, 0, len(b.active))
+	for _, cancel := range b.active {
+		cancels = append(cancels, cancel)
+	}
+	b.lifecycleMu.Unlock()
+
+	// Never hold mu while canceling or waiting. A capture needs mu for its
+	// complete serialized Wayland operation and must be allowed to unwind.
+	for _, cancel := range cancels {
+		cancel()
+	}
+	if activeDone != nil {
+		<-activeDone
+	}
+
 	b.mu.Lock()
 	// clean up pooled mmap and associated fd
 	if b.cachedBuf != nil {
@@ -389,10 +479,16 @@ func (b *ExtCaptureBackend) Close() error {
 		b.cachedFd = nil
 	}
 	b.mu.Unlock()
+
+	var err error
 	if b.session != nil {
-		return b.session.Close()
+		err = b.session.Close()
 	}
-	return nil
+	b.lifecycleMu.Lock()
+	b.closeErr = err
+	close(done)
+	b.lifecycleMu.Unlock()
+	return err
 }
 
 func extCaptureAvailable(globals map[string]bool) (bool, string) {

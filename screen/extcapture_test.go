@@ -1,7 +1,13 @@
 package screen
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -127,4 +133,129 @@ func TestExtCaptureProtocolOpcodes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtCaptureCloseCancelsBlockedCapture(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	serverReady := make(chan struct{})
+	captureSent := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(serverReady)
+
+		// The first request is the session round-trip. Reply with valid
+		// constraints and the callback completion so capture can proceed to
+		// its genuinely blocking frame dispatch.
+		var request [12]byte
+		if _, readErr := io.ReadFull(conn, request[:]); readErr != nil {
+			return
+		}
+		callbackID := wl.Uint32(request[8:12])
+		if writeErr := writeExtTestEvent(conn, 3, 0, wlUint32Payload(1, 1)); writeErr != nil {
+			return
+		}
+		if writeErr := writeExtTestEvent(conn, 3, 1, wlUint32Payload(0)); writeErr != nil {
+			return
+		}
+		if writeErr := writeExtTestEvent(conn, callbackID, 0, nil); writeErr != nil {
+			return
+		}
+
+		for {
+			var header [8]byte
+			if _, readErr := io.ReadFull(conn, header[:]); readErr != nil {
+				return
+			}
+			size := int(wl.Uint32(header[4:8])>>16) - 8
+			if size < 0 {
+				return
+			}
+			body := make([]byte, size)
+			if _, readErr := io.ReadFull(conn, body); readErr != nil {
+				return
+			}
+			if wl.Uint32(header[4:8])&0xffff == 3 {
+				close(captureSent)
+				<-releaseServer
+				return
+			}
+		}
+	}()
+
+	ctx, err := wl.Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	<-serverReady
+	sessProxy := &wlRawProxy{}
+	shm := &wl.Shm{}
+	ctx.Register(shm)
+	ctx.Register(sessProxy)
+	b := &ExtCaptureBackend{
+		session:     &wl.Session{Sock: sock, Ctx: ctx, Display: wl.NewDisplay(ctx)},
+		shm:         shm,
+		sessProxy:   sessProxy,
+		outputScale: 1,
+	}
+
+	grabDone := make(chan error, 1)
+	go func() {
+		_, grabErr := b.GrabFullHash(context.Background())
+		grabDone <- grabErr
+	}()
+	<-captureSent
+
+	closeDone := make(chan error, 2)
+	go func() { closeDone <- b.Close() }()
+	go func() { closeDone <- b.Close() }()
+	for i := 0; i < 2; i++ {
+		select {
+		case closeErr := <-closeDone:
+			if closeErr != nil {
+				t.Fatalf("Close: %v", closeErr)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Close did not cancel the blocked capture")
+		}
+	}
+
+	select {
+	case grabErr := <-grabDone:
+		if !errors.Is(grabErr, context.Canceled) {
+			t.Fatalf("GrabFullHash error = %v, want context.Canceled", grabErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked capture did not exit after Close")
+	}
+	close(releaseServer)
+	<-serverDone
+
+	if err := b.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if _, err := b.GrabFullHash(context.Background()); err == nil {
+		t.Fatal("GrabFullHash succeeded after Close")
+	}
+}
+
+func writeExtTestEvent(w io.Writer, sender, opcode uint32, body []byte) error {
+	msg := make([]byte, 8+len(body))
+	wl.PutUint32(msg[0:4], sender)
+	wl.PutUint32(msg[4:8], uint32(len(msg))<<16|opcode)
+	copy(msg[8:], body)
+	_, err := w.Write(msg)
+	return err
 }
