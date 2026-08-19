@@ -40,7 +40,7 @@ func WithOperation(ctx Ctx, fn func() error) error {
 
 // WithOperationContext serializes a complete logical operation and honors
 // cancellation while waiting for the shared transport.
-func WithOperationContext(ctx Ctx, cancel context.Context, fn func() error) error {
+func WithOperationContext(cancel context.Context, ctx Ctx, fn func() error) error {
 	return ctx.WithOperationContext(cancel, fn)
 }
 
@@ -181,7 +181,7 @@ func (ctx *Context) WriteMsg(data, oob []byte) error {
 // socket write when cancel is done. The write lock covers both the write and
 // deadline restoration, so cancellation cannot leak a deadline into a later
 // operation.
-func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) error {
+func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) error { //nolint:contextcheck // This method uses the caller's context to interrupt I/O; it does not derive one.
 	if cancel == nil {
 		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}
@@ -202,6 +202,50 @@ func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) er
 		return err
 	}
 
+	n, oobn, err, resetErr := ctx.writeMsgUnixContext(cancel, data, oob)
+	return finishWriteResult(cancel.Err(), n, oobn, err, resetErr, len(data), len(oob))
+}
+
+func finishWriteResult(cancelErr error, n, oobn int, writeErr, resetErr error, dataLen, oobLen int) error {
+	resetCause := func() error {
+		if resetErr == nil {
+			return nil
+		}
+		return fmt.Errorf("wl: reset write deadline: %w", resetErr)
+	}
+	if writeErr != nil {
+		if cancelErr != nil {
+			if resetErr != nil {
+				return errors.Join(cancelErr, writeErr, resetCause())
+			}
+			return errors.Join(cancelErr, writeErr)
+		}
+		if resetErr != nil {
+			return errors.Join(writeErr, resetCause())
+		}
+		return writeErr
+	}
+	if resetErr != nil {
+		if cancelErr != nil {
+			return errors.Join(cancelErr, resetCause())
+		}
+		return resetCause()
+	}
+	if n != dataLen || oobn != oobLen {
+		shortErr := fmt.Errorf("wl: short write (%d/%d data, %d/%d oob)", n, dataLen, oobn, oobLen)
+		if cancelErr != nil {
+			return errors.Join(cancelErr, shortErr)
+		}
+		return shortErr
+	}
+	// A complete successful write owns the request: cancellation observed
+	// concurrently after WriteMsgUnix completed must not report a false failure.
+	return nil
+}
+
+// writeMsgUnixContext performs one write while a cancellation watcher can
+// interrupt a blocked Unix socket write without closing the shared connection.
+func (ctx *Context) writeMsgUnixContext(cancel context.Context, data, oob []byte) (n, oobn int, err, resetErr error) {
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
 	go func() {
@@ -215,45 +259,11 @@ func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) er
 		}
 	}()
 
-	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
+	n, oobn, err = ctx.conn.WriteMsgUnix(data, oob, nil)
 	close(finished)
 	<-watcherDone
-	resetErr := ctx.conn.SetWriteDeadline(time.Time{})
-	cancelErr := cancel.Err()
-	resetCause := func() error {
-		if resetErr == nil {
-			return nil
-		}
-		return fmt.Errorf("wl: reset write deadline: %w", resetErr)
-	}
-	if err != nil {
-		if cancelErr != nil {
-			if resetErr != nil {
-				return errors.Join(cancelErr, err, resetCause())
-			}
-			return errors.Join(cancelErr, err)
-		}
-		if resetErr != nil {
-			return errors.Join(err, resetCause())
-		}
-		return err
-	}
-	if resetErr != nil {
-		if cancelErr != nil {
-			return errors.Join(cancelErr, resetCause())
-		}
-		return resetCause()
-	}
-	if n != len(data) || oobn != len(oob) {
-		shortErr := fmt.Errorf("wl: short write (%d/%d data, %d/%d oob)", n, len(data), oobn, len(oob))
-		if cancelErr != nil {
-			return errors.Join(cancelErr, shortErr)
-		}
-		return shortErr
-	}
-	// A complete successful write owns the request: cancellation observed
-	// concurrently after WriteMsgUnix completed must not report a false failure.
-	return nil
+	resetErr = ctx.conn.SetWriteDeadline(time.Time{})
+	return n, oobn, err, resetErr
 }
 
 // Dispatch reads and dispatches exactly one Wayland message.
@@ -410,7 +420,7 @@ func (ctx *Context) writeGateChannel() chan struct{} {
 // WithOperationContext serializes a complete logical operation and allows a
 // caller to abandon admission while another owner is using the shared
 // connection.
-func (ctx *Context) WithOperationContext(cancel context.Context, fn func() error) error {
+func (ctx *Context) WithOperationContext(cancel context.Context, fn func() error) error { //nolint:contextcheck // This method serializes an existing context; it does not derive one.
 	if cancel == nil {
 		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}

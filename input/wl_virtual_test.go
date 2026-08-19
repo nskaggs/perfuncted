@@ -374,7 +374,7 @@ func TestWlVirtualBackend_CanceledContextShortCircuitsMethods(t *testing.T) {
 	}
 }
 
-func TestWlVirtualBackend_CloseCancelsBlockedOperation(t *testing.T) {
+func TestWlVirtualBackend_CloseCancelsBlockedOperation(t *testing.T) { //nolint:gocyclo // exercises concurrent close, cancellation, and repeated close semantics.
 	b, _ := newCapturedWlVirtualBackend(t)
 	started := make(chan struct{})
 	progress := make(chan struct{}, 1)

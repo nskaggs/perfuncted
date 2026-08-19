@@ -272,7 +272,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	}
 
 	wlctx := b.session.Display.Context()
-	return wl.WithOperationContext(wlctx, captureCtx, func() error {
+	return wl.WithOperationContext(captureCtx, wlctx, func() error { //nolint:contextcheck // this helper serializes an existing operation context.
 		var cleanupCtx context.Context
 		var cleanupCancel context.CancelFunc
 		cleanupContext := func() context.Context {
@@ -353,7 +353,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		if err != nil {
 			return fmt.Errorf("screen/ext: create_pool: %w", err)
 		}
-		defer func() {
+		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
 			_ = pool.DestroyContext(cleanupContext())
 			wl.Unregister(wlctx, pool)
 		}()
@@ -362,7 +362,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		if err != nil {
 			return fmt.Errorf("screen/ext: create_buffer: %w", err)
 		}
-		defer func() {
+		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
 			_ = wlbuf.DestroyContext(cleanupContext())
 			wl.Unregister(wlctx, wlbuf)
 		}()
@@ -370,7 +370,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		// create_frame(new_id) — session opcode 1.
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
-		defer func() {
+		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
 			_ = sendWaylandRequest(cleanupContext(), wlctx, frameProxy.ID(), 0, nil)
 			wl.Unregister(wlctx, frameProxy)
 		}()

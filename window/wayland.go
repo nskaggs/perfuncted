@@ -280,7 +280,7 @@ func (m *WaylandWindowManager) withOperation(ctx context.Context, fn func() erro
 	if m == nil || m.display == nil {
 		return fmt.Errorf("window/wayland: manager not initialised")
 	}
-	return wl.WithOperationContext(m.display.Context(), ctx, fn)
+	return wl.WithOperationContext(ctx, m.display.Context(), fn)
 }
 
 // List returns windows reported by the foreign-toplevel protocol.

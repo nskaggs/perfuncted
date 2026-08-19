@@ -154,14 +154,14 @@ func (k *wlKeyboard) clearTempMods(ctx context.Context, modBitmask uint32) error
 
 // clearTempModsBestEffort is like clearTempMods but ignores errors.
 // Use on error paths where cleanup must be attempted before returning.
-func (k *wlKeyboard) clearTempModsBestEffort(ctx context.Context, modBitmask uint32) {
+func (k *wlKeyboard) clearTempModsBestEffort(_ context.Context, modBitmask uint32) {
 	if modBitmask == 0 {
 		return
 	}
 	k.mods &^= modBitmask
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	_ = k.sendModifiers(cleanupCtx)
+	_ = k.sendModifiers(cleanupCtx) //nolint:contextcheck // cleanup intentionally survives cancellation of the operation context.
 }
 
 // sendkeys processes a sequence of parsed keySend actions with a single
@@ -577,14 +577,21 @@ func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 		return err
 	}
 	if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		if upErr := k.sendKey(cleanupCtx, keycode, 0); upErr != nil {
+		if upErr := k.cleanupSendKey(keycode, 0); upErr != nil { //nolint:contextcheck // cleanup intentionally survives cancellation of the operation context.
 			return upErr
 		}
 		return err
 	}
 	return k.sendKey(ctx, keycode, 0)
+}
+
+// cleanupSendKey releases a key with a bounded independent context. Cleanup
+// must still be attempted when the operation context was canceled after the
+// press was sent.
+func (k *wlKeyboard) cleanupSendKey(keycode, state uint32) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	return k.sendKey(cleanupCtx, keycode, state)
 }
 
 // ── XKB keymap generation ─────────────────────────────────────────────────────

@@ -247,7 +247,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 	}
-	return b.withWlrContextContext(ctx, func(wlctx *wl.Context, operationCtx context.Context) error {
+	return b.withWlrContextContext(ctx, func(wlctx *wl.Context, operationCtx context.Context) error { //nolint:contextcheck // the helper derives and owns operationCtx.
 		var cleanupCtx context.Context
 		var cleanupCancel context.CancelFunc
 		cleanupContext := func() context.Context {
@@ -330,7 +330,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_pool: %w", err)
 		}
-		defer func() {
+		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
 			_ = pool.DestroyContext(cleanupContext())
 			wl.Unregister(wlctx, pool)
 		}()
@@ -339,7 +339,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
 		}
-		defer func() {
+		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
 			_ = buf.DestroyContext(cleanupContext())
 			wl.Unregister(wlctx, buf)
 		}()

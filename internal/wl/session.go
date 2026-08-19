@@ -108,7 +108,7 @@ func (s *Session) SyncContext(ctx context.Context) error {
 	if s == nil || s.Display == nil {
 		return nil
 	}
-	return WithOperationContext(s.Ctx, ctx, func() error {
+	return WithOperationContext(ctx, s.Ctx, func() error {
 		return s.Display.RoundTripContext(ctx)
 	})
 }

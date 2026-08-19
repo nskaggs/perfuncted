@@ -328,7 +328,7 @@ func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
 	<-serverDone
 }
 
-func TestContextWriteMsgContextCancelsBlockedWrite(t *testing.T) {
+func TestContextWriteMsgContextCancelsBlockedWrite(t *testing.T) { //nolint:gocyclo // deterministically drives the socket into a blocked-write state.
 	sock := filepath.Join(t.TempDir(), "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
@@ -486,53 +486,25 @@ func TestContextWriteMsgContextCancelsQueuedWrite(t *testing.T) {
 }
 
 func TestContextDispatchContextCancelsQueuedAdmission(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
-	if err != nil {
-		t.Fatalf("ListenUnix: %v", err)
-	}
-	defer listener.Close()
-	accepted := make(chan struct{})
-	releaseServer := make(chan struct{})
-	serverDone := make(chan struct{})
-	go func() {
-		defer close(serverDone)
-		conn, acceptErr := listener.AcceptUnix()
-		if acceptErr != nil {
-			return
-		}
-		defer conn.Close()
-		close(accepted)
-		<-releaseServer
-	}()
-
-	ctx, err := Connect(sock)
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	defer ctx.Close()
-	<-accepted
-
-	gate := ctx.dispatchGateChannel()
-	<-gate
-	cancelCtx, cancel := context.WithCancel(context.Background())
-	dispatchDone := make(chan error, 1)
-	go func() { dispatchDone <- ctx.DispatchContext(cancelCtx) }()
-	cancel()
-	select {
-	case err := <-dispatchDone:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("queued dispatch error = %v, want context.Canceled", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("queued dispatch did not unblock after cancellation")
-	}
-	gate <- struct{}{}
-	close(releaseServer)
-	<-serverDone
+	testContextQueuedAdmissionCancellation(t,
+		func(ctx *Context) chan struct{} { return ctx.dispatchGateChannel() },
+		func(ctx *Context, cancel context.Context) error { return ctx.DispatchContext(cancel) },
+	)
 }
 
 func TestContextRoundTripContextCancelsQueuedAdmission(t *testing.T) {
+	testContextQueuedAdmissionCancellation(t,
+		func(ctx *Context) chan struct{} { return ctx.roundTripGateChannel() },
+		func(ctx *Context, cancel context.Context) error { return ctx.RoundTripContext(cancel) },
+	)
+}
+
+func testContextQueuedAdmissionCancellation(
+	t *testing.T,
+	gateFunc func(*Context) chan struct{},
+	operation func(*Context, context.Context) error,
+) {
+	t.Helper()
 	sock := filepath.Join(t.TempDir(), "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
@@ -540,7 +512,6 @@ func TestContextRoundTripContextCancelsQueuedAdmission(t *testing.T) {
 	}
 	defer listener.Close()
 	accepted := make(chan struct{})
-	releaseServer := make(chan struct{})
 	serverDone := make(chan struct{})
 	go func() {
 		defer close(serverDone)
@@ -550,7 +521,6 @@ func TestContextRoundTripContextCancelsQueuedAdmission(t *testing.T) {
 		}
 		defer conn.Close()
 		close(accepted)
-		<-releaseServer
 	}()
 
 	ctx, err := Connect(sock)
@@ -560,22 +530,21 @@ func TestContextRoundTripContextCancelsQueuedAdmission(t *testing.T) {
 	defer ctx.Close()
 	<-accepted
 
-	gate := ctx.roundTripGateChannel()
+	gate := gateFunc(ctx)
 	<-gate
 	cancelCtx, cancel := context.WithCancel(context.Background())
-	roundTripDone := make(chan error, 1)
-	go func() { roundTripDone <- ctx.RoundTripContext(cancelCtx) }()
+	operationDone := make(chan error, 1)
+	go func() { operationDone <- operation(ctx, cancelCtx) }()
 	cancel()
 	select {
-	case err := <-roundTripDone:
+	case err := <-operationDone:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("queued round trip error = %v, want context.Canceled", err)
+			t.Fatalf("queued operation error = %v, want context.Canceled", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("queued round trip did not unblock after cancellation")
+		t.Fatal("queued operation did not unblock after cancellation")
 	}
 	gate <- struct{}{}
-	close(releaseServer)
 	<-serverDone
 }
 

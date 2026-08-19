@@ -249,7 +249,7 @@ func (b *WlVirtualBackend) withOperation(ctx context.Context, fn func(wl.Ctx, co
 	}
 
 	wlctx := b.session.Display.Context()
-	return wl.WithOperationContext(wlctx, opCtx, func() error {
+	return wl.WithOperationContext(opCtx, wlctx, func() error {
 		return fn(wlctx, opCtx)
 	})
 }
@@ -363,15 +363,22 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 			return err
 		}
 		if err := sleepContext(opCtx, 40*time.Millisecond); err != nil {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			defer cancel()
-			if upErr := b.buttonEvent(cleanupCtx, wlctx, code, 0); upErr != nil {
+			if upErr := b.cleanupButtonEvent(wlctx, code, 0); upErr != nil { //nolint:contextcheck // cleanup intentionally survives cancellation of the operation context.
 				return upErr
 			}
 			return err
 		}
 		return b.buttonEvent(opCtx, wlctx, code, 0)
 	})
+}
+
+// cleanupButtonEvent releases a button with a bounded independent context.
+// Cleanup must still be attempted when the operation context was canceled
+// after the press was sent.
+func (b *WlVirtualBackend) cleanupButtonEvent(ctx wl.Ctx, code, state uint32) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	return b.buttonEvent(cleanupCtx, ctx, code, state)
 }
 
 // Type sends a string as keyboard events using key syntax.
