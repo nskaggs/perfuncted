@@ -85,14 +85,21 @@ func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error
 		return nil, fmt.Errorf("window/wayland: %w", err)
 	}
 	m := &WaylandWindowManager{session: s, display: s.Display, registry: s.Registry, toplevels: make(map[uint32]*Info)}
-	if ev, ok := s.Globals["ext_foreign_toplevel_list_v1"]; ok {
-		m.extMgrID = ev.Name
-	}
-	if ev, ok := s.Globals["zwlr_foreign_toplevel_manager_v1"]; ok {
-		m.wlrMgrID = ev.Name
-	}
-	if ev, ok := s.Globals["wl_seat"]; ok {
-		m.seatID = ev.Name
+	for _, ev := range s.GlobalsSnapshot() {
+		switch ev.Interface {
+		case "ext_foreign_toplevel_list_v1":
+			if m.extMgrID == 0 {
+				m.extMgrID = ev.Name
+			}
+		case "zwlr_foreign_toplevel_manager_v1":
+			if m.wlrMgrID == 0 {
+				m.wlrMgrID = ev.Name
+			}
+		case "wl_seat":
+			if m.seatID == 0 {
+				m.seatID = ev.Name
+			}
+		}
 	}
 	if m.extMgrID == 0 && m.wlrMgrID == 0 {
 		_ = s.Close()

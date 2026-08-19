@@ -510,7 +510,14 @@ func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error
 	if err != nil {
 		return nil, fmt.Errorf("screen/wlr: %w", err)
 	}
-	if _, ok := s.Globals["zwlr_screencopy_manager_v1"]; !ok {
+	hasScreencopy := false
+	for _, ev := range s.GlobalsSnapshot() {
+		if ev.Interface == "zwlr_screencopy_manager_v1" {
+			hasScreencopy = true
+			break
+		}
+	}
+	if !hasScreencopy {
 		_ = s.Close()
 		return nil, fmt.Errorf("screen/wlr: compositor does not advertise zwlr_screencopy_manager_v1")
 	}

@@ -98,7 +98,7 @@ func probeGlobals(rt env.Runtime) (Session, bool) {
 	defer s.Close()
 
 	var hasWlroots, hasKDE, hasGNOME bool
-	for _, ev := range s.Globals {
+	for _, ev := range s.GlobalsSnapshot() {
 		iface := ev.Interface
 		switch {
 		case iface == "zwlr_screencopy_manager_v1" ||

@@ -94,16 +94,25 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 	registry := s.Registry
 	b := &ExtCaptureBackend{session: s}
 
-	if ev, ok := s.Globals["ext_image_copy_capture_manager_v1"]; ok {
-		b.mgrID = ev.Name
-		b.mgrVer = ev.Version
-	}
-	if ev, ok := s.Globals["ext_output_image_capture_source_manager_v1"]; ok {
-		b.sourceMgrID = ev.Name
-		b.sourceMgrVer = ev.Version
+	for _, ev := range s.GlobalsSnapshot() {
+		switch ev.Interface {
+		case "ext_image_copy_capture_manager_v1":
+			if b.mgrID == 0 {
+				b.mgrID = ev.Name
+				b.mgrVer = ev.Version
+			}
+		case "ext_output_image_capture_source_manager_v1":
+			if b.sourceMgrID == 0 {
+				b.sourceMgrID = ev.Name
+				b.sourceMgrVer = ev.Version
+			}
+		}
 	}
 	initErr := wl.WithOperation(ctx, func() error {
-		if ev, ok := s.Globals["wl_output"]; ok {
+		for _, ev := range s.GlobalsSnapshot() {
+			if ev.Interface != "wl_output" {
+				continue
+			}
 			out := &wlRawProxy{}
 			ctx.Register(out)
 			if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
@@ -118,13 +127,18 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 					}
 				}
 			}
+			break
 		}
-		if ev, ok := s.Globals["wl_shm"]; ok {
+		for _, ev := range s.GlobalsSnapshot() {
+			if ev.Interface != "wl_shm" {
+				continue
+			}
 			shm := &wl.Shm{}
 			ctx.Register(shm)
 			if err := registry.Bind(ev.Name, ev.Interface, 1, shm.ID()); err == nil {
 				b.shm = shm
 			}
+			break
 		}
 
 		if b.mgrID == 0 {

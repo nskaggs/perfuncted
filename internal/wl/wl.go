@@ -655,27 +655,38 @@ type GlobalEvent struct {
 // Registry wraps wl_registry.
 type Registry struct {
 	BaseProxy
-	globalHandler func(GlobalEvent)
+	globalHandler       func(GlobalEvent)
+	globalRemoveHandler func(uint32)
 }
 
 // SetGlobalHandler registers f to receive wl_registry.global events.
 func (r *Registry) SetGlobalHandler(f func(GlobalEvent)) { r.globalHandler = f }
 
+// SetGlobalRemoveHandler registers f to receive wl_registry.global_remove events.
+func (r *Registry) SetGlobalRemoveHandler(f func(uint32)) { r.globalRemoveHandler = f }
+
 // Dispatch implements Proxy for incoming wl_registry events.
 func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
-	if opcode != 0 || r.globalHandler == nil || len(data) < 8 {
-		return
+	switch opcode {
+	case 0:
+		if r.globalHandler == nil || len(data) < 8 {
+			return
+		}
+		ev := GlobalEvent{Name: Uint32(data[0:4])}
+		slen := int(Uint32(data[4:8]))
+		if slen > 0 && 8+slen <= len(data) {
+			ev.Interface = string(data[8 : 8+slen-1]) // strip null terminator
+		}
+		padded := (slen + 3) &^ 3
+		if off := 8 + padded; off+4 <= len(data) {
+			ev.Version = Uint32(data[off : off+4])
+		}
+		r.globalHandler(ev)
+	case 1:
+		if r.globalRemoveHandler != nil && len(data) >= 4 {
+			r.globalRemoveHandler(Uint32(data[0:4]))
+		}
 	}
-	ev := GlobalEvent{Name: Uint32(data[0:4])}
-	slen := int(Uint32(data[4:8]))
-	if slen > 0 && 8+slen <= len(data) {
-		ev.Interface = string(data[8 : 8+slen-1]) // strip null terminator
-	}
-	padded := (slen + 3) &^ 3
-	if off := 8 + padded; off+4 <= len(data) {
-		ev.Version = Uint32(data[off : off+4])
-	}
-	r.globalHandler(ev)
 }
 
 // Bind sends wl_registry.bind with correct Wayland string encoding.
@@ -834,8 +845,8 @@ func ListGlobals(sock string) map[string]bool {
 	}
 	defer s.Close()
 	globals := make(map[string]bool)
-	for iface := range s.Globals {
-		globals[iface] = true
+	for _, ev := range s.GlobalsSnapshot() {
+		globals[ev.Interface] = true
 	}
 	return globals
 }

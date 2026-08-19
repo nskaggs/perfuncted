@@ -1,13 +1,15 @@
 package wl
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 )
 
 // Session encapsulates a Wayland connection and the display/registry helpers.
-// It performs a registry round-trip to populate Globals with advertised interfaces.
+// It performs a registry round-trip to populate its advertised-global snapshot.
 // Sessions are cached per-socket and reference-counted: calling NewSession will
 // return a shared Session and increment its refcount; Close decrements the
 // refcount and only closes the underlying connection when the last holder
@@ -18,9 +20,10 @@ type Session struct {
 	Ctx      *Context
 	Display  *Display
 	Registry *Registry
-	Globals  map[string]GlobalEvent
 
 	ref       *sessionRef
+	globalsMu sync.RWMutex
+	globals   []GlobalEvent
 	closeMu   sync.Mutex
 	closeDone bool
 }
@@ -59,8 +62,15 @@ func NewSession(sock string) (*Session, error) {
 		_ = ctx.Close()
 		return nil, fmt.Errorf("wl: get registry: %w", err)
 	}
-	canonical := &Session{Sock: sock, Ctx: ctx, Display: d, Registry: r, Globals: make(map[string]GlobalEvent)}
-	r.SetGlobalHandler(func(ev GlobalEvent) { canonical.Globals[ev.Interface] = ev })
+	canonical := &Session{
+		Sock:     sock,
+		Ctx:      ctx,
+		Display:  d,
+		Registry: r,
+		globals:  make([]GlobalEvent, 0),
+	}
+	r.SetGlobalHandler(canonical.addGlobal)
+	r.SetGlobalRemoveHandler(canonical.removeGlobal)
 	if err := d.RoundTrip(); err != nil {
 		_ = ctx.Close()
 		return nil, fmt.Errorf("wl: registry round-trip: %w", err)
@@ -89,9 +99,77 @@ func newSessionHandle(ref *sessionRef) *Session {
 		Ctx:      canonical.Ctx,
 		Display:  canonical.Display,
 		Registry: canonical.Registry,
-		Globals:  canonical.Globals,
 		ref:      ref,
 	}
+}
+
+// GlobalsSnapshot returns all globals currently advertised by the compositor,
+// sorted by their stable registry name. The returned slice is independent of
+// the session and safe for callers to retain or modify.
+func (s *Session) GlobalsSnapshot() []GlobalEvent {
+	canonical := s.canonical()
+	if canonical == nil {
+		return []GlobalEvent{}
+	}
+	canonical.globalsMu.RLock()
+	defer canonical.globalsMu.RUnlock()
+	return slices.Clone(canonical.globals)
+}
+
+func (s *Session) canonical() *Session {
+	if s == nil {
+		return nil
+	}
+	if s.ref != nil && s.ref.sess != nil {
+		return s.ref.sess
+	}
+	return s
+}
+
+func (s *Session) addGlobal(ev GlobalEvent) {
+	canonical := s.canonical()
+	if canonical == nil {
+		return
+	}
+	canonical.globalsMu.Lock()
+	defer canonical.globalsMu.Unlock()
+	for i, existing := range canonical.globals {
+		if existing.Name == ev.Name {
+			canonical.globals[i] = ev
+			sortGlobals(canonical.globals)
+			return
+		}
+	}
+	canonical.globals = append(canonical.globals, ev)
+	sortGlobals(canonical.globals)
+}
+
+func (s *Session) removeGlobal(name uint32) {
+	canonical := s.canonical()
+	if canonical == nil {
+		return
+	}
+	canonical.globalsMu.Lock()
+	defer canonical.globalsMu.Unlock()
+	remaining := canonical.globals[:0]
+	for _, ev := range canonical.globals {
+		if ev.Name != name {
+			remaining = append(remaining, ev)
+		}
+	}
+	canonical.globals = remaining
+}
+
+func sortGlobals(globals []GlobalEvent) {
+	slices.SortFunc(globals, func(a, b GlobalEvent) int {
+		if c := cmp.Compare(a.Name, b.Name); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Interface, b.Interface); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Version, b.Version)
+	})
 }
 
 // Sync performs a synchronous wl_display.sync, pumping events until the

@@ -3,6 +3,8 @@ package output
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -10,7 +12,9 @@ import (
 )
 
 type waylandOutput struct {
-	info Info
+	globalID uint32
+	mu       sync.RWMutex
+	info     Info
 }
 
 // WaylandLister lists outputs through the wl_output protocol.
@@ -31,11 +35,9 @@ func NewWaylandLister(sock string) (*WaylandLister, error) {
 	l := &WaylandLister{session: s}
 
 	initErr := wl.WithOperation(s.Ctx, func() error {
-		for _, ev := range s.Globals {
-			if ev.Interface != "wl_output" {
-				continue
-			}
+		for _, ev := range outputGlobals(s.GlobalsSnapshot()) {
 			out := &waylandOutput{
+				globalID: ev.Name,
 				info: Info{
 					Name:    fmt.Sprintf("wl-output-%d", ev.Name),
 					Backend: "wayland",
@@ -64,6 +66,9 @@ func NewWaylandLister(sock string) (*WaylandLister, error) {
 
 func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 	proxy.OnEvent = func(opcode uint32, _ int, data []byte) {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+
 		switch opcode {
 		case 0: // geometry
 			if len(data) < 20 {
@@ -115,6 +120,16 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 	}
 }
 
+func outputGlobals(globals []wl.GlobalEvent) []wl.GlobalEvent {
+	outputGlobals := make([]wl.GlobalEvent, 0, len(globals))
+	for _, ev := range globals {
+		if ev.Interface == "wl_output" {
+			outputGlobals = append(outputGlobals, ev)
+		}
+	}
+	return outputGlobals
+}
+
 func readWlStrings(data []byte, off int) (first, second string, ok bool) {
 	a, next, ok := readWlString(data, off)
 	if !ok {
@@ -157,17 +172,49 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	if l == nil || l.session == nil {
 		return nil, capability.Unsupported("output", "wayland", "not available")
 	}
-	for _, out := range l.outputs {
-		out.info.Backend = "wayland"
-	}
 	if err := l.session.SyncContext(ctx); err != nil {
 		return nil, err
 	}
-	out := make([]Info, 0, len(l.outputs))
-	for _, o := range l.outputs {
-		out = append(out, o.info)
+	return l.snapshotOutputs(), nil
+}
+
+type outputSnapshot struct {
+	globalID uint32
+	info     Info
+}
+
+func (l *WaylandLister) snapshotOutputs() []Info {
+	snapshots := make([]outputSnapshot, 0, len(l.outputs))
+	for _, output := range l.outputs {
+		if output != nil {
+			output.mu.RLock()
+		}
 	}
-	return out, nil
+	defer func() {
+		for i := len(l.outputs) - 1; i >= 0; i-- {
+			if l.outputs[i] != nil {
+				l.outputs[i].mu.RUnlock()
+			}
+		}
+	}()
+
+	for _, output := range l.outputs {
+		if output == nil {
+			continue
+		}
+		snapshots = append(snapshots, outputSnapshot{
+			globalID: output.globalID,
+			info:     output.info,
+		})
+	}
+	sort.Slice(snapshots, func(i, j int) bool {
+		return snapshots[i].globalID < snapshots[j].globalID
+	})
+	out := make([]Info, len(snapshots))
+	for i, snapshot := range snapshots {
+		out[i] = snapshot.info
+	}
+	return out
 }
 
 // Close releases the Wayland connection.

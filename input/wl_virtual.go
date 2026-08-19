@@ -69,19 +69,27 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocy
 	var kbdMgrID, kbdMgrVer uint32
 	var outID, seatID uint32
 
-	if ev, ok := s.Globals["zwlr_virtual_pointer_manager_v1"]; ok {
-		ptrMgrID = ev.Name
-		ptrMgrVer = ev.Version
-	}
-	if ev, ok := s.Globals["zwp_virtual_keyboard_manager_v1"]; ok {
-		kbdMgrID = ev.Name
-		kbdMgrVer = ev.Version
-	}
-	if ev, ok := s.Globals["wl_seat"]; ok {
-		seatID = ev.Name
-	}
-	if ev, ok := s.Globals["wl_output"]; ok {
-		outID = ev.Name
+	for _, ev := range s.GlobalsSnapshot() {
+		switch ev.Interface {
+		case "zwlr_virtual_pointer_manager_v1":
+			if ptrMgrID == 0 {
+				ptrMgrID = ev.Name
+				ptrMgrVer = ev.Version
+			}
+		case "zwp_virtual_keyboard_manager_v1":
+			if kbdMgrID == 0 {
+				kbdMgrID = ev.Name
+				kbdMgrVer = ev.Version
+			}
+		case "wl_seat":
+			if seatID == 0 {
+				seatID = ev.Name
+			}
+		case "wl_output":
+			if outID == 0 {
+				outID = ev.Name
+			}
+		}
 	}
 
 	if ptrMgrID == 0 {

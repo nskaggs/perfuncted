@@ -5,6 +5,55 @@ import (
 	"testing"
 )
 
+func TestSessionGlobalsSnapshotPreservesRepeatedInterfacesAndRemoval(t *testing.T) {
+	session := &Session{globals: make([]GlobalEvent, 0)}
+	registry := &Registry{}
+	registry.SetGlobalHandler(session.addGlobal)
+	registry.SetGlobalRemoveHandler(session.removeGlobal)
+
+	registry.Dispatch(0, -1, registryGlobalData(12, "wl_output", 3))
+	registry.Dispatch(0, -1, registryGlobalData(4, "wl_output", 4))
+	registry.Dispatch(0, -1, registryGlobalData(9, "wl_seat", 7))
+
+	got := session.GlobalsSnapshot()
+	want := []GlobalEvent{
+		{Name: 4, Interface: "wl_output", Version: 4},
+		{Name: 9, Interface: "wl_seat", Version: 7},
+		{Name: 12, Interface: "wl_output", Version: 3},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("globals length = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("global[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	registry.Dispatch(1, -1, []byte{4, 0, 0, 0})
+	got = session.GlobalsSnapshot()
+	if len(got) != 2 || got[0].Name != 9 || got[1].Name != 12 {
+		t.Fatalf("globals after removal = %+v, want names 9, 12", got)
+	}
+
+	got[0].Interface = "mutated"
+	if snapshot := session.GlobalsSnapshot(); snapshot[0].Interface == "mutated" {
+		t.Fatal("GlobalsSnapshot returned session-owned storage")
+	}
+}
+
+func registryGlobalData(name uint32, iface string, version uint32) []byte {
+	data := make([]byte, 0, 8+len(iface)+8)
+	var nameData [4]byte
+	PutUint32(nameData[:], name)
+	data = append(data, nameData[:]...)
+	data = putStr(data, iface)
+	var versionData [4]byte
+	PutUint32(versionData[:], version)
+	data = append(data, versionData[:]...)
+	return data
+}
+
 func TestNewSession_CacheHit(t *testing.T) {
 	// Clear the cache first.
 	sessionCacheMu.Lock()

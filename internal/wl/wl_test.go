@@ -212,6 +212,17 @@ func TestRegistry_Dispatch_GlobalEvent(t *testing.T) {
 	}
 }
 
+func TestRegistry_Dispatch_GlobalRemoveEvent(t *testing.T) {
+	var got uint32
+	r := &Registry{}
+	r.SetGlobalRemoveHandler(func(name uint32) { got = name })
+
+	r.Dispatch(1, -1, []byte{7, 0, 0, 0})
+	if got != 7 {
+		t.Fatalf("removed global name = %d, want 7", got)
+	}
+}
+
 func TestRegistry_Dispatch_NoHandler(t *testing.T) {
 	r := &Registry{}
 	// Should not panic
