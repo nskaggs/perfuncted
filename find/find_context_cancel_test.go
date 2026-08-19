@@ -5,9 +5,34 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"sync"
 	"testing"
 	"time"
 )
+
+type cancelWhenDoneContext struct {
+	done   <-chan struct{}
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (c *cancelWhenDoneContext) Done() <-chan struct{} {
+	c.once.Do(c.cancel)
+	return c.done
+}
+
+func (c *cancelWhenDoneContext) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
+func (c *cancelWhenDoneContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+
+func (c *cancelWhenDoneContext) Value(key any) any { return nil }
 
 type cancelOnGrabScreenshotter struct {
 	img    image.Image
@@ -133,6 +158,24 @@ func TestWaitForNoChange_CanceledContextBeforeGrabReturnsInitial(t *testing.T) {
 				t.Fatalf("WaitForNoChange grabbed %d frames after context cancellation, want 0", sc.grabs)
 			}
 		})
+	}
+}
+
+func TestScanFor_CanceledContextDuringPollReturnsContextError(t *testing.T) {
+	img := solidRGBA(color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	base, cancel := context.WithCancel(context.Background())
+	ctx := &cancelWhenDoneContext{done: base.Done(), cancel: cancel}
+
+	_, err := ScanFor(
+		ctx,
+		&solidScreenshotter{},
+		[]image.Rectangle{image.Rect(0, 0, 4, 4)},
+		[]uint32{PixelHash(img, nil) + 1},
+		time.Hour,
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ScanFor error = %v, want context.Canceled", err)
 	}
 }
 

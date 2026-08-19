@@ -317,12 +317,18 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 		if err != nil {
 			return false, 0, err
 		}
+		if err := checkImage(img, "wait-for-no-change grab"); err != nil {
+			return false, 0, err
+		}
 
 		// Fast pixel check before full CRC32: if the top-left pixel of the
 		// grabbed image changed since the last iteration, the hash is
 		// definitely different — skip the CRC32 and reset the streak.
 		// This is conservative: we only skip when we are certain of a change.
 		b := img.Bounds()
+		if b.Empty() {
+			return false, 0, fmt.Errorf("find: wait-for-no-change grab returned empty image")
+		}
 		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 		if sentinelSet && cur != sentinel {
 			sentinel = cur
@@ -451,7 +457,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 		}
 		select {
 		case <-ctx.Done():
-			return Result{}, fmt.Errorf("find: timeout scanning %d regions", len(rects))
+			return Result{}, fmt.Errorf("find: timeout scanning %d regions: %w", len(rects), ctx.Err())
 		case <-ticker.C:
 		}
 	}

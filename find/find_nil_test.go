@@ -23,6 +23,18 @@ func (nilImageScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (u
 
 func (nilImageScreenshotter) Close() error { return nil }
 
+type emptyImageScreenshotter struct{}
+
+func (emptyImageScreenshotter) Grab(context.Context, image.Rectangle) (image.Image, error) {
+	return image.NewRGBA(image.Rectangle{}), nil
+}
+
+func (emptyImageScreenshotter) GrabFullHash(context.Context) (uint32, error) { return 0, nil }
+
+func (emptyImageScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	return 0, nil
+}
+
 func TestNilScreenshotterRejected(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -97,6 +109,13 @@ func TestNilImageFromGrabRejected(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "WaitForNoChangeFrom",
+			call: func() error {
+				_, err := WaitForNoChangeFrom(ctx, sc, rect, 0, 1, time.Millisecond, DefaultHasher)
+				return err
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,5 +129,23 @@ func TestNilImageFromGrabRejected(t *testing.T) {
 
 	if got := PixelHash(nil, nil); got != 0 {
 		t.Fatalf("PixelHash(nil) = %d, want safe zero hash", got)
+	}
+}
+
+func TestEmptyImageFromGrabRejectedByWaitForNoChange(t *testing.T) {
+	_, err := WaitForNoChangeFrom(
+		context.Background(),
+		emptyImageScreenshotter{},
+		image.Rect(0, 0, 2, 2),
+		0,
+		1,
+		time.Millisecond,
+		DefaultHasher,
+	)
+	if err == nil {
+		t.Fatal("WaitForNoChangeFrom succeeded with an empty image")
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("WaitForNoChangeFrom returned cancellation for empty image: %v", err)
 	}
 }
