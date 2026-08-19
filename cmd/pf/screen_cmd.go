@@ -21,7 +21,7 @@ func screenCmd(
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
-	var rectFlag, outFlag string
+	var grabRectFlag, grabOutFlag string
 
 	grab := &cobra.Command{
 		Use:   "grab",
@@ -32,11 +32,11 @@ func screenCmd(
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(rectFlag)
+			r, err := parseRect(grabRectFlag)
 			if err != nil {
 				return err
 			}
-			out := outFlag
+			out := grabOutFlag
 			if out == "" {
 				out = "/tmp/pf-grab.png"
 			}
@@ -47,9 +47,10 @@ func screenCmd(
 			return nil
 		},
 	}
-	grab.Flags().StringVar(&rectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	grab.Flags().StringVar(&outFlag, "out", "", "output path (default /tmp/pf-grab.png)")
+	grab.Flags().StringVar(&grabRectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
+	grab.Flags().StringVar(&grabOutFlag, "out", "", "output path (default /tmp/pf-grab.png)")
 
+	var checksumRectFlag string
 	checksum := &cobra.Command{
 		Use:   "hash",
 		Short: "Print the CRC32 pixel hash of a screen region",
@@ -59,7 +60,7 @@ func screenCmd(
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(rectFlag)
+			r, err := parseRect(checksumRectFlag)
 			if err != nil {
 				return err
 			}
@@ -71,7 +72,7 @@ func screenCmd(
 			return nil
 		},
 	}
-	checksum.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	checksum.Flags().StringVar(&checksumRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
 
 	var px, py int
 	pixel := &cobra.Command{

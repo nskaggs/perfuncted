@@ -14,16 +14,7 @@ func findCmd(
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "find", Short: "Pixel scanning and wait utilities"}
 
-	var (
-		rectFlag       string
-		rectsFlag      string
-		wantsFlag      string
-		hashFlag       string
-		pollFlag       string
-		timeoutFlag    string
-		captureInitial bool
-		stableCount    int
-	)
+	var waitForRectFlag, waitForHashFlag, waitForPollFlag, waitForTimeoutFlag string
 
 	waitFor := &cobra.Command{
 		Use:   "wait-for",
@@ -34,19 +25,19 @@ func findCmd(
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(rectFlag)
+			r, err := parseRect(waitForRectFlag)
 			if err != nil {
 				return err
 			}
-			want, err := parseHash(hashFlag)
+			want, err := parseHash(waitForHashFlag)
 			if err != nil {
 				return err
 			}
-			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
+			poll, err := parseDuration(waitForPollFlag, 50*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
+			timeout, err := parseDuration(waitForTimeoutFlag, 5*time.Second)
 			if err != nil {
 				return err
 			}
@@ -60,12 +51,14 @@ func findCmd(
 			return nil
 		},
 	}
-	waitFor.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
-	waitFor.Flags().StringVar(&hashFlag, "hash", "", "target hash (decimal or 0xhex)")
-	waitFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
-	waitFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
+	waitFor.Flags().StringVar(&waitForRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitFor.Flags().StringVar(&waitForHashFlag, "hash", "", "target hash (decimal or 0xhex)")
+	waitFor.Flags().StringVar(&waitForPollFlag, "poll", "50ms", "poll interval")
+	waitFor.Flags().StringVar(&waitForTimeoutFlag, "timeout", "5s", "timeout duration")
 	_ = waitFor.MarkFlagRequired("hash")
 
+	var waitForChangeRectFlag, waitForChangeHashFlag, waitForChangePollFlag, waitForChangeTimeoutFlag string
+	var waitForChangeCaptureInitial bool
 	waitForChange := &cobra.Command{
 		Use:   "wait-for-change",
 		Short: "Wait until a region's pixel hash changes from an initial value",
@@ -75,27 +68,27 @@ func findCmd(
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(rectFlag)
+			r, err := parseRect(waitForChangeRectFlag)
 			if err != nil {
 				return err
 			}
-			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
+			poll, err := parseDuration(waitForChangePollFlag, 50*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
+			timeout, err := parseDuration(waitForChangeTimeoutFlag, 5*time.Second)
 			if err != nil {
 				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			var initial uint32
-			if captureInitial {
+			if waitForChangeCaptureInitial {
 				if initial, err = pf.Screen.GrabRegionHash(ctx, r); err != nil {
 					return err
 				}
 			} else {
-				if initial, err = parseHash(hashFlag); err != nil {
+				if initial, err = parseHash(waitForChangeHashFlag); err != nil {
 					return err
 				}
 			}
@@ -107,15 +100,17 @@ func findCmd(
 			return nil
 		},
 	}
-	waitForChange.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
-	waitForChange.Flags().StringVar(&hashFlag, "initial", "", "initial hash (decimal or 0xhex)")
-	waitForChange.Flags().BoolVar(&captureInitial, "capture-initial", false,
+	waitForChange.Flags().StringVar(&waitForChangeRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitForChange.Flags().StringVar(&waitForChangeHashFlag, "initial", "", "initial hash (decimal or 0xhex)")
+	waitForChange.Flags().BoolVar(&waitForChangeCaptureInitial, "capture-initial", false,
 		"capture current region hash and wait for it to change")
-	waitForChange.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
-	waitForChange.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
+	waitForChange.Flags().StringVar(&waitForChangePollFlag, "poll", "50ms", "poll interval")
+	waitForChange.Flags().StringVar(&waitForChangeTimeoutFlag, "timeout", "5s", "timeout duration")
 	waitForChange.MarkFlagsMutuallyExclusive("initial", "capture-initial")
 	waitForChange.MarkFlagsOneRequired("initial", "capture-initial")
 
+	var waitForNoChangeRectFlag, waitForNoChangePollFlag, waitForNoChangeTimeoutFlag string
+	var waitForNoChangeStableCount int
 	waitForNoChange := &cobra.Command{
 		Use:   "wait-for-no-change",
 		Short: "Wait until a region's pixel hash is stable for N consecutive samples",
@@ -128,15 +123,15 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(rectFlag)
+			r, err := parseRect(waitForNoChangeRectFlag)
 			if err != nil {
 				return err
 			}
-			poll, err := parseDuration(pollFlag, 200*time.Millisecond)
+			poll, err := parseDuration(waitForNoChangePollFlag, 200*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDuration(timeoutFlag, 30*time.Second)
+			timeout, err := parseDuration(waitForNoChangeTimeoutFlag, 30*time.Second)
 			if err != nil {
 				return err
 			}
@@ -145,7 +140,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			h, err := pf.Screen.WaitForNoChange(
 				ctx,
 				r,
-				stableCount,
+				waitForNoChangeStableCount,
 				poll,
 			)
 			if err != nil {
@@ -155,12 +150,13 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			return nil
 		},
 	}
-	waitForNoChange.Flags().StringVar(&rectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
-	waitForNoChange.Flags().IntVar(&stableCount, "stable", 5,
+	waitForNoChange.Flags().StringVar(&waitForNoChangeRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
+	waitForNoChange.Flags().IntVar(&waitForNoChangeStableCount, "stable", 5,
 		"consecutive identical samples required")
-	waitForNoChange.Flags().StringVar(&pollFlag, "poll", "200ms", "poll interval")
-	waitForNoChange.Flags().StringVar(&timeoutFlag, "timeout", "30s", "timeout duration")
+	waitForNoChange.Flags().StringVar(&waitForNoChangePollFlag, "poll", "200ms", "poll interval")
+	waitForNoChange.Flags().StringVar(&waitForNoChangeTimeoutFlag, "timeout", "30s", "timeout duration")
 
+	var scanForRectsFlag, scanForWantsFlag, scanForPollFlag, scanForTimeoutFlag string
 	scanFor := &cobra.Command{
 		Use:   "scan-for",
 		Short: "Scan multiple regions until one matches its expected hash",
@@ -170,11 +166,11 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 				return err
 			}
 			defer pf.Close()
-			rects, err := parseRects(rectsFlag)
+			rects, err := parseRects(scanForRectsFlag)
 			if err != nil {
 				return err
 			}
-			wants, err := parseWantHashes(wantsFlag)
+			wants, err := parseWantHashes(scanForWantsFlag)
 			if err != nil {
 				return err
 			}
@@ -184,11 +180,11 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if len(rects) == 0 {
 				return fmt.Errorf("scan-for requires at least one rect/hash pair")
 			}
-			poll, err := parseDuration(pollFlag, 50*time.Millisecond)
+			poll, err := parseDuration(scanForPollFlag, 50*time.Millisecond)
 			if err != nil {
 				return err
 			}
-			timeout, err := parseDuration(timeoutFlag, 5*time.Second)
+			timeout, err := parseDuration(scanForTimeoutFlag, 5*time.Second)
 			if err != nil {
 				return err
 			}
@@ -202,10 +198,10 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			return nil
 		},
 	}
-	scanFor.Flags().StringVar(&rectsFlag, "rects", "", "semicolon-separated rects: x0,y0,x1,y1;...")
-	scanFor.Flags().StringVar(&wantsFlag, "wants", "", "comma-separated expected hashes")
-	scanFor.Flags().StringVar(&pollFlag, "poll", "50ms", "poll interval")
-	scanFor.Flags().StringVar(&timeoutFlag, "timeout", "5s", "timeout duration")
+	scanFor.Flags().StringVar(&scanForRectsFlag, "rects", "", "semicolon-separated rects: x0,y0,x1,y1;...")
+	scanFor.Flags().StringVar(&scanForWantsFlag, "wants", "", "comma-separated expected hashes")
+	scanFor.Flags().StringVar(&scanForPollFlag, "poll", "50ms", "poll interval")
+	scanFor.Flags().StringVar(&scanForTimeoutFlag, "timeout", "5s", "timeout duration")
 	_ = scanFor.MarkFlagRequired("rects")
 	_ = scanFor.MarkFlagRequired("wants")
 

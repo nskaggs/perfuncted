@@ -173,6 +173,47 @@ func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
 	}
 }
 
+func TestScreenCommandFlagsDoNotBleedAcrossExecutions(t *testing.T) {
+	frame := pftest.SolidImage(100, 100, color.RGBA{R: 17, A: 255})
+	root := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return pftest.New(&pftest.Screenshotter{Frames: []image.Image{frame}}, nil, nil, nil), nil
+		}
+	})
+	root.SetOut(new(bytes.Buffer))
+
+	root.SetArgs([]string{"screen", "grab", "--rect", "invalid"})
+	if err := root.ExecuteContext(context.Background()); err == nil {
+		t.Fatal("screen grab with invalid rectangle succeeded")
+	}
+
+	root.SetArgs([]string{"screen", "hash"})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("screen hash after grab parse failure: %v", err)
+	}
+}
+
+func TestFindCommandFlagsDoNotBleedAcrossExecutions(t *testing.T) {
+	frame := pftest.SolidImage(100, 100, color.RGBA{G: 23, A: 255})
+	want := find.PixelHash(frame, nil)
+	root := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return pftest.New(&pftest.Screenshotter{Frames: []image.Image{frame}}, nil, nil, nil), nil
+		}
+	})
+	root.SetOut(new(bytes.Buffer))
+
+	root.SetArgs([]string{"find", "wait-for-no-change", "--rect", "invalid", "--stable", "1"})
+	if err := root.ExecuteContext(context.Background()); err == nil {
+		t.Fatal("find wait-for-no-change with invalid rectangle succeeded")
+	}
+
+	root.SetArgs([]string{"find", "wait-for", "--hash", fmt.Sprintf("0x%08x", want)})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("find wait-for after wait-for-no-change parse failure: %v", err)
+	}
+}
+
 func TestRunWithFactoryCapturesStdout(t *testing.T) {
 	stdout, stderr, code := captureRunIO(t, []string{"screen", "resolution"}, func(*cliConfig) sessionOpener {
 		return func(context.Context) (*perfuncted.Session, error) {
