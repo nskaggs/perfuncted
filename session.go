@@ -847,13 +847,16 @@ func (i *sessionInfra) stopManagedProcess(cmd *exec.Cmd, waitTimeout time.Durati
 type managedProc struct {
 	cmd *exec.Cmd
 	pid int
+
+	mu        sync.Mutex
+	groupGone bool
 }
 
 func (m *managedProc) stop(waitTimeout time.Duration) {
 	if m == nil || m.pid <= 0 {
 		return
 	}
-	if err := syscall.Kill(-m.pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := m.signal(syscall.SIGTERM); err != nil {
 		slog.Debug("session: terminate process group", "pid", m.pid, "error", err)
 	}
 	leaderExited := false
@@ -862,16 +865,18 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	} else {
 		leaderExited = waitForProc(m.pid, waitTimeout)
 	}
-	if leaderExited && !processGroupAlive(m.pid) {
-		return
+	if leaderExited {
+		if m.waitGroupTimeout(waitTimeout) {
+			return
+		}
 	}
-	if err := syscall.Kill(-m.pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := m.signal(syscall.SIGKILL); err != nil {
 		slog.Debug("session: kill process group", "pid", m.pid, "error", err)
 	}
 	if m.cmd != nil {
 		waitForProc(m.pid, waitTimeout)
 	}
-	waitForProcessGroupGone(m.pid, waitTimeout)
+	_ = m.waitGroupTimeout(waitTimeout)
 }
 
 func processGroupAlive(pgid int) bool {
@@ -882,10 +887,68 @@ func processGroupAlive(pgid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-func waitForProcessGroupGone(pgid int, timeout time.Duration) bool {
+func (m *managedProc) groupAlive() bool {
+	if m == nil || m.pid <= 0 {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.groupGone {
+		return false
+	}
+	if !processGroupAlive(m.pid) {
+		m.groupGone = true
+		return false
+	}
+	return true
+}
+
+func (m *managedProc) signal(signal syscall.Signal) error {
+	if m == nil || m.pid <= 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.groupGone {
+		return nil
+	}
+	if !processGroupAlive(m.pid) {
+		m.groupGone = true
+		return nil
+	}
+	err := syscall.Kill(-m.pid, signal)
+	if errors.Is(err, syscall.ESRCH) {
+		m.groupGone = true
+		return nil
+	}
+	return err
+}
+
+func (m *managedProc) waitGroup(ctx context.Context) error {
+	if m == nil || m.pid <= 0 {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("perfuncted: wait process group: %w: nil context", ErrInvalidArgument)
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if !m.groupAlive() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (m *managedProc) waitGroupTimeout(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		if !processGroupAlive(pgid) {
+		if !m.groupAlive() {
 			return true
 		}
 		if time.Now().After(deadline) {
@@ -1024,6 +1087,121 @@ func processUsesRuntimeDir(pid int, dir string) bool {
 	return processUsesRuntimeDirAt("/proc", pid, dir)
 }
 
+type processSnapshot struct {
+	pid       int
+	pgid      int
+	startTime uint64
+}
+
+type processGroupOwner struct {
+	pgid    int
+	dir     string
+	leader  processSnapshot
+	members map[processSnapshot]struct{}
+}
+
+func newProcessGroupOwner(pid int, dir string) (*processGroupOwner, bool) {
+	if pid <= 0 || dir == "" || !processUsesRuntimeDir(pid, dir) {
+		return nil, false
+	}
+	leader, err := readProcessSnapshotAt("/proc", pid)
+	if err != nil || leader.pgid != pid {
+		return nil, false
+	}
+	return &processGroupOwner{
+		pgid:    pid,
+		dir:     dir,
+		leader:  leader,
+		members: make(map[processSnapshot]struct{}),
+	}, true
+}
+
+func (o *processGroupOwner) refresh() bool {
+	if o == nil || o.pgid <= 0 || o.dir == "" {
+		return false
+	}
+	processes := processGroupMembersAt("/proc", o.pgid)
+	leaderPresent := false
+	leaderOwned := false
+	ownedMember := false
+	for _, process := range processes {
+		if process.pid == o.leader.pid {
+			if process.startTime != o.leader.startTime {
+				return false
+			}
+			leaderPresent = true
+			leaderOwned = processUsesRuntimeDirAt("/proc", process.pid, o.dir)
+			continue
+		}
+		if _, tracked := o.members[process]; tracked &&
+			processUsesRuntimeDirAt("/proc", process.pid, o.dir) {
+			ownedMember = true
+		}
+	}
+	if leaderPresent && leaderOwned {
+		ownedMember = true
+		for _, process := range processes {
+			if process.pid == o.leader.pid {
+				continue
+			}
+			if processUsesRuntimeDirAt("/proc", process.pid, o.dir) {
+				o.members[process] = struct{}{}
+			}
+		}
+	}
+	return ownedMember
+}
+
+func processGroupMembersAt(procRoot string, pgid int) []processSnapshot {
+	if procRoot == "" || pgid <= 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return nil
+	}
+	members := make([]processSnapshot, 0)
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		process, err := readProcessSnapshotAt(procRoot, pid)
+		if err == nil && process.pgid == pgid {
+			members = append(members, process)
+		}
+	}
+	return members
+}
+
+func readProcessSnapshotAt(procRoot string, pid int) (processSnapshot, error) {
+	if procRoot == "" || pid <= 0 {
+		return processSnapshot{}, fmt.Errorf("invalid process snapshot target")
+	}
+	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return processSnapshot{}, err
+	}
+	stat := string(data)
+	commEnd := strings.LastIndexByte(stat, ')')
+	if commEnd < 0 || commEnd+2 >= len(stat) {
+		return processSnapshot{}, fmt.Errorf("invalid process stat for %d", pid)
+	}
+	fields := strings.Fields(stat[commEnd+2:])
+	if len(fields) <= 19 {
+		return processSnapshot{}, fmt.Errorf("invalid process stat for %d", pid)
+	}
+	pgid, err := strconv.Atoi(fields[2])
+	if err != nil || pgid <= 0 {
+		return processSnapshot{}, fmt.Errorf("invalid process group for %d", pid)
+	}
+	startTime, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return processSnapshot{}, fmt.Errorf("invalid process start time for %d", pid)
+	}
+	return processSnapshot{pid: pid, pgid: pgid, startTime: startTime}, nil
+}
+
 func processUsesRuntimeDirAt(procRoot string, pid int, dir string) bool {
 	if pid <= 0 || dir == "" {
 		return false
@@ -1042,26 +1220,32 @@ func processUsesRuntimeDirAt(procRoot string, pid int, dir string) bool {
 }
 
 func stopRecordedProcess(pid int, dir string, grace time.Duration) bool {
-	if !processUsesRuntimeDir(pid, dir) {
+	owner, ok := newProcessGroupOwner(pid, dir)
+	if !ok || !owner.refresh() {
 		return false
 	}
-	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	proc := &managedProc{pid: pid}
+	if err := proc.signal(syscall.SIGTERM); err != nil {
 		slog.Debug("session: terminate stale process group", "pid", pid, "error", err)
 	}
 
 	deadline := time.Now().Add(grace)
 	for time.Now().Before(deadline) {
-		if !processUsesRuntimeDir(pid, dir) {
+		if !processGroupAlive(pid) {
+			return true
+		}
+		if !owner.refresh() {
 			return true
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !processUsesRuntimeDir(pid, dir) {
+	if !processGroupAlive(pid) || !owner.refresh() {
 		return true
 	}
-	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := proc.signal(syscall.SIGKILL); err != nil {
 		slog.Debug("session: kill stale process group", "pid", pid, "error", err)
 	}
+	_ = proc.waitGroupTimeout(grace)
 	return true
 }
 

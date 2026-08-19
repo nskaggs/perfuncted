@@ -2,6 +2,8 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"image"
 	"os"
 	"os/exec"
@@ -153,12 +155,12 @@ func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
 			_ = syscall.Kill(childPID, syscall.SIGKILL)
 		}
 	})
-	if err := waitForFile(context.Background(), childPIDPath, 100, 5*time.Millisecond); err != nil {
-		t.Fatalf("wait for child pid: %v", err)
-	}
-	childPID, err := readPIDFile(childPIDPath)
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
 	if err != nil {
-		t.Fatalf("read child pid: %v", err)
+		t.Fatalf("wait for child pid: %v", err)
 	}
 
 	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(100 * time.Millisecond)
@@ -170,6 +172,138 @@ func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
 	if pidAlive(childPID) {
 		t.Fatalf("process-group child %d survived managed shutdown", childPID)
 	}
+}
+
+func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	childReadyPath := filepath.Join(t.TempDir(), "child.ready")
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: os.Args[0],
+			Args: []string{"-test.run=TestHelperProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_PROCESS=1",
+				"GO_HELPER_CHILD_PID=" + childPIDPath,
+				"GO_HELPER_CHILD_READY=" + childReadyPath,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	if err := waitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait for leader: %v", err)
+	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	stopErr := app.Stop(stopCtx)
+	if !errors.Is(stopErr, context.DeadlineExceeded) {
+		t.Fatalf("Stop error = %v, want context deadline after descendant ignored SIGTERM", stopErr)
+	}
+	if err := app.Kill(); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	if err := app.proc.waitGroup(waitCtx); err != nil {
+		t.Fatalf("wait for killed process group: %v", err)
+	}
+	if pidAlive(childPID) {
+		t.Fatalf("process-group child %d survived Kill", childPID)
+	}
+}
+
+func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.config.ApplicationGracePeriod = 200 * time.Millisecond
+
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	childReadyPath := filepath.Join(t.TempDir(), "child.ready")
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: os.Args[0],
+			Args: []string{"-test.run=TestHelperProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_PROCESS=1",
+				"GO_HELPER_CHILD_PID=" + childPIDPath,
+				"GO_HELPER_CHILD_READY=" + childReadyPath,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	if err := waitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait for leader: %v", err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if app.proc.groupAlive() {
+		t.Fatal("application process group survived Session.Close")
+	}
+	if pidAlive(childPID) {
+		t.Fatalf("process-group child %d survived Session.Close", childPID)
+	}
+}
+
+func waitForPIDFile(
+	ctx context.Context,
+	path string,
+) (int, error) {
+	const attempts = 100
+	const interval = 5 * time.Millisecond
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		pid, err := readPIDFile(path)
+		if err == nil {
+			return pid, nil
+		}
+		lastErr = err
+		if i == attempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return 0, fmt.Errorf("read pid file %s: %w", path, lastErr)
 }
 
 func helperCommand(t *testing.T) *exec.Cmd {
@@ -184,6 +318,31 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
+	if childPIDPath := os.Getenv("GO_HELPER_CHILD_PID"); childPIDPath != "" {
+		child := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
+		child.Env = env.Merge(
+			os.Environ(),
+			"GO_HELPER_CHILD_PID=",
+			"GO_WANT_HELPER_PROCESS=1",
+			"GO_WANT_IGNORE_SIGTERM=1",
+		)
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(
+			childPIDPath,
+			[]byte(strconv.Itoa(child.Process.Pid)),
+			0o600,
+		); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			os.Exit(2)
+		}
+		if os.Getenv("GO_HELPER_HOLD_UNTIL_TERM") != "1" {
+			os.Exit(0)
+		}
+		_ = os.Unsetenv("GO_HELPER_CHILD_READY")
+	}
 	if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
 		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
 			os.Exit(2)
@@ -191,6 +350,11 @@ func TestHelperProcess(t *testing.T) {
 	}
 	if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
 		signal.Ignore(syscall.SIGTERM)
+	}
+	if readyPath := os.Getenv("GO_HELPER_CHILD_READY"); readyPath != "" {
+		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+			os.Exit(2)
+		}
 	}
 	for {
 		time.Sleep(10 * time.Second)
@@ -422,6 +586,90 @@ func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
 
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("stale no-pidfile session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsReapsRecordedGroupAfterLeaderExit(t *testing.T) { //nolint:gocyclo
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if writeErr := os.WriteFile(
+		filepath.Join(dir, sessionOwnerPIDFile),
+		[]byte("99999999"),
+		0o600,
+	); writeErr != nil {
+		t.Fatalf("WriteFile owner pid: %v", writeErr)
+	}
+
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	childReadyPath := filepath.Join(t.TempDir(), "child.ready")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
+	cmd.Env = env.Merge(
+		os.Environ(),
+		"XDG_RUNTIME_DIR="+dir,
+		"GO_WANT_HELPER_PROCESS=1",
+		"GO_HELPER_CHILD_PID="+childPIDPath,
+		"GO_HELPER_CHILD_READY="+childReadyPath,
+		"GO_HELPER_HOLD_UNTIL_TERM=1",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if startErr := cmd.Start(); startErr != nil {
+		t.Fatalf("start process group: %v", startErr)
+	}
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	if err := waitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recorded process group leader survived cleanup")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for pidAlive(childPID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pidAlive(childPID) {
+		t.Fatalf("recorded process-group child %d survived cleanup", childPID)
+	}
+	if processGroupAlive(cmd.Process.Pid) {
+		t.Fatal("recorded process group survived cleanup")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
 	}
 }
 

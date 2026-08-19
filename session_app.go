@@ -50,8 +50,7 @@ type Command struct {
 // Application is a process group launched and owned by a Session.
 type Application struct {
 	session *Session
-	cmd     *exec.Cmd
-	pid     int
+	proc    managedProc
 	path    string
 
 	done chan struct{}
@@ -108,8 +107,7 @@ func (s *Session) Launch(
 
 	app := &Application{
 		session: s,
-		cmd:     execCommand,
-		pid:     execCommand.Process.Pid,
+		proc:    managedProc{cmd: execCommand, pid: execCommand.Process.Pid},
 		path:    resolved,
 		done:    make(chan struct{}),
 	}
@@ -134,7 +132,7 @@ func (s *Session) routingEnvironment() []string {
 }
 
 func (a *Application) reap() {
-	err := a.cmd.Wait()
+	err := a.proc.cmd.Wait()
 	a.mu.Lock()
 	a.err = err
 	a.mu.Unlock()
@@ -142,8 +140,9 @@ func (a *Application) reap() {
 	a.session.notifyWaiters()
 }
 
-// Wait waits for the application to exit. It is safe to call repeatedly or
-// concurrently.
+// Wait waits for the process-group leader to exit. It is safe to call
+// repeatedly or concurrently; Stop and Session.Close additionally wait for
+// the entire owned process group.
 func (a *Application) Wait(ctx context.Context) error {
 	if a == nil {
 		return nil
@@ -166,7 +165,7 @@ func (a *Application) PID() int {
 	if a == nil {
 		return 0
 	}
-	return a.pid
+	return a.proc.pid
 }
 
 // Path returns the resolved executable path.
@@ -177,7 +176,8 @@ func (a *Application) Path() string {
 	return a.path
 }
 
-// Exited reports whether the application has been reaped.
+// Exited reports whether the process-group leader has been reaped. Descendants
+// may still be alive until Stop or Session.Close completes.
 func (a *Application) Exited() bool {
 	if a == nil {
 		return true
@@ -192,50 +192,33 @@ func (a *Application) Exited() bool {
 
 // Stop sends SIGTERM to the application process group and waits for ctx.
 func (a *Application) Stop(ctx context.Context) error {
-	if a == nil || a.pid <= 0 {
+	if a == nil || a.proc.pid <= 0 {
 		return nil
 	}
 	if ctx == nil {
 		return fmt.Errorf("perfuncted: stop application: %w: nil context", ErrInvalidArgument)
 	}
-	select {
-	case <-a.done:
-		return nil
-	default:
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	if err := signalProcessGroup(a.pid, syscall.SIGTERM); err != nil {
-		return fmt.Errorf("perfuncted: stop application %d: %w", a.pid, err)
+	if err := a.proc.signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("perfuncted: stop application %d: %w", a.proc.pid, err)
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-a.done:
-		return nil
-	}
-}
-
-// Kill sends SIGKILL to the application process group.
-func (a *Application) Kill() error {
-	if a == nil || a.pid <= 0 {
-		return nil
-	}
-	select {
-	case <-a.done:
-		return nil
-	default:
-	}
-	if err := signalProcessGroup(a.pid, syscall.SIGKILL); err != nil {
-		return fmt.Errorf("perfuncted: kill application %d: %w", a.pid, err)
+	if err := a.proc.waitGroup(ctx); err != nil {
+		return err
 	}
 	return nil
 }
 
-func signalProcessGroup(pgid int, signal syscall.Signal) error {
-	err := syscall.Kill(-pgid, signal)
-	if errors.Is(err, syscall.ESRCH) {
+// Kill sends SIGKILL to the application process group.
+func (a *Application) Kill() error {
+	if a == nil || a.proc.pid <= 0 {
 		return nil
 	}
-	return err
+	if err := a.proc.signal(syscall.SIGKILL); err != nil {
+		return fmt.Errorf("perfuncted: kill application %d: %w", a.proc.pid, err)
+	}
+	return nil
 }
 
 func (s *Session) stopApplication(app *Application) error {
@@ -261,6 +244,9 @@ func (s *Session) stopApplication(app *Application) error {
 		grace,
 	)
 	defer killCancel()
+	if err := app.proc.waitGroup(killCtx); err != nil {
+		return err
+	}
 	if err := app.Wait(killCtx); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -272,11 +258,11 @@ func (s *Session) stopApplication(app *Application) error {
 }
 
 func (a *Application) ownsPID(pid int32) bool {
-	if a == nil || pid <= 0 {
+	if a == nil || pid <= 0 || !a.proc.groupAlive() {
 		return false
 	}
 	pgid, err := syscall.Getpgid(int(pid))
-	return err == nil && pgid == a.pid
+	return err == nil && pgid == a.proc.pid
 }
 
 // LogPath returns the log directory used by owned session infrastructure.
