@@ -72,7 +72,18 @@ func inputCmd(
 					return err
 				}
 				if i+1 < repeat && delay > 0 {
-					time.Sleep(delay)
+					timer := time.NewTimer(delay)
+					select {
+					case <-cmd.Context().Done():
+						if !timer.Stop() {
+							select {
+							case <-timer.C:
+							default:
+							}
+						}
+						return cmd.Context().Err()
+					case <-timer.C:
+					}
 				}
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {

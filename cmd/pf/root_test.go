@@ -673,7 +673,7 @@ func TestScreenHashAndWatch(t *testing.T) {
 	})
 }
 
-func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
+func TestScreenAndInputCliOnlyFeatures(t *testing.T) { //nolint:gocyclo // subtests cover independent CLI command paths
 	t.Run("grab-region png", func(t *testing.T) {
 		frame := image.NewRGBA(image.Rect(10, 20, 14, 24))
 		want := color.RGBA{R: 11, G: 22, B: 33, A: 255}
@@ -754,6 +754,28 @@ func TestScreenAndInputCliOnlyFeatures(t *testing.T) {
 		}
 		if !strings.Contains(stdout, "clicked button 2 at 7,9") {
 			t.Fatalf("stdout = %q, want click confirmation", stdout)
+		}
+	})
+
+	t.Run("click repeat canceled during delay", func(t *testing.T) {
+		inp := &pftest.Inputter{}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		stdout, stderr, code := captureRunIOContext(ctx, t, []string{
+			"input", "click", "--repeat", "3", "--delay", "1s",
+		}, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
+				return pftest.New(nil, inp, nil, nil), nil
+			}
+		})
+		if code == 0 {
+			t.Fatalf("exit code = 0, want cancellation; stdout=%q stderr=%q", stdout, stderr)
+		}
+		if got := len(inp.Calls); got != 1 {
+			t.Fatalf("click calls after cancellation = %d, want 1; calls=%v", got, inp.Calls)
+		}
+		if !strings.Contains(stderr, context.DeadlineExceeded.Error()) {
+			t.Fatalf("stderr = %q, want deadline error", stderr)
 		}
 	})
 }
