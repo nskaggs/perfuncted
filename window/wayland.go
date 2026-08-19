@@ -1,9 +1,11 @@
 package window
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"iter"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -321,6 +323,9 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			for _, v := range m.toplevels {
 				windows = append(windows, *v)
 			}
+			sort.Slice(windows, func(i, j int) bool {
+				return compareWaylandWindows(windows[i], windows[j]) < 0
+			})
 			return nil
 		}); err != nil {
 			yield(Info{}, err)
@@ -332,6 +337,62 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			}
 		}
 	}
+}
+
+func compareWaylandWindows(a, b Info) int {
+	if c := cmp.Compare(a.StableID(), b.StableID()); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.ID, b.ID); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.NativeID, b.NativeID); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.Title, b.Title); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.AppID, b.AppID); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.Class, b.Class); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.PID, b.PID); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.X, b.X); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.Y, b.Y); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.W, b.W); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.H, b.H); c != 0 {
+		return c
+	}
+	if c := compareBool(a.Active, b.Active); c != 0 {
+		return c
+	}
+	if c := compareBool(a.Minimized, b.Minimized); c != 0 {
+		return c
+	}
+	if c := compareBool(a.Maximized, b.Maximized); c != 0 {
+		return c
+	}
+	return compareBool(a.Fullscreen, b.Fullscreen)
+}
+
+func compareBool(a, b bool) int {
+	if a == b {
+		return 0
+	}
+	if !a {
+		return -1
+	}
+	return 1
 }
 
 // ActiveTitle returns the title of the currently focused window, if available.

@@ -444,7 +444,11 @@ func TestWaylandWindowManager_List(t *testing.T) {
 		t.Errorf("List() expected 2 windows, got %d", len(windows))
 	}
 
-	// Check contents (order might not be guaranteed, so check for presence)
+	if windows[0].ID != uint64(handleID1) || windows[1].ID != uint64(handleID2) {
+		t.Fatalf("List() order = %d, %d; want %d, %d", windows[0].ID, windows[1].ID, handleID1, handleID2)
+	}
+
+	// Check contents as well as order so a stable sort cannot hide a missing item.
 	found1 := false
 	found2 := false
 	for _, w := range windows {
@@ -457,6 +461,41 @@ func TestWaylandWindowManager_List(t *testing.T) {
 	}
 	if !found1 || !found2 {
 		t.Errorf("List() results did not contain expected windows. Found: %+v", windows)
+	}
+}
+
+func TestWaylandWindowManager_ListIsDeterministicWithStableIDTies(t *testing.T) {
+	wm, _, _ := newStubWaylandManager("", true, false)
+	wm.toplevels = map[uint32]*Info{
+		2: {ID: 2, NativeID: "shared", Title: "second"},
+		1: {ID: 1, NativeID: "shared", Title: "first"},
+		3: {ID: 7, NativeID: "shared", Title: "z"},
+		4: {ID: 7, NativeID: "shared", Title: "a"},
+	}
+
+	for range 20 {
+		windows, err := wm.List(context.Background())
+		if err != nil {
+			t.Fatalf("List() unexpected error: %v", err)
+		}
+		if len(windows) != 4 {
+			t.Fatalf("List() returned %d windows, want 4", len(windows))
+		}
+		want := []struct {
+			id    uint64
+			title string
+		}{
+			{id: 1, title: "first"},
+			{id: 2, title: "second"},
+			{id: 7, title: "a"},
+			{id: 7, title: "z"},
+		}
+		for i, expected := range want {
+			if windows[i].ID != expected.id || windows[i].Title != expected.title {
+				t.Fatalf("List() order at index %d = (%d, %q), want (%d, %q)",
+					i, windows[i].ID, windows[i].Title, expected.id, expected.title)
+			}
+		}
 	}
 }
 
