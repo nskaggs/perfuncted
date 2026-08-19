@@ -30,6 +30,7 @@ type WaylandWindowManager struct {
 	}
 	registry interface {
 		Bind(name uint32, iface string, ver, newID uint32) error
+		BindContext(context.Context, uint32, string, uint32, uint32) error
 		SetGlobalHandler(func(wl.GlobalEvent))
 		ID() uint32
 	}
@@ -130,7 +131,7 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 		iface, regName, ver = "zwlr_foreign_toplevel_manager_v1", m.wlrMgrID, uint32(3)
 	}
 	isWLR := iface == "zwlr_foreign_toplevel_manager_v1"
-	if err := m.registry.Bind(regName, iface, ver, mgrProxy.ID()); err != nil {
+	if err := m.registry.BindContext(ctx, regName, iface, ver, mgrProxy.ID()); err != nil {
 		return fmt.Errorf("window/wayland: bind %s: %w", iface, err)
 	}
 
@@ -265,21 +266,21 @@ func (m *WaylandWindowManager) WindowChanges() <-chan struct{} {
 }
 
 // helper to send a request to a zwlr_foreign_toplevel_handle_v1 object.
-func (m *WaylandWindowManager) sendHandleRequest(handleID uint32, opcode uint32, payload []byte) error {
+func (m *WaylandWindowManager) sendHandleRequest(ctx context.Context, handleID uint32, opcode uint32, payload []byte) error {
 	buf := make([]byte, 8+len(payload))
 	wl.PutUint32(buf[0:], handleID)
 	wl.PutUint32(buf[4:], uint32(len(buf))<<16|opcode)
 	if len(payload) > 0 {
 		copy(buf[8:], payload)
 	}
-	return m.display.Context().WriteMsg(buf, nil)
+	return m.display.Context().WriteMsgContext(ctx, buf, nil)
 }
 
-func (m *WaylandWindowManager) withOperation(fn func() error) error {
+func (m *WaylandWindowManager) withOperation(ctx context.Context, fn func() error) error {
 	if m == nil || m.display == nil {
 		return fmt.Errorf("window/wayland: manager not initialised")
 	}
-	return wl.WithOperation(m.display.Context(), fn)
+	return wl.WithOperationContext(m.display.Context(), ctx, fn)
 }
 
 // List returns windows reported by the foreign-toplevel protocol.
@@ -303,7 +304,7 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			return
 		}
 		var windows []Info
-		if err := m.withOperation(func() error {
+		if err := m.withOperation(ctx, func() error {
 			if err := m.display.RoundTripContext(ctx); err != nil {
 				return fmt.Errorf("window/wayland: round-trip: %w", err)
 			}
@@ -333,7 +334,7 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 		return "", fmt.Errorf("window/wayland: active title canceled: %w", err)
 	}
 	var title string
-	err := m.withOperation(func() error {
+	err := m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return fmt.Errorf("window/wayland: round-trip: %w", err)
 		}
@@ -370,7 +371,7 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	if m.display == nil {
 		return nil
 	}
-	return m.withOperation(func() error { return m.display.RoundTripContext(ctx) })
+	return m.withOperation(ctx, func() error { return m.display.RoundTripContext(ctx) })
 }
 
 // SupportedOperations returns operations exposed by the foreign-toplevel protocol.
@@ -408,7 +409,7 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: activate canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -425,9 +426,12 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 			}
 			seatProxy := &wl.RawProxy{}
 			m.display.Context().Register(seatProxy)
-			if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+			if err := m.registry.BindContext(ctx, m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+				wl.Unregister(m.display.Context(), seatProxy)
 				return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
 			}
+			// BindContext completed the object-creating request. Keep the proxy
+			// owned locally even if the follow-up round trip is canceled.
 			m.seat = seatProxy
 			if err := m.display.RoundTripContext(ctx); err != nil {
 				return err
@@ -438,7 +442,7 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 		}
 		payload := make([]byte, 4)
 		wl.PutUint32(payload, m.seat.ID())
-		return m.sendHandleRequest(hid, 4, payload)
+		return m.sendHandleRequest(ctx, hid, 4, payload)
 	})
 }
 
@@ -458,7 +462,7 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: close canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -472,7 +476,7 @@ func (m *WaylandWindowManager) CloseWindowByID(ctx context.Context, id string) e
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("window/wayland: close canceled: %w", err)
 		}
-		return m.sendHandleRequest(hid, 5, nil)
+		return m.sendHandleRequest(ctx, hid, 5, nil)
 	})
 }
 
@@ -482,7 +486,7 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: minimize canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -496,7 +500,7 @@ func (m *WaylandWindowManager) MinimizeByID(ctx context.Context, id string) erro
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("window/wayland: minimize canceled: %w", err)
 		}
-		return m.sendHandleRequest(hid, 2, nil)
+		return m.sendHandleRequest(ctx, hid, 2, nil)
 	})
 }
 
@@ -506,7 +510,7 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: maximize canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -520,7 +524,7 @@ func (m *WaylandWindowManager) MaximizeByID(ctx context.Context, id string) erro
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("window/wayland: maximize canceled: %w", err)
 		}
-		return m.sendHandleRequest(hid, 0, nil)
+		return m.sendHandleRequest(ctx, hid, 0, nil)
 	})
 }
 
@@ -533,7 +537,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -548,7 +552,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 			return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 		}
 		// A null wl_output lets the compositor choose the target output.
-		return m.sendHandleRequest(handleID, 8, make([]byte, 4))
+		return m.sendHandleRequest(ctx, handleID, 8, make([]byte, 4))
 	})
 }
 
@@ -561,7 +565,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -575,7 +579,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
 		}
-		return m.sendHandleRequest(handleID, 9, nil)
+		return m.sendHandleRequest(ctx, handleID, 9, nil)
 	})
 }
 
@@ -585,7 +589,7 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: restore canceled: %w", err)
 	}
-	return m.withOperation(func() error {
+	return m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}
@@ -599,10 +603,10 @@ func (m *WaylandWindowManager) RestoreByID(ctx context.Context, id string) error
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("window/wayland: restore canceled: %w", err)
 		}
-		if err := m.sendHandleRequest(hid, 1, nil); err != nil {
+		if err := m.sendHandleRequest(ctx, hid, 1, nil); err != nil {
 			return err
 		}
-		return m.sendHandleRequest(hid, 3, nil)
+		return m.sendHandleRequest(ctx, hid, 3, nil)
 	})
 }
 
@@ -613,7 +617,7 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, e
 		return Info{}, fmt.Errorf("window/wayland: info canceled: %w", err)
 	}
 	var info Info
-	err := m.withOperation(func() error {
+	err := m.withOperation(ctx, func() error {
 		if err := m.display.RoundTripContext(ctx); err != nil {
 			return err
 		}

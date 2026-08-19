@@ -28,6 +28,8 @@ func (c *extCaptureTestCtx) SetProxy(id uint32, p wl.Proxy) {
 	p.SetCtx(c)
 }
 
+func (c *extCaptureTestCtx) Unregister(p wl.Proxy) {}
+
 func (c *extCaptureTestCtx) WriteMsg(data, _ []byte) error {
 	msg := make([]byte, len(data))
 	copy(msg, data)
@@ -36,7 +38,20 @@ func (c *extCaptureTestCtx) WriteMsg(data, _ []byte) error {
 }
 
 func (c *extCaptureTestCtx) Dispatch() error { return nil }
-func (c *extCaptureTestCtx) Close() error    { return nil }
+func (c *extCaptureTestCtx) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.WriteMsg(data, oob)
+}
+func (c *extCaptureTestCtx) DispatchContext(ctx context.Context) error { return ctx.Err() }
+func (c *extCaptureTestCtx) WithOperationContext(ctx context.Context, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fn()
+}
+func (c *extCaptureTestCtx) Close() error { return nil }
 
 func TestExtCaptureAvailabilityRequiresOutputSourceManager(t *testing.T) {
 	t.Run("missing copy manager", func(t *testing.T) {
@@ -80,22 +95,22 @@ func TestExtCaptureAvailabilityRequiresOutputSourceManager(t *testing.T) {
 func TestExtCaptureProtocolOpcodes(t *testing.T) {
 	ctx := &extCaptureTestCtx{}
 
-	if err := sendExtOutputCreateSource(ctx, 10, 20, 30); err != nil {
+	if err := sendExtOutputCreateSource(context.Background(), ctx, 10, 20, 30); err != nil {
 		t.Fatalf("sendExtOutputCreateSource: %v", err)
 	}
-	if err := sendExtCreateSession(ctx, 11, 21, 31); err != nil {
+	if err := sendExtCreateSession(context.Background(), ctx, 11, 21, 31); err != nil {
 		t.Fatalf("sendExtCreateSession: %v", err)
 	}
-	if err := sendExtCreateFrame(ctx, 12, 22); err != nil {
+	if err := sendExtCreateFrame(context.Background(), ctx, 12, 22); err != nil {
 		t.Fatalf("sendExtCreateFrame: %v", err)
 	}
-	if err := sendExtAttachBuffer(ctx, 13, 23); err != nil {
+	if err := sendExtAttachBuffer(context.Background(), ctx, 13, 23); err != nil {
 		t.Fatalf("sendExtAttachBuffer: %v", err)
 	}
-	if err := sendExtDamageBuffer(ctx, 14, 640, 480); err != nil {
+	if err := sendExtDamageBuffer(context.Background(), ctx, 14, 640, 480); err != nil {
 		t.Fatalf("sendExtDamageBuffer: %v", err)
 	}
-	if err := sendExtCapture(ctx, 15); err != nil {
+	if err := sendExtCapture(context.Background(), ctx, 15); err != nil {
 		t.Fatalf("sendExtCapture: %v", err)
 	}
 
@@ -132,6 +147,23 @@ func TestExtCaptureProtocolOpcodes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExtCaptureCleanupRequestUsesIndependentContext(t *testing.T) {
+	ctx := &extCaptureTestCtx{}
+	captureCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sendWaylandRequest(captureCtx, ctx, 42, 0, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled capture request error = %v, want context.Canceled", err)
+	}
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+	defer cleanupCancel()
+	if err := sendWaylandRequest(cleanupCtx, ctx, 42, 0, nil); err != nil {
+		t.Fatalf("independent cleanup request: %v", err)
+	}
+	if len(ctx.msgs) != 1 {
+		t.Fatalf("cleanup writes = %d, want 1", len(ctx.msgs))
 	}
 }
 

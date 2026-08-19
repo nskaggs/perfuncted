@@ -104,38 +104,39 @@ func newWlKeyboard(ctx *wl.Context, registry *wl.Registry, mgrID, mgrVer, seatID
 }
 
 func (k *wlKeyboard) warmup() error {
-	if err := k.uploadKeymap(xkbModsOnly()); err != nil {
+	ctx := context.Background()
+	if err := k.uploadKeymap(ctx, xkbModsOnly()); err != nil {
 		return err
 	}
-	if err := k.sendKey(kcShift, 1); err != nil {
+	if err := k.sendKey(ctx, kcShift, 1); err != nil {
 		return err
 	}
 	time.Sleep(2 * time.Millisecond)
-	return k.sendKey(kcShift, 0)
+	return k.sendKey(ctx, kcShift, 0)
 }
 
 // uploadKeymapAndRestoreMods uploads a keymap and re-sends the current modifier
 // state. Compositors (including sway/wlroots) reset the modifier state when a
 // new keymap is installed, so any held modifiers (e.g. Ctrl) must be
 // re-declared after every upload.
-func (k *wlKeyboard) uploadKeymapAndRestoreMods(keymap string) error {
-	if err := k.uploadKeymap(keymap); err != nil {
+func (k *wlKeyboard) uploadKeymapAndRestoreMods(ctx context.Context, keymap string) error {
+	if err := k.uploadKeymap(ctx, keymap); err != nil {
 		return err
 	}
 	if k.mods != 0 {
-		return k.sendModifiers()
+		return k.sendModifiers(ctx)
 	}
 	return nil
 }
 
 // applyTempMods applies modBitmask to k.mods and sends the modifier state.
 // If sendModifiers fails, local state is rolled back and error is returned.
-func (k *wlKeyboard) applyTempMods(modBitmask uint32) error {
+func (k *wlKeyboard) applyTempMods(ctx context.Context, modBitmask uint32) error {
 	if modBitmask == 0 {
 		return nil
 	}
 	k.mods |= modBitmask
-	if err := k.sendModifiers(); err != nil {
+	if err := k.sendModifiers(ctx); err != nil {
 		k.mods &^= modBitmask
 		return err
 	}
@@ -143,22 +144,24 @@ func (k *wlKeyboard) applyTempMods(modBitmask uint32) error {
 }
 
 // clearTempMods removes modBitmask from k.mods and sends the update.
-func (k *wlKeyboard) clearTempMods(modBitmask uint32) error {
+func (k *wlKeyboard) clearTempMods(ctx context.Context, modBitmask uint32) error {
 	if modBitmask == 0 {
 		return nil
 	}
 	k.mods &^= modBitmask
-	return k.sendModifiers()
+	return k.sendModifiers(ctx)
 }
 
 // clearTempModsBestEffort is like clearTempMods but ignores errors.
 // Use on error paths where cleanup must be attempted before returning.
-func (k *wlKeyboard) clearTempModsBestEffort(modBitmask uint32) {
+func (k *wlKeyboard) clearTempModsBestEffort(ctx context.Context, modBitmask uint32) {
 	if modBitmask == 0 {
 		return
 	}
 	k.mods &^= modBitmask
-	_ = k.sendModifiers()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_ = k.sendModifiers(cleanupCtx)
 }
 
 // sendkeys processes a sequence of parsed keySend actions with a single
@@ -250,7 +253,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	}
 
 	keymapText := xkbBuild(maxSlot, kc.String(), sym.String())
-	if err := k.uploadKeymapAndRestoreMods(keymapText); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(ctx, keymapText); err != nil {
 		return err
 	}
 
@@ -298,7 +301,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			modBitmask |= modMod4
 		}
 
-		if err := k.applyTempMods(modBitmask); err != nil {
+		if err := k.applyTempMods(ctx, modBitmask); err != nil {
 			return err
 		}
 
@@ -308,45 +311,45 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				switch {
 				case ka.up:
 					if k.mods&bit == 0 {
-						k.clearTempModsBestEffort(modBitmask)
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return fmt.Errorf("keyboard: key %q not held", ka.key)
 					}
-					if err := k.sendKey(kc, 0); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, kc, 0); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					k.mods &^= bit
-					if err := k.sendModifiers(); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendModifiers(ctx); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 				case ka.down:
-					if err := k.sendKey(kc, 1); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, kc, 1); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					k.mods |= bit
-					if err := k.sendModifiers(); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendModifiers(ctx); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 				default:
-					if err := k.sendKey(kc, 1); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, kc, 1); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					k.mods |= bit
-					if err := k.sendModifiers(); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendModifiers(ctx); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
-					if err := k.sendKey(kc, 0); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, kc, 0); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					k.mods &^= bit
-					if err := k.sendModifiers(); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendModifiers(ctx); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 				}
@@ -357,35 +360,35 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				case ka.up:
 					heldSlot, held := k.held[ka.key]
 					if !held {
-						k.clearTempModsBestEffort(modBitmask)
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return fmt.Errorf("keyboard: key %q not held", ka.key)
 					}
-					if err := k.sendKey(heldSlot, 0); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, heldSlot, 0); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					delete(k.held, ka.key)
 				case ka.down:
-					if err := k.sendKey(slot, 1); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, slot, 1); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					k.held[ka.key] = slot
 				default:
-					if err := k.sendKey(slot, 1); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, slot, 1); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-						if upErr := k.sendKey(slot, 0); upErr != nil {
-							k.clearTempModsBestEffort(modBitmask)
+						if upErr := k.sendKey(ctx, slot, 0); upErr != nil {
+							k.clearTempModsBestEffort(ctx, modBitmask)
 							return upErr
 						}
-						k.clearTempModsBestEffort(modBitmask)
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
-					if err := k.sendKey(slot, 0); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+					if err := k.sendKey(ctx, slot, 0); err != nil {
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 				}
@@ -396,23 +399,23 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			case ka.up:
 				heldSlot, held := k.held[ka.key]
 				if !held {
-					k.clearTempModsBestEffort(modBitmask)
+					k.clearTempModsBestEffort(ctx, modBitmask)
 					return fmt.Errorf("keyboard: key %q not held", ka.key)
 				}
-				if err := k.sendKey(heldSlot, 0); err != nil {
-					k.clearTempModsBestEffort(modBitmask)
+				if err := k.sendKey(ctx, heldSlot, 0); err != nil {
+					k.clearTempModsBestEffort(ctx, modBitmask)
 					return err
 				}
 				delete(k.held, ka.key)
 			case ka.down:
 				runes := []rune(ka.key)
 				if len(runes) != 1 {
-					k.clearTempModsBestEffort(modBitmask)
+					k.clearTempModsBestEffort(ctx, modBitmask)
 					return fmt.Errorf("keyboard: cannot hold multi-character key %q", ka.key)
 				}
 				slot := runeSlots[runes[0]]
-				if err := k.sendKey(slot, 1); err != nil {
-					k.clearTempModsBestEffort(modBitmask)
+				if err := k.sendKey(ctx, slot, 1); err != nil {
+					k.clearTempModsBestEffort(ctx, modBitmask)
 					return err
 				}
 				k.held[ka.key] = slot
@@ -420,11 +423,11 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				for _, r := range ka.key {
 					slot := runeSlots[r]
 					if err := k.tap(ctx, slot); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-						k.clearTempModsBestEffort(modBitmask)
+						k.clearTempModsBestEffort(ctx, modBitmask)
 						return err
 					}
 				}
@@ -432,7 +435,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 		}
 
 		// Release temporary modifiers.
-		if err := k.clearTempMods(modBitmask); err != nil {
+		if err := k.clearTempMods(ctx, modBitmask); err != nil {
 			return err
 		}
 	}
@@ -443,17 +446,17 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 // pressKey presses and holds a key. For modifier keys the compositor's modifier
 // state is updated via the modifiers request. For other keys the keycode is
 // stored for later release via releaseKey.
-func (k *wlKeyboard) pressKey(key string) error {
+func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 	if kc, sym, ok := namedKey(key); ok {
-		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
+		if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithNamed(kc, sym)); err != nil {
 			return err
 		}
-		if err := k.sendKey(kc, 1); err != nil {
+		if err := k.sendKey(ctx, kc, 1); err != nil {
 			return err
 		}
 		if bit := modBit(key); bit != 0 {
 			k.mods |= bit
-			return k.sendModifiers()
+			return k.sendModifiers(ctx)
 		}
 		k.held[key] = kc
 		return nil
@@ -463,10 +466,10 @@ func (k *wlKeyboard) pressKey(key string) error {
 	if len(runes) != 1 {
 		return fmt.Errorf("keyboard: cannot hold multi-character key %q", key)
 	}
-	if err := k.uploadKeymapAndRestoreMods(xkbWithRunes(runes)); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithRunes(runes)); err != nil {
 		return err
 	}
-	if err := k.sendKey(kcDynBase, 1); err != nil {
+	if err := k.sendKey(ctx, kcDynBase, 1); err != nil {
 		return err
 	}
 	k.held[key] = kcDynBase
@@ -476,7 +479,7 @@ func (k *wlKeyboard) pressKey(key string) error {
 // releaseKey releases a previously pressed key. Returns an error if the key
 // is not currently held, catching bugs where callers release keys they never
 // pressed.
-func (k *wlKeyboard) releaseKey(key string) error {
+func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 	if kc, sym, ok := namedKey(key); ok {
 		// Ensure the keymap still defines this keycode (another upload may have
 		// replaced it). Modifier keycodes (8–11) are always in every keymap.
@@ -484,16 +487,16 @@ func (k *wlKeyboard) releaseKey(key string) error {
 			if _, held := k.held[key]; !held {
 				return fmt.Errorf("keyboard: key %q not held", key)
 			}
-			if err := k.uploadKeymap(xkbWithNamed(kc, sym)); err != nil {
+			if err := k.uploadKeymap(ctx, xkbWithNamed(kc, sym)); err != nil {
 				return err
 			}
 		}
-		if err := k.sendKey(kc, 0); err != nil {
+		if err := k.sendKey(ctx, kc, 0); err != nil {
 			return err
 		}
 		if bit := modBit(key); bit != 0 {
 			k.mods &^= bit
-			return k.sendModifiers()
+			return k.sendModifiers(ctx)
 		}
 		delete(k.held, key)
 		return nil
@@ -506,16 +509,16 @@ func (k *wlKeyboard) releaseKey(key string) error {
 	if _, held := k.held[key]; !held {
 		return fmt.Errorf("keyboard: key %q not held", key)
 	}
-	if err := k.uploadKeymap(xkbWithRunes(runes)); err != nil {
+	if err := k.uploadKeymap(ctx, xkbWithRunes(runes)); err != nil {
 		return err
 	}
 	delete(k.held, key)
-	return k.sendKey(kcDynBase, 0)
+	return k.sendKey(ctx, kcDynBase, 0)
 }
 
 // ── Protocol messages ─────────────────────────────────────────────────────────
 
-func (k *wlKeyboard) uploadKeymap(text string) error {
+func (k *wlKeyboard) uploadKeymap(ctx context.Context, text string) error {
 	// Hold the lock for the entire upload to prevent concurrent duplicate
 	// uploads from multiple goroutines using the same wlKeyboard instance.
 	k.lastMu.Lock()
@@ -538,14 +541,14 @@ func (k *wlKeyboard) uploadKeymap(text string) error {
 	wl.PutUint32(buf[4:], 16<<16) // size=16, opcode=0 (keymap)
 	wl.PutUint32(buf[8:], xkbFormatTextV1)
 	wl.PutUint32(buf[12:], uint32(len(data)))
-	if err := k.ctx.WriteMsg(buf[:], syscall.UnixRights(int(f.Fd()))); err != nil {
+	if err := k.ctx.WriteMsgContext(ctx, buf[:], syscall.UnixRights(int(f.Fd()))); err != nil {
 		return err
 	}
 	k.lastKeymap = text
 	return nil
 }
 
-func (k *wlKeyboard) sendKey(keycode, state uint32) error {
+func (k *wlKeyboard) sendKey(ctx context.Context, keycode, state uint32) error {
 	t := uint32(time.Now().UnixMilli() & 0xffffffff)
 	var buf [20]byte
 	wl.PutUint32(buf[0:], k.kbd.ID())
@@ -553,16 +556,16 @@ func (k *wlKeyboard) sendKey(keycode, state uint32) error {
 	wl.PutUint32(buf[8:], t)
 	wl.PutUint32(buf[12:], keycode-8) // XKB keycode → evdev scancode
 	wl.PutUint32(buf[16:], state)
-	return k.ctx.WriteMsg(buf[:], nil)
+	return k.ctx.WriteMsgContext(ctx, buf[:], nil)
 }
 
-func (k *wlKeyboard) sendModifiers() error {
+func (k *wlKeyboard) sendModifiers(ctx context.Context) error {
 	var buf [24]byte
 	wl.PutUint32(buf[0:], k.kbd.ID())
 	wl.PutUint32(buf[4:], 24<<16|2) // opcode 2 = modifiers
 	wl.PutUint32(buf[8:], k.mods)   // mods_depressed
 	// mods_latched, mods_locked, group all 0
-	return k.ctx.WriteMsg(buf[:], nil)
+	return k.ctx.WriteMsgContext(ctx, buf[:], nil)
 }
 
 func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
@@ -570,16 +573,18 @@ func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := k.sendKey(keycode, 1); err != nil {
+	if err := k.sendKey(ctx, keycode, 1); err != nil {
 		return err
 	}
 	if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-		if upErr := k.sendKey(keycode, 0); upErr != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		if upErr := k.sendKey(cleanupCtx, keycode, 0); upErr != nil {
 			return upErr
 		}
 		return err
 	}
-	return k.sendKey(keycode, 0)
+	return k.sendKey(ctx, keycode, 0)
 }
 
 // ── XKB keymap generation ─────────────────────────────────────────────────────

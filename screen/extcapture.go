@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
@@ -154,13 +155,13 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 
 		b.sourceProxy = &wlRawProxy{}
 		ctx.Register(b.sourceProxy)
-		if err := sendExtOutputCreateSource(ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
+		if err := sendExtOutputCreateSource(context.Background(), ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: create_source: %w", err)
 		}
 
 		b.sessProxy = &wlRawProxy{}
 		ctx.Register(b.sessProxy)
-		if err := sendExtCreateSession(ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
+		if err := sendExtCreateSession(context.Background(), ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: create_session: %w", err)
 		}
 		return nil
@@ -271,7 +272,20 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	}
 
 	wlctx := b.session.Display.Context()
-	return wl.WithOperation(wlctx, func() error {
+	return wl.WithOperationContext(wlctx, captureCtx, func() error {
+		var cleanupCtx context.Context
+		var cleanupCancel context.CancelFunc
+		cleanupContext := func() context.Context {
+			if cleanupCtx == nil {
+				cleanupCtx, cleanupCancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+			}
+			return cleanupCtx
+		}
+		defer func() {
+			if cleanupCancel != nil {
+				cleanupCancel()
+			}
+		}()
 
 		// Session events: 0=buffer_size, 1=shm_format, 5=stopped.
 		var si extSessionInfo
@@ -335,34 +349,40 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 			pixels = b.cachedBuf[:size]
 		}
 
-		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
+		pool, err := b.shm.CreatePoolContext(captureCtx, int(b.cachedFd.Fd()), int32(size))
 		if err != nil {
 			return fmt.Errorf("screen/ext: create_pool: %w", err)
 		}
-		defer pool.Destroy() //nolint:errcheck
+		defer func() {
+			_ = pool.DestroyContext(cleanupContext())
+			wl.Unregister(wlctx, pool)
+		}()
 
-		wlbuf, err := pool.CreateBuffer(0, int32(si.width), int32(si.height), int32(stride), si.format)
+		wlbuf, err := pool.CreateBufferContext(captureCtx, 0, int32(si.width), int32(si.height), int32(stride), si.format)
 		if err != nil {
 			return fmt.Errorf("screen/ext: create_buffer: %w", err)
 		}
-		defer wlbuf.Destroy() //nolint:errcheck
+		defer func() {
+			_ = wlbuf.DestroyContext(cleanupContext())
+			wl.Unregister(wlctx, wlbuf)
+		}()
 
 		// create_frame(new_id) — session opcode 1.
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
 		defer func() {
-			_ = sendWaylandRequest(wlctx, frameProxy.ID(), 0, nil)
+			_ = sendWaylandRequest(cleanupContext(), wlctx, frameProxy.ID(), 0, nil)
 			wl.Unregister(wlctx, frameProxy)
 		}()
-		if err := sendExtCreateFrame(wlctx, b.sessProxy.ID(), frameProxy.ID()); err != nil {
+		if err := sendExtCreateFrame(captureCtx, wlctx, b.sessProxy.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: create_frame: %w", err)
 		}
 
 		// attach_buffer(buffer) — frame opcode 1.
-		if err := sendExtAttachBuffer(wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {
+		if err := sendExtAttachBuffer(captureCtx, wlctx, frameProxy.ID(), wlbuf.ID()); err != nil {
 			return fmt.Errorf("screen/ext: attach_buffer: %w", err)
 		}
-		if err := sendExtDamageBuffer(wlctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
+		if err := sendExtDamageBuffer(captureCtx, wlctx, frameProxy.ID(), int32(si.width), int32(si.height)); err != nil {
 			return fmt.Errorf("screen/ext: damage_buffer: %w", err)
 		}
 
@@ -376,7 +396,7 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 				failed = true
 			}
 		}
-		if err := sendExtCapture(wlctx, frameProxy.ID()); err != nil {
+		if err := sendExtCapture(captureCtx, wlctx, frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: capture: %w", err)
 		}
 
@@ -504,37 +524,37 @@ func extCaptureAvailable(globals map[string]bool) (bool, string) {
 	return true, "ext_image_copy_capture_manager_v1 + ext_output_image_capture_source_manager_v1 advertised"
 }
 
-func sendExtOutputCreateSource(ctx wl.Ctx, managerID, sourceID, outputID uint32) error {
-	return sendWaylandRequest(ctx, managerID, 0, wlUint32Payload(sourceID, outputID))
+func sendExtOutputCreateSource(cancel context.Context, ctx wl.Ctx, managerID, sourceID, outputID uint32) error {
+	return sendWaylandRequest(cancel, ctx, managerID, 0, wlUint32Payload(sourceID, outputID))
 }
 
-func sendExtCreateSession(ctx wl.Ctx, managerID, sessionID, sourceID uint32) error {
-	return sendWaylandRequest(ctx, managerID, 0, wlUint32Payload(sessionID, sourceID, 0))
+func sendExtCreateSession(cancel context.Context, ctx wl.Ctx, managerID, sessionID, sourceID uint32) error {
+	return sendWaylandRequest(cancel, ctx, managerID, 0, wlUint32Payload(sessionID, sourceID, 0))
 }
 
-func sendExtCreateFrame(ctx wl.Ctx, sessionID, frameID uint32) error {
-	return sendWaylandRequest(ctx, sessionID, 0, wlUint32Payload(frameID))
+func sendExtCreateFrame(cancel context.Context, ctx wl.Ctx, sessionID, frameID uint32) error {
+	return sendWaylandRequest(cancel, ctx, sessionID, 0, wlUint32Payload(frameID))
 }
 
-func sendExtAttachBuffer(ctx wl.Ctx, frameID, bufferID uint32) error {
-	return sendWaylandRequest(ctx, frameID, 1, wlUint32Payload(bufferID))
+func sendExtAttachBuffer(cancel context.Context, ctx wl.Ctx, frameID, bufferID uint32) error {
+	return sendWaylandRequest(cancel, ctx, frameID, 1, wlUint32Payload(bufferID))
 }
 
-func sendExtDamageBuffer(ctx wl.Ctx, frameID uint32, width, height int32) error {
-	return sendWaylandRequest(ctx, frameID, 2, wlInt32Payload(0, 0, width, height))
+func sendExtDamageBuffer(cancel context.Context, ctx wl.Ctx, frameID uint32, width, height int32) error {
+	return sendWaylandRequest(cancel, ctx, frameID, 2, wlInt32Payload(0, 0, width, height))
 }
 
-func sendExtCapture(ctx wl.Ctx, frameID uint32) error {
-	return sendWaylandRequest(ctx, frameID, 3, nil)
+func sendExtCapture(cancel context.Context, ctx wl.Ctx, frameID uint32) error {
+	return sendWaylandRequest(cancel, ctx, frameID, 3, nil)
 }
 
-func sendWaylandRequest(ctx wl.Ctx, senderID, opcode uint32, payload []byte) error {
+func sendWaylandRequest(cancel context.Context, ctx wl.Ctx, senderID, opcode uint32, payload []byte) error {
 	size := 8 + len(payload)
 	buf := make([]byte, size)
 	wl.PutUint32(buf[0:], senderID)
 	wl.PutUint32(buf[4:], uint32(size)<<16|opcode)
 	copy(buf[8:], payload)
-	return ctx.WriteMsg(buf, nil)
+	return ctx.WriteMsgContext(cancel, buf, nil)
 }
 
 func wlUint32Payload(values ...uint32) []byte {

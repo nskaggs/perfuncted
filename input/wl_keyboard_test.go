@@ -155,13 +155,27 @@ type fakeCtx struct {
 
 func (f *fakeCtx) Register(p wl.Proxy)            {}
 func (f *fakeCtx) SetProxy(id uint32, p wl.Proxy) {}
+func (f *fakeCtx) Unregister(p wl.Proxy)          {}
 func (f *fakeCtx) WriteMsg(data, oob []byte) error {
 	f.writes++
 	f.lastData = append([]byte{}, data...)
 	return nil
 }
 func (f *fakeCtx) Dispatch() error { return nil }
-func (f *fakeCtx) Close() error    { return nil }
+func (f *fakeCtx) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.WriteMsg(data, oob)
+}
+func (f *fakeCtx) DispatchContext(ctx context.Context) error { return ctx.Err() }
+func (f *fakeCtx) WithOperationContext(ctx context.Context, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fn()
+}
+func (f *fakeCtx) Close() error { return nil }
 
 func TestUploadKeymap_Caching(t *testing.T) {
 	k := &wlKeyboard{held: make(map[string]uint32)}
@@ -173,14 +187,14 @@ func TestUploadKeymap_Caching(t *testing.T) {
 	k.ctx = f
 
 	text := "xkb_keymap { }"
-	if err := k.uploadKeymap(text); err != nil {
+	if err := k.uploadKeymap(context.Background(), text); err != nil {
 		t.Fatalf("upload1 error: %v", err)
 	}
 	if f.writes != 1 {
 		t.Fatalf("expected 1 write, got %d", f.writes)
 	}
 	// second call should be a no-op
-	if err := k.uploadKeymap(text); err != nil {
+	if err := k.uploadKeymap(context.Background(), text); err != nil {
 		t.Fatalf("upload2 error: %v", err)
 	}
 	if f.writes != 1 {
@@ -188,7 +202,7 @@ func TestUploadKeymap_Caching(t *testing.T) {
 	}
 
 	// different text should cause another write
-	if err := k.uploadKeymap(text + "x"); err != nil {
+	if err := k.uploadKeymap(context.Background(), text+"x"); err != nil {
 		t.Fatalf("upload3 error: %v", err)
 	}
 	if f.writes != 2 {
@@ -385,8 +399,8 @@ func TestUploadKeymap_Concurrent(t *testing.T) {
 
 	text := "xkb_keymap { }"
 	errCh := make(chan error, 2)
-	go func() { errCh <- k.uploadKeymap(text) }()
-	go func() { errCh <- k.uploadKeymap(text) }()
+	go func() { errCh <- k.uploadKeymap(context.Background(), text) }()
+	go func() { errCh <- k.uploadKeymap(context.Background(), text) }()
 	// collect errors
 	e1 := <-errCh
 	e2 := <-errCh

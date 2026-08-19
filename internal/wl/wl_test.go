@@ -328,6 +328,257 @@ func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
 	<-serverDone
 }
 
+func TestContextWriteMsgContextCancelsBlockedWrite(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		<-releaseServer
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+	<-accepted
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	writeDone := make(chan error, 1)
+	progress := make(chan struct{}, 1)
+	go func() {
+		chunk := make([]byte, 4096)
+		for {
+			if err := ctx.WriteMsgContext(cancelCtx, chunk, nil); err != nil {
+				writeDone <- err
+				return
+			}
+			select {
+			case progress <- struct{}{}:
+			default:
+			}
+		}
+	}()
+	// Let successful writes accumulate to fill the peer's send buffer, then
+	// wait for progress to stop before canceling the blocked write.
+	select {
+	case <-progress:
+	case err := <-writeDone:
+		t.Fatalf("WriteMsgContext returned before the blocked write: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("WriteMsgContext made no progress while filling the socket")
+	}
+	for {
+		select {
+		case <-progress:
+			// Keep draining progress until the next write blocks.
+		case <-time.After(10 * time.Millisecond):
+			goto blocked
+		case err := <-writeDone:
+			t.Fatalf("WriteMsgContext returned before cancellation: %v", err)
+		}
+	}
+
+blocked:
+	cancel()
+	select {
+	case err := <-writeDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("WriteMsgContext error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WriteMsgContext did not unblock after cancellation")
+	}
+	close(releaseServer)
+	<-serverDone
+}
+
+func TestContextWithOperationContextCancelsQueuedAdmission(t *testing.T) {
+	ctx := &Context{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- ctx.WithOperationContext(context.Background(), func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	queuedDone := make(chan error, 1)
+	go func() {
+		queuedDone <- ctx.WithOperationContext(cancelCtx, func() error { return nil })
+	}()
+	cancel()
+	select {
+	case err := <-queuedDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued operation error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued operation did not unblock after cancellation")
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first operation: %v", err)
+	}
+}
+
+func TestContextWriteMsgContextCancelsQueuedWrite(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+	<-accepted
+
+	gate := ctx.writeGateChannel()
+	<-gate
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	writeDone := make(chan error, 1)
+	go func() { writeDone <- ctx.WriteMsgContext(cancelCtx, []byte{1}, nil) }()
+	cancel()
+	select {
+	case err := <-writeDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued write error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued write did not unblock after cancellation")
+	}
+	gate <- struct{}{}
+	<-serverDone
+}
+
+func TestContextDispatchContextCancelsQueuedAdmission(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		<-releaseServer
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+	<-accepted
+
+	gate := ctx.dispatchGateChannel()
+	<-gate
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	dispatchDone := make(chan error, 1)
+	go func() { dispatchDone <- ctx.DispatchContext(cancelCtx) }()
+	cancel()
+	select {
+	case err := <-dispatchDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued dispatch error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued dispatch did not unblock after cancellation")
+	}
+	gate <- struct{}{}
+	close(releaseServer)
+	<-serverDone
+}
+
+func TestContextRoundTripContextCancelsQueuedAdmission(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		<-releaseServer
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+	<-accepted
+
+	gate := ctx.roundTripGateChannel()
+	<-gate
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	roundTripDone := make(chan error, 1)
+	go func() { roundTripDone <- ctx.RoundTripContext(cancelCtx) }()
+	cancel()
+	select {
+	case err := <-roundTripDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued round trip error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued round trip did not unblock after cancellation")
+	}
+	gate <- struct{}{}
+	close(releaseServer)
+	<-serverDone
+}
+
 func TestContext_Close_NilConn(t *testing.T) {
 	// Context with nil conn (test construction) should be a no-op (not panic).
 	ctx := &Context{}

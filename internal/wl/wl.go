@@ -4,6 +4,7 @@ package wl
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,30 +24,35 @@ var le = binary.LittleEndian
 type Ctx interface {
 	Register(p Proxy)
 	SetProxy(id uint32, p Proxy)
-	WriteMsg(data, oob []byte) error
-	Dispatch() error
+	Unregister(p Proxy)
+	WriteMsgContext(context.Context, []byte, []byte) error
+	DispatchContext(context.Context) error
+	WithOperationContext(context.Context, func() error) error
 	Close() error
 }
 
 // WithOperation serializes a multi-message protocol operation on a context.
-// Test contexts that do not share a real connection may omit the optional
-// operation guard and execute fn directly.
+// The non-context form is retained for setup and other operations whose
+// lifetime is owned by the caller.
 func WithOperation(ctx Ctx, fn func() error) error {
-	if op, ok := ctx.(interface{ WithOperation(func() error) error }); ok {
-		return op.WithOperation(fn)
-	}
-	return fn()
+	return ctx.WithOperationContext(context.Background(), fn)
 }
 
-// DispatchContext reads one message when the context supports cancellation;
-// lightweight test contexts fall back to their regular dispatch method.
+// WithOperationContext serializes a complete logical operation and honors
+// cancellation while waiting for the shared transport.
+func WithOperationContext(ctx Ctx, cancel context.Context, fn func() error) error {
+	return ctx.WithOperationContext(cancel, fn)
+}
+
+// WriteMsg sends a message using a background context. Context-bearing
+// operations should call WriteMsgContext directly.
+func WriteMsg(ctx Ctx, data, oob []byte) error {
+	return ctx.WriteMsgContext(context.Background(), data, oob)
+}
+
+// DispatchContext reads one message and honors cancellation.
 func DispatchContext(cancel context.Context, ctx Ctx) error {
-	if dispatcher, ok := ctx.(interface {
-		DispatchContext(context.Context) error
-	}); ok {
-		return dispatcher.DispatchContext(cancel)
-	}
-	return ctx.Dispatch()
+	return ctx.DispatchContext(cancel)
 }
 
 // Proxy is implemented by all Wayland protocol objects.
@@ -90,11 +96,15 @@ type Context struct {
 	nextID  uint32
 	buf     []byte
 
-	objectsMu   sync.RWMutex
-	writeMu     sync.Mutex
-	dispatchMu  sync.Mutex
-	roundTripMu sync.Mutex
-	operationMu sync.Mutex
+	objectsMu         sync.RWMutex
+	writeGateOnce     sync.Once
+	writeGate         chan struct{}
+	dispatchGateOnce  sync.Once
+	dispatchGate      chan struct{}
+	roundTripGateOnce sync.Once
+	roundTripGate     chan struct{}
+	operationGateOnce sync.Once
+	operationGate     chan struct{}
 }
 
 // Connect opens a Wayland connection to addr (must be an absolute socket path).
@@ -154,46 +164,111 @@ func (ctx *Context) Unregister(p Proxy) {
 	ctx.unregister(p.ID(), p)
 }
 
-// Unregister removes p from a context that supports registry cleanup. The
-// optional interface keeps lightweight test contexts source-compatible.
+// Unregister removes p from the context's client-side object registry.
 func Unregister(ctx Ctx, p Proxy) {
 	if ctx == nil || p == nil {
 		return
 	}
-	if registry, ok := ctx.(interface{ Unregister(Proxy) }); ok {
-		registry.Unregister(p)
-	}
+	ctx.Unregister(p)
 }
 
-// WriteMsg sends a raw Wayland message with optional ancillary (OOB) data.
-// If the underlying connection is nil (tests may construct zero-value Contexts),
-// treat it as a no-op rather than panicking.
+// WriteMsg sends a raw Wayland message using a background context.
 func (ctx *Context) WriteMsg(data, oob []byte) error {
+	return ctx.WriteMsgContext(context.Background(), data, oob)
+}
+
+// WriteMsgContext sends a raw Wayland message and interrupts a blocked Unix
+// socket write when cancel is done. The write lock covers both the write and
+// deadline restoration, so cancellation cannot leak a deadline into a later
+// operation.
+func (ctx *Context) WriteMsgContext(cancel context.Context, data, oob []byte) error {
+	if cancel == nil {
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
+	}
+	if err := cancel.Err(); err != nil {
+		return err
+	}
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
-	ctx.writeMu.Lock()
-	defer ctx.writeMu.Unlock()
-	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
-	if err != nil {
+
+	select {
+	case <-cancel.Done():
+		return cancel.Err()
+	case <-ctx.writeGateChannel():
+	}
+	defer func() { ctx.writeGateChannel() <- struct{}{} }()
+	if err := cancel.Err(); err != nil {
 		return err
 	}
-	if n != len(data) || oobn != len(oob) {
-		return fmt.Errorf("wl: short write (%d/%d data, %d/%d oob)", n, len(data), oobn, len(oob))
+
+	finished := make(chan struct{})
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-cancel.Done():
+			// SetWriteDeadline is safe while WriteMsgUnix is blocked and does
+			// not close the shared connection used by other Session handles.
+			_ = ctx.conn.SetWriteDeadline(time.Now())
+		case <-finished:
+		}
+	}()
+
+	n, oobn, err := ctx.conn.WriteMsgUnix(data, oob, nil)
+	close(finished)
+	<-watcherDone
+	resetErr := ctx.conn.SetWriteDeadline(time.Time{})
+	cancelErr := cancel.Err()
+	resetCause := func() error {
+		if resetErr == nil {
+			return nil
+		}
+		return fmt.Errorf("wl: reset write deadline: %w", resetErr)
 	}
+	if err != nil {
+		if cancelErr != nil {
+			if resetErr != nil {
+				return errors.Join(cancelErr, err, resetCause())
+			}
+			return errors.Join(cancelErr, err)
+		}
+		if resetErr != nil {
+			return errors.Join(err, resetCause())
+		}
+		return err
+	}
+	if resetErr != nil {
+		if cancelErr != nil {
+			return errors.Join(cancelErr, resetCause())
+		}
+		return resetCause()
+	}
+	if n != len(data) || oobn != len(oob) {
+		shortErr := fmt.Errorf("wl: short write (%d/%d data, %d/%d oob)", n, len(data), oobn, len(oob))
+		if cancelErr != nil {
+			return errors.Join(cancelErr, shortErr)
+		}
+		return shortErr
+	}
+	// A complete successful write owns the request: cancellation observed
+	// concurrently after WriteMsgUnix completed must not report a false failure.
 	return nil
 }
 
 // Dispatch reads and dispatches exactly one Wayland message.
 // Messages from unknown sender IDs are silently discarded (not an error).
 func (ctx *Context) Dispatch() error {
+	return ctx.DispatchContext(context.Background())
+}
+
+// dispatch reads and dispatches exactly one Wayland message.
+func (ctx *Context) dispatch() error {
 	// If the underlying connection is nil (tests may construct zero-value Contexts),
 	// treat dispatch as a no-op rather than panicking.
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
-	ctx.dispatchMu.Lock()
-	defer ctx.dispatchMu.Unlock()
 	var hdr [8]byte
 	if _, err := io.ReadFull(ctx.conn, hdr[:]); err != nil {
 		return fmt.Errorf("wl: %w", err)
@@ -238,6 +313,16 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
+	gate := ctx.dispatchGateChannel()
+	select {
+	case <-cancel.Done():
+		return cancel.Err()
+	case <-gate:
+	}
+	defer func() { gate <- struct{}{} }()
+	if err := cancel.Err(); err != nil {
+		return err
+	}
 
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
@@ -245,19 +330,28 @@ func (ctx *Context) DispatchContext(cancel context.Context) error {
 		defer close(watcherDone)
 		select {
 		case <-cancel.Done():
-			if err := ctx.conn.SetReadDeadline(time.Now()); err != nil {
-				_ = ctx.Close()
-			}
+			// A deadline interrupts only this read; do not close the shared
+			// reference-counted transport if setting it fails.
+			_ = ctx.conn.SetReadDeadline(time.Now())
 		case <-finished:
 		}
 	}()
 
-	err := ctx.Dispatch()
+	err := ctx.dispatch()
 	close(finished)
 	<-watcherDone
-	_ = ctx.conn.SetReadDeadline(time.Time{})
+	resetErr := ctx.conn.SetReadDeadline(time.Time{})
 	if cancelErr := cancel.Err(); cancelErr != nil {
+		if resetErr != nil {
+			return errors.Join(cancelErr, fmt.Errorf("wl: reset read deadline: %w", resetErr))
+		}
 		return cancelErr
+	}
+	if err != nil && resetErr != nil {
+		return errors.Join(err, fmt.Errorf("wl: reset read deadline: %w", resetErr))
+	}
+	if resetErr != nil {
+		return fmt.Errorf("wl: reset read deadline: %w", resetErr)
 	}
 	return err
 }
@@ -269,18 +363,70 @@ func (ctx *Context) Close() error {
 	if ctx == nil || ctx.conn == nil {
 		return nil
 	}
-	ctx.writeMu.Lock()
-	defer ctx.writeMu.Unlock()
+	gate := ctx.writeGateChannel()
+	<-gate
+	defer func() { gate <- struct{}{} }()
 	return ctx.conn.Close()
 }
 
-// WithOperation serializes a multi-message protocol operation on this
-// connection. Callbacks may still re-enter Register, SetProxy, and WriteMsg;
-// those operations use separate locks. It is intentionally optional through
-// the wl.Ctx interface so protocol test doubles do not need to implement it.
+// WithOperation serializes a multi-message protocol operation using a
+// background context.
 func (ctx *Context) WithOperation(fn func() error) error {
-	ctx.operationMu.Lock()
-	defer ctx.operationMu.Unlock()
+	return ctx.WithOperationContext(context.Background(), fn)
+}
+
+func (ctx *Context) dispatchGateChannel() chan struct{} {
+	ctx.dispatchGateOnce.Do(func() {
+		ctx.dispatchGate = make(chan struct{}, 1)
+		ctx.dispatchGate <- struct{}{}
+	})
+	return ctx.dispatchGate
+}
+
+func (ctx *Context) roundTripGateChannel() chan struct{} {
+	ctx.roundTripGateOnce.Do(func() {
+		ctx.roundTripGate = make(chan struct{}, 1)
+		ctx.roundTripGate <- struct{}{}
+	})
+	return ctx.roundTripGate
+}
+
+func (ctx *Context) operationGateChannel() chan struct{} {
+	ctx.operationGateOnce.Do(func() {
+		ctx.operationGate = make(chan struct{}, 1)
+		ctx.operationGate <- struct{}{}
+	})
+	return ctx.operationGate
+}
+
+func (ctx *Context) writeGateChannel() chan struct{} {
+	ctx.writeGateOnce.Do(func() {
+		ctx.writeGate = make(chan struct{}, 1)
+		ctx.writeGate <- struct{}{}
+	})
+	return ctx.writeGate
+}
+
+// WithOperationContext serializes a complete logical operation and allows a
+// caller to abandon admission while another owner is using the shared
+// connection.
+func (ctx *Context) WithOperationContext(cancel context.Context, fn func() error) error {
+	if cancel == nil {
+		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
+	}
+	if err := cancel.Err(); err != nil {
+		return err
+	}
+	gate := ctx.operationGateChannel()
+	select {
+	case <-cancel.Done():
+		return cancel.Err()
+	case <-gate:
+	}
+	defer func() { gate <- struct{}{} }()
+	if err := cancel.Err(); err != nil {
+		return err
+	}
 	return fn()
 }
 
@@ -338,24 +484,34 @@ func (d *Display) Context() Ctx { return d.ctx }
 
 // GetRegistry sends wl_display.get_registry and returns the Registry object.
 func (d *Display) GetRegistry() (*Registry, error) {
+	return d.GetRegistryContext(context.Background())
+}
+
+// GetRegistryContext sends wl_display.get_registry with cancellation-aware I/O.
+func (d *Display) GetRegistryContext(cancel context.Context) (*Registry, error) {
 	reg := &Registry{}
 	d.ctx.Register(reg)
 	var buf [12]byte
 	PutUint32(buf[0:], 1)        // wl_display is always ID 1
 	PutUint32(buf[4:], 12<<16|1) // size=12, opcode=1 (get_registry)
 	PutUint32(buf[8:], reg.ID())
-	return reg, d.ctx.WriteMsg(buf[:], nil)
+	return reg, d.ctx.WriteMsgContext(cancel, buf[:], nil)
 }
 
 // Sync sends wl_display.sync and returns a Callback object.
 func (d *Display) Sync() (*Callback, error) {
+	return d.SyncContext(context.Background())
+}
+
+// SyncContext sends wl_display.sync with cancellation-aware I/O.
+func (d *Display) SyncContext(cancel context.Context) (*Callback, error) {
 	cb := &Callback{}
 	d.ctx.Register(cb)
 	var buf [12]byte
 	PutUint32(buf[0:], 1)      // wl_display is always ID 1
 	PutUint32(buf[4:], 12<<16) // size=12, opcode=0 (sync)
 	PutUint32(buf[8:], cb.ID())
-	return cb, d.ctx.WriteMsg(buf[:], nil)
+	return cb, d.ctx.WriteMsgContext(cancel, buf[:], nil)
 }
 
 // RoundTrip performs a synchronous wl_display.sync, pumping events until done.
@@ -383,20 +539,28 @@ func (ctx *Context) RoundTrip() error {
 }
 
 // RoundTripContext performs a synchronous wl_display.sync, pumping events
-// until done or cancel is canceled. The round-trip lock prevents concurrent
+// until done or cancel is canceled. The round-trip gate prevents concurrent
 // callers from consuming each other's sync callbacks on a shared connection.
 func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:contextcheck // cancel is the first method argument after the receiver.
-	if ctx == nil || ctx.conn == nil {
-		return nil
-	}
 	if cancel == nil {
 		cancel = context.Background() //nolint:contextcheck // nil is intentionally normalized for this low-level API.
 	}
 	if err := cancel.Err(); err != nil {
 		return err
 	}
-	ctx.roundTripMu.Lock()
-	defer ctx.roundTripMu.Unlock()
+	if ctx == nil || ctx.conn == nil {
+		return nil
+	}
+	gate := ctx.roundTripGateChannel()
+	select {
+	case <-cancel.Done():
+		return cancel.Err()
+	case <-gate:
+	}
+	defer func() { gate <- struct{}{} }()
+	if err := cancel.Err(); err != nil {
+		return err
+	}
 
 	cb := &Callback{}
 	ctx.Register(cb)
@@ -405,7 +569,7 @@ func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:co
 	PutUint32(buf[0:], 1)
 	PutUint32(buf[4:], 12<<16)
 	PutUint32(buf[8:], cb.ID())
-	if err := ctx.WriteMsg(buf[:], nil); err != nil {
+	if err := ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		return err
 	}
 	done := make(chan struct{}, 1)
@@ -460,6 +624,11 @@ func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
 // Bind sends wl_registry.bind with correct Wayland string encoding.
 // newID must be the ID of a Proxy already registered with the Context.
 func (r *Registry) Bind(name uint32, iface string, ver, newID uint32) error {
+	return r.BindContext(context.Background(), name, iface, ver, newID)
+}
+
+// BindContext sends wl_registry.bind with cancellation-aware I/O.
+func (r *Registry) BindContext(cancel context.Context, name uint32, iface string, ver, newID uint32) error {
 	var buf []byte
 	buf = put32(buf, r.ID())
 	buf = put32(buf, 0) // placeholder: filled in below with size|opcode
@@ -468,7 +637,7 @@ func (r *Registry) Bind(name uint32, iface string, ver, newID uint32) error {
 	buf = put32(buf, ver)
 	buf = put32(buf, newID)
 	PutUint32(buf[4:], uint32(len(buf))<<16) // opcode 0 = bind
-	return r.ctx.WriteMsg(buf, nil)
+	return r.ctx.WriteMsgContext(cancel, buf, nil)
 }
 
 // ── Callback ──────────────────────────────────────────────────────────────────
@@ -500,6 +669,11 @@ func (s *Shm) Dispatch(_ uint32, _ int, _ []byte) {}
 // CreatePool sends wl_shm.create_pool(new_id, fd, size) and returns the pool.
 // fd is passed as ancillary data (OOB), not in the message body.
 func (s *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
+	return s.CreatePoolContext(context.Background(), fd, size)
+}
+
+// CreatePoolContext sends wl_shm.create_pool with cancellation-aware I/O.
+func (s *Shm) CreatePoolContext(cancel context.Context, fd int, size int32) (*ShmPool, error) {
 	pool := &ShmPool{}
 	s.ctx.Register(pool)
 	var buf [16]byte
@@ -507,7 +681,7 @@ func (s *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 	PutUint32(buf[4:], 16<<16) // size=16, opcode=0 (create_pool)
 	PutUint32(buf[8:], pool.ID())
 	PutUint32(buf[12:], uint32(size))
-	if err := s.ctx.WriteMsg(buf[:], syscall.UnixRights(fd)); err != nil {
+	if err := s.ctx.WriteMsgContext(cancel, buf[:], syscall.UnixRights(fd)); err != nil {
 		Unregister(s.ctx, pool)
 		return nil, err
 	}
@@ -522,6 +696,11 @@ func (p *ShmPool) Dispatch(_ uint32, _ int, _ []byte) {}
 
 // CreateBuffer sends wl_shm_pool.create_buffer and returns the buffer.
 func (p *ShmPool) CreateBuffer(offset, width, height, stride int32, format uint32) (*Buffer, error) {
+	return p.CreateBufferContext(context.Background(), offset, width, height, stride, format)
+}
+
+// CreateBufferContext sends wl_shm_pool.create_buffer with cancellation-aware I/O.
+func (p *ShmPool) CreateBufferContext(cancel context.Context, offset, width, height, stride int32, format uint32) (*Buffer, error) {
 	b := &Buffer{}
 	p.ctx.Register(b)
 	var buf [32]byte
@@ -533,7 +712,7 @@ func (p *ShmPool) CreateBuffer(offset, width, height, stride int32, format uint3
 	PutUint32(buf[20:], uint32(height))
 	PutUint32(buf[24:], uint32(stride))
 	PutUint32(buf[28:], format)
-	if err := p.ctx.WriteMsg(buf[:], nil); err != nil {
+	if err := p.ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		Unregister(p.ctx, b)
 		return nil, err
 	}
@@ -542,10 +721,15 @@ func (p *ShmPool) CreateBuffer(offset, width, height, stride int32, format uint3
 
 // Destroy sends wl_shm_pool.destroy.
 func (p *ShmPool) Destroy() error {
+	return p.DestroyContext(context.Background())
+}
+
+// DestroyContext sends wl_shm_pool.destroy with cancellation-aware I/O.
+func (p *ShmPool) DestroyContext(cancel context.Context) error {
 	var buf [8]byte
 	PutUint32(buf[0:], p.ID())
 	PutUint32(buf[4:], 8<<16|1) // size=8, opcode=1 (destroy)
-	if err := p.ctx.WriteMsg(buf[:], nil); err != nil {
+	if err := p.ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		return err
 	}
 	Unregister(p.ctx, p)
@@ -560,10 +744,15 @@ func (b *Buffer) Dispatch(_ uint32, _ int, _ []byte) {}
 
 // Destroy sends wl_buffer.destroy.
 func (b *Buffer) Destroy() error {
+	return b.DestroyContext(context.Background())
+}
+
+// DestroyContext sends wl_buffer.destroy with cancellation-aware I/O.
+func (b *Buffer) DestroyContext(cancel context.Context) error {
 	var buf [8]byte
 	PutUint32(buf[0:], b.ID())
 	PutUint32(buf[4:], 8<<16) // size=8, opcode=0 (destroy)
-	if err := b.ctx.WriteMsg(buf[:], nil); err != nil {
+	if err := b.ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		return err
 	}
 	Unregister(b.ctx, b)

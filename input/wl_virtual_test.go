@@ -373,3 +373,117 @@ func TestWlVirtualBackend_CanceledContextShortCircuitsMethods(t *testing.T) {
 		})
 	}
 }
+
+func TestWlVirtualBackend_CloseCancelsBlockedOperation(t *testing.T) {
+	b, _ := newCapturedWlVirtualBackend(t)
+	started := make(chan struct{})
+	progress := make(chan struct{}, 1)
+	opDone := make(chan error, 1)
+	go func() {
+		opDone <- b.withOperation(context.Background(), func(ctx wl.Ctx, opCtx context.Context) error {
+			close(started)
+			chunk := make([]byte, 4096)
+			for {
+				if err := ctx.WriteMsgContext(opCtx, chunk, nil); err != nil {
+					return err
+				}
+				select {
+				case progress <- struct{}{}:
+				default:
+				}
+			}
+		})
+	}()
+	<-started
+	select {
+	case <-progress:
+	case err := <-opDone:
+		t.Fatalf("operation returned before the blocked write: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("operation made no progress")
+	}
+	for {
+		select {
+		case <-progress:
+		case err := <-opDone:
+			t.Fatalf("operation returned before Close: %v", err)
+		case <-time.After(10 * time.Millisecond):
+			goto blocked
+		}
+	}
+
+blocked:
+	closeDone := make(chan error, 2)
+	go func() { closeDone <- b.Close() }()
+	go func() { closeDone <- b.Close() }()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-closeDone:
+			if err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Close did not join blocked operation")
+		}
+	}
+	select {
+	case err := <-opDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("operation error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked operation did not exit after Close")
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("repeated Close: %v", err)
+	}
+	if err := b.MouseMove(context.Background(), 1, 2); err == nil {
+		t.Fatal("MouseMove succeeded after Close")
+	}
+	if err := b.Sync(context.Background()); err == nil {
+		t.Fatal("Sync succeeded after Close")
+	}
+}
+
+func TestWlVirtualBackendQueuedOperationCancellation(t *testing.T) {
+	b := &WlVirtualBackend{session: &wl.Session{Display: wl.NewDisplay(&wl.Context{})}}
+	firstStarted := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- b.withOperation(context.Background(), func(_ wl.Ctx, opCtx context.Context) error {
+			close(firstStarted)
+			<-opCtx.Done()
+			return opCtx.Err()
+		})
+	}()
+	<-firstStarted
+
+	queuedCtx, cancel := context.WithCancel(context.Background())
+	queuedDone := make(chan error, 1)
+	go func() {
+		queuedDone <- b.withOperation(queuedCtx, func(wl.Ctx, context.Context) error { return nil })
+	}()
+	cancel()
+	select {
+	case err := <-queuedDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued operation error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued operation did not honor cancellation")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- b.Close() }()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not cancel the active operation")
+	}
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("first operation error = %v, want context.Canceled", err)
+	}
+}

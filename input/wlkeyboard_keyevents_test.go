@@ -23,6 +23,7 @@ type recordingCtx struct {
 
 func (r *recordingCtx) Register(p wl.Proxy)            {}
 func (r *recordingCtx) SetProxy(id uint32, p wl.Proxy) {}
+func (r *recordingCtx) Unregister(p wl.Proxy)          {}
 func (r *recordingCtx) WriteMsg(data, oob []byte) error {
 	r.writes++
 	r.lastData = append([]byte{}, data...)
@@ -30,7 +31,20 @@ func (r *recordingCtx) WriteMsg(data, oob []byte) error {
 	return nil
 }
 func (r *recordingCtx) Dispatch() error { return nil }
-func (r *recordingCtx) Close() error    { return nil }
+func (r *recordingCtx) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.WriteMsg(data, oob)
+}
+func (r *recordingCtx) DispatchContext(ctx context.Context) error { return ctx.Err() }
+func (r *recordingCtx) WithOperationContext(ctx context.Context, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fn()
+}
+func (r *recordingCtx) Close() error { return nil }
 
 func newTestKeyboard() (*wlKeyboard, *recordingCtx) {
 	k := &wlKeyboard{held: make(map[string]uint32)}
@@ -55,6 +69,13 @@ func (f *failingCtx) WriteMsg(data, oob []byte) error {
 	return f.recordingCtx.WriteMsg(data, oob)
 }
 
+func (f *failingCtx) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.WriteMsg(data, oob)
+}
+
 func newFailingKeyboard(successWrites int) (*wlKeyboard, *failingCtx) { //nolint:unparam
 	k := &wlKeyboard{held: make(map[string]uint32)}
 	rp := &wl.RawProxy{}
@@ -67,7 +88,7 @@ func newFailingKeyboard(successWrites int) (*wlKeyboard, *failingCtx) { //nolint
 
 func TestSendKey_MessageFormat(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.sendKey(10, 1); err != nil {
+	if err := k.sendKey(context.Background(), 10, 1); err != nil {
 		t.Fatalf("sendKey: %v", err)
 	}
 	if rc.writes != 1 {
@@ -102,7 +123,7 @@ func TestSendKey_MessageFormat(t *testing.T) {
 
 func TestSendKey_Release(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.sendKey(10, 0); err != nil {
+	if err := k.sendKey(context.Background(), 10, 0); err != nil {
 		t.Fatalf("sendKey: %v", err)
 	}
 	msg := rc.lastData
@@ -115,7 +136,7 @@ func TestSendKey_Release(t *testing.T) {
 func TestSendModifiers_MessageFormat(t *testing.T) {
 	k, rc := newTestKeyboard()
 	k.mods = modShift | modControl
-	if err := k.sendModifiers(); err != nil {
+	if err := k.sendModifiers(context.Background()); err != nil {
 		t.Fatalf("sendModifiers: %v", err)
 	}
 	if rc.writes != 1 {
@@ -150,7 +171,7 @@ func TestSendModifiers_MessageFormat(t *testing.T) {
 func TestSendModifiers_ZeroMods(t *testing.T) {
 	k, rc := newTestKeyboard()
 	k.mods = 0
-	if err := k.sendModifiers(); err != nil {
+	if err := k.sendModifiers(context.Background()); err != nil {
 		t.Fatalf("sendModifiers: %v", err)
 	}
 	msg := rc.lastData
@@ -189,7 +210,7 @@ func TestTap_PressAndRelease(t *testing.T) {
 func TestUploadKeymapAndRestoreMods_WithMods(t *testing.T) {
 	k, rc := newTestKeyboard()
 	k.mods = modShift
-	if err := k.uploadKeymapAndRestoreMods(xkbModsOnly()); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(context.Background(), xkbModsOnly()); err != nil {
 		t.Fatalf("uploadKeymapAndRestoreMods: %v", err)
 	}
 	// Should have: 1 keymap upload + 1 modifiers message
@@ -207,7 +228,7 @@ func TestUploadKeymapAndRestoreMods_WithMods(t *testing.T) {
 func TestUploadKeymapAndRestoreMods_NoMods(t *testing.T) {
 	k, rc := newTestKeyboard()
 	k.mods = 0
-	if err := k.uploadKeymapAndRestoreMods(xkbModsOnly()); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(context.Background(), xkbModsOnly()); err != nil {
 		t.Fatalf("uploadKeymapAndRestoreMods: %v", err)
 	}
 	// Should have only 1 write (keymap upload, no modifiers needed)
@@ -302,7 +323,7 @@ func TestTapKey_SingleChar(t *testing.T) {
 
 func TestPressKey_Modifier(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.pressKey("shift"); err != nil {
+	if err := k.pressKey(context.Background(), "shift"); err != nil {
 		t.Fatalf("pressKey: %v", err)
 	}
 	// 1 keymap upload + 1 key press + 1 modifiers = 3 writes
@@ -317,7 +338,7 @@ func TestPressKey_Modifier(t *testing.T) {
 
 func TestPressKey_NamedNonModifier(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.pressKey("return"); err != nil {
+	if err := k.pressKey(context.Background(), "return"); err != nil {
 		t.Fatalf("pressKey: %v", err)
 	}
 	// 1 keymap upload + 1 key press = 2 writes (no modifiers message)
@@ -332,7 +353,7 @@ func TestPressKey_NamedNonModifier(t *testing.T) {
 
 func TestPressKey_SingleChar(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.pressKey("x"); err != nil {
+	if err := k.pressKey(context.Background(), "x"); err != nil {
 		t.Fatalf("pressKey: %v", err)
 	}
 	// 1 keymap upload + 1 key press = 2 writes
@@ -346,7 +367,7 @@ func TestPressKey_SingleChar(t *testing.T) {
 
 func TestPressKey_MultiCharError(t *testing.T) {
 	k, _ := newTestKeyboard()
-	err := k.pressKey("abc")
+	err := k.pressKey(context.Background(), "abc")
 	if err == nil {
 		t.Fatal("expected error for multi-character key")
 	}
@@ -356,13 +377,13 @@ func TestPressKey_MultiCharError(t *testing.T) {
 func TestReleaseKey_Modifier(t *testing.T) {
 	k, rc := newTestKeyboard()
 	// Press then release shift
-	if err := k.pressKey("shift"); err != nil {
+	if err := k.pressKey(context.Background(), "shift"); err != nil {
 		t.Fatalf("pressKey: %v", err)
 	}
 	rc.writes = 0 // reset
 	rc.msgs = nil
 
-	if err := k.releaseKey("shift"); err != nil {
+	if err := k.releaseKey(context.Background(), "shift"); err != nil {
 		t.Fatalf("releaseKey: %v", err)
 	}
 	// 1 key release + 1 modifiers = 2 writes
@@ -377,13 +398,13 @@ func TestReleaseKey_Modifier(t *testing.T) {
 
 func TestReleaseKey_NamedNonModifier(t *testing.T) {
 	k, rc := newTestKeyboard()
-	if err := k.pressKey("return"); err != nil {
+	if err := k.pressKey(context.Background(), "return"); err != nil {
 		t.Fatalf("pressKey: %v", err)
 	}
 	rc.writes = 0
 	rc.msgs = nil
 
-	if err := k.releaseKey("return"); err != nil {
+	if err := k.releaseKey(context.Background(), "return"); err != nil {
 		t.Fatalf("releaseKey: %v", err)
 	}
 	// releaseKey calls uploadKeymap which may be cached (same keymap as pressKey),
@@ -400,7 +421,7 @@ func TestReleaseKey_NamedNonModifier(t *testing.T) {
 func TestReleaseKey_NotHeld(t *testing.T) {
 	k, rc := newTestKeyboard()
 	// Release a key that was never pressed — should return an error
-	err := k.releaseKey("x")
+	err := k.releaseKey(context.Background(), "x")
 	if err == nil {
 		t.Fatal("expected error for releasing non-held key")
 	}
@@ -413,7 +434,7 @@ func TestReleaseKey_NotHeld(t *testing.T) {
 func TestReleaseKey_NamedNotHeld(t *testing.T) {
 	k, rc := newTestKeyboard()
 	// Release a named non-modifier key that was never pressed — should return an error
-	err := k.releaseKey("return")
+	err := k.releaseKey(context.Background(), "return")
 	if err == nil {
 		t.Fatal("expected error for releasing non-held named key")
 	}
@@ -426,7 +447,7 @@ func TestReleaseKey_NamedNotHeld(t *testing.T) {
 func TestReleaseKey_ModifierNotHeld(t *testing.T) {
 	k, rc := newTestKeyboard()
 	// Release shift without pressing — should still work (sends key up + modifiers)
-	if err := k.releaseKey("shift"); err != nil {
+	if err := k.releaseKey(context.Background(), "shift"); err != nil {
 		t.Fatalf("releaseKey: %v", err)
 	}
 	// Modifier keycodes (8-11) don't need keymap re-upload, so:
@@ -466,7 +487,7 @@ func TestTypeString_ExactMaxSlots(t *testing.T) {
 func TestUploadKeymap_MessageFormat(t *testing.T) {
 	k, rc := newTestKeyboard()
 	text := "xkb_keymap { }"
-	if err := k.uploadKeymap(text); err != nil {
+	if err := k.uploadKeymap(context.Background(), text); err != nil {
 		t.Fatalf("uploadKeymap: %v", err)
 	}
 	msg := rc.lastData
@@ -549,7 +570,7 @@ func (k *wlKeyboard) typeString(ctx context.Context, s string) error {
 	if uint32(len(runes)) > testMaxDynSlots {
 		return fmt.Errorf("keyboard: string has %d unique characters, max %d per call", len(runes), testMaxDynSlots)
 	}
-	if err := k.uploadKeymapAndRestoreMods(xkbWithRunes(runes)); err != nil {
+	if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithRunes(runes)); err != nil {
 		return err
 	}
 	slot := make(map[rune]uint32, len(runes))
@@ -567,7 +588,7 @@ func (k *wlKeyboard) typeString(ctx context.Context, s string) error {
 
 func (k *wlKeyboard) tapKey(ctx context.Context, key string) error {
 	if kc, sym, ok := namedKey(key); ok {
-		if err := k.uploadKeymapAndRestoreMods(xkbWithNamed(kc, sym)); err != nil {
+		if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithNamed(kc, sym)); err != nil {
 			return err
 		}
 		return k.tap(ctx, kc)

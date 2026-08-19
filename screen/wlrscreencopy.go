@@ -153,12 +153,9 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 		}
 	}
 
-	var fnErr error
-	if op, ok := interface{}(b.ctx).(interface{ WithOperation(func() error) error }); ok {
-		fnErr = op.WithOperation(func() error { return fn(b.ctx, operationCtx) })
-	} else {
-		fnErr = fn(b.ctx, operationCtx)
-	}
+	fnErr := b.ctx.WithOperationContext(operationCtx, func() error {
+		return fn(b.ctx, operationCtx)
+	})
 	if fnErr != nil {
 		_ = b.ctx.Close()
 		b.ctx = nil
@@ -170,7 +167,7 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 
 func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *wl.Context) error { //nolint:gocyclo
 	display := wl.NewDisplay(ctx)
-	registry, err := display.GetRegistry()
+	registry, err := display.GetRegistryContext(operationCtx)
 	if err != nil {
 		return fmt.Errorf("screen/wlr: get registry: %w", err)
 	}
@@ -190,7 +187,7 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 		case "wl_shm":
 			s := &wl.Shm{}
 			ctx.Register(s)
-			if err := registry.Bind(ev.Name, ev.Interface, 1, s.ID()); err == nil {
+			if err := registry.BindContext(operationCtx, ev.Name, ev.Interface, 1, s.ID()); err == nil {
 				b.shm = s
 			}
 		}
@@ -212,13 +209,13 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 
 	b.mgrProxy = &wlRawProxy{}
 	ctx.Register(b.mgrProxy)
-	if err := registry.Bind(mgrName, "zwlr_screencopy_manager_v1", min(mgrVer, 3), b.mgrProxy.ID()); err != nil {
+	if err := registry.BindContext(operationCtx, mgrName, "zwlr_screencopy_manager_v1", min(mgrVer, 3), b.mgrProxy.ID()); err != nil {
 		return fmt.Errorf("screen/wlr: bind manager: %w", err)
 	}
 
 	b.output = &wlRawProxy{}
 	ctx.Register(b.output)
-	if err := registry.Bind(outID, "wl_output", 4, b.output.ID()); err != nil {
+	if err := registry.BindContext(operationCtx, outID, "wl_output", 4, b.output.ID()); err != nil {
 		return fmt.Errorf("screen/wlr: bind output: %w", err)
 	}
 
@@ -251,6 +248,19 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 	}
 	return b.withWlrContextContext(ctx, func(wlctx *wl.Context, operationCtx context.Context) error {
+		var cleanupCtx context.Context
+		var cleanupCancel context.CancelFunc
+		cleanupContext := func() context.Context {
+			if cleanupCtx == nil {
+				cleanupCtx, cleanupCancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+			}
+			return cleanupCtx
+		}
+		defer func() {
+			if cleanupCancel != nil {
+				cleanupCancel()
+			}
+		}()
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 		}
@@ -260,7 +270,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			wl.Unregister(wlctx, frameProxy)
 		}()
 
-		if err := wlSendCaptureOutput(wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
+		if err := wlSendCaptureOutput(operationCtx, wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)
 		}
 
@@ -316,19 +326,25 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			pixels = b.cachedBuf[:size]
 		}
 
-		pool, err := b.shm.CreatePool(int(b.cachedFd.Fd()), int32(size))
+		pool, err := b.shm.CreatePoolContext(operationCtx, int(b.cachedFd.Fd()), int32(size))
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_pool: %w", err)
 		}
-		defer pool.Destroy() //nolint:errcheck
+		defer func() {
+			_ = pool.DestroyContext(cleanupContext())
+			wl.Unregister(wlctx, pool)
+		}()
 
-		buf, err := pool.CreateBuffer(0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
+		buf, err := pool.CreateBufferContext(operationCtx, 0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
 		if err != nil {
 			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
 		}
-		defer buf.Destroy() //nolint:errcheck
+		defer func() {
+			_ = buf.DestroyContext(cleanupContext())
+			wl.Unregister(wlctx, buf)
+		}()
 
-		if err := wlSendFrameCopy(wlctx, frameProxy.ID(), buf.ID()); err != nil {
+		if err := wlSendFrameCopy(operationCtx, wlctx, frameProxy.ID(), buf.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: frame copy: %w", err)
 		}
 
@@ -538,7 +554,7 @@ func (p *wlRawProxy) SetID(id uint32) { p.BaseProxy.SetID(id) }
 func (p *wlRawProxy) SetCtx(c wl.Ctx) { p.BaseProxy.SetCtx(c) }
 func (p *wlRawProxy) Ctx() wl.Ctx     { return p.BaseProxy.Ctx() }
 
-func wlSendCaptureOutput(ctx *wl.Context, mgrID, overlayCursor, outputID, frameID uint32) error {
+func wlSendCaptureOutput(cancel context.Context, ctx *wl.Context, mgrID, overlayCursor, outputID, frameID uint32) error {
 	const msgSize = 8 + 4 + 4 + 4
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], mgrID)
@@ -546,16 +562,16 @@ func wlSendCaptureOutput(ctx *wl.Context, mgrID, overlayCursor, outputID, frameI
 	wl.PutUint32(buf[8:], frameID)
 	wl.PutUint32(buf[12:], overlayCursor)
 	wl.PutUint32(buf[16:], outputID)
-	return ctx.WriteMsg(buf[:], nil)
+	return ctx.WriteMsgContext(cancel, buf[:], nil)
 }
 
-func wlSendFrameCopy(ctx wl.Ctx, frameID, bufID uint32) error {
+func wlSendFrameCopy(cancel context.Context, ctx *wl.Context, frameID, bufID uint32) error {
 	const msgSize = 8 + 4
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], frameID)
 	wl.PutUint32(buf[4:], uint32(msgSize<<16))
 	wl.PutUint32(buf[8:], bufID)
-	return ctx.WriteMsg(buf[:], nil)
+	return ctx.WriteMsgContext(cancel, buf[:], nil)
 }
 
 func wlSendFrameDestroy(ctx wl.Ctx, frameID uint32) error {
@@ -563,5 +579,5 @@ func wlSendFrameDestroy(ctx wl.Ctx, frameID uint32) error {
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], frameID)
 	wl.PutUint32(buf[4:], uint32(msgSize<<16))
-	return ctx.WriteMsg(buf[:], nil)
+	return wl.WriteMsg(ctx, buf[:], nil)
 }

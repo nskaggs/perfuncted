@@ -34,10 +34,21 @@ func (m *mockWaylandContext) SetProxy(id uint32, p wl.Proxy) {
 	m.objects[id] = p
 }
 
+func (m *mockWaylandContext) Unregister(p wl.Proxy) {
+	delete(m.objects, p.ID())
+}
+
 func (m *mockWaylandContext) WriteMsg(data, oob []byte) error {
 	m.sentMsgs = append(m.sentMsgs, data)
 	m.sentOOBs = append(m.sentOOBs, oob)
 	return nil
+}
+
+func (m *mockWaylandContext) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.WriteMsg(data, oob)
 }
 
 func (m *mockWaylandContext) Dispatch() error {
@@ -45,6 +56,20 @@ func (m *mockWaylandContext) Dispatch() error {
 		return m.dispatchFn()
 	}
 	return nil // No-op by default
+}
+
+func (m *mockWaylandContext) DispatchContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.Dispatch()
+}
+
+func (m *mockWaylandContext) WithOperationContext(ctx context.Context, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fn()
 }
 
 func (m *mockWaylandContext) Close() error { return nil }
@@ -107,6 +132,22 @@ func (d *blockingWaylandDisplay) RoundTripContext(ctx context.Context) error {
 	return ctx.Err()
 }
 
+type sequencedWaylandDisplay struct {
+	*mockWaylandDisplay
+	started chan struct{}
+	calls   int
+}
+
+func (d *sequencedWaylandDisplay) RoundTripContext(ctx context.Context) error {
+	d.calls++
+	if d.calls == 1 || d.calls >= 3 {
+		return nil
+	}
+	close(d.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func put32(buf []byte, v uint32) []byte {
 	var tmp [4]byte
 	wl.PutUint32(tmp[:], v)
@@ -139,6 +180,12 @@ func (r *mockRegistry) SetGlobalHandler(f func(wl.GlobalEvent)) { r.globalHandle
 func (r *mockRegistry) Bind(name uint32, iface string, ver, newID uint32) error {
 	// No-op for mock: tests simulate compositor responses via ctx.dispatchFn.
 	return nil
+}
+func (r *mockRegistry) BindContext(ctx context.Context, name uint32, iface string, ver, newID uint32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.Bind(name, iface, ver, newID)
 }
 func (r *mockRegistry) Dispatch(opcode uint32, fd int, data []byte) {
 	if opcode != 0 || r.globalHandler == nil || len(data) < 8 {
@@ -547,6 +594,56 @@ func TestWaylandWindowManager_ActionHonorsCancellationDuringRoundTrip(t *testing
 		}
 	case <-time.After(time.Second):
 		t.Fatal("CloseWindowByID did not return after cancellation")
+	}
+}
+
+func TestWaylandWindowManager_ActivateRetainsSeatAfterCanceledBindRoundTrip(t *testing.T) {
+	ctx := &mockWaylandContext{objects: make(map[uint32]wl.Proxy)}
+	display := &sequencedWaylandDisplay{
+		mockWaylandDisplay: &mockWaylandDisplay{ctx: ctx},
+		started:            make(chan struct{}),
+	}
+	registry := &mockRegistry{}
+	ctx.Register(registry)
+	wm := &WaylandWindowManager{
+		display:   display,
+		registry:  registry,
+		seatID:    7,
+		wlrMgrID:  1,
+		toplevels: map[uint32]*Info{50: {ID: 50, NativeID: "50"}},
+	}
+
+	requestCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- wm.ActivateByID(requestCtx, "50") }()
+	select {
+	case <-display.started:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("ActivateByID did not reach lazy seat round trip")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ActivateByID error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ActivateByID did not return after cancellation")
+	}
+	if wm.seat == nil {
+		t.Fatal("ActivateByID discarded a successfully bound seat")
+	}
+	if len(ctx.objects) != 2 {
+		t.Fatalf("registered objects after canceled round trip = %d, want registry and seat", len(ctx.objects))
+	}
+	if err := wm.ActivateByID(context.Background(), "50"); err != nil {
+		t.Fatalf("ActivateByID retry: %v", err)
+	}
+	if display.calls != 3 {
+		t.Fatalf("round trips = %d, want 3 including successful retry", display.calls)
+	}
+	if len(ctx.objects) != 2 {
+		t.Fatalf("registered objects after retry = %d, want registry and seat", len(ctx.objects))
 	}
 }
 
