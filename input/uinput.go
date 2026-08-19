@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -35,7 +36,29 @@ type UinputBackend struct {
 	touchpad   uinput.TouchPad
 	mouse      uinput.Mouse // lazy-initialised on first scroll
 	charToRune map[rune]kernelChar
+
+	// lifecycleMu protects closed, closeDone, closeErr, and active.
+	// It is never held while device I/O runs.
+	lifecycleMu sync.Mutex
+	closed      bool
+	closeDone   chan struct{}
+	closeErr    error
+	active      map[uint64]context.CancelFunc
+	activeDone  chan struct{}
+	nextActive  uint64
+
+	// operationGate serializes each complete public input operation so device
+	// event writes cannot interleave with another logical operation.
+	gateOnce      sync.Once
+	operationGate chan struct{}
+	// mouseMu owns lazy mouse creation, use, and pointer replacement during
+	// teardown. It is separate from lifecycleMu to keep lock ordering clear.
+	mouseMu sync.Mutex
 }
+
+var errUinputBackendClosed = errors.New("input/uinput: backend is closed")
+
+var createUinputMouse = uinput.CreateMouse
 
 // kernelChar maps a rune to its evdev keycode and shift requirement
 // using the active kernel keymap.
@@ -79,6 +102,76 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	}
 
 	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune}, nil
+}
+
+func (b *UinputBackend) operationGateChannel() chan struct{} {
+	b.gateOnce.Do(func() {
+		b.operationGate = make(chan struct{}, 1)
+		b.operationGate <- struct{}{}
+	})
+	return b.operationGate
+}
+
+func (b *UinputBackend) beginOperation(ctx context.Context) (context.Context, func(), error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if b == nil {
+		return nil, nil, errors.New("input/uinput: backend is nil")
+	}
+
+	opCtx, cancel := context.WithCancel(ctx)
+	b.lifecycleMu.Lock()
+	if b.closed {
+		b.lifecycleMu.Unlock()
+		cancel()
+		return nil, nil, errUinputBackendClosed
+	}
+	if b.active == nil {
+		b.active = make(map[uint64]context.CancelFunc)
+	}
+	if len(b.active) == 0 {
+		b.activeDone = make(chan struct{})
+	}
+	b.nextActive++
+	id := b.nextActive
+	b.active[id] = cancel
+	b.lifecycleMu.Unlock()
+
+	var finishOnce sync.Once
+	finish := func() {
+		finishOnce.Do(func() {
+			cancel()
+			b.lifecycleMu.Lock()
+			delete(b.active, id)
+			if len(b.active) == 0 && b.activeDone != nil {
+				close(b.activeDone)
+			}
+			b.lifecycleMu.Unlock()
+		})
+	}
+	return opCtx, finish, nil
+}
+
+func (b *UinputBackend) withOperation(ctx context.Context, fn func(context.Context) error) error {
+	opCtx, finish, err := b.beginOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
+
+	gate := b.operationGateChannel()
+	select {
+	case <-opCtx.Done():
+		return opCtx.Err()
+	case <-gate:
+	}
+	defer func() { gate <- struct{}{} }()
+	if err := opCtx.Err(); err != nil {
+		return err
+	}
+	return fn(opCtx)
 }
 
 // keyCode maps generic Key identifiers to uinput codes.
@@ -138,42 +231,38 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 
 // KeyDown presses and holds key through uinput.
 func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	code, err := b.resolveKey(key)
-	if err != nil {
-		return err
-	}
-	return b.kb.KeyDown(code)
+	return b.withOperation(ctx, func(context.Context) error {
+		code, err := b.resolveKey(key)
+		if err != nil {
+			return err
+		}
+		return b.kb.KeyDown(code)
+	})
 }
 
 // KeyUp releases key through uinput.
 func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	code, err := b.resolveKey(key)
-	if err != nil {
-		return err
-	}
-	return b.kb.KeyUp(code)
+	return b.withOperation(ctx, func(context.Context) error {
+		code, err := b.resolveKey(key)
+		if err != nil {
+			return err
+		}
+		return b.kb.KeyUp(code)
+	})
 }
 
 // Type sends text through uinput using the input key syntax.
 func (b *UinputBackend) Type(ctx context.Context, s string) error {
-	return b.typeContext(ctx, s)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.typeContext(ctx, s)
+	})
 }
 
 // TypeLiteral sends text literally, without interpreting key syntax.
 func (b *UinputBackend) TypeLiteral(ctx context.Context, s string) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return b.typeText(ctx, s)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.typeText(ctx, s)
+	})
 }
 
 func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
@@ -322,7 +411,12 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 
 // MouseMove moves the pointer to absolute coordinates x and y.
 func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
-	ctx = contextutil.Default(ctx)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseMove(ctx, x, y)
+	})
+}
+
+func (b *UinputBackend) mouseMove(ctx context.Context, x, y int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -331,25 +425,28 @@ func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
 
 // MouseClick moves to x and y and clicks button.
 func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := b.MouseMove(ctx, x, y); err != nil {
-		return err
-	}
-	if err := b.MouseDown(ctx, button); err != nil {
-		return err
-	}
-	if err := b.MouseUp(context.WithoutCancel(ctx), button); err != nil {
-		return err
-	}
-	return ctx.Err()
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		if err := b.mouseMove(ctx, x, y); err != nil {
+			return err
+		}
+		if err := b.mouseDown(ctx, button); err != nil {
+			return err
+		}
+		if err := b.mouseUp(context.WithoutCancel(ctx), button); err != nil {
+			return err
+		}
+		return ctx.Err()
+	})
 }
 
 // MouseDown presses button.
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
-	ctx = contextutil.Default(ctx)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseDown(ctx, button)
+	})
+}
+
+func (b *UinputBackend) mouseDown(ctx context.Context, button int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -357,10 +454,9 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 	case 1:
 		return b.touchpad.LeftPress()
 	case 2:
-		if err := b.ensureMouse(); err != nil {
-			return err
-		}
-		return b.mouse.MiddlePress()
+		return b.withMouse(func(mouse uinput.Mouse) error {
+			return mouse.MiddlePress()
+		})
 	case 3:
 		return b.touchpad.RightPress()
 	default:
@@ -373,7 +469,12 @@ func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
 
 // MouseUp releases button.
 func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
-	ctx = contextutil.Default(ctx)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseUp(ctx, button)
+	})
+}
+
+func (b *UinputBackend) mouseUp(ctx context.Context, button int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -381,10 +482,9 @@ func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
 	case 1:
 		return b.touchpad.LeftRelease()
 	case 2:
-		if err := b.ensureMouse(); err != nil {
-			return err
-		}
-		return b.mouse.MiddleRelease()
+		return b.withMouse(func(mouse uinput.Mouse) error {
+			return mouse.MiddleRelease()
+		})
 	case 3:
 		return b.touchpad.RightRelease()
 	default:
@@ -396,107 +496,170 @@ func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
 }
 
 func (b *UinputBackend) ensureMouse() error {
+	b.mouseMu.Lock()
+	defer b.mouseMu.Unlock()
+	return b.ensureMouseLocked()
+}
+
+func (b *UinputBackend) ensureMouseLocked() error {
+	if b.closedForMouse() {
+		return errUinputBackendClosed
+	}
 	if b.mouse != nil {
 		return nil
 	}
-	m, err := uinput.CreateMouse("/dev/uinput", []byte("perfuncted-mouse"))
+	m, err := createUinputMouse("/dev/uinput", []byte("perfuncted-mouse"))
 	if err != nil {
 		return fmt.Errorf("input/uinput: create mouse for scroll: %w", err)
+	}
+	if m == nil {
+		return errors.New("input/uinput: create mouse for scroll: factory returned nil device")
+	}
+	if b.closedForMouse() {
+		if closeErr := m.Close(); closeErr != nil {
+			return errors.Join(
+				errUinputBackendClosed,
+				fmt.Errorf("input/uinput: close mouse after backend close: %w", closeErr),
+			)
+		}
+		return errUinputBackendClosed
 	}
 	b.mouse = m
 	return nil
 }
 
+func (b *UinputBackend) closedForMouse() bool {
+	b.lifecycleMu.Lock()
+	closed := b.closed
+	b.lifecycleMu.Unlock()
+	return closed
+}
+
+func (b *UinputBackend) withMouse(fn func(uinput.Mouse) error) error {
+	b.mouseMu.Lock()
+	defer b.mouseMu.Unlock()
+	if err := b.ensureMouseLocked(); err != nil {
+		return err
+	}
+	return fn(b.mouse)
+}
+
 // ScrollUp scrolls upward by clicks.
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := validateScrollClicks(clicks); err != nil {
-		return err
-	}
-	if err := b.ensureMouse(); err != nil {
-		return err
-	}
-	return b.mouse.Wheel(false, int32(-clicks))
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, false, -clicks, clicks)
+	})
 }
 
 // ScrollDown scrolls downward by clicks.
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := validateScrollClicks(clicks); err != nil {
-		return err
-	}
-	if err := b.ensureMouse(); err != nil {
-		return err
-	}
-	return b.mouse.Wheel(false, int32(clicks))
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, false, clicks, clicks)
+	})
 }
 
 // ScrollLeft scrolls left by clicks.
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := validateScrollClicks(clicks); err != nil {
-		return err
-	}
-	if err := b.ensureMouse(); err != nil {
-		return err
-	}
-	return b.mouse.Wheel(true, int32(-clicks))
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, true, -clicks, clicks)
+	})
 }
 
 // ScrollRight scrolls right by clicks.
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, true, clicks, clicks)
+	})
+}
+
+func (b *UinputBackend) scroll(ctx context.Context, horizontal bool, delta, clicks int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
-	if err := b.ensureMouse(); err != nil {
-		return err
-	}
-	return b.mouse.Wheel(true, int32(clicks))
+	return b.withMouse(func(mouse uinput.Mouse) error {
+		return mouse.Wheel(horizontal, int32(delta))
+	})
 }
 
 // PointerLocation returns the pointer coordinates when available.
 func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return 0, 0, err
-	}
-	return 0, 0, unsupportedError("input/uinput", "pointer location")
+	err := b.withOperation(ctx, func(context.Context) error {
+		return unsupportedError("input/uinput", "pointer location")
+	})
+	return 0, 0, err
 }
 
 // Sync flushes pending uinput events.
 func (b *UinputBackend) Sync(ctx context.Context) error {
-	ctx = contextutil.Default(ctx)
-	return ctx.Err()
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return ctx.Err()
+	})
 }
 
-// Close releases the uinput device.
+// Close marks the backend closed, waits for admitted operations to finish, and
+// releases each uinput device exactly once.
 func (b *UinputBackend) Close() error {
+	if b == nil {
+		return nil
+	}
+
+	b.lifecycleMu.Lock()
+	if b.closed {
+		done := b.closeDone
+		b.lifecycleMu.Unlock()
+		<-done
+		b.lifecycleMu.Lock()
+		err := b.closeErr
+		b.lifecycleMu.Unlock()
+		return err
+	}
+	b.closed = true
+	b.closeDone = make(chan struct{})
+	done := b.closeDone
+	activeDone := b.activeDone
+	cancels := make([]context.CancelFunc, 0, len(b.active))
+	for _, cancel := range b.active {
+		cancels = append(cancels, cancel)
+	}
+	b.lifecycleMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+	if activeDone != nil {
+		<-activeDone
+	}
+
 	var errs []error
-	if err := b.kb.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if err := b.touchpad.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if b.mouse != nil {
-		if err := b.mouse.Close(); err != nil {
+	if b.kb != nil {
+		if err := b.kb.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(errs...)
+	if b.touchpad != nil {
+		if err := b.touchpad.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	b.mouseMu.Lock()
+	m := b.mouse
+	b.mouse = nil
+	b.mouseMu.Unlock()
+	if m != nil {
+		if err := m.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	closeErr := errors.Join(errs...)
+
+	b.lifecycleMu.Lock()
+	b.closeErr = closeErr
+	close(done)
+	b.lifecycleMu.Unlock()
+	return closeErr
 }
 
 // ── Kernel keymap query (layout-independent rune → keycode mapping) ───────────

@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/bendahl/uinput"
 )
@@ -81,11 +83,21 @@ func (t *cancelingTouchPad) LeftPress() error {
 var _ uinput.TouchPad = (*cancelingTouchPad)(nil)
 
 type recordingMouse struct {
+	mu       sync.Mutex
 	events   []string
 	closeErr error
 }
 
-func (m *recordingMouse) record(s string) { m.events = append(m.events, s) }
+func (m *recordingMouse) record(s string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, s)
+}
+func (m *recordingMouse) eventsSnapshot() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.events...)
+}
 func (m *recordingMouse) MoveLeft(pixel int32) error {
 	m.record(fmt.Sprintf("move-left:%d", pixel))
 	return nil
@@ -125,6 +137,24 @@ func (m *recordingMouse) Close() error                  { m.record("close"); ret
 
 var _ uinput.Mouse = (*recordingMouse)(nil)
 
+type blockingMouse struct {
+	recordingMouse
+	started     chan struct{}
+	release     chan struct{}
+	startedOnce sync.Once
+}
+
+func (m *blockingMouse) Wheel(horizontal bool, delta int32) error {
+	if err := m.recordingMouse.Wheel(horizontal, delta); err != nil {
+		return err
+	}
+	m.startedOnce.Do(func() { close(m.started) })
+	<-m.release
+	return nil
+}
+
+var _ uinput.Mouse = (*blockingMouse)(nil)
+
 // newTestBackend creates a UinputBackend with a recording keyboard and the
 // QWERTY fallback rune map for tests that don't depend on kernel keymap probing.
 func newTestBackend(t *testing.T) (*UinputBackend, *recordingKeyboard) {
@@ -136,7 +166,7 @@ func newTestBackend(t *testing.T) (*UinputBackend, *recordingKeyboard) {
 	}, kb
 }
 
-func newUinputActionBackend() (*UinputBackend, *recordingKeyboard, *recordingTouchPad, *recordingMouse) {
+func newUinputActionBackend() (*UinputBackend, *recordingTouchPad, *recordingMouse) {
 	kb := &recordingKeyboard{}
 	tp := &recordingTouchPad{}
 	mouse := &recordingMouse{}
@@ -145,7 +175,7 @@ func newUinputActionBackend() (*UinputBackend, *recordingKeyboard, *recordingTou
 		touchpad:   tp,
 		mouse:      mouse,
 		charToRune: qwertyRuneMap(),
-	}, kb, tp, mouse
+	}, tp, mouse
 }
 
 func TestUinputKeyDownAndUp(t *testing.T) {
@@ -321,7 +351,7 @@ func TestUinputTypeContextWithKeyCombo(t *testing.T) {
 }
 
 func TestUinputMouseActionsAndScroll(t *testing.T) { //nolint:gocyclo
-	b, _, tp, mouse := newUinputActionBackend()
+	b, tp, mouse := newUinputActionBackend()
 
 	t.Run("MouseMove", func(t *testing.T) {
 		tp.events = nil
@@ -442,6 +472,288 @@ func TestUinputCloseClosesAllDevices(t *testing.T) {
 	}
 	if tp.events[0] != "close" || mouse.events[0] != "close" {
 		t.Fatalf("close events = tp:%v mouse:%v, want close entries", tp.events, mouse.events)
+	}
+	if repeatedErr := b.Close(); !errors.Is(repeatedErr, kb.closeErr) ||
+		!errors.Is(repeatedErr, tp.closeErr) || !errors.Is(repeatedErr, mouse.closeErr) {
+		t.Fatalf("repeated Close error = %v, want the original joined close errors", repeatedErr)
+	}
+}
+
+func TestUinputConcurrentLazyMouseCreation(t *testing.T) {
+	kb := &recordingKeyboard{}
+	tp := &recordingTouchPad{}
+	mouse := &recordingMouse{}
+	b := &UinputBackend{kb: kb, touchpad: tp, charToRune: qwertyRuneMap()}
+
+	var factoryMu sync.Mutex
+	var factoryCalls int
+	factoryStarted := make(chan struct{})
+	factoryRelease := make(chan struct{})
+	var factoryStartedOnce sync.Once
+	oldFactory := createUinputMouse
+	createUinputMouse = func(string, []byte) (uinput.Mouse, error) {
+		factoryMu.Lock()
+		factoryCalls++
+		factoryMu.Unlock()
+		factoryStartedOnce.Do(func() { close(factoryStarted) })
+		<-factoryRelease
+		return mouse, nil
+	}
+	t.Cleanup(func() { createUinputMouse = oldFactory })
+
+	const workers = 8
+	results := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			if i%2 == 0 {
+				results <- b.ScrollUp(context.Background(), 1)
+				return
+			}
+			results <- b.ScrollRight(context.Background(), 1)
+		}(i)
+	}
+
+	select {
+	case <-factoryStarted:
+	case <-time.After(time.Second):
+		t.Fatal("lazy mouse factory did not start")
+	}
+	factoryMu.Lock()
+	if factoryCalls != 1 {
+		factoryMu.Unlock()
+		t.Fatalf("mouse factory calls while creation blocked = %d, want 1", factoryCalls)
+	}
+	factoryMu.Unlock()
+	close(factoryRelease)
+
+	for i := 0; i < workers; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatalf("concurrent scroll %d: %v", i, err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("concurrent scroll did not finish")
+		}
+	}
+
+	factoryMu.Lock()
+	if factoryCalls != 1 {
+		t.Fatalf("mouse factory calls = %d, want 1", factoryCalls)
+	}
+	factoryMu.Unlock()
+	events := mouse.eventsSnapshot()
+	if got := len(events); got != workers {
+		t.Fatalf("mouse events = %v, want %d wheel events", events, workers)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestUinputCloseDuringLazyMouseCreation(t *testing.T) {
+	kb := &recordingKeyboard{}
+	tp := &recordingTouchPad{}
+	mouse := &recordingMouse{}
+	b := &UinputBackend{kb: kb, touchpad: tp, charToRune: qwertyRuneMap()}
+
+	factoryStarted := make(chan struct{})
+	factoryRelease := make(chan struct{})
+	var factoryStartedOnce sync.Once
+	oldFactory := createUinputMouse
+	createUinputMouse = func(string, []byte) (uinput.Mouse, error) {
+		factoryStartedOnce.Do(func() { close(factoryStarted) })
+		<-factoryRelease
+		return mouse, nil
+	}
+	t.Cleanup(func() { createUinputMouse = oldFactory })
+
+	scrollDone := make(chan error, 1)
+	go func() { scrollDone <- b.ScrollRight(context.Background(), 1) }()
+	select {
+	case <-factoryStarted:
+	case <-time.After(time.Second):
+		t.Fatal("lazy mouse factory did not start")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- b.Close() }()
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close returned while mouse creation was active: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(factoryRelease)
+
+	select {
+	case err := <-scrollDone:
+		if !errors.Is(err, errUinputBackendClosed) {
+			t.Fatalf("ScrollRight during Close = %v, want backend-closed error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ScrollRight did not finish after mouse creation release")
+	}
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not finish after mouse creation release")
+	}
+	if b.mouse != nil {
+		t.Fatal("mouse created after Close remained retained")
+	}
+	if events := mouse.eventsSnapshot(); len(events) != 1 || events[0] != "close" {
+		t.Fatalf("created mouse events = %v, want one deterministic close", events)
+	}
+}
+
+func TestUinputOperationsRejectAfterClose(t *testing.T) {
+	b, _, _ := newUinputActionBackend()
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{name: "KeyDown", call: func() error { return b.KeyDown(context.Background(), "a") }},
+		{name: "KeyUp", call: func() error { return b.KeyUp(context.Background(), "a") }},
+		{name: "Type", call: func() error { return b.Type(context.Background(), "a") }},
+		{name: "TypeLiteral", call: func() error { return b.TypeLiteral(context.Background(), "a") }},
+		{name: "MouseMove", call: func() error { return b.MouseMove(context.Background(), 1, 2) }},
+		{name: "MouseClick", call: func() error { return b.MouseClick(context.Background(), 1, 2, 1) }},
+		{name: "MouseDown", call: func() error { return b.MouseDown(context.Background(), 1) }},
+		{name: "MouseUp", call: func() error { return b.MouseUp(context.Background(), 1) }},
+		{name: "ScrollUp", call: func() error { return b.ScrollUp(context.Background(), 1) }},
+		{name: "ScrollDown", call: func() error { return b.ScrollDown(context.Background(), 1) }},
+		{name: "ScrollLeft", call: func() error { return b.ScrollLeft(context.Background(), 1) }},
+		{name: "ScrollRight", call: func() error { return b.ScrollRight(context.Background(), 1) }},
+		{name: "PointerLocation", call: func() error {
+			_, _, err := b.PointerLocation(context.Background())
+			return err
+		}},
+		{name: "Sync", call: func() error { return b.Sync(context.Background()) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(); !errors.Is(err, errUinputBackendClosed) {
+				t.Fatalf("%s after Close = %v, want backend-closed error", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestUinputCloseWaitsForActiveMouseUse(t *testing.T) { //nolint:gocyclo // exercises concurrent close, active use, and repeated teardown.
+	kb := &recordingKeyboard{}
+	tp := &recordingTouchPad{}
+	mouse := &blockingMouse{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	b := &UinputBackend{kb: kb, touchpad: tp, charToRune: qwertyRuneMap()}
+
+	var factoryMu sync.Mutex
+	factoryCalls := 0
+	oldFactory := createUinputMouse
+	createUinputMouse = func(string, []byte) (uinput.Mouse, error) {
+		factoryMu.Lock()
+		factoryCalls++
+		factoryMu.Unlock()
+		return mouse, nil
+	}
+	t.Cleanup(func() { createUinputMouse = oldFactory })
+
+	scrollDone := make(chan error, 1)
+	go func() { scrollDone <- b.ScrollRight(context.Background(), 1) }()
+	select {
+	case <-mouse.started:
+	case <-time.After(time.Second):
+		t.Fatal("mouse use did not start")
+	}
+
+	closeResults := make(chan error, 2)
+	go func() { closeResults <- b.Close() }()
+	go func() { closeResults <- b.Close() }()
+	select {
+	case err := <-closeResults:
+		t.Fatalf("Close returned while mouse use was active: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if events := mouse.eventsSnapshot(); len(events) != 1 {
+		t.Fatalf("mouse events before release = %v, want only the wheel event", events)
+	}
+
+	close(mouse.release)
+	select {
+	case err := <-scrollDone:
+		if err != nil {
+			t.Fatalf("ScrollRight: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ScrollRight did not finish after release")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-closeResults:
+			if err != nil {
+				t.Fatalf("Close %d: %v", i, err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Close did not finish after active use ended")
+		}
+	}
+
+	factoryMu.Lock()
+	if factoryCalls != 1 {
+		t.Fatalf("mouse factory calls = %d, want 1", factoryCalls)
+	}
+	factoryMu.Unlock()
+	events := mouse.eventsSnapshot()
+	if got := len(events); got != 2 || events[1] != "close" {
+		t.Fatalf("mouse events after Close = %v, want wheel followed by one close", events)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("repeated Close: %v", err)
+	}
+	if err := b.ScrollRight(context.Background(), 1); !errors.Is(err, errUinputBackendClosed) {
+		t.Fatalf("ScrollRight after Close = %v, want backend-closed error", err)
+	}
+}
+
+func TestUinputLazyMouseCreationFailureIsRetryable(t *testing.T) {
+	kb := &recordingKeyboard{}
+	tp := &recordingTouchPad{}
+	m := &recordingMouse{}
+	b := &UinputBackend{kb: kb, touchpad: tp, charToRune: qwertyRuneMap()}
+	wantErr := errors.New("create mouse failed")
+	calls := 0
+	oldFactory := createUinputMouse
+	createUinputMouse = func(string, []byte) (uinput.Mouse, error) {
+		calls++
+		if calls == 1 {
+			return nil, wantErr
+		}
+		return m, nil
+	}
+	t.Cleanup(func() { createUinputMouse = oldFactory })
+
+	if err := b.ScrollRight(context.Background(), 1); !errors.Is(err, wantErr) {
+		t.Fatalf("first ScrollRight = %v, want factory error", err)
+	}
+	if b.mouse != nil {
+		t.Fatal("failed mouse creation populated backend state")
+	}
+	if err := b.ScrollRight(context.Background(), 1); err != nil {
+		t.Fatalf("retry ScrollRight: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("mouse factory calls = %d, want 2", calls)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 }
 
