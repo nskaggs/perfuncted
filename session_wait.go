@@ -12,6 +12,20 @@ import (
 
 const defaultWaitInterval = 100 * time.Millisecond
 
+// waitEvaluateFailureLimit bounds consecutive condition-evaluation errors
+// before a wait gives up. Conditions query live window-manager state, and on
+// slow or loaded hosts a single query can exceed its internal deadline (for
+// example sway IPC under CPU contention while another session tears down).
+// Such transient failures must not abort a long window wait, so they are
+// retried; sustained failure still fails with the last error attached.
+const waitEvaluateFailureLimit = 30
+
+// isPermanentWaitError reports whether an evaluation error means the wait can
+// never be satisfied and must abort immediately instead of being retried.
+func isPermanentWaitError(err error) bool {
+	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrApplicationExited)
+}
+
 // Condition is an authoritative state check used by Session.Wait.
 type Condition interface {
 	evaluate(context.Context, *Session) (bool, error)
@@ -276,6 +290,7 @@ func (s *Session) wait(
 	}
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
+	evaluationFailures := 0
 	for {
 		if err := s.waitState(ctx); err != nil {
 			return err
@@ -286,13 +301,20 @@ func (s *Session) wait(
 			if stateErr := s.waitState(ctx); stateErr != nil {
 				return stateErr
 			}
-			return fmt.Errorf("wait %s: %w", condition.describe(), err)
-		}
-		if err := s.waitState(ctx); err != nil {
-			return err
-		}
-		if ok {
-			return nil
+			if isPermanentWaitError(err) {
+				return fmt.Errorf("wait %s: %w", condition.describe(), err)
+			}
+			evaluationFailures++
+			if evaluationFailures >= waitEvaluateFailureLimit {
+				return fmt.Errorf("wait %s: %d consecutive evaluation errors: %w", condition.describe(), evaluationFailures, err)
+			}
+			// Transient query failure: keep polling until the caller's
+			// deadline; the condition may still be satisfied later.
+		} else {
+			evaluationFailures = 0
+			if ok {
+				return nil
+			}
 		}
 		if condition.pollingOnly() {
 			wake = nil
