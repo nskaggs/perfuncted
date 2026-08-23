@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -64,7 +65,7 @@ type SwayManager struct {
 	eventCh        chan struct{}
 	eventStop      chan struct{}
 	eventDone      chan struct{}
-	closed         bool
+	closed         atomic.Bool
 	eventCloseOnce sync.Once
 
 	// ReflowTimeout controls how long Move waits for float layout reflow
@@ -181,12 +182,18 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if m.closed.Load() {
+		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
+	}
 	if ctx.Done() != nil {
 		return swayQueryOnceContext(ctx, m.sock, msgType, payload)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed.Load() {
+		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
+	}
 
 	if m.conn == nil {
 		conn, err := swayDialContext(ctx, "unix", m.sock)
@@ -325,6 +332,7 @@ func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
 
 // Close releases the persistent IPC connection.
 func (m *SwayManager) Close() error {
+	m.closed.Store(true)
 	m.mu.Lock()
 	var queryErr error
 	if m.conn != nil {
@@ -334,7 +342,6 @@ func (m *SwayManager) Close() error {
 	m.mu.Unlock()
 
 	m.eventMu.Lock()
-	m.closed = true
 	m.eventCloseOnce.Do(func() {
 		if m.eventStop != nil {
 			close(m.eventStop)
@@ -357,6 +364,9 @@ func (m *SwayManager) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/sway: sync canceled: %w", err)
+	}
+	if m.closed.Load() {
+		return fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
 	return nil
 }
@@ -383,10 +393,7 @@ func (m *SwayManager) WindowChanges() <-chan struct{} {
 		m.eventStop = make(chan struct{})
 		m.eventDone = make(chan struct{})
 
-		m.eventMu.Lock()
-		closed := m.closed
-		m.eventMu.Unlock()
-		if closed {
+		if m.closed.Load() {
 			close(m.eventCh)
 			close(m.eventDone)
 			return
@@ -405,7 +412,7 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 		return
 	}
 	m.eventMu.Lock()
-	if m.closed {
+	if m.closed.Load() {
 		m.eventMu.Unlock()
 		_ = conn.Close()
 		return

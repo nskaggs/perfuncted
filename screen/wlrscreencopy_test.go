@@ -158,3 +158,40 @@ func TestWlrScreencopyBackendRejectsOperationsAfterClose(t *testing.T) {
 		t.Fatalf("connector calls = %d, want 1 after close", connectCalls)
 	}
 }
+
+func TestWlrCloseMarksBackendClosedBeforeWaitingForContext(t *testing.T) {
+	b := NewWlrScreencopyBackendWithConnector("fake-close-order", func(string) (*wl.Context, error) {
+		return &wl.Context{}, nil
+	}, time.Minute)
+
+	b.ctxMu.Lock()
+	released := false
+	defer func() {
+		if !released {
+			b.ctxMu.Unlock()
+		}
+	}()
+
+	closeDone := make(chan struct{})
+	go func() {
+		_ = b.Close()
+		close(closeDone)
+	}()
+
+	select {
+	case <-b.done:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not begin")
+	}
+	if !b.closed.Load() {
+		t.Fatal("backend was not marked closed before resource teardown")
+	}
+
+	b.ctxMu.Unlock()
+	released = true
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not finish after context mutex was released")
+	}
+}

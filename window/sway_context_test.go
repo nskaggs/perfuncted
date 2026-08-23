@@ -126,6 +126,30 @@ func TestSwayActiveTitleCanceledContextShortCircuits(t *testing.T) {
 	}
 }
 
+func TestSwayManagerRejectsOperationsAfterClose(t *testing.T) {
+	originalDial := swayDialContext
+	t.Cleanup(func() { swayDialContext = originalDial })
+	dialCalls := 0
+	swayDialContext = func(context.Context, string, string) (net.Conn, error) {
+		dialCalls++
+		return nil, errors.New("unexpected dial")
+	}
+
+	m := &SwayManager{sock: "ignored"}
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := m.Sync(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Sync error = %v, want net.ErrClosed", err)
+	}
+	if _, err := m.List(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("List error = %v, want net.ErrClosed", err)
+	}
+	if dialCalls != 0 {
+		t.Fatalf("dial calls after close = %d, want 0", dialCalls)
+	}
+}
+
 func TestSwayQueryConnUsesContextDeadline(t *testing.T) {
 	deadline := time.Now().Add(75 * time.Millisecond)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)

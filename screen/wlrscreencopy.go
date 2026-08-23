@@ -7,6 +7,7 @@ import (
 	"image"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -38,7 +39,7 @@ type WlrScreencopyBackend struct {
 	initJanitor  func()
 	done         chan struct{}
 	closeOnce    sync.Once
-	closed       bool
+	closed       atomic.Bool
 	activeMu     sync.Mutex
 	activeCancel context.CancelFunc
 	// last observed output dimensions and scale (1 if unknown)
@@ -109,17 +110,14 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b.ctxMu.Lock()
-	closed := b.closed
-	b.ctxMu.Unlock()
-	if closed {
+	if b.closed.Load() {
 		return fmt.Errorf("screen/wlr: backend is closed")
 	}
 	b.initJanitor()
 
 	b.ctxMu.Lock()
 	defer b.ctxMu.Unlock()
-	if b.closed {
+	if b.closed.Load() {
 		return fmt.Errorf("screen/wlr: backend is closed")
 	}
 	operationCtx, cancel := context.WithCancel(ctx)
@@ -473,6 +471,7 @@ func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, 
 // Close releases the wlr-screencopy connection and cached resources.
 func (b *WlrScreencopyBackend) Close() error {
 	b.closeOnce.Do(func() {
+		b.closed.Store(true)
 		if b.done != nil {
 			close(b.done)
 		}
@@ -482,7 +481,6 @@ func (b *WlrScreencopyBackend) Close() error {
 		}
 		b.activeMu.Unlock()
 		b.ctxMu.Lock()
-		b.closed = true
 		if b.ctx != nil {
 			_ = b.ctx.Close()
 			b.ctx = nil
