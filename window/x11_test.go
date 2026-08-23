@@ -5,10 +5,14 @@ package window
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -394,6 +398,122 @@ func TestX11Backend_Close(t *testing.T) {
 	b, _ := newStubX11Backend(t, false, "")
 	if err := b.Close(); err != nil {
 		t.Errorf("Close() unexpected error: %v", err)
+	}
+}
+
+type trackingX11Connection struct {
+	*x11.MockConnection
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+func (c *trackingX11Connection) Close() {
+	c.closeOnce.Do(func() { close(c.closed) })
+}
+
+type blockedGetPropertyCookie struct {
+	started chan struct{}
+	closed  <-chan struct{}
+}
+
+func (c *blockedGetPropertyCookie) Reply() (*xproto.GetPropertyReply, error) {
+	close(c.started)
+	<-c.closed
+	return nil, net.ErrClosed
+}
+
+func TestX11BackendCloseUnblocksBlockedReply(t *testing.T) {
+	mock := &x11.MockConnection{}
+	conn := &trackingX11Connection{
+		MockConnection: mock,
+		closed:         make(chan struct{}),
+	}
+	defer conn.Close()
+	b := &X11Backend{conn: conn, root: 1, atomNetActiveWindow: 2}
+	replyStarted := make(chan struct{})
+	mock.GetPropertyFunc = func(bool, xproto.Window, xproto.Atom, xproto.Atom, uint32, uint32) x11.GetPropertyCookie {
+		return &blockedGetPropertyCookie{started: replyStarted, closed: conn.closed}
+	}
+
+	operationDone := make(chan error, 1)
+	go func() {
+		_, err := b.ActiveTitle(context.Background())
+		operationDone <- err
+	}()
+	<-replyStarted
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- b.Close() }()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not unblock the blocked Reply")
+	}
+
+	select {
+	case err := <-operationDone:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("ActiveTitle error = %v, want net.ErrClosed", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked ActiveTitle did not exit after Close")
+	}
+}
+
+func TestX11BackendRejectsOperationsAfterClose(t *testing.T) {
+	b, _ := newStubX11Backend(t, false, "")
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "List", run: func() error {
+			_, err := b.List(context.Background())
+			return err
+		}},
+		{name: "IterateWindows", run: func() error {
+			for _, err := range b.IterateWindows(context.Background()) {
+				return err
+			}
+			return nil
+		}},
+		{name: "ActiveTitle", run: func() error {
+			_, err := b.ActiveTitle(context.Background())
+			return err
+		}},
+		{name: "Sync", run: func() error { return b.Sync(context.Background()) }},
+		{name: "ActivateByID", run: func() error { return b.ActivateByID(context.Background(), "50") }},
+		{name: "MoveByID", run: func() error { return b.MoveByID(context.Background(), "50", 1, 2) }},
+		{name: "ResizeByID", run: func() error { return b.ResizeByID(context.Background(), "50", 1, 2) }},
+		{name: "CloseWindowByID", run: func() error {
+			return b.CloseWindowByID(context.Background(), "50")
+		}},
+		{name: "MinimizeByID", run: func() error { return b.MinimizeByID(context.Background(), "50") }},
+		{name: "MaximizeByID", run: func() error { return b.MaximizeByID(context.Background(), "50") }},
+		{name: "FullscreenByID", run: func() error {
+			return b.FullscreenByID(context.Background(), "50")
+		}},
+		{name: "UnfullscreenByID", run: func() error {
+			return b.UnfullscreenByID(context.Background(), "50")
+		}},
+		{name: "RestoreByID", run: func() error { return b.RestoreByID(context.Background(), "50") }},
+		{name: "InfoByID", run: func() error {
+			_, err := b.InfoByID(context.Background(), "50")
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.run(); !errors.Is(err, net.ErrClosed) {
+				t.Fatalf("error = %v, want net.ErrClosed", err)
+			}
+		})
 	}
 }
 

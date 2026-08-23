@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -33,6 +35,14 @@ type X11Backend struct {
 	atomNetWMPID                xproto.Atom
 	atomMotifWMHints            xproto.Atom
 	atomUTF8String              xproto.Atom
+
+	// lifecycleMu protects closed, active, and activeDone. It is never held
+	// while an X11 operation or connection close runs.
+	lifecycleMu sync.Mutex
+	closed      bool
+	active      int
+	activeDone  chan struct{}
+	closeOnce   sync.Once
 }
 
 // NewX11Backend connects to the X11 display and interns the EWMH atoms needed
@@ -234,6 +244,12 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", err))
 			return
 		}
+		finish, err := b.beginOperation()
+		if err != nil {
+			yield(Info{}, err)
+			return
+		}
+		defer finish()
 		rep, err := b.conn.GetProperty(false, b.root, b.atomNetClientList,
 			xproto.AtomWindow, 0, 1024).Reply()
 		if err != nil {
@@ -311,6 +327,11 @@ func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("window/x11: active title canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return "", err
+	}
+	defer finish()
 	id, err := b.activeWindow()
 	if err != nil {
 		return "", fmt.Errorf("window/x11: get _NET_ACTIVE_WINDOW: %w", err)
@@ -323,8 +344,55 @@ func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
 
 // Close closes the X11 connection.
 func (b *X11Backend) Close() error {
-	b.conn.Close()
+	if b == nil {
+		return nil
+	}
+	b.closeOnce.Do(func() {
+		b.lifecycleMu.Lock()
+		b.closed = true
+		activeDone := b.activeDone
+		conn := b.conn
+		b.lifecycleMu.Unlock()
+
+		// Close the connection before waiting so blocked X11 replies can
+		// return and release their admission.
+		if conn != nil {
+			conn.Close()
+		}
+		if activeDone != nil {
+			<-activeDone
+		}
+	})
 	return nil
+}
+
+func (b *X11Backend) beginOperation() (func(), error) {
+	if b == nil {
+		return nil, fmt.Errorf("window/x11: backend is nil")
+	}
+
+	b.lifecycleMu.Lock()
+	defer b.lifecycleMu.Unlock()
+	if b.closed {
+		return nil, fmt.Errorf("window/x11: backend is closed: %w", net.ErrClosed)
+	}
+	if b.active == 0 {
+		b.activeDone = make(chan struct{})
+	}
+	b.active++
+
+	var finishOnce sync.Once
+	return func() {
+		finishOnce.Do(func() {
+			b.lifecycleMu.Lock()
+			b.active--
+			if b.active == 0 {
+				close(b.activeDone)
+				b.activeDone = nil
+			}
+			b.lifecycleMu.Unlock()
+		})
+	}, nil
 }
 
 // Sync flushes pending X11 requests.
@@ -333,6 +401,11 @@ func (b *X11Backend) Sync(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: sync canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	b.conn.Sync()
 	return nil
 }
@@ -368,6 +441,11 @@ func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: activate canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -389,6 +467,11 @@ func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: move canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -404,6 +487,11 @@ func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: resize canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -419,6 +507,11 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: close canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -449,6 +542,11 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: minimize canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -475,6 +573,11 @@ func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: maximize canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -488,6 +591,11 @@ func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: fullscreen canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -501,6 +609,11 @@ func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: unfullscreen canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -514,6 +627,11 @@ func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: restore canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return err
@@ -530,6 +648,11 @@ func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
 	if err := ctx.Err(); err != nil {
 		return Info{}, fmt.Errorf("window/x11: info canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return Info{}, err
+	}
+	defer finish()
 	win, err := x11WindowID(id)
 	if err != nil {
 		return Info{}, err
