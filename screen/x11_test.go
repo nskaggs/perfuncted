@@ -265,26 +265,32 @@ func (c *trackingX11Connection) Close() {
 	c.closeOnce.Do(func() { close(c.closed) })
 }
 
-func TestX11BackendCloseWaitsForActiveGrab(t *testing.T) {
+type blockedGetImageCookie struct {
+	started chan struct{}
+	closed  <-chan struct{}
+}
+
+func (c *blockedGetImageCookie) Reply() (*xproto.GetImageReply, error) {
+	close(c.started)
+	<-c.closed
+	return nil, net.ErrClosed
+}
+
+func TestX11BackendCloseUnblocksBlockedReply(t *testing.T) {
 	mock := &x11.MockConnection{}
 	conn := &trackingX11Connection{
 		MockConnection: mock,
 		closed:         make(chan struct{}),
 	}
+	defer conn.Close()
 	b := &X11Backend{
 		conn:   conn,
 		root:   1,
 		screen: &xproto.ScreenInfo{Root: 1, WidthInPixels: 1, HeightInPixels: 1},
 	}
-	started := make(chan struct{})
-	release := make(chan struct{})
+	replyStarted := make(chan struct{})
 	mock.GetImageFunc = func(byte, xproto.Drawable, int16, int16, uint16, uint16, uint32) x11.GetImageCookie {
-		close(started)
-		<-release
-		return x11.NewMockGetImageCookie(
-			&xproto.GetImageReply{Data: []byte{1, 2, 3, 4}},
-			nil,
-		)
+		return &blockedGetImageCookie{started: replyStarted, closed: conn.closed}
 	}
 
 	grabDone := make(chan error, 1)
@@ -292,38 +298,32 @@ func TestX11BackendCloseWaitsForActiveGrab(t *testing.T) {
 		_, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1))
 		grabDone <- err
 	}()
-	<-started
+	<-replyStarted
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- b.Close() }()
-	deadline := time.Now().Add(time.Second)
-	for {
-		b.lifecycleMu.Lock()
-		closed := b.closed
-		b.lifecycleMu.Unlock()
-		if closed {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("Close did not mark backend closed")
-		}
-		time.Sleep(time.Millisecond)
-	}
 	select {
-	case <-conn.closed:
-		t.Fatal("Close tore down the connection while Grab was active")
-	default:
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not unblock the blocked Reply")
 	}
 
-	close(release)
-	if err := <-grabDone; err != nil {
-		t.Fatalf("Grab: %v", err)
-	}
-	if err := <-closeDone; err != nil {
-		t.Fatalf("Close: %v", err)
+	select {
+	case err := <-grabDone:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("Grab error = %v, want net.ErrClosed", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked Grab did not exit after Close")
 	}
 	if _, _, err := b.Resolution(); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("Resolution after Close error = %v, want net.ErrClosed", err)
+	}
+	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Grab after Close error = %v, want net.ErrClosed", err)
 	}
 }
 

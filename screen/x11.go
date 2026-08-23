@@ -205,13 +205,14 @@ func (b *X11Backend) Close() error {
 		b.lifecycleMu.Lock()
 		b.closed = true
 		activeDone := b.activeDone
+		conn := b.conn
 		b.lifecycleMu.Unlock()
 
+		if conn != nil {
+			conn.Close()
+		}
 		if activeDone != nil {
 			<-activeDone
-		}
-		if b.conn != nil {
-			b.conn.Close()
 		}
 	})
 	return nil

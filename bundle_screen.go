@@ -37,10 +37,6 @@ func (s *ScreenBundle) grabHash(
 	if err := s.checkAvailable("hash"); err != nil {
 		return 0, err
 	}
-	if rect.Empty() {
-		hash, err := s.backend.GrabFullHash(ctx)
-		return hash, s.operationError("hash", err)
-	}
 	hash, err := find.GrabHash(ctx, s.backend, rect, nil)
 	return hash, s.operationError("hash", err)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -344,19 +345,22 @@ func TestWindowBundle(t *testing.T) {
 
 func TestScreenBundleHashing(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	sc := &pftest.Screenshotter{Frames: []image.Image{img}}
+	sc := &legacyHashScreenshotter{
+		Screenshotter: &pftest.Screenshotter{Frames: []image.Image{img}},
+	}
 	pf := pftest.New(sc, nil, nil, nil)
+	defer pf.Close()
 	ctx := context.Background()
+	want := find.PixelHash(img, nil)
 
 	h1, err := pf.Screen.GrabRegionHash(ctx, image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h1 == 0 {
-		t.Error("expected non-zero hash")
+	if h1 != want {
+		t.Errorf("GrabRegionHash = %08x, want canonical image hash %08x", h1, want)
 	}
 
-	// GrabFullHash - equivalent to GrabRegionHash with empty rect
 	h2, err := pf.Screen.GrabFullHash(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -364,6 +368,28 @@ func TestScreenBundleHashing(t *testing.T) {
 	if h2 != h1 {
 		t.Errorf("expected same hash for full screen, got %08x vs %08x", h1, h2)
 	}
+	if sc.fullHashCalls != 0 || sc.regionHashCalls != 0 {
+		t.Fatalf("legacy fast hash calls = full:%d region:%d, want 0",
+			sc.fullHashCalls,
+			sc.regionHashCalls,
+		)
+	}
+}
+
+type legacyHashScreenshotter struct {
+	*pftest.Screenshotter
+	fullHashCalls   int
+	regionHashCalls int
+}
+
+func (s *legacyHashScreenshotter) GrabFullHash(context.Context) (uint32, error) {
+	s.fullHashCalls++
+	return 0xdeadbeef, nil
+}
+
+func (s *legacyHashScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	s.regionHashCalls++
+	return 0xbeefdead, nil
 }
 
 func TestWaitForVisibleChange(t *testing.T) {
