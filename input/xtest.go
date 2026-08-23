@@ -5,6 +5,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -23,6 +24,22 @@ type XTestBackend struct {
 	root  xproto.Window
 	delay time.Duration
 
+	// lifecycleMu protects closed, closeDone, closeErr, and active. It is
+	// never held while connection I/O runs.
+	lifecycleMu sync.Mutex
+	closed      bool
+	closeDone   chan struct{}
+	closeErr    error
+	active      map[uint64]context.CancelFunc
+	activeDone  chan struct{}
+	nextActive  uint64
+
+	// operationGate serializes each complete public operation. Composite
+	// operations call gate-free helpers so they cannot deadlock by re-entering
+	// this boundary.
+	operationGateOnce sync.Once
+	operationGate     chan struct{}
+
 	keymapOnce sync.Once
 	keymap     map[xproto.Keysym]keycodeLevel
 	keymapErr  error
@@ -32,6 +49,8 @@ type keycodeLevel struct {
 	keycode xproto.Keycode
 	level   int
 }
+
+var errXTestBackendClosed = errors.New("input/xtest: backend is closed")
 
 // NewXTestBackend connects to the named X11 display and initialises XTEST.
 // Pass an empty string to use the DISPLAY environment variable.
@@ -46,6 +65,76 @@ func NewXTestBackend(displayName string) (*XTestBackend, error) {
 	}
 	root := conn.DefaultScreen().Root
 	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
+}
+
+func (b *XTestBackend) operationGateChannel() chan struct{} {
+	b.operationGateOnce.Do(func() {
+		b.operationGate = make(chan struct{}, 1)
+		b.operationGate <- struct{}{}
+	})
+	return b.operationGate
+}
+
+func (b *XTestBackend) beginOperation(ctx context.Context) (context.Context, func(), error) {
+	if b == nil {
+		return nil, nil, errors.New("input/xtest: backend is nil")
+	}
+	opCtx, cancel := context.WithCancel(ctx)
+
+	b.lifecycleMu.Lock()
+	if b.closed {
+		b.lifecycleMu.Unlock()
+		cancel()
+		return nil, nil, errXTestBackendClosed
+	}
+	if b.active == nil {
+		b.active = make(map[uint64]context.CancelFunc)
+	}
+	if len(b.active) == 0 {
+		b.activeDone = make(chan struct{})
+	}
+	b.nextActive++
+	id := b.nextActive
+	b.active[id] = cancel
+	b.lifecycleMu.Unlock()
+
+	var finishOnce sync.Once
+	finish := func() {
+		finishOnce.Do(func() {
+			cancel()
+			b.lifecycleMu.Lock()
+			delete(b.active, id)
+			if len(b.active) == 0 && b.activeDone != nil {
+				close(b.activeDone)
+			}
+			b.lifecycleMu.Unlock()
+		})
+	}
+	return opCtx, finish, nil
+}
+
+func (b *XTestBackend) withOperation(ctx context.Context, fn func(context.Context) error) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	opCtx, finish, err := b.beginOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
+
+	gate := b.operationGateChannel()
+	select {
+	case <-opCtx.Done():
+		return opCtx.Err()
+	case <-gate:
+	}
+	defer func() { gate <- struct{}{} }()
+	if err := opCtx.Err(); err != nil {
+		return err
+	}
+	return fn(opCtx)
 }
 
 // keysymForName maps a key name to an X11 keysym value.
@@ -148,42 +237,38 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 
 // KeyDown presses and holds key through XTEST.
 func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	kc, err := b.keycodeFor(key)
-	if err != nil {
-		return err
-	}
-	return b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	return b.withOperation(ctx, func(context.Context) error {
+		kc, err := b.keycodeFor(key)
+		if err != nil {
+			return err
+		}
+		return b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	})
 }
 
 // KeyUp releases a previously held key.
 func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	kc, err := b.keycodeFor(key)
-	if err != nil {
-		return err
-	}
-	return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	return b.withOperation(ctx, func(context.Context) error {
+		kc, err := b.keycodeFor(key)
+		if err != nil {
+			return err
+		}
+		return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	})
 }
 
 // Type sends text through XTEST using the input key syntax.
 func (b *XTestBackend) Type(ctx context.Context, s string) error {
-	return b.typeContext(ctx, s)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.typeContext(ctx, s)
+	})
 }
 
 // TypeLiteral sends text literally, without interpreting key syntax.
 func (b *XTestBackend) TypeLiteral(ctx context.Context, s string) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return b.typeText(ctx, s)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.typeText(ctx, s)
+	})
 }
 
 func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //nolint:gocyclo
@@ -371,6 +456,12 @@ func (b *XTestBackend) keyUpKC(kc xproto.Keycode) error {
 
 // MouseMove moves the pointer to absolute coordinates x and y.
 func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseMove(ctx, x, y)
+	})
+}
+
+func (b *XTestBackend) mouseMove(ctx context.Context, x, y int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -384,23 +475,25 @@ func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseClick(ctx, x, y, button)
+	})
+}
+
+func (b *XTestBackend) mouseClick(ctx context.Context, x, y, button int) error {
+	if err := b.mouseMove(ctx, x, y); err != nil {
 		return err
 	}
-	if err := b.MouseMove(ctx, x, y); err != nil {
-		return err
-	}
-	if err := b.MouseDown(ctx, button); err != nil {
+	if err := b.mouseButton(ctx, xproto.ButtonPress, button); err != nil {
 		return err
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
-		if upErr := b.MouseUp(context.Background(), button); upErr != nil { //nolint:contextcheck // intentional: release button even if context cancelled
+		if upErr := b.mouseButton(context.Background(), xproto.ButtonRelease, button); upErr != nil { //nolint:contextcheck // intentional: release button even if context cancelled
 			return upErr
 		}
 		return err
 	}
-	return b.MouseUp(context.Background(), button) //nolint:contextcheck // intentional: release button even if context cancelled
+	return b.mouseButton(context.Background(), xproto.ButtonRelease, button) //nolint:contextcheck // intentional: release button even if context cancelled
 }
 
 // MouseDown presses button.
@@ -408,7 +501,9 @@ func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
-	return b.mouseButton(ctx, xproto.ButtonPress, button)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseButton(ctx, xproto.ButtonPress, button)
+	})
 }
 
 func (b *XTestBackend) mouseButton(ctx context.Context, eventType byte, button int) error {
@@ -425,85 +520,62 @@ func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
-	return b.mouseButton(ctx, xproto.ButtonRelease, button)
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.mouseButton(ctx, xproto.ButtonRelease, button)
+	})
 }
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 // X11 scroll is button 4 (up) / 5 (down).
 func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
-	for i := 0; i < clicks; i++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := b.mouseButton(ctx, xproto.ButtonPress, 4); err != nil {
-			return err
-		}
-		if err := b.mouseButton(ctx, xproto.ButtonRelease, 4); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, 4, clicks)
+	})
 }
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
-	for i := 0; i < clicks; i++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := b.mouseButton(ctx, xproto.ButtonPress, 5); err != nil {
-			return err
-		}
-		if err := b.mouseButton(ctx, xproto.ButtonRelease, 5); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, 5, clicks)
+	})
 }
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 // X11 scroll is button 6 (left) / 7 (right).
 func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
-	for i := 0; i < clicks; i++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := b.mouseButton(ctx, xproto.ButtonPress, 6); err != nil {
-			return err
-		}
-		if err := b.mouseButton(ctx, xproto.ButtonRelease, 6); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, 6, clicks)
+	})
 }
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
-	ctx = contextutil.Default(ctx)
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
+	return b.withOperation(ctx, func(ctx context.Context) error {
+		return b.scroll(ctx, 7, clicks)
+	})
+}
+
+func (b *XTestBackend) scroll(ctx context.Context, button, clicks int) error {
 	for i := 0; i < clicks; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.mouseButton(ctx, xproto.ButtonPress, 7); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonPress, button); err != nil {
 			return err
 		}
-		if err := b.mouseButton(ctx, xproto.ButtonRelease, 7); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonRelease, button); err != nil {
 			return err
 		}
 	}
@@ -512,29 +584,65 @@ func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
 
 // PointerLocation returns the pointer coordinates from XTEST.
 func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return 0, 0, err
-	}
-	rep, err := b.conn.QueryPointer(b.root).Reply()
-	if err != nil {
-		return 0, 0, fmt.Errorf("input/xtest: query pointer: %w", err)
-	}
-	return int(rep.RootX), int(rep.RootY), nil
+	var x, y int
+	err := b.withOperation(ctx, func(context.Context) error {
+		rep, err := b.conn.QueryPointer(b.root).Reply()
+		if err != nil {
+			return fmt.Errorf("input/xtest: query pointer: %w", err)
+		}
+		x, y = int(rep.RootX), int(rep.RootY)
+		return nil
+	})
+	return x, y, err
 }
 
 // Sync flushes pending XTEST events.
 func (b *XTestBackend) Sync(ctx context.Context) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	b.conn.Sync()
-	return nil
+	return b.withOperation(ctx, func(context.Context) error {
+		b.conn.Sync()
+		return nil
+	})
 }
 
 // Close releases the X11 connection.
 func (b *XTestBackend) Close() error {
-	b.conn.Close()
+	if b == nil {
+		return nil
+	}
+
+	b.lifecycleMu.Lock()
+	if b.closed {
+		done := b.closeDone
+		b.lifecycleMu.Unlock()
+		<-done
+		b.lifecycleMu.Lock()
+		err := b.closeErr
+		b.lifecycleMu.Unlock()
+		return err
+	}
+	b.closed = true
+	b.closeDone = make(chan struct{})
+	done := b.closeDone
+	activeDone := b.activeDone
+	cancels := make([]context.CancelFunc, 0, len(b.active))
+	for _, cancel := range b.active {
+		cancels = append(cancels, cancel)
+	}
+	b.lifecycleMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+	if activeDone != nil {
+		<-activeDone
+	}
+	if b.conn != nil {
+		b.conn.Close()
+	}
+
+	b.lifecycleMu.Lock()
+	b.closeErr = nil
+	close(done)
+	b.lifecycleMu.Unlock()
 	return nil
 }
