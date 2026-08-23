@@ -504,12 +504,6 @@ func (b *UinputBackend) mouseUp(ctx context.Context, button int) error {
 	}
 }
 
-func (b *UinputBackend) ensureMouse() error {
-	b.mouseMu.Lock()
-	defer b.mouseMu.Unlock()
-	return b.ensureMouseLocked()
-}
-
 func (b *UinputBackend) ensureMouseLocked() error {
 	if b.closedForMouse() {
 		return errUinputBackendClosed

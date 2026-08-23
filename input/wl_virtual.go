@@ -380,13 +380,13 @@ func (b *WlVirtualBackend) mouseClickEvents(ctx context.Context, wlctx wl.Ctx, x
 		return err
 	}
 	if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
-		return errors.Join(err, b.cleanupButtonEvent(wlctx, code, 0))
+		return errors.Join(err, b.cleanupButtonEvent(ctx, wlctx, code, 0))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, b.cleanupButtonEvent(wlctx, code, 0))
+		return errors.Join(err, b.cleanupButtonEvent(ctx, wlctx, code, 0))
 	}
 	if err := b.buttonEvent(ctx, wlctx, code, 0); err != nil {
-		return errors.Join(err, b.cleanupButtonEvent(wlctx, code, 0))
+		return errors.Join(err, b.cleanupButtonEvent(ctx, wlctx, code, 0))
 	}
 	return nil
 }
@@ -394,10 +394,10 @@ func (b *WlVirtualBackend) mouseClickEvents(ctx context.Context, wlctx wl.Ctx, x
 // cleanupButtonEvent releases a button with a bounded independent context.
 // Cleanup must still be attempted when the operation context was canceled
 // after the press was sent.
-func (b *WlVirtualBackend) cleanupButtonEvent(ctx wl.Ctx, code, state uint32) error {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+func (b *WlVirtualBackend) cleanupButtonEvent(ctx context.Context, wlctx wl.Ctx, code, state uint32) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 	defer cancel()
-	return b.buttonEvent(cleanupCtx, ctx, code, state)
+	return b.buttonEvent(cleanupCtx, wlctx, code, state)
 }
 
 // Type sends a string as keyboard events using key syntax.

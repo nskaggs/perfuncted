@@ -286,7 +286,7 @@ type syncTrackingManager struct {
 
 func (s *syncTrackingManager) Sync(context.Context) error {
 	s.syncCalls++
-	return nil
+	return s.Err
 }
 
 func TestRunSyncPropagatesToSupportedMutations(t *testing.T) {

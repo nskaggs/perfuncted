@@ -30,8 +30,8 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	}
 	defer finish()
 	rect := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
-	if err := validateX11Rect(rect); err != nil {
-		return 0, err
+	if rectErr := validateX11Rect(rect); rectErr != nil {
+		return 0, rectErr
 	}
 	drawable, free := b.compositeDrawableForRoot()
 	defer free()
@@ -69,8 +69,8 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 		return 0, err
 	}
 	defer finish()
-	if err := validateX11Rect(rect); err != nil {
-		return 0, err
+	if rectErr := validateX11Rect(rect); rectErr != nil {
+		return 0, rectErr
 	}
 
 	drawable, free := b.compositeDrawableForRoot()
@@ -162,8 +162,8 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	if rect.Empty() {
 		rect = image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	}
-	if err := validateX11Rect(rect); err != nil {
-		return nil, err
+	if rectErr := validateX11Rect(rect); rectErr != nil {
+		return nil, rectErr
 	}
 	drawable, free := b.compositeDrawableForRoot()
 	defer free()
