@@ -381,6 +381,9 @@ func (b *XTestBackend) MouseMove(ctx context.Context, x, y int) error {
 
 // MouseClick moves to x and y and clicks button.
 func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if err := validateMouseButton("input/xtest", button); err != nil {
+		return err
+	}
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -402,22 +405,27 @@ func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
 
 // MouseDown presses button.
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
+	if err := validateMouseButton("input/xtest", button); err != nil {
+		return err
+	}
+	return b.mouseButton(ctx, xproto.ButtonPress, button)
+}
+
+func (b *XTestBackend) mouseButton(ctx context.Context, eventType byte, button int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return b.conn.FakeInputChecked(xproto.ButtonPress, byte(button),
+	return b.conn.FakeInputChecked(eventType, byte(button),
 		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
 }
 
 // MouseUp releases button.
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
-	return b.conn.FakeInputChecked(xproto.ButtonRelease, byte(button),
-		xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+	return b.mouseButton(ctx, xproto.ButtonRelease, button)
 }
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
@@ -431,10 +439,10 @@ func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.MouseDown(ctx, 4); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonPress, 4); err != nil {
 			return err
 		}
-		if err := b.MouseUp(ctx, 4); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonRelease, 4); err != nil {
 			return err
 		}
 	}
@@ -451,10 +459,10 @@ func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.MouseDown(ctx, 5); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonPress, 5); err != nil {
 			return err
 		}
-		if err := b.MouseUp(ctx, 5); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonRelease, 5); err != nil {
 			return err
 		}
 	}
@@ -472,10 +480,10 @@ func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.MouseDown(ctx, 6); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonPress, 6); err != nil {
 			return err
 		}
-		if err := b.MouseUp(ctx, 6); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonRelease, 6); err != nil {
 			return err
 		}
 	}
@@ -492,10 +500,10 @@ func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.MouseDown(ctx, 7); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonPress, 7); err != nil {
 			return err
 		}
-		if err := b.MouseUp(ctx, 7); err != nil {
+		if err := b.mouseButton(ctx, xproto.ButtonRelease, 7); err != nil {
 			return err
 		}
 	}

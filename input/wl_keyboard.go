@@ -6,6 +6,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -584,12 +585,15 @@ func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 		return err
 	}
 	if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-		if upErr := k.cleanupSendKey(keycode, 0); upErr != nil { //nolint:contextcheck // cleanup intentionally survives cancellation of the operation context.
-			return upErr
-		}
-		return err
+		return errors.Join(err, k.cleanupSendKey(keycode, 0))
 	}
-	return k.sendKey(ctx, keycode, 0)
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, k.cleanupSendKey(keycode, 0))
+	}
+	if err := k.sendKey(ctx, keycode, 0); err != nil {
+		return errors.Join(err, k.cleanupSendKey(keycode, 0))
+	}
+	return nil
 }
 
 // cleanupSendKey releases a key with a bounded independent context. Cleanup

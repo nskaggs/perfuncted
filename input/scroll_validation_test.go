@@ -24,3 +24,22 @@ func TestScrollRejectsNegativeClicks(t *testing.T) {
 		})
 	}
 }
+
+func TestScrollRejectsClicksThatOverflowWaylandFixedPoint(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(context.Context, int) error
+	}{
+		{name: "uinput", call: (&UinputBackend{}).ScrollDown},
+		{name: "xtest", call: (&XTestBackend{}).ScrollDown},
+		{name: "wl-virtual", call: (&WlVirtualBackend{}).ScrollDown},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call(context.Background(), maxScrollClicks+1)
+			if err == nil || !strings.Contains(err.Error(), "at most") {
+				t.Fatalf("ScrollDown(%d) error = %v, want bounded-count validation", maxScrollClicks+1, err)
+			}
+		})
+	}
+}

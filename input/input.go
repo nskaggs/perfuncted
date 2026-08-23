@@ -45,6 +45,18 @@ func validateScrollClicks(clicks int) error {
 	if clicks < 0 {
 		return fmt.Errorf("input: scroll clicks must be non-negative, got %d", clicks)
 	}
+	if clicks > maxScrollClicks {
+		return fmt.Errorf("input: scroll clicks must be at most %d, got %d", maxScrollClicks, clicks)
+	}
+	return nil
+}
+
+const maxScrollClicks = (1<<31 - 1) / (15 * 256)
+
+func validateMouseButton(backend string, button int) error {
+	if button < 1 || button > 3 {
+		return fmt.Errorf("%s: unsupported mouse button %d (only 1=left,2=middle,3=right supported)", backend, button)
+	}
 	return nil
 }
 

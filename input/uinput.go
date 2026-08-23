@@ -425,6 +425,9 @@ func (b *UinputBackend) mouseMove(ctx context.Context, x, y int) error {
 
 // MouseClick moves to x and y and clicks button.
 func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if err := validateMouseButton("input/uinput", button); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		if err := b.mouseMove(ctx, x, y); err != nil {
 			return err
@@ -441,12 +444,18 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 
 // MouseDown presses button.
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
+	if err := validateMouseButton("input/uinput", button); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		return b.mouseDown(ctx, button)
 	})
 }
 
 func (b *UinputBackend) mouseDown(ctx context.Context, button int) error {
+	if err := validateMouseButton("input/uinput", button); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -460,21 +469,24 @@ func (b *UinputBackend) mouseDown(ctx context.Context, button int) error {
 	case 3:
 		return b.touchpad.RightPress()
 	default:
-		if err := b.ensureMouse(); err != nil {
-			return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3) and creating a relative mouse failed: %w", button, err)
-		}
-		return fmt.Errorf("input/uinput: unsupported mouse button %d (only 1=left,2=middle,3=right supported)", button)
+		return validateMouseButton("input/uinput", button)
 	}
 }
 
 // MouseUp releases button.
 func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
+	if err := validateMouseButton("input/uinput", button); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		return b.mouseUp(ctx, button)
 	})
 }
 
 func (b *UinputBackend) mouseUp(ctx context.Context, button int) error {
+	if err := validateMouseButton("input/uinput", button); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -488,10 +500,7 @@ func (b *UinputBackend) mouseUp(ctx context.Context, button int) error {
 	case 3:
 		return b.touchpad.RightRelease()
 	default:
-		if err := b.ensureMouse(); err != nil {
-			return fmt.Errorf("input/uinput: unsupported mouse button %d (touchpad only supports left=1, right=3) and creating a relative mouse failed: %w", button, err)
-		}
-		return fmt.Errorf("input/uinput: unsupported mouse button %d (only 1=left,2=middle,3=right supported)", button)
+		return validateMouseButton("input/uinput", button)
 	}
 }
 
@@ -546,6 +555,9 @@ func (b *UinputBackend) withMouse(fn func(uinput.Mouse) error) error {
 
 // ScrollUp scrolls upward by clicks.
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		return b.scroll(ctx, false, -clicks, clicks)
 	})
@@ -553,6 +565,9 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 
 // ScrollDown scrolls downward by clicks.
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		return b.scroll(ctx, false, clicks, clicks)
 	})
@@ -560,6 +575,9 @@ func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 
 // ScrollLeft scrolls left by clicks.
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		return b.scroll(ctx, true, -clicks, clicks)
 	})
@@ -567,6 +585,9 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 
 // ScrollRight scrolls right by clicks.
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
+	if err := validateScrollClicks(clicks); err != nil {
+		return err
+	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
 		return b.scroll(ctx, true, clicks, clicks)
 	})

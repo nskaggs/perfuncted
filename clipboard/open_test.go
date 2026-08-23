@@ -19,28 +19,41 @@ func TestOpenCompiles(t *testing.T) {
 	}
 }
 
-func TestExtCmdClipboardGetTrimsOnlyOneTrailingNewline(t *testing.T) {
+func TestExtCmdClipboardGetPreservesTrailingNewlines(t *testing.T) {
 	oldCmd := executil.CommandContext
 	defer func() { executil.CommandContext = oldCmd }()
 
 	var lastCmd *exec.Cmd
+	const envValue = "WAYLAND_DISPLAY=wayland-test"
 	executil.CommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, "printf", "hello\n\n")
+		cmd := exec.CommandContext(ctx, "printf", "%s", args[0])
 		lastCmd = cmd
 		return cmd
 	}
 
 	cb := &extCmdClipboard{
 		getCmd: []string{"fake-get"},
-		env:    []string{"WAYLAND_DISPLAY=wayland-test"},
+		env:    []string{envValue},
 	}
 
-	got, err := cb.Get(context.Background())
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got != "hello\n" {
-		t.Fatalf("Get() = %q, want %q", got, "hello\n")
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{name: "no trailing newline", text: "hello"},
+		{name: "one trailing newline", text: "hello\n"},
+		{name: "multiple trailing newlines", text: "hello\n\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cb.getCmd = []string{"fake-get", tc.text}
+			got, err := cb.Get(context.Background())
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got != tc.text {
+				t.Fatalf("Get() = %q, want %q", got, tc.text)
+			}
+		})
 	}
 	if lastCmd == nil {
 		t.Fatal("CommandContext was not called")

@@ -13,6 +13,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -320,6 +321,9 @@ func (b *WlVirtualBackend) button(ctx context.Context, code, state uint32) error
 }
 
 func btnCode(button int) (uint32, error) {
+	if err := validateMouseButton("input/wl-virtual", button); err != nil {
+		return 0, err
+	}
 	switch button {
 	case 1:
 		return btnLeft, nil
@@ -328,7 +332,7 @@ func btnCode(button int) (uint32, error) {
 	case 3:
 		return btnRight, nil
 	default:
-		return 0, fmt.Errorf("input/wl-virtual: unsupported mouse button %d", button)
+		return 0, validateMouseButton("input/wl-virtual", button)
 	}
 }
 
@@ -361,23 +365,30 @@ func (b *WlVirtualBackend) MouseClick(ctx context.Context, x, y, button int) err
 		return err
 	}
 	return b.withOperation(ctx, func(wlctx wl.Ctx, opCtx context.Context) error {
-		if err := b.mouseMoveEvent(opCtx, wlctx, x, y); err != nil {
-			return err
-		}
-		if err := opCtx.Err(); err != nil {
-			return err
-		}
-		if err := b.buttonEvent(opCtx, wlctx, code, 1); err != nil {
-			return err
-		}
-		if err := sleepContext(opCtx, 40*time.Millisecond); err != nil {
-			if upErr := b.cleanupButtonEvent(wlctx, code, 0); upErr != nil { //nolint:contextcheck // cleanup intentionally survives cancellation of the operation context.
-				return upErr
-			}
-			return err
-		}
-		return b.buttonEvent(opCtx, wlctx, code, 0)
+		return b.mouseClickEvents(opCtx, wlctx, x, y, code)
 	})
+}
+
+func (b *WlVirtualBackend) mouseClickEvents(ctx context.Context, wlctx wl.Ctx, x, y int, code uint32) error {
+	if err := b.mouseMoveEvent(ctx, wlctx, x, y); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.buttonEvent(ctx, wlctx, code, 1); err != nil {
+		return err
+	}
+	if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
+		return errors.Join(err, b.cleanupButtonEvent(wlctx, code, 0))
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, b.cleanupButtonEvent(wlctx, code, 0))
+	}
+	if err := b.buttonEvent(ctx, wlctx, code, 0); err != nil {
+		return errors.Join(err, b.cleanupButtonEvent(wlctx, code, 0))
+	}
+	return nil
 }
 
 // cleanupButtonEvent releases a button with a bounded independent context.
@@ -451,6 +462,9 @@ func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) 
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if clicks < -maxScrollClicks || clicks > maxScrollClicks {
+		return fmt.Errorf("input: scroll clicks must be at most %d in magnitude, got %d", maxScrollClicks, clicks)
 	}
 	return b.withOperation(ctx, func(wlctx wl.Ctx, opCtx context.Context) error {
 		// wl_pointer.axis: value in wl_fixed_t (24.8 fixed-point).
