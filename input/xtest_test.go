@@ -276,14 +276,16 @@ func sameXTestEvents(got, want []xtestEvent) bool {
 	return true
 }
 
-func TestXTestLogicalOperationsDoNotInterleave(t *testing.T) { //nolint:gocyclo // exercises deterministic ordering for two composite operations.
-	tests := []struct {
-		name       string
-		newBackend func() (*XTestBackend, *orderingXTestConnection)
-		first      func(*XTestBackend) error
-		second     func(*XTestBackend) error
-		want       []xtestEvent
-	}{
+type xtestOperationOrderingCase struct {
+	name       string
+	newBackend func() (*XTestBackend, *orderingXTestConnection)
+	first      func(*XTestBackend) error
+	second     func(*XTestBackend) error
+	want       []xtestEvent
+}
+
+func TestXTestLogicalOperationsDoNotInterleave(t *testing.T) {
+	tests := []xtestOperationOrderingCase{
 		{
 			name: "Type",
 			newBackend: func() (*XTestBackend, *orderingXTestConnection) {
@@ -327,40 +329,52 @@ func TestXTestLogicalOperationsDoNotInterleave(t *testing.T) { //nolint:gocyclo 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b, conn := tt.newBackend()
-			firstDone := make(chan error, 1)
-			go func() { firstDone <- tt.first(b) }()
-			select {
-			case <-conn.firstStarted:
-			case <-time.After(time.Second):
-				t.Fatal("first operation did not reach the connection")
-			}
-
-			secondDone := make(chan error, 1)
-			go func() { secondDone <- tt.second(b) }()
-			select {
-			case err := <-secondDone:
-				t.Fatalf("second operation completed while first was blocked: %v", err)
-			case <-time.After(50 * time.Millisecond):
-			}
-			if got := len(conn.eventsSnapshot()); got != 1 {
-				t.Fatalf("events while first operation was blocked = %d, want 1", got)
-			}
-
-			close(conn.firstRelease)
-			for name, done := range map[string]<-chan error{"first": firstDone, "second": secondDone} {
-				select {
-				case err := <-done:
-					if err != nil {
-						t.Fatalf("%s operation: %v", name, err)
-					}
-				case <-time.After(time.Second):
-					t.Fatalf("%s operation did not finish", name)
-				}
-			}
-			if got := conn.eventsSnapshot(); !sameXTestEvents(got, tt.want) {
-				t.Fatalf("events = %#v, want %#v", got, tt.want)
-			}
+			assertXTestOperationsDoNotInterleave(t, b, conn, tt.first, tt.second, tt.want)
 		})
+	}
+}
+
+func assertXTestOperationsDoNotInterleave(
+	t *testing.T,
+	b *XTestBackend,
+	conn *orderingXTestConnection,
+	first func(*XTestBackend) error,
+	second func(*XTestBackend) error,
+	want []xtestEvent,
+) {
+	t.Helper()
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- first(b) }()
+	select {
+	case <-conn.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first operation did not reach the connection")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- second(b) }()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second operation completed while first was blocked: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := len(conn.eventsSnapshot()); got != 1 {
+		t.Fatalf("events while first operation was blocked = %d, want 1", got)
+	}
+
+	close(conn.firstRelease)
+	for name, done := range map[string]<-chan error{"first": firstDone, "second": secondDone} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s operation: %v", name, err)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%s operation did not finish", name)
+		}
+	}
+	if got := conn.eventsSnapshot(); !sameXTestEvents(got, want) {
+		t.Fatalf("events = %#v, want %#v", got, want)
 	}
 }
 
@@ -403,7 +417,7 @@ func TestXTestQueuedOperationHonorsCancellation(t *testing.T) {
 	}
 }
 
-func TestXTestCloseWaitsForActiveOperationAndRejectsNewWork(t *testing.T) {
+func TestXTestCloseWaitsForActiveOperation(t *testing.T) {
 	conn := newOrderingXTestConnection([]xproto.Keysym{0x61})
 	b := &XTestBackend{conn: conn, root: 1, delay: time.Second}
 
@@ -445,6 +459,14 @@ func TestXTestCloseWaitsForActiveOperationAndRejectsNewWork(t *testing.T) {
 	}
 	if got := conn.closeCallCount(); got != 1 {
 		t.Fatalf("connection close calls = %d, want 1", got)
+	}
+}
+
+func TestXTestRejectsNewWorkAfterClose(t *testing.T) {
+	conn := newOrderingXTestConnection([]xproto.Keysym{0x61})
+	b := &XTestBackend{conn: conn, root: 1, delay: 0}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 
 	if err := b.Type(context.Background(), "a"); !errors.Is(err, errXTestBackendClosed) {
