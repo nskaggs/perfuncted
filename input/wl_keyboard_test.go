@@ -341,6 +341,62 @@ func TestSendkeys_ComboBeforeText_OrderedCorrectly(t *testing.T) {
 	// Msgs 3-6: text key events (keycode = kcDynBase-8, kcDynBase+1-8)
 }
 
+func TestSendkeys_LiteralAndNamedKeysUseDistinctSlots(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	actions := []keySend{
+		{key: "x"},
+		{key: "enter"},
+	}
+	if err := k.sendkeys(context.Background(), actions); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+
+	// The literal key is assigned the first dynamic slot and the named key the
+	// next one. If named slots are allocated before literal keys are collected,
+	// both actions incorrectly use kcDynBase.
+	for i, want := range []uint32{kcDynBase, kcDynBase + 1} {
+		keycode := wl.Uint32(rc.msgs[1+i*2][12:16]) + 8
+		if keycode != want {
+			t.Errorf("action %d keycode = %d, want %d", i, keycode, want)
+		}
+	}
+}
+
+func TestSendkeys_RejectsTooManyDynamicSlots(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	runes := make([]rune, maxDynamicKeySlots+1)
+	for i := range runes {
+		runes[i] = rune(0x10000 + i)
+	}
+
+	err := k.sendkeys(context.Background(), []keySend{{key: string(runes)}})
+	if err == nil {
+		t.Fatal("expected error for too many dynamic key slots")
+	}
+	if rc.writes != 0 {
+		t.Fatalf("expected no protocol writes after slot validation, got %d", rc.writes)
+	}
+}
+
+func TestSendkeys_RejectsNamedKeyWhenDynamicSlotsAreFull(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	runes := make([]rune, maxDynamicKeySlots)
+	for i := range runes {
+		runes[i] = rune(0x10000 + i)
+	}
+
+	err := k.sendkeys(context.Background(), []keySend{
+		{key: string(runes)},
+		{key: "enter"},
+	})
+	if err == nil {
+		t.Fatal("expected error when a named key exceeds the dynamic slot limit")
+	}
+	if rc.writes != 0 {
+		t.Fatalf("expected no protocol writes after slot validation, got %d", rc.writes)
+	}
+}
+
 func TestSendkeys_ModifierCombo(t *testing.T) {
 	k, rc := newSendkeysTestKeyboard()
 	actions := []keySend{

@@ -7,9 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -237,90 +235,6 @@ func TestUploadKeymapAndRestoreMods_NoMods(t *testing.T) {
 	}
 }
 
-func TestTypeString_Empty(t *testing.T) {
-	k, rc := newTestKeyboard()
-	if err := k.typeString(context.Background(), ""); err != nil {
-		t.Fatalf("typeString: %v", err)
-	}
-	if rc.writes != 0 {
-		t.Fatalf("expected 0 writes for empty string, got %d", rc.writes)
-	}
-}
-
-func TestTypeString_SingleChar(t *testing.T) {
-	k, rc := newTestKeyboard()
-	if err := k.typeString(context.Background(), "a"); err != nil {
-		t.Fatalf("typeString: %v", err)
-	}
-	// 1 keymap upload + 2 key events (press+release) = 3 writes
-	if rc.writes != 3 {
-		t.Fatalf("expected 3 writes, got %d", rc.writes)
-	}
-	// First message should be keymap upload (opcode 0)
-	opcode0 := wl.Uint32(rc.msgs[0][4:8]) & 0xffff
-	if opcode0 != 0 {
-		t.Errorf("first msg opcode = %d, want 0 (keymap)", opcode0)
-	}
-	// Second and third should be key events (opcode 1)
-	for i := 1; i <= 2; i++ {
-		opcode := wl.Uint32(rc.msgs[i][4:8]) & 0xffff
-		if opcode != 1 {
-			t.Errorf("msg[%d] opcode = %d, want 1 (key)", i, opcode)
-		}
-	}
-}
-
-func TestTypeString_MultipleChars(t *testing.T) {
-	k, rc := newTestKeyboard()
-	if err := k.typeString(context.Background(), "ab"); err != nil {
-		t.Fatalf("typeString: %v", err)
-	}
-	// 1 keymap upload + 4 key events (2 chars × press+release) = 5 writes
-	if rc.writes != 5 {
-		t.Fatalf("expected 5 writes, got %d", rc.writes)
-	}
-}
-
-func TestTypeString_RepeatedChar(t *testing.T) {
-	k, rc := newTestKeyboard()
-	if err := k.typeString(context.Background(), "aa"); err != nil {
-		t.Fatalf("typeString: %v", err)
-	}
-	// 1 keymap upload + 4 key events = 5 writes
-	if rc.writes != 5 {
-		t.Fatalf("expected 5 writes, got %d", rc.writes)
-	}
-}
-
-func TestTapKey_NamedKey(t *testing.T) {
-	k, rc := newTestKeyboard()
-	if err := k.tapKey(context.Background(), "return"); err != nil {
-		t.Fatalf("tapKey: %v", err)
-	}
-	// 1 keymap upload + 2 key events = 3 writes
-	if rc.writes != 3 {
-		t.Fatalf("expected 3 writes, got %d", rc.writes)
-	}
-	// Verify the keycode in the key events is kcReturn-8 = 4
-	for i := 1; i <= 2; i++ {
-		kc := wl.Uint32(rc.msgs[i][12:16])
-		if kc != kcReturn-8 {
-			t.Errorf("msg[%d] keycode = %d, want %d", i, kc, kcReturn-8)
-		}
-	}
-}
-
-func TestTapKey_SingleChar(t *testing.T) {
-	k, rc := newTestKeyboard()
-	if err := k.tapKey(context.Background(), "x"); err != nil {
-		t.Fatalf("tapKey: %v", err)
-	}
-	// 1 keymap upload + 2 key events = 3 writes
-	if rc.writes != 3 {
-		t.Fatalf("expected 3 writes, got %d", rc.writes)
-	}
-}
-
 func TestPressKey_Modifier(t *testing.T) {
 	k, rc := newTestKeyboard()
 	if err := k.pressKey(context.Background(), "shift"); err != nil {
@@ -457,33 +371,6 @@ func TestReleaseKey_ModifierNotHeld(t *testing.T) {
 	}
 }
 
-func TestTypeString_TooManyUniqueRunes(t *testing.T) {
-	k, _ := newTestKeyboard()
-	// Create a string with more unique runes than maxDynSlots (219)
-	runes := make([]rune, maxDynSlots+1)
-	for i := range runes {
-		runes[i] = rune(0x10000 + i) // use high Unicode to avoid collisions
-	}
-	err := k.typeString(context.Background(), string(runes))
-	if err == nil {
-		t.Fatal("expected error for too many unique runes")
-	}
-	t.Logf("got expected error: %v", err)
-}
-
-func TestTypeString_ExactMaxSlots(t *testing.T) {
-	k, _ := newTestKeyboard()
-	// Create a string with exactly maxDynSlots unique runes
-	runes := make([]rune, maxDynSlots)
-	for i := range runes {
-		runes[i] = rune(0x10000 + i)
-	}
-	err := k.typeString(context.Background(), string(runes))
-	if err != nil {
-		t.Fatalf("typeString with max slots should succeed: %v", err)
-	}
-}
-
 func TestUploadKeymap_MessageFormat(t *testing.T) {
 	k, rc := newTestKeyboard()
 	text := "xkb_keymap { }"
@@ -546,11 +433,8 @@ func TestXkbWithNamed_ModifierReturnsModsOnly(t *testing.T) {
 	}
 }
 
-// ── Test-only helpers (moved from wl_keyboard.go to eliminate U1000 warnings) ──
-
-const testMaxDynSlots = kcDynMax - kcDynBase + 1
-
-func testUniqueRunes(s string) []rune {
+// uniqueRunes is shared with wl_keyboard_test.go.
+func uniqueRunes(s string) []rune {
 	seen := make(map[rune]bool)
 	var out []rune
 	for _, r := range s {
@@ -560,48 +444,6 @@ func testUniqueRunes(s string) []rune {
 		}
 	}
 	return out
-}
-
-func (k *wlKeyboard) typeString(ctx context.Context, s string) error {
-	if s == "" {
-		return nil
-	}
-	runes := testUniqueRunes(s)
-	if uint32(len(runes)) > testMaxDynSlots {
-		return fmt.Errorf("keyboard: string has %d unique characters, max %d per call", len(runes), testMaxDynSlots)
-	}
-	if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithRunes(runes)); err != nil {
-		return err
-	}
-	slot := make(map[rune]uint32, len(runes))
-	for i, r := range runes {
-		slot[r] = kcDynBase + uint32(i)
-	}
-	for _, r := range s {
-		if err := k.tap(ctx, slot[r]); err != nil {
-			return err
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return nil
-}
-
-func (k *wlKeyboard) tapKey(ctx context.Context, key string) error {
-	if kc, sym, ok := namedKey(key); ok {
-		if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithNamed(kc, sym)); err != nil {
-			return err
-		}
-		return k.tap(ctx, kc)
-	}
-	return k.typeString(ctx, key)
-}
-
-// maxDynSlots is exported for tests that reference it by name.
-const maxDynSlots = testMaxDynSlots
-
-// uniqueRunes is exported for tests in wl_keyboard_test.go.
-func uniqueRunes(s string) []rune {
-	return testUniqueRunes(s)
 }
 
 // TestSendkeysContext_HeldNotSetOnSendKeyFailure verifies that k.held is NOT

@@ -44,6 +44,8 @@ const (
 	kcDynMax  uint32 = 255
 )
 
+const maxDynamicKeySlots = kcDynMax - kcDynBase + 1
+
 // XKB modifier bitmask values (standard X11 modifier indices).
 const (
 	modShift   uint32 = 1
@@ -200,6 +202,18 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			continue
 		}
 		keys = append(keys, keyAction{key: a.key, down: a.down, up: a.up, mod: a.modifiers})
+		if _, _, ok := namedKey(a.key); ok {
+			continue
+		}
+		for _, r := range a.key {
+			if !seenRunes[r] {
+				seenRunes[r] = true
+				allRunes = append(allRunes, r)
+			}
+		}
+	}
+	if len(allRunes) > int(maxDynamicKeySlots) {
+		return fmt.Errorf("keyboard: key sequence has %d unique characters, max %d dynamic slots", len(allRunes), maxDynamicKeySlots)
 	}
 
 	// Build a keymap that includes all needed runes and named keys.
@@ -217,20 +231,16 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				continue // modifier key — already in keymap
 			}
 			if _, done := namedSlots[ka.key]; !done {
+				if nextSlot > kcDynMax {
+					used := nextSlot - kcDynBase + 1
+					return fmt.Errorf("keyboard: key sequence needs %d dynamic slots, max %d", used, maxDynamicKeySlots)
+				}
 				slot := nextSlot
 				nextSlot++
 				namedSlots[ka.key] = slot
 				_, s, _ := namedKey(ka.key)
 				fmt.Fprintf(&kc, "    <K%03d> = %d;\n", slot, slot)
 				fmt.Fprintf(&sym, "    key <K%03d> { [ %s ] };\n", slot, s)
-			}
-		} else {
-			// Not a named key — treat as literal character(s).
-			for _, r := range ka.key {
-				if !seenRunes[r] {
-					seenRunes[r] = true
-					allRunes = append(allRunes, r)
-				}
 			}
 		}
 	}
@@ -245,9 +255,6 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	}
 
 	maxSlot := nextSlot - 1
-	if len(allRunes) > 0 {
-		maxSlot = kcDynBase + uint32(len(allRunes)) - 1
-	}
 	if maxSlot < kcSuper {
 		maxSlot = kcSuper
 	}
