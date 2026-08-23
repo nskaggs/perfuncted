@@ -5,10 +5,12 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -49,6 +51,7 @@ type WaylandWindowManager struct {
 	toplevelsMu sync.Mutex
 	changesOnce sync.Once
 	changes     chan struct{}
+	closed      atomic.Bool
 }
 
 func (m *WaylandWindowManager) canControlToplevels() bool {
@@ -257,6 +260,9 @@ func decodeWaylandString(data []byte) string {
 }
 
 func (m *WaylandWindowManager) notifyWindowChange() {
+	if m.closed.Load() {
+		return
+	}
 	m.changesOnce.Do(func() {
 		m.changes = make(chan struct{}, 1)
 	})
@@ -288,6 +294,9 @@ func (m *WaylandWindowManager) sendHandleRequest(ctx context.Context, handleID u
 func (m *WaylandWindowManager) withOperation(ctx context.Context, fn func() error) error {
 	if m == nil || m.display == nil {
 		return fmt.Errorf("window/wayland: manager not initialised")
+	}
+	if m.closed.Load() {
+		return fmt.Errorf("window/wayland: manager is closed: %w", net.ErrClosed)
 	}
 	return wl.WithOperationContext(ctx, m.display.Context(), fn)
 }
@@ -421,6 +430,10 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 
 // Close releases the Wayland connection.
 func (m *WaylandWindowManager) Close() error {
+	if m == nil {
+		return nil
+	}
+	m.closed.Store(true)
 	if m.session != nil {
 		return m.session.Close()
 	}

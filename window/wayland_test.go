@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -224,6 +225,19 @@ func TestWaylandWindowManager_New(t *testing.T) {
 	}
 	if wm != nil {
 		t.Fatal("expected nil manager when socket is empty")
+	}
+}
+
+func TestWaylandWindowManagerRejectsOperationsAfterClose(t *testing.T) {
+	wm, _, _ := newStubWaylandManager("Closed", true, true)
+	if err := wm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := wm.Sync(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Sync error = %v, want net.ErrClosed", err)
+	}
+	if _, err := wm.List(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("List error = %v, want net.ErrClosed", err)
 	}
 }
 

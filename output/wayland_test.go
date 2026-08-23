@@ -93,6 +93,19 @@ func TestWaylandListerListCancelsBlockedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWaylandListerRejectsListAfterClose(t *testing.T) {
+	lister := &WaylandLister{
+		session: &wl.Session{},
+		outputs: []*waylandOutput{{info: Info{Name: "test", Backend: "wayland"}}},
+	}
+	if err := lister.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := lister.List(context.Background()); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("List error = %v, want net.ErrClosed", err)
+	}
+}
+
 func TestNewWaylandListerPreservesRepeatedOutputs(t *testing.T) {
 	sock := t.TempDir() + "/wayland.sock"
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})

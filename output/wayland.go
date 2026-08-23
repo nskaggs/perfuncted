@@ -3,8 +3,10 @@ package output
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -21,6 +23,7 @@ type waylandOutput struct {
 type WaylandLister struct {
 	session *wl.Session
 	outputs []*waylandOutput
+	closed  atomic.Bool
 }
 
 // NewWaylandLister connects to the Wayland socket and discovers outputs.
@@ -172,6 +175,9 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	if l == nil || l.session == nil {
 		return nil, capability.Unsupported("output", "wayland", "not available")
 	}
+	if l.closed.Load() {
+		return nil, fmt.Errorf("output/wayland: lister is closed: %w", net.ErrClosed)
+	}
 	if err := l.session.SyncContext(ctx); err != nil {
 		return nil, err
 	}
@@ -219,6 +225,10 @@ func (l *WaylandLister) snapshotOutputs() []Info {
 
 // Close releases the Wayland connection.
 func (l *WaylandLister) Close() error {
+	if l == nil {
+		return nil
+	}
+	l.closed.Store(true)
 	if l.session != nil {
 		return l.session.Close()
 	}
