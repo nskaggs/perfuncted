@@ -54,13 +54,13 @@ func TestGrabHash_ErrorFromGrab(t *testing.T) {
 	}
 }
 
-func TestGrabHash_ErrorFromGrabRegionHash(t *testing.T) {
-	boom := errors.New("region hash boom")
+func TestGrabHash_NilHasherErrorFromGrab(t *testing.T) {
+	boom := errors.New("grab boom")
 	sc := &errScreen{err: boom}
-	// nil hasher → uses GrabRegionHash
+	// The default hasher uses the same Grab path as a custom hasher.
 	_, err := GrabHash(context.Background(), sc, image.Rect(0, 0, 4, 4), nil)
 	if !errors.Is(err, boom) {
-		t.Fatalf("GrabHash (nil hasher) error = %v, want %v", err, boom)
+		t.Fatalf("GrabHash with nil hasher error = %v, want %v", err, boom)
 	}
 }
 

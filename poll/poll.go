@@ -57,7 +57,16 @@ func WaitFunc[T any](ctx context.Context, pollInterval time.Duration, fn func() 
 	defer ticker.Stop()
 
 	for {
+		if err := ctx.Err(); err != nil {
+			var zero T
+			return zero, fmt.Errorf("poll.WaitFunc: %w", err)
+		}
+
 		result, err := fn()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			var zero T
+			return zero, fmt.Errorf("poll.WaitFunc: %w", ctxErr)
+		}
 		if err == nil {
 			return result, nil
 		}

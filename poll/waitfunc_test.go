@@ -70,3 +70,40 @@ func TestWaitFuncCancellation(t *testing.T) {
 		t.Fatal("WaitFunc on canceled context returned nil error")
 	}
 }
+
+func TestWaitFuncAlreadyCanceledDoesNotCallCallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var calls atomic.Int32
+
+	_, err := WaitFunc(ctx, time.Millisecond, func() (string, error) {
+		calls.Add(1)
+		return "unexpected", nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WaitFunc error = %v, want context.Canceled", err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("callback calls = %d, want 0", got)
+	}
+}
+
+func TestWaitFuncCancellationDuringSuccessfulCallbackDoesNotReturnSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls atomic.Int32
+
+	got, err := WaitFunc(ctx, time.Millisecond, func() (string, error) {
+		calls.Add(1)
+		cancel()
+		return "unexpected", nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WaitFunc error = %v, want context.Canceled", err)
+	}
+	if got != "" {
+		t.Fatalf("WaitFunc result = %q, want zero result", got)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("callback calls = %d, want 1", got)
+	}
+}

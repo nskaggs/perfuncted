@@ -24,12 +24,8 @@ import (
 var ErrNotFound = errors.New("not found")
 
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
-// It also includes a fast region-hash path to avoid image allocations when
-// callers only need a pixel fingerprint.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
-	GrabFullHash(ctx context.Context) (uint32, error)
-	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
 }
 
 // Hasher returns a fresh hash.Hash32 for each call. Swap out for stronger
@@ -113,16 +109,13 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 	return h.Sum32()
 }
 
-// GrabHash captures rect from sc and returns its pixel hash. Preferred
-// implementations provide a fast GrabRegionHash that avoids allocating an
-// image.RGBA; use that when available.
+// GrabHash captures rect from sc and returns the same hash as PixelHash on the
+// grabbed image. Keeping this path canonical ensures all backends use the same
+// pixel representation, including the default hash.
 func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
 	ctx = contextutil.Default(ctx)
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
-	}
-	if newHash == nil {
-		return sc.GrabRegionHash(ctx, rect)
 	}
 	img, err := sc.Grab(ctx, rect)
 	if err != nil {
