@@ -67,8 +67,11 @@ docs: generate
 
 # Verify generated files are current
 check-generate:
-    just generate
-    git diff --exit-code -- cmd/pf/autogen_gen.go docs-cli
+	@set -e; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' 0 2 3 15; \
+	CGO_ENABLED=0 go run -tags=gencli ./scripts/gen_cli.go --output "$tmp/autogen_gen.go"; \
+	CGO_ENABLED=0 go run ./cmd/pf/ docs --dir "$tmp/docs-cli" >/dev/null; \
+	diff -u cmd/pf/autogen_gen.go "$tmp/autogen_gen.go"; \
+	diff -ru docs-cli "$tmp/docs-cli"
 
 # Verify public Go documentation and docs-cli descriptions.
 # Fails if any file still says "Auto-generated wrapper" — add a real

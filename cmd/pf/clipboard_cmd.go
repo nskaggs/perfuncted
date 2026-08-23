@@ -12,6 +12,7 @@ func clipboardCmd(openPF sessionOpener) *cobra.Command {
 	get := &cobra.Command{
 		Use:   "get",
 		Short: "Print clipboard contents",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {

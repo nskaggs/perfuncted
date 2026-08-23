@@ -19,6 +19,7 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "docs",
 		Short: "Generate markdown documentation for the CLI",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := os.MkdirAll(dirFlag, 0755); err != nil {
 				return err
@@ -40,6 +41,7 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
+		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			fmt.Fprintf(cmd.OutOrStdout(), "pf %s\n", version)
 			fmt.Fprintf(cmd.OutOrStdout(), "  commit:  %s\n", commit)
@@ -58,6 +60,7 @@ func infoCmd(
 	cmd := &cobra.Command{
 		Use:   "info",
 		Short: "Display resolved capabilities for this environment",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mode, err := parseOutputMode(outputFlag)
 			if err != nil {
@@ -134,6 +137,7 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 	typeCmd := &cobra.Command{
 		Use:   "type",
 		Short: "Print whether the current session is nested or host",
+		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			detection := perfuncted.DetectSession()
 			out := cmd.OutOrStdout()
@@ -147,6 +151,7 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 	check := &cobra.Command{
 		Use:   "check",
 		Short: "Check if the current runtime environment is ready for automation",
+		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			out := cmd.OutOrStdout()
 			fmt.Fprintln(out, "── Environment Variable Checks ──────────────────")
@@ -198,6 +203,7 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a headless sway session and print env vars",
+		Args:  cobra.NoArgs,
 		Long: `Start a new isolated headless sway session (dbus, sway, wl-paste)
 and print the environment variables needed to connect to it.
 

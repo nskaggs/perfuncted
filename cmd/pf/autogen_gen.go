@@ -15,6 +15,7 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 		Use:   "grab-full-hash",
 		Short: "Print the CRC32 hash of the full screen contents",
 		Long:  "Captures the full screen and prints the CRC32 pixel hash as a zero-padded\nhex integer. Useful as a quick change-detection probe without saving any files.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -39,6 +40,7 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 	cmd_screen_wait_for_no_change := &cobra.Command{
 		Use:   "wait-for-no-change",
 		Short: "Wait for a screen region to stop changing",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -76,6 +78,7 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 	cmd_screen_wait_for_no_change_from := &cobra.Command{
 		Use:   "wait-for-no-change-from",
 		Short: "Wait for a screen region to stop changing, starting from an initial hash",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -115,9 +118,9 @@ func autogenInputCommands(openPF sessionOpener) []*cobra.Command {
 	cmds := []*cobra.Command{}
 
 	// type-literal: wrapper for perfuncted.TypeLiteral
-	var cmd_input_type_literal_text string
+
 	cmd_input_type_literal := &cobra.Command{
-		Use:   "type-literal",
+		Use:   "type-literal <text>",
 		Short: "Type text literally without interpreting key syntax",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -134,7 +137,6 @@ func autogenInputCommands(openPF sessionOpener) []*cobra.Command {
 			return nil
 		},
 	}
-	cmd_input_type_literal.Flags().StringVar(&cmd_input_type_literal_text, "text", "", "text")
 
 	cmds = append(cmds, cmd_input_type_literal)
 	return cmds

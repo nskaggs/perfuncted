@@ -3,14 +3,13 @@
 Type text literally without interpreting key syntax
 
 ```
-pf input type-literal [flags]
+pf input type-literal <text> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help          help for type-literal
-      --text string   text
+  -h, --help   help for type-literal
 ```
 
 ### Options inherited from parent commands

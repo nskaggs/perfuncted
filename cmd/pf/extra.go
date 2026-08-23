@@ -29,6 +29,7 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List outputs",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -70,10 +71,12 @@ type scriptRunner struct {
 	out            io.Writer
 	pf             *perfuncted.Session
 	selectedWindow *perfuncted.Window
+	sync           bool
 }
 
 func runCmd(
 	openPF sessionOpener,
+	cfg *cliConfig,
 ) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run FILE",
@@ -98,10 +101,11 @@ func runCmd(
 			}
 			defer pf.Close()
 			sr := &scriptRunner{
-				ctx: cmd.Context(),
-				in:  cmd.InOrStdin(),
-				out: cmd.OutOrStdout(),
-				pf:  pf,
+				ctx:  cmd.Context(),
+				in:   cmd.InOrStdin(),
+				out:  cmd.OutOrStdout(),
+				pf:   pf,
+				sync: cfg != nil && cfg.sync,
 			}
 			return sr.run(r)
 		},
@@ -269,7 +273,10 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		return target.Move(s.ctx, x, y)
+		if err := target.Move(s.ctx, x, y); err != nil {
+			return err
+		}
+		return s.syncWindows()
 	case "resize":
 		title, w, h, err := s.parseWindowResizeArgs(toks[1:])
 		if err != nil {
@@ -279,7 +286,10 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		return target.Resize(s.ctx, w, h)
+		if err := target.Resize(s.ctx, w, h); err != nil {
+			return err
+		}
+		return s.syncWindows()
 	case "find":
 		match, err := parseWindowMatchArgs(toks[1:])
 		if err != nil {
@@ -331,24 +341,29 @@ func (s *scriptRunner) runWindowAction(
 	action string,
 	target *perfuncted.Window,
 ) error {
+	var err error
 	switch action {
 	case "activate":
-		return target.Activate(s.ctx)
+		err = target.Activate(s.ctx)
 	case "close":
-		return target.Close(s.ctx)
+		err = target.Close(s.ctx)
 	case "minimize":
-		return target.Minimize(s.ctx)
+		err = target.Minimize(s.ctx)
 	case "maximize":
-		return target.Maximize(s.ctx)
+		err = target.Maximize(s.ctx)
 	case "fullscreen":
-		return target.Fullscreen(s.ctx)
+		err = target.Fullscreen(s.ctx)
 	case "unfullscreen":
-		return target.Unfullscreen(s.ctx)
+		err = target.Unfullscreen(s.ctx)
 	case "restore":
-		return target.Restore(s.ctx)
+		err = target.Restore(s.ctx)
 	default:
 		return fmt.Errorf("unknown window action %q", action)
 	}
+	if err != nil {
+		return err
+	}
+	return s.syncWindows()
 }
 
 func (s *scriptRunner) parseWindowMoveArgs(args []string) (title string, x, y int, err error) {
@@ -454,7 +469,18 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 			}
 			text = string(b)
 		}
-		return s.pf.Input.Type(s.ctx, text)
+		if err := s.pf.Input.Type(s.ctx, text); err != nil {
+			return err
+		}
+		return s.syncInput()
+	case "type-literal":
+		if len(toks) != 2 {
+			return fmt.Errorf("script line %d: input type-literal requires exactly one text argument", lineNo)
+		}
+		if err := s.pf.Input.TypeLiteral(s.ctx, toks[1]); err != nil {
+			return err
+		}
+		return s.syncInput()
 	case "location":
 		x, y, err := s.pf.Input.PointerLocation(s.ctx)
 		if err != nil {
@@ -465,6 +491,20 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 	default:
 		return fmt.Errorf("script line %d: unsupported input subcommand %q", lineNo, toks[0])
 	}
+}
+
+func (s *scriptRunner) syncInput() error {
+	if !s.sync {
+		return nil
+	}
+	return s.pf.Input.Sync(s.ctx)
+}
+
+func (s *scriptRunner) syncWindows() error {
+	if !s.sync {
+		return nil
+	}
+	return s.pf.Windows.Sync(s.ctx)
 }
 
 func (s *scriptRunner) execScreen(lineNo int, toks []string) error {

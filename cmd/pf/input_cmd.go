@@ -29,6 +29,7 @@ func inputCmd(
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move mouse to absolute coordinates",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -53,6 +54,7 @@ func inputCmd(
 	click := &cobra.Command{
 		Use:   "click",
 		Short: "Click a mouse button at coordinates",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -102,6 +104,7 @@ func inputCmd(
 	doubleClick := &cobra.Command{
 		Use:   "double-click",
 		Short: "Double-click at coordinates",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -125,6 +128,7 @@ func inputCmd(
 	drag := &cobra.Command{
 		Use:   "drag-and-drop",
 		Short: "Drag from one coordinate to another (press, move, release)",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -150,6 +154,7 @@ func inputCmd(
 	clickCenter := &cobra.Command{
 		Use:   "click-center",
 		Short: "Click the center of a rectangle",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -249,6 +254,7 @@ func inputCmd(
 	mousedown := &cobra.Command{
 		Use:   "mousedown",
 		Short: "Press a mouse button (optional coords)",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -278,6 +284,7 @@ func inputCmd(
 	mouseup := &cobra.Command{
 		Use:   "mouseup",
 		Short: "Release a mouse button (optional coords)",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -306,6 +313,7 @@ func inputCmd(
 	location := &cobra.Command{
 		Use:   "location",
 		Short: "Print current pointer location",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -327,6 +335,7 @@ func inputCmd(
 	sync := &cobra.Command{
 		Use:   "sync",
 		Short: "Synchronize the input backend with the compositor",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -368,6 +377,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	up := &cobra.Command{
 		Use:   "up",
 		Short: "Scroll up by N clicks",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -389,6 +399,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	down := &cobra.Command{
 		Use:   "down",
 		Short: "Scroll down by N clicks",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -412,6 +423,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	left := &cobra.Command{
 		Use:   "left",
 		Short: "Scroll left by N clicks",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -433,6 +445,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	right := &cobra.Command{
 		Use:   "right",
 		Short: "Scroll right by N clicks",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {

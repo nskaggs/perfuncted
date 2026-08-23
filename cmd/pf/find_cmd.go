@@ -19,6 +19,7 @@ func findCmd(
 	waitFor := &cobra.Command{
 		Use:   "wait-for",
 		Short: "Wait until a region's pixel hash equals the provided hash",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -62,6 +63,7 @@ func findCmd(
 	waitForChange := &cobra.Command{
 		Use:   "wait-for-change",
 		Short: "Wait until a region's pixel hash changes from an initial value",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -114,6 +116,7 @@ func findCmd(
 	waitForNoChange := &cobra.Command{
 		Use:   "wait-for-no-change",
 		Short: "Wait until a region's pixel hash is stable for N consecutive samples",
+		Args:  cobra.NoArgs,
 		Long: `Polls a screen region until its pixel hash is unchanged for --stable consecutive
 samples. Pairs with wait-for-change: use wait-for-change to detect when something
 starts (e.g. navigation begins), then wait-for-no-change to detect when it finishes.`,
@@ -160,6 +163,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	scanFor := &cobra.Command{
 		Use:   "scan-for",
 		Short: "Scan multiple regions until one matches its expected hash",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -213,6 +217,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	waitForVisibleChange := &cobra.Command{
 		Use:   "wait-for-visible-change",
 		Short: "Wait until a region's visible content changes (useful for animations/loads)",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -266,6 +271,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	findColor := &cobra.Command{
 		Use:   "color",
 		Short: "Find the first pixel matching a colour within tolerance",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {

@@ -127,6 +127,7 @@ func windowCmd(
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List windows",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -188,6 +189,7 @@ func windowCmd(
 	active := &cobra.Command{
 		Use:   "active",
 		Short: "Print the title of the currently focused window",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -208,6 +210,7 @@ func windowCmd(
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move a window to absolute screen coordinates",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -256,6 +259,7 @@ func windowCmd(
 	resize := &cobra.Command{
 		Use:   "resize",
 		Short: "Resize a window",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -552,6 +556,7 @@ func windowCmd(
 	watch := &cobra.Command{
 		Use:   "watch",
 		Short: "Stream window list changes",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mode, err := parseOutputMode(watchOutputFlag)
 			if err != nil {

@@ -3,7 +3,8 @@
 #   <MethodName>:
 #     name: <cli-name>           # override the hyphenated CLI command name
 #     skip: true|false           # exclude from autogeneration (hand-written in root.go)
-#     positional: true|false     # accept value as positional arg instead of --flag
+#     positional: true|false     # accept value as positional arg instead of --flag;
+#                                 positional commands use exactly one argument
 #     out_flag: <flag-name>      # flag name for image output path (default: out)
 #     short: <one-line summary>  # REQUIRED for all non-skipped methods
 #     long: |                    # optional multi-paragraph synopsis (shown under "Synopsis")
@@ -57,6 +58,7 @@ input:
   Type:
     skip: true
   TypeLiteral:
+    # Canonical contract: pf input type-literal <text>
     positional: true
     short: "Type text literally without interpreting key syntax"
   TypeWithDelay:

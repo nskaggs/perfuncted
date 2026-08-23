@@ -14,6 +14,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"go/format"
 	"go/types"
@@ -156,6 +157,13 @@ func paramNameOrDefault(v *types.Var, idx int) string {
 // Generation ---------------------------------------------------------------
 
 func main() {
+	outputPath := flag.String(
+		"output",
+		"cmd/pf/autogen_gen.go",
+		"path for the generated Go source",
+	)
+	flag.Parse()
+
 	mapPath := "scripts/cli-mapping.yaml"
 	mapping, err := loadMapping(mapPath)
 	if err != nil {
@@ -323,6 +331,12 @@ func main() {
 			if cliName == "" {
 				cliName = hyphenate(mn)
 			}
+			mappingEntry, hasMapping := MethodMapping{}, false
+			if mapping[grp] != nil {
+				mappingEntry, hasMapping = mapping[grp][mn]
+			}
+			positional := hasMapping && mappingEntry.Positional &&
+				params.Len()-start == 1 && isStringType(params.At(start).Type())
 
 			var sb strings.Builder
 			cmdVar := fmt.Sprintf("cmd_%s_%s", grp, strings.ReplaceAll(cliName, "-", "_"))
@@ -344,6 +358,9 @@ func main() {
 				}
 				switch t {
 				case "string":
+					if positional {
+						continue
+					}
 					flagVars = append(flagVars, fmt.Sprintf("var %s string", vname))
 					argList = append(argList, vname)
 					imports["fmt"] = true
@@ -400,19 +417,21 @@ func main() {
 				fmt.Fprintf(os.Stderr, "  Add a 'short' entry under %s: %s: in scripts/cli-mapping.yaml\n", grp, mn)
 				os.Exit(2)
 			}
+			use := cliName
+			if positional {
+				pname := paramNameOrDefault(params.At(start), start+1)
+				use += " <" + pname + ">"
+			}
 			sb.WriteString(fmt.Sprintf("\t%s := &cobra.Command{\n", cmdVar))
-			sb.WriteString(fmt.Sprintf("\t\tUse:   \"%s\",\n", cliName))
+			sb.WriteString(fmt.Sprintf("\t\tUse:   %q,\n", use))
 			sb.WriteString(fmt.Sprintf("\t\tShort: %q,\n", shortDesc))
 			if longDesc != "" {
 				sb.WriteString(fmt.Sprintf("\t\tLong:  %q,\n", longDesc))
 			}
-			// Args for simple positional single-string param
-			if params.Len()-start == 1 && isStringType(params.At(start).Type()) {
-				if mapping[grp] != nil {
-					if mm, ok := mapping[grp][mn]; ok && mm.Positional {
-						sb.WriteString("\t\tArgs:  cobra.ExactArgs(1),\n")
-					}
-				}
+			if positional {
+				sb.WriteString("\t\tArgs:  cobra.ExactArgs(1),\n")
+			} else {
+				sb.WriteString("\t\tArgs:  cobra.NoArgs,\n")
 			}
 			sb.WriteString("\t\tRunE: func(cmd *cobra.Command, args []string) error {\n")
 			sb.WriteString("\t\t\tpf, err := openPF(cmd.Context())\n\t\t\tif err != nil { return err }\n\t\t\tdefer pf.Close()\n")
@@ -425,15 +444,10 @@ func main() {
 				vname := fmt.Sprintf("%s_%s", cmdVar, pname)
 				switch t {
 				case "string":
-					// positional?
-					if params.Len()-start == 1 {
-						if mapping[grp] != nil {
-							if mm, ok := mapping[grp][mn]; ok && mm.Positional {
-								sb.WriteString(fmt.Sprintf("\t\t\tvar %s string\n", vname))
-								sb.WriteString(fmt.Sprintf("\t\t\t%s = args[0]\n", vname))
-								continue
-							}
-						}
+					if positional {
+						sb.WriteString(fmt.Sprintf("\t\t\tvar %s string\n", vname))
+						sb.WriteString(fmt.Sprintf("\t\t\t%s = args[0]\n", vname))
+						continue
 					}
 					sb.WriteString(fmt.Sprintf("\t\t\t// flag %s (string)\n", vname))
 				case "int":
@@ -574,6 +588,9 @@ func main() {
 				return fallback
 			}
 			for i := start; i < params.Len(); i++ {
+				if positional {
+					continue
+				}
 				p := params.At(i)
 				pname := paramNameOrDefault(p, i+1)
 				vname := fmt.Sprintf("%s_%s", cmdVar, pname)
@@ -658,12 +675,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "format error:", err)
 		// write unformatted for debugging
-		os.WriteFile("cmd/pf/autogen_gen.go", src, 0644)
+		_ = os.WriteFile(*outputPath, src, 0644)
 		os.Exit(2)
 	}
-	if err := os.WriteFile("cmd/pf/autogen_gen.go", fmtSrc, 0644); err != nil {
+	if err := os.WriteFile(*outputPath, fmtSrc, 0644); err != nil {
 		fmt.Fprintln(os.Stderr, "write autogen:", err)
 		os.Exit(2)
 	}
-	fmt.Println("wrote cmd/pf/autogen_gen.go")
+	fmt.Printf("wrote %s\n", *outputPath)
 }

@@ -173,6 +173,175 @@ func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
 	}
 }
 
+func TestLeafCommandsDeclareArgumentContracts(t *testing.T) {
+	root := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return nil, nil }
+	})
+
+	var visit func(*cobra.Command)
+	visit = func(cmd *cobra.Command) {
+		children := cmd.Commands()
+		if len(children) == 0 && cmd.Name() != "help" {
+			if len(strings.Fields(cmd.Use)) == 1 && cmd.Args == nil {
+				t.Errorf("leaf command %q accepts unexpected positional arguments", cmd.CommandPath())
+			}
+			return
+		}
+		for _, child := range children {
+			visit(child)
+		}
+	}
+	visit(root)
+}
+
+func TestNoArgumentCommandsRejectUnexpectedPositionals(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "version", args: []string{"version", "extra"}},
+		{name: "screen resolution", args: []string{"screen", "resolution", "extra"}},
+		{name: "generated screen command", args: []string{"screen", "grab-full-hash", "extra"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opened := false
+			_, stderr, code := captureRunIO(t, tt.args, func(*cliConfig) sessionOpener {
+				return func(context.Context) (*perfuncted.Session, error) {
+					opened = true
+					return nil, nil
+				}
+			})
+			if code == 0 {
+				t.Fatalf("exit code = 0, want argument error; stderr=%q", stderr)
+			}
+			if opened {
+				t.Fatal("session opener called before positional argument validation")
+			}
+		})
+	}
+}
+
+func TestTypeLiteralUsesCanonicalPositionalArgument(t *testing.T) {
+	root := newRootCmd(func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return nil, nil
+		}
+	})
+	literal := findCommandPath(root, "input", "type-literal")
+	if literal == nil {
+		t.Fatal("input type-literal command is missing")
+	}
+	if got, want := literal.Use, "type-literal <text>"; got != want {
+		t.Fatalf("type-literal Use = %q, want %q", got, want)
+	}
+	if literal.Flags().Lookup("text") != nil {
+		t.Fatal("type-literal still exposes the removed --text flag")
+	}
+
+	inp := &pftest.Inputter{}
+	text := `literal {ctrl+s} {braces}`
+	stdout, stderr, code := captureRunIO(
+		t,
+		[]string{"input", "type-literal", text},
+		func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
+				return pftest.New(nil, inp, nil, nil), nil
+			}
+		},
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if got := inp.Typed(); got != text {
+		t.Fatalf("typed literal = %q, want %q", got, text)
+	}
+
+	_, stderr, code = captureRunIO(t, []string{"input", "type-literal", "--text", text}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			t.Fatal("session opener called for removed --text flag")
+			return nil, nil
+		}
+	})
+	if code == 0 {
+		t.Fatalf("removed --text flag unexpectedly succeeded; stderr=%q", stderr)
+	}
+}
+
+type syncTrackingInputter struct {
+	*pftest.Inputter
+	syncCalls int
+}
+
+func (s *syncTrackingInputter) Sync(context.Context) error {
+	s.syncCalls++
+	return nil
+}
+
+type syncTrackingManager struct {
+	*pftest.Manager
+	syncCalls int
+}
+
+func (s *syncTrackingManager) Sync(context.Context) error {
+	s.syncCalls++
+	return nil
+}
+
+func TestRunSyncPropagatesToSupportedMutations(t *testing.T) {
+	tests := []struct {
+		name       string
+		sync       bool
+		wantInputs int
+		wantWindow int
+	}{
+		{name: "disabled", sync: false},
+		{name: "enabled", sync: true, wantInputs: 1, wantWindow: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			script := filepath.Join(t.TempDir(), "script.pf")
+			if err := os.WriteFile(
+				script,
+				[]byte("input type hello\nwindow activate Terminal\n"),
+				0600,
+			); err != nil {
+				t.Fatal(err)
+			}
+
+			inp := &syncTrackingInputter{Inputter: &pftest.Inputter{}}
+			mgr := &syncTrackingManager{Manager: &pftest.Manager{
+				Lists: [][]window.Info{{{Title: "Terminal", ID: 7}}},
+			}}
+			args := []string{"run"}
+			if tt.sync {
+				args = append(args, "--sync")
+			}
+			args = append(args, script)
+
+			stdout, stderr, code := captureRunIO(t, args, func(*cliConfig) sessionOpener {
+				return func(context.Context) (*perfuncted.Session, error) {
+					return pftest.New(nil, inp, mgr, nil), nil
+				}
+			})
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0; stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			if inp.syncCalls != tt.wantInputs || mgr.syncCalls != tt.wantWindow {
+				t.Fatalf(
+					"sync calls = input %d, window %d; want input %d, window %d",
+					inp.syncCalls,
+					mgr.syncCalls,
+					tt.wantInputs,
+					tt.wantWindow,
+				)
+			}
+		})
+	}
+}
+
 func TestScreenCommandFlagsDoNotBleedAcrossExecutions(t *testing.T) {
 	frame := pftest.SolidImage(100, 100, color.RGBA{R: 17, A: 255})
 	root := newRootCmd(func(*cliConfig) sessionOpener {

@@ -140,7 +140,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		windowCmd(windowOpen, cfg),
 		outputCmd(outputOpen),
 		findCmd(screenOpen),
-		runCmd(runOpen),
+		runCmd(runOpen, cfg),
 		clipboardCmd(clipboardOpen),
 		infoCmd(infoOpen),
 		sessionCmd(),

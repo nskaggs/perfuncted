@@ -26,6 +26,7 @@ func screenCmd(
 	grab := &cobra.Command{
 		Use:   "grab",
 		Short: "Capture a screen region and save as PNG",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -54,6 +55,7 @@ func screenCmd(
 	checksum := &cobra.Command{
 		Use:   "hash",
 		Short: "Print the CRC32 pixel hash of a screen region",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -78,6 +80,7 @@ func screenCmd(
 	pixel := &cobra.Command{
 		Use:   "pixel",
 		Short: "Print the RGB colour of a single pixel",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -100,6 +103,7 @@ func screenCmd(
 	getAllPixels := &cobra.Command{
 		Use:   "get-all-pixels",
 		Short: "Capture the entire screen and output raw RGBA pixels to stdout",
+		Args:  cobra.NoArgs,
 		Long: `Captures the entire screen and writes the raw 8-bit RGBA pixel data
 directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -124,6 +128,7 @@ directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`
 	grabRegion := &cobra.Command{
 		Use:   "grab-region",
 		Short: "Capture a specific screen region",
+		Args:  cobra.NoArgs,
 		Long: `Captures a specific screen region and outputs it as a PNG.
 If --out is not provided or is '-', the PNG data is written to stdout.
 Otherwise, it is saved to the specified file.`,
@@ -166,6 +171,7 @@ Otherwise, it is saved to the specified file.`,
 	watch := &cobra.Command{
 		Use:   "watch",
 		Short: "Continuously print hash changes in a screen region",
+		Args:  cobra.NoArgs,
 		Long: `Polls a screen region and prints a timestamped line whenever the pixel hash
 changes. Useful for tuning poll intervals, spotting oscillating regions, and
 understanding which parts of the screen change during an action.
@@ -268,6 +274,7 @@ Runs until --duration expires or Ctrl+C.`,
 	resolution := &cobra.Command{
 		Use:   "resolution",
 		Short: "Print the screen resolution",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
@@ -289,6 +296,7 @@ Runs until --duration expires or Ctrl+C.`,
 	waitForFn := &cobra.Command{
 		Use:   "wait-for-fn",
 		Short: "Wait for a screen region to satisfy a built-in predicate",
+		Args:  cobra.NoArgs,
 		Long: `Uses the library's WaitForFn helper with a small set of practical built-in
 predicates. This is useful when the caller wants a higher-level readiness
 check than a raw hash comparison.`,
@@ -333,6 +341,7 @@ check than a raw hash comparison.`,
 	waitForSettle := &cobra.Command{
 		Use:   "wait-for-settle",
 		Short: "Wait for a screen region to change and then settle",
+		Args:  cobra.NoArgs,
 		Long: `Captures a baseline hash, yields to the caller's surrounding action model,
 then waits for the region to change and become stable again. The CLI version
 uses a no-op action so it still works as a pure readiness probe.`,
@@ -377,6 +386,7 @@ uses a no-op action so it still works as a pure readiness probe.`,
 	getMultiplePixels := &cobra.Command{
 		Use:   "get-multiple-pixels",
 		Short: "Capture several pixels in one screen grab",
+		Args:  cobra.NoArgs,
 		Long: `Captures a bounding rectangle covering every requested point, then prints the
 colour of each point in order. Use --output json for machine parsing, or the
 plain format for quick interactive checks.`,
