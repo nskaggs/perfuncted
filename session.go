@@ -60,9 +60,9 @@ type sessionInfra struct {
 	wlDisplay  string
 	dbusAddr   string
 	logDir     string
-	swayCmd    *exec.Cmd
-	dbusCmd    *exec.Cmd
-	wlPasteCmd *exec.Cmd
+	swayCmd    *managedSessionProcess
+	dbusCmd    *managedSessionProcess
+	wlPasteCmd *managedSessionProcess
 	ctx        context.Context //nolint:containedctx // infrastructure owns this context
 	cancel     context.CancelFunc
 	mu         sync.Mutex
@@ -653,7 +653,7 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	i.dbusCmd = cmd
+	i.dbusCmd = newManagedSessionProcess(cmd)
 	i.writeChildPID("dbus.pid", cmd.Process.Pid)
 
 	busPath := filepath.Join(i.xdgDir, "bus")
@@ -709,7 +709,7 @@ func (i *sessionInfra) launchSway(
 		logFileClose(logFile)
 		return err
 	}
-	i.swayCmd = cmd
+	i.swayCmd = newManagedSessionProcess(cmd)
 	i.writeChildPID("sway.pid", cmd.Process.Pid)
 	logFileClose(logFile)
 
@@ -737,7 +737,7 @@ func (i *sessionInfra) launchWlPaste() {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	err := cmd.Start()
 	if err == nil {
-		i.wlPasteCmd = cmd
+		i.wlPasteCmd = newManagedSessionProcess(cmd)
 		i.writeChildPID("wl-paste.pid", cmd.Process.Pid)
 		return
 	}
@@ -835,14 +835,106 @@ func (i *sessionInfra) stop() {
 	}
 }
 
-func (i *sessionInfra) stopManagedProcess(cmd *exec.Cmd, waitTimeout time.Duration) {
-	if cmd == nil || cmd.Process == nil {
+func (i *sessionInfra) stopManagedProcess(proc *managedSessionProcess, waitTimeout time.Duration) {
+	if proc == nil {
 		return
 	}
-	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(waitTimeout)
+	proc.stop(waitTimeout)
 }
 
 // ---------- managed process ----------
+
+// managedSessionProcess owns waiting for a session infrastructure child. The
+// wait goroutine is started immediately after the child starts, so a naturally
+// exiting helper is reaped without waiting for session shutdown. Shutdown
+// signals the process group and waits for this owner before tearing down the
+// session runtime directory.
+type managedSessionProcess struct {
+	proc     *managedProc
+	waitDone chan struct{}
+	waitMu   sync.RWMutex
+	waitErr  error
+}
+
+func newManagedSessionProcess(cmd *exec.Cmd) *managedSessionProcess {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	proc := &managedSessionProcess{
+		proc: &managedProc{
+			cmd: cmd,
+			pid: cmd.Process.Pid,
+		},
+		waitDone: make(chan struct{}),
+	}
+	go proc.reap()
+	return proc
+}
+
+func (p *managedSessionProcess) reap() {
+	err := p.proc.cmd.Wait()
+	p.waitMu.Lock()
+	p.waitErr = err
+	p.waitMu.Unlock()
+	close(p.waitDone)
+}
+
+func (p *managedSessionProcess) wait(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("perfuncted: wait session process: %w: nil context", ErrInvalidArgument)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.waitDone:
+		p.waitMu.RLock()
+		defer p.waitMu.RUnlock()
+		return p.waitErr
+	}
+}
+
+func (p *managedSessionProcess) waitTimeout(timeout time.Duration) bool {
+	if p == nil {
+		return true
+	}
+	if timeout <= 0 {
+		select {
+		case <-p.waitDone:
+			return true
+		default:
+			return false
+		}
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-p.waitDone:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (p *managedSessionProcess) stop(waitTimeout time.Duration) {
+	if p == nil || p.proc == nil {
+		return
+	}
+	if err := p.proc.signal(syscall.SIGTERM); err != nil {
+		slog.Debug("session: terminate process group", "pid", p.proc.pid, "error", err)
+	}
+	leaderExited := p.waitTimeout(waitTimeout)
+	if leaderExited && p.proc.waitGroupTimeout(waitTimeout) {
+		return
+	}
+	if err := p.proc.signal(syscall.SIGKILL); err != nil {
+		slog.Debug("session: kill process group", "pid", p.proc.pid, "error", err)
+	}
+	p.waitTimeout(waitTimeout)
+	_ = p.proc.waitGroupTimeout(waitTimeout)
+}
 
 type managedProc struct {
 	cmd *exec.Cmd

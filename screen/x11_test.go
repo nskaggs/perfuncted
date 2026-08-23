@@ -5,11 +5,15 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"hash/crc32"
 	"image"
+	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
@@ -248,6 +252,78 @@ func TestX11Backend_Close(t *testing.T) {
 	b, _ := newStubScreenX11Backend(t, false)
 	if err := b.Close(); err != nil {
 		t.Errorf("Close() unexpected error: %v", err)
+	}
+}
+
+type trackingX11Connection struct {
+	*x11.MockConnection
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+func (c *trackingX11Connection) Close() {
+	c.closeOnce.Do(func() { close(c.closed) })
+}
+
+func TestX11BackendCloseWaitsForActiveGrab(t *testing.T) {
+	mock := &x11.MockConnection{}
+	conn := &trackingX11Connection{
+		MockConnection: mock,
+		closed:         make(chan struct{}),
+	}
+	b := &X11Backend{
+		conn:   conn,
+		root:   1,
+		screen: &xproto.ScreenInfo{Root: 1, WidthInPixels: 1, HeightInPixels: 1},
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	mock.GetImageFunc = func(byte, xproto.Drawable, int16, int16, uint16, uint16, uint32) x11.GetImageCookie {
+		close(started)
+		<-release
+		return x11.NewMockGetImageCookie(
+			&xproto.GetImageReply{Data: []byte{1, 2, 3, 4}},
+			nil,
+		)
+	}
+
+	grabDone := make(chan error, 1)
+	go func() {
+		_, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+		grabDone <- err
+	}()
+	<-started
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- b.Close() }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		b.lifecycleMu.Lock()
+		closed := b.closed
+		b.lifecycleMu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close did not mark backend closed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-conn.closed:
+		t.Fatal("Close tore down the connection while Grab was active")
+	default:
+	}
+
+	close(release)
+	if err := <-grabDone; err != nil {
+		t.Fatalf("Grab: %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, _, err := b.Resolution(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Resolution after Close error = %v, want net.ErrClosed", err)
 	}
 }
 

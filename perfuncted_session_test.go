@@ -130,9 +130,32 @@ func TestStopManagedProcessReapsChild(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	infra.stopManagedProcess(cmd, 500*time.Millisecond)
+	infra.stopManagedProcess(newManagedSessionProcess(cmd), 500*time.Millisecond)
 	if err := syscall.Kill(cmd.Process.Pid, 0); err != syscall.ESRCH {
 		t.Fatalf("expected process to be gone, got %v", err)
+	}
+}
+
+func TestManagedSessionProcessReapsNaturallyExitingChild(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 0")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	proc := newManagedSessionProcess(cmd)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := proc.wait(ctx); err != nil {
+		t.Fatalf("wait for helper: %v", err)
+	}
+	if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+		t.Fatal("managed session process did not record the child exit")
+	}
+
+	var status syscall.WaitStatus
+	if _, err := syscall.Wait4(cmd.Process.Pid, &status, syscall.WNOHANG, nil); !errors.Is(err, syscall.ECHILD) {
+		t.Fatalf("Wait4 after managed reap error = %v, want ECHILD", err)
 	}
 }
 

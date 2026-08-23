@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"hash/crc32"
 	"image"
+	"net"
+	"sync"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -22,6 +24,11 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return 0, err
+	}
+	defer finish()
 	rect := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	if err := validateX11Rect(rect); err != nil {
 		return 0, err
@@ -57,6 +64,11 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return 0, err
+	}
+	defer finish()
 	if err := validateX11Rect(rect); err != nil {
 		return 0, err
 	}
@@ -111,6 +123,12 @@ type X11Backend struct {
 	root         xproto.Window
 	screen       *xproto.ScreenInfo
 	hasComposite bool
+
+	lifecycleMu sync.Mutex
+	closed      bool
+	active      int
+	activeDone  chan struct{}
+	closeOnce   sync.Once
 }
 
 // NewX11Backend opens a connection to the X11 display specified by displayName
@@ -136,6 +154,11 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/x11: capture canceled: %w", err)
 	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 	if rect.Empty() {
 		rect = image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
 	}
@@ -165,13 +188,61 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 
 // Resolution returns the screen dimensions from the X11 screen info.
 func (b *X11Backend) Resolution() (int, int, error) {
+	finish, err := b.beginOperation()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer finish()
 	return int(b.screen.WidthInPixels), int(b.screen.HeightInPixels), nil
 }
 
 // Close closes the X11 connection.
 func (b *X11Backend) Close() error {
-	b.conn.Close()
+	if b == nil {
+		return nil
+	}
+	b.closeOnce.Do(func() {
+		b.lifecycleMu.Lock()
+		b.closed = true
+		activeDone := b.activeDone
+		b.lifecycleMu.Unlock()
+
+		if activeDone != nil {
+			<-activeDone
+		}
+		if b.conn != nil {
+			b.conn.Close()
+		}
+	})
 	return nil
+}
+
+func (b *X11Backend) beginOperation() (func(), error) {
+	if b == nil {
+		return nil, fmt.Errorf("screen/x11: backend is nil")
+	}
+	b.lifecycleMu.Lock()
+	defer b.lifecycleMu.Unlock()
+	if b.closed {
+		return nil, fmt.Errorf("screen/x11: backend is closed: %w", net.ErrClosed)
+	}
+	if b.active == 0 {
+		b.activeDone = make(chan struct{})
+	}
+	b.active++
+
+	var finishOnce sync.Once
+	return func() {
+		finishOnce.Do(func() {
+			b.lifecycleMu.Lock()
+			b.active--
+			if b.active == 0 {
+				close(b.activeDone)
+				b.activeDone = nil
+			}
+			b.lifecycleMu.Unlock()
+		})
+	}, nil
 }
 
 func validateX11PixelBuffer(data []byte, w, h int) error {
