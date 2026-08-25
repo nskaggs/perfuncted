@@ -34,15 +34,16 @@ func (t *actionTracer) Tracef(action, format string, args ...any) {
 		msg.WriteByte(' ')
 		fmt.Fprintf(&msg, format, args...)
 	}
+	text := strings.TrimSpace(msg.String())
 
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if t.logger != nil {
-		t.logger.Debug("perfuncted trace", "action", action, "message", strings.TrimSpace(msg.String()))
+		t.logger.Debug("perfuncted trace", "action", action, "message", text)
 	}
 	if t.w != nil {
 		_, _ = fmt.Fprintln(t.w, msg.String())
 	}
+	t.mu.Unlock()
 	if t.delay > 0 {
 		time.Sleep(t.delay)
 	}
