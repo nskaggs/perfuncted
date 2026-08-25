@@ -20,11 +20,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/window"
 )
 
 //go:embed configs/headless.conf configs/nested.conf
@@ -243,55 +241,9 @@ func supportedOperations(capability Capability, backend any) []string {
 	if reporter, ok := backend.(interface {
 		SupportedOperations() []string
 	}); ok {
-		operations := slices.Clone(reporter.SupportedOperations())
-		if capability == CapabilityWindows {
-			if _, ok := backend.(interface {
-				ActiveTitle(context.Context) (string, error)
-			}); ok {
-				operations = appendUniqueOperation(operations, "active-title")
-			}
-			if _, ok := backend.(interface{ Sync(context.Context) error }); ok {
-				operations = appendUniqueOperation(operations, "sync")
-			}
-			if _, ok := backend.(interface {
-				InfoByID(context.Context, string) (window.Info, error)
-			}); ok {
-				operations = appendUniqueOperation(operations, "info")
-			}
-		}
-		return operations
+		return slices.Clone(reporter.SupportedOperations())
 	}
-	if capability == CapabilityWindows {
-		operations := capabilityops.Operations(
-			"windows",
-			"sync",
-			"info",
-			"activate",
-			"move",
-			"resize",
-			"close",
-			"minimize",
-			"maximize",
-			"fullscreen",
-			"restore",
-		)
-		if _, ok := backend.(window.IDManager); ok {
-			operations = capabilityops.Operations("windows", "sync")
-		}
-		if _, ok := backend.(interface{ Sync(context.Context) error }); ok {
-			operations = append(operations, "sync")
-		}
-		return operations
-	}
-	operations := capabilityOperations(capability)
-	return operations
-}
-
-func appendUniqueOperation(operations []string, operation string) []string {
-	if slices.Contains(operations, operation) {
-		return operations
-	}
-	return append(operations, operation)
+	return capabilityOperations(capability)
 }
 
 func (s *Session) bundleBase(capability Capability) bundleBase {
@@ -1345,26 +1297,17 @@ func waitForFile(
 	attempts int,
 	interval time.Duration,
 ) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for i := 0; i < attempts; i++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if _, err := os.Stat(path); err == nil {
-			return nil
-		}
-		if i == attempts-1 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
+	err := pollCondition(ctx, attempts, interval, func() bool {
+		_, statErr := os.Stat(path)
+		return statErr == nil
+	})
+	if err == nil {
+		return nil
 	}
-	return fmt.Errorf("%s did not appear within %s", path, time.Duration(attempts)*interval)
+	if errors.Is(err, errPollTimeout) {
+		return fmt.Errorf("%s did not appear within %s", path, time.Duration(attempts)*interval)
+	}
+	return err
 }
 
 func waitForGlob(
@@ -1373,14 +1316,29 @@ func waitForGlob(
 	attempts int,
 	interval time.Duration,
 ) error {
+	err := pollCondition(ctx, attempts, interval, func() bool {
+		matches, globErr := filepath.Glob(pattern)
+		return globErr == nil && len(matches) > 0
+	})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, errPollTimeout) {
+		return fmt.Errorf("pattern %s did not match within %s", pattern, time.Duration(attempts)*interval)
+	}
+	return err
+}
+
+var errPollTimeout = errors.New("poll timeout")
+
+func pollCondition(ctx context.Context, attempts int, interval time.Duration, done func() bool) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-
 	for i := 0; i < attempts; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
+		if done() {
 			return nil
 		}
 		if i == attempts-1 {
@@ -1392,7 +1350,10 @@ func waitForGlob(
 		case <-ticker.C:
 		}
 	}
-	return fmt.Errorf("pattern %s did not match within %s", pattern, time.Duration(attempts)*interval)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return errPollTimeout
 }
 
 func logFileClose(f *os.File) {
