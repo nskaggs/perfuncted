@@ -13,10 +13,10 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"reflect"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/internal/util"
 	pollpkg "github.com/nskaggs/perfuncted/poll"
 )
 
@@ -43,29 +43,15 @@ func contextErr(ctx context.Context) error {
 }
 
 func checkAvailable(sc Screenshotter) error {
-	if sc == nil {
+	if util.IsNil(sc) {
 		return fmt.Errorf("find: screen backend not available")
-	}
-	v := reflect.ValueOf(sc)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice: //nolint:govet // inline: reflect.Ptr is the idiomatic constant to use here
-		if v.IsNil() {
-			return fmt.Errorf("find: screen backend not available")
-		}
 	}
 	return nil
 }
 
 func checkImage(img image.Image, operation string) error {
-	if img == nil {
+	if util.IsNil(img) {
 		return fmt.Errorf("find: %s returned nil image", operation)
-	}
-	v := reflect.ValueOf(img)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice: //nolint:govet // inline: reflect.Ptr is the idiomatic constant to use here
-		if v.IsNil() {
-			return fmt.Errorf("find: %s returned nil image", operation)
-		}
 	}
 	return nil
 }

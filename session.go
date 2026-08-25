@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -365,23 +365,14 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 }
 
 func validateBackend[T any](capability Capability, backend T, err error) (T, error) {
-	if err == nil && nilBackend(backend) {
+	if err == nil && util.IsNil(backend) {
 		err = nilBackendError(capability)
 	}
 	return backend, err
 }
 
 func nilBackend(backend any) bool {
-	if backend == nil {
-		return true
-	}
-	value := reflect.ValueOf(backend)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
+	return util.IsNil(backend)
 }
 
 func nilBackendError(capability Capability) error {
@@ -389,7 +380,7 @@ func nilBackendError(capability Capability) error {
 }
 
 func closeFailedBackend(backend any, openErr error) {
-	if openErr == nil || nilBackend(backend) {
+	if openErr == nil || util.IsNil(backend) {
 		return
 	}
 	if closer, ok := backend.(interface{ Close() error }); ok {
