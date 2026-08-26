@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"syscall"
 	"testing"
 )
 
@@ -34,6 +35,12 @@ func TestClassify(t *testing.T) {
 		{name: "connection reset", err: errConnectionReset, want: ClassConnectionReset},
 		{name: "closed connection", err: errClosedNetwork, want: ClassConnectionClosed},
 		{name: "unrelated error", err: errHTTPNotFound, want: ClassUnknown},
+		// Errno identity must win even when the message text is not the Go
+		// default (localized or cgo-sourced strings).
+		{name: "errno ECONNRESET", err: fmt.Errorf("sway ipc: %w", syscall.ECONNRESET), want: ClassConnectionReset},
+		{name: "errno EPIPE", err: fmt.Errorf("write: %w", syscall.EPIPE), want: ClassConnectionReset},
+		{name: "errno ECONNABORTED", err: fmt.Errorf("read: %w", syscall.ECONNABORTED), want: ClassConnectionReset},
+		{name: "localized message with errno cause", err: fmt.Errorf("verbindung vom gegenstelle zurückgesetzt: %w", syscall.ECONNRESET), want: ClassConnectionReset},
 	}
 
 	for _, tt := range tests {

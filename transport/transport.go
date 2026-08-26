@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"syscall"
 )
 
 // Classification identifies the transport failure family.
@@ -27,13 +28,24 @@ func IsRetryable(err error) bool {
 	return Classify(err) != ClassUnknown
 }
 
-// Classify returns the transport failure family for err.
+// Classify returns the transport failure family for err. Errno identity is
+// checked first so classification survives localized or cgo-sourced error
+// text; the substring pass remains as a fallback for wrapped errors whose
+// cause is not an errno (for example strings embedded from external tool
+// output).
 func Classify(err error) Classification {
 	if err == nil {
 		return ClassUnknown
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return ClassTimeout
+	}
+
+	switch {
+	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE):
+		return ClassConnectionReset
+	case errors.Is(err, syscall.ECONNABORTED):
+		return ClassConnectionReset
 	}
 
 	msg := strings.ToLower(err.Error())
