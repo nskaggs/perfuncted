@@ -585,11 +585,19 @@ func (d *Display) RoundTripContext(cancel context.Context) error {
 	return d.ctx.RoundTripContext(cancel)
 }
 
+// defaultRoundTripTimeout bounds the non-cancelable convenience round-trip
+// used by bootstrap paths (session env detection, backend initialization) so
+// a wedged compositor socket that accepts but never replies cannot hang Open
+// forever despite the caller's deadline. Tests may shrink it.
+var defaultRoundTripTimeout = 10 * time.Second
+
 // RoundTrip performs a synchronous wl_display.sync using this context. The
 // round-trip lock prevents concurrent callers from consuming each other's sync
 // callbacks on a shared connection.
 func (ctx *Context) RoundTrip() error {
-	return ctx.RoundTripContext(context.Background()) //nolint:contextcheck // RoundTrip is the non-cancelable convenience API.
+	rtCtx, cancel := context.WithTimeout(context.Background(), defaultRoundTripTimeout)
+	defer cancel()
+	return ctx.RoundTripContext(rtCtx)
 }
 
 // RoundTripContext performs a synchronous wl_display.sync, pumping events
