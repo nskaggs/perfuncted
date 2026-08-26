@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -132,10 +133,27 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 	f.Close()
 
 	scr := k.conn.Object(kwinScriptSvc, kwinScriptPath)
+	// loadScript registers the script inside KWin's scripting engine for the
+	// rest of the compositor's lifetime; deleting the temp file does not
+	// remove it. Use an explicit unique plugin name so the deferred
+	// unloadScript below can find and remove it again — without this, every
+	// operation leaks one loaded script (and polling callers accumulate
+	// thousands of them).
+	plugin := fmt.Sprintf("pf_%d_%d", os.Getpid(), atomic.AddUint64(&kwinScriptSequence, 1))
 	var scriptID int
-	if err := scr.CallWithContext(ctx, kwinScriptIface+".loadScript", 0, f.Name()).Store(&scriptID); err != nil {
+	if err := scr.CallWithContext(ctx, kwinScriptIface+".loadScript", 0, f.Name(), plugin).Store(&scriptID); err != nil {
 		return "", fmt.Errorf("window/kwinscript: loadScript: %w", err)
 	}
+	defer func() {
+		// Detach from the caller's context so cleanup still runs after a
+		// cancellation or deadline, but bound it so a wedged bus cannot
+		// stall the caller.
+		unloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		if err := scr.CallWithContext(unloadCtx, kwinScriptIface+".unloadScript", 0, plugin).Err; err != nil {
+			slog.Debug("window/kwinscript: unloadScript failed", "plugin", plugin, "scriptID", scriptID, "error", err)
+		}
+	}()
 	// start() triggers the scripting engine to execute loaded scripts.
 	// Without this call the script is registered but never runs.
 	if err := scr.CallWithContext(ctx, kwinScriptIface+".start", 0).Err; err != nil {
