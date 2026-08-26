@@ -18,6 +18,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
@@ -31,6 +32,11 @@ const (
 	kwinShotDest  = "org.kde.KWin"
 	kwinShotPath  = "/org/kde/KWin/ScreenShot2"
 	kwinShotIface = "org.kde.KWin.ScreenShot2"
+
+	// kwinPipeDrainTimeout bounds the pixel-pipe drain when the caller
+	// supplied no deadline. Full-screen captures drain from the kernel pipe
+	// buffer in milliseconds once KWin closes its end.
+	kwinPipeDrainTimeout = 30 * time.Second
 )
 
 type kwinShotTransport interface {
@@ -150,6 +156,17 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 		return nil, fmt.Errorf("screen/kwin: store results: %w", storeErr)
 	}
 
+	// KWin writes the pixels before sending its synchronous reply, so the
+	// drain below should hit EOF immediately. Bound it anyway so a stalled
+	// compositor that breaks that ordering cannot pin Grab past its deadline
+	// forever.
+	drainDeadline := time.Now().Add(kwinPipeDrainTimeout)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(drainDeadline) {
+		drainDeadline = dl
+	}
+	if dlErr := r.SetReadDeadline(drainDeadline); dlErr != nil {
+		return nil, fmt.Errorf("screen/kwin: pipe deadline: %w", dlErr)
+	}
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("screen/kwin: read pipe: %w", err)
