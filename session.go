@@ -1033,13 +1033,19 @@ func waitForProc(pid int, timeout time.Duration) bool {
 // gets a five-minute creation grace; malformed metadata uses maxAge, clamped
 // to that same minimum.
 func CleanupStaleSessions(maxAge time.Duration) {
+	// Take only the rate-limit decision under the lock. The scan itself can
+	// take hundreds of milliseconds (per-process termination waits,
+	// fusermount subprocesses); holding the mutex across it would stall
+	// concurrent Open calls that merely need to know whether cleanup is
+	// due. Overlapping scans are impossible within the rate interval and
+	// benign beyond it — reapSessionDir is idempotent per directory.
 	cleanupStaleSessionsMu.Lock()
-	defer cleanupStaleSessionsMu.Unlock()
-
 	if time.Since(lastCleanupTime) < cleanupStaleMinInterval {
+		cleanupStaleSessionsMu.Unlock()
 		return
 	}
 	lastCleanupTime = time.Now()
+	cleanupStaleSessionsMu.Unlock()
 
 	matches, err := filepath.Glob(nestedSessionPattern())
 	if err != nil {
