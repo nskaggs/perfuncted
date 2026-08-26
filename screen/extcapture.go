@@ -3,13 +3,13 @@ package screen
 import (
 	"context"
 	"fmt"
-	"hash/crc32"
 	"image"
 	"os"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -187,22 +187,13 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 	return b, nil
 }
 
-// GrabFullHash returns a CRC32 checksum of the entire screen.
-// Bypasses intermediate image allocation by hashing the raw buffer directly.
+// GrabFullHash returns a CRC32 checksum of the entire screen in the
+// canonical find.PixelHash representation, so values are comparable with
+// hashes taken from Grab images or other backends.
 func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
 	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
-		if stride == w*4 {
-			hash = crc32.ChecksumIEEE(pixels)
-		} else {
-			hasher := crc32.NewIEEE()
-			rowBytes := w * 4
-			for y := 0; y < h; y++ {
-				start := y * stride
-				_, _ = hasher.Write(pixels[start : start+rowBytes])
-			}
-			hash = hasher.Sum32()
-		}
+		hash = find.PixelHash(decodeBGRA(pixels, w, h, stride), nil)
 		return nil
 	}); err != nil {
 		return 0, err
@@ -210,8 +201,7 @@ func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	return hash, nil
 }
 
-// GrabRegionHash computes a CRC32 fingerprint for rect using the raw
-// shared-memory buffer so no intermediate image allocation is needed.
+// GrabRegionHash computes a canonical find.PixelHash fingerprint for rect.
 func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
@@ -228,17 +218,10 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 			hash = 0
 			return nil
 		}
-		hasher := crc32.NewIEEE()
-		rowBytes := r.Dx() * 4
-		for y := r.Min.Y; y < r.Max.Y; y++ {
-			start := y*stride + r.Min.X*4
-			end := start + rowBytes
-			if start < 0 || end > len(pixels) {
-				return fmt.Errorf("screen/ext: region out of bounds")
-			}
-			_, _ = hasher.Write(pixels[start:end])
+		if r.Min.X < 0 || (r.Max.Y-1)*stride+r.Max.X*4 > len(pixels) {
+			return fmt.Errorf("screen/ext: region out of bounds")
 		}
-		hash = hasher.Sum32()
+		hash = find.PixelHash(decodeBGRARect(pixels, w, h, stride, r), nil)
 		return nil
 	}); err != nil {
 		return 0, err

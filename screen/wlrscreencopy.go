@@ -3,7 +3,6 @@ package screen
 import (
 	"context"
 	"fmt"
-	"hash/crc32"
 	"image"
 	"os"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -383,21 +383,14 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 	return outImg, nil
 }
 
-// GrabFullHash returns a fast pixel hash of the full output.
+// GrabFullHash returns a pixel hash of the full output in the canonical
+// find.PixelHash representation, so values are comparable with hashes taken
+// from Grab images or other backends.
 func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
 	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
-		if int(bi.stride) == int(bi.width)*4 {
-			hash = crc32.ChecksumIEEE(pixels)
-		} else {
-			h := crc32.NewIEEE()
-			rowBytes := int(bi.width) * 4
-			for y := 0; y < int(bi.height); y++ {
-				start := y * int(bi.stride)
-				_, _ = h.Write(pixels[start : start+rowBytes]) //nolint:errcheck
-			}
-			hash = h.Sum32()
-		}
+		img := decodeBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride))
+		hash = find.PixelHash(img, nil)
 		return nil
 	}); err != nil {
 		return 0, err
@@ -405,7 +398,8 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 	return hash, nil
 }
 
-// GrabRegionHash returns a fast pixel hash of rect.
+// GrabRegionHash returns a pixel hash of rect in the canonical
+// find.PixelHash representation.
 func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
@@ -423,17 +417,10 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 			hash = 0
 			return nil
 		}
-		h := crc32.NewIEEE()
-		rowBytes := r.Dx() * 4
-		for y := r.Min.Y; y < r.Max.Y; y++ {
-			start := y*int(bi.stride) + r.Min.X*4
-			end := start + rowBytes
-			if start < 0 || end > len(pixels) {
-				return fmt.Errorf("screen/wlr: invalid region bounds for hash: %v (buf %d)", r, len(pixels))
-			}
-			_, _ = h.Write(pixels[start:end]) //nolint:errcheck
+		if (r.Max.Y-1)*int(bi.stride)+r.Max.X*4 > len(pixels) {
+			return fmt.Errorf("screen/wlr: invalid region bounds for hash: %v (buf %d)", r, len(pixels))
 		}
-		hash = h.Sum32()
+		hash = find.PixelHash(decodeBGRARect(pixels, fullW, fullH, int(bi.stride), r), nil)
 		return nil
 	}); err != nil {
 		return 0, err
