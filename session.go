@@ -66,6 +66,8 @@ type sessionInfra struct {
 	mu         sync.Mutex
 	stopped    bool
 	unregister func()
+	stopOnce   sync.Once
+	stopDone   chan struct{}
 }
 
 // Session is the central orchestrator of perfuncted. It owns all backends and
@@ -526,6 +528,7 @@ func (s *Session) startSession(
 		logDir:    logDir,
 		ctx:       infraCtx,
 		cancel:    cancel,
+		stopDone:  make(chan struct{}),
 	}
 
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
@@ -745,33 +748,47 @@ func (i *sessionInfra) stop() {
 	if i == nil {
 		return
 	}
+	// Lazily create the join channel so zero-value infra structs (tests,
+	// early startup failures) are safe too.
 	i.mu.Lock()
-	if i.stopped {
-		i.mu.Unlock()
-		return
+	if i.stopDone == nil {
+		i.stopDone = make(chan struct{})
 	}
-	i.stopped = true
-	unregister := i.unregister
-	i.unregister = nil
 	i.mu.Unlock()
 
-	if unregister != nil {
-		unregister()
-	}
+	i.stopOnce.Do(func() {
+		defer close(i.stopDone)
 
-	if i.cancel != nil {
-		i.cancel()
-	}
+		i.mu.Lock()
+		i.stopped = true
+		unregister := i.unregister
+		i.unregister = nil
+		i.mu.Unlock()
 
-	i.stopManagedProcess(i.wlPasteCmd, 200*time.Millisecond)
-	i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
-	i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
-	if i.xdgDir != "" {
-		unmountSubdirs(i.xdgDir)
-		if err := os.RemoveAll(i.xdgDir); err != nil {
-			slog.Debug("session: remove xdg dir", "path", i.xdgDir, "error", err)
+		if unregister != nil {
+			unregister()
 		}
-	}
+
+		if i.cancel != nil {
+			i.cancel()
+		}
+
+		i.stopManagedProcess(i.wlPasteCmd, 200*time.Millisecond)
+		i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
+		i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
+		if i.xdgDir != "" {
+			unmountSubdirs(i.xdgDir)
+			if err := os.RemoveAll(i.xdgDir); err != nil {
+				slog.Debug("session: remove xdg dir", "path", i.xdgDir, "error", err)
+			}
+		}
+	})
+	// Join with the teardown sequence. Without this, a second caller (for
+	// example Session.Close after the auto-registered signal handler already
+	// entered stop) would return immediately and the process could exit while
+	// the first teardown is still killing sway/dbus or unmounting the XDG
+	// dir, orphaning those processes and mounts.
+	<-i.stopDone
 }
 
 func (i *sessionInfra) stopManagedProcess(proc *managedSessionProcess, waitTimeout time.Duration) {
