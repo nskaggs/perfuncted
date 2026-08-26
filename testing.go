@@ -7,6 +7,7 @@ import (
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
@@ -21,19 +22,19 @@ func NewSessionForTesting(
 	outputLister output.Lister,
 	clipboardBackend clipboard.Clipboard,
 ) *Session {
-	if nilBackend(screenshotter) {
+	if util.IsNil(screenshotter) {
 		screenshotter = nil
 	}
-	if nilBackend(inputter) {
+	if util.IsNil(inputter) {
 		inputter = nil
 	}
-	if nilBackend(windowManager) {
+	if util.IsNil(windowManager) {
 		windowManager = nil
 	}
-	if nilBackend(outputLister) {
+	if util.IsNil(outputLister) {
 		outputLister = nil
 	}
-	if nilBackend(clipboardBackend) {
+	if util.IsNil(clipboardBackend) {
 		clipboardBackend = nil
 	}
 

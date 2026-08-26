@@ -323,10 +323,6 @@ func validateBackend[T any](capability Capability, backend T, err error) (T, err
 	return backend, err
 }
 
-func nilBackend(backend any) bool {
-	return util.IsNil(backend)
-}
-
 func nilBackendError(capability Capability) error {
 	return fmt.Errorf("perfuncted: %s backend returned nil: %w", capability, ErrUnavailable)
 }
