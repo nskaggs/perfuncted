@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -79,13 +80,14 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
 
-	var out bytes.Buffer
+	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return "", fmt.Errorf("clipboard get: %w", ctx.Err())
 		}
-		return "", fmt.Errorf("clipboard get: %w", err)
+		return "", fmt.Errorf("clipboard get: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return out.String(), nil
 }
@@ -96,12 +98,14 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
 
+	var stderr bytes.Buffer
 	cmd.Stdin = bytes.NewBufferString(text)
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("clipboard set: %w", ctx.Err())
 		}
-		return fmt.Errorf("clipboard set: %w", err)
+		return fmt.Errorf("clipboard set: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }
