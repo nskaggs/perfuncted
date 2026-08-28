@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.26.5
+- Go 1.26.6
 - [`just`](https://github.com/casey/just)
 - A Linux desktop session for local runtime checks
 
