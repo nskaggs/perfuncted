@@ -1,0 +1,38 @@
+name: Install desktop test dependencies
+description: Install the Linux packages used by perfuncted's desktop test jobs.
+
+inputs:
+  packages:
+    description: Newline-separated apt packages to install.
+    required: false
+    default: |
+      sway
+      openbox
+      xserver-xephyr
+      xwayland
+      dbus-x11
+      libwayland-client0
+      libwayland-server0
+      libwlroots-dev
+      libx11-dev
+      libxtst-dev
+      x11-utils
+      xclip
+      wl-clipboard
+      xdg-utils
+      xvfb
+      kwrite
+      featherpad
+
+runs:
+  using: composite
+  steps:
+    - name: Install apt packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        mapfile -t packages <<< "$PACKAGES"
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends "${packages[@]}"
