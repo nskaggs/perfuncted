@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func int32Ptr(v int32) *int32    { return &v }
-func uint64Ptr(v uint64) *uint64 { return &v }
+func int32Ptr(v int32) *int32    { return new(v) }
+func uint64Ptr(v uint64) *uint64 { return new(v) }
 
 func TestParseMatchSpec(t *testing.T) {
 	tests := []struct {

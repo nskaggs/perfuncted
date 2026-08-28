@@ -37,7 +37,7 @@ func TestJanitorGoroutineExitsOnClose(t *testing.T) {
 
 func BenchmarkWlrScreencopyBackendOpen(b *testing.B) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		be := NewWlrScreencopyBackendWithConnector("bench-fake",
 			func(sock string) (*wl.Context, error) { return &wl.Context{}, nil },
 			5*time.Minute,

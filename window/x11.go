@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package window
 
@@ -381,18 +380,15 @@ func (b *X11Backend) beginOperation() (func(), error) {
 	}
 	b.active++
 
-	var finishOnce sync.Once
-	return func() {
-		finishOnce.Do(func() {
-			b.lifecycleMu.Lock()
-			b.active--
-			if b.active == 0 {
-				close(b.activeDone)
-				b.activeDone = nil
-			}
-			b.lifecycleMu.Unlock()
-		})
-	}, nil
+	return sync.OnceFunc(func() {
+		b.lifecycleMu.Lock()
+		b.active--
+		if b.active == 0 {
+			close(b.activeDone)
+			b.activeDone = nil
+		}
+		b.lifecycleMu.Unlock()
+	}), nil
 }
 
 // Sync flushes pending X11 requests.

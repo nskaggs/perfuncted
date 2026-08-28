@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"image"
 	"image/png"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -213,13 +212,18 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 			if err != nil {
 				return nil, fmt.Errorf("screen/portal: parse URI %q: %w", fileURI, err)
 			}
-			f, err := os.Open(path)
+			f, root, err := openScreenshotFile(path)
 			if err != nil {
 				return nil, fmt.Errorf("screen/portal: open %s: %w", path, err)
 			}
 			img, err := png.Decode(f)
-			if closeErr := f.Close(); err == nil && closeErr != nil {
+			closeErr := f.Close()
+			rootCloseErr := root.Close()
+			if err == nil && closeErr != nil {
 				return nil, fmt.Errorf("screen/portal: close %s: %w", path, closeErr)
+			}
+			if err == nil && rootCloseErr != nil {
+				return nil, fmt.Errorf("screen/portal: close root for %s: %w", path, rootCloseErr)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("screen/portal: decode PNG: %w", err)

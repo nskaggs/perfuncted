@@ -231,8 +231,8 @@ func TestGrabHash_Success(t *testing.T) {
 // TestGrabHashSubImage tests that hashing a sub-image works correctly.
 func TestGrabHashSubImage(t *testing.T) {
 	fullImg := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 10 {
+		for x := range 10 {
 			fullImg.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 42, A: 255})
 		}
 	}
@@ -250,8 +250,8 @@ func TestGrabHashSubImage(t *testing.T) {
 
 	// Build equivalent standalone image for sub-region
 	equiv := image.NewRGBA(image.Rect(0, 0, 3, 3))
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			equiv.SetRGBA(x, y, fullImg.RGBAAt(x+2, y+2))
 		}
 	}
@@ -268,8 +268,8 @@ func TestGrabHashSubImage(t *testing.T) {
 
 func TestGrabHashWithCustomHasher(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 10), G: uint8(y * 20), B: 7, A: 255})
 		}
 	}
@@ -289,15 +289,15 @@ func TestGrabHashWithCustomHasher(t *testing.T) {
 func TestScanFor(t *testing.T) {
 	// Create an image with patterns at different locations
 	img := image.NewRGBA(image.Rect(0, 0, 30, 30))
-	for y := 0; y < 30; y++ {
-		for x := 0; x < 30; x++ {
+	for y := range 30 {
+		for x := range 30 {
 			img.SetRGBA(x, y, color.RGBA{R: 100, G: 100, B: 100, A: 255})
 		}
 	}
 
 	// Place a unique pattern at (5,5) and (15,15)
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			img.SetRGBA(5+x, 5+y, color.RGBA{R: 255, G: 0, B: 0, A: 255})
 			img.SetRGBA(15+x, 15+y, color.RGBA{R: 0, G: 255, B: 0, A: 255})
 		}
@@ -381,8 +381,8 @@ func TestScanForEmpty(t *testing.T) {
 func TestFindColor(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	// Fill with gray
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 10 {
+		for x := range 10 {
 			img.SetRGBA(x, y, color.RGBA{R: 100, G: 100, B: 100, A: 255})
 		}
 	}
@@ -477,8 +477,8 @@ func TestWaitForLocate(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
 	needle := image.NewRGBA(image.Rect(0, 0, 3, 3))
 
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			c := color.RGBA{R: 200, G: uint8(x * 80), B: uint8(y * 80), A: 255}
 			img.SetRGBA(5+x, 7+y, c)
 			needle.SetRGBA(x, y, c)
@@ -497,14 +497,14 @@ func TestWaitForLocate(t *testing.T) {
 
 func TestWaitForLocateZeroPoll(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
-	for y := 0; y < 20; y++ {
-		for x := 0; x < 20; x++ {
+	for y := range 20 {
+		for x := range 20 {
 			img.SetRGBA(x, y, color.RGBA{R: 100, G: 100, B: 100, A: 255})
 		}
 	}
 	needle := image.NewRGBA(image.Rect(0, 0, 3, 3))
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			needle.SetRGBA(x, y, color.RGBA{R: 200, G: 0, B: 0, A: 255})
 		}
 	}

@@ -232,18 +232,15 @@ func (b *X11Backend) beginOperation() (func(), error) {
 	}
 	b.active++
 
-	var finishOnce sync.Once
-	return func() {
-		finishOnce.Do(func() {
-			b.lifecycleMu.Lock()
-			b.active--
-			if b.active == 0 {
-				close(b.activeDone)
-				b.activeDone = nil
-			}
-			b.lifecycleMu.Unlock()
-		})
-	}, nil
+	return sync.OnceFunc(func() {
+		b.lifecycleMu.Lock()
+		b.active--
+		if b.active == 0 {
+			close(b.activeDone)
+			b.activeDone = nil
+		}
+		b.lifecycleMu.Unlock()
+	}), nil
 }
 
 func validateX11PixelBuffer(data []byte, w, h int) error {

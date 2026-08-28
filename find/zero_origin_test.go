@@ -42,8 +42,8 @@ func (z *zeroOriginScreenshotter) GrabRegionHash(ctx context.Context, rect image
 func TestLocateExactZeroOriginCapture(t *testing.T) {
 	full := image.NewRGBA(image.Rect(10, 20, 30, 40))
 	needle := image.NewRGBA(image.Rect(0, 0, 3, 3))
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			c := color.RGBA{R: 10, G: uint8(20 + x), B: uint8(30 + y), A: 255}
 			full.SetRGBA(14+x, 23+y, c)
 			needle.SetRGBA(x, y, c)
@@ -77,15 +77,15 @@ func TestScanForZeroOriginCapture(t *testing.T) {
 	}
 
 	ref1 := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			ref1.SetRGBA(x, y, color.RGBA{R: 1, G: 2, B: 3, A: 255})
 		}
 	}
 	want1 := PixelHash(ref1, nil)
 	ref2 := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			ref2.SetRGBA(x, y, color.RGBA{R: 9, G: 8, B: 7, A: 255})
 		}
 	}

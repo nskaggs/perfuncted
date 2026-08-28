@@ -26,13 +26,14 @@ type orderingXTestConnection struct {
 	events       []xtestEvent
 	firstStarted chan struct{}
 	firstRelease chan struct{}
-	firstOnce    sync.Once
+	firstOnce    func()
 	closeCalls   int
 }
 
 var _ x11.Connection = (*orderingXTestConnection)(nil)
 
 func newOrderingXTestConnection(keysyms []xproto.Keysym) *orderingXTestConnection {
+	firstStarted := make(chan struct{})
 	return &orderingXTestConnection{
 		MockConnection: &x11.MockConnection{
 			SetupFunc: func() *xproto.SetupInfo {
@@ -48,8 +49,9 @@ func newOrderingXTestConnection(keysyms []xproto.Keysym) *orderingXTestConnectio
 				})
 			},
 		},
-		firstStarted: make(chan struct{}),
+		firstStarted: firstStarted,
 		firstRelease: make(chan struct{}),
+		firstOnce:    sync.OnceFunc(func() { close(firstStarted) }),
 	}
 }
 
@@ -59,7 +61,7 @@ func (c *orderingXTestConnection) FakeInputChecked(eventType byte, detail byte, 
 	first := len(c.events) == 1
 	c.mu.Unlock()
 	if first {
-		c.firstOnce.Do(func() { close(c.firstStarted) })
+		c.firstOnce()
 		<-c.firstRelease
 	}
 	return x11.NewMockXTestFakeInputCookie(nil)

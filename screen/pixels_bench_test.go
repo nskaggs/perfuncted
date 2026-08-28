@@ -44,7 +44,7 @@ func BenchmarkDecodeBGRA(b *testing.B) {
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = decodeBGRA(data, w, h, w*4)
 	}
 }
@@ -61,7 +61,7 @@ func BenchmarkDecodeBGRARect(b *testing.B) {
 	b.SetBytes(int64(rect.Dx() * rect.Dy() * 4))
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = decodeBGRARect(data, w, h, w*4, rect)
 	}
 }
@@ -77,7 +77,7 @@ func BenchmarkCropRGBA(b *testing.B) {
 	b.SetBytes(int64(rect.Dx() * rect.Dy() * 4))
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = cropRGBA(src, rect)
 	}
 }

@@ -60,13 +60,13 @@ type capabilityClipboard struct{}
 type cancelDuringOpenContext struct {
 	context.Context //nolint:containedctx // deterministic test context
 	done            chan struct{}
-	cancelOnce      sync.Once
+	cancelOnce      func()
 	checks          atomic.Int32
 }
 
 func (c *cancelDuringOpenContext) Err() error {
 	if c.checks.Add(1) > 1 {
-		c.cancelOnce.Do(func() { close(c.done) })
+		c.cancelOnce()
 		return context.Canceled
 	}
 	return nil
@@ -160,9 +160,13 @@ func TestOpenRejectsCanceledContext(t *testing.T) {
 }
 
 func TestOpenRejectsContextCanceledDuringInitialization(t *testing.T) {
+	done := make(chan struct{})
 	ctx := &cancelDuringOpenContext{
 		Context: context.Background(),
-		done:    make(chan struct{}),
+		done:    done,
+		cancelOnce: sync.OnceFunc(func() {
+			close(done)
+		}),
 	}
 
 	if session, err := Open(ctx); !errors.Is(err, context.Canceled) {

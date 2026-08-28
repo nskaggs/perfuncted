@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package window
 
@@ -403,12 +402,12 @@ func TestX11Backend_Close(t *testing.T) {
 
 type trackingX11Connection struct {
 	*x11.MockConnection
-	closeOnce sync.Once
+	closeOnce func()
 	closed    chan struct{}
 }
 
 func (c *trackingX11Connection) Close() {
-	c.closeOnce.Do(func() { close(c.closed) })
+	c.closeOnce()
 }
 
 type blockedGetPropertyCookie struct {
@@ -428,6 +427,7 @@ func TestX11BackendCloseUnblocksBlockedReply(t *testing.T) {
 		MockConnection: mock,
 		closed:         make(chan struct{}),
 	}
+	conn.closeOnce = sync.OnceFunc(func() { close(conn.closed) })
 	defer conn.Close()
 	b := &X11Backend{conn: conn, root: 1, atomNetActiveWindow: 2}
 	replyStarted := make(chan struct{})

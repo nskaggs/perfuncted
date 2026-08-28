@@ -13,11 +13,11 @@ import (
 type cancelWhenDoneContext struct {
 	done   <-chan struct{}
 	cancel context.CancelFunc
-	once   sync.Once
+	once   func()
 }
 
 func (c *cancelWhenDoneContext) Done() <-chan struct{} {
-	c.once.Do(c.cancel)
+	c.once()
 	return c.done
 }
 
@@ -164,7 +164,11 @@ func TestWaitForNoChange_CanceledContextBeforeGrabReturnsInitial(t *testing.T) {
 func TestScanFor_CanceledContextDuringPollReturnsContextError(t *testing.T) {
 	img := solidRGBA(color.RGBA{R: 1, G: 2, B: 3, A: 255})
 	base, cancel := context.WithCancel(context.Background())
-	ctx := &cancelWhenDoneContext{done: base.Done(), cancel: cancel}
+	ctx := &cancelWhenDoneContext{
+		done:   base.Done(),
+		cancel: cancel,
+		once:   sync.OnceFunc(cancel),
+	}
 
 	_, err := ScanFor(
 		ctx,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"slices"
 	"testing"
 	"time"
 
@@ -136,14 +137,7 @@ func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
 	}
 
 	// Verify Type was called with "{ctrl+v}" (brace-combo Ctrl+V).
-	found := false
-	for _, call := range inp.Calls {
-		if call == "type:{ctrl+v}" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(inp.Calls, "type:{ctrl+v}") {
 		t.Errorf("expected type:{ctrl+v} in calls: %v", inp.Calls)
 	}
 }
@@ -159,14 +153,7 @@ func TestPerfunctedPaste_FallbackToType(t *testing.T) {
 	}
 
 	// Should have invoked the literal-typing path with the full string.
-	found := false
-	for _, call := range inp.Calls {
-		if call == "type-literal:abc" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(inp.Calls, "type-literal:abc") {
 		t.Errorf("expected type-literal:abc in calls: %v", inp.Calls)
 	}
 }
@@ -184,14 +171,7 @@ func TestPerfunctedPaste_FallbackTypesArbitraryTextLiterally(t *testing.T) {
 		t.Fatalf("Paste with braces: %v", err)
 	}
 
-	found := false
-	for _, call := range inp.Calls {
-		if call == "type-literal:"+js {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(inp.Calls, "type-literal:"+js) {
 		t.Errorf("expected literal paste in calls: %v", inp.Calls)
 	}
 }

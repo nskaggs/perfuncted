@@ -446,7 +446,7 @@ func TestContextCloseInterruptsBlockedWrite(t *testing.T) { //nolint:gocyclo // 
 	}
 	<-accepted
 
-	var releaseOnce sync.Once
+	releaseOnce := sync.OnceFunc(func() { close(releaseServer) })
 	writerExited := make(chan struct{})
 	cleanup := func() {
 		// Closing the raw socket is the emergency cleanup path if an assertion
@@ -456,7 +456,7 @@ func TestContextCloseInterruptsBlockedWrite(t *testing.T) { //nolint:gocyclo // 
 		case <-writerExited:
 		case <-time.After(time.Second):
 		}
-		releaseOnce.Do(func() { close(releaseServer) })
+		releaseOnce()
 		<-serverDone
 	}
 	t.Cleanup(cleanup)

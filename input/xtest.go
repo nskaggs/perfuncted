@@ -98,18 +98,15 @@ func (b *XTestBackend) beginOperation(ctx context.Context) (context.Context, fun
 	b.active[id] = cancel
 	b.lifecycleMu.Unlock()
 
-	var finishOnce sync.Once
-	finish := func() {
-		finishOnce.Do(func() {
-			cancel()
-			b.lifecycleMu.Lock()
-			delete(b.active, id)
-			if len(b.active) == 0 && b.activeDone != nil {
-				close(b.activeDone)
-			}
-			b.lifecycleMu.Unlock()
-		})
-	}
+	finish := sync.OnceFunc(func() {
+		cancel()
+		b.lifecycleMu.Lock()
+		delete(b.active, id)
+		if len(b.active) == 0 && b.activeDone != nil {
+			close(b.activeDone)
+		}
+		b.lifecycleMu.Unlock()
+	})
 	return opCtx, finish, nil
 }
 

@@ -365,7 +365,7 @@ func applyMatchState(m *Match, raw string) error {
 }
 
 func boolPtr(v bool) *bool {
-	return &v
+	return new(v)
 }
 
 func tokenizeMatchSpec(spec string) ([]string, error) {

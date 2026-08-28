@@ -667,6 +667,7 @@ func TestWaylandWindowManager_ActivateRetainsSeatAfterCanceledBindRoundTrip(t *t
 	}
 
 	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- wm.ActivateByID(requestCtx, "50") }()
 	select {

@@ -141,14 +141,14 @@ type blockingMouse struct {
 	recordingMouse
 	started     chan struct{}
 	release     chan struct{}
-	startedOnce sync.Once
+	startedOnce func()
 }
 
 func (m *blockingMouse) Wheel(horizontal bool, delta int32) error {
 	if err := m.recordingMouse.Wheel(horizontal, delta); err != nil {
 		return err
 	}
-	m.startedOnce.Do(func() { close(m.started) })
+	m.startedOnce()
 	<-m.release
 	return nil
 }
@@ -489,13 +489,13 @@ func TestUinputConcurrentLazyMouseCreation(t *testing.T) {
 	var factoryCalls int
 	factoryStarted := make(chan struct{})
 	factoryRelease := make(chan struct{})
-	var factoryStartedOnce sync.Once
+	factoryStartedOnce := sync.OnceFunc(func() { close(factoryStarted) })
 	oldFactory := createUinputMouse
 	createUinputMouse = func(string, []byte) (uinput.Mouse, error) {
 		factoryMu.Lock()
 		factoryCalls++
 		factoryMu.Unlock()
-		factoryStartedOnce.Do(func() { close(factoryStarted) })
+		factoryStartedOnce()
 		<-factoryRelease
 		return mouse, nil
 	}
@@ -559,10 +559,10 @@ func TestUinputCloseDuringLazyMouseCreation(t *testing.T) {
 
 	factoryStarted := make(chan struct{})
 	factoryRelease := make(chan struct{})
-	var factoryStartedOnce sync.Once
+	factoryStartedOnce := sync.OnceFunc(func() { close(factoryStarted) })
 	oldFactory := createUinputMouse
 	createUinputMouse = func(string, []byte) (uinput.Mouse, error) {
-		factoryStartedOnce.Do(func() { close(factoryStarted) })
+		factoryStartedOnce()
 		<-factoryRelease
 		return mouse, nil
 	}
@@ -649,9 +649,11 @@ func TestUinputOperationsRejectAfterClose(t *testing.T) {
 func TestUinputCloseWaitsForActiveMouseUse(t *testing.T) { //nolint:gocyclo // exercises concurrent close, active use, and repeated teardown.
 	kb := &recordingKeyboard{}
 	tp := &recordingTouchPad{}
+	started := make(chan struct{})
 	mouse := &blockingMouse{
-		started: make(chan struct{}),
-		release: make(chan struct{}),
+		started:     started,
+		release:     make(chan struct{}),
+		startedOnce: sync.OnceFunc(func() { close(started) }),
 	}
 	b := &UinputBackend{kb: kb, touchpad: tp, charToRune: qwertyRuneMap()}
 

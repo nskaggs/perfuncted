@@ -158,8 +158,8 @@ func TestLocateExact_GrabError(t *testing.T) {
 func TestLocateExact_NotFound(t *testing.T) {
 	sc := &solidScreenshotter{} // solid colour; needle is different
 	needle := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			needle.SetRGBA(x, y, color.RGBA{R: 255, G: 0, B: 0, A: 255}) // red
 		}
 	}

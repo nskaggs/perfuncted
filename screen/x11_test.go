@@ -257,12 +257,12 @@ func TestX11Backend_Close(t *testing.T) {
 
 type trackingX11Connection struct {
 	*x11.MockConnection
-	closeOnce sync.Once
+	closeOnce func()
 	closed    chan struct{}
 }
 
 func (c *trackingX11Connection) Close() {
-	c.closeOnce.Do(func() { close(c.closed) })
+	c.closeOnce()
 }
 
 type blockedGetImageCookie struct {
@@ -282,6 +282,7 @@ func TestX11BackendCloseUnblocksBlockedReply(t *testing.T) {
 		MockConnection: mock,
 		closed:         make(chan struct{}),
 	}
+	conn.closeOnce = sync.OnceFunc(func() { close(conn.closed) })
 	defer conn.Close()
 	b := &X11Backend{
 		conn:   conn,

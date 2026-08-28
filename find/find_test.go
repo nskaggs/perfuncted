@@ -11,8 +11,8 @@ import (
 
 func TestPixelHashDeterministic(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 50), G: uint8(y * 50), B: 100, A: 255})
 		}
 	}
@@ -37,8 +37,8 @@ func TestPixelHashDiffersForDifferentImages(t *testing.T) {
 
 func TestPixelHashSubImage(t *testing.T) {
 	full := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 10 {
+		for x := range 10 {
 			full.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 42, A: 255})
 		}
 	}
@@ -46,8 +46,8 @@ func TestPixelHashSubImage(t *testing.T) {
 
 	// Build an equivalent standalone image.
 	equiv := image.NewRGBA(image.Rect(0, 0, 3, 3))
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			equiv.SetRGBA(x, y, full.RGBAAt(x+2, y+2))
 		}
 	}
@@ -62,15 +62,15 @@ func TestPixelHashSubImage(t *testing.T) {
 func TestPixelHashFullWidthSubImage(t *testing.T) {
 	const width = 4
 	full := image.NewRGBA(image.Rect(0, 0, width, 4))
-	for y := 0; y < 4; y++ {
-		for x := 0; x < width; x++ {
+	for y := range 4 {
+		for x := range width {
 			full.SetRGBA(x, y, color.RGBA{R: uint8(y + 1), G: uint8(x), A: 255})
 		}
 	}
 
 	sub := full.SubImage(image.Rect(0, 1, width, 2)).(*image.RGBA) //nolint:errcheck // SubImage on *image.RGBA always returns *image.RGBA
 	equiv := image.NewRGBA(image.Rect(0, 0, width, 1))
-	for x := 0; x < width; x++ {
+	for x := range width {
 		equiv.SetRGBA(x, 0, full.RGBAAt(x, 1))
 	}
 
@@ -122,8 +122,8 @@ func TestMatchAt(t *testing.T) {
 	ref := image.NewRGBA(image.Rect(0, 0, 2, 2))
 
 	// Fill a 2x2 patch in src at (3,3).
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			c := color.RGBA{R: uint8(x*100 + y*50), G: 0, B: 0, A: 255}
 			src.SetRGBA(3+x, 3+y, c)
 			ref.SetRGBA(x, y, c)
@@ -145,8 +145,8 @@ func TestLocateExact(t *testing.T) {
 	needle := image.NewRGBA(image.Rect(0, 0, 3, 3))
 
 	// Place a recognizable pattern at (5,7).
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			c := color.RGBA{R: 200, G: uint8(x * 80), B: uint8(y * 80), A: 255}
 			img.SetRGBA(5+x, 7+y, c)
 			needle.SetRGBA(x, y, c)

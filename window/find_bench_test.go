@@ -10,7 +10,7 @@ func BenchmarkMatchMatches_TitleContains(b *testing.B) {
 	m := Match{TitleContains: "firefox"}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = m.Matches(info)
 	}
 }
@@ -20,7 +20,7 @@ func BenchmarkMatcherMatches_TitleContains(b *testing.B) {
 	matcher := CompileMatch(Match{TitleContains: "firefox"})
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = matcher.Matches(info)
 	}
 }
@@ -30,7 +30,7 @@ func BenchmarkMatchMatches_TitleExact(b *testing.B) {
 	m := Match{TitleExact: "firefox web browser"}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = m.Matches(info)
 	}
 }
@@ -41,7 +41,7 @@ func BenchmarkMatchMatches_MultiField(b *testing.B) {
 	m := Match{TitleContains: "editor", AppID: "org.example.editor", Active: &active}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = m.Matches(info)
 	}
 }
@@ -55,7 +55,7 @@ func BenchmarkFindByTitle(b *testing.B) {
 	m := &fakeManager{wins: wins}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = FindByTitle(context.Background(), m, "target")
 	}
 }
@@ -70,7 +70,7 @@ func BenchmarkFind_MatchByAppID(b *testing.B) {
 	match := Match{AppID: "org.target.app"}
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = FindByTitle(context.Background(), m, match.TitleContains)
 	}
 }

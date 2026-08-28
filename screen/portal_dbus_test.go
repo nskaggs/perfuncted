@@ -74,3 +74,35 @@ func TestRemoveScreenshotIfOwned(t *testing.T) {
 		t.Fatalf("foreign screenshot was removed: %v", err)
 	}
 }
+
+func TestOpenScreenshotFileRejectsSymlinkOutsideParent(t *testing.T) {
+	parent := t.TempDir()
+	outside := t.TempDir()
+	outsidePath := filepath.Join(outside, "outside.png")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	insidePath := filepath.Join(parent, "inside.png")
+	if err := os.WriteFile(insidePath, []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, root, err := openScreenshotFile(insidePath)
+	if err != nil {
+		t.Fatalf("openScreenshotFile(%q): %v", insidePath, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close screenshot: %v", err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatalf("close root: %v", err)
+	}
+
+	symlinkPath := filepath.Join(parent, "escape.png")
+	if err := os.Symlink(outsidePath, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := openScreenshotFile(symlinkPath); err == nil {
+		t.Fatalf("openScreenshotFile(%q) unexpectedly followed an external symlink", symlinkPath)
+	}
+}

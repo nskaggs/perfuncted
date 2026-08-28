@@ -28,8 +28,8 @@ func (s *nrgbaScreen) GrabRegionHash(ctx context.Context, rect image.Rectangle) 
 func solidNRGBA(w, h int, c color.RGBA) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	nc := color.NRGBA(c)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.SetNRGBA(x, y, nc)
 		}
 	}
@@ -114,8 +114,8 @@ func TestMatchAt_SlowPath(t *testing.T) {
 	ref := image.NewNRGBA(image.Rect(0, 0, 2, 2))
 
 	// Fill a 2×2 patch in src at (4, 6).
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			c := color.NRGBA{R: uint8(x*100 + 50), G: uint8(y*100 + 50), B: 0, A: 255}
 			src.SetNRGBA(4+x, 6+y, c)
 			ref.SetNRGBA(x, y, c)
@@ -138,8 +138,8 @@ func TestLocateExact_SlowPath(t *testing.T) {
 	ref := image.NewNRGBA(image.Rect(0, 0, 3, 3))
 
 	// Fill a 3×3 pattern in src at (7, 9) and the reference.
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 3 {
+		for x := range 3 {
 			c := color.NRGBA{R: 180, G: uint8(x * 70), B: uint8(y * 70), A: 255}
 			src.SetNRGBA(7+x, 9+y, c)
 			ref.SetNRGBA(x, y, c)
@@ -164,8 +164,8 @@ func TestLocateExact_SlowPath(t *testing.T) {
 // BenchmarkPixelFound_FastPath benchmarks PixelFound with *image.RGBA (fast path).
 func BenchmarkPixelFound_FastPath(b *testing.B) {
 	img := image.NewRGBA(image.Rect(0, 0, 256, 256))
-	for y := 0; y < 256; y++ {
-		for x := 0; x < 256; x++ {
+	for y := range 256 {
+		for x := range 256 {
 			img.SetRGBA(x, y, color.RGBA{R: 80, G: 80, B: 80, A: 255})
 		}
 	}

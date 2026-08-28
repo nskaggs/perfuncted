@@ -42,8 +42,8 @@ func (s *seqScreen) GrabRegionHash(ctx context.Context, rect image.Rectangle) (u
 // solidRGBA returns a 4×4 *image.RGBA filled with c.
 func solidRGBA(c color.RGBA) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			img.SetRGBA(x, y, c)
 		}
 	}
@@ -183,7 +183,7 @@ func BenchmarkWaitFor_AdaptiveHit(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sc.idx = 0 // reset frame index each iteration
 		if _, err := WaitFor(ctx, sc, rect, want, 0, nil); err != nil {
 			b.Fatal(err)
@@ -203,7 +203,7 @@ func BenchmarkWaitForChange_AdaptiveHit(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sc.idx = 0
 		if _, err := WaitForChange(ctx, sc, rect, initial, 0, nil); err != nil {
 			b.Fatal(err)
@@ -222,7 +222,7 @@ func BenchmarkWaitForNoChange_AdaptiveHit(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sc.idx = 0
 		// initial provided → streak starts at 1; stable=1 → returns on first Grab.
 		if _, err := WaitForNoChangeFrom(ctx, sc, rect, initial, 1, 0, nil); err != nil {

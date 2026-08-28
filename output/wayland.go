@@ -1,10 +1,11 @@
 package output
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net"
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -213,8 +214,8 @@ func (l *WaylandLister) snapshotOutputs() []Info {
 			info:     output.info,
 		})
 	}
-	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].globalID < snapshots[j].globalID
+	slices.SortFunc(snapshots, func(a, b outputSnapshot) int {
+		return cmp.Compare(a.globalID, b.globalID)
 	})
 	out := make([]Info, len(snapshots))
 	for i, snapshot := range snapshots {

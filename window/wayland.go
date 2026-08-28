@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"net"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -332,9 +332,7 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			for _, v := range m.toplevels {
 				windows = append(windows, *v)
 			}
-			sort.Slice(windows, func(i, j int) bool {
-				return compareWaylandWindows(windows[i], windows[j]) < 0
-			})
+			slices.SortFunc(windows, compareWaylandWindows)
 			return nil
 		}); err != nil {
 			yield(Info{}, err)

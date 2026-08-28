@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
@@ -89,6 +90,20 @@ func removeScreenshotIfOwned(path, requestedPath string) {
 	}
 }
 
+func openScreenshotFile(path string) (*os.File, *os.Root, error) {
+	path = filepath.Clean(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := root.Open(filepath.Base(path))
+	if err != nil {
+		_ = root.Close()
+		return nil, nil, err
+	}
+	return f, root, nil
+}
+
 // Grab captures rect using GNOME Shell's native screenshot service. A zero rect
 // requests a full-screen capture; a non-empty rect uses ScreenshotArea.
 func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
@@ -137,10 +152,11 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 		used = path
 	}
 
-	f, err := os.Open(used)
+	f, root, err := openScreenshotFile(used)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: open %s: %w", used, err)
 	}
+	defer root.Close()
 	defer f.Close()
 
 	img, err := png.Decode(f)

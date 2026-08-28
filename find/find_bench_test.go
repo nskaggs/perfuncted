@@ -10,15 +10,15 @@ import (
 
 func BenchmarkPixelHashRGBA(b *testing.B) {
 	img := image.NewRGBA(image.Rect(0, 0, 512, 512))
-	for y := 0; y < 512; y++ {
-		for x := 0; x < 512; x++ {
+	for y := range 512 {
+		for x := range 512 {
 			img.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: uint8(x ^ y), A: 255})
 		}
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = PixelHash(img, nil)
 	}
 }
@@ -26,13 +26,13 @@ func BenchmarkPixelHashRGBA(b *testing.B) {
 func BenchmarkLocateExactRGBA(b *testing.B) {
 	src := image.NewRGBA(image.Rect(0, 0, 256, 256))
 	ref := image.NewRGBA(image.Rect(0, 0, 16, 16))
-	for y := 0; y < 256; y++ {
-		for x := 0; x < 256; x++ {
+	for y := range 256 {
+		for x := range 256 {
 			src.SetRGBA(x, y, color.RGBA{R: 50, G: 60, B: 70, A: 255})
 		}
 	}
-	for y := 0; y < 16; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range 16 {
+		for x := range 16 {
 			c := color.RGBA{R: uint8(x * 3), G: uint8(y * 5), B: 99, A: 255}
 			src.SetRGBA(180+x, 160+y, c)
 			ref.SetRGBA(x, y, c)
@@ -42,7 +42,7 @@ func BenchmarkLocateExactRGBA(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := LocateExact(context.Background(), sc, image.Rect(0, 0, 256, 256), ref); err != nil {
 			b.Fatal(err)
 		}
@@ -51,8 +51,8 @@ func BenchmarkLocateExactRGBA(b *testing.B) {
 
 func BenchmarkScanForCompact(b *testing.B) {
 	img := image.NewRGBA(image.Rect(0, 0, 128, 128))
-	for y := 0; y < 128; y++ {
-		for x := 0; x < 128; x++ {
+	for y := range 128 {
+		for x := range 128 {
 			img.SetRGBA(x, y, color.RGBA{R: 25, G: 25, B: 25, A: 255})
 		}
 	}
@@ -68,7 +68,7 @@ func BenchmarkScanForCompact(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := ScanFor(context.Background(), sc, rects, wants, 0, nil); err != nil {
 			b.Fatal(err)
 		}
@@ -85,7 +85,7 @@ func BenchmarkWaitForFn_ImmediatelyTrue(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := WaitForFn(context.Background(), sc, rect, pred, 10*time.Millisecond); err != nil {
 			b.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func BenchmarkWaitForFn_FivePollIterations(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		count := 0
 		pred := func(_ context.Context, _ image.Image) bool {
 			count++
@@ -116,8 +116,8 @@ func BenchmarkWaitForFn_FivePollIterations(b *testing.B) {
 // BenchmarkWaitFor_ImmediatelyTrue measures WaitFor when the hash matches immediately.
 func BenchmarkWaitFor_ImmediatelyTrue(b *testing.B) {
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
-	for y := 0; y < 64; y++ {
-		for x := 0; x < 64; x++ {
+	for y := range 64 {
+		for x := range 64 {
 			img.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 42, A: 255})
 		}
 	}
@@ -127,7 +127,7 @@ func BenchmarkWaitFor_ImmediatelyTrue(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := WaitFor(context.Background(), sc, rect, want, 1*time.Millisecond, nil); err != nil {
 			b.Fatal(err)
 		}

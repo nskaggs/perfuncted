@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -88,7 +89,13 @@ func runCmd(
 			if path == "-" {
 				r = cmd.InOrStdin()
 			} else {
-				f, err := os.Open(path)
+				cleanPath := filepath.Clean(path)
+				root, err := os.OpenRoot(filepath.Dir(cleanPath))
+				if err != nil {
+					return err
+				}
+				defer root.Close()
+				f, err := root.Open(filepath.Base(cleanPath))
 				if err != nil {
 					return err
 				}

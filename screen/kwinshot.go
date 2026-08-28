@@ -131,7 +131,7 @@ func (t *kwinDBusTransport) CaptureActiveScreen(ctx context.Context) (image.Imag
 	return t.capture(ctx, kwinShotIface+".CaptureActiveScreen", image.Rectangle{})
 }
 
-func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect image.Rectangle, args ...interface{}) (image.Image, error) {
+func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect image.Rectangle, args ...any) (image.Image, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/kwin: capture canceled: %w", err)
@@ -142,7 +142,7 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 	}
 	defer r.Close()
 
-	callArgs := append(append(make([]interface{}, 0, len(args)+2), args...), map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
+	callArgs := append(append(make([]any, 0, len(args)+2), args...), map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
 	var results map[string]dbus.Variant
 	call := t.kwin.CallWithContext(ctx, method, 0, callArgs...)
 	// Close our copy now; KWin received its own via SCM_RIGHTS and has already
