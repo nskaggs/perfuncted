@@ -375,6 +375,8 @@ func (m *SwayManager) Sync(ctx context.Context) error {
 func (m *SwayManager) SupportedOperations() []string {
 	return []string{
 		"discover",
+		"info",
+		"active-title",
 		"activate",
 		"move",
 		"resize",

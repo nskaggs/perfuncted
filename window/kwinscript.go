@@ -285,6 +285,8 @@ func (k *KWinScriptManager) Sync(ctx context.Context) error {
 func (k *KWinScriptManager) SupportedOperations() []string {
 	return []string{
 		"discover",
+		"info",
+		"active-title",
 		"activate",
 		"move",
 		"resize",

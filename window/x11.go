@@ -410,6 +410,8 @@ func (b *X11Backend) Sync(ctx context.Context) error {
 func (b *X11Backend) SupportedOperations() []string {
 	return []string{
 		"discover",
+		"info",
+		"active-title",
 		"activate",
 		"move",
 		"resize",

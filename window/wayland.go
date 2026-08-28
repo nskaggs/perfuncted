@@ -456,10 +456,12 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 // SupportedOperations returns operations exposed by the foreign-toplevel protocol.
 func (m *WaylandWindowManager) SupportedOperations() []string {
 	if !m.canControlToplevels() {
-		return []string{"discover"}
+		return []string{"discover", "info", "active-title"}
 	}
 	return []string{
 		"discover",
+		"info",
+		"active-title",
 		"activate",
 		"close",
 		"minimize",

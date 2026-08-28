@@ -163,6 +163,8 @@ func (g *GnomeManager) Sync(ctx context.Context) error {
 func (g *GnomeManager) SupportedOperations() []string {
 	return []string{
 		"discover",
+		"info",
+		"active-title",
 		"activate",
 		"move",
 		"resize",
