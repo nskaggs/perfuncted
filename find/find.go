@@ -65,14 +65,25 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 	if checkImage(img, "hash") != nil {
 		return 0
 	}
+	return pixelHashImage(img, img.Bounds(), newHash)
+}
+
+// pixelHashImage hashes rect from img without creating a subimage for the
+// RGBA fast path. Keeping the rectangle in the source image's coordinate
+// space lets callers hash compact regions without allocating a temporary
+// *image.RGBA for each one.
+func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint32 {
 	if newHash == nil {
 		newHash = DefaultHasher
 	}
 	h := newHash()
-	b := img.Bounds()
+	b := rect.Intersect(img.Bounds())
 
 	// Fast path: direct Pix access for *image.RGBA.
 	if rgba, ok := img.(*image.RGBA); ok {
+		if b.Empty() {
+			return h.Sum32()
+		}
 		// Optimization: if the visible rows are contiguous, hash them at once.
 		// A full-width subimage can have trailing rows in Pix, so bound the slice
 		// to the image's height rather than hashing the entire backing buffer.
@@ -374,8 +385,15 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 	bboxArea := bbox.Dx() * bbox.Dy()
 	useBbox := bboxArea <= 2*totalArea
 
-	ticker := time.NewTicker(pollpkg.Clamp(poll))
-	defer ticker.Stop()
+	// A match on the first scan is common. Defer timer allocation until a
+	// second poll is actually needed so the fast path does not pay for a
+	// ticker it will never read.
+	var ticker *time.Ticker
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 
 	for {
 		if err := contextErr(ctx); err != nil {
@@ -394,29 +412,26 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 				return Result{}, err
 			}
 			imgBase := img.Bounds().Min
-			sub, ok := img.(interface {
-				SubImage(image.Rectangle) image.Image
-			})
-			if !ok {
-				useBbox = false // fall back if SubImage unavailable
-			} else {
-				for i, rect := range rects {
-					// Translate the requested screen rect into the grabbed image's
-					// coordinate space. Backends may return either zero-origin or
-					// absolute-bounds images, so respect the returned bounds.
-					tr := image.Rect(
-						rect.Min.X-bbox.Min.X+imgBase.X,
-						rect.Min.Y-bbox.Min.Y+imgBase.Y,
-						rect.Max.X-bbox.Min.X+imgBase.X,
-						rect.Max.Y-bbox.Min.Y+imgBase.Y,
-					)
-					h := PixelHash(sub.SubImage(tr), newHash)
-					if err := contextErr(ctx); err != nil {
-						return Result{}, err
-					}
-					if h == wants[i] {
-						return Result{Hash: h, Rect: rect}, nil
-					}
+			for i, rect := range rects {
+				// Translate the requested screen rect into the grabbed image's
+				// coordinate space. Backends may return either zero-origin or
+				// absolute-bounds images, so respect the returned bounds.
+				tr := image.Rect(
+					rect.Min.X-bbox.Min.X+imgBase.X,
+					rect.Min.Y-bbox.Min.Y+imgBase.Y,
+					rect.Max.X-bbox.Min.X+imgBase.X,
+					rect.Max.Y-bbox.Min.Y+imgBase.Y,
+				)
+				h, ok := pixelHashScanRegion(img, tr, newHash)
+				if !ok {
+					useBbox = false // fall back if SubImage unavailable
+					break
+				}
+				if err := contextErr(ctx); err != nil {
+					return Result{}, err
+				}
+				if h == wants[i] {
+					return Result{Hash: h, Rect: rect}, nil
 				}
 			}
 		}
@@ -434,12 +449,28 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 				}
 			}
 		}
+		if ticker == nil {
+			ticker = time.NewTicker(pollpkg.Clamp(poll))
+		}
 		select {
 		case <-ctx.Done():
 			return Result{}, fmt.Errorf("find: timeout scanning %d regions: %w", len(rects), ctx.Err())
 		case <-ticker.C:
 		}
 	}
+}
+
+func pixelHashScanRegion(img image.Image, rect image.Rectangle, newHash Hasher) (uint32, bool) {
+	if _, ok := img.(*image.RGBA); ok {
+		return pixelHashImage(img, rect, newHash), true
+	}
+	sub, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	})
+	if !ok {
+		return 0, false
+	}
+	return PixelHash(sub.SubImage(rect), newHash), true
 }
 
 // Anchor represents an absolute coordinate reference point on the screen.

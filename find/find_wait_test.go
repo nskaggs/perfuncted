@@ -365,6 +365,27 @@ func TestScanFor(t *testing.T) {
 	}
 }
 
+func TestScanForWithCustomHasher(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 12, 6))
+	for y := range 6 {
+		for x := range 12 {
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x + 1), G: uint8(y + 1), A: 255})
+		}
+	}
+
+	rects := []image.Rectangle{image.Rect(0, 0, 4, 6), image.Rect(8, 0, 12, 6)}
+	wantSecond := PixelHash(img.SubImage(rects[1]), adler32.New)
+	wantFirst := PixelHash(img.SubImage(rects[0]), adler32.New) ^ 1
+
+	result, err := ScanFor(context.Background(), &fakeScreen{img: img}, rects, []uint32{wantFirst, wantSecond}, time.Millisecond, adler32.New)
+	if err != nil {
+		t.Fatalf("ScanFor with custom hasher returned error: %v", err)
+	}
+	if result.Rect != rects[1] || result.Hash != wantSecond {
+		t.Fatalf("ScanFor with custom hasher returned %+v, want rect %v and hash %08x", result, rects[1], wantSecond)
+	}
+}
+
 func TestScanForEmpty(t *testing.T) {
 	_, err := ScanFor(context.Background(), &solidScreenshotter{}, nil, nil, 10*time.Millisecond, nil)
 	if err == nil {
