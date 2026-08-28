@@ -150,6 +150,50 @@ func TestSwayManagerRejectsOperationsAfterClose(t *testing.T) {
 	}
 }
 
+func TestSwayManagerCloseClosesTransientQuery(t *testing.T) {
+	originalDial := swayDialContext
+	t.Cleanup(func() { swayDialContext = originalDial })
+
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+	dialStarted := make(chan struct{})
+	swayDialContext = func(context.Context, string, string) (net.Conn, error) {
+		close(dialStarted)
+		return client, nil
+	}
+
+	requestRead := make(chan error, 1)
+	go func() {
+		_, _, err := readSwayMessage(server)
+		requestRead <- err
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := &SwayManager{sock: "ignored"}
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := m.ActiveTitle(ctx)
+		queryDone <- err
+	}()
+
+	<-dialStarted
+	if err := <-requestRead; err != nil {
+		t.Fatalf("read query request: %v", err)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-queryDone:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("Close did not unblock the transient query")
+	}
+}
+
 func TestSwayQueryConnUsesContextDeadline(t *testing.T) {
 	deadline := time.Now().Add(75 * time.Millisecond)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)

@@ -59,6 +59,9 @@ type SwayManager struct {
 	mu   sync.Mutex
 	conn net.Conn
 
+	transientMu    sync.Mutex
+	transientConns []net.Conn
+
 	eventOnce      sync.Once
 	eventMu        sync.Mutex
 	eventConn      net.Conn
@@ -186,7 +189,7 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
 	if ctx.Done() != nil {
-		return swayQueryOnceContext(ctx, m.sock, msgType, payload)
+		return m.queryOnceContext(ctx, msgType, payload)
 	}
 
 	m.mu.Lock()
@@ -341,6 +344,13 @@ func (m *SwayManager) Close() error {
 	}
 	m.mu.Unlock()
 
+	m.transientMu.Lock()
+	for _, conn := range m.transientConns {
+		_ = conn.Close()
+	}
+	m.transientConns = nil
+	m.transientMu.Unlock()
+
 	m.eventMu.Lock()
 	m.eventCloseOnce.Do(func() {
 		if m.eventStop != nil {
@@ -357,6 +367,52 @@ func (m *SwayManager) Close() error {
 		<-eventDone
 	}
 	return queryErr
+}
+
+func (m *SwayManager) queryOnceContext(
+	ctx context.Context,
+	msgType uint32,
+	payload string,
+) ([]byte, error) {
+	ctx = contextutil.Default(ctx)
+	conn, err := swayDialContext(ctx, "unix", m.sock)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, err
+	}
+	if !m.trackTransientConn(conn) {
+		_ = conn.Close()
+		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
+	}
+	defer func() {
+		m.untrackTransientConn(conn)
+		_ = conn.Close()
+	}()
+
+	return swayQueryConnContext(ctx, conn, msgType, payload)
+}
+
+func (m *SwayManager) trackTransientConn(conn net.Conn) bool {
+	m.transientMu.Lock()
+	defer m.transientMu.Unlock()
+	if m.closed.Load() {
+		return false
+	}
+	m.transientConns = append(m.transientConns, conn)
+	return true
+}
+
+func (m *SwayManager) untrackTransientConn(conn net.Conn) {
+	m.transientMu.Lock()
+	defer m.transientMu.Unlock()
+	for i, tracked := range m.transientConns {
+		if tracked == conn {
+			m.transientConns = append(m.transientConns[:i], m.transientConns[i+1:]...)
+			return
+		}
+	}
 }
 
 // Sync verifies that the Sway IPC connection is usable.
@@ -623,7 +679,10 @@ func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payl
 		return nil, err
 	}
 	defer conn.Close()
+	return swayQueryConnContext(ctx, conn, msgType, payload)
+}
 
+func swayQueryConnContext(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {
 	type queryResult struct {
 		data []byte
 		err  error
