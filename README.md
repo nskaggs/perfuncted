@@ -176,7 +176,7 @@ and `xclip` for X11 clipboard round-trip verification.
 
 ## Development
 
-Requires Go 1.26.6, [`just`](https://github.com/casey/just), and the tools
+Requires Go 1.27.0, [`just`](https://github.com/casey/just), and the tools
 installed by `just install-dev-tools`.
 
 ```bash

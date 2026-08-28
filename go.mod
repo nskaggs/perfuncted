@@ -1,6 +1,6 @@
 module github.com/nskaggs/perfuncted
 
-go 1.26
+go 1.27.0
 
 require (
 	github.com/bendahl/uinput v1.7.0

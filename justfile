@@ -5,7 +5,7 @@
 # CI reads the supported Go line from go.mod and checks this repository out
 # without the parent workspace. Local recipes pin the validated patch release
 # and disable the workspace overlay for equivalent module resolution.
-export GOTOOLCHAIN := "go1.26.6"
+export GOTOOLCHAIN := "go1.27.0"
 export GOWORK := "off"
 
 default:
@@ -52,7 +52,7 @@ tidy:
 
 # Install development tools
 install-dev-tools:
-    CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+    CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
     CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@latest
     CGO_ENABLED=0 go install golang.org/x/tools/cmd/deadcode@latest
 
