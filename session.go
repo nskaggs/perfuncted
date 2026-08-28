@@ -692,6 +692,10 @@ func (i *sessionInfra) writeChildPID(name string, pid int) {
 	if i == nil || i.xdgDir == "" || pid <= 0 {
 		return
 	}
+	if !isSafeToRemoveDir(i.xdgDir) {
+		slog.Warn("session: skip writing pidfile to non-managed directory", "path", i.xdgDir, "name", name)
+		return
+	}
 	if err := os.WriteFile(filepath.Join(i.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		slog.Warn("failed to write child pidfile", "name", name, "pid", pid, "error", err)
 	}
@@ -709,6 +713,9 @@ func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string
 		conf = strings.ReplaceAll(conf, "1024x768", resStr)
 	}
 
+	if !isSafeToRemoveDir(i.xdgDir) {
+		return "", fmt.Errorf("session: refuse to write config to non-managed directory %q", i.xdgDir)
+	}
 	confPath := filepath.Join(i.xdgDir, "sway.conf")
 	if err := os.WriteFile(confPath, []byte(conf), 0644); err != nil {
 		return "", fmt.Errorf("write config: %w", err)
@@ -777,9 +784,13 @@ func (i *sessionInfra) stop() {
 		i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
 		i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
 		if i.xdgDir != "" {
-			unmountSubdirs(i.xdgDir)
-			if err := os.RemoveAll(i.xdgDir); err != nil {
-				slog.Debug("session: remove xdg dir", "path", i.xdgDir, "error", err)
+			if !isSafeToRemoveDir(i.xdgDir) {
+				slog.Warn("session: skip removal of non-managed directory", "path", i.xdgDir)
+			} else {
+				unmountSubdirs(i.xdgDir)
+				if err := os.RemoveAll(i.xdgDir); err != nil {
+					slog.Debug("session: remove xdg dir", "path", i.xdgDir, "error", err)
+				}
 			}
 		}
 	})
@@ -1083,6 +1094,10 @@ func CleanupStaleSessions(maxAge time.Duration) {
 }
 
 func reapSessionDir(dir string) {
+	if !isManagedSessionDir(dir) {
+		slog.Debug("session: skip stale directory with unexpected path", "path", dir)
+		return
+	}
 	for _, name := range sessionChildPIDFiles {
 		pid, err := readPIDFile(filepath.Join(dir, name))
 		if err != nil {
