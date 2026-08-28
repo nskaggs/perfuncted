@@ -127,3 +127,22 @@ func TestExtCmdClipboardSetNilContext(t *testing.T) {
 		t.Fatalf("Set(nil): %v", err)
 	}
 }
+
+func TestExtCmdClipboardSetDoesNotWaitForWlCopyDaemon(t *testing.T) {
+	oldCmd := executil.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	// wl-copy forks a daemon to retain the selection. If stderr is wired to an
+	// os/exec pipe, that daemon inherits the descriptor and Cmd.Run waits for
+	// it even after the initial wl-copy process exits.
+	executil.CommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "sleep 2 >&2 & exit 0")
+	}
+
+	cb := &extCmdClipboard{setCmd: []string{"wl-copy"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if err := cb.Set(ctx, "hello"); err != nil {
+		t.Fatalf("Set waited for daemonized wl-copy: %v", err)
+	}
+}

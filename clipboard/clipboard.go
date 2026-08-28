@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -98,14 +99,20 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
 
-	var stderr bytes.Buffer
 	cmd.Stdin = bytes.NewBufferString(text)
-	cmd.Stderr = &stderr
+	var stderr bytes.Buffer
+	if filepath.Base(c.setCmd[0]) != "wl-copy" {
+		cmd.Stderr = &stderr
+	}
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("clipboard set: %w", ctx.Err())
 		}
-		return fmt.Errorf("clipboard set: %w: %s", err, strings.TrimSpace(stderr.String()))
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			return fmt.Errorf("clipboard set: %w", err)
+		}
+		return fmt.Errorf("clipboard set: %w: %s", err, message)
 	}
 	return nil
 }

@@ -21,6 +21,7 @@ inputs:
       wl-clipboard
       xdg-utils
       xvfb
+      qtwayland5
       kwrite
       featherpad
 
