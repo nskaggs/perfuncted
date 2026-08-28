@@ -409,7 +409,17 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 	defer close(m.eventDone)
 	defer close(m.eventCh)
 
-	conn, err := swayDialContext(context.Background(), "unix", m.sock)
+	subscriptionCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-subscriptionCtx.Done():
+		}
+	}()
+
+	conn, err := swayDialContext(subscriptionCtx, "unix", m.sock)
 	if err != nil {
 		return
 	}

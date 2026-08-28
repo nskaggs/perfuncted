@@ -2,6 +2,7 @@ package window
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -123,5 +124,43 @@ func TestSwayWindowChangesRejectsUnexpectedSubscriptionResponse(t *testing.T) {
 	}
 	if err := manager.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestSwayWindowChangesCloseCancelsInitialDial(t *testing.T) {
+	originalDial := swayDialContext
+	t.Cleanup(func() {
+		swayDialContext = originalDial
+	})
+
+	dialStarted := make(chan struct{})
+	releaseDial := make(chan struct{})
+	swayDialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		close(dialStarted)
+		if ctx.Done() == nil {
+			<-releaseDial
+			return nil, errors.New("dial released")
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	manager := &SwayManager{sock: "test"}
+	manager.WindowChanges()
+	<-dialStarted
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- manager.Close()
+	}()
+
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		close(releaseDial)
+		t.Fatal("Close did not cancel the initial event-subscription dial")
 	}
 }
