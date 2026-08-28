@@ -82,7 +82,7 @@ func NewSessionForTesting(
 	}
 	for _, capability := range allCapabilities {
 		backend := backends[capability]
-		available := backend != nil
+		available := !util.IsNil(backend)
 		status := CapabilityStatus{
 			Capability: capability,
 			Requested:  available,

@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -16,11 +17,11 @@ func (b *WindowBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
 	}
-	return b.bundleBase.checkAvailable(operation, b.backend != nil)
+	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
 }
 
 func (b *WindowBundle) close() error {
-	if b == nil || b.backend == nil {
+	if b == nil || util.IsNil(b.backend) {
 		return nil
 	}
 	return b.backend.Close()

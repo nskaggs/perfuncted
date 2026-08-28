@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -369,7 +370,7 @@ func (s *Session) waitChanges() <-chan struct{} {
 		s.hubMu.Lock()
 		s.hub = hub
 		s.hubMu.Unlock()
-		if s.Windows == nil || s.Windows.backend == nil {
+		if s.Windows == nil || util.IsNil(s.Windows.backend) {
 			return
 		}
 		source, ok := s.Windows.backend.(windowChangeSource)

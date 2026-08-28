@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/nskaggs/perfuncted/clipboard"
+	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 // ClipboardBundle exposes clipboard operations through a Session.
@@ -17,7 +18,7 @@ func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	if b == nil {
 		return "", (&bundleBase{}).unavailable("get")
 	}
-	if err := b.checkAvailable("get", b.backend != nil); err != nil {
+	if err := b.checkAvailable("get", !util.IsNil(b.backend)); err != nil {
 		return "", err
 	}
 	b.traceAction("clipboard", "get")
@@ -30,7 +31,7 @@ func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable("set")
 	}
-	if err := b.checkAvailable("set", b.backend != nil); err != nil {
+	if err := b.checkAvailable("set", !util.IsNil(b.backend)); err != nil {
 		return err
 	}
 	b.traceAction("clipboard", "set")
@@ -38,7 +39,7 @@ func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 }
 
 func (b *ClipboardBundle) close() error {
-	if b == nil || b.backend == nil {
+	if b == nil || util.IsNil(b.backend) {
 		return nil
 	}
 	return b.backend.Close()

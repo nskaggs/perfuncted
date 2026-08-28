@@ -8,6 +8,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 // InputBundle exposes input operations through a capability-safe facade.
@@ -20,7 +21,7 @@ func (b *InputBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
 	}
-	return b.bundleBase.checkAvailable(operation, b.backend != nil)
+	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
 }
 
 // KeyDown presses and holds key.

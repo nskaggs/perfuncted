@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/screen"
 )
 
@@ -26,7 +27,7 @@ func (s *ScreenBundle) checkAvailable(operation string) error {
 	if s == nil {
 		return (&bundleBase{}).unavailable(operation)
 	}
-	return s.bundleBase.checkAvailable(operation, s.backend != nil)
+	return s.bundleBase.checkAvailable(operation, !util.IsNil(s.backend))
 }
 
 func (s *ScreenBundle) grabHash(

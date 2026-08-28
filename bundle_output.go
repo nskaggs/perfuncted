@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
 )
 
@@ -17,7 +18,7 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	if b == nil {
 		return nil, (&bundleBase{}).unavailable("list")
 	}
-	if err := b.checkAvailable("list", b.backend != nil); err != nil {
+	if err := b.checkAvailable("list", !util.IsNil(b.backend)); err != nil {
 		return nil, err
 	}
 	b.traceAction("output", "list")
@@ -26,7 +27,7 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 }
 
 func (b *OutputBundle) close() error {
-	if b == nil || b.backend == nil {
+	if b == nil || util.IsNil(b.backend) {
 		return nil
 	}
 	return b.backend.Close()
