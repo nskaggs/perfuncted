@@ -41,7 +41,7 @@ func (t *actionTracer) Tracef(action, format string, args ...any) {
 		t.logger.Debug("perfuncted trace", "action", action, "message", text)
 	}
 	if t.w != nil {
-		_, _ = fmt.Fprintln(t.w, msg.String())
+		_, _ = fmt.Fprintln(t.w, text)
 	}
 	t.mu.Unlock()
 	if t.delay > 0 {
