@@ -478,6 +478,31 @@ func TestWaylandWindowManagerPrefersWlrootsProtocolForControl(t *testing.T) {
 	}
 }
 
+func TestWaylandWindowManagerHonorsWlrootsProtocolVersion(t *testing.T) {
+	wm := &WaylandWindowManager{wlrMgrID: 7, wlrMgrVersion: 1}
+	iface, id, version := wm.foreignToplevelProtocol()
+	if iface != "zwlr_foreign_toplevel_manager_v1" || id != 7 || version != 1 {
+		t.Fatalf("foreign protocol = (%q, %d, %d), want wlroots id 7 version 1", iface, id, version)
+	}
+	for _, operation := range wm.SupportedOperations() {
+		if operation == "fullscreen" {
+			t.Fatal("SupportedOperations advertised fullscreen for wlroots protocol version 1")
+		}
+	}
+}
+
+func TestWaylandWindowManagerRejectsFullscreenOnWlrootsVersionOne(t *testing.T) {
+	wm, ctx, _ := newStubWaylandManager("Version one", true, false)
+	wm.wlrMgrVersion = 1
+
+	if err := wm.FullscreenByID(context.Background(), "50"); !errors.Is(err, ErrNotSupported) {
+		t.Fatalf("FullscreenByID error = %v, want ErrNotSupported", err)
+	}
+	if sawAnyHandleRequest(ctx, 50) {
+		t.Fatal("FullscreenByID sent a request to a version-one wlroots handle")
+	}
+}
+
 // TestWaylandWindowManager_List tests the List method.
 func TestWaylandWindowManager_List(t *testing.T) {
 	wm, _, _ := newStubWaylandManager("", true, false)

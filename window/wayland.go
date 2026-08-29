@@ -40,9 +40,11 @@ type WaylandWindowManager struct {
 	}
 	// underlying session (cached refcounted). If non-nil Close() should call
 	// session.Close() to respect reference counting.
-	session  *wl.Session
-	extMgrID uint32
-	wlrMgrID uint32
+	session       *wl.Session
+	extMgrID      uint32
+	wlrMgrID      uint32
+	extMgrVersion uint32
+	wlrMgrVersion uint32
 	// wl_seat global name (if advertised) and a bound proxy for activate requests.
 	seatID    uint32
 	seat      *wl.RawProxy
@@ -55,11 +57,27 @@ type WaylandWindowManager struct {
 }
 
 func (m *WaylandWindowManager) canControlToplevels() bool {
-	return m.wlrMgrID != 0
+	return m.wlrProtocolVersion() >= 1
 }
 
 func (m *WaylandWindowManager) canActivateToplevels() bool {
 	return m.canControlToplevels() && m.seatID != 0
+}
+
+func (m *WaylandWindowManager) wlrProtocolVersion() uint32 {
+	if m.wlrMgrID == 0 {
+		return 0
+	}
+	// A zero version is retained as the default for hand-built test managers;
+	// real registry globals always report a non-zero version.
+	if m.wlrMgrVersion == 0 {
+		return 3
+	}
+	return min(m.wlrMgrVersion, 3)
+}
+
+func (m *WaylandWindowManager) canFullscreenToplevels() bool {
+	return m.wlrProtocolVersion() >= 2
 }
 
 func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
@@ -99,10 +117,12 @@ func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error
 		case "ext_foreign_toplevel_list_v1":
 			if m.extMgrID == 0 {
 				m.extMgrID = ev.Name
+				m.extMgrVersion = ev.Version
 			}
 		case "zwlr_foreign_toplevel_manager_v1":
 			if m.wlrMgrID == 0 {
 				m.wlrMgrID = ev.Name
+				m.wlrMgrVersion = ev.Version
 			}
 		case "wl_seat":
 			if m.seatID == 0 {
@@ -188,7 +208,7 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 // use handles from the wlroots manager.
 func (m *WaylandWindowManager) foreignToplevelProtocol() (iface string, id, version uint32) {
 	if m.wlrMgrID != 0 {
-		return "zwlr_foreign_toplevel_manager_v1", m.wlrMgrID, 3
+		return "zwlr_foreign_toplevel_manager_v1", m.wlrMgrID, m.wlrProtocolVersion()
 	}
 	if m.extMgrID != 0 {
 		return "ext_foreign_toplevel_list_v1", m.extMgrID, 1
@@ -480,13 +500,11 @@ func (m *WaylandWindowManager) SupportedOperations() []string {
 	if m.canActivateToplevels() {
 		operations = append(operations, "activate")
 	}
-	return append(operations,
-		"close",
-		"minimize",
-		"maximize",
-		"fullscreen",
-		"restore",
-	)
+	operations = append(operations, "close", "minimize", "maximize")
+	if m.canFullscreenToplevels() {
+		operations = append(operations, "fullscreen")
+	}
+	return append(operations, "restore")
 }
 
 // --- Handle-based operations ---
@@ -641,7 +659,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 		if err != nil {
 			return err
 		}
-		if !m.canControlToplevels() {
+		if !m.canFullscreenToplevels() {
 			return ErrNotSupported
 		}
 		if err := ctx.Err(); err != nil {
@@ -669,7 +687,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 		if err != nil {
 			return err
 		}
-		if !m.canControlToplevels() {
+		if !m.canFullscreenToplevels() {
 			return ErrNotSupported
 		}
 		if err := ctx.Err(); err != nil {
