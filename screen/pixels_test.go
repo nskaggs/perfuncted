@@ -206,6 +206,20 @@ func TestDecodeBGRAShortDataDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestDecodeBGRARejectsShortStride(t *testing.T) {
+	data := []byte{
+		0x01, 0x02, 0x03, 0xFF,
+		0x04, 0x05, 0x06, 0xFF,
+	}
+
+	if img := decodeBGRA(data, 2, 1, 4); !img.Bounds().Empty() {
+		t.Fatalf("decodeBGRA with short stride bounds = %v, want empty", img.Bounds())
+	}
+	if img := decodeBGRARect(data, 2, 1, 4, image.Rect(0, 0, 1, 1)); !img.Bounds().Empty() {
+		t.Fatalf("decodeBGRARect with short stride bounds = %v, want empty", img.Bounds())
+	}
+}
+
 func TestDecodeBGRARectShortDataDoesNotPanic(t *testing.T) {
 	// 2x2 image, but only the first row is present.
 	data := []byte{

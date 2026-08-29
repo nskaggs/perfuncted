@@ -15,6 +15,9 @@ func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 	if len(data) == 0 || w <= 0 || h <= 0 || stride <= 0 {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
+	if stride < w*4 {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	rowBytes := w * 4
 	for row := 0; row < h; row++ {
@@ -37,6 +40,9 @@ func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 // small region is needed.
 func decodeBGRARect(data []byte, w, h, stride int, rect image.Rectangle) *image.RGBA {
 	if len(data) == 0 || w <= 0 || h <= 0 || stride <= 0 {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+	if stride < w*4 {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
 	r := rect.Intersect(image.Rect(0, 0, w, h))
