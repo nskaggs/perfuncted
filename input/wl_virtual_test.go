@@ -215,11 +215,11 @@ func TestWlVirtualBackend_MouseMoveWritesMotionAndFrame(t *testing.T) {
 	if got := wl.Uint32(first[4:8]) & 0xffff; got != 1 {
 		t.Fatalf("opcode = %d, want motion_absolute", got)
 	}
-	if got, want := wl.Uint32(first[12:16]), uint32(123*256); got != want {
-		t.Fatalf("motion x = %d, want %d (123 << 8)", got, want)
+	if got, want := wl.Uint32(first[12:16]), uint32(123); got != want {
+		t.Fatalf("motion x = %d, want %d", got, want)
 	}
-	if got, want := wl.Uint32(first[16:20]), uint32(456*256); got != want {
-		t.Fatalf("motion y = %d, want %d (456 << 8)", got, want)
+	if got, want := wl.Uint32(first[16:20]), uint32(456); got != want {
+		t.Fatalf("motion y = %d, want %d", got, want)
 	}
 	if got := wl.Uint32(first[20:24]); got != 1920 || wl.Uint32(first[24:28]) != 1080 {
 		t.Fatalf("motion size = (%d,%d), want (1920,1080)", wl.Uint32(first[20:24]), wl.Uint32(first[24:28]))
@@ -227,6 +227,14 @@ func TestWlVirtualBackend_MouseMoveWritesMotionAndFrame(t *testing.T) {
 	second := msgs[1]
 	if got := wl.Uint32(second[4:8]) & 0xffff; got != 4 {
 		t.Fatalf("frame opcode = %d, want 4", got)
+	}
+}
+
+func TestWlVirtualBackend_MouseMoveRejectsNegativeCoordinates(t *testing.T) {
+	b, _ := newCapturedWlVirtualBackend(t)
+
+	if err := b.MouseMove(context.Background(), -1, 0); err == nil {
+		t.Fatal("MouseMove accepted a negative x coordinate")
 	}
 }
 

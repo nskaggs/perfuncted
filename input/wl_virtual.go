@@ -268,12 +268,22 @@ func (b *WlVirtualBackend) ptrFrame(cancel context.Context, ctx wl.Ctx) error {
 }
 
 func (b *WlVirtualBackend) mouseMoveEvent(cancel context.Context, ctx wl.Ctx, x, y int) error {
+	if x < 0 || y < 0 {
+		return fmt.Errorf("input/wl-virtual: absolute coordinates must be non-negative, got (%d,%d)", x, y)
+	}
+	if uint64(x) > uint64(^uint32(0)) || uint64(y) > uint64(^uint32(0)) {
+		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed uint32 range, got (%d,%d)", x, y)
+	}
+	if (b.outW > 0 && uint64(x) > uint64(b.outW)) || (b.outH > 0 && uint64(y) > uint64(b.outH)) {
+		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed output extent, got (%d,%d) for %dx%d", x, y, b.outW, b.outH)
+	}
 	var buf [28]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 28<<16|1) // size=28, opcode=1 (motion_absolute)
 	wl.PutUint32(buf[8:], b.now())
-	wl.PutUint32(buf[12:], uint32(x*256)) // wl_fixed_t (24.8 fixed-point)
-	wl.PutUint32(buf[16:], uint32(y*256))
+	// motion_absolute uses unsigned pixel coordinates, not wl_fixed_t.
+	wl.PutUint32(buf[12:], uint32(x))
+	wl.PutUint32(buf[16:], uint32(y))
 	wl.PutUint32(buf[20:], b.outW)
 	wl.PutUint32(buf[24:], b.outH)
 	if err := ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
