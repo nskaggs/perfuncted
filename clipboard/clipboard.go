@@ -101,7 +101,8 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 
 	cmd.Stdin = bytes.NewBufferString(text)
 	var stderr bytes.Buffer
-	if filepath.Base(c.setCmd[0]) != "wl-copy" {
+	tool := filepath.Base(c.setCmd[0])
+	if tool != "wl-copy" && tool != "xclip" {
 		cmd.Stderr = &stderr
 	}
 	if err := cmd.Run(); err != nil {
