@@ -565,7 +565,8 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	}
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.After(reflowTimeout)
+	timer := time.NewTimer(reflowTimeout)
+	defer timer.Stop()
 loop:
 	for {
 		wins, err := m.List(ctx)
@@ -580,7 +581,7 @@ loop:
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-timeout:
+		case <-timer.C:
 			break loop
 		case <-ticker.C:
 		}
