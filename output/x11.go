@@ -3,13 +3,17 @@ package output
 import (
 	"context"
 	"fmt"
+	"net"
+	"sync/atomic"
 
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
 // X11Lister lists the root X11 screen as a display output.
 type X11Lister struct {
-	conn *x11.XgbConnection
+	conn   x11.Connection
+	closed atomic.Bool
 }
 
 // NewX11Lister connects to an X11 display.
@@ -23,6 +27,16 @@ func NewX11Lister(display string) (*X11Lister, error) {
 
 // List returns the default X11 screen as an output.
 func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/x11: list canceled: %w", err)
+	}
+	if l == nil || l.conn == nil {
+		return nil, fmt.Errorf("output/x11: lister is not initialised")
+	}
+	if l.closed.Load() {
+		return nil, fmt.Errorf("output/x11: lister is closed: %w", net.ErrClosed)
+	}
 	screen := l.conn.DefaultScreen()
 	if screen == nil {
 		return nil, fmt.Errorf("output/x11: no default screen")
@@ -42,6 +56,9 @@ func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
 
 // Close releases the X11 connection.
 func (l *X11Lister) Close() error {
+	if l == nil || l.closed.Swap(true) {
+		return nil
+	}
 	if l.conn != nil {
 		l.conn.Close()
 	}
