@@ -630,6 +630,8 @@ func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:co
 	cb := &Callback{}
 	ctx.Register(cb)
 	defer ctx.unregister(cb.ID(), cb)
+	done := make(chan struct{}, 1)
+	cb.SetDoneHandler(func() { done <- struct{}{} })
 	var buf [12]byte
 	PutUint32(buf[0:], 1)
 	PutUint32(buf[4:], 12<<16)
@@ -637,8 +639,6 @@ func (ctx *Context) RoundTripContext(cancel context.Context) error { //nolint:co
 	if err := ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		return err
 	}
-	done := make(chan struct{}, 1)
-	cb.SetDoneHandler(func() { done <- struct{}{} })
 	for {
 		if err := ctx.DispatchContext(cancel); err != nil {
 			return err
