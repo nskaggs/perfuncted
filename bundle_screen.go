@@ -105,8 +105,18 @@ func (s *ScreenBundle) CaptureRegion(
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	return png.Encode(file, img)
+	encodeErr := png.Encode(file, img)
+	closeErr := file.Close()
+	if encodeErr != nil && closeErr != nil {
+		return errors.Join(encodeErr, fmt.Errorf("screen: close %q: %w", path, closeErr))
+	}
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("screen: close %q: %w", path, closeErr)
+	}
+	return nil
 }
 
 // GetPixel returns the pixel at x and y.
