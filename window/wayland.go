@@ -58,6 +58,10 @@ func (m *WaylandWindowManager) canControlToplevels() bool {
 	return m.wlrMgrID != 0
 }
 
+func (m *WaylandWindowManager) canActivateToplevels() bool {
+	return m.canControlToplevels() && m.seatID != 0
+}
+
 func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
 	if len(data) < 4 {
 		return false
@@ -458,17 +462,17 @@ func (m *WaylandWindowManager) SupportedOperations() []string {
 	if !m.canControlToplevels() {
 		return []string{"discover", "info", "active-title"}
 	}
-	return []string{
-		"discover",
-		"info",
-		"active-title",
-		"activate",
+	operations := []string{"discover", "info", "active-title"}
+	if m.canActivateToplevels() {
+		operations = append(operations, "activate")
+	}
+	return append(operations,
 		"close",
 		"minimize",
 		"maximize",
 		"fullscreen",
 		"restore",
-	}
+	)
 }
 
 // --- Handle-based operations ---
@@ -498,13 +502,10 @@ func (m *WaylandWindowManager) ActivateByID(ctx context.Context, id string) erro
 		if err != nil {
 			return err
 		}
-		if !m.canControlToplevels() {
+		if !m.canActivateToplevels() {
 			return ErrNotSupported
 		}
 		if m.seat == nil {
-			if m.seatID == 0 {
-				return ErrNotSupported
-			}
 			seatProxy := &wl.RawProxy{}
 			m.display.Context().Register(seatProxy)
 			if err := m.registry.BindContext(ctx, m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {

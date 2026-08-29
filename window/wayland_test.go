@@ -761,6 +761,27 @@ func TestWaylandWindowManager_ActivateRequiresSeat(t *testing.T) {
 	}
 }
 
+func TestWaylandWindowManager_SupportedOperationsRequireSeatForActivation(t *testing.T) {
+	wm, _, _ := newStubWaylandManager("Seatless", true, false)
+	for _, operation := range wm.SupportedOperations() {
+		if operation == "activate" {
+			t.Fatal("SupportedOperations advertised activate without a wl_seat")
+		}
+	}
+
+	wm, _, _ = newStubWaylandManager("With seat", true, true)
+	found := false
+	for _, operation := range wm.SupportedOperations() {
+		if operation == "activate" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("SupportedOperations omitted activate when a wl_seat is available")
+	}
+}
+
 func TestWaylandExtEventsPreserveStableIdentifierAndNotify(t *testing.T) {
 	info := &Info{ID: 41, NativeID: "41"}
 	manager := &WaylandWindowManager{
