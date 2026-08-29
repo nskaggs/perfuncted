@@ -440,6 +440,44 @@ func TestWaylandWindowManager_MaximizeByID(t *testing.T) {
 	)
 }
 
+func TestWaylandWindowManager_FullscreenByID(t *testing.T) {
+	runWindowActionTest(
+		t,
+		"Fullscreen",
+		"FullscreenMe",
+		7,
+		func(wm *WaylandWindowManager, ctx context.Context, id string) error {
+			return wm.FullscreenByID(ctx, id)
+		},
+	)
+}
+
+func TestWaylandWindowManager_UnfullscreenByID(t *testing.T) {
+	runWindowActionTest(
+		t,
+		"Unfullscreen",
+		"UnfullscreenMe",
+		8,
+		func(wm *WaylandWindowManager, ctx context.Context, id string) error {
+			return wm.UnfullscreenByID(ctx, id)
+		},
+	)
+}
+
+func TestWaylandWindowManagerPrefersWlrootsProtocolForControl(t *testing.T) {
+	wm := &WaylandWindowManager{extMgrID: 2, wlrMgrID: 3}
+	iface, id, version := wm.foreignToplevelProtocol()
+	if iface != "zwlr_foreign_toplevel_manager_v1" || id != 3 || version != 3 {
+		t.Fatalf("foreign protocol = (%q, %d, %d), want wlroots id 3 version 3", iface, id, version)
+	}
+
+	wm = &WaylandWindowManager{extMgrID: 2}
+	iface, id, version = wm.foreignToplevelProtocol()
+	if iface != "ext_foreign_toplevel_list_v1" || id != 2 || version != 1 {
+		t.Fatalf("list protocol = (%q, %d, %d), want ext id 2 version 1", iface, id, version)
+	}
+}
+
 // TestWaylandWindowManager_List tests the List method.
 func TestWaylandWindowManager_List(t *testing.T) {
 	wm, _, _ := newStubWaylandManager("", true, false)

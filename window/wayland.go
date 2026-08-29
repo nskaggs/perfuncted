@@ -142,9 +142,9 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 	mgrProxy := &wl.RawProxy{}
 	wlctx.Register(mgrProxy)
 
-	iface, regName, ver := "ext_foreign_toplevel_list_v1", m.extMgrID, uint32(1)
+	iface, regName, ver := m.foreignToplevelProtocol()
 	if regName == 0 {
-		iface, regName, ver = "zwlr_foreign_toplevel_manager_v1", m.wlrMgrID, uint32(3)
+		return fmt.Errorf("window/wayland: no foreign-toplevel protocol available")
 	}
 	isWLR := iface == "zwlr_foreign_toplevel_manager_v1"
 	if err := m.registry.BindContext(ctx, regName, iface, ver, mgrProxy.ID()); err != nil {
@@ -180,6 +180,20 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 		}
 	}
 	return m.display.RoundTripContext(ctx)
+}
+
+// foreignToplevelProtocol chooses the control-capable protocol when both the
+// list-only and wlroots foreign-toplevel protocols are advertised. Handles
+// created by the two protocols are distinct objects, so control requests must
+// use handles from the wlroots manager.
+func (m *WaylandWindowManager) foreignToplevelProtocol() (iface string, id, version uint32) {
+	if m.wlrMgrID != 0 {
+		return "zwlr_foreign_toplevel_manager_v1", m.wlrMgrID, 3
+	}
+	if m.extMgrID != 0 {
+		return "ext_foreign_toplevel_list_v1", m.extMgrID, 1
+	}
+	return "", 0, 0
 }
 
 func (m *WaylandWindowManager) handleWLRToplevelEvent(
@@ -634,7 +648,7 @@ func (m *WaylandWindowManager) FullscreenByID(
 			return fmt.Errorf("window/wayland: fullscreen canceled: %w", err)
 		}
 		// A null wl_output lets the compositor choose the target output.
-		return m.sendHandleRequest(ctx, handleID, 8, make([]byte, 4))
+		return m.sendHandleRequest(ctx, handleID, 7, make([]byte, 4))
 	})
 }
 
@@ -661,7 +675,7 @@ func (m *WaylandWindowManager) UnfullscreenByID(
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("window/wayland: unfullscreen canceled: %w", err)
 		}
-		return m.sendHandleRequest(ctx, handleID, 9, nil)
+		return m.sendHandleRequest(ctx, handleID, 8, nil)
 	})
 }
 
