@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -101,10 +100,7 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 
 	cmd.Stdin = bytes.NewBufferString(text)
 	var stderr bytes.Buffer
-	tool := filepath.Base(c.setCmd[0])
-	if tool != "wl-copy" && tool != "xclip" {
-		cmd.Stderr = &stderr
-	}
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("clipboard set: %w", ctx.Err())
