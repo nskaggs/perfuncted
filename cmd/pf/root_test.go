@@ -1497,3 +1497,31 @@ func TestVersionCmd(t *testing.T) {
 		t.Fatalf("stdout = %q, want it to avoid hardcoded dev", stdout)
 	}
 }
+
+type shortOutputWriter struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (w *shortOutputWriter) Write(p []byte) (int, error) {
+	if len(p) > w.max {
+		p = p[:w.max]
+	}
+	return w.buf.Write(p)
+}
+
+func TestGetAllPixelsReportsShortOutputWrite(t *testing.T) {
+	frame := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	frame.SetRGBA(0, 0, color.RGBA{R: 1, A: 255})
+	frame.SetRGBA(1, 0, color.RGBA{G: 2, A: 255})
+	out := &shortOutputWriter{max: 1}
+	cmd := screenCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(&pftest.Screenshotter{Frames: []image.Image{frame}}, nil, nil, nil), nil
+	})
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"get-all-pixels"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("get-all-pixels error = %v, want io.ErrShortWrite", err)
+	}
+}

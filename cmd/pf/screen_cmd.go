@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -117,7 +119,7 @@ directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`
 				return err
 			}
 			if rgba, ok := img.(*image.RGBA); ok {
-				_, err = cmd.OutOrStdout().Write(rgba.Pix)
+				_, err = io.Copy(cmd.OutOrStdout(), bytes.NewReader(rgba.Pix))
 				return err
 			}
 			return fmt.Errorf("unexpected image type %T", img)
