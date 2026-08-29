@@ -1,6 +1,8 @@
 package wl
 
 import (
+	"errors"
+	"net"
 	"sync"
 	"testing"
 )
@@ -113,6 +115,25 @@ func TestNewSession_CacheHit(t *testing.T) {
 	}
 	if ref.refs != 1 {
 		t.Errorf("refcount after close = %d, want 1", ref.refs)
+	}
+}
+
+func TestSessionHandleRejectsOperationsAfterClose(t *testing.T) {
+	canonical := &Session{Ctx: &Context{}, Display: &Display{}}
+	handle := &Session{
+		Ctx:     canonical.Ctx,
+		Display: canonical.Display,
+		ref:     &sessionRef{sess: canonical, refs: 2},
+	}
+
+	if err := handle.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := handle.SyncContext(nil); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("closed handle SyncContext error = %v, want %v", err, net.ErrClosed)
+	}
+	if err := canonical.SyncContext(nil); err != nil {
+		t.Fatalf("remaining session reference became unusable: %v", err)
 	}
 }
 

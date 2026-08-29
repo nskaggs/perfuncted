@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"net"
 	"slices"
 	"sync"
 )
@@ -186,9 +187,18 @@ func (s *Session) SyncContext(ctx context.Context) error {
 	if s == nil || s.Display == nil {
 		return nil
 	}
+	if s.isClosed() {
+		return net.ErrClosed
+	}
 	return WithOperationContext(ctx, s.Ctx, func() error {
 		return s.Display.RoundTripContext(ctx)
 	})
+}
+
+func (s *Session) isClosed() bool {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	return s.closeDone
 }
 
 // Close decrements the cached session's reference count and closes the
