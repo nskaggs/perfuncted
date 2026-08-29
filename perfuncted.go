@@ -33,28 +33,6 @@ func nestedSessionPrefix() string {
 	return filepath.Join(os.TempDir(), "perfuncted-xdg-")
 }
 
-func isManagedSessionDir(dir string) bool {
-	if dir == "" {
-		return false
-	}
-	cleaned := filepath.Clean(dir)
-	prefix := nestedSessionPrefix()
-	if !strings.HasPrefix(cleaned, prefix) {
-		return false
-	}
-	if len(cleaned) <= len(prefix) {
-		return false
-	}
-	remainder := cleaned[len(prefix):]
-	if strings.Contains(remainder, string(os.PathSeparator)) {
-		return false
-	}
-	if filepath.Dir(cleaned) != filepath.Clean(os.TempDir()) {
-		return false
-	}
-	return true
-}
-
 func isSafeToRemoveDir(dir string) bool {
 	if dir == "" {
 		return false
@@ -71,6 +49,22 @@ func isSafeToRemoveDir(dir string) bool {
 		return false
 	}
 	return true
+}
+
+func isManagedSessionDir(dir string) bool {
+	if !isSafeToRemoveDir(dir) {
+		return false
+	}
+	cleaned := filepath.Clean(dir)
+	prefix := nestedSessionPrefix()
+	if !strings.HasPrefix(cleaned, prefix) {
+		return false
+	}
+	if len(cleaned) <= len(prefix) {
+		return false
+	}
+	remainder := cleaned[len(prefix):]
+	return !strings.Contains(remainder, string(os.PathSeparator))
 }
 
 func pidAlive(pid int) bool {
