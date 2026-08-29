@@ -103,18 +103,21 @@ func (s *ScreenBundle) CaptureRegion(
 	}
 	file, err := os.Create(path)
 	if err != nil {
-		return err
+		return s.operationError("capture", fmt.Errorf("screen: create %q: %w", path, err))
 	}
 	encodeErr := png.Encode(file, img)
 	closeErr := file.Close()
 	if encodeErr != nil && closeErr != nil {
-		return errors.Join(encodeErr, fmt.Errorf("screen: close %q: %w", path, closeErr))
+		return s.operationError(
+			"capture",
+			errors.Join(encodeErr, fmt.Errorf("screen: close %q: %w", path, closeErr)),
+		)
 	}
 	if encodeErr != nil {
-		return encodeErr
+		return s.operationError("capture", encodeErr)
 	}
 	if closeErr != nil {
-		return fmt.Errorf("screen: close %q: %w", path, closeErr)
+		return s.operationError("capture", fmt.Errorf("screen: close %q: %w", path, closeErr))
 	}
 	return nil
 }

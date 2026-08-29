@@ -2,6 +2,7 @@ package perfuncted_test
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"math"
@@ -210,6 +211,28 @@ func TestScreenBundle_CaptureRegion(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("CaptureRegion: output file not created: %v", err)
+	}
+}
+
+func TestScreenBundle_CaptureRegionWrapsFileErrors(t *testing.T) {
+	sc := &pftest.Screenshotter{Width: 2, Height: 2}
+	p := newTestPF(sc)
+	defer p.Close()
+
+	var operationErr *perfuncted.OperationError
+	err := p.Screen.CaptureRegion(
+		context.Background(),
+		image.Rect(0, 0, 2, 2),
+		t.TempDir(),
+	)
+	if !errors.As(err, &operationErr) {
+		t.Fatalf("CaptureRegion error = %v, want OperationError", err)
+	}
+	if !errors.Is(err, perfuncted.ErrOperationFailed) {
+		t.Fatalf("CaptureRegion error = %v, want ErrOperationFailed", err)
+	}
+	if operationErr.Operation != "capture" {
+		t.Fatalf("CaptureRegion operation = %q, want capture", operationErr.Operation)
 	}
 }
 
