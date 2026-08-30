@@ -4,7 +4,11 @@
 
 package dbusutil
 
-import "github.com/godbus/dbus/v5"
+import (
+	"slices"
+
+	"github.com/godbus/dbus/v5"
+)
 
 // SessionBusAddress returns a session bus connection using addr when provided.
 // When addr is empty it falls back to the current process session bus.
@@ -29,14 +33,12 @@ func SessionBusAddress(addr string) (*dbus.Conn, error) {
 
 // HasService reports whether the given service name is present on the session bus.
 func HasService(conn *dbus.Conn, name string) bool {
+	if conn == nil {
+		return false
+	}
 	var names []string
 	if err := conn.BusObject().Call("org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
 		return false
 	}
-	for _, n := range names {
-		if n == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(names, name)
 }
