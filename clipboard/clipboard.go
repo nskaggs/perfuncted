@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -100,16 +102,51 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 
 	cmd.Stdin = bytes.NewBufferString(text)
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	var stderrFile *os.File
+	var stderrPath string
+	tool := filepath.Base(c.setCmd[0])
+	if tool == "wl-copy" || tool == "xclip" {
+		// Both clipboard owners can leave a child process holding stderr open
+		// after the command that populated the selection exits. A regular file
+		// preserves diagnostics without making os/exec wait on that child.
+		var err error
+		stderrFile, err = os.CreateTemp("", "perfuncted-clipboard-stderr-*")
+		if err != nil {
+			return fmt.Errorf("clipboard set: create stderr capture: %w", err)
+		}
+		stderrPath = stderrFile.Name()
+		defer func() {
+			_ = stderrFile.Close()
+			_ = os.Remove(stderrPath)
+		}()
+		cmd.Stderr = stderrFile
+	} else {
+		cmd.Stderr = &stderr
+	}
+
+	runErr := cmd.Run()
+	if stderrFile != nil {
+		closeErr := stderrFile.Close()
+		if closeErr == nil {
+			if data, readErr := os.ReadFile(stderrPath); readErr == nil {
+				_, _ = stderr.Write(data)
+			} else if runErr == nil {
+				return fmt.Errorf("clipboard set: read stderr capture: %w", readErr)
+			}
+		} else if runErr == nil {
+			return fmt.Errorf("clipboard set: close stderr capture: %w", closeErr)
+		}
+	}
+
+	if runErr != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("clipboard set: %w", ctx.Err())
 		}
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
-			return fmt.Errorf("clipboard set: %w", err)
+			return fmt.Errorf("clipboard set: %w", runErr)
 		}
-		return fmt.Errorf("clipboard set: %w: %s", err, message)
+		return fmt.Errorf("clipboard set: %w: %s", runErr, message)
 	}
 	return nil
 }
