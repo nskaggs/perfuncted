@@ -32,5 +32,6 @@ as the default format for every release:
 - Open with a one- or two-sentence summary.
 - Group the details by theme under short headings.
 - Use dry, factual bullets for user-visible changes and validation.
+- Do not repeat the project or version header in the release body.
 - Omit commit counts and extended narrative; the comparison link provides the
   complete commit list.

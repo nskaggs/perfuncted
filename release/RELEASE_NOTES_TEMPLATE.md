@@ -1,5 +1,3 @@
-## Perfuncted vX.Y.Z
-
 <!-- One or two factual sentences summarizing the release. -->
 
 ### <Theme>
