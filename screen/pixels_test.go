@@ -242,3 +242,15 @@ func TestDecodeBGRARectShortDataDoesNotPanic(t *testing.T) {
 		t.Fatalf("bottom-left pixel = %+v, want zero value", c)
 	}
 }
+
+func TestCropRGBAShortBufferDoesNotPanic(t *testing.T) {
+	src := &image.RGBA{
+		Pix:    make([]byte, 4),
+		Stride: 16,
+		Rect:   image.Rect(0, 0, 4, 4),
+	}
+	cropped := cropRGBA(src, image.Rect(0, 0, 4, 4))
+	if cropped == nil {
+		t.Fatal("expected non-nil cropped image")
+	}
+}

@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"image/png"
 	"io"
 	"os"
@@ -217,16 +216,22 @@ func decodeKWinPixels(data []byte, rect image.Rectangle, results map[string]dbus
 	}
 
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	if isRGBA && stride == img.Stride {
+		copy(img.Pix, data[:h*stride])
+		return img, nil
+	}
 	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			off := y*stride + x*4
-			var rv, gv, bv, av byte
-			if isRGBA {
-				rv, gv, bv, av = data[off], data[off+1], data[off+2], data[off+3]
-			} else {
-				bv, gv, rv, av = data[off], data[off+1], data[off+2], data[off+3]
+		srcRow := data[y*stride : y*stride+w*4]
+		dstRow := img.Pix[y*img.Stride : y*img.Stride+w*4]
+		if isRGBA {
+			copy(dstRow, srcRow)
+		} else {
+			for x := 0; x < w*4; x += 4 {
+				dstRow[x] = srcRow[x+2]   // R ← B
+				dstRow[x+1] = srcRow[x+1] // G ← G
+				dstRow[x+2] = srcRow[x]   // B ← R
+				dstRow[x+3] = srcRow[x+3] // A ← A
 			}
-			img.SetNRGBA(x, y, color.NRGBA{R: rv, G: gv, B: bv, A: av})
 		}
 	}
 	return img, nil

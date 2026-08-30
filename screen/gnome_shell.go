@@ -150,6 +150,8 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	}
 	if used == "" {
 		used = path
+	} else if used != path {
+		defer os.Remove(used)
 	}
 
 	f, root, err := openScreenshotFile(used)

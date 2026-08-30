@@ -99,6 +99,9 @@ func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
 	for y := 0; y < r.Dy(); y++ {
 		srcOff := (r.Min.Y+y-src.Rect.Min.Y)*src.Stride + (r.Min.X-src.Rect.Min.X)*4
 		dstOff := (dstY+y)*out.Stride + dstX*4
+		if srcOff < 0 || srcOff+w4 > len(src.Pix) || dstOff < 0 || dstOff+w4 > len(out.Pix) {
+			continue
+		}
 		copy(out.Pix[dstOff:dstOff+w4], src.Pix[srcOff:srcOff+w4])
 	}
 	return out
