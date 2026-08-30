@@ -3,6 +3,7 @@ package x11
 import (
 	"sync"
 
+	"github.com/jezek/xgb/randr"
 	"github.com/jezek/xgb/xproto"
 )
 
@@ -83,11 +84,72 @@ func NewMockGetImageCookie(reply *xproto.GetImageReply, err error) GetImageCooki
 	return &MockGetImageCookie{reply: reply, err: err}
 }
 
+type MockRandRScreenResourcesCookie struct {
+	reply *randr.GetScreenResourcesCurrentReply
+	err   error
+}
+
+// NewMockRandRScreenResourcesCookie returns a RandR resources reply for tests.
+func NewMockRandRScreenResourcesCookie(reply *randr.GetScreenResourcesCurrentReply, err error) RandRScreenResourcesCookie {
+	return &MockRandRScreenResourcesCookie{reply: reply, err: err}
+}
+
+func (m *MockRandRScreenResourcesCookie) Reply() (*randr.GetScreenResourcesCurrentReply, error) {
+	return m.reply, m.err
+}
+
+type MockRandROutputInfoCookie struct {
+	reply *randr.GetOutputInfoReply
+	err   error
+}
+
+// NewMockRandROutputInfoCookie returns a RandR output-info reply for tests.
+func NewMockRandROutputInfoCookie(reply *randr.GetOutputInfoReply, err error) RandROutputInfoCookie {
+	return &MockRandROutputInfoCookie{reply: reply, err: err}
+}
+
+func (m *MockRandROutputInfoCookie) Reply() (*randr.GetOutputInfoReply, error) {
+	return m.reply, m.err
+}
+
+type MockRandRCrtcInfoCookie struct {
+	reply *randr.GetCrtcInfoReply
+	err   error
+}
+
+// NewMockRandRCrtcInfoCookie returns a RandR CRTC-info reply for tests.
+func NewMockRandRCrtcInfoCookie(reply *randr.GetCrtcInfoReply, err error) RandRCrtcInfoCookie {
+	return &MockRandRCrtcInfoCookie{reply: reply, err: err}
+}
+
+func (m *MockRandRCrtcInfoCookie) Reply() (*randr.GetCrtcInfoReply, error) {
+	return m.reply, m.err
+}
+
+type MockRandROutputPrimaryCookie struct {
+	reply *randr.GetOutputPrimaryReply
+	err   error
+}
+
+// NewMockRandROutputPrimaryCookie returns a RandR primary-output reply for tests.
+func NewMockRandROutputPrimaryCookie(reply *randr.GetOutputPrimaryReply, err error) RandROutputPrimaryCookie {
+	return &MockRandROutputPrimaryCookie{reply: reply, err: err}
+}
+
+func (m *MockRandROutputPrimaryCookie) Reply() (*randr.GetOutputPrimaryReply, error) {
+	return m.reply, m.err
+}
+
 type MockConnection struct {
 	mu sync.Mutex
 
-	DefaultScreenFunc func() *xproto.ScreenInfo
-	SetupFunc         func() *xproto.SetupInfo
+	DefaultScreenFunc             func() *xproto.ScreenInfo
+	SetupFunc                     func() *xproto.SetupInfo
+	InitRandRFunc                 func() error
+	GetScreenResourcesCurrentFunc func(Window xproto.Window) RandRScreenResourcesCookie
+	GetOutputInfoFunc             func(Output randr.Output, ConfigTimestamp xproto.Timestamp) RandROutputInfoCookie
+	GetCrtcInfoFunc               func(Crtc randr.Crtc, ConfigTimestamp xproto.Timestamp) RandRCrtcInfoCookie
+	GetOutputPrimaryFunc          func(Window xproto.Window) RandROutputPrimaryCookie
 
 	InternAtomFunc             func(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie
 	GetPropertyFunc            func(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) GetPropertyCookie
@@ -129,6 +191,36 @@ func (m *MockConnection) Setup() *xproto.SetupInfo {
 		return m.SetupFunc()
 	}
 	return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 255}
+}
+func (m *MockConnection) InitRandR() error {
+	if m.InitRandRFunc != nil {
+		return m.InitRandRFunc()
+	}
+	return nil
+}
+func (m *MockConnection) GetScreenResourcesCurrent(Window xproto.Window) RandRScreenResourcesCookie {
+	if m.GetScreenResourcesCurrentFunc != nil {
+		return m.GetScreenResourcesCurrentFunc(Window)
+	}
+	return &MockRandRScreenResourcesCookie{}
+}
+func (m *MockConnection) GetOutputInfo(Output randr.Output, ConfigTimestamp xproto.Timestamp) RandROutputInfoCookie {
+	if m.GetOutputInfoFunc != nil {
+		return m.GetOutputInfoFunc(Output, ConfigTimestamp)
+	}
+	return &MockRandROutputInfoCookie{}
+}
+func (m *MockConnection) GetCrtcInfo(Crtc randr.Crtc, ConfigTimestamp xproto.Timestamp) RandRCrtcInfoCookie {
+	if m.GetCrtcInfoFunc != nil {
+		return m.GetCrtcInfoFunc(Crtc, ConfigTimestamp)
+	}
+	return &MockRandRCrtcInfoCookie{}
+}
+func (m *MockConnection) GetOutputPrimary(Window xproto.Window) RandROutputPrimaryCookie {
+	if m.GetOutputPrimaryFunc != nil {
+		return m.GetOutputPrimaryFunc(Window)
+	}
+	return &MockRandROutputPrimaryCookie{}
 }
 func (m *MockConnection) InternAtom(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie {
 	if m.InternAtomFunc != nil {

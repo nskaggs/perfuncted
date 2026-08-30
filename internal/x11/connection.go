@@ -3,6 +3,7 @@ package x11
 import (
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/composite"
+	"github.com/jezek/xgb/randr"
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgb/xtest"
 )
@@ -14,6 +15,11 @@ type Connection interface {
 	Sync()
 	DefaultScreen() *xproto.ScreenInfo
 	Setup() *xproto.SetupInfo
+	InitRandR() error
+	GetScreenResourcesCurrent(Window xproto.Window) RandRScreenResourcesCookie
+	GetOutputInfo(Output randr.Output, ConfigTimestamp xproto.Timestamp) RandROutputInfoCookie
+	GetCrtcInfo(Crtc randr.Crtc, ConfigTimestamp xproto.Timestamp) RandRCrtcInfoCookie
+	GetOutputPrimary(Window xproto.Window) RandROutputPrimaryCookie
 
 	InternAtom(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie
 	GetProperty(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) GetPropertyCookie
@@ -62,6 +68,26 @@ func (c *XgbConnection) DefaultScreen() *xproto.ScreenInfo {
 
 func (c *XgbConnection) Setup() *xproto.SetupInfo {
 	return xproto.Setup(c.conn)
+}
+
+func (c *XgbConnection) InitRandR() error {
+	return randr.Init(c.conn)
+}
+
+func (c *XgbConnection) GetScreenResourcesCurrent(Window xproto.Window) RandRScreenResourcesCookie {
+	return randr.GetScreenResourcesCurrent(c.conn, Window)
+}
+
+func (c *XgbConnection) GetOutputInfo(Output randr.Output, ConfigTimestamp xproto.Timestamp) RandROutputInfoCookie {
+	return randr.GetOutputInfo(c.conn, Output, ConfigTimestamp)
+}
+
+func (c *XgbConnection) GetCrtcInfo(Crtc randr.Crtc, ConfigTimestamp xproto.Timestamp) RandRCrtcInfoCookie {
+	return randr.GetCrtcInfo(c.conn, Crtc, ConfigTimestamp)
+}
+
+func (c *XgbConnection) GetOutputPrimary(Window xproto.Window) RandROutputPrimaryCookie {
+	return randr.GetOutputPrimary(c.conn, Window)
 }
 
 func (c *XgbConnection) InternAtom(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie {

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/clipboard"
@@ -442,4 +444,31 @@ func NewWithOutputs(
 	cb clipboard.Clipboard,
 ) *perfuncted.Session {
 	return perfuncted.NewSessionForTesting(sc, inp, mgr, out, cb)
+}
+
+// CaptureOnFailure registers an opt-in test cleanup that writes a diagnostic
+// bundle when t fails. If directory is empty, artifacts are written to a
+// temporary directory. The bundle may contain screenshots, window titles,
+// process IDs, and desktop topology; treat it as sensitive.
+func CaptureOnFailure(t testing.TB, session *perfuncted.Session, directory string) {
+	if t == nil || session == nil {
+		return
+	}
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		path, err := session.CaptureFailureBundle(ctx, perfuncted.FailureBundleOptions{
+			Directory: directory,
+			Operation: "test " + t.Name(),
+		})
+		if err != nil {
+			t.Logf("failure bundle written to %s with collection errors: %v", path, err)
+			return
+		}
+		t.Logf("failure bundle written to %s", path)
+	})
 }

@@ -36,7 +36,13 @@ type Info struct {
 	// ResolutionH is the physical pixel height, when available.
 	ResolutionH int `json:"resolution_h,omitempty"`
 	// Scale is the compositor scale factor.
+	// For fractional scales, Scale is zero and ScaleNumerator/ScaleDenominator
+	// carry the exact ratio when the backend can determine it.
 	Scale int `json:"scale,omitempty"`
+	// ScaleNumerator and ScaleDenominator represent the logical-to-physical
+	// scale as a reduced positive rational number when available.
+	ScaleNumerator   int `json:"scale_numerator,omitempty"`
+	ScaleDenominator int `json:"scale_denominator,omitempty"`
 	// PhysicalW is the physical width in millimeters, when available.
 	PhysicalW int `json:"physical_w,omitempty"`
 	// PhysicalH is the physical height in millimeters, when available.

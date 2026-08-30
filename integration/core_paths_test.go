@@ -898,6 +898,9 @@ func TestOutputList_ReportsGeometry(t *testing.T) {
 		if out.Backend == "" {
 			t.Errorf("output %d missing backend: %+v", i, out)
 		}
+		if !out.Available {
+			t.Errorf("output %d is not marked available: %+v", i, out)
+		}
 		if out.Geometry.W <= 0 || out.Geometry.H <= 0 {
 			t.Errorf("output %d has invalid geometry: %+v", i, out)
 		}

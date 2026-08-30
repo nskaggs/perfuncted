@@ -10,12 +10,15 @@ import (
 )
 
 type actionTracer struct {
-	w      io.Writer
-	logger *slog.Logger
-	delay  time.Duration
+	w       io.Writer
+	logger  *slog.Logger
+	delay   time.Duration
+	history []string
 	// mu serializes writes to the underlying writer.
 	mu sync.Mutex
 }
+
+const traceHistoryLimit = 256
 
 func newActionTracer(w io.Writer, logger *slog.Logger, delay time.Duration) *actionTracer {
 	if w == nil && logger == nil {
@@ -37,6 +40,10 @@ func (t *actionTracer) Tracef(action, format string, args ...any) {
 	text := strings.TrimSpace(msg.String())
 
 	t.mu.Lock()
+	t.history = append(t.history, text)
+	if len(t.history) > traceHistoryLimit {
+		t.history = t.history[len(t.history)-traceHistoryLimit:]
+	}
 	if t.logger != nil {
 		t.logger.Debug("perfuncted trace", "action", action, "message", text)
 	}
@@ -47,4 +54,13 @@ func (t *actionTracer) Tracef(action, format string, args ...any) {
 	if t.delay > 0 {
 		time.Sleep(t.delay)
 	}
+}
+
+func (t *actionTracer) recent() []string {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.history...)
 }

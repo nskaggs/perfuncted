@@ -147,6 +147,179 @@ func TestNewWaylandListerPreservesRepeatedOutputs(t *testing.T) {
 	}
 }
 
+func TestWaylandListerTracksLiveOutputTopology(t *testing.T) {
+	sock := t.TempDir() + "/wayland.sock"
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	addOutput := make(chan struct{})
+	serverDone := make(chan error, 1)
+	serverReady := make(chan struct{})
+	go func() {
+		serverDone <- serveDynamicWaylandOutputs(listener, addOutput, serverReady)
+	}()
+
+	lister, err := NewWaylandLister(sock)
+	if err != nil {
+		listener.Close()
+		t.Fatalf("NewWaylandLister: %v", err)
+	}
+
+	<-serverReady
+	close(addOutput)
+	got, err := lister.List(context.Background())
+	if err != nil {
+		t.Fatalf("List after output add: %v", err)
+	}
+	if len(got) != 3 || got[2].Name != "DP-3" {
+		t.Fatalf("outputs after add = %+v, want DP-1, DP-2, DP-3", got)
+	}
+	if !got[2].Available {
+		t.Fatalf("new output = %+v, want available", got[2])
+	}
+
+	got, err = lister.List(context.Background())
+	if err != nil {
+		t.Fatalf("List after output removal: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "DP-1" || got[1].Name != "DP-2" {
+		t.Fatalf("outputs after removal = %+v, want DP-1, DP-2", got)
+	}
+	if err := lister.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("listener Close: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatalf("dynamic fake compositor: %v", err)
+	}
+}
+
+//nolint:gocyclo // fake compositor drives the protocol sequence explicitly.
+func serveDynamicWaylandOutputs(
+	listener *net.UnixListener,
+	addOutput <-chan struct{},
+	ready chan<- struct{},
+) error {
+	conn, err := listener.AcceptUnix()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	var registryID uint32
+	outputIDs := make(map[uint32]uint32, 3)
+	var writeMu sync.Mutex
+
+	roundTrips := 0
+	for {
+		message, err := readWaylandMessage(conn)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		sender := wl.Uint32(message[0:4])
+		opcode := wl.Uint32(message[4:8]) & 0xffff
+		payload := message[8:]
+		switch {
+		case sender == 1 && opcode == 1:
+			if len(payload) < 4 {
+				return errors.New("dynamic registry request missing object ID")
+			}
+			registryID = wl.Uint32(payload[:4])
+		case sender == registryID && opcode == 0:
+			name, objectID, err := parseWaylandBind(payload)
+			if err != nil {
+				return err
+			}
+			if name == 4 || name == 12 || name == 20 {
+				outputIDs[name] = objectID
+			}
+		case sender == 1 && opcode == 0:
+			roundTrips++
+			switch roundTrips {
+			case 1:
+				if err := sendWaylandGlobalEventsLocked(&writeMu, conn, registryID); err != nil {
+					return err
+				}
+			case 2:
+				for _, output := range []struct {
+					name uint32
+					text string
+				}{
+					{name: 4, text: "DP-1"},
+					{name: 12, text: "DP-2"},
+				} {
+					if err := sendWaylandOutputNameLocked(&writeMu, conn, outputIDs[output.name], output.text); err != nil {
+						return err
+					}
+				}
+			case 4:
+				if err := sendWaylandOutputNameLocked(&writeMu, conn, outputIDs[20], "DP-3"); err != nil {
+					return err
+				}
+			}
+			if len(payload) < 4 {
+				return errors.New("dynamic sync request missing callback ID")
+			}
+			if err := writeWaylandMessageLocked(&writeMu, conn, wl.Uint32(payload[:4]), 0, nil); err != nil {
+				return err
+			}
+			if roundTrips == 2 {
+				close(ready)
+				<-addOutput
+				if err := sendWaylandGlobalEventLocked(&writeMu, conn, registryID, 20, "wl_output", 4); err != nil {
+					return err
+				}
+			}
+			if roundTrips == 4 {
+				if err := writeWaylandMessageLocked(&writeMu, conn, registryID, 1, appendUint32(nil, 20)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+func writeWaylandMessageLocked(mu *sync.Mutex, conn net.Conn, sender, opcode uint32, payload []byte) error {
+	mu.Lock()
+	defer mu.Unlock()
+	return writeWaylandMessage(conn, sender, opcode, payload)
+}
+
+func sendWaylandGlobalEventLocked(mu *sync.Mutex, conn net.Conn, registryID, name uint32, iface string, version uint32) error {
+	data := appendUint32(nil, name)
+	data = appendWlStringData(data, iface)
+	data = appendUint32(data, version)
+	return writeWaylandMessageLocked(mu, conn, registryID, 0, data)
+}
+
+func sendWaylandGlobalEventsLocked(mu *sync.Mutex, conn net.Conn, registryID uint32) error {
+	for _, event := range []struct {
+		name    uint32
+		version uint32
+	}{
+		{name: 12, version: 4},
+		{name: 4, version: 4},
+	} {
+		if err := sendWaylandGlobalEventLocked(mu, conn, registryID, event.name, "wl_output", event.version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sendWaylandOutputNameLocked(mu *sync.Mutex, conn net.Conn, objectID uint32, name string) error {
+	if objectID == 0 {
+		return errors.New("output was not bound")
+	}
+	return writeWaylandMessageLocked(mu, conn, objectID, 4, wlStringData(name))
+}
+
 func serveWaylandOutputs(listener *net.UnixListener) error {
 	conn, err := listener.AcceptUnix()
 	if err != nil {
@@ -400,11 +573,11 @@ func TestReadWlStringRejectsMalformedData(t *testing.T) {
 	}
 }
 
-func TestWaylandOutputEventParsing(t *testing.T) {
+func TestWaylandOutputEventParsing(t *testing.T) { //nolint:gocyclo // covers each wl_output event payload.
 	t.Parallel()
 
 	out := &waylandOutput{
-		info: Info{Name: "fallback-name", Backend: "wayland", Scale: 1},
+		info: Info{Name: "fallback-name", Backend: "wayland", Scale: 1, Available: true},
 	}
 	proxy := &wl.RawProxy{}
 	out.updateProxy(proxy)
@@ -454,6 +627,70 @@ func TestWaylandOutputEventParsing(t *testing.T) {
 	}
 	if out.info.Description != "Acme Panel 4K" {
 		t.Fatalf("description = %q, want Acme Panel 4K", out.info.Description)
+	}
+	if !out.info.Available || out.info.ScaleNumerator != 2 || out.info.ScaleDenominator != 1 {
+		t.Fatalf("availability/scale = %v/%d:%d, want true/2:1", out.info.Available, out.info.ScaleNumerator, out.info.ScaleDenominator)
+	}
+}
+
+func TestWaylandXDgOutputProvidesRotatedLogicalGeometry(t *testing.T) {
+	t.Parallel()
+
+	out := newWaylandOutput(wl.GlobalEvent{Name: 4, Version: 4})
+	wlProxy := &wl.RawProxy{}
+	out.updateProxy(wlProxy)
+	mode := make([]byte, 16)
+	wl.PutUint32(mode[0:4], 1)
+	wl.PutUint32(mode[4:8], 1920)
+	wl.PutUint32(mode[8:12], 1080)
+	wlProxy.OnEvent(1, 0, mode)
+	scale := make([]byte, 4)
+	wl.PutUint32(scale, 2)
+	wlProxy.OnEvent(3, 0, scale)
+
+	xdgProxy := &wl.RawProxy{}
+	out.updateXDGProxy(xdgProxy)
+	logicalSize := make([]byte, 8)
+	wl.PutUint32(logicalSize[0:4], 540)
+	wl.PutUint32(logicalSize[4:8], 960)
+	xdgProxy.OnEvent(1, 0, logicalSize)
+
+	if out.info.Geometry != (Geometry{W: 540, H: 960}) {
+		t.Fatalf("rotated geometry = %+v, want 540x960", out.info.Geometry)
+	}
+	if out.info.Scale != 2 {
+		t.Fatalf("scale = %d, want 2", out.info.Scale)
+	}
+}
+
+func TestWaylandXDgOutputProvidesFractionalScaleAndLogicalGeometry(t *testing.T) {
+	t.Parallel()
+
+	out := newWaylandOutput(wl.GlobalEvent{Name: 4, Version: 4})
+	wlProxy := &wl.RawProxy{}
+	out.updateProxy(wlProxy)
+	mode := make([]byte, 16)
+	wl.PutUint32(mode[0:4], 1)
+	wl.PutUint32(mode[4:8], 2560)
+	wl.PutUint32(mode[8:12], 1440)
+	wlProxy.OnEvent(1, 0, mode)
+
+	xdgProxy := &wl.RawProxy{}
+	out.updateXDGProxy(xdgProxy)
+	position := make([]byte, 8)
+	wl.PutUint32(position[0:4], ^uint32(1535))
+	wl.PutUint32(position[4:8], 10)
+	xdgProxy.OnEvent(0, 0, position)
+	logicalSize := make([]byte, 8)
+	wl.PutUint32(logicalSize[0:4], 2048)
+	wl.PutUint32(logicalSize[4:8], 1152)
+	xdgProxy.OnEvent(1, 0, logicalSize)
+
+	if out.info.Geometry != (Geometry{X: -1536, Y: 10, W: 2048, H: 1152}) {
+		t.Fatalf("logical geometry = %+v, want -1536,10 2048x1152", out.info.Geometry)
+	}
+	if out.info.Scale != 0 || out.info.ScaleNumerator != 5 || out.info.ScaleDenominator != 4 {
+		t.Fatalf("fractional scale = %d/%d:%d, want 0/5:4", out.info.Scale, out.info.ScaleNumerator, out.info.ScaleDenominator)
 	}
 }
 

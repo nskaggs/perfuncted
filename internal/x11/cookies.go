@@ -2,9 +2,26 @@ package x11
 
 import (
 	"github.com/jezek/xgb/composite"
+	"github.com/jezek/xgb/randr"
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgb/xtest"
 )
+
+type RandRScreenResourcesCookie interface {
+	Reply() (*randr.GetScreenResourcesCurrentReply, error)
+}
+
+type RandROutputInfoCookie interface {
+	Reply() (*randr.GetOutputInfoReply, error)
+}
+
+type RandRCrtcInfoCookie interface {
+	Reply() (*randr.GetCrtcInfoReply, error)
+}
+
+type RandROutputPrimaryCookie interface {
+	Reply() (*randr.GetOutputPrimaryReply, error)
+}
 
 type InternAtomCookie interface {
 	Reply() (*xproto.InternAtomReply, error)

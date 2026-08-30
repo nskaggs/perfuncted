@@ -22,6 +22,7 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 		t.Fatal("New returned nil")
 		return
 	}
+	pftest.CaptureOnFailure(t, pf, "")
 
 	// Exercise each bundle through the assembled Perfuncted.
 	if _, _, err := pf.Screen.Resolution(context.Background()); err != nil {

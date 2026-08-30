@@ -45,8 +45,8 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 			case "plain":
 				out := cmd.OutOrStdout()
 				for _, o := range outs {
-					fmt.Fprintf(out, "%s\t%s\tgeometry=%d,%d,%d,%d\tresolution=%dx%d\tscale=%d\n",
-						o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.ResolutionW, o.ResolutionH, o.Scale)
+					fmt.Fprintf(out, "%s\t%s\tgeometry=%d,%d,%d,%d\tresolution=%dx%d\tscale=%s\n",
+						o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.ResolutionW, o.ResolutionH, outputScaleString(o))
 				}
 			case "json":
 				enc := json.NewEncoder(cmd.OutOrStdout())
@@ -578,7 +578,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 		return err
 	}
 	for _, o := range wins {
-		fmt.Fprintf(s.out, "%s\t%s\t%d,%d,%d,%d\tscale=%d\tresolution=%dx%d\n", o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.Scale, o.ResolutionW, o.ResolutionH)
+		fmt.Fprintf(s.out, "%s\t%s\t%d,%d,%d,%d\tscale=%s\tresolution=%dx%d\n", o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, outputScaleString(o), o.ResolutionW, o.ResolutionH)
 	}
 	return nil
 }
@@ -591,20 +591,34 @@ func (s *scriptRunner) execInfo(lineNo int, toks []string) error {
 	return enc.Encode(buildInfoReport(s.pf))
 }
 
+func outputScaleString(info output.Info) string {
+	if info.Scale != 0 {
+		return strconv.Itoa(info.Scale)
+	}
+	if info.ScaleNumerator > 0 && info.ScaleDenominator > 0 {
+		return fmt.Sprintf("%d/%d", info.ScaleNumerator, info.ScaleDenominator)
+	}
+	return "unknown"
+}
+
 func outputInfoJSON(o output.Info) map[string]any {
 	return map[string]any{
-		"name":         o.Name,
-		"backend":      o.Backend,
-		"geometry":     o.Geometry,
-		"resolution_w": o.ResolutionW,
-		"resolution_h": o.ResolutionH,
-		"scale":        o.Scale,
-		"physical_w":   o.PhysicalW,
-		"physical_h":   o.PhysicalH,
-		"make":         o.Make,
-		"model":        o.Model,
-		"description":  o.Description,
-		"primary":      o.Primary,
+		"name":              o.Name,
+		"backend":           o.Backend,
+		"geometry":          o.Geometry,
+		"resolution_w":      o.ResolutionW,
+		"resolution_h":      o.ResolutionH,
+		"scale":             o.Scale,
+		"scale_numerator":   o.ScaleNumerator,
+		"scale_denominator": o.ScaleDenominator,
+		"physical_w":        o.PhysicalW,
+		"physical_h":        o.PhysicalH,
+		"make":              o.Make,
+		"model":             o.Model,
+		"description":       o.Description,
+		"primary":           o.Primary,
+		"available":         o.Available,
+		"reason":            o.Reason,
 	}
 }
 

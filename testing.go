@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
@@ -51,6 +52,9 @@ func NewSessionForTesting(
 		},
 	}
 	session.ctx, session.cancel = context.WithCancel(context.Background())
+	// Test sessions retain a bounded action history without writing to the
+	// caller's output. This makes opt-in failure bundles useful by default.
+	session.tracer = newActionTracer(io.Discard, nil, 0)
 	session.Screen = &ScreenBundle{
 		backend:    screenshotter,
 		bundleBase: session.bundleBase(CapabilityScreen),
