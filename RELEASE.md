@@ -23,3 +23,14 @@ just check-api-sync
 
 The release workflow is defined in
 [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
+## Release notes
+
+Use [`release/RELEASE_NOTES_TEMPLATE.md`](release/RELEASE_NOTES_TEMPLATE.md)
+as the default format for every release:
+
+- Open with a one- or two-sentence summary.
+- Group the details by theme under short headings.
+- Use dry, factual bullets for user-visible changes and validation.
+- Omit commit counts and extended narrative; the comparison link provides the
+  complete commit list.

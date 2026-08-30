@@ -12,6 +12,7 @@ docs/
 !docs-cli/*.md
 !CONTRIBUTING.md
 !RELEASE.md
+!release/RELEASE_NOTES_TEMPLATE.md
 /notes/
 /localsource/
 /ref/
