@@ -175,3 +175,50 @@ func TestLocateExactEmptyReference(t *testing.T) {
 		t.Fatal("expected error for empty reference image")
 	}
 }
+
+func TestPixelHashTruncatedBuffer(t *testing.T) {
+	// A malformed *image.RGBA where Pix is shorter than Bounds*Stride
+	malformed := &image.RGBA{
+		Pix:    make([]byte, 4), // only 1 pixel worth of bytes
+		Stride: 16,
+		Rect:   image.Rect(0, 0, 4, 4), // needs 64 bytes
+	}
+	// Should not panic, falls back safely
+	_ = PixelHash(malformed, nil)
+}
+
+func TestPixelFoundTruncatedBuffer(t *testing.T) {
+	malformed := &image.RGBA{
+		Pix:    make([]byte, 4),
+		Stride: 16,
+		Rect:   image.Rect(0, 0, 4, 4),
+	}
+	// Should not panic, returns false
+	_, found := PixelFound(malformed, malformed.Rect, color.RGBA{R: 255, A: 255}, 0)
+	if found {
+		t.Fatal("expected not found on truncated buffer")
+	}
+
+	malformedNRGBA := &image.NRGBA{
+		Pix:    make([]byte, 4),
+		Stride: 16,
+		Rect:   image.Rect(0, 0, 4, 4),
+	}
+	_, foundNRGBA := PixelFound(malformedNRGBA, malformedNRGBA.Rect, color.RGBA{R: 255, A: 255}, 0)
+	if foundNRGBA {
+		t.Fatal("expected not found on truncated NRGBA buffer")
+	}
+}
+
+func TestLocateExactTruncatedBuffer(t *testing.T) {
+	src := &image.RGBA{
+		Pix:    make([]byte, 8),
+		Stride: 16,
+		Rect:   image.Rect(0, 0, 4, 4),
+	}
+	ref := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	_, err := LocateExactInImage(src, image.Rect(0, 0, 4, 4), ref)
+	if err == nil {
+		t.Fatal("expected error locating in truncated image buffer")
+	}
+}

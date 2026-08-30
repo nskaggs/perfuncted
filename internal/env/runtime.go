@@ -38,6 +38,24 @@ func (r Runtime) Get(key string) string {
 	return r.vars[key]
 }
 
+// Lookup returns the value for key and whether it was present in the snapshot.
+func (r Runtime) Lookup(key string) (string, bool) {
+	if r.vars == nil {
+		return "", false
+	}
+	v, ok := r.vars[key]
+	return v, ok
+}
+
+// Has reports whether key is present in the runtime snapshot.
+func (r Runtime) Has(key string) bool {
+	if r.vars == nil {
+		return false
+	}
+	_, ok := r.vars[key]
+	return ok
+}
+
 // With returns a copy of r with key set to value.
 func (r Runtime) With(key, value string) Runtime {
 	out := r.clone()

@@ -126,7 +126,9 @@ func commandEnvironment(values []string) []string {
 func (s *Session) routingEnvironment() []string {
 	overlays := make([]string, 0, len(sessionRoutingKeys))
 	for _, key := range sessionRoutingKeys {
-		overlays = append(overlays, key+"="+s.env.Get(key))
+		if val, ok := s.env.Lookup(key); ok {
+			overlays = append(overlays, key+"="+val)
+		}
 	}
 	return overlays
 }

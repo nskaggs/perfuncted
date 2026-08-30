@@ -87,16 +87,24 @@ func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint3
 		// Optimization: if the visible rows are contiguous, hash them at once.
 		// A full-width subimage can have trailing rows in Pix, so bound the slice
 		// to the image's height rather than hashing the entire backing buffer.
-		if b == rgba.Rect && rgba.Stride == b.Dx()*4 {
+		if b == rgba.Rect && rgba.Stride == b.Dx()*4 && len(rgba.Pix) >= rgba.Stride*b.Dy() {
 			h.Write(rgba.Pix[:rgba.Stride*b.Dy()])
 			return h.Sum32()
 		}
+		safe := true
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
 			end := off + b.Dx()*4
+			if off < 0 || end > len(rgba.Pix) {
+				safe = false
+				break
+			}
 			h.Write(rgba.Pix[off:end]) //nolint:errcheck
 		}
-		return h.Sum32()
+		if safe {
+			return h.Sum32()
+		}
+		return 0
 	}
 
 	// Convert non-RGBA images to RGBA once and then use the fast contiguous Pix path.
@@ -515,26 +523,32 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 	if srcOk && refOk {
 		// Read the reference bytes directly from Pix (avoids color model conversion in inner loop).
 		refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
-		refFirstBytes := refRGBA.Pix[refOff0 : refOff0+4]
-		for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
-			rowStart := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
-			row := srcRGBA.Pix[rowStart : rowStart+sb.Dx()*4]
-			for from := 0; from < len(row); {
-				offset := bytes.Index(row[from:], refFirstBytes)
-				if offset < 0 {
+		if refOff0 >= 0 && refOff0+4 <= len(refRGBA.Pix) && srcRGBA.Stride >= sb.Dx()*4 {
+			refFirstBytes := refRGBA.Pix[refOff0 : refOff0+4]
+			for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
+				rowStart := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
+				rowEnd := rowStart + sb.Dx()*4
+				if rowStart < 0 || rowEnd > len(srcRGBA.Pix) {
 					break
 				}
-				pixelOffset := from + offset
-				if pixelOffset%4 == 0 {
-					x := sb.Min.X + pixelOffset/4
-					if x <= sb.Max.X-rb.Dx() && matchAt(src, reference, x, y) {
-						return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
+				row := srcRGBA.Pix[rowStart:rowEnd]
+				for from := 0; from < len(row); {
+					offset := bytes.Index(row[from:], refFirstBytes)
+					if offset < 0 {
+						break
 					}
+					pixelOffset := from + offset
+					if pixelOffset%4 == 0 {
+						x := sb.Min.X + pixelOffset/4
+						if x <= sb.Max.X-rb.Dx() && matchAt(src, reference, x, y) {
+							return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
+						}
+					}
+					from = pixelOffset + 1
 				}
-				from = pixelOffset + 1
 			}
+			return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
 		}
-		return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
 	}
 
 	for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
@@ -579,6 +593,9 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 		for y := 0; y < rb.Dy(); y++ {
 			srcOff := (oy+y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (ox-srcRGBA.Rect.Min.X)*4
 			refOff := (rb.Min.Y+y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
+			if srcOff < 0 || srcOff+w4 > len(srcRGBA.Pix) || refOff < 0 || refOff+w4 > len(refRGBA.Pix) {
+				return false
+			}
 			if !bytes.Equal(srcRGBA.Pix[srcOff:srcOff+w4], refRGBA.Pix[refOff:refOff+w4]) {
 				return false
 			}
@@ -646,6 +663,13 @@ func scanPackedPixels(
 	target color.RGBA,
 	tolerance int,
 ) (image.Point, bool) {
+	if bounds.Empty() || stride < bounds.Dx()*4 {
+		return image.Point{}, false
+	}
+	minRequired := (bounds.Dy()-1)*stride + bounds.Dx()*4
+	if len(pix) < minRequired {
+		return image.Point{}, false
+	}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		off := (y - bounds.Min.Y) * stride
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {

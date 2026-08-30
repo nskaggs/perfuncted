@@ -117,3 +117,35 @@ func envMap(kvs []string) map[string]string {
 	}
 	return m
 }
+
+func TestRuntimeLookupAndHas(t *testing.T) {
+	t.Parallel()
+
+	rt := FromEnviron([]string{"FOO=bar", "EMPTY="})
+	if !rt.Has("FOO") {
+		t.Fatalf("expected rt.Has(FOO) to be true")
+	}
+	if val, ok := rt.Lookup("FOO"); !ok || val != "bar" {
+		t.Fatalf("Lookup(FOO) = (%q, %v), want (\"bar\", true)", val, ok)
+	}
+	if !rt.Has("EMPTY") {
+		t.Fatalf("expected rt.Has(EMPTY) to be true")
+	}
+	if val, ok := rt.Lookup("EMPTY"); !ok || val != "" {
+		t.Fatalf("Lookup(EMPTY) = (%q, %v), want (\"\", true)", val, ok)
+	}
+	if rt.Has("UNSET") {
+		t.Fatalf("expected rt.Has(UNSET) to be false")
+	}
+	if val, ok := rt.Lookup("UNSET"); ok || val != "" {
+		t.Fatalf("Lookup(UNSET) = (%q, %v), want (\"\", false)", val, ok)
+	}
+
+	var zero Runtime
+	if zero.Has("FOO") {
+		t.Fatalf("expected zero.Has(FOO) to be false")
+	}
+	if val, ok := zero.Lookup("FOO"); ok || val != "" {
+		t.Fatalf("zero.Lookup(FOO) = (%q, %v), want (\"\", false)", val, ok)
+	}
+}

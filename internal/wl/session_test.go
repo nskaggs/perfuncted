@@ -1,6 +1,7 @@
 package wl
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -129,10 +130,10 @@ func TestSessionHandleRejectsOperationsAfterClose(t *testing.T) {
 	if err := handle.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := handle.SyncContext(nil); !errors.Is(err, net.ErrClosed) {
+	if err := handle.SyncContext(context.Background()); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("closed handle SyncContext error = %v, want %v", err, net.ErrClosed)
 	}
-	if err := canonical.SyncContext(nil); err != nil {
+	if err := canonical.SyncContext(context.Background()); err != nil {
 		t.Fatalf("remaining session reference became unusable: %v", err)
 	}
 }
