@@ -223,6 +223,30 @@ func TestRegistry_Dispatch_GlobalRemoveEvent(t *testing.T) {
 	}
 }
 
+func TestRegistry_Dispatch_MalformedData(t *testing.T) {
+	called := false
+	r := &Registry{}
+	r.SetGlobalHandler(func(ev GlobalEvent) { called = true })
+
+	// Less than 8 bytes
+	r.Dispatch(0, -1, []byte{1, 2, 3})
+	if called {
+		t.Fatal("handler called on truncated data")
+	}
+
+	// slen claims 100 bytes but only 8 present
+	r.Dispatch(0, -1, []byte{1, 0, 0, 0, 100, 0, 0, 0})
+	if called {
+		t.Fatal("handler called on overlong slen")
+	}
+
+	// slen is 0
+	r.Dispatch(0, -1, []byte{1, 0, 0, 0, 0, 0, 0, 0})
+	if called {
+		t.Fatal("handler called on zero slen")
+	}
+}
+
 func TestRegistry_Dispatch_NoHandler(t *testing.T) {
 	r := &Registry{}
 	// Should not panic
