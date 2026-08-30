@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"syscall"
 	"testing"
 )
@@ -20,6 +21,12 @@ var (
 	errUnexpectedScriptResult = errors.New("unexpected script result")
 )
 
+type customTimeoutError struct{}
+
+func (customTimeoutError) Error() string   { return "custom network timeout" }
+func (customTimeoutError) Timeout() bool   { return true }
+func (customTimeoutError) Temporary() bool { return true }
+
 func TestClassify(t *testing.T) {
 	tests := []struct {
 		name string
@@ -34,12 +41,15 @@ func TestClassify(t *testing.T) {
 		{name: "broken pipe", err: errBrokenPipe, want: ClassConnectionReset},
 		{name: "connection reset", err: errConnectionReset, want: ClassConnectionReset},
 		{name: "closed connection", err: errClosedNetwork, want: ClassConnectionClosed},
+		{name: "net.ErrClosed", err: fmt.Errorf("wayland: %w", net.ErrClosed), want: ClassConnectionClosed},
 		{name: "unrelated error", err: errHTTPNotFound, want: ClassUnknown},
 		// Errno identity must win even when the message text is not the Go
 		// default (localized or cgo-sourced strings).
 		{name: "errno ECONNRESET", err: fmt.Errorf("sway ipc: %w", syscall.ECONNRESET), want: ClassConnectionReset},
 		{name: "errno EPIPE", err: fmt.Errorf("write: %w", syscall.EPIPE), want: ClassConnectionReset},
 		{name: "errno ECONNABORTED", err: fmt.Errorf("read: %w", syscall.ECONNABORTED), want: ClassConnectionReset},
+		{name: "errno ETIMEDOUT", err: fmt.Errorf("connect: %w", syscall.ETIMEDOUT), want: ClassTimeout},
+		{name: "custom net.Error timeout", err: customTimeoutError{}, want: ClassTimeout},
 		{name: "localized message with errno cause", err: fmt.Errorf("verbindung vom gegenstelle zurückgesetzt: %w", syscall.ECONNRESET), want: ClassConnectionReset},
 	}
 

@@ -4,6 +4,7 @@ package transport
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"syscall"
 )
@@ -37,8 +38,11 @@ func Classify(err error) Classification {
 	if err == nil {
 		return ClassUnknown
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.ETIMEDOUT) {
 		return ClassTimeout
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return ClassConnectionClosed
 	}
 
 	switch {
@@ -46,6 +50,11 @@ func Classify(err error) Classification {
 		return ClassConnectionReset
 	case errors.Is(err, syscall.ECONNABORTED):
 		return ClassConnectionReset
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return ClassTimeout
 	}
 
 	msg := strings.ToLower(err.Error())
