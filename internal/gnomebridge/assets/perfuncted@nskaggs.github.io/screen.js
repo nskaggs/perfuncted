@@ -64,7 +64,7 @@ function runScreenshot(fd, start) {
 
 export class Screen {
     captureFull(handle, fdList) {
-        runScreenshot(resolveFD(handle, fdList), {
+        return runScreenshot(resolveFD(handle, fdList), {
             begin: (s, output, callback) => s.screenshot(false, output, callback, null),
             finish: (s, result) => s.screenshot_finish(result),
         });
@@ -73,7 +73,7 @@ export class Screen {
     captureRegion(handle, x, y, width, height, fdList) {
         if (width <= 0 || height <= 0)
             throw bridgeError('InvalidArgument', 'capture region must be non-empty');
-        runScreenshot(resolveFD(handle, fdList), {
+        return runScreenshot(resolveFD(handle, fdList), {
             begin: (s, output, callback) => s.screenshot_area(
                 x, y, width, height, output, callback, null),
             finish: (s, result) => s.screenshot_area_finish(result),

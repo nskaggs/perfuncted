@@ -90,6 +90,29 @@ func TestInstallerRejectsFlatpakHostProvisioning(t *testing.T) {
 	}
 }
 
+func TestExtensionVersionNeedsUpdateIsMonotonic(t *testing.T) {
+	tests := []struct {
+		name    string
+		running string
+		bundled string
+		want    bool
+	}{
+		{name: "older", running: "1", bundled: "2", want: true},
+		{name: "same", running: "2", bundled: "2", want: false},
+		{name: "newer", running: "3", bundled: "2", want: false},
+		{name: "empty", running: "", bundled: "2", want: false},
+		{name: "development", running: "dev", bundled: "2", want: false},
+		{name: "invalid bundled", running: "1", bundled: "dev", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := extensionVersionNeedsUpdate(test.running, test.bundled); got != test.want {
+				t.Fatalf("extensionVersionNeedsUpdate(%q, %q) = %v, want %v", test.running, test.bundled, got, test.want)
+			}
+		})
+	}
+}
+
 func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	service, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/service.js")
 	if err != nil {
@@ -102,13 +125,24 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	if got := strings.Count(serviceText, "wrapJSObject(xml, this)"); got != 1 {
 		t.Fatalf("service export loop count = %d, want one loop", got)
 	}
-	for _, name := range []string{"CORE_XML", "WINDOWS_XML", "SCREEN_XML", "INPUT_XML", "CLIPBOARD_XML"} {
-		if !strings.Contains(serviceText, name) {
-			t.Errorf("service.js does not define or export %s", name)
+	for _, fragment := range []string{
+		"CORE_XML", "WINDOWS_XML", "SCREEN_XML", "INPUT_XML", "CLIPBOARD_XML",
+		"const EXTENSION_VERSION = '" + ExtensionVersion + "';",
+	} {
+		if !strings.Contains(serviceText, fragment) {
+			t.Errorf("service.js is missing expected fragment %q", fragment)
 		}
 	}
 	if !strings.Contains(serviceText, "this._windowsObject.emit_signal") {
 		t.Error("window signals are not emitted on the Windows interface object")
+	}
+	for _, fragment := range []string{
+		"CaptureFull(fd, fdList) { return this._require(this._screen, 'screen').captureFull(fd, fdList); }",
+		"return this._require(this._screen, 'screen').captureRegion(fd, x, y, width, height, fdList);",
+	} {
+		if !strings.Contains(serviceText, fragment) {
+			t.Errorf("service.js does not propagate screenshot Promise in %q", fragment)
+		}
 	}
 
 	screen, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/screen.js")
@@ -122,6 +156,7 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 		"close_fd: true",
 		"captureFull(handle, fdList)",
 		"return new Promise",
+		"return runScreenshot(",
 	} {
 		if !strings.Contains(screenText, fragment) {
 			t.Errorf("screen.js is missing Unix FD handling fragment %q", fragment)

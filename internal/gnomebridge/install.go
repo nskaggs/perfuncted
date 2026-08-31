@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -75,7 +76,7 @@ func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
 		// Protocol compatibility is sufficient to keep using the live bridge.
 		// Refresh an older bundled copy opportunistically; GNOME Shell will load
 		// those files at the next normal session boundary.
-		if client.ExtensionVersion() != ExtensionVersion {
+		if extensionVersionNeedsUpdate(client.ExtensionVersion(), ExtensionVersion) {
 			_, _ = InstallRuntime(ctx, rt)
 		}
 		return client, nil
@@ -91,6 +92,22 @@ func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
 		return nil, fmt.Errorf("%w: %w; install bundled extension: %w", ErrUnavailable, err, installErr)
 	}
 	return nil, &SessionRestartRequiredError{Path: path}
+}
+
+// extensionVersionNeedsUpdate reports whether the running bridge is an older
+// numeric version than the one bundled with this binary. Unknown versions are
+// left untouched so an older or development binary cannot replace a newer
+// bridge merely because its version string differs.
+func extensionVersionNeedsUpdate(running, bundled string) bool {
+	runningVersion, err := strconv.ParseUint(strings.TrimSpace(running), 10, 64)
+	if err != nil {
+		return false
+	}
+	bundledVersion, err := strconv.ParseUint(strings.TrimSpace(bundled), 10, 64)
+	if err != nil {
+		return false
+	}
+	return runningVersion < bundledVersion
 }
 
 // Install atomically replaces the exact bundled extension directory and then

@@ -37,7 +37,7 @@ func (o *recordingObject) CallWithContext(ctx context.Context, method string, _ 
 	case CoreInterface + ".GetProtocolVersion":
 		call.Body = []any{o.protocol}
 	case CoreInterface + ".GetExtensionVersion":
-		call.Body = []any{"1"}
+		call.Body = []any{"2"}
 	case CoreInterface + ".GetShellVersion":
 		call.Body = []any{"51.0"}
 	case CoreInterface + ".GetCapabilities":
@@ -67,7 +67,7 @@ func newRecordingClient(t *testing.T) (*Client, *recordingObject) {
 func TestClientNegotiates(t *testing.T) {
 	client, _ := newRecordingClient(t)
 
-	if client.ProtocolVersion() != ProtocolVersion || client.ExtensionVersion() != "1" || client.ShellVersion() != "51.0" {
+	if client.ProtocolVersion() != ProtocolVersion || client.ExtensionVersion() != "2" || client.ShellVersion() != "51.0" {
 		t.Fatalf("negotiated metadata = protocol %d, extension %q, shell %q", client.ProtocolVersion(), client.ExtensionVersion(), client.ShellVersion())
 	}
 	caps := client.Capabilities()

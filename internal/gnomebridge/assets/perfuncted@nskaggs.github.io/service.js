@@ -10,7 +10,7 @@ import {Windows} from './windows.js';
 
 const BUS_NAME = 'io.github.nskaggs.perfuncted.Gnome1';
 const OBJECT_PATH = '/io/github/nskaggs/perfuncted/Gnome1';
-const EXTENSION_VERSION = '1';
+const EXTENSION_VERSION = '2';
 const PROTOCOL_VERSION = 1;
 
 const CORE_XML = `
@@ -196,9 +196,9 @@ export class BridgeService {
     Unfullscreen(id) { this._require(this._windows, 'windows').unfullscreen(id); }
     Close(id) { this._require(this._windows, 'windows').close(id); }
 
-    CaptureFull(fd, fdList) { this._require(this._screen, 'screen').captureFull(fd, fdList); }
+    CaptureFull(fd, fdList) { return this._require(this._screen, 'screen').captureFull(fd, fdList); }
     CaptureRegion(fd, x, y, width, height, fdList) {
-        this._require(this._screen, 'screen').captureRegion(fd, x, y, width, height, fdList);
+        return this._require(this._screen, 'screen').captureRegion(fd, x, y, width, height, fdList);
     }
 
     Key(keyval, pressed) { this._require(this._input, 'input').key(keyval, pressed); }
