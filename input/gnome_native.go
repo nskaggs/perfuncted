@@ -146,7 +146,9 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 	})
 }
 
-// TypeLiteral sends text without interpreting key syntax.
+// TypeLiteral sends text without interpreting key syntax. The GNOME bridge
+// uses the Shell clipboard and Ctrl+V so Unicode does not depend on the active
+// keyboard layout; this consequently updates the clipboard contents.
 func (b *GnomeNativeBackend) TypeLiteral(ctx context.Context, text string) error {
 	return b.operation(ctx, func(ctx context.Context) error { return b.bridge.Text(ctx, text) })
 }
@@ -315,9 +317,10 @@ func (b *GnomeNativeBackend) PointerLocation(ctx context.Context) (int, int, err
 	return x, y, err
 }
 
-// Sync waits for GNOME Shell to process the virtual-input calls already sent.
+// Sync is unavailable because Mutter's virtual-input API does not expose a
+// completion barrier for its input-thread work.
 func (b *GnomeNativeBackend) Sync(ctx context.Context) error {
-	return b.operation(ctx, func(ctx context.Context) error { return b.bridge.Sync(ctx) })
+	return b.operation(ctx, func(context.Context) error { return ErrNotSupported })
 }
 
 // Close releases the GNOME bridge connection.

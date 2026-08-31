@@ -28,8 +28,9 @@ func (b *WlVirtualBackend) SupportedOperations() []string {
 	return supportedOperations(false)
 }
 
-// SupportedOperations reports the complete input surface provided by the
-// GNOME Shell virtual-device backend.
+// SupportedOperations reports the input surface provided by the GNOME Shell
+// virtual-device backend. Mutter does not expose a completion barrier for
+// virtual-input tasks, so this backend deliberately omits sync.
 func (b *GnomeNativeBackend) SupportedOperations() []string {
-	return supportedOperations(true)
+	return capability.Operations("input", "sync")
 }

@@ -348,7 +348,6 @@ func (c *Client) PointerLocation(ctx context.Context) (int, int, error) {
 	}
 	return int(x), int(y), nil
 }
-func (c *Client) Sync(ctx context.Context) error { return c.call(ctx, InputInterface, "Sync") }
 
 func (c *Client) GetText(ctx context.Context) (string, error) {
 	var text string

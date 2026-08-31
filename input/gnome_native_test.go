@@ -3,7 +3,10 @@
 
 package input
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestGnomeKeyval(t *testing.T) {
 	for _, tc := range []struct {
@@ -30,5 +33,11 @@ func TestGnomeKeyval(t *testing.T) {
 	}
 	if _, err := gnomeKeyval("unknown-key"); err == nil {
 		t.Fatal("gnomeKeyval(unknown-key) succeeded")
+	}
+}
+
+func TestGnomeNativeBackendDoesNotAdvertiseSync(t *testing.T) {
+	if slices.Contains((&GnomeNativeBackend{}).SupportedOperations(), "sync") {
+		t.Fatal("GNOME native input must not advertise unsupported synchronization")
 	}
 }

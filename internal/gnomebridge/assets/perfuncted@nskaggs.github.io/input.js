@@ -13,12 +13,6 @@ function buttonState(pressed) {
     return pressed ? Clutter.ButtonState.PRESSED : Clutter.ButtonState.RELEASED;
 }
 
-function unicodeKeyval(codepoint) {
-    if (typeof Clutter.unicode_to_keysym === 'function')
-        return Clutter.unicode_to_keysym(codepoint);
-    return codepoint < 0x100 ? codepoint : codepoint | 0x01000000;
-}
-
 export class Input {
     constructor() {
         const seat = global.backend.get_default_seat();
@@ -32,11 +26,25 @@ export class Input {
         this._keyboard.notify_keyval(now(), Number(keyval), keyState(pressed));
     }
 
-    text(text) {
-        for (const character of text) {
-            const keyval = unicodeKeyval(character.codePointAt(0));
-            this.key(keyval, true);
-            this.key(keyval, false);
+    text(text, clipboard) {
+        // Mutter's keyval injection only works when the current layout has a
+        // matching keycode. Use the compositor clipboard and a normal paste
+        // shortcut so arbitrary Unicode does not depend on that layout.
+        if (!clipboard || typeof clipboard.setText !== 'function')
+            throw new Error('GNOME clipboard is required for arbitrary text input');
+        clipboard.setText(text);
+        this.paste();
+    }
+
+    paste() {
+        const control = 0xffe3;
+        const v = 0x76;
+        this.key(control, true);
+        try {
+            this.key(v, true);
+            this.key(v, false);
+        } finally {
+            this.key(control, false);
         }
     }
 
@@ -50,18 +58,17 @@ export class Input {
 
     scroll(axis, amount) {
         const value = Number(amount);
+        if (!Number.isSafeInteger(value) || value === 0)
+            throw new Error('scroll amount must be a non-zero integer number of clicks');
+        if (axis !== 'horizontal' && axis !== 'vertical')
+            throw new Error(`unsupported scroll axis ${axis}`);
+        if (typeof this._pointer.notify_discrete_scroll !== 'function')
+            throw new Error('GNOME discrete scrolling is unavailable');
         const source = Clutter.ScrollSource?.WHEEL ?? 0;
-        const finishFlags = Clutter.ScrollFinishFlags?.NONE ?? 0;
-        if (typeof this._pointer.notify_scroll_continuous === 'function') {
-            this._pointer.notify_scroll_continuous(
-                now(), axis === 'horizontal' ? value : 0, axis === 'vertical' ? value : 0,
-                source, finishFlags);
-            return;
-        }
         const direction = axis === 'horizontal' ?
             (value < 0 ? Clutter.ScrollDirection.LEFT : Clutter.ScrollDirection.RIGHT) :
             (value < 0 ? Clutter.ScrollDirection.UP : Clutter.ScrollDirection.DOWN);
-        const count = Math.max(1, Math.round(Math.abs(value)));
+        const count = Math.abs(value);
         for (let i = 0; i < count; i++)
             this._pointer.notify_discrete_scroll(now(), direction, source);
     }
@@ -71,8 +78,4 @@ export class Input {
         return [Number(pointer[0]), Number(pointer[1])];
     }
 
-    sync() {
-        // Virtual-input notifications are delivered by the Shell main loop;
-        // reaching this method is the ordering barrier for the D-Bus caller.
-    }
 }

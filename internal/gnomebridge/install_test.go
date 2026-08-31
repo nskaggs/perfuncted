@@ -114,11 +114,7 @@ func TestExtensionVersionNeedsUpdateIsMonotonic(t *testing.T) {
 }
 
 func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
-	service, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/service.js")
-	if err != nil {
-		t.Fatalf("read service.js: %v", err)
-	}
-	serviceText := string(service)
+	serviceText := embeddedAssetText(t, "service.js")
 	if got := strings.Count(serviceText, `<interface name="io.github.nskaggs.perfuncted.Gnome1.`); got != 5 {
 		t.Fatalf("bridge interface XML count = %d, want 5", got)
 	}
@@ -128,6 +124,7 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	for _, fragment := range []string{
 		"CORE_XML", "WINDOWS_XML", "SCREEN_XML", "INPUT_XML", "CLIPBOARD_XML",
 		"const EXTENSION_VERSION = '" + ExtensionVersion + "';",
+		"text, this._require(this._clipboard, 'clipboard'))",
 	} {
 		if !strings.Contains(serviceText, fragment) {
 			t.Errorf("service.js is missing expected fragment %q", fragment)
@@ -136,6 +133,8 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	if !strings.Contains(serviceText, "this._windowsObject.emit_signal") {
 		t.Error("window signals are not emitted on the Windows interface object")
 	}
+	assertEmbeddedFragmentsAbsent(t, serviceText, "GNOME bridge must not advertise a fake input synchronization barrier",
+		`<method name="Sync"/>`, "Sync()")
 	for _, fragment := range []string{
 		"CaptureFull(fd, fdList) { return this._require(this._screen, 'screen').captureFull(fd, fdList); }",
 		"return this._require(this._screen, 'screen').captureRegion(fd, x, y, width, height, fdList);",
@@ -145,11 +144,7 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 		}
 	}
 
-	screen, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/screen.js")
-	if err != nil {
-		t.Fatalf("read screen.js: %v", err)
-	}
-	screenText := string(screen)
+	screenText := embeddedAssetText(t, "screen.js")
 	for _, fragment := range []string{
 		"fdList.get_length()",
 		"fdList.get(index)",
@@ -165,11 +160,43 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	if strings.Contains(screenText, "close_fd: false") {
 		t.Error("screen.js must own and close the duplicated Unix FD")
 	}
-	clipboard, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/clipboard.js")
-	if err != nil {
-		t.Fatalf("read clipboard.js: %v", err)
-	}
-	if strings.Contains(string(clipboard), "GLib.MainLoop") {
+	if strings.Contains(embeddedAssetText(t, "clipboard.js"), "GLib.MainLoop") {
 		t.Error("clipboard.js must not re-enter Shell with a nested main loop")
+	}
+	inputText := embeddedAssetText(t, "input.js")
+	assertEmbeddedFragmentsPresent(t, inputText, "input.js is missing expected text/scroll fragment",
+		"clipboard.setText(text)",
+		"const control = 0xffe3",
+		"const v = 0x76",
+		"notify_discrete_scroll",
+	)
+	assertEmbeddedFragmentsAbsent(t, inputText, "input.js must not use layout-dependent or continuous input",
+		"unicode_to_keysym", "notify_scroll_continuous")
+}
+
+func embeddedAssetText(t *testing.T, name string) string {
+	t.Helper()
+	asset, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/"+name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(asset)
+}
+
+func assertEmbeddedFragmentsPresent(t *testing.T, text, message string, fragments ...string) {
+	t.Helper()
+	for _, fragment := range fragments {
+		if !strings.Contains(text, fragment) {
+			t.Errorf("%s %q", message, fragment)
+		}
+	}
+}
+
+func assertEmbeddedFragmentsAbsent(t *testing.T, text, message string, fragments ...string) {
+	t.Helper()
+	for _, fragment := range fragments {
+		if strings.Contains(text, fragment) {
+			t.Errorf("%s: found %q", message, fragment)
+		}
 	}
 }

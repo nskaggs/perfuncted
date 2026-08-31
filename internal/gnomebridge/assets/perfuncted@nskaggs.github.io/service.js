@@ -66,7 +66,6 @@ const INPUT_XML = `
     <method name="PointerButton"><arg name="button" type="u" direction="in"/><arg name="pressed" type="b" direction="in"/></method>
     <method name="Scroll"><arg name="axis" type="s" direction="in"/><arg name="amount" type="d" direction="in"/></method>
     <method name="PointerLocation"><arg name="x" type="i" direction="out"/><arg name="y" type="i" direction="out"/></method>
-    <method name="Sync"/>
   </interface>
 </node>`;
 
@@ -202,12 +201,14 @@ export class BridgeService {
     }
 
     Key(keyval, pressed) { this._require(this._input, 'input').key(keyval, pressed); }
-    Text(text) { this._require(this._input, 'input').text(text); }
+    Text(text) {
+        return this._require(this._input, 'input').text(
+            text, this._require(this._clipboard, 'clipboard'));
+    }
     PointerMove(x, y) { this._require(this._input, 'input').pointerMove(x, y); }
     PointerButton(button, pressed) { this._require(this._input, 'input').pointerButton(button, pressed); }
     Scroll(axis, amount) { this._require(this._input, 'input').scroll(axis, amount); }
     PointerLocation() { return this._require(this._input, 'input').pointerLocation(); }
-    Sync() { this._require(this._input, 'input').sync(); }
 
     GetText() { return this._require(this._clipboard, 'clipboard').getText(); }
     SetText(text) { this._require(this._clipboard, 'clipboard').setText(text); }
