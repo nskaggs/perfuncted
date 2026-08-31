@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -117,6 +119,16 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
 
+	// GNOME's Shell extension has compositor authority and therefore avoids
+	// both wlroots-only virtual protocols and host-level uinput permissions.
+	if compositor.DetectRuntime(rt) == compositor.GNOME {
+		if b, err := NewGnomeNativeBackendForRuntime(rt); err == nil {
+			return b, nil
+		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
+			return nil, err
+		}
+	}
+
 	// On Wayland, prefer the compositor-scoped virtual backend. Fallback order:
 	//
 	//	wl-virtual -> XTEST (if DISPLAY set) -> uinput
@@ -166,21 +178,47 @@ func Probe() []probe.Result {
 
 // ProbeRuntime returns availability details for rt.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
+	var results []probe.Result
+	if compositor.DetectRuntime(rt) == compositor.GNOME {
+		results = append(results, checkGnomeNative(rt))
+	}
 	if sock := rt.SocketPath(); sock != "" {
 		globs := wl.ListGlobals(sock)
-		results := []probe.Result{
+		results = append(results, []probe.Result{
 			checkWlVirtualWithGlobs(sock, globs),
-		}
+		}...)
 		if rt.Display() != "" {
 			results = append(results, checkXTest(rt))
 		}
 		results = append(results, checkUinput())
 		return probe.SelectBest(results)
 	}
-	return probe.SelectBest([]probe.Result{
+	results = append(results, []probe.Result{
 		checkXTest(rt),
 		checkUinput(),
-	})
+	}...)
+	return probe.SelectBest(results)
+}
+
+func checkGnomeNative(rt env.Runtime) probe.Result {
+	r := probe.Result{Name: "gnome-native"}
+	if compositor.DetectRuntime(rt) != compositor.GNOME {
+		r.Reason = "not a GNOME session"
+		return r
+	}
+	bridge, err := gnomebridge.NewClientForBus(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	if err != nil {
+		r.Reason = err.Error()
+		return r
+	}
+	defer bridge.Close()
+	if !bridge.HasCapability(gnomebridge.CapabilityInput) {
+		r.Reason = "bridge does not advertise input capability"
+		return r
+	}
+	r.Available = true
+	r.Reason = "bundled GNOME bridge virtual-input interface"
+	return r
 }
 
 func checkXTest(rt env.Runtime) probe.Result {

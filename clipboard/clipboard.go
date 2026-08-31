@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -44,6 +46,14 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 	extraEnv := captureRuntimeEnv(rt)
 	display := rt.Display()
 	sock := rt.SocketPath()
+
+	if compositor.DetectRuntime(rt) == compositor.GNOME {
+		if clipboard, err := NewGnomeNativeClipboardForRuntime(rt); err == nil {
+			return clipboard, nil
+		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
+			return nil, err
+		}
+	}
 
 	if sock != "" && wl.SocketReachable(sock) {
 		if _, err := executil.LookPath("wl-copy"); err == nil {

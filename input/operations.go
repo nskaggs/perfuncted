@@ -27,3 +27,9 @@ func (b *UinputBackend) SupportedOperations() []string {
 func (b *WlVirtualBackend) SupportedOperations() []string {
 	return supportedOperations(false)
 }
+
+// SupportedOperations reports the complete input surface provided by the
+// GNOME Shell virtual-device backend.
+func (b *GnomeNativeBackend) SupportedOperations() []string {
+	return supportedOperations(true)
+}

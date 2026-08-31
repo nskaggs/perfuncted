@@ -11,6 +11,7 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=all
+  - --talk-name=io.github.nskaggs.perfuncted.Gnome1
   - --talk-name=org.gnome.Shell
   - --talk-name=org.kde.KWin
 modules:

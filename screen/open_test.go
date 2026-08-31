@@ -43,11 +43,12 @@ func TestProbeRuntime_NoSessionReportsBackends(t *testing.T) {
 	rt := env.FromEnviron([]string{})
 
 	got := ProbeRuntime(rt)
-	if len(got) != 5 {
-		t.Fatalf("ProbeRuntime len = %d, want 5", len(got))
+	if len(got) != 6 {
+		t.Fatalf("ProbeRuntime len = %d, want 6", len(got))
 	}
 	wantNames := []string{
 		"kwin-shot2",
+		"gnome-native",
 		"wlr-screencopy",
 		"ext-image-copy-capture",
 		"gnome-shell-screenshot",

@@ -11,10 +11,16 @@ import (
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
+
+// ErrGNOMESessionRestartRequired reports that perfuncted installed or replaced
+// its bundled GNOME Shell extension and GNOME must load it at the next login.
+// It is safe to inspect with errors.Is.
+var ErrGNOMESessionRestartRequired = gnomebridge.ErrSessionRestartRequired
 
 // Injectable backend constructors for testing.
 var (

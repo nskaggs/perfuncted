@@ -12,6 +12,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -137,11 +138,7 @@ func OpenRuntime(rt env.Runtime) (Manager, error) {
 		return m, nil
 
 	case compositor.GNOME:
-		m, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
-		if err != nil {
-			return nil, fmt.Errorf("window: GNOME Shell Eval unavailable (unsafe mode required): %w", err)
-		}
-		return m, nil
+		return openGNOMERuntime(rt)
 
 	case compositor.Unknown:
 		if m, err := NewWaylandWindowManagerForSocket(rt.SocketPath()); err == nil {
@@ -161,6 +158,19 @@ func OpenRuntime(rt env.Runtime) (Manager, error) {
 	}
 }
 
+func openGNOMERuntime(rt env.Runtime) (Manager, error) {
+	if m, err := NewGnomeNativeManagerForRuntime(rt); err == nil {
+		return m, nil
+	} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
+		return nil, err
+	}
+	m, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	if err != nil {
+		return nil, fmt.Errorf("window: GNOME Shell Eval unavailable (unsafe mode required): %w", err)
+	}
+	return m, nil
+}
+
 // Probe returns availability details for each window backend in priority order.
 func Probe() []probe.Result {
 	return ProbeRuntime(env.Current())
@@ -173,9 +183,31 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 
 	return probe.SelectBest([]probe.Result{
 		checkKWinScript(rt, kind),
+		checkGnomeNative(rt, kind),
 		checkGnomeShellEval(rt, kind),
 		checkForeignToplevel(globals),
 	})
+}
+
+func checkGnomeNative(rt env.Runtime, kind compositor.Session) probe.Result {
+	r := probe.Result{Name: "gnome-native"}
+	if kind != compositor.GNOME {
+		r.Reason = "not a GNOME session"
+		return r
+	}
+	bridge, err := gnomebridge.NewClientForBus(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	if err != nil {
+		r.Reason = err.Error()
+		return r
+	}
+	defer bridge.Close()
+	if !bridge.HasCapability(gnomebridge.CapabilityWindows) {
+		r.Reason = "bridge does not advertise windows capability"
+		return r
+	}
+	r.Available = true
+	r.Reason = "bundled GNOME bridge windows interface"
+	return r
 }
 
 func checkKWinScript(rt env.Runtime, kind compositor.Session) probe.Result {

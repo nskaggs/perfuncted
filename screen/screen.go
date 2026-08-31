@@ -3,6 +3,7 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -105,6 +107,11 @@ func OpenRuntime(rt env.Runtime) (Screenshotter, error) { //nolint:gocyclo
 		return nil, fmt.Errorf("screen: wlroots compositor but no screencopy protocol available")
 
 	case compositor.GNOME:
+		if b, err := NewGnomeNativeScreenBackendForRuntime(rt); err == nil {
+			return b, nil
+		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
+			return nil, err
+		}
 		if b, err := NewGnomeShellScreenshotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
@@ -149,11 +156,33 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 
 	return probe.SelectBest([]probe.Result{
 		checkKWinShot(rt, kind),
+		checkGnomeNative(rt, kind),
 		checkWlrScreencopy(globals),
 		checkExtCapture(globals),
 		checkGnomeShellScreenshot(rt, kind),
 		checkPortalDbus(rt),
 	})
+}
+
+func checkGnomeNative(rt env.Runtime, kind compositor.Session) probe.Result {
+	r := probe.Result{Name: "gnome-native"}
+	if kind != compositor.GNOME {
+		r.Reason = "not a GNOME session"
+		return r
+	}
+	bridge, err := gnomebridge.NewClientForBus(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	if err != nil {
+		r.Reason = err.Error()
+		return r
+	}
+	defer bridge.Close()
+	if !bridge.HasCapability(gnomebridge.CapabilityScreen) {
+		r.Reason = "bridge does not advertise screen capability"
+		return r
+	}
+	r.Available = true
+	r.Reason = "bundled GNOME bridge screen interface"
+	return r
 }
 
 func checkKWinShot(rt env.Runtime, kind compositor.Session) probe.Result {

@@ -43,10 +43,10 @@ func TestProbeRuntime_NoSessionReportsBackends(t *testing.T) {
 	rt := env.FromEnviron([]string{})
 
 	got := ProbeRuntime(rt)
-	if len(got) != 3 {
-		t.Fatalf("ProbeRuntime len = %d, want 3", len(got))
+	if len(got) != 4 {
+		t.Fatalf("ProbeRuntime len = %d, want 4", len(got))
 	}
-	wantNames := []string{"kwin-scripting", "gnome-shell-eval", "foreign-toplevel"}
+	wantNames := []string{"kwin-scripting", "gnome-native", "gnome-shell-eval", "foreign-toplevel"}
 	for i, name := range wantNames {
 		if got[i].Name != name {
 			t.Fatalf("ProbeRuntime[%d].Name = %q, want %q", i, got[i].Name, name)

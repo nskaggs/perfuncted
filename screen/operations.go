@@ -20,6 +20,12 @@ func (b *GnomeShellScreenshotBackend) SupportedOperations() []string {
 	return supportedOperations()
 }
 
+// SupportedOperations returns the operations supported by the native GNOME
+// bridge backend.
+func (b *GnomeNativeScreenBackend) SupportedOperations() []string {
+	return supportedOperations()
+}
+
 // SupportedOperations returns the operations supported by the ext-capture backend.
 func (b *ExtCaptureBackend) SupportedOperations() []string { return supportedOperations() }
 
