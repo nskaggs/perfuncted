@@ -81,7 +81,9 @@ logout/login after the first installation so it can load the extension. The
 older Shell.Eval and screenshot paths remain compatibility fallbacks.
 Flatpak can use an already-installed bridge; host extension provisioning from
 inside the sandbox is not automatic, so install the native package once when
-using the Flatpak.
+using the Flatpak. The bundled extension currently declares GNOME Shell 51;
+earlier Shell generations remain unclaimed until exercised in a GNOME test
+matrix.
 
 ## Install
 

@@ -6,6 +6,7 @@ package gnomebridge
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -86,5 +87,54 @@ func TestInstallerRejectsFlatpakHostProvisioning(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "native perfuncted package") {
 		t.Fatalf("NewInstallerForRuntime error = %v, want actionable Flatpak message", err)
+	}
+}
+
+func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
+	service, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/service.js")
+	if err != nil {
+		t.Fatalf("read service.js: %v", err)
+	}
+	serviceText := string(service)
+	if got := strings.Count(serviceText, `<interface name="io.github.nskaggs.perfuncted.Gnome1.`); got != 5 {
+		t.Fatalf("bridge interface XML count = %d, want 5", got)
+	}
+	if got := strings.Count(serviceText, "wrapJSObject(xml, this)"); got != 1 {
+		t.Fatalf("service export loop count = %d, want one loop", got)
+	}
+	for _, name := range []string{"CORE_XML", "WINDOWS_XML", "SCREEN_XML", "INPUT_XML", "CLIPBOARD_XML"} {
+		if !strings.Contains(serviceText, name) {
+			t.Errorf("service.js does not define or export %s", name)
+		}
+	}
+	if !strings.Contains(serviceText, "this._windowsObject.emit_signal") {
+		t.Error("window signals are not emitted on the Windows interface object")
+	}
+
+	screen, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/screen.js")
+	if err != nil {
+		t.Fatalf("read screen.js: %v", err)
+	}
+	screenText := string(screen)
+	for _, fragment := range []string{
+		"fdList.get_length()",
+		"fdList.get(index)",
+		"close_fd: true",
+		"captureFull(handle, fdList)",
+		"return new Promise",
+	} {
+		if !strings.Contains(screenText, fragment) {
+			t.Errorf("screen.js is missing Unix FD handling fragment %q", fragment)
+		}
+	}
+	if strings.Contains(screenText, "close_fd: false") {
+		t.Error("screen.js must own and close the duplicated Unix FD")
+	}
+	clipboard, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/clipboard.js")
+	if err != nil {
+		t.Fatalf("read clipboard.js: %v", err)
+	}
+	if strings.Contains(string(clipboard), "GLib.MainLoop") {
+		t.Error("clipboard.js must not re-enter Shell with a nested main loop")
 	}
 }

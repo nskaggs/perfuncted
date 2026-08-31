@@ -1,4 +1,12 @@
+import Meta from 'gi://Meta';
+
 const WINDOW_INFO_SIGNATURE = '(ssssiiiiibbbb)';
+
+function notFound(id) {
+    const error = new Error(`window not found: ${id}`);
+    error.name = 'io.github.nskaggs.perfuncted.Gnome1.Error.NotFound';
+    return error;
+}
 
 function allWindows() {
     if (typeof global.display.list_all_windows === 'function')
@@ -94,7 +102,7 @@ export class Windows {
     get(id) {
         const window = findWindow(id);
         if (!window)
-            throw new Error(`window not found: ${id}`);
+            throw notFound(id);
         return windowInfo(window);
     }
 
@@ -107,7 +115,7 @@ export class Windows {
     act(id, callback) {
         const window = findWindow(id);
         if (!window)
-            throw new Error(`window not found: ${id}`);
+            throw notFound(id);
         callback(window);
     }
 
@@ -120,8 +128,13 @@ export class Windows {
         });
     }
     minimize(id) { this.act(id, window => window.minimize()); }
-    maximize(id) { this.act(id, window => window.maximize(3)); }
-    restore(id) { this.act(id, window => { window.unminimize(); window.unmaximize(3); }); }
+    maximize(id) { this.act(id, window => window.maximize(Meta.MaximizeFlags.BOTH)); }
+    restore(id) {
+        this.act(id, window => {
+            window.unminimize();
+            window.unmaximize(Meta.MaximizeFlags.BOTH);
+        });
+    }
     fullscreen(id) { this.act(id, window => window.make_fullscreen()); }
     unfullscreen(id) { this.act(id, window => window.unmake_fullscreen()); }
     close(id) { this.act(id, window => window.delete(global.get_current_time())); }

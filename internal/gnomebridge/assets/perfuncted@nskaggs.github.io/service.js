@@ -13,7 +13,7 @@ const OBJECT_PATH = '/io/github/nskaggs/perfuncted/Gnome1';
 const EXTENSION_VERSION = '1';
 const PROTOCOL_VERSION = 1;
 
-const INTERFACE_XML = `
+const CORE_XML = `
 <node>
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Core">
     <method name="GetProtocolVersion"><arg name="version" type="u" direction="out"/></method>
@@ -22,6 +22,10 @@ const INTERFACE_XML = `
     <method name="GetCapabilities"><arg name="capabilities" type="as" direction="out"/></method>
     <method name="Ping"/>
   </interface>
+</node>`;
+
+const WINDOWS_XML = `
+<node>
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Windows">
     <method name="ListWindows"><arg name="windows" type="a(ssssiiiiibbbb)" direction="out"/></method>
     <method name="GetWindow"><arg name="id" type="s" direction="in"/><arg name="window" type="(ssssiiiiibbbb)" direction="out"/></method>
@@ -40,6 +44,10 @@ const INTERFACE_XML = `
     <signal name="WindowChanged"><arg name="window" type="(ssssiiiiibbbb)"/></signal>
     <signal name="FocusChanged"><arg name="id" type="s"/></signal>
   </interface>
+</node>`;
+
+const SCREEN_XML = `
+<node>
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Screen">
     <method name="CaptureFull"><arg name="fd" type="h" direction="in"/></method>
     <method name="CaptureRegion">
@@ -47,6 +55,10 @@ const INTERFACE_XML = `
       <arg name="width" type="i" direction="in"/><arg name="height" type="i" direction="in"/>
     </method>
   </interface>
+</node>`;
+
+const INPUT_XML = `
+<node>
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Input">
     <method name="Key"><arg name="keyval" type="u" direction="in"/><arg name="pressed" type="b" direction="in"/></method>
     <method name="Text"><arg name="text" type="s" direction="in"/></method>
@@ -56,15 +68,28 @@ const INTERFACE_XML = `
     <method name="PointerLocation"><arg name="x" type="i" direction="out"/><arg name="y" type="i" direction="out"/></method>
     <method name="Sync"/>
   </interface>
+</node>`;
+
+const CLIPBOARD_XML = `
+<node>
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Clipboard">
     <method name="GetText"><arg name="text" type="s" direction="out"/></method>
     <method name="SetText"><arg name="text" type="s" direction="in"/></method>
   </interface>
 </node>`;
 
+const ERROR_PREFIX = `${BUS_NAME}.Error.`;
+
+function bridgeError(kind, message) {
+    const error = new Error(message);
+    error.name = ERROR_PREFIX + kind;
+    return error;
+}
+
 export class BridgeService {
     constructor() {
-        this._object = null;
+        this._objects = [];
+        this._windowsObject = null;
         this._ownerId = 0;
         this._windows = new Windows((name, signature, value) => this._emit(name, signature, value));
         this._screen = null;
@@ -93,34 +118,53 @@ export class BridgeService {
             Gio.BusType.SESSION,
             BUS_NAME,
             Gio.BusNameOwnerFlags.NONE,
-            (connection) => {
-                this._object = Gio.DBusExportedObject.wrapJSObject(INTERFACE_XML, this);
-                this._object.export(connection, OBJECT_PATH);
-            },
+            (connection) => this._export(connection),
             () => {},
-            () => { this._object = null; });
+            () => this._unexport());
     }
 
     disable() {
         this._windows.disable();
-        if (this._object) {
-            this._object.unexport();
-            this._object = null;
-        }
+        this._unexport();
         if (this._ownerId) {
             Gio.bus_unown_name(this._ownerId);
             this._ownerId = 0;
         }
     }
 
+    _export(connection) {
+        this._unexport();
+        this._objects = [CORE_XML, WINDOWS_XML, SCREEN_XML, INPUT_XML, CLIPBOARD_XML]
+            .map(xml => Gio.DBusExportedObject.wrapJSObject(xml, this));
+        try {
+            for (const object of this._objects)
+                object.export(connection, OBJECT_PATH);
+            this._windowsObject = this._objects[1];
+        } catch (error) {
+            this._unexport();
+            throw error;
+        }
+    }
+
+    _unexport() {
+        for (const object of this._objects.splice(0)) {
+            try {
+                object.unexport();
+            } catch (error) {
+                console.warn(`perfuncted: failed to unexport GNOME bridge: ${error}`);
+            }
+        }
+        this._windowsObject = null;
+    }
+
     _emit(name, signature, value) {
-        if (this._object)
-            this._object.emit_signal(name, new GLib.Variant(signature, value));
+        if (this._windowsObject)
+            this._windowsObject.emit_signal(name, new GLib.Variant(signature, value));
     }
 
     _require(value, capability) {
         if (!value)
-            throw new Error(`GNOME bridge capability unavailable: ${capability}`);
+            throw bridgeError('Unsupported', `GNOME bridge capability unavailable: ${capability}`);
         return value;
     }
 
@@ -152,9 +196,9 @@ export class BridgeService {
     Unfullscreen(id) { this._require(this._windows, 'windows').unfullscreen(id); }
     Close(id) { this._require(this._windows, 'windows').close(id); }
 
-    CaptureFull(fd) { this._require(this._screen, 'screen').captureFull(fd); }
-    CaptureRegion(fd, x, y, width, height) {
-        this._require(this._screen, 'screen').captureRegion(fd, x, y, width, height);
+    CaptureFull(fd, fdList) { this._require(this._screen, 'screen').captureFull(fd, fdList); }
+    CaptureRegion(fd, x, y, width, height, fdList) {
+        this._require(this._screen, 'screen').captureRegion(fd, x, y, width, height, fdList);
     }
 
     Key(keyval, pressed) { this._require(this._input, 'input').key(keyval, pressed); }

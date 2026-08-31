@@ -1,4 +1,3 @@
-import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 export class Clipboard {
@@ -7,14 +6,15 @@ export class Clipboard {
     }
 
     getText() {
-        let text = '';
-        const loop = GLib.MainLoop.new(null, false);
-        this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clipboard, value) => {
-            text = value ?? '';
-            loop.quit();
+        return new Promise((resolve, reject) => {
+            try {
+                this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clipboard, value) => {
+                    resolve(value ?? '');
+                });
+            } catch (error) {
+                reject(error);
+            }
         });
-        loop.run();
-        return text;
     }
 
     setText(text) {

@@ -2,5 +2,5 @@
   "uuid": "perfuncted@nskaggs.github.io",
   "name": "Perfuncted GNOME Integration",
   "description": "Provides the narrow GNOME Shell bridge used by perfuncted desktop automation.",
-  "shell-version": ["45", "46", "47", "48", "49", "50", "51"]
+  "shell-version": ["51"]
 }
