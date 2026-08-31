@@ -136,7 +136,7 @@ Every session has non-nil capability facades:
 
 - `session.Screen` captures regions, computes hashes, locates images, and waits for visual changes.
 - `session.Input` types, presses keys, clicks, drags, and scrolls.
-- `session.Windows` discovers windows and returns stable, session-bound handles for control.
+- `session.Windows` discovers windows, returns stable session-bound handles for control, and exposes bounded, lossy lifecycle and focus notifications through `session.Windows.Events()`.
 - `session.Outputs` lists displays.
 - `session.Clipboard` gets and sets clipboard contents.
 
