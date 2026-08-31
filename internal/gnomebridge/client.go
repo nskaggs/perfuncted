@@ -426,22 +426,52 @@ func (c *Client) CloseWindow(ctx context.Context, id string) error {
 	return c.windowAction(ctx, "Close", id)
 }
 
-// CaptureFull writes a PNG into fd through the bridge's Unix-FD argument.
-func (c *Client) CaptureFull(ctx context.Context, fd int) error {
-	return c.capture(ctx, "CaptureFull", fd)
+// CaptureFull writes a PNG into fd through the bridge's Unix-FD argument and
+// returns the logical and physical capture geometry.
+func (c *Client) CaptureFull(ctx context.Context, fd int) (ScreenCapture, error) {
+	var capture ScreenCapture
+	err := c.capture(
+		ctx,
+		"CaptureFull",
+		fd,
+		nil,
+		&capture.X,
+		&capture.Y,
+		&capture.Width,
+		&capture.Height,
+		&capture.PixelWidth,
+		&capture.PixelHeight,
+		&capture.Scale,
+	)
+	return capture, err
 }
 
 // CaptureRegion writes a PNG of rect into fd. Coordinates use GNOME's global
 // logical screen coordinate space, the same space used by window geometry and
-// public screen operations.
-func (c *Client) CaptureRegion(ctx context.Context, fd int, rect image.Rectangle) error {
+// public screen operations. It returns the logical and physical capture
+// geometry.
+func (c *Client) CaptureRegion(ctx context.Context, fd int, rect image.Rectangle) (ScreenCapture, error) {
 	if rect.Empty() {
-		return fmt.Errorf("gnome bridge: empty capture region")
+		return ScreenCapture{}, fmt.Errorf("gnome bridge: empty capture region")
 	}
-	return c.capture(ctx, "CaptureRegion", fd, int32(rect.Min.X), int32(rect.Min.Y), int32(rect.Dx()), int32(rect.Dy()))
+	var capture ScreenCapture
+	err := c.capture(
+		ctx,
+		"CaptureRegion",
+		fd,
+		[]any{int32(rect.Min.X), int32(rect.Min.Y), int32(rect.Dx()), int32(rect.Dy())},
+		&capture.X,
+		&capture.Y,
+		&capture.Width,
+		&capture.Height,
+		&capture.PixelWidth,
+		&capture.PixelHeight,
+		&capture.Scale,
+	)
+	return capture, err
 }
 
-func (c *Client) capture(ctx context.Context, method string, fd int, args ...any) error {
+func (c *Client) capture(ctx context.Context, method string, fd int, args []any, out ...any) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -461,6 +491,11 @@ func (c *Client) capture(ctx context.Context, method string, fd int, args ...any
 	call := object.CallWithContext(ctx, ScreenInterface+"."+method, 0, params...)
 	if call.Err != nil {
 		return fmt.Errorf("gnome bridge: %s: %w", method, translateDBusError(call.Err))
+	}
+	if len(out) > 0 {
+		if err := call.Store(out...); err != nil {
+			return fmt.Errorf("decode %s reply: %w", method, err)
+		}
 	}
 	return nil
 }

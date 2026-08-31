@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 
 	"github.com/nskaggs/perfuncted/find"
@@ -54,10 +55,11 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 	path := f.Name()
 	defer os.Remove(path)
 	defer f.Close()
+	var capture gnomebridge.ScreenCapture
 	if rect.Empty() {
-		err = b.bridge.CaptureFull(ctx, int(f.Fd()))
+		capture, err = b.bridge.CaptureFull(ctx, int(f.Fd()))
 	} else {
-		err = b.bridge.CaptureRegion(ctx, int(f.Fd()), rect)
+		capture, err = b.bridge.CaptureRegion(ctx, int(f.Fd()), rect)
 	}
 	if err != nil {
 		return nil, err
@@ -69,7 +71,46 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-native: decode PNG: %w", err)
 	}
-	return img, nil
+	return normalizeGnomeCapture(img, capture)
+}
+
+func normalizeGnomeCapture(img image.Image, capture gnomebridge.ScreenCapture) (image.Image, error) {
+	if img == nil {
+		return nil, fmt.Errorf("screen/gnome-native: capture returned a nil image")
+	}
+	if capture.Width <= 0 || capture.Height <= 0 ||
+		capture.PixelWidth <= 0 || capture.PixelHeight <= 0 ||
+		capture.Scale <= 0 || math.IsNaN(capture.Scale) || math.IsInf(capture.Scale, 0) {
+		return nil, fmt.Errorf("screen/gnome-native: invalid capture geometry %#v", capture)
+	}
+	if got := img.Bounds(); got.Dx() != int(capture.PixelWidth) || got.Dy() != int(capture.PixelHeight) {
+		return nil, fmt.Errorf(
+			"screen/gnome-native: PNG dimensions %dx%d do not match capture geometry %dx%d",
+			got.Dx(),
+			got.Dy(),
+			capture.PixelWidth,
+			capture.PixelHeight,
+		)
+	}
+	if capture.Width == capture.PixelWidth && capture.Height == capture.PixelHeight {
+		return img, nil
+	}
+	return resizeNearest(img, int(capture.Width), int(capture.Height)), nil
+}
+
+func resizeNearest(src image.Image, width, height int) image.Image {
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	srcBounds := src.Bounds()
+	srcWidth := srcBounds.Dx()
+	srcHeight := srcBounds.Dy()
+	for y := 0; y < height; y++ {
+		srcY := srcBounds.Min.Y + y*srcHeight/height
+		for x := 0; x < width; x++ {
+			srcX := srcBounds.Min.X + x*srcWidth/width
+			dst.Set(x, y, src.At(srcX, srcY))
+		}
+	}
+	return dst
 }
 
 // GrabFullHash returns a pixel hash for the full screen.

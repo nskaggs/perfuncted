@@ -63,6 +63,36 @@ type Info struct {
 	Fullscreen bool
 }
 
+// EventKind identifies a window lifecycle or focus notification.
+type EventKind string
+
+const (
+	// WindowAddedEvent reports a newly visible window.
+	WindowAddedEvent EventKind = "window-added"
+	// WindowRemovedEvent reports a window that is no longer managed.
+	WindowRemovedEvent EventKind = "window-removed"
+	// WindowChangedEvent reports changed window metadata or state.
+	WindowChangedEvent EventKind = "window-changed"
+	// FocusChangedEvent reports a changed focus target.
+	FocusChangedEvent EventKind = "focus-changed"
+)
+
+// Event is a window lifecycle or focus notification. Added and changed events
+// carry Window; removed and focus events identify the affected window by ID.
+type Event struct {
+	Kind   EventKind
+	Window Info
+	ID     string
+}
+
+// EventSource is implemented by managers that provide window notifications.
+// The stream is bounded and lossy: a slow consumer may miss events, including
+// lifecycle and focus events. Consumers should read it promptly and refresh
+// authoritative state with List or Window.Info when an event is received.
+type EventSource interface {
+	WindowEvents() <-chan Event
+}
+
 // Manager discovers desktop windows.
 type Manager interface {
 	// List returns all visible top-level windows.

@@ -222,6 +222,8 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	for _, fragment := range []string{
 		"CORE_XML", "WINDOWS_XML", "SCREEN_XML", "INPUT_XML", "CLIPBOARD_XML",
 		"const EXTENSION_VERSION = '" + ExtensionVersion + "';",
+		`<arg name="pixel_width" type="i" direction="out"/>`,
+		`<arg name="scale" type="d" direction="out"/>`,
 		"Text(text) { return this._require(this._input, 'input').text(text); }",
 		"Paste(text)",
 		"if (this._input && this._clipboard)",
@@ -249,7 +251,11 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 		"fdList.get_length()",
 		"fdList.get(index)",
 		"close_fd: true",
+		"new Mtk.Rectangle",
+		"get_capture_final_size",
+		"get_screen_width",
 		"captureFull(handle, fdList)",
+		"const metadata = captureRect(",
 		"return new Promise",
 		"return runScreenshot(",
 	} {

@@ -48,6 +48,20 @@ type WindowInfo struct {
 	Fullscreen bool
 }
 
+// ScreenCapture describes the logical rectangle and physical PNG dimensions
+// produced by a Shell.Screenshot operation. GNOME uses logical screen
+// coordinates for the request, but may scale the encoded image for the
+// monitor view that contains it.
+type ScreenCapture struct {
+	X           int32
+	Y           int32
+	Width       int32
+	Height      int32
+	PixelWidth  int32
+	PixelHeight int32
+	Scale       float64
+}
+
 // WindowEventKind identifies a lifecycle or focus notification from GNOME
 // Shell.
 type WindowEventKind string

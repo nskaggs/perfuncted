@@ -23,34 +23,10 @@ var _ IDManager = (*GnomeNativeManager)(nil)
 // bridge; it never sends JavaScript or otherwise evaluates Shell code.
 type GnomeNativeManager struct {
 	bridge       *gnomebridge.Client
-	events       chan GnomeWindowEvent
+	events       chan Event
 	stopEvents   chan struct{}
 	eventsDone   chan struct{}
 	stopEventsMu sync.Once
-}
-
-// GnomeWindowEventKind identifies a native GNOME window lifecycle or focus
-// notification.
-type GnomeWindowEventKind string
-
-const (
-	// GnomeWindowAddedEvent reports a newly visible native window.
-	GnomeWindowAddedEvent GnomeWindowEventKind = "window-added"
-	// GnomeWindowRemovedEvent reports a native window that was unmanaged.
-	GnomeWindowRemovedEvent GnomeWindowEventKind = "window-removed"
-	// GnomeWindowChangedEvent reports changed native window metadata or state.
-	GnomeWindowChangedEvent GnomeWindowEventKind = "window-changed"
-	// GnomeFocusChangedEvent reports a changed native focus target.
-	GnomeFocusChangedEvent GnomeWindowEventKind = "focus-changed"
-)
-
-// GnomeWindowEvent is emitted by WindowEvents for callers that need native
-// lifecycle and focus notifications. The channel closes when the manager is
-// closed.
-type GnomeWindowEvent struct {
-	Kind   GnomeWindowEventKind
-	Window Info
-	ID     string
 }
 
 // NewGnomeNativeManagerForRuntime connects to the native GNOME bridge.
@@ -70,7 +46,7 @@ func NewGnomeNativeManagerForRuntime(rt env.Runtime) (*GnomeNativeManager, error
 	}
 	m := &GnomeNativeManager{
 		bridge:     bridge,
-		events:     make(chan GnomeWindowEvent, 64),
+		events:     make(chan Event, 64),
 		stopEvents: make(chan struct{}),
 		eventsDone: make(chan struct{}),
 	}
@@ -90,24 +66,24 @@ func (m *GnomeNativeManager) forwardWindowEvents(events <-chan gnomebridge.Windo
 			if !ok {
 				return
 			}
-			converted := GnomeWindowEvent{ID: event.ID}
+			converted := Event{ID: event.ID}
 			switch event.Kind {
 			case gnomebridge.WindowAddedEvent:
-				converted.Kind = GnomeWindowAddedEvent
+				converted.Kind = WindowAddedEvent
 				converted.Window = toWindowInfo(event.Window)
 				if converted.ID == "" {
 					converted.ID = event.Window.ID
 				}
 			case gnomebridge.WindowRemovedEvent:
-				converted.Kind = GnomeWindowRemovedEvent
+				converted.Kind = WindowRemovedEvent
 			case gnomebridge.WindowChangedEvent:
-				converted.Kind = GnomeWindowChangedEvent
+				converted.Kind = WindowChangedEvent
 				converted.Window = toWindowInfo(event.Window)
 				if converted.ID == "" {
 					converted.ID = event.Window.ID
 				}
 			case gnomebridge.FocusChangedEvent:
-				converted.Kind = GnomeFocusChangedEvent
+				converted.Kind = FocusChangedEvent
 			default:
 				continue
 			}
@@ -129,10 +105,10 @@ func (m *GnomeNativeManager) forwardWindowEvents(events <-chan gnomebridge.Windo
 	}
 }
 
-// WindowEvents returns native GNOME window lifecycle and focus events.
-// The channel is buffered and delivery is bounded; a slow consumer may miss
-// coalesced changes, but it cannot block D-Bus dispatch.
-func (m *GnomeNativeManager) WindowEvents() <-chan GnomeWindowEvent {
+// WindowEvents returns native GNOME window lifecycle and focus events. The
+// bounded stream is lossy for slow consumers, including for lifecycle and
+// focus events, but it cannot block D-Bus dispatch.
+func (m *GnomeNativeManager) WindowEvents() <-chan Event {
 	if m == nil {
 		return nil
 	}
@@ -273,7 +249,7 @@ func (m *GnomeNativeManager) InfoByID(ctx context.Context, id string) (Info, err
 
 // SupportedOperations reports the operations supported by the GNOME backend.
 func (m *GnomeNativeManager) SupportedOperations() []string {
-	return capability.Operations("windows")
+	return append(capability.Operations("windows"), "events")
 }
 
 // Close releases the GNOME bridge connection.

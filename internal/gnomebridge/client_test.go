@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"reflect"
 	"strings"
 	"sync"
@@ -51,6 +52,10 @@ func (o *recordingObject) CallWithContext(ctx context.Context, method string, _ 
 		call.Body = []any{WindowInfo{ID: "17", Title: "Terminal", Active: true}}
 	case InputInterface + ".PointerLocation":
 		call.Body = []any{int32(11), int32(22)}
+	case ScreenInterface + ".CaptureFull":
+		call.Body = []any{int32(0), int32(0), int32(1280), int32(720), int32(2560), int32(1440), float64(2)}
+	case ScreenInterface + ".CaptureRegion":
+		call.Body = []any{int32(10), int32(20), int32(100), int32(50), int32(150), int32(75), float64(1.5)}
 	}
 	return call
 }
@@ -104,6 +109,42 @@ func TestClientUsesTypedMethods(t *testing.T) {
 	}
 
 	assertRecordedMove(t, object)
+}
+
+func TestClientCaptureReturnsLogicalAndPixelGeometry(t *testing.T) {
+	client, _ := newRecordingClient(t)
+
+	full, err := client.CaptureFull(context.Background(), 9)
+	if err != nil {
+		t.Fatalf("CaptureFull: %v", err)
+	}
+	wantFull := ScreenCapture{
+		Width:       1280,
+		Height:      720,
+		PixelWidth:  2560,
+		PixelHeight: 1440,
+		Scale:       2,
+	}
+	if !reflect.DeepEqual(full, wantFull) {
+		t.Fatalf("CaptureFull geometry = %#v, want %#v", full, wantFull)
+	}
+
+	region, err := client.CaptureRegion(context.Background(), 9, image.Rect(10, 20, 110, 70))
+	if err != nil {
+		t.Fatalf("CaptureRegion: %v", err)
+	}
+	wantRegion := ScreenCapture{
+		X:           10,
+		Y:           20,
+		Width:       100,
+		Height:      50,
+		PixelWidth:  150,
+		PixelHeight: 75,
+		Scale:       1.5,
+	}
+	if !reflect.DeepEqual(region, wantRegion) {
+		t.Fatalf("CaptureRegion geometry = %#v, want %#v", region, wantRegion)
+	}
 }
 
 func assertRecordedMove(t *testing.T, object *recordingObject) {

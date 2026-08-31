@@ -13,6 +13,23 @@ type WindowBundle struct {
 	bundleBase
 }
 
+// WindowEventKind identifies a window lifecycle or focus notification.
+type WindowEventKind = window.EventKind
+
+const (
+	// WindowAddedEvent reports a newly visible window.
+	WindowAddedEvent = window.WindowAddedEvent
+	// WindowRemovedEvent reports a window that is no longer managed.
+	WindowRemovedEvent = window.WindowRemovedEvent
+	// WindowChangedEvent reports changed window metadata or state.
+	WindowChangedEvent = window.WindowChangedEvent
+	// FocusChangedEvent reports a changed focus target.
+	FocusChangedEvent = window.FocusChangedEvent
+)
+
+// WindowEvent is a window lifecycle or focus notification from a backend.
+type WindowEvent = window.Event
+
 func (b *WindowBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
@@ -48,4 +65,20 @@ func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	}
 	title, err := b.backend.ActiveTitle(ctx)
 	return title, b.operationError("active-title", err)
+}
+
+// Events returns the bounded, lossy stream of window lifecycle and focus
+// notifications when the selected backend provides one. Events may be
+// dropped, including lifecycle and focus events, if the consumer is slow.
+// Refresh authoritative state with List or Window.Info after receiving an
+// event. The channel closes when the session closes or the backend stops.
+func (b *WindowBundle) Events() (<-chan WindowEvent, error) {
+	if err := b.checkAvailable("events"); err != nil {
+		return nil, err
+	}
+	source, ok := b.backend.(window.EventSource)
+	if !ok {
+		return nil, b.operationError("events", window.ErrNotSupported)
+	}
+	return source.WindowEvents(), nil
 }

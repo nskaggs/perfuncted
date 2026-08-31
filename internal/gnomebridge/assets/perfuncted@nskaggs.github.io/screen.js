@@ -1,4 +1,5 @@
 import Gio from 'gi://Gio';
+import Mtk from 'gi://Mtk';
 import Shell from 'gi://Shell';
 
 function bridgeError(kind, message) {
@@ -23,7 +24,33 @@ function resolveFD(handle, fdList) {
     }
 }
 
-function runScreenshot(fd, start) {
+function captureRect(x, y, width, height) {
+    const stage = global.get_stage?.() ?? global.stage;
+    if (!stage || typeof stage.get_capture_final_size !== 'function')
+        throw bridgeError('Unsupported', 'GNOME capture geometry is unavailable');
+    const rect = new Mtk.Rectangle({x, y, width, height});
+    const result = stage.get_capture_final_size(rect);
+    if (!Array.isArray(result) || result.length < 4 || result[0] === false)
+        throw bridgeError('Unsupported', 'GNOME could not determine capture geometry');
+    const pixelWidth = Number(result[1]);
+    const pixelHeight = Number(result[2]);
+    const scale = Number(result[3]);
+    if (!Number.isInteger(pixelWidth) || pixelWidth <= 0 ||
+        !Number.isInteger(pixelHeight) || pixelHeight <= 0 ||
+        !Number.isFinite(scale) || scale <= 0)
+        throw bridgeError('Unsupported', 'GNOME returned invalid capture geometry');
+    return [x, y, width, height, pixelWidth, pixelHeight, scale];
+}
+
+function fullScreenRect() {
+    const width = Number(global.get_screen_width?.());
+    const height = Number(global.get_screen_height?.());
+    if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0)
+        throw bridgeError('Unsupported', 'GNOME screen geometry is unavailable');
+    return {x: 0, y: 0, width, height};
+}
+
+function runScreenshot(fd, start, metadata) {
     const stream = new Gio.UnixOutputStream({fd, close_fd: true});
     const screenshot = new Shell.Screenshot();
     return new Promise((resolve, reject) => {
@@ -42,7 +69,7 @@ function runScreenshot(fd, start) {
             if (error)
                 reject(error);
             else
-                resolve();
+                resolve(metadata);
         };
         try {
             start.begin(screenshot, stream, (_object, result) => {
@@ -64,19 +91,24 @@ function runScreenshot(fd, start) {
 
 export class Screen {
     captureFull(handle, fdList) {
-        return runScreenshot(resolveFD(handle, fdList), {
+        const rect = fullScreenRect();
+        const metadata = captureRect(rect.x, rect.y, rect.width, rect.height);
+        const fd = resolveFD(handle, fdList);
+        return runScreenshot(fd, {
             begin: (s, output, callback) => s.screenshot(false, output, callback, null),
             finish: (s, result) => s.screenshot_finish(result),
-        });
+        }, metadata);
     }
 
     captureRegion(handle, x, y, width, height, fdList) {
         if (width <= 0 || height <= 0)
             throw bridgeError('InvalidArgument', 'capture region must be non-empty');
-        return runScreenshot(resolveFD(handle, fdList), {
+        const metadata = captureRect(x, y, width, height);
+        const fd = resolveFD(handle, fdList);
+        return runScreenshot(fd, {
             begin: (s, output, callback) => s.screenshot_area(
                 x, y, width, height, output, callback, null),
             finish: (s, result) => s.screenshot_area_finish(result),
-        });
+        }, metadata);
     }
 }

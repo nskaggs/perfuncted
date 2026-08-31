@@ -33,7 +33,7 @@ func TestToWindowInfoRetainsOpaqueID(t *testing.T) {
 func TestForwardWindowEventsConvertsAllNativeKinds(t *testing.T) {
 	bridgeEvents := make(chan gnomebridge.WindowEvent, 4)
 	m := &GnomeNativeManager{
-		events:     make(chan GnomeWindowEvent, 4),
+		events:     make(chan Event, 4),
 		stopEvents: make(chan struct{}),
 		eventsDone: make(chan struct{}),
 	}
@@ -44,15 +44,15 @@ func TestForwardWindowEventsConvertsAllNativeKinds(t *testing.T) {
 	bridgeEvents <- gnomebridge.WindowEvent{Kind: gnomebridge.FocusChangedEvent, ID: "17"}
 	close(bridgeEvents)
 
-	var got []GnomeWindowEvent
+	var got []Event
 	for event := range m.events {
 		got = append(got, event)
 	}
-	want := []GnomeWindowEvent{
-		{Kind: GnomeWindowAddedEvent, ID: "17", Window: Info{ID: 17, NativeID: "17", Title: "Terminal"}},
-		{Kind: GnomeWindowChangedEvent, ID: "17", Window: Info{ID: 17, NativeID: "17", Title: "Shell"}},
-		{Kind: GnomeWindowRemovedEvent, ID: "17"},
-		{Kind: GnomeFocusChangedEvent, ID: "17"},
+	want := []Event{
+		{Kind: WindowAddedEvent, ID: "17", Window: Info{ID: 17, NativeID: "17", Title: "Terminal"}},
+		{Kind: WindowChangedEvent, ID: "17", Window: Info{ID: 17, NativeID: "17", Title: "Shell"}},
+		{Kind: WindowRemovedEvent, ID: "17"},
+		{Kind: FocusChangedEvent, ID: "17"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("forwarded events = %#v, want %#v", got, want)

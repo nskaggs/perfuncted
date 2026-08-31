@@ -49,10 +49,20 @@ const WINDOWS_XML = `
 const SCREEN_XML = `
 <node>
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Screen">
-    <method name="CaptureFull"><arg name="fd" type="h" direction="in"/></method>
+    <method name="CaptureFull">
+      <arg name="fd" type="h" direction="in"/>
+      <arg name="x" type="i" direction="out"/><arg name="y" type="i" direction="out"/>
+      <arg name="width" type="i" direction="out"/><arg name="height" type="i" direction="out"/>
+      <arg name="pixel_width" type="i" direction="out"/><arg name="pixel_height" type="i" direction="out"/>
+      <arg name="scale" type="d" direction="out"/>
+    </method>
     <method name="CaptureRegion">
       <arg name="fd" type="h" direction="in"/><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/>
       <arg name="width" type="i" direction="in"/><arg name="height" type="i" direction="in"/>
+      <arg name="capture_x" type="i" direction="out"/><arg name="capture_y" type="i" direction="out"/>
+      <arg name="capture_width" type="i" direction="out"/><arg name="capture_height" type="i" direction="out"/>
+      <arg name="pixel_width" type="i" direction="out"/><arg name="pixel_height" type="i" direction="out"/>
+      <arg name="scale" type="d" direction="out"/>
     </method>
   </interface>
 </node>`;

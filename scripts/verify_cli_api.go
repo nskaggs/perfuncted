@@ -247,6 +247,7 @@ func main() { //nolint:gocyclo
 			"CaptureRegion": true,
 		},
 		"window": {
+			"Events":  true,
 			"Restore": true,
 		},
 	}
