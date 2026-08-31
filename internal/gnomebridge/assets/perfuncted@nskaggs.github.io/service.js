@@ -10,7 +10,7 @@ import {Windows} from './windows.js';
 
 const BUS_NAME = 'io.github.nskaggs.perfuncted.Gnome1';
 const OBJECT_PATH = '/io/github/nskaggs/perfuncted/Gnome1';
-const EXTENSION_VERSION = '2';
+const EXTENSION_VERSION = '1';
 const PROTOCOL_VERSION = 1;
 
 const CORE_XML = `

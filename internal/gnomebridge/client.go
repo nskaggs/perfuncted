@@ -261,7 +261,14 @@ func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent,
 	go func() {
 		defer close(events)
 		defer cancel()
+		pending := make([]WindowEvent, 0, maxWindowEventQueue)
 		for {
+			var eventOut chan<- WindowEvent
+			var next WindowEvent
+			if len(pending) != 0 {
+				eventOut = events
+				next = pending[0]
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -272,20 +279,50 @@ func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent,
 					return
 				}
 				event, ok := decodeWindowEvent(signal)
-				if !ok {
-					continue
+				if ok {
+					pending = enqueueWindowEvent(pending, event)
 				}
-				select {
-				case events <- event:
-				case <-ctx.Done():
-					return
-				case <-stop:
-					return
-				}
+			case eventOut <- next:
+				pending = pending[1:]
 			}
 		}
 	}()
 	return events, cancel, nil
+}
+
+const maxWindowEventQueue = 64
+
+func enqueueWindowEvent(queue []WindowEvent, event WindowEvent) []WindowEvent {
+	if key, coalesce := windowEventQueueKey(event); coalesce {
+		for i := len(queue) - 1; i >= 0; i-- {
+			if existingKey, _ := windowEventQueueKey(queue[i]); existingKey == key {
+				queue[i] = event
+				return queue
+			}
+		}
+	}
+	if len(queue) >= maxWindowEventQueue {
+		for i, existing := range queue {
+			if existing.Kind == WindowChangedEvent {
+				copy(queue[i:], queue[i+1:])
+				queue = queue[:len(queue)-1]
+				return append(queue, event)
+			}
+		}
+		return queue
+	}
+	return append(queue, event)
+}
+
+func windowEventQueueKey(event WindowEvent) (string, bool) {
+	switch event.Kind {
+	case WindowChangedEvent:
+		return "window-changed:" + event.ID, true
+	case FocusChangedEvent:
+		return "focus-changed", true
+	default:
+		return "", false
+	}
 }
 
 func decodeWindowEvent(signal *dbus.Signal) (WindowEvent, bool) {

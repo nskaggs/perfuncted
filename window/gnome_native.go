@@ -112,18 +112,26 @@ func (m *GnomeNativeManager) forwardWindowEvents(events <-chan gnomebridge.Windo
 				continue
 			}
 			select {
+			case <-m.stopEvents:
+				return
+			default:
+			}
+			select {
 			case m.events <- converted:
 			case <-m.stopEvents:
 				return
+			default:
+				// Delivery is intentionally lossy here. The bridge has already
+				// coalesced pending changes, and a slow or unused optional event
+				// consumer must never block D-Bus dispatch.
 			}
 		}
 	}
 }
 
 // WindowEvents returns native GNOME window lifecycle and focus events.
-// Callers must continue receiving until the channel closes or call Close on
-// the manager; the channel is buffered to avoid coupling D-Bus dispatch to a
-// short pause in the consumer.
+// The channel is buffered and delivery is bounded; a slow consumer may miss
+// coalesced changes, but it cannot block D-Bus dispatch.
 func (m *GnomeNativeManager) WindowEvents() <-chan GnomeWindowEvent {
 	if m == nil {
 		return nil

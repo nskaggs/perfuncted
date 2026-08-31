@@ -1,6 +1,17 @@
 import Meta from 'gi://Meta';
 
 const WINDOW_INFO_SIGNATURE = '(ssssiiiiibbbb)';
+const WINDOW_CHANGE_SIGNALS = [
+    'notify::title',
+    'notify::gtk-application-id',
+    'notify::wm-class',
+    'notify::minimized',
+    'notify::maximized-horizontally',
+    'notify::maximized-vertically',
+    'notify::fullscreen',
+    'position-changed',
+    'size-changed',
+];
 
 function notFound(id) {
     const error = new Error(`window not found: ${id}`);
@@ -82,17 +93,23 @@ export class Windows {
     _connect(object, signal, callback) {
         if (!object?.connect)
             return;
-        this._signals.push([object, object.connect(signal, callback)]);
+        try {
+            this._signals.push([object, object.connect(signal, callback)]);
+        } catch (error) {
+            console.warn(`perfuncted: GNOME window signal ${signal} unavailable: ${error}`);
+        }
     }
 
     _watchWindow(window) {
         this._connect(window, 'unmanaged', () => {
             this._emit('WindowRemoved', 's', String(window.get_stable_sequence()));
         });
-        this._connect(window, 'notify', () => {
+        const changed = () => {
             if (visibleWindows().includes(window))
                 this._emit('WindowChanged', WINDOW_INFO_SIGNATURE, windowInfo(window));
-        });
+        };
+        for (const signal of WINDOW_CHANGE_SIGNALS)
+            this._connect(window, signal, changed);
     }
 
     list() {

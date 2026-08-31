@@ -198,6 +198,13 @@ func (i Installer) ensureEnabled(ctx context.Context, rt env.Runtime) error {
 	if run == nil {
 		run = runGSettings
 	}
+	allowInstallation, err := run(ctx, rt, "get", "org.gnome.shell", "allow-extension-installation")
+	if err != nil {
+		return fmt.Errorf("gnome bridge: read extension-installation policy: %w", err)
+	}
+	if !parseGSettingsBool(string(allowInstallation)) {
+		return fmt.Errorf("%w: GNOME extension installation is disabled by org.gnome.shell allow-extension-installation; set it to true or ask the system administrator", ErrUnavailable)
+	}
 	disabledUserExtensions, err := run(ctx, rt, "get", "org.gnome.shell", "disable-user-extensions")
 	if err != nil {
 		return fmt.Errorf("gnome bridge: read user-extension policy: %w", err)

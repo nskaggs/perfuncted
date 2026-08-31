@@ -6,6 +6,7 @@ package gnomebridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -37,7 +38,7 @@ func (o *recordingObject) CallWithContext(ctx context.Context, method string, _ 
 	case CoreInterface + ".GetProtocolVersion":
 		call.Body = []any{o.protocol}
 	case CoreInterface + ".GetExtensionVersion":
-		call.Body = []any{"2"}
+		call.Body = []any{ExtensionVersion}
 	case CoreInterface + ".GetShellVersion":
 		call.Body = []any{"51.0"}
 	case CoreInterface + ".GetCapabilities":
@@ -67,7 +68,7 @@ func newRecordingClient(t *testing.T) (*Client, *recordingObject) {
 func TestClientNegotiates(t *testing.T) {
 	client, _ := newRecordingClient(t)
 
-	if client.ProtocolVersion() != ProtocolVersion || client.ExtensionVersion() != "2" || client.ShellVersion() != "51.0" {
+	if client.ProtocolVersion() != ProtocolVersion || client.ExtensionVersion() != ExtensionVersion || client.ShellVersion() != "51.0" {
 		t.Fatalf("negotiated metadata = protocol %d, extension %q, shell %q", client.ProtocolVersion(), client.ExtensionVersion(), client.ShellVersion())
 	}
 	caps := client.Capabilities()
@@ -164,6 +165,26 @@ func TestDecodeWindowEvent(t *testing.T) {
 	}
 	if _, ok := decodeWindowEvent(&dbus.Signal{Path: dbus.ObjectPath("/wrong"), Name: WindowsInterface + ".WindowRemoved", Body: []any{"17"}}); ok {
 		t.Fatal("decodeWindowEvent accepted a signal from the wrong path")
+	}
+}
+
+func TestEnqueueWindowEventIsBoundedAndCoalescesChanges(t *testing.T) {
+	queue := []WindowEvent{
+		{Kind: WindowChangedEvent, ID: "17", Window: WindowInfo{ID: "17", Title: "old"}},
+	}
+	queue = enqueueWindowEvent(queue, WindowEvent{Kind: WindowChangedEvent, ID: "17", Window: WindowInfo{ID: "17", Title: "new"}})
+	if len(queue) != 1 || queue[0].Window.Title != "new" {
+		t.Fatalf("coalesced window changes = %#v, want latest single event", queue)
+	}
+	for i := 0; i < maxWindowEventQueue; i++ {
+		queue = enqueueWindowEvent(queue, WindowEvent{Kind: WindowAddedEvent, ID: fmt.Sprint(i)})
+	}
+	if len(queue) != maxWindowEventQueue {
+		t.Fatalf("event queue length = %d, want bound %d", len(queue), maxWindowEventQueue)
+	}
+	queue = enqueueWindowEvent(queue, WindowEvent{Kind: WindowAddedEvent, ID: "overflow"})
+	if len(queue) != maxWindowEventQueue {
+		t.Fatalf("event queue grew to %d past bound %d", len(queue), maxWindowEventQueue)
 	}
 }
 

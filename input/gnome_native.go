@@ -129,18 +129,23 @@ func (b *GnomeNativeBackend) KeyUp(ctx context.Context, key string) error {
 
 // Type sends key syntax through GNOME Shell virtual input.
 func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
-	return b.operation(ctx, func(ctx context.Context) error {
+	return b.operation(ctx, func(ctx context.Context) (err error) {
 		actions, err := parseKeySend(text)
 		if err != nil {
 			return err
 		}
 		held := modifiers{}
-		for _, action := range actions {
-			if err := ctx.Err(); err != nil {
-				return err
+		defer func() {
+			if err != nil && held.any() {
+				err = errors.Join(err, b.releaseModifierKeys(ctx, gnomeModifierKeyvals(held)))
 			}
-			if err := b.typeAction(ctx, action, &held); err != nil {
-				return err
+		}()
+		for _, action := range actions {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return contextErr
+			}
+			if actionErr := b.typeAction(ctx, action, &held); actionErr != nil {
+				return actionErr
 			}
 		}
 		return nil

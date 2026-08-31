@@ -18,7 +18,7 @@ const (
 	// ProtocolVersion is deliberately independent of the perfuncted release
 	// version. A bridge may be upgraded without requiring a matching binary.
 	ProtocolVersion  uint32 = 1
-	ExtensionVersion        = "2"
+	ExtensionVersion        = "1"
 )
 
 // Capability names are returned by Core.GetCapabilities and used to gate

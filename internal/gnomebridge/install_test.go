@@ -51,6 +51,8 @@ func TestInstallerWritesBundledExtensionAndPreservesEnabledList(t *testing.T) {
 		calls = append(calls, append([]string(nil), args...))
 		if args[0] == "get" {
 			switch args[2] {
+			case "allow-extension-installation":
+				return []byte("true"), nil
 			case "disable-user-extensions":
 				return []byte("false"), nil
 			case "disabled-extensions":
@@ -74,11 +76,11 @@ func TestInstallerWritesBundledExtensionAndPreservesEnabledList(t *testing.T) {
 			t.Fatalf("installed %s: %v", name, err)
 		}
 	}
-	if len(calls) != 4 || calls[3][0] != "set" {
+	if len(calls) != 5 || calls[4][0] != "set" {
 		t.Fatalf("gsettings calls = %v, want policy/list gets and enabled set", calls)
 	}
-	if !strings.Contains(calls[3][3], "other@example") || !strings.Contains(calls[3][3], extensionUUID) {
-		t.Fatalf("enabled-extensions value = %q, want both extensions", calls[3][3])
+	if !strings.Contains(calls[4][3], "other@example") || !strings.Contains(calls[4][3], extensionUUID) {
+		t.Fatalf("enabled-extensions value = %q, want both extensions", calls[4][3])
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(path), extensionUUID+".old")); !os.IsNotExist(err) {
 		t.Fatalf("old extension backup remains: %v", err)
@@ -93,6 +95,8 @@ func TestInstallerDoesNotRewriteEnabledSettingWhenAlreadyEnabled(t *testing.T) {
 			return nil, nil
 		}
 		switch args[2] {
+		case "allow-extension-installation":
+			return []byte("true"), nil
 		case "disable-user-extensions", "disabled-extensions":
 			return []byte("false"), nil
 		default:
@@ -103,7 +107,7 @@ func TestInstallerDoesNotRewriteEnabledSettingWhenAlreadyEnabled(t *testing.T) {
 	if _, err := installer.Install(context.Background(), env.FromEnviron(nil)); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if len(calls) != 3 || calls[2][0] != "get" {
+	if len(calls) != 4 || calls[3][0] != "get" {
 		t.Fatalf("gsettings calls = %v, want policy/list gets", calls)
 	}
 }
@@ -116,6 +120,8 @@ func TestInstallerClearsOnlyOwnDisabledExtension(t *testing.T) {
 			return nil, nil
 		}
 		switch args[2] {
+		case "allow-extension-installation":
+			return []byte("true"), nil
 		case "disable-user-extensions":
 			return []byte("false"), nil
 		case "disabled-extensions":
@@ -128,7 +134,7 @@ func TestInstallerClearsOnlyOwnDisabledExtension(t *testing.T) {
 	if _, err := installer.Install(context.Background(), env.FromEnviron(nil)); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if len(calls) != 4 || calls[2][0] != "set" || calls[2][3] != "['other@example']" {
+	if len(calls) != 5 || calls[3][0] != "set" || calls[3][3] != "['other@example']" {
 		t.Fatalf("gsettings calls = %v, want only own disabled entry removed", calls)
 	}
 }
@@ -137,6 +143,9 @@ func TestInstallerRejectsDisabledUserExtensions(t *testing.T) {
 	var calls [][]string
 	runner := func(_ context.Context, _ env.Runtime, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string(nil), args...))
+		if args[2] == "allow-extension-installation" {
+			return []byte("true"), nil
+		}
 		return []byte("true"), nil
 	}
 	installer := Installer{DataHome: t.TempDir(), Run: runner}
@@ -144,8 +153,24 @@ func TestInstallerRejectsDisabledUserExtensions(t *testing.T) {
 	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "disable-user-extensions") {
 		t.Fatalf("Install error = %v, want actionable policy error", err)
 	}
+	if len(calls) != 2 {
+		t.Fatalf("gsettings calls = %v, want installation and user-extension policy checks", calls)
+	}
+}
+
+func TestInstallerRejectsDisallowedExtensionInstallation(t *testing.T) {
+	var calls [][]string
+	runner := func(_ context.Context, _ env.Runtime, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		return []byte("false"), nil
+	}
+	installer := Installer{DataHome: t.TempDir(), Run: runner}
+	_, err := installer.Install(context.Background(), env.FromEnviron(nil))
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "allow-extension-installation") {
+		t.Fatalf("Install error = %v, want actionable installation-policy error", err)
+	}
 	if len(calls) != 1 {
-		t.Fatalf("gsettings calls = %v, want policy check only", calls)
+		t.Fatalf("gsettings calls = %v, want installation policy check only", calls)
 	}
 }
 
@@ -170,12 +195,12 @@ func TestExtensionVersionNeedsUpdateIsMonotonic(t *testing.T) {
 		bundled string
 		want    bool
 	}{
-		{name: "older", running: "1", bundled: "2", want: true},
-		{name: "same", running: "2", bundled: "2", want: false},
-		{name: "newer", running: "3", bundled: "2", want: false},
-		{name: "empty", running: "", bundled: "2", want: false},
-		{name: "development", running: "dev", bundled: "2", want: false},
-		{name: "invalid bundled", running: "1", bundled: "dev", want: false},
+		{name: "older", running: "0", bundled: ExtensionVersion, want: true},
+		{name: "same", running: ExtensionVersion, bundled: ExtensionVersion, want: false},
+		{name: "newer", running: "2", bundled: ExtensionVersion, want: false},
+		{name: "empty", running: "", bundled: ExtensionVersion, want: false},
+		{name: "development", running: "dev", bundled: ExtensionVersion, want: false},
+		{name: "invalid bundled", running: "0", bundled: "dev", want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

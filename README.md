@@ -79,9 +79,9 @@ capture, and clipboard; no unsafe mode, portal consent, `wl-clipboard`, or
 `/dev/uinput` setup is needed on the native path. GNOME Shell may require one
 logout/login after the first installation so it can load the extension. The
 older Shell.Eval and screenshot paths remain compatibility fallbacks.
-ASCII literal input uses direct key events, preserving held modifiers. For
-layout-independent Unicode input, the bridge uses the Shell clipboard and
-Ctrl+V, so that fallback updates clipboard contents.
+ASCII literal input uses direct key events, preserving held modifiers. Unicode
+input uses a clipboard-paste fallback, so that fallback updates clipboard
+contents.
 Flatpak can use an already-installed bridge; host extension provisioning from
 inside the sandbox is not automatic, so install the native package once when
 using the Flatpak. The bundled extension currently declares GNOME Shell 50;
