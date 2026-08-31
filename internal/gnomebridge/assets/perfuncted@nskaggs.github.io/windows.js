@@ -76,9 +76,9 @@ export class Windows {
             }
         });
         this._connect(display, 'notify::focus-window', () => {
-            const focused = display.get_focus_window?.();
+            const focused = display.get_focus_window?.() ?? null;
             this._emit('FocusChanged', 's', focused ? String(focused.get_stable_sequence()) : '');
-            if (focused)
+            if (focused && visibleWindows().includes(focused))
                 this._emit('WindowChanged', WINDOW_INFO_SIGNATURE, windowInfo(focused));
         });
         for (const window of visibleWindows())

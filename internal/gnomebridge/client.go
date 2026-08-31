@@ -52,6 +52,13 @@ func NewClientForBus(ctx context.Context, addr string) (*Client, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("%w: D-Bus session address is unset", ErrUnavailable)
 	}
+	// Negotiation must not hang indefinitely when callers pass a
+	// background context from OpenRuntime probes or session setup.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
 	conn, err := dbusutil.SessionBusAddress(addr)
 	if err != nil {
 		return nil, fmt.Errorf("gnome bridge: session bus: %w", err)
@@ -241,7 +248,13 @@ func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent,
 		dbus.WithMatchInterface(WindowsInterface),
 		dbus.WithMatchObjectPath(dbus.ObjectPath(ObjectPath)),
 	}
-	if err := conn.AddMatchSignalContext(ctx, matchOptions...); err != nil {
+	addCtx := ctx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		addCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
+	if err := conn.AddMatchSignalContext(addCtx, matchOptions...); err != nil {
 		return nil, nil, fmt.Errorf("gnome bridge: subscribe window events: %w", err)
 	}
 	raw := make(chan *dbus.Signal, 32)

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
@@ -70,6 +71,11 @@ func InstallRuntime(ctx context.Context, rt env.Runtime) (string, error) {
 // restart condition: a live Shell cannot be assumed to load a newly installed
 // extension in the current session.
 func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
 	address := rt.Get("DBUS_SESSION_BUS_ADDRESS")
 	client, err := NewClientForBus(ctx, address)
 	if err == nil {

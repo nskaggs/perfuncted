@@ -3,6 +3,8 @@ import St from 'gi://St';
 export class Clipboard {
     constructor() {
         this._clipboard = St.Clipboard.get_default();
+        if (!this._clipboard)
+            throw new Error('GNOME clipboard is unavailable');
     }
 
     getText() {

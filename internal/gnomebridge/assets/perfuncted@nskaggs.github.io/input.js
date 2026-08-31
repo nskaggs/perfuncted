@@ -15,11 +15,16 @@ function buttonState(pressed) {
 
 export class Input {
     constructor() {
-        const seat = global.backend.get_default_seat();
+        const backend = global.backend;
+        if (!backend?.get_default_seat)
+            throw new Error('GNOME virtual input devices are unavailable');
+        const seat = backend.get_default_seat();
         if (!seat?.create_virtual_device)
             throw new Error('GNOME virtual input devices are unavailable');
         this._keyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         this._pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+        if (!this._keyboard || !this._pointer)
+            throw new Error('GNOME virtual input devices are unavailable');
     }
 
     key(keyval, pressed) {
@@ -98,7 +103,9 @@ export class Input {
     }
 
     pointerLocation() {
-        const pointer = global.get_pointer();
+        const pointer = global.get_pointer?.() ?? global.display?.get_cursor_tracker?.()?.get_pointer?.() ?? [0, 0];
+        if (!Array.isArray(pointer) || pointer.length < 2)
+            return [0, 0];
         return [Number(pointer[0]), Number(pointer[1])];
     }
 
