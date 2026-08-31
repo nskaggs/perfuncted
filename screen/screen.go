@@ -165,24 +165,8 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 }
 
 func checkGnomeNative(rt env.Runtime, kind compositor.Session) probe.Result {
-	r := probe.Result{Name: "gnome-native"}
-	if kind != compositor.GNOME {
-		r.Reason = "not a GNOME session"
-		return r
-	}
-	bridge, err := gnomebridge.NewClientForBus(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
-	if err != nil {
-		r.Reason = err.Error()
-		return r
-	}
-	defer bridge.Close()
-	if !bridge.HasCapability(gnomebridge.CapabilityScreen) {
-		r.Reason = "bridge does not advertise screen capability"
-		return r
-	}
-	r.Available = true
-	r.Reason = "bundled GNOME bridge screen interface"
-	return r
+	_ = kind
+	return gnomebridge.ProbeCapability(rt, gnomebridge.CapabilityScreen)
 }
 
 func checkKWinShot(rt env.Runtime, kind compositor.Session) probe.Result {

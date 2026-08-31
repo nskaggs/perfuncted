@@ -201,24 +201,7 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 }
 
 func checkGnomeNative(rt env.Runtime) probe.Result {
-	r := probe.Result{Name: "gnome-native"}
-	if compositor.DetectRuntime(rt) != compositor.GNOME {
-		r.Reason = "not a GNOME session"
-		return r
-	}
-	bridge, err := gnomebridge.NewClientForBus(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
-	if err != nil {
-		r.Reason = err.Error()
-		return r
-	}
-	defer bridge.Close()
-	if !bridge.HasCapability(gnomebridge.CapabilityInput) {
-		r.Reason = "bridge does not advertise input capability"
-		return r
-	}
-	r.Available = true
-	r.Reason = "bundled GNOME bridge virtual-input interface"
-	return r
+	return gnomebridge.ProbeCapability(rt, gnomebridge.CapabilityInput)
 }
 
 func checkXTest(rt env.Runtime) probe.Result {
