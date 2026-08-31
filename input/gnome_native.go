@@ -134,11 +134,12 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 		if err != nil {
 			return err
 		}
+		held := modifiers{}
 		for _, action := range actions {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := b.typeAction(ctx, action); err != nil {
+			if err := b.typeAction(ctx, action, &held); err != nil {
 				return err
 			}
 		}
@@ -146,16 +147,41 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 	})
 }
 
-// TypeLiteral sends text without interpreting key syntax. The GNOME bridge
-// uses the Shell clipboard and Ctrl+V so Unicode does not depend on the active
-// keyboard layout; this consequently updates the clipboard contents.
+// TypeLiteral sends text without interpreting key syntax. ASCII is sent as
+// direct key input; non-ASCII text uses the GNOME clipboard paste fallback and
+// consequently updates the clipboard contents.
 func (b *GnomeNativeBackend) TypeLiteral(ctx context.Context, text string) error {
-	return b.operation(ctx, func(ctx context.Context) error { return b.bridge.Text(ctx, text) })
+	return b.operation(ctx, func(ctx context.Context) error {
+		return b.typeText(ctx, text, modifiers{})
+	})
 }
 
-func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend) error {
+func (b *GnomeNativeBackend) typeText(ctx context.Context, text string, held modifiers) error {
+	if gnomeDirectText(text) {
+		return b.bridge.Text(ctx, text)
+	}
+	if held.any() {
+		return fmt.Errorf("input/gnome-native: Unicode text with held modifiers is unavailable: %w", ErrNotSupported)
+	}
+	return b.bridge.Paste(ctx, text)
+}
+
+func gnomeDirectText(text string) bool {
+	for _, r := range text {
+		if (r < 0x20 && r != '\n' && r != '\r' && r != '\t' && r != '\b') || r > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func (m modifiers) any() bool {
+	return m.ctrl || m.alt || m.shift || m.super
+}
+
+func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend, held *modifiers) error {
 	if action.text != "" {
-		return b.bridge.Text(ctx, action.text)
+		return b.typeText(ctx, action.text, *held)
 	}
 	keyval, err := gnomeKeyval(action.key)
 	if err != nil {
@@ -164,8 +190,8 @@ func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend) err
 	modifierKeys := gnomeModifierKeyvals(action.modifiers)
 	pressed := make([]uint32, 0, len(modifierKeys))
 	for _, modifierKey := range modifierKeys {
-		if err := b.bridge.Key(ctx, modifierKey, true); err != nil {
-			return errors.Join(err, b.releaseModifierKeys(ctx, pressed))
+		if keyErr := b.bridge.Key(ctx, modifierKey, true); keyErr != nil {
+			return errors.Join(keyErr, b.releaseModifierKeys(ctx, pressed))
 		}
 		pressed = append(pressed, modifierKey)
 	}
@@ -180,7 +206,27 @@ func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend) err
 			actionErr = b.bridge.Key(ctx, keyval, false)
 		}
 	}
-	return errors.Join(actionErr, b.releaseModifierKeys(ctx, pressed))
+	err = errors.Join(actionErr, b.releaseModifierKeys(ctx, pressed))
+	if err == nil && (action.down || action.up) {
+		updateHeldModifier(held, action.key, action.down)
+	}
+	return err
+}
+
+func updateHeldModifier(held *modifiers, key string, down bool) {
+	if held == nil {
+		return
+	}
+	switch key {
+	case "ctrl", "control":
+		held.ctrl = down
+	case "alt":
+		held.alt = down
+	case "shift":
+		held.shift = down
+	case "super", "meta", "win", "logo":
+		held.super = down
+	}
 }
 
 func gnomeModifierKeyvals(mod modifiers) []uint32 {

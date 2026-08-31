@@ -26,12 +26,36 @@ export class Input {
         this._keyboard.notify_keyval(now(), Number(keyval), keyState(pressed));
     }
 
-    text(text, clipboard) {
-        // Mutter's keyval injection only works when the current layout has a
-        // matching keycode. Use the compositor clipboard and a normal paste
-        // shortcut so arbitrary Unicode does not depend on that layout.
+    text(text) {
+        // notify_keyval() is appropriate for ordinary text whose keysyms are
+        // present in the active layout. Keep this path as real key input so a
+        // held modifier remains held (for example Ctrl+C).
+        const keyvals = [];
+        for (const character of text) {
+            const codepoint = character.codePointAt(0);
+            let keyval = codepoint;
+            if (character === '\n' || character === '\r')
+                keyval = 0xff0d;
+            else if (character === '\t')
+                keyval = 0xff09;
+            else if (character === '\b')
+                keyval = 0xff08;
+            else if (codepoint < 0x20 || codepoint > 0x7e)
+                throw new Error('GNOME direct text input only supports ASCII; use paste for Unicode');
+            keyvals.push(keyval);
+        }
+        for (const keyval of keyvals) {
+            this.key(keyval, true);
+            this.key(keyval, false);
+        }
+    }
+
+    pasteText(text, clipboard) {
+        // Mutter has no compositor-level text-commit primitive. Clipboard
+        // paste is the Unicode fallback, kept separate from direct typing so
+        // it cannot consume modifiers belonging to the caller's key syntax.
         if (!clipboard || typeof clipboard.setText !== 'function')
-            throw new Error('GNOME clipboard is required for arbitrary text input');
+            throw new Error('GNOME clipboard is required for Unicode text input');
         clipboard.setText(text);
         this.paste();
     }

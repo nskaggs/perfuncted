@@ -98,18 +98,26 @@ func TestClientUsesTypedMethods(t *testing.T) {
 	if err := client.SetText(context.Background(), "hello"); err != nil {
 		t.Fatalf("SetText: %v", err)
 	}
+	if err := client.Paste(context.Background(), "é"); err != nil {
+		t.Fatalf("Paste: %v", err)
+	}
 
+	assertRecordedMove(t, object)
+}
+
+func assertRecordedMove(t *testing.T, object *recordingObject) {
+	t.Helper()
 	object.mu.Lock()
 	defer object.mu.Unlock()
-	var move recordedCall
 	for _, call := range object.calls {
 		if call.method == WindowsInterface+".Move" {
-			move = call
+			if !reflect.DeepEqual(call.args, []any{"17", int32(4), int32(5)}) {
+				t.Fatalf("Move call = %#v, want typed args", call)
+			}
+			return
 		}
 	}
-	if move.method == "" || !reflect.DeepEqual(move.args, []any{"17", int32(4), int32(5)}) {
-		t.Fatalf("Move call = %#v, want typed args", move)
-	}
+	t.Fatal("Move call was not recorded")
 }
 
 func TestClientRejectsProtocolMismatch(t *testing.T) {
@@ -120,6 +128,42 @@ func TestClientRejectsProtocolMismatch(t *testing.T) {
 	}
 	if !errors.Is(err, ErrProtocolMismatch) {
 		t.Fatalf("error = %v, want ErrProtocolMismatch", err)
+	}
+}
+
+func TestDecodeWindowEvent(t *testing.T) {
+	window := []any{"17", "Terminal", "org.gnome.Terminal", "Terminal", int32(42), int32(1), int32(2), int32(800), int32(600), true, false, true, false}
+	tests := []struct {
+		name string
+		sig  *dbus.Signal
+		want WindowEvent
+	}{
+		{
+			name: "added",
+			sig:  &dbus.Signal{Path: dbus.ObjectPath(ObjectPath), Name: WindowsInterface + ".WindowAdded", Body: []any{window}},
+			want: WindowEvent{Kind: WindowAddedEvent, ID: "17", Window: WindowInfo{ID: "17", Title: "Terminal", AppID: "org.gnome.Terminal", Class: "Terminal", PID: 42, X: 1, Y: 2, Width: 800, Height: 600, Active: true, Maximized: true}},
+		},
+		{
+			name: "removed",
+			sig:  &dbus.Signal{Path: dbus.ObjectPath(ObjectPath), Name: WindowsInterface + ".WindowRemoved", Body: []any{"17"}},
+			want: WindowEvent{Kind: WindowRemovedEvent, ID: "17"},
+		},
+		{
+			name: "focus",
+			sig:  &dbus.Signal{Path: dbus.ObjectPath(ObjectPath), Name: WindowsInterface + ".FocusChanged", Body: []any{"17"}},
+			want: WindowEvent{Kind: FocusChangedEvent, ID: "17"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := decodeWindowEvent(test.sig)
+			if !ok || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("decodeWindowEvent = %#v, %v; want %#v, true", got, ok, test.want)
+			}
+		})
+	}
+	if _, ok := decodeWindowEvent(&dbus.Signal{Path: dbus.ObjectPath("/wrong"), Name: WindowsInterface + ".WindowRemoved", Body: []any{"17"}}); ok {
+		t.Fatal("decodeWindowEvent accepted a signal from the wrong path")
 	}
 }
 

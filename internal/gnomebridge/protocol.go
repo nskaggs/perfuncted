@@ -47,3 +47,22 @@ type WindowInfo struct {
 	Maximized  bool
 	Fullscreen bool
 }
+
+// WindowEventKind identifies a lifecycle or focus notification from GNOME
+// Shell.
+type WindowEventKind string
+
+const (
+	WindowAddedEvent   WindowEventKind = "window-added"
+	WindowRemovedEvent WindowEventKind = "window-removed"
+	WindowChangedEvent WindowEventKind = "window-changed"
+	FocusChangedEvent  WindowEventKind = "focus-changed"
+)
+
+// WindowEvent is the typed representation of a Windows interface signal.
+// Added and changed events carry Window; removed and focus events carry ID.
+type WindowEvent struct {
+	Kind   WindowEventKind
+	Window WindowInfo
+	ID     string
+}

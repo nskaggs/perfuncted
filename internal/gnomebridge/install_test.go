@@ -27,13 +27,37 @@ func TestParseEnabledExtensions(t *testing.T) {
 	}
 }
 
+func TestParseGSettingsBool(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{value: "true", want: true},
+		{value: "@b true", want: true},
+		{value: "false", want: false},
+		{value: "@b false", want: false},
+		{value: "['true']", want: false},
+	} {
+		if got := parseGSettingsBool(test.value); got != test.want {
+			t.Fatalf("parseGSettingsBool(%q) = %v, want %v", test.value, got, test.want)
+		}
+	}
+}
+
 func TestInstallerWritesBundledExtensionAndPreservesEnabledList(t *testing.T) {
 	dataHome := t.TempDir()
 	var calls [][]string
 	runner := func(_ context.Context, _ env.Runtime, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string(nil), args...))
 		if args[0] == "get" {
-			return []byte("['other@example']"), nil
+			switch args[2] {
+			case "disable-user-extensions":
+				return []byte("false"), nil
+			case "disabled-extensions":
+				return []byte("[]"), nil
+			case "enabled-extensions":
+				return []byte("['other@example']"), nil
+			}
 		}
 		return nil, nil
 	}
@@ -50,11 +74,11 @@ func TestInstallerWritesBundledExtensionAndPreservesEnabledList(t *testing.T) {
 			t.Fatalf("installed %s: %v", name, err)
 		}
 	}
-	if len(calls) != 2 || calls[1][0] != "set" {
-		t.Fatalf("gsettings calls = %v, want get and set", calls)
+	if len(calls) != 4 || calls[3][0] != "set" {
+		t.Fatalf("gsettings calls = %v, want policy/list gets and enabled set", calls)
 	}
-	if !strings.Contains(calls[1][3], "other@example") || !strings.Contains(calls[1][3], extensionUUID) {
-		t.Fatalf("enabled-extensions value = %q, want both extensions", calls[1][3])
+	if !strings.Contains(calls[3][3], "other@example") || !strings.Contains(calls[3][3], extensionUUID) {
+		t.Fatalf("enabled-extensions value = %q, want both extensions", calls[3][3])
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(path), extensionUUID+".old")); !os.IsNotExist(err) {
 		t.Fatalf("old extension backup remains: %v", err)
@@ -65,14 +89,63 @@ func TestInstallerDoesNotRewriteEnabledSettingWhenAlreadyEnabled(t *testing.T) {
 	var calls [][]string
 	runner := func(_ context.Context, _ env.Runtime, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string(nil), args...))
-		return []byte("['" + extensionUUID + "']"), nil
+		if args[0] != "get" {
+			return nil, nil
+		}
+		switch args[2] {
+		case "disable-user-extensions", "disabled-extensions":
+			return []byte("false"), nil
+		default:
+			return []byte("['" + extensionUUID + "']"), nil
+		}
 	}
 	installer := Installer{DataHome: t.TempDir(), Run: runner}
 	if _, err := installer.Install(context.Background(), env.FromEnviron(nil)); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if len(calls) != 1 || calls[0][0] != "get" {
-		t.Fatalf("gsettings calls = %v, want only get", calls)
+	if len(calls) != 3 || calls[2][0] != "get" {
+		t.Fatalf("gsettings calls = %v, want policy/list gets", calls)
+	}
+}
+
+func TestInstallerClearsOnlyOwnDisabledExtension(t *testing.T) {
+	var calls [][]string
+	runner := func(_ context.Context, _ env.Runtime, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if args[0] != "get" {
+			return nil, nil
+		}
+		switch args[2] {
+		case "disable-user-extensions":
+			return []byte("false"), nil
+		case "disabled-extensions":
+			return []byte("['other@example', '" + extensionUUID + "']"), nil
+		default:
+			return []byte("['" + extensionUUID + "']"), nil
+		}
+	}
+	installer := Installer{DataHome: t.TempDir(), Run: runner}
+	if _, err := installer.Install(context.Background(), env.FromEnviron(nil)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if len(calls) != 4 || calls[2][0] != "set" || calls[2][3] != "['other@example']" {
+		t.Fatalf("gsettings calls = %v, want only own disabled entry removed", calls)
+	}
+}
+
+func TestInstallerRejectsDisabledUserExtensions(t *testing.T) {
+	var calls [][]string
+	runner := func(_ context.Context, _ env.Runtime, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		return []byte("true"), nil
+	}
+	installer := Installer{DataHome: t.TempDir(), Run: runner}
+	_, err := installer.Install(context.Background(), env.FromEnviron(nil))
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "disable-user-extensions") {
+		t.Fatalf("Install error = %v, want actionable policy error", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("gsettings calls = %v, want policy check only", calls)
 	}
 }
 
@@ -124,7 +197,9 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	for _, fragment := range []string{
 		"CORE_XML", "WINDOWS_XML", "SCREEN_XML", "INPUT_XML", "CLIPBOARD_XML",
 		"const EXTENSION_VERSION = '" + ExtensionVersion + "';",
-		"text, this._require(this._clipboard, 'clipboard'))",
+		"Text(text) { return this._require(this._input, 'input').text(text); }",
+		"Paste(text)",
+		"if (this._input && this._clipboard)",
 	} {
 		if !strings.Contains(serviceText, fragment) {
 			t.Errorf("service.js is missing expected fragment %q", fragment)
@@ -165,13 +240,16 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 	}
 	inputText := embeddedAssetText(t, "input.js")
 	assertEmbeddedFragmentsPresent(t, inputText, "input.js is missing expected text/scroll fragment",
+		"text(text)",
+		"codepoint < 0x20 || codepoint > 0x7e",
+		"pasteText(text, clipboard)",
 		"clipboard.setText(text)",
 		"const control = 0xffe3",
 		"const v = 0x76",
 		"notify_discrete_scroll",
 	)
 	assertEmbeddedFragmentsAbsent(t, inputText, "input.js must not use layout-dependent or continuous input",
-		"unicode_to_keysym", "notify_scroll_continuous")
+		"unicode_to_keysym", "notify_scroll_continuous", "text(text, clipboard)")
 }
 
 func embeddedAssetText(t *testing.T, name string) string {

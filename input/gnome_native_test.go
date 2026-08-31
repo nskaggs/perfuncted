@@ -41,3 +41,38 @@ func TestGnomeNativeBackendDoesNotAdvertiseSync(t *testing.T) {
 		t.Fatal("GNOME native input must not advertise unsupported synchronization")
 	}
 }
+
+func TestGnomeDirectTextOnlyUsesLayoutSafeCharacters(t *testing.T) {
+	for _, test := range []struct {
+		text string
+		want bool
+	}{
+		{text: "hello, world!\n", want: true},
+		{text: "", want: true},
+		{text: "é", want: false},
+		{text: "\u0001", want: false},
+	} {
+		if got := gnomeDirectText(test.text); got != test.want {
+			t.Fatalf("gnomeDirectText(%q) = %v, want %v", test.text, got, test.want)
+		}
+	}
+}
+
+func TestUpdateHeldModifierTracksExplicitModifierActions(t *testing.T) {
+	var held modifiers
+	for _, test := range []struct {
+		key  string
+		down bool
+		want modifiers
+	}{
+		{key: "ctrl", down: true, want: modifiers{ctrl: true}},
+		{key: "control", down: false, want: modifiers{}},
+		{key: "meta", down: true, want: modifiers{super: true}},
+		{key: "super", down: false, want: modifiers{}},
+	} {
+		updateHeldModifier(&held, test.key, test.down)
+		if held != test.want {
+			t.Fatalf("updateHeldModifier(%q, %v) = %#v, want %#v", test.key, test.down, held, test.want)
+		}
+	}
+}

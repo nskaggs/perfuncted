@@ -73,11 +73,14 @@ func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
 	address := rt.Get("DBUS_SESSION_BUS_ADDRESS")
 	client, err := NewClientForBus(ctx, address)
 	if err == nil {
-		// Protocol compatibility is sufficient to keep using the live bridge.
-		// Refresh an older bundled copy opportunistically; GNOME Shell will load
-		// those files at the next normal session boundary.
 		if extensionVersionNeedsUpdate(client.ExtensionVersion(), ExtensionVersion) {
-			_, _ = InstallRuntime(ctx, rt)
+			runningVersion := client.ExtensionVersion()
+			path, installErr := InstallRuntime(ctx, rt)
+			_ = client.Close()
+			if installErr != nil {
+				return nil, fmt.Errorf("%w: running GNOME bridge extension %q is obsolete; refresh it before use: %w", ErrUnavailable, runningVersion, installErr)
+			}
+			return nil, &SessionRestartRequiredError{Path: path}
 		}
 		return client, nil
 	}
@@ -195,6 +198,24 @@ func (i Installer) ensureEnabled(ctx context.Context, rt env.Runtime) error {
 	if run == nil {
 		run = runGSettings
 	}
+	disabledUserExtensions, err := run(ctx, rt, "get", "org.gnome.shell", "disable-user-extensions")
+	if err != nil {
+		return fmt.Errorf("gnome bridge: read user-extension policy: %w", err)
+	}
+	if parseGSettingsBool(string(disabledUserExtensions)) {
+		return fmt.Errorf("%w: GNOME user extensions are disabled by org.gnome.shell disable-user-extensions; set it to false and retry", ErrUnavailable)
+	}
+	disabledOut, err := run(ctx, rt, "get", "org.gnome.shell", "disabled-extensions")
+	if err != nil {
+		return fmt.Errorf("gnome bridge: read disabled extensions: %w", err)
+	}
+	disabled := parseEnabledExtensions(string(disabledOut))
+	if filtered, changed := removeString(disabled, extensionUUID); changed {
+		value := "[" + strings.Join(mapStrings(filtered, quoteGVariantString), ", ") + "]"
+		if _, setErr := run(ctx, rt, "set", "org.gnome.shell", "disabled-extensions", value); setErr != nil {
+			return fmt.Errorf("gnome bridge: enable extension by clearing disabled state: %w", setErr)
+		}
+	}
 	out, err := run(ctx, rt, "get", "org.gnome.shell", "enabled-extensions")
 	if err != nil {
 		return fmt.Errorf("gnome bridge: read enabled extensions: %w", err)
@@ -209,6 +230,23 @@ func (i Installer) ensureEnabled(ctx context.Context, rt env.Runtime) error {
 		return fmt.Errorf("gnome bridge: enable extension for next session: %w", err)
 	}
 	return nil
+}
+
+func parseGSettingsBool(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "@b ")), "true")
+}
+
+func removeString(values []string, target string) ([]string, bool) {
+	filtered := make([]string, 0, len(values))
+	changed := false
+	for _, value := range values {
+		if value == target {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return filtered, changed
 }
 
 func runGSettings(ctx context.Context, rt env.Runtime, args ...string) ([]byte, error) {

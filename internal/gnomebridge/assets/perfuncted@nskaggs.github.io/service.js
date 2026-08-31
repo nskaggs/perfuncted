@@ -62,6 +62,7 @@ const INPUT_XML = `
   <interface name="io.github.nskaggs.perfuncted.Gnome1.Input">
     <method name="Key"><arg name="keyval" type="u" direction="in"/><arg name="pressed" type="b" direction="in"/></method>
     <method name="Text"><arg name="text" type="s" direction="in"/></method>
+    <method name="Paste"><arg name="text" type="s" direction="in"/></method>
     <method name="PointerMove"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
     <method name="PointerButton"><arg name="button" type="u" direction="in"/><arg name="pressed" type="b" direction="in"/></method>
     <method name="Scroll"><arg name="axis" type="s" direction="in"/><arg name="amount" type="d" direction="in"/></method>
@@ -174,7 +175,7 @@ export class BridgeService {
         const capabilities = ['windows'];
         if (this._screen)
             capabilities.push('screen');
-        if (this._input)
+        if (this._input && this._clipboard)
             capabilities.push('input');
         if (this._clipboard)
             capabilities.push('clipboard');
@@ -201,8 +202,9 @@ export class BridgeService {
     }
 
     Key(keyval, pressed) { this._require(this._input, 'input').key(keyval, pressed); }
-    Text(text) {
-        return this._require(this._input, 'input').text(
+    Text(text) { return this._require(this._input, 'input').text(text); }
+    Paste(text) {
+        return this._require(this._input, 'input').pasteText(
             text, this._require(this._clipboard, 'clipboard'));
     }
     PointerMove(x, y) { this._require(this._input, 'input').pointerMove(x, y); }

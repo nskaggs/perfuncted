@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -223,6 +224,107 @@ func (c *Client) GetActiveWindow(ctx context.Context) (WindowInfo, error) {
 	return window, nil
 }
 
+// SubscribeWindowEvents subscribes to lifecycle and focus signals from the
+// Windows interface. The returned cancel function is idempotent and must be
+// called when the subscriber is no longer needed.
+func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent, func(), error) {
+	ctx = contextutil.Default(ctx)
+	c.mu.Lock()
+	if c.closed || c.conn == nil {
+		c.mu.Unlock()
+		return nil, nil, fmt.Errorf("%w: client is closed", ErrUnavailable)
+	}
+	conn := c.conn
+	c.mu.Unlock()
+
+	matchOptions := []dbus.MatchOption{
+		dbus.WithMatchInterface(WindowsInterface),
+		dbus.WithMatchObjectPath(dbus.ObjectPath(ObjectPath)),
+	}
+	if err := conn.AddMatchSignalContext(ctx, matchOptions...); err != nil {
+		return nil, nil, fmt.Errorf("gnome bridge: subscribe window events: %w", err)
+	}
+	raw := make(chan *dbus.Signal, 32)
+	conn.Signal(raw)
+	events := make(chan WindowEvent, 32)
+	stop := make(chan struct{})
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			close(stop)
+			conn.RemoveSignal(raw)
+			cleanupCtx, cleanup := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cleanup()
+			_ = conn.RemoveMatchSignalContext(cleanupCtx, matchOptions...)
+		})
+	}
+	go func() {
+		defer close(events)
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case signal, ok := <-raw:
+				if !ok {
+					return
+				}
+				event, ok := decodeWindowEvent(signal)
+				if !ok {
+					continue
+				}
+				select {
+				case events <- event:
+				case <-ctx.Done():
+					return
+				case <-stop:
+					return
+				}
+			}
+		}
+	}()
+	return events, cancel, nil
+}
+
+func decodeWindowEvent(signal *dbus.Signal) (WindowEvent, bool) {
+	if signal == nil || signal.Path != dbus.ObjectPath(ObjectPath) {
+		return WindowEvent{}, false
+	}
+	switch signal.Name {
+	case WindowsInterface + ".WindowAdded":
+		return decodeWindowInfoEvent(signal, WindowAddedEvent)
+	case WindowsInterface + ".WindowChanged":
+		return decodeWindowInfoEvent(signal, WindowChangedEvent)
+	case WindowsInterface + ".WindowRemoved":
+		if len(signal.Body) != 1 {
+			return WindowEvent{}, false
+		}
+		id, ok := signal.Body[0].(string)
+		return WindowEvent{Kind: WindowRemovedEvent, ID: id}, ok
+	case WindowsInterface + ".FocusChanged":
+		if len(signal.Body) != 1 {
+			return WindowEvent{}, false
+		}
+		id, ok := signal.Body[0].(string)
+		return WindowEvent{Kind: FocusChangedEvent, ID: id}, ok
+	default:
+		return WindowEvent{}, false
+	}
+}
+
+func decodeWindowInfoEvent(signal *dbus.Signal, kind WindowEventKind) (WindowEvent, bool) {
+	if len(signal.Body) != 1 {
+		return WindowEvent{}, false
+	}
+	var window WindowInfo
+	if err := dbus.Store(signal.Body, &window); err != nil {
+		return WindowEvent{}, false
+	}
+	return WindowEvent{Kind: kind, Window: window, ID: window.ID}, true
+}
+
 func (c *Client) windowAction(ctx context.Context, method, id string, args ...any) error {
 	params := append([]any{id}, args...)
 	if err := c.callWithArgs(ctx, WindowsInterface, method, params...); err != nil {
@@ -331,6 +433,9 @@ func (c *Client) Key(ctx context.Context, keyval uint32, pressed bool) error {
 }
 func (c *Client) Text(ctx context.Context, text string) error {
 	return c.callWithArgs(ctx, InputInterface, "Text", text)
+}
+func (c *Client) Paste(ctx context.Context, text string) error {
+	return c.callWithArgs(ctx, InputInterface, "Paste", text)
 }
 func (c *Client) PointerMove(ctx context.Context, x, y int32) error {
 	return c.callWithArgs(ctx, InputInterface, "PointerMove", x, y)

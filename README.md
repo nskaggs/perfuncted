@@ -3,7 +3,7 @@
 [![CI](https://github.com/nskaggs/perfuncted/actions/workflows/ci.yml/badge.svg)](https://github.com/nskaggs/perfuncted/actions/workflows/ci.yml)
 
 **perfuncted** is a Go library and CLI for automating Linux desktop applications.
-It detects your session type at runtime and selects the right backend automatically —
+It detects your session type at runtime and selects the right backend automatically -
 no configuration needed.
 
 ```go
@@ -79,8 +79,9 @@ capture, and clipboard; no unsafe mode, portal consent, `wl-clipboard`, or
 `/dev/uinput` setup is needed on the native path. GNOME Shell may require one
 logout/login after the first installation so it can load the extension. The
 older Shell.Eval and screenshot paths remain compatibility fallbacks.
-Layout-independent literal Unicode input uses the Shell clipboard and Ctrl+V,
-so that operation updates clipboard contents.
+ASCII literal input uses direct key events, preserving held modifiers. For
+layout-independent Unicode input, the bridge uses the Shell clipboard and
+Ctrl+V, so that fallback updates clipboard contents.
 Flatpak can use an already-installed bridge; host extension provisioning from
 inside the sandbox is not automatic, so install the native package once when
 using the Flatpak. The bundled extension currently declares GNOME Shell 50;
@@ -115,7 +116,7 @@ go get github.com/nskaggs/perfuncted
 
 | Dependency | Required for |
 |---|---|
-| `wl-clipboard` | Clipboard access on Wayland |
+| `wl-clipboard` | Clipboard access on Wayland when no native compositor clipboard backend is available |
 | `xclip` | Clipboard access on X11 |
 | `udev` rule or `input` group | `/dev/uinput` access when compositor-scoped or XTEST input is unavailable (see Setup below) |
 
@@ -208,4 +209,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checks and
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0 - see [LICENSE](LICENSE).

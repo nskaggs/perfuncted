@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"iter"
 	"strconv"
+	"sync"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -21,7 +22,35 @@ var _ IDManager = (*GnomeNativeManager)(nil)
 // GnomeNativeManager uses Mutter's typed window API exposed by the bundled
 // bridge; it never sends JavaScript or otherwise evaluates Shell code.
 type GnomeNativeManager struct {
-	bridge *gnomebridge.Client
+	bridge       *gnomebridge.Client
+	events       chan GnomeWindowEvent
+	stopEvents   chan struct{}
+	eventsDone   chan struct{}
+	stopEventsMu sync.Once
+}
+
+// GnomeWindowEventKind identifies a native GNOME window lifecycle or focus
+// notification.
+type GnomeWindowEventKind string
+
+const (
+	// GnomeWindowAddedEvent reports a newly visible native window.
+	GnomeWindowAddedEvent GnomeWindowEventKind = "window-added"
+	// GnomeWindowRemovedEvent reports a native window that was unmanaged.
+	GnomeWindowRemovedEvent GnomeWindowEventKind = "window-removed"
+	// GnomeWindowChangedEvent reports changed native window metadata or state.
+	GnomeWindowChangedEvent GnomeWindowEventKind = "window-changed"
+	// GnomeFocusChangedEvent reports a changed native focus target.
+	GnomeFocusChangedEvent GnomeWindowEventKind = "focus-changed"
+)
+
+// GnomeWindowEvent is emitted by WindowEvents for callers that need native
+// lifecycle and focus notifications. The channel closes when the manager is
+// closed.
+type GnomeWindowEvent struct {
+	Kind   GnomeWindowEventKind
+	Window Info
+	ID     string
 }
 
 // NewGnomeNativeManagerForRuntime connects to the native GNOME bridge.
@@ -34,7 +63,72 @@ func NewGnomeNativeManagerForRuntime(rt env.Runtime) (*GnomeNativeManager, error
 		_ = bridge.Close()
 		return nil, fmt.Errorf("window/gnome-native: bridge does not advertise windows capability")
 	}
-	return &GnomeNativeManager{bridge: bridge}, nil
+	bridgeEvents, cancelEvents, err := bridge.SubscribeWindowEvents(context.Background())
+	if err != nil {
+		_ = bridge.Close()
+		return nil, fmt.Errorf("window/gnome-native: subscribe to window events: %w", err)
+	}
+	m := &GnomeNativeManager{
+		bridge:     bridge,
+		events:     make(chan GnomeWindowEvent, 64),
+		stopEvents: make(chan struct{}),
+		eventsDone: make(chan struct{}),
+	}
+	go m.forwardWindowEvents(bridgeEvents, cancelEvents)
+	return m, nil
+}
+
+func (m *GnomeNativeManager) forwardWindowEvents(events <-chan gnomebridge.WindowEvent, cancel func()) {
+	defer close(m.eventsDone)
+	defer close(m.events)
+	defer cancel()
+	for {
+		select {
+		case <-m.stopEvents:
+			return
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			converted := GnomeWindowEvent{ID: event.ID}
+			switch event.Kind {
+			case gnomebridge.WindowAddedEvent:
+				converted.Kind = GnomeWindowAddedEvent
+				converted.Window = toWindowInfo(event.Window)
+				if converted.ID == "" {
+					converted.ID = event.Window.ID
+				}
+			case gnomebridge.WindowRemovedEvent:
+				converted.Kind = GnomeWindowRemovedEvent
+			case gnomebridge.WindowChangedEvent:
+				converted.Kind = GnomeWindowChangedEvent
+				converted.Window = toWindowInfo(event.Window)
+				if converted.ID == "" {
+					converted.ID = event.Window.ID
+				}
+			case gnomebridge.FocusChangedEvent:
+				converted.Kind = GnomeFocusChangedEvent
+			default:
+				continue
+			}
+			select {
+			case m.events <- converted:
+			case <-m.stopEvents:
+				return
+			}
+		}
+	}
+}
+
+// WindowEvents returns native GNOME window lifecycle and focus events.
+// Callers must continue receiving until the channel closes or call Close on
+// the manager; the channel is buffered to avoid coupling D-Bus dispatch to a
+// short pause in the consumer.
+func (m *GnomeNativeManager) WindowEvents() <-chan GnomeWindowEvent {
+	if m == nil {
+		return nil
+	}
+	return m.events
 }
 
 func toWindowInfo(window gnomebridge.WindowInfo) Info {
@@ -178,6 +272,10 @@ func (m *GnomeNativeManager) SupportedOperations() []string {
 func (m *GnomeNativeManager) Close() error {
 	if m == nil || m.bridge == nil {
 		return nil
+	}
+	m.stopEventsMu.Do(func() { close(m.stopEvents) })
+	if m.eventsDone != nil {
+		<-m.eventsDone
 	}
 	return m.bridge.Close()
 }
