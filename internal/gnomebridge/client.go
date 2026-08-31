@@ -159,6 +159,11 @@ func (c *Client) call(ctx context.Context, iface, method string, out ...any) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
 	c.mu.Lock()
 	if c.closed || c.obj == nil {
 		c.mu.Unlock()
@@ -392,6 +397,11 @@ func (c *Client) callWithArgsOut(ctx context.Context, iface, method string, args
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
 	c.mu.Lock()
 	if c.closed || c.obj == nil {
 		c.mu.Unlock()
@@ -488,6 +498,11 @@ func (c *Client) capture(ctx context.Context, method string, fd int, args []any,
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
 	}
 	c.mu.Lock()
 	if c.closed || c.obj == nil {
