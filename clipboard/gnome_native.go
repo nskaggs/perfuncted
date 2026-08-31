@@ -22,13 +22,9 @@ type GnomeNativeClipboard struct {
 
 // NewGnomeNativeClipboardForRuntime connects to the GNOME-native clipboard.
 func NewGnomeNativeClipboardForRuntime(rt env.Runtime) (*GnomeNativeClipboard, error) {
-	bridge, err := gnomebridge.ConnectRuntime(context.Background(), rt)
+	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityClipboard)
 	if err != nil {
-		return nil, err
-	}
-	if !bridge.HasCapability(gnomebridge.CapabilityClipboard) {
-		_ = bridge.Close()
-		return nil, fmt.Errorf("clipboard/gnome-native: bridge does not advertise clipboard capability")
+		return nil, fmt.Errorf("clipboard/gnome-native: %w", err)
 	}
 	return &GnomeNativeClipboard{bridge: bridge}, nil
 }

@@ -66,6 +66,19 @@ func InstallRuntime(ctx context.Context, rt env.Runtime) (string, error) {
 	return installer.Install(ctx, rt)
 }
 
+// ConnectForCapability dials the bridge and verifies capability is advertised.
+func ConnectForCapability(ctx context.Context, rt env.Runtime, capability string) (*Client, error) {
+	bridge, err := ConnectRuntime(ctx, rt)
+	if err != nil {
+		return nil, err
+	}
+	if !bridge.HasCapability(capability) {
+		_ = bridge.Close()
+		return nil, fmt.Errorf("gnome bridge does not advertise %s capability", capability)
+	}
+	return bridge, nil
+}
+
 // ConnectRuntime returns the running bridge, installing the bundled extension
 // when GNOME has not loaded it yet. Installation deliberately returns a typed
 // restart condition: a live Shell cannot be assumed to load a newly installed

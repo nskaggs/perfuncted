@@ -28,13 +28,9 @@ type GnomeNativeScreenBackend struct {
 
 // NewGnomeNativeScreenBackendForRuntime connects to the versioned bridge.
 func NewGnomeNativeScreenBackendForRuntime(rt env.Runtime) (*GnomeNativeScreenBackend, error) {
-	bridge, err := gnomebridge.ConnectRuntime(context.Background(), rt)
+	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityScreen)
 	if err != nil {
-		return nil, err
-	}
-	if !bridge.HasCapability(gnomebridge.CapabilityScreen) {
-		_ = bridge.Close()
-		return nil, fmt.Errorf("gnome screen: bridge does not advertise screen capability")
+		return nil, fmt.Errorf("gnome screen: %w", err)
 	}
 	return &GnomeNativeScreenBackend{bridge: bridge}, nil
 }

@@ -64,13 +64,9 @@ func gnomeNamedKeyval(k keymap.Key) (uint32, bool) {
 // NewGnomeNativeBackendForRuntime connects to GNOME's bundled virtual-input
 // adapter.
 func NewGnomeNativeBackendForRuntime(rt env.Runtime) (*GnomeNativeBackend, error) {
-	bridge, err := gnomebridge.ConnectRuntime(context.Background(), rt)
+	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityInput)
 	if err != nil {
-		return nil, err
-	}
-	if !bridge.HasCapability(gnomebridge.CapabilityInput) {
-		_ = bridge.Close()
-		return nil, fmt.Errorf("input/gnome-native: bridge does not advertise input capability")
+		return nil, fmt.Errorf("input/gnome-native: %w", err)
 	}
 	return &GnomeNativeBackend{bridge: bridge}, nil
 }

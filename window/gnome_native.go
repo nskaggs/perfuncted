@@ -31,13 +31,9 @@ type GnomeNativeManager struct {
 
 // NewGnomeNativeManagerForRuntime connects to the native GNOME bridge.
 func NewGnomeNativeManagerForRuntime(rt env.Runtime) (*GnomeNativeManager, error) {
-	bridge, err := gnomebridge.ConnectRuntime(context.Background(), rt)
+	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityWindows)
 	if err != nil {
-		return nil, err
-	}
-	if !bridge.HasCapability(gnomebridge.CapabilityWindows) {
-		_ = bridge.Close()
-		return nil, fmt.Errorf("window/gnome-native: bridge does not advertise windows capability")
+		return nil, fmt.Errorf("window/gnome-native: %w", err)
 	}
 	bridgeEvents, cancelEvents, err := bridge.SubscribeWindowEvents(context.Background())
 	if err != nil {
