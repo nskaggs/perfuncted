@@ -466,8 +466,13 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 			return err
 		}
 		if bit := modBit(key); bit != 0 {
+			previousMods := k.mods
 			k.mods |= bit
-			return k.sendModifiers(ctx)
+			if err := k.sendModifiers(ctx); err != nil {
+				k.mods = previousMods
+				return errors.Join(err, k.cleanupSendKey(ctx, kc, 0))
+			}
+			return nil
 		}
 		k.held[key] = kc
 		return nil
@@ -506,8 +511,13 @@ func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 			return err
 		}
 		if bit := modBit(key); bit != 0 {
+			previousMods := k.mods
 			k.mods &^= bit
-			return k.sendModifiers(ctx)
+			if err := k.sendModifiers(ctx); err != nil {
+				k.mods = previousMods
+				return err
+			}
+			return nil
 		}
 		delete(k.held, key)
 		return nil

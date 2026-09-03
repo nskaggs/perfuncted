@@ -371,6 +371,31 @@ func TestReleaseKey_ModifierNotHeld(t *testing.T) {
 	}
 }
 
+func TestPressKey_ModifierStateRollsBackWhenUpdateFails(t *testing.T) {
+	k, _ := newFailingKeyboard(2) // keymap and key-down succeed; modifiers fails
+
+	err := k.pressKey(context.Background(), "shift")
+	if err == nil {
+		t.Fatal("pressKey succeeded despite modifier update failure")
+	}
+	if k.mods != 0 {
+		t.Fatalf("k.mods = 0x%x after failed modifier press, want 0", k.mods)
+	}
+}
+
+func TestReleaseKey_ModifierStateRollsBackWhenUpdateFails(t *testing.T) {
+	k, _ := newFailingKeyboard(1) // key-up succeeds; modifiers update fails
+	k.mods = modShift
+
+	err := k.releaseKey(context.Background(), "shift")
+	if err == nil {
+		t.Fatal("releaseKey succeeded despite modifier update failure")
+	}
+	if k.mods != modShift {
+		t.Fatalf("k.mods = 0x%x after failed modifier release, want 0x%x", k.mods, modShift)
+	}
+}
+
 func TestUploadKeymap_MessageFormat(t *testing.T) {
 	k, rc := newTestKeyboard()
 	text := "xkb_keymap { }"
