@@ -15,19 +15,22 @@ func decodeBGRA(data []byte, w, h, stride int) *image.RGBA {
 	if len(data) == 0 || w <= 0 || h <= 0 || stride <= 0 {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
-	if stride < w*4 {
+	rowBytes, ok := safePixelRowBytes(w)
+	if !ok || stride < rowBytes || h > int(^uint(0)>>1)/rowBytes {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	rowBytes := w * 4
 	for row := 0; row < h; row++ {
+		if row > int(^uint(0)>>1)/stride {
+			break
+		}
 		srcStart := row * stride
 		if srcStart >= len(data) {
 			break
 		}
-		srcEnd := srcStart + rowBytes
-		if srcEnd > len(data) {
-			srcEnd = len(data)
+		srcEnd := len(data)
+		if rowBytes <= len(data)-srcStart {
+			srcEnd = srcStart + rowBytes
 		}
 		dstOff := row * img.Stride
 		copyBGRA(img.Pix[dstOff:dstOff+rowBytes], data[srcStart:srcEnd])
@@ -42,28 +45,44 @@ func decodeBGRARect(data []byte, w, h, stride int, rect image.Rectangle) *image.
 	if len(data) == 0 || w <= 0 || h <= 0 || stride <= 0 {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
-	if stride < w*4 {
+	fullRowBytes, ok := safePixelRowBytes(w)
+	if !ok || stride < fullRowBytes {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
 	r := rect.Intersect(image.Rect(0, 0, w, h))
 	if r.Empty() {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
+	rowBytes, ok := safePixelRowBytes(r.Dx())
+	if !ok || r.Dy() > int(^uint(0)>>1)/rowBytes {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
 	out := image.NewRGBA(r)
-	rowBytes := r.Dx() * 4
+	xOffset := r.Min.X * 4
 	for y := 0; y < r.Dy(); y++ {
-		srcStart := (r.Min.Y+y)*stride + r.Min.X*4
+		row := r.Min.Y + y
+		if row > (int(^uint(0)>>1)-xOffset)/stride {
+			break
+		}
+		srcStart := row*stride + xOffset
 		if srcStart >= len(data) {
 			break
 		}
-		srcEnd := srcStart + rowBytes
-		if srcEnd > len(data) {
-			srcEnd = len(data)
+		srcEnd := len(data)
+		if rowBytes <= len(data)-srcStart {
+			srcEnd = srcStart + rowBytes
 		}
 		dstOff := y * out.Stride
 		copyBGRA(out.Pix[dstOff:dstOff+rowBytes], data[srcStart:srcEnd])
 	}
 	return out
+}
+
+func safePixelRowBytes(width int) (int, bool) {
+	if width <= 0 || width > int(^uint(0)>>1)/4 {
+		return 0, false
+	}
+	return width * 4, true
 }
 
 func copyBGRA(dst, src []byte) {

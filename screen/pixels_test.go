@@ -220,6 +220,16 @@ func TestDecodeBGRARejectsShortStride(t *testing.T) {
 	}
 }
 
+func TestDecodeBGRARejectsOverflowingDimensions(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	if img := decodeBGRA([]byte{1}, maxInt, 1, maxInt); !img.Bounds().Empty() {
+		t.Fatalf("decodeBGRA accepted overflowing dimensions: %v", img.Bounds())
+	}
+	if img := decodeBGRARect([]byte{1}, maxInt, 1, maxInt, image.Rect(0, 0, 1, 1)); !img.Bounds().Empty() {
+		t.Fatalf("decodeBGRARect accepted overflowing dimensions: %v", img.Bounds())
+	}
+}
+
 func TestDecodeBGRARectShortDataDoesNotPanic(t *testing.T) {
 	// 2x2 image, but only the first row is present.
 	data := []byte{
