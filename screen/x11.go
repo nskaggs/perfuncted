@@ -227,6 +227,9 @@ func (b *X11Backend) beginOperation() (func(), error) {
 	if b.closed {
 		return nil, fmt.Errorf("screen/x11: backend is closed: %w", net.ErrClosed)
 	}
+	if b.conn == nil || b.screen == nil {
+		return nil, fmt.Errorf("screen/x11: backend is not initialized")
+	}
 	if b.active == 0 {
 		b.activeDone = make(chan struct{})
 	}

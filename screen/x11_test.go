@@ -52,6 +52,23 @@ func TestX11Backend_Grab(t *testing.T) {
 	}
 }
 
+func TestX11BackendRejectsUninitializedState(t *testing.T) {
+	b := &X11Backend{}
+
+	if _, _, err := b.Resolution(); err == nil {
+		t.Fatal("Resolution on an uninitialized backend succeeded")
+	}
+	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err == nil {
+		t.Fatal("Grab on an uninitialized backend succeeded")
+	}
+	if _, err := b.GrabFullHash(context.Background()); err == nil {
+		t.Fatal("GrabFullHash on an uninitialized backend succeeded")
+	}
+	if _, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1)); err == nil {
+		t.Fatal("GrabRegionHash on an uninitialized backend succeeded")
+	}
+}
+
 func TestX11Backend_Grab_EmptyRect(t *testing.T) { //nolint:dupl
 	b, mc := newStubScreenX11Backend(t, false)
 	// Empty rect should grab full screen - set up mock to return full screen data
