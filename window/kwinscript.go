@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -209,16 +210,35 @@ func parseKWinWindowList(data string) ([]Info, error) {
 		if row.ID == "" {
 			return nil, fmt.Errorf("window/kwinscript: window list contains empty ID")
 		}
+		x, err := kwinGeometryInt(row.X, "x")
+		if err != nil {
+			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+		}
+		y, err := kwinGeometryInt(row.Y, "y")
+		if err != nil {
+			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+		}
+		width, err := kwinGeometryInt(row.Width, "width")
+		if err != nil {
+			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+		}
+		height, err := kwinGeometryInt(row.Height, "height")
+		if err != nil {
+			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+		}
+		if width < 0 || height < 0 {
+			return nil, fmt.Errorf("window/kwinscript: window %q has negative dimensions %dx%d", row.ID, width, height)
+		}
 		info := Info{
 			NativeID: row.ID,
 			Title:    row.Title,
 			AppID:    row.AppID,
 			Class:    row.Class,
 			PID:      row.PID,
-			X:        int(row.X),
-			Y:        int(row.Y),
-			W:        int(row.Width),
-			H:        int(row.Height),
+			X:        x,
+			Y:        y,
+			W:        width,
+			H:        height,
 		}
 		if id, err := strconv.ParseUint(info.NativeID, 0, 64); err == nil {
 			info.ID = id
@@ -226,6 +246,18 @@ func parseKWinWindowList(data string) ([]Info, error) {
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+func kwinGeometryInt(value float64, name string) (int, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("geometry %s is not finite", name)
+	}
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if value < float64(minInt) || value >= float64(maxInt)+1 {
+		return 0, fmt.Errorf("geometry %s %g exceeds int range", name, value)
+	}
+	return int(value), nil
 }
 
 // List returns windows reported by KWin scripting.

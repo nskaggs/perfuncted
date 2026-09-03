@@ -46,6 +46,17 @@ func TestParseKWinWindowListRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestParseKWinWindowListRejectsInvalidGeometry(t *testing.T) {
+	for _, data := range []string{
+		`[{"id":"1","width":1e20,"height":10}]`,
+		`[{"id":"1","width":-1,"height":10}]`,
+	} {
+		if _, err := parseKWinWindowList(data); err == nil {
+			t.Fatalf("parseKWinWindowList accepted invalid geometry %s", data)
+		}
+	}
+}
+
 func TestParseKWinWindowListUsesJSONEscaping(t *testing.T) {
 	data, err := json.Marshal([]kwinWindowRow{{ID: "17", Title: "line 1\nline 2", AppID: "org.example"}})
 	if err != nil {
