@@ -22,6 +22,7 @@ package window
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -128,10 +129,14 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 	}
 	defer os.Remove(f.Name())
 	if _, err := f.WriteString(buildJS(svc)); err != nil {
-		f.Close()
-		return "", err
+		return "", errors.Join(
+			fmt.Errorf("window/kwinscript: write temp file: %w", err),
+			f.Close(),
+		)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("window/kwinscript: close temp file: %w", err)
+	}
 
 	scr := k.conn.Object(kwinScriptSvc, kwinScriptPath)
 	// loadScript registers the script inside KWin's scripting engine for the
