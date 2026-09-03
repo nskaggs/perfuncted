@@ -490,3 +490,20 @@ func TestSendkeysContext_ModifierClearedOnSendKeyFailure(t *testing.T) {
 		t.Errorf("k.mods = %08b after failure, want %08b (should be restored to initial)", k.mods, initialMods)
 	}
 }
+
+func TestSendkeys_PreservesAlreadyHeldTemporaryModifier(t *testing.T) {
+	k, rc := newTestKeyboard()
+	k.mods = modControl
+
+	if err := k.sendkeys(context.Background(), []keySend{{key: "a", modifiers: modifiers{ctrl: true}}}); err != nil {
+		t.Fatalf("sendkeys: %v", err)
+	}
+	if k.mods != modControl {
+		t.Fatalf("k.mods = 0x%x, want existing control modifier 0x%x preserved", k.mods, modControl)
+	}
+	// The keymap upload restores the existing modifier, then the key press and
+	// release run without a redundant temporary-modifier apply/clear pair.
+	if rc.writes != 4 {
+		t.Fatalf("writes = %d, want keymap, modifier restore, key down, key up", rc.writes)
+	}
+}
