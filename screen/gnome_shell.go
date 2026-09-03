@@ -111,6 +111,9 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: capture canceled: %w", ctxErr)
 	}
+	if b == nil || b.conn == nil || b.obj == nil {
+		return nil, fmt.Errorf("screen/gnome-shell: backend is not initialized")
+	}
 	if err := validateGnomeCaptureRect(rect); err != nil {
 		return nil, err
 	}

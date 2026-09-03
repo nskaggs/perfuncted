@@ -1,13 +1,26 @@
 package screen
 
 import (
+	"context"
 	"errors"
+	"image"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/godbus/dbus/v5"
 )
+
+func TestGnomeShellScreenshotBackendRejectsUninitializedState(t *testing.T) {
+	b := &GnomeShellScreenshotBackend{}
+
+	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err == nil {
+		t.Fatal("Grab on an uninitialized backend succeeded")
+	}
+	if _, _, err := b.Resolution(); err == nil {
+		t.Fatal("Resolution on an uninitialized backend succeeded")
+	}
+}
 
 func TestFileURIPath(t *testing.T) {
 	path, err := fileURIPath("file:///tmp/portal%20shot.png")
