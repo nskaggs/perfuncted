@@ -5,6 +5,7 @@
 package dbusutil
 
 import (
+	"errors"
 	"slices"
 
 	"github.com/godbus/dbus/v5"
@@ -21,12 +22,10 @@ func SessionBusAddress(addr string) (*dbus.Conn, error) {
 		return nil, err
 	}
 	if err := conn.Auth(nil); err != nil {
-		conn.Close()
-		return nil, err
+		return nil, errors.Join(err, conn.Close())
 	}
 	if err := conn.Hello(); err != nil {
-		conn.Close()
-		return nil, err
+		return nil, errors.Join(err, conn.Close())
 	}
 	return conn, nil
 }
