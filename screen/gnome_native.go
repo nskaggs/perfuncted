@@ -5,6 +5,7 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -36,7 +37,7 @@ func NewGnomeNativeScreenBackendForRuntime(rt env.Runtime) (*GnomeNativeScreenBa
 }
 
 // Grab captures the full desktop or a non-empty global logical-screen region.
-func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangle) (img image.Image, retErr error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -52,8 +53,14 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 		return nil, fmt.Errorf("screen/gnome-native: create transport: %w", err)
 	}
 	path := f.Name()
-	defer os.Remove(path)
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: close transport: %w", err))
+		}
+		if err := os.Remove(path); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: remove transport: %w", err))
+		}
+	}()
 	var capture gnomebridge.ScreenCapture
 	if rect.Empty() {
 		capture, err = b.bridge.CaptureFull(ctx, int(f.Fd()))
@@ -66,7 +73,7 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 	if _, seekErr := f.Seek(0, 0); seekErr != nil {
 		return nil, fmt.Errorf("screen/gnome-native: rewind transport: %w", seekErr)
 	}
-	img, err := png.Decode(f)
+	img, err = png.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-native: decode PNG: %w", err)
 	}
