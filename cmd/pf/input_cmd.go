@@ -69,20 +69,21 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
+			var timer *time.Timer
+			if delay > 0 && repeat > 1 {
+				timer = time.NewTimer(delay)
+				stopAndDrainTimer(timer)
+				defer timer.Stop()
+			}
 			for i := 0; i < repeat; i++ {
 				if err := pf.Input.MouseClick(cmd.Context(), mx, my, button); err != nil {
 					return err
 				}
-				if i+1 < repeat && delay > 0 {
-					timer := time.NewTimer(delay)
+				if i+1 < repeat && timer != nil {
+					timer.Reset(delay)
 					select {
 					case <-cmd.Context().Done():
-						if !timer.Stop() {
-							select {
-							case <-timer.C:
-							default:
-							}
-						}
+						stopAndDrainTimer(timer)
 						return cmd.Context().Err()
 					case <-timer.C:
 					}
