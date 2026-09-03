@@ -640,10 +640,11 @@ type capabilityEntry struct {
 
 func buildInfoReport(session *perfuncted.Session) infoReport {
 	sessionEnv := session.Env()
+	runtime := env.FromEnviron(sessionEnv)
 	envVars := diagnostic.Environment(sessionEnv)
-	kind := compositor.Detect()
+	kind := compositor.DetectRuntime(runtime)
 	caps := map[string]capabilityEntry{}
-	probes := diagnostic.Probes(env.Current())
+	probes := diagnostic.Probes(runtime)
 
 	for _, status := range session.Capabilities() {
 		reason := ""

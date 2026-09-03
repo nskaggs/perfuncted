@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
+	"github.com/nskaggs/perfuncted"
 	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 )
 
@@ -78,5 +80,26 @@ func TestDiagnosticEnvironmentFiltersAndRedacts(t *testing.T) {
 	}
 	if _, ok := got["PF_AUDIT_SECRET"]; ok {
 		t.Fatalf("diagnostic environment exposed inherited secret: %v", got)
+	}
+}
+
+func TestBuildInfoReportUsesSessionRuntime(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("DISPLAY", "")
+	t.Setenv("XDG_CURRENT_DESKTOP", "")
+	t.Setenv("SWAYSOCK", "")
+
+	session, err := perfuncted.Open(context.Background(), perfuncted.WithTarget(perfuncted.EnvironmentTarget([]string{
+		"WAYLAND_DISPLAY=/tmp/perfuncted-session-wayland",
+		"XDG_CURRENT_DESKTOP=Sway",
+	})))
+	if err != nil {
+		t.Fatalf("perfuncted.Open: %v", err)
+	}
+	defer session.Close()
+
+	got := buildInfoReport(session)
+	if got, want := got.Compositor, "wlroots Wayland"; got != want {
+		t.Fatalf("Compositor = %q, want %q", got, want)
 	}
 }
