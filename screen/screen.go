@@ -47,7 +47,14 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 	if r, ok := sc.(interface {
 		ResolutionWithContext(context.Context) (width, height int, err error)
 	}); ok {
-		return r.ResolutionWithContext(ctx)
+		width, height, err := r.ResolutionWithContext(ctx)
+		if err != nil {
+			return 0, 0, err
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, 0, err
+		}
+		return width, height, nil
 	}
 	if r, ok := sc.(Resolver); ok {
 		return r.Resolution()
