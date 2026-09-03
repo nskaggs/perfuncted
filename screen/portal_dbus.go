@@ -5,6 +5,7 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -127,8 +128,10 @@ func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
 		return nil, fmt.Errorf("screen/portal: D-Bus session: %w", err)
 	}
 	if !dbusutil.HasService(conn, portalDest) {
-		conn.Close()
-		return nil, fmt.Errorf("screen/portal: %s not on session bus", portalDest)
+		return nil, errors.Join(
+			fmt.Errorf("screen/portal: %s not on session bus", portalDest),
+			conn.Close(),
+		)
 	}
 	return &PortalDBusBackend{conn: conn}, nil
 }
