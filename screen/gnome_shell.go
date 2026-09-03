@@ -5,6 +5,7 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -84,10 +85,11 @@ func newTempScreenshotFile(prefix string) (*os.File, error) {
 	return f, nil
 }
 
-func removeScreenshotIfOwned(path, requestedPath string) {
+func removeScreenshotIfOwned(path, requestedPath string) error {
 	if path == requestedPath {
-		_ = os.Remove(path)
+		return os.Remove(path)
 	}
+	return nil
 }
 
 func openScreenshotFile(path string) (*os.File, *os.Root, error) {
@@ -117,7 +119,7 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	return b.grab(ctx, rect)
 }
 
-func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Rectangle) (img image.Image, retErr error) {
 	if err := validateGnomeCaptureRect(rect); err != nil {
 		return nil, err
 	}
@@ -130,7 +132,11 @@ func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Recta
 		_ = os.Remove(path)
 		return nil, fmt.Errorf("screen/gnome-shell: close temp file: %w", closeErr)
 	}
-	defer removeScreenshotIfOwned(path, path)
+	defer func() {
+		if err := removeScreenshotIfOwned(path, path); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove transport: %w", err))
+		}
+	}()
 
 	var success bool
 	var used string
@@ -164,17 +170,27 @@ func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Recta
 	if used == "" {
 		used = path
 	} else if used != path {
-		defer os.Remove(used)
+		defer func() {
+			if err := os.Remove(used); err != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove compositor transport: %w", err))
+			}
+		}()
 	}
 
 	f, root, err := openScreenshotFile(used)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: open %s: %w", used, err)
 	}
-	defer root.Close()
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: close screenshot: %w", err))
+		}
+		if err := root.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: close screenshot root: %w", err))
+		}
+	}()
 
-	img, err := png.Decode(f)
+	img, err = png.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: decode PNG: %w", err)
 	}
