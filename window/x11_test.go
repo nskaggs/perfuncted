@@ -612,6 +612,25 @@ func TestX11Backend_windowState_Maximized(t *testing.T) {
 	}
 }
 
+func TestX11Backend_windowState_OneMaximizedAxisIsNotFullyMaximized(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			atomBytes := make([]byte, 4)
+			atomBytes[0] = byte(b.atomNetWMStateMaximizedVert)
+			atomBytes[1] = byte(b.atomNetWMStateMaximizedVert >> 8)
+			atomBytes[2] = byte(b.atomNetWMStateMaximizedVert >> 16)
+			atomBytes[3] = byte(b.atomNetWMStateMaximizedVert >> 24)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	_, maximized, _ := b.windowState(50)
+	if maximized {
+		t.Fatal("windowState() reported a one-axis maximize as fully maximized")
+	}
+}
+
 func TestX11Backend_windowState_Fullscreen(t *testing.T) {
 	b, conn := newStubX11Backend(t, false, "")
 	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {

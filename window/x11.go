@@ -100,18 +100,22 @@ func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized, fulls
 	if err != nil || rep.Format != 32 {
 		return
 	}
+	var maximizedVert, maximizedHorz bool
 	for i := 0; i+3 < len(rep.Value); i += 4 {
 		a := xproto.Atom(uint32(rep.Value[i]) | uint32(rep.Value[i+1])<<8 |
 			uint32(rep.Value[i+2])<<16 | uint32(rep.Value[i+3])<<24)
 		switch a {
 		case b.atomNetWMStateHidden:
 			minimized = true
-		case b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz:
-			maximized = true
+		case b.atomNetWMStateMaximizedVert:
+			maximizedVert = true
+		case b.atomNetWMStateMaximizedHorz:
+			maximizedHorz = true
 		case b.atomNetWMStateFullscreen:
 			fullscreen = true
 		}
 	}
+	maximized = maximizedVert && maximizedHorz
 	return
 }
 
