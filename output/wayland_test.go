@@ -22,6 +22,30 @@ func wlStringData(s string) []byte {
 	return out
 }
 
+func TestWaylandLister_DoesNotKeepOutputAfterXDGBindFailure(t *testing.T) {
+	waylandCtx := &wl.Context{}
+	registry := &wl.Registry{}
+	waylandCtx.Register(registry)
+	manager := &wl.RawProxy{}
+	waylandCtx.Register(manager)
+	lister := &WaylandLister{
+		session:    &wl.Session{Ctx: waylandCtx, Registry: registry},
+		xdgManager: manager,
+	}
+	added := []*waylandOutput{newWaylandOutput(wl.GlobalEvent{Name: 7, Interface: "wl_output", Version: 4})}
+	desired := map[uint32]wl.GlobalEvent{7: {Name: 7, Interface: "wl_output", Version: 4}}
+
+	errs := lister.bindAddedOutputsWith(context.Background(), added, desired, func(context.Context, *waylandOutput) error {
+		return errors.New("simulated xdg bind failure")
+	})
+	if len(errs) == 0 {
+		t.Fatal("bindAddedOutputs returned no error after simulated xdg bind failure")
+	}
+	if len(lister.outputs) != 0 {
+		t.Fatalf("outputs after xdg bind failure = %d, want 0", len(lister.outputs))
+	}
+}
+
 func TestWaylandListerListCancelsBlockedRoundTrip(t *testing.T) {
 	sock := t.TempDir() + "/wayland.sock"
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})

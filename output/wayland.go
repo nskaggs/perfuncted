@@ -471,6 +471,10 @@ func (l *WaylandLister) topologyChanges(globals []wl.GlobalEvent) (map[uint32]wl
 }
 
 func (l *WaylandLister) bindAddedOutputs(ctx context.Context, added []*waylandOutput, desired map[uint32]wl.GlobalEvent) []error {
+	return l.bindAddedOutputsWith(ctx, added, desired, l.bindXDGOutput)
+}
+
+func (l *WaylandLister) bindAddedOutputsWith(ctx context.Context, added []*waylandOutput, desired map[uint32]wl.GlobalEvent, bindXDGOutput func(context.Context, *waylandOutput) error) []error {
 	var errs []error
 	for _, out := range added {
 		if err := l.bindOutput(ctx, out, desired[out.globalID]); err != nil {
@@ -478,8 +482,12 @@ func (l *WaylandLister) bindAddedOutputs(ctx context.Context, added []*waylandOu
 			continue
 		}
 		if l.xdgManager != nil {
-			if err := l.bindXDGOutput(ctx, out); err != nil {
+			if err := bindXDGOutput(ctx, out); err != nil {
 				errs = append(errs, err)
+				if cleanupErr := l.releaseOutput(ctx, out); cleanupErr != nil && !errors.Is(cleanupErr, net.ErrClosed) {
+					errs = append(errs, cleanupErr)
+				}
+				continue
 			}
 		}
 		l.outputsMu.Lock()
