@@ -1596,3 +1596,18 @@ func TestInputMoveReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("input move error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestFindWaitForReportsShortOutputWrite(t *testing.T) {
+	frame := pftest.SolidImage(1, 1, color.RGBA{A: 255})
+	want := find.PixelHash(frame, nil)
+	out := &shortOutputWriter{max: 1}
+	cmd := findCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(&pftest.Screenshotter{Frames: []image.Image{frame}}, nil, nil, nil), nil
+	})
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"wait-for", "--rect", "0,0,1,1", "--hash", fmt.Sprintf("%08x", want)})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("find wait-for error = %v, want io.ErrShortWrite", err)
+	}
+}

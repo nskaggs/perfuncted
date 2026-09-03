@@ -48,8 +48,7 @@ func findCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", h)
 		},
 	}
 	waitFor.Flags().StringVar(&waitForRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -98,8 +97,7 @@ func findCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", h)
 		},
 	}
 	waitForChange.Flags().StringVar(&waitForChangeRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -149,8 +147,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", h)
 		},
 	}
 	waitForNoChange.Flags().StringVar(&waitForNoChangeRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -198,8 +195,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "match %v -> %08x\n", res.Rect, res.Hash)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "match %v -> %08x\n", res.Rect, res.Hash)
 		},
 	}
 	scanFor.Flags().StringVar(&scanForRectsFlag, "rects", "", "semicolon-separated rects: x0,y0,x1,y1;...")
@@ -257,8 +253,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 					return err
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", h)
 		},
 	}
 	waitForVisibleChange.Flags().StringVar(&vfRect, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -290,8 +285,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%d,%d\n", pt.X, pt.Y)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%d,%d\n", pt.X, pt.Y)
 		},
 	}
 	findColor.Flags().StringVar(&colorRectFlag, "rect", "0,0,1920,1080", "search area x0,y0,x1,y1")
