@@ -120,10 +120,29 @@ func (t *kwinDBusTransport) CaptureArea(ctx context.Context, rect image.Rectangl
 	if rect.Empty() {
 		return nil, fmt.Errorf("screen/kwin: empty rectangle")
 	}
+	if err := validateKWinRect(rect); err != nil {
+		return nil, err
+	}
 	return t.capture(ctx, kwinShotIface+".CaptureArea", rect,
 		int32(rect.Min.X), int32(rect.Min.Y),
 		uint32(rect.Dx()), uint32(rect.Dy()),
 	)
+}
+
+func validateKWinRect(rect image.Rectangle) error {
+	if rect.Min.X < -1<<31 || rect.Min.X > 1<<31-1 {
+		return fmt.Errorf("screen/kwin: rectangle x origin %d does not fit int32", rect.Min.X)
+	}
+	if rect.Min.Y < -1<<31 || rect.Min.Y > 1<<31-1 {
+		return fmt.Errorf("screen/kwin: rectangle y origin %d does not fit int32", rect.Min.Y)
+	}
+	if rect.Max.X <= rect.Min.X || int64(rect.Max.X) > int64(rect.Min.X)+int64(^uint32(0)) {
+		return fmt.Errorf("screen/kwin: rectangle width does not fit uint32")
+	}
+	if rect.Max.Y <= rect.Min.Y || int64(rect.Max.Y) > int64(rect.Min.Y)+int64(^uint32(0)) {
+		return fmt.Errorf("screen/kwin: rectangle height does not fit uint32")
+	}
+	return nil
 }
 
 func (t *kwinDBusTransport) CaptureActiveScreen(ctx context.Context) (image.Image, error) {

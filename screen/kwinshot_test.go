@@ -90,6 +90,28 @@ func TestKWinShotBackend_GrabUsesAreaForNonEmptyRect(t *testing.T) {
 	}
 }
 
+func TestValidateKWinRect(t *testing.T) {
+	tests := []struct {
+		name string
+		rect image.Rectangle
+		want bool
+	}{
+		{name: "valid negative origin", rect: image.Rect(-100, -50, 900, 650), want: true},
+		{name: "x origin overflows int32", rect: image.Rect(1<<31, 0, 1<<31+1, 1), want: false},
+		{name: "y origin underflows int32", rect: image.Rect(0, -1<<31-1, 1, -1<<31), want: false},
+		{name: "width overflows uint32", rect: image.Rectangle{Min: image.Point{X: 0, Y: 0}, Max: image.Point{X: 1 << 32, Y: 1}}, want: false},
+		{name: "height overflows uint32", rect: image.Rectangle{Min: image.Point{X: 0, Y: 0}, Max: image.Point{X: 1, Y: 1 << 32}}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateKWinRect(tt.rect)
+			if (err == nil) != tt.want {
+				t.Fatalf("validateKWinRect(%v) error = %v, want valid=%v", tt.rect, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestKWinShotBackend_GrabFullHashUsesActiveScreen(t *testing.T) {
 	active := solidRGBAForKWin(color.RGBA{R: 1, G: 2, B: 3, A: 255}, 2, 2)
 	transport := &fakeKWinTransport{active: active}
