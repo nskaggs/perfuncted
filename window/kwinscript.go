@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"log/slog"
 	"math"
 	"os"
 	"strconv"
@@ -114,7 +113,7 @@ func writeKWinScript(buildJS func(svc string) string, svc string) (string, error
 //	callDBus(svc, '/', svc, 'ReportWindows', <result string>);
 //
 // where svc is the value passed to buildJS.
-func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc string) string) (string, error) {
+func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc string) string) (result string, resultErr error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -133,20 +132,32 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		return "", fmt.Errorf("window/kwinscript: D-Bus name %s already taken", svc)
 	}
-	defer k.conn.ReleaseName(svc) //nolint:errcheck
+	defer func() {
+		if _, err := k.conn.ReleaseName(svc); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("window/kwinscript: release D-Bus name: %w", err))
+		}
+	}()
 
 	recv := &pfReceiver{ch: make(chan string, 1)}
 	err := k.conn.Export(recv, "/", svc)
 	if err != nil {
 		return "", fmt.Errorf("window/kwinscript: Export: %w", err)
 	}
-	defer k.conn.Export(nil, "/", svc) //nolint:errcheck
+	defer func() {
+		if err := k.conn.Export(nil, "/", svc); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("window/kwinscript: unexport callback: %w", err))
+		}
+	}()
 
 	scriptPath, err := writeKWinScript(buildJS, svc)
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(scriptPath)
+	defer func() {
+		if err := os.Remove(scriptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("window/kwinscript: remove temp script: %w", err))
+		}
+	}()
 
 	scr := k.conn.Object(kwinScriptSvc, kwinScriptPath)
 	// loadScript registers the script inside KWin's scripting engine for the
@@ -167,7 +178,7 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 		unloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
 		if err := scr.CallWithContext(unloadCtx, kwinScriptIface+".unloadScript", 0, plugin).Err; err != nil {
-			slog.Debug("window/kwinscript: unloadScript failed", "plugin", plugin, "scriptID", scriptID, "error", err)
+			resultErr = errors.Join(resultErr, fmt.Errorf("window/kwinscript: unloadScript %d: %w", scriptID, err))
 		}
 	}()
 	// start() triggers the scripting engine to execute loaded scripts.
