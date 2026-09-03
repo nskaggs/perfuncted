@@ -563,6 +563,17 @@ func TestDecodeWaylandStringRejectsOversizedLength(t *testing.T) {
 	}
 }
 
+func TestDecodeWaylandStringRejectsMissingTerminator(t *testing.T) {
+	data := []byte{3, 0, 0, 0, 'a', 'b', 'c'}
+	if got := decodeWaylandString(data); got != "" {
+		t.Fatalf("decodeWaylandString unterminated value = %q, want empty", got)
+	}
+
+	if got := decodeWaylandString(encodeWaylandTestString("title")); got != "title" {
+		t.Fatalf("decodeWaylandString valid value = %q, want title", got)
+	}
+}
+
 func TestWaylandWindowManager_ListIsDeterministicWithStableIDTies(t *testing.T) {
 	wm, _, _ := newStubWaylandManager("", true, false)
 	wm.toplevels = map[uint32]*Info{

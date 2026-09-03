@@ -81,18 +81,10 @@ func (m *WaylandWindowManager) canFullscreenToplevels() bool {
 }
 
 func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
-	if len(data) < 4 {
+	value, ok := parseWaylandString(data)
+	if !ok {
 		return false
 	}
-	slen := uint64(wl.Uint32(data[0:4]))
-	if slen == 0 || slen > uint64(len(data)-4) {
-		return false
-	}
-	end := 4 + int(slen)
-	if data[end-1] != 0 {
-		return false
-	}
-	value := strings.TrimRight(string(data[4:end]), "\x00")
 	switch opcode {
 	case 0:
 		info.Title = value
@@ -291,14 +283,23 @@ func (m *WaylandWindowManager) handleExtToplevelEvent(
 }
 
 func decodeWaylandString(data []byte) string {
+	value, _ := parseWaylandString(data)
+	return value
+}
+
+func parseWaylandString(data []byte) (string, bool) {
 	if len(data) < 4 {
-		return ""
+		return "", false
 	}
 	length := uint64(wl.Uint32(data[:4]))
-	if length > uint64(len(data)-4) {
-		return ""
+	if length == 0 || length > uint64(len(data)-4) {
+		return "", false
 	}
-	return strings.TrimRight(string(data[4:4+int(length)]), "\x00")
+	end := 4 + int(length)
+	if data[end-1] != 0 {
+		return "", false
+	}
+	return strings.TrimRight(string(data[4:end]), "\x00"), true
 }
 
 func (m *WaylandWindowManager) notifyWindowChange() {
