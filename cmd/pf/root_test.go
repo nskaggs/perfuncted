@@ -1626,3 +1626,17 @@ func TestOutputListPlainReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("output list error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestRunInputLocationReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := runCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(nil, &pftest.Inputter{}, nil, nil), nil
+	}, nil)
+	cmd.SetIn(strings.NewReader("input location\n"))
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"-"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("run input location error = %v, want io.ErrShortWrite", err)
+	}
+}

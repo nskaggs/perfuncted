@@ -257,15 +257,13 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		printWindowListPlain(s.out, wins)
-		return nil
+		return printWindowListPlain(s.out, wins)
 	case "active":
 		t, err := s.pf.Windows.ActiveTitle(s.ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(s.out, t)
-		return nil
+		return writeCLIMessage(s.out, t)
 	case "activate", "close", "minimize", "maximize", "fullscreen", "unfullscreen", "restore":
 		target, err := s.windowTarget(toks[1:])
 		if err != nil {
@@ -494,8 +492,7 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(s.out, "%d,%d\n", x, y)
-		return nil
+		return writeCLIOutput(s.out, "%d,%d\n", x, y)
 	default:
 		return fmt.Errorf("script line %d: unsupported input subcommand %q", lineNo, toks[0])
 	}
@@ -563,8 +560,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(s.out, "%08x\n", h)
-		return nil
+		return writeCLIOutput(s.out, "%08x\n", h)
 	default:
 		return fmt.Errorf("script line %d: unsupported screen subcommand %q", lineNo, toks[0])
 	}
@@ -579,7 +575,9 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 		return err
 	}
 	for _, o := range wins {
-		fmt.Fprintf(s.out, "%s\t%s\t%d,%d,%d,%d\tscale=%s\tresolution=%dx%d\n", o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, outputScaleString(o), o.ResolutionW, o.ResolutionH)
+		if err := writeCLIOutput(s.out, "%s\t%s\t%d,%d,%d,%d\tscale=%s\tresolution=%dx%d\n", o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, outputScaleString(o), o.ResolutionW, o.ResolutionH); err != nil {
+			return err
+		}
 	}
 	return nil
 }
