@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -26,6 +28,16 @@ type cliConfig struct {
 type sessionOpener func(context.Context) (*perfuncted.Session, error)
 
 type cliOpenFactory func(*cliConfig) sessionOpener
+
+func writeCLIOutput(w io.Writer, format string, args ...any) error {
+	_, err := fmt.Fprintf(w, format, args...)
+	return err
+}
+
+func writeCLIMessage(w io.Writer, args ...any) error {
+	_, err := fmt.Fprintln(w, args...)
+	return err
+}
 
 func defaultOpenPFFactory(cfg *cliConfig) sessionOpener {
 	return func(ctx context.Context) (*perfuncted.Session, error) {

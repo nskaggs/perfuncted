@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -46,8 +47,7 @@ func screenCmd(
 			if err := pf.Screen.CaptureRegion(cmd.Context(), r, out); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), out)
-			return nil
+			return writeCLIMessage(cmd.OutOrStdout(), out)
 		},
 	}
 	grab.Flags().StringVar(&grabRectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
@@ -72,8 +72,7 @@ func screenCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", h)
 		},
 	}
 	checksum.Flags().StringVar(&checksumRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -93,8 +92,7 @@ func screenCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "R=%d G=%d B=%d\n", c.R, c.G, c.B)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "R=%d G=%d B=%d\n", c.R, c.G, c.B)
 		},
 	}
 	pixel.Flags().IntVar(&px, "x", 0, "x coordinate")
@@ -155,12 +153,13 @@ Otherwise, it is saved to the specified file.`,
 			if err != nil {
 				return err
 			}
-			defer f.Close()
 			if err := png.Encode(f, img); err != nil {
-				return err
+				return errors.Join(err, f.Close())
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), grabRegionOut)
-			return nil
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("close output: %w", err)
+			}
+			return writeCLIMessage(cmd.ErrOrStderr(), grabRegionOut)
 		},
 	}
 	grabRegion.Flags().StringVar(&grabRegionRect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
@@ -240,7 +239,9 @@ Runs until --duration expires or Ctrl+C.`,
 							return err
 						}
 					} else {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s  0x%08x  (initial)\n", ts, h)
+						if err := writeCLIOutput(cmd.OutOrStdout(), "%s  0x%08x  (initial)\n", ts, h); err != nil {
+							return err
+						}
 					}
 					last = h
 					first = false
@@ -252,7 +253,9 @@ Runs until --duration expires or Ctrl+C.`,
 							return err
 						}
 					} else {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s  0x%08x  (+%s after %d stable)\n", ts, h, elapsed.Round(time.Millisecond), streak)
+						if err := writeCLIOutput(cmd.OutOrStdout(), "%s  0x%08x  (+%s after %d stable)\n", ts, h, elapsed.Round(time.Millisecond), streak); err != nil {
+							return err
+						}
 					}
 					last = h
 					start = time.Now()
@@ -289,8 +292,7 @@ Runs until --duration expires or Ctrl+C.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%dx%d\n", w, h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%dx%d\n", w, h)
 		},
 	}
 
@@ -332,8 +334,7 @@ check than a raw hash comparison.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", find.PixelHash(img, nil))
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", find.PixelHash(img, nil))
 		},
 	}
 	waitForFn.Flags().StringVar(&waitFnRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -377,8 +378,7 @@ uses a no-op action so it still works as a pure readiness probe.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%08x\n", h)
 		},
 	}
 	waitForSettle.Flags().StringVar(&settleRectFlag, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -427,7 +427,9 @@ plain format for quick interactive checks.`,
 			switch strings.ToLower(strings.TrimSpace(multiOutputFlag)) {
 			case "", "plain":
 				for _, s := range out {
-					fmt.Fprintf(cmd.OutOrStdout(), "%d,%d R=%d G=%d B=%d A=%d\n", s.X, s.Y, s.R, s.G, s.B, s.A)
+					if err := writeCLIOutput(cmd.OutOrStdout(), "%d,%d R=%d G=%d B=%d A=%d\n", s.X, s.Y, s.R, s.G, s.B, s.A); err != nil {
+						return err
+					}
 				}
 			case "json":
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(out)

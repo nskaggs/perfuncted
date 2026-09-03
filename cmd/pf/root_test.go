@@ -1542,3 +1542,16 @@ func TestGeneratedHashReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("generated hash error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestScreenHashReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := screenCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(&pftest.Screenshotter{Width: 2, Height: 1}, nil, nil, nil), nil
+	})
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"hash"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("screen hash error = %v, want io.ErrShortWrite", err)
+	}
+}
