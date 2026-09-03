@@ -1627,6 +1627,16 @@ func TestOutputListPlainReportsShortOutputWrite(t *testing.T) {
 	}
 }
 
+func TestVersionReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := versionCmd()
+	cmd.SetOut(out)
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("version error = %v, want io.ErrShortWrite", err)
+	}
+}
+
 func TestRunInputLocationReportsShortOutputWrite(t *testing.T) {
 	out := &shortOutputWriter{max: 1}
 	cmd := runCmd(func(context.Context) (*perfuncted.Session, error) {

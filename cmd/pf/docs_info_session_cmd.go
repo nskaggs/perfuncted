@@ -28,8 +28,7 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 			if err := doc.GenMarkdownTree(root, dirFlag); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Documentation generated in %s\n", dirFlag)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "Documentation generated in %s\n", dirFlag)
 		},
 	}
 	cmd.Flags().StringVarP(&dirFlag, "dir", "d", "./docs-cli", "directory to write markdown files")
@@ -43,11 +42,18 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "pf %s\n", version)
-			fmt.Fprintf(cmd.OutOrStdout(), "  commit:  %s\n", commit)
-			fmt.Fprintf(cmd.OutOrStdout(), "  date:    %s\n", date)
-			fmt.Fprintf(cmd.OutOrStdout(), "  builtBy: %s\n", builtBy)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			out := cmd.OutOrStdout()
+			if err := writeCLIOutput(out, "pf %s\n", version); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(out, "  commit:  %s\n", commit); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(out, "  date:    %s\n", date); err != nil {
+				return err
+			}
+			return writeCLIOutput(out, "  builtBy: %s\n", builtBy)
 		},
 	}
 }
@@ -80,9 +86,15 @@ func infoCmd(
 			}
 			out := cmd.OutOrStdout()
 
-			fmt.Fprintln(out, "── Environment ────────────────────────────────────")
-			fmt.Fprintf(out, "  Target:           %s\n", report.Target)
-			fmt.Fprintf(out, "  Compositor:       %s\n", report.Compositor)
+			if err := writeCLIMessage(out, "── Environment ────────────────────────────────────"); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(out, "  Target:           %s\n", report.Target); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(out, "  Compositor:       %s\n", report.Compositor); err != nil {
+				return err
+			}
 			for _, key := range []string{
 				"WAYLAND_DISPLAY",
 				"DISPLAY",
@@ -90,29 +102,39 @@ func infoCmd(
 				"XDG_RUNTIME_DIR",
 			} {
 				if value := report.Environment[key]; value != "" {
-					fmt.Fprintf(out, "  %-18s %s\n", key+":", value)
+					if err := writeCLIOutput(out, "  %-18s %s\n", key+":", value); err != nil {
+						return err
+					}
 				}
 			}
 
-			fmt.Fprintln(out, "\n── Capabilities ────────────────────────────────────")
+			if err := writeCLIMessage(out, "\n── Capabilities ────────────────────────────────────"); err != nil {
+				return err
+			}
 			for _, status := range session.Capabilities() {
 				entry := report.Capabilities[string(status.Capability)]
 				marker := "[ ]"
 				if entry.Supported {
 					marker = "[✓]"
 				}
-				fmt.Fprintf(
+				if err := writeCLIOutput(
 					out,
 					"  %s %-10s backend=%s operations=%s",
 					marker,
 					status.Capability,
 					entry.Backend,
 					strings.Join(entry.Operations, ","),
-				)
-				if entry.Reason != "" {
-					fmt.Fprintf(out, " failure=%s", entry.Reason)
+				); err != nil {
+					return err
 				}
-				fmt.Fprintln(out)
+				if entry.Reason != "" {
+					if err := writeCLIOutput(out, " failure=%s", entry.Reason); err != nil {
+						return err
+					}
+				}
+				if err := writeCLIMessage(out); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -139,13 +161,19 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 		Use:   "type",
 		Short: "Print whether the current session is nested or host",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, _ []string) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			detection := perfuncted.DetectSession()
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "session: %s\n", detection.Kind)
-			fmt.Fprintf(out, "  xdg_runtime_dir: %s\n", diagnosticValue(detection.XDGRuntimeDir))
-			fmt.Fprintf(out, "  wayland_display: %s\n", detection.WaylandDisplay)
-			fmt.Fprintf(out, "  dbus_address: %s\n", diagnosticValue(detection.DBusAddress))
+			if err := writeCLIOutput(out, "session: %s\n", detection.Kind); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(out, "  xdg_runtime_dir: %s\n", diagnosticValue(detection.XDGRuntimeDir)); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(out, "  wayland_display: %s\n", detection.WaylandDisplay); err != nil {
+				return err
+			}
+			return writeCLIOutput(out, "  dbus_address: %s\n", diagnosticValue(detection.DBusAddress))
 		},
 	}
 
@@ -153,49 +181,75 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 		Use:   "check",
 		Short: "Check if the current runtime environment is ready for automation",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, _ []string) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, "── Environment Variable Checks ──────────────────")
+			if err := writeCLIMessage(out, "── Environment Variable Checks ──────────────────"); err != nil {
+				return err
+			}
 
 			xdg := os.Getenv("XDG_RUNTIME_DIR")
 			if xdg == "" {
-				fmt.Fprintln(out, "  [✗] XDG_RUNTIME_DIR is not set")
+				if err := writeCLIMessage(out, "  [✗] XDG_RUNTIME_DIR is not set"); err != nil {
+					return err
+				}
 			} else if info, err := os.Stat(xdg); err == nil && info.IsDir() {
-				fmt.Fprintln(out, "  [✓] XDG_RUNTIME_DIR=<set>")
+				if err := writeCLIMessage(out, "  [✓] XDG_RUNTIME_DIR=<set>"); err != nil {
+					return err
+				}
 			} else {
-				fmt.Fprintln(out, "  [✗] XDG_RUNTIME_DIR=<set> (not found)")
+				if err := writeCLIMessage(out, "  [✗] XDG_RUNTIME_DIR=<set> (not found)"); err != nil {
+					return err
+				}
 			}
 
 			wd := os.Getenv("WAYLAND_DISPLAY")
 			if wd == "" {
-				fmt.Fprintln(out, "  [✗] WAYLAND_DISPLAY is not set")
+				if err := writeCLIMessage(out, "  [✗] WAYLAND_DISPLAY is not set"); err != nil {
+					return err
+				}
 			} else {
 				sock := wl.ResolveSocketPath(wd, xdg)
 				if sock == "" {
-					fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket unresolved without XDG_RUNTIME_DIR)\n", wd)
+					if err := writeCLIOutput(out, "  [✗] WAYLAND_DISPLAY=%s (socket unresolved without XDG_RUNTIME_DIR)\n", wd); err != nil {
+						return err
+					}
 				} else {
 					if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
-						fmt.Fprintf(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd)
+						if err := writeCLIOutput(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd); err != nil {
+							return err
+						}
 					} else {
-						fmt.Fprintf(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing)\n", wd)
+						if err := writeCLIOutput(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing)\n", wd); err != nil {
+							return err
+						}
 					}
 				}
 			}
 
 			if addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); addr != "" {
-				fmt.Fprintln(out, "  [✓] DBUS_SESSION_BUS_ADDRESS=<set>")
+				if err := writeCLIMessage(out, "  [✓] DBUS_SESSION_BUS_ADDRESS=<set>"); err != nil {
+					return err
+				}
 			} else {
-				fmt.Fprintln(out, "  [✗] DBUS_SESSION_BUS_ADDRESS is not set")
+				if err := writeCLIMessage(out, "  [✗] DBUS_SESSION_BUS_ADDRESS is not set"); err != nil {
+					return err
+				}
 			}
 
-			fmt.Fprintln(out, "\n── System Resource Checks ────────────────────────")
+			if err := writeCLIMessage(out, "\n── System Resource Checks ────────────────────────"); err != nil {
+				return err
+			}
 			if info, err := os.Stat("/dev/uinput"); err == nil {
-				fmt.Fprintf(out, "  [✓] /dev/uinput accessible (mode %v)\n", info.Mode())
+				if err := writeCLIOutput(out, "  [✓] /dev/uinput accessible (mode %v)\n", info.Mode()); err != nil {
+					return err
+				}
 			} else {
-				fmt.Fprintf(out, "  [✗] /dev/uinput not accessible: %v\n", err)
+				if err := writeCLIOutput(out, "  [✗] /dev/uinput not accessible: %v\n", err); err != nil {
+					return err
+				}
 			}
 
-			fmt.Fprintln(out, "\n  Run `pf info` for the full backend capability matrix.")
+			return writeCLIMessage(out, "\n  Run `pf info` for the full backend capability matrix.")
 		},
 	}
 
@@ -231,36 +285,47 @@ Use the printed env vars in another terminal to connect:
 			defer session.Close()
 			runtime := diagnostic.EnvironmentMap(session.Env())
 
-			fmt.Fprintf(
+			if err := writeCLIOutput(
 				cmd.OutOrStdout(),
 				"export XDG_RUNTIME_DIR=%s\n",
 				runtime["XDG_RUNTIME_DIR"],
-			)
-			fmt.Fprintf(
+			); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(
 				cmd.OutOrStdout(),
 				"export WAYLAND_DISPLAY=%s\n",
 				runtime["WAYLAND_DISPLAY"],
-			)
-			fmt.Fprintf(
+			); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(
 				cmd.OutOrStdout(),
 				"export DBUS_SESSION_BUS_ADDRESS=%s\n",
 				runtime["DBUS_SESSION_BUS_ADDRESS"],
-			)
-			fmt.Fprintf(
+			); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(
 				cmd.ErrOrStderr(),
 				"session: running (XDG=%s)\n",
 				runtime["XDG_RUNTIME_DIR"],
-			)
-			fmt.Fprintln(cmd.ErrOrStderr(), "session: press Ctrl+C to stop")
+			); err != nil {
+				return err
+			}
+			if err := writeCLIMessage(cmd.ErrOrStderr(), "session: press Ctrl+C to stop"); err != nil {
+				return err
+			}
 
 			<-cmd.Context().Done()
 
-			fmt.Fprintln(cmd.ErrOrStderr(), "\nsession: stopping...")
+			if err := writeCLIMessage(cmd.ErrOrStderr(), "\nsession: stopping..."); err != nil {
+				return err
+			}
 			if err := session.Close(); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), "session: stopped")
-			return nil
+			return writeCLIMessage(cmd.ErrOrStderr(), "session: stopped")
 		},
 	}
 	startCmd.Flags().IntVar(&startResX, "res-x", 1024, "horizontal resolution")
@@ -283,8 +348,7 @@ governs malformed owner metadata.`,
 				return fmt.Errorf("--max-age must be at least %s", minimumCleanupAge)
 			}
 			cleanStaleSessions(cleanupMaxAge)
-			fmt.Fprintf(cmd.OutOrStdout(), "stale session cleanup pass completed (max age %s)\n", cleanupMaxAge)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "stale session cleanup pass completed (max age %s)\n", cleanupMaxAge)
 		},
 	}
 	cleanupCmd.Flags().DurationVar(&cleanupMaxAge, "max-age", 24*time.Hour, "age threshold for malformed owner metadata (minimum 5m)")
