@@ -165,14 +165,21 @@ func sessionCmd() *cobra.Command {
 }
 
 func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Command {
-	const minimumCleanupAge = 5 * time.Minute
-
 	cmd := &cobra.Command{
 		Use:   "session",
 		Short: "Session diagnostics and utilities",
 	}
+	cmd.AddCommand(
+		sessionTypeCmd(),
+		sessionCheckCmd(),
+		sessionStartCmd(),
+		sessionCleanupCmd(cleanStaleSessions),
+	)
+	return cmd
+}
 
-	typeCmd := &cobra.Command{
+func sessionTypeCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "type",
 		Short: "Print whether the current session is nested or host",
 		Args:  cobra.NoArgs,
@@ -191,86 +198,91 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 			return writeCLIOutput(out, "  dbus_address: %s\n", diagnosticValue(detection.DBusAddress))
 		},
 	}
+}
 
-	check := &cobra.Command{
+func sessionCheckCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "check",
 		Short: "Check if the current runtime environment is ready for automation",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out := cmd.OutOrStdout()
-			if err := writeCLIMessage(out, "── Environment Variable Checks ──────────────────"); err != nil {
-				return err
-			}
-
-			xdg := os.Getenv("XDG_RUNTIME_DIR")
-			if xdg == "" {
-				if err := writeCLIMessage(out, "  [✗] XDG_RUNTIME_DIR is not set"); err != nil {
-					return err
-				}
-			} else if info, err := os.Stat(xdg); err == nil && info.IsDir() {
-				if err := writeCLIMessage(out, "  [✓] XDG_RUNTIME_DIR=<set>"); err != nil {
-					return err
-				}
-			} else {
-				if err := writeCLIMessage(out, "  [✗] XDG_RUNTIME_DIR=<set> (not found)"); err != nil {
-					return err
-				}
-			}
-
-			wd := os.Getenv("WAYLAND_DISPLAY")
-			if wd == "" {
-				if err := writeCLIMessage(out, "  [✗] WAYLAND_DISPLAY is not set"); err != nil {
-					return err
-				}
-			} else {
-				sock := wl.ResolveSocketPath(wd, xdg)
-				if sock == "" {
-					if err := writeCLIOutput(out, "  [✗] WAYLAND_DISPLAY=%s (socket unresolved without XDG_RUNTIME_DIR)\n", wd); err != nil {
-						return err
-					}
-				} else {
-					if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
-						if err := writeCLIOutput(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", wd); err != nil {
-							return err
-						}
-					} else {
-						if err := writeCLIOutput(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing)\n", wd); err != nil {
-							return err
-						}
-					}
-				}
-			}
-
-			if addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); addr != "" {
-				if err := writeCLIMessage(out, "  [✓] DBUS_SESSION_BUS_ADDRESS=<set>"); err != nil {
-					return err
-				}
-			} else {
-				if err := writeCLIMessage(out, "  [✗] DBUS_SESSION_BUS_ADDRESS is not set"); err != nil {
-					return err
-				}
-			}
-
-			if err := writeCLIMessage(out, "\n── System Resource Checks ────────────────────────"); err != nil {
-				return err
-			}
-			if info, statErr := os.Stat("/dev/uinput"); statErr == nil {
-				if err := writeCLIOutput(out, "  [✓] /dev/uinput accessible (mode %v)\n", info.Mode()); err != nil {
-					return err
-				}
-			} else {
-				if err := writeCLIOutput(out, "  [✗] /dev/uinput not accessible: %v\n", statErr); err != nil {
-					return err
-				}
-			}
-
-			return writeCLIMessage(out, "\n  Run `pf info` for the full backend capability matrix.")
+			return writeSessionCheck(cmd.OutOrStdout())
 		},
 	}
+}
 
+func writeSessionCheck(out io.Writer) error {
+	if err := writeCLIMessage(out, "── Environment Variable Checks ──────────────────"); err != nil {
+		return err
+	}
+	xdg := os.Getenv("XDG_RUNTIME_DIR")
+	if err := writeRuntimeDirCheck(out, xdg); err != nil {
+		return err
+	}
+
+	wd := os.Getenv("WAYLAND_DISPLAY")
+	if err := writeWaylandDisplayCheck(out, wd, xdg); err != nil {
+		return err
+	}
+
+	if err := writeDBusCheck(out, os.Getenv("DBUS_SESSION_BUS_ADDRESS")); err != nil {
+		return err
+	}
+
+	if err := writeCLIMessage(out, "\n── System Resource Checks ────────────────────────"); err != nil {
+		return err
+	}
+	return writeUinputCheck(out)
+}
+
+func writeRuntimeDirCheck(out io.Writer, runtimeDir string) error {
+	if runtimeDir == "" {
+		return writeCLIMessage(out, "  [✗] XDG_RUNTIME_DIR is not set")
+	}
+	info, err := os.Stat(runtimeDir)
+	if err == nil && info.IsDir() {
+		return writeCLIMessage(out, "  [✓] XDG_RUNTIME_DIR=<set>")
+	}
+	return writeCLIMessage(out, "  [✗] XDG_RUNTIME_DIR=<set> (not found)")
+}
+
+func writeWaylandDisplayCheck(out io.Writer, display, runtimeDir string) error {
+	if display == "" {
+		return writeCLIMessage(out, "  [✗] WAYLAND_DISPLAY is not set")
+	}
+	return writeWaylandCheck(out, display, runtimeDir)
+}
+
+func writeDBusCheck(out io.Writer, address string) error {
+	if address != "" {
+		return writeCLIMessage(out, "  [✓] DBUS_SESSION_BUS_ADDRESS=<set>")
+	}
+	return writeCLIMessage(out, "  [✗] DBUS_SESSION_BUS_ADDRESS is not set")
+}
+
+func writeUinputCheck(out io.Writer) error {
+	info, err := os.Stat("/dev/uinput")
+	if err == nil {
+		return writeCLIOutput(out, "  [✓] /dev/uinput accessible (mode %v)\n", info.Mode())
+	}
+	return writeCLIOutput(out, "  [✗] /dev/uinput not accessible: %v\n", err)
+}
+
+func writeWaylandCheck(out io.Writer, display, runtimeDir string) error {
+	sock := wl.ResolveSocketPath(display, runtimeDir)
+	if sock == "" {
+		return writeCLIOutput(out, "  [✗] WAYLAND_DISPLAY=%s (socket unresolved without XDG_RUNTIME_DIR)\n", display)
+	}
+	if info, err := os.Stat(sock); err == nil && info.Mode()&os.ModeSocket != 0 {
+		return writeCLIOutput(out, "  [✓] WAYLAND_DISPLAY=%s (socket reachable)\n", display)
+	}
+	return writeCLIOutput(out, "  [✗] WAYLAND_DISPLAY=%s (socket missing)\n", display)
+}
+
+func sessionStartCmd() *cobra.Command {
 	var startResX, startResY int
 	var startSwayConf string
-	startCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a headless sway session and print env vars",
 		Args:  cobra.NoArgs,
@@ -290,50 +302,28 @@ Use the printed env vars in another terminal to connect:
 			}
 			cfg.SwayConfigPath = startSwayConf
 
-			session, err := perfuncted.Open(
-				cmd.Context(),
-				perfuncted.WithHeadless(cfg),
-			)
+			session, err := perfuncted.Open(cmd.Context(), perfuncted.WithHeadless(cfg))
 			if err != nil {
 				return err
 			}
 			defer session.Close()
 			runtime := diagnostic.EnvironmentMap(session.Env())
-
-			if err := writeCLIOutput(
-				cmd.OutOrStdout(),
-				"export XDG_RUNTIME_DIR=%s\n",
-				runtime["XDG_RUNTIME_DIR"],
-			); err != nil {
+			if err := writeCLIOutput(cmd.OutOrStdout(), "export XDG_RUNTIME_DIR=%s\n", runtime["XDG_RUNTIME_DIR"]); err != nil {
 				return err
 			}
-			if err := writeCLIOutput(
-				cmd.OutOrStdout(),
-				"export WAYLAND_DISPLAY=%s\n",
-				runtime["WAYLAND_DISPLAY"],
-			); err != nil {
+			if err := writeCLIOutput(cmd.OutOrStdout(), "export WAYLAND_DISPLAY=%s\n", runtime["WAYLAND_DISPLAY"]); err != nil {
 				return err
 			}
-			if err := writeCLIOutput(
-				cmd.OutOrStdout(),
-				"export DBUS_SESSION_BUS_ADDRESS=%s\n",
-				runtime["DBUS_SESSION_BUS_ADDRESS"],
-			); err != nil {
+			if err := writeCLIOutput(cmd.OutOrStdout(), "export DBUS_SESSION_BUS_ADDRESS=%s\n", runtime["DBUS_SESSION_BUS_ADDRESS"]); err != nil {
 				return err
 			}
-			if err := writeCLIOutput(
-				cmd.ErrOrStderr(),
-				"session: running (XDG=%s)\n",
-				runtime["XDG_RUNTIME_DIR"],
-			); err != nil {
+			if err := writeCLIOutput(cmd.ErrOrStderr(), "session: running (XDG=%s)\n", runtime["XDG_RUNTIME_DIR"]); err != nil {
 				return err
 			}
 			if err := writeCLIMessage(cmd.ErrOrStderr(), "session: press Ctrl+C to stop"); err != nil {
 				return err
 			}
-
 			<-cmd.Context().Done()
-
 			if err := writeCLIMessage(cmd.ErrOrStderr(), "\nsession: stopping..."); err != nil {
 				return err
 			}
@@ -343,12 +333,16 @@ Use the printed env vars in another terminal to connect:
 			return writeCLIMessage(cmd.ErrOrStderr(), "session: stopped")
 		},
 	}
-	startCmd.Flags().IntVar(&startResX, "res-x", 1024, "horizontal resolution")
-	startCmd.Flags().IntVar(&startResY, "res-y", 768, "vertical resolution")
-	startCmd.Flags().StringVar(&startSwayConf, "sway-config", "", "path to custom sway config (default: embedded)")
+	cmd.Flags().IntVar(&startResX, "res-x", 1024, "horizontal resolution")
+	cmd.Flags().IntVar(&startResY, "res-y", 768, "vertical resolution")
+	cmd.Flags().StringVar(&startSwayConf, "sway-config", "", "path to custom sway config (default: embedded)")
+	return cmd
+}
 
+func sessionCleanupCmd(cleanStaleSessions func(time.Duration)) *cobra.Command {
+	const minimumCleanupAge = 5 * time.Minute
 	var cleanupMaxAge time.Duration
-	cleanupCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "Safely clean stale managed session runtimes",
 		Long: `Clean stale Perfuncted runtime directories through the library's
@@ -366,9 +360,7 @@ governs malformed owner metadata.`,
 			return writeCLIOutput(cmd.OutOrStdout(), "stale session cleanup pass completed (max age %s)\n", cleanupMaxAge)
 		},
 	}
-	cleanupCmd.Flags().DurationVar(&cleanupMaxAge, "max-age", 24*time.Hour, "age threshold for malformed owner metadata (minimum 5m)")
-
-	cmd.AddCommand(typeCmd, check, startCmd, cleanupCmd)
+	cmd.Flags().DurationVar(&cleanupMaxAge, "max-age", 24*time.Hour, "age threshold for malformed owner metadata (minimum 5m)")
 	return cmd
 }
 
