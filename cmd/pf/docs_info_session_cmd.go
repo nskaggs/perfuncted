@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
+	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
@@ -228,7 +229,7 @@ Use the printed env vars in another terminal to connect:
 				return err
 			}
 			defer session.Close()
-			runtime := environmentMap(session.Env())
+			runtime := diagnostic.EnvironmentMap(session.Env())
 
 			fmt.Fprintf(
 				cmd.OutOrStdout(),

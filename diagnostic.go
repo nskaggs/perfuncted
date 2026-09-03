@@ -15,14 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
-	"github.com/nskaggs/perfuncted/internal/env"
+	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
 )
 
 // FailureBundleOptions controls an opt-in diagnostic capture.
@@ -71,11 +67,11 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 		Operation:      options.Operation,
 		Target:         string(s.Target().Kind()),
 		Compositor:     compositor.DetectRuntime(s.env).String(),
-		Environment:    diagnosticEnvironment(s.env.EnvList()),
+		Environment:    diagnostic.Environment(s.env.EnvList()),
 		Build:          currentBuildInfo(),
 		Metadata:       copyStringMap(options.Metadata),
 		Capabilities:   diagnosticCapabilities(s.Capabilities()),
-		Probes:         diagnosticProbes(s.env), //nolint:contextcheck // probe APIs are synchronous and do not accept a context.
+		Probes:         diagnostic.Probes(s.env), //nolint:contextcheck // probe APIs are synchronous and do not accept a context.
 		ArtifactErrors: make(map[string]string),
 	}
 	if options.Error != nil {
@@ -229,32 +225,6 @@ func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability 
 	return out
 }
 
-func diagnosticProbes(rt env.Runtime) map[string][]probe.Result {
-	environment := rt.EnvList()
-	return map[string][]probe.Result{
-		"screen": redactProbeResults(screen.ProbeRuntime(rt), environment),
-		"input":  redactProbeResults(input.ProbeRuntime(rt), environment),
-		"window": redactProbeResults(window.ProbeRuntime(rt), environment),
-		"output": redactProbeResults(output.ProbeRuntime(rt), environment),
-	}
-}
-
-func redactProbeResults(results []probe.Result, environment []string) []probe.Result {
-	if len(results) == 0 {
-		return nil
-	}
-	redacted := append([]probe.Result(nil), results...)
-	values := environmentMap(environment)
-	for i := range redacted {
-		for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
-			if value := values[key]; value != "" {
-				redacted[i].Reason = strings.ReplaceAll(redacted[i].Reason, value, "<set>")
-			}
-		}
-	}
-	return redacted
-}
-
 func currentBuildInfo() diagnosticBuildInfo {
 	info := diagnosticBuildInfo{GoVersion: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH}
 	build, ok := debug.ReadBuildInfo()
@@ -274,33 +244,6 @@ func currentBuildInfo() diagnosticBuildInfo {
 		}
 	}
 	return info
-}
-
-func diagnosticEnvironment(environment []string) map[string]string {
-	all := environmentMap(environment)
-	values := make(map[string]string, 6)
-	for _, key := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE"} {
-		if value := all[key]; value != "" {
-			values[key] = value
-		}
-	}
-	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
-		if all[key] != "" {
-			values[key] = "<set>"
-		}
-	}
-	return values
-}
-
-func environmentMap(environment []string) map[string]string {
-	values := make(map[string]string, len(environment))
-	for _, entry := range environment {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok {
-			values[key] = value
-		}
-	}
-	return values
 }
 
 func writeJSON(path string, value any) error {

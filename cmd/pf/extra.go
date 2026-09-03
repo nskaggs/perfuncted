@@ -14,12 +14,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -641,15 +640,10 @@ type capabilityEntry struct {
 
 func buildInfoReport(session *perfuncted.Session) infoReport {
 	sessionEnv := session.Env()
-	envVars := diagnosticEnvironment(sessionEnv)
+	envVars := diagnostic.Environment(sessionEnv)
 	kind := compositor.Detect()
 	caps := map[string]capabilityEntry{}
-
-	screenProbes := diagnosticProbeResults(screen.Probe(), sessionEnv)
-	windowProbes := diagnosticProbeResults(window.Probe(), sessionEnv)
-	inputProbes := diagnosticProbeResults(input.Probe(), sessionEnv)
-	outputProbes := output.ProbeRuntime(env.Current())
-	outputProbes = diagnosticProbeResults(outputProbes, sessionEnv)
+	probes := diagnostic.Probes(env.Current())
 
 	for _, status := range session.Capabilities() {
 		reason := ""
@@ -666,68 +660,10 @@ func buildInfoReport(session *perfuncted.Session) infoReport {
 		}
 	}
 	return infoReport{
-		Compositor:  kind.String(),
-		Target:      string(session.Target().Kind()),
-		Environment: envVars,
-		Probes: map[string][]probe.Result{
-			"screen": screenProbes,
-			"window": windowProbes,
-			"input":  inputProbes,
-			"output": outputProbes,
-		},
+		Compositor:   kind.String(),
+		Target:       string(session.Target().Kind()),
+		Environment:  envVars,
+		Probes:       probes,
 		Capabilities: caps,
 	}
-}
-
-func diagnosticProbeResults(results []probe.Result, environment []string) []probe.Result {
-	if len(results) == 0 {
-		return nil
-	}
-	redacted := append([]probe.Result(nil), results...)
-	for i := range redacted {
-		redacted[i].Reason = redactDiagnosticText(redacted[i].Reason, environment)
-	}
-	return redacted
-}
-
-func redactDiagnosticText(text string, environment []string) string {
-	values := environmentMap(environment)
-	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
-		if value := values[key]; value != "" {
-			text = strings.ReplaceAll(text, value, "<set>")
-		}
-	}
-	return text
-}
-
-func environmentMap(environment []string) map[string]string {
-	values := make(map[string]string, len(environment))
-	for _, entry := range environment {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok {
-			values[key] = value
-		}
-	}
-	return values
-}
-
-func diagnosticEnvironment(environment []string) map[string]string {
-	all := environmentMap(environment)
-	values := make(map[string]string, 6)
-	for _, key := range []string{
-		"DISPLAY",
-		"WAYLAND_DISPLAY",
-		"XDG_CURRENT_DESKTOP",
-		"XDG_SESSION_TYPE",
-	} {
-		if value := all[key]; value != "" {
-			values[key] = value
-		}
-	}
-	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
-		if all[key] != "" {
-			values[key] = "<set>"
-		}
-	}
-	return values
 }

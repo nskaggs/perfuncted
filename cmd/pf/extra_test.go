@@ -3,6 +3,8 @@ package main
 import (
 	"reflect"
 	"testing"
+
+	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 )
 
 func TestSplitShellPreservesEmptyQuotedArgs(t *testing.T) {
@@ -56,7 +58,7 @@ func TestSplitShellPreservesEmptyQuotedArgs(t *testing.T) {
 }
 
 func TestDiagnosticEnvironmentFiltersAndRedacts(t *testing.T) {
-	got := diagnosticEnvironment([]string{
+	got := diagnostic.Environment([]string{
 		"DISPLAY=:0",
 		"WAYLAND_DISPLAY=wayland-1",
 		"XDG_CURRENT_DESKTOP=Sway",
