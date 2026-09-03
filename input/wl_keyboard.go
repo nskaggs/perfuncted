@@ -553,9 +553,8 @@ func (k *wlKeyboard) uploadKeymap(ctx context.Context, text string) error {
 	if err != nil {
 		return fmt.Errorf("keyboard shm: %w", err)
 	}
-	defer f.Close()
 	if _, err := f.WriteString(data); err != nil {
-		return fmt.Errorf("keyboard shm write: %w", err)
+		return errors.Join(fmt.Errorf("keyboard shm write: %w", err), f.Close())
 	}
 	var buf [16]byte
 	wl.PutUint32(buf[0:], k.kbd.ID())
@@ -563,7 +562,10 @@ func (k *wlKeyboard) uploadKeymap(ctx context.Context, text string) error {
 	wl.PutUint32(buf[8:], xkbFormatTextV1)
 	wl.PutUint32(buf[12:], uint32(len(data)))
 	if err := k.ctx.WriteMsgContext(ctx, buf[:], syscall.UnixRights(int(f.Fd()))); err != nil {
-		return err
+		return errors.Join(err, f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("keyboard shm close: %w", err)
 	}
 	k.lastKeymap = text
 	return nil
