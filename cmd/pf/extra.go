@@ -308,8 +308,7 @@ func (s *scriptRunner) execWindow(
 		if len(wins) == 0 {
 			return windowNotFoundError(match)
 		}
-		printWindowPlain(s.out, wins[0])
-		return nil
+		return printWindowPlain(s.out, wins[0])
 	default:
 		return fmt.Errorf("script line %d: unsupported window subcommand %q", lineNo, toks[0])
 	}

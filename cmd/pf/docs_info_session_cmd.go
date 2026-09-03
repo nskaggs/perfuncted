@@ -239,12 +239,12 @@ func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Comman
 			if err := writeCLIMessage(out, "\n── System Resource Checks ────────────────────────"); err != nil {
 				return err
 			}
-			if info, err := os.Stat("/dev/uinput"); err == nil {
+			if info, statErr := os.Stat("/dev/uinput"); statErr == nil {
 				if err := writeCLIOutput(out, "  [✓] /dev/uinput accessible (mode %v)\n", info.Mode()); err != nil {
 					return err
 				}
 			} else {
-				if err := writeCLIOutput(out, "  [✗] /dev/uinput not accessible: %v\n", err); err != nil {
+				if err := writeCLIOutput(out, "  [✗] /dev/uinput not accessible: %v\n", statErr); err != nil {
 					return err
 				}
 			}

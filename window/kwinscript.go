@@ -144,8 +144,8 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 		return "", fmt.Errorf("window/kwinscript: Export: %w", err)
 	}
 	defer func() {
-		if err := k.conn.Export(nil, "/", svc); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("window/kwinscript: unexport callback: %w", err))
+		if exportErr := k.conn.Export(nil, "/", svc); exportErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("window/kwinscript: unexport callback: %w", exportErr))
 		}
 	}()
 

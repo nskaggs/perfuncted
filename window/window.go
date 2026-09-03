@@ -149,7 +149,7 @@ func signedNumericID(id string) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if value > uint64(^uint64(0)>>1) {
+	if value > 1<<63-1 {
 		return 0, fmt.Errorf("window: numeric id %q exceeds signed 64-bit range", id)
 	}
 	return value, nil
