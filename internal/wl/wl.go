@@ -683,12 +683,21 @@ func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
 		}
 		ev := GlobalEvent{Name: Uint32(data[0:4])}
 		slen := int(Uint32(data[4:8]))
-		if slen <= 0 || 8+slen > len(data) {
+		remaining := len(data) - 8
+		if slen <= 0 || slen > remaining {
 			return
 		}
-		ev.Interface = strings.TrimRight(string(data[8:8+slen]), "\x00")
-		padded := (slen + 3) &^ 3
-		if off := 8 + padded; off+4 <= len(data) {
+		stringStart := 8
+		if data[stringStart+slen-1] != 0 {
+			return
+		}
+		extra := (4 - slen%4) % 4
+		if extra > remaining-slen {
+			return
+		}
+		ev.Interface = strings.TrimRight(string(data[stringStart:stringStart+slen]), "\x00")
+		padded := slen + extra
+		if off := stringStart + padded; off+4 <= len(data) {
 			ev.Version = Uint32(data[off : off+4])
 		}
 		r.globalHandler(ev)

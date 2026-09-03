@@ -715,6 +715,10 @@ func TestWaylandOutputEventParsingIgnoresMalformedEvents(t *testing.T) {
 	proxy.OnEvent(3, 0, []byte{1, 2, 3})
 	proxy.OnEvent(4, 0, []byte{1, 2, 3})
 	proxy.OnEvent(5, 0, []byte{1, 2, 3})
+	largeLength := make([]byte, 4)
+	wl.PutUint32(largeLength, ^uint32(0))
+	proxy.OnEvent(4, 0, largeLength)
+	proxy.OnEvent(5, 0, largeLength)
 
 	if out.info.Name != "before" {
 		t.Fatalf("name changed to %q after malformed event", out.info.Name)

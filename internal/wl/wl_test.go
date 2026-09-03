@@ -245,6 +245,20 @@ func TestRegistry_Dispatch_MalformedData(t *testing.T) {
 	if called {
 		t.Fatal("handler called on zero slen")
 	}
+
+	// A string length that cannot fit in the event must not reach indexing.
+	overflowLength := []byte{1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff}
+	r.Dispatch(0, -1, overflowLength)
+	if called {
+		t.Fatal("handler called on overflowing slen")
+	}
+
+	// Wayland strings include a terminating NUL; reject malformed strings.
+	withoutNUL := []byte{1, 0, 0, 0, 4, 0, 0, 0, 'x', 'y', 'z', 'w', 1, 0, 0, 0}
+	r.Dispatch(0, -1, withoutNUL)
+	if called {
+		t.Fatal("handler called on string without NUL terminator")
+	}
 }
 
 func TestRegistry_Dispatch_NoHandler(t *testing.T) {

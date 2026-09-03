@@ -349,23 +349,25 @@ func readWlStrings(data []byte, off int) (first, second string, ok bool) {
 }
 
 func readWlString(data []byte, off int) (string, int, bool) {
-	if off+4 > len(data) {
+	if off < 0 || off > len(data)-4 {
 		return "", off, false
 	}
 	n := int(wl.Uint32(data[off : off+4]))
 	off += 4
-	if n <= 0 || off+n > len(data) {
+	remaining := len(data) - off
+	if n <= 0 || n > remaining {
 		return "", off, false
 	}
 	end := off + n - 1
-	if end >= len(data) || data[end] != 0 {
+	if data[end] != 0 {
 		return "", off, false
 	}
 	raw := string(data[off:end])
-	padded := (n + 3) &^ 3
-	if off+padded > len(data) {
+	extra := (4 - n%4) % 4
+	if extra > remaining-n {
 		return "", off, false
 	}
+	padded := n + extra
 	return raw, off + padded, true
 }
 
