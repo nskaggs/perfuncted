@@ -103,27 +103,79 @@ func copyBGRA(dst, src []byte) {
 // returning a new image with bounds starting at (0, 0). Pixels outside the
 // source image are left as zero (transparent black).
 func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
+	if src == nil {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
 	if src.Bounds() == rect && rect.Min == (image.Point{0, 0}) {
 		return src
 	}
-	out := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
+	width, height, ok := safePixelRectDimensions(rect)
+	if !ok {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+	out := image.NewRGBA(image.Rect(0, 0, width, height))
 	r := rect.Intersect(src.Bounds())
 	if r.Empty() {
+		return out
+	}
+	if _, _, ok := safePixelRectDimensions(src.Rect); !ok || src.Stride <= 0 {
 		return out
 	}
 	// dstX/dstY: top-left offset within out for the intersected region.
 	dstX := r.Min.X - rect.Min.X
 	dstY := r.Min.Y - rect.Min.Y
-	w4 := r.Dx() * 4
+	w4, ok := safePixelRowBytes(r.Dx())
+	if !ok {
+		return out
+	}
 	for y := 0; y < r.Dy(); y++ {
-		srcOff := (r.Min.Y+y-src.Rect.Min.Y)*src.Stride + (r.Min.X-src.Rect.Min.X)*4
+		srcRow := r.Min.Y + y - src.Rect.Min.Y
+		srcCol := r.Min.X - src.Rect.Min.X
+		if srcRow < 0 || srcCol < 0 || srcRow > int(^uint(0)>>1)/src.Stride {
+			continue
+		}
+		srcOff := srcRow * src.Stride
+		if srcCol > int(^uint(0)>>1)/4 || srcOff > int(^uint(0)>>1)-srcCol*4 {
+			continue
+		}
+		srcOff += srcCol * 4
 		dstOff := (dstY+y)*out.Stride + dstX*4
-		if srcOff < 0 || srcOff+w4 > len(src.Pix) || dstOff < 0 || dstOff+w4 > len(out.Pix) {
+		if srcOff < 0 || srcOff > len(src.Pix) || w4 > len(src.Pix)-srcOff || dstOff < 0 || dstOff > len(out.Pix) || w4 > len(out.Pix)-dstOff {
 			continue
 		}
 		copy(out.Pix[dstOff:dstOff+w4], src.Pix[srcOff:srcOff+w4])
 	}
 	return out
+}
+
+func safePixelRectDimensions(rect image.Rectangle) (width, height int, ok bool) {
+	if rect.Empty() {
+		return 0, 0, true
+	}
+	width, ok = safePixelDimension(rect.Min.X, rect.Max.X)
+	if !ok {
+		return 0, 0, false
+	}
+	height, ok = safePixelDimension(rect.Min.Y, rect.Max.Y)
+	if !ok {
+		return 0, 0, false
+	}
+	rowBytes, ok := safePixelRowBytes(width)
+	if !ok || height > int(^uint(0)>>1)/rowBytes {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+func safePixelDimension(min, max int) (int, bool) {
+	if max < min {
+		return 0, false
+	}
+	distance := uint64(max) - uint64(min)
+	if distance > uint64(^uint(0)>>1) {
+		return 0, false
+	}
+	return int(distance), true
 }
 
 func cropImage(img image.Image, rect image.Rectangle) image.Image {

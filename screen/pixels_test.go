@@ -128,6 +128,21 @@ func TestCropRGBAClipsToSource(t *testing.T) {
 	}
 }
 
+func TestCropRGBARejectsOverflowingRectangles(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	src := image.NewRGBA(image.Rect(0, 0, 1, 1))
+
+	if cropped := cropRGBA(src, image.Rectangle{Max: image.Point{X: maxInt, Y: 2}}); !cropped.Bounds().Empty() {
+		t.Fatalf("cropRGBA accepted overflowing width: %v", cropped.Bounds())
+	}
+	if cropped := cropRGBA(src, image.Rectangle{Min: image.Point{X: -maxInt}, Max: image.Point{X: maxInt, Y: 1}}); !cropped.Bounds().Empty() {
+		t.Fatalf("cropRGBA accepted overflowing mixed-sign width: %v", cropped.Bounds())
+	}
+	if cropped := cropRGBA(nil, image.Rect(0, 0, 1, 1)); !cropped.Bounds().Empty() {
+		t.Fatalf("cropRGBA returned non-empty image for nil source: %v", cropped.Bounds())
+	}
+}
+
 func TestDecodeBGRARect(t *testing.T) {
 	// 3x3 image, stride=12.
 	data := make([]byte, 36)
