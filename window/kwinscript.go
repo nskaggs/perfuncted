@@ -21,6 +21,7 @@ package window
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -172,43 +173,45 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 	}
 }
 
-func parseKWinWindowList(data string) []Info {
-	var infos []Info
-	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
-		if line == "" {
-			continue
+type kwinWindowRow struct {
+	ID     string  `json:"id"`
+	Title  string  `json:"title"`
+	AppID  string  `json:"app_id"`
+	Class  string  `json:"class"`
+	PID    int32   `json:"pid"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+func parseKWinWindowList(data string) ([]Info, error) {
+	var rows []kwinWindowRow
+	if err := json.Unmarshal([]byte(data), &rows); err != nil {
+		return nil, fmt.Errorf("window/kwinscript: parse window list: %w", err)
+	}
+	infos := make([]Info, 0, len(rows))
+	for _, row := range rows {
+		if row.ID == "" {
+			return nil, fmt.Errorf("window/kwinscript: window list contains empty ID")
 		}
-		parts := strings.SplitN(line, "\t", 9)
-		var info Info
-		if len(parts) >= 1 {
-			info.NativeID = strings.TrimSpace(parts[0])
-			if id, err := strconv.ParseUint(info.NativeID, 0, 64); err == nil {
-				info.ID = id
-			}
+		info := Info{
+			NativeID: row.ID,
+			Title:    row.Title,
+			AppID:    row.AppID,
+			Class:    row.Class,
+			PID:      row.PID,
+			X:        int(row.X),
+			Y:        int(row.Y),
+			W:        int(row.Width),
+			H:        int(row.Height),
 		}
-		if len(parts) >= 2 {
-			info.Title = parts[1]
-		}
-		if len(parts) >= 3 {
-			info.AppID = parts[2]
-		}
-		if len(parts) >= 4 {
-			info.Class = parts[3]
-		}
-		if len(parts) >= 5 {
-			if pid, err := strconv.ParseInt(strings.TrimSpace(parts[4]), 10, 32); err == nil {
-				info.PID = int32(pid)
-			}
-		}
-		if len(parts) >= 9 {
-			info.X = parseInt(parts[5])
-			info.Y = parseInt(parts[6])
-			info.W = parseInt(parts[7])
-			info.H = parseInt(parts[8])
+		if id, err := strconv.ParseUint(info.NativeID, 0, 64); err == nil {
+			info.ID = id
 		}
 		infos = append(infos, info)
 	}
-	return infos
+	return infos, nil
 }
 
 // List returns windows reported by KWin scripting.
@@ -227,32 +230,24 @@ func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
 func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
 		data, err := k.runScript(ctx, func(svc string) string {
-			return "\nvar listFunc = (typeof workspace.windowList === \"function\") ? workspace.windowList : workspace.clientList;\nvar wins = listFunc();\nvar lines = [];\nfor (var i = 0; i < wins.length; i++) {\n    var w = wins[i];\n    if (w.normalWindow) {\n        var g = w.frameGeometry;\n        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;\n        lines.push(id + '\\t' + w.caption + '\\t' + (w.resourceName || '')\n            + '\\t' + (w.resourceClass || '') + '\\t' + w.pid\n            + '\\t' + g.x + '\\t' + g.y + '\\t' + g.width + '\\t' + g.height);\n    }\n}\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', lines.join('\\n'));\n"
+			return "\nvar listFunc = (typeof workspace.windowList === \"function\") ? workspace.windowList : workspace.clientList;\nvar wins = listFunc();\nvar rows = [];\nfor (var i = 0; i < wins.length; i++) {\n    var w = wins[i];\n    if (w.normalWindow) {\n        var g = w.frameGeometry;\n        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;\n        rows.push({id: String(id), title: String(w.caption || ''), app_id: String(w.resourceName || ''),\n            class: String(w.resourceClass || ''), pid: Number(w.pid) || 0, x: Number(g.x), y: Number(g.y),\n            width: Number(g.width), height: Number(g.height)});\n    }\n}\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', JSON.stringify(rows));\n"
 		})
 		if err != nil {
 			yield(Info{}, err)
 			return
 		}
 
-		for _, info := range parseKWinWindowList(data) {
+		infos, err := parseKWinWindowList(data)
+		if err != nil {
+			yield(Info{}, err)
+			return
+		}
+		for _, info := range infos {
 			if !yield(info, nil) {
 				return
 			}
 		}
 	}
-}
-
-func parseInt(s string) int {
-	s = strings.TrimSpace(s)
-	// KWin 6 returns QRectF values as floats (e.g. "856.6666666667");
-	// try Atoi first (fast path), fall back to ParseFloat.
-	if v, err := strconv.Atoi(s); err == nil {
-		return v
-	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		return int(f)
-	}
-	return 0
 }
 
 const kwinScriptErrorPrefix = "__pf_error__:"
