@@ -44,8 +44,10 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 			case "plain":
 				out := cmd.OutOrStdout()
 				for _, o := range outs {
-					fmt.Fprintf(out, "%s\t%s\tgeometry=%d,%d,%d,%d\tresolution=%dx%d\tscale=%s\n",
-						o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.ResolutionW, o.ResolutionH, outputScaleString(o))
+					if err := writeCLIOutput(out, "%s\t%s\tgeometry=%d,%d,%d,%d\tresolution=%dx%d\tscale=%s\n",
+						o.Name, o.Backend, o.Geometry.X, o.Geometry.Y, o.Geometry.W, o.Geometry.H, o.ResolutionW, o.ResolutionH, outputScaleString(o)); err != nil {
+						return err
+					}
 				}
 			case "json":
 				enc := json.NewEncoder(cmd.OutOrStdout())

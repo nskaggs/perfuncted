@@ -1611,3 +1611,18 @@ func TestFindWaitForReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("find wait-for error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestOutputListPlainReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := outputCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.NewWithOutputs(nil, nil, nil, &fakeOutputLister{infos: []output.Info{{
+			Name: "HDMI-A-1", Backend: "wayland",
+		}}}, nil), nil
+	})
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"list", "--output", "plain"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("output list error = %v, want io.ErrShortWrite", err)
+	}
+}
