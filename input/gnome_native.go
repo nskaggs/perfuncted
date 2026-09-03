@@ -312,7 +312,7 @@ func (b *GnomeNativeBackend) MouseClick(ctx context.Context, x, y, button int) e
 		if err := b.bridge.PointerButton(ctx, buttonCode, true); err != nil {
 			return err
 		}
-		if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
+		if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 			defer cancel()
 			return errors.Join(err, b.bridge.PointerButton(cleanupCtx, buttonCode, false))

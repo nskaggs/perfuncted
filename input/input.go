@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -54,6 +55,8 @@ func validateScrollClicks(clicks int) error {
 }
 
 const maxScrollClicks = (1<<31 - 1) / (15 * 256)
+
+const mouseClickHoldDuration = 40 * time.Millisecond
 
 func validateMouseButton(backend string, button int) error {
 	if button < 1 || button > 3 {

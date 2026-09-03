@@ -432,8 +432,15 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 		if err := b.mouseDown(ctx, button); err != nil {
 			return err
 		}
+		var clickErr error
+		if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
+			clickErr = err
+		}
 		if err := b.mouseUp(context.WithoutCancel(ctx), button); err != nil {
-			return err
+			clickErr = errors.Join(clickErr, err)
+		}
+		if clickErr != nil {
+			return clickErr
 		}
 		return ctx.Err()
 	})

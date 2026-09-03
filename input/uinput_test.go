@@ -445,6 +445,22 @@ func TestUinputMouseClickReleasesAfterCancellation(t *testing.T) {
 	}
 }
 
+func TestUinputMouseClickHoldsBeforeRelease(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	tp := &recordingTouchPad{}
+	b := &UinputBackend{touchpad: tp}
+
+	err := b.MouseClick(ctx, 3, 4, 1)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("MouseClick error = %v, want context.DeadlineExceeded", err)
+	}
+	want := []string{"move:3,4", "left-press", "left-release"}
+	if fmt.Sprint(tp.events) != fmt.Sprint(want) {
+		t.Fatalf("touchpad events = %v, want %v", tp.events, want)
+	}
+}
+
 func TestUinputPointerLocationUnsupported(t *testing.T) {
 	b, _ := newTestBackend(t)
 	if _, _, err := b.PointerLocation(context.Background()); !errors.Is(err, ErrNotSupported) {

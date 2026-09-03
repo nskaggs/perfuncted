@@ -386,7 +386,7 @@ func (b *WlVirtualBackend) mouseClickEvents(ctx context.Context, wlctx wl.Ctx, x
 	if err := b.buttonEvent(ctx, wlctx, code, 1); err != nil {
 		return err
 	}
-	if err := sleepContext(ctx, 40*time.Millisecond); err != nil {
+	if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
 		return errors.Join(err, b.cleanupButtonEvent(ctx, wlctx, code, 0))
 	}
 	if err := ctx.Err(); err != nil {
