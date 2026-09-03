@@ -1,6 +1,7 @@
 package window
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestX11WindowIDRejectsOverflow(t *testing.T) {
 func TestSwayIterateWindowsSkipsNegativeIDs(t *testing.T) {
 	manager := &SwayManager{conn: newSuccessSwayConn([]byte(`{"id":1,"type":"root","nodes":[{"id":-1,"type":"con","name":"bad"},{"id":2,"type":"con","name":"good"}]}`))}
 	var got []Info
-	for info, err := range manager.IterateWindows(nil) {
+	for info, err := range manager.IterateWindows(context.Background()) {
 		if err != nil {
 			t.Fatal(err)
 		}
