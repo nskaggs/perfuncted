@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -84,63 +85,77 @@ func infoCmd(
 				enc.SetIndent("", "  ")
 				return enc.Encode(report)
 			}
-			out := cmd.OutOrStdout()
-
-			if err := writeCLIMessage(out, "── Environment ────────────────────────────────────"); err != nil {
-				return err
-			}
-			if err := writeCLIOutput(out, "  Target:           %s\n", report.Target); err != nil {
-				return err
-			}
-			if err := writeCLIOutput(out, "  Compositor:       %s\n", report.Compositor); err != nil {
-				return err
-			}
-			for _, key := range []string{
-				"WAYLAND_DISPLAY",
-				"DISPLAY",
-				"XDG_CURRENT_DESKTOP",
-				"XDG_RUNTIME_DIR",
-			} {
-				if value := report.Environment[key]; value != "" {
-					if err := writeCLIOutput(out, "  %-18s %s\n", key+":", value); err != nil {
-						return err
-					}
-				}
-			}
-
-			if err := writeCLIMessage(out, "\n── Capabilities ────────────────────────────────────"); err != nil {
-				return err
-			}
-			for _, status := range session.Capabilities() {
-				entry := report.Capabilities[string(status.Capability)]
-				marker := "[ ]"
-				if entry.Supported {
-					marker = "[✓]"
-				}
-				if err := writeCLIOutput(
-					out,
-					"  %s %-10s backend=%s operations=%s",
-					marker,
-					status.Capability,
-					entry.Backend,
-					strings.Join(entry.Operations, ","),
-				); err != nil {
-					return err
-				}
-				if entry.Reason != "" {
-					if err := writeCLIOutput(out, " failure=%s", entry.Reason); err != nil {
-						return err
-					}
-				}
-				if err := writeCLIMessage(out); err != nil {
-					return err
-				}
-			}
-			return nil
+			return writeInfoPlain(cmd.OutOrStdout(), session, report)
 		},
 	}
 	cmd.Flags().StringVar(&outputFlag, "output", "plain", "plain|json")
 	return cmd
+}
+
+func writeInfoPlain(out io.Writer, session *perfuncted.Session, report infoReport) error {
+	if err := writeCLIMessage(out, "── Environment ────────────────────────────────────"); err != nil {
+		return err
+	}
+	if err := writeInfoEnvironment(out, report); err != nil {
+		return err
+	}
+	if err := writeCLIMessage(out, "\n── Capabilities ────────────────────────────────────"); err != nil {
+		return err
+	}
+	return writeInfoCapabilities(out, session.Capabilities(), report)
+}
+
+func writeInfoEnvironment(out io.Writer, report infoReport) error {
+	if err := writeCLIOutput(out, "  Target:           %s\n", report.Target); err != nil {
+		return err
+	}
+	if err := writeCLIOutput(out, "  Compositor:       %s\n", report.Compositor); err != nil {
+		return err
+	}
+	for _, key := range []string{
+		"WAYLAND_DISPLAY",
+		"DISPLAY",
+		"XDG_CURRENT_DESKTOP",
+		"XDG_RUNTIME_DIR",
+	} {
+		value := report.Environment[key]
+		if value == "" {
+			continue
+		}
+		if err := writeCLIOutput(out, "  %-18s %s\n", key+":", value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeInfoCapabilities(out io.Writer, statuses []perfuncted.CapabilityStatus, report infoReport) error {
+	for _, status := range statuses {
+		entry := report.Capabilities[string(status.Capability)]
+		marker := "[ ]"
+		if entry.Supported {
+			marker = "[✓]"
+		}
+		if err := writeCLIOutput(
+			out,
+			"  %s %-10s backend=%s operations=%s",
+			marker,
+			status.Capability,
+			entry.Backend,
+			strings.Join(entry.Operations, ","),
+		); err != nil {
+			return err
+		}
+		if entry.Reason != "" {
+			if err := writeCLIOutput(out, " failure=%s", entry.Reason); err != nil {
+				return err
+			}
+		}
+		if err := writeCLIMessage(out); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ── session ───────────────────────────────────────────────────────────────────────────
