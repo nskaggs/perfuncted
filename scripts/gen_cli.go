@@ -41,6 +41,11 @@ type MethodMapping struct {
 
 type Mapping map[string]map[string]MethodMapping
 
+type generatedCommand struct {
+	block  string
+	cmdVar string
+}
+
 func hyphenate(s string) string {
 	if s == "" {
 		return ""
@@ -207,7 +212,7 @@ func main() {
 	}
 	// We'll populate imports as we discover uses.
 
-	generated := map[string][]string{}
+	generated := map[string][]generatedCommand{}
 
 	for grp, tname := range bundleTypes {
 		methods, err := methodsForType(perfPkg, tname)
@@ -622,7 +627,7 @@ func main() {
 				sb.WriteString(fmt.Sprintf("\t%s.Flags().StringVar(&%s_%s, \"%s\", \"\", \"output path\")\n", cmdVar, cmdVar, outFlag, outFlag))
 			}
 
-			generated[grp] = append(generated[grp], sb.String())
+			generated[grp] = append(generated[grp], generatedCommand{block: sb.String(), cmdVar: cmdVar})
 		}
 	}
 
@@ -647,24 +652,9 @@ func main() {
 		funcName := fmt.Sprintf("autogen%sCommands", strings.Title(grp))
 		fmt.Fprintf(outBuf, "func %s(openPF sessionOpener) []*cobra.Command {\n", funcName)
 		fmt.Fprintln(outBuf, "\tcmds := []*cobra.Command{}")
-		for _, block := range generated[grp] {
-			fmt.Fprintln(outBuf, block)
-			// find command variable name to append
-			// simple heuristic: first token "cmd_<grp>_<name>"
-			lines := strings.Split(block, "\n")
-			cmdVar := ""
-			for _, L := range lines {
-				L = strings.TrimSpace(L)
-				// Accept either ":=&cobra.Command" or ":= &cobra.Command" spacing variants.
-				if strings.HasPrefix(L, "cmd_") && strings.Contains(L, ":=") && strings.Contains(L, "cobra.Command") {
-					parts := strings.SplitN(L, ":=", 2)
-					cmdVar = strings.TrimSpace(parts[0])
-					break
-				}
-			}
-			if cmdVar != "" {
-				fmt.Fprintf(outBuf, "\tcmds = append(cmds, %s)\n", cmdVar)
-			}
+		for _, command := range generated[grp] {
+			fmt.Fprintln(outBuf, command.block)
+			fmt.Fprintf(outBuf, "\tcmds = append(cmds, %s)\n", command.cmdVar)
 		}
 		fmt.Fprintln(outBuf, "\treturn cmds\n}")
 	}
