@@ -653,8 +653,8 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("activate %s: %v", app.name, err)
 	}
 
-	if err := maximizeWindow(s.pf, ctx, app.winMatch); err != nil {
-		t.Fatalf("maximize window %v", err)
+	if err := prepareEditorWindow(s.pf, ctx, app.winMatch); err != nil {
+		t.Fatalf("prepare editor window %v", err)
 	}
 
 	docName := filepath.Base(saveFile)
@@ -893,7 +893,7 @@ func closeWindow(
 	return target.Close(ctx)
 }
 
-func maximizeWindow(
+func prepareEditorWindow(
 	pf *perfuncted.Session,
 	ctx context.Context,
 	pattern string,
@@ -901,6 +901,14 @@ func maximizeWindow(
 	target, err := findWindowHandle(pf, ctx, pattern)
 	if err != nil {
 		return err
+	}
+	if pf.Capability(perfuncted.CapabilityWindows).Supports("maximize") {
+		return target.Maximize(ctx)
+	}
+	// Sway has no distinct maximize operation; fullscreen is the available
+	// way to give an editor the full output for this scenario.
+	if pf.Capability(perfuncted.CapabilityWindows).Supports("fullscreen") {
+		return target.Fullscreen(ctx)
 	}
 	return target.Maximize(ctx)
 }
