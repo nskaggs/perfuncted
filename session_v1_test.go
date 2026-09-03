@@ -150,6 +150,28 @@ func TestOpenLeavesUnrequestedCapabilitiesClosed(t *testing.T) {
 	}
 }
 
+func TestOpenCapabilityInputUsesManagedResolution(t *testing.T) {
+	preserveOpeners(t)
+	wantErr := errors.New("input opener called")
+	var gotX, gotY int32
+	openInput = func(_ env.Runtime, maxX, maxY int32) (input.Inputter, error) {
+		gotX, gotY = maxX, maxY
+		return nil, wantErr
+	}
+	s := &Session{
+		config: SessionConfig{Resolution: image.Pt(1234, 567)},
+		env:    env.FromEnviron(nil),
+	}
+
+	_, err := s.openCapability(CapabilityInput)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("openCapability error = %v, want %v", err, wantErr)
+	}
+	if gotX != 1234 || gotY != 567 {
+		t.Fatalf("input dimensions = %dx%d, want 1234x567", gotX, gotY)
+	}
+}
+
 func TestOpenRejectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

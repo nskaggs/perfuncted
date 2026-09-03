@@ -129,6 +129,9 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 			return nil, err
 		}
 	}
+	if cfg.target.kind == TargetHeadless && cfg.target.config.Resolution == (image.Point{}) {
+		cfg.target.config.Resolution = image.Pt(1024, 768)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -282,7 +285,11 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityInput:
-		backend, err := openInput(s.env, 0, 0)
+		var maxX, maxY int32
+		if s.config.Resolution != (image.Point{}) {
+			maxX, maxY = int32(s.config.Resolution.X), int32(s.config.Resolution.Y)
+		}
+		backend, err := openInput(s.env, maxX, maxY)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Input.backend = backend
