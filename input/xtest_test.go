@@ -161,6 +161,28 @@ func TestXTestTypeReleasesTemporaryModifiersAfterKeyFailure(t *testing.T) {
 	}
 }
 
+func TestXTestMouseMoveRejectsCoordinatesThatWouldTruncate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		x, y int
+	}{
+		{name: "x below", x: -1<<15 - 1, y: 0},
+		{name: "x above", x: 1<<15 + 0, y: 0},
+		{name: "y below", x: 0, y: -1<<15 - 1},
+		{name: "y above", x: 0, y: 1<<15 + 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, events := newTestXTestBackend(t, 1, []xproto.Keysym{0x61}, nil)
+			if err := b.MouseMove(context.Background(), tc.x, tc.y); err == nil {
+				t.Fatal("MouseMove accepted a coordinate outside the X11 int16 range")
+			}
+			if len(*events) != 0 {
+				t.Fatalf("events = %#v, want no wire event after validation failure", *events)
+			}
+		})
+	}
+}
+
 func TestXTestTypeJoinsTemporaryModifierCleanupFailure(t *testing.T) {
 	const (
 		shift = byte(8)

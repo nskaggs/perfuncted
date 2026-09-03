@@ -463,6 +463,9 @@ func (b *XTestBackend) mouseMove(ctx context.Context, x, y int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if x < -1<<15 || x > 1<<15-1 || y < -1<<15 || y > 1<<15-1 {
+		return fmt.Errorf("input/xtest: coordinates (%d,%d) exceed X11 int16 range", x, y)
+	}
 	return b.conn.FakeInputChecked(xproto.MotionNotify, 0,
 		xproto.TimeCurrentTime, b.root, int16(x), int16(y), 0).Check()
 }
