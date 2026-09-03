@@ -867,6 +867,19 @@ func TestWaylandWindowManager_SupportedOperationsRequireSeatForActivation(t *tes
 	}
 }
 
+func TestWaylandNilManagerLifecycleQueriesAreSafe(t *testing.T) {
+	var manager *WaylandWindowManager
+	if got := manager.WindowChanges(); got != nil {
+		t.Fatalf("WindowChanges() = %v, want nil", got)
+	}
+	if got := manager.SupportedOperations(); got != nil {
+		t.Fatalf("SupportedOperations() = %v, want nil", got)
+	}
+	if err := manager.Sync(context.Background()); err == nil {
+		t.Fatal("Sync() returned nil error for nil manager")
+	}
+}
+
 func TestWaylandExtEventsPreserveStableIdentifierAndNotify(t *testing.T) {
 	info := &Info{ID: 41, NativeID: "41"}
 	manager := &WaylandWindowManager{

@@ -65,7 +65,7 @@ func (m *WaylandWindowManager) canActivateToplevels() bool {
 }
 
 func (m *WaylandWindowManager) wlrProtocolVersion() uint32 {
-	if m.wlrMgrID == 0 {
+	if m == nil || m.wlrMgrID == 0 {
 		return 0
 	}
 	// A zero version is retained as the default for hand-built test managers;
@@ -302,7 +302,7 @@ func decodeWaylandString(data []byte) string {
 }
 
 func (m *WaylandWindowManager) notifyWindowChange() {
-	if m.closed.Load() {
+	if m == nil || m.closed.Load() {
 		return
 	}
 	m.changesOnce.Do(func() {
@@ -316,6 +316,9 @@ func (m *WaylandWindowManager) notifyWindowChange() {
 
 // WindowChanges exposes coalesced foreign-toplevel protocol hints.
 func (m *WaylandWindowManager) WindowChanges() <-chan struct{} {
+	if m == nil {
+		return nil
+	}
 	m.changesOnce.Do(func() {
 		m.changes = make(chan struct{}, 1)
 	})
@@ -499,7 +502,10 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/wayland: sync canceled: %w", err)
 	}
-	if m.display == nil {
+	if m == nil || m.display == nil {
+		if m == nil {
+			return fmt.Errorf("window/wayland: manager not initialised")
+		}
 		return nil
 	}
 	return m.withOperation(ctx, func() error { return m.display.RoundTripContext(ctx) })
@@ -507,6 +513,9 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 
 // SupportedOperations returns operations exposed by the foreign-toplevel protocol.
 func (m *WaylandWindowManager) SupportedOperations() []string {
+	if m == nil {
+		return nil
+	}
 	if !m.canControlToplevels() {
 		return []string{"discover", "info", "active-title"}
 	}
