@@ -193,12 +193,31 @@ func (m *GnomeNativeManager) ActivateByID(ctx context.Context, id string) error 
 
 // MoveByID moves the GNOME window identified by id.
 func (m *GnomeNativeManager) MoveByID(ctx context.Context, id string, x, y int) error {
-	return m.action(ctx, func(ctx context.Context) error { return m.bridge.Move(ctx, id, int32(x), int32(y)) })
+	return m.action(ctx, func(ctx context.Context) error {
+		if err := validateGnomeInt32Values("move", x, y); err != nil {
+			return err
+		}
+		return m.bridge.Move(ctx, id, int32(x), int32(y))
+	})
 }
 
 // ResizeByID resizes the GNOME window identified by id.
 func (m *GnomeNativeManager) ResizeByID(ctx context.Context, id string, width, height int) error {
-	return m.action(ctx, func(ctx context.Context) error { return m.bridge.Resize(ctx, id, int32(width), int32(height)) })
+	return m.action(ctx, func(ctx context.Context) error {
+		if err := validateGnomeInt32Values("resize", width, height); err != nil {
+			return err
+		}
+		return m.bridge.Resize(ctx, id, int32(width), int32(height))
+	})
+}
+
+func validateGnomeInt32Values(operation string, values ...int) error {
+	for _, value := range values {
+		if value < -1<<31 || value > 1<<31-1 {
+			return fmt.Errorf("window/gnome-native: %s value %d exceeds int32 range", operation, value)
+		}
+	}
+	return nil
 }
 
 // CloseWindowByID closes the GNOME window identified by id.

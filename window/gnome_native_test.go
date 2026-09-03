@@ -30,6 +30,22 @@ func TestToWindowInfoRetainsOpaqueID(t *testing.T) {
 	}
 }
 
+func TestValidateGnomeInt32ValuesRejectsOverflow(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value int
+	}{
+		{name: "above", value: int(int64(1 << 31))},
+		{name: "below", value: int(-int64(1<<31) - 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateGnomeInt32Values("move", tc.value); err == nil {
+				t.Fatal("value outside int32 range was accepted")
+			}
+		})
+	}
+}
+
 func TestForwardWindowEventsConvertsAllNativeKinds(t *testing.T) {
 	bridgeEvents := make(chan gnomebridge.WindowEvent, 4)
 	m := &GnomeNativeManager{
