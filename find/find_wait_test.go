@@ -493,6 +493,16 @@ func TestPixelFoundPackedImages(t *testing.T) {
 	}
 }
 
+func TestPixelFoundDoesNotScanOutsideRequestedRect(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	want := color.RGBA{R: 255, A: 255}
+	img.SetRGBA(3, 3, want)
+
+	if _, ok := PixelFound(img, image.Rect(0, 0, 2, 2), want, 0); ok {
+		t.Fatal("PixelFound found a color outside the requested rectangle")
+	}
+}
+
 // TestWaitForLocate tests WaitForLocate.
 func TestWaitForLocate(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
