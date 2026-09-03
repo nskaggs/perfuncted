@@ -6,6 +6,7 @@ package window
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"strconv"
@@ -43,8 +44,10 @@ func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
 	// Probe to ensure Eval works.
 	_, err = g.eval(context.Background(), `"ok"`)
 	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("gnome: Shell Eval not available: %w", err)
+		return nil, errors.Join(
+			fmt.Errorf("gnome: Shell Eval not available: %w", err),
+			conn.Close(),
+		)
 	}
 	return g, nil
 }

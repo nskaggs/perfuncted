@@ -65,8 +65,10 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 		return nil, fmt.Errorf("screen/kwin: D-Bus session: %w", err)
 	}
 	if !dbusutil.HasService(conn, kwinShotDest) {
-		_ = conn.Close()
-		return nil, fmt.Errorf("screen/kwin: %s not on session bus", kwinShotDest)
+		return nil, errors.Join(
+			fmt.Errorf("screen/kwin: %s not on session bus", kwinShotDest),
+			conn.Close(),
+		)
 	}
 	obj := conn.Object(kwinShotDest, kwinShotPath)
 	b := &KWinShotBackend{transport: &kwinDBusTransport{conn: conn, kwin: obj}}
@@ -74,8 +76,10 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 	// KDE Plasma 6 requires explicit per-process permission via the xdg
 	// permission store; this check allows Open() to fall back to the portal.
 	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("screen/kwin: authorization check failed: %w", err)
+		return nil, errors.Join(
+			fmt.Errorf("screen/kwin: authorization check failed: %w", err),
+			conn.Close(),
+		)
 	}
 	return b, nil
 }

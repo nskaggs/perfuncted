@@ -63,16 +63,20 @@ func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBac
 		return nil, fmt.Errorf("screen/gnome-shell: D-Bus session: %w", err)
 	}
 	if !dbusutil.HasService(conn, gnomeShellShotDest) {
-		conn.Close()
-		return nil, fmt.Errorf("screen/gnome-shell: %s not on session bus", gnomeShellShotDest)
+		return nil, errors.Join(
+			fmt.Errorf("screen/gnome-shell: %s not on session bus", gnomeShellShotDest),
+			conn.Close(),
+		)
 	}
 	b := &GnomeShellScreenshotBackend{
 		conn: conn,
 		obj:  conn.Object(gnomeShellShotDest, gnomeShellShotPath),
 	}
 	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("screen/gnome-shell: authorization check failed: %w", err)
+		return nil, errors.Join(
+			fmt.Errorf("screen/gnome-shell: authorization check failed: %w", err),
+			conn.Close(),
+		)
 	}
 	return b, nil
 }
