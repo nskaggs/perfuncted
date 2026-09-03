@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -55,6 +56,44 @@ func TestExplicitTargetUsesExactImmutableEnvironment(t *testing.T) {
 	}
 	if got := targetEnv.Get("SWAYSOCK"); got != "" {
 		t.Fatalf("SWAYSOCK = %q, want empty", got)
+	}
+}
+
+func TestLaunchWithExplicitTargetDoesNotInheritHostEnvironment(t *testing.T) {
+	t.Setenv("PERFUNCTED_HOST_ONLY", "host-value")
+	t.Setenv("DISPLAY", ":host")
+
+	session, err := Open(
+		context.Background(),
+		WithTarget(EnvironmentTarget([]string{
+			"WAYLAND_DISPLAY=target-wayland",
+		})),
+	)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	var stdout strings.Builder
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: "sh",
+			Args: []string{
+				"-c",
+				`printf '%s|%s|%s' "$PERFUNCTED_HOST_ONLY" "$DISPLAY" "$WAYLAND_DISPLAY"`,
+			},
+			Stdout: &stdout,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if got := stdout.String(); got != "||target-wayland" {
+		t.Fatalf("stdout = %q, want ||target-wayland", got)
 	}
 }
 

@@ -84,8 +84,14 @@ func (s *Session) Launch(
 
 	execCommand := exec.Command(resolved, command.Args...)
 	execCommand.Dir = command.Dir
+	baseEnvironment := commandEnvironment(command.Env)
+	if command.Env == nil && s.target.Kind() == TargetExplicit {
+		// An explicit target is an immutable environment snapshot. Do not
+		// silently reintroduce host variables when the caller leaves Env nil.
+		baseEnvironment = s.env.EnvList()
+	}
 	execCommand.Env = env.Merge(
-		commandEnvironment(command.Env),
+		baseEnvironment,
 		s.routingEnvironment()...,
 	)
 	execCommand.Stdin = command.Stdin
