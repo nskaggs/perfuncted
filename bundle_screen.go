@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nskaggs/perfuncted/find"
@@ -101,10 +102,12 @@ func (s *ScreenBundle) CaptureRegion(
 	if err != nil {
 		return err
 	}
-	file, err := os.Create(path)
+	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-capture-*")
 	if err != nil {
 		return s.operationError("capture", fmt.Errorf("screen: create %q: %w", path, err))
 	}
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
 	encodeErr := png.Encode(file, img)
 	closeErr := file.Close()
 	if encodeErr != nil && closeErr != nil {
@@ -118,6 +121,9 @@ func (s *ScreenBundle) CaptureRegion(
 	}
 	if closeErr != nil {
 		return s.operationError("capture", fmt.Errorf("screen: close %q: %w", path, closeErr))
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return s.operationError("capture", fmt.Errorf("screen: publish %q: %w", path, err))
 	}
 	return nil
 }

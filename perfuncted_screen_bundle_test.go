@@ -64,6 +64,14 @@ func solidRedImage(w, h int) *image.RGBA { //nolint:unparam
 	return img
 }
 
+type oversizedImage struct{}
+
+func (oversizedImage) ColorModel() color.Model { return color.RGBAModel }
+
+func (oversizedImage) Bounds() image.Rectangle { return image.Rect(0, 0, 1<<32, 1) }
+
+func (oversizedImage) At(int, int) color.Color { return color.RGBA{} }
+
 // ── ScreenBundle tests ─────────────────────────────────────────────────────────
 
 func TestScreenBundle_GetAllPixels(t *testing.T) {
@@ -233,6 +241,27 @@ func TestScreenBundle_CaptureRegionWrapsFileErrors(t *testing.T) {
 	}
 	if operationErr.Operation != "capture" {
 		t.Fatalf("CaptureRegion operation = %q, want capture", operationErr.Operation)
+	}
+}
+
+func TestScreenBundle_CaptureRegionPreservesDestinationOnEncodeFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture.png")
+	if err := os.WriteFile(path, []byte("existing capture"), 0o600); err != nil {
+		t.Fatalf("seed destination: %v", err)
+	}
+	sc := &pftest.Screenshotter{Frames: []image.Image{oversizedImage{}}}
+	p := newTestPF(sc)
+	defer p.Close()
+
+	if err := p.Screen.CaptureRegion(context.Background(), image.Rectangle{}, path); err == nil {
+		t.Fatal("CaptureRegion succeeded for an oversized image")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read destination: %v", err)
+	}
+	if string(got) != "existing capture" {
+		t.Fatalf("destination = %q, want existing capture preserved", got)
 	}
 }
 
