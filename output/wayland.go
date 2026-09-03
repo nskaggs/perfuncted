@@ -279,7 +279,7 @@ func (o *waylandOutput) updateLogicalScaleLocked() {
 		return
 	}
 	physicalW, physicalH := o.info.ResolutionW, o.info.ResolutionH
-	if physicalW*o.logicalH != physicalH*o.logicalW {
+	if uint64(physicalW)*uint64(o.logicalH) != uint64(physicalH)*uint64(o.logicalW) {
 		return
 	}
 	if physicalW%o.logicalW != 0 || physicalH%o.logicalH != 0 {
@@ -308,7 +308,7 @@ func ceilDiv(value, divisor int) int {
 	if value <= 0 || divisor <= 0 {
 		return 0
 	}
-	return (value + divisor - 1) / divisor
+	return (value-1)/divisor + 1
 }
 
 func reducedRatio(numerator, denominator int) (int, int) {

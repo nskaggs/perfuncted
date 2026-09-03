@@ -657,6 +657,14 @@ func TestWaylandOutputEventParsing(t *testing.T) { //nolint:gocyclo // covers ea
 	}
 }
 
+func TestCeilDivDoesNotOverflowNearMaxInt(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	want := maxInt/2 + maxInt%2
+	if got := ceilDiv(maxInt, 2); got != want {
+		t.Fatalf("ceilDiv(%d, 2) = %d, want %d", maxInt, got, want)
+	}
+}
+
 func TestWaylandXDgOutputProvidesRotatedLogicalGeometry(t *testing.T) {
 	t.Parallel()
 
