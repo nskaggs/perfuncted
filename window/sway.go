@@ -114,6 +114,9 @@ func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload s
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if conn == nil {
+		return nil, fmt.Errorf("window/sway: connection is nil")
+	}
 	if err := conn.SetDeadline(swayQueryDeadline(ctx)); err != nil {
 		return nil, err
 	}
@@ -135,7 +138,13 @@ func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload s
 }
 
 func writeSwayMessage(conn net.Conn, msgType uint32, payload string) error {
+	if conn == nil {
+		return fmt.Errorf("window/sway: connection is nil")
+	}
 	pb := []byte(payload)
+	if uint64(len(pb)) > uint64(^uint32(0))-14 {
+		return fmt.Errorf("window/sway: payload is too large: %d bytes", len(pb))
+	}
 	msg := make([]byte, 14+len(pb))
 	copy(msg[0:6], swayMagic[:])
 	binary.LittleEndian.PutUint32(msg[6:10], uint32(len(pb)))

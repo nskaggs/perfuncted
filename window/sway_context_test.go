@@ -126,6 +126,15 @@ func TestSwayActiveTitleCanceledContextShortCircuits(t *testing.T) {
 	}
 }
 
+func TestSwayIPCRejectsNilConnections(t *testing.T) {
+	if err := writeSwayMessage(nil, swayMsgGetTree, ""); err == nil {
+		t.Fatal("writeSwayMessage accepted a nil connection")
+	}
+	if _, err := swayQueryConn(context.Background(), nil, swayMsgGetTree, ""); err == nil {
+		t.Fatal("swayQueryConn accepted a nil connection")
+	}
+}
+
 func TestSwayManagerRejectsOperationsAfterClose(t *testing.T) {
 	originalDial := swayDialContext
 	t.Cleanup(func() { swayDialContext = originalDial })
