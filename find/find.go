@@ -84,10 +84,10 @@ func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint3
 		if b.Empty() {
 			return h.Sum32()
 		}
-		if _, ok := packedBufferSize(rgba.Rect, rgba.Stride, 4); !ok {
+		if _, ok := packedBufferSize(rgba.Rect, rgba.Stride); !ok {
 			return 0
 		}
-		rowBytes, ok := packedRowBytes(b.Dx(), 4)
+		rowBytes, ok := packedRowBytes(b.Dx())
 		if !ok {
 			return 0
 		}
@@ -95,7 +95,7 @@ func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint3
 		// A full-width subimage can have trailing rows in Pix, so bound the slice
 		// to the image's height rather than hashing the entire backing buffer.
 		if b == rgba.Rect && rgba.Stride == rowBytes {
-			required, _ := packedBufferSize(b, rgba.Stride, 4)
+			required, _ := packedBufferSize(b, rgba.Stride)
 			if len(rgba.Pix) < required {
 				return 0
 			}
@@ -555,8 +555,8 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 	srcRGBA, srcOk := src.(*image.RGBA)
 	refRGBA, refOk := reference.(*image.RGBA)
 	if srcOk && refOk {
-		srcRowBytes, srcLayoutOK := packedRowBytes(sb.Dx(), 4)
-		refRowBytes, refLayoutOK := packedRowBytes(rb.Dx(), 4)
+		srcRowBytes, srcLayoutOK := packedRowBytes(sb.Dx())
+		refRowBytes, refLayoutOK := packedRowBytes(rb.Dx())
 		if !srcLayoutOK || !refLayoutOK {
 			return image.Rectangle{}, fmt.Errorf("%w: invalid packed image layout", ErrNotFound)
 		}
@@ -627,14 +627,14 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 	srcRGBA, srcOk := src.(*image.RGBA)
 	refRGBA, refOk := ref.(*image.RGBA)
 	if srcOk && refOk {
-		w4, ok := packedRowBytes(rb.Dx(), 4)
+		w4, ok := packedRowBytes(rb.Dx())
 		if !ok {
 			return false
 		}
-		if _, ok := packedBufferSize(srcRGBA.Rect, srcRGBA.Stride, 4); !ok {
+		if _, ok := packedBufferSize(srcRGBA.Rect, srcRGBA.Stride); !ok {
 			return false
 		}
-		if _, ok := packedBufferSize(refRGBA.Rect, refRGBA.Stride, 4); !ok {
+		if _, ok := packedBufferSize(refRGBA.Rect, refRGBA.Stride); !ok {
 			return false
 		}
 		for y := 0; y < rb.Dy(); y++ {
@@ -722,10 +722,10 @@ func scanPackedPixels(
 	target color.RGBA,
 	tolerance int,
 ) (image.Point, bool) {
-	if _, ok := packedBufferSize(bounds, stride, 4); !ok {
+	if _, ok := packedBufferSize(bounds, stride); !ok {
 		return image.Point{}, false
 	}
-	minRequired, _ := packedBufferSize(bounds, stride, 4)
+	minRequired, _ := packedBufferSize(bounds, stride)
 	if len(pix) < minRequired {
 		return image.Point{}, false
 	}
@@ -749,18 +749,18 @@ func scanPackedPixels(
 	return image.Point{}, false
 }
 
-func packedRowBytes(width, pixelBytes int) (int, bool) {
-	if width <= 0 || pixelBytes <= 0 || width > int(^uint(0)>>1)/pixelBytes {
+func packedRowBytes(width int) (int, bool) {
+	if width <= 0 || width > int(^uint(0)>>1)/4 {
 		return 0, false
 	}
-	return width * pixelBytes, true
+	return width * 4, true
 }
 
-func packedBufferSize(bounds image.Rectangle, stride, pixelBytes int) (int, bool) {
+func packedBufferSize(bounds image.Rectangle, stride int) (int, bool) {
 	if bounds.Empty() || stride < 0 {
 		return 0, false
 	}
-	rowBytes, ok := packedRowBytes(bounds.Dx(), pixelBytes)
+	rowBytes, ok := packedRowBytes(bounds.Dx())
 	if !ok || stride < rowBytes {
 		return 0, false
 	}

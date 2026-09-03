@@ -470,7 +470,7 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 			k.mods |= bit
 			if err := k.sendModifiers(ctx); err != nil {
 				k.mods = previousMods
-				return errors.Join(err, k.cleanupSendKey(ctx, kc, 0))
+				return errors.Join(err, k.cleanupSendKey(ctx, kc))
 			}
 			return nil
 		}
@@ -604,13 +604,13 @@ func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 		return err
 	}
 	if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-		return errors.Join(err, k.cleanupSendKey(ctx, keycode, 0))
+		return errors.Join(err, k.cleanupSendKey(ctx, keycode))
 	}
 	if err := ctx.Err(); err != nil {
-		return errors.Join(err, k.cleanupSendKey(ctx, keycode, 0))
+		return errors.Join(err, k.cleanupSendKey(ctx, keycode))
 	}
 	if err := k.sendKey(ctx, keycode, 0); err != nil {
-		return errors.Join(err, k.cleanupSendKey(ctx, keycode, 0))
+		return errors.Join(err, k.cleanupSendKey(ctx, keycode))
 	}
 	return nil
 }
@@ -618,10 +618,10 @@ func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 // cleanupSendKey releases a key with a bounded independent context. Cleanup
 // must still be attempted when the operation context was canceled after the
 // press was sent.
-func (k *wlKeyboard) cleanupSendKey(ctx context.Context, keycode, state uint32) error {
+func (k *wlKeyboard) cleanupSendKey(ctx context.Context, keycode uint32) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 	defer cancel()
-	return k.sendKey(cleanupCtx, keycode, state)
+	return k.sendKey(cleanupCtx, keycode, 0)
 }
 
 // ── XKB keymap generation ─────────────────────────────────────────────────────

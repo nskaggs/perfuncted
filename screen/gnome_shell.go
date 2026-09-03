@@ -114,6 +114,10 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	if b == nil || b.conn == nil || b.obj == nil {
 		return nil, fmt.Errorf("screen/gnome-shell: backend is not initialized")
 	}
+	return b.grab(ctx, rect)
+}
+
+func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	if err := validateGnomeCaptureRect(rect); err != nil {
 		return nil, err
 	}
@@ -122,9 +126,9 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 		return nil, fmt.Errorf("screen/gnome-shell: temp file: %w", err)
 	}
 	path := tmp.Name()
-	if err := tmp.Close(); err != nil {
+	if closeErr := tmp.Close(); closeErr != nil {
 		_ = os.Remove(path)
-		return nil, fmt.Errorf("screen/gnome-shell: close temp file: %w", err)
+		return nil, fmt.Errorf("screen/gnome-shell: close temp file: %w", closeErr)
 	}
 	defer removeScreenshotIfOwned(path, path)
 

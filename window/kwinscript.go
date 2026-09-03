@@ -86,6 +86,24 @@ func (r *pfReceiver) ReportWindows(data string) *dbus.Error {
 	return nil
 }
 
+func writeKWinScript(buildJS func(svc string) string, svc string) (string, error) {
+	f, err := os.CreateTemp("", "pf-kwin-*.js")
+	if err != nil {
+		return "", fmt.Errorf("window/kwinscript: temp file: %w", err)
+	}
+	path := f.Name()
+	if _, err := f.WriteString(buildJS(svc)); err != nil {
+		return "", errors.Join(
+			fmt.Errorf("window/kwinscript: write temp file: %w", err),
+			f.Close(),
+		)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("window/kwinscript: close temp file: %w", err)
+	}
+	return path, nil
+}
+
 // runScript registers a temporary D-Bus name, writes js to a temp file, loads
 // it into KWin, waits for the script to call ReportWindows, and returns the
 // delivered string. Cleans up the name and file on return.
@@ -123,20 +141,11 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 	}
 	defer k.conn.Export(nil, "/", svc) //nolint:errcheck
 
-	f, err := os.CreateTemp("", "pf-kwin-*.js")
+	scriptPath, err := writeKWinScript(buildJS, svc)
 	if err != nil {
-		return "", fmt.Errorf("window/kwinscript: temp file: %w", err)
+		return "", err
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.WriteString(buildJS(svc)); err != nil {
-		return "", errors.Join(
-			fmt.Errorf("window/kwinscript: write temp file: %w", err),
-			f.Close(),
-		)
-	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("window/kwinscript: close temp file: %w", err)
-	}
+	defer os.Remove(scriptPath)
 
 	scr := k.conn.Object(kwinScriptSvc, kwinScriptPath)
 	// loadScript registers the script inside KWin's scripting engine for the
@@ -147,7 +156,7 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 	// thousands of them).
 	plugin := fmt.Sprintf("pf_%d_%d", os.Getpid(), atomic.AddUint64(&kwinScriptSequence, 1))
 	var scriptID int
-	if err := scr.CallWithContext(ctx, kwinScriptIface+".loadScript", 0, f.Name(), plugin).Store(&scriptID); err != nil {
+	if err := scr.CallWithContext(ctx, kwinScriptIface+".loadScript", 0, scriptPath, plugin).Store(&scriptID); err != nil {
 		return "", fmt.Errorf("window/kwinscript: loadScript: %w", err)
 	}
 	defer func() {

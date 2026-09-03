@@ -118,7 +118,7 @@ func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
 	if r.Empty() {
 		return out
 	}
-	if _, _, ok := safePixelRectDimensions(src.Rect); !ok || src.Stride <= 0 {
+	if _, _, sourceOK := safePixelRectDimensions(src.Rect); !sourceOK || src.Stride <= 0 {
 		return out
 	}
 	// dstX/dstY: top-left offset within out for the intersected region.
@@ -129,23 +129,27 @@ func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
 		return out
 	}
 	for y := 0; y < r.Dy(); y++ {
-		srcRow := r.Min.Y + y - src.Rect.Min.Y
-		srcCol := r.Min.X - src.Rect.Min.X
-		if srcRow < 0 || srcCol < 0 || srcRow > int(^uint(0)>>1)/src.Stride {
-			continue
-		}
-		srcOff := srcRow * src.Stride
-		if srcCol > int(^uint(0)>>1)/4 || srcOff > int(^uint(0)>>1)-srcCol*4 {
-			continue
-		}
-		srcOff += srcCol * 4
-		dstOff := (dstY+y)*out.Stride + dstX*4
-		if srcOff < 0 || srcOff > len(src.Pix) || w4 > len(src.Pix)-srcOff || dstOff < 0 || dstOff > len(out.Pix) || w4 > len(out.Pix)-dstOff {
-			continue
-		}
-		copy(out.Pix[dstOff:dstOff+w4], src.Pix[srcOff:srcOff+w4])
+		copyRGBARow(out, src, r, dstX, dstY, y, w4)
 	}
 	return out
+}
+
+func copyRGBARow(dst, src *image.RGBA, r image.Rectangle, dstX, dstY, y, rowBytes int) {
+	srcRow := r.Min.Y + y - src.Rect.Min.Y
+	srcCol := r.Min.X - src.Rect.Min.X
+	if srcRow < 0 || srcCol < 0 || srcRow > int(^uint(0)>>1)/src.Stride {
+		return
+	}
+	srcOff := srcRow * src.Stride
+	if srcCol > int(^uint(0)>>1)/4 || srcOff > int(^uint(0)>>1)-srcCol*4 {
+		return
+	}
+	srcOff += srcCol * 4
+	dstOff := (dstY+y)*dst.Stride + dstX*4
+	if srcOff < 0 || srcOff > len(src.Pix) || rowBytes > len(src.Pix)-srcOff || dstOff < 0 || dstOff > len(dst.Pix) || rowBytes > len(dst.Pix)-dstOff {
+		return
+	}
+	copy(dst.Pix[dstOff:dstOff+rowBytes], src.Pix[srcOff:srcOff+rowBytes])
 }
 
 func safePixelRectDimensions(rect image.Rectangle) (width, height int, ok bool) {
