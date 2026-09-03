@@ -21,6 +21,13 @@ func TestWaitFor(t *testing.T) {
 	}
 }
 
+func TestRectangleAreaRejectsOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	if _, ok := rectangleArea(image.Rect(0, 0, maxInt, maxInt)); ok {
+		t.Fatal("rectangleArea accepted a product that overflows uint64")
+	}
+}
+
 func TestWaitForTimeout(t *testing.T) {
 	sc := &solidScreenshotter{}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

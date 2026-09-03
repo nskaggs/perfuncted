@@ -385,13 +385,19 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 
 	// Compute union bounding box and total individual area.
 	bbox := rects[0]
-	totalArea := 0
+	var totalArea uint64
+	areaOK := true
 	for _, r := range rects {
 		bbox = bbox.Union(r)
-		totalArea += r.Dx() * r.Dy()
+		area, ok := rectangleArea(r)
+		if !ok || !areaOK || ^uint64(0)-totalArea < area {
+			areaOK = false
+			continue
+		}
+		totalArea += area
 	}
-	bboxArea := bbox.Dx() * bbox.Dy()
-	useBbox := bboxArea <= 2*totalArea
+	bboxArea, bboxAreaOK := rectangleArea(bbox)
+	useBbox := areaOK && bboxAreaOK && totalArea <= ^uint64(0)/2 && bboxArea <= 2*totalArea
 
 	// A match on the first scan is common. Defer timer allocation until a
 	// second poll is actually needed so the fast path does not pay for a
@@ -466,6 +472,17 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 		case <-ticker.C:
 		}
 	}
+}
+
+func rectangleArea(rect image.Rectangle) (uint64, bool) {
+	if rect.Empty() {
+		return 0, false
+	}
+	width, height := uint64(rect.Dx()), uint64(rect.Dy())
+	if width > ^uint64(0)/height {
+		return 0, false
+	}
+	return width * height, true
 }
 
 func pixelHashScanRegion(img image.Image, rect image.Rectangle, newHash Hasher) (uint32, bool) {
