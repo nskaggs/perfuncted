@@ -269,6 +269,10 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			yield(Info{}, fmt.Errorf("window/x11: unexpected _NET_CLIENT_LIST format %d", rep.Format))
 			return
 		}
+		if len(rep.Value)%4 != 0 {
+			yield(Info{}, fmt.Errorf("window/x11: malformed _NET_CLIENT_LIST payload length %d", len(rep.Value)))
+			return
+		}
 		ids := make([]xproto.Window, len(rep.Value)/4)
 		for i := range ids {
 			ids[i] = xproto.Window(

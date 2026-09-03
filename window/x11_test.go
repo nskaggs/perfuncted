@@ -129,6 +129,17 @@ func TestX11Backend_List_UnexpectedFormat(t *testing.T) {
 	}
 }
 
+func TestX11Backend_List_MalformedPayloadLength(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{1, 2, 3}})
+	}
+	_, err := b.List(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "malformed _NET_CLIENT_LIST payload length") {
+		t.Errorf("List() error = %v, want malformed payload error", err)
+	}
+}
+
 // runX11ActionTest is a table-helper for ID-based actions that send an event.
 func runX11ActionTest(t *testing.T, name string, action func(*X11Backend, context.Context, string) error) {
 	t.Helper()
