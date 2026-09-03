@@ -425,6 +425,9 @@ func (b *UinputBackend) mouseMove(ctx context.Context, x, y int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if x < -1<<31 || x > 1<<31-1 || y < -1<<31 || y > 1<<31-1 {
+		return fmt.Errorf("input/uinput: coordinates (%d,%d) exceed int32 range", x, y)
+	}
 	return b.touchpad.MoveTo(int32(x), int32(y))
 }
 
