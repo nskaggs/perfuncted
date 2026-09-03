@@ -419,3 +419,24 @@ func TestSwayMaximizeNotAdvertisedOrMappedToFullscreen(t *testing.T) {
 		t.Fatalf("MaximizeByID error = %v, want ErrNotSupported", err)
 	}
 }
+
+func TestSwayNilReceiverIsSafe(t *testing.T) {
+	var manager *SwayManager
+	for info, err := range manager.IterateWindows(context.Background()) {
+		if info != (Info{}) {
+			t.Fatalf("IterateWindows yielded %#v for nil manager", info)
+		}
+		if err == nil || !strings.Contains(err.Error(), "manager is nil") {
+			t.Fatalf("IterateWindows error = %v, want nil-manager error", err)
+		}
+	}
+	if err := manager.Sync(context.Background()); err == nil || !strings.Contains(err.Error(), "manager is nil") {
+		t.Fatalf("Sync error = %v, want nil-manager error", err)
+	}
+	if manager.WindowChanges() != nil {
+		t.Fatal("WindowChanges returned a channel for a nil manager")
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("Close error = %v, want nil", err)
+	}
+}

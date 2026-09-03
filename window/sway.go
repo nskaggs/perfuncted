@@ -195,6 +195,9 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if m == nil {
+		return nil, fmt.Errorf("window/sway: manager is nil")
+	}
 	if m.closed.Load() {
 		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
@@ -350,6 +353,9 @@ func (m *SwayManager) swayCmd(ctx context.Context, cmd string) error {
 
 // Close releases the persistent IPC connection.
 func (m *SwayManager) Close() error {
+	if m == nil {
+		return nil
+	}
 	m.closed.Store(true)
 	m.mu.Lock()
 	var queryErr error
@@ -436,6 +442,9 @@ func (m *SwayManager) Sync(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/sway: sync canceled: %w", err)
 	}
+	if m == nil {
+		return fmt.Errorf("window/sway: manager is nil")
+	}
 	if m.closed.Load() {
 		return fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
@@ -460,6 +469,9 @@ func (m *SwayManager) SupportedOperations() []string {
 // WindowChanges returns coalesced hints from a dedicated sway IPC
 // subscription. Callers must still re-read authoritative state after a hint.
 func (m *SwayManager) WindowChanges() <-chan struct{} {
+	if m == nil {
+		return nil
+	}
 	m.eventOnce.Do(func() {
 		m.eventCh = make(chan struct{}, 1)
 		m.eventStop = make(chan struct{})
