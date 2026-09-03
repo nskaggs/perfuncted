@@ -6,6 +6,7 @@ package screen
 import (
 	"image"
 	"image/color"
+	"math"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
@@ -50,5 +51,22 @@ func TestNormalizeGnomeCaptureRejectsMetadataMismatch(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("normalizeGnomeCapture accepted mismatched PNG geometry")
+	}
+}
+
+func TestValidateGnomeCaptureRectRejectsWireOverflow(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rect image.Rectangle
+	}{
+		{name: "origin", rect: image.Rect(math.MaxInt32+1, 0, math.MaxInt32+2, 1)},
+		{name: "width", rect: image.Rectangle{Min: image.Point{}, Max: image.Point{X: math.MaxInt32 + 1, Y: 1}}},
+		{name: "height", rect: image.Rectangle{Min: image.Point{}, Max: image.Point{X: 1, Y: math.MaxInt32 + 1}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateGnomeCaptureRect(tc.rect); err == nil {
+				t.Fatal("capture rectangle exceeded the D-Bus int32 contract without an error")
+			}
+		})
 	}
 }

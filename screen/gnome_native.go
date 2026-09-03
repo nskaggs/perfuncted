@@ -44,6 +44,9 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 	if b == nil || b.bridge == nil {
 		return nil, fmt.Errorf("screen/gnome-native: backend is not initialised")
 	}
+	if err := validateGnomeCaptureRect(rect); err != nil {
+		return nil, err
+	}
 	f, err := os.CreateTemp("", "perfuncted-gnome-capture-*.png")
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-native: create transport: %w", err)
@@ -68,6 +71,21 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 		return nil, fmt.Errorf("screen/gnome-native: decode PNG: %w", err)
 	}
 	return normalizeGnomeCapture(img, capture)
+}
+
+func validateGnomeCaptureRect(rect image.Rectangle) error {
+	if rect.Empty() {
+		return nil
+	}
+	if rect.Min.X < -1<<31 || rect.Min.X > 1<<31-1 || rect.Min.Y < -1<<31 || rect.Min.Y > 1<<31-1 {
+		return fmt.Errorf("screen/gnome: capture origin %v exceeds int32 range", rect.Min)
+	}
+	width := uint64(rect.Max.X) - uint64(rect.Min.X)
+	height := uint64(rect.Max.Y) - uint64(rect.Min.Y)
+	if width > 1<<31-1 || height > 1<<31-1 {
+		return fmt.Errorf("screen/gnome: capture size %dx%d exceeds int32 range", width, height)
+	}
+	return nil
 }
 
 func normalizeGnomeCapture(img image.Image, capture gnomebridge.ScreenCapture) (image.Image, error) {

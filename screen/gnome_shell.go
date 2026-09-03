@@ -111,6 +111,9 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: capture canceled: %w", ctxErr)
 	}
+	if err := validateGnomeCaptureRect(rect); err != nil {
+		return nil, err
+	}
 	tmp, err := newTempScreenshotFile("perfuncted-gnome-*.png")
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: temp file: %w", err)
