@@ -667,7 +667,9 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "format error:", err)
 		// write unformatted for debugging
-		_ = os.WriteFile(*outputPath, src, 0644)
+		if writeErr := os.WriteFile(*outputPath, src, 0644); writeErr != nil {
+			fmt.Fprintln(os.Stderr, "write unformatted output:", writeErr)
+		}
 		os.Exit(2)
 	}
 	if err := os.WriteFile(*outputPath, fmtSrc, 0644); err != nil {
