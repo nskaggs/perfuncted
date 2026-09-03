@@ -911,13 +911,31 @@ func TestKernelRuneExtraction(t *testing.T) {
 type failingKeyboard struct {
 	recordingKeyboard
 	failPress bool
+	pressErr  error
+	failUp    bool
+	failUpKey int
+	upErr     error
 }
 
 func (f *failingKeyboard) KeyPress(key int) error {
 	if f.failPress {
+		if f.pressErr != nil {
+			return f.pressErr
+		}
 		return fmt.Errorf("injected KeyPress failure for key %d", key)
 	}
 	return f.recordingKeyboard.KeyPress(key)
+}
+
+func (f *failingKeyboard) KeyUp(key int) error {
+	err := f.recordingKeyboard.KeyUp(key)
+	if f.failUp && key == f.failUpKey {
+		if f.upErr != nil {
+			return f.upErr
+		}
+		return fmt.Errorf("injected KeyUp failure for key %d", key)
+	}
+	return err
 }
 
 // TestTypeKeyWithMods_ModifierReleasedOnKeyPressFailure verifies that modifier
@@ -949,6 +967,69 @@ func TestTypeKeyWithMods_ModifierReleasedOnKeyPressFailure(t *testing.T) {
 	}
 	if upCount == 0 {
 		t.Errorf("shift KeyUp was never called after failure; events: %v", kb.events)
+	}
+}
+
+func TestTypeKeyWithMods_JoinsModifierCleanupFailure(t *testing.T) {
+	keyErr := errors.New("synthetic key failure")
+	cleanupErr := errors.New("synthetic modifier cleanup failure")
+	kb := &failingKeyboard{
+		failPress: true,
+		pressErr:  keyErr,
+		failUp:    true,
+		failUpKey: uinput.KeyLeftshift,
+		upErr:     cleanupErr,
+	}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap()}
+
+	err := b.typeContext(context.Background(), "{shift+a}")
+	if !errors.Is(err, keyErr) {
+		t.Fatalf("typeContext error = %v, want key error %v", err, keyErr)
+	}
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("typeContext error = %v, want cleanup error %v joined", err, cleanupErr)
+	}
+}
+
+func TestTypeKeyWithMods_ContinuesAfterModifierCleanupFailure(t *testing.T) {
+	cleanupErr := errors.New("synthetic modifier cleanup failure")
+	kb := &failingKeyboard{
+		failUp:    true,
+		failUpKey: uinput.KeyLeftctrl,
+		upErr:     cleanupErr,
+	}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap()}
+
+	err := b.typeContext(context.Background(), "{ctrl+shift+a}")
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("typeContext error = %v, want cleanup error %v", err, cleanupErr)
+	}
+	for _, event := range kb.events {
+		if event == fmt.Sprintf("up:%d", uinput.KeyLeftshift) {
+			return
+		}
+	}
+	t.Fatalf("events = %v, want Shift cleanup after Ctrl failure", kb.events)
+}
+
+func TestTypeText_JoinsShiftCleanupFailure(t *testing.T) {
+	keyErr := errors.New("synthetic text key failure")
+	cleanupErr := errors.New("synthetic shift cleanup failure")
+	kb := &failingKeyboard{
+		failPress: true,
+		pressErr:  keyErr,
+		failUp:    true,
+		failUpKey: uinput.KeyLeftshift,
+		upErr:     cleanupErr,
+	}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap()}
+
+	err := b.typeText(context.Background(), "A")
+	if !errors.Is(err, keyErr) {
+		t.Fatalf("typeText error = %v, want key error %v", err, keyErr)
+	}
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("typeText error = %v, want cleanup error %v joined", err, cleanupErr)
 	}
 }
 

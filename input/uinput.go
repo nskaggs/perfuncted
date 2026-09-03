@@ -297,7 +297,7 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 
 // typeKeyWithMods presses modifier keys, sends the key action, then releases
 // modifiers in reverse order. If any step fails, already-pressed modifiers
-// are released (best-effort) before the error is returned.
+// are released before the error is returned.
 func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up bool, mods modifiers) error { //nolint:gocyclo
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -321,56 +321,64 @@ func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up 
 
 	// Press modifiers; release any already-pressed ones on failure.
 	pressed := 0
-	releaseHeld := func() {
+	releaseHeld := func() error {
+		var cleanupErr error
 		for i := pressed - 1; i >= 0; i-- {
-			_ = b.kb.KeyUp(modKeys[i])
+			cleanupErr = errors.Join(cleanupErr, b.kb.KeyUp(modKeys[i]))
 		}
+		return cleanupErr
+	}
+	fail := func(err error) error {
+		return errors.Join(err, releaseHeld())
 	}
 	for _, mk := range modKeys {
 		if err := ctx.Err(); err != nil {
-			releaseHeld()
-			return err
+			return fail(err)
 		}
 		if err := b.kb.KeyDown(mk); err != nil {
-			releaseHeld()
-			return err
+			return fail(err)
 		}
 		pressed++
 	}
 
 	// Send the key.
 	if err := ctx.Err(); err != nil {
-		releaseHeld()
-		return err
+		return fail(err)
 	}
 	switch {
 	case up:
 		if err := b.kb.KeyUp(code); err != nil {
-			releaseHeld()
-			return err
+			return fail(err)
 		}
 	case down:
 		if err := b.kb.KeyDown(code); err != nil {
-			releaseHeld()
-			return err
+			return fail(err)
 		}
 	default:
 		if err := b.kb.KeyPress(code); err != nil {
-			releaseHeld()
-			return err
+			return fail(err)
 		}
 	}
 
 	// Release modifiers in reverse order.
+	var cleanupErr error
 	for i := len(modKeys) - 1; i >= 0; i-- {
-		if err := b.kb.KeyUp(modKeys[i]); err != nil {
-			for j := i - 1; j >= 0; j-- {
-				_ = b.kb.KeyUp(modKeys[j])
-			}
-			return err
-		}
+		cleanupErr = errors.Join(cleanupErr, b.kb.KeyUp(modKeys[i]))
+	}
+	if cleanupErr != nil {
+		return cleanupErr
 	}
 	return nil
+}
+
+// releaseShift releases a temporary shift modifier and preserves a preceding
+// key error. Keeping this cleanup in one path ensures a failed KeyPress cannot
+// strand Shift without reporting the release failure to the caller.
+func (b *UinputBackend) releaseShift(err error) error {
+	if releaseErr := b.kb.KeyUp(uinput.KeyLeftshift); releaseErr != nil {
+		return errors.Join(err, releaseErr)
+	}
+	return err
 }
 
 // typeText types literal text character-by-character using the kernel keymap
@@ -393,7 +401,7 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 		}
 		if err := b.kb.KeyPress(kc.keycode); err != nil {
 			if kc.shift {
-				_ = b.kb.KeyUp(uinput.KeyLeftshift)
+				return b.releaseShift(err)
 			}
 			return err
 		}
