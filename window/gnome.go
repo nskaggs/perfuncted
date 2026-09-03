@@ -20,6 +20,9 @@ var _ Manager = (*GnomeManager)(nil)
 // gnomeShellService is the D-Bus service name for GNOME Shell's Eval interface.
 const gnomeShellService = "org.gnome.Shell"
 
+// JavaScript numbers represent integers exactly only through 2^53-1.
+const maxGnomeJSSafeInteger = uint64(1<<53 - 1)
+
 // GnomeManager implements window management for GNOME Shell via the
 // org.gnome.Shell.Eval D-Bus interface.
 type GnomeManager struct {
@@ -188,6 +191,9 @@ func (g *GnomeManager) actOnWindowByID(ctx context.Context, id string, action st
 	numeric, err := numericID(id)
 	if err != nil {
 		return err
+	}
+	if numeric > maxGnomeJSSafeInteger {
+		return fmt.Errorf("window/gnome: numeric id %q exceeds JavaScript safe integer range", id)
 	}
 	js := "(function(){ let w=" + g.findWindowByID(numeric) + "; if(!w) throw \"not found\"; " + action + "; return \"ok\"; })()"
 	_, err = g.eval(ctx, js)
