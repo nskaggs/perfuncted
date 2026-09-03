@@ -570,6 +570,12 @@ func (k *wlKeyboard) uploadKeymap(ctx context.Context, text string) error {
 }
 
 func (k *wlKeyboard) sendKey(ctx context.Context, keycode, state uint32) error {
+	if keycode < 8 {
+		return fmt.Errorf("keyboard: keycode %d is below the XKB base", keycode)
+	}
+	if state > 1 {
+		return fmt.Errorf("keyboard: invalid key state %d", state)
+	}
 	t := uint32(time.Now().UnixMilli() & 0xffffffff)
 	var buf [20]byte
 	wl.PutUint32(buf[0:], k.kbd.ID())

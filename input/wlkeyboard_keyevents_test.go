@@ -131,6 +131,20 @@ func TestSendKey_Release(t *testing.T) {
 	}
 }
 
+func TestSendKeyRejectsInvalidKeycodeAndState(t *testing.T) {
+	k, rc := newTestKeyboard()
+
+	if err := k.sendKey(context.Background(), 7, 1); err == nil {
+		t.Fatal("sendKey accepted a keycode below the XKB base")
+	}
+	if err := k.sendKey(context.Background(), 8, 2); err == nil {
+		t.Fatal("sendKey accepted an invalid key state")
+	}
+	if rc.writes != 0 {
+		t.Fatalf("invalid sendKey calls produced %d writes", rc.writes)
+	}
+}
+
 func TestSendModifiers_MessageFormat(t *testing.T) {
 	k, rc := newTestKeyboard()
 	k.mods = modShift | modControl
