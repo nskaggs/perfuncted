@@ -84,11 +84,11 @@ func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
 	if len(data) < 4 {
 		return false
 	}
-	slen := wl.Uint32(data[0:4])
-	if int(slen) > len(data)-4 {
+	slen := uint64(wl.Uint32(data[0:4]))
+	if slen > uint64(len(data)-4) {
 		return false
 	}
-	value := strings.TrimRight(string(data[4:4+slen]), "\x00")
+	value := strings.TrimRight(string(data[4:4+int(slen)]), "\x00")
 	switch opcode {
 	case 0:
 		info.Title = value
@@ -233,15 +233,15 @@ func (m *WaylandWindowManager) handleWLRToplevelEvent(
 	// state is an array of uint32 and lists active states (maximized=0,
 	// minimized=1, activated=2, fullscreen=3). Update the Info flags.
 	if op == 4 && len(data) >= 4 {
-		bytes := int(wl.Uint32(data[0:4]))
-		if bytes%4 == 0 && bytes <= len(data)-4 {
+		bytes := uint64(wl.Uint32(data[0:4]))
+		if bytes%4 == 0 && bytes <= uint64(len(data)-4) {
 			// state is an array of uint32 and lists active states (maximized=0,
 			// minimized=1, activated=2, fullscreen=3).
 			info.Active = false
 			info.Minimized = false
 			info.Maximized = false
 			info.Fullscreen = false
-			n := bytes / 4
+			n := int(bytes / 4)
 			for i := 0; i < n; i++ {
 				value := wl.Uint32(data[4+i*4 : 8+i*4])
 				switch value {
@@ -290,11 +290,11 @@ func decodeWaylandString(data []byte) string {
 	if len(data) < 4 {
 		return ""
 	}
-	length := int(wl.Uint32(data[:4]))
-	if length > len(data)-4 {
+	length := uint64(wl.Uint32(data[:4]))
+	if length > uint64(len(data)-4) {
 		return ""
 	}
-	return strings.TrimRight(string(data[4:4+length]), "\x00")
+	return strings.TrimRight(string(data[4:4+int(length)]), "\x00")
 }
 
 func (m *WaylandWindowManager) notifyWindowChange() {

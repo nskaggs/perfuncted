@@ -541,6 +541,13 @@ func TestWaylandWindowManager_List(t *testing.T) {
 	}
 }
 
+func TestDecodeWaylandStringRejectsOversizedLength(t *testing.T) {
+	data := []byte{0xff, 0xff, 0xff, 0xff}
+	if got := decodeWaylandString(data); got != "" {
+		t.Fatalf("decodeWaylandString oversized length = %q, want empty", got)
+	}
+}
+
 func TestWaylandWindowManager_ListIsDeterministicWithStableIDTies(t *testing.T) {
 	wm, _, _ := newStubWaylandManager("", true, false)
 	wm.toplevels = map[uint32]*Info{

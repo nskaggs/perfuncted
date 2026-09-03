@@ -148,6 +148,10 @@ func TestApplyToplevelString(t *testing.T) {
 	if applyToplevelString(info, 99, encode("ignored")) {
 		t.Fatal("applyToplevelString for unknown opcode returned true")
 	}
+	oversized := []byte{0xff, 0xff, 0xff, 0xff}
+	if applyToplevelString(info, 0, oversized) {
+		t.Fatal("applyToplevelString accepted an oversized length")
+	}
 }
 
 func ExampleMatch_String() {
