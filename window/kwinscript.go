@@ -124,13 +124,8 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 
 	svc := fmt.Sprintf("org.kde.pflist%d_%d", os.Getpid(), atomic.AddUint64(&kwinScriptSequence, 1))
 
-	var rawReply uint32
-	if err := k.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.RequestName", 0, svc, dbus.NameFlagDoNotQueue).Store(&rawReply); err != nil {
-		return "", fmt.Errorf("window/kwinscript: RequestName: %w", err)
-	}
-	reply := dbus.RequestNameReply(rawReply)
-	if reply != dbus.RequestNameReplyPrimaryOwner {
-		return "", fmt.Errorf("window/kwinscript: D-Bus name %s already taken", svc)
+	if err := requestKWinName(ctx, k.conn, svc); err != nil {
+		return "", err
 	}
 	defer func() {
 		if _, err := k.conn.ReleaseName(svc); err != nil {
@@ -187,6 +182,21 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 		return "", fmt.Errorf("window/kwinscript: start: %w", err)
 	}
 
+	return waitForKWinResult(ctx, recv, scriptID)
+}
+
+func requestKWinName(ctx context.Context, conn *dbus.Conn, svc string) error {
+	var rawReply uint32
+	if err := conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.RequestName", 0, svc, dbus.NameFlagDoNotQueue).Store(&rawReply); err != nil {
+		return fmt.Errorf("window/kwinscript: RequestName: %w", err)
+	}
+	if dbus.RequestNameReply(rawReply) != dbus.RequestNameReplyPrimaryOwner {
+		return fmt.Errorf("window/kwinscript: D-Bus name %s already taken", svc)
+	}
+	return nil
+}
+
+func waitForKWinResult(ctx context.Context, recv *pfReceiver, scriptID int) (string, error) {
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	select {
