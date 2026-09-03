@@ -241,6 +241,21 @@ func TestWaylandWindowManagerRejectsOperationsAfterClose(t *testing.T) {
 	}
 }
 
+func TestWaylandWindowManagerRejectsInvalidHandleRequests(t *testing.T) {
+	wm, ctx, _ := newStubWaylandManager("Request", true, true)
+	initialWrites := len(ctx.sentMsgs)
+
+	if err := wm.sendHandleRequest(context.Background(), 50, 0x10000, nil); err == nil {
+		t.Fatal("sendHandleRequest accepted an oversized opcode")
+	}
+	if err := wm.sendHandleRequest(context.Background(), 50, 0, make([]byte, 1<<16-7)); err == nil {
+		t.Fatal("sendHandleRequest accepted an oversized payload")
+	}
+	if got := len(ctx.sentMsgs); got != initialWrites {
+		t.Fatalf("invalid requests wrote %d messages, want no additional messages", got-initialWrites)
+	}
+}
+
 func newStubWaylandManager(title string, controlProtocol bool, withSeat bool) (*WaylandWindowManager, *mockWaylandContext, uint32) {
 	ctx := &mockWaylandContext{objects: make(map[uint32]wl.Proxy), nextID: 0}
 	display := &mockWaylandDisplay{ctx: ctx}

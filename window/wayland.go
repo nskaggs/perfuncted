@@ -320,6 +320,16 @@ func (m *WaylandWindowManager) WindowChanges() <-chan struct{} {
 
 // helper to send a request to a zwlr_foreign_toplevel_handle_v1 object.
 func (m *WaylandWindowManager) sendHandleRequest(ctx context.Context, handleID uint32, opcode uint32, payload []byte) error {
+	if m == nil || m.display == nil {
+		return fmt.Errorf("window/wayland: manager not initialised")
+	}
+	if opcode > 0xffff {
+		return fmt.Errorf("window/wayland: request opcode %d exceeds protocol limits", opcode)
+	}
+	const maxWaylandMessageSize = 1<<16 - 1
+	if len(payload) > maxWaylandMessageSize-8 {
+		return fmt.Errorf("window/wayland: request payload is too large: %d bytes", len(payload))
+	}
 	buf := make([]byte, 8+len(payload))
 	wl.PutUint32(buf[0:], handleID)
 	wl.PutUint32(buf[4:], uint32(len(buf))<<16|opcode)
