@@ -4,6 +4,8 @@
 package input
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"testing"
 )
@@ -74,5 +76,32 @@ func TestUpdateHeldModifierTracksExplicitModifierActions(t *testing.T) {
 		if held != test.want {
 			t.Fatalf("updateHeldModifier(%q, %v) = %#v, want %#v", test.key, test.down, held, test.want)
 		}
+	}
+}
+
+func TestReleaseMouseButtonUsesIndependentCleanupContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var releaseCtxErr error
+	err := releaseMouseButton(ctx, func(ctx context.Context) error {
+		releaseCtxErr = ctx.Err()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("releaseMouseButton error = %v, want context.Canceled", err)
+	}
+	if releaseCtxErr != nil {
+		t.Fatalf("release context error = %v, want nil during cleanup", releaseCtxErr)
+	}
+}
+
+func TestReleaseMouseButtonJoinsReleaseError(t *testing.T) {
+	releaseErr := errors.New("release failed")
+	err := releaseMouseButton(context.Background(), func(context.Context) error {
+		return releaseErr
+	})
+	if !errors.Is(err, releaseErr) {
+		t.Fatalf("releaseMouseButton error = %v, want release error", err)
 	}
 }

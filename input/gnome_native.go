@@ -313,12 +313,24 @@ func (b *GnomeNativeBackend) MouseClick(ctx context.Context, x, y, button int) e
 			return err
 		}
 		if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
-			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
-			defer cancel()
-			return errors.Join(err, b.bridge.PointerButton(cleanupCtx, buttonCode, false))
+			return errors.Join(err, releaseMouseButton(ctx, func(cleanupCtx context.Context) error {
+				return b.bridge.PointerButton(cleanupCtx, buttonCode, false)
+			}))
 		}
-		return b.bridge.PointerButton(ctx, buttonCode, false)
+		return releaseMouseButton(ctx, func(cleanupCtx context.Context) error {
+			return b.bridge.PointerButton(cleanupCtx, buttonCode, false)
+		})
 	})
+}
+
+// releaseMouseButton completes a click cleanup even when the operation context
+// is canceled. A pressed button must never be left stuck because the caller's
+// deadline expired during the hold or immediately before release.
+func releaseMouseButton(ctx context.Context, release func(context.Context) error) error {
+	ctx = contextutil.Default(ctx)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+	defer cancel()
+	return errors.Join(ctx.Err(), release(cleanupCtx))
 }
 
 func (b *GnomeNativeBackend) scroll(ctx context.Context, axis string, clicks int, sign float64) error {
