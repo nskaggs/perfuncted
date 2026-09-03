@@ -574,7 +574,7 @@ func TestX11Backend_windowState_Minimized(t *testing.T) {
 		}
 		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	minimized, maximized := b.windowState(50)
+	minimized, maximized, _ := b.windowState(50)
 	if !minimized {
 		t.Errorf("windowState() minimized = false, want true")
 	}
@@ -603,12 +603,37 @@ func TestX11Backend_windowState_Maximized(t *testing.T) {
 		}
 		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	minimized, maximized := b.windowState(50)
+	minimized, maximized, _ := b.windowState(50)
 	if minimized {
 		t.Errorf("windowState() minimized = true, want false")
 	}
 	if !maximized {
 		t.Errorf("windowState() maximized = false, want true")
+	}
+}
+
+func TestX11Backend_windowState_Fullscreen(t *testing.T) {
+	b, conn := newStubX11Backend(t, false, "")
+	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
+		if p == b.atomNetWMState {
+			atomBytes := make([]byte, 4)
+			atomBytes[0] = byte(b.atomNetWMStateFullscreen)
+			atomBytes[1] = byte(b.atomNetWMStateFullscreen >> 8)
+			atomBytes[2] = byte(b.atomNetWMStateFullscreen >> 16)
+			atomBytes[3] = byte(b.atomNetWMStateFullscreen >> 24)
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+		}
+		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+	}
+	minimized, maximized, fullscreen := b.windowState(50)
+	if minimized {
+		t.Errorf("windowState() minimized = true, want false")
+	}
+	if maximized {
+		t.Errorf("windowState() maximized = true, want false")
+	}
+	if !fullscreen {
+		t.Errorf("windowState() fullscreen = false, want true")
 	}
 }
 
@@ -640,7 +665,7 @@ func TestX11Backend_windowState_Both(t *testing.T) {
 		}
 		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	minimized, maximized := b.windowState(50)
+	minimized, maximized, _ := b.windowState(50)
 	if !minimized {
 		t.Errorf("windowState() minimized = false, want true")
 	}
@@ -657,7 +682,7 @@ func TestX11Backend_windowState_Error(t *testing.T) {
 		}
 		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	minimized, maximized := b.windowState(50)
+	minimized, maximized, _ := b.windowState(50)
 	if minimized || maximized {
 		t.Errorf("windowState() with error should return false, false, got %v, %v", minimized, maximized)
 	}

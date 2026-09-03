@@ -94,7 +94,7 @@ func (b *X11Backend) activeWindow() (xproto.Window, error) {
 	return id, nil
 }
 
-func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized bool) {
+func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized, fullscreen bool) {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMState,
 		xproto.AtomAtom, 0, 64).Reply()
 	if err != nil || rep.Format != 32 {
@@ -108,6 +108,8 @@ func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized bool) 
 			minimized = true
 		case b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz:
 			maximized = true
+		case b.atomNetWMStateFullscreen:
+			fullscreen = true
 		}
 	}
 	return
@@ -279,22 +281,23 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 				return
 			}
 			x, y, w, h := b.windowGeometry(id)
-			minimized, maximized := b.windowState(id)
+			minimized, maximized, fullscreen := b.windowState(id)
 			appID, class := b.windowClass(id)
 			info := Info{
-				ID:        uint64(id),
-				NativeID:  strconv.FormatUint(uint64(id), 10),
-				Title:     b.windowTitle(id),
-				AppID:     appID,
-				Class:     class,
-				PID:       b.windowPID(id),
-				X:         x,
-				Y:         y,
-				W:         w,
-				H:         h,
-				Minimized: minimized,
-				Maximized: maximized,
-				Active:    id == activeWindow,
+				ID:         uint64(id),
+				NativeID:   strconv.FormatUint(uint64(id), 10),
+				Title:      b.windowTitle(id),
+				AppID:      appID,
+				Class:      class,
+				PID:        b.windowPID(id),
+				X:          x,
+				Y:          y,
+				W:          w,
+				H:          h,
+				Minimized:  minimized,
+				Maximized:  maximized,
+				Fullscreen: fullscreen,
+				Active:     id == activeWindow,
 			}
 			if !yield(info, nil) {
 				return

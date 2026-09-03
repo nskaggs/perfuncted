@@ -35,6 +35,7 @@ type swayNode struct {
 	Type          string     `json:"type"`
 	Rect          swayRect   `json:"rect"`
 	Focused       bool       `json:"focused"`
+	Fullscreen    int        `json:"fullscreen_mode"`
 	Nodes         []swayNode `json:"nodes"`
 	FloatingNodes []swayNode `json:"floating_nodes"`
 }
@@ -248,14 +249,16 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 			isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
 			if isLeaf && (n.Type == "con" || n.Type == "floating_con") && n.Name != "" {
 				info := Info{
-					ID:       uint64(n.ID),
-					NativeID: strconv.FormatInt(n.ID, 10),
-					Title:    n.Name,
-					AppID:    n.AppID,
-					X:        n.Rect.X,
-					Y:        n.Rect.Y,
-					W:        n.Rect.W,
-					H:        n.Rect.H,
+					ID:         uint64(n.ID),
+					NativeID:   strconv.FormatInt(n.ID, 10),
+					Title:      n.Name,
+					AppID:      n.AppID,
+					X:          n.Rect.X,
+					Y:          n.Rect.Y,
+					W:          n.Rect.W,
+					H:          n.Rect.H,
+					Active:     n.Focused,
+					Fullscreen: n.Fullscreen != 0,
 				}
 				if !yield(info, nil) {
 					return false
@@ -438,7 +441,6 @@ func (m *SwayManager) SupportedOperations() []string {
 		"resize",
 		"close",
 		"minimize",
-		"maximize",
 		"fullscreen",
 	}
 }
@@ -619,13 +621,10 @@ func (m *SwayManager) MinimizeByID(ctx context.Context, id string) error {
 	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] move scratchpad", int64(numeric)))
 }
 
-// MaximizeByID enables fullscreen mode for the window identified by id.
-func (m *SwayManager) MaximizeByID(ctx context.Context, id string) error {
-	numeric, err := m.findByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	return m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] fullscreen enable", int64(numeric)))
+// MaximizeByID reports that Sway does not expose a distinct maximize
+// operation; its fullscreen mode is exposed separately via FullscreenByID.
+func (m *SwayManager) MaximizeByID(_ context.Context, _ string) error {
+	return ErrNotSupported
 }
 
 // FullscreenByID enables fullscreen mode for the window identified by id.

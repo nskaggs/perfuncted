@@ -58,7 +58,7 @@ func main() {
 | Session/backend | Screen capture | Input | Window discovery | Window control |
 |---|---|---|---|---|
 | X11 | XGetImage | XTEST or uinput | EWMH | activate, move, resize, close, minimize, maximize, fullscreen, restore |
-| Sway | wlr-screencopy | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | dedicated Sway IPC | activate, move, resize, close, minimize, maximize, fullscreen |
+| Sway | wlr-screencopy | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | dedicated Sway IPC | activate, move, resize, close, minimize, fullscreen |
 | wlr foreign-toplevel | compositor capture protocol | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `zwlr_foreign_toplevel_manager_v1` | activate, close, minimize, maximize, restore |
 | ext foreign-toplevel | compositor capture protocol or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `ext_foreign_toplevel_list_v1` | list-only |
 | KDE Plasma Wayland | KWin.ScreenShot2, ext capture, or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | KWin D-Bus scripting | activate, move, resize, close, minimize, maximize, restore |

@@ -363,3 +363,50 @@ func TestSwayMoveByIDPropagatesReflowListError(t *testing.T) {
 	_ = client.Close()
 	<-serverDone
 }
+
+func TestSwayIterateWindowsPopulatesState(t *testing.T) {
+	tree := `{"id":1,"type":"root","nodes":[` +
+		`{"id":42,"type":"con","name":"focused","focused":true,"fullscreen_mode":1},` +
+		`{"id":43,"type":"con","name":"normal","focused":false,"fullscreen_mode":0}` +
+		`]} `
+	conn := newSuccessSwayConn([]byte(tree))
+
+	m := &SwayManager{conn: conn}
+	var infos []Info
+	for info, err := range m.IterateWindows(context.Background()) {
+		if err != nil {
+			t.Fatalf("IterateWindows error: %v", err)
+		}
+		infos = append(infos, info)
+	}
+
+	want := map[string]Info{
+		"focused": {Title: "focused", Active: true, Fullscreen: true},
+		"normal":  {Title: "normal", Active: false, Fullscreen: false},
+	}
+	if len(infos) != len(want) {
+		t.Fatalf("IterateWindows returned %d windows, want %d", len(infos), len(want))
+	}
+	for _, info := range infos {
+		exp, ok := want[info.Title]
+		if !ok {
+			t.Fatalf("unexpected window %q", info.Title)
+		}
+		if info.Active != exp.Active || info.Fullscreen != exp.Fullscreen {
+			t.Errorf("window %q: Active=%v Fullscreen=%v, want Active=%v Fullscreen=%v",
+				info.Title, info.Active, info.Fullscreen, exp.Active, exp.Fullscreen)
+		}
+	}
+}
+
+func TestSwayMaximizeNotAdvertisedOrMappedToFullscreen(t *testing.T) {
+	m := &SwayManager{}
+	for _, op := range m.SupportedOperations() {
+		if op == "maximize" {
+			t.Fatal("SupportedOperations still advertises maximize on sway")
+		}
+	}
+	if err := m.MaximizeByID(context.Background(), "42"); !errors.Is(err, ErrNotSupported) {
+		t.Fatalf("MaximizeByID error = %v, want ErrNotSupported", err)
+	}
+}
