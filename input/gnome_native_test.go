@@ -44,6 +44,24 @@ func TestGnomeNativeBackendDoesNotAdvertiseSync(t *testing.T) {
 	}
 }
 
+func TestValidateGnomeCoordinatesRejectsValuesThatWouldTruncate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		x, y int
+	}{
+		{name: "x above", x: int(int64(1 << 31)), y: 0},
+		{name: "x below", x: int(-int64(1<<31) - 1), y: 0},
+		{name: "y above", x: 0, y: int(int64(1 << 31))},
+		{name: "y below", x: 0, y: int(-int64(1<<31) - 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateGnomeCoordinates(tc.x, tc.y); err == nil {
+				t.Fatal("validateGnomeCoordinates accepted a value outside the int32 range")
+			}
+		})
+	}
+}
+
 func TestGnomeDirectTextOnlyUsesLayoutSafeCharacters(t *testing.T) {
 	for _, test := range []struct {
 		text string

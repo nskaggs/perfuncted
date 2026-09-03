@@ -264,7 +264,19 @@ func (b *GnomeNativeBackend) releaseModifierKeys(ctx context.Context, keys []uin
 
 // MouseMove moves the pointer to absolute coordinates.
 func (b *GnomeNativeBackend) MouseMove(ctx context.Context, x, y int) error {
-	return b.operation(ctx, func(ctx context.Context) error { return b.bridge.PointerMove(ctx, int32(x), int32(y)) })
+	return b.operation(ctx, func(ctx context.Context) error {
+		if err := validateGnomeCoordinates(x, y); err != nil {
+			return err
+		}
+		return b.bridge.PointerMove(ctx, int32(x), int32(y))
+	})
+}
+
+func validateGnomeCoordinates(x, y int) error {
+	if x < -1<<31 || x > 1<<31-1 || y < -1<<31 || y > 1<<31-1 {
+		return fmt.Errorf("input/gnome-native: coordinates (%d,%d) exceed int32 range", x, y)
+	}
+	return nil
 }
 
 func gnomeButton(button int) (uint32, error) {
@@ -306,6 +318,9 @@ func (b *GnomeNativeBackend) MouseClick(ctx context.Context, x, y, button int) e
 		return err
 	}
 	return b.operation(ctx, func(ctx context.Context) error {
+		if err := validateGnomeCoordinates(x, y); err != nil {
+			return err
+		}
 		if err := b.bridge.PointerMove(ctx, int32(x), int32(y)); err != nil {
 			return err
 		}
