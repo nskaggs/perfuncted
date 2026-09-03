@@ -85,10 +85,14 @@ func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
 		return false
 	}
 	slen := uint64(wl.Uint32(data[0:4]))
-	if slen > uint64(len(data)-4) {
+	if slen == 0 || slen > uint64(len(data)-4) {
 		return false
 	}
-	value := strings.TrimRight(string(data[4:4+int(slen)]), "\x00")
+	end := 4 + int(slen)
+	if data[end-1] != 0 {
+		return false
+	}
+	value := strings.TrimRight(string(data[4:end]), "\x00")
 	switch opcode {
 	case 0:
 		info.Title = value

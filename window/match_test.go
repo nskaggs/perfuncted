@@ -125,12 +125,7 @@ func TestMatch_Matches(t *testing.T) {
 }
 
 func TestApplyToplevelString(t *testing.T) {
-	encode := func(s string) []byte {
-		b := make([]byte, 4+len(s))
-		b[0] = byte(len(s))
-		copy(b[4:], s)
-		return b
-	}
+	encode := encodeWaylandTestString
 
 	info := &Info{}
 	if !applyToplevelString(info, 0, encode("Title")) {
@@ -151,6 +146,11 @@ func TestApplyToplevelString(t *testing.T) {
 	oversized := []byte{0xff, 0xff, 0xff, 0xff}
 	if applyToplevelString(info, 0, oversized) {
 		t.Fatal("applyToplevelString accepted an oversized length")
+	}
+	malformed := encodeWaylandTestString("Title")
+	malformed[len(malformed)-1] = 'x'
+	if applyToplevelString(info, 0, malformed) {
+		t.Fatal("applyToplevelString accepted a string without a NUL terminator")
 	}
 }
 
