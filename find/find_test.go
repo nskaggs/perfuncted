@@ -187,6 +187,17 @@ func TestPixelHashTruncatedBuffer(t *testing.T) {
 	_ = PixelHash(malformed, nil)
 }
 
+func TestPixelHashRejectsOverflowingPackedMetadata(t *testing.T) {
+	malformed := &image.RGBA{
+		Pix:    make([]byte, 1),
+		Stride: int(^uint(0) >> 1),
+		Rect:   image.Rect(0, 0, int(^uint(0)>>1), 2),
+	}
+	if got := PixelHash(malformed, nil); got != 0 {
+		t.Fatalf("PixelHash = %08x for overflowing packed metadata, want 0", got)
+	}
+}
+
 func TestPixelFoundTruncatedBuffer(t *testing.T) {
 	malformed := &image.RGBA{
 		Pix:    make([]byte, 4),

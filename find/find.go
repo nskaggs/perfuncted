@@ -84,17 +84,28 @@ func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint3
 		if b.Empty() {
 			return h.Sum32()
 		}
+		if _, ok := packedBufferSize(rgba.Rect, rgba.Stride, 4); !ok {
+			return 0
+		}
+		rowBytes, ok := packedRowBytes(b.Dx(), 4)
+		if !ok {
+			return 0
+		}
 		// Optimization: if the visible rows are contiguous, hash them at once.
 		// A full-width subimage can have trailing rows in Pix, so bound the slice
 		// to the image's height rather than hashing the entire backing buffer.
-		if b == rgba.Rect && rgba.Stride == b.Dx()*4 && len(rgba.Pix) >= rgba.Stride*b.Dy() {
-			h.Write(rgba.Pix[:rgba.Stride*b.Dy()])
+		if b == rgba.Rect && rgba.Stride == rowBytes {
+			required, _ := packedBufferSize(b, rgba.Stride, 4)
+			if len(rgba.Pix) < required {
+				return 0
+			}
+			h.Write(rgba.Pix[:required])
 			return h.Sum32()
 		}
 		safe := true
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
-			end := off + b.Dx()*4
+			end := off + rowBytes
 			if off < 0 || end > len(rgba.Pix) {
 				safe = false
 				break
@@ -692,10 +703,10 @@ func scanPackedPixels(
 	target color.RGBA,
 	tolerance int,
 ) (image.Point, bool) {
-	if bounds.Empty() || stride < bounds.Dx()*4 {
+	if _, ok := packedBufferSize(bounds, stride, 4); !ok {
 		return image.Point{}, false
 	}
-	minRequired := (bounds.Dy()-1)*stride + bounds.Dx()*4
+	minRequired, _ := packedBufferSize(bounds, stride, 4)
 	if len(pix) < minRequired {
 		return image.Point{}, false
 	}
@@ -717,6 +728,28 @@ func scanPackedPixels(
 		}
 	}
 	return image.Point{}, false
+}
+
+func packedRowBytes(width, pixelBytes int) (int, bool) {
+	if width <= 0 || pixelBytes <= 0 || width > int(^uint(0)>>1)/pixelBytes {
+		return 0, false
+	}
+	return width * pixelBytes, true
+}
+
+func packedBufferSize(bounds image.Rectangle, stride, pixelBytes int) (int, bool) {
+	if bounds.Empty() || stride < 0 {
+		return 0, false
+	}
+	rowBytes, ok := packedRowBytes(bounds.Dx(), pixelBytes)
+	if !ok || stride < rowBytes {
+		return 0, false
+	}
+	rows := bounds.Dy()
+	if rows-1 > (int(^uint(0)>>1)-rowBytes)/stride {
+		return 0, false
+	}
+	return (rows-1)*stride + rowBytes, true
 }
 
 // FindColor scans rect for the first pixel whose colour is within tolerance of
