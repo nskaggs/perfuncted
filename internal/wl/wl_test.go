@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -324,6 +325,42 @@ func TestContext_Dispatch_NilConn(t *testing.T) {
 	ctx := &Context{}
 	if err := ctx.Dispatch(); err != nil {
 		t.Errorf("Dispatch on nil conn returned error: %v", err)
+	}
+}
+
+func TestContextDispatchRejectsUnalignedMessageSize(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+			return
+		}
+		defer conn.Close()
+		var header [8]byte
+		PutUint32(header[4:8], 10<<16) // header + 2-byte, non-aligned body
+		_, writeErr := conn.Write(header[:])
+		serverDone <- writeErr
+	}()
+
+	ctx, err := Connect(sock)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer ctx.Close()
+
+	if err := ctx.Dispatch(); err == nil || !strings.Contains(err.Error(), "4-byte aligned") {
+		t.Fatalf("Dispatch error = %v, want alignment error", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatalf("server write: %v", err)
 	}
 }
 

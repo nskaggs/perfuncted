@@ -307,11 +307,12 @@ func (ctx *Context) dispatch() error {
 	}
 	senderID := Uint32(hdr[0:4])
 	sizeOpcode := Uint32(hdr[4:8])
-	size := int(sizeOpcode>>16) - 8
+	wireSize := sizeOpcode >> 16
 	opcode := sizeOpcode & 0xffff
-	if size < 0 {
-		return fmt.Errorf("wl: invalid message size %d", int(sizeOpcode>>16))
+	if wireSize < 8 || wireSize%4 != 0 {
+		return fmt.Errorf("wl: invalid message size %d: must be at least 8 and 4-byte aligned", wireSize)
 	}
+	size := int(wireSize) - 8
 	var data []byte
 	if size > 0 {
 		if size > len(ctx.buf) {
