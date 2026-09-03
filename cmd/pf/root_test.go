@@ -1555,3 +1555,18 @@ func TestScreenHashReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("screen hash error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestWindowListReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := windowCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(nil, nil, &pftest.Manager{Lists: [][]window.Info{{{
+			ID: 7, Title: "Firefox",
+		}}}}, nil), nil
+	}, nil)
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"list"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("window list error = %v, want io.ErrShortWrite", err)
+	}
+}

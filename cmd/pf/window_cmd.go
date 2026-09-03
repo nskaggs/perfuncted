@@ -52,19 +52,22 @@ func windowNotFoundError(match window.Match) error {
 	return fmt.Errorf("window matching %q not found: %w", match.String(), window.ErrWindowNotFound)
 }
 
-func printWindowPlain(out io.Writer, w window.Info) {
+func printWindowPlain(out io.Writer, w window.Info) error {
 	id := w.StableID()
 	if w.ID != 0 {
 		id = fmt.Sprintf("0x%x", w.ID)
 	}
-	fmt.Fprintf(out, "%s\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
+	return writeCLIOutput(out, "%s\t%s\tapp_id=%s\tpid=%d\tactive=%t\tminimized=%t\tmaximized=%t\tfullscreen=%t\n",
 		id, w.Title, w.AppID, w.PID, w.Active, w.Minimized, w.Maximized, w.Fullscreen)
 }
 
-func printWindowListPlain(out io.Writer, wins []window.Info) {
+func printWindowListPlain(out io.Writer, wins []window.Info) error {
 	for _, w := range wins {
-		printWindowPlain(out, w)
+		if err := printWindowPlain(out, w); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func waitForWindowMatch(
@@ -144,7 +147,7 @@ func windowCmd(
 			}
 			switch strings.ToLower(listOutputFlag) {
 			case string(windowOutputPlain):
-				printWindowListPlain(cmd.OutOrStdout(), wins)
+				return printWindowListPlain(cmd.OutOrStdout(), wins)
 			case string(windowOutputJSON):
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(wins); err != nil {
 					return err
@@ -181,8 +184,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "activated: %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "activated: %s\n", args[0])
 		},
 	}
 
@@ -200,8 +202,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), t)
-			return nil
+			return writeCLIMessage(cmd.OutOrStdout(), t)
 		},
 	}
 
@@ -245,8 +246,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "moved %q to %d,%d\n", mvTitle, x, y)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "moved %q to %d,%d\n", mvTitle, x, y)
 		},
 	}
 	move.Flags().StringVar(&mvTitle, "title", "", "window title substring (required)")
@@ -280,8 +280,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "resized %q to %dx%d\n", rsTitle, rsW, rsH)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "resized %q to %dx%d\n", rsTitle, rsW, rsH)
 		},
 	}
 	resize.Flags().StringVar(&rsTitle, "title", "", "window title substring (required)")
@@ -313,8 +312,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "fullscreen: %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "fullscreen: %s\n", args[0])
 		},
 	}
 
@@ -342,8 +340,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "unfullscreen: %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "unfullscreen: %s\n", args[0])
 		},
 	}
 
@@ -375,8 +372,7 @@ func windowCmd(
 			if len(wins) == 0 {
 				return windowNotFoundError(match)
 			}
-			printWindowListPlain(cmd.OutOrStdout(), wins)
-			return nil
+			return printWindowListPlain(cmd.OutOrStdout(), wins)
 		},
 	}
 
@@ -408,8 +404,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			printWindowPlain(cmd.OutOrStdout(), w)
-			return nil
+			return printWindowPlain(cmd.OutOrStdout(), w)
 		},
 	}
 	waitFor.Flags().StringVar(&waitForPollFlag, "poll", "100ms", "poll interval")
@@ -488,8 +483,7 @@ func windowCmd(
 					},
 				})
 			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "%d,%d,%d,%d\n", info.X, info.Y, info.X+info.W, info.Y+info.H)
-				return nil
+				return writeCLIOutput(cmd.OutOrStdout(), "%d,%d,%d,%d\n", info.X, info.Y, info.X+info.W, info.Y+info.H)
 			}
 		},
 	}
@@ -518,10 +512,13 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "0x%x\t%s\n", info.ID, info.Title)
-			fmt.Fprintf(cmd.OutOrStdout(), "x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H)
-			fmt.Fprintf(cmd.OutOrStdout(), "pid=%d\n", info.PID)
-			return nil
+			if err := writeCLIOutput(cmd.OutOrStdout(), "0x%x\t%s\n", info.ID, info.Title); err != nil {
+				return err
+			}
+			if err := writeCLIOutput(cmd.OutOrStdout(), "x=%d y=%d w=%d h=%d\n", info.X, info.Y, info.W, info.H); err != nil {
+				return err
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "pid=%d\n", info.PID)
 		},
 	}
 
@@ -542,13 +539,12 @@ func windowCmd(
 			)
 			switch {
 			case err == nil:
-				fmt.Fprintln(cmd.OutOrStdout(), "true")
+				return writeCLIMessage(cmd.OutOrStdout(), "true")
 			case errors.Is(err, window.ErrWindowNotFound):
-				fmt.Fprintln(cmd.OutOrStdout(), "false")
+				return writeCLIMessage(cmd.OutOrStdout(), "false")
 			default:
 				return err
 			}
-			return nil
 		},
 	}
 
@@ -601,7 +597,9 @@ func windowCmd(
 					}
 					continue
 				}
-				printWindowListPlain(cmd.OutOrStdout(), wins)
+				if err := printWindowListPlain(cmd.OutOrStdout(), wins); err != nil {
+					return err
+				}
 			}
 		},
 	}
@@ -633,8 +631,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "closed: %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "closed: %s\n", args[0])
 		},
 	}
 
@@ -662,8 +659,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "minimized: %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "minimized: %s\n", args[0])
 		},
 	}
 
@@ -691,8 +687,7 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "maximized: %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "maximized: %s\n", args[0])
 		},
 	}
 
