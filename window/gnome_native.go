@@ -134,8 +134,18 @@ func toWindowInfo(window gnomebridge.WindowInfo) Info {
 	}
 }
 
+func (m *GnomeNativeManager) checkBridge() error {
+	if m == nil || m.bridge == nil {
+		return fmt.Errorf("window/gnome-native: manager is not initialised")
+	}
+	return nil
+}
+
 // List returns the visible GNOME windows.
 func (m *GnomeNativeManager) List(ctx context.Context) ([]Info, error) {
+	if err := m.checkBridge(); err != nil {
+		return nil, err
+	}
 	windows, err := m.bridge.ListWindows(ctx)
 	if err != nil {
 		return nil, err
@@ -165,6 +175,9 @@ func (m *GnomeNativeManager) IterateWindows(ctx context.Context) iter.Seq2[Info,
 
 // ActiveTitle returns the title of the focused GNOME window.
 func (m *GnomeNativeManager) ActiveTitle(ctx context.Context) (string, error) {
+	if err := m.checkBridge(); err != nil {
+		return "", err
+	}
 	window, err := m.bridge.GetActiveWindow(ctx)
 	if err != nil {
 		return "", err
@@ -175,10 +188,16 @@ func (m *GnomeNativeManager) ActiveTitle(ctx context.Context) (string, error) {
 // Sync verifies that the GNOME bridge is responsive.
 func (m *GnomeNativeManager) Sync(ctx context.Context) error {
 	ctx = contextutil.Default(ctx)
+	if err := m.checkBridge(); err != nil {
+		return err
+	}
 	return m.bridge.Ping(ctx)
 }
 
 func (m *GnomeNativeManager) action(ctx context.Context, action func(context.Context) error) error {
+	if err := m.checkBridge(); err != nil {
+		return err
+	}
 	err := action(contextutil.Default(ctx))
 	if errors.Is(err, gnomebridge.ErrObjectNotFound) {
 		return ErrWindowNotFound
@@ -252,6 +271,9 @@ func (m *GnomeNativeManager) RestoreByID(ctx context.Context, id string) error {
 
 // InfoByID returns fresh information for a GNOME window.
 func (m *GnomeNativeManager) InfoByID(ctx context.Context, id string) (Info, error) {
+	if err := m.checkBridge(); err != nil {
+		return Info{}, err
+	}
 	window, err := m.bridge.GetWindow(ctx, id)
 	if errors.Is(err, gnomebridge.ErrObjectNotFound) {
 		return Info{}, ErrWindowNotFound
@@ -272,7 +294,9 @@ func (m *GnomeNativeManager) Close() error {
 	if m == nil || m.bridge == nil {
 		return nil
 	}
-	m.stopEventsMu.Do(func() { close(m.stopEvents) })
+	if m.stopEvents != nil {
+		m.stopEventsMu.Do(func() { close(m.stopEvents) })
+	}
 	if m.eventsDone != nil {
 		<-m.eventsDone
 	}

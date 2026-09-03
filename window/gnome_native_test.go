@@ -4,7 +4,9 @@
 package window
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
@@ -20,6 +22,32 @@ func TestToWindowInfoPreservesNativeFields(t *testing.T) {
 		got.Class != "Terminal" || got.PID != 42 || got.X != 1 || got.Y != 2 || got.W != 800 || got.H != 600 ||
 		!got.Active || got.Minimized || !got.Maximized || !got.Fullscreen {
 		t.Fatalf("toWindowInfo = %#v", got)
+	}
+}
+
+func TestGnomeNativeManagerNilReceiverReturnsErrors(t *testing.T) {
+	var manager *GnomeNativeManager
+	if _, err := manager.List(context.Background()); err == nil || !strings.Contains(err.Error(), "not initialised") {
+		t.Fatalf("List error = %v, want initialization error", err)
+	}
+	if _, err := manager.ActiveTitle(context.Background()); err == nil || !strings.Contains(err.Error(), "not initialised") {
+		t.Fatalf("ActiveTitle error = %v, want initialization error", err)
+	}
+	if err := manager.Sync(context.Background()); err == nil || !strings.Contains(err.Error(), "not initialised") {
+		t.Fatalf("Sync error = %v, want initialization error", err)
+	}
+	if _, err := manager.InfoByID(context.Background(), "1"); err == nil || !strings.Contains(err.Error(), "not initialised") {
+		t.Fatalf("InfoByID error = %v, want initialization error", err)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("nil Close error = %v, want nil", err)
+	}
+}
+
+func TestGnomeNativeManagerCloseHandlesPartialConstruction(t *testing.T) {
+	manager := &GnomeNativeManager{bridge: &gnomebridge.Client{}}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("partial Close error = %v, want nil", err)
 	}
 }
 
