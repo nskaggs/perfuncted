@@ -26,7 +26,9 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -60,7 +62,9 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -102,7 +106,9 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h)
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%08x\n", h); err != nil {
+				return err
+			}
 			return nil
 		},
 	}

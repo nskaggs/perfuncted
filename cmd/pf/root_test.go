@@ -1504,10 +1504,15 @@ type shortOutputWriter struct {
 }
 
 func (w *shortOutputWriter) Write(p []byte) (int, error) {
+	originalLen := len(p)
 	if len(p) > w.max {
 		p = p[:w.max]
 	}
-	return w.buf.Write(p)
+	n, err := w.buf.Write(p)
+	if err == nil && n < originalLen {
+		return n, io.ErrShortWrite
+	}
+	return n, err
 }
 
 func TestGetAllPixelsReportsShortOutputWrite(t *testing.T) {
@@ -1523,5 +1528,17 @@ func TestGetAllPixelsReportsShortOutputWrite(t *testing.T) {
 
 	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("get-all-pixels error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+func TestGeneratedHashReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := autogenScreenCommands(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(&pftest.Screenshotter{Width: 2, Height: 1}, nil, nil, nil), nil
+	})[0]
+	cmd.SetOut(out)
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("generated hash error = %v, want io.ErrShortWrite", err)
 	}
 }

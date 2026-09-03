@@ -297,6 +297,8 @@ func main() {
 				first := results.At(0).Type()
 				if isImageType(first) {
 					produce = "image"
+					imports["errors"] = true
+					imports["fmt"] = true
 					imports["os"] = true
 					imports["image/png"] = true
 				} else if first.String() == "uint32" {
@@ -528,38 +530,38 @@ func main() {
 				sb.WriteString(fmt.Sprintf("\t\t\tif out == \"\" { out = \"/tmp/pf-%s.png\" }\n", cliName))
 				sb.WriteString(fmt.Sprintf("\t\t\tf, err := os.Create(out)\n"))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tdefer f.Close()\n")
-				sb.WriteString(fmt.Sprintf("\t\t\tif err := png.Encode(f, img); err != nil { return err }\n"))
-				sb.WriteString("\t\t\tfmt.Fprintln(cmd.OutOrStdout(), out)\n")
+				sb.WriteString("\t\t\tif err := png.Encode(f, img); err != nil { return errors.Join(err, f.Close()) }\n")
+				sb.WriteString("\t\t\tif err := f.Close(); err != nil { return fmt.Errorf(\"close output: %w\", err) }\n")
+				sb.WriteString("\t\t\tif _, err := fmt.Fprintln(cmd.OutOrStdout(), out); err != nil { return err }\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "uint32" {
 				sb.WriteString(fmt.Sprintf("\t\t\th, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%08x\\n\", h)\n")
+				sb.WriteString("\t\t\tif _, err := fmt.Fprintf(cmd.OutOrStdout(), \"%08x\\n\", h); err != nil { return err }\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "uint32-rect" {
 				sb.WriteString(fmt.Sprintf("\t\t\th, rect, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)\n")
+				sb.WriteString("\t\t\tif _, err := fmt.Fprintf(cmd.OutOrStdout(), \"%08x %d,%d,%d,%d\\n\", h, rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y); err != nil { return err }\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "string" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Fprint(cmd.OutOrStdout(), res)\n")
+				sb.WriteString("\t\t\tif _, err := fmt.Fprint(cmd.OutOrStdout(), res); err != nil { return err }\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "int-int" {
 				sb.WriteString(fmt.Sprintf("\t\t\tw, h, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
 				if grp == "input" && mn == "PointerLocation" {
-					sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%d,%d\\n\", w, h)\n")
+					sb.WriteString("\t\t\tif _, err := fmt.Fprintf(cmd.OutOrStdout(), \"%d,%d\\n\", w, h); err != nil { return err }\n")
 				} else {
-					sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%dx%d\\n\", w, h)\n")
+					sb.WriteString("\t\t\tif _, err := fmt.Fprintf(cmd.OutOrStdout(), \"%dx%d\\n\", w, h); err != nil { return err }\n")
 				}
 				sb.WriteString("\t\t\treturn nil\n")
 			} else if produce == "int" {
 				sb.WriteString(fmt.Sprintf("\t\t\tres, err := %s\n", callStr))
 				sb.WriteString("\t\t\tif err != nil { return err }\n")
-				sb.WriteString("\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%d\\n\", res)\n")
+				sb.WriteString("\t\t\tif _, err := fmt.Fprintf(cmd.OutOrStdout(), \"%d\\n\", res); err != nil { return err }\n")
 				sb.WriteString("\t\t\treturn nil\n")
 			} else {
 				// error-only or no-return
