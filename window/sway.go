@@ -255,6 +255,9 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 		}
 
 		_ = walkTree(&root, func(n *swayNode) bool {
+			if n.ID < 0 {
+				return true
+			}
 			isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
 			if isLeaf && (n.Type == "con" || n.Type == "floating_con") && n.Name != "" {
 				info := Info{
@@ -542,7 +545,7 @@ func (m *SwayManager) findByID(
 	ctx context.Context,
 	id string,
 ) (uint64, error) {
-	numeric, err := numericID(id)
+	numeric, err := signedNumericID(id)
 	if err != nil {
 		return 0, err
 	}
@@ -661,7 +664,7 @@ func (m *SwayManager) RestoreByID(_ context.Context, _ string) error {
 
 // InfoByID returns fresh information for the window identified by id.
 func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
-	numeric, err := numericID(id)
+	numeric, err := signedNumericID(id)
 	if err != nil {
 		return Info{}, err
 	}

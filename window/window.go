@@ -144,6 +144,17 @@ func numericID(id string) (uint64, error) {
 	return value, nil
 }
 
+func signedNumericID(id string) (uint64, error) {
+	value, err := numericID(id)
+	if err != nil {
+		return 0, err
+	}
+	if value > uint64(^uint64(0)>>1) {
+		return 0, fmt.Errorf("window: numeric id %q exceeds signed 64-bit range", id)
+	}
+	return value, nil
+}
+
 // OpenRuntime returns the best available Manager for rt.
 func OpenRuntime(rt env.Runtime) (Manager, error) {
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
