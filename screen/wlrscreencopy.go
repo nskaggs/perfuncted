@@ -110,6 +110,9 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if b == nil {
+		return fmt.Errorf("screen/wlr: backend is nil")
+	}
 	if b.closed.Load() {
 		return fmt.Errorf("screen/wlr: backend is closed")
 	}
@@ -439,6 +442,9 @@ func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, 
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
+	if b == nil {
+		return 0, 0, fmt.Errorf("screen/wlr: backend is nil")
+	}
 	b.ctxMu.Lock()
 	pW, pH := b.pW, b.pH
 	b.ctxMu.Unlock()
@@ -457,6 +463,9 @@ func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, 
 
 // Close releases the wlr-screencopy connection and cached resources.
 func (b *WlrScreencopyBackend) Close() error {
+	if b == nil {
+		return nil
+	}
 	b.closeOnce.Do(func() {
 		b.closed.Store(true)
 		if b.done != nil {

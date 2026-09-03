@@ -419,6 +419,10 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 func (b *ExtCaptureBackend) beginCapture(ctx context.Context) (context.Context, func(), error) {
 	ctx = contextutil.Default(ctx)
 	captureCtx, cancel := context.WithCancel(ctx)
+	if b == nil {
+		cancel()
+		return nil, nil, fmt.Errorf("screen/ext: backend is nil")
+	}
 
 	b.lifecycleMu.Lock()
 	if b.closed {
@@ -451,6 +455,9 @@ func (b *ExtCaptureBackend) beginCapture(ctx context.Context) (context.Context, 
 
 // Close releases the ext-image-copy protocol resources.
 func (b *ExtCaptureBackend) Close() error {
+	if b == nil {
+		return nil
+	}
 	b.lifecycleMu.Lock()
 	if b.closed {
 		done := b.closeDone
