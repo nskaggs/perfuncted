@@ -12,6 +12,7 @@ package screen
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -165,10 +166,13 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 	call := t.kwin.CallWithContext(ctx, method, 0, callArgs...)
 	// Close our copy now; KWin received its own via SCM_RIGHTS and has already
 	// written + closed its copy by the time Call() returns (it's synchronous).
-	w.Close()
+	closeErr := w.Close()
 
 	if call.Err != nil {
-		return nil, fmt.Errorf("screen/kwin: %s: %w", method, call.Err)
+		return nil, errors.Join(fmt.Errorf("screen/kwin: %s: %w", method, call.Err), closeErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("screen/kwin: close capture pipe: %w", closeErr)
 	}
 	if storeErr := call.Store(&results); storeErr != nil {
 		return nil, fmt.Errorf("screen/kwin: store results: %w", storeErr)
