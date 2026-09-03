@@ -82,6 +82,13 @@ func TestFirstPixelRejectsEmptyRectangle(t *testing.T) {
 	}
 }
 
+func TestWaitForFnRejectsNilPredicate(t *testing.T) {
+	sc := &solidScreenshotter{}
+	if _, err := WaitForFn(context.Background(), sc, image.Rect(0, 0, 1, 1), nil, time.Millisecond); err == nil {
+		t.Fatal("WaitForFn accepted a nil predicate")
+	}
+}
+
 // ── FindColor error paths ─────────────────────────────────────────────────────
 
 func TestFindColor_ToleranceTooHigh(t *testing.T) {

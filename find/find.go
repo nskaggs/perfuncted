@@ -849,6 +849,9 @@ func WaitForFn(ctx context.Context, sc Screenshotter, rect image.Rectangle, fn f
 	if err := checkAvailable(sc); err != nil {
 		return nil, err
 	}
+	if fn == nil {
+		return nil, fmt.Errorf("find: WaitForFn: nil predicate")
+	}
 	var foundImg image.Image
 	_, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		img, err := sc.Grab(ctx, rect)
