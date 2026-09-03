@@ -219,6 +219,9 @@ Runs until --duration expires or Ctrl+C.`,
 			start := time.Now()
 			streak := 0
 			enc := json.NewEncoder(cmd.OutOrStdout())
+			timer := time.NewTimer(poll)
+			stopAndDrainTimer(timer)
+			defer timer.Stop()
 			for {
 				select {
 				case <-ctx.Done():
@@ -257,10 +260,9 @@ Runs until --duration expires or Ctrl+C.`,
 				default:
 					streak++
 				}
-				timer := time.NewTimer(poll)
+				timer.Reset(poll)
 				select {
 				case <-ctx.Done():
-					timer.Stop()
 					return nil
 				case <-timer.C:
 				}
@@ -453,6 +455,15 @@ plain format for quick interactive checks.`,
 	}
 
 	return cmd
+}
+
+func stopAndDrainTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
 }
 
 // ── input ────────────────────────────────────────────────────────────────────────────
