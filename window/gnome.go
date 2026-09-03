@@ -49,6 +49,9 @@ func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
 // eval runs JavaScript in gnome-shell and returns the result string.
 func (g *GnomeManager) eval(ctx context.Context, js string) (string, error) {
 	ctx = contextutil.Default(ctx)
+	if g == nil || g.conn == nil {
+		return "", fmt.Errorf("gnome: manager is not initialized")
+	}
 	obj := g.conn.Object(gnomeShellService, "/org/gnome/Shell")
 	call := obj.CallWithContext(ctx, "org.gnome.Shell.Eval", 0, js)
 	if call.Err != nil {
@@ -144,7 +147,7 @@ func (g *GnomeManager) ActiveTitle(ctx context.Context) (string, error) {
 
 // Close releases the GNOME Shell D-Bus connection.
 func (g *GnomeManager) Close() error {
-	if g.conn == nil {
+	if g == nil || g.conn == nil {
 		return nil
 	}
 	return g.conn.Close()
