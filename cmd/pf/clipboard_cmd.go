@@ -1,10 +1,6 @@
 package main
 
-import (
-	"fmt"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 func clipboardCmd(openPF sessionOpener) *cobra.Command {
 	cmd := &cobra.Command{Use: "clipboard", Short: "Clipboard operations"}
@@ -23,8 +19,7 @@ func clipboardCmd(openPF sessionOpener) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), s)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%s", s)
 		},
 	}
 

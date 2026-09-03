@@ -1570,3 +1570,16 @@ func TestWindowListReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("window list error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestClipboardGetReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := clipboardCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(nil, nil, nil, &pftest.Clipboard{Text: "clipboard"}), nil
+	})
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"get"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("clipboard get error = %v, want io.ErrShortWrite", err)
+	}
+}
