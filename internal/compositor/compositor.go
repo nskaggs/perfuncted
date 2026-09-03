@@ -40,13 +40,6 @@ func (s Session) String() string {
 	}
 }
 
-// Detect identifies the current compositor by probing the actual globals
-// advertised on WAYLAND_DISPLAY (correctly handles nested compositors such as
-// sway inside KDE), then falls back to environment variable heuristics.
-func Detect() Session {
-	return DetectRuntime(env.Current())
-}
-
 // DetectRuntime identifies the compositor represented by rt.
 func DetectRuntime(rt env.Runtime) Session {
 	if rt.Get("WAYLAND_DISPLAY") == "" {

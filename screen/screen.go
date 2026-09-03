@@ -151,11 +151,6 @@ func OpenRuntime(rt env.Runtime) (Screenshotter, error) { //nolint:gocyclo
 	}
 }
 
-// Probe returns availability details for every screen backend in priority order.
-func Probe() []probe.Result {
-	return ProbeRuntime(env.Current())
-}
-
 // ProbeRuntime returns availability details for rt in backend priority order.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
 	kind := compositor.DetectRuntime(rt)

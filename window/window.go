@@ -201,11 +201,6 @@ func openGNOMERuntime(rt env.Runtime) (Manager, error) {
 	return m, nil
 }
 
-// Probe returns availability details for each window backend in priority order.
-func Probe() []probe.Result {
-	return ProbeRuntime(env.Current())
-}
-
 // ProbeRuntime returns availability details for rt in backend priority order.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
 	kind := compositor.DetectRuntime(rt)

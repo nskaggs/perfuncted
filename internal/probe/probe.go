@@ -12,7 +12,8 @@ type Result struct {
 
 // SelectBest marks the first available result as selected and returns the
 // combined list. This implements the "first available wins" priority logic
-// used by screen.Probe(), input.Probe(), and window.Probe().
+// used by the runtime-specific ProbeRuntime functions in screen, input, and
+// window.
 func SelectBest(results []Result) []Result {
 	selected := false
 	for i := range results {
