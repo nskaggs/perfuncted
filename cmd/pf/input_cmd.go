@@ -42,8 +42,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "moved to %d,%d\n", mx, my)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "moved to %d,%d\n", mx, my)
 		},
 	}
 	move.Flags().IntVar(&mx, "x", 0, "x coordinate")
@@ -92,8 +91,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "clicked button %d at %d,%d\n", button, mx, my)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "clicked button %d at %d,%d\n", button, mx, my)
 		},
 	}
 	click.Flags().IntVar(&mx, "x", 0, "x coordinate")
@@ -118,8 +116,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "double-clicked at %d,%d\n", mx, my)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "double-clicked at %d,%d\n", mx, my)
 		},
 	}
 	doubleClick.Flags().IntVar(&mx, "x", 0, "x coordinate")
@@ -142,8 +139,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "dragged %d,%d to %d,%d\n", x1, y1, x2, y2)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "dragged %d,%d to %d,%d\n", x1, y1, x2, y2)
 		},
 	}
 	drag.Flags().IntVar(&x1, "x1", 0, "start x")
@@ -172,8 +168,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "clicked center %d,%d\n", r.Min.X+r.Dx()/2, r.Min.Y+r.Dy()/2)
 		},
 	}
 	clickCenter.Flags().StringVar(&crRect, "rect", "0,0,100,100", "x0,y0,x1,y1")
@@ -225,8 +220,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "keydown %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "keydown %s\n", args[0])
 		},
 	}
 
@@ -246,8 +240,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "keyup %s\n", args[0])
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "keyup %s\n", args[0])
 		},
 	}
 
@@ -273,8 +266,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "mousedown button %d at %d,%d\n", mdButton, mdx, mdy)
 		},
 	}
 	mousedown.Flags().IntVar(&mdx, "x", -1, "x coordinate (optional)")
@@ -303,8 +295,7 @@ func inputCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "mouseup button %d at %d,%d\n", muButton, mux, muy)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "mouseup button %d at %d,%d\n", muButton, mux, muy)
 		},
 	}
 	mouseup.Flags().IntVar(&mux, "x", -1, "x coordinate (optional)")
@@ -325,8 +316,7 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%d,%d\n", x, y)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "%d,%d\n", x, y)
 		},
 	}
 
@@ -391,8 +381,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "scrolled up %d\n", clicks)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "scrolled up %d\n", clicks)
 		},
 	}
 	up.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
@@ -413,8 +402,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "scrolled down %d\n", clicks)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "scrolled down %d\n", clicks)
 		},
 	}
 	down.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
@@ -437,8 +425,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "scrolled left %d\n", clicks)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "scrolled left %d\n", clicks)
 		},
 	}
 	left.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")
@@ -459,8 +446,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "scrolled right %d\n", clicks)
-			return nil
+			return writeCLIOutput(cmd.OutOrStdout(), "scrolled right %d\n", clicks)
 		},
 	}
 	right.Flags().IntVar(&clicks, "clicks", 3, "number of scroll clicks")

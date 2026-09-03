@@ -1583,3 +1583,16 @@ func TestClipboardGetReportsShortOutputWrite(t *testing.T) {
 		t.Fatalf("clipboard get error = %v, want io.ErrShortWrite", err)
 	}
 }
+
+func TestInputMoveReportsShortOutputWrite(t *testing.T) {
+	out := &shortOutputWriter{max: 1}
+	cmd := inputCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(nil, &pftest.Inputter{}, nil, nil), nil
+	}, nil)
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"move"})
+
+	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("input move error = %v, want io.ErrShortWrite", err)
+	}
+}
