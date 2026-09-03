@@ -233,3 +233,16 @@ func TestLocateExactTruncatedBuffer(t *testing.T) {
 		t.Fatal("expected error locating in truncated image buffer")
 	}
 }
+
+func TestLocateExactRejectsOverflowingPackedMetadata(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	src := &image.RGBA{
+		Pix:    make([]byte, 1),
+		Stride: maxInt,
+		Rect:   image.Rect(0, 0, maxInt, 2),
+	}
+	ref := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	if _, err := LocateExactInImage(src, image.Rect(0, 0, 1, 1), ref); err == nil {
+		t.Fatal("LocateExactInImage accepted overflowing packed metadata")
+	}
+}

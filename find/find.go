@@ -555,17 +555,21 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 	srcRGBA, srcOk := src.(*image.RGBA)
 	refRGBA, refOk := reference.(*image.RGBA)
 	if srcOk && refOk {
+		srcRowBytes, srcLayoutOK := packedRowBytes(sb.Dx(), 4)
+		refRowBytes, refLayoutOK := packedRowBytes(rb.Dx(), 4)
+		if !srcLayoutOK || !refLayoutOK {
+			return image.Rectangle{}, fmt.Errorf("%w: invalid packed image layout", ErrNotFound)
+		}
 		// Read the reference bytes directly from Pix (avoids color model conversion in inner loop).
 		refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
-		if refOff0 >= 0 && refOff0+4 <= len(refRGBA.Pix) && srcRGBA.Stride >= sb.Dx()*4 {
+		if refOff0 >= 0 && refOff0 <= len(refRGBA.Pix)-4 && srcRGBA.Stride >= srcRowBytes && refRGBA.Stride >= refRowBytes {
 			refFirstBytes := refRGBA.Pix[refOff0 : refOff0+4]
 			for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
 				rowStart := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
-				rowEnd := rowStart + sb.Dx()*4
-				if rowStart < 0 || rowEnd > len(srcRGBA.Pix) {
+				if rowStart < 0 || rowStart > len(srcRGBA.Pix)-srcRowBytes {
 					break
 				}
-				row := srcRGBA.Pix[rowStart:rowEnd]
+				row := srcRGBA.Pix[rowStart : rowStart+srcRowBytes]
 				for from := 0; from < len(row); {
 					offset := bytes.Index(row[from:], refFirstBytes)
 					if offset < 0 {
@@ -623,11 +627,20 @@ func matchAt(src, ref image.Image, ox, oy int) bool {
 	srcRGBA, srcOk := src.(*image.RGBA)
 	refRGBA, refOk := ref.(*image.RGBA)
 	if srcOk && refOk {
-		w4 := rb.Dx() * 4
+		w4, ok := packedRowBytes(rb.Dx(), 4)
+		if !ok {
+			return false
+		}
+		if _, ok := packedBufferSize(srcRGBA.Rect, srcRGBA.Stride, 4); !ok {
+			return false
+		}
+		if _, ok := packedBufferSize(refRGBA.Rect, refRGBA.Stride, 4); !ok {
+			return false
+		}
 		for y := 0; y < rb.Dy(); y++ {
 			srcOff := (oy+y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (ox-srcRGBA.Rect.Min.X)*4
 			refOff := (rb.Min.Y+y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
-			if srcOff < 0 || srcOff+w4 > len(srcRGBA.Pix) || refOff < 0 || refOff+w4 > len(refRGBA.Pix) {
+			if srcOff < 0 || srcOff > len(srcRGBA.Pix)-w4 || refOff < 0 || refOff > len(refRGBA.Pix)-w4 {
 				return false
 			}
 			if !bytes.Equal(srcRGBA.Pix[srcOff:srcOff+w4], refRGBA.Pix[refOff:refOff+w4]) {
