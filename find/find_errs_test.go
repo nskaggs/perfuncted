@@ -75,6 +75,13 @@ func TestFirstPixel_GrabError(t *testing.T) {
 	}
 }
 
+func TestFirstPixelRejectsEmptyRectangle(t *testing.T) {
+	sc := &solidScreenshotter{}
+	if _, err := FirstPixel(context.Background(), sc, image.Rectangle{}); err == nil {
+		t.Fatal("FirstPixel accepted an empty rectangle")
+	}
+}
+
 // ── FindColor error paths ─────────────────────────────────────────────────────
 
 func TestFindColor_ToleranceTooHigh(t *testing.T) {

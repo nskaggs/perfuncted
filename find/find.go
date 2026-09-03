@@ -149,6 +149,12 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 	if err := checkAvailable(sc); err != nil {
 		return color.RGBA{}, err
 	}
+	if rect.Empty() {
+		return color.RGBA{}, fmt.Errorf("find: first pixel requires a non-empty rectangle")
+	}
+	if rect.Min.X == int(^uint(0)>>1) || rect.Min.Y == int(^uint(0)>>1) {
+		return color.RGBA{}, fmt.Errorf("find: first pixel coordinate overflows one-pixel capture: %v", rect.Min)
+	}
 	img, err := sc.Grab(ctx, image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Min.Y+1))
 	if err != nil {
 		return color.RGBA{}, fmt.Errorf("find: first pixel: %w", err)
