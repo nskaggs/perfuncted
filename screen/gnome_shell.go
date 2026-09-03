@@ -116,7 +116,10 @@ func (b *GnomeShellScreenshotBackend) Grab(ctx context.Context, rect image.Recta
 		return nil, fmt.Errorf("screen/gnome-shell: temp file: %w", err)
 	}
 	path := tmp.Name()
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("screen/gnome-shell: close temp file: %w", err)
+	}
 	defer removeScreenshotIfOwned(path, path)
 
 	var success bool
