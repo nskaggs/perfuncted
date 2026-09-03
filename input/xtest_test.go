@@ -161,6 +161,42 @@ func TestXTestTypeReleasesTemporaryModifiersAfterKeyFailure(t *testing.T) {
 	}
 }
 
+func TestXTestTypeJoinsTemporaryModifierCleanupFailure(t *testing.T) {
+	const (
+		shift = byte(8)
+		ctrl  = byte(9)
+		key   = byte(12)
+	)
+	keyErr := errors.New("synthetic key failure")
+	cleanupErr := errors.New("synthetic modifier cleanup failure")
+	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{
+		0xffe1, // shift
+		0xffe3, // ctrl
+		0xffe9, // alt
+		0xffeb, // super
+		0x61,   // a
+	}, func(event xtestEvent) error {
+		if event.eventType == xproto.KeyPress && event.detail == key {
+			return keyErr
+		}
+		if event.eventType == xproto.KeyRelease && event.detail == ctrl {
+			return cleanupErr
+		}
+		return nil
+	})
+
+	err := b.typeContext(context.Background(), "{ctrl+shift+a}")
+	if !errors.Is(err, keyErr) {
+		t.Fatalf("typeContext error = %v, want key error %v", err, keyErr)
+	}
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("typeContext error = %v, want cleanup error %v joined", err, cleanupErr)
+	}
+	if got := *events; len(got) != 5 || got[3] != (xtestEvent{eventType: xproto.KeyRelease, detail: ctrl}) {
+		t.Fatalf("events = %#v, want initial modifier cleanup attempt", got)
+	}
+}
+
 func TestXTestTypeReleasesEarlierModifiersWhenModifierSetupFails(t *testing.T) {
 	const (
 		ctrl  = byte(9)
@@ -223,6 +259,35 @@ func TestXTestTypeTextReleasesShiftAfterKeyFailure(t *testing.T) {
 	}
 	if !sameXTestEvents(*events, want) {
 		t.Fatalf("events = %#v, want %#v", *events, want)
+	}
+}
+
+func TestXTestTypeTextJoinsShiftCleanupFailure(t *testing.T) {
+	const (
+		shift = byte(8)
+		key   = byte(9)
+	)
+	keyErr := errors.New("synthetic text key failure")
+	cleanupErr := errors.New("synthetic shift cleanup failure")
+	b, _ := newTestXTestBackend(t, 2, []xproto.Keysym{
+		0xffe1, 0,
+		0x61, 0x41,
+	}, func(event xtestEvent) error {
+		if event.eventType == xproto.KeyPress && event.detail == key {
+			return keyErr
+		}
+		if event.eventType == xproto.KeyRelease && event.detail == shift {
+			return cleanupErr
+		}
+		return nil
+	})
+
+	err := b.typeContext(context.Background(), "A")
+	if !errors.Is(err, keyErr) {
+		t.Fatalf("typeContext error = %v, want key error %v", err, keyErr)
+	}
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("typeContext error = %v, want cleanup error %v joined", err, cleanupErr)
 	}
 }
 

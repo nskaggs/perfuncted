@@ -288,7 +288,7 @@ func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //noli
 	return nil
 }
 
-func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error { //nolint:gocyclo // modifier and key state transitions are intentionally explicit
+func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { //nolint:gocyclo // modifier and key state transitions are intentionally explicit
 	if a.text != "" {
 		return b.typeText(ctx, a.text)
 	}
@@ -311,7 +311,7 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) error { //noli
 			return
 		}
 		for i := len(pressedMods) - 1; i >= 0; i-- {
-			_ = b.keyUpKC(pressedMods[i])
+			err = errors.Join(err, b.keyUpKC(pressedMods[i]))
 		}
 	}()
 
@@ -399,7 +399,7 @@ func (b *XTestBackend) typeText(ctx context.Context, s string) error {
 	return nil
 }
 
-func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) error {
+func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) (err error) {
 	kc, level, err := b.keycodeAndLevel(xproto.Keysym(ch))
 	if err != nil {
 		return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
@@ -411,14 +411,14 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) error {
 		if err != nil {
 			return err
 		}
-		if err := b.keyDownKC(shiftKC); err != nil {
-			return err
+		if keyErr := b.keyDownKC(shiftKC); keyErr != nil {
+			return keyErr
 		}
 		shiftHeld = true
 	}
 	defer func() {
 		if shiftHeld {
-			_ = b.keyUpKC(shiftKC)
+			err = errors.Join(err, b.keyUpKC(shiftKC))
 		}
 	}()
 
