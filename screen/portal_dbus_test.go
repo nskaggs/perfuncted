@@ -73,7 +73,9 @@ func TestRemoveScreenshotIfOwned(t *testing.T) {
 	if err := os.WriteFile(owned, []byte("owned"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	removeScreenshotIfOwned(owned, owned)
+	if err := removeScreenshotIfOwned(owned, owned); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(owned); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("owned screenshot still exists: %v", err)
 	}
@@ -82,7 +84,9 @@ func TestRemoveScreenshotIfOwned(t *testing.T) {
 	if err := os.WriteFile(foreign, []byte("foreign"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	removeScreenshotIfOwned(foreign, owned)
+	if err := removeScreenshotIfOwned(foreign, owned); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(foreign); err != nil {
 		t.Fatalf("foreign screenshot was removed: %v", err)
 	}

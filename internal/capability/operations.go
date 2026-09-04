@@ -42,6 +42,13 @@ var operationsBySurface = map[string][]string{
 		"get",
 		"set",
 	},
+	"accessibility": {
+		"applications",
+		"snapshot",
+		"find",
+		"focused",
+		"at-point",
+	},
 }
 
 // Operations returns a defensive copy of the canonical operation names for a

@@ -139,6 +139,11 @@ Every session has non-nil capability facades:
 - `session.Windows` discovers windows, returns stable session-bound handles for control, and exposes bounded, lossy lifecycle and focus notifications through `session.Windows.Events()`.
 - `session.Outputs` lists displays.
 - `session.Clipboard` gets and sets clipboard contents.
+- `session.Accessibility` optionally reads the AT-SPI accessibility tree,
+  including application roots, roles, names, states, text, bounds, focused
+  objects, point queries, and bounded semantic searches. Request it with
+  `Optional(perfuncted.CapabilityAccessibility)` or `Require(...)`; sessions
+  without an accessibility bus report it as unavailable.
 
 Unavailable facade calls return `*perfuncted.CapabilityError`; inspect
 `errors.Is(err, perfuncted.ErrUnavailable)` or

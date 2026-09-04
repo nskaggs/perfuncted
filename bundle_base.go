@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -65,7 +66,7 @@ func (b *bundleBase) operationError(operation string, err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	if errors.Is(err, input.ErrNotSupported) || errors.Is(err, window.ErrNotSupported) {
+	if errors.Is(err, input.ErrNotSupported) || errors.Is(err, window.ErrNotSupported) || errors.Is(err, accessibility.ErrUnsupported) {
 		err = errors.Join(ErrUnsupported, err)
 	}
 	return &OperationError{

@@ -83,6 +83,8 @@ type Session struct {
 	Outputs *OutputBundle
 	// Clipboard exposes clipboard access for this session.
 	Clipboard *ClipboardBundle
+	// Accessibility exposes read-only AT-SPI queries for this session.
+	Accessibility *AccessibilityBundle
 
 	config       SessionConfig
 	target       DesktopTarget
@@ -204,6 +206,7 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 	}
 	s.Outputs = &OutputBundle{bundleBase: s.bundleBase(CapabilityOutputs)}
 	s.Clipboard = &ClipboardBundle{bundleBase: s.bundleBase(CapabilityClipboard)}
+	s.Accessibility = &AccessibilityBundle{bundleBase: s.bundleBase(CapabilityAccessibility)}
 
 	for _, capability := range allCapabilities {
 		_, required := cfg.required[capability]
@@ -320,6 +323,14 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		}
 		closeFailedBackend(backend, err)
 		return backend, err
+	case CapabilityAccessibility:
+		backend, err := openAccessibility(s.env)
+		backend, err = validateBackend(capability, backend, err)
+		if err == nil {
+			s.Accessibility.backend = backend
+		}
+		closeFailedBackend(backend, err)
+		return backend, err
 	default:
 		return nil, fmt.Errorf("unknown capability %q", capability)
 	}
@@ -392,6 +403,9 @@ func (s *Session) close() error {
 	}
 	if s.Clipboard != nil {
 		errs = append(errs, s.Clipboard.close())
+	}
+	if s.Accessibility != nil {
+		errs = append(errs, s.Accessibility.close())
 	}
 
 	if s.infra != nil {

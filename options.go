@@ -44,6 +44,8 @@ const (
 	CapabilityOutputs Capability = "outputs"
 	// CapabilityClipboard identifies clipboard get and set operations.
 	CapabilityClipboard Capability = "clipboard"
+	// CapabilityAccessibility identifies read-only AT-SPI observation.
+	CapabilityAccessibility Capability = "accessibility"
 )
 
 var allCapabilities = []Capability{
@@ -52,6 +54,7 @@ var allCapabilities = []Capability{
 	CapabilityWindows,
 	CapabilityOutputs,
 	CapabilityClipboard,
+	CapabilityAccessibility,
 }
 
 func validCapability(cap Capability) bool {

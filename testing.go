@@ -77,12 +77,16 @@ func NewSessionForTesting(
 			CapabilityClipboard,
 		),
 	}
+	session.Accessibility = &AccessibilityBundle{
+		bundleBase: session.bundleBase(CapabilityAccessibility),
+	}
 	backends := map[Capability]any{
-		CapabilityScreen:    screenshotter,
-		CapabilityInput:     inputter,
-		CapabilityWindows:   windowManager,
-		CapabilityOutputs:   outputLister,
-		CapabilityClipboard: clipboardBackend,
+		CapabilityScreen:        screenshotter,
+		CapabilityInput:         inputter,
+		CapabilityWindows:       windowManager,
+		CapabilityOutputs:       outputLister,
+		CapabilityClipboard:     clipboardBackend,
+		CapabilityAccessibility: nil,
 	}
 	for _, capability := range allCapabilities {
 		backend := backends[capability]

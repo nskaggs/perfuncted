@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
@@ -137,35 +138,14 @@ func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Recta
 		return nil, fmt.Errorf("screen/gnome-shell: close temp file: %w", closeErr)
 	}
 	defer func() {
-		if err := removeScreenshotIfOwned(path, path); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove transport: %w", err))
+		if cleanupErr := removeScreenshotIfOwned(path, path); cleanupErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove transport: %w", cleanupErr))
 		}
 	}()
 
-	var success bool
-	var used string
-
-	if rect.Empty() {
-		call := b.obj.CallWithContext(ctx, gnomeShellShotIface+".Screenshot", 0, false, false, path)
-		if call.Err != nil {
-			return nil, fmt.Errorf("screen/gnome-shell: Screenshot: %w", call.Err)
-		}
-		err = call.Store(&success, &used)
-		if err != nil {
-			return nil, fmt.Errorf("screen/gnome-shell: Screenshot reply: %w", err)
-		}
-	} else {
-		call := b.obj.CallWithContext(ctx, gnomeShellShotIface+".ScreenshotArea", 0,
-			int32(rect.Min.X), int32(rect.Min.Y), int32(rect.Dx()), int32(rect.Dy()),
-			false, path,
-		)
-		if call.Err != nil {
-			return nil, fmt.Errorf("screen/gnome-shell: ScreenshotArea: %w", call.Err)
-		}
-		err = call.Store(&success, &used)
-		if err != nil {
-			return nil, fmt.Errorf("screen/gnome-shell: ScreenshotArea reply: %w", err)
-		}
+	success, used, err := b.captureToPath(ctx, rect, path)
+	if err != nil {
+		return nil, err
 	}
 
 	if !success {
@@ -173,24 +153,55 @@ func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Recta
 	}
 	if used == "" {
 		used = path
-	} else if used != path {
+	}
+
+	if used != path {
 		defer func() {
-			if err := os.Remove(used); err != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove compositor transport: %w", err))
+			if removeErr := os.Remove(used); removeErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove compositor transport: %w", removeErr))
 			}
 		}()
 	}
+	return decodeScreenshot(used)
+}
 
-	f, root, err := openScreenshotFile(used)
+func (b *GnomeShellScreenshotBackend) captureToPath(ctx context.Context, rect image.Rectangle, path string) (bool, string, error) {
+	var success bool
+	var used string
+	method := gnomeShellShotIface + ".Screenshot"
+	args := []any{false, false, path}
+	if !rect.Empty() {
+		method = gnomeShellShotIface + ".ScreenshotArea"
+		args = []any{int32(rect.Min.X), int32(rect.Min.Y), int32(rect.Dx()), int32(rect.Dy()), false, path}
+	}
+	call := b.obj.CallWithContext(ctx, method, 0, args...)
+	if call.Err != nil {
+		return false, "", fmt.Errorf("screen/gnome-shell: %s: %w", methodName(method), call.Err)
+	}
+	if err := call.Store(&success, &used); err != nil {
+		return false, "", fmt.Errorf("screen/gnome-shell: %s reply: %w", methodName(method), err)
+	}
+	return success, used, nil
+}
+
+func methodName(method string) string {
+	if idx := strings.LastIndexByte(method, '.'); idx >= 0 {
+		return method[idx+1:]
+	}
+	return method
+}
+
+func decodeScreenshot(path string) (img image.Image, retErr error) {
+	f, root, err := openScreenshotFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("screen/gnome-shell: open %s: %w", used, err)
+		return nil, fmt.Errorf("screen/gnome-shell: open %s: %w", path, err)
 	}
 	defer func() {
-		if err := f.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: close screenshot: %w", err))
+		if closeErr := f.Close(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: close screenshot: %w", closeErr))
 		}
-		if err := root.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: close screenshot root: %w", err))
+		if closeErr := root.Close(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: close screenshot root: %w", closeErr))
 		}
 	}()
 
