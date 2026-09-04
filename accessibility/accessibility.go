@@ -32,6 +32,7 @@ const (
 	busService         = "org.a11y.Bus"
 	busPath            = dbus.ObjectPath("/org/a11y/bus")
 	registryName       = "org.a11y.atspi.Registry"
+	registryPath       = dbus.ObjectPath("/org/a11y/atspi/registry")
 	desktopPath        = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
 	nullObjectPath     = dbus.ObjectPath("/org/a11y/atspi/null")
 	accessibleIface    = "org.a11y.atspi.Accessible"
@@ -313,25 +314,33 @@ func (b *dbusBackend) Close() error {
 	if b == nil {
 		return nil
 	}
-	if b.access != nil {
-		errs = append(errs, b.access.Close())
-		b.access = nil
+	b.mu.Lock()
+	access, session := b.access, b.session
+	b.access, b.session = nil, nil
+	b.mu.Unlock()
+	if access != nil {
+		errs = append(errs, access.Close())
 	}
-	if b.session != nil {
-		errs = append(errs, b.session.Close())
-		b.session = nil
+	if session != nil {
+		errs = append(errs, session.Close())
 	}
 	return errors.Join(errs...)
 }
 
 func (b *dbusBackend) object(id NodeID) (dbus.BusObject, error) {
-	if b == nil || b.access == nil {
+	if b == nil {
+		return nil, errors.New("accessibility: bus is closed")
+	}
+	b.mu.RLock()
+	access := b.access
+	b.mu.RUnlock()
+	if access == nil {
 		return nil, errors.New("accessibility: bus is closed")
 	}
 	if !id.valid() {
 		return nil, errors.New("accessibility: invalid object reference")
 	}
-	return b.access.Object(id.BusName, dbus.ObjectPath(id.ObjectPath)), nil
+	return access.Object(id.BusName, dbus.ObjectPath(id.ObjectPath)), nil
 }
 
 func (b *dbusBackend) desktop() NodeID {
@@ -396,11 +405,17 @@ func (b *dbusBackend) FindApplication(ctx context.Context, filter ApplicationFil
 }
 
 func (b *dbusBackend) connectionPID(ctx context.Context, busName string) (int32, error) {
-	if strings.TrimSpace(busName) == "" || b == nil || b.session == nil {
+	if strings.TrimSpace(busName) == "" || b == nil {
+		return 0, nil
+	}
+	b.mu.RLock()
+	access := b.access
+	b.mu.RUnlock()
+	if access == nil {
 		return 0, nil
 	}
 	var pid uint32
-	if err := b.session.Object("org.freedesktop.DBus", "/org/freedesktop/DBus").CallWithContext(ctx, "org.freedesktop.DBus.GetConnectionUnixProcessID", 0, busName).Store(&pid); err != nil {
+	if err := access.Object("org.freedesktop.DBus", "/org/freedesktop/DBus").CallWithContext(ctx, "org.freedesktop.DBus.GetConnectionUnixProcessID", 0, busName).Store(&pid); err != nil {
 		return 0, err
 	}
 	if pid > 1<<31-1 {
@@ -416,17 +431,38 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
 	}
-	if b == nil || b.access == nil {
+	if b == nil {
 		return nil, errors.New("accessibility: bus is closed")
 	}
+	b.mu.RLock()
 	access := b.access
-	opts = opts.normalized()
-	match := []dbus.MatchOption{
-		dbus.WithMatchInterface("org.a11y.atspi.Event.Object"),
-		dbus.WithMatchMember("PropertyChange"),
+	b.mu.RUnlock()
+	if access == nil {
+		return nil, errors.New("accessibility: bus is closed")
 	}
-	if err := access.AddMatchSignalContext(ctx, match...); err != nil {
-		return nil, fmt.Errorf("accessibility: subscribe events: %w", err)
+	opts = opts.normalized()
+	registered := []string{"object:property-change", "object:state-changed", "window:activate", "window:deactivate"}
+	registry := access.Object(registryName, registryPath)
+	unique := ""
+	if names := access.Names(); len(names) > 0 {
+		unique = names[0]
+	}
+	for _, eventType := range registered {
+		// Some registry versions reject event families they do not emit. Keep
+		// the successful registrations and continue with the signal stream.
+		_ = registry.CallWithContext(ctx, registryName+".RegisterEvent", 0, eventType, []string{}, unique).Err
+	}
+	matches := [][]dbus.MatchOption{
+		{dbus.WithMatchInterface("org.a11y.atspi.Event.Object")},
+		{dbus.WithMatchInterface("org.a11y.atspi.Event.Window")},
+	}
+	for _, match := range matches {
+		if err := access.AddMatchSignalContext(ctx, match...); err != nil {
+			for _, installed := range matches {
+				_ = access.RemoveMatchSignal(installed...)
+			}
+			return nil, fmt.Errorf("accessibility: subscribe events: %w", err)
+		}
 	}
 	signals := make(chan *dbus.Signal, opts.Buffer)
 	access.Signal(signals)
@@ -434,7 +470,14 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 	go func() {
 		defer close(out)
 		defer access.RemoveSignal(signals)
-		defer func() { _ = access.RemoveMatchSignal(match...) }()
+		defer func() {
+			for _, match := range matches {
+				_ = access.RemoveMatchSignal(match...)
+			}
+			for _, eventType := range registered {
+				_ = registry.CallWithContext(context.Background(), registryName+".DeregisterEvent", 0, eventType).Err
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
@@ -689,18 +732,23 @@ func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText i
 	b.readNodeText(ctx, id, node.Interfaces, maxText, &node)
 	b.readNodeAttributes(ctx, id, &node)
 	if !allowSensitive && hasSensitiveState(node.States) {
-		node.Redacted = true
-		node.Text = ""
-		if node.Attributes != nil {
-			for key := range node.Attributes {
-				lower := strings.ToLower(key)
-				if key == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") {
-					delete(node.Attributes, key)
-				}
-			}
-		}
+		redactSensitiveNode(&node)
 	}
 	return node, nil
+}
+
+func redactSensitiveNode(node *Node) {
+	if node == nil {
+		return
+	}
+	node.Redacted = true
+	node.Text = ""
+	for key := range node.Attributes {
+		lower := strings.ToLower(key)
+		if key == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") {
+			delete(node.Attributes, key)
+		}
+	}
 }
 
 func hasSensitiveState(states []string) bool {

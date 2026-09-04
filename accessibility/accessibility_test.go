@@ -1,6 +1,7 @@
 package accessibility
 
 import (
+	"github.com/godbus/dbus/v5"
 	"testing"
 	"time"
 )
@@ -42,6 +43,10 @@ func TestEventOptionsNormalizeAndSignalConversion(t *testing.T) {
 	if !hasSensitiveState([]string{"visible", "protected"}) || hasSensitiveState([]string{"visible"}) {
 		t.Fatal("sensitive state detection incorrect")
 	}
+	e = signalEvent(&dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange", Sender: "org.test.App", Path: dbus.ObjectPath("/node"), Body: []any{"Name", "Save"}})
+	if e.Node.BusName != "org.test.App" || e.Node.ObjectPath != "/node" || e.Property != "Name" || e.Value != "Save" {
+		t.Fatalf("signal conversion = %+v", e)
+	}
 }
 
 func TestCloneSnapshotDeepCopiesAndPreservesMetadata(t *testing.T) {
@@ -65,5 +70,19 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 	}
 	if snapshotKey(root, SnapshotOptions{AllowSensitive: true}) == snapshotKey(root, SnapshotOptions{}) {
 		t.Fatal("redaction policy not part of snapshot key")
+	}
+}
+
+func TestRedactSensitiveNodeKeepsUsefulSemantics(t *testing.T) {
+	node := Node{Name: "Password", Role: "entry", Text: "secret", States: []string{"sensitive"}, Attributes: map[string]string{"value": "secret", "aria-label": "Password", "class": "field"}}
+	redactSensitiveNode(&node)
+	if !node.Redacted || node.Text != "" {
+		t.Fatalf("redacted node = %+v", node)
+	}
+	if _, ok := node.Attributes["value"]; ok {
+		t.Fatal("value attribute leaked")
+	}
+	if node.Attributes["aria-label"] != "Password" || node.Attributes["class"] != "field" {
+		t.Fatalf("semantic attributes removed: %+v", node.Attributes)
 	}
 }
