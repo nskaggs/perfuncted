@@ -160,7 +160,6 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				return
 			}
 			event := signalEvent(sig)
-			event.Node.Generation = b.Generation()
 			if coalesceEvent(&lastKey, &lastAt, event) {
 				b.eventsMu.Lock()
 				for _, subscriber := range b.subscribers {
@@ -169,13 +168,25 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				b.eventsMu.Unlock()
 				continue
 			}
-			if stringsHasCachePrefix(sig.Name) {
-				b.applyCacheSignal(sig)
-			}
-			b.Invalidate(event.Node)
+			event = b.prepareEvent(sig, event)
 			b.deliverEvent(event)
 		}
 	}
+}
+
+// prepareEvent performs the one invalidation/cache transition associated with
+// a delivered physical signal and stamps the resulting event with a handle
+// valid for the new generation.
+func (b *dbusBackend) prepareEvent(sig *dbus.Signal, event Event) Event {
+	// Cache updates are applied after the transition so entries are tagged with
+	// the new generation. This keeps event handles and cache-backed children in
+	// the same generation without allowing duplicate mutation paths.
+	b.Invalidate(event.Node)
+	if sig != nil && stringsHasCachePrefix(sig.Name) {
+		b.applyCacheSignal(sig)
+	}
+	event.Node.Generation = b.Generation()
+	return event
 }
 
 // deliverEvent is the single fan-out point. Holding eventsMu while sending

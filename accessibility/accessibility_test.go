@@ -492,3 +492,22 @@ func TestCacheSignalMutationDoesNotPerformSecondGenerationTransition(t *testing.
 		t.Fatalf("single invalidation advanced generation to %d", got)
 	}
 }
+
+func TestPreparedEventUsesPostInvalidationGeneration(t *testing.T) {
+	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem), cacheApps: map[string]bool{"org.test": true}}
+	item := cacheItem{
+		Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
+		Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+	}
+	sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}}
+	event := backend.prepareEvent(sig, Event{Kind: sig.Name, Node: NodeID{BusName: "org.test", ObjectPath: "/node"}})
+	if event.Node.Generation != 6 {
+		t.Fatalf("event generation = %d, want 6", event.Node.Generation)
+	}
+	if err := backend.validateHandle(event.Node); err != nil {
+		t.Fatalf("prepared event handle is not current: %v", err)
+	}
+	if _, ok := backend.cachedItem(event.Node); !ok {
+		t.Fatalf("cache item was not stored in event generation %d", event.Node.Generation)
+	}
+}
