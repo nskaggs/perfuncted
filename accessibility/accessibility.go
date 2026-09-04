@@ -89,17 +89,12 @@ func (id NodeID) valid() bool {
 type objectRef struct {
 	BusName    string
 	ObjectPath dbus.ObjectPath
-	Generation uint64
 }
 
 func (r objectRef) id() NodeID {
-	generation := r.Generation
-	if generation == 0 {
-		// Raw protocol replies have no generation. Backends tag these before
-		// returning them; one is retained for deterministic protocol fixtures.
-		generation = 1
-	}
-	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath), Generation: generation}
+	// Raw protocol replies carry no generation. Native backends replace this
+	// fixture generation with their current generation at the walker boundary.
+	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath), Generation: 1}
 }
 
 func (r objectRef) null() bool {
@@ -658,10 +653,6 @@ func (b *dbusBackend) refID(ref objectRef) NodeID {
 }
 
 func (b *dbusBackend) tagRefs(refs []objectRef) []objectRef {
-	gen := b.Generation()
-	for i := range refs {
-		refs[i].Generation = gen
-	}
 	return refs
 }
 
@@ -1085,7 +1076,11 @@ func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID
 			w.snapshot.Truncated = true
 			return
 		}
-		child, childErr := w.walk(ctx, childRef.id(), id, depth+1)
+		childID := childRef.id()
+		if tagger, ok := w.backend.(interface{ refID(objectRef) NodeID }); ok {
+			childID = tagger.refID(childRef)
+		}
+		child, childErr := w.walk(ctx, childID, id, depth+1)
 		if childErr != nil {
 			if ctx.Err() != nil {
 				return
@@ -1194,7 +1189,6 @@ func (b *dbusBackend) AtPoint(ctx context.Context, x, y int) (Node, error) {
 	if ref.null() {
 		return Node{}, ErrNotFound
 	}
-	ref.Generation = b.Generation()
 	return b.readNode(ctx, b.refID(ref), NodeID{}, defaultMaxText, false)
 }
 
@@ -1229,7 +1223,7 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	items := make([]indexed, 0)
 	for _, item := range b.cacheItems {
 		if item.Parent.BusName == id.BusName && string(item.Parent.ObjectPath) == id.ObjectPath {
-			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath, Generation: b.generation}})
+			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath}})
 		}
 	}
 	if len(items) == 0 {
