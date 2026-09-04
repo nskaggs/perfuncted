@@ -107,6 +107,9 @@ func (cliAutomationFake) SelectColumn(context.Context, accessibility.NodeID, int
 func (cliAutomationFake) DeselectColumn(context.Context, accessibility.NodeID, int32) error {
 	return nil
 }
+func (cliAutomationFake) Reopen(context.Context) (accessibility.Backend, error) {
+	return cliAutomationFake{}, nil
+}
 
 func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
 	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "applications"}, func(*cliConfig) sessionOpener {
@@ -190,6 +193,7 @@ func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 		{"accessibility", "deselect-row", "--index", "0"},
 		{"accessibility", "select-column", "--index", "0"},
 		{"accessibility", "deselect-column", "--index", "0"},
+		{"accessibility", "reopen"},
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args[1:], "-"), func(t *testing.T) {

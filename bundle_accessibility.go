@@ -49,8 +49,9 @@ func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility
 	return apps, b.operationError("applications", err)
 }
 
-// Snapshot returns a bounded accessibility tree. A zero root selects the
-// virtual desktop root.
+// Snapshot returns a bounded accessibility tree. Callers must provide an
+// application/window/root handle; a zero root is accepted only with the
+// explicit SnapshotOptions.AllowDesktopRoot diagnostic opt-in.
 func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	if err := b.checkAvailable("snapshot"); err != nil {
 		return accessibility.Snapshot{}, err
