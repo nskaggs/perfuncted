@@ -408,6 +408,26 @@ func TestTypedAutomationFailsClosedWithoutRetry(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("cancelled mutation made %d provider calls", calls)
 	}
+
+	var disconnectingBackend *dbusBackend
+	calls = 0
+	disconnectingBackend = &dbusBackend{generation: 1, callOverride: func(context.Context, NodeID, string, []any) (any, error) {
+		calls++
+		disconnectingBackend.markDisconnected()
+		return nil, errors.New("transport closed")
+	}}
+	if err := disconnectingBackend.GrabFocus(context.Background(), id); err == nil {
+		t.Fatal("disconnecting mutation unexpectedly succeeded")
+	}
+	if calls != 1 || disconnectingBackend.Generation() != 2 {
+		t.Fatalf("disconnecting mutation calls=%d generation=%d, want one call and generation 2", calls, disconnectingBackend.Generation())
+	}
+	if err := disconnectingBackend.GrabFocus(context.Background(), id); !errors.Is(err, ErrDisconnected) {
+		t.Fatalf("post-disconnect mutation error = %v, want disconnected", err)
+	}
+	if calls != 1 {
+		t.Fatalf("post-disconnect mutation was replayed: %d calls", calls)
+	}
 }
 
 func TestTypedActionFixtureRejectsMalformedAndUnsupportedReplies(t *testing.T) {

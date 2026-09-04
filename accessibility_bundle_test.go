@@ -138,8 +138,9 @@ type accessibilityAutomationFake struct {
 
 type accessibilityReopenerFake struct {
 	*bundleAccessibilityFake
-	fresh  accessibility.Backend
-	closed bool
+	fresh        accessibility.Backend
+	closed       bool
+	disconnected bool
 }
 
 func (f *accessibilityReopenerFake) SupportedOperations() []string {
@@ -148,6 +149,12 @@ func (f *accessibilityReopenerFake) SupportedOperations() []string {
 func (f *accessibilityReopenerFake) Close() error { f.closed = true; return nil }
 func (f *accessibilityReopenerFake) Reopen(context.Context) (accessibility.Backend, error) {
 	return f.fresh, nil
+}
+func (f *accessibilityReopenerFake) Applications(ctx context.Context) ([]accessibility.Application, error) {
+	if f.disconnected {
+		return nil, accessibility.ErrDisconnected
+	}
+	return f.bundleAccessibilityFake.Applications(ctx)
 }
 
 func (*accessibilityAutomationFake) SupportedOperations() []string {
@@ -237,6 +244,28 @@ func TestAccessibilityBundleExplicitReopenSwapsBackend(t *testing.T) {
 	}
 	if !old.closed {
 		t.Fatal("old accessibility backend was not closed after explicit reopen")
+	}
+}
+
+func TestAccessibilityBundleExplicitReopenAfterDisconnect(t *testing.T) {
+	old := &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 4}}
+	fresh := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "rediscovered"}}}, gen: 6}
+	old.fresh = fresh
+	old.disconnected = true
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
+	defer session.Close()
+	if _, err := session.Accessibility.Applications(context.Background()); !errors.Is(err, accessibility.ErrDisconnected) {
+		t.Fatalf("disconnected applications error = %v, want disconnected", err)
+	}
+	if err := session.Accessibility.ReopenAccessibility(context.Background()); err != nil {
+		t.Fatalf("ReopenAccessibility after disconnect: %v", err)
+	}
+	if got := session.Accessibility.Generation(); got != fresh.gen {
+		t.Fatalf("reopened generation = %d, want %d", got, fresh.gen)
+	}
+	apps, err := session.Accessibility.Applications(context.Background())
+	if err != nil || len(apps) != 1 || apps[0].Name != "rediscovered" {
+		t.Fatalf("rediscovered applications = %+v, err=%v", apps, err)
 	}
 }
 
