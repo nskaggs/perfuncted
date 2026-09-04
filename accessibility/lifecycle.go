@@ -90,10 +90,6 @@ func (b *dbusBackend) startEvents(ctx context.Context) error {
 	matches, err := subscribeEventMatches(streamCtx, access)
 	if err != nil {
 		deregisterEvents(streamCtx, registry, registered)
-		for id, subscriber := range b.subscribers {
-			close(subscriber.out)
-			delete(b.subscribers, id)
-		}
 		b.eventsMu.Unlock()
 		return err
 	}
