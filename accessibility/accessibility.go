@@ -451,6 +451,10 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 	registry, registered := registerEvents(ctx, access)
 	matches, err := subscribeEventMatches(ctx, access)
 	if err != nil {
+		// Registration happens before match installation. If a bus rejects a
+		// match, undo the registrations here because the event goroutine (which
+		// normally owns cleanup) will never be started.
+		deregisterEvents(context.Background(), registry, registered) //nolint:contextcheck // cleanup must outlive the canceled subscription context.
 		return nil, err
 	}
 	signals := make(chan *dbus.Signal, opts.Buffer)
@@ -491,6 +495,16 @@ func subscribeEventMatches(ctx context.Context, access *dbus.Conn) ([][]dbus.Mat
 	return matches, nil
 }
 
+type eventRegistrar interface {
+	CallWithContext(context.Context, string, dbus.Flags, ...any) *dbus.Call
+}
+
+func deregisterEvents(ctx context.Context, registry eventRegistrar, registered []string) {
+	for _, eventType := range registered {
+		_ = registry.CallWithContext(ctx, registryName+".DeregisterEvent", 0, eventType).Err
+	}
+}
+
 func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.Signal, out chan<- Event, matches [][]dbus.MatchOption, registry dbus.BusObject, registered []string, backend *dbusBackend) {
 	defer close(out)
 	defer access.RemoveSignal(signals)
@@ -498,9 +512,7 @@ func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.S
 		for _, match := range matches {
 			_ = access.RemoveMatchSignal(match...)
 		}
-		for _, eventType := range registered {
-			_ = registry.CallWithContext(cleanupCtx, registryName+".DeregisterEvent", 0, eventType).Err
-		}
+		deregisterEvents(cleanupCtx, registry, registered)
 	}(context.Background())
 	for {
 		select {

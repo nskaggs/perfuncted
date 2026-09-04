@@ -63,6 +63,35 @@ func TestEventOptionsNormalizeAndSignalConversion(t *testing.T) {
 	}
 }
 
+type recordingEventRegistrar struct {
+	methods []string
+	events  []string
+}
+
+func (r *recordingEventRegistrar) CallWithContext(_ context.Context, method string, _ dbus.Flags, args ...any) *dbus.Call {
+	r.methods = append(r.methods, method)
+	if len(args) > 0 {
+		if eventType, ok := args[0].(string); ok {
+			r.events = append(r.events, eventType)
+		}
+	}
+	return &dbus.Call{}
+}
+
+func TestDeregisterEventsCleansEveryRegistration(t *testing.T) {
+	registrar := &recordingEventRegistrar{}
+	registered := []string{"object:property-change", "window:activate"}
+	deregisterEvents(context.Background(), registrar, registered)
+	if len(registrar.methods) != len(registered) || len(registrar.events) != len(registered) {
+		t.Fatalf("deregister calls = methods %v events %v, want %d", registrar.methods, registrar.events, len(registered))
+	}
+	for i, method := range registrar.methods {
+		if method != registryName+".DeregisterEvent" || registrar.events[i] != registered[i] {
+			t.Fatalf("deregister call %d = %s %q, want %s %q", i, method, registrar.events[i], registryName+".DeregisterEvent", registered[i])
+		}
+	}
+}
+
 func TestCloneSnapshotDeepCopiesAndPreservesMetadata(t *testing.T) {
 	at := time.Now()
 	in := Snapshot{Root: Node{ID: NodeID{BusName: "b", ObjectPath: "/r"}}, Nodes: []Node{{ID: NodeID{BusName: "b", ObjectPath: "/r"}, Attributes: map[string]string{"value": "x"}, Children: []NodeID{{BusName: "b", ObjectPath: "/c"}}}}, Generation: 4, CapturedAt: at, Source: "at-spi"}
