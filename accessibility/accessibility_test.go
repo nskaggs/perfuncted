@@ -316,6 +316,20 @@ func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
 	}
 }
 
+func TestReopenFailureLeavesBackendDisconnected(t *testing.T) {
+	backend := &dbusBackend{runtime: env.FromEnviron([]string{}), generation: 4}
+	_, err := backend.Reopen(context.Background())
+	if err == nil {
+		t.Fatal("Reopen unexpectedly succeeded without a target session bus")
+	}
+	if !errors.Is(backend.connected(), ErrDisconnected) {
+		t.Fatalf("backend after failed reopen = %v, want disconnected", backend.connected())
+	}
+	if got := backend.Generation(); got != 5 {
+		t.Fatalf("generation after failed reopen = %d, want 5", got)
+	}
+}
+
 func TestSnapshotRequiresExplicitScope(t *testing.T) {
 	backend := &dbusBackend{generation: 1, access: &dbus.Conn{}}
 	_, err := backend.Snapshot(context.Background(), NodeID{}, SnapshotOptions{})

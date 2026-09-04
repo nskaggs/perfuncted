@@ -67,9 +67,19 @@ func (b *dbusBackend) Reopen(ctx context.Context) (Backend, error) {
 	runtime, generation := b.runtime, b.generation
 	b.mu.RUnlock()
 	if runtime.Get("DBUS_SESSION_BUS_ADDRESS") == "" {
-		return nil, fmt.Errorf("%w: target session address unavailable", ErrDisconnected)
+		err := fmt.Errorf("%w: target session address unavailable", ErrDisconnected)
+		b.markDisconnected()
+		return nil, err
 	}
-	return openRuntime(runtime, generation+1)
+	fresh, err := openRuntime(runtime, generation+1)
+	if err != nil {
+		// A failed explicit reopen must not leave callers believing that the
+		// previous transport is still a safe target. Invalidate and shut down
+		// the old backend; the caller can retry Reopen explicitly later.
+		b.markDisconnected()
+		return nil, err
+	}
+	return fresh, nil
 }
 
 func (b *dbusBackend) startEvents(ctx context.Context) error {
