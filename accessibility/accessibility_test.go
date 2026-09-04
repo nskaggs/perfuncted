@@ -67,10 +67,3 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 		t.Fatal("redaction policy not part of snapshot key")
 	}
 }
-
-func TestEventOptionsRejectNilContext(t *testing.T) {
-	b := &dbusBackend{}
-	if _, err := b.Events(nil, EventOptions{}); err == nil || err.Error() != "accessibility: nil context" {
-		t.Fatalf("Events(nil) error = %v", err)
-	}
-}

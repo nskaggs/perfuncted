@@ -580,7 +580,7 @@ func (s *Session) startSession(
 	if wantAccessibility {
 		// The launcher is optional on minimal CI images. OpenRuntime still
 		// reports a typed unavailable capability when no AT-SPI service exists.
-		_ = infra.launchAccessibility(ctx)
+		_ = infra.launchAccessibility()
 	}
 
 	swayConf := config.SwayConfigPath
@@ -641,7 +641,7 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 // launchAccessibility starts the desktop accessibility bus when the helper
 // is installed. AT-SPI is commonly activated on demand, so absence of the
 // helper is deliberately non-fatal for optional capability users.
-func (i *sessionInfra) launchAccessibility(ctx context.Context) error {
+func (i *sessionInfra) launchAccessibility() error {
 	if _, err := exec.LookPath("at-spi-bus-launcher"); err != nil {
 		return err
 	}
