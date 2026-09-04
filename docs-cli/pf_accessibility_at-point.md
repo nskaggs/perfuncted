@@ -3,7 +3,7 @@
 Inspect the accessible object at a screen coordinate
 
 ```
-pf accessibility at-point [flags]
+pf accessibility at-point [X Y] [flags]
 ```
 
 ### Options
@@ -13,6 +13,7 @@ pf accessibility at-point [flags]
       --app string            application accessible-name substring
       --application string    application accessible-name substring (alias for --app)
   -h, --help                  help for at-point
+      --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth
       --max-nodes int         maximum nodes
       --max-text-bytes int    maximum text bytes per node

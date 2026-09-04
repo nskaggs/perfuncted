@@ -13,6 +13,7 @@ pf accessibility applications [flags]
       --app string            application accessible-name substring
       --application string    application accessible-name substring (alias for --app)
   -h, --help                  help for applications
+      --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth
       --max-nodes int         maximum nodes
       --max-text-bytes int    maximum text bytes per node

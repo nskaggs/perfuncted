@@ -72,6 +72,7 @@ func TestAccessibilityCLICommandsJSON(t *testing.T) {
 		{name: "find", args: []string{"accessibility", "find", "--role", "button", "--name", "Save"}, want: "Save"},
 		{name: "focused", args: []string{"accessibility", "focused"}, want: "focused"},
 		{name: "at point", args: []string{"accessibility", "at-point", "--x", "10", "--y", "20"}, want: "point"},
+		{name: "at point positional", args: []string{"accessibility", "at-point", "10", "20"}, want: "point"},
 		{name: "events", args: []string{"accessibility", "events"}, want: ""},
 	}
 	for _, tt := range tests {

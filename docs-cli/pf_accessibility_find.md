@@ -14,6 +14,7 @@ pf accessibility find [flags]
       --application string      application accessible-name substring (alias for --app)
       --attribute stringArray   required attribute key=value (repeatable)
   -h, --help                    help for find
+      --json                    output JSON (alias for --output json)
       --max-depth int           maximum tree depth
       --max-nodes int           maximum nodes
       --max-text-bytes int      maximum text bytes per node

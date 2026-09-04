@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/nskaggs/perfuncted"
@@ -14,6 +15,7 @@ import (
 
 type accessibilityCLIOptions struct {
 	output         string
+	json           bool
 	rootBus        string
 	rootPath       string
 	appName        string
@@ -48,6 +50,13 @@ func (o accessibilityCLIOptions) snapshot() accessibility.SnapshotOptions {
 	return accessibility.SnapshotOptions{MaxDepth: o.maxDepth, MaxNodes: o.maxNodes, MaxTextBytes: o.maxTextBytes, VisibleOnly: o.visibleOnly, AllowSensitive: o.allowSensitive}
 }
 
+func (o accessibilityCLIOptions) format() string {
+	if o.json {
+		return "json"
+	}
+	return o.output
+}
+
 func accessibilityOutput(w io.Writer, format string, value any) error {
 	if strings.EqualFold(format, "json") {
 		return json.NewEncoder(w).Encode(value)
@@ -59,6 +68,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	cmd := &cobra.Command{Use: "accessibility", Aliases: []string{"a11y"}, Short: "Inspect the AT-SPI accessibility tree"}
 	common := func(c *cobra.Command, o *accessibilityCLIOptions) {
 		c.Flags().StringVar(&o.output, "output", "json", "output format (json)")
+		c.Flags().BoolVar(&o.json, "json", false, "output JSON (alias for --output json)")
 		c.Flags().StringVar(&o.rootBus, "root-bus", "", "AT-SPI application bus name")
 		c.Flags().StringVar(&o.rootPath, "root-path", "", "AT-SPI application object path")
 		c.Flags().StringVar(&o.appName, "app", "", "application accessible-name substring")
@@ -84,7 +94,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), appOpts.output, apps)
+		return accessibilityOutput(c.OutOrStdout(), appOpts.format(), apps)
 	}}
 	common(applications, &appOpts)
 
@@ -103,7 +113,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), snapOpts.output, value)
+		return accessibilityOutput(c.OutOrStdout(), snapOpts.format(), value)
 	}}
 	common(snapshot, &snapOpts)
 
@@ -125,7 +135,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), findOpts.output, value)
+		return accessibilityOutput(c.OutOrStdout(), findOpts.format(), value)
 	}}
 	common(findCmd, &findOpts)
 	findCmd.Flags().StringVar(&query.Name, "name", "", "accessible name substring")
@@ -144,12 +154,30 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), appOpts.output, value)
+		return accessibilityOutput(c.OutOrStdout(), appOpts.format(), value)
 	}}
 	common(focused, &appOpts)
 
 	var pointX, pointY int
-	atPoint := &cobra.Command{Use: "at-point", Short: "Inspect the accessible object at a screen coordinate", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+	atPoint := &cobra.Command{Use: "at-point [X Y]", Short: "Inspect the accessible object at a screen coordinate", Args: func(_ *cobra.Command, args []string) error {
+		switch len(args) {
+		case 0:
+			return nil
+		case 2:
+			x, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("at-point x: %w", err)
+			}
+			y, err := strconv.Atoi(args[1])
+			if err != nil {
+				return fmt.Errorf("at-point y: %w", err)
+			}
+			pointX, pointY = x, y
+			return nil
+		default:
+			return fmt.Errorf("at-point expects zero or two coordinates")
+		}
+	}, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openPF(c.Context())
 		if err != nil {
 			return err
@@ -159,7 +187,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), appOpts.output, value)
+		return accessibilityOutput(c.OutOrStdout(), appOpts.format(), value)
 	}}
 	common(atPoint, &appOpts)
 	atPoint.Flags().IntVar(&pointX, "x", 0, "screen x coordinate")
