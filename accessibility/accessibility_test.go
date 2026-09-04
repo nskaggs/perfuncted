@@ -206,8 +206,9 @@ func TestRedactSensitiveNodeKeepsUsefulSemantics(t *testing.T) {
 }
 
 type walkerFake struct {
-	nodes map[NodeID]Node
-	child map[NodeID][]objectRef
+	nodes      map[NodeID]Node
+	child      map[NodeID][]objectRef
+	generation uint64
 }
 
 func (f walkerFake) readNode(_ context.Context, id, parent NodeID, _ int, _ bool) (Node, error) {
@@ -221,13 +222,17 @@ func (f walkerFake) readNode(_ context.Context, id, parent NodeID, _ int, _ bool
 func (f walkerFake) children(_ context.Context, id NodeID) ([]objectRef, error) {
 	return f.child[id], nil
 }
+func (f walkerFake) refID(ref objectRef) NodeID {
+	return NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath), Generation: f.generation}
+}
 
 func TestSnapshotWalkerBoundsDepthNodesAndCycles(t *testing.T) {
 	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
 	child := NodeID{BusName: "b", ObjectPath: "/child", Generation: 1}
 	fake := walkerFake{
-		nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}, child: {ID: child, ChildCount: 1}},
-		child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/child"}}, child: {{BusName: "b", ObjectPath: "/root"}}},
+		nodes:      map[NodeID]Node{root: {ID: root, ChildCount: 1}, child: {ID: child, ChildCount: 1}},
+		child:      map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/child"}}, child: {{BusName: "b", ObjectPath: "/root"}}},
+		generation: root.Generation,
 	}
 	walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 1, MaxNodes: 10, MaxTextBytes: 10}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
 	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
@@ -243,7 +248,7 @@ func TestSnapshotWalkerBoundsDepthNodesAndCycles(t *testing.T) {
 
 func TestSnapshotWalkerRecordsChildReadWarnings(t *testing.T) {
 	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
-	fake := walkerFake{nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}}, child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/missing"}}}}
+	fake := walkerFake{nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}}, child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/missing"}}}, generation: root.Generation}
 	walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 4, MaxNodes: 4, MaxTextBytes: 10}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
 	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
 		t.Fatalf("walk = %v", err)
@@ -257,9 +262,36 @@ func TestSnapshotWalkerHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
-	walker := snapshotWalker{backend: walkerFake{nodes: map[NodeID]Node{root: {ID: root}}}, opts: SnapshotOptions{MaxDepth: 1, MaxNodes: 1, MaxTextBytes: 1}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
+	walker := snapshotWalker{backend: walkerFake{nodes: map[NodeID]Node{root: {ID: root}}, generation: root.Generation}, opts: SnapshotOptions{MaxDepth: 1, MaxNodes: 1, MaxTextBytes: 1}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
 	if _, err := walker.walk(ctx, root, NodeID{}, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("walk error = %v", err)
+	}
+}
+
+func TestSnapshotWalkerTagsChildrenWithCurrentGeneration(t *testing.T) {
+	// Each iteration models a fresh snapshot after invalidation or explicit
+	// reopen. Raw child refs carry no generation; the backend's refID method
+	// must supply the current one for every traversal level.
+	for _, generation := range []uint64{2, 9} {
+		t.Run(fmt.Sprintf("generation-%d", generation), func(t *testing.T) {
+			root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: generation}
+			child := NodeID{BusName: "org.test", ObjectPath: "/child", Generation: generation}
+			fake := walkerFake{
+				nodes:      map[NodeID]Node{root: {ID: root, ChildCount: 1}, child: {ID: child}},
+				child:      map[NodeID][]objectRef{root: {{BusName: root.BusName, ObjectPath: "/child"}}},
+				generation: generation,
+			}
+			walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 4, MaxNodes: 4, MaxTextBytes: 32}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
+			if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
+				t.Fatalf("walk = %v", err)
+			}
+			if len(walker.snapshot.Nodes) != 2 || len(walker.snapshot.Nodes[0].Children) != 1 {
+				t.Fatalf("snapshot = %+v", walker.snapshot)
+			}
+			if got := walker.snapshot.Nodes[0].Children[0]; got != child {
+				t.Fatalf("child handle = %+v, want %+v", got, child)
+			}
+		})
 	}
 }
 
@@ -529,5 +561,34 @@ func TestPreparedEventUsesPostInvalidationGeneration(t *testing.T) {
 	}
 	if _, ok := backend.cachedItem(event.Node); !ok {
 		t.Fatalf("cache item was not stored in event generation %d", event.Node.Generation)
+	}
+}
+
+func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
+	backend := &dbusBackend{
+		generation: 5,
+		cacheItems: make(map[NodeID]cacheItem),
+		cacheApps:  map[string]bool{"org.test": true},
+	}
+	item := cacheItem{
+		Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
+		Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+	}
+	added := backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}}, Event{Node: NodeID{BusName: "org.test", ObjectPath: "/node"}})
+	if added.Node.Generation != 6 || backend.Generation() != 6 {
+		t.Fatalf("cache add generation = event %d/backend %d, want 6", added.Node.Generation, backend.Generation())
+	}
+	if _, ok := backend.cachedItem(added.Node); !ok {
+		t.Fatal("cache add was lost after generation transition")
+	}
+	removed := backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Body: []any{item.Object}}, Event{Node: added.Node})
+	if removed.Node.Generation != 7 || backend.Generation() != 7 {
+		t.Fatalf("cache remove generation = event %d/backend %d, want 7", removed.Node.Generation, backend.Generation())
+	}
+	if _, ok := backend.cachedItem(NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 7}); ok {
+		t.Fatal("cache remove left the removed object present")
+	}
+	if !backend.cacheApps["org.test"] {
+		t.Fatal("cache application registration was lost during signal invalidation")
 	}
 }

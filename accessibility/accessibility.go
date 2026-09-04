@@ -93,10 +93,8 @@ type objectRef struct {
 	ObjectPath dbus.ObjectPath
 }
 
-func (r objectRef) id() NodeID {
-	// Raw protocol replies carry no generation. Native backends replace this
-	// fixture generation with their current generation at the walker boundary.
-	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath), Generation: 1}
+func (r objectRef) idAt(generation uint64) NodeID {
+	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath), Generation: generation}
 }
 
 func (r objectRef) null() bool {
@@ -649,9 +647,9 @@ func (b *dbusBackend) desktop() NodeID {
 
 func (b *dbusBackend) refID(ref objectRef) NodeID {
 	if b == nil {
-		return ref.id()
+		return NodeID{}
 	}
-	return NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath), Generation: b.Generation()}
+	return ref.idAt(b.Generation())
 }
 
 func (b *dbusBackend) tagRefs(refs []objectRef) []objectRef {
@@ -993,6 +991,7 @@ type snapshotWalker struct {
 type snapshotBackend interface {
 	readNode(context.Context, NodeID, NodeID, int, bool) (Node, error)
 	children(context.Context, NodeID) ([]objectRef, error)
+	refID(objectRef) NodeID
 }
 
 func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int) (Node, error) {
@@ -1044,10 +1043,7 @@ func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID
 			w.snapshot.Truncated = true
 			return
 		}
-		childID := childRef.id()
-		if tagger, ok := w.backend.(interface{ refID(objectRef) NodeID }); ok {
-			childID = tagger.refID(childRef)
-		}
+		childID := w.backend.refID(childRef)
 		child, childErr := w.walk(ctx, childID, id, depth+1)
 		if childErr != nil {
 			if ctx.Err() != nil {
