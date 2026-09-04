@@ -12,6 +12,13 @@ func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method str
 	if ctx == nil {
 		return fmt.Errorf("accessibility: %s: nil context", method)
 	}
+	if b != nil && b.callOverride != nil {
+		if err := b.validateHandle(id); err != nil {
+			return err
+		}
+		_, err := b.callOverride(ctx, id, iface+"."+method, args)
+		return err
+	}
 	obj, err := b.object(id)
 	if err != nil {
 		return err
@@ -29,6 +36,19 @@ func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method str
 func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method string, args ...any) error {
 	if ctx == nil {
 		return fmt.Errorf("accessibility: %s: nil context", method)
+	}
+	if b != nil && b.callOverride != nil {
+		if err := b.validateHandle(id); err != nil {
+			return err
+		}
+		result, err := b.callOverride(ctx, id, iface+"."+method, args)
+		if err != nil {
+			return err
+		}
+		if accepted, ok := result.(bool); ok && !accepted {
+			return ErrMutationRejected
+		}
+		return nil
 	}
 	obj, err := b.object(id)
 	if err != nil {
@@ -49,6 +69,19 @@ func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method
 }
 
 func (b *dbusBackend) actions(ctx context.Context, id NodeID) ([]Action, error) {
+	if b != nil && b.callOverride != nil {
+		if err := b.validateHandle(id); err != nil {
+			return nil, err
+		}
+		result, err := b.callOverride(ctx, id, actionIface+".GetActions", nil)
+		if err != nil {
+			return nil, err
+		}
+		if actions, ok := result.([]Action); ok {
+			return actions, nil
+		}
+		return nil, fmt.Errorf("accessibility: action fixture returned %T", result)
+	}
 	if _, err := b.object(id); err != nil {
 		return nil, err
 	}
@@ -144,6 +177,13 @@ func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, scrollType S
 func (b *dbusBackend) SetCurrentValue(ctx context.Context, id NodeID, value float64) error {
 	if ctx == nil {
 		return fmt.Errorf("accessibility: SetCurrentValue: nil context")
+	}
+	if b != nil && b.callOverride != nil {
+		if err := b.validateHandle(id); err != nil {
+			return err
+		}
+		_, err := b.callOverride(ctx, id, propertiesIface+".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(value)})
+		return err
 	}
 	obj, err := b.object(id)
 	if err != nil {

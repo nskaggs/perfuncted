@@ -511,6 +511,9 @@ type dbusBackend struct {
 	nextSubscriber uint64
 	eventCancel    context.CancelFunc
 	eventDone      chan struct{}
+	// callOverride is used only by deterministic package tests to exercise
+	// protocol and error handling without a host D-Bus daemon.
+	callOverride func(context.Context, NodeID, string, []any) (any, error)
 }
 
 type eventSubscriber struct {
@@ -610,21 +613,37 @@ func (b *dbusBackend) Close() error {
 
 func (b *dbusBackend) object(id NodeID) (dbus.BusObject, error) {
 	if b == nil {
-		return nil, errors.New("accessibility: bus is closed")
-	}
-	b.mu.RLock()
-	access, disconnected, closed, generation := b.access, b.disconnected, b.closed, b.generation
-	b.mu.RUnlock()
-	if disconnected || closed || access == nil {
 		return nil, ErrDisconnected
 	}
-	if !id.valid() {
-		return nil, ErrStaleNode
+	if err := b.validateHandle(id); err != nil {
+		return nil, err
 	}
-	if id.Generation != generation {
-		return nil, fmt.Errorf("%w: handle generation %d, current generation %d", ErrStaleNode, id.Generation, generation)
+	b.mu.RLock()
+	access := b.access
+	b.mu.RUnlock()
+	if access == nil {
+		return nil, ErrDisconnected
 	}
 	return access.Object(id.BusName, dbus.ObjectPath(id.ObjectPath)), nil
+}
+
+func (b *dbusBackend) validateHandle(id NodeID) error {
+	if b == nil {
+		return ErrDisconnected
+	}
+	b.mu.RLock()
+	disconnected, closed, generation := b.disconnected, b.closed, b.generation
+	b.mu.RUnlock()
+	if disconnected || closed {
+		return ErrDisconnected
+	}
+	if !id.valid() {
+		return ErrStaleNode
+	}
+	if id.Generation != generation {
+		return fmt.Errorf("%w: handle generation %d, current generation %d", ErrStaleNode, id.Generation, generation)
+	}
+	return nil
 }
 
 func (b *dbusBackend) desktop() NodeID {

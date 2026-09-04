@@ -290,3 +290,108 @@ func TestBuildOutlineAndCandidateContextPreserveGeneration(t *testing.T) {
 		t.Fatalf("candidates = %+v", candidates)
 	}
 }
+
+func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
+	var methods []string
+	backend := &dbusBackend{generation: 1, callOverride: func(_ context.Context, _ NodeID, method string, _ []any) (any, error) {
+		methods = append(methods, method)
+		if method == actionIface+".GetActions" {
+			return []Action{{Index: 0, Name: "activate"}, {Index: 1, Name: "alternate"}}, nil
+		}
+		return true, nil
+	}}
+	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
+	ctx := context.Background()
+	if err := backend.InvokeAction(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.InvokeActionByName(ctx, id, "alternate"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.InvokeDefaultAction(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.GrabFocus(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.ScrollTo(ctx, id, ScrollAnyWhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.ScrollToPoint(ctx, id, ScrollTopLeft, 10, 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SetCurrentValue(ctx, id, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SetTextContents(ctx, id, "safe"); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.ReplaceText(ctx, id, 0, 1, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.InsertText(ctx, id, 0, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CopyText(ctx, id, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.CutText(ctx, id, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.PasteText(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SetCaretOffset(ctx, id, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SetTextSelection(ctx, id, 0, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.AddTextSelection(ctx, id, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.RemoveTextSelection(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SelectChild(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.DeselectChild(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SelectAll(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.ClearSelection(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.DeselectAll(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SelectRow(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.DeselectRow(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.SelectColumn(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.DeselectColumn(ctx, id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) < 25 {
+		t.Fatalf("recorded only %d typed protocol calls: %v", len(methods), methods)
+	}
+}
+
+func TestTypedAutomationRejectsStaleAndDisconnectedHandles(t *testing.T) {
+	backend := &dbusBackend{generation: 2, callOverride: func(context.Context, NodeID, string, []any) (any, error) { return true, nil }}
+	if err := backend.GrabFocus(context.Background(), NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("stale mutation error = %v", err)
+	}
+	backend.markDisconnected()
+	if err := backend.GrabFocus(context.Background(), NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 2}); !errors.Is(err, ErrDisconnected) {
+		t.Fatalf("disconnected mutation error = %v", err)
+	}
+}
