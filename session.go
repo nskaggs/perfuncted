@@ -37,6 +37,7 @@ const (
 	sessionOwnerPIDFile     = "perfuncted.pid"
 	noPIDFileReapGrace      = 5 * time.Minute
 	cleanupStaleMinInterval = 30 * time.Second
+	atspiBusLauncherName    = "at-spi-bus-launcher"
 )
 
 var sessionChildPIDFiles = []string{
@@ -642,10 +643,18 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 // is installed. AT-SPI is commonly activated on demand, so absence of the
 // helper is deliberately non-fatal for optional capability users.
 func (i *sessionInfra) launchAccessibility() error {
-	if _, err := exec.LookPath("at-spi-bus-launcher"); err != nil {
-		return err
+	launcher, err := exec.LookPath(atspiBusLauncherName)
+	if err != nil {
+		// Debian/Ubuntu install the helper in /usr/libexec without adding that
+		// directory to PATH. Keep the normal PATH lookup first for portable
+		// installations, then use the distro-standard location.
+		const libexecLauncher = "/usr/libexec/at-spi-bus-launcher"
+		if _, statErr := os.Stat(libexecLauncher); statErr != nil {
+			return err
+		}
+		launcher = libexecLauncher
 	}
-	cmd := executil.CommandContext(i.ctx, "at-spi-bus-launcher", "--launch-immediately") //nolint:contextcheck // process lifetime follows managed session
+	cmd := executil.CommandContext(i.ctx, launcher, "--launch-immediately") //nolint:contextcheck // process lifetime follows managed session
 	cmd.Env = env.Current().WithSession(i.xdgDir, i.wlDisplay, i.dbusAddr).EnvList()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
