@@ -73,6 +73,21 @@ func TestAccessibilityManagedSession(t *testing.T) {
 	if snapshot.Source != "at-spi" || snapshot.Generation == 0 || snapshot.CapturedAt.IsZero() {
 		t.Fatalf("AT-SPI snapshot missing provenance: %+v", snapshot)
 	}
+	oldGeneration := snapshot.Generation
+	s.pf.Accessibility.Invalidate(snapshot.Root.ID)
+	if got := s.pf.Accessibility.Generation(); got <= oldGeneration {
+		t.Fatalf("AT-SPI invalidation did not advance generation: old=%d new=%d", oldGeneration, got)
+	}
+	if _, err := s.pf.Accessibility.Snapshot(ctx, snapshot.Root.ID, options); !errors.Is(err, accessibility.ErrStaleNode) {
+		t.Fatalf("snapshot with pre-invalidation handle = %v, want stale-node error", err)
+	}
+	refreshedApps, err := s.pf.Accessibility.Applications(ctx)
+	if err != nil || len(refreshedApps) == 0 || refreshedApps[0].ID.Generation <= oldGeneration {
+		t.Fatalf("AT-SPI rediscovery after invalidation = %+v, err=%v", refreshedApps, err)
+	}
+	if _, err := s.pf.Accessibility.Snapshot(ctx, refreshedApps[0].ID, options); err != nil {
+		t.Fatalf("snapshot with refreshed handle: %v", err)
+	}
 	if _, err := s.pf.Accessibility.Find(ctx, snapshot.Root.ID, accessibility.Query{Role: "application"}, options); err != nil {
 		// An application-scoped tree intentionally does not include the virtual
 		// desktop application role. Verify a bounded query still executes.

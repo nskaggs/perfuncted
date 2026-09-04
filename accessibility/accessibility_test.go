@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godbus/dbus/v5"
+	"sync"
 	"testing"
 	"time"
 
@@ -411,6 +412,41 @@ func TestEventFanoutHasOneDeliveryPathAndBoundedDrops(t *testing.T) {
 		}
 		if subscriber.dropped != 1 {
 			t.Fatalf("subscriber %d dropped=%d, want one bounded drop", id, subscriber.dropped)
+		}
+	}
+}
+
+func TestEventFanoutConcurrentSubscribersStayRaceFree(t *testing.T) {
+	const eventCount = 256
+	const subscriberCount = 3
+	backend := &dbusBackend{subscribers: make(map[uint64]*eventSubscriber, subscriberCount)}
+	for id := uint64(1); id <= subscriberCount; id++ {
+		backend.subscribers[id] = &eventSubscriber{out: make(chan Event, eventCount)}
+	}
+
+	var writers sync.WaitGroup
+	for i := 0; i < eventCount; i++ {
+		writers.Add(1)
+		go func(i int) {
+			defer writers.Done()
+			backend.deliverEvent(Event{Kind: "property", Node: NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}, Value: fmt.Sprintf("%d", i)})
+		}(i)
+	}
+	writers.Wait()
+
+	for id, subscriber := range backend.subscribers {
+		if subscriber.dropped != 0 {
+			t.Fatalf("subscriber %d dropped %d events despite a bounded available buffer", id, subscriber.dropped)
+		}
+		for i := 0; i < eventCount; i++ {
+			select {
+			case event := <-subscriber.out:
+				if event.Node.Generation != 1 || event.Kind != "property" {
+					t.Fatalf("subscriber %d received malformed event %+v", id, event)
+				}
+			case <-time.After(time.Second):
+				t.Fatalf("subscriber %d received only %d/%d events", id, i, eventCount)
+			}
 		}
 	}
 }
