@@ -31,3 +31,24 @@ func TestWindowCorrelationWithIDOnlyRefusesToGuess(t *testing.T) {
 		t.Fatal("MatchError does not preserve ambiguity category")
 	}
 }
+
+func TestChooseWindowCandidateRefusesSameProcessAmbiguity(t *testing.T) {
+	candidates := []windowCandidate{
+		{node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/parent", Generation: 1}, Role: "frame", Name: "Editor"}, score: 16},
+		{node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/dialog", Generation: 1}, Role: "dialog", Name: "Editor"}, score: 16},
+	}
+	selected, context, ambiguous := chooseWindowCandidate(candidates)
+	if selected != nil || !ambiguous || len(context) != 2 {
+		t.Fatalf("same-process candidates selected=%+v context=%+v ambiguous=%v", selected, context, ambiguous)
+	}
+}
+
+func TestWindowAppMatchingUsesPIDBeforeCompositorAppIDSpelling(t *testing.T) {
+	app := Application{Node: Node{Name: "zenity"}, PID: 42}
+	if !windowAppMatches(app, WindowTarget{PID: 42, AppID: "org.gnome.Zenity"}) {
+		t.Fatal("PID-correlated application rejected due to compositor/AT-SPI app-id spelling")
+	}
+	if windowAppMatches(app, WindowTarget{AppID: "org.gnome.Zenity"}) {
+		t.Fatal("app-id-only target matched unrelated application")
+	}
+}
