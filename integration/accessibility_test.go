@@ -45,9 +45,15 @@ func TestAccessibilityManagedSession(t *testing.T) {
 		"invoke-action",
 		"grab-focus",
 		"scroll",
+		"scroll-to-point",
+		"set-position",
+		"set-size",
+		"set-extents",
 		"set-current-value",
 		"set-text-contents",
+		"set-document-text-selections",
 		"select-child",
+		"deselect-selected-child",
 		"window-root",
 		"reopen",
 	} {
@@ -98,6 +104,22 @@ func TestAccessibilityManagedSession(t *testing.T) {
 	if _, err := s.pf.Accessibility.Outline(ctx, snapshot.Root.ID, options, accessibility.OutlineOptions{MaxDepth: 4, MaxNodes: 64}); err != nil {
 		t.Fatalf("AT-SPI outline: %v", err)
 	}
+	for _, node := range snapshot.Nodes {
+		if containsInterface(node.Interfaces, "org.a11y.atspi.Component") {
+			if err := s.pf.Accessibility.ScrollToPoint(ctx, node.ID, accessibility.CoordTypeScreen, node.Bounds.X, node.Bounds.Y); err != nil && !errors.Is(err, accessibility.ErrUnsupported) && !errors.Is(err, accessibility.ErrMutationRejected) {
+				t.Fatalf("AT-SPI scroll-to-point: %v", err)
+			}
+			break
+		}
+	}
+	for _, node := range snapshot.Nodes {
+		if node.Document != nil {
+			if err := s.pf.Accessibility.SetTextSelections(ctx, node.ID, nil); err != nil && !errors.Is(err, accessibility.ErrUnsupported) && !errors.Is(err, accessibility.ErrMutationRejected) {
+				t.Fatalf("AT-SPI document selections: %v", err)
+			}
+			break
+		}
+	}
 
 	if _, err := s.pf.Accessibility.Focused(ctx, options); err != nil && !errors.Is(err, accessibility.ErrNotFound) {
 		t.Fatalf("AT-SPI focused: %v", err)
@@ -126,4 +148,13 @@ func TestAccessibilityManagedSession(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("AT-SPI event stream did not close after cancellation")
 	}
+}
+
+func containsInterface(interfaces []string, want string) bool {
+	for _, iface := range interfaces {
+		if iface == want {
+			return true
+		}
+	}
+	return false
 }

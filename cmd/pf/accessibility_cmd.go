@@ -444,14 +444,14 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		return pf.Accessibility.SetTextSelection(ctx, node, textSelection, textStart, textEnd)
 	})
 	setTextSelection.Flags().Int32Var(&textSelection, "selection", 0, "selection number")
-	setTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start offset")
-	setTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end offset")
+	setTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start character offset")
+	setTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end character offset")
 	var addTextSelectionOpts accessibilityCLIOptions
 	addTextSelection := nodeMutation("add-text-selection", "Add a range through AT-SPI Text", &addTextSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
 		return pf.Accessibility.AddTextSelection(ctx, node, textStart, textEnd)
 	})
-	addTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start offset")
-	addTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end offset")
+	addTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start character offset")
+	addTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end character offset")
 	var removeTextSelectionOpts accessibilityCLIOptions
 	removeTextSelection := nodeMutation("remove-text-selection", "Remove a range through AT-SPI Text", &removeTextSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
 		return pf.Accessibility.RemoveTextSelection(ctx, node, textSelection)

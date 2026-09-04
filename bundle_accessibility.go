@@ -389,7 +389,7 @@ func (b *AccessibilityBundle) ReplaceText(ctx context.Context, id accessibility.
 	return b.operationError("replace-text", a.ReplaceText(ctx, id, start, end, value))
 }
 
-// InsertText inserts text at an offset in an AT-SPI editable-text object.
+// InsertText inserts text at a character offset in an AT-SPI editable-text object.
 func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
 	a, err := b.automation("insert-text")
 	if err != nil {
@@ -425,7 +425,7 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 	return b.operationError("cut-text", a.CutText(ctx, id, start, end))
 }
 
-// PasteText pastes clipboard text at an offset in an AT-SPI editable-text object.
+// PasteText pastes clipboard text at a character offset in an AT-SPI editable-text object.
 func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, positions ...int32) error {
 	a, err := b.automation("paste-text")
 	if err != nil {
@@ -456,7 +456,7 @@ func (b *AccessibilityBundle) SetTextSelections(ctx context.Context, id accessib
 	return b.operationError("set-document-text-selections", a.SetTextSelections(ctx, id, selections))
 }
 
-// SetTextSelection sets a selection range in an AT-SPI text object.
+// SetTextSelection sets a character-offset range in an AT-SPI text object.
 func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, offsets ...int32) error {
 	a, err := b.automation("set-text-selection")
 	if err != nil {
@@ -471,7 +471,7 @@ func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibi
 	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, offsets[0], offsets[1], offsets[2]))
 }
 
-// AddTextSelection adds a selection range to an AT-SPI text object.
+// AddTextSelection adds a character-offset range to an AT-SPI text object.
 func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("add-text-selection")
 	if err != nil {

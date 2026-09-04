@@ -13,7 +13,7 @@ pf accessibility add-text-selection [flags]
       --app string            application accessible-name substring
       --application string    application accessible-name substring (alias for --app)
       --desktop-root          explicitly allow bounded whole-desktop traversal
-      --end int32             selection end offset
+      --end int32             selection end character offset
       --generation uint       current accessibility generation for --root-bus/--root-path
   -h, --help                  help for add-text-selection
       --json                  output JSON (alias for --output json)
@@ -24,7 +24,7 @@ pf accessibility add-text-selection [flags]
       --pid int32             application process ID
       --root-bus string       AT-SPI application bus name
       --root-path string      AT-SPI application object path
-      --start int32           selection start offset
+      --start int32           selection start character offset
       --visible-only          exclude invisible/off-screen nodes
       --window-id string      managed window identifier
       --window-title string   managed window title (exact)

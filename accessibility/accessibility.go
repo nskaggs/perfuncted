@@ -1257,7 +1257,7 @@ func (b *dbusBackend) loadCache(ctx context.Context, busName string) error {
 		return ErrUnsupported
 	}
 	b.mu.RLock()
-	if b.cacheApps[busName] {
+	if b.cacheApps[busName] && b.cacheItems != nil {
 		b.mu.RUnlock()
 		return nil
 	}
@@ -1299,32 +1299,57 @@ func (b *dbusBackend) applyCacheSignal(sig *dbus.Signal) {
 	if b.cacheItems == nil {
 		b.cacheItems = make(map[NodeID]cacheItem)
 	}
-	if strings.HasSuffix(sig.Name, "Cache:AddAccessible") && len(sig.Body) > 0 {
-		switch item := sig.Body[0].(type) {
-		case cacheItem:
-			b.cacheItems[item.nodeIDAt(b.generation)] = item
-		case *cacheItem:
-			if item != nil {
-				b.cacheItems[item.nodeIDAt(b.generation)] = *item
-			}
-		default:
-			// A provider with an older wire signature may still emit a valid
-			// cache signal. Invalidate the local item map and let the next
-			// snapshot reload it rather than guessing at its shape.
-			b.cacheItems = nil
-		}
-	} else if strings.HasSuffix(sig.Name, "Cache:RemoveAccessible") && len(sig.Body) > 0 {
-		if ref, ok := sig.Body[0].(cacheObjectRef); ok {
-			for id := range b.cacheItems {
-				if id.BusName == ref.BusName && id.ObjectPath == string(ref.ObjectPath) {
-					delete(b.cacheItems, id)
-				}
-			}
-		} else {
-			b.cacheItems = nil
-		}
+	switch {
+	case strings.HasSuffix(sig.Name, "Cache:AddAccessible"):
+		b.applyCacheAddLocked(sig.Body)
+	case strings.HasSuffix(sig.Name, "Cache:RemoveAccessible"):
+		b.applyCacheRemoveLocked(sig.Body)
 	}
 	b.cache = nil
+}
+
+func (b *dbusBackend) applyCacheAddLocked(body []any) {
+	if len(body) == 0 {
+		return
+	}
+	var item cacheItem
+	switch value := body[0].(type) {
+	case cacheItem:
+		item = value
+	case *cacheItem:
+		if value == nil {
+			b.cacheItems, b.cacheApps = nil, nil
+			return
+		}
+		item = *value
+	default:
+		// A provider with an older wire signature may still emit a valid
+		// cache signal. Invalidate the local item map and let the next
+		// snapshot reload it rather than guessing at its shape.
+		b.cacheItems, b.cacheApps = nil, nil
+		return
+	}
+	b.cacheItems[item.nodeIDAt(b.generation)] = item
+	if b.cacheApps == nil {
+		b.cacheApps = make(map[string]bool)
+	}
+	b.cacheApps[item.Object.BusName] = true
+}
+
+func (b *dbusBackend) applyCacheRemoveLocked(body []any) {
+	if len(body) == 0 {
+		return
+	}
+	ref, ok := body[0].(cacheObjectRef)
+	if !ok {
+		b.cacheItems, b.cacheApps = nil, nil
+		return
+	}
+	for id := range b.cacheItems {
+		if id.BusName == ref.BusName && id.ObjectPath == string(ref.ObjectPath) {
+			delete(b.cacheItems, id)
+		}
+	}
 }
 
 func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {

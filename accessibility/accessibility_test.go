@@ -369,6 +369,7 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		{"set-size", func() error { return backend.SetSize(ctx, id, 640, 480) }, []call{{componentIface + ".SetSize", []any{int32(640), int32(480)}}}},
 		{"set-extents", func() error { return backend.SetExtents(ctx, id, 1, 2, 640, 480, CoordTypeScreen) }, []call{{componentIface + ".SetExtents", []any{int32(1), int32(2), int32(640), int32(480), uint32(CoordTypeScreen)}}}},
 		{"value", func() error { return backend.SetCurrentValue(ctx, id, 0.5) }, []call{{propertiesIface + ".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(0.5)}}}},
+		{"value-alias", func() error { return backend.SetValue(ctx, id, 0.5) }, []call{{propertiesIface + ".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(0.5)}}}},
 		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }, []call{{editableTextIface + ".SetTextContents", []any{"safe"}}}},
 		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }, []call{{editableTextIface + ".DeleteText", []any{int32(0), int32(1)}}, {editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
 		{"insert", func() error { return backend.InsertText(ctx, id, 0, "x") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
@@ -401,6 +402,18 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		if !reflect.DeepEqual(calls, check.expected) {
 			t.Fatalf("%s wire calls = %#v, want %#v", check.name, calls, check.expected)
 		}
+	}
+}
+
+func TestDocumentTextSelectionsRejectStaleEndpoints(t *testing.T) {
+	backend := &dbusBackend{generation: 2, callOverride: func(context.Context, NodeID, string, []any) (any, error) {
+		return true, nil
+	}}
+	id := NodeID{BusName: "org.test", ObjectPath: "/document", Generation: 2}
+	stale := NodeID{BusName: "org.test", ObjectPath: "/text", Generation: 1}
+	err := backend.SetTextSelections(context.Background(), id, []DocumentTextSelection{{StartObject: stale, EndObject: id}})
+	if !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("stale document selection endpoint error = %v, want stale-node", err)
 	}
 }
 
@@ -611,6 +624,18 @@ func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
 	}
 	if !backend.cacheApps["org.test"] {
 		t.Fatal("cache application registration was lost during signal invalidation")
+	}
+}
+
+func TestMalformedCacheSignalForcesCacheReload(t *testing.T) {
+	backend := &dbusBackend{
+		generation: 5,
+		cacheItems: map[NodeID]cacheItem{{BusName: "org.test", ObjectPath: "/node", Generation: 5}: {}},
+		cacheApps:  map[string]bool{"org.test": true},
+	}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{"unexpected-wire-shape"}})
+	if backend.cacheItems != nil || backend.cacheApps != nil {
+		t.Fatalf("malformed cache signal retained state: items=%v apps=%v", backend.cacheItems, backend.cacheApps)
 	}
 }
 
