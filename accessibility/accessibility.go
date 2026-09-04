@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,13 @@ const (
 	accessibleIface    = "org.a11y.atspi.Accessible"
 	componentIface     = "org.a11y.atspi.Component"
 	textIface          = "org.a11y.atspi.Text"
+	valueIface         = "org.a11y.atspi.Value"
+	actionIface        = "org.a11y.atspi.Action"
+	selectionIface     = "org.a11y.atspi.Selection"
+	tableIface         = "org.a11y.atspi.Table"
+	documentIface      = "org.a11y.atspi.Document"
+	cacheIface         = "org.a11y.atspi.Cache"
+	cachePath          = dbus.ObjectPath("/org/a11y/atspi/cache")
 	propertiesIface    = "org.freedesktop.DBus.Properties"
 	defaultMaxDepth    = 32
 	defaultMaxNodes    = 10000
@@ -98,13 +106,55 @@ type Node struct {
 	HasBounds   bool              `json:"hasBounds"`
 	ChildCount  int               `json:"childCount"`
 	Children    []NodeID          `json:"children,omitempty"`
-	Focused     bool              `json:"focused"`
-	Visible     bool              `json:"visible"`
-	Showing     bool              `json:"showing"`
-	Enabled     bool              `json:"enabled"`
+	// Relations preserves the AT-SPI relation targets when an object exposes
+	// them. The relation key is the normalized AT-SPI relation name.
+	Relations map[string][]NodeID `json:"relations,omitempty"`
+	// Value is populated lazily for objects advertising org.a11y.atspi.Value.
+	Value     *ValueInfo     `json:"value,omitempty"`
+	Actions   []Action       `json:"actions,omitempty"`
+	Selection *SelectionInfo `json:"selection,omitempty"`
+	Table     *TableInfo     `json:"table,omitempty"`
+	Document  *DocumentInfo  `json:"document,omitempty"`
+	Focused   bool           `json:"focused"`
+	Visible   bool           `json:"visible"`
+	Showing   bool           `json:"showing"`
+	Enabled   bool           `json:"enabled"`
 	// Redacted is true when sensitive/protected content was intentionally
 	// removed. Callers can still use the node's role, bounds, and state.
 	Redacted bool `json:"redacted,omitempty"`
+}
+
+// ValueInfo contains the optional AT-SPI value interface fields.
+type ValueInfo struct {
+	Current          float64 `json:"current"`
+	Minimum          float64 `json:"minimum"`
+	Maximum          float64 `json:"maximum"`
+	MinimumIncrement float64 `json:"minimumIncrement"`
+}
+
+// Action describes one optional AT-SPI action exposed by an object.
+type Action struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	KeyBinding  string `json:"keyBinding,omitempty"`
+}
+
+// SelectionInfo summarizes the optional selection interface.
+type SelectionInfo struct {
+	SelectedChildCount int32 `json:"selectedChildCount"`
+}
+
+// TableInfo summarizes the optional table interface.
+type TableInfo struct {
+	Rows    int32 `json:"rows"`
+	Columns int32 `json:"columns"`
+}
+
+// DocumentInfo summarizes the optional document interface.
+type DocumentInfo struct {
+	Locale            string `json:"locale,omitempty"`
+	CurrentPageNumber int32  `json:"currentPageNumber,omitempty"`
+	PageCount         int32  `json:"pageCount,omitempty"`
 }
 
 // Application describes an application root discovered on the accessibility
@@ -119,9 +169,10 @@ type Application struct {
 // SnapshotOptions bounds all work and response size. Zero values select safe
 // defaults; values above the hard limits are capped.
 type SnapshotOptions struct {
-	MaxDepth     int `json:"maxDepth,omitempty"`
-	MaxNodes     int `json:"maxNodes,omitempty"`
-	MaxTextBytes int `json:"maxTextBytes,omitempty"`
+	MaxDepth     int  `json:"maxDepth,omitempty"`
+	MaxNodes     int  `json:"maxNodes,omitempty"`
+	MaxTextBytes int  `json:"maxTextBytes,omitempty"`
+	VisibleOnly  bool `json:"visibleOnly,omitempty"`
 	// AllowSensitive disables the default redaction of AT-SPI sensitive and
 	// protected text/value attributes. Use only for an explicit trusted flow.
 	AllowSensitive bool `json:"allowSensitive,omitempty"`
@@ -152,17 +203,21 @@ func (o SnapshotOptions) normalized() SnapshotOptions {
 // Query filters a bounded snapshot. Matching is case-insensitive substring
 // matching; an empty field is ignored.
 type Query struct {
-	Name string `json:"name,omitempty"`
-	Role string `json:"role,omitempty"`
-	Text string `json:"text,omitempty"`
+	Name       string            `json:"name,omitempty"`
+	Role       string            `json:"role,omitempty"`
+	Text       string            `json:"text,omitempty"`
+	States     []string          `json:"states,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // ApplicationFilter selects an application root without relying on a window
 // title. Empty fields are ignored; PID is an exact process match.
 type ApplicationFilter struct {
-	Name string `json:"name,omitempty"`
-	PID  int32  `json:"pid,omitempty"`
-	Bus  string `json:"busName,omitempty"`
+	Name        string `json:"name,omitempty"`
+	PID         int32  `json:"pid,omitempty"`
+	Bus         string `json:"busName,omitempty"`
+	WindowID    string `json:"windowId,omitempty"`
+	WindowTitle string `json:"windowTitle,omitempty"`
 }
 
 // Event is an invalidation-oriented AT-SPI signal. Signals are hints: callers
@@ -275,11 +330,47 @@ type dbusBackend struct {
 	mu         sync.RWMutex
 	generation uint64
 	cache      map[string]cachedSnapshot
+	// cacheItems is the optional upstream AT-SPI cache. It is keyed by the
+	// complete object reference, so objects from different application buses
+	// cannot collide. The local snapshot cache remains a short-lived response
+	// optimization; cacheItems is refreshed by Cache.GetItems and signals.
+	cacheItems map[NodeID]cacheItem
+	cacheApps  map[string]bool
 }
 
 type cachedSnapshot struct {
 	at       time.Time
 	snapshot Snapshot
+}
+
+// cacheObjectRef and cacheItem mirror the current Cache.GetItems wire shape:
+// a((so)(so)(so)iiassusau). Keep these private so protocol details do not leak
+// into the public API. Older providers may return the historical signature;
+// a failed decode simply falls back to direct reads.
+type cacheObjectRef struct {
+	BusName    string
+	ObjectPath dbus.ObjectPath
+}
+
+type cacheItem struct {
+	Object      cacheObjectRef
+	Application cacheObjectRef
+	Parent      cacheObjectRef
+	Index       int32
+	ChildCount  int32
+	Interfaces  []string
+	Name        string
+	Role        uint32
+	Description string
+	States      []uint32
+}
+
+func (item cacheItem) nodeID() NodeID {
+	return NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath)}
+}
+
+func (item cacheItem) parentID() NodeID {
+	return NodeID{BusName: item.Parent.BusName, ObjectPath: string(item.Parent.ObjectPath)}
 }
 
 func (b *dbusBackend) SupportedOperations() []string {
@@ -367,6 +458,9 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// Cache.GetItems is an optional optimization. Providers that do not
+		// expose it continue through the direct Accessible interface path.
+		_ = b.loadCache(ctx, ref.BusName)
 		node, err := b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText, false)
 		if err != nil {
 			continue
@@ -397,6 +491,14 @@ func (b *dbusBackend) FindApplication(ctx context.Context, filter ApplicationFil
 			continue
 		}
 		if want != "" && !strings.Contains(strings.ToLower(app.Name), want) {
+			continue
+		}
+		if windowTitle := strings.ToLower(strings.TrimSpace(filter.WindowTitle)); windowTitle != "" &&
+			!strings.Contains(strings.ToLower(app.Name), windowTitle) &&
+			!strings.Contains(strings.ToLower(app.Description), windowTitle) {
+			continue
+		}
+		if filter.WindowID != "" && app.ID.ObjectPath != filter.WindowID {
 			continue
 		}
 		matches = append(matches, app)
@@ -465,7 +567,18 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 }
 
 func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []string) {
-	registered := []string{"object:property-change", "object:state-changed", "window:activate", "window:deactivate"}
+	registered := []string{
+		"object:property-change",
+		"object:state-changed",
+		"object:children-changed",
+		"object:text-changed",
+		"object:visible-data-changed",
+		"focus:focus",
+		"window:activate",
+		"window:deactivate",
+		"window:create",
+		"window:destroy",
+	}
 	registry := access.Object(registryName, registryPath)
 	unique := ""
 	if names := access.Names(); len(names) > 0 {
@@ -482,7 +595,9 @@ func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []s
 func subscribeEventMatches(ctx context.Context, access *dbus.Conn) ([][]dbus.MatchOption, error) {
 	matches := [][]dbus.MatchOption{
 		{dbus.WithMatchInterface("org.a11y.atspi.Event.Object")},
+		{dbus.WithMatchInterface("org.a11y.atspi.Event.Focus")},
 		{dbus.WithMatchInterface("org.a11y.atspi.Event.Window")},
+		{dbus.WithMatchInterface(cacheIface)},
 	}
 	for _, match := range matches {
 		if err := access.AddMatchSignalContext(ctx, match...); err != nil {
@@ -523,6 +638,9 @@ func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.S
 				return
 			}
 			event := signalEvent(sig)
+			if strings.HasPrefix(sig.Name, cacheIface+":") || strings.Contains(sig.Name, ".Cache:") {
+				backend.applyCacheSignal(sig)
+			}
 			backend.Invalidate(event.Node)
 			select {
 			case out <- event:
@@ -562,6 +680,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		root = b.desktop()
 	} else if !root.valid() {
 		return Snapshot{}, errors.New("accessibility: invalid snapshot root")
+	}
+	if root.BusName != registryName {
+		_ = b.loadCache(ctx, root.BusName)
 	}
 	key := snapshotKey(root, opts)
 	now := time.Now()
@@ -609,6 +730,29 @@ func cloneSnapshot(in Snapshot) Snapshot {
 		out.Nodes[i].Interfaces = append([]string(nil), in.Nodes[i].Interfaces...)
 		out.Nodes[i].States = append([]string(nil), in.Nodes[i].States...)
 		out.Nodes[i].Children = append([]NodeID(nil), in.Nodes[i].Children...)
+		out.Nodes[i].Actions = append([]Action(nil), in.Nodes[i].Actions...)
+		if in.Nodes[i].Value != nil {
+			value := *in.Nodes[i].Value
+			out.Nodes[i].Value = &value
+		}
+		if in.Nodes[i].Selection != nil {
+			selection := *in.Nodes[i].Selection
+			out.Nodes[i].Selection = &selection
+		}
+		if in.Nodes[i].Table != nil {
+			table := *in.Nodes[i].Table
+			out.Nodes[i].Table = &table
+		}
+		if in.Nodes[i].Document != nil {
+			document := *in.Nodes[i].Document
+			out.Nodes[i].Document = &document
+		}
+		if in.Nodes[i].Relations != nil {
+			out.Nodes[i].Relations = make(map[string][]NodeID, len(in.Nodes[i].Relations))
+			for key, values := range in.Nodes[i].Relations {
+				out.Nodes[i].Relations[key] = append([]NodeID(nil), values...)
+			}
+		}
 		if in.Nodes[i].Attributes != nil {
 			out.Nodes[i].Attributes = make(map[string]string, len(in.Nodes[i].Attributes))
 			for key, value := range in.Nodes[i].Attributes {
@@ -653,6 +797,9 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	node, err := w.backend.readNode(ctx, id, parent, w.opts.MaxTextBytes, w.opts.AllowSensitive)
 	if err != nil {
 		return Node{}, err
+	}
+	if w.opts.VisibleOnly && depth > 0 && !node.Visible && !node.Showing {
+		return Node{}, nil
 	}
 	nodeIndex := len(w.snapshot.Nodes)
 	w.snapshot.Nodes = append(w.snapshot.Nodes, node)
@@ -708,9 +855,38 @@ func (b *dbusBackend) Find(ctx context.Context, root NodeID, query Query, opts S
 		if wantText != "" && !strings.Contains(strings.ToLower(node.Text), wantText) {
 			continue
 		}
+		if !matchesStates(node.States, query.States) || !matchesAttributes(node.Attributes, query.Attributes) {
+			continue
+		}
 		result = append(result, node)
 	}
 	return result, nil
+}
+
+func matchesStates(have, want []string) bool {
+	for _, requested := range want {
+		found := false
+		for _, state := range have {
+			if strings.EqualFold(strings.TrimSpace(requested), state) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func matchesAttributes(have, want map[string]string) bool {
+	for key, expected := range want {
+		actual, ok := have[key]
+		if !ok || !strings.EqualFold(actual, expected) {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *dbusBackend) Focused(ctx context.Context, opts SnapshotOptions) (Node, error) {
@@ -754,6 +930,9 @@ func (b *dbusBackend) AtPoint(ctx context.Context, x, y int) (Node, error) {
 }
 
 func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, error) {
+	if cached := b.cachedChildren(id); cached != nil {
+		return cached, nil
+	}
 	obj, err := b.object(id)
 	if err != nil {
 		return nil, err
@@ -765,23 +944,157 @@ func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, err
 	return refs, nil
 }
 
+func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
+	if b == nil {
+		return nil
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if len(b.cacheItems) == 0 || !b.cacheApps[id.BusName] {
+		return nil
+	}
+	type indexed struct {
+		index int32
+		ref   objectRef
+	}
+	items := make([]indexed, 0)
+	for _, item := range b.cacheItems {
+		if item.Parent.BusName == id.BusName && string(item.Parent.ObjectPath) == id.ObjectPath {
+			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath}})
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].index != items[j].index {
+			return items[i].index < items[j].index
+		}
+		return items[i].ref.ObjectPath < items[j].ref.ObjectPath
+	})
+	refs := make([]objectRef, 0, len(items))
+	for _, item := range items {
+		refs = append(refs, item.ref)
+	}
+	return refs
+}
+
+func (b *dbusBackend) loadCache(ctx context.Context, busName string) error {
+	if b == nil || strings.TrimSpace(busName) == "" || busName == registryName {
+		return ErrUnsupported
+	}
+	b.mu.RLock()
+	if b.cacheApps[busName] {
+		b.mu.RUnlock()
+		return nil
+	}
+	access := b.access
+	b.mu.RUnlock()
+	if access == nil {
+		return errors.New("accessibility: bus is closed")
+	}
+	var items []cacheItem
+	call := access.Object(busName, cachePath).CallWithContext(ctx, cacheIface+".GetItems", 0)
+	if err := call.Store(&items); err != nil {
+		return fmt.Errorf("accessibility: cache get items for %s: %w", busName, err)
+	}
+	b.mu.Lock()
+	if b.cacheItems == nil {
+		b.cacheItems = make(map[NodeID]cacheItem)
+	}
+	for _, item := range items {
+		id := item.nodeID()
+		if id.valid() {
+			b.cacheItems[id] = item
+		}
+	}
+	if b.cacheApps == nil {
+		b.cacheApps = make(map[string]bool)
+	}
+	b.cacheApps[busName] = true
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *dbusBackend) applyCacheSignal(sig *dbus.Signal) {
+	if b == nil || sig == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.cacheItems == nil {
+		b.cacheItems = make(map[NodeID]cacheItem)
+	}
+	if strings.HasSuffix(sig.Name, "Cache:AddAccessible") && len(sig.Body) > 0 {
+		switch item := sig.Body[0].(type) {
+		case cacheItem:
+			b.cacheItems[item.nodeID()] = item
+		case *cacheItem:
+			if item != nil {
+				b.cacheItems[item.nodeID()] = *item
+			}
+		default:
+			// A provider with an older wire signature may still emit a valid
+			// cache signal. Invalidate the local item map and let the next
+			// snapshot reload it rather than guessing at its shape.
+			b.cacheItems = nil
+		}
+	} else if strings.HasSuffix(sig.Name, "Cache:RemoveAccessible") && len(sig.Body) > 0 {
+		if ref, ok := sig.Body[0].(cacheObjectRef); ok {
+			delete(b.cacheItems, NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath)})
+		} else {
+			b.cacheItems = nil
+		}
+	}
+	b.cache = nil
+	b.generation++
+}
+
 func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {
 	if !id.valid() {
 		return Node{}, errors.New("accessibility: invalid node")
 	}
 	node := Node{ID: id, Parent: parent}
-	_ = b.property(ctx, id, accessibleIface, "Name", &node.Name)
-	_ = b.property(ctx, id, accessibleIface, "Description", &node.Description)
-	b.readNodeRoleAndCount(ctx, id, &node)
-	node.Interfaces = b.readNodeInterfaces(ctx, id)
-	b.readNodeStates(ctx, id, &node)
+	if item, ok := b.cachedItem(id); ok {
+		node.Name = item.Name
+		node.Description = item.Description
+		node.ChildCount = int(maxInt32(item.ChildCount, 0))
+		node.RoleID = item.Role
+		node.Role = roleName(item.Role)
+		node.Interfaces = append([]string(nil), item.Interfaces...)
+		b.applyStates(item.States, &node)
+	} else {
+		_ = b.property(ctx, id, accessibleIface, "Name", &node.Name)
+		_ = b.property(ctx, id, accessibleIface, "Description", &node.Description)
+		b.readNodeRoleAndCount(ctx, id, &node)
+		node.Interfaces = b.readNodeInterfaces(ctx, id)
+		b.readNodeStates(ctx, id, &node)
+	}
 	b.readNodeComponent(ctx, id, node.Interfaces, &node)
 	b.readNodeText(ctx, id, node.Interfaces, maxText, &node)
 	b.readNodeAttributes(ctx, id, &node)
+	b.readNodeOptional(ctx, id, node.Interfaces, &node)
 	if !allowSensitive && hasSensitiveState(node.States) {
 		redactSensitiveNode(&node)
 	}
 	return node, nil
+}
+
+func (b *dbusBackend) cachedItem(id NodeID) (cacheItem, bool) {
+	if b == nil {
+		return cacheItem{}, false
+	}
+	b.mu.RLock()
+	item, ok := b.cacheItems[id]
+	b.mu.RUnlock()
+	return item, ok
+}
+
+func maxInt32(value, floor int32) int32 {
+	if value < floor {
+		return floor
+	}
+	return value
 }
 
 func redactSensitiveNode(node *Node) {
@@ -832,6 +1145,10 @@ func (b *dbusBackend) readNodeStates(ctx context.Context, id NodeID, node *Node)
 	if err := b.call(ctx, id, accessibleIface+".GetState", nil, &states); err != nil {
 		return
 	}
+	b.applyStates(states, node)
+}
+
+func (b *dbusBackend) applyStates(states []uint32, node *Node) {
 	for _, state := range states {
 		if name := stateName(state); name != "" {
 			node.States = append(node.States, name)
@@ -883,6 +1200,103 @@ func (b *dbusBackend) readNodeAttributes(ctx context.Context, id NodeID, node *N
 	if err := b.call(ctx, id, accessibleIface+".GetAttributes", nil, &attrs); err == nil {
 		node.Attributes = attrs
 	}
+}
+
+// readNodeOptional performs best-effort reads for the optional AT-SPI
+// interfaces advertised by GetInterfaces. Every field is independent: a
+// provider that implements only part of an interface must not make the whole
+// node unreadable.
+func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interfaces []string, node *Node) {
+	if contains(interfaces, valueIface) {
+		value := &ValueInfo{}
+		if err := b.propertyFloat(ctx, id, valueIface, "CurrentValue", &value.Current); err == nil {
+			_ = b.propertyFloat(ctx, id, valueIface, "MinimumValue", &value.Minimum)
+			_ = b.propertyFloat(ctx, id, valueIface, "MaximumValue", &value.Maximum)
+			_ = b.propertyFloat(ctx, id, valueIface, "MinimumIncrement", &value.MinimumIncrement)
+			node.Value = value
+		}
+	}
+	if contains(interfaces, actionIface) {
+		var actions []Action
+		if err := b.call(ctx, id, actionIface+".GetActions", nil, &actions); err == nil {
+			node.Actions = actions
+		}
+	}
+	if contains(interfaces, selectionIface) {
+		var count int32
+		if err := b.call(ctx, id, selectionIface+".GetSelectedChildCount", nil, &count); err == nil {
+			node.Selection = &SelectionInfo{SelectedChildCount: maxInt32(count, 0)}
+		}
+	}
+	if contains(interfaces, tableIface) {
+		var rows, columns int32
+		if b.property(ctx, id, tableIface, "NRows", &rows) == nil || b.property(ctx, id, tableIface, "NColumns", &columns) == nil {
+			node.Table = &TableInfo{Rows: maxInt32(rows, 0), Columns: maxInt32(columns, 0)}
+		}
+	}
+	if contains(interfaces, documentIface) {
+		document := &DocumentInfo{}
+		got := false
+		if b.property(ctx, id, documentIface, "Locale", &document.Locale) == nil {
+			got = true
+		}
+		if b.property(ctx, id, documentIface, "CurrentPageNumber", &document.CurrentPageNumber) == nil {
+			got = true
+		}
+		if b.property(ctx, id, documentIface, "PageCount", &document.PageCount) == nil {
+			got = true
+		}
+		if got {
+			node.Document = document
+		}
+	}
+	if len(interfaces) > 0 {
+		b.readNodeRelations(ctx, id, node)
+	}
+}
+
+func (b *dbusBackend) readNodeRelations(ctx context.Context, id NodeID, node *Node) {
+	var relations []struct {
+		RelationType uint32
+		Targets      []objectRef
+	}
+	if err := b.call(ctx, id, accessibleIface+".GetRelationSet", nil, &relations); err != nil {
+		return
+	}
+	for _, relation := range relations {
+		name := relationName(relation.RelationType)
+		if name == "" || len(relation.Targets) == 0 {
+			continue
+		}
+		if node.Relations == nil {
+			node.Relations = make(map[string][]NodeID)
+		}
+		for _, target := range relation.Targets {
+			if !target.null() {
+				node.Relations[name] = append(node.Relations[name], target.id())
+			}
+		}
+	}
+}
+
+func (b *dbusBackend) propertyFloat(ctx context.Context, id NodeID, iface, name string, out *float64) error {
+	var variant dbus.Variant
+	if err := b.call(ctx, id, propertiesIface+".Get", []any{iface, name}, &variant); err != nil {
+		return err
+	}
+	switch value := variant.Value().(type) {
+	case float64:
+		*out = value
+	case float32:
+		*out = float64(value)
+	case int32:
+		*out = float64(value)
+	case uint32:
+		*out = float64(value)
+	default:
+		return fmt.Errorf("accessibility: property %s.%s has type %T", iface, name, value)
+	}
+	return nil
 }
 
 func (b *dbusBackend) call(ctx context.Context, id NodeID, method string, args []any, out any) error {
@@ -948,4 +1362,15 @@ func roleName(role uint32) string {
 func stateName(state uint32) string {
 	states := map[uint32]string{1: "active", 3: "busy", 4: "checked", 5: "collapsed", 7: "editable", 8: "enabled", 9: "expandable", 10: "expanded", 11: "focusable", 12: "focused", 20: "pressed", 22: "selectable", 23: "selected", 24: "sensitive", 25: "showing", 26: "indeterminate", 27: "stale", 28: "transient", 29: "vertical", 30: "visible", 33: "required", 34: "protected"}
 	return states[state]
+}
+
+func relationName(relation uint32) string {
+	relations := map[uint32]string{
+		0: "label-for", 1: "labelled-by", 2: "controller-for", 3: "controlled-by",
+		4: "member-of", 5: "tooltip-for", 6: "described-by", 7: "description-for",
+		8: "node-child-of", 9: "flows-to", 10: "flows-from", 11: "subwindow-of",
+		12: "embeds", 13: "embedded-by", 14: "popup-for", 15: "parent-window-of",
+		16: "details", 17: "details-for", 18: "error-message", 19: "error-for",
+	}
+	return relations[relation]
 }

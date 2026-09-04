@@ -18,6 +18,8 @@ type accessibilityCLIOptions struct {
 	rootPath       string
 	appName        string
 	pid            int32
+	windowID       string
+	windowTitle    string
 	maxDepth       int
 	maxNodes       int
 	maxTextBytes   int
@@ -29,7 +31,7 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 		return accessibility.NodeID{}, nil
 	}
 	if o.appName != "" || o.pid != 0 {
-		app, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{Name: o.appName, PID: o.pid, Bus: o.rootBus})
+		app, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{Name: o.appName, PID: o.pid, Bus: o.rootBus, WindowID: o.windowID, WindowTitle: o.windowTitle})
 		if err != nil {
 			return accessibility.NodeID{}, err
 		}
@@ -59,7 +61,10 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		c.Flags().StringVar(&o.rootBus, "root-bus", "", "AT-SPI application bus name")
 		c.Flags().StringVar(&o.rootPath, "root-path", "", "AT-SPI application object path")
 		c.Flags().StringVar(&o.appName, "app", "", "application accessible-name substring")
+		c.Flags().StringVar(&o.appName, "application", "", "application accessible-name substring (alias for --app)")
 		c.Flags().Int32Var(&o.pid, "pid", 0, "application process ID")
+		c.Flags().StringVar(&o.windowID, "window-id", "", "managed window identifier")
+		c.Flags().StringVar(&o.windowTitle, "window-title", "", "managed window title substring")
 		c.Flags().IntVar(&o.maxDepth, "max-depth", 0, "maximum tree depth")
 		c.Flags().IntVar(&o.maxNodes, "max-nodes", 0, "maximum nodes")
 		c.Flags().IntVar(&o.maxTextBytes, "max-text-bytes", 0, "maximum text bytes per node")
@@ -82,7 +87,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	common(applications, &appOpts)
 
 	var snapOpts accessibilityCLIOptions
-	snapshot := &cobra.Command{Use: "snapshot", Short: "Capture a bounded accessibility tree", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+	snapshot := &cobra.Command{Use: "snapshot", Aliases: []string{"tree"}, Short: "Capture a bounded accessibility tree", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openPF(c.Context())
 		if err != nil {
 			return err

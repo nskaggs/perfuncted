@@ -218,6 +218,24 @@ func AccessibilityFocused(opts accessibility.SnapshotOptions) Condition {
 	})
 }
 
+// AccessibilityStateContains succeeds when a matching accessible node has
+// every requested state. The condition always performs a fresh bounded query;
+// AT-SPI events only wake Session.Wait and are never treated as authoritative.
+func AccessibilityStateContains(root accessibility.NodeID, query accessibility.Query, states []string, opts accessibility.SnapshotOptions) Condition {
+	query.States = append([]string(nil), states...)
+	return sessionCondition("accessibility state contains", func(ctx context.Context, session *Session) (bool, error) {
+		nodes, err := session.Accessibility.Find(ctx, root, query, opts)
+		return len(nodes) > 0, err
+	})
+}
+
+// AccessibilityTextContains succeeds when an accessible node exposes the
+// requested text. It is a convenience over AccessibilityNodeExists and keeps
+// text matching bounded by SnapshotOptions.
+func AccessibilityTextContains(root accessibility.NodeID, text string, opts accessibility.SnapshotOptions) Condition {
+	return AccessibilityNodeExists(root, accessibility.Query{Text: text}, opts)
+}
+
 // WindowClosed succeeds when the stable window handle no longer exists.
 func WindowClosed(target *Window) Condition {
 	return sessionCondition(
