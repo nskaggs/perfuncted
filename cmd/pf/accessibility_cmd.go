@@ -333,6 +333,42 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	}}
 	common(setText, &textOpts)
 	setText.Flags().StringVar(&textValue, "text", "", "replacement text")
+	nodeMutation := func(use, short string, opts *accessibilityCLIOptions, mutate func(*perfuncted.Session, context.Context, accessibility.NodeID) error) *cobra.Command {
+		command := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+			pf, err := openPF(c.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			node, err := opts.root(c.Context(), pf)
+			if err != nil {
+				return err
+			}
+			return mutate(pf, c.Context(), node)
+		}}
+		common(command, opts)
+		return command
+	}
+	var textRangeOpts accessibilityCLIOptions
+	var textSelection int32
+	var textStart, textEnd int32
+	setTextSelection := nodeMutation("set-text-selection", "Set a range through AT-SPI Text", &textRangeOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.SetTextSelection(ctx, node, textSelection, textStart, textEnd)
+	})
+	setTextSelection.Flags().Int32Var(&textSelection, "selection", 0, "selection number")
+	setTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start offset")
+	setTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end offset")
+	var addTextSelectionOpts accessibilityCLIOptions
+	addTextSelection := nodeMutation("add-text-selection", "Add a range through AT-SPI Text", &addTextSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.AddTextSelection(ctx, node, textStart, textEnd)
+	})
+	addTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start offset")
+	addTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end offset")
+	var removeTextSelectionOpts accessibilityCLIOptions
+	removeTextSelection := nodeMutation("remove-text-selection", "Remove a range through AT-SPI Text", &removeTextSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.RemoveTextSelection(ctx, node, textSelection)
+	})
+	removeTextSelection.Flags().Int32Var(&textSelection, "selection", 0, "selection number")
 	var selectionOpts accessibilityCLIOptions
 	var childIndex int32
 	selectChild := &cobra.Command{Use: "select-child", Short: "Select a child through AT-SPI Selection", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
@@ -349,6 +385,39 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	}}
 	common(selectChild, &selectionOpts)
 	selectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
+	var selectionAllOpts accessibilityCLIOptions
+	selectAll := nodeMutation("select-all", "Select all children through AT-SPI Selection", &selectionAllOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.SelectAll(ctx, node)
+	})
+	var clearSelectionOpts accessibilityCLIOptions
+	clearSelection := nodeMutation("clear-selection", "Clear AT-SPI Selection", &clearSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.ClearSelection(ctx, node)
+	})
+	var deselectAllOpts accessibilityCLIOptions
+	deselectAll := nodeMutation("deselect-all", "Deselect all children through AT-SPI Selection", &deselectAllOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.DeselectAll(ctx, node)
+	})
+	var tableOpts accessibilityCLIOptions
+	var tableIndex int32
+	selectRow := nodeMutation("select-row", "Select a table row through AT-SPI Table", &tableOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.SelectRow(ctx, node, tableIndex)
+	})
+	selectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
+	var deselectRowOpts accessibilityCLIOptions
+	deselectRow := nodeMutation("deselect-row", "Deselect a table row through AT-SPI Table", &deselectRowOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.DeselectRow(ctx, node, tableIndex)
+	})
+	deselectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
+	var selectColumnOpts accessibilityCLIOptions
+	selectColumn := nodeMutation("select-column", "Select a table column through AT-SPI Table", &selectColumnOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.SelectColumn(ctx, node, tableIndex)
+	})
+	selectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
+	var deselectColumnOpts accessibilityCLIOptions
+	deselectColumn := nodeMutation("deselect-column", "Deselect a table column through AT-SPI Table", &deselectColumnOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.DeselectColumn(ctx, node, tableIndex)
+	})
+	deselectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
 	reopen := &cobra.Command{Use: "reopen", Short: "Explicitly reopen the target accessibility bus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openPF(c.Context())
 		if err != nil {
@@ -358,7 +427,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		return pf.Accessibility.ReopenAccessibility(c.Context())
 	}}
 
-	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, setValue, setText, selectChild, reopen)
+	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, selectChild, selectAll, clearSelection, deselectAll, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
 	return cmd
 }
 

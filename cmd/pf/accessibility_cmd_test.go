@@ -12,6 +12,8 @@ import (
 
 type cliAccessibilityFake struct{}
 
+type cliAutomationFake struct{ cliAccessibilityFake }
+
 func (cliAccessibilityFake) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events"}
 }
@@ -37,6 +39,75 @@ func (cliAccessibilityFake) Events(context.Context, accessibility.EventOptions) 
 }
 func (cliAccessibilityFake) Close() error { return nil }
 
+func (cliAutomationFake) SupportedOperations() []string {
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+}
+
+func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
+	return nil
+}
+func (cliAutomationFake) InvokeActionByName(context.Context, accessibility.NodeID, string) error {
+	return nil
+}
+func (cliAutomationFake) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) { //nolint:unparam // the CLI fixture intentionally models a successful action.
+	return accessibility.Action{Index: 0, Name: "default"}, nil
+}
+func (cliAutomationFake) GrabFocus(context.Context, accessibility.NodeID) error { return nil }
+func (cliAutomationFake) ScrollTo(context.Context, accessibility.NodeID, accessibility.ScrollType) error {
+	return nil
+}
+func (cliAutomationFake) ScrollToPoint(context.Context, accessibility.NodeID, accessibility.ScrollType, int, int) error {
+	return nil
+}
+func (cliAutomationFake) SetCurrentValue(context.Context, accessibility.NodeID, float64) error {
+	return nil
+}
+func (cliAutomationFake) SetValue(context.Context, accessibility.NodeID, float64) error { return nil }
+func (cliAutomationFake) SetTextContents(context.Context, accessibility.NodeID, string) error {
+	return nil
+}
+func (cliAutomationFake) ReplaceText(context.Context, accessibility.NodeID, int32, int32, string) error {
+	return nil
+}
+func (cliAutomationFake) InsertText(context.Context, accessibility.NodeID, int32, string) error {
+	return nil
+}
+func (cliAutomationFake) DeleteText(context.Context, accessibility.NodeID, int32, int32) error {
+	return nil
+}
+func (cliAutomationFake) CopyText(context.Context, accessibility.NodeID, int32, int32) error {
+	return nil
+}
+func (cliAutomationFake) CutText(context.Context, accessibility.NodeID, int32, int32) error {
+	return nil
+}
+func (cliAutomationFake) PasteText(context.Context, accessibility.NodeID, int32) error { return nil }
+func (cliAutomationFake) SetCaretOffset(context.Context, accessibility.NodeID, int32) error {
+	return nil
+}
+func (cliAutomationFake) SetTextSelection(context.Context, accessibility.NodeID, int32, int32, int32) error {
+	return nil
+}
+func (cliAutomationFake) AddTextSelection(context.Context, accessibility.NodeID, int32, int32) error {
+	return nil
+}
+func (cliAutomationFake) RemoveTextSelection(context.Context, accessibility.NodeID, int32) error {
+	return nil
+}
+func (cliAutomationFake) SelectChild(context.Context, accessibility.NodeID, int32) error { return nil }
+func (cliAutomationFake) DeselectChild(context.Context, accessibility.NodeID, int32) error {
+	return nil
+}
+func (cliAutomationFake) SelectAll(context.Context, accessibility.NodeID) error           { return nil }
+func (cliAutomationFake) ClearSelection(context.Context, accessibility.NodeID) error      { return nil }
+func (cliAutomationFake) DeselectAll(context.Context, accessibility.NodeID) error         { return nil }
+func (cliAutomationFake) SelectRow(context.Context, accessibility.NodeID, int32) error    { return nil }
+func (cliAutomationFake) DeselectRow(context.Context, accessibility.NodeID, int32) error  { return nil }
+func (cliAutomationFake) SelectColumn(context.Context, accessibility.NodeID, int32) error { return nil }
+func (cliAutomationFake) DeselectColumn(context.Context, accessibility.NodeID, int32) error {
+	return nil
+}
+
 func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
 	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "applications"}, func(*cliConfig) sessionOpener {
 		return func(context.Context) (*perfuncted.Session, error) {
@@ -58,6 +129,12 @@ func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
 func openCLIWithAccessibility(*cliConfig) sessionOpener {
 	return func(context.Context) (*perfuncted.Session, error) {
 		return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAccessibilityFake{}), nil
+	}
+}
+
+func openCLIWithAutomation(*cliConfig) sessionOpener {
+	return func(context.Context) (*perfuncted.Session, error) {
+		return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAutomationFake{}), nil
 	}
 }
 
@@ -92,6 +169,35 @@ func TestAccessibilityCLIRejectsPartialRoot(t *testing.T) {
 	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "snapshot", "--root-bus", "org.test"}, openCLIWithAccessibility)
 	if code == 0 || stdout != "" || !strings.Contains(stderr, "root requires both") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestAccessibilityCLIAutomationCommands(t *testing.T) {
+	tests := [][]string{
+		{"accessibility", "invoke-action"},
+		{"accessibility", "focus"},
+		{"accessibility", "scroll"},
+		{"accessibility", "set-value", "--value", "0.5"},
+		{"accessibility", "set-text", "--text", "updated"},
+		{"accessibility", "set-text-selection", "--selection", "0", "--start", "0", "--end", "1"},
+		{"accessibility", "add-text-selection", "--start", "0", "--end", "1"},
+		{"accessibility", "remove-text-selection", "--selection", "0"},
+		{"accessibility", "select-child", "--index", "0"},
+		{"accessibility", "select-all"},
+		{"accessibility", "clear-selection"},
+		{"accessibility", "deselect-all"},
+		{"accessibility", "select-row", "--index", "0"},
+		{"accessibility", "deselect-row", "--index", "0"},
+		{"accessibility", "select-column", "--index", "0"},
+		{"accessibility", "deselect-column", "--index", "0"},
+	}
+	for _, args := range tests {
+		t.Run(strings.Join(args[1:], "-"), func(t *testing.T) {
+			stdout, stderr, code := captureRunIO(t, args, openCLIWithAutomation)
+			if code != 0 || stderr != "" {
+				t.Fatalf("args=%v code=%d stderr=%q stdout=%q", args, code, stderr, stdout)
+			}
+		})
 	}
 }
 
