@@ -213,6 +213,16 @@ func (m *Inputter) PointerLocation(ctx context.Context) (int, int, error) {
 	return 0, 0, m.Err
 }
 
+// PointerCoordinateSpace reports the deterministic mock's logical global
+// coordinate contract. Real backends expose this only when they can prove
+// their compositor/output coordinate space.
+func (m *Inputter) PointerCoordinateSpace(context.Context) (input.CoordinateSpaceInfo, error) {
+	if m.Err != nil {
+		return input.CoordinateSpaceInfo{}, m.Err
+	}
+	return input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
+}
+
 // Sync returns the configured error.
 func (m *Inputter) Sync(ctx context.Context) error { return m.Err }
 

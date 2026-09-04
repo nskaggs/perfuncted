@@ -172,6 +172,11 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				return
 			}
 			event := signalEvent(sig)
+			// Every physical signal owns exactly one backend transition. Delivery
+			// coalescing is deliberately evaluated only after invalidation/cache
+			// handling so a dropped notification can never leave a fresh snapshot
+			// looking current after a second signal.
+			event = b.prepareEvent(sig, event)
 			if coalesceEvent(&lastKey, &lastAt, event) {
 				b.eventsMu.Lock()
 				for _, subscriber := range b.subscribers {
@@ -180,7 +185,6 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				b.eventsMu.Unlock()
 				continue
 			}
-			event = b.prepareEvent(sig, event)
 			b.deliverEvent(event)
 		}
 	}

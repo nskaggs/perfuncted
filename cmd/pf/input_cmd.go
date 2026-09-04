@@ -320,8 +320,26 @@ func inputCmd(
 		},
 	}
 
+	coordinateSpace := &cobra.Command{
+		Use:   "coordinate-space",
+		Short: "Print the pointer backend coordinate space",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			info, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "kind=%s scaleX=%g scaleY=%g\n", info.Kind, info.ScaleX, info.ScaleY)
+		},
+	}
+
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
-		typeCmd, keydown, keyup, mousedown, mouseup, location, scrollCmd(openPF, cfg))
+		typeCmd, keydown, keyup, mousedown, mouseup, location, coordinateSpace, scrollCmd(openPF, cfg))
 
 	sync := &cobra.Command{
 		Use:   "sync",

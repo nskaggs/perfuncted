@@ -215,6 +215,28 @@ func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 	return x, y, b.operationError("pointer-location", err)
 }
 
+// PointerCoordinateSpace reports the absolute coordinate space accepted by
+// the active input backend. It is optional: backends without authoritative
+// scale/provenance metadata return ErrUnsupported so callers cannot mistake a
+// browser CSS coordinate for a physical pointer coordinate.
+func (b *InputBundle) PointerCoordinateSpace(ctx context.Context) (input.CoordinateSpaceInfo, error) {
+	if err := b.checkAvailable("pointer-coordinate-space"); err != nil {
+		return input.CoordinateSpaceInfo{}, err
+	}
+	reporter, ok := b.backend.(input.PointerCoordinateSpaceReporter)
+	if !ok {
+		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", input.ErrNotSupported)
+	}
+	info, err := reporter.PointerCoordinateSpace(ctx)
+	if err != nil {
+		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", err)
+	}
+	if err := info.Validate(); err != nil {
+		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", err)
+	}
+	return info, nil
+}
+
 // Sync flushes pending input when the backend supports synchronization.
 func (b *InputBundle) Sync(ctx context.Context) error {
 	if err := b.checkAvailable("sync"); err != nil {

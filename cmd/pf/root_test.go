@@ -1605,6 +1605,20 @@ func TestInputMoveReportsShortOutputWrite(t *testing.T) {
 	}
 }
 
+func TestInputCoordinateSpaceReportsBackendContract(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"input", "coordinate-space"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return pftest.New(nil, &pftest.Inputter{}, nil, nil), nil
+		}
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d; stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if stdout != "kind=global-logical scaleX=1 scaleY=1\n" {
+		t.Fatalf("stdout = %q, want logical coordinate contract", stdout)
+	}
+}
+
 func TestFindWaitForReportsShortOutputWrite(t *testing.T) {
 	frame := pftest.SolidImage(1, 1, color.RGBA{A: 255})
 	want := find.PixelHash(frame, nil)

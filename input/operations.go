@@ -2,30 +2,34 @@ package input
 
 import "github.com/nskaggs/perfuncted/internal/capability"
 
-func supportedOperations(pointerLocation bool) []string {
-	if pointerLocation {
-		return capability.Operations("input")
+func supportedOperations(pointerLocation, coordinateSpace bool) []string {
+	var exclude []string
+	if !pointerLocation {
+		exclude = append(exclude, "pointer-location")
 	}
-	return capability.Operations("input", "pointer-location")
+	if !coordinateSpace {
+		exclude = append(exclude, "pointer-coordinate-space")
+	}
+	return capability.Operations("input", exclude...)
 }
 
 // SupportedOperations reports operations that are executable by the selected
 // backend. It is consumed by the parent Session when publishing capability
 // status; it is not a second dispatch table.
 func (b *XTestBackend) SupportedOperations() []string {
-	return supportedOperations(true)
+	return supportedOperations(true, false)
 }
 
 // SupportedOperations reports operations that are executable by the selected
 // backend. uinput cannot query the current pointer location.
 func (b *UinputBackend) SupportedOperations() []string {
-	return supportedOperations(false)
+	return supportedOperations(false, false)
 }
 
 // SupportedOperations reports operations that are executable by the selected
 // backend. The virtual Wayland backend cannot query the current pointer.
 func (b *WlVirtualBackend) SupportedOperations() []string {
-	return supportedOperations(false)
+	return supportedOperations(false, true)
 }
 
 // SupportedOperations reports the input surface provided by the GNOME Shell

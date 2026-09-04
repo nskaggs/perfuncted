@@ -262,7 +262,7 @@ func (b *GnomeNativeBackend) releaseModifierKeys(ctx context.Context, keys []uin
 	return cleanupErr
 }
 
-// MouseMove moves the pointer to absolute coordinates.
+// MouseMove moves the pointer to absolute global logical screen coordinates.
 func (b *GnomeNativeBackend) MouseMove(ctx context.Context, x, y int) error {
 	return b.operation(ctx, func(ctx context.Context) error {
 		if err := validateGnomeCoordinates(x, y); err != nil {
@@ -270,6 +270,20 @@ func (b *GnomeNativeBackend) MouseMove(ctx context.Context, x, y int) error {
 		}
 		return b.bridge.PointerMove(ctx, int32(x), int32(y))
 	})
+}
+
+// PointerCoordinateSpace reports GNOME's global logical screen coordinates.
+// Mutter's virtual-input bridge uses the same logical space as GNOME window
+// geometry and screenshot requests; browser devicePixelRatio is not involved.
+func (b *GnomeNativeBackend) PointerCoordinateSpace(ctx context.Context) (CoordinateSpaceInfo, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return CoordinateSpaceInfo{}, err
+	}
+	if b == nil || b.bridge == nil {
+		return CoordinateSpaceInfo{}, unsupportedError("input/gnome-native", "pointer coordinate space")
+	}
+	return CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
 }
 
 func validateGnomeCoordinates(x, y int) error {

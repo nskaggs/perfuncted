@@ -618,6 +618,79 @@ func TestPreparedEventUsesPostInvalidationGeneration(t *testing.T) {
 	}
 }
 
+func TestCoalescedSignalStillTransitionsBackend(t *testing.T) {
+	backend := &dbusBackend{
+		generation: 5,
+		cacheItems: map[NodeID]cacheItem{},
+		cacheApps:  map[string]bool{"org.test": true},
+	}
+	base := time.Now()
+	sig := func(at time.Time) (*dbus.Signal, Event) {
+		s := &dbus.Signal{
+			Name:   "org.a11y.atspi.Event.Object:PropertyChange",
+			Sender: "org.test",
+			Path:   dbus.ObjectPath("/node"),
+			Body:   []any{"Name", "changed"},
+		}
+		return s, Event{Kind: s.Name, Node: NodeID{BusName: s.Sender, ObjectPath: string(s.Path)}, Property: "Name", Timestamp: at}
+	}
+	lastKey := ""
+	var lastAt time.Time
+
+	firstSig, firstEvent := sig(base)
+	firstEvent = backend.prepareEvent(firstSig, firstEvent)
+	if coalesceEvent(&lastKey, &lastAt, firstEvent) {
+		t.Fatal("first signal was coalesced")
+	}
+	if backend.Generation() != 6 || firstEvent.Node.Generation != 6 {
+		t.Fatalf("first transition = generation %d/event %d, want 6", backend.Generation(), firstEvent.Node.Generation)
+	}
+
+	// A caller may rebuild a snapshot here. The second physical signal must
+	// still invalidate that newly rebuilt view even though its delivery is
+	// coalesced with the first notification.
+	secondSig, secondEvent := sig(base.Add(time.Millisecond))
+	secondEvent = backend.prepareEvent(secondSig, secondEvent)
+	if !coalesceEvent(&lastKey, &lastAt, secondEvent) {
+		t.Fatal("duplicate signal was not delivery-coalesced")
+	}
+	if backend.Generation() != 7 || secondEvent.Node.Generation != 7 {
+		t.Fatalf("coalesced transition = generation %d/event %d, want 7", backend.Generation(), secondEvent.Node.Generation)
+	}
+	if err := backend.validateHandle(firstEvent.Node); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("first event handle error = %v, want stale node", err)
+	}
+	if backend.cacheItems != nil || backend.cacheApps != nil {
+		t.Fatalf("non-cache coalesced signal retained stale cache metadata: items=%v apps=%v", backend.cacheItems, backend.cacheApps)
+	}
+}
+
+func TestCoalescedCacheSignalAppliesDelta(t *testing.T) {
+	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem)}
+	item := cacheItem{
+		Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
+		Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+	}
+	base := time.Now()
+	lastKey := ""
+	var lastAt time.Time
+	for i := 0; i < 2; i++ {
+		sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}}
+		event := backend.prepareEvent(sig, Event{Kind: sig.Name, Node: item.nodeIDAt(backend.Generation()), Timestamp: base.Add(time.Duration(i) * time.Millisecond)})
+		if coalesced := coalesceEvent(&lastKey, &lastAt, event); i == 0 && coalesced {
+			t.Fatal("first cache signal was coalesced")
+		} else if i == 1 && !coalesced {
+			t.Fatal("second cache signal was not delivery-coalesced")
+		}
+		if event.Node.Generation != uint64(6+i) || backend.Generation() != uint64(6+i) {
+			t.Fatalf("cache transition %d = generation %d/event %d, want %d", i, backend.Generation(), event.Node.Generation, 6+i)
+		}
+		if _, ok := backend.cachedItem(NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath), Generation: backend.Generation()}); !ok {
+			t.Fatalf("cache delta was lost at generation %d", backend.Generation())
+		}
+	}
+}
+
 func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
 	backend := &dbusBackend{
 		generation: 5,

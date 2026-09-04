@@ -22,6 +22,7 @@ Mouse and keyboard injection
 * [pf](pf.md)	 - perfuncted — screen automation CLI
 * [pf input click](pf_input_click.md)	 - Click a mouse button at coordinates
 * [pf input click-center](pf_input_click-center.md)	 - Click the center of a rectangle
+* [pf input coordinate-space](pf_input_coordinate-space.md)	 - Print the pointer backend coordinate space
 * [pf input double-click](pf_input_double-click.md)	 - Double-click at coordinates
 * [pf input drag-and-drop](pf_input_drag-and-drop.md)	 - Drag from one coordinate to another (press, move, release)
 * [pf input keydown](pf_input_keydown.md)	 - Press and hold a key

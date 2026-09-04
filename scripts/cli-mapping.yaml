@@ -53,6 +53,9 @@ input:
   PointerLocation:
     name: location
     skip: true
+  PointerCoordinateSpace:
+    name: coordinate-space
+    skip: true
   Sync:
     skip: true
   Type:

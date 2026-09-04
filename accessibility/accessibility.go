@@ -256,9 +256,11 @@ type ApplicationFilter struct {
 	WindowTitle string `json:"windowTitle,omitempty"`
 }
 
-// Event is an invalidation-oriented AT-SPI signal. Signals are hints: callers
-// should refresh a Snapshot before acting on a node because objects can be
-// destroyed between notification and query.
+// Event is an invalidation-oriented AT-SPI signal. Node is stamped with the
+// generation created by this signal and is valid when the event is enqueued.
+// A later physical signal may advance the backend generation before a caller
+// reads the event, so consumers must validate the handle and refresh a
+// Snapshot before acting on it; event handles are not durable capabilities.
 type Event struct {
 	Kind      string    `json:"kind"`
 	Node      NodeID    `json:"node"`

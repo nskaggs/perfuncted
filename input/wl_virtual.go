@@ -306,7 +306,9 @@ func (b *WlVirtualBackend) buttonEvent(cancel context.Context, ctx wl.Ctx, code,
 }
 
 // MouseMove moves the pointer to absolute position (x, y) in the compositor's
-// output coordinate space (i.e. sway display pixels).
+// global logical output coordinate space. PointerCoordinateSpace reports this
+// contract explicitly; physical output pixels are retained only as protocol
+// metadata for the Wayland absolute-motion conversion.
 func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -315,6 +317,23 @@ func (b *WlVirtualBackend) MouseMove(ctx context.Context, x, y int) error {
 	return b.withOperation(ctx, func(wlctx wl.Ctx, opCtx context.Context) error {
 		return b.mouseMoveEvent(opCtx, wlctx, x, y)
 	})
+}
+
+// PointerCoordinateSpace reports the logical compositor output coordinate
+// space used by motion_absolute. The backend keeps physical output dimensions
+// and scale internally, then sends logical output dimensions in each event.
+func (b *WlVirtualBackend) PointerCoordinateSpace(ctx context.Context) (CoordinateSpaceInfo, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return CoordinateSpaceInfo{}, err
+	}
+	if b == nil {
+		return CoordinateSpaceInfo{}, unsupportedError("input/wl-virtual", "pointer coordinate space")
+	}
+	if err := b.checkOpen(); err != nil {
+		return CoordinateSpaceInfo{}, err
+	}
+	return CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
 }
 
 func (b *WlVirtualBackend) button(ctx context.Context, code, state uint32) error {

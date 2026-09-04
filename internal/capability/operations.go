@@ -19,6 +19,7 @@ var operationsBySurface = map[string][]string{
 		"scroll",
 		"drag",
 		"pointer-location",
+		"pointer-coordinate-space",
 		"sync",
 	},
 	"windows": {

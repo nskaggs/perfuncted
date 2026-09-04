@@ -71,8 +71,10 @@ func validateMouseButton(backend string, button int) error {
 // Type accepts a key syntax: literal text is typed as-is, {keyname} sends
 // named keys, modifier+key sends combinations, and {keyname down/up}
 // holds/releases a key.
-// Mouse methods use screen-absolute pixel coordinates; button 1=left,
-// 2=middle, 3=right. Scroll methods accept a positive click count.
+// Mouse methods use screen-absolute coordinates in the selected backend's
+// declared coordinate space; PointerCoordinateSpace reports that space when
+// the backend can prove it. Button 1=left, 2=middle, 3=right. Scroll methods
+// accept a positive click count.
 type Inputter interface {
 	// KeyDown presses and holds a key.
 	KeyDown(ctx context.Context, key string) error
