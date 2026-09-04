@@ -41,6 +41,15 @@ func TestAccessibilityManagedSession(t *testing.T) {
 		"focused",
 		"at-point",
 		"events",
+		"outline",
+		"invoke-action",
+		"grab-focus",
+		"scroll",
+		"set-current-value",
+		"set-text-contents",
+		"select-child",
+		"window-root",
+		"reopen",
 	} {
 		if !status.Supports(operation) {
 			t.Fatalf("AT-SPI backend omitted advertised operation %q: %+v", operation, status)
@@ -53,7 +62,11 @@ func TestAccessibilityManagedSession(t *testing.T) {
 	}
 
 	options := accessibility.SnapshotOptions{MaxDepth: 8, MaxNodes: 256, MaxTextBytes: 512}
-	snapshot, err := s.pf.Accessibility.Snapshot(ctx, accessibility.NodeID{}, options)
+	if len(apps) == 0 {
+		t.Log("AT-SPI bus is available but no application root is registered in this managed session")
+		return
+	}
+	snapshot, err := s.pf.Accessibility.Snapshot(ctx, apps[0].ID, options)
 	if err != nil {
 		t.Fatalf("AT-SPI snapshot: %v", err)
 	}
@@ -61,7 +74,14 @@ func TestAccessibilityManagedSession(t *testing.T) {
 		t.Fatalf("AT-SPI snapshot missing provenance: %+v", snapshot)
 	}
 	if _, err := s.pf.Accessibility.Find(ctx, snapshot.Root.ID, accessibility.Query{Role: "application"}, options); err != nil {
-		t.Fatalf("AT-SPI find: %v", err)
+		// An application-scoped tree intentionally does not include the virtual
+		// desktop application role. Verify a bounded query still executes.
+		if _, findErr := s.pf.Accessibility.Find(ctx, snapshot.Root.ID, accessibility.Query{}, options); findErr != nil {
+			t.Fatalf("AT-SPI find: %v", findErr)
+		}
+	}
+	if _, err := s.pf.Accessibility.Outline(ctx, snapshot.Root.ID, options, accessibility.OutlineOptions{MaxDepth: 4, MaxNodes: 64}); err != nil {
+		t.Fatalf("AT-SPI outline: %v", err)
 	}
 
 	if _, err := s.pf.Accessibility.Focused(ctx, options); err != nil && !errors.Is(err, accessibility.ErrNotFound) {

@@ -13,6 +13,8 @@ pf accessibility find [flags]
       --app string              application accessible-name substring
       --application string      application accessible-name substring (alias for --app)
       --attribute stringArray   required attribute key=value (repeatable)
+      --desktop-root            explicitly allow bounded whole-desktop traversal
+      --generation uint         current accessibility generation for --root-bus/--root-path
   -h, --help                    help for find
       --json                    output JSON (alias for --output json)
       --max-depth int           maximum tree depth

@@ -86,6 +86,10 @@ func (b *dbusBackend) startEvents(_ context.Context) error {
 	matches, err := subscribeEventMatches(context.Background(), access)
 	if err != nil {
 		deregisterEvents(context.Background(), registry, registered)
+		for id, subscriber := range b.subscribers {
+			close(subscriber.out)
+			delete(b.subscribers, id)
+		}
 		b.eventsMu.Unlock()
 		return err
 	}
@@ -102,8 +106,9 @@ func (b *dbusBackend) startEvents(_ context.Context) error {
 func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
 	<-ctx.Done()
 	b.eventsMu.Lock()
-	if _, ok := b.subscribers[id]; ok {
+	if subscriber, ok := b.subscribers[id]; ok {
 		delete(b.subscribers, id)
+		close(subscriber.out)
 	}
 	last := len(b.subscribers) == 0
 	cancel := b.eventCancel

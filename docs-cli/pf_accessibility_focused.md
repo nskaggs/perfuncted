@@ -12,6 +12,8 @@ pf accessibility focused [flags]
       --allow-sensitive       include sensitive/protected text (use with care)
       --app string            application accessible-name substring
       --application string    application accessible-name substring (alias for --app)
+      --desktop-root          explicitly allow bounded whole-desktop traversal
+      --generation uint       current accessibility generation for --root-bus/--root-path
   -h, --help                  help for focused
       --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth

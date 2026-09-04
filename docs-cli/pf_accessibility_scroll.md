@@ -1,9 +1,9 @@
-## pf accessibility applications
+## pf accessibility scroll
 
-List registered accessible applications
+Scroll an explicit accessible node into view
 
 ```
-pf accessibility applications [flags]
+pf accessibility scroll [flags]
 ```
 
 ### Options
@@ -14,7 +14,7 @@ pf accessibility applications [flags]
       --application string    application accessible-name substring (alias for --app)
       --desktop-root          explicitly allow bounded whole-desktop traversal
       --generation uint       current accessibility generation for --root-bus/--root-path
-  -h, --help                  help for applications
+  -h, --help                  help for scroll
       --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth
       --max-nodes int         maximum nodes

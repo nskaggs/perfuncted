@@ -1,20 +1,22 @@
-## pf accessibility applications
+## pf accessibility invoke-action
 
-List registered accessible applications
+Invoke an AT-SPI action on an explicit node
 
 ```
-pf accessibility applications [flags]
+pf accessibility invoke-action [flags]
 ```
 
 ### Options
 
 ```
+      --action-index int32    stable AT-SPI action index (default -1)
+      --action-name string    exact AT-SPI action name (must be unique)
       --allow-sensitive       include sensitive/protected text (use with care)
       --app string            application accessible-name substring
       --application string    application accessible-name substring (alias for --app)
       --desktop-root          explicitly allow bounded whole-desktop traversal
       --generation uint       current accessibility generation for --root-bus/--root-path
-  -h, --help                  help for applications
+  -h, --help                  help for invoke-action
       --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth
       --max-nodes int         maximum nodes

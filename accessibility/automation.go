@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/godbus/dbus/v5"
 )
 
 func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method string, args ...any) error {
@@ -131,7 +133,20 @@ func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, scrollType S
 }
 
 func (b *dbusBackend) SetCurrentValue(ctx context.Context, id NodeID, value float64) error {
-	return b.mutationBool(ctx, id, valueIface, "SetCurrentValue", value)
+	if ctx == nil {
+		return fmt.Errorf("accessibility: SetCurrentValue: nil context")
+	}
+	obj, err := b.object(id)
+	if err != nil {
+		return err
+	}
+	if err := obj.CallWithContext(ctx, propertiesIface+".Set", 0, valueIface, "CurrentValue", dbus.MakeVariant(value)).Err; err != nil {
+		if strings.Contains(err.Error(), "UnknownMethod") || strings.Contains(err.Error(), "UnknownInterface") {
+			return fmt.Errorf("%w: %s.CurrentValue", ErrUnsupported, valueIface)
+		}
+		return fmt.Errorf("accessibility: %s.CurrentValue: %w", valueIface, err)
+	}
+	return nil
 }
 
 func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) error {
@@ -139,7 +154,7 @@ func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) er
 }
 
 func (b *dbusBackend) SetTextContents(ctx context.Context, id NodeID, text string) error {
-	return b.mutationBool(ctx, id, textIface, "SetTextContents", text)
+	return b.mutationBool(ctx, id, editableTextIface, "SetTextContents", text)
 }
 
 func (b *dbusBackend) ReplaceText(ctx context.Context, id NodeID, start, end int32, text string) error {
@@ -153,31 +168,31 @@ func (b *dbusBackend) ReplaceText(ctx context.Context, id NodeID, start, end int
 }
 
 func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, text string) error {
-	return b.mutationBool(ctx, id, textIface, "InsertText", offset, text)
+	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(len([]byte(text))))
 }
 
 func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int32) error {
-	return b.mutationBool(ctx, id, textIface, "DeleteText", start, end)
+	return b.mutationBool(ctx, id, editableTextIface, "DeleteText", start, end)
 }
 
 func (b *dbusBackend) CopyText(ctx context.Context, id NodeID, start, end int32) error {
-	return b.mutationBool(ctx, id, textIface, "CopyText", start, end)
+	return b.mutation(ctx, id, editableTextIface, "CopyText", start, end)
 }
 
 func (b *dbusBackend) CutText(ctx context.Context, id NodeID, start, end int32) error {
-	return b.mutationBool(ctx, id, textIface, "CutText", start, end)
+	return b.mutationBool(ctx, id, editableTextIface, "CutText", start, end)
 }
 
-func (b *dbusBackend) PasteText(ctx context.Context, id NodeID) error {
-	return b.mutationBool(ctx, id, textIface, "PasteText")
+func (b *dbusBackend) PasteText(ctx context.Context, id NodeID, position int32) error {
+	return b.mutationBool(ctx, id, editableTextIface, "PasteText", position)
 }
 
 func (b *dbusBackend) SetCaretOffset(ctx context.Context, id NodeID, offset int32) error {
 	return b.mutationBool(ctx, id, textIface, "SetCaretOffset", offset)
 }
 
-func (b *dbusBackend) SetTextSelection(ctx context.Context, id NodeID, start, end int32) error {
-	return b.mutationBool(ctx, id, textIface, "SetSelection", start, end)
+func (b *dbusBackend) SetTextSelection(ctx context.Context, id NodeID, selection, start, end int32) error {
+	return b.mutationBool(ctx, id, textIface, "SetSelection", selection, start, end)
 }
 
 func (b *dbusBackend) AddTextSelection(ctx context.Context, id NodeID, start, end int32) error {
@@ -209,19 +224,19 @@ func (b *dbusBackend) DeselectAll(ctx context.Context, id NodeID) error {
 }
 
 func (b *dbusBackend) SelectRow(ctx context.Context, id NodeID, row int32) error {
-	return b.mutationBool(ctx, id, tableIface, "SelectRow", row)
+	return b.mutationBool(ctx, id, tableIface, "AddRowSelection", row)
 }
 
 func (b *dbusBackend) DeselectRow(ctx context.Context, id NodeID, row int32) error {
-	return b.mutationBool(ctx, id, tableIface, "DeselectRow", row)
+	return b.mutationBool(ctx, id, tableIface, "RemoveRowSelection", row)
 }
 
 func (b *dbusBackend) SelectColumn(ctx context.Context, id NodeID, column int32) error {
-	return b.mutationBool(ctx, id, tableIface, "SelectColumn", column)
+	return b.mutationBool(ctx, id, tableIface, "AddColumnSelection", column)
 }
 
 func (b *dbusBackend) DeselectColumn(ctx context.Context, id NodeID, column int32) error {
-	return b.mutationBool(ctx, id, tableIface, "DeselectColumn", column)
+	return b.mutationBool(ctx, id, tableIface, "RemoveColumnSelection", column)
 }
 
 var _ Automation = (*dbusBackend)(nil)

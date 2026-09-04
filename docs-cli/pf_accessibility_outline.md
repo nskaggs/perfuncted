@@ -1,9 +1,9 @@
-## pf accessibility applications
+## pf accessibility outline
 
-List registered accessible applications
+Print a compact semantic outline for an explicit scope
 
 ```
-pf accessibility applications [flags]
+pf accessibility outline [flags]
 ```
 
 ### Options
@@ -14,7 +14,7 @@ pf accessibility applications [flags]
       --application string    application accessible-name substring (alias for --app)
       --desktop-root          explicitly allow bounded whole-desktop traversal
       --generation uint       current accessibility generation for --root-bus/--root-path
-  -h, --help                  help for applications
+  -h, --help                  help for outline
       --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth
       --max-nodes int         maximum nodes

@@ -200,6 +200,13 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 		selectedWindow.mu.RLock()
 		selectedInfo := selectedWindow.snapshot
 		selectedWindow.mu.RUnlock()
+		resolver, resolverOK := b.backend.(accessibility.WindowResolver)
+		if !resolverOK {
+			err = accessibility.ErrUnsupported
+		} else {
+			_, resolveErr := resolver.ResolveWindow(ctx, accessibility.WindowTarget{ID: selectedWindow.ID().String(), Title: selectedInfo.Title, PID: selectedInfo.PID, AppID: selectedInfo.AppID, Bounds: accessibility.Rect{X: selectedInfo.X, Y: selectedInfo.Y, Width: selectedInfo.W, Height: selectedInfo.H}, Active: selectedInfo.Active})
+			err = resolveErr
+		}
 		if filter.PID != 0 && selectedInfo.PID != 0 && selectedInfo.PID != filter.PID {
 			err = accessibility.ErrNotFound
 		} else if app.PID != 0 && selectedInfo.PID != 0 && app.PID != selectedInfo.PID {
@@ -338,12 +345,12 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 	}
 	return b.operationError("cut-text", a.CutText(ctx, id, start, end))
 }
-func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID) error {
+func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
 	a, err := b.automation("paste-text")
 	if err != nil {
 		return err
 	}
-	return b.operationError("paste-text", a.PasteText(ctx, id))
+	return b.operationError("paste-text", a.PasteText(ctx, id, position))
 }
 func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibility.NodeID, offset int32) error {
 	a, err := b.automation("set-caret")
@@ -352,12 +359,12 @@ func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibili
 	}
 	return b.operationError("set-caret", a.SetCaretOffset(ctx, id, offset))
 }
-func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
 	a, err := b.automation("set-text-selection")
 	if err != nil {
 		return err
 	}
-	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, start, end))
+	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, selection, start, end))
 }
 func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("add-text-selection")

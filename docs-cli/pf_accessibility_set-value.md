@@ -1,9 +1,9 @@
-## pf accessibility applications
+## pf accessibility set-value
 
-List registered accessible applications
+Set an accessible Value
 
 ```
-pf accessibility applications [flags]
+pf accessibility set-value [flags]
 ```
 
 ### Options
@@ -14,7 +14,7 @@ pf accessibility applications [flags]
       --application string    application accessible-name substring (alias for --app)
       --desktop-root          explicitly allow bounded whole-desktop traversal
       --generation uint       current accessibility generation for --root-bus/--root-path
-  -h, --help                  help for applications
+  -h, --help                  help for set-value
       --json                  output JSON (alias for --output json)
       --max-depth int         maximum tree depth
       --max-nodes int         maximum nodes
@@ -23,6 +23,7 @@ pf accessibility applications [flags]
       --pid int32             application process ID
       --root-bus string       AT-SPI application bus name
       --root-path string      AT-SPI application object path
+      --value float           new current value
       --visible-only          exclude invisible/off-screen nodes
       --window-id string      managed window identifier
       --window-title string   managed window title (exact)

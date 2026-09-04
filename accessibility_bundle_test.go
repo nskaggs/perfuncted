@@ -37,6 +37,12 @@ func (f *bundleAccessibilityFake) Close() error { return nil }
 func (f *bundleAccessibilityFake) FindApplication(context.Context, accessibility.ApplicationFilter) (accessibility.Application, error) {
 	return f.apps[0], nil
 }
+func (f *bundleAccessibilityFake) ResolveWindow(_ context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+	if target.ID == "missing" {
+		return accessibility.WindowScope{}, accessibility.ErrNotFound
+	}
+	return accessibility.WindowScope{WindowID: target.ID, Root: accessibility.NodeID{BusName: "org.test", ObjectPath: "/window", Generation: f.gen}}, nil
+}
 func (f *bundleAccessibilityFake) Generation() uint64              { return f.gen }
 func (f *bundleAccessibilityFake) Invalidate(accessibility.NodeID) { f.gen++ }
 

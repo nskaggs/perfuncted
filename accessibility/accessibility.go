@@ -53,6 +53,7 @@ const (
 	accessibleIface     = "org.a11y.atspi.Accessible"
 	componentIface      = "org.a11y.atspi.Component"
 	textIface           = "org.a11y.atspi.Text"
+	editableTextIface   = "org.a11y.atspi.EditableText"
 	valueIface          = "org.a11y.atspi.Value"
 	actionIface         = "org.a11y.atspi.Action"
 	selectionIface      = "org.a11y.atspi.Selection"
@@ -349,9 +350,9 @@ type TextController interface {
 	DeleteText(context.Context, NodeID, int32, int32) error
 	CopyText(context.Context, NodeID, int32, int32) error
 	CutText(context.Context, NodeID, int32, int32) error
-	PasteText(context.Context, NodeID) error
+	PasteText(context.Context, NodeID, int32) error
 	SetCaretOffset(context.Context, NodeID, int32) error
-	SetTextSelection(context.Context, NodeID, int32, int32) error
+	SetTextSelection(context.Context, NodeID, int32, int32, int32) error
 	AddTextSelection(context.Context, NodeID, int32, int32) error
 	RemoveTextSelection(context.Context, NodeID, int32) error
 }
@@ -389,11 +390,13 @@ type Automation interface {
 type ScrollType uint32
 
 const (
-	ScrollAnyWhere ScrollType = iota
-	ScrollTopLeft
+	ScrollTopLeft ScrollType = iota
 	ScrollBottomRight
-	ScrollTopRight
-	ScrollBottomLeft
+	ScrollTopEdge
+	ScrollBottomEdge
+	ScrollLeftEdge
+	ScrollRightEdge
+	ScrollAnyWhere
 )
 
 // WindowTarget describes an authoritative Perfuncted window used to resolve
@@ -1243,11 +1246,12 @@ func (b *dbusBackend) loadCache(ctx context.Context, busName string) error {
 		return fmt.Errorf("accessibility: cache get items for %s: %w", busName, err)
 	}
 	b.mu.Lock()
+	generation := b.generation
 	if b.cacheItems == nil {
 		b.cacheItems = make(map[NodeID]cacheItem)
 	}
 	for _, item := range items {
-		id := item.nodeIDAt(b.Generation())
+		id := item.nodeIDAt(generation)
 		if id.valid() {
 			b.cacheItems[id] = item
 		}
@@ -1358,6 +1362,10 @@ func redactSensitiveNode(node *Node) {
 	}
 	node.Redacted = true
 	node.Text = ""
+	// Value.Current can itself be sensitive (for example a password or
+	// protected spin control). Mutation permission is intentionally separate
+	// from reading this field.
+	node.Value = nil
 	for key := range node.Attributes {
 		lower := strings.ToLower(key)
 		if key == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") {

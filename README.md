@@ -139,12 +139,19 @@ Every session has non-nil capability facades:
 - `session.Windows` discovers windows, returns stable session-bound handles for control, and exposes bounded, lossy lifecycle and focus notifications through `session.Windows.Events()`.
 - `session.Outputs` lists displays.
 - `session.Clipboard` gets and sets clipboard contents.
-- `session.Accessibility` optionally reads the AT-SPI accessibility tree,
+- `session.Accessibility` optionally reads and automates the AT-SPI
+  accessibility tree,
   including application roots, roles, names, states, text, bounds, focused
   objects, point queries, bounded semantic searches, optional Value/Action/
   Selection/Table/Document fields, PID/window-scoped application selection,
-  cache-backed refreshes, and a lossy invalidation event stream with drop
-  counts. Sensitive/protected text is redacted by default. Request it with
+  cache-backed refreshes, a correlated compositor-window subtree, compact
+  outlines, typed actions/focus/scroll/value/editable-text/selection/table
+  mutations, and a lossy invalidation event stream with drop counts.
+  Snapshot/tree and Find require an explicit application/window/root handle;
+  use `AllowDesktopRoot` only for an intentional bounded desktop diagnostic.
+  Sensitive/protected text is redacted by default and mutation does not grant
+  read access. A disconnected bus returns a typed error; call the explicit
+  `ReopenAccessibility` operation to establish a fresh generation. Request it with
   `Optional(perfuncted.CapabilityAccessibility)` or `Require(...)`; sessions
   without an accessibility bus report it as unavailable.
 
