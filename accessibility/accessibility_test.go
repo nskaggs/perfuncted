@@ -74,6 +74,10 @@ func TestEventOptionsNormalizeAndSignalConversion(t *testing.T) {
 	if e.Node.BusName != "org.test.App" || e.Node.ObjectPath != "/node" || e.Property != "Name" || e.Value != "Save" {
 		t.Fatalf("signal conversion = %+v", e)
 	}
+	e = signalEvent(&dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange", Sender: "org.test.App", Path: dbus.ObjectPath("/password"), Body: []any{"Text", "secret"}})
+	if e.Value != "" {
+		t.Fatalf("sensitive event value leaked: %+v", e)
+	}
 }
 
 func TestEventCoalescingTracksDuplicateInvalidations(t *testing.T) {
@@ -185,13 +189,16 @@ func TestFindMatchesStatesAndAttributes(t *testing.T) {
 }
 
 func TestRedactSensitiveNodeKeepsUsefulSemantics(t *testing.T) {
-	node := Node{Name: "Password", Role: "entry", Text: "secret", States: []string{"sensitive"}, Attributes: map[string]string{"value": "secret", "aria-label": "Password", "class": "field"}}
+	node := Node{Name: "Password", Role: "entry", Text: "secret", States: []string{"sensitive"}, Attributes: map[string]string{"value": "secret", "aria-secret": "secret", "aria-label": "Password", "class": "field"}}
 	redactSensitiveNode(&node)
 	if !node.Redacted || node.Text != "" {
 		t.Fatalf("redacted node = %+v", node)
 	}
 	if _, ok := node.Attributes["value"]; ok {
 		t.Fatal("value attribute leaked")
+	}
+	if _, ok := node.Attributes["aria-secret"]; ok {
+		t.Fatal("secret attribute leaked")
 	}
 	if node.Attributes["aria-label"] != "Password" || node.Attributes["class"] != "field" {
 		t.Fatalf("semantic attributes removed: %+v", node.Attributes)

@@ -866,8 +866,16 @@ func signalEvent(sig *dbus.Signal) Event {
 	}
 	if len(sig.Body) > 1 {
 		event.Value = fmt.Sprint(sig.Body[1])
+		if sensitiveEventProperty(event.Property) {
+			event.Value = ""
+		}
 	}
 	return event
+}
+
+func sensitiveEventProperty(property string) bool {
+	lower := strings.ToLower(strings.TrimSpace(property))
+	return lower == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "protected")
 }
 
 func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOptions) (Snapshot, error) {
@@ -1344,7 +1352,7 @@ func redactSensitiveNode(node *Node) {
 	node.Value = nil
 	for key := range node.Attributes {
 		lower := strings.ToLower(key)
-		if key == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") {
+		if lower == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "protected") {
 			delete(node.Attributes, key)
 		}
 	}
@@ -1352,7 +1360,7 @@ func redactSensitiveNode(node *Node) {
 
 func hasSensitiveState(states []string) bool {
 	for _, state := range states {
-		if state == "sensitive" || state == "protected" {
+		if strings.EqualFold(state, "sensitive") || strings.EqualFold(state, "protected") {
 			return true
 		}
 	}
