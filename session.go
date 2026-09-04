@@ -41,6 +41,7 @@ const (
 
 var sessionChildPIDFiles = []string{
 	"dbus.pid",
+	"at-spi.pid",
 	"sway.pid",
 	"wl-paste.pid",
 }
@@ -60,6 +61,7 @@ type sessionInfra struct {
 	logDir     string
 	swayCmd    *managedSessionProcess
 	dbusCmd    *managedSessionProcess
+	atspiCmd   *managedSessionProcess
 	wlPasteCmd *managedSessionProcess
 	ctx        context.Context //nolint:containedctx // infrastructure owns this context
 	cancel     context.CancelFunc
@@ -149,7 +151,11 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 		s.tracer = newActionTracer(cfg.traceOut, cfg.logger, cfg.traceDelay)
 	}
 
-	if err := s.resolveRuntime(ctx, cfg.target); err != nil {
+	wantAccessibility := false
+	_, wantAccessibilityOptional := cfg.optional[CapabilityAccessibility]
+	_, wantAccessibilityRequired := cfg.required[CapabilityAccessibility]
+	wantAccessibility = wantAccessibilityOptional || wantAccessibilityRequired
+	if err := s.resolveRuntime(ctx, cfg.target, wantAccessibility); err != nil {
 		s.cancel()
 		return nil, err
 	}
@@ -166,7 +172,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	return s, nil
 }
 
-func (s *Session) resolveRuntime(ctx context.Context, target targetSelection) error {
+func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wantAccessibility bool) error {
 	switch target.kind {
 	case TargetHost:
 		s.env = env.Current()
@@ -174,7 +180,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection) er
 		s.env = env.FromEnviron(target.target.Env())
 	case TargetHeadless:
 		CleanupStaleSessions(24 * time.Hour)
-		infra, err := s.startSession(ctx, sessionModeHeadless, target.config)
+		infra, err := s.startSession(ctx, sessionModeHeadless, target.config, wantAccessibility)
 		if err != nil {
 			return err
 		}
@@ -182,7 +188,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection) er
 		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr)
 	case TargetNested:
 		CleanupStaleSessions(24 * time.Hour)
-		infra, err := s.startSession(ctx, sessionModeNested, target.config)
+		infra, err := s.startSession(ctx, sessionModeNested, target.config, wantAccessibility)
 		if err != nil {
 			return err
 		}
@@ -515,6 +521,7 @@ func (s *Session) startSession(
 	ctx context.Context,
 	mode sessionMode,
 	config SessionConfig,
+	wantAccessibility bool,
 ) (*sessionInfra, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("session: startup: %w", err)
@@ -570,6 +577,11 @@ func (s *Session) startSession(
 		infra.stop()
 		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
+	if wantAccessibility {
+		// The launcher is optional on minimal CI images. OpenRuntime still
+		// reports a typed unavailable capability when no AT-SPI service exists.
+		_ = infra.launchAccessibility(ctx)
+	}
 
 	swayConf := config.SwayConfigPath
 	if swayConf == "" {
@@ -623,6 +635,24 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 	if err := waitForFile(ctx, busPath, 100, 100*time.Millisecond); err != nil {
 		return fmt.Errorf("dbus socket %s did not appear within 10s: %w", busPath, err)
 	}
+	return nil
+}
+
+// launchAccessibility starts the desktop accessibility bus when the helper
+// is installed. AT-SPI is commonly activated on demand, so absence of the
+// helper is deliberately non-fatal for optional capability users.
+func (i *sessionInfra) launchAccessibility(ctx context.Context) error {
+	if _, err := exec.LookPath("at-spi-bus-launcher"); err != nil {
+		return err
+	}
+	cmd := executil.CommandContext(i.ctx, "at-spi-bus-launcher", "--launch-immediately") //nolint:contextcheck // process lifetime follows managed session
+	cmd.Env = env.Current().WithSession(i.xdgDir, i.wlDisplay, i.dbusAddr).EnvList()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	i.atspiCmd = newManagedSessionProcess(cmd)
+	i.writeChildPID("at-spi.pid", cmd.Process.Pid)
 	return nil
 }
 
@@ -803,6 +833,7 @@ func (i *sessionInfra) stop() {
 
 		i.stopManagedProcess(i.wlPasteCmd, 200*time.Millisecond)
 		i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
+		i.stopManagedProcess(i.atspiCmd, 200*time.Millisecond)
 		i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
 		if i.xdgDir != "" {
 			if !isSafeToRemoveDir(i.xdgDir) {

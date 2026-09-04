@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -22,6 +23,7 @@ func NewSessionForTesting(
 	windowManager window.Manager,
 	outputLister output.Lister,
 	clipboardBackend clipboard.Clipboard,
+	accessibilityBackend ...accessibility.Backend,
 ) *Session {
 	if util.IsNil(screenshotter) {
 		screenshotter = nil
@@ -80,13 +82,18 @@ func NewSessionForTesting(
 	session.Accessibility = &AccessibilityBundle{
 		bundleBase: session.bundleBase(CapabilityAccessibility),
 	}
+	var accessibilityImpl accessibility.Backend
+	if len(accessibilityBackend) > 0 && !util.IsNil(accessibilityBackend[0]) {
+		accessibilityImpl = accessibilityBackend[0]
+		session.Accessibility.backend = accessibilityImpl
+	}
 	backends := map[Capability]any{
 		CapabilityScreen:        screenshotter,
 		CapabilityInput:         inputter,
 		CapabilityWindows:       windowManager,
 		CapabilityOutputs:       outputLister,
 		CapabilityClipboard:     clipboardBackend,
-		CapabilityAccessibility: nil,
+		CapabilityAccessibility: accessibilityImpl,
 	}
 	for _, capability := range allCapabilities {
 		backend := backends[capability]

@@ -46,8 +46,10 @@ var operationsBySurface = map[string][]string{
 		"applications",
 		"snapshot",
 		"find",
+		"find-application",
 		"focused",
 		"at-point",
+		"events",
 	},
 }
 

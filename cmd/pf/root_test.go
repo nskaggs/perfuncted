@@ -42,17 +42,18 @@ func TestNewRootCmdConfiguresCobra(t *testing.T) {
 	}
 
 	wantSubs := map[string]bool{
-		"screen":    true,
-		"input":     true,
-		"window":    true,
-		"find":      true,
-		"output":    true,
-		"run":       true,
-		"clipboard": true,
-		"info":      true,
-		"session":   true,
-		"docs":      true,
-		"version":   true,
+		"screen":        true,
+		"input":         true,
+		"window":        true,
+		"find":          true,
+		"output":        true,
+		"run":           true,
+		"clipboard":     true,
+		"accessibility": true,
+		"info":          true,
+		"session":       true,
+		"docs":          true,
+		"version":       true,
 	}
 	for _, sub := range cmd.Commands() {
 		delete(wantSubs, sub.Name())
@@ -506,6 +507,7 @@ func TestCLIRequestsOnlyItsCapability(t *testing.T) {
 				perfuncted.CapabilityWindows,
 				perfuncted.CapabilityOutputs,
 				perfuncted.CapabilityClipboard,
+				perfuncted.CapabilityAccessibility,
 			},
 		},
 	}

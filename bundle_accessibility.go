@@ -17,6 +17,13 @@ type AccessibilityBundle struct {
 	bundleBase
 }
 
+// NewAccessibilityBundle binds a deterministic accessibility backend. It is
+// useful for adapters and tests that need to exercise semantic workflows
+// without a live AT-SPI bus.
+func NewAccessibilityBundle(backend accessibility.Backend) *AccessibilityBundle {
+	return &AccessibilityBundle{backend: backend, bundleBase: bundleBase{capability: CapabilityAccessibility}}
+}
+
 func (b *AccessibilityBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
@@ -75,4 +82,53 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 	}
 	node, err := b.backend.AtPoint(ctx, x, y)
 	return node, b.operationError("at-point", err)
+}
+
+// FindApplication selects a single application by accessible name, PID, or
+// AT-SPI bus name when the runtime backend exposes process ownership.
+func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+	if err := b.checkAvailable("find-application"); err != nil {
+		return accessibility.Application{}, err
+	}
+	finder, ok := b.backend.(accessibility.ApplicationFinder)
+	if !ok {
+		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
+	}
+	app, err := finder.FindApplication(ctx, filter)
+	return app, b.operationError("find-application", err)
+}
+
+// Events returns the bounded AT-SPI invalidation stream when supported.
+func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
+	if err := b.checkAvailable("events"); err != nil {
+		return nil, err
+	}
+	source, ok := b.backend.(accessibility.EventSource)
+	if !ok {
+		return nil, b.operationError("events", accessibility.ErrUnsupported)
+	}
+	stream, err := source.Events(ctx, opts)
+	return stream, b.operationError("events", err)
+}
+
+// Generation returns the current accessibility invalidation generation.
+func (b *AccessibilityBundle) Generation() uint64 {
+	if b == nil || util.IsNil(b.backend) {
+		return 0
+	}
+	if source, ok := b.backend.(accessibility.GenerationSource); ok {
+		return source.Generation()
+	}
+	return 0
+}
+
+// Invalidate drops cached accessibility observations when a caller observes a
+// state change through another channel.
+func (b *AccessibilityBundle) Invalidate(id accessibility.NodeID) {
+	if b == nil || util.IsNil(b.backend) {
+		return
+	}
+	if source, ok := b.backend.(accessibility.GenerationSource); ok {
+		source.Invalidate(id)
+	}
 }

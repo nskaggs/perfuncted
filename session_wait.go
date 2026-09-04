@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -194,6 +195,27 @@ func WindowExists(match WindowMatch) Condition {
 			return len(windows) > 0, err
 		},
 	)
+}
+
+// AccessibilityNodeExists succeeds when a bounded AT-SPI query returns at
+// least one matching node. It is polling-safe and refreshes the backend cache
+// through the normal generation boundary.
+func AccessibilityNodeExists(root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) Condition {
+	return sessionCondition("accessibility node exists", func(ctx context.Context, session *Session) (bool, error) {
+		nodes, err := session.Accessibility.Find(ctx, root, query, opts)
+		return len(nodes) > 0, err
+	})
+}
+
+// AccessibilityFocused succeeds when AT-SPI reports a focused object.
+func AccessibilityFocused(opts accessibility.SnapshotOptions) Condition {
+	return sessionCondition("accessibility focused", func(ctx context.Context, session *Session) (bool, error) {
+		_, err := session.Accessibility.Focused(ctx, opts)
+		if errors.Is(err, accessibility.ErrNotFound) {
+			return false, nil
+		}
+		return err == nil, err
+	})
 }
 
 // WindowClosed succeeds when the stable window handle no longer exists.

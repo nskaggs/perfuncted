@@ -7,7 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 
@@ -21,24 +24,28 @@ var (
 	ErrUnsupported = errors.New("accessibility: operation unsupported")
 	// ErrNotFound indicates that a query found no matching accessible object.
 	ErrNotFound = errors.New("accessibility: object not found")
+	// ErrAmbiguous indicates that a selector matched more than one application.
+	ErrAmbiguous = errors.New("accessibility: ambiguous application")
 )
 
 const (
-	busService      = "org.a11y.Bus"
-	busPath         = dbus.ObjectPath("/org/a11y/bus")
-	registryName    = "org.a11y.atspi.Registry"
-	desktopPath     = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
-	nullObjectPath  = dbus.ObjectPath("/org/a11y/atspi/null")
-	accessibleIface = "org.a11y.atspi.Accessible"
-	componentIface  = "org.a11y.atspi.Component"
-	textIface       = "org.a11y.atspi.Text"
-	propertiesIface = "org.freedesktop.DBus.Properties"
-	defaultMaxDepth = 32
-	defaultMaxNodes = 10000
-	defaultMaxText  = 4096
-	absMaxDepth     = 64
-	absMaxNodes     = 100000
-	absMaxText      = 1 << 20
+	busService         = "org.a11y.Bus"
+	busPath            = dbus.ObjectPath("/org/a11y/bus")
+	registryName       = "org.a11y.atspi.Registry"
+	desktopPath        = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
+	nullObjectPath     = dbus.ObjectPath("/org/a11y/atspi/null")
+	accessibleIface    = "org.a11y.atspi.Accessible"
+	componentIface     = "org.a11y.atspi.Component"
+	textIface          = "org.a11y.atspi.Text"
+	propertiesIface    = "org.freedesktop.DBus.Properties"
+	defaultMaxDepth    = 32
+	defaultMaxNodes    = 10000
+	defaultMaxText     = 4096
+	defaultEventBuffer = 64
+	cacheTTL           = 250 * time.Millisecond
+	absMaxDepth        = 64
+	absMaxNodes        = 100000
+	absMaxText         = 1 << 20
 )
 
 // NodeID is an AT-SPI object reference. BusName and ObjectPath are opaque and
@@ -93,12 +100,16 @@ type Node struct {
 	Visible     bool              `json:"visible"`
 	Showing     bool              `json:"showing"`
 	Enabled     bool              `json:"enabled"`
+	// Redacted is true when sensitive/protected content was intentionally
+	// removed. Callers can still use the node's role, bounds, and state.
+	Redacted bool `json:"redacted,omitempty"`
 }
 
 // Application describes an application root discovered on the accessibility
 // desktop. Its root Node is also present in a subsequent Snapshot.
 type Application struct {
 	Node
+	PID            int32  `json:"pid,omitempty"`
 	ToolkitName    string `json:"toolkitName,omitempty"`
 	ToolkitVersion string `json:"toolkitVersion,omitempty"`
 }
@@ -109,6 +120,9 @@ type SnapshotOptions struct {
 	MaxDepth     int `json:"maxDepth,omitempty"`
 	MaxNodes     int `json:"maxNodes,omitempty"`
 	MaxTextBytes int `json:"maxTextBytes,omitempty"`
+	// AllowSensitive disables the default redaction of AT-SPI sensitive and
+	// protected text/value attributes. Use only for an explicit trusted flow.
+	AllowSensitive bool `json:"allowSensitive,omitempty"`
 }
 
 func (o SnapshotOptions) normalized() SnapshotOptions {
@@ -141,13 +155,50 @@ type Query struct {
 	Text string `json:"text,omitempty"`
 }
 
+// ApplicationFilter selects an application root without relying on a window
+// title. Empty fields are ignored; PID is an exact process match.
+type ApplicationFilter struct {
+	Name string `json:"name,omitempty"`
+	PID  int32  `json:"pid,omitempty"`
+	Bus  string `json:"busName,omitempty"`
+}
+
+// Event is an invalidation-oriented AT-SPI signal. Signals are hints: callers
+// should refresh a Snapshot before acting on a node because objects can be
+// destroyed between notification and query.
+type Event struct {
+	Kind      string    `json:"kind"`
+	Node      NodeID    `json:"node"`
+	Property  string    `json:"property,omitempty"`
+	Value     string    `json:"value,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// EventOptions bounds the notification stream.
+type EventOptions struct {
+	Buffer int `json:"buffer,omitempty"`
+}
+
+func (o EventOptions) normalized() EventOptions {
+	if o.Buffer <= 0 {
+		o.Buffer = defaultEventBuffer
+	}
+	if o.Buffer > 4096 {
+		o.Buffer = 4096
+	}
+	return o
+}
+
 // Snapshot is a flat, parent-linked accessibility tree. Warnings identify
 // objects that disappeared while traversing; Truncated indicates a limit.
 type Snapshot struct {
-	Root      Node     `json:"root"`
-	Nodes     []Node   `json:"nodes"`
-	Truncated bool     `json:"truncated"`
-	Warnings  []string `json:"warnings,omitempty"`
+	Root       Node      `json:"root"`
+	Nodes      []Node    `json:"nodes"`
+	Truncated  bool      `json:"truncated"`
+	Warnings   []string  `json:"warnings,omitempty"`
+	Generation uint64    `json:"generation"`
+	CapturedAt time.Time `json:"capturedAt"`
+	Source     string    `json:"source,omitempty"`
 }
 
 // Backend is the read-only AT-SPI surface used by perfuncted's bundle.
@@ -159,6 +210,25 @@ type Backend interface {
 	Focused(context.Context, SnapshotOptions) (Node, error)
 	AtPoint(context.Context, int, int) (Node, error)
 	Close() error
+}
+
+// ApplicationFinder is an optional extension implemented by runtime
+// backends. It is separate from Backend so deterministic fakes can implement
+// only the operations they need.
+type ApplicationFinder interface {
+	FindApplication(context.Context, ApplicationFilter) (Application, error)
+}
+
+// EventSource is an optional extension for backends that can receive AT-SPI
+// signals. The stream is bounded and lossy by design.
+type EventSource interface {
+	Events(context.Context, EventOptions) (<-chan Event, error)
+}
+
+// GenerationSource exposes the monotonic cache/invalidation generation.
+type GenerationSource interface {
+	Generation() uint64
+	Invalidate(NodeID)
 }
 
 // OpenRuntime opens the accessibility bus associated with rt. The normal
@@ -194,16 +264,48 @@ func OpenRuntime(rt env.Runtime) (Backend, error) {
 		_ = session.Close()
 		return nil, fmt.Errorf("accessibility: hello accessibility bus: %w", err)
 	}
-	return &dbusBackend{session: session, access: access}, nil
+	return &dbusBackend{session: session, access: access, generation: 1}, nil
 }
 
 type dbusBackend struct {
-	session *dbus.Conn
-	access  *dbus.Conn
+	session    *dbus.Conn
+	access     *dbus.Conn
+	mu         sync.RWMutex
+	generation uint64
+	cache      map[string]cachedSnapshot
+}
+
+type cachedSnapshot struct {
+	at       time.Time
+	snapshot Snapshot
 }
 
 func (b *dbusBackend) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "focused", "at-point"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events"}
+}
+
+// Generation returns the current invalidation generation. It changes when an
+// AT-SPI signal is observed or Invalidate is called explicitly.
+func (b *dbusBackend) Generation() uint64 {
+	if b == nil {
+		return 0
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.generation
+}
+
+// Invalidate advances the generation and clears the bounded snapshot cache.
+// The node is currently advisory; AT-SPI object paths may be reused, so a
+// global generation is safer than retaining stale per-node data.
+func (b *dbusBackend) Invalidate(_ NodeID) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.generation++
+	b.cache = nil
+	b.mu.Unlock()
 }
 
 func (b *dbusBackend) Close() error {
@@ -249,16 +351,126 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		node, err := b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText)
+		node, err := b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText, false)
 		if err != nil {
 			continue
 		}
 		app := Application{Node: node}
+		app.PID, _ = b.connectionPID(ctx, ref.BusName)
 		_ = b.property(ctx, ref.id(), "org.a11y.atspi.Application", "ToolkitName", &app.ToolkitName)
 		_ = b.property(ctx, ref.id(), "org.a11y.atspi.Application", "ToolkitVersion", &app.ToolkitVersion)
 		apps = append(apps, app)
 	}
 	return apps, nil
+}
+
+// FindApplication returns exactly one application matching filter. Name is
+// matched against the accessible name and PID/Bus are exact constraints.
+func (b *dbusBackend) FindApplication(ctx context.Context, filter ApplicationFilter) (Application, error) {
+	apps, err := b.Applications(ctx)
+	if err != nil {
+		return Application{}, err
+	}
+	want := strings.ToLower(strings.TrimSpace(filter.Name))
+	matches := make([]Application, 0, 1)
+	for _, app := range apps {
+		if filter.PID != 0 && app.PID != filter.PID {
+			continue
+		}
+		if filter.Bus != "" && app.ID.BusName != filter.Bus {
+			continue
+		}
+		if want != "" && !strings.Contains(strings.ToLower(app.Name), want) {
+			continue
+		}
+		matches = append(matches, app)
+	}
+	switch len(matches) {
+	case 0:
+		return Application{}, ErrNotFound
+	case 1:
+		return matches[0], nil
+	default:
+		return Application{}, fmt.Errorf("%w: %d applications matched", ErrAmbiguous, len(matches))
+	}
+}
+
+func (b *dbusBackend) connectionPID(ctx context.Context, busName string) (int32, error) {
+	if strings.TrimSpace(busName) == "" || b == nil || b.session == nil {
+		return 0, nil
+	}
+	var pid uint32
+	if err := b.session.Object("org.freedesktop.DBus", "/org/freedesktop/DBus").CallWithContext(ctx, "org.freedesktop.DBus.GetConnectionUnixProcessID", 0, busName).Store(&pid); err != nil {
+		return 0, err
+	}
+	if pid > 1<<31-1 {
+		return 0, fmt.Errorf("accessibility: pid %d out of range", pid)
+	}
+	return int32(pid), nil
+}
+
+// Events subscribes to AT-SPI object/window notifications. The protocol is
+// intentionally treated as an invalidation stream: unknown payload fields are
+// retained as strings and dropped events never make a node authoritative.
+func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Event, error) {
+	if ctx == nil {
+		return nil, errors.New("accessibility: nil context")
+	}
+	if b == nil || b.access == nil {
+		return nil, errors.New("accessibility: bus is closed")
+	}
+	access := b.access
+	opts = opts.normalized()
+	match := []dbus.MatchOption{
+		dbus.WithMatchInterface("org.a11y.atspi.Event.Object"),
+		dbus.WithMatchMember("PropertyChange"),
+	}
+	if err := access.AddMatchSignalContext(ctx, match...); err != nil {
+		return nil, fmt.Errorf("accessibility: subscribe events: %w", err)
+	}
+	signals := make(chan *dbus.Signal, opts.Buffer)
+	access.Signal(signals)
+	out := make(chan Event, opts.Buffer)
+	go func() {
+		defer close(out)
+		defer access.RemoveSignal(signals)
+		defer func() { _ = access.RemoveMatchSignal(match...) }()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case sig, ok := <-signals:
+				if !ok {
+					return
+				}
+				event := signalEvent(sig)
+				b.Invalidate(event.Node)
+				select {
+				case out <- event:
+				default:
+				}
+			}
+		}
+	}()
+	return out, nil
+}
+
+func signalEvent(sig *dbus.Signal) Event {
+	event := Event{Timestamp: time.Now()}
+	if sig == nil {
+		return event
+	}
+	event.Kind = sig.Name
+	event.Node = NodeID{BusName: sig.Sender, ObjectPath: string(sig.Path)}
+	if len(sig.Body) > 0 {
+		if property, ok := sig.Body[0].(string); ok {
+			event.Property = property
+		}
+	}
+	if len(sig.Body) > 1 {
+		event.Value = fmt.Sprint(sig.Body[1])
+	}
+	return event
 }
 
 func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOptions) (Snapshot, error) {
@@ -269,6 +481,15 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 	if !root.valid() {
 		root = b.desktop()
 	}
+	key := snapshotKey(root, opts)
+	now := time.Now()
+	b.mu.RLock()
+	if entry, ok := b.cache[key]; ok && now.Sub(entry.at) < cacheTTL {
+		snapshot := cloneSnapshot(entry.snapshot)
+		b.mu.RUnlock()
+		return snapshot, nil
+	}
+	b.mu.RUnlock()
 	walker := snapshotWalker{
 		backend: b,
 		opts:    opts,
@@ -282,7 +503,41 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		return Snapshot{}, err
 	}
 	walker.snapshot.Root = rootNode
+	walker.snapshot.CapturedAt = now
+	walker.snapshot.Generation = b.Generation()
+	walker.snapshot.Source = "at-spi"
+	b.mu.Lock()
+	if b.cache == nil {
+		b.cache = make(map[string]cachedSnapshot)
+	}
+	b.cache[key] = cachedSnapshot{at: now, snapshot: cloneSnapshot(walker.snapshot)}
+	b.mu.Unlock()
 	return walker.snapshot, nil
+}
+
+func snapshotKey(root NodeID, opts SnapshotOptions) string {
+	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.FormatBool(opts.AllowSensitive)
+}
+
+func cloneSnapshot(in Snapshot) Snapshot {
+	out := in
+	out.Nodes = append([]Node(nil), in.Nodes...)
+	out.Warnings = append([]string(nil), in.Warnings...)
+	for i := range out.Nodes {
+		out.Nodes[i].Interfaces = append([]string(nil), in.Nodes[i].Interfaces...)
+		out.Nodes[i].States = append([]string(nil), in.Nodes[i].States...)
+		out.Nodes[i].Children = append([]NodeID(nil), in.Nodes[i].Children...)
+		if in.Nodes[i].Attributes != nil {
+			out.Nodes[i].Attributes = make(map[string]string, len(in.Nodes[i].Attributes))
+			for key, value := range in.Nodes[i].Attributes {
+				out.Nodes[i].Attributes[key] = value
+			}
+		}
+	}
+	if len(out.Nodes) > 0 {
+		out.Root = out.Nodes[0]
+	}
+	return out
 }
 
 type snapshotWalker struct {
@@ -308,7 +563,7 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 		return Node{}, nil
 	}
 	w.seen[id] = struct{}{}
-	node, err := w.backend.readNode(ctx, id, parent, w.opts.MaxTextBytes)
+	node, err := w.backend.readNode(ctx, id, parent, w.opts.MaxTextBytes, w.opts.AllowSensitive)
 	if err != nil {
 		return Node{}, err
 	}
@@ -405,7 +660,7 @@ func (b *dbusBackend) AtPoint(ctx context.Context, x, y int) (Node, error) {
 	if ref.null() {
 		return Node{}, ErrNotFound
 	}
-	return b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText)
+	return b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText, false)
 }
 
 func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, error) {
@@ -420,7 +675,7 @@ func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, err
 	return refs, nil
 }
 
-func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int) (Node, error) {
+func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {
 	if !id.valid() {
 		return Node{}, errors.New("accessibility: invalid node")
 	}
@@ -433,7 +688,28 @@ func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText i
 	b.readNodeComponent(ctx, id, node.Interfaces, &node)
 	b.readNodeText(ctx, id, node.Interfaces, maxText, &node)
 	b.readNodeAttributes(ctx, id, &node)
+	if !allowSensitive && hasSensitiveState(node.States) {
+		node.Redacted = true
+		node.Text = ""
+		if node.Attributes != nil {
+			for key := range node.Attributes {
+				lower := strings.ToLower(key)
+				if key == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") {
+					delete(node.Attributes, key)
+				}
+			}
+		}
+	}
 	return node, nil
+}
+
+func hasSensitiveState(states []string) bool {
+	for _, state := range states {
+		if state == "sensitive" || state == "protected" {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *dbusBackend) readNodeRoleAndCount(ctx context.Context, id NodeID, node *Node) {
@@ -575,6 +851,6 @@ func roleName(role uint32) string {
 }
 
 func stateName(state uint32) string {
-	states := map[uint32]string{1: "active", 3: "busy", 4: "checked", 5: "collapsed", 7: "editable", 8: "enabled", 9: "expandable", 10: "expanded", 11: "focusable", 12: "focused", 20: "pressed", 22: "selectable", 23: "selected", 24: "sensitive", 25: "showing", 30: "visible", 33: "required"}
+	states := map[uint32]string{1: "active", 3: "busy", 4: "checked", 5: "collapsed", 7: "editable", 8: "enabled", 9: "expandable", 10: "expanded", 11: "focusable", 12: "focused", 20: "pressed", 22: "selectable", 23: "selected", 24: "sensitive", 25: "showing", 26: "indeterminate", 27: "stale", 28: "transient", 29: "vertical", 30: "visible", 33: "required", 34: "protected"}
 	return states[state]
 }

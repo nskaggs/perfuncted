@@ -14,6 +14,7 @@ perfuncted — screen automation CLI
 
 ### SEE ALSO
 
+* [pf accessibility](pf_accessibility.md)	 - Inspect the AT-SPI accessibility tree
 * [pf clipboard](pf_clipboard.md)	 - Clipboard operations
 * [pf completion](pf_completion.md)	 - Generate the autocompletion script for the specified shell
 * [pf docs](pf_docs.md)	 - Generate markdown documentation for the CLI
