@@ -167,17 +167,27 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				b.applyCacheSignal(sig)
 			}
 			b.Invalidate(event.Node)
-			b.eventsMu.Lock()
-			for _, subscriber := range b.subscribers {
-				event.Dropped = subscriber.dropped
-				select {
-				case subscriber.out <- event:
-					subscriber.dropped = 0
-				default:
-					subscriber.dropped++
-				}
-			}
-			b.eventsMu.Unlock()
+			b.deliverEvent(event)
+		}
+	}
+}
+
+// deliverEvent is the single fan-out point. Holding eventsMu while sending
+// keeps cancellation and close ordering race-free; bounded channels make the
+// stream intentionally lossy for slow subscribers.
+func (b *dbusBackend) deliverEvent(event Event) {
+	if b == nil {
+		return
+	}
+	b.eventsMu.Lock()
+	defer b.eventsMu.Unlock()
+	for _, subscriber := range b.subscribers {
+		event.Dropped = subscriber.dropped
+		select {
+		case subscriber.out <- event:
+			subscriber.dropped = 0
+		default:
+			subscriber.dropped++
 		}
 	}
 }

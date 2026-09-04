@@ -395,3 +395,35 @@ func TestTypedAutomationRejectsStaleAndDisconnectedHandles(t *testing.T) {
 		t.Fatalf("disconnected mutation error = %v", err)
 	}
 }
+
+func TestEventFanoutHasOneDeliveryPathAndBoundedDrops(t *testing.T) {
+	backend := &dbusBackend{subscribers: map[uint64]*eventSubscriber{
+		1: {out: make(chan Event, 1)},
+		2: {out: make(chan Event, 1)},
+	}}
+	first := Event{Kind: "focus", Node: NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}, Timestamp: time.Now()}
+	backend.deliverEvent(first)
+	backend.deliverEvent(Event{Kind: "focus", Node: first.Node, Timestamp: first.Timestamp.Add(time.Second)})
+	for id, subscriber := range backend.subscribers {
+		got := <-subscriber.out
+		if got.Kind != "focus" || got.Node.Generation != 1 {
+			t.Fatalf("subscriber %d received %+v", id, got)
+		}
+		if subscriber.dropped != 1 {
+			t.Fatalf("subscriber %d dropped=%d, want one bounded drop", id, subscriber.dropped)
+		}
+	}
+}
+
+func TestCacheSignalMutationDoesNotPerformSecondGenerationTransition(t *testing.T) {
+	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem)}
+	item := cacheItem{Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"}}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}})
+	if got := backend.Generation(); got != 5 {
+		t.Fatalf("cache signal changed generation before dispatcher invalidation: %d", got)
+	}
+	backend.Invalidate(item.nodeID())
+	if got := backend.Generation(); got != 6 {
+		t.Fatalf("single invalidation advanced generation to %d", got)
+	}
+}
