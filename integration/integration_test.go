@@ -191,6 +191,7 @@ func newSuite(mode displayMode) (*suite, error) {
 			perfuncted.CapabilityOutputs,
 			perfuncted.CapabilityClipboard,
 		),
+		perfuncted.Optional(perfuncted.CapabilityAccessibility),
 	}
 	if traceWriter != nil {
 		options = append(
@@ -396,6 +397,7 @@ func TestSessionLifecycle(t *testing.T) {
 			perfuncted.CapabilityInput,
 			perfuncted.CapabilityWindows,
 		),
+		perfuncted.Optional(perfuncted.CapabilityAccessibility),
 	)
 	if err != nil {
 		t.Fatalf("session lifecycle requires sway/dbus/wl-paste: %v", err)
@@ -403,6 +405,9 @@ func TestSessionLifecycle(t *testing.T) {
 	t.Cleanup(func() {
 		_ = session.Close()
 	})
+	if status := session.Capability(perfuncted.CapabilityAccessibility); !status.Requested || status.Required {
+		t.Fatalf("lifecycle session must request accessibility optionally: %+v", status)
+	}
 
 	apps := requiredApps(t)
 	if len(apps) == 0 {
@@ -499,6 +504,16 @@ func runProbe(t *testing.T, s *suite) {
 	}
 	if len(window.ProbeRuntime(s.rt)) == 0 {
 		t.Fatal("window probe returned no results")
+	}
+	status := s.pf.Capability(perfuncted.CapabilityAccessibility)
+	if !status.Requested || status.Required {
+		t.Fatalf("accessibility should be requested as optional: %+v", status)
+	}
+	if status.Available && !status.Supports("snapshot") {
+		t.Fatalf("available accessibility backend did not advertise snapshot: %+v", status)
+	}
+	if !status.Available {
+		t.Logf("AT-SPI unavailable in managed %s session (optional): %v", s.mode, status.Failure)
 	}
 }
 

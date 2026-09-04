@@ -52,7 +52,7 @@ func accessibilityOutput(w io.Writer, format string, value any) error {
 	return fmt.Errorf("unknown output format %q (want json)", format)
 }
 
-func accessibilityCmd(openPF sessionOpener) *cobra.Command {
+func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo // Cobra command assembly is intentionally centralized.
 	cmd := &cobra.Command{Use: "accessibility", Aliases: []string{"a11y"}, Short: "Inspect the AT-SPI accessibility tree"}
 	common := func(c *cobra.Command, o *accessibilityCLIOptions) {
 		c.Flags().StringVar(&o.output, "output", "json", "output format (json)")

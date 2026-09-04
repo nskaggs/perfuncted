@@ -448,6 +448,19 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 		return nil, errors.New("accessibility: bus is closed")
 	}
 	opts = opts.normalized()
+	registry, registered := registerEvents(ctx, access)
+	matches, err := subscribeEventMatches(ctx, access)
+	if err != nil {
+		return nil, err
+	}
+	signals := make(chan *dbus.Signal, opts.Buffer)
+	access.Signal(signals)
+	out := make(chan Event, opts.Buffer)
+	go runEventStream(ctx, access, signals, out, matches, registry, registered, b)
+	return out, nil
+}
+
+func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []string) {
 	registered := []string{"object:property-change", "object:state-changed", "window:activate", "window:deactivate"}
 	registry := access.Object(registryName, registryPath)
 	unique := ""
@@ -459,6 +472,10 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 		// the successful registrations and continue with the signal stream.
 		_ = registry.CallWithContext(ctx, registryName+".RegisterEvent", 0, eventType, []string{}, unique).Err
 	}
+	return registry, registered
+}
+
+func subscribeEventMatches(ctx context.Context, access *dbus.Conn) ([][]dbus.MatchOption, error) {
 	matches := [][]dbus.MatchOption{
 		{dbus.WithMatchInterface("org.a11y.atspi.Event.Object")},
 		{dbus.WithMatchInterface("org.a11y.atspi.Event.Window")},
@@ -471,38 +488,36 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 			return nil, fmt.Errorf("accessibility: subscribe events: %w", err)
 		}
 	}
-	signals := make(chan *dbus.Signal, opts.Buffer)
-	access.Signal(signals)
-	out := make(chan Event, opts.Buffer)
-	go func() {
-		defer close(out)
-		defer access.RemoveSignal(signals)
-		defer func() {
-			for _, match := range matches {
-				_ = access.RemoveMatchSignal(match...)
-			}
-			for _, eventType := range registered {
-				_ = registry.CallWithContext(context.Background(), registryName+".DeregisterEvent", 0, eventType).Err
-			}
-		}()
-		for {
-			select {
-			case <-ctx.Done():
+	return matches, nil
+}
+
+func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.Signal, out chan<- Event, matches [][]dbus.MatchOption, registry dbus.BusObject, registered []string, backend *dbusBackend) {
+	defer close(out)
+	defer access.RemoveSignal(signals)
+	defer func(cleanupCtx context.Context) { //nolint:contextcheck // cleanup intentionally uses an independent context after caller cancellation.
+		for _, match := range matches {
+			_ = access.RemoveMatchSignal(match...)
+		}
+		for _, eventType := range registered {
+			_ = registry.CallWithContext(cleanupCtx, registryName+".DeregisterEvent", 0, eventType).Err
+		}
+	}(context.Background())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case sig, ok := <-signals:
+			if !ok {
 				return
-			case sig, ok := <-signals:
-				if !ok {
-					return
-				}
-				event := signalEvent(sig)
-				b.Invalidate(event.Node)
-				select {
-				case out <- event:
-				default:
-				}
+			}
+			event := signalEvent(sig)
+			backend.Invalidate(event.Node)
+			select {
+			case out <- event:
+			default:
 			}
 		}
-	}()
-	return out, nil
+	}
 }
 
 func signalEvent(sig *dbus.Signal) Event {
