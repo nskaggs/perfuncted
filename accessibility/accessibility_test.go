@@ -54,6 +54,12 @@ func TestDocumentTextSelectionWireSignature(t *testing.T) {
 	}
 }
 
+func TestCoordTypeWireValues(t *testing.T) {
+	if CoordTypeScreen != 0 || CoordTypeWindow != 1 || CoordTypeParent != 2 {
+		t.Fatalf("coordinate wire values = %d,%d,%d; want 0,1,2", CoordTypeScreen, CoordTypeWindow, CoordTypeParent)
+	}
+}
+
 func TestSnapshotRootSelectionDoesNotWidenMalformedScope(t *testing.T) {
 	if (NodeID{ObjectPath: "/only-path"}).valid() {
 		t.Fatal("partial root considered valid")
