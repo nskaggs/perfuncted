@@ -260,11 +260,12 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		if strings.TrimSpace(actionName) != "" {
+		switch {
+		case strings.TrimSpace(actionName) != "":
 			err = pf.Accessibility.InvokeActionByName(c.Context(), node, actionName)
-		} else if actionIndex >= 0 {
+		case actionIndex >= 0:
 			err = pf.Accessibility.InvokeAction(c.Context(), node, actionIndex)
-		} else {
+		default:
 			_, err = pf.Accessibility.InvokeDefaultAction(c.Context(), node)
 		}
 		return err

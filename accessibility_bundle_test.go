@@ -138,7 +138,7 @@ type accessibilityAutomationFake struct {
 
 type accessibilityReopenerFake struct {
 	*bundleAccessibilityFake
-	fresh accessibility.Backend
+	fresh  accessibility.Backend
 	closed bool
 }
 
@@ -146,7 +146,9 @@ func (f *accessibilityReopenerFake) SupportedOperations() []string {
 	return append(f.bundleAccessibilityFake.SupportedOperations(), "reopen")
 }
 func (f *accessibilityReopenerFake) Close() error { f.closed = true; return nil }
-func (f *accessibilityReopenerFake) Reopen(context.Context) (accessibility.Backend, error) { return f.fresh, nil }
+func (f *accessibilityReopenerFake) Reopen(context.Context) (accessibility.Backend, error) {
+	return f.fresh, nil
+}
 
 func (*accessibilityAutomationFake) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
@@ -226,10 +228,16 @@ func TestAccessibilityBundleExplicitReopenSwapsBackend(t *testing.T) {
 	old.fresh = fresh
 	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
 	defer session.Close()
-	if err := session.Accessibility.ReopenAccessibility(context.Background()); err != nil { t.Fatalf("ReopenAccessibility: %v", err) }
+	if err := session.Accessibility.ReopenAccessibility(context.Background()); err != nil {
+		t.Fatalf("ReopenAccessibility: %v", err)
+	}
 	apps, err := session.Accessibility.Applications(context.Background())
-	if err != nil || len(apps) != 1 || apps[0].Name != "fresh" { t.Fatalf("reopened applications = %+v err=%v", apps, err) }
-	if !old.closed { t.Fatal("old accessibility backend was not closed after explicit reopen") }
+	if err != nil || len(apps) != 1 || apps[0].Name != "fresh" {
+		t.Fatalf("reopened applications = %+v err=%v", apps, err)
+	}
+	if !old.closed {
+		t.Fatal("old accessibility backend was not closed after explicit reopen")
+	}
 }
 
 func TestAccessibilityBundleUnavailableIsTyped(t *testing.T) {

@@ -838,48 +838,6 @@ func deregisterEvents(ctx context.Context, registry eventRegistrar, registered [
 	}
 }
 
-func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.Signal, out chan<- Event, matches [][]dbus.MatchOption, registry dbus.BusObject, registered []string, backend *dbusBackend) {
-	defer close(out)
-	defer access.RemoveSignal(signals)
-	defer func(cleanupCtx context.Context) { //nolint:contextcheck // cleanup intentionally uses an independent context after caller cancellation.
-		for _, match := range matches {
-			_ = access.RemoveMatchSignal(match...)
-		}
-		deregisterEvents(cleanupCtx, registry, registered)
-	}(context.Background())
-	var dropped uint64
-	lastKey := ""
-	var lastAt time.Time
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case sig, ok := <-signals:
-			if !ok {
-				return
-			}
-			event := signalEvent(sig)
-			if coalesceEvent(&lastKey, &lastAt, event) {
-				dropped++
-				continue
-			}
-			if strings.HasPrefix(sig.Name, cacheIface+":") || strings.Contains(sig.Name, ".Cache:") {
-				backend.applyCacheSignal(sig)
-			}
-			backend.Invalidate(event.Node)
-			select {
-			case out <- func() Event {
-				event.Dropped = dropped
-				dropped = 0
-				return event
-			}():
-			default:
-				dropped++
-			}
-		}
-	}
-}
-
 func coalesceEvent(lastKey *string, lastAt *time.Time, event Event) bool {
 	if lastKey == nil || lastAt == nil {
 		return false

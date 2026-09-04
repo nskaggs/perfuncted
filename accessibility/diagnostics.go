@@ -98,9 +98,7 @@ func BuildOutline(snapshot Snapshot, options OutlineOptions) Outline {
 	}
 	children := make(map[NodeID][]NodeID, len(snapshot.Nodes))
 	for _, node := range snapshot.Nodes {
-		for _, child := range node.Children {
-			children[node.ID] = append(children[node.ID], child)
-		}
+		children[node.ID] = append(children[node.ID], node.Children...)
 	}
 	out := Outline{Generation: snapshot.Generation, Truncated: snapshot.Truncated, Warnings: append([]string(nil), snapshot.Warnings...)}
 	var walk func(NodeID, int) OutlineNode

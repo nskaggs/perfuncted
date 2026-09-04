@@ -303,83 +303,41 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 	}}
 	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
 	ctx := context.Background()
-	if err := backend.InvokeAction(ctx, id, 0); err != nil {
-		t.Fatal(err)
+	checks := []struct {
+		name string
+		call func() error
+	}{
+		{"action", func() error { return backend.InvokeAction(ctx, id, 0) }},
+		{"action-name", func() error { return backend.InvokeActionByName(ctx, id, "alternate") }},
+		{"default-action", func() error { _, err := backend.InvokeDefaultAction(ctx, id); return err }},
+		{"focus", func() error { return backend.GrabFocus(ctx, id) }},
+		{"scroll", func() error { return backend.ScrollTo(ctx, id, ScrollAnyWhere) }},
+		{"scroll-point", func() error { return backend.ScrollToPoint(ctx, id, ScrollTopLeft, 10, 20) }},
+		{"value", func() error { return backend.SetCurrentValue(ctx, id, 0.5) }},
+		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }},
+		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }},
+		{"insert", func() error { return backend.InsertText(ctx, id, 0, "x") }},
+		{"copy", func() error { return backend.CopyText(ctx, id, 0, 1) }},
+		{"cut", func() error { return backend.CutText(ctx, id, 0, 1) }},
+		{"paste", func() error { return backend.PasteText(ctx, id, 0) }},
+		{"caret", func() error { return backend.SetCaretOffset(ctx, id, 1) }},
+		{"selection", func() error { return backend.SetTextSelection(ctx, id, 0, 0, 1) }},
+		{"add-selection", func() error { return backend.AddTextSelection(ctx, id, 0, 1) }},
+		{"remove-selection", func() error { return backend.RemoveTextSelection(ctx, id, 0) }},
+		{"select-child", func() error { return backend.SelectChild(ctx, id, 0) }},
+		{"deselect-child", func() error { return backend.DeselectChild(ctx, id, 0) }},
+		{"select-all", func() error { return backend.SelectAll(ctx, id) }},
+		{"clear-selection", func() error { return backend.ClearSelection(ctx, id) }},
+		{"deselect-all", func() error { return backend.DeselectAll(ctx, id) }},
+		{"select-row", func() error { return backend.SelectRow(ctx, id, 0) }},
+		{"deselect-row", func() error { return backend.DeselectRow(ctx, id, 0) }},
+		{"select-column", func() error { return backend.SelectColumn(ctx, id, 0) }},
+		{"deselect-column", func() error { return backend.DeselectColumn(ctx, id, 0) }},
 	}
-	if err := backend.InvokeActionByName(ctx, id, "alternate"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := backend.InvokeDefaultAction(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.GrabFocus(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.ScrollTo(ctx, id, ScrollAnyWhere); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.ScrollToPoint(ctx, id, ScrollTopLeft, 10, 20); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SetCurrentValue(ctx, id, 0.5); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SetTextContents(ctx, id, "safe"); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.ReplaceText(ctx, id, 0, 1, "x"); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.InsertText(ctx, id, 0, "x"); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.CopyText(ctx, id, 0, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.CutText(ctx, id, 0, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.PasteText(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SetCaretOffset(ctx, id, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SetTextSelection(ctx, id, 0, 0, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.AddTextSelection(ctx, id, 0, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.RemoveTextSelection(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SelectChild(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.DeselectChild(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SelectAll(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.ClearSelection(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.DeselectAll(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SelectRow(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.DeselectRow(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.SelectColumn(ctx, id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := backend.DeselectColumn(ctx, id, 0); err != nil {
-		t.Fatal(err)
+	for _, check := range checks {
+		if err := check.call(); err != nil {
+			t.Fatalf("%s: %v", check.name, err)
+		}
 	}
 	if len(methods) < 25 {
 		t.Fatalf("recorded only %d typed protocol calls: %v", len(methods), methods)

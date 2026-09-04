@@ -72,20 +72,24 @@ func (b *dbusBackend) Reopen(ctx context.Context) (Backend, error) {
 	return openRuntime(runtime, generation+1)
 }
 
-func (b *dbusBackend) startEvents(_ context.Context) error {
+func (b *dbusBackend) startEvents(ctx context.Context) error {
 	if err := b.connected(); err != nil {
 		return err
 	}
+	// The physical stream belongs to the backend, not to the first caller's
+	// subscription. Keep caller values but intentionally ignore that
+	// subscriber's cancellation; watchSubscriber handles each stream itself.
+	streamCtx := context.WithoutCancel(ctx)
 	b.eventsMu.Lock()
 	if b.eventCancel != nil {
 		b.eventsMu.Unlock()
 		return nil
 	}
 	access := b.access
-	registry, registered := registerEvents(context.Background(), access)
-	matches, err := subscribeEventMatches(context.Background(), access)
+	registry, registered := registerEvents(streamCtx, access)
+	matches, err := subscribeEventMatches(streamCtx, access)
 	if err != nil {
-		deregisterEvents(context.Background(), registry, registered)
+		deregisterEvents(streamCtx, registry, registered)
 		for id, subscriber := range b.subscribers {
 			close(subscriber.out)
 			delete(b.subscribers, id)
@@ -95,11 +99,13 @@ func (b *dbusBackend) startEvents(_ context.Context) error {
 	}
 	signals := make(chan *dbus.Signal, 256)
 	access.Signal(signals)
-	eventCtx, cancel := context.WithCancel(context.Background())
+	eventCtx, cancel := context.WithCancel(streamCtx)
 	done := make(chan struct{})
 	b.eventCancel, b.eventDone = cancel, done
 	b.eventsMu.Unlock()
-	go b.runEventDispatcher(eventCtx, access, signals, matches, registry, registered, done)
+	go func() {
+		b.runEventDispatcher(eventCtx, access, signals, matches, registry, registered, done)
+	}()
 	return nil
 }
 
@@ -119,12 +125,12 @@ func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
 }
 
 func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn, signals chan *dbus.Signal, matches [][]dbus.MatchOption, registry dbus.BusObject, registered []string, done chan struct{}) {
-	defer func() {
+	defer func(cleanupCtx context.Context) {
 		access.RemoveSignal(signals)
 		for _, match := range matches {
 			_ = access.RemoveMatchSignal(match...)
 		}
-		deregisterEvents(context.Background(), registry, registered)
+		deregisterEvents(cleanupCtx, registry, registered)
 		b.eventsMu.Lock()
 		for id, subscriber := range b.subscribers {
 			close(subscriber.out)
@@ -133,7 +139,7 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 		b.eventCancel, b.eventDone = nil, nil
 		b.eventsMu.Unlock()
 		close(done)
-	}()
+	}(context.WithoutCancel(ctx))
 	lastKey := ""
 	var lastAt time.Time
 	for {

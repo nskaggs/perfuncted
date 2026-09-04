@@ -278,6 +278,7 @@ func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility
 	return b.operationError("invoke-action", a.InvokeAction(ctx, id, index))
 }
 
+// InvokeActionByName invokes a uniquely named AT-SPI action.
 func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) error {
 	a, err := b.automation("invoke-action-by-name")
 	if err != nil {
@@ -297,6 +298,7 @@ func (b *AccessibilityBundle) InvokeDefaultAction(ctx context.Context, id access
 	return chosen, b.operationError("invoke-default-action", callErr)
 }
 
+// GrabFocus requests focus for an AT-SPI node.
 func (b *AccessibilityBundle) GrabFocus(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("grab-focus")
 	if err != nil {
@@ -304,6 +306,8 @@ func (b *AccessibilityBundle) GrabFocus(ctx context.Context, id accessibility.No
 	}
 	return b.operationError("grab-focus", a.GrabFocus(ctx, id))
 }
+
+// ScrollTo scrolls an AT-SPI node into view using the requested alignment.
 func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType) error {
 	a, err := b.automation("scroll")
 	if err != nil {
@@ -311,6 +315,8 @@ func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.Nod
 	}
 	return b.operationError("scroll", a.ScrollTo(ctx, id, kind))
 }
+
+// ScrollToPoint scrolls an AT-SPI node to a screen point using the requested alignment.
 func (b *AccessibilityBundle) ScrollToPoint(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType, x, y int) error {
 	a, err := b.automation("scroll-to-point")
 	if err != nil {
@@ -318,6 +324,8 @@ func (b *AccessibilityBundle) ScrollToPoint(ctx context.Context, id accessibilit
 	}
 	return b.operationError("scroll-to-point", a.ScrollToPoint(ctx, id, kind, x, y))
 }
+
+// SetCurrentValue sets the current value exposed by an AT-SPI value object.
 func (b *AccessibilityBundle) SetCurrentValue(ctx context.Context, id accessibility.NodeID, value float64) error {
 	a, err := b.automation("set-current-value")
 	if err != nil {
@@ -325,6 +333,8 @@ func (b *AccessibilityBundle) SetCurrentValue(ctx context.Context, id accessibil
 	}
 	return b.operationError("set-current-value", a.SetCurrentValue(ctx, id, value))
 }
+
+// SetValue is an alias for setting an AT-SPI value object's current value.
 func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.NodeID, value float64) error {
 	a, err := b.automation("set-value")
 	if err != nil {
@@ -332,6 +342,8 @@ func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.Nod
 	}
 	return b.operationError("set-value", a.SetValue(ctx, id, value))
 }
+
+// SetTextContents replaces all text exposed by an AT-SPI editable-text object.
 func (b *AccessibilityBundle) SetTextContents(ctx context.Context, id accessibility.NodeID, value string) error {
 	a, err := b.automation("set-text-contents")
 	if err != nil {
@@ -339,6 +351,8 @@ func (b *AccessibilityBundle) SetTextContents(ctx context.Context, id accessibil
 	}
 	return b.operationError("set-text-contents", a.SetTextContents(ctx, id, value))
 }
+
+// ReplaceText replaces the selected byte range in an AT-SPI editable-text object.
 func (b *AccessibilityBundle) ReplaceText(ctx context.Context, id accessibility.NodeID, start, end int32, value string) error {
 	a, err := b.automation("replace-text")
 	if err != nil {
@@ -346,6 +360,8 @@ func (b *AccessibilityBundle) ReplaceText(ctx context.Context, id accessibility.
 	}
 	return b.operationError("replace-text", a.ReplaceText(ctx, id, start, end, value))
 }
+
+// InsertText inserts text at an offset in an AT-SPI editable-text object.
 func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
 	a, err := b.automation("insert-text")
 	if err != nil {
@@ -353,6 +369,8 @@ func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.N
 	}
 	return b.operationError("insert-text", a.InsertText(ctx, id, offset, value))
 }
+
+// DeleteText deletes a byte range from an AT-SPI editable-text object.
 func (b *AccessibilityBundle) DeleteText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("delete-text")
 	if err != nil {
@@ -360,6 +378,8 @@ func (b *AccessibilityBundle) DeleteText(ctx context.Context, id accessibility.N
 	}
 	return b.operationError("delete-text", a.DeleteText(ctx, id, start, end))
 }
+
+// CopyText copies a byte range from an AT-SPI editable-text object.
 func (b *AccessibilityBundle) CopyText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("copy-text")
 	if err != nil {
@@ -367,6 +387,8 @@ func (b *AccessibilityBundle) CopyText(ctx context.Context, id accessibility.Nod
 	}
 	return b.operationError("copy-text", a.CopyText(ctx, id, start, end))
 }
+
+// CutText cuts a byte range from an AT-SPI editable-text object.
 func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("cut-text")
 	if err != nil {
@@ -374,6 +396,8 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 	}
 	return b.operationError("cut-text", a.CutText(ctx, id, start, end))
 }
+
+// PasteText pastes clipboard text at an offset in an AT-SPI editable-text object.
 func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, positions ...int32) error {
 	a, err := b.automation("paste-text")
 	if err != nil {
@@ -385,6 +409,8 @@ func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.No
 	}
 	return b.operationError("paste-text", a.PasteText(ctx, id, position))
 }
+
+// SetCaretOffset sets the caret byte offset in an AT-SPI text object.
 func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibility.NodeID, offset int32) error {
 	a, err := b.automation("set-caret")
 	if err != nil {
@@ -392,6 +418,8 @@ func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibili
 	}
 	return b.operationError("set-caret", a.SetCaretOffset(ctx, id, offset))
 }
+
+// SetTextSelection sets a selection range in an AT-SPI text object.
 func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, offsets ...int32) error {
 	a, err := b.automation("set-text-selection")
 	if err != nil {
@@ -405,6 +433,8 @@ func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibi
 	}
 	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, offsets[0], offsets[1], offsets[2]))
 }
+
+// AddTextSelection adds a selection range to an AT-SPI text object.
 func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("add-text-selection")
 	if err != nil {
@@ -412,6 +442,8 @@ func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibi
 	}
 	return b.operationError("add-text-selection", a.AddTextSelection(ctx, id, start, end))
 }
+
+// RemoveTextSelection removes a selection from an AT-SPI text object.
 func (b *AccessibilityBundle) RemoveTextSelection(ctx context.Context, id accessibility.NodeID, selection int32) error {
 	a, err := b.automation("remove-text-selection")
 	if err != nil {
@@ -419,6 +451,8 @@ func (b *AccessibilityBundle) RemoveTextSelection(ctx context.Context, id access
 	}
 	return b.operationError("remove-text-selection", a.RemoveTextSelection(ctx, id, selection))
 }
+
+// SelectChild selects a child in an AT-SPI selection object.
 func (b *AccessibilityBundle) SelectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("select-child")
 	if err != nil {
@@ -426,6 +460,8 @@ func (b *AccessibilityBundle) SelectChild(ctx context.Context, id accessibility.
 	}
 	return b.operationError("select-child", a.SelectChild(ctx, id, index))
 }
+
+// DeselectChild deselects a child in an AT-SPI selection object.
 func (b *AccessibilityBundle) DeselectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("deselect-child")
 	if err != nil {
@@ -433,6 +469,8 @@ func (b *AccessibilityBundle) DeselectChild(ctx context.Context, id accessibilit
 	}
 	return b.operationError("deselect-child", a.DeselectChild(ctx, id, index))
 }
+
+// SelectAll selects all children in an AT-SPI selection object.
 func (b *AccessibilityBundle) SelectAll(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("select-all")
 	if err != nil {
@@ -440,6 +478,8 @@ func (b *AccessibilityBundle) SelectAll(ctx context.Context, id accessibility.No
 	}
 	return b.operationError("select-all", a.SelectAll(ctx, id))
 }
+
+// ClearSelection clears all children in an AT-SPI selection object.
 func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("clear-selection")
 	if err != nil {
@@ -447,6 +487,8 @@ func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibili
 	}
 	return b.operationError("clear-selection", a.ClearSelection(ctx, id))
 }
+
+// DeselectAll deselects all children in an AT-SPI selection object.
 func (b *AccessibilityBundle) DeselectAll(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("deselect-all")
 	if err != nil {
@@ -454,6 +496,8 @@ func (b *AccessibilityBundle) DeselectAll(ctx context.Context, id accessibility.
 	}
 	return b.operationError("deselect-all", a.DeselectAll(ctx, id))
 }
+
+// SelectRow selects a row in an AT-SPI table selection object.
 func (b *AccessibilityBundle) SelectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
 	a, err := b.automation("select-row")
 	if err != nil {
@@ -461,6 +505,8 @@ func (b *AccessibilityBundle) SelectRow(ctx context.Context, id accessibility.No
 	}
 	return b.operationError("select-row", a.SelectRow(ctx, id, row))
 }
+
+// DeselectRow deselects a row in an AT-SPI table selection object.
 func (b *AccessibilityBundle) DeselectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
 	a, err := b.automation("deselect-row")
 	if err != nil {
@@ -468,6 +514,8 @@ func (b *AccessibilityBundle) DeselectRow(ctx context.Context, id accessibility.
 	}
 	return b.operationError("deselect-row", a.DeselectRow(ctx, id, row))
 }
+
+// SelectColumn selects a column in an AT-SPI table selection object.
 func (b *AccessibilityBundle) SelectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
 	a, err := b.automation("select-column")
 	if err != nil {
@@ -475,6 +523,8 @@ func (b *AccessibilityBundle) SelectColumn(ctx context.Context, id accessibility
 	}
 	return b.operationError("select-column", a.SelectColumn(ctx, id, column))
 }
+
+// DeselectColumn deselects a column in an AT-SPI table selection object.
 func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
 	a, err := b.automation("deselect-column")
 	if err != nil {
@@ -487,9 +537,13 @@ func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibili
 func (b *AccessibilityBundle) FocusNode(ctx context.Context, id accessibility.NodeID) error {
 	return b.GrabFocus(ctx, id)
 }
+
+// ScrollNodeIntoView scrolls a node into view with default alignment.
 func (b *AccessibilityBundle) ScrollNodeIntoView(ctx context.Context, id accessibility.NodeID) error {
 	return b.ScrollTo(ctx, id, accessibility.ScrollAnyWhere)
 }
+
+// ReplaceEditableText replaces all contents of an editable text node.
 func (b *AccessibilityBundle) ReplaceEditableText(ctx context.Context, id accessibility.NodeID, value string) error {
 	return b.SetTextContents(ctx, id, value)
 }
