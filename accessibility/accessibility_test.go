@@ -1,9 +1,14 @@
 package accessibility
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"github.com/godbus/dbus/v5"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/internal/env"
 )
 
 func TestSnapshotOptionsNormalizeBounds(t *testing.T) {
@@ -93,5 +98,70 @@ func TestRedactSensitiveNodeKeepsUsefulSemantics(t *testing.T) {
 	}
 	if node.Attributes["aria-label"] != "Password" || node.Attributes["class"] != "field" {
 		t.Fatalf("semantic attributes removed: %+v", node.Attributes)
+	}
+}
+
+type walkerFake struct {
+	nodes map[NodeID]Node
+	child map[NodeID][]objectRef
+}
+
+func (f walkerFake) readNode(_ context.Context, id, parent NodeID, _ int, _ bool) (Node, error) {
+	node, ok := f.nodes[id]
+	if !ok {
+		return Node{}, fmt.Errorf("missing %s", id.ObjectPath)
+	}
+	node.Parent = parent
+	return node, nil
+}
+func (f walkerFake) children(_ context.Context, id NodeID) ([]objectRef, error) {
+	return f.child[id], nil
+}
+
+func TestSnapshotWalkerBoundsDepthNodesAndCycles(t *testing.T) {
+	root := NodeID{BusName: "b", ObjectPath: "/root"}
+	child := NodeID{BusName: "b", ObjectPath: "/child"}
+	fake := walkerFake{
+		nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}, child: {ID: child, ChildCount: 1}},
+		child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/child"}}, child: {{BusName: "b", ObjectPath: "/root"}}},
+	}
+	walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 1, MaxNodes: 10, MaxTextBytes: 10}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
+	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
+		t.Fatalf("walk = %v", err)
+	}
+	if len(walker.snapshot.Nodes) != 2 || !walker.snapshot.Truncated {
+		t.Fatalf("snapshot = %+v", walker.snapshot)
+	}
+	if len(walker.snapshot.Nodes[1].Children) != 0 {
+		t.Fatalf("depth-limited child unexpectedly walked: %+v", walker.snapshot.Nodes)
+	}
+}
+
+func TestSnapshotWalkerRecordsChildReadWarnings(t *testing.T) {
+	root := NodeID{BusName: "b", ObjectPath: "/root"}
+	fake := walkerFake{nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}}, child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/missing"}}}}
+	walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 4, MaxNodes: 4, MaxTextBytes: 10}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
+	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
+		t.Fatalf("walk = %v", err)
+	}
+	if len(walker.snapshot.Warnings) != 1 {
+		t.Fatalf("warnings = %+v", walker.snapshot.Warnings)
+	}
+}
+
+func TestSnapshotWalkerHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	root := NodeID{BusName: "b", ObjectPath: "/root"}
+	walker := snapshotWalker{backend: walkerFake{nodes: map[NodeID]Node{root: {ID: root}}}, opts: SnapshotOptions{MaxDepth: 1, MaxNodes: 1, MaxTextBytes: 1}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
+	if _, err := walker.walk(ctx, root, NodeID{}, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("walk error = %v", err)
+	}
+}
+
+func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
+	_, err := OpenRuntime(env.FromEnviron([]string{}))
+	if err == nil {
+		t.Fatal("OpenRuntime unexpectedly succeeded without session bus")
 	}
 }
