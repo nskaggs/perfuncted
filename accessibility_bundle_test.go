@@ -15,6 +15,131 @@ type bundleAccessibilityFake struct {
 	gen  uint64
 }
 
+type accessibilityAutomationSpy struct{ calls []string }
+
+func (s *accessibilityAutomationSpy) mark(name string) { s.calls = append(s.calls, name) }
+func (s *accessibilityAutomationSpy) InvokeAction(context.Context, accessibility.NodeID, int32) error {
+	s.mark("action")
+	return nil
+}
+func (s *accessibilityAutomationSpy) InvokeActionByName(context.Context, accessibility.NodeID, string) error {
+	s.mark("action-name")
+	return nil
+}
+func (s *accessibilityAutomationSpy) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) {
+	s.mark("default-action")
+	return accessibility.Action{Index: 0, Name: "default"}, nil
+}
+func (s *accessibilityAutomationSpy) GrabFocus(context.Context, accessibility.NodeID) error {
+	s.mark("focus")
+	return nil
+}
+func (s *accessibilityAutomationSpy) ScrollTo(context.Context, accessibility.NodeID, accessibility.ScrollType) error {
+	s.mark("scroll")
+	return nil
+}
+func (s *accessibilityAutomationSpy) ScrollToPoint(context.Context, accessibility.NodeID, accessibility.ScrollType, int, int) error {
+	s.mark("scroll-point")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetCurrentValue(context.Context, accessibility.NodeID, float64) error {
+	s.mark("value")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetValue(context.Context, accessibility.NodeID, float64) error {
+	s.mark("set-value")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetTextContents(context.Context, accessibility.NodeID, string) error {
+	s.mark("text")
+	return nil
+}
+func (s *accessibilityAutomationSpy) ReplaceText(context.Context, accessibility.NodeID, int32, int32, string) error {
+	s.mark("replace")
+	return nil
+}
+func (s *accessibilityAutomationSpy) InsertText(context.Context, accessibility.NodeID, int32, string) error {
+	s.mark("insert")
+	return nil
+}
+func (s *accessibilityAutomationSpy) DeleteText(context.Context, accessibility.NodeID, int32, int32) error {
+	s.mark("delete")
+	return nil
+}
+func (s *accessibilityAutomationSpy) CopyText(context.Context, accessibility.NodeID, int32, int32) error {
+	s.mark("copy")
+	return nil
+}
+func (s *accessibilityAutomationSpy) CutText(context.Context, accessibility.NodeID, int32, int32) error {
+	s.mark("cut")
+	return nil
+}
+func (s *accessibilityAutomationSpy) PasteText(context.Context, accessibility.NodeID, int32) error {
+	s.mark("paste")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetCaretOffset(context.Context, accessibility.NodeID, int32) error {
+	s.mark("caret")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetTextSelection(context.Context, accessibility.NodeID, int32, int32, int32) error {
+	s.mark("selection")
+	return nil
+}
+func (s *accessibilityAutomationSpy) AddTextSelection(context.Context, accessibility.NodeID, int32, int32) error {
+	s.mark("add-selection")
+	return nil
+}
+func (s *accessibilityAutomationSpy) RemoveTextSelection(context.Context, accessibility.NodeID, int32) error {
+	s.mark("remove-selection")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SelectChild(context.Context, accessibility.NodeID, int32) error {
+	s.mark("select-child")
+	return nil
+}
+func (s *accessibilityAutomationSpy) DeselectChild(context.Context, accessibility.NodeID, int32) error {
+	s.mark("deselect-child")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SelectAll(context.Context, accessibility.NodeID) error {
+	s.mark("select-all")
+	return nil
+}
+func (s *accessibilityAutomationSpy) ClearSelection(context.Context, accessibility.NodeID) error {
+	s.mark("clear-selection")
+	return nil
+}
+func (s *accessibilityAutomationSpy) DeselectAll(context.Context, accessibility.NodeID) error {
+	s.mark("deselect-all")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SelectRow(context.Context, accessibility.NodeID, int32) error {
+	s.mark("select-row")
+	return nil
+}
+func (s *accessibilityAutomationSpy) DeselectRow(context.Context, accessibility.NodeID, int32) error {
+	s.mark("deselect-row")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SelectColumn(context.Context, accessibility.NodeID, int32) error {
+	s.mark("select-column")
+	return nil
+}
+func (s *accessibilityAutomationSpy) DeselectColumn(context.Context, accessibility.NodeID, int32) error {
+	s.mark("deselect-column")
+	return nil
+}
+
+type accessibilityAutomationFake struct {
+	*bundleAccessibilityFake
+	*accessibilityAutomationSpy
+}
+
+func (*accessibilityAutomationFake) SupportedOperations() []string {
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+}
+
 func (f *bundleAccessibilityFake) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events"}
 }
@@ -60,6 +185,26 @@ func TestAccessibilityBundleDelegatesOptionalSurface(t *testing.T) {
 	session.Accessibility.Invalidate(accessibility.NodeID{})
 	if got := session.Accessibility.Generation(); got != 8 {
 		t.Fatalf("generation after invalidation = %d", got)
+	}
+}
+
+func TestAccessibilityBundleDelegatesTypedAutomation(t *testing.T) {
+	spy := &accessibilityAutomationSpy{}
+	fake := &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 3}, accessibilityAutomationSpy: spy}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	id := accessibility.NodeID{BusName: "org.test", ObjectPath: "/button", Generation: 3}
+	if err := session.Accessibility.FocusNode(context.Background(), id); err != nil {
+		t.Fatalf("FocusNode: %v", err)
+	}
+	if err := session.Accessibility.SetCurrentValue(context.Background(), id, 0.5); err != nil {
+		t.Fatalf("SetCurrentValue: %v", err)
+	}
+	if _, err := session.Accessibility.InvokeDefaultAction(context.Background(), id); err != nil {
+		t.Fatalf("InvokeDefaultAction: %v", err)
+	}
+	if len(spy.calls) != 3 || spy.calls[0] != "focus" || spy.calls[1] != "value" || spy.calls[2] != "default-action" {
+		t.Fatalf("automation calls = %v", spy.calls)
 	}
 }
 

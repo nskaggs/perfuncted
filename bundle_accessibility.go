@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/accessibility"
@@ -129,6 +130,34 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 	}
 	nodes, err := b.backend.Find(ctx, root, query, opts)
 	return nodes, b.operationError("find", err)
+}
+
+// FindOne resolves a unique node and includes bounded candidate context when
+// no node or more than one node satisfies the query.
+func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
+	if err := b.checkAvailable("find"); err != nil {
+		return accessibility.Node{}, err
+	}
+	nodes, err := b.backend.Find(ctx, root, query, opts)
+	if err != nil {
+		return accessibility.Node{}, b.operationError("find", err)
+	}
+	if len(nodes) == 1 {
+		return nodes[0], nil
+	}
+	snapshot, snapshotErr := b.backend.Snapshot(ctx, root, opts)
+	if snapshotErr != nil {
+		return accessibility.Node{}, b.operationError("find", snapshotErr)
+	}
+	candidates := accessibility.CandidatesForQuery(snapshot, query, 32)
+	if len(nodes) == 0 {
+		return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: accessibility.ErrNotFound, Candidates: candidates})
+	}
+	for _, node := range nodes {
+		candidate := accessibility.Candidate{ID: node.ID, Role: node.Role, Name: node.Name, States: node.States, Actions: node.Actions, Bounds: node.Bounds, HasBounds: node.HasBounds, Visible: node.Visible, Showing: node.Showing, Enabled: node.Enabled, Relations: node.Relations, Rejection: "multiple nodes matched"}
+		candidates = append(candidates, candidate)
+	}
+	return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: accessibility.ErrAmbiguous, Candidates: candidates})
 }
 
 // Focused returns the currently focused accessible object.
@@ -345,10 +374,14 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 	}
 	return b.operationError("cut-text", a.CutText(ctx, id, start, end))
 }
-func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
+func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, positions ...int32) error {
 	a, err := b.automation("paste-text")
 	if err != nil {
 		return err
+	}
+	position := int32(0)
+	if len(positions) > 0 {
+		position = positions[0]
 	}
 	return b.operationError("paste-text", a.PasteText(ctx, id, position))
 }
@@ -359,12 +392,18 @@ func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibili
 	}
 	return b.operationError("set-caret", a.SetCaretOffset(ctx, id, offset))
 }
-func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
+func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, offsets ...int32) error {
 	a, err := b.automation("set-text-selection")
 	if err != nil {
 		return err
 	}
-	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, selection, start, end))
+	if len(offsets) == 2 {
+		offsets = []int32{0, offsets[0], offsets[1]}
+	}
+	if len(offsets) != 3 {
+		return b.operationError("set-text-selection", fmt.Errorf("accessibility: SetTextSelection expects start,end or selection,start,end"))
+	}
+	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, offsets[0], offsets[1], offsets[2]))
 }
 func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("add-text-selection")

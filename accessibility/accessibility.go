@@ -907,6 +907,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
+	if err := b.connected(); err != nil {
+		return Snapshot{}, err
+	}
 	opts = opts.normalized()
 	if root == (NodeID{}) {
 		if !opts.AllowDesktopRoot {

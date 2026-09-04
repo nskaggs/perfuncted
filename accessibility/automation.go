@@ -125,10 +125,19 @@ func (b *dbusBackend) GrabFocus(ctx context.Context, id NodeID) error {
 }
 
 func (b *dbusBackend) ScrollTo(ctx context.Context, id NodeID, scrollType ScrollType) error {
+	if scrollType > ScrollAnyWhere {
+		return fmt.Errorf("accessibility: invalid scroll type %d", scrollType)
+	}
 	return b.mutationBool(ctx, id, componentIface, "ScrollTo", uint32(scrollType))
 }
 
 func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, scrollType ScrollType, x, y int) error {
+	if scrollType > ScrollAnyWhere {
+		return fmt.Errorf("accessibility: invalid scroll type %d", scrollType)
+	}
+	if x < -2147483648 || x > 2147483647 || y < -2147483648 || y > 2147483647 {
+		return fmt.Errorf("accessibility: scroll coordinates out of range")
+	}
 	return b.mutationBool(ctx, id, componentIface, "ScrollToPoint", uint32(scrollType), int32(x), int32(y))
 }
 
@@ -168,19 +177,38 @@ func (b *dbusBackend) ReplaceText(ctx context.Context, id NodeID, start, end int
 }
 
 func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, text string) error {
+	if offset < 0 {
+		return fmt.Errorf("accessibility: invalid text offset %d", offset)
+	}
 	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(len([]byte(text))))
 }
 
 func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int32) error {
+	if err := validTextRange(start, end); err != nil {
+		return err
+	}
 	return b.mutationBool(ctx, id, editableTextIface, "DeleteText", start, end)
 }
 
 func (b *dbusBackend) CopyText(ctx context.Context, id NodeID, start, end int32) error {
+	if err := validTextRange(start, end); err != nil {
+		return err
+	}
 	return b.mutation(ctx, id, editableTextIface, "CopyText", start, end)
 }
 
 func (b *dbusBackend) CutText(ctx context.Context, id NodeID, start, end int32) error {
+	if err := validTextRange(start, end); err != nil {
+		return err
+	}
 	return b.mutationBool(ctx, id, editableTextIface, "CutText", start, end)
+}
+
+func validTextRange(start, end int32) error {
+	if start < 0 || end < start {
+		return fmt.Errorf("accessibility: invalid text range %d:%d", start, end)
+	}
+	return nil
 }
 
 func (b *dbusBackend) PasteText(ctx context.Context, id NodeID, position int32) error {
@@ -188,6 +216,9 @@ func (b *dbusBackend) PasteText(ctx context.Context, id NodeID, position int32) 
 }
 
 func (b *dbusBackend) SetCaretOffset(ctx context.Context, id NodeID, offset int32) error {
+	if offset < 0 {
+		return fmt.Errorf("accessibility: invalid caret offset %d", offset)
+	}
 	return b.mutationBool(ctx, id, textIface, "SetCaretOffset", offset)
 }
 

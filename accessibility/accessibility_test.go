@@ -263,7 +263,7 @@ func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
 }
 
 func TestSnapshotRequiresExplicitScope(t *testing.T) {
-	backend := &dbusBackend{generation: 1}
+	backend := &dbusBackend{generation: 1, access: &dbus.Conn{}}
 	_, err := backend.Snapshot(context.Background(), NodeID{}, SnapshotOptions{})
 	if !errors.Is(err, ErrScope) {
 		t.Fatalf("unscoped snapshot error = %v", err)
