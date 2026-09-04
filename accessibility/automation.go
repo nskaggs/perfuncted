@@ -135,7 +135,9 @@ func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name st
 	if match < 0 {
 		return ErrNotFound
 	}
-	return b.InvokeAction(ctx, id, int32(match))
+	// Invoke the index selected from this metadata read. Re-reading actions
+	// could select a different operation if the provider changes between calls.
+	return b.mutationBool(ctx, id, actionIface, "DoAction", int32(match))
 }
 
 func (b *dbusBackend) InvokeDefaultAction(ctx context.Context, id NodeID) (Action, error) {

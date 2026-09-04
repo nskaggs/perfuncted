@@ -75,7 +75,14 @@ func windowAppMatches(app Application, target WindowTarget) bool {
 	if target.PID != 0 && (app.PID == 0 || app.PID != target.PID) {
 		return false
 	}
-	return target.AppID == "" || strings.Contains(strings.ToLower(app.Name+" "+app.Description), strings.ToLower(target.AppID))
+	// Compositor AppID and AT-SPI application names are not guaranteed to
+	// share a spelling. Use AppID as a narrowing criterion only when it is the
+	// sole caller-provided discriminator; PID/title/geometry remain authoritative
+	// when available.
+	if target.PID == 0 && target.Title == "" && target.AppID != "" {
+		return strings.Contains(strings.ToLower(app.Name+" "+app.Description), strings.ToLower(target.AppID))
+	}
+	return true
 }
 
 func chooseWindowCandidate(candidates []windowCandidate) (*Node, []Candidate, bool) {
@@ -132,7 +139,7 @@ func windowCandidateScore(node Node, target WindowTarget) int {
 		}
 		score += 30
 	}
-	if target.Active && (node.Focused || node.Showing) {
+	if (target.Active || target.Focused) && (node.Focused || node.Showing) {
 		score += 15
 	}
 	if node.Visible || node.Showing {
