@@ -154,6 +154,34 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command {
 	atPoint.Flags().IntVar(&pointX, "x", 0, "screen x coordinate")
 	atPoint.Flags().IntVar(&pointY, "y", 0, "screen y coordinate")
 
-	cmd.AddCommand(applications, snapshot, findCmd, focused, atPoint)
+	var eventBuffer int
+	events := &cobra.Command{Use: "events", Short: "Stream AT-SPI invalidation events as JSON lines", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		stream, err := pf.Accessibility.Events(c.Context(), accessibility.EventOptions{Buffer: eventBuffer})
+		if err != nil {
+			return err
+		}
+		enc := json.NewEncoder(c.OutOrStdout())
+		for {
+			select {
+			case <-c.Context().Done():
+				return c.Context().Err()
+			case event, ok := <-stream:
+				if !ok {
+					return nil
+				}
+				if err := enc.Encode(event); err != nil {
+					return err
+				}
+			}
+		}
+	}}
+	events.Flags().IntVar(&eventBuffer, "buffer", 0, "event buffer size")
+
+	cmd.AddCommand(applications, snapshot, findCmd, focused, atPoint, events)
 	return cmd
 }

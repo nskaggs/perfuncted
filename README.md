@@ -141,7 +141,9 @@ Every session has non-nil capability facades:
 - `session.Clipboard` gets and sets clipboard contents.
 - `session.Accessibility` optionally reads the AT-SPI accessibility tree,
   including application roots, roles, names, states, text, bounds, focused
-  objects, point queries, and bounded semantic searches. Request it with
+  objects, point queries, bounded semantic searches, PID-scoped application
+  selection, and a lossy invalidation event stream. Sensitive/protected text
+  is redacted by default. Request it with
   `Optional(perfuncted.CapabilityAccessibility)` or `Require(...)`; sessions
   without an accessibility bus report it as unavailable.
 

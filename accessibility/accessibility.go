@@ -43,6 +43,7 @@ const (
 	defaultMaxNodes    = 10000
 	defaultMaxText     = 4096
 	defaultEventBuffer = 64
+	maxApplications    = 1024
 	cacheTTL           = 250 * time.Millisecond
 	absMaxDepth        = 64
 	absMaxNodes        = 100000
@@ -351,9 +352,15 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	refs, err := b.children(ctx, b.desktop())
 	if err != nil {
 		return nil, err
+	}
+	if len(refs) > maxApplications {
+		refs = refs[:maxApplications]
 	}
 	apps := make([]Application, 0, len(refs))
 	for _, ref := range refs {
@@ -520,9 +527,14 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 	if ctx == nil {
 		return Snapshot{}, errors.New("accessibility: nil context")
 	}
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
 	opts = opts.normalized()
-	if !root.valid() {
+	if root == (NodeID{}) {
 		root = b.desktop()
+	} else if !root.valid() {
+		return Snapshot{}, errors.New("accessibility: invalid snapshot root")
 	}
 	key := snapshotKey(root, opts)
 	now := time.Now()
@@ -672,6 +684,9 @@ func (b *dbusBackend) Find(ctx context.Context, root NodeID, query Query, opts S
 func (b *dbusBackend) Focused(ctx context.Context, opts SnapshotOptions) (Node, error) {
 	if ctx == nil {
 		return Node{}, errors.New("accessibility: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return Node{}, err
 	}
 	snapshot, err := b.Snapshot(ctx, NodeID{}, opts)
 	if err != nil {

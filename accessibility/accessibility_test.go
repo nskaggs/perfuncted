@@ -29,6 +29,15 @@ func TestNodeIDValidation(t *testing.T) {
 	}
 }
 
+func TestSnapshotRootSelectionDoesNotWidenMalformedScope(t *testing.T) {
+	if (NodeID{ObjectPath: "/only-path"}).valid() {
+		t.Fatal("partial root considered valid")
+	}
+	if (NodeID{BusName: "only-bus"}).valid() {
+		t.Fatal("partial root considered valid")
+	}
+}
+
 func TestEventOptionsNormalizeAndSignalConversion(t *testing.T) {
 	if got := (EventOptions{}).normalized().Buffer; got != defaultEventBuffer {
 		t.Fatalf("default event buffer = %d", got)

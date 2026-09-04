@@ -167,6 +167,12 @@ func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
 		{"session"},
 		{"clipboard", "get"},
 		{"clipboard", "set"},
+		{"accessibility", "applications"},
+		{"accessibility", "snapshot"},
+		{"accessibility", "find"},
+		{"accessibility", "focused"},
+		{"accessibility", "at-point"},
+		{"accessibility", "events"},
 	} {
 		if got := findCommandPath(root, path...); got == nil {
 			t.Fatalf("missing command path %q", strings.Join(path, " "))
