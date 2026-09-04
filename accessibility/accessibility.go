@@ -123,6 +123,7 @@ type Node struct {
 	// Redacted is true when sensitive/protected content was intentionally
 	// removed. Callers can still use the node's role, bounds, and state.
 	Redacted bool `json:"redacted,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ValueInfo contains the optional AT-SPI value interface fields.
@@ -741,7 +742,7 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 }
 
 func snapshotKey(root NodeID, opts SnapshotOptions) string {
-	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.FormatBool(opts.AllowSensitive)
+	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive)
 }
 
 func cloneSnapshot(in Snapshot) Snapshot {
@@ -752,6 +753,7 @@ func cloneSnapshot(in Snapshot) Snapshot {
 		out.Nodes[i].Interfaces = append([]string(nil), in.Nodes[i].Interfaces...)
 		out.Nodes[i].States = append([]string(nil), in.Nodes[i].States...)
 		out.Nodes[i].Children = append([]NodeID(nil), in.Nodes[i].Children...)
+		out.Nodes[i].Warnings = append([]string(nil), in.Nodes[i].Warnings...)
 		out.Nodes[i].Actions = append([]Action(nil), in.Nodes[i].Actions...)
 		if in.Nodes[i].Value != nil {
 			value := *in.Nodes[i].Value
@@ -822,6 +824,9 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	}
 	if w.opts.VisibleOnly && depth > 0 && !node.Visible && !node.Showing {
 		return Node{}, nil
+	}
+	if len(node.Warnings) > 0 {
+		w.snapshot.Warnings = append(w.snapshot.Warnings, node.Warnings...)
 	}
 	nodeIndex := len(w.snapshot.Nodes)
 	w.snapshot.Nodes = append(w.snapshot.Nodes, node)
@@ -1232,28 +1237,47 @@ func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interface
 	if contains(interfaces, valueIface) {
 		value := &ValueInfo{}
 		if err := b.propertyFloat(ctx, id, valueIface, "CurrentValue", &value.Current); err == nil {
-			_ = b.propertyFloat(ctx, id, valueIface, "MinimumValue", &value.Minimum)
-			_ = b.propertyFloat(ctx, id, valueIface, "MaximumValue", &value.Maximum)
-			_ = b.propertyFloat(ctx, id, valueIface, "MinimumIncrement", &value.MinimumIncrement)
+			for _, field := range []struct {
+				name   string
+				target *float64
+			}{{"MinimumValue", &value.Minimum}, {"MaximumValue", &value.Maximum}, {"MinimumIncrement", &value.MinimumIncrement}} {
+				if optionalErr := b.propertyFloat(ctx, id, valueIface, field.name, field.target); optionalErr != nil {
+					node.Warnings = append(node.Warnings, fmt.Sprintf("%s.%s: %v", valueIface, field.name, optionalErr))
+				}
+			}
 			node.Value = value
+		} else {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.CurrentValue: %v", valueIface, err))
 		}
 	}
 	if contains(interfaces, actionIface) {
 		var actions []Action
 		if err := b.call(ctx, id, actionIface+".GetActions", nil, &actions); err == nil {
 			node.Actions = actions
+		} else {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetActions: %v", actionIface, err))
 		}
 	}
 	if contains(interfaces, selectionIface) {
 		var count int32
 		if err := b.call(ctx, id, selectionIface+".GetSelectedChildCount", nil, &count); err == nil {
 			node.Selection = &SelectionInfo{SelectedChildCount: maxInt32(count, 0)}
+		} else {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetSelectedChildCount: %v", selectionIface, err))
 		}
 	}
 	if contains(interfaces, tableIface) {
 		var rows, columns int32
-		if b.property(ctx, id, tableIface, "NRows", &rows) == nil || b.property(ctx, id, tableIface, "NColumns", &columns) == nil {
+		rowsErr := b.property(ctx, id, tableIface, "NRows", &rows)
+		columnsErr := b.property(ctx, id, tableIface, "NColumns", &columns)
+		if rowsErr == nil || columnsErr == nil {
 			node.Table = &TableInfo{Rows: maxInt32(rows, 0), Columns: maxInt32(columns, 0)}
+		}
+		if rowsErr != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.NRows: %v", tableIface, rowsErr))
+		}
+		if columnsErr != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.NColumns: %v", tableIface, columnsErr))
 		}
 	}
 	if contains(interfaces, documentIface) {
@@ -1271,6 +1295,9 @@ func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interface
 		if got {
 			node.Document = document
 		}
+		if !got {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s: no readable document properties", documentIface))
+		}
 	}
 	if len(interfaces) > 0 {
 		b.readNodeRelations(ctx, id, node)
@@ -1283,6 +1310,7 @@ func (b *dbusBackend) readNodeRelations(ctx context.Context, id NodeID, node *No
 		Targets      []objectRef
 	}
 	if err := b.call(ctx, id, accessibleIface+".GetRelationSet", nil, &relations); err != nil {
+		node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetRelationSet: %v", accessibleIface, err))
 		return
 	}
 	for _, relation := range relations {

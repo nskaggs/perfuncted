@@ -93,3 +93,13 @@ func TestAccessibilityCLIRejectsPartialRoot(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
+
+func TestParseAccessibilityAttributes(t *testing.T) {
+	got := parseAccessibilityAttributes([]string{"kind=Primary", " aria-label = Save = now", "invalid", "=empty"})
+	if got["kind"] != "Primary" || got["aria-label"] != "Save = now" {
+		t.Fatalf("attributes = %#v", got)
+	}
+	if _, ok := got["invalid"]; ok {
+		t.Fatal("invalid attribute was accepted")
+	}
+}

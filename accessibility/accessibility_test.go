@@ -130,6 +130,9 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 	if snapshotKey(root, SnapshotOptions{AllowSensitive: true}) == snapshotKey(root, SnapshotOptions{}) {
 		t.Fatal("redaction policy not part of snapshot key")
 	}
+	if snapshotKey(root, SnapshotOptions{VisibleOnly: true}) == snapshotKey(root, SnapshotOptions{}) {
+		t.Fatal("visibility policy not part of snapshot key")
+	}
 }
 
 func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {

@@ -23,6 +23,7 @@ type accessibilityCLIOptions struct {
 	maxDepth       int
 	maxNodes       int
 	maxTextBytes   int
+	visibleOnly    bool
 	allowSensitive bool
 }
 
@@ -44,7 +45,7 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 }
 
 func (o accessibilityCLIOptions) snapshot() accessibility.SnapshotOptions {
-	return accessibility.SnapshotOptions{MaxDepth: o.maxDepth, MaxNodes: o.maxNodes, MaxTextBytes: o.maxTextBytes, AllowSensitive: o.allowSensitive}
+	return accessibility.SnapshotOptions{MaxDepth: o.maxDepth, MaxNodes: o.maxNodes, MaxTextBytes: o.maxTextBytes, VisibleOnly: o.visibleOnly, AllowSensitive: o.allowSensitive}
 }
 
 func accessibilityOutput(w io.Writer, format string, value any) error {
@@ -64,10 +65,11 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		c.Flags().StringVar(&o.appName, "application", "", "application accessible-name substring (alias for --app)")
 		c.Flags().Int32Var(&o.pid, "pid", 0, "application process ID")
 		c.Flags().StringVar(&o.windowID, "window-id", "", "managed window identifier")
-		c.Flags().StringVar(&o.windowTitle, "window-title", "", "managed window title substring")
+		c.Flags().StringVar(&o.windowTitle, "window-title", "", "managed window title (exact)")
 		c.Flags().IntVar(&o.maxDepth, "max-depth", 0, "maximum tree depth")
 		c.Flags().IntVar(&o.maxNodes, "max-nodes", 0, "maximum nodes")
 		c.Flags().IntVar(&o.maxTextBytes, "max-text-bytes", 0, "maximum text bytes per node")
+		c.Flags().BoolVar(&o.visibleOnly, "visible-only", false, "exclude invisible/off-screen nodes")
 		c.Flags().BoolVar(&o.allowSensitive, "allow-sensitive", false, "include sensitive/protected text (use with care)")
 	}
 
@@ -107,6 +109,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 
 	var findOpts accessibilityCLIOptions
 	var query accessibility.Query
+	var attributeFlags []string
 	findCmd := &cobra.Command{Use: "find", Short: "Find accessible nodes by name, role, or text", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openPF(c.Context())
 		if err != nil {
@@ -117,6 +120,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
+		query.Attributes = parseAccessibilityAttributes(attributeFlags)
 		value, err := pf.Accessibility.Find(c.Context(), root, query, findOpts.snapshot())
 		if err != nil {
 			return err
@@ -127,6 +131,8 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	findCmd.Flags().StringVar(&query.Name, "name", "", "accessible name substring")
 	findCmd.Flags().StringVar(&query.Role, "role", "", "accessible role substring")
 	findCmd.Flags().StringVar(&query.Text, "text", "", "accessible text substring")
+	findCmd.Flags().StringSliceVar(&query.States, "state", nil, "required accessible state (repeatable)")
+	findCmd.Flags().StringArrayVar(&attributeFlags, "attribute", nil, "required attribute key=value (repeatable)")
 
 	focused := &cobra.Command{Use: "focused", Short: "Print the currently focused accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openPF(c.Context())
@@ -189,4 +195,20 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 
 	cmd.AddCommand(applications, snapshot, findCmd, focused, atPoint, events)
 	return cmd
+}
+
+func parseAccessibilityAttributes(values []string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	attributes := make(map[string]string, len(values))
+	for _, value := range values {
+		key, raw, ok := strings.Cut(value, "=")
+		key, raw = strings.TrimSpace(key), strings.TrimSpace(raw)
+		if !ok || key == "" {
+			continue
+		}
+		attributes[key] = raw
+	}
+	return attributes
 }
