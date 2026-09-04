@@ -31,6 +31,7 @@ var (
 
 const (
 	busService          = "org.a11y.Bus"
+	busAddressMethod    = busService + ".GetAddress"
 	busPath             = dbus.ObjectPath("/org/a11y/bus")
 	registryName        = "org.a11y.atspi.Registry"
 	registryPath        = dbus.ObjectPath("/org/a11y/atspi/registry")
@@ -300,7 +301,7 @@ func OpenRuntime(rt env.Runtime) (Backend, error) {
 		return nil, fmt.Errorf("accessibility: connect to session bus: %w", err)
 	}
 	var address string
-	call := session.Object(busService, busPath).Call("%s.GetAddress", 0)
+	call := session.Object(busService, busPath).Call(busAddressMethod, 0)
 	if storeErr := call.Store(&address); storeErr != nil {
 		_ = session.Close()
 		return nil, fmt.Errorf("accessibility: get accessibility bus address: %w", storeErr)

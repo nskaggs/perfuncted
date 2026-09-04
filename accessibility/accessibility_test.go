@@ -34,6 +34,12 @@ func TestNodeIDValidation(t *testing.T) {
 	}
 }
 
+func TestAccessibilityBusAddressMethod(t *testing.T) {
+	if busAddressMethod != "org.a11y.Bus.GetAddress" {
+		t.Fatalf("accessibility bus address method = %q", busAddressMethod)
+	}
+}
+
 func TestCacheItemWireSignatureMatchesATSPICache(t *testing.T) {
 	if got := dbus.SignatureOf([]cacheItem{}).String(); got != "a((so)(so)(so)iiassusau)" {
 		t.Fatalf("cache GetItems signature = %q", got)
@@ -250,7 +256,9 @@ func TestSnapshotWalkerHonorsCancellation(t *testing.T) {
 }
 
 func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
-	_, err := OpenRuntime(env.FromEnviron([]string{}))
+	// Use an explicitly unreachable address so this test is independent of any
+	// session bus inherited by the test runner.
+	_, err := OpenRuntime(env.FromEnviron([]string{"DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/perfuncted-missing-session-bus"}))
 	if err == nil {
 		t.Fatal("OpenRuntime unexpectedly succeeded without session bus")
 	}
