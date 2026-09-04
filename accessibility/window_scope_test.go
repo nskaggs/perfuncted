@@ -52,3 +52,38 @@ func TestWindowAppMatchingUsesPIDBeforeCompositorAppIDSpelling(t *testing.T) {
 		t.Fatal("app-id-only target matched unrelated application")
 	}
 }
+
+func TestWindowCandidateScoreRejectsChangedTitleAndGeometry(t *testing.T) {
+	target := WindowTarget{Title: "Editor", Bounds: Rect{X: 10, Y: 20, Width: 300, Height: 200}}
+	node := Node{Name: "Editor", Role: "frame", Bounds: target.Bounds, HasBounds: true, Showing: true}
+	if score := windowCandidateScore(node, target); score <= 0 {
+		t.Fatalf("matching candidate score = %d, want positive", score)
+	}
+
+	changedTitle := node
+	changedTitle.Name = "Preferences"
+	if score := windowCandidateScore(changedTitle, target); score != 0 {
+		t.Fatalf("changed-title candidate score = %d, want zero", score)
+	}
+
+	changedGeometry := node
+	changedGeometry.Bounds.X += target.Bounds.Width + 1
+	if score := windowCandidateScore(changedGeometry, target); score != 0 {
+		t.Fatalf("non-overlapping candidate score = %d, want zero", score)
+	}
+}
+
+func TestChooseWindowCandidateSelectsUniqueStrongestEvidence(t *testing.T) {
+	weak := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/weak", Generation: 1}, Role: "frame", Name: "Editor"}
+	strong := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/strong", Generation: 1}, Role: "frame", Name: "Editor"}
+	selected, candidates, ambiguous := chooseWindowCandidate([]windowCandidate{
+		{node: weak, score: 4},
+		{node: strong, score: 12},
+	})
+	if ambiguous || selected == nil || selected.ID != strong.ID {
+		t.Fatalf("selected=%+v candidates=%+v ambiguous=%v", selected, candidates, ambiguous)
+	}
+	if len(candidates) != 1 || candidates[0].ID != strong.ID {
+		t.Fatalf("best candidates = %+v, want strongest candidate only", candidates)
+	}
+}
