@@ -34,6 +34,12 @@ func TestNodeIDValidation(t *testing.T) {
 	}
 }
 
+func TestCacheItemWireSignatureMatchesATSPICache(t *testing.T) {
+	if got := dbus.SignatureOf([]cacheItem{}).String(); got != "a((so)(so)(so)iiassusau)" {
+		t.Fatalf("cache GetItems signature = %q", got)
+	}
+}
+
 func TestSnapshotRootSelectionDoesNotWidenMalformedScope(t *testing.T) {
 	if (NodeID{ObjectPath: "/only-path"}).valid() {
 		t.Fatal("partial root considered valid")
@@ -110,11 +116,12 @@ func TestDeregisterEventsCleansEveryRegistration(t *testing.T) {
 
 func TestCloneSnapshotDeepCopiesAndPreservesMetadata(t *testing.T) {
 	at := time.Now()
-	in := Snapshot{Root: Node{ID: NodeID{BusName: "b", ObjectPath: "/r"}}, Nodes: []Node{{ID: NodeID{BusName: "b", ObjectPath: "/r"}, Attributes: map[string]string{"value": "x"}, Children: []NodeID{{BusName: "b", ObjectPath: "/c"}}}}, Generation: 4, CapturedAt: at, Source: "at-spi"}
+	in := Snapshot{Root: Node{ID: NodeID{BusName: "b", ObjectPath: "/r"}}, Nodes: []Node{{ID: NodeID{BusName: "b", ObjectPath: "/r"}, Attributes: map[string]string{"value": "x"}, Children: []NodeID{{BusName: "b", ObjectPath: "/c"}}, Warnings: []string{"optional Text unavailable"}}}, Generation: 4, CapturedAt: at, Source: "at-spi"}
 	out := cloneSnapshot(in)
 	out.Nodes[0].Attributes["value"] = "changed"
 	out.Nodes[0].Children[0].ObjectPath = "/changed"
-	if in.Nodes[0].Attributes["value"] != "x" || in.Nodes[0].Children[0].ObjectPath != "/c" {
+	out.Nodes[0].Warnings[0] = "changed"
+	if in.Nodes[0].Attributes["value"] != "x" || in.Nodes[0].Children[0].ObjectPath != "/c" || in.Nodes[0].Warnings[0] != "optional Text unavailable" {
 		t.Fatal("clone shares mutable node state")
 	}
 	if out.Generation != 4 || out.Source != "at-spi" || !out.CapturedAt.Equal(at) {
@@ -165,7 +172,7 @@ func TestFindMatchesStatesAndAttributes(t *testing.T) {
 	if matchesStates([]string{"enabled"}, []string{"focused"}) {
 		t.Fatal("state match accepted absent state")
 	}
-	if !matchesAttributes(map[string]string{"kind": "Primary"}, map[string]string{"kind": "primary"}) {
+	if !matchesAttributes(map[string]string{"Kind": "Primary"}, map[string]string{"kind": "primary"}) {
 		t.Fatal("attribute matching should be case-insensitive")
 	}
 }

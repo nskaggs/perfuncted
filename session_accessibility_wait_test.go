@@ -58,3 +58,25 @@ func TestAccessibilityWaitConditionsRefreshUntilSatisfied(t *testing.T) {
 	}
 	_ = session.Close()
 }
+
+type waitAccessibilityEventBackend struct {
+	waitAccessibilityBackend
+	events chan accessibility.Event
+}
+
+func (b *waitAccessibilityEventBackend) Events(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error) {
+	return b.events, nil
+}
+
+func TestWaitChangesIncludesAccessibilityEvents(t *testing.T) {
+	backend := &waitAccessibilityEventBackend{events: make(chan accessibility.Event, 1)}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	defer session.Close()
+	wake := session.waitChanges()
+	backend.events <- accessibility.Event{Kind: "focus"}
+	select {
+	case <-wake:
+	case <-time.After(time.Second):
+		t.Fatal("accessibility event did not wake waiter")
+	}
+}

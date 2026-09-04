@@ -122,7 +122,7 @@ type Node struct {
 	Enabled   bool           `json:"enabled"`
 	// Redacted is true when sensitive/protected content was intentionally
 	// removed. Callers can still use the node's role, bounds, and state.
-	Redacted bool `json:"redacted,omitempty"`
+	Redacted bool     `json:"redacted,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -908,7 +908,13 @@ func matchesStates(have, want []string) bool {
 
 func matchesAttributes(have, want map[string]string) bool {
 	for key, expected := range want {
-		actual, ok := have[key]
+		actual, ok := "", false
+		for haveKey, haveValue := range have {
+			if strings.EqualFold(haveKey, key) {
+				actual, ok = haveValue, true
+				break
+			}
+		}
 		if !ok || !strings.EqualFold(actual, expected) {
 			return false
 		}

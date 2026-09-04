@@ -410,30 +410,44 @@ func (s *Session) waitChanges() <-chan struct{} {
 		s.hubMu.Lock()
 		s.hub = hub
 		s.hubMu.Unlock()
-		if s.Windows == nil || util.IsNil(s.Windows.backend) {
-			return
-		}
-		source, ok := s.Windows.backend.(windowChangeSource)
-		if !ok {
-			return
-		}
-		changes := source.WindowChanges()
-		if changes == nil {
-			return
-		}
-		go func() {
-			for {
-				select {
-				case <-s.ctx.Done():
-					return
-				case _, ok := <-changes:
-					if !ok {
-						return
-					}
-					hub.notify()
+		if s.Windows != nil && !util.IsNil(s.Windows.backend) {
+			if source, ok := s.Windows.backend.(windowChangeSource); ok {
+				if changes := source.WindowChanges(); changes != nil {
+					go func() {
+						for {
+							select {
+							case <-s.ctx.Done():
+								return
+							case _, ok := <-changes:
+								if !ok {
+									return
+								}
+								hub.notify()
+							}
+						}
+					}()
 				}
 			}
-		}()
+		}
+		if s.Accessibility != nil && !util.IsNil(s.Accessibility.backend) {
+			if source, ok := s.Accessibility.backend.(accessibility.EventSource); ok {
+				if events, err := source.Events(s.ctx, accessibility.EventOptions{Buffer: 128}); err == nil && events != nil {
+					go func() {
+						for {
+							select {
+							case <-s.ctx.Done():
+								return
+							case _, ok := <-events:
+								if !ok {
+									return
+								}
+								hub.notify()
+							}
+						}
+					}()
+				}
+			}
+		}
 	})
 	s.hubMu.RLock()
 	hub := s.hub

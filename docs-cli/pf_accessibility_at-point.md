@@ -9,18 +9,22 @@ pf accessibility at-point [flags]
 ### Options
 
 ```
-      --allow-sensitive      include sensitive/protected text (use with care)
-      --app string           application accessible-name substring
-  -h, --help                 help for at-point
-      --max-depth int        maximum tree depth
-      --max-nodes int        maximum nodes
-      --max-text-bytes int   maximum text bytes per node
-      --output string        output format (json) (default "json")
-      --pid int32            application process ID
-      --root-bus string      AT-SPI application bus name
-      --root-path string     AT-SPI application object path
-      --x int                screen x coordinate
-      --y int                screen y coordinate
+      --allow-sensitive       include sensitive/protected text (use with care)
+      --app string            application accessible-name substring
+      --application string    application accessible-name substring (alias for --app)
+  -h, --help                  help for at-point
+      --max-depth int         maximum tree depth
+      --max-nodes int         maximum nodes
+      --max-text-bytes int    maximum text bytes per node
+      --output string         output format (json) (default "json")
+      --pid int32             application process ID
+      --root-bus string       AT-SPI application bus name
+      --root-path string      AT-SPI application object path
+      --visible-only          exclude invisible/off-screen nodes
+      --window-id string      managed window identifier
+      --window-title string   managed window title (exact)
+      --x int                 screen x coordinate
+      --y int                 screen y coordinate
 ```
 
 ### Options inherited from parent commands
