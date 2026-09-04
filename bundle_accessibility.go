@@ -87,7 +87,7 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 
 // FindApplication selects a single application by accessible name, PID, or
 // AT-SPI bus name when the runtime backend exposes process ownership.
-func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) { //nolint:gocyclo // scope validation and correlation are intentionally explicit.
 	if err := b.checkAvailable("find-application"); err != nil {
 		return accessibility.Application{}, err
 	}

@@ -30,7 +30,7 @@ func (cliAccessibilityFake) Focused(context.Context, accessibility.SnapshotOptio
 func (cliAccessibilityFake) AtPoint(context.Context, int, int) (accessibility.Node, error) {
 	return accessibility.Node{Name: "point"}, nil
 }
-func (cliAccessibilityFake) Events(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error) {
+func (cliAccessibilityFake) Events(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error) { //nolint:unparam // the fake intentionally models a successful stream.
 	stream := make(chan accessibility.Event)
 	close(stream)
 	return stream, nil

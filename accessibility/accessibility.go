@@ -475,7 +475,7 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 
 // FindApplication returns exactly one application matching filter. Name is
 // matched against the accessible name and PID/Bus are exact constraints.
-func (b *dbusBackend) FindApplication(ctx context.Context, filter ApplicationFilter) (Application, error) {
+func (b *dbusBackend) FindApplication(ctx context.Context, filter ApplicationFilter) (Application, error) { //nolint:gocyclo // selector matching deliberately keeps each scope constraint visible.
 	apps, err := b.Applications(ctx)
 	if err != nil {
 		return Application{}, err
@@ -1091,7 +1091,7 @@ func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText i
 	if item, ok := b.cachedItem(id); ok {
 		node.Name = item.Name
 		node.Description = item.Description
-		node.ChildCount = int(maxInt32(item.ChildCount, 0))
+		node.ChildCount = int(maxInt32(item.ChildCount))
 		node.RoleID = item.Role
 		node.Role = roleName(item.Role)
 		node.Interfaces = append([]string(nil), item.Interfaces...)
@@ -1123,9 +1123,9 @@ func (b *dbusBackend) cachedItem(id NodeID) (cacheItem, bool) {
 	return item, ok
 }
 
-func maxInt32(value, floor int32) int32 {
-	if value < floor {
-		return floor
+func maxInt32(value int32) int32 {
+	if value < 0 {
+		return 0
 	}
 	return value
 }
@@ -1239,7 +1239,7 @@ func (b *dbusBackend) readNodeAttributes(ctx context.Context, id NodeID, node *N
 // interfaces advertised by GetInterfaces. Every field is independent: a
 // provider that implements only part of an interface must not make the whole
 // node unreadable.
-func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interfaces []string, node *Node) {
+func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interfaces []string, node *Node) { //nolint:gocyclo // each optional interface is intentionally isolated.
 	if contains(interfaces, valueIface) {
 		value := &ValueInfo{}
 		if err := b.propertyFloat(ctx, id, valueIface, "CurrentValue", &value.Current); err == nil {
@@ -1267,7 +1267,7 @@ func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interface
 	if contains(interfaces, selectionIface) {
 		var count int32
 		if err := b.call(ctx, id, selectionIface+".GetSelectedChildCount", nil, &count); err == nil {
-			node.Selection = &SelectionInfo{SelectedChildCount: maxInt32(count, 0)}
+			node.Selection = &SelectionInfo{SelectedChildCount: maxInt32(count)}
 		} else {
 			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetSelectedChildCount: %v", selectionIface, err))
 		}
@@ -1277,7 +1277,7 @@ func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interface
 		rowsErr := b.property(ctx, id, tableIface, "NRows", &rows)
 		columnsErr := b.property(ctx, id, tableIface, "NColumns", &columns)
 		if rowsErr == nil || columnsErr == nil {
-			node.Table = &TableInfo{Rows: maxInt32(rows, 0), Columns: maxInt32(columns, 0)}
+			node.Table = &TableInfo{Rows: maxInt32(rows), Columns: maxInt32(columns)}
 		}
 		if rowsErr != nil {
 			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.NRows: %v", tableIface, rowsErr))

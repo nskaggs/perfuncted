@@ -404,7 +404,7 @@ type windowChangeSource interface {
 	WindowChanges() <-chan struct{}
 }
 
-func (s *Session) waitChanges() <-chan struct{} {
+func (s *Session) waitChanges() <-chan struct{} { //nolint:gocyclo // one hub owns independent window and accessibility sources.
 	s.hubOnce.Do(func() {
 		hub := newInvalidationHub()
 		s.hubMu.Lock()
