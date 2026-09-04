@@ -63,6 +63,22 @@ func TestEventOptionsNormalizeAndSignalConversion(t *testing.T) {
 	}
 }
 
+func TestEventCoalescingTracksDuplicateInvalidations(t *testing.T) {
+	base := time.Now()
+	first := Event{Kind: "focus", Node: NodeID{BusName: "app", ObjectPath: "/node"}, Timestamp: base}
+	lastKey := ""
+	var lastAt time.Time
+	if coalesceEvent(&lastKey, &lastAt, first) {
+		t.Fatal("first event was coalesced")
+	}
+	if !coalesceEvent(&lastKey, &lastAt, Event{Kind: first.Kind, Node: first.Node, Timestamp: base.Add(time.Millisecond)}) {
+		t.Fatal("duplicate event was not coalesced")
+	}
+	if coalesceEvent(&lastKey, &lastAt, Event{Kind: first.Kind, Node: first.Node, Timestamp: base.Add(eventCoalesceWindow + time.Millisecond)}) {
+		t.Fatal("event outside coalescing window was coalesced")
+	}
+}
+
 type recordingEventRegistrar struct {
 	methods []string
 	events  []string

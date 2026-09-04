@@ -30,32 +30,33 @@ var (
 )
 
 const (
-	busService         = "org.a11y.Bus"
-	busPath            = dbus.ObjectPath("/org/a11y/bus")
-	registryName       = "org.a11y.atspi.Registry"
-	registryPath       = dbus.ObjectPath("/org/a11y/atspi/registry")
-	desktopPath        = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
-	nullObjectPath     = dbus.ObjectPath("/org/a11y/atspi/null")
-	accessibleIface    = "org.a11y.atspi.Accessible"
-	componentIface     = "org.a11y.atspi.Component"
-	textIface          = "org.a11y.atspi.Text"
-	valueIface         = "org.a11y.atspi.Value"
-	actionIface        = "org.a11y.atspi.Action"
-	selectionIface     = "org.a11y.atspi.Selection"
-	tableIface         = "org.a11y.atspi.Table"
-	documentIface      = "org.a11y.atspi.Document"
-	cacheIface         = "org.a11y.atspi.Cache"
-	cachePath          = dbus.ObjectPath("/org/a11y/atspi/cache")
-	propertiesIface    = "org.freedesktop.DBus.Properties"
-	defaultMaxDepth    = 32
-	defaultMaxNodes    = 10000
-	defaultMaxText     = 4096
-	defaultEventBuffer = 64
-	maxApplications    = 1024
-	cacheTTL           = 250 * time.Millisecond
-	absMaxDepth        = 64
-	absMaxNodes        = 100000
-	absMaxText         = 1 << 20
+	busService          = "org.a11y.Bus"
+	busPath             = dbus.ObjectPath("/org/a11y/bus")
+	registryName        = "org.a11y.atspi.Registry"
+	registryPath        = dbus.ObjectPath("/org/a11y/atspi/registry")
+	desktopPath         = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
+	nullObjectPath      = dbus.ObjectPath("/org/a11y/atspi/null")
+	accessibleIface     = "org.a11y.atspi.Accessible"
+	componentIface      = "org.a11y.atspi.Component"
+	textIface           = "org.a11y.atspi.Text"
+	valueIface          = "org.a11y.atspi.Value"
+	actionIface         = "org.a11y.atspi.Action"
+	selectionIface      = "org.a11y.atspi.Selection"
+	tableIface          = "org.a11y.atspi.Table"
+	documentIface       = "org.a11y.atspi.Document"
+	cacheIface          = "org.a11y.atspi.Cache"
+	cachePath           = dbus.ObjectPath("/org/a11y/atspi/cache")
+	propertiesIface     = "org.freedesktop.DBus.Properties"
+	defaultMaxDepth     = 32
+	defaultMaxNodes     = 10000
+	defaultMaxText      = 4096
+	defaultEventBuffer  = 64
+	maxApplications     = 1024
+	cacheTTL            = 250 * time.Millisecond
+	eventCoalesceWindow = 10 * time.Millisecond
+	absMaxDepth         = 64
+	absMaxNodes         = 100000
+	absMaxText          = 1 << 20
 )
 
 // NodeID is an AT-SPI object reference. BusName and ObjectPath are opaque and
@@ -228,6 +229,7 @@ type Event struct {
 	Node      NodeID    `json:"node"`
 	Property  string    `json:"property,omitempty"`
 	Value     string    `json:"value,omitempty"`
+	Dropped   uint64    `json:"dropped,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -625,6 +627,9 @@ func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.S
 		}
 		deregisterEvents(cleanupCtx, registry, registered)
 	}(context.Background())
+	var dropped uint64
+	lastKey := ""
+	var lastAt time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -634,16 +639,37 @@ func runEventStream(ctx context.Context, access *dbus.Conn, signals chan *dbus.S
 				return
 			}
 			event := signalEvent(sig)
+			if coalesceEvent(&lastKey, &lastAt, event) {
+				dropped++
+				continue
+			}
 			if strings.HasPrefix(sig.Name, cacheIface+":") || strings.Contains(sig.Name, ".Cache:") {
 				backend.applyCacheSignal(sig)
 			}
 			backend.Invalidate(event.Node)
 			select {
-			case out <- event:
+			case out <- func() Event {
+				event.Dropped = dropped
+				dropped = 0
+				return event
+			}():
 			default:
+				dropped++
 			}
 		}
 	}
+}
+
+func coalesceEvent(lastKey *string, lastAt *time.Time, event Event) bool {
+	if lastKey == nil || lastAt == nil {
+		return false
+	}
+	key := event.Kind + "\x00" + event.Node.BusName + "\x00" + event.Node.ObjectPath + "\x00" + event.Property
+	if key == *lastKey && !lastAt.IsZero() && event.Timestamp.Sub(*lastAt) <= eventCoalesceWindow {
+		return true
+	}
+	*lastKey, *lastAt = key, event.Timestamp
+	return false
 }
 
 func signalEvent(sig *dbus.Signal) Event {

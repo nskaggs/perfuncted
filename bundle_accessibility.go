@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"strings"
 
 	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/internal/util"
@@ -94,7 +95,53 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 	if !ok {
 		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
 	}
-	app, err := finder.FindApplication(ctx, filter)
+	// Window selectors are correlated through the session's authoritative
+	// window manager. AT-SPI application object paths are not window handles,
+	// and titles exposed by an application root are not reliable window IDs.
+	var selectedWindow *Window
+	if filter.WindowID != "" || filter.WindowTitle != "" {
+		if b.session == nil || b.session.Windows == nil {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
+		}
+		windows, listErr := b.session.Windows.List(ctx, WindowMatch{})
+		if listErr != nil {
+			return accessibility.Application{}, b.operationError("find-application", listErr)
+		}
+		wantID := strings.TrimSpace(filter.WindowID)
+		wantTitle := strings.TrimSpace(filter.WindowTitle)
+		for _, candidate := range windows {
+			candidate.mu.RLock()
+			candidateInfo := candidate.snapshot
+			candidate.mu.RUnlock()
+			if wantID != "" && candidate.ID().String() != wantID {
+				continue
+			}
+			if wantTitle != "" && candidateInfo.Title != wantTitle {
+				continue
+			}
+			if selectedWindow != nil {
+				return accessibility.Application{}, b.operationError("find-application", accessibility.ErrAmbiguous)
+			}
+			selectedWindow = candidate
+		}
+		if selectedWindow == nil {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
+		}
+	}
+	backendFilter := filter
+	backendFilter.WindowID = ""
+	backendFilter.WindowTitle = ""
+	app, err := finder.FindApplication(ctx, backendFilter)
+	if err == nil && selectedWindow != nil {
+		selectedWindow.mu.RLock()
+		selectedInfo := selectedWindow.snapshot
+		selectedWindow.mu.RUnlock()
+		if filter.PID != 0 && selectedInfo.PID != 0 && selectedInfo.PID != filter.PID {
+			err = accessibility.ErrNotFound
+		} else if app.PID != 0 && selectedInfo.PID != 0 && app.PID != selectedInfo.PID {
+			err = accessibility.ErrNotFound
+		}
+	}
 	return app, b.operationError("find-application", err)
 }
 
