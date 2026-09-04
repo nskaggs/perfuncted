@@ -296,7 +296,14 @@ type GenerationSource interface {
 // session bus only provides org.a11y.Bus.GetAddress; all chatty AT-SPI calls
 // are made over the returned private accessibility bus.
 func OpenRuntime(rt env.Runtime) (Backend, error) {
-	session, err := dbusutil.SessionBusAddress(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	// Accessibility is session-scoped. Unlike generic D-Bus helpers, never
+	// fall back to the caller's host bus when the target runtime omitted its
+	// address; doing so could expose or act on another desktop session.
+	busAddress := strings.TrimSpace(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	if busAddress == "" {
+		return nil, fmt.Errorf("accessibility: missing target session bus address")
+	}
+	session, err := dbusutil.SessionBusAddress(busAddress)
 	if err != nil {
 		return nil, fmt.Errorf("accessibility: connect to session bus: %w", err)
 	}

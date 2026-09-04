@@ -256,9 +256,7 @@ func TestSnapshotWalkerHonorsCancellation(t *testing.T) {
 }
 
 func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
-	// Use an explicitly unreachable address so this test is independent of any
-	// session bus inherited by the test runner.
-	_, err := OpenRuntime(env.FromEnviron([]string{"DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/perfuncted-missing-session-bus"}))
+	_, err := OpenRuntime(env.FromEnviron([]string{}))
 	if err == nil {
 		t.Fatal("OpenRuntime unexpectedly succeeded without session bus")
 	}
