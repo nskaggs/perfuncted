@@ -27,6 +27,7 @@ Inspect the AT-SPI accessibility tree
 * [pf accessibility deselect-all](pf_accessibility_deselect-all.md)	 - Deselect all children through AT-SPI Selection
 * [pf accessibility deselect-column](pf_accessibility_deselect-column.md)	 - Deselect a table column through AT-SPI Table
 * [pf accessibility deselect-row](pf_accessibility_deselect-row.md)	 - Deselect a table row through AT-SPI Table
+* [pf accessibility deselect-selected-child](pf_accessibility_deselect-selected-child.md)	 - Deselect the selected child through AT-SPI Selection
 * [pf accessibility events](pf_accessibility_events.md)	 - Stream AT-SPI invalidation events as JSON lines
 * [pf accessibility find](pf_accessibility_find.md)	 - Find accessible nodes by name, role, or text
 * [pf accessibility focus](pf_accessibility_focus.md)	 - Focus an explicit accessible node
@@ -41,6 +42,7 @@ Inspect the AT-SPI accessibility tree
 * [pf accessibility select-child](pf_accessibility_select-child.md)	 - Select a child through AT-SPI Selection
 * [pf accessibility select-column](pf_accessibility_select-column.md)	 - Select a table column through AT-SPI Table
 * [pf accessibility select-row](pf_accessibility_select-row.md)	 - Select a table row through AT-SPI Table
+* [pf accessibility set-document-text-selections](pf_accessibility_set-document-text-selections.md)	 - Set cross-object selections through AT-SPI Document 2.52
 * [pf accessibility set-extents](pf_accessibility_set-extents.md)	 - Move and resize an accessible Component
 * [pf accessibility set-position](pf_accessibility_set-position.md)	 - Move an accessible Component
 * [pf accessibility set-size](pf_accessibility_set-size.md)	 - Resize an accessible Component

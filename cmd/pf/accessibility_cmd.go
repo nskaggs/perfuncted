@@ -457,6 +457,16 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		return pf.Accessibility.RemoveTextSelection(ctx, node, textSelection)
 	})
 	removeTextSelection.Flags().Int32Var(&textSelection, "selection", 0, "selection number")
+	var documentSelectionOpts accessibilityCLIOptions
+	var documentSelectionsJSON string
+	setDocumentSelections := nodeMutation("set-document-text-selections", "Set cross-object selections through AT-SPI Document 2.52", &documentSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		var selections []accessibility.DocumentTextSelection
+		if err := json.Unmarshal([]byte(documentSelectionsJSON), &selections); err != nil {
+			return fmt.Errorf("invalid --selections JSON: %w", err)
+		}
+		return pf.Accessibility.SetTextSelections(ctx, node, selections)
+	})
+	setDocumentSelections.Flags().StringVar(&documentSelectionsJSON, "selections", "[]", "JSON array of DocumentTextSelection values (character offsets)")
 	var selectionOpts accessibilityCLIOptions
 	var childIndex int32
 	selectChild := &cobra.Command{Use: "select-child", Short: "Select a child through AT-SPI Selection", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
@@ -484,6 +494,10 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	var deselectAllOpts accessibilityCLIOptions
 	deselectAll := nodeMutation("deselect-all", "Deselect all children through AT-SPI Selection", &deselectAllOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
 		return pf.Accessibility.DeselectAll(ctx, node)
+	})
+	var deselectSelectedOpts accessibilityCLIOptions
+	deselectSelected := nodeMutation("deselect-selected-child", "Deselect the selected child through AT-SPI Selection", &deselectSelectedOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+		return pf.Accessibility.DeselectSelectedChild(ctx, node)
 	})
 	var tableOpts accessibilityCLIOptions
 	var tableIndex int32
@@ -515,7 +529,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		return pf.Accessibility.ReopenAccessibility(c.Context())
 	}}
 
-	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, scrollPoint, setPosition, setSize, setExtents, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, selectChild, selectAll, clearSelection, deselectAll, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
+	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, scrollPoint, setPosition, setSize, setExtents, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, setDocumentSelections, selectChild, selectAll, clearSelection, deselectAll, deselectSelected, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
 	return cmd
 }
 
