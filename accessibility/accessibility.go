@@ -26,7 +26,8 @@ var (
 	ErrUnsupported = errors.New("accessibility: operation unsupported")
 	// ErrNotFound indicates that a query found no matching accessible object.
 	ErrNotFound = errors.New("accessibility: object not found")
-	// ErrAmbiguous indicates that a selector matched more than one application.
+	// ErrAmbiguous indicates that a selector matched more than one application,
+	// window, action, or other target.
 	ErrAmbiguous = errors.New("accessibility: ambiguous application")
 	// ErrStaleNode indicates that a node handle belongs to an older
 	// accessibility generation and must not be reused.
@@ -74,8 +75,9 @@ const (
 	absMaxText          = 1 << 20
 )
 
-// NodeID is an AT-SPI object reference. BusName and ObjectPath are opaque and
-// should be retained together; object paths are not globally unique.
+// NodeID is an AT-SPI object reference scoped to one backend generation.
+// BusName and ObjectPath are opaque and should be retained together; object
+// paths are not globally unique and Generation rejects stale references.
 type NodeID struct {
 	BusName    string `json:"busName"`
 	ObjectPath string `json:"objectPath"`

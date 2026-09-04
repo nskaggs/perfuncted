@@ -86,7 +86,7 @@ type Session struct {
 	Outputs *OutputBundle
 	// Clipboard exposes clipboard access for this session.
 	Clipboard *ClipboardBundle
-	// Accessibility exposes read-only AT-SPI queries for this session.
+	// Accessibility exposes AT-SPI semantic queries and typed automation for this session.
 	Accessibility *AccessibilityBundle
 
 	config       SessionConfig

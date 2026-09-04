@@ -44,7 +44,7 @@ const (
 	CapabilityOutputs Capability = "outputs"
 	// CapabilityClipboard identifies clipboard get and set operations.
 	CapabilityClipboard Capability = "clipboard"
-	// CapabilityAccessibility identifies read-only AT-SPI observation.
+	// CapabilityAccessibility identifies AT-SPI semantic observation and typed automation.
 	CapabilityAccessibility Capability = "accessibility"
 )
 

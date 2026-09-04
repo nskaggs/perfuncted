@@ -355,6 +355,70 @@ func TestTypedAutomationRejectsStaleAndDisconnectedHandles(t *testing.T) {
 	}
 }
 
+func TestTypedAutomationFailsClosedWithoutRetry(t *testing.T) {
+	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
+	tests := []struct {
+		name      string
+		result    any
+		callError error
+		want      error
+	}{
+		{name: "provider rejection", result: false, want: ErrMutationRejected},
+		{name: "malformed boolean", result: "yes"},
+		{name: "unsupported interface", callError: errors.New("org.freedesktop.DBus.Error.UnknownInterface"), want: ErrUnsupported},
+		{name: "transport failure", callError: errors.New("transport closed")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			backend := &dbusBackend{generation: 1, callOverride: func(context.Context, NodeID, string, []any) (any, error) {
+				calls++
+				return test.result, test.callError
+			}}
+			err := backend.GrabFocus(context.Background(), id)
+			if test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+			if test.want == nil && err == nil {
+				t.Fatal("malformed/failed mutation unexpectedly succeeded")
+			}
+			if calls != 1 {
+				t.Fatalf("mutation calls = %d, want one attempt", calls)
+			}
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	backend := &dbusBackend{generation: 1, callOverride: func(context.Context, NodeID, string, []any) (any, error) {
+		calls++
+		return true, nil
+	}}
+	if err := backend.GrabFocus(ctx, id); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled mutation error = %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("cancelled mutation made %d provider calls", calls)
+	}
+}
+
+func TestTypedActionFixtureRejectsMalformedAndUnsupportedReplies(t *testing.T) {
+	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
+	backend := &dbusBackend{generation: 1, callOverride: func(context.Context, NodeID, string, []any) (any, error) {
+		return "not-actions", nil
+	}}
+	if _, err := backend.InvokeDefaultAction(context.Background(), id); err == nil {
+		t.Fatal("malformed action metadata unexpectedly succeeded")
+	}
+	backend.callOverride = func(context.Context, NodeID, string, []any) (any, error) {
+		return nil, errors.New("org.freedesktop.DBus.Error.UnknownMethod")
+	}
+	if _, err := backend.InvokeDefaultAction(context.Background(), id); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unsupported action error = %v", err)
+	}
+}
+
 func TestEventFanoutHasOneDeliveryPathAndBoundedDrops(t *testing.T) {
 	backend := &dbusBackend{subscribers: map[uint64]*eventSubscriber{
 		1: {out: make(chan Event, 1)},

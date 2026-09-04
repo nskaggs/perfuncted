@@ -25,7 +25,7 @@ func TestGTKAccessibilityRepresentative(t *testing.T) {
 	if _, err := executil.LookPath("zenity"); err != nil {
 		t.Skipf("zenity unavailable: %v", err)
 	}
-	app := appSpec{name: "zenity", launch: []string{"zenity", "--info", "--title=Perfuncted GTK", "--text=AT-SPI representative", "--ok-label=Confirm"}}
+	app := appSpec{name: "zenity", launch: []string{"zenity", "--info", "--title=Perfuncted GTK", "--text=AT-SPI representative", "--ok-label=Confirm"}, extraEnv: []string{"GTK_MODULES=atk-bridge"}}
 	cmd, err := launchApp(s.rt, app, app.extraEnvFor(s.mode)...)
 	if err != nil {
 		t.Fatalf("launch zenity: %v", err)
@@ -43,6 +43,8 @@ func TestGTKAccessibilityRepresentative(t *testing.T) {
 	scope, err := s.pf.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: info.NativeID, Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active})
 	if err != nil {
 		if errors.Is(err, accessibility.ErrNotFound) || errors.Is(err, accessibility.ErrUnsupported) {
+			apps, appsErr := s.pf.Accessibility.Applications(ctx)
+			t.Logf("AT-SPI correlation diagnostics: window=%+v apps=%+v appsErr=%v", info, apps, appsErr)
 			t.Skipf("AT-SPI could not correlate zenity window: %v", err)
 		}
 		t.Fatalf("correlate zenity window: %v", err)

@@ -9,15 +9,15 @@ import (
 )
 
 func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method string, args ...any) error {
-	if ctx == nil {
-		return fmt.Errorf("accessibility: %s: nil context", method)
+	if err := mutationContext(ctx, method); err != nil {
+		return err
 	}
 	if b != nil && b.callOverride != nil {
 		if err := b.validateHandle(id); err != nil {
 			return err
 		}
 		_, err := b.callOverride(ctx, id, iface+"."+method, args)
-		return err
+		return normalizeMutationError(iface, method, err)
 	}
 	obj, err := b.object(id)
 	if err != nil {
@@ -25,27 +25,28 @@ func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method str
 	}
 	call := obj.CallWithContext(ctx, iface+"."+method, 0, args...)
 	if call.Err != nil {
-		if strings.Contains(call.Err.Error(), "UnknownMethod") || strings.Contains(call.Err.Error(), "UnknownInterface") {
-			return fmt.Errorf("%w: %s.%s", ErrUnsupported, iface, method)
-		}
-		return fmt.Errorf("accessibility: %s.%s: %w", iface, method, call.Err)
+		return normalizeMutationError(iface, method, call.Err)
 	}
 	return nil
 }
 
 func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method string, args ...any) error {
-	if ctx == nil {
-		return fmt.Errorf("accessibility: %s: nil context", method)
+	if err := mutationContext(ctx, method); err != nil {
+		return err
 	}
 	if b != nil && b.callOverride != nil {
 		if err := b.validateHandle(id); err != nil {
 			return err
 		}
 		result, err := b.callOverride(ctx, id, iface+"."+method, args)
-		if err != nil {
-			return err
+		if normalizedErr := normalizeMutationError(iface, method, err); normalizedErr != nil {
+			return normalizedErr
 		}
-		if accepted, ok := result.(bool); ok && !accepted {
+		accepted, ok := result.(bool)
+		if !ok {
+			return fmt.Errorf("accessibility: %s.%s returned malformed result %T", iface, method, result)
+		}
+		if !accepted {
 			return ErrMutationRejected
 		}
 		return nil
@@ -57,10 +58,7 @@ func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method
 	var accepted bool
 	call := obj.CallWithContext(ctx, iface+"."+method, 0, args...)
 	if err := call.Store(&accepted); err != nil {
-		if strings.Contains(err.Error(), "UnknownMethod") || strings.Contains(err.Error(), "UnknownInterface") {
-			return fmt.Errorf("%w: %s.%s", ErrUnsupported, iface, method)
-		}
-		return fmt.Errorf("accessibility: %s.%s: %w", iface, method, err)
+		return normalizeMutationError(iface, method, err)
 	}
 	if !accepted {
 		return ErrMutationRejected
@@ -68,14 +66,37 @@ func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method
 	return nil
 }
 
+func mutationContext(ctx context.Context, method string) error {
+	if ctx == nil {
+		return fmt.Errorf("accessibility: %s: nil context", method)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func normalizeMutationError(iface, method string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "UnknownMethod") || strings.Contains(err.Error(), "UnknownInterface") {
+		return fmt.Errorf("%w: %s.%s", ErrUnsupported, iface, method)
+	}
+	return fmt.Errorf("accessibility: %s.%s: %w", iface, method, err)
+}
+
 func (b *dbusBackend) actions(ctx context.Context, id NodeID) ([]Action, error) {
+	if err := mutationContext(ctx, "GetActions"); err != nil {
+		return nil, err
+	}
 	if b != nil && b.callOverride != nil {
 		if err := b.validateHandle(id); err != nil {
 			return nil, err
 		}
 		result, err := b.callOverride(ctx, id, actionIface+".GetActions", nil)
-		if err != nil {
-			return nil, err
+		if normalizedErr := normalizeMutationError(actionIface, "GetActions", err); normalizedErr != nil {
+			return nil, normalizedErr
 		}
 		if actions, ok := result.([]Action); ok {
 			return actions, nil
@@ -177,25 +198,22 @@ func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, scrollType S
 }
 
 func (b *dbusBackend) SetCurrentValue(ctx context.Context, id NodeID, value float64) error {
-	if ctx == nil {
-		return fmt.Errorf("accessibility: SetCurrentValue: nil context")
+	if err := mutationContext(ctx, "SetCurrentValue"); err != nil {
+		return err
 	}
 	if b != nil && b.callOverride != nil {
 		if err := b.validateHandle(id); err != nil {
 			return err
 		}
 		_, err := b.callOverride(ctx, id, propertiesIface+".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(value)})
-		return err
+		return normalizeMutationError(valueIface, "CurrentValue", err)
 	}
 	obj, err := b.object(id)
 	if err != nil {
 		return err
 	}
 	if err := obj.CallWithContext(ctx, propertiesIface+".Set", 0, valueIface, "CurrentValue", dbus.MakeVariant(value)).Err; err != nil {
-		if strings.Contains(err.Error(), "UnknownMethod") || strings.Contains(err.Error(), "UnknownInterface") {
-			return fmt.Errorf("%w: %s.CurrentValue", ErrUnsupported, valueIface)
-		}
-		return fmt.Errorf("accessibility: %s.CurrentValue: %w", valueIface, err)
+		return normalizeMutationError(valueIface, "CurrentValue", err)
 	}
 	return nil
 }
