@@ -29,7 +29,7 @@ func TestNodeIDValidation(t *testing.T) {
 	if (NodeID{BusName: "org.example", ObjectPath: string(nullObjectPath)}).valid() {
 		t.Fatal("null AT-SPI object is valid")
 	}
-	if !(NodeID{BusName: "org.example", ObjectPath: "/org/example/node"}).valid() {
+	if !(NodeID{BusName: "org.example", ObjectPath: "/org/example/node", Generation: 1}).valid() {
 		t.Fatal("ordinary AT-SPI object is invalid")
 	}
 }
@@ -77,7 +77,7 @@ func TestEventOptionsNormalizeAndSignalConversion(t *testing.T) {
 
 func TestEventCoalescingTracksDuplicateInvalidations(t *testing.T) {
 	base := time.Now()
-	first := Event{Kind: "focus", Node: NodeID{BusName: "app", ObjectPath: "/node"}, Timestamp: base}
+	first := Event{Kind: "focus", Node: NodeID{BusName: "app", ObjectPath: "/node", Generation: 1}, Timestamp: base}
 	lastKey := ""
 	var lastAt time.Time
 	if coalesceEvent(&lastKey, &lastAt, first) {
@@ -122,7 +122,7 @@ func TestDeregisterEventsCleansEveryRegistration(t *testing.T) {
 
 func TestCloneSnapshotDeepCopiesAndPreservesMetadata(t *testing.T) {
 	at := time.Now()
-	in := Snapshot{Root: Node{ID: NodeID{BusName: "b", ObjectPath: "/r"}}, Nodes: []Node{{ID: NodeID{BusName: "b", ObjectPath: "/r"}, Attributes: map[string]string{"value": "x"}, Children: []NodeID{{BusName: "b", ObjectPath: "/c"}}, Warnings: []string{"optional Text unavailable"}}}, Generation: 4, CapturedAt: at, Source: "at-spi"}
+	in := Snapshot{Root: Node{ID: NodeID{BusName: "b", ObjectPath: "/r", Generation: 1}}, Nodes: []Node{{ID: NodeID{BusName: "b", ObjectPath: "/r", Generation: 1}, Attributes: map[string]string{"value": "x"}, Children: []NodeID{{BusName: "b", ObjectPath: "/c", Generation: 1}}, Warnings: []string{"optional Text unavailable"}}}, Generation: 4, CapturedAt: at, Source: "at-spi"}
 	out := cloneSnapshot(in)
 	out.Nodes[0].Attributes["value"] = "changed"
 	out.Nodes[0].Children[0].ObjectPath = "/changed"
@@ -136,7 +136,7 @@ func TestCloneSnapshotDeepCopiesAndPreservesMetadata(t *testing.T) {
 }
 
 func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
-	root := NodeID{BusName: "b", ObjectPath: "/r"}
+	root := NodeID{BusName: "b", ObjectPath: "/r", Generation: 1}
 	if snapshotKey(root, SnapshotOptions{MaxDepth: 1}) == snapshotKey(root, SnapshotOptions{MaxDepth: 2}) {
 		t.Fatal("depth not part of snapshot key")
 	}
@@ -149,7 +149,7 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 }
 
 func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
-	root := NodeID{BusName: "org.test.App", ObjectPath: "/root"}
+	root := NodeID{BusName: "org.test.App", ObjectPath: "/root", Generation: 1}
 	first := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/first"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 1}
 	second := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/second"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
 	backend := &dbusBackend{
@@ -215,8 +215,8 @@ func (f walkerFake) children(_ context.Context, id NodeID) ([]objectRef, error) 
 }
 
 func TestSnapshotWalkerBoundsDepthNodesAndCycles(t *testing.T) {
-	root := NodeID{BusName: "b", ObjectPath: "/root"}
-	child := NodeID{BusName: "b", ObjectPath: "/child"}
+	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
+	child := NodeID{BusName: "b", ObjectPath: "/child", Generation: 1}
 	fake := walkerFake{
 		nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}, child: {ID: child, ChildCount: 1}},
 		child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/child"}}, child: {{BusName: "b", ObjectPath: "/root"}}},
@@ -234,7 +234,7 @@ func TestSnapshotWalkerBoundsDepthNodesAndCycles(t *testing.T) {
 }
 
 func TestSnapshotWalkerRecordsChildReadWarnings(t *testing.T) {
-	root := NodeID{BusName: "b", ObjectPath: "/root"}
+	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
 	fake := walkerFake{nodes: map[NodeID]Node{root: {ID: root, ChildCount: 1}}, child: map[NodeID][]objectRef{root: {{BusName: "b", ObjectPath: "/missing"}}}}
 	walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 4, MaxNodes: 4, MaxTextBytes: 10}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
 	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
@@ -248,7 +248,7 @@ func TestSnapshotWalkerRecordsChildReadWarnings(t *testing.T) {
 func TestSnapshotWalkerHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	root := NodeID{BusName: "b", ObjectPath: "/root"}
+	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
 	walker := snapshotWalker{backend: walkerFake{nodes: map[NodeID]Node{root: {ID: root}}}, opts: SnapshotOptions{MaxDepth: 1, MaxNodes: 1, MaxTextBytes: 1}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
 	if _, err := walker.walk(ctx, root, NodeID{}, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("walk error = %v", err)
@@ -259,5 +259,34 @@ func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
 	_, err := OpenRuntime(env.FromEnviron([]string{}))
 	if err == nil {
 		t.Fatal("OpenRuntime unexpectedly succeeded without session bus")
+	}
+}
+
+func TestSnapshotRequiresExplicitScope(t *testing.T) {
+	backend := &dbusBackend{generation: 1}
+	_, err := backend.Snapshot(context.Background(), NodeID{}, SnapshotOptions{})
+	if !errors.Is(err, ErrScope) {
+		t.Fatalf("unscoped snapshot error = %v", err)
+	}
+	_, err = backend.Find(context.Background(), NodeID{}, Query{Name: "button"}, SnapshotOptions{})
+	if !errors.Is(err, ErrScope) {
+		t.Fatalf("unscoped find error = %v", err)
+	}
+}
+
+func TestBuildOutlineAndCandidateContextPreserveGeneration(t *testing.T) {
+	rootID := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 4}
+	buttonID := NodeID{BusName: "org.test", ObjectPath: "/button", Generation: 4}
+	snapshot := Snapshot{Root: Node{ID: rootID, Role: "frame", Children: []NodeID{buttonID}}, Nodes: []Node{
+		{ID: rootID, Role: "frame", Name: "Editor", Children: []NodeID{buttonID}},
+		{ID: buttonID, Parent: rootID, Role: "button", Name: "Save", Actions: []Action{{Index: 0, Name: "click"}}, Visible: true, Enabled: true},
+	}, Generation: 4}
+	outline := BuildOutline(snapshot, OutlineOptions{MaxDepth: 2, MaxNodes: 4})
+	if outline.Root.ID != rootID || len(outline.Root.Children) != 1 || outline.Root.Children[0].ID.Generation != 4 {
+		t.Fatalf("outline = %+v", outline)
+	}
+	candidates := CandidatesForQuery(snapshot, Query{Name: "save"}, 4)
+	if len(candidates) != 1 || candidates[0].ID != buttonID || len(candidates[0].Breadcrumb) != 1 {
+		t.Fatalf("candidates = %+v", candidates)
 	}
 }

@@ -1,4 +1,5 @@
-// Package accessibility exposes the read-only AT-SPI accessibility tree when
+// Package accessibility exposes the AT-SPI accessibility tree and typed
+// automation operations when
 // an accessibility bus is available. It deliberately uses the same godbus
 // dependency as the rest of perfuncted so callers do not need CGO or libatspi.
 package accessibility
@@ -27,6 +28,18 @@ var (
 	ErrNotFound = errors.New("accessibility: object not found")
 	// ErrAmbiguous indicates that a selector matched more than one application.
 	ErrAmbiguous = errors.New("accessibility: ambiguous application")
+	// ErrStaleNode indicates that a node handle belongs to an older
+	// accessibility generation and must not be reused.
+	ErrStaleNode = errors.New("accessibility: stale node")
+	// ErrDisconnected indicates that the target accessibility bus disconnected.
+	ErrDisconnected = errors.New("accessibility: disconnected")
+	// ErrScope indicates that a tree operation was requested without an
+	// explicit application/window/root scope.
+	ErrScope = errors.New("accessibility: explicit scope required")
+	// ErrInvalidAction indicates that an action index is not exposed by a node.
+	ErrInvalidAction = errors.New("accessibility: invalid action index")
+	// ErrMutationRejected indicates that a provider declined a valid mutation.
+	ErrMutationRejected = errors.New("accessibility: mutation rejected")
 )
 
 const (
@@ -65,19 +78,27 @@ const (
 type NodeID struct {
 	BusName    string `json:"busName"`
 	ObjectPath string `json:"objectPath"`
+	Generation uint64 `json:"generation"`
 }
 
 func (id NodeID) valid() bool {
-	return id.BusName != "" && id.ObjectPath != "" && id.ObjectPath != string(nullObjectPath)
+	return id.BusName != "" && id.ObjectPath != "" && id.ObjectPath != string(nullObjectPath) && id.Generation > 0
 }
 
 type objectRef struct {
 	BusName    string
 	ObjectPath dbus.ObjectPath
+	Generation uint64
 }
 
 func (r objectRef) id() NodeID {
-	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath)}
+	generation := r.Generation
+	if generation == 0 {
+		// Raw protocol replies have no generation. Backends tag these before
+		// returning them; one is retained for deterministic protocol fixtures.
+		generation = 1
+	}
+	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath), Generation: generation}
 }
 
 func (r objectRef) null() bool {
@@ -137,6 +158,7 @@ type ValueInfo struct {
 
 // Action describes one optional AT-SPI action exposed by an object.
 type Action struct {
+	Index       int32  `json:"index"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	KeyBinding  string `json:"keyBinding,omitempty"`
@@ -179,6 +201,10 @@ type SnapshotOptions struct {
 	// AllowSensitive disables the default redaction of AT-SPI sensitive and
 	// protected text/value attributes. Use only for an explicit trusted flow.
 	AllowSensitive bool `json:"allowSensitive,omitempty"`
+	// AllowDesktopRoot explicitly opts into a bounded whole-desktop tree. It
+	// is false by default so Snapshot and Find cannot accidentally traverse
+	// every application when a caller omitted scope.
+	AllowDesktopRoot bool `json:"allowDesktopRoot,omitempty"`
 }
 
 func (o SnapshotOptions) normalized() SnapshotOptions {
@@ -262,7 +288,9 @@ type Snapshot struct {
 	Source     string    `json:"source,omitempty"`
 }
 
-// Backend is the read-only AT-SPI surface used by perfuncted's bundle.
+// Backend is the core AT-SPI surface used by perfuncted's bundle. Typed
+// mutation and window-resolution extensions are optional so deterministic
+// fakes can implement only the operations under test.
 type Backend interface {
 	SupportedOperations() []string
 	Applications(context.Context) ([]Application, error)
@@ -292,10 +320,128 @@ type GenerationSource interface {
 	Invalidate(NodeID)
 }
 
+// ActionInvoker exposes typed Action interface operations.
+type ActionInvoker interface {
+	InvokeAction(context.Context, NodeID, int32) error
+	InvokeActionByName(context.Context, NodeID, string) error
+	InvokeDefaultAction(context.Context, NodeID) (Action, error)
+}
+
+// ComponentController exposes typed Component interface operations.
+type ComponentController interface {
+	GrabFocus(context.Context, NodeID) error
+	ScrollTo(context.Context, NodeID, ScrollType) error
+	ScrollToPoint(context.Context, NodeID, ScrollType, int, int) error
+}
+
+// ValueController exposes typed Value interface operations.
+type ValueController interface {
+	SetCurrentValue(context.Context, NodeID, float64) error
+	SetValue(context.Context, NodeID, float64) error
+}
+
+// TextController exposes typed Text and EditableText operations. Providers
+// may return ErrUnsupported for operations not implemented by an object.
+type TextController interface {
+	SetTextContents(context.Context, NodeID, string) error
+	ReplaceText(context.Context, NodeID, int32, int32, string) error
+	InsertText(context.Context, NodeID, int32, string) error
+	DeleteText(context.Context, NodeID, int32, int32) error
+	CopyText(context.Context, NodeID, int32, int32) error
+	CutText(context.Context, NodeID, int32, int32) error
+	PasteText(context.Context, NodeID) error
+	SetCaretOffset(context.Context, NodeID, int32) error
+	SetTextSelection(context.Context, NodeID, int32, int32) error
+	AddTextSelection(context.Context, NodeID, int32, int32) error
+	RemoveTextSelection(context.Context, NodeID, int32) error
+}
+
+// SelectionController exposes typed Selection interface operations.
+type SelectionController interface {
+	SelectChild(context.Context, NodeID, int32) error
+	DeselectChild(context.Context, NodeID, int32) error
+	SelectAll(context.Context, NodeID) error
+	ClearSelection(context.Context, NodeID) error
+	DeselectAll(context.Context, NodeID) error
+}
+
+// TableController exposes the row/column selection operations defined by the
+// AT-SPI Table interface.
+type TableController interface {
+	SelectRow(context.Context, NodeID, int32) error
+	DeselectRow(context.Context, NodeID, int32) error
+	SelectColumn(context.Context, NodeID, int32) error
+	DeselectColumn(context.Context, NodeID, int32) error
+}
+
+// Automation is the aggregate typed mutation surface implemented by the
+// native backend.
+type Automation interface {
+	ActionInvoker
+	ComponentController
+	ValueController
+	TextController
+	SelectionController
+	TableController
+}
+
+// ScrollType identifies the AT-SPI scroll coordinate semantics.
+type ScrollType uint32
+
+const (
+	ScrollAnyWhere ScrollType = iota
+	ScrollTopLeft
+	ScrollBottomRight
+	ScrollTopRight
+	ScrollBottomLeft
+)
+
+// WindowTarget describes an authoritative Perfuncted window used to resolve
+// an AT-SPI top-level window/dialog/frame.
+type WindowTarget struct {
+	ID      string
+	Title   string
+	PID     int32
+	AppID   string
+	Bounds  Rect
+	Active  bool
+	Focused bool
+}
+
+// WindowScope is the correlated accessibility subtree root and evidence used
+// to choose it. A root is never silently substituted with an application root.
+type WindowScope struct {
+	WindowID   string      `json:"windowId"`
+	Title      string      `json:"title,omitempty"`
+	Root       NodeID      `json:"root"`
+	Candidates []Candidate `json:"candidates,omitempty"`
+	Evidence   []string    `json:"evidence,omitempty"`
+}
+
+// WindowResolver resolves an authoritative compositor window to its
+// corresponding AT-SPI top-level accessible subtree.
+type WindowResolver interface {
+	ResolveWindow(context.Context, WindowTarget) (WindowScope, error)
+}
+
+// Reopener creates a fresh backend for the same target session. It is
+// intentionally explicit; no operation retries or reconnects in the
+// background.
+type Reopener interface {
+	Reopen(context.Context) (Backend, error)
+}
+
 // OpenRuntime opens the accessibility bus associated with rt. The normal
 // session bus only provides org.a11y.Bus.GetAddress; all chatty AT-SPI calls
 // are made over the returned private accessibility bus.
 func OpenRuntime(rt env.Runtime) (Backend, error) {
+	return openRuntime(rt, 1)
+}
+
+func openRuntime(rt env.Runtime, generation uint64) (Backend, error) {
+	if generation == 0 {
+		generation = 1
+	}
 	// Accessibility is session-scoped. Unlike generic D-Bus helpers, never
 	// fall back to the caller's host bus when the target runtime omitted its
 	// address; doing so could expose or act on another desktop session.
@@ -332,21 +478,41 @@ func OpenRuntime(rt env.Runtime) (Backend, error) {
 		_ = session.Close()
 		return nil, fmt.Errorf("accessibility: hello accessibility bus: %w", err)
 	}
-	return &dbusBackend{session: session, access: access, generation: 1}, nil
+	backend := &dbusBackend{
+		runtime: rt, session: session, access: access, generation: generation,
+		cache:      make(map[string]cachedSnapshot),
+		cacheItems: make(map[NodeID]cacheItem), cacheApps: make(map[string]bool),
+		subscribers: make(map[uint64]*eventSubscriber),
+	}
+	backend.watchDisconnect()
+	return backend, nil
 }
 
 type dbusBackend struct {
-	session    *dbus.Conn
-	access     *dbus.Conn
-	mu         sync.RWMutex
-	generation uint64
-	cache      map[string]cachedSnapshot
+	runtime      env.Runtime
+	session      *dbus.Conn
+	access       *dbus.Conn
+	mu           sync.RWMutex
+	generation   uint64
+	disconnected bool
+	closed       bool
+	cache        map[string]cachedSnapshot
 	// cacheItems is the optional upstream AT-SPI cache. It is keyed by the
 	// complete object reference, so objects from different application buses
 	// cannot collide. The local snapshot cache remains a short-lived response
 	// optimization; cacheItems is refreshed by Cache.GetItems and signals.
-	cacheItems map[NodeID]cacheItem
-	cacheApps  map[string]bool
+	cacheItems     map[NodeID]cacheItem
+	cacheApps      map[string]bool
+	eventsMu       sync.Mutex
+	subscribers    map[uint64]*eventSubscriber
+	nextSubscriber uint64
+	eventCancel    context.CancelFunc
+	eventDone      chan struct{}
+}
+
+type eventSubscriber struct {
+	out     chan Event
+	dropped uint64
 }
 
 type cachedSnapshot struct {
@@ -377,11 +543,15 @@ type cacheItem struct {
 }
 
 func (item cacheItem) nodeID() NodeID {
-	return NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath)}
+	return NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath), Generation: 1}
+}
+
+func (item cacheItem) nodeIDAt(generation uint64) NodeID {
+	return NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath), Generation: generation}
 }
 
 func (b *dbusBackend) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 // Generation returns the current invalidation generation. It changes when an
@@ -414,9 +584,18 @@ func (b *dbusBackend) Close() error {
 		return nil
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil
+	}
+	b.closed = true
+	b.disconnected = true
+	b.generation++
 	access, session := b.access, b.session
 	b.access, b.session = nil, nil
+	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.mu.Unlock()
+	b.stopEvents()
 	if access != nil {
 		errs = append(errs, access.Close())
 	}
@@ -431,19 +610,37 @@ func (b *dbusBackend) object(id NodeID) (dbus.BusObject, error) {
 		return nil, errors.New("accessibility: bus is closed")
 	}
 	b.mu.RLock()
-	access := b.access
+	access, disconnected, closed, generation := b.access, b.disconnected, b.closed, b.generation
 	b.mu.RUnlock()
-	if access == nil {
-		return nil, errors.New("accessibility: bus is closed")
+	if disconnected || closed || access == nil {
+		return nil, ErrDisconnected
 	}
 	if !id.valid() {
-		return nil, errors.New("accessibility: invalid object reference")
+		return nil, ErrStaleNode
+	}
+	if id.Generation != generation {
+		return nil, fmt.Errorf("%w: handle generation %d, current generation %d", ErrStaleNode, id.Generation, generation)
 	}
 	return access.Object(id.BusName, dbus.ObjectPath(id.ObjectPath)), nil
 }
 
 func (b *dbusBackend) desktop() NodeID {
-	return NodeID{BusName: registryName, ObjectPath: string(desktopPath)}
+	return NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: b.Generation()}
+}
+
+func (b *dbusBackend) refID(ref objectRef) NodeID {
+	if b == nil {
+		return ref.id()
+	}
+	return NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath), Generation: b.Generation()}
+}
+
+func (b *dbusBackend) tagRefs(refs []objectRef) []objectRef {
+	gen := b.Generation()
+	for i := range refs {
+		refs[i].Generation = gen
+	}
+	return refs
 }
 
 func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
@@ -468,14 +665,14 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 		// Cache.GetItems is an optional optimization. Providers that do not
 		// expose it continue through the direct Accessible interface path.
 		_ = b.loadCache(ctx, ref.BusName)
-		node, err := b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText, false)
+		node, err := b.readNode(ctx, b.refID(ref), NodeID{}, defaultMaxText, false)
 		if err != nil {
 			continue
 		}
 		app := Application{Node: node}
 		app.PID, _ = b.connectionPID(ctx, ref.BusName)
-		_ = b.property(ctx, ref.id(), "org.a11y.atspi.Application", "ToolkitName", &app.ToolkitName)
-		_ = b.property(ctx, ref.id(), "org.a11y.atspi.Application", "ToolkitVersion", &app.ToolkitVersion)
+		_ = b.property(ctx, b.refID(ref), "org.a11y.atspi.Application", "ToolkitName", &app.ToolkitName)
+		_ = b.property(ctx, b.refID(ref), "org.a11y.atspi.Application", "ToolkitVersion", &app.ToolkitVersion)
 		apps = append(apps, app)
 	}
 	return apps, nil
@@ -548,28 +745,29 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 		return nil, errors.New("accessibility: nil context")
 	}
 	if b == nil {
-		return nil, errors.New("accessibility: bus is closed")
+		return nil, ErrDisconnected
 	}
-	b.mu.RLock()
-	access := b.access
-	b.mu.RUnlock()
-	if access == nil {
-		return nil, errors.New("accessibility: bus is closed")
-	}
-	opts = opts.normalized()
-	registry, registered := registerEvents(ctx, access)
-	matches, err := subscribeEventMatches(ctx, access)
-	if err != nil {
-		// Registration happens before match installation. If a bus rejects a
-		// match, undo the registrations here because the event goroutine (which
-		// normally owns cleanup) will never be started.
-		deregisterEvents(context.Background(), registry, registered) //nolint:contextcheck // cleanup must outlive the canceled subscription context.
+	if err := b.connected(); err != nil {
 		return nil, err
 	}
-	signals := make(chan *dbus.Signal, opts.Buffer)
-	access.Signal(signals)
+	opts = opts.normalized()
 	out := make(chan Event, opts.Buffer)
-	go runEventStream(ctx, access, signals, out, matches, registry, registered, b)
+	b.eventsMu.Lock()
+	b.nextSubscriber++
+	id := b.nextSubscriber
+	b.subscribers[id] = &eventSubscriber{out: out}
+	start := b.eventCancel == nil
+	b.eventsMu.Unlock()
+	if start {
+		if err := b.startEvents(ctx); err != nil {
+			b.eventsMu.Lock()
+			delete(b.subscribers, id)
+			b.eventsMu.Unlock()
+			close(out)
+			return nil, err
+		}
+	}
+	go b.watchSubscriber(ctx, id)
 	return out, nil
 }
 
@@ -708,9 +906,12 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 	}
 	opts = opts.normalized()
 	if root == (NodeID{}) {
+		if !opts.AllowDesktopRoot {
+			return Snapshot{}, fmt.Errorf("%w: Snapshot requires an application, window, or root handle", ErrScope)
+		}
 		root = b.desktop()
 	} else if !root.valid() {
-		return Snapshot{}, errors.New("accessibility: invalid snapshot root")
+		return Snapshot{}, fmt.Errorf("%w: invalid snapshot root", ErrScope)
 	}
 	if root.BusName != registryName {
 		_ = b.loadCache(ctx, root.BusName)
@@ -937,6 +1138,7 @@ func (b *dbusBackend) Focused(ctx context.Context, opts SnapshotOptions) (Node, 
 	if err := ctx.Err(); err != nil {
 		return Node{}, err
 	}
+	opts.AllowDesktopRoot = true
 	snapshot, err := b.Snapshot(ctx, NodeID{}, opts)
 	if err != nil {
 		return Node{}, err
@@ -967,7 +1169,8 @@ func (b *dbusBackend) AtPoint(ctx context.Context, x, y int) (Node, error) {
 	if ref.null() {
 		return Node{}, ErrNotFound
 	}
-	return b.readNode(ctx, ref.id(), NodeID{}, defaultMaxText, false)
+	ref.Generation = b.Generation()
+	return b.readNode(ctx, b.refID(ref), NodeID{}, defaultMaxText, false)
 }
 
 func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, error) {
@@ -982,7 +1185,7 @@ func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, err
 	if err := obj.CallWithContext(ctx, accessibleIface+".GetChildren", 0).Store(&refs); err != nil {
 		return nil, fmt.Errorf("accessibility: children %s: %w", id.ObjectPath, err)
 	}
-	return refs, nil
+	return b.tagRefs(refs), nil
 }
 
 func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
@@ -1001,7 +1204,7 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	items := make([]indexed, 0)
 	for _, item := range b.cacheItems {
 		if item.Parent.BusName == id.BusName && string(item.Parent.ObjectPath) == id.ObjectPath {
-			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath}})
+			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath, Generation: b.generation}})
 		}
 	}
 	if len(items) == 0 {
@@ -1044,7 +1247,7 @@ func (b *dbusBackend) loadCache(ctx context.Context, busName string) error {
 		b.cacheItems = make(map[NodeID]cacheItem)
 	}
 	for _, item := range items {
-		id := item.nodeID()
+		id := item.nodeIDAt(b.Generation())
 		if id.valid() {
 			b.cacheItems[id] = item
 		}
@@ -1069,10 +1272,10 @@ func (b *dbusBackend) applyCacheSignal(sig *dbus.Signal) {
 	if strings.HasSuffix(sig.Name, "Cache:AddAccessible") && len(sig.Body) > 0 {
 		switch item := sig.Body[0].(type) {
 		case cacheItem:
-			b.cacheItems[item.nodeID()] = item
+			b.cacheItems[item.nodeIDAt(b.generation)] = item
 		case *cacheItem:
 			if item != nil {
-				b.cacheItems[item.nodeID()] = *item
+				b.cacheItems[item.nodeIDAt(b.generation)] = *item
 			}
 		default:
 			// A provider with an older wire signature may still emit a valid
@@ -1082,18 +1285,21 @@ func (b *dbusBackend) applyCacheSignal(sig *dbus.Signal) {
 		}
 	} else if strings.HasSuffix(sig.Name, "Cache:RemoveAccessible") && len(sig.Body) > 0 {
 		if ref, ok := sig.Body[0].(cacheObjectRef); ok {
-			delete(b.cacheItems, NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath)})
+			for id := range b.cacheItems {
+				if id.BusName == ref.BusName && id.ObjectPath == string(ref.ObjectPath) {
+					delete(b.cacheItems, id)
+				}
+			}
 		} else {
 			b.cacheItems = nil
 		}
 	}
 	b.cache = nil
-	b.generation++
 }
 
 func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {
-	if !id.valid() {
-		return Node{}, errors.New("accessibility: invalid node")
+	if _, err := b.object(id); err != nil {
+		return Node{}, err
 	}
 	node := Node{ID: id, Parent: parent}
 	if item, ok := b.cachedItem(id); ok {
@@ -1127,6 +1333,14 @@ func (b *dbusBackend) cachedItem(id NodeID) (cacheItem, bool) {
 	}
 	b.mu.RLock()
 	item, ok := b.cacheItems[id]
+	if !ok {
+		for key, candidate := range b.cacheItems {
+			if key.BusName == id.BusName && key.ObjectPath == id.ObjectPath {
+				item, ok = candidate, true
+				break
+			}
+		}
+	}
 	b.mu.RUnlock()
 	return item, ok
 }
@@ -1265,9 +1479,16 @@ func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interface
 		}
 	}
 	if contains(interfaces, actionIface) {
-		var actions []Action
-		if err := b.call(ctx, id, actionIface+".GetActions", nil, &actions); err == nil {
-			node.Actions = actions
+		var wire []struct {
+			Name        string
+			Description string
+			KeyBinding  string
+		}
+		if err := b.call(ctx, id, actionIface+".GetActions", nil, &wire); err == nil {
+			node.Actions = make([]Action, len(wire))
+			for i, action := range wire {
+				node.Actions[i] = Action{Index: int32(i), Name: action.Name, Description: action.Description, KeyBinding: action.KeyBinding}
+			}
 		} else {
 			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetActions: %v", actionIface, err))
 		}
@@ -1337,7 +1558,7 @@ func (b *dbusBackend) readNodeRelations(ctx context.Context, id NodeID, node *No
 		}
 		for _, target := range relation.Targets {
 			if !target.null() {
-				node.Relations[name] = append(node.Relations[name], target.id())
+				node.Relations[name] = append(node.Relations[name], b.refID(target))
 			}
 		}
 	}

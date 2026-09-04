@@ -18,6 +18,8 @@ type accessibilityCLIOptions struct {
 	json           bool
 	rootBus        string
 	rootPath       string
+	generation     uint64
+	desktopRoot    bool
 	appName        string
 	pid            int32
 	windowID       string
@@ -43,11 +45,14 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 	if o.rootBus == "" || o.rootPath == "" {
 		return accessibility.NodeID{}, fmt.Errorf("root requires both --root-bus and --root-path")
 	}
-	return accessibility.NodeID{BusName: o.rootBus, ObjectPath: o.rootPath}, nil
+	if o.generation == 0 {
+		return accessibility.NodeID{}, fmt.Errorf("root requires --generation from a current accessibility snapshot")
+	}
+	return accessibility.NodeID{BusName: o.rootBus, ObjectPath: o.rootPath, Generation: o.generation}, nil
 }
 
 func (o accessibilityCLIOptions) snapshot() accessibility.SnapshotOptions {
-	return accessibility.SnapshotOptions{MaxDepth: o.maxDepth, MaxNodes: o.maxNodes, MaxTextBytes: o.maxTextBytes, VisibleOnly: o.visibleOnly, AllowSensitive: o.allowSensitive}
+	return accessibility.SnapshotOptions{MaxDepth: o.maxDepth, MaxNodes: o.maxNodes, MaxTextBytes: o.maxTextBytes, VisibleOnly: o.visibleOnly, AllowSensitive: o.allowSensitive, AllowDesktopRoot: o.desktopRoot}
 }
 
 func (o accessibilityCLIOptions) format() string {
@@ -71,6 +76,8 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		c.Flags().BoolVar(&o.json, "json", false, "output JSON (alias for --output json)")
 		c.Flags().StringVar(&o.rootBus, "root-bus", "", "AT-SPI application bus name")
 		c.Flags().StringVar(&o.rootPath, "root-path", "", "AT-SPI application object path")
+		c.Flags().Uint64Var(&o.generation, "generation", 0, "current accessibility generation for --root-bus/--root-path")
+		c.Flags().BoolVar(&o.desktopRoot, "desktop-root", false, "explicitly allow bounded whole-desktop traversal")
 		c.Flags().StringVar(&o.appName, "app", "", "application accessible-name substring")
 		c.Flags().StringVar(&o.appName, "application", "", "application accessible-name substring (alias for --app)")
 		c.Flags().Int32Var(&o.pid, "pid", 0, "application process ID")
@@ -143,6 +150,25 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	findCmd.Flags().StringVar(&query.Text, "text", "", "accessible text substring")
 	findCmd.Flags().StringSliceVar(&query.States, "state", nil, "required accessible state (repeatable)")
 	findCmd.Flags().StringArrayVar(&attributeFlags, "attribute", nil, "required attribute key=value (repeatable)")
+
+	var outlineOpts accessibilityCLIOptions
+	outline := &cobra.Command{Use: "outline", Short: "Print a compact semantic outline for an explicit scope", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		root, err := outlineOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		value, err := pf.Accessibility.Outline(c.Context(), root, outlineOpts.snapshot(), accessibility.OutlineOptions{MaxDepth: outlineOpts.maxDepth, MaxNodes: outlineOpts.maxNodes})
+		if err != nil {
+			return err
+		}
+		return accessibilityOutput(c.OutOrStdout(), outlineOpts.format(), value)
+	}}
+	common(outline, &outlineOpts)
 
 	focused := &cobra.Command{Use: "focused", Short: "Print the currently focused accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openPF(c.Context())
@@ -221,7 +247,117 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	}}
 	events.Flags().IntVar(&eventBuffer, "buffer", 0, "event buffer size")
 
-	cmd.AddCommand(applications, snapshot, findCmd, focused, atPoint, events)
+	var actionOpts accessibilityCLIOptions
+	var actionIndex int32
+	var actionName string
+	action := &cobra.Command{Use: "invoke-action", Short: "Invoke an AT-SPI action on an explicit node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := actionOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(actionName) != "" {
+			err = pf.Accessibility.InvokeActionByName(c.Context(), node, actionName)
+		} else if actionIndex >= 0 {
+			err = pf.Accessibility.InvokeAction(c.Context(), node, actionIndex)
+		} else {
+			_, err = pf.Accessibility.InvokeDefaultAction(c.Context(), node)
+		}
+		return err
+	}}
+	common(action, &actionOpts)
+	action.Flags().Int32Var(&actionIndex, "action-index", -1, "stable AT-SPI action index")
+	action.Flags().StringVar(&actionName, "action-name", "", "exact AT-SPI action name (must be unique)")
+	var focusOpts accessibilityCLIOptions
+	focus := &cobra.Command{Use: "focus", Short: "Focus an explicit accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := focusOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.FocusNode(c.Context(), node)
+	}}
+	common(focus, &focusOpts)
+	var scrollOpts accessibilityCLIOptions
+	scroll := &cobra.Command{Use: "scroll", Short: "Scroll an explicit accessible node into view", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := scrollOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.ScrollNodeIntoView(c.Context(), node)
+	}}
+	common(scroll, &scrollOpts)
+	var valueOpts accessibilityCLIOptions
+	var value float64
+	setValue := &cobra.Command{Use: "set-value", Short: "Set an accessible Value", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := valueOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.SetCurrentValue(c.Context(), node, value)
+	}}
+	common(setValue, &valueOpts)
+	setValue.Flags().Float64Var(&value, "value", 0, "new current value")
+	var textOpts accessibilityCLIOptions
+	var textValue string
+	setText := &cobra.Command{Use: "set-text", Short: "Set editable text through AT-SPI", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := textOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.ReplaceEditableText(c.Context(), node, textValue)
+	}}
+	common(setText, &textOpts)
+	setText.Flags().StringVar(&textValue, "text", "", "replacement text")
+	var selectionOpts accessibilityCLIOptions
+	var childIndex int32
+	selectChild := &cobra.Command{Use: "select-child", Short: "Select a child through AT-SPI Selection", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := selectionOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.SelectChild(c.Context(), node, childIndex)
+	}}
+	common(selectChild, &selectionOpts)
+	selectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
+	reopen := &cobra.Command{Use: "reopen", Short: "Explicitly reopen the target accessibility bus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		return pf.Accessibility.ReopenAccessibility(c.Context())
+	}}
+
+	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, setValue, setText, selectChild, reopen)
 	return cmd
 }
 
