@@ -22,6 +22,7 @@ Inspect the AT-SPI accessibility tree
 * [pf](pf.md)	 - perfuncted — screen automation CLI
 * [pf accessibility applications](pf_accessibility_applications.md)	 - List registered accessible applications
 * [pf accessibility at-point](pf_accessibility_at-point.md)	 - Inspect the accessible object at a screen coordinate
+* [pf accessibility events](pf_accessibility_events.md)	 - Stream AT-SPI invalidation events as JSON lines
 * [pf accessibility find](pf_accessibility_find.md)	 - Find accessible nodes by name, role, or text
 * [pf accessibility focused](pf_accessibility_focused.md)	 - Print the currently focused accessible node
 * [pf accessibility snapshot](pf_accessibility_snapshot.md)	 - Capture a bounded accessibility tree

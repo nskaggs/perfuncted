@@ -596,10 +596,15 @@ func cloneSnapshot(in Snapshot) Snapshot {
 }
 
 type snapshotWalker struct {
-	backend  *dbusBackend
+	backend  snapshotBackend
 	opts     SnapshotOptions
 	snapshot Snapshot
 	seen     map[NodeID]struct{}
+}
+
+type snapshotBackend interface {
+	readNode(context.Context, NodeID, NodeID, int, bool) (Node, error)
+	children(context.Context, NodeID) ([]objectRef, error)
 }
 
 func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int) (Node, error) {
