@@ -116,6 +116,41 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 	}
 }
 
+func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
+	root := NodeID{BusName: "org.test.App", ObjectPath: "/root"}
+	first := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/first"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 1}
+	second := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/second"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
+	backend := &dbusBackend{
+		cacheItems: map[NodeID]cacheItem{first.nodeID(): first, second.nodeID(): second},
+		cacheApps:  map[string]bool{root.BusName: true},
+	}
+	children := backend.cachedChildren(root)
+	if len(children) != 2 || children[0].ObjectPath != "/second" || children[1].ObjectPath != "/first" {
+		t.Fatalf("children = %+v, want index order", children)
+	}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Body: []any{cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/second")}}})
+	if got := len(backend.cachedChildren(root)); got != 1 {
+		t.Fatalf("children after remove = %d, want 1", got)
+	}
+	added := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/third"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{added}})
+	if got := len(backend.cachedChildren(root)); got != 2 {
+		t.Fatalf("children after add = %d, want 2", got)
+	}
+}
+
+func TestFindMatchesStatesAndAttributes(t *testing.T) {
+	if !matchesStates([]string{"enabled", "focused"}, []string{"focused"}) {
+		t.Fatal("state match rejected present state")
+	}
+	if matchesStates([]string{"enabled"}, []string{"focused"}) {
+		t.Fatal("state match accepted absent state")
+	}
+	if !matchesAttributes(map[string]string{"kind": "Primary"}, map[string]string{"kind": "primary"}) {
+		t.Fatal("attribute matching should be case-insensitive")
+	}
+}
+
 func TestRedactSensitiveNodeKeepsUsefulSemantics(t *testing.T) {
 	node := Node{Name: "Password", Role: "entry", Text: "secret", States: []string{"sensitive"}, Attributes: map[string]string{"value": "secret", "aria-label": "Password", "class": "field"}}
 	redactSensitiveNode(&node)

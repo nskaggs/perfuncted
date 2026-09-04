@@ -369,10 +369,6 @@ func (item cacheItem) nodeID() NodeID {
 	return NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath)}
 }
 
-func (item cacheItem) parentID() NodeID {
-	return NodeID{BusName: item.Parent.BusName, ObjectPath: string(item.Parent.ObjectPath)}
-}
-
 func (b *dbusBackend) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events"}
 }
