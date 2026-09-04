@@ -40,7 +40,7 @@ func (cliAccessibilityFake) Events(context.Context, accessibility.EventOptions) 
 func (cliAccessibilityFake) Close() error { return nil }
 
 func (cliAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
@@ -56,7 +56,14 @@ func (cliAutomationFake) GrabFocus(context.Context, accessibility.NodeID) error 
 func (cliAutomationFake) ScrollTo(context.Context, accessibility.NodeID, accessibility.ScrollType) error {
 	return nil
 }
-func (cliAutomationFake) ScrollToPoint(context.Context, accessibility.NodeID, accessibility.ScrollType, int, int) error {
+func (cliAutomationFake) ScrollToPoint(context.Context, accessibility.NodeID, accessibility.CoordType, int, int) error {
+	return nil
+}
+func (cliAutomationFake) SetPosition(context.Context, accessibility.NodeID, int, int, accessibility.CoordType) error {
+	return nil
+}
+func (cliAutomationFake) SetSize(context.Context, accessibility.NodeID, int, int) error { return nil }
+func (cliAutomationFake) SetExtents(context.Context, accessibility.NodeID, int, int, int, int, accessibility.CoordType) error {
 	return nil
 }
 func (cliAutomationFake) SetCurrentValue(context.Context, accessibility.NodeID, float64) error {
@@ -94,13 +101,19 @@ func (cliAutomationFake) AddTextSelection(context.Context, accessibility.NodeID,
 func (cliAutomationFake) RemoveTextSelection(context.Context, accessibility.NodeID, int32) error {
 	return nil
 }
+func (cliAutomationFake) SetTextSelections(context.Context, accessibility.NodeID, []accessibility.DocumentTextSelection) error {
+	return nil
+}
 func (cliAutomationFake) SelectChild(context.Context, accessibility.NodeID, int32) error { return nil }
 func (cliAutomationFake) DeselectChild(context.Context, accessibility.NodeID, int32) error {
 	return nil
 }
-func (cliAutomationFake) SelectAll(context.Context, accessibility.NodeID) error           { return nil }
-func (cliAutomationFake) ClearSelection(context.Context, accessibility.NodeID) error      { return nil }
-func (cliAutomationFake) DeselectAll(context.Context, accessibility.NodeID) error         { return nil }
+func (cliAutomationFake) SelectAll(context.Context, accessibility.NodeID) error      { return nil }
+func (cliAutomationFake) ClearSelection(context.Context, accessibility.NodeID) error { return nil }
+func (cliAutomationFake) DeselectAll(context.Context, accessibility.NodeID) error    { return nil }
+func (cliAutomationFake) DeselectSelectedChild(context.Context, accessibility.NodeID) error {
+	return nil
+}
 func (cliAutomationFake) SelectRow(context.Context, accessibility.NodeID, int32) error    { return nil }
 func (cliAutomationFake) DeselectRow(context.Context, accessibility.NodeID, int32) error  { return nil }
 func (cliAutomationFake) SelectColumn(context.Context, accessibility.NodeID, int32) error { return nil }
@@ -126,6 +139,25 @@ func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
 	}
 	if len(apps) != 1 || apps[0].PID != 123 || !strings.Contains(apps[0].Name, "Test") {
 		t.Fatalf("apps=%+v", apps)
+	}
+}
+
+func TestParseAccessibilityCoordType(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  accessibility.CoordType
+	}{
+		{"screen", accessibility.CoordTypeScreen},
+		{"WINDOW", accessibility.CoordTypeWindow},
+		{" parent ", accessibility.CoordTypeParent},
+	} {
+		got, err := parseAccessibilityCoordType(test.input)
+		if err != nil || got != test.want {
+			t.Fatalf("parse %q = %v, %v; want %v", test.input, got, err, test.want)
+		}
+	}
+	if _, err := parseAccessibilityCoordType("alignment"); err == nil {
+		t.Fatal("invalid coordinate space unexpectedly accepted")
 	}
 }
 

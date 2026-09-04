@@ -106,6 +106,12 @@ func (b *dbusBackend) startEvents(ctx context.Context) error {
 }
 
 func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
+	if ctx == nil || ctx.Done() == nil {
+		// A non-cancelable context has no caller-owned lifetime to watch. The
+		// dispatcher and backend Close still close this subscriber, so do not
+		// strand a goroutine waiting forever on context.Background().
+		return
+	}
 	<-ctx.Done()
 	b.eventsMu.Lock()
 	if subscriber, ok := b.subscribers[id]; ok {
@@ -174,11 +180,40 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 // a delivered physical signal and stamps the resulting event with a handle
 // valid for the new generation.
 func (b *dbusBackend) prepareEvent(sig *dbus.Signal, event Event) Event {
-	// Cache updates are applied after the transition so entries are tagged with
-	// the new generation. This keeps event handles and cache-backed children in
-	// the same generation without allowing duplicate mutation paths.
+	// A cache signal carries an authoritative delta. Preserve the prior
+	// upstream cache state across the generation transition, then apply that
+	// delta under the new generation. Other signals deliberately discard cache
+	// metadata so a changed name/state cannot leak into a fresh snapshot.
+	var cacheItems map[NodeID]cacheItem
+	var cacheApps map[string]bool
+	if sig != nil && stringsHasCachePrefix(sig.Name) {
+		b.mu.RLock()
+		if b.cacheItems != nil {
+			cacheItems = make(map[NodeID]cacheItem, len(b.cacheItems))
+			for id, item := range b.cacheItems {
+				cacheItems[id] = item
+			}
+		}
+		if b.cacheApps != nil {
+			cacheApps = make(map[string]bool, len(b.cacheApps))
+			for name, present := range b.cacheApps {
+				cacheApps[name] = present
+			}
+		}
+		b.mu.RUnlock()
+	}
 	b.Invalidate(event.Node)
 	if sig != nil && stringsHasCachePrefix(sig.Name) {
+		b.mu.Lock()
+		if cacheItems != nil {
+			rekeyed := make(map[NodeID]cacheItem, len(cacheItems))
+			for _, item := range cacheItems {
+				rekeyed[item.nodeIDAt(b.generation)] = item
+			}
+			cacheItems = rekeyed
+		}
+		b.cacheItems, b.cacheApps = cacheItems, cacheApps
+		b.mu.Unlock()
 		b.applyCacheSignal(sig)
 	}
 	event.Node.Generation = b.Generation()

@@ -301,6 +301,94 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		return pf.Accessibility.ScrollNodeIntoView(c.Context(), node)
 	}}
 	common(scroll, &scrollOpts)
+	var scrollPointOpts accessibilityCLIOptions
+	var scrollPointX, scrollPointY int
+	var scrollPointCoord string
+	scrollPoint := &cobra.Command{Use: "scroll-to-point", Short: "Scroll an accessible node to a point in a coordinate space", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := scrollPointOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		coord, err := parseAccessibilityCoordType(scrollPointCoord)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.ScrollToPoint(c.Context(), node, coord, scrollPointX, scrollPointY)
+	}}
+	common(scrollPoint, &scrollPointOpts)
+	scrollPoint.Flags().IntVar(&scrollPointX, "x", 0, "point x coordinate")
+	scrollPoint.Flags().IntVar(&scrollPointY, "y", 0, "point y coordinate")
+	scrollPoint.Flags().StringVar(&scrollPointCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
+	var positionOpts accessibilityCLIOptions
+	var positionX, positionY int
+	var positionCoord string
+	setPosition := &cobra.Command{Use: "set-position", Short: "Move an accessible Component", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := positionOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		coord, err := parseAccessibilityCoordType(positionCoord)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.SetPosition(c.Context(), node, positionX, positionY, coord)
+	}}
+	common(setPosition, &positionOpts)
+	setPosition.Flags().IntVar(&positionX, "x", 0, "position x coordinate")
+	setPosition.Flags().IntVar(&positionY, "y", 0, "position y coordinate")
+	setPosition.Flags().StringVar(&positionCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
+	var sizeOpts accessibilityCLIOptions
+	var sizeWidth, sizeHeight int
+	setSize := &cobra.Command{Use: "set-size", Short: "Resize an accessible Component", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := sizeOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.SetSize(c.Context(), node, sizeWidth, sizeHeight)
+	}}
+	common(setSize, &sizeOpts)
+	setSize.Flags().IntVar(&sizeWidth, "width", 0, "component width")
+	setSize.Flags().IntVar(&sizeHeight, "height", 0, "component height")
+	var extentsOpts accessibilityCLIOptions
+	var extentX, extentY, extentWidth, extentHeight int
+	var extentCoord string
+	setExtents := &cobra.Command{Use: "set-extents", Short: "Move and resize an accessible Component", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openPF(c.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		node, err := extentsOpts.root(c.Context(), pf)
+		if err != nil {
+			return err
+		}
+		coord, err := parseAccessibilityCoordType(extentCoord)
+		if err != nil {
+			return err
+		}
+		return pf.Accessibility.SetExtents(c.Context(), node, extentX, extentY, extentWidth, extentHeight, coord)
+	}}
+	common(setExtents, &extentsOpts)
+	setExtents.Flags().IntVar(&extentX, "x", 0, "position x coordinate")
+	setExtents.Flags().IntVar(&extentY, "y", 0, "position y coordinate")
+	setExtents.Flags().IntVar(&extentWidth, "width", 0, "component width")
+	setExtents.Flags().IntVar(&extentHeight, "height", 0, "component height")
+	setExtents.Flags().StringVar(&extentCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
 	var valueOpts accessibilityCLIOptions
 	var value float64
 	setValue := &cobra.Command{Use: "set-value", Short: "Set an accessible Value", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
@@ -427,8 +515,21 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		return pf.Accessibility.ReopenAccessibility(c.Context())
 	}}
 
-	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, selectChild, selectAll, clearSelection, deselectAll, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
+	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, scrollPoint, setPosition, setSize, setExtents, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, selectChild, selectAll, clearSelection, deselectAll, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
 	return cmd
+}
+
+func parseAccessibilityCoordType(value string) (accessibility.CoordType, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "screen":
+		return accessibility.CoordTypeScreen, nil
+	case "window":
+		return accessibility.CoordTypeWindow, nil
+	case "parent":
+		return accessibility.CoordTypeParent, nil
+	default:
+		return 0, fmt.Errorf("unknown coordinate space %q (want screen, window, or parent)", value)
+	}
 }
 
 func parseAccessibilityAttributes(values []string) map[string]string {

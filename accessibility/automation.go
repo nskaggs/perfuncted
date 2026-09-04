@@ -187,14 +187,41 @@ func (b *dbusBackend) ScrollTo(ctx context.Context, id NodeID, scrollType Scroll
 	return b.mutationBool(ctx, id, componentIface, "ScrollTo", uint32(scrollType))
 }
 
-func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, scrollType ScrollType, x, y int) error {
-	if scrollType > ScrollAnyWhere {
-		return fmt.Errorf("accessibility: invalid scroll type %d", scrollType)
+func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, coordType CoordType, x, y int) error {
+	if coordType > CoordTypeParent {
+		return fmt.Errorf("accessibility: invalid coordinate type %d", coordType)
 	}
 	if x < -2147483648 || x > 2147483647 || y < -2147483648 || y > 2147483647 {
 		return fmt.Errorf("accessibility: scroll coordinates out of range")
 	}
-	return b.mutationBool(ctx, id, componentIface, "ScrollToPoint", uint32(scrollType), int32(x), int32(y))
+	return b.mutationBool(ctx, id, componentIface, "ScrollToPoint", uint32(coordType), int32(x), int32(y))
+}
+
+func (b *dbusBackend) SetPosition(ctx context.Context, id NodeID, x, y int, coordType CoordType) error {
+	if coordType > CoordTypeParent {
+		return fmt.Errorf("accessibility: invalid coordinate type %d", coordType)
+	}
+	if x < -2147483648 || x > 2147483647 || y < -2147483648 || y > 2147483647 {
+		return fmt.Errorf("accessibility: position coordinates out of range")
+	}
+	return b.mutationBool(ctx, id, componentIface, "SetPosition", int32(x), int32(y), uint32(coordType))
+}
+
+func (b *dbusBackend) SetSize(ctx context.Context, id NodeID, width, height int) error {
+	if width < 0 || width > 2147483647 || height < 0 || height > 2147483647 {
+		return fmt.Errorf("accessibility: size out of range")
+	}
+	return b.mutationBool(ctx, id, componentIface, "SetSize", int32(width), int32(height))
+}
+
+func (b *dbusBackend) SetExtents(ctx context.Context, id NodeID, x, y, width, height int, coordType CoordType) error {
+	if coordType > CoordTypeParent {
+		return fmt.Errorf("accessibility: invalid coordinate type %d", coordType)
+	}
+	if x < -2147483648 || x > 2147483647 || y < -2147483648 || y > 2147483647 || width < 0 || width > 2147483647 || height < 0 || height > 2147483647 {
+		return fmt.Errorf("accessibility: extents out of range")
+	}
+	return b.mutationBool(ctx, id, componentIface, "SetExtents", int32(x), int32(y), int32(width), int32(height), uint32(coordType))
 }
 
 func (b *dbusBackend) SetCurrentValue(ctx context.Context, id NodeID, value float64) error {
@@ -294,6 +321,44 @@ func (b *dbusBackend) RemoveTextSelection(ctx context.Context, id NodeID, select
 	return b.mutationBool(ctx, id, textIface, "RemoveSelection", selection)
 }
 
+type documentTextSelectionWire struct {
+	StartObject   objectRef
+	StartOffset   int32
+	EndObject     objectRef
+	EndOffset     int32
+	StartIsActive bool
+}
+
+// SetTextSelections uses the AT-SPI 2.52 Document wire shape
+// a((so)i(so)ib). The provider validates that both endpoints are descendants
+// of the document; this layer rejects malformed or stale endpoint handles
+// before their raw D-Bus references are encoded.
+func (b *dbusBackend) SetTextSelections(ctx context.Context, id NodeID, selections []DocumentTextSelection) error {
+	if err := b.validateHandle(id); err != nil {
+		return err
+	}
+	wire := make([]documentTextSelectionWire, len(selections))
+	for i, selection := range selections {
+		if err := b.validateHandle(selection.StartObject); err != nil {
+			return fmt.Errorf("accessibility: document selection %d start: %w", i, err)
+		}
+		if err := b.validateHandle(selection.EndObject); err != nil {
+			return fmt.Errorf("accessibility: document selection %d end: %w", i, err)
+		}
+		if selection.StartOffset < 0 || selection.EndOffset < 0 {
+			return fmt.Errorf("accessibility: document selection %d has negative offset", i)
+		}
+		wire[i] = documentTextSelectionWire{
+			StartObject:   objectRef{BusName: selection.StartObject.BusName, ObjectPath: dbus.ObjectPath(selection.StartObject.ObjectPath)},
+			StartOffset:   selection.StartOffset,
+			EndObject:     objectRef{BusName: selection.EndObject.BusName, ObjectPath: dbus.ObjectPath(selection.EndObject.ObjectPath)},
+			EndOffset:     selection.EndOffset,
+			StartIsActive: selection.StartIsActive,
+		}
+	}
+	return b.mutationBool(ctx, id, documentIface, "SetTextSelections", wire)
+}
+
 func (b *dbusBackend) SelectChild(ctx context.Context, id NodeID, index int32) error {
 	return b.mutationBool(ctx, id, selectionIface, "SelectChild", index)
 }
@@ -311,7 +376,13 @@ func (b *dbusBackend) ClearSelection(ctx context.Context, id NodeID) error {
 }
 
 func (b *dbusBackend) DeselectAll(ctx context.Context, id NodeID) error {
-	return b.mutationBool(ctx, id, selectionIface, "DeselectAll")
+	// AT-SPI has no DeselectAll method. Keep this ergonomic alias wired to the
+	// standard ClearSelection operation.
+	return b.ClearSelection(ctx, id)
+}
+
+func (b *dbusBackend) DeselectSelectedChild(ctx context.Context, id NodeID) error {
+	return b.mutationBool(ctx, id, selectionIface, "DeselectSelectedChild")
 }
 
 func (b *dbusBackend) SelectRow(ctx context.Context, id NodeID, row int32) error {

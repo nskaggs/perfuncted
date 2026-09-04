@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godbus/dbus/v5"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,12 @@ func TestAccessibilityBusAddressMethod(t *testing.T) {
 func TestCacheItemWireSignatureMatchesATSPICache(t *testing.T) {
 	if got := dbus.SignatureOf([]cacheItem{}).String(); got != "a((so)(so)(so)iiassusau)" {
 		t.Fatalf("cache GetItems signature = %q", got)
+	}
+}
+
+func TestDocumentTextSelectionWireSignature(t *testing.T) {
+	if got := dbus.SignatureOf([]documentTextSelectionWire{}).String(); got != "a((so)i(so)ib)" {
+		t.Fatalf("document selection signature = %q, want a((so)i(so)ib)", got)
 	}
 }
 
@@ -158,6 +165,7 @@ func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	first := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/first"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 1}
 	second := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/second"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
 	backend := &dbusBackend{
+		generation: 1,
 		cacheItems: map[NodeID]cacheItem{first.nodeID(): first, second.nodeID(): second},
 		cacheApps:  map[string]bool{root.BusName: true},
 	}
@@ -332,9 +340,13 @@ func TestBuildOutlineAndCandidateContextPreserveGeneration(t *testing.T) {
 }
 
 func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
-	var methods []string
-	backend := &dbusBackend{generation: 1, callOverride: func(_ context.Context, _ NodeID, method string, _ []any) (any, error) {
-		methods = append(methods, method)
+	type call struct {
+		method string
+		args   []any
+	}
+	var calls []call
+	backend := &dbusBackend{generation: 1, callOverride: func(_ context.Context, _ NodeID, method string, args []any) (any, error) {
+		calls = append(calls, call{method: method, args: args})
 		if method == actionIface+".GetActions" {
 			return []Action{{Index: 0, Name: "activate"}, {Index: 1, Name: "alternate"}}, nil
 		}
@@ -343,43 +355,52 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
 	ctx := context.Background()
 	checks := []struct {
-		name string
-		call func() error
+		name     string
+		call     func() error
+		expected []call
 	}{
-		{"action", func() error { return backend.InvokeAction(ctx, id, 0) }},
-		{"action-name", func() error { return backend.InvokeActionByName(ctx, id, "alternate") }},
-		{"default-action", func() error { _, err := backend.InvokeDefaultAction(ctx, id); return err }},
-		{"focus", func() error { return backend.GrabFocus(ctx, id) }},
-		{"scroll", func() error { return backend.ScrollTo(ctx, id, ScrollAnyWhere) }},
-		{"scroll-point", func() error { return backend.ScrollToPoint(ctx, id, ScrollTopLeft, 10, 20) }},
-		{"value", func() error { return backend.SetCurrentValue(ctx, id, 0.5) }},
-		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }},
-		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }},
-		{"insert", func() error { return backend.InsertText(ctx, id, 0, "x") }},
-		{"copy", func() error { return backend.CopyText(ctx, id, 0, 1) }},
-		{"cut", func() error { return backend.CutText(ctx, id, 0, 1) }},
-		{"paste", func() error { return backend.PasteText(ctx, id, 0) }},
-		{"caret", func() error { return backend.SetCaretOffset(ctx, id, 1) }},
-		{"selection", func() error { return backend.SetTextSelection(ctx, id, 0, 0, 1) }},
-		{"add-selection", func() error { return backend.AddTextSelection(ctx, id, 0, 1) }},
-		{"remove-selection", func() error { return backend.RemoveTextSelection(ctx, id, 0) }},
-		{"select-child", func() error { return backend.SelectChild(ctx, id, 0) }},
-		{"deselect-child", func() error { return backend.DeselectChild(ctx, id, 0) }},
-		{"select-all", func() error { return backend.SelectAll(ctx, id) }},
-		{"clear-selection", func() error { return backend.ClearSelection(ctx, id) }},
-		{"deselect-all", func() error { return backend.DeselectAll(ctx, id) }},
-		{"select-row", func() error { return backend.SelectRow(ctx, id, 0) }},
-		{"deselect-row", func() error { return backend.DeselectRow(ctx, id, 0) }},
-		{"select-column", func() error { return backend.SelectColumn(ctx, id, 0) }},
-		{"deselect-column", func() error { return backend.DeselectColumn(ctx, id, 0) }},
+		{"action", func() error { return backend.InvokeAction(ctx, id, 0) }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(0)}}}},
+		{"action-name", func() error { return backend.InvokeActionByName(ctx, id, "alternate") }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(1)}}}},
+		{"default-action", func() error { _, err := backend.InvokeDefaultAction(ctx, id); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(0)}}}},
+		{"focus", func() error { return backend.GrabFocus(ctx, id) }, []call{{componentIface + ".GrabFocus", nil}}},
+		{"scroll", func() error { return backend.ScrollTo(ctx, id, ScrollAnyWhere) }, []call{{componentIface + ".ScrollTo", []any{uint32(ScrollAnyWhere)}}}},
+		{"scroll-point", func() error { return backend.ScrollToPoint(ctx, id, CoordTypeWindow, 10, 20) }, []call{{componentIface + ".ScrollToPoint", []any{uint32(CoordTypeWindow), int32(10), int32(20)}}}},
+		{"set-position", func() error { return backend.SetPosition(ctx, id, 11, 12, CoordTypeParent) }, []call{{componentIface + ".SetPosition", []any{int32(11), int32(12), uint32(CoordTypeParent)}}}},
+		{"set-size", func() error { return backend.SetSize(ctx, id, 640, 480) }, []call{{componentIface + ".SetSize", []any{int32(640), int32(480)}}}},
+		{"set-extents", func() error { return backend.SetExtents(ctx, id, 1, 2, 640, 480, CoordTypeScreen) }, []call{{componentIface + ".SetExtents", []any{int32(1), int32(2), int32(640), int32(480), uint32(CoordTypeScreen)}}}},
+		{"value", func() error { return backend.SetCurrentValue(ctx, id, 0.5) }, []call{{propertiesIface + ".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(0.5)}}}},
+		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }, []call{{editableTextIface + ".SetTextContents", []any{"safe"}}}},
+		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }, []call{{editableTextIface + ".DeleteText", []any{int32(0), int32(1)}}, {editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
+		{"insert", func() error { return backend.InsertText(ctx, id, 0, "x") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
+		{"copy", func() error { return backend.CopyText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CopyText", []any{int32(0), int32(1)}}}},
+		{"cut", func() error { return backend.CutText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CutText", []any{int32(0), int32(1)}}}},
+		{"paste", func() error { return backend.PasteText(ctx, id, 0) }, []call{{editableTextIface + ".PasteText", []any{int32(0)}}}},
+		{"caret", func() error { return backend.SetCaretOffset(ctx, id, 1) }, []call{{textIface + ".SetCaretOffset", []any{int32(1)}}}},
+		{"selection", func() error { return backend.SetTextSelection(ctx, id, 0, 0, 1) }, []call{{textIface + ".SetSelection", []any{int32(0), int32(0), int32(1)}}}},
+		{"add-selection", func() error { return backend.AddTextSelection(ctx, id, 0, 1) }, []call{{textIface + ".AddSelection", []any{int32(0), int32(1)}}}},
+		{"remove-selection", func() error { return backend.RemoveTextSelection(ctx, id, 0) }, []call{{textIface + ".RemoveSelection", []any{int32(0)}}}},
+		{"document-selections", func() error {
+			return backend.SetTextSelections(ctx, id, []DocumentTextSelection{{StartObject: id, EndObject: id, StartOffset: 1, EndOffset: 2, StartIsActive: true}})
+		}, []call{{documentIface + ".SetTextSelections", []any{[]documentTextSelectionWire{{StartObject: objectRef{BusName: id.BusName, ObjectPath: dbus.ObjectPath(id.ObjectPath)}, StartOffset: 1, EndObject: objectRef{BusName: id.BusName, ObjectPath: dbus.ObjectPath(id.ObjectPath)}, EndOffset: 2, StartIsActive: true}}}}}},
+		{"select-child", func() error { return backend.SelectChild(ctx, id, 0) }, []call{{selectionIface + ".SelectChild", []any{int32(0)}}}},
+		{"deselect-child", func() error { return backend.DeselectChild(ctx, id, 0) }, []call{{selectionIface + ".DeselectChild", []any{int32(0)}}}},
+		{"select-all", func() error { return backend.SelectAll(ctx, id) }, []call{{selectionIface + ".SelectAll", nil}}},
+		{"clear-selection", func() error { return backend.ClearSelection(ctx, id) }, []call{{selectionIface + ".ClearSelection", nil}}},
+		{"deselect-all-alias", func() error { return backend.DeselectAll(ctx, id) }, []call{{selectionIface + ".ClearSelection", nil}}},
+		{"deselect-selected-child", func() error { return backend.DeselectSelectedChild(ctx, id) }, []call{{selectionIface + ".DeselectSelectedChild", nil}}},
+		{"select-row", func() error { return backend.SelectRow(ctx, id, 0) }, []call{{tableIface + ".AddRowSelection", []any{int32(0)}}}},
+		{"deselect-row", func() error { return backend.DeselectRow(ctx, id, 0) }, []call{{tableIface + ".RemoveRowSelection", []any{int32(0)}}}},
+		{"select-column", func() error { return backend.SelectColumn(ctx, id, 0) }, []call{{tableIface + ".AddColumnSelection", []any{int32(0)}}}},
+		{"deselect-column", func() error { return backend.DeselectColumn(ctx, id, 0) }, []call{{tableIface + ".RemoveColumnSelection", []any{int32(0)}}}},
 	}
 	for _, check := range checks {
+		calls = nil
 		if err := check.call(); err != nil {
 			t.Fatalf("%s: %v", check.name, err)
 		}
-	}
-	if len(methods) < 25 {
-		t.Fatalf("recorded only %d typed protocol calls: %v", len(methods), methods)
+		if !reflect.DeepEqual(calls, check.expected) {
+			t.Fatalf("%s wire calls = %#v, want %#v", check.name, calls, check.expected)
+		}
 	}
 }
 
@@ -590,5 +611,46 @@ func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
 	}
 	if !backend.cacheApps["org.test"] {
 		t.Fatal("cache application registration was lost during signal invalidation")
+	}
+}
+
+func TestNonCacheEventDiscardsPreviousGenerationCacheMetadata(t *testing.T) {
+	backend := &dbusBackend{
+		generation: 5,
+		cacheItems: map[NodeID]cacheItem{},
+		cacheApps:  map[string]bool{"org.test": true},
+	}
+	oldID := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 5}
+	backend.cacheItems[oldID] = cacheItem{
+		Object: cacheObjectRef{BusName: oldID.BusName, ObjectPath: dbus.ObjectPath(oldID.ObjectPath)},
+		Name:   "old name",
+		States: []uint32{1},
+	}
+	if _, ok := backend.cachedItem(oldID); !ok {
+		t.Fatal("fixture cache item was not available")
+	}
+	event := backend.prepareEvent(&dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange"}, Event{Node: oldID})
+	if event.Node.Generation != 6 {
+		t.Fatalf("event generation = %d, want 6", event.Node.Generation)
+	}
+	if _, ok := backend.cachedItem(NodeID{BusName: oldID.BusName, ObjectPath: oldID.ObjectPath, Generation: 6}); ok {
+		t.Fatal("stale cached name/state was reused after a non-cache event")
+	}
+	if backend.cacheApps[oldID.BusName] {
+		t.Fatal("cache application remained marked fresh after non-cache invalidation")
+	}
+}
+
+func TestWatchSubscriberReturnsForNonCancelableContext(t *testing.T) {
+	backend := &dbusBackend{subscribers: map[uint64]*eventSubscriber{}}
+	done := make(chan struct{})
+	go func() {
+		backend.watchSubscriber(context.Background(), 1)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watchSubscriber blocked on context.Background")
 	}
 }

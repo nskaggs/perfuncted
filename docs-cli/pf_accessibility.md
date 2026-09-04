@@ -36,10 +36,14 @@ Inspect the AT-SPI accessibility tree
 * [pf accessibility remove-text-selection](pf_accessibility_remove-text-selection.md)	 - Remove a range through AT-SPI Text
 * [pf accessibility reopen](pf_accessibility_reopen.md)	 - Explicitly reopen the target accessibility bus
 * [pf accessibility scroll](pf_accessibility_scroll.md)	 - Scroll an explicit accessible node into view
+* [pf accessibility scroll-to-point](pf_accessibility_scroll-to-point.md)	 - Scroll an accessible node to a point in a coordinate space
 * [pf accessibility select-all](pf_accessibility_select-all.md)	 - Select all children through AT-SPI Selection
 * [pf accessibility select-child](pf_accessibility_select-child.md)	 - Select a child through AT-SPI Selection
 * [pf accessibility select-column](pf_accessibility_select-column.md)	 - Select a table column through AT-SPI Table
 * [pf accessibility select-row](pf_accessibility_select-row.md)	 - Select a table row through AT-SPI Table
+* [pf accessibility set-extents](pf_accessibility_set-extents.md)	 - Move and resize an accessible Component
+* [pf accessibility set-position](pf_accessibility_set-position.md)	 - Move an accessible Component
+* [pf accessibility set-size](pf_accessibility_set-size.md)	 - Resize an accessible Component
 * [pf accessibility set-text](pf_accessibility_set-text.md)	 - Set editable text through AT-SPI
 * [pf accessibility set-text-selection](pf_accessibility_set-text-selection.md)	 - Set a range through AT-SPI Text
 * [pf accessibility set-value](pf_accessibility_set-value.md)	 - Set an accessible Value

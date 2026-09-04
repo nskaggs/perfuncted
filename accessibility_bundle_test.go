@@ -38,8 +38,20 @@ func (s *accessibilityAutomationSpy) ScrollTo(context.Context, accessibility.Nod
 	s.mark("scroll")
 	return nil
 }
-func (s *accessibilityAutomationSpy) ScrollToPoint(context.Context, accessibility.NodeID, accessibility.ScrollType, int, int) error {
+func (s *accessibilityAutomationSpy) ScrollToPoint(context.Context, accessibility.NodeID, accessibility.CoordType, int, int) error {
 	s.mark("scroll-point")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetPosition(context.Context, accessibility.NodeID, int, int, accessibility.CoordType) error {
+	s.mark("set-position")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetSize(context.Context, accessibility.NodeID, int, int) error {
+	s.mark("set-size")
+	return nil
+}
+func (s *accessibilityAutomationSpy) SetExtents(context.Context, accessibility.NodeID, int, int, int, int, accessibility.CoordType) error {
+	s.mark("set-extents")
 	return nil
 }
 func (s *accessibilityAutomationSpy) SetCurrentValue(context.Context, accessibility.NodeID, float64) error {
@@ -94,6 +106,10 @@ func (s *accessibilityAutomationSpy) RemoveTextSelection(context.Context, access
 	s.mark("remove-selection")
 	return nil
 }
+func (s *accessibilityAutomationSpy) SetTextSelections(context.Context, accessibility.NodeID, []accessibility.DocumentTextSelection) error {
+	s.mark("document-selections")
+	return nil
+}
 func (s *accessibilityAutomationSpy) SelectChild(context.Context, accessibility.NodeID, int32) error {
 	s.mark("select-child")
 	return nil
@@ -112,6 +128,10 @@ func (s *accessibilityAutomationSpy) ClearSelection(context.Context, accessibili
 }
 func (s *accessibilityAutomationSpy) DeselectAll(context.Context, accessibility.NodeID) error {
 	s.mark("deselect-all")
+	return nil
+}
+func (s *accessibilityAutomationSpy) DeselectSelectedChild(context.Context, accessibility.NodeID) error {
+	s.mark("deselect-selected-child")
 	return nil
 }
 func (s *accessibilityAutomationSpy) SelectRow(context.Context, accessibility.NodeID, int32) error {

@@ -178,6 +178,17 @@ type DocumentInfo struct {
 	PageCount         int32  `json:"pageCount,omitempty"`
 }
 
+// DocumentTextSelection describes a cross-object text selection exposed by
+// AT-SPI Document (since 2.52). Offsets are character offsets in the
+// corresponding Text objects, not UTF-8 byte offsets.
+type DocumentTextSelection struct {
+	StartObject   NodeID `json:"startObject"`
+	StartOffset   int32  `json:"startOffset"`
+	EndObject     NodeID `json:"endObject"`
+	EndOffset     int32  `json:"endOffset"`
+	StartIsActive bool   `json:"startIsActive"`
+}
+
 // Application describes an application root discovered on the accessibility
 // desktop. Its root Node is also present in a subsequent Snapshot.
 type Application struct {
@@ -327,7 +338,10 @@ type ActionInvoker interface {
 type ComponentController interface {
 	GrabFocus(context.Context, NodeID) error
 	ScrollTo(context.Context, NodeID, ScrollType) error
-	ScrollToPoint(context.Context, NodeID, ScrollType, int, int) error
+	ScrollToPoint(context.Context, NodeID, CoordType, int, int) error
+	SetPosition(context.Context, NodeID, int, int, CoordType) error
+	SetSize(context.Context, NodeID, int, int) error
+	SetExtents(context.Context, NodeID, int, int, int, int, CoordType) error
 }
 
 // ValueController exposes typed Value interface operations.
@@ -352,6 +366,12 @@ type TextController interface {
 	RemoveTextSelection(context.Context, NodeID, int32) error
 }
 
+// DocumentController exposes cross-object document selections. Providers
+// predating AT-SPI 2.52 may return ErrUnsupported.
+type DocumentController interface {
+	SetTextSelections(context.Context, NodeID, []DocumentTextSelection) error
+}
+
 // SelectionController exposes typed Selection interface operations.
 type SelectionController interface {
 	SelectChild(context.Context, NodeID, int32) error
@@ -359,6 +379,7 @@ type SelectionController interface {
 	SelectAll(context.Context, NodeID) error
 	ClearSelection(context.Context, NodeID) error
 	DeselectAll(context.Context, NodeID) error
+	DeselectSelectedChild(context.Context, NodeID) error
 }
 
 // TableController exposes the row/column selection operations defined by the
@@ -377,6 +398,7 @@ type Automation interface {
 	ComponentController
 	ValueController
 	TextController
+	DocumentController
 	SelectionController
 	TableController
 }
@@ -392,6 +414,24 @@ const (
 	ScrollLeftEdge
 	ScrollRightEdge
 	ScrollAnyWhere
+)
+
+// CoordType identifies the coordinate space used by AT-SPI Component
+// ScrollToPoint, SetPosition, and SetExtents. It is intentionally distinct
+// from ScrollType, which describes scroll alignment for ScrollTo.
+type CoordType uint32
+
+const (
+	CoordTypeScreen CoordType = iota
+	CoordTypeWindow
+	CoordTypeParent
+)
+
+// Short aliases retained for callers that prefer the AT-SPI terminology.
+const (
+	CoordScreen = CoordTypeScreen
+	CoordWindow = CoordTypeWindow
+	CoordParent = CoordTypeParent
 )
 
 // WindowTarget describes an authoritative Perfuncted window used to resolve
@@ -552,7 +592,7 @@ func (item cacheItem) nodeIDAt(generation uint64) NodeID {
 }
 
 func (b *dbusBackend) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 // Generation returns the current invalidation generation. It changes when an
@@ -566,16 +606,19 @@ func (b *dbusBackend) Generation() uint64 {
 	return b.generation
 }
 
-// Invalidate advances the generation and clears the bounded snapshot cache.
-// The node is currently advisory; AT-SPI object paths may be reused, so a
-// global generation is safer than retaining stale per-node data.
+// Invalidate advances the generation and clears both the bounded snapshot
+// cache and the upstream cache metadata. AT-SPI cache entries are generation
+// scoped too: a non-cache signal may have changed a cached name, role, or
+// state, so retaining entries across the transition would silently reuse
+// stale metadata. Cache signals preserve and update the upstream state in
+// prepareEvent after this transition.
 func (b *dbusBackend) Invalidate(_ NodeID) {
 	if b == nil {
 		return
 	}
 	b.mu.Lock()
 	b.generation++
-	b.cache = nil
+	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.mu.Unlock()
 }
 
@@ -1185,7 +1228,10 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 		ref   objectRef
 	}
 	items := make([]indexed, 0)
-	for _, item := range b.cacheItems {
+	for key, item := range b.cacheItems {
+		if key.Generation != id.Generation {
+			continue
+		}
 		if item.Parent.BusName == id.BusName && string(item.Parent.ObjectPath) == id.ObjectPath {
 			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath}})
 		}
@@ -1317,14 +1363,6 @@ func (b *dbusBackend) cachedItem(id NodeID) (cacheItem, bool) {
 	}
 	b.mu.RLock()
 	item, ok := b.cacheItems[id]
-	if !ok {
-		for key, candidate := range b.cacheItems {
-			if key.BusName == id.BusName && key.ObjectPath == id.ObjectPath {
-				item, ok = candidate, true
-				break
-			}
-		}
-	}
 	b.mu.RUnlock()
 	return item, ok
 }
