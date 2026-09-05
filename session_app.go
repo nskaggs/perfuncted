@@ -273,7 +273,9 @@ func (a *Application) ownsPID(pid int32) bool {
 	return err == nil && pgid == a.proc.pid
 }
 
-// LogPath returns the log directory used by owned session infrastructure.
+// LogPath returns the unique private log directory used by owned session
+// infrastructure. The directory is retained for bounded post-failure
+// inspection and is cleaned up by CleanupSessionLogs when it expires.
 func (s *Session) LogPath() string {
 	if s == nil || s.infra == nil {
 		return ""

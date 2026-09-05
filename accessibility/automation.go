@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -136,29 +137,43 @@ func (b *dbusBackend) InvokeAction(ctx context.Context, id NodeID, index int32) 
 }
 
 func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name string) error {
+	_, err := b.InvokeActionByNameExact(ctx, id, name)
+	return err
+}
+
+// InvokeActionByNameExact selects one action from a single metadata read,
+// invokes that action's stable index, and returns the exact selected metadata.
+// Keeping this primitive separate preserves the existing low-level method
+// while allowing higher-level receipts to describe the physical invocation.
+func (b *dbusBackend) InvokeActionByNameExact(ctx context.Context, id NodeID, name string) (Action, error) {
 	actions, err := b.actions(ctx, id)
 	if err != nil {
-		return err
+		return Action{}, err
 	}
 	want := strings.TrimSpace(name)
 	if want == "" {
-		return ErrNotFound
+		return Action{}, ErrNotFound
 	}
-	match := -1
+	var chosen Action
+	found := false
 	for _, action := range actions {
 		if strings.EqualFold(strings.TrimSpace(action.Name), want) {
-			if match >= 0 {
-				return fmt.Errorf("%w: action %q", ErrAmbiguous, want)
+			if found {
+				return Action{}, fmt.Errorf("%w: action %q", ErrAmbiguous, want)
 			}
-			match = int(action.Index)
+			chosen = action
+			found = true
 		}
 	}
-	if match < 0 {
-		return ErrNotFound
+	if !found {
+		return Action{}, ErrNotFound
 	}
 	// Invoke the index selected from this metadata read. Re-reading actions
 	// could select a different operation if the provider changes between calls.
-	return b.mutationBool(ctx, id, actionIface, "DoAction", int32(match))
+	if err := b.mutationBool(ctx, id, actionIface, "DoAction", chosen.Index); err != nil {
+		return Action{}, err
+	}
+	return chosen, nil
 }
 
 func (b *dbusBackend) InvokeDefaultAction(ctx context.Context, id NodeID) (Action, error) {
@@ -267,7 +282,7 @@ func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, t
 	if offset < 0 {
 		return fmt.Errorf("accessibility: invalid text offset %d", offset)
 	}
-	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(len([]byte(text))))
+	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(utf8.RuneCountInString(text)))
 }
 
 func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int32) error {

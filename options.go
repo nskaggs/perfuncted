@@ -236,7 +236,8 @@ type SessionConfig struct {
 	Resolution image.Point
 	// SwayConfigPath selects the Sway configuration file.
 	SwayConfigPath string
-	// LogDir receives managed-session logs when set.
+	// LogDir is a parent directory for managed-session logs when set. Each
+	// session receives a unique 0700 child directory containing 0600 files.
 	LogDir string
 	// ApplicationGracePeriod controls how long managed applications receive to stop.
 	ApplicationGracePeriod time.Duration

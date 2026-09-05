@@ -5,17 +5,32 @@ import (
 	"errors"
 	"iter"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/window"
 )
 
 type bundleAccessibilityFake struct {
-	apps []accessibility.Application
-	gen  uint64
+	apps            []accessibility.Application
+	gen             uint64
+	resolvedTargets []accessibility.WindowTarget
 }
 
-type accessibilityAutomationSpy struct{ calls []string }
+type accessibilityAutomationSpy struct {
+	calls         []string
+	exactAction   accessibility.Action
+	invokedAction accessibility.Action
+}
+
+func TestPublicAccessibilityHelpersRemainReachable(t *testing.T) {
+	if bundle := NewAccessibilityBundle(nil); bundle == nil {
+		t.Fatal("NewAccessibilityBundle returned nil")
+	}
+	if condition := AccessibilityFocused(accessibility.SnapshotOptions{}); condition == nil {
+		t.Fatal("AccessibilityFocused returned nil")
+	}
+}
 
 func (s *accessibilityAutomationSpy) mark(name string) { s.calls = append(s.calls, name) }
 func (s *accessibilityAutomationSpy) InvokeAction(context.Context, accessibility.NodeID, int32) error {
@@ -25,6 +40,14 @@ func (s *accessibilityAutomationSpy) InvokeAction(context.Context, accessibility
 func (s *accessibilityAutomationSpy) InvokeActionByName(context.Context, accessibility.NodeID, string) error {
 	s.mark("action-name")
 	return nil
+}
+func (s *accessibilityAutomationSpy) InvokeActionByNameExact(context.Context, accessibility.NodeID, string) (accessibility.Action, error) {
+	s.mark("action-name-exact")
+	if s.exactAction == (accessibility.Action{}) {
+		s.exactAction = accessibility.Action{Index: 7, Name: "provider-actual", Description: "selected at invocation", KeyBinding: "Alt+S"}
+	}
+	s.invokedAction = s.exactAction
+	return s.exactAction, nil
 }
 func (s *accessibilityAutomationSpy) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) {
 	s.mark("default-action")
@@ -182,7 +205,7 @@ func (*accessibilityAutomationFake) SupportedOperations() []string {
 }
 
 func (f *bundleAccessibilityFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "window-root"}
 }
 func (f *bundleAccessibilityFake) Applications(context.Context) ([]accessibility.Application, error) {
 	return append([]accessibility.Application(nil), f.apps...), nil
@@ -191,7 +214,11 @@ func (f *bundleAccessibilityFake) Snapshot(context.Context, accessibility.NodeID
 	return accessibility.Snapshot{Generation: f.gen, Source: "fake"}, nil
 }
 func (f *bundleAccessibilityFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
-	return []accessibility.Node{{Name: "ok"}}, nil
+	generation := f.gen
+	if generation == 0 {
+		generation = 1
+	}
+	return []accessibility.Node{{ID: accessibility.NodeID{BusName: "org.test", ObjectPath: "/node", Generation: generation}, Name: "ok", Actions: []accessibility.Action{{Index: 1, Name: "press"}}}}, nil
 }
 func (f *bundleAccessibilityFake) Focused(context.Context, accessibility.SnapshotOptions) (accessibility.Node, error) {
 	return accessibility.Node{Name: "focused"}, nil
@@ -204,10 +231,15 @@ func (f *bundleAccessibilityFake) FindApplication(context.Context, accessibility
 	return f.apps[0], nil
 }
 func (f *bundleAccessibilityFake) ResolveWindow(_ context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+	f.resolvedTargets = append(f.resolvedTargets, target)
 	if target.ID == "missing" {
 		return accessibility.WindowScope{}, accessibility.ErrNotFound
 	}
-	return accessibility.WindowScope{WindowID: target.ID, Root: accessibility.NodeID{BusName: "org.test", ObjectPath: "/window", Generation: f.gen}}, nil
+	app := f.apps[0]
+	if app.ID.BusName == "" {
+		app.ID = accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: f.gen}
+	}
+	return accessibility.WindowScope{WindowID: target.ID, Root: accessibility.NodeID{BusName: "org.test", ObjectPath: "/window", Generation: f.gen}, ApplicationRoot: app.ID, Application: app, PID: app.PID, Generation: f.gen}, nil
 }
 func (f *bundleAccessibilityFake) Generation() uint64              { return f.gen }
 func (f *bundleAccessibilityFake) Invalidate(accessibility.NodeID) { f.gen++ }
@@ -246,6 +278,87 @@ func TestAccessibilityBundleDelegatesTypedAutomation(t *testing.T) {
 	}
 	if len(spy.calls) != 3 || spy.calls[0] != "focus" || spy.calls[1] != "value" || spy.calls[2] != "default-action" {
 		t.Fatalf("automation calls = %v", spy.calls)
+	}
+}
+
+func TestAccessibilityBundleInvokesSemanticActionWithReceipt(t *testing.T) {
+	spy := &accessibilityAutomationSpy{}
+	fake := &accessibilityAutomationFake{
+		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
+		accessibilityAutomationSpy: spy,
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	receipt, err := session.Accessibility.InvokeSemanticAction(
+		context.Background(),
+		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
+		accessibility.Query{Name: "Save"},
+		"press",
+		accessibility.SnapshotOptions{},
+	)
+	if err != nil {
+		t.Fatalf("InvokeSemanticAction: %v", err)
+	}
+	if receipt.Mechanism != "at-spi.action" || receipt.Action.Index != 7 || receipt.Action.Name != "provider-actual" || receipt.Generation != 3 {
+		t.Fatalf("semantic action receipt = %+v", receipt)
+	}
+	if len(spy.calls) != 1 || spy.calls[0] != "action-name-exact" {
+		t.Fatalf("semantic action calls = %v", spy.calls)
+	}
+}
+
+func TestAccessibilityBundleSemanticActionReceiptUsesInvocationMetadata(t *testing.T) {
+	spy := &accessibilityAutomationSpy{exactAction: accessibility.Action{Index: 12, Name: "actual-name", Description: "fresh metadata"}}
+	fake := &accessibilityAutomationFake{
+		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
+		accessibilityAutomationSpy: spy,
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	receipt, err := session.Accessibility.InvokeSemanticAction(
+		context.Background(),
+		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
+		accessibility.Query{Name: "Save"},
+		"press",
+		accessibility.SnapshotOptions{},
+	)
+	if err != nil {
+		t.Fatalf("InvokeSemanticAction: %v", err)
+	}
+	if receipt.Action != spy.invokedAction {
+		t.Fatalf("receipt action = %+v, want invoked action %+v", receipt.Action, spy.invokedAction)
+	}
+	if len(spy.calls) != 1 || spy.calls[0] != "action-name-exact" {
+		t.Fatalf("calls = %v, want one exact invocation", spy.calls)
+	}
+}
+
+func TestSessionAccessibilityActionWaitUsesIndependentPostcondition(t *testing.T) {
+	spy := &accessibilityAutomationSpy{}
+	fake := &accessibilityAutomationFake{
+		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
+		accessibilityAutomationSpy: spy,
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	checks := 0
+	receipt, evidence, err := session.InvokeAccessibilityActionAndWait(
+		context.Background(),
+		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
+		accessibility.Query{Name: "Save"},
+		"press",
+		accessibility.SnapshotOptions{},
+		sessionCondition("postcondition", func(context.Context, *Session) (bool, error) {
+			checks++
+			return checks == 2, nil
+		}),
+		WaitEvery(time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("InvokeAccessibilityActionAndWait: %v", err)
+	}
+	if receipt.Mechanism != "at-spi.action" || evidence.Evaluations != 2 {
+		t.Fatalf("receipt=%+v evidence=%+v", receipt, evidence)
 	}
 }
 
@@ -317,7 +430,7 @@ func (m *accessibilityWindowManager) Close() error                              
 
 func TestAccessibilityBundleCorrelatesApplicationWithWindow(t *testing.T) {
 	manager := &accessibilityWindowManager{windows: []window.Info{{NativeID: "window-1", Title: "Firefox", PID: 77}}}
-	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Firefox"}, PID: 77}}}
+	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Firefox"}, PID: 77}}, gen: 1}
 	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
 	app, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "window-1", WindowTitle: "Firefox"})
@@ -336,5 +449,26 @@ func TestAccessibilityBundleRejectsAmbiguousWindowTitle(t *testing.T) {
 	defer session.Close()
 	if _, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowTitle: "Firefox"}); !errors.Is(err, accessibility.ErrAmbiguous) {
 		t.Fatalf("ambiguous window error = %v", err)
+	}
+}
+
+func TestAccessibilityBundleRejectsConflictingWindowPIDBeforeCorrelation(t *testing.T) {
+	manager := &accessibilityWindowManager{windows: []window.Info{{NativeID: "window-1", Title: "Firefox", PID: 77}}}
+	fake := &bundleAccessibilityFake{apps: []accessibility.Application{
+		{Node: accessibility.Node{Name: "Firefox"}, PID: 77},
+		{Node: accessibility.Node{Name: "Other"}, PID: 99},
+	}}
+	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
+	defer session.Close()
+
+	_, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{
+		WindowID: "window-1",
+		PID:      99,
+	})
+	if !errors.Is(err, accessibility.ErrNotFound) {
+		t.Fatalf("conflicting PID error = %v, want not found", err)
+	}
+	if len(fake.resolvedTargets) != 0 {
+		t.Fatalf("resolver targets = %+v, want no correlation after PID conflict", fake.resolvedTargets)
 	}
 }

@@ -38,6 +38,8 @@ const (
 	noPIDFileReapGrace      = 5 * time.Minute
 	cleanupStaleMinInterval = 30 * time.Second
 	atspiBusLauncherName    = "at-spi-bus-launcher"
+	defaultSessionLogAge    = 7 * 24 * time.Hour
+	sessionLogPrefix        = "perfuncted-session-"
 )
 
 var sessionChildPIDFiles = []string{
@@ -161,7 +163,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 		return nil, err
 	}
 
-	if err := s.initializeCapabilities(cfg); err != nil {
+	if err := s.initializeCapabilities(ctx, cfg); err != nil {
 		closeErr := s.Close() //nolint:contextcheck // Close owns its shutdown contexts
 		return nil, errors.Join(err, closeErr)
 	}
@@ -205,7 +207,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 	return nil
 }
 
-func (s *Session) initializeCapabilities(cfg openConfig) error {
+func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) error {
 	s.Screen = &ScreenBundle{bundleBase: s.bundleBase(CapabilityScreen)}
 	s.Input = &InputBundle{bundleBase: s.bundleBase(CapabilityInput)}
 	s.Windows = &WindowBundle{
@@ -230,7 +232,7 @@ func (s *Session) initializeCapabilities(cfg openConfig) error {
 		if !status.Requested {
 			continue
 		}
-		backend, err := s.openCapability(capability)
+		backend, err := s.openCapabilityContext(ctx, capability)
 		if err != nil {
 			status.Failure = errors.Join(ErrUnavailable, err)
 		}
@@ -285,6 +287,10 @@ func (s *Session) ensureOpen() error {
 }
 
 func (s *Session) openCapability(capability Capability) (any, error) {
+	return s.openCapabilityContext(context.Background(), capability)
+}
+
+func (s *Session) openCapabilityContext(ctx context.Context, capability Capability) (any, error) {
 	switch capability {
 	case CapabilityScreen:
 		backend, err := openScreen(s.env)
@@ -331,7 +337,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityAccessibility:
-		backend, err := openAccessibility(s.env)
+		backend, err := openAccessibility(ctx, s.env)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Accessibility.backend = backend
@@ -540,13 +546,10 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: chmod: %w", chmodErr)
 	}
 
-	logDir := config.LogDir
-	if logDir == "" {
-		logDir = filepath.Join(os.TempDir(), "perfuncted-logs")
-	}
-	if mkdirErr := os.MkdirAll(logDir, 0755); mkdirErr != nil {
+	logDir, logErr := createSessionLogDir(config.LogDir)
+	if logErr != nil {
 		os.RemoveAll(xdgDir)
-		return nil, fmt.Errorf("session: mkdir logs: %w", mkdirErr)
+		return nil, fmt.Errorf("session: create logs: %w", logErr)
 	}
 
 	infraCtx, cancel := context.WithCancel(context.Background())
@@ -671,7 +674,7 @@ func (i *sessionInfra) launchSway(
 	mode sessionMode,
 ) error {
 	logPath := filepath.Join(i.logDir, "sway-session.log")
-	logFile, err := os.Create(logPath)
+	logFile, err := openPrivateSessionLog(logPath)
 	if err != nil {
 		return fmt.Errorf("create log: %w", err)
 	}
@@ -744,6 +747,92 @@ func (i *sessionInfra) launchWlPaste() {
 		return
 	}
 	slog.Warn("wl-paste helper failed to start", "error", err)
+}
+
+func createSessionLogDir(configuredRoot string) (string, error) {
+	root := configuredRoot
+	if root == "" {
+		root = filepath.Join(os.TempDir(), "perfuncted-logs")
+		if err := ensureSessionLogRoot(root, true); err != nil {
+			return "", err
+		}
+		cleanupSessionLogRoot(root, defaultSessionLogAge)
+	} else {
+		if err := ensureSessionLogRoot(root, false); err != nil {
+			return "", err
+		}
+		cleanupSessionLogRoot(root, defaultSessionLogAge)
+	}
+
+	dir, err := os.MkdirTemp(root, sessionLogPrefix)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+func openPrivateSessionLog(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func ensureSessionLogRoot(root string, private bool) error {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("session log root is not a directory: %s", root)
+	}
+	if private {
+		return os.Chmod(root, 0o700)
+	}
+	return nil
+}
+
+// CleanupSessionLogs removes only expired, uniquely-created session log
+// directories from root. It never scans or removes arbitrary files in the
+// configured parent directory.
+func CleanupSessionLogs(root string, maxAge time.Duration) {
+	cleanupSessionLogRoot(root, maxAge)
+}
+
+func cleanupSessionLogRoot(root string, maxAge time.Duration) {
+	if root == "" || maxAge <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), sessionLogPrefix) {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		info, err := entry.Info()
+		if err != nil || now.Sub(info.ModTime()) <= maxAge {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			slog.Debug("session: remove expired log directory", "path", path, "error", err)
+		}
+	}
 }
 
 // ---------- session lifecycle helpers ----------

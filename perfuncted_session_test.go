@@ -511,6 +511,107 @@ func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
 	}
 }
 
+func TestSessionLogDirectoriesAreUniquePrivateAndRetainedByAge(t *testing.T) { //nolint:gocyclo // the test checks the complete private-directory contract.
+	root := t.TempDir()
+	first, err := createSessionLogDir(root)
+	if err != nil {
+		t.Fatalf("create first log directory: %v", err)
+	}
+	second, err := createSessionLogDir(root)
+	if err != nil {
+		t.Fatalf("create second log directory: %v", err)
+	}
+	if first == second {
+		t.Fatalf("log directories collided: %q", first)
+	}
+	for _, path := range []string{first, second} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat %q: %v", path, statErr)
+		}
+		if mode := info.Mode().Perm(); mode != 0o700 {
+			t.Fatalf("log directory mode = %o, want 700", mode)
+		}
+	}
+	log, err := openPrivateSessionLog(filepath.Join(first, "sway-session.log"))
+	if err != nil {
+		t.Fatalf("open session log: %v", err)
+	}
+	if closeErr := log.Close(); closeErr != nil {
+		t.Fatalf("close session log: %v", closeErr)
+	}
+	logInfo, err := os.Stat(filepath.Join(first, "sway-session.log"))
+	if err != nil {
+		t.Fatalf("stat session log: %v", err)
+	}
+	if mode := logInfo.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("session log mode = %o, want 600", mode)
+	}
+
+	old := filepath.Join(root, sessionLogPrefix+"old")
+	if err := os.Mkdir(old, 0o700); err != nil {
+		t.Fatalf("mkdir old log directory: %v", err)
+	}
+	oldTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+		t.Fatalf("age old log directory: %v", err)
+	}
+	keep := filepath.Join(root, "caller-owned")
+	if err := os.Mkdir(keep, 0o700); err != nil {
+		t.Fatalf("mkdir caller-owned directory: %v", err)
+	}
+	CleanupSessionLogs(root, time.Hour)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("expired log directory still exists: %v", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("caller-owned directory was removed: %v", err)
+	}
+}
+
+func TestConcurrentSessionLogDirectoriesDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	const count = 8
+	paths := make(chan string, count)
+	errs := make(chan error, count)
+	var wg sync.WaitGroup
+	for range count {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			path, err := createSessionLogDir(root)
+			if err != nil {
+				errs <- err
+				return
+			}
+			paths <- path
+		}()
+	}
+	wg.Wait()
+	close(paths)
+	close(errs)
+	for err := range errs {
+		t.Fatalf("create concurrent log directory: %v", err)
+	}
+	seen := make(map[string]struct{}, count)
+	for path := range paths {
+		if _, ok := seen[path]; ok {
+			t.Fatalf("duplicate concurrent log directory %q", path)
+		}
+		seen[path] = struct{}{}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat concurrent log directory %q: %v", path, err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o700 {
+			t.Fatalf("concurrent log directory mode = %o, want 700", mode)
+		}
+	}
+	if len(seen) != count {
+		t.Fatalf("created %d/%d concurrent log directories", len(seen), count)
+	}
+}
+
 func TestCleanupStaleSessionsConcurrentNoPidfileIsIdempotent(t *testing.T) {
 	cleanupStaleSessionsMu.Lock()
 	lastCleanupTime = time.Time{}

@@ -9,7 +9,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/util"
 )
 
-var openAccessibility = accessibility.OpenRuntime
+var openAccessibility = accessibility.OpenRuntimeContext
 
 // AccessibilityBundle exposes AT-SPI queries and typed automation for the active session.
 // It is optional because many headless or minimal desktop sessions do not run
@@ -161,6 +161,57 @@ func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.No
 	return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: accessibility.ErrAmbiguous, Candidates: candidates})
 }
 
+// AccessibilityActionReceipt records the exact semantic target and AT-SPI
+// action selected by InvokeSemanticAction. The action is never replaced by a
+// physical input fallback.
+type AccessibilityActionReceipt struct {
+	Node       accessibility.Node   `json:"node"`
+	Action     accessibility.Action `json:"action"`
+	Mechanism  string               `json:"mechanism"`
+	Generation uint64               `json:"generation"`
+}
+
+// InvokeSemanticAction finds exactly one accessible node in root and invokes
+// either its named action or its first exposed action. An empty action name
+// is the only convenience behavior; callers can inspect the receipt before
+// waiting for an independent postcondition.
+func (b *AccessibilityBundle) InvokeSemanticAction(
+	ctx context.Context,
+	root accessibility.NodeID,
+	query accessibility.Query,
+	actionName string,
+	opts accessibility.SnapshotOptions,
+) (AccessibilityActionReceipt, error) {
+	node, err := b.FindOne(ctx, root, query, opts)
+	if err != nil {
+		return AccessibilityActionReceipt{}, err
+	}
+	name := strings.TrimSpace(actionName)
+	var chosen accessibility.Action
+	if name == "" {
+		chosen, err = b.InvokeDefaultAction(ctx, node.ID)
+	} else {
+		if availabilityErr := b.checkAvailable("invoke-action-by-name"); availabilityErr != nil {
+			return AccessibilityActionReceipt{}, availabilityErr
+		}
+		exact, ok := b.backend.(accessibility.NamedActionInvoker)
+		if !ok {
+			return AccessibilityActionReceipt{}, b.operationError("invoke-semantic-action", accessibility.ErrUnsupported)
+		}
+		chosen, err = exact.InvokeActionByNameExact(ctx, node.ID, name)
+		err = b.operationError("invoke-semantic-action", err)
+	}
+	if err != nil {
+		return AccessibilityActionReceipt{}, err
+	}
+	return AccessibilityActionReceipt{
+		Node:       node,
+		Action:     chosen,
+		Mechanism:  "at-spi.action",
+		Generation: node.ID.Generation,
+	}, nil
+}
+
 // Focused returns the currently focused accessible object.
 func (b *AccessibilityBundle) Focused(ctx context.Context, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	if err := b.checkAvailable("focused"); err != nil {
@@ -185,15 +236,8 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 	if err := b.checkAvailable("find-application"); err != nil {
 		return accessibility.Application{}, err
 	}
-	finder, ok := b.backend.(accessibility.ApplicationFinder)
-	if !ok {
-		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
-	}
-	// Window selectors are correlated through the session's authoritative
-	// window manager. AT-SPI application object paths are not window handles,
-	// and titles exposed by an application root are not reliable window IDs.
-	var selectedWindow *Window
 	if filter.WindowID != "" || filter.WindowTitle != "" {
+		var selectedWindow *Window
 		if b.session == nil || b.session.Windows == nil {
 			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
 		}
@@ -221,28 +265,34 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 		if selectedWindow == nil {
 			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
 		}
-	}
-	backendFilter := filter
-	backendFilter.WindowID = ""
-	backendFilter.WindowTitle = ""
-	app, err := finder.FindApplication(ctx, backendFilter)
-	if err == nil && selectedWindow != nil {
 		selectedWindow.mu.RLock()
 		selectedInfo := selectedWindow.snapshot
 		selectedWindow.mu.RUnlock()
-		resolver, resolverOK := b.backend.(accessibility.WindowResolver)
-		if !resolverOK {
-			err = accessibility.ErrUnsupported
-		} else {
-			_, resolveErr := resolver.ResolveWindow(ctx, accessibility.WindowTarget{ID: selectedWindow.ID().String(), Title: selectedInfo.Title, PID: selectedInfo.PID, AppID: selectedInfo.AppID, Bounds: accessibility.Rect{X: selectedInfo.X, Y: selectedInfo.Y, Width: selectedInfo.W, Height: selectedInfo.H}, Active: selectedInfo.Active})
-			err = resolveErr
+		if filter.PID != 0 && selectedInfo.PID != 0 && filter.PID != selectedInfo.PID {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
 		}
-		if filter.PID != 0 && selectedInfo.PID != 0 && selectedInfo.PID != filter.PID {
-			err = accessibility.ErrNotFound
-		} else if app.PID != 0 && selectedInfo.PID != 0 && app.PID != selectedInfo.PID {
-			err = accessibility.ErrNotFound
+		target := accessibility.WindowTarget{ID: selectedWindow.ID().String(), Title: selectedInfo.Title, PID: selectedInfo.PID, AppID: selectedInfo.AppID, Bounds: accessibility.Rect{X: selectedInfo.X, Y: selectedInfo.Y, Width: selectedInfo.W, Height: selectedInfo.H}, Active: selectedInfo.Active}
+		if target.PID == 0 {
+			target.PIDHint = filter.PID
 		}
+		scope, err := b.AccessibilityWindow(ctx, target)
+		if err != nil {
+			return accessibility.Application{}, b.operationError("find-application", err)
+		}
+		app := scope.Application
+		if app.ID.BusName == "" || app.ID.ObjectPath == "" || app.ID.Generation == 0 {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupportedCorrelation)
+		}
+		if want := strings.ToLower(strings.TrimSpace(filter.Name)); want != "" && !strings.Contains(strings.ToLower(app.Name), want) {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
+		}
+		return app, nil
 	}
+	finder, ok := b.backend.(accessibility.ApplicationFinder)
+	if !ok {
+		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
+	}
+	app, err := finder.FindApplication(ctx, filter)
 	return app, b.operationError("find-application", err)
 }
 

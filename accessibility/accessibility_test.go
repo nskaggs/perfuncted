@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/env"
 )
@@ -33,6 +34,33 @@ func TestNodeIDValidation(t *testing.T) {
 	}
 	if !(NodeID{BusName: "org.example", ObjectPath: "/org/example/node", Generation: 1}).valid() {
 		t.Fatal("ordinary AT-SPI object is invalid")
+	}
+}
+
+func TestSnapshotPublicationRejectsInvalidatedRead(t *testing.T) {
+	backend := &dbusBackend{generation: 4}
+	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 4}
+	snapshot := Snapshot{
+		Root:       Node{ID: root},
+		Nodes:      []Node{{ID: root}},
+		Generation: 4,
+		CapturedAt: time.Now(),
+	}
+	backend.Invalidate(root)
+	if err := backend.publishSnapshot(snapshotKey(root, SnapshotOptions{}), root.Generation, snapshot); !errors.Is(err, ErrStaleGeneration) {
+		t.Fatalf("stale snapshot publication error = %v, want ErrStaleGeneration", err)
+	}
+	if len(backend.cache) != 0 {
+		t.Fatalf("stale snapshot was cached: %+v", backend.cache)
+	}
+}
+
+func TestSnapshotKeySeparatesGenerations(t *testing.T) {
+	first := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 1}
+	second := first
+	second.Generation++
+	if snapshotKey(first, SnapshotOptions{}) == snapshotKey(second, SnapshotOptions{}) {
+		t.Fatal("snapshot cache key reused across generations")
 	}
 }
 
@@ -114,6 +142,35 @@ type recordingEventRegistrar struct {
 	events  []string
 }
 
+type selectiveEventRegistrar struct {
+	fail map[string]bool
+}
+
+func (r selectiveEventRegistrar) CallWithContext(_ context.Context, _ string, _ dbus.Flags, args ...any) *dbus.Call {
+	eventType, _ := args[0].(string)
+	if r.fail[eventType] {
+		return &dbus.Call{Err: fmt.Errorf("unsupported event family %s", eventType)}
+	}
+	return &dbus.Call{}
+}
+
+func TestRegisterEventFamiliesKeepsPartialSuccessTolerant(t *testing.T) {
+	registered, err := registerEventFamilies(context.Background(), selectiveEventRegistrar{fail: map[string]bool{"unsupported": true}}, "", []string{"working", "unsupported", "also-working"})
+	if err != nil {
+		t.Fatalf("partial event registration error = %v", err)
+	}
+	if !reflect.DeepEqual(registered, []string{"working", "also-working"}) {
+		t.Fatalf("registered families = %v, want only successful families", registered)
+	}
+}
+
+func TestRegisterEventFamiliesFailsWhenNoFamilyWorks(t *testing.T) {
+	_, err := registerEventFamilies(context.Background(), selectiveEventRegistrar{fail: map[string]bool{"unsupported": true}}, "", []string{"unsupported"})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("all-failed event registration error = %v, want ErrUnsupported", err)
+	}
+}
+
 func (r *recordingEventRegistrar) CallWithContext(_ context.Context, method string, _ dbus.Flags, args ...any) *dbus.Call {
 	r.methods = append(r.methods, method)
 	if len(args) > 0 {
@@ -135,6 +192,38 @@ func TestDeregisterEventsCleansEveryRegistration(t *testing.T) {
 		if method != registryName+".DeregisterEvent" || registrar.events[i] != registered[i] {
 			t.Fatalf("deregister call %d = %s %q, want %s %q", i, method, registrar.events[i], registryName+".DeregisterEvent", registered[i])
 		}
+	}
+}
+
+func TestEventStartCallerCancellationDoesNotPoisonHealthyWaiter(t *testing.T) {
+	state := &eventStart{done: make(chan struct{})}
+	result := make(chan struct {
+		retry bool
+		err   error
+	}, 1)
+	go func() {
+		retry, err := waitForEventStart(context.Background(), state, nil, 0)
+		result <- struct {
+			retry bool
+			err   error
+		}{retry: retry, err: err}
+	}()
+	state.err = context.Canceled
+	state.callerCanceled = true
+	close(state.done)
+	select {
+	case got := <-result:
+		if !got.retry || got.err != nil {
+			t.Fatalf("healthy waiter result = retry %v, err %v; want one retry", got.retry, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("healthy waiter did not observe canceled setup")
+	}
+
+	second := &eventStart{done: make(chan struct{})}
+	close(second.done)
+	if retry, err := waitForEventStart(context.Background(), second, nil, 1); retry || err != nil {
+		t.Fatalf("bounded retry completion = retry %v, err %v; want success", retry, err)
 	}
 }
 
@@ -163,6 +252,47 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 	}
 	if snapshotKey(root, SnapshotOptions{VisibleOnly: true}) == snapshotKey(root, SnapshotOptions{}) {
 		t.Fatal("visibility policy not part of snapshot key")
+	}
+}
+
+func TestTruncateUTF8HonorsByteLimit(t *testing.T) {
+	value, truncated := truncateUTF8("a€😀", 4)
+	if value != "a€" || !truncated || len(value) != 4 {
+		t.Fatalf("truncateUTF8 = %q, truncated=%v, bytes=%d", value, truncated, len(value))
+	}
+	if !utf8.ValidString(value) {
+		t.Fatal("truncateUTF8 returned invalid UTF-8")
+	}
+}
+
+func TestBoundSnapshotResponsePrunesDanglingChildren(t *testing.T) {
+	rootID := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
+	childID := NodeID{BusName: "b", ObjectPath: "/child", Generation: 1}
+	root := Node{ID: rootID, Children: []NodeID{childID}}
+	child := Node{ID: childID, Parent: rootID}
+	snapshot := Snapshot{Root: root, Nodes: []Node{root, child}, Generation: 1, CapturedAt: time.Now(), Source: "test"}
+	limit := snapshotJSONSize(Snapshot{Root: root, Nodes: []Node{root}, Generation: snapshot.Generation, CapturedAt: snapshot.CapturedAt, Source: snapshot.Source})
+	bounded, err := boundSnapshotResponse(snapshot, limit)
+	if err != nil {
+		t.Fatalf("boundSnapshotResponse: %v", err)
+	}
+	if len(bounded.Nodes) != 1 || bounded.Root.ID != rootID || len(bounded.Nodes[0].Children) != 0 {
+		t.Fatalf("bounded snapshot = %+v, want a self-consistent root-only prefix", bounded)
+	}
+	for _, childRef := range bounded.Nodes[0].Children {
+		for _, node := range bounded.Nodes {
+			if childRef == node.ID {
+				t.Fatalf("child reference %v unexpectedly remained after truncation", childRef)
+			}
+		}
+	}
+}
+
+func TestBoundSnapshotResponseRejectsIrreduciblyTinyBudget(t *testing.T) {
+	rootID := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
+	_, err := boundSnapshotResponse(Snapshot{Root: Node{ID: rootID}, Nodes: []Node{{ID: rootID}}, Generation: 1, CapturedAt: time.Now(), Source: "test"}, 1)
+	if !errors.Is(err, ErrResponseBudget) {
+		t.Fatalf("tiny budget error = %v, want ErrResponseBudget", err)
 	}
 }
 
@@ -392,7 +522,7 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		{"value-alias", func() error { return backend.SetValue(ctx, id, 0.5) }, []call{{propertiesIface + ".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(0.5)}}}},
 		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }, []call{{editableTextIface + ".SetTextContents", []any{"safe"}}}},
 		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }, []call{{editableTextIface + ".DeleteText", []any{int32(0), int32(1)}}, {editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
-		{"insert", func() error { return backend.InsertText(ctx, id, 0, "x") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
+		{"insert", func() error { return backend.InsertText(ctx, id, 0, "é😀") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "é😀", int32(2)}}}},
 		{"copy", func() error { return backend.CopyText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CopyText", []any{int32(0), int32(1)}}}},
 		{"cut", func() error { return backend.CutText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CutText", []any{int32(0), int32(1)}}}},
 		{"paste", func() error { return backend.PasteText(ctx, id, 0) }, []call{{editableTextIface + ".PasteText", []any{int32(0)}}}},

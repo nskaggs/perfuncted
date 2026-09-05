@@ -8,15 +8,22 @@ import (
 
 type windowCandidate struct {
 	node  Node
+	app   Application
 	score int
 }
 
 // ResolveWindow correlates a managed window with a top-level AT-SPI frame or
 // dialog. PID is only a narrowing signal; title, role, geometry, and active
 // state decide the final candidate.
-func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (WindowScope, error) {
+func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (WindowScope, error) { //nolint:gocyclo // correlation keeps each ambiguity and evidence rule explicit.
 	if strings.TrimSpace(target.ID) == "" {
 		return WindowScope{}, fmt.Errorf("%w: window identity is empty", ErrNotFound)
+	}
+	if target.PID == 0 && target.PIDHint == 0 && strings.TrimSpace(target.AppID) != "" {
+		return WindowScope{WindowID: target.ID, Title: target.Title}, &MatchError{Operation: "window correlation", Err: ErrUnsupportedCorrelation}
+	}
+	if target.PID == 0 && target.PIDHint == 0 && strings.TrimSpace(target.Title) == "" && (target.Bounds.Width <= 0 || target.Bounds.Height <= 0) && !target.Active && !target.Focused {
+		return WindowScope{WindowID: target.ID, Title: target.Title}, &MatchError{Operation: "window correlation", Err: ErrUnsupportedCorrelation}
 	}
 	apps, err := b.Applications(ctx)
 	if err != nil {
@@ -33,7 +40,7 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 	if selected == nil {
 		return WindowScope{WindowID: target.ID, Title: target.Title, Candidates: bestCandidates}, &MatchError{Operation: "window correlation", Err: ErrNotFound, Candidates: bestCandidates}
 	}
-	evidence := []string{"managed window identity", "AT-SPI top-level role"}
+	evidence := []string{"managed window identity", "AT-SPI top-level role", "application-root ownership"}
 	if target.PID != 0 {
 		evidence = append(evidence, "process ownership")
 	}
@@ -46,7 +53,25 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 	if target.Active {
 		evidence = append(evidence, "active state")
 	}
-	return WindowScope{WindowID: target.ID, Title: target.Title, Root: selected.ID, Candidates: bestCandidates, Evidence: evidence}, nil
+	var selectedApp Application
+	for _, candidate := range candidates {
+		if candidate.node.ID == selected.ID {
+			selectedApp = candidate.app
+			break
+		}
+	}
+	return WindowScope{
+		WindowID:        target.ID,
+		Title:           target.Title,
+		Root:            selected.ID,
+		ApplicationRoot: selectedApp.ID,
+		Application:     selectedApp,
+		PID:             selectedApp.PID,
+		AppID:           target.AppID,
+		Generation:      selected.ID.Generation,
+		Candidates:      bestCandidates,
+		Evidence:        evidence,
+	}, nil
 }
 
 func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget, apps []Application) []windowCandidate {
@@ -59,20 +84,48 @@ func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget,
 		if err != nil {
 			continue
 		}
+		byID := make(map[NodeID]Node, len(snapshot.Nodes))
+		for _, item := range snapshot.Nodes {
+			byID[item.ID] = item
+		}
 		for _, node := range snapshot.Nodes {
 			if node.ID == app.ID || !isWindowRole(node.Role) {
 				continue
 			}
+			if !windowNodeOwnedBy(node, app.ID, byID) {
+				continue
+			}
 			if score := windowCandidateScore(node, target); score > 0 {
-				candidates = append(candidates, windowCandidate{node: node, score: score})
+				candidates = append(candidates, windowCandidate{node: node, app: app, score: score})
 			}
 		}
 	}
 	return candidates
 }
 
+func windowNodeOwnedBy(node Node, appRoot NodeID, byID map[NodeID]Node) bool {
+	if node.ID.BusName != appRoot.BusName {
+		return false
+	}
+	for parent := node.Parent; parent.valid(); {
+		if parent == appRoot {
+			return true
+		}
+		ancestor, ok := byID[parent]
+		if !ok || ancestor.Parent == parent {
+			return false
+		}
+		parent = ancestor.Parent
+	}
+	return false
+}
+
 func windowAppMatches(app Application, target WindowTarget) bool {
-	if target.PID != 0 && (app.PID == 0 || app.PID != target.PID) {
+	pid := target.PID
+	if pid == 0 {
+		pid = target.PIDHint
+	}
+	if pid != 0 && (app.PID == 0 || app.PID != pid) {
 		return false
 	}
 	// Compositor AppID and AT-SPI application names are not guaranteed to

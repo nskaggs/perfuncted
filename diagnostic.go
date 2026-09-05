@@ -69,6 +69,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 		Compositor:     compositor.DetectRuntime(s.env).String(),
 		Environment:    diagnostic.Environment(s.env.EnvList()),
 		Build:          currentBuildInfo(),
+		LogDirectory:   s.LogPath(),
 		Metadata:       copyStringMap(options.Metadata),
 		Capabilities:   diagnosticCapabilities(s.Capabilities()),
 		Probes:         diagnostic.Probes(s.env), //nolint:contextcheck // probe APIs are synchronous and do not accept a context.
@@ -178,6 +179,7 @@ type failureManifest struct {
 	Compositor     string                    `json:"compositor"`
 	Environment    map[string]string         `json:"environment"`
 	Build          diagnosticBuildInfo       `json:"build"`
+	LogDirectory   string                    `json:"log_directory,omitempty"`
 	Metadata       map[string]string         `json:"metadata,omitempty"`
 	Capabilities   []diagnosticCapability    `json:"capabilities"`
 	Probes         map[string][]probe.Result `json:"probes"`

@@ -281,6 +281,20 @@ type waitConfig struct {
 	interval time.Duration
 }
 
+// WaitEvidence describes the bounded wakeups observed while a condition was
+// evaluated. It is diagnostic evidence only; each wakeup still causes a fresh
+// authoritative condition evaluation.
+type WaitEvidence struct {
+	Evaluations            int                  `json:"evaluations"`
+	Wakeups                int                  `json:"wakeups"`
+	PollWakeups            int                  `json:"pollWakeups"`
+	WindowWakeups          int                  `json:"windowWakeups"`
+	AccessibilityWakeups   int                  `json:"accessibilityWakeups"`
+	ApplicationWakeups     int                  `json:"applicationWakeups"`
+	LastWakeSource         string               `json:"lastWakeSource,omitempty"`
+	LastAccessibilityEvent *accessibility.Event `json:"lastAccessibilityEvent,omitempty"`
+}
+
 // WaitEvery changes only the fallback polling cadence.
 func WaitEvery(interval time.Duration) WaitOption {
 	return func(config *waitConfig) error {
@@ -299,14 +313,26 @@ func (s *Session) Wait(
 	condition Condition,
 	options ...WaitOption,
 ) error {
+	_, err := s.WaitWithEvidence(ctx, condition, options...)
+	return err
+}
+
+// WaitWithEvidence blocks until condition succeeds and returns bounded
+// diagnostic evidence about the event-backed and polling wakeups observed.
+// Events only wake the wait; the condition remains the authority.
+func (s *Session) WaitWithEvidence(
+	ctx context.Context,
+	condition Condition,
+	options ...WaitOption,
+) (WaitEvidence, error) {
 	if s == nil {
-		return ErrNilSession
+		return WaitEvidence{}, ErrNilSession
 	}
 	if ctx == nil {
-		return fmt.Errorf("perfuncted: wait: %w: nil context", ErrInvalidArgument)
+		return WaitEvidence{}, fmt.Errorf("perfuncted: wait: %w: nil context", ErrInvalidArgument)
 	}
 	if condition == nil {
-		return fmt.Errorf("perfuncted: wait: %w: nil condition", ErrInvalidArgument)
+		return WaitEvidence{}, fmt.Errorf("perfuncted: wait: %w: nil condition", ErrInvalidArgument)
 	}
 	config := waitConfig{interval: defaultWaitInterval}
 	for _, option := range options {
@@ -314,60 +340,91 @@ func (s *Session) Wait(
 			continue
 		}
 		if err := option(&config); err != nil {
-			return err
+			return WaitEvidence{}, err
 		}
 	}
 
-	return s.wait(ctx, condition, config)
+	return s.waitWithEvidence(ctx, condition, config)
 }
 
-func (s *Session) wait(
+func (s *Session) waitWithEvidence(
 	ctx context.Context,
 	condition Condition,
 	config waitConfig,
-) error {
+) (WaitEvidence, error) { //nolint:gocyclo // evaluation, wake, and bounded failure paths are intentionally explicit.
+	var evidence WaitEvidence
 	if err := s.ensureOpen(); err != nil {
-		return err
+		return evidence, err
 	}
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
 	evaluationFailures := 0
 	for {
 		if err := s.waitState(ctx); err != nil {
-			return err
+			return evidence, err
 		}
-		wake := s.waitChanges()
-		ok, err := condition.evaluate(ctx, s)
+		epoch := s.waitChanges()
+		evidence.Evaluations++
+		ok, err := s.evaluateWaitCondition(ctx, condition, &evaluationFailures)
 		if err != nil {
-			if stateErr := s.waitState(ctx); stateErr != nil {
-				return stateErr
-			}
-			if isPermanentWaitError(err) {
-				return fmt.Errorf("wait %s: %w", condition.describe(), err)
-			}
-			evaluationFailures++
-			if evaluationFailures >= waitEvaluateFailureLimit {
-				return fmt.Errorf("wait %s: %d consecutive evaluation errors: %w", condition.describe(), evaluationFailures, err)
-			}
-			// Transient query failure: keep polling until the caller's
-			// deadline; the condition may still be satisfied later.
-		} else {
-			evaluationFailures = 0
-			if ok {
-				return nil
-			}
+			return evidence, err
+		}
+		if ok {
+			return evidence, nil
 		}
 		if condition.pollingOnly() {
-			wake = nil
+			epoch = nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return evidence, ctx.Err()
 		case <-s.ctx.Done():
-			return ErrSessionClosed
-		case <-wake:
+			return evidence, ErrSessionClosed
+		case <-waitEpochDone(epoch):
+			if epoch != nil {
+				evidence.recordWaitChange(epoch.change)
+			}
 		case <-ticker.C:
+			evidence.PollWakeups++
 		}
+	}
+}
+
+func (s *Session) evaluateWaitCondition(ctx context.Context, condition Condition, failures *int) (bool, error) {
+	ok, err := condition.evaluate(ctx, s)
+	if err == nil {
+		*failures = 0
+		return ok, nil
+	}
+	if stateErr := s.waitState(ctx); stateErr != nil {
+		return false, stateErr
+	}
+	if isPermanentWaitError(err) {
+		return false, fmt.Errorf("wait %s: %w", condition.describe(), err)
+	}
+	*failures++
+	if *failures >= waitEvaluateFailureLimit {
+		return false, fmt.Errorf("wait %s: %d consecutive evaluation errors: %w", condition.describe(), *failures, err)
+	}
+	// Transient query failure: keep polling until the caller's deadline; the
+	// condition may still be satisfied later.
+	return false, nil
+}
+
+func (e *WaitEvidence) recordWaitChange(change waitChange) {
+	e.Wakeups++
+	e.LastWakeSource = change.source
+	switch change.source {
+	case "window":
+		e.WindowWakeups++
+	case "accessibility":
+		e.AccessibilityWakeups++
+		if change.event != nil {
+			event := *change.event
+			e.LastAccessibilityEvent = &event
+		}
+	case "application":
+		e.ApplicationWakeups++
 	}
 }
 
@@ -379,32 +436,55 @@ func (s *Session) waitState(ctx context.Context) error {
 }
 
 type invalidationHub struct {
-	mu sync.Mutex
-	ch chan struct{}
+	mu    sync.Mutex
+	epoch *waitEpoch
+}
+
+// waitEpoch is immutable once notify closes done. Each waiter retains the
+// evidence belonging to the exact broadcast epoch that woke it; a later
+// notification cannot overwrite it before the waiter records the wake.
+type waitEpoch struct {
+	done   chan struct{}
+	change waitChange
 }
 
 func newInvalidationHub() *invalidationHub {
-	return &invalidationHub{ch: make(chan struct{})}
+	return &invalidationHub{epoch: &waitEpoch{done: make(chan struct{})}}
 }
 
-func (h *invalidationHub) subscribe() <-chan struct{} {
+func (h *invalidationHub) subscribe() *waitEpoch {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.ch
+	return h.epoch
 }
 
-func (h *invalidationHub) notify() {
+func (h *invalidationHub) notify(change waitChange) {
 	h.mu.Lock()
-	close(h.ch)
-	h.ch = make(chan struct{})
+	epoch := h.epoch
+	epoch.change = cloneWaitChange(change)
+	close(epoch.done)
+	h.epoch = &waitEpoch{done: make(chan struct{})}
 	h.mu.Unlock()
+}
+
+func cloneWaitChange(change waitChange) waitChange {
+	if change.event != nil {
+		event := *change.event
+		change.event = &event
+	}
+	return change
+}
+
+type waitChange struct {
+	source string
+	event  *accessibility.Event
 }
 
 type windowChangeSource interface {
 	WindowChanges() <-chan struct{}
 }
 
-func (s *Session) waitChanges() <-chan struct{} { //nolint:gocyclo // one hub owns independent window and accessibility sources.
+func (s *Session) waitChanges() *waitEpoch { //nolint:gocyclo // one hub owns independent window and accessibility sources.
 	s.hubOnce.Do(func() {
 		hub := newInvalidationHub()
 		s.hubMu.Lock()
@@ -422,7 +502,7 @@ func (s *Session) waitChanges() <-chan struct{} { //nolint:gocyclo // one hub ow
 								if !ok {
 									return
 								}
-								hub.notify()
+								hub.notify(waitChange{source: "window"})
 							}
 						}
 					}()
@@ -431,21 +511,23 @@ func (s *Session) waitChanges() <-chan struct{} { //nolint:gocyclo // one hub ow
 		}
 		if s.Accessibility != nil && !util.IsNil(s.Accessibility.backend) {
 			if source, ok := s.Accessibility.backend.(accessibility.EventSource); ok {
-				if events, err := source.Events(s.ctx, accessibility.EventOptions{Buffer: 128}); err == nil && events != nil {
-					go func() {
-						for {
-							select {
-							case <-s.ctx.Done():
+				go func() {
+					events, err := source.Events(s.ctx, accessibility.EventOptions{Buffer: 128})
+					if err != nil || events == nil {
+						return
+					}
+					for {
+						select {
+						case <-s.ctx.Done():
+							return
+						case event, ok := <-events:
+							if !ok {
 								return
-							case _, ok := <-events:
-								if !ok {
-									return
-								}
-								hub.notify()
 							}
+							hub.notify(waitChange{source: "accessibility", event: &event})
 						}
-					}()
-				}
+					}
+				}()
 			}
 		}
 	})
@@ -468,5 +550,12 @@ func (s *Session) notifyWaiters() {
 	if hub == nil {
 		return
 	}
-	hub.notify()
+	hub.notify(waitChange{source: "application"})
+}
+
+func waitEpochDone(epoch *waitEpoch) <-chan struct{} {
+	if epoch == nil {
+		return nil
+	}
+	return epoch.done
 }

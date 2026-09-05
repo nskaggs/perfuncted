@@ -75,8 +75,60 @@ func TestWaitChangesIncludesAccessibilityEvents(t *testing.T) {
 	wake := session.waitChanges()
 	backend.events <- accessibility.Event{Kind: "focus"}
 	select {
-	case <-wake:
+	case <-wake.done:
 	case <-time.After(time.Second):
 		t.Fatal("accessibility event did not wake waiter")
+	}
+}
+
+func TestWaitEpochKeepsWakeAttributionAcrossRapidNotifications(t *testing.T) {
+	hub := newInvalidationHub()
+	epoch := hub.subscribe()
+	observed := make(chan waitChange, 1)
+	go func() {
+		<-epoch.done
+		observed <- epoch.change
+	}()
+	hub.notify(waitChange{source: "window"})
+	hub.notify(waitChange{source: "accessibility", event: &accessibility.Event{Kind: "state-changed", Property: "enabled"}})
+	select {
+	case change := <-observed:
+		if change.source != "window" || change.event != nil {
+			t.Fatalf("first epoch attribution = %+v, want window without event", change)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("epoch waiter did not wake")
+	}
+}
+
+func TestWaitWithEvidenceReportsAccessibilityWake(t *testing.T) {
+	backend := &waitAccessibilityEventBackend{
+		events: make(chan accessibility.Event, 1),
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	defer session.Close()
+	entered := make(chan struct{})
+	go func() {
+		<-entered
+		backend.events <- accessibility.Event{Kind: "state-changed", Property: "enabled"}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	first := true
+	evidence, err := session.WaitWithEvidence(ctx, sessionCondition("never", func(context.Context, *Session) (bool, error) {
+		if first {
+			first = false
+			close(entered)
+		}
+		return false, nil
+	}), WaitEvery(time.Millisecond))
+	if err == nil {
+		t.Fatal("WaitWithEvidence error = nil, want deadline")
+	}
+	if evidence.AccessibilityWakeups == 0 || evidence.LastAccessibilityEvent == nil {
+		t.Fatalf("wait evidence = %+v, want accessibility wakeup and event", evidence)
+	}
+	if evidence.LastAccessibilityEvent.Kind != "state-changed" {
+		t.Fatalf("last accessibility event = %+v", evidence.LastAccessibilityEvent)
 	}
 }

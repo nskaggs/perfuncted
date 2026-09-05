@@ -6,6 +6,7 @@ package accessibility
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 
@@ -41,38 +43,52 @@ var (
 	ErrInvalidAction = errors.New("accessibility: invalid action index")
 	// ErrMutationRejected indicates that a provider declined a valid mutation.
 	ErrMutationRejected = errors.New("accessibility: mutation rejected")
+	// ErrStaleGeneration indicates that a remote read crossed an AT-SPI
+	// invalidation boundary and its result was discarded.
+	ErrStaleGeneration = errors.New("accessibility: generation changed during read")
+	// ErrUnsupportedCorrelation indicates that compositor and accessibility
+	// identity could not be correlated from authoritative evidence.
+	ErrUnsupportedCorrelation = errors.New("accessibility: window correlation unsupported")
+	// ErrResponseBudget indicates that even the minimum safe snapshot envelope
+	// cannot fit within the caller's hard response limit.
+	ErrResponseBudget = errors.New("accessibility: snapshot response budget exceeded")
 )
 
 const (
-	busService          = "org.a11y.Bus"
-	busAddressMethod    = busService + ".GetAddress"
-	busPath             = dbus.ObjectPath("/org/a11y/bus")
-	registryName        = "org.a11y.atspi.Registry"
-	registryPath        = dbus.ObjectPath("/org/a11y/atspi/registry")
-	desktopPath         = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
-	nullObjectPath      = dbus.ObjectPath("/org/a11y/atspi/null")
-	accessibleIface     = "org.a11y.atspi.Accessible"
-	componentIface      = "org.a11y.atspi.Component"
-	textIface           = "org.a11y.atspi.Text"
-	editableTextIface   = "org.a11y.atspi.EditableText"
-	valueIface          = "org.a11y.atspi.Value"
-	actionIface         = "org.a11y.atspi.Action"
-	selectionIface      = "org.a11y.atspi.Selection"
-	tableIface          = "org.a11y.atspi.Table"
-	documentIface       = "org.a11y.atspi.Document"
-	cacheIface          = "org.a11y.atspi.Cache"
-	cachePath           = dbus.ObjectPath("/org/a11y/atspi/cache")
-	propertiesIface     = "org.freedesktop.DBus.Properties"
-	defaultMaxDepth     = 32
-	defaultMaxNodes     = 10000
-	defaultMaxText      = 4096
-	defaultEventBuffer  = 64
-	maxApplications     = 1024
-	cacheTTL            = 250 * time.Millisecond
-	eventCoalesceWindow = 10 * time.Millisecond
-	absMaxDepth         = 64
-	absMaxNodes         = 100000
-	absMaxText          = 1 << 20
+	busService           = "org.a11y.Bus"
+	busAddressMethod     = busService + ".GetAddress"
+	busPath              = dbus.ObjectPath("/org/a11y/bus")
+	registryName         = "org.a11y.atspi.Registry"
+	registryPath         = dbus.ObjectPath("/org/a11y/atspi/registry")
+	desktopPath          = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
+	nullObjectPath       = dbus.ObjectPath("/org/a11y/atspi/null")
+	accessibleIface      = "org.a11y.atspi.Accessible"
+	componentIface       = "org.a11y.atspi.Component"
+	textIface            = "org.a11y.atspi.Text"
+	editableTextIface    = "org.a11y.atspi.EditableText"
+	valueIface           = "org.a11y.atspi.Value"
+	actionIface          = "org.a11y.atspi.Action"
+	selectionIface       = "org.a11y.atspi.Selection"
+	tableIface           = "org.a11y.atspi.Table"
+	documentIface        = "org.a11y.atspi.Document"
+	cacheIface           = "org.a11y.atspi.Cache"
+	cachePath            = dbus.ObjectPath("/org/a11y/atspi/cache")
+	propertiesIface      = "org.freedesktop.DBus.Properties"
+	defaultMaxDepth      = 32
+	defaultMaxNodes      = 10000
+	defaultMaxText       = 4096
+	defaultMaxTotal      = 1 << 20
+	defaultEventBuffer   = 64
+	maxApplications      = 1024
+	cacheTTL             = 250 * time.Millisecond
+	eventCoalesceWindow  = 10 * time.Millisecond
+	eventSetupTimeout    = 2 * time.Second
+	eventCleanupTimeout  = 750 * time.Millisecond
+	eventStartRetryLimit = 1
+	absMaxDepth          = 64
+	absMaxNodes          = 100000
+	absMaxText           = 1 << 20
+	absMaxTotal          = 16 << 20
 )
 
 // NodeID is an AT-SPI object reference scoped to one backend generation.
@@ -111,20 +127,21 @@ type Rect struct {
 
 // Node is a bounded snapshot of one accessible object.
 type Node struct {
-	ID          NodeID            `json:"id"`
-	Parent      NodeID            `json:"parent,omitempty"`
-	Name        string            `json:"name,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Role        string            `json:"role,omitempty"`
-	RoleID      uint32            `json:"roleId,omitempty"`
-	Interfaces  []string          `json:"interfaces,omitempty"`
-	Attributes  map[string]string `json:"attributes,omitempty"`
-	States      []string          `json:"states,omitempty"`
-	Text        string            `json:"text,omitempty"`
-	Bounds      Rect              `json:"bounds"`
-	HasBounds   bool              `json:"hasBounds"`
-	ChildCount  int               `json:"childCount"`
-	Children    []NodeID          `json:"children,omitempty"`
+	ID            NodeID            `json:"id"`
+	Parent        NodeID            `json:"parent,omitempty"`
+	Name          string            `json:"name,omitempty"`
+	Description   string            `json:"description,omitempty"`
+	Role          string            `json:"role,omitempty"`
+	RoleID        uint32            `json:"roleId,omitempty"`
+	Interfaces    []string          `json:"interfaces,omitempty"`
+	Attributes    map[string]string `json:"attributes,omitempty"`
+	States        []string          `json:"states,omitempty"`
+	Text          string            `json:"text,omitempty"`
+	TextTruncated bool              `json:"textTruncated,omitempty"`
+	Bounds        Rect              `json:"bounds"`
+	HasBounds     bool              `json:"hasBounds"`
+	ChildCount    int               `json:"childCount"`
+	Children      []NodeID          `json:"children,omitempty"`
 	// Relations preserves the AT-SPI relation targets when an object exposes
 	// them. The relation key is the normalized AT-SPI relation name.
 	Relations map[string][]NodeID `json:"relations,omitempty"`
@@ -201,10 +218,14 @@ type Application struct {
 // SnapshotOptions bounds all work and response size. Zero values select safe
 // defaults; values above the hard limits are capped.
 type SnapshotOptions struct {
-	MaxDepth     int  `json:"maxDepth,omitempty"`
-	MaxNodes     int  `json:"maxNodes,omitempty"`
-	MaxTextBytes int  `json:"maxTextBytes,omitempty"`
-	VisibleOnly  bool `json:"visibleOnly,omitempty"`
+	MaxDepth     int `json:"maxDepth,omitempty"`
+	MaxNodes     int `json:"maxNodes,omitempty"`
+	MaxTextBytes int `json:"maxTextBytes,omitempty"`
+	// MaxTotalBytes bounds the serialized snapshot response, including all
+	// node fields and the snapshot envelope. MaxTextBytes is an individual
+	// UTF-8 byte cap; AT-SPI character offsets remain character-based.
+	MaxTotalBytes int  `json:"maxTotalBytes,omitempty"`
+	VisibleOnly   bool `json:"visibleOnly,omitempty"`
 	// AllowSensitive disables the default redaction of AT-SPI sensitive and
 	// protected text/value attributes. Use only for an explicit trusted flow.
 	AllowSensitive bool `json:"allowSensitive,omitempty"`
@@ -224,6 +245,9 @@ func (o SnapshotOptions) normalized() SnapshotOptions {
 	if o.MaxTextBytes <= 0 {
 		o.MaxTextBytes = defaultMaxText
 	}
+	if o.MaxTotalBytes <= 0 {
+		o.MaxTotalBytes = defaultMaxTotal
+	}
 	if o.MaxDepth > absMaxDepth {
 		o.MaxDepth = absMaxDepth
 	}
@@ -232,6 +256,9 @@ func (o SnapshotOptions) normalized() SnapshotOptions {
 	}
 	if o.MaxTextBytes > absMaxText {
 		o.MaxTextBytes = absMaxText
+	}
+	if o.MaxTotalBytes > absMaxTotal {
+		o.MaxTotalBytes = absMaxTotal
 	}
 	return o
 }
@@ -288,13 +315,15 @@ func (o EventOptions) normalized() EventOptions {
 // Snapshot is a flat, parent-linked accessibility tree. Warnings identify
 // objects that disappeared while traversing; Truncated indicates a limit.
 type Snapshot struct {
-	Root       Node      `json:"root"`
-	Nodes      []Node    `json:"nodes"`
-	Truncated  bool      `json:"truncated"`
-	Warnings   []string  `json:"warnings,omitempty"`
-	Generation uint64    `json:"generation"`
-	CapturedAt time.Time `json:"capturedAt"`
-	Source     string    `json:"source,omitempty"`
+	Root              Node      `json:"root"`
+	Nodes             []Node    `json:"nodes"`
+	Truncated         bool      `json:"truncated"`
+	TruncationReasons []string  `json:"truncationReasons,omitempty"`
+	ProviderErrors    int       `json:"providerErrors,omitempty"`
+	Warnings          []string  `json:"warnings,omitempty"`
+	Generation        uint64    `json:"generation"`
+	CapturedAt        time.Time `json:"capturedAt"`
+	Source            string    `json:"source,omitempty"`
 }
 
 // Backend is the core AT-SPI surface used by perfuncted's bundle. Typed
@@ -334,6 +363,14 @@ type ActionInvoker interface {
 	InvokeAction(context.Context, NodeID, int32) error
 	InvokeActionByName(context.Context, NodeID, string) error
 	InvokeDefaultAction(context.Context, NodeID) (Action, error)
+}
+
+// NamedActionInvoker is the optional exact-action primitive used when a
+// caller needs the metadata selected by the same read that supplies the
+// DoAction index. It complements the compatibility-oriented
+// InvokeActionByName method without changing that method's signature.
+type NamedActionInvoker interface {
+	InvokeActionByNameExact(context.Context, NodeID, string) (Action, error)
 }
 
 // ComponentController exposes typed Component interface operations.
@@ -439,9 +476,15 @@ const (
 // WindowTarget describes an authoritative Perfuncted window used to resolve
 // an AT-SPI top-level window/dialog/frame.
 type WindowTarget struct {
-	ID      string
-	Title   string
-	PID     int32
+	ID    string
+	Title string
+	// PID is the compositor-reported process owner. It is authoritative when
+	// present and is included in correlation evidence.
+	PID int32
+	// PIDHint is an optional narrowing signal used only when the compositor did
+	// not report a PID. It must not be presented as compositor ownership
+	// evidence.
+	PIDHint int32
 	AppID   string
 	Bounds  Rect
 	Active  bool
@@ -451,11 +494,16 @@ type WindowTarget struct {
 // WindowScope is the correlated accessibility subtree root and evidence used
 // to choose it. A root is never silently substituted with an application root.
 type WindowScope struct {
-	WindowID   string      `json:"windowId"`
-	Title      string      `json:"title,omitempty"`
-	Root       NodeID      `json:"root"`
-	Candidates []Candidate `json:"candidates,omitempty"`
-	Evidence   []string    `json:"evidence,omitempty"`
+	WindowID        string      `json:"windowId"`
+	Title           string      `json:"title,omitempty"`
+	Root            NodeID      `json:"root"`
+	ApplicationRoot NodeID      `json:"applicationRoot"`
+	Application     Application `json:"application"`
+	PID             int32       `json:"pid,omitempty"`
+	AppID           string      `json:"appId,omitempty"`
+	Generation      uint64      `json:"generation"`
+	Candidates      []Candidate `json:"candidates,omitempty"`
+	Evidence        []string    `json:"evidence,omitempty"`
 }
 
 // WindowResolver resolves an authoritative compositor window to its
@@ -475,10 +523,23 @@ type Reopener interface {
 // session bus only provides org.a11y.Bus.GetAddress; all chatty AT-SPI calls
 // are made over the returned private accessibility bus.
 func OpenRuntime(rt env.Runtime) (Backend, error) {
-	return openRuntime(rt, 1)
+	return OpenRuntimeContext(context.Background(), rt)
 }
 
-func openRuntime(rt env.Runtime, generation uint64) (Backend, error) {
+// OpenRuntimeContext is the cancellable form of OpenRuntime. Connections and
+// the accessibility-bus address lookup are owned by the returned backend once
+// this function succeeds.
+func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Backend, error) {
+	return openRuntime(ctx, rt, 1)
+}
+
+func openRuntime(ctx context.Context, rt env.Runtime, generation uint64) (Backend, error) {
+	if ctx == nil {
+		return nil, errors.New("accessibility: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if generation == 0 {
 		generation = 1
 	}
@@ -489,12 +550,12 @@ func openRuntime(rt env.Runtime, generation uint64) (Backend, error) {
 	if busAddress == "" {
 		return nil, fmt.Errorf("accessibility: missing target session bus address")
 	}
-	session, err := dbusutil.SessionBusAddress(busAddress)
+	session, err := dbusutil.SessionBusAddressContext(ctx, busAddress)
 	if err != nil {
 		return nil, fmt.Errorf("accessibility: connect to session bus: %w", err)
 	}
 	var address string
-	call := session.Object(busService, busPath).Call(busAddressMethod, 0)
+	call := session.Object(busService, busPath).CallWithContext(ctx, busAddressMethod, 0)
 	if storeErr := call.Store(&address); storeErr != nil {
 		_ = session.Close()
 		return nil, fmt.Errorf("accessibility: get accessibility bus address: %w", storeErr)
@@ -503,20 +564,10 @@ func openRuntime(rt env.Runtime, generation uint64) (Backend, error) {
 		_ = session.Close()
 		return nil, fmt.Errorf("accessibility: empty bus address")
 	}
-	access, err := dbus.Dial(address)
+	access, err := dbusutil.ConnectContext(ctx, address)
 	if err != nil {
 		_ = session.Close()
 		return nil, fmt.Errorf("accessibility: dial accessibility bus: %w", err)
-	}
-	if err := access.Auth(nil); err != nil {
-		_ = access.Close()
-		_ = session.Close()
-		return nil, fmt.Errorf("accessibility: authenticate accessibility bus: %w", err)
-	}
-	if err := access.Hello(); err != nil {
-		_ = access.Close()
-		_ = session.Close()
-		return nil, fmt.Errorf("accessibility: hello accessibility bus: %w", err)
 	}
 	backend := &dbusBackend{
 		runtime: rt, session: session, access: access, generation: generation,
@@ -548,6 +599,9 @@ type dbusBackend struct {
 	nextSubscriber uint64
 	eventCancel    context.CancelFunc
 	eventDone      chan struct{}
+	eventAccess    *dbus.Conn
+	eventStarting  *eventStart
+	eventStartStop context.CancelFunc
 	// callOverride is used only by deterministic package tests to exercise
 	// protocol and error handling without a host D-Bus daemon.
 	callOverride func(context.Context, NodeID, string, []any) (any, error)
@@ -556,6 +610,12 @@ type dbusBackend struct {
 type eventSubscriber struct {
 	out     chan Event
 	dropped uint64
+}
+
+type eventStart struct {
+	done           chan struct{}
+	err            error
+	callerCanceled bool
 }
 
 type cachedSnapshot struct {
@@ -641,7 +701,7 @@ func (b *dbusBackend) Close() error {
 	b.access, b.session = nil, nil
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.mu.Unlock()
-	b.stopEvents()
+	b.stopEvents(access)
 	if access != nil {
 		errs = append(errs, access.Close())
 	}
@@ -708,32 +768,53 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	refs, err := b.children(ctx, b.desktop())
-	if err != nil {
-		return nil, err
-	}
-	if len(refs) > maxApplications {
-		refs = refs[:maxApplications]
-	}
-	apps := make([]Application, 0, len(refs))
-	for _, ref := range refs {
-		if err := ctx.Err(); err != nil {
+	for attempt := 0; attempt < 2; attempt++ {
+		expected := b.Generation()
+		refs, err := b.children(ctx, b.desktop())
+		if err != nil {
+			if errors.Is(err, ErrStaleGeneration) {
+				continue
+			}
 			return nil, err
 		}
-		// Cache.GetItems is an optional optimization. Providers that do not
-		// expose it continue through the direct Accessible interface path.
-		_ = b.loadCache(ctx, ref.BusName)
-		node, err := b.readNode(ctx, b.refID(ref), NodeID{}, defaultMaxText, false)
-		if err != nil {
+		if len(refs) > maxApplications {
+			refs = refs[:maxApplications]
+		}
+		apps := make([]Application, 0, len(refs))
+		for _, ref := range refs {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			// Cache.GetItems is an optional optimization. Providers that do not
+			// expose it continue through the direct Accessible interface path.
+			if err := b.loadCache(ctx, ref.BusName); err != nil && errors.Is(err, ErrStaleGeneration) {
+				apps = nil
+				break
+			}
+			id := b.refID(ref)
+			node, err := b.readNode(ctx, id, NodeID{}, defaultMaxText, false)
+			if errors.Is(err, ErrStaleGeneration) {
+				apps = nil
+				break
+			}
+			if err != nil {
+				continue
+			}
+			app := Application{Node: node}
+			app.PID, _ = b.connectionPID(ctx, ref.BusName)
+			_ = b.property(ctx, id, "org.a11y.atspi.Application", "ToolkitName", &app.ToolkitName)
+			_ = b.property(ctx, id, "org.a11y.atspi.Application", "ToolkitVersion", &app.ToolkitVersion)
+			apps = append(apps, app)
+		}
+		if apps == nil {
 			continue
 		}
-		app := Application{Node: node}
-		app.PID, _ = b.connectionPID(ctx, ref.BusName)
-		_ = b.property(ctx, b.refID(ref), "org.a11y.atspi.Application", "ToolkitName", &app.ToolkitName)
-		_ = b.property(ctx, b.refID(ref), "org.a11y.atspi.Application", "ToolkitVersion", &app.ToolkitVersion)
-		apps = append(apps, app)
+		if err := b.generationError(expected); err != nil {
+			continue
+		}
+		return apps, nil
 	}
-	return apps, nil
+	return nil, fmt.Errorf("%w: bounded retry exhausted", ErrStaleGeneration)
 }
 
 // FindApplication returns exactly one application matching filter. Name is
@@ -829,7 +910,7 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 	return out, nil
 }
 
-func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []string) {
+func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []string, error) {
 	registered := []string{
 		"object:property-change",
 		"object:state-changed",
@@ -847,12 +928,28 @@ func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []s
 	if names := access.Names(); len(names) > 0 {
 		unique = names[0]
 	}
-	for _, eventType := range registered {
-		// Some registry versions reject event families they do not emit. Keep
-		// the successful registrations and continue with the signal stream.
-		_ = registry.CallWithContext(ctx, registryName+".RegisterEvent", 0, eventType, []string{}, unique).Err
+	registered, err := registerEventFamilies(ctx, registry, unique, registered)
+	if err != nil {
+		return registry, registered, err
 	}
-	return registry, registered
+	return registry, registered, nil
+}
+
+// registerEventFamilies tolerates providers that do not expose every AT-SPI
+// event family. A stream remains usable when at least one family registers;
+// the returned slice is the exact ownership record needed for cleanup.
+func registerEventFamilies(ctx context.Context, registry eventRegistrar, unique string, eventTypes []string) ([]string, error) {
+	registered := make([]string, 0, len(eventTypes))
+	for _, eventType := range eventTypes {
+		if err := registry.CallWithContext(ctx, registryName+".RegisterEvent", 0, eventType, []string{}, unique).Err; err != nil {
+			continue
+		}
+		registered = append(registered, eventType)
+	}
+	if len(registered) == 0 {
+		return nil, fmt.Errorf("accessibility: no AT-SPI event family registered: %w", ErrUnsupported)
+	}
+	return registered, nil
 }
 
 func subscribeEventMatches(ctx context.Context, access *dbus.Conn) ([][]dbus.MatchOption, error) {
@@ -862,15 +959,21 @@ func subscribeEventMatches(ctx context.Context, access *dbus.Conn) ([][]dbus.Mat
 		{dbus.WithMatchInterface("org.a11y.atspi.Event.Window")},
 		{dbus.WithMatchInterface(cacheIface)},
 	}
-	for _, match := range matches {
+	for i, match := range matches {
 		if err := access.AddMatchSignalContext(ctx, match...); err != nil {
-			for _, installed := range matches {
-				_ = access.RemoveMatchSignal(installed...)
-			}
-			return nil, fmt.Errorf("accessibility: subscribe events: %w", err)
+			return matches[:i], fmt.Errorf("accessibility: subscribe events: %w", err)
 		}
 	}
 	return matches, nil
+}
+
+func removeEventMatches(ctx context.Context, access *dbus.Conn, matches [][]dbus.MatchOption) {
+	if access == nil {
+		return
+	}
+	for _, match := range matches {
+		_ = access.RemoveMatchSignalContext(ctx, match...)
+	}
 }
 
 type eventRegistrar interface {
@@ -878,6 +981,9 @@ type eventRegistrar interface {
 }
 
 func deregisterEvents(ctx context.Context, registry eventRegistrar, registered []string) {
+	if registry == nil {
+		return
+	}
 	for _, eventType := range registered {
 		_ = registry.CallWithContext(ctx, registryName+".DeregisterEvent", 0, eventType).Err
 	}
@@ -921,7 +1027,7 @@ func sensitiveEventProperty(property string) bool {
 	return lower == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "protected")
 }
 
-func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOptions) (Snapshot, error) {
+func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOptions) (Snapshot, error) { //nolint:gocyclo // bounded retry, cache, traversal, and publication are one transaction.
 	if ctx == nil {
 		return Snapshot{}, errors.New("accessibility: nil context")
 	}
@@ -932,58 +1038,282 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		return Snapshot{}, err
 	}
 	opts = opts.normalized()
-	if root == (NodeID{}) {
-		if !opts.AllowDesktopRoot {
-			return Snapshot{}, fmt.Errorf("%w: Snapshot requires an application, window, or root handle", ErrScope)
+	requestedRoot := root
+	for attempt := 0; attempt < 2; attempt++ {
+		root = requestedRoot
+		if root == (NodeID{}) {
+			if !opts.AllowDesktopRoot {
+				return Snapshot{}, fmt.Errorf("%w: Snapshot requires an application, window, or root handle", ErrScope)
+			}
+			root = b.desktop()
+		} else if !root.valid() {
+			return Snapshot{}, fmt.Errorf("%w: invalid snapshot root", ErrScope)
 		}
-		root = b.desktop()
-	} else if !root.valid() {
-		return Snapshot{}, fmt.Errorf("%w: invalid snapshot root", ErrScope)
-	}
-	if root.BusName != registryName {
-		_ = b.loadCache(ctx, root.BusName)
-	}
-	key := snapshotKey(root, opts)
-	now := time.Now()
-	b.mu.RLock()
-	if entry, ok := b.cache[key]; ok && now.Sub(entry.at) < cacheTTL {
-		snapshot := cloneSnapshot(entry.snapshot)
+		if err := b.validateHandle(root); err != nil {
+			return Snapshot{}, err
+		}
+		expectedGeneration := root.Generation
+		if root.BusName != registryName {
+			if err := b.loadCache(ctx, root.BusName); err != nil && errors.Is(err, ErrStaleGeneration) {
+				if requestedRoot == (NodeID{}) {
+					continue
+				}
+				return Snapshot{}, err
+			}
+		}
+		key := snapshotKey(root, opts)
+		now := time.Now()
+		b.mu.RLock()
+		if entry, ok := b.cache[key]; ok && now.Sub(entry.at) < cacheTTL && entry.snapshot.Generation == expectedGeneration {
+			snapshot := cloneSnapshot(entry.snapshot)
+			b.mu.RUnlock()
+			return snapshot, nil
+		}
 		b.mu.RUnlock()
-		return snapshot, nil
+		walker := snapshotWalker{
+			backend: b,
+			opts:    opts,
+			snapshot: Snapshot{
+				Nodes: make([]Node, 0, min(opts.MaxNodes, 1024)),
+			},
+			seen: make(map[NodeID]struct{}, min(opts.MaxNodes, 1024)),
+		}
+		rootNode, err := walker.walk(ctx, root, NodeID{}, 0)
+		if errors.Is(err, ErrStaleGeneration) || errors.Is(walker.err, ErrStaleGeneration) {
+			if requestedRoot == (NodeID{}) {
+				continue
+			}
+			if err == nil {
+				err = walker.err
+			}
+			return Snapshot{}, err
+		}
+		if err != nil && (ctx.Err() != nil || len(walker.snapshot.Nodes) == 0) {
+			return Snapshot{}, err
+		}
+		walker.snapshot.Root = rootNode
+		walker.snapshot.CapturedAt = now
+		walker.snapshot.Generation = expectedGeneration
+		walker.snapshot.Source = "at-spi"
+		walker.snapshot.ProviderErrors = walker.providerErrors
+		if generationErr := b.generationError(expectedGeneration); generationErr != nil {
+			if requestedRoot == (NodeID{}) {
+				continue
+			}
+			return Snapshot{}, generationErr
+		}
+		bounded, err := boundSnapshotResponse(walker.snapshot, opts.MaxTotalBytes)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		walker.snapshot = bounded
+		if err := b.publishSnapshot(key, expectedGeneration, walker.snapshot); err != nil {
+			if requestedRoot == (NodeID{}) && errors.Is(err, ErrStaleGeneration) {
+				continue
+			}
+			return Snapshot{}, err
+		}
+		return walker.snapshot, nil
 	}
-	b.mu.RUnlock()
-	walker := snapshotWalker{
-		backend: b,
-		opts:    opts,
-		snapshot: Snapshot{
-			Nodes: make([]Node, 0, min(opts.MaxNodes, 1024)),
-		},
-		seen: make(map[NodeID]struct{}, min(opts.MaxNodes, 1024)),
-	}
-	rootNode, err := walker.walk(ctx, root, NodeID{}, 0)
-	if err != nil && (ctx.Err() != nil || len(walker.snapshot.Nodes) == 0) {
-		return Snapshot{}, err
-	}
-	walker.snapshot.Root = rootNode
-	walker.snapshot.CapturedAt = now
-	walker.snapshot.Generation = b.Generation()
-	walker.snapshot.Source = "at-spi"
-	b.mu.Lock()
-	if b.cache == nil {
-		b.cache = make(map[string]cachedSnapshot)
-	}
-	b.cache[key] = cachedSnapshot{at: now, snapshot: cloneSnapshot(walker.snapshot)}
-	b.mu.Unlock()
-	return walker.snapshot, nil
+	return Snapshot{}, fmt.Errorf("%w: bounded retry exhausted", ErrStaleGeneration)
 }
 
 func snapshotKey(root NodeID, opts SnapshotOptions) string {
-	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive)
+	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.FormatUint(root.Generation, 10) + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.Itoa(opts.MaxTotalBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive) + "\x00" + strconv.FormatBool(opts.AllowDesktopRoot)
+}
+
+func (b *dbusBackend) generationError(expected uint64) error {
+	current := b.Generation()
+	if current == expected {
+		return nil
+	}
+	return fmt.Errorf("%w: expected %d, current %d: %w", ErrStaleGeneration, expected, current, ErrStaleNode)
+}
+
+func (b *dbusBackend) publishSnapshot(key string, expected uint64, snapshot Snapshot) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || b.disconnected {
+		return ErrDisconnected
+	}
+	if b.generation != expected {
+		return fmt.Errorf("%w: expected %d, current %d: %w", ErrStaleGeneration, expected, b.generation, ErrStaleNode)
+	}
+	if b.cache == nil {
+		b.cache = make(map[string]cachedSnapshot)
+	}
+	b.cache[key] = cachedSnapshot{at: snapshot.CapturedAt, snapshot: cloneSnapshot(snapshot)}
+	return nil
+}
+
+func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
+	if maxBytes <= 0 || snapshotJSONSize(snapshot) <= maxBytes {
+		return snapshot, nil
+	}
+	snapshot.Truncated = true
+	snapshot.TruncationReasons = appendUnique(snapshot.TruncationReasons, fmt.Sprintf("max total bytes %d", maxBytes))
+	for i := range snapshot.Nodes {
+		snapshot.Nodes[i] = boundNodeResponse(snapshot.Nodes[i], maxBytes)
+	}
+	if len(snapshot.Nodes) > 0 {
+		snapshot.Root = snapshot.Nodes[0]
+	}
+	if snapshotJSONSize(snapshot) <= maxBytes {
+		return snapshot, nil
+	}
+
+	originalRoot := snapshot.Root.ID
+	low, high, best := 0, len(snapshot.Nodes), -1
+	for low <= high {
+		middle := low + (high-low)/2
+		candidate := snapshot
+		candidate.Nodes = append([]Node(nil), snapshot.Nodes[:middle]...)
+		if middle == 0 {
+			candidate.Root = Node{ID: originalRoot}
+		} else {
+			candidate.Root = candidate.Nodes[0]
+		}
+		pruneSnapshotReferences(&candidate)
+		if snapshotJSONSize(candidate) <= maxBytes {
+			best = middle
+			low = middle + 1
+			continue
+		}
+		high = middle - 1
+	}
+	if best < 0 {
+		snapshot.Nodes = nil
+		snapshot.Root = Node{ID: originalRoot}
+	} else {
+		snapshot.Nodes = append([]Node(nil), snapshot.Nodes[:best]...)
+		if best == 0 {
+			snapshot.Root = Node{ID: originalRoot}
+		} else {
+			snapshot.Root = snapshot.Nodes[0]
+		}
+	}
+	pruneSnapshotReferences(&snapshot)
+	if snapshotJSONSize(snapshot) > maxBytes {
+		minimum := snapshot
+		minimum.Nodes = nil
+		minimum.Root = Node{ID: originalRoot}
+		minimum.Warnings = nil
+		minimum.ProviderErrors = 0
+		pruneSnapshotReferences(&minimum)
+		if snapshotJSONSize(minimum) > maxBytes {
+			return Snapshot{}, fmt.Errorf("%w: minimum response is %d bytes, limit is %d", ErrResponseBudget, snapshotJSONSize(minimum), maxBytes)
+		}
+		return minimum, nil
+	}
+	return snapshot, nil
+}
+
+func pruneSnapshotReferences(snapshot *Snapshot) {
+	if snapshot == nil {
+		return
+	}
+	retained := make(map[NodeID]struct{}, len(snapshot.Nodes))
+	for _, node := range snapshot.Nodes {
+		retained[node.ID] = struct{}{}
+	}
+	for i := range snapshot.Nodes {
+		node := &snapshot.Nodes[i]
+		children := node.Children[:0]
+		for _, child := range node.Children {
+			if _, ok := retained[child]; ok {
+				children = append(children, child)
+			}
+		}
+		node.Children = children
+		for relation, targets := range node.Relations {
+			kept := targets[:0]
+			for _, target := range targets {
+				if _, ok := retained[target]; ok {
+					kept = append(kept, target)
+				}
+			}
+			if len(kept) == 0 {
+				delete(node.Relations, relation)
+			} else {
+				node.Relations[relation] = kept
+			}
+		}
+	}
+	if len(snapshot.Nodes) > 0 {
+		snapshot.Root = snapshot.Nodes[0]
+	}
+}
+
+func boundNodeResponse(node Node, maxBytes int) Node {
+	for snapshotJSONSize(Snapshot{Root: node, Nodes: []Node{node}}) > maxBytes {
+		switch {
+		case node.Text != "":
+			limit := len(node.Text) / 2
+			if limit == len(node.Text) {
+				limit--
+			}
+			node.Text, _ = truncateUTF8(node.Text, limit)
+			node.TextTruncated = true
+		case node.Attributes != nil:
+			node.Attributes = nil
+		case node.Relations != nil:
+			node.Relations = nil
+		case node.Actions != nil:
+			node.Actions = nil
+		case node.Warnings != nil:
+			node.Warnings = nil
+		case node.Description != "":
+			node.Description = ""
+		case node.Name != "":
+			node.Name = ""
+		case node.Interfaces != nil:
+			node.Interfaces = nil
+		case node.States != nil:
+			node.States = nil
+		case node.Children != nil:
+			node.Children = nil
+		default:
+			return node
+		}
+	}
+	return node
+}
+
+func snapshotJSONSize(snapshot Snapshot) int {
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	return len(data)
+}
+
+func truncateUTF8(value string, maxBytes int) (string, bool) {
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
+	if len(value) <= maxBytes {
+		return value, false
+	}
+	value = value[:maxBytes]
+	for len(value) > 0 && !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value, true
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func cloneSnapshot(in Snapshot) Snapshot {
 	out := in
 	out.Nodes = append([]Node(nil), in.Nodes...)
+	out.TruncationReasons = append([]string(nil), in.TruncationReasons...)
 	out.Warnings = append([]string(nil), in.Warnings...)
 	for i := range out.Nodes {
 		out.Nodes[i].Interfaces = append([]string(nil), in.Nodes[i].Interfaces...)
@@ -1027,10 +1357,12 @@ func cloneSnapshot(in Snapshot) Snapshot {
 }
 
 type snapshotWalker struct {
-	backend  snapshotBackend
-	opts     SnapshotOptions
-	snapshot Snapshot
-	seen     map[NodeID]struct{}
+	backend        snapshotBackend
+	opts           SnapshotOptions
+	snapshot       Snapshot
+	seen           map[NodeID]struct{}
+	providerErrors int
+	err            error
 }
 
 type snapshotBackend interface {
@@ -1044,11 +1376,11 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 		return Node{}, err
 	}
 	if depth > w.opts.MaxDepth {
-		w.snapshot.Truncated = true
+		w.markTruncated(fmt.Sprintf("max depth %d", w.opts.MaxDepth))
 		return Node{}, fmt.Errorf("accessibility: max depth %d reached", w.opts.MaxDepth)
 	}
 	if len(w.snapshot.Nodes) >= w.opts.MaxNodes {
-		w.snapshot.Truncated = true
+		w.markTruncated(fmt.Sprintf("max nodes %d", w.opts.MaxNodes))
 		return Node{}, fmt.Errorf("accessibility: max nodes %d reached", w.opts.MaxNodes)
 	}
 	if _, ok := w.seen[id]; ok {
@@ -1064,11 +1396,14 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	}
 	if len(node.Warnings) > 0 {
 		w.snapshot.Warnings = append(w.snapshot.Warnings, node.Warnings...)
+		w.providerErrors += len(node.Warnings)
 	}
 	nodeIndex := len(w.snapshot.Nodes)
 	w.snapshot.Nodes = append(w.snapshot.Nodes, node)
 	if node.ChildCount > 0 {
-		w.walkChildren(ctx, &node, id, depth)
+		if err := w.walkChildren(ctx, &node, id, depth); err != nil {
+			return Node{}, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return Node{}, err
@@ -1077,30 +1412,51 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	return node, nil
 }
 
-func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID, depth int) {
+func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID, depth int) error {
 	children, err := w.backend.children(ctx, id)
 	if err != nil {
+		if errors.Is(err, ErrStaleGeneration) {
+			w.err = err
+			return err
+		}
 		w.snapshot.Warnings = append(w.snapshot.Warnings, fmt.Sprintf("%s: %v", id.ObjectPath, err))
-		return
+		w.providerErrors++
+		return nil
 	}
 	for _, childRef := range children {
 		if len(w.snapshot.Nodes) >= w.opts.MaxNodes {
-			w.snapshot.Truncated = true
-			return
+			w.markTruncated(fmt.Sprintf("max nodes %d", w.opts.MaxNodes))
+			return nil
 		}
 		childID := w.backend.refID(childRef)
 		child, childErr := w.walk(ctx, childID, id, depth+1)
 		if childErr != nil {
 			if ctx.Err() != nil {
-				return
+				return nil
+			}
+			if errors.Is(childErr, ErrStaleGeneration) {
+				w.err = childErr
+				return childErr
 			}
 			w.snapshot.Warnings = append(w.snapshot.Warnings, childErr.Error())
+			w.providerErrors++
 			continue
 		}
 		if child.ID.valid() {
 			node.Children = append(node.Children, child.ID)
 		}
 	}
+	return nil
+}
+
+func (w *snapshotWalker) markTruncated(reason string) {
+	w.snapshot.Truncated = true
+	for _, existing := range w.snapshot.TruncationReasons {
+		if existing == reason {
+			return
+		}
+	}
+	w.snapshot.TruncationReasons = append(w.snapshot.TruncationReasons, reason)
 }
 
 func (b *dbusBackend) Find(ctx context.Context, root NodeID, query Query, opts SnapshotOptions) ([]Node, error) {
@@ -1202,9 +1558,13 @@ func (b *dbusBackend) AtPoint(ctx context.Context, x, y int) (Node, error) {
 }
 
 func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, error) {
+	if ctx == nil {
+		return nil, errors.New("accessibility: nil context")
+	}
 	if cached := b.cachedChildren(id); cached != nil {
 		return cached, nil
 	}
+	expected := id.Generation
 	obj, err := b.object(id)
 	if err != nil {
 		return nil, err
@@ -1212,6 +1572,9 @@ func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, err
 	var refs []objectRef
 	if err := obj.CallWithContext(ctx, accessibleIface+".GetChildren", 0).Store(&refs); err != nil {
 		return nil, fmt.Errorf("accessibility: children %s: %w", id.ObjectPath, err)
+	}
+	if err := b.generationError(expected); err != nil {
+		return nil, err
 	}
 	return b.tagRefs(refs), nil
 }
@@ -1222,7 +1585,7 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if len(b.cacheItems) == 0 || !b.cacheApps[id.BusName] {
+	if len(b.cacheItems) == 0 || !b.cacheApps[id.BusName] || id.Generation != b.generation || b.closed || b.disconnected {
 		return nil
 	}
 	type indexed struct {
@@ -1254,10 +1617,14 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	return refs
 }
 
-func (b *dbusBackend) loadCache(ctx context.Context, busName string) error {
+func (b *dbusBackend) loadCache(ctx context.Context, busName string) error { //nolint:gocyclo // cache loading has explicit protocol, generation, and publication guards.
+	if ctx == nil {
+		return errors.New("accessibility: nil context")
+	}
 	if b == nil || strings.TrimSpace(busName) == "" || busName == registryName {
 		return ErrUnsupported
 	}
+	expected := b.Generation()
 	b.mu.RLock()
 	if b.cacheApps[busName] && b.cacheItems != nil {
 		b.mu.RUnlock()
@@ -1273,7 +1640,15 @@ func (b *dbusBackend) loadCache(ctx context.Context, busName string) error {
 	if err := call.Store(&items); err != nil {
 		return fmt.Errorf("accessibility: cache get items for %s: %w", busName, err)
 	}
+	if err := b.generationError(expected); err != nil {
+		return err
+	}
 	b.mu.Lock()
+	if b.generation != expected || b.closed || b.disconnected {
+		current := b.generation
+		b.mu.Unlock()
+		return fmt.Errorf("%w: expected %d, current %d: %w", ErrStaleGeneration, expected, current, ErrStaleNode)
+	}
 	generation := b.generation
 	if b.cacheItems == nil {
 		b.cacheItems = make(map[NodeID]cacheItem)
@@ -1355,6 +1730,10 @@ func (b *dbusBackend) applyCacheRemoveLocked(body []any) {
 }
 
 func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {
+	if ctx == nil {
+		return Node{}, errors.New("accessibility: nil context")
+	}
+	expected := id.Generation
 	if _, err := b.object(id); err != nil {
 		return Node{}, err
 	}
@@ -1381,6 +1760,9 @@ func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText i
 	if !allowSensitive && hasSensitiveState(node.States) {
 		redactSensitiveNode(&node)
 	}
+	if err := b.generationError(expected); err != nil {
+		return Node{}, err
+	}
 	return node, nil
 }
 
@@ -1389,6 +1771,10 @@ func (b *dbusBackend) cachedItem(id NodeID) (cacheItem, bool) {
 		return cacheItem{}, false
 	}
 	b.mu.RLock()
+	if id.Generation != b.generation || b.closed || b.disconnected {
+		b.mu.RUnlock()
+		return cacheItem{}, false
+	}
 	item, ok := b.cacheItems[id]
 	b.mu.RUnlock()
 	return item, ok
@@ -1500,7 +1886,10 @@ func (b *dbusBackend) readNodeText(ctx context.Context, id NodeID, interfaces []
 	if chars > int32(maxText) {
 		chars = int32(maxText)
 	}
-	_ = b.call(ctx, id, textIface+".GetText", []any{int32(0), chars}, &node.Text)
+	if err := b.call(ctx, id, textIface+".GetText", []any{int32(0), chars}, &node.Text); err != nil {
+		return
+	}
+	node.Text, node.TextTruncated = truncateUTF8(node.Text, maxText)
 }
 
 func (b *dbusBackend) readNodeAttributes(ctx context.Context, id NodeID, node *Node) {

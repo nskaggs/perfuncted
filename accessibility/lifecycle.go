@@ -47,7 +47,7 @@ func (b *dbusBackend) markDisconnected() {
 	b.generation++
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.mu.Unlock()
-	b.stopEvents()
+	b.stopEvents(nil)
 }
 
 // Reopen creates a fresh backend against the same target session. The new
@@ -71,7 +71,7 @@ func (b *dbusBackend) Reopen(ctx context.Context) (Backend, error) {
 		b.markDisconnected()
 		return nil, err
 	}
-	fresh, err := openRuntime(runtime, generation+1)
+	fresh, err := openRuntime(ctx, runtime, generation+1)
 	if err != nil {
 		// A failed explicit reopen must not leave callers believing that the
 		// previous transport is still a safe target. Invalidate and shut down
@@ -82,37 +82,150 @@ func (b *dbusBackend) Reopen(ctx context.Context) (Backend, error) {
 	return fresh, nil
 }
 
-func (b *dbusBackend) startEvents(ctx context.Context) error {
+func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextcheck,gocyclo // setup owns a bounded context derived from the caller.
+	if ctx == nil {
+		return errors.New("accessibility: nil context")
+	}
 	if err := b.connected(); err != nil {
 		return err
 	}
 	// The physical stream belongs to the backend, not to the first caller's
-	// subscription. Keep caller values but intentionally ignore that
-	// subscriber's cancellation; watchSubscriber handles each stream itself.
-	streamCtx := context.WithoutCancel(ctx)
-	b.eventsMu.Lock()
-	if b.eventCancel != nil {
+	// subscription. Setup remains caller-cancellable; after setup, the
+	// dispatcher is owned by the backend and is stopped by the last subscriber
+	// or Close.
+	retries := 0
+	for {
+		b.eventsMu.Lock()
+		if b.eventCancel != nil {
+			b.eventsMu.Unlock()
+			return nil
+		}
+		if b.eventStarting != nil {
+			state := b.eventStarting
+			b.eventsMu.Unlock()
+			connectedErr := b.connected()
+			retry, err := waitForEventStart(ctx, state, connectedErr, retries)
+			if retry {
+				retries++
+				continue
+			}
+			return err
+		}
+		state := &eventStart{done: make(chan struct{})}
+		setupCtx, setupCancel := context.WithTimeout(ctx, eventSetupTimeout) //nolint:contextcheck // setup has an explicit bounded caller-derived deadline.
+		access := b.eventConnection()
+		if access == nil {
+			b.eventsMu.Unlock()
+			setupCancel()
+			return ErrDisconnected
+		}
+		b.eventStarting = state
+		b.eventStartStop = setupCancel
+		b.eventAccess = access
 		b.eventsMu.Unlock()
+
+		registry, registered, err := registerEvents(setupCtx, access)
+		var matches [][]dbus.MatchOption
+		if err == nil {
+			matches, err = subscribeEventMatches(setupCtx, access)
+		}
+		setupCancel()
+		if err != nil {
+			cleanupCtx, cancel := eventCleanupContext()        //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
+			removeEventMatches(cleanupCtx, access, matches)    //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
+			deregisterEvents(cleanupCtx, registry, registered) //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
+			cancel()
+			callerCanceled := ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+			b.finishEventStart(state, err, callerCanceled)
+			return err
+		}
+
+		signals := make(chan *dbus.Signal, 256)
+		access.Signal(signals)
+		eventCtx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		b.eventsMu.Lock()
+		live := b.connectedAccess(access)
+		if live {
+			b.eventCancel, b.eventDone = cancel, done
+			b.eventAccess = access
+		}
+		if b.eventStarting == state {
+			if !live {
+				state.err = ErrDisconnected
+			}
+			b.eventStarting = nil
+			b.eventStartStop = nil
+			close(state.done)
+		}
+		b.eventsMu.Unlock()
+		if !live {
+			cancel()
+			cleanupCtx, cleanupCancel := eventCleanupContext() //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
+			removeEventMatches(cleanupCtx, access, matches)    //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
+			deregisterEvents(cleanupCtx, registry, registered) //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
+			cleanupCancel()
+			return state.err
+		}
+		go func() {
+			defer cancel()
+			b.runEventDispatcher(eventCtx, access, signals, matches, registry, registered, done)
+		}()
 		return nil
 	}
-	access := b.access
-	registry, registered := registerEvents(streamCtx, access)
-	matches, err := subscribeEventMatches(streamCtx, access)
-	if err != nil {
-		deregisterEvents(streamCtx, registry, registered)
-		b.eventsMu.Unlock()
-		return err
+}
+
+// waitForEventStart isolates a setup attempt's caller-owned cancellation from
+// other subscribers. A healthy waiter may retry one canceled attempt, while a
+// real provider failure is returned unchanged and retries stay bounded.
+func waitForEventStart(ctx context.Context, state *eventStart, connectedErr error, retries int) (retry bool, err error) {
+	select {
+	case <-state.done:
+		if state.err == nil {
+			return false, nil
+		}
+		if state.callerCanceled && ctx.Err() == nil && connectedErr == nil && retries < eventStartRetryLimit {
+			return true, nil
+		}
+		if state.callerCanceled && connectedErr != nil {
+			return false, connectedErr
+		}
+		return false, state.err
+	case <-ctx.Done():
+		return false, ctx.Err()
 	}
-	signals := make(chan *dbus.Signal, 256)
-	access.Signal(signals)
-	eventCtx, cancel := context.WithCancel(streamCtx)
-	done := make(chan struct{})
-	b.eventCancel, b.eventDone = cancel, done
+}
+
+func (b *dbusBackend) eventConnection() *dbus.Conn {
+	if b == nil {
+		return nil
+	}
+	b.mu.RLock()
+	access := b.access
+	b.mu.RUnlock()
+	return access
+}
+
+func (b *dbusBackend) connectedAccess(access *dbus.Conn) bool {
+	if b == nil || access == nil {
+		return false
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return !b.closed && !b.disconnected && b.access == access
+}
+
+func (b *dbusBackend) finishEventStart(state *eventStart, err error, callerCanceled bool) {
+	b.eventsMu.Lock()
+	if b.eventStarting == state {
+		state.err = err
+		state.callerCanceled = callerCanceled
+		b.eventStarting = nil
+		b.eventStartStop = nil
+		b.eventAccess = nil
+		close(state.done)
+	}
 	b.eventsMu.Unlock()
-	go func() {
-		b.runEventDispatcher(eventCtx, access, signals, matches, registry, registered, done)
-	}()
-	return nil
 }
 
 func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
@@ -137,11 +250,11 @@ func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
 }
 
 func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn, signals chan *dbus.Signal, matches [][]dbus.MatchOption, registry dbus.BusObject, registered []string, done chan struct{}) {
-	defer func(cleanupCtx context.Context) {
+	defer func() { //nolint:contextcheck // dispatcher cleanup deliberately uses a bounded shutdown context.
+		cleanupCtx, cancel := eventCleanupContext()
+		defer cancel()
 		access.RemoveSignal(signals)
-		for _, match := range matches {
-			_ = access.RemoveMatchSignal(match...)
-		}
+		removeEventMatches(cleanupCtx, access, matches)
 		deregisterEvents(cleanupCtx, registry, registered)
 		b.eventsMu.Lock()
 		for id, subscriber := range b.subscribers {
@@ -149,9 +262,10 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 			delete(b.subscribers, id)
 		}
 		b.eventCancel, b.eventDone = nil, nil
+		b.eventAccess = nil
 		b.eventsMu.Unlock()
 		close(done)
-	}(context.WithoutCancel(ctx))
+	}()
 	lastKey := ""
 	var lastAt time.Time
 	for {
@@ -258,17 +372,45 @@ func stringsHasCachePrefix(name string) bool {
 	return strings.HasPrefix(name, cacheIface+":") || strings.Contains(name, ".Cache:")
 }
 
-func (b *dbusBackend) stopEvents() {
+func eventCleanupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), eventCleanupTimeout)
+}
+
+func (b *dbusBackend) stopEvents(access *dbus.Conn) {
 	if b == nil {
 		return
 	}
 	b.eventsMu.Lock()
+	start, startCancel := b.eventStarting, b.eventStartStop
 	cancel, done := b.eventCancel, b.eventDone
+	if access == nil {
+		access = b.eventAccess
+	}
 	b.eventsMu.Unlock()
+	if startCancel != nil {
+		startCancel()
+	}
 	if cancel != nil {
 		cancel()
-		if done != nil {
-			<-done
+	}
+	// Closing the private connection is the hard stop for a wedged D-Bus
+	// reply. It also makes Close independent of remote deregistration health.
+	if access != nil {
+		_ = access.Close()
+	}
+	deadline := time.NewTimer(eventCleanupTimeout)
+	defer deadline.Stop()
+	if start != nil {
+		select {
+		case <-start.done:
+		case <-deadline.C:
+			return
+		}
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-deadline.C:
 		}
 	}
 }

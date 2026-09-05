@@ -59,7 +59,7 @@ func NewClientForBus(ctx context.Context, addr string) (*Client, error) {
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 	}
-	conn, err := dbusutil.SessionBusAddress(addr)
+	conn, err := dbusutil.SessionBusAddressContext(ctx, addr)
 	if err != nil {
 		return nil, fmt.Errorf("gnome bridge: session bus: %w", err)
 	}

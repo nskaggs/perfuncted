@@ -8,6 +8,11 @@
 export GOTOOLCHAIN := "go1.27.0"
 export GOWORK := "off"
 
+# Keep CI quality-tool installation reproducible.
+golangci_lint_version := "v2.13.2"
+vulncheck_version := "v1.7.0"
+deadcode_version := "v0.44.0"
+
 default:
     @just --list
 
@@ -28,9 +33,9 @@ lint:
 # Check formatting
 check-fmt:
     @if gofmt -l . | grep -q .; then \
-        echo "  FAIL: Files not formatted. Running 'gofmt -w .' for you."; \
-        gofmt -w .; \
-        echo "  Please stage the formatted files and try again."; \
+        echo "  FAIL: Files not formatted:"; \
+        gofmt -l .; \
+        echo "  Run 'just fmt' and try again."; \
         exit 1; \
     fi
 
@@ -52,9 +57,9 @@ tidy:
 
 # Install development tools
 install-dev-tools:
-    CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-    CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@latest
-    CGO_ENABLED=0 go install golang.org/x/tools/cmd/deadcode@latest
+    CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{golangci_lint_version}}
+    CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@{{vulncheck_version}}
+    CGO_ENABLED=0 go install golang.org/x/tools/cmd/deadcode@{{deadcode_version}}
 
 # Generate CLI code and documentation
 generate:

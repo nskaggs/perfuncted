@@ -49,12 +49,18 @@ func TestGTKAccessibilityRepresentative(t *testing.T) {
 		}
 		t.Fatalf("correlate zenity window: %v", err)
 	}
-	nodes, err := s.pf.Accessibility.Find(ctx, scope.Root, accessibility.Query{Role: "button"}, accessibility.SnapshotOptions{MaxDepth: 8, MaxNodes: 256, MaxTextBytes: 256})
-	if err != nil || len(nodes) == 0 {
-		t.Fatalf("find zenity action button: nodes=%+v err=%v", nodes, err)
-	}
-	if _, err := s.pf.Accessibility.InvokeDefaultAction(ctx, nodes[0].ID); err != nil {
+	receipt, err := s.pf.Accessibility.InvokeSemanticAction(
+		ctx,
+		scope.Root,
+		accessibility.Query{Role: "button"},
+		"",
+		accessibility.SnapshotOptions{MaxDepth: 8, MaxNodes: 256, MaxTextBytes: 256},
+	)
+	if err != nil {
 		t.Fatalf("invoke zenity AT-SPI action: %v", err)
+	}
+	if receipt.Mechanism != "at-spi.action" || receipt.Generation == 0 || receipt.Node.ID.Generation != receipt.Generation {
+		t.Fatalf("semantic action receipt = %+v", receipt)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
