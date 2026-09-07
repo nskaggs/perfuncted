@@ -4,6 +4,12 @@ Releases are built by the GitHub Actions release workflow from a version tag.
 The workflow runs the release checks, builds the Go artifacts, and attaches the
 Flatpak bundle alongside the other release artifacts.
 
+Prerelease tags (anything matching `v*-rc*`, `v*-alpha*`, `v*-beta*`,
+`v*-pre*`, or `v*-dev*`) do **not** trigger a release: they are excluded by the
+workflow trigger and skipped by the in-job guard. They publish the module
+version on the proxy when pushed, without creating a GitHub release. Only clean
+`vX.Y.Z` tags create a release.
+
 Before creating a release tag, run:
 
 ```bash
