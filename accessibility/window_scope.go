@@ -224,7 +224,12 @@ func chooseWindowCandidate(candidates []windowCandidate) (*Node, []Candidate, bo
 
 func isWindowRole(role string) bool {
 	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "frame", "dialog", "window", "internal-frame":
+	case "frame", "dialog", "window", "internal-frame", "embedded":
+		// Firefox exposes its privileged Browser Console as an embedded
+		// top-level child of the Firefox AT-SPI application. It still carries
+		// the managed window's title, PID, and geometry, so accepting this role
+		// here preserves authoritative correlation without broad desktop-root
+		// guessing.
 		return true
 	default:
 		return false

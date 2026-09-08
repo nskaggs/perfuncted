@@ -132,6 +132,15 @@ func TestRoleNameIncludesATSPIWindowRole(t *testing.T) {
 	}
 }
 
+func TestFirefoxEmbeddedConsoleRoleIsAcceptedAsWindowScope(t *testing.T) {
+	if got := roleName(78); got != "embedded" {
+		t.Fatalf("AT-SPI role 78 = %q, want embedded", got)
+	}
+	if !isWindowRole("embedded") {
+		t.Fatal("Firefox embedded Browser Console role was not accepted as a top-level window")
+	}
+}
+
 func TestChooseWindowCandidateSelectsUniqueStrongestEvidence(t *testing.T) {
 	weak := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/weak", Generation: 1}, Role: "frame", Name: "Editor"}
 	strong := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/strong", Generation: 1}, Role: "frame", Name: "Editor"}
