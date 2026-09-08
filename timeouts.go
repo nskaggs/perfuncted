@@ -15,16 +15,16 @@ type TimeoutPolicy struct {
 	Poll       time.Duration
 }
 
-// DefaultTimeoutPolicy is intentionally generous for slow desktop hosts.
-// Parent contexts still cap every operation, so a fast caller is not forced
-// to wait for the full policy.
+// DefaultTimeoutPolicy is the ordinary library policy. Parent contexts still
+// cap every operation, and callers can pass a larger deployment policy through
+// SessionConfig when the host is known to be slow.
 var DefaultTimeoutPolicy = TimeoutPolicy{
-	Short:      30 * time.Second,
-	Medium:     2 * time.Minute,
-	Long:       5 * time.Minute,
-	Startup:    20 * time.Minute,
-	Diagnostic: 15 * time.Second,
-	Poll:       250 * time.Millisecond,
+	Short:      5 * time.Second,
+	Medium:     30 * time.Second,
+	Long:       90 * time.Second,
+	Startup:    10 * time.Minute,
+	Diagnostic: 5 * time.Second,
+	Poll:       150 * time.Millisecond,
 }
 
 // WithDefaults fills an incomplete policy from DefaultTimeoutPolicy.
