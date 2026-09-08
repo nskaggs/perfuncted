@@ -124,11 +124,11 @@ func TestReadWindowCandidateUsesCurrentCacheMetadata(t *testing.T) {
 }
 
 func TestRoleNameIncludesATSPIWindowRole(t *testing.T) {
-	if got := roleName(78); got != "window" {
-		t.Fatalf("AT-SPI role 78 = %q, want window", got)
+	if got := roleName(69); got != "window" {
+		t.Fatalf("AT-SPI role 69 = %q, want window", got)
 	}
-	if !isWindowRole(roleName(78)) {
-		t.Fatalf("AT-SPI role 78 was not accepted as a top-level window")
+	if !isWindowRole(roleName(69)) {
+		t.Fatalf("AT-SPI role 69 was not accepted as a top-level window")
 	}
 }
 

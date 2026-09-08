@@ -50,6 +50,29 @@ func TestApplyStatesDecodesATSPIStateBitmask(t *testing.T) {
 	}
 }
 
+func TestRoleNameDecodesFirefoxSemanticRoles(t *testing.T) {
+	for role, want := range map[uint32]string{
+		69:  "window",
+		73:  "paragraph",
+		78:  "embedded",
+		79:  "entry",
+		82:  "document-frame",
+		83:  "heading",
+		85:  "section",
+		88:  "link",
+		98:  "list-box",
+		110: "landmark",
+		129: "push-button",
+	} {
+		if got := roleName(role); got != want {
+			t.Errorf("roleName(%d) = %q, want %q", role, got, want)
+		}
+	}
+	if got := roleName(999); got != "role-999" {
+		t.Fatalf("unknown role name = %q, want role-999", got)
+	}
+}
+
 func TestNodeIDValidation(t *testing.T) {
 	if (NodeID{}).valid() {
 		t.Fatal("zero NodeID is valid")

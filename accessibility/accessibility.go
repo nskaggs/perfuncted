@@ -2118,7 +2118,40 @@ func min(a, b int) int {
 }
 
 func roleName(role uint32) string {
-	roles := map[uint32]string{7: "check-box", 11: "combo-box", 16: "dialog", 23: "frame", 25: "html-container", 31: "list", 32: "list-item", 39: "panel", 43: "button", 61: "text", 75: "application", 78: "window", 79: "entry", 93: "heading", 98: "link", 99: "list-box", 106: "paragraph", 110: "push-button", 130: "switch"}
+	// Keep this table aligned with the AT-SPI/ATK role enum. Firefox publishes
+	// the Browser Console through the cache path, so callers do not always get
+	// the provider's GetRoleName string. In particular, section (85) and
+	// landmark (110) are used to bound console prompt discovery around the
+	// large output subtree.
+	roles := map[uint32]string{
+		7:   "check-box",
+		11:  "combo-box",
+		16:  "dialog",
+		23:  "frame",
+		25:  "html-container",
+		28:  "internal-frame",
+		31:  "list",
+		32:  "list-item",
+		39:  "panel",
+		43:  "button",
+		61:  "text",
+		69:  "window",
+		73:  "paragraph",
+		75:  "application",
+		78:  "embedded",
+		79:  "entry",
+		82:  "document-frame",
+		83:  "heading",
+		84:  "page",
+		85:  "section",
+		88:  "link",
+		98:  "list-box",
+		99:  "grouping",
+		106: "audio",
+		110: "landmark",
+		129: "push-button",
+		130: "switch",
+	}
 	if name, ok := roles[role]; ok {
 		return name
 	}
