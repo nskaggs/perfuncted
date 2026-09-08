@@ -182,22 +182,11 @@ func windowCandidateScore(node Node, target WindowTarget) int {
 	name := strings.ToLower(strings.TrimSpace(node.Name))
 	title := strings.ToLower(strings.TrimSpace(target.Title))
 	if title != "" {
-		switch {
-		case name == title:
-			score += 100
-		case strings.Contains(name, title):
-			score += 45
-		case len(name) >= 4 && strings.Contains(title, name):
-			// Firefox chrome windows may append the browser or profile title in
-			// the compositor while AT-SPI exposes the stable dialog/frame name.
-			// Keep the shorter accessible name bounded to avoid accepting empty
-			// or generic one-character matches.
-			score += 35
-		case strings.Contains(strings.ToLower(node.Description), title):
-			score += 25
-		default:
+		titleScore, ok := windowTitleMatchScore(name, title, node.Description)
+		if !ok {
 			return 0
 		}
+		score += titleScore
 	}
 	if target.Bounds.Width > 0 && target.Bounds.Height > 0 && node.HasBounds {
 		if rectOverlap(node.Bounds, target.Bounds) == 0 {
@@ -212,6 +201,25 @@ func windowCandidateScore(node Node, target WindowTarget) int {
 		score += 5
 	}
 	return score
+}
+
+func windowTitleMatchScore(name, title, description string) (int, bool) {
+	switch {
+	case name == title:
+		return 100, true
+	case strings.Contains(name, title):
+		return 45, true
+	case len(name) >= 4 && strings.Contains(title, name):
+		// Firefox chrome windows may append the browser or profile title in
+		// the compositor while AT-SPI exposes the stable dialog/frame name.
+		// Keep the shorter accessible name bounded to avoid accepting empty
+		// or generic one-character matches.
+		return 35, true
+	case strings.Contains(strings.ToLower(description), title):
+		return 25, true
+	default:
+		return 0, false
+	}
 }
 
 func rectOverlap(a, b Rect) int {
