@@ -2,6 +2,7 @@ package accessibility
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,7 +26,13 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 	if !windowTargetHasAuthoritativeEvidence(target) {
 		return WindowScope{WindowID: target.ID, Title: target.Title}, &MatchError{Operation: "window correlation", Err: ErrUnsupportedCorrelation}
 	}
-	apps, err := b.Applications(ctx)
+	// Window correlation only needs application ownership and direct
+	// top-level children. Applications() intentionally reads a rich node
+	// snapshot, including optional Text/Component/Document interfaces; that
+	// can block on Firefox while its chrome is publishing. Keep this resolver
+	// on the narrow identity path so BrowserConsole startup is not held hostage
+	// by unrelated application content.
+	apps, err := b.windowApplications(ctx, target)
 	if err != nil {
 		return WindowScope{}, err
 	}
@@ -72,6 +79,37 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 		Candidates:      bestCandidates,
 		Evidence:        evidence,
 	}, nil
+}
+
+func (b *dbusBackend) windowApplications(ctx context.Context, target WindowTarget) ([]Application, error) {
+	if ctx == nil {
+		return nil, errors.New("accessibility: nil context")
+	}
+	refs, err := b.children(ctx, b.desktop())
+	if err != nil {
+		return nil, err
+	}
+	apps := make([]Application, 0, len(refs))
+	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		pid, pidErr := b.connectionPID(ctx, ref.BusName)
+		if target.PID != 0 && (pidErr != nil || pid == 0 || pid != target.PID) {
+			continue
+		}
+		id := b.refID(ref)
+		app := Application{Node: Node{ID: id}, PID: pid}
+		// PID is the normal authoritative discriminator. Read the small
+		// identity fields only for callers that cannot supply one, such as
+		// app-id/title based diagnostic resolution.
+		if target.PID == 0 {
+			_ = b.property(ctx, id, accessibleIface, "Name", &app.Name)
+			_ = b.property(ctx, id, accessibleIface, "Description", &app.Description)
+		}
+		apps = append(apps, app)
+	}
+	return apps, nil
 }
 
 func windowTargetHasAuthoritativeEvidence(target WindowTarget) bool {
