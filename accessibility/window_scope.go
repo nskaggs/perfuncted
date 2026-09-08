@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
+
+const windowCandidateReadTimeout = 750 * time.Millisecond
 
 type windowCandidate struct {
 	node  Node
@@ -88,24 +91,21 @@ func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget,
 			continue
 		}
 		// Window correlation only needs the application's immediate accessible
-		// children: AT-SPI exposes top-level Firefox frames/dialogs there. A
-		// recursive snapshot can enter a Browser Console or page subtree and
-		// block on a provider-owned child while we are still trying to identify
-		// the window. Keep this operation shallow and leave deeper inspection to
-		// the caller after the exact scope has been selected.
-		snapshot, err := b.Snapshot(ctx, app.ID, SnapshotOptions{MaxDepth: 1, MaxNodes: 64})
+		// children: AT-SPI exposes top-level Firefox frames/dialogs there. The
+		// generic application snapshot also loads the provider cache and walks
+		// descendants, which can block on a Browser Console while we are still
+		// trying to identify the window. Read only the direct children and their
+		// small identity envelope; deeper inspection starts after correlation.
+		children, err := b.children(ctx, app.ID)
 		if err != nil {
 			continue
 		}
-		byID := make(map[NodeID]Node, len(snapshot.Nodes))
-		for _, item := range snapshot.Nodes {
-			byID[item.ID] = item
-		}
-		for _, node := range snapshot.Nodes {
-			if node.ID == app.ID || !isWindowRole(node.Role) {
-				continue
-			}
-			if !windowNodeOwnedBy(node, app.ID, byID) {
+		for _, child := range children {
+			id := b.refID(child)
+			readCtx, cancel := context.WithTimeout(ctx, windowCandidateReadTimeout)
+			node, readErr := b.readWindowCandidate(readCtx, id, app.ID)
+			cancel()
+			if readErr != nil || !isWindowRole(node.Role) {
 				continue
 			}
 			if score := windowCandidateScore(node, target); score > 0 {
@@ -116,21 +116,23 @@ func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget,
 	return candidates
 }
 
-func windowNodeOwnedBy(node Node, appRoot NodeID, byID map[NodeID]Node) bool {
-	if node.ID.BusName != appRoot.BusName {
-		return false
+func (b *dbusBackend) readWindowCandidate(ctx context.Context, id, parent NodeID) (Node, error) {
+	node := Node{ID: id, Parent: parent}
+	if err := b.property(ctx, id, accessibleIface, "Name", &node.Name); err != nil {
+		return Node{}, err
 	}
-	for parent := node.Parent; parent.valid(); {
-		if parent == appRoot {
-			return true
-		}
-		ancestor, ok := byID[parent]
-		if !ok || ancestor.Parent == parent {
-			return false
-		}
-		parent = ancestor.Parent
+	_ = b.property(ctx, id, accessibleIface, "Description", &node.Description)
+	var role uint32
+	if err := b.call(ctx, id, accessibleIface+".GetRole", nil, &role); err != nil {
+		return Node{}, err
 	}
-	return false
+	node.RoleID = role
+	node.Role = roleName(role)
+	var states []uint32
+	if err := b.call(ctx, id, accessibleIface+".GetState", nil, &states); err == nil {
+		b.applyStates(states, &node)
+	}
+	return node, nil
 }
 
 func windowAppMatches(app Application, target WindowTarget) bool {
