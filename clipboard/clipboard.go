@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -60,7 +61,10 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 			if _, err := executil.LookPath("wl-paste"); err == nil {
 				return &extCmdClipboard{
 					getCmd: []string{"wl-paste", "--no-newline"},
-					setCmd: []string{"wl-copy"},
+					// Keep the one-shot owner in the foreground. Set starts it
+					// asynchronously so the subsequent physical paste request can
+					// arrive without waiting on wl-copy first.
+					setCmd: []string{"wl-copy", "--foreground", "--paste-once"},
 					env:    extraEnv,
 				}, nil
 			}
@@ -106,6 +110,9 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	ctx = contextutil.Default(ctx)
+	if filepath.Base(c.setCmd[0]) == "wl-copy" {
+		return c.setWayland(ctx, text)
+	}
 	cmd := executil.CommandContext(ctx, c.setCmd[0], c.setCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
@@ -158,6 +165,78 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 		}
 		return fmt.Errorf("clipboard set: %w: %s", runErr, message)
 	}
+	return nil
+}
+
+// setWayland starts a one-shot clipboard owner and returns before it waits for
+// the consumer. wl-copy cannot exit until a paste request arrives, while the
+// caller cannot send that request until Set returns. The owner is bounded and
+// reaped in the background so a failed paste cannot leave an unbounded child.
+func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("clipboard set: %w", err)
+	}
+	input, err := os.CreateTemp("", "perfuncted-clipboard-input-*")
+	if err != nil {
+		return fmt.Errorf("clipboard set: create input: %w", err)
+	}
+	inputPath := input.Name()
+	defer os.Remove(inputPath)
+	if _, writeErr := input.WriteString(text); writeErr != nil {
+		_ = input.Close()
+		return fmt.Errorf("clipboard set: write input: %w", writeErr)
+	}
+	if _, seekErr := input.Seek(0, 0); seekErr != nil {
+		_ = input.Close()
+		return fmt.Errorf("clipboard set: rewind input: %w", seekErr)
+	}
+
+	cmd := executil.CommandContext(context.WithoutCancel(ctx), c.setCmd[0], c.setCmd[1:]...)
+	cmd.Env = c.env
+	cmd.Stdin = input
+	stderrFile, err := os.CreateTemp("", "perfuncted-clipboard-stderr-*")
+	if err != nil {
+		_ = input.Close()
+		return fmt.Errorf("clipboard set: create stderr capture: %w", err)
+	}
+	stderrPath := stderrFile.Name()
+	cmd.Stderr = stderrFile
+	if err := cmd.Start(); err != nil {
+		_ = input.Close()
+		_ = stderrFile.Close()
+		_ = os.Remove(stderrPath)
+		return fmt.Errorf("clipboard set: %w", err)
+	}
+	_ = input.Close()
+
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		_ = stderrFile.Close()
+		_ = os.Remove(stderrPath)
+		close(done)
+	}()
+
+	ownerTimeout := 5 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < ownerTimeout {
+			ownerTimeout = remaining
+		}
+	}
+	if ownerTimeout <= 0 {
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("clipboard set: %w", ctx.Err())
+	}
+	go func() {
+		timer := time.NewTimer(ownerTimeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+			_ = cmd.Process.Kill()
+			<-done
+		}
+	}()
 	return nil
 }
 
