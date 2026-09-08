@@ -1843,19 +1843,25 @@ func (b *dbusBackend) readNodeStates(ctx context.Context, id NodeID, node *Node)
 }
 
 func (b *dbusBackend) applyStates(states []uint32, node *Node) {
-	for _, state := range states {
-		if name := stateName(state); name != "" {
-			node.States = append(node.States, name)
-		}
-		switch state {
-		case 8:
-			node.Enabled = true
-		case 12:
-			node.Focused = true
-		case 25:
-			node.Showing = true
-		case 30:
-			node.Visible = true
+	for word, bits := range states {
+		for bit := uint32(0); bit < 32; bit++ {
+			if bits&(uint32(1)<<bit) == 0 {
+				continue
+			}
+			state := uint32(word*32) + bit
+			if name := stateName(state); name != "" {
+				node.States = append(node.States, name)
+			}
+			switch state {
+			case 8:
+				node.Enabled = true
+			case 12:
+				node.Focused = true
+			case 25:
+				node.Showing = true
+			case 30:
+				node.Visible = true
+			}
 		}
 	}
 }

@@ -25,6 +25,27 @@ func TestSnapshotOptionsNormalizeBounds(t *testing.T) {
 	}
 }
 
+func TestApplyStatesDecodesATSPIStateBitmask(t *testing.T) {
+	backend := &dbusBackend{}
+	node := Node{}
+	backend.applyStates(
+		[]uint32{
+			(uint32(1) << 8) | (uint32(1) << 12) | (uint32(1) << 30),
+			uint32(1) << 2,
+		},
+		&node,
+	)
+
+	for _, want := range []string{"enabled", "focused", "visible", "protected"} {
+		if !contains(node.States, want) {
+			t.Fatalf("decoded states = %v, missing %q", node.States, want)
+		}
+	}
+	if !node.Enabled || !node.Focused || !node.Visible {
+		t.Fatalf("decoded state flags = enabled=%t focused=%t visible=%t", node.Enabled, node.Focused, node.Visible)
+	}
+}
+
 func TestNodeIDValidation(t *testing.T) {
 	if (NodeID{}).valid() {
 		t.Fatal("zero NodeID is valid")
