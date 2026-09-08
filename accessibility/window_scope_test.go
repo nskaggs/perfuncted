@@ -32,6 +32,16 @@ func TestWindowCorrelationWithIDOnlyRefusesToGuess(t *testing.T) {
 	}
 }
 
+func TestWindowCorrelationAcceptsTitleWithCompositorAppIDWithoutPID(t *testing.T) {
+	target := WindowTarget{ID: "window-1", Title: "Browser Console", AppID: "org.mozilla.firefox"}
+	if !windowTargetHasAuthoritativeEvidence(target) {
+		t.Fatal("title plus compositor AppID was treated as unsupported correlation")
+	}
+	if windowTargetHasAuthoritativeEvidence(WindowTarget{ID: "window-1", AppID: "org.mozilla.firefox"}) {
+		t.Fatal("AppID-only target unexpectedly gained authoritative correlation evidence")
+	}
+}
+
 func TestChooseWindowCandidateRefusesSameProcessAmbiguity(t *testing.T) {
 	candidates := []windowCandidate{
 		{node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/parent", Generation: 1}, Role: "frame", Name: "Editor"}, score: 16},

@@ -19,10 +19,7 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 	if strings.TrimSpace(target.ID) == "" {
 		return WindowScope{}, fmt.Errorf("%w: window identity is empty", ErrNotFound)
 	}
-	if target.PID == 0 && target.PIDHint == 0 && strings.TrimSpace(target.AppID) != "" {
-		return WindowScope{WindowID: target.ID, Title: target.Title}, &MatchError{Operation: "window correlation", Err: ErrUnsupportedCorrelation}
-	}
-	if target.PID == 0 && target.PIDHint == 0 && strings.TrimSpace(target.Title) == "" && (target.Bounds.Width <= 0 || target.Bounds.Height <= 0) && !target.Active && !target.Focused {
+	if !windowTargetHasAuthoritativeEvidence(target) {
 		return WindowScope{WindowID: target.ID, Title: target.Title}, &MatchError{Operation: "window correlation", Err: ErrUnsupportedCorrelation}
 	}
 	apps, err := b.Applications(ctx)
@@ -72,6 +69,16 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 		Candidates:      bestCandidates,
 		Evidence:        evidence,
 	}, nil
+}
+
+func windowTargetHasAuthoritativeEvidence(target WindowTarget) bool {
+	if target.PID != 0 || target.PIDHint != 0 || target.Active || target.Focused {
+		return true
+	}
+	if strings.TrimSpace(target.Title) != "" {
+		return true
+	}
+	return target.Bounds.Width > 0 && target.Bounds.Height > 0
 }
 
 func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget, apps []Application) []windowCandidate {
