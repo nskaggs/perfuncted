@@ -287,6 +287,27 @@ func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 	}
 }
 
+func TestWindowCachedInfoDoesNotRefreshWindowManager(t *testing.T) {
+	manager := newHandleWindowManager(window.Info{
+		NativeID: "browser",
+		Title:    "Firefox",
+		AppID:    "org.mozilla.firefox",
+		PID:      42,
+	})
+	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	t.Cleanup(func() {
+		_ = session.Close()
+	})
+	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleContains: "Firefox"})
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	got := target.CachedInfo()
+	if got.NativeID != "browser" || got.Title != "Firefox" || got.AppID != "org.mozilla.firefox" || got.PID != 42 {
+		t.Fatalf("cached info = %+v", got)
+	}
+}
+
 func TestWindowFindRejectsAmbiguous(t *testing.T) {
 	manager := newHandleWindowManager(
 		window.Info{NativeID: "1", Title: "Editor"},

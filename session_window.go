@@ -59,6 +59,20 @@ func (w *Window) Title() string {
 	return w.snapshot.Title
 }
 
+// CachedInfo returns the last authoritative window metadata used to create or
+// refresh this handle. It does not query the window manager. Callers that need
+// current geometry or focus state should use Info; callers crossing into
+// another semantic subsystem during a compositor stall can use this bounded
+// snapshot without issuing a second discovery request.
+func (w *Window) CachedInfo() window.Info {
+	if w == nil {
+		return window.Info{}
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.snapshot
+}
+
 // Info refreshes and returns authoritative window state.
 func (w *Window) Info(ctx context.Context) (window.Info, error) {
 	backend, err := w.backend("info")
