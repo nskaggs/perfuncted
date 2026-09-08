@@ -87,7 +87,13 @@ func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget,
 		if !windowAppMatches(app, target) {
 			continue
 		}
-		snapshot, err := b.Snapshot(ctx, app.ID, SnapshotOptions{MaxDepth: 8, MaxNodes: 2048})
+		// Window correlation only needs the application's immediate accessible
+		// children: AT-SPI exposes top-level Firefox frames/dialogs there. A
+		// recursive snapshot can enter a Browser Console or page subtree and
+		// block on a provider-owned child while we are still trying to identify
+		// the window. Keep this operation shallow and leave deeper inspection to
+		// the caller after the exact scope has been selected.
+		snapshot, err := b.Snapshot(ctx, app.ID, SnapshotOptions{MaxDepth: 1, MaxNodes: 64})
 		if err != nil {
 			continue
 		}
