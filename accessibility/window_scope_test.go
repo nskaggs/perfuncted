@@ -83,6 +83,14 @@ func TestWindowCandidateScoreRejectsChangedTitleAndGeometry(t *testing.T) {
 	}
 }
 
+func TestWindowCandidateScoreAcceptsAccessibleShortTitle(t *testing.T) {
+	target := WindowTarget{Title: "Browser Console - Mozilla Firefox", Bounds: Rect{X: 10, Y: 20, Width: 300, Height: 200}}
+	node := Node{Name: "Browser Console", Role: "frame", Bounds: target.Bounds, HasBounds: true, Showing: true}
+	if score := windowCandidateScore(node, target); score <= 0 {
+		t.Fatalf("short accessible title score = %d, want positive", score)
+	}
+}
+
 func TestChooseWindowCandidateSelectsUniqueStrongestEvidence(t *testing.T) {
 	weak := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/weak", Generation: 1}, Role: "frame", Name: "Editor"}
 	strong := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/strong", Generation: 1}, Role: "frame", Name: "Editor"}

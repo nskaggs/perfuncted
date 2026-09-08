@@ -187,6 +187,12 @@ func windowCandidateScore(node Node, target WindowTarget) int {
 			score += 100
 		case strings.Contains(name, title):
 			score += 45
+		case len(name) >= 4 && strings.Contains(title, name):
+			// Firefox chrome windows may append the browser or profile title in
+			// the compositor while AT-SPI exposes the stable dialog/frame name.
+			// Keep the shorter accessible name bounded to avoid accepting empty
+			// or generic one-character matches.
+			score += 35
 		case strings.Contains(strings.ToLower(node.Description), title):
 			score += 25
 		default:
