@@ -123,6 +123,15 @@ func TestReadWindowCandidateUsesCurrentCacheMetadata(t *testing.T) {
 	}
 }
 
+func TestRoleNameIncludesATSPIWindowRole(t *testing.T) {
+	if got := roleName(78); got != "window" {
+		t.Fatalf("AT-SPI role 78 = %q, want window", got)
+	}
+	if !isWindowRole(roleName(78)) {
+		t.Fatalf("AT-SPI role 78 was not accepted as a top-level window")
+	}
+}
+
 func TestChooseWindowCandidateSelectsUniqueStrongestEvidence(t *testing.T) {
 	weak := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/weak", Generation: 1}, Role: "frame", Name: "Editor"}
 	strong := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/strong", Generation: 1}, Role: "frame", Name: "Editor"}
