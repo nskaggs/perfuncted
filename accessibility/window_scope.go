@@ -118,6 +118,14 @@ func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget,
 
 func (b *dbusBackend) readWindowCandidate(ctx context.Context, id, parent NodeID) (Node, error) {
 	node := Node{ID: id, Parent: parent}
+	if item, ok := b.cachedItem(id); ok {
+		node.Name = item.Name
+		node.Description = item.Description
+		node.RoleID = item.Role
+		node.Role = roleName(item.Role)
+		b.applyStates(item.States, &node)
+		return node, nil
+	}
 	if err := b.property(ctx, id, accessibleIface, "Name", &node.Name); err != nil {
 		return Node{}, err
 	}

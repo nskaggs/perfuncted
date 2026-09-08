@@ -1,8 +1,11 @@
 package accessibility
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/godbus/dbus/v5"
 )
 
 func TestWindowCandidateCorrelationUsesIndependentEvidence(t *testing.T) {
@@ -88,6 +91,35 @@ func TestWindowCandidateScoreAcceptsAccessibleShortTitle(t *testing.T) {
 	node := Node{Name: "Browser Console", Role: "frame", Bounds: target.Bounds, HasBounds: true, Showing: true}
 	if score := windowCandidateScore(node, target); score <= 0 {
 		t.Fatalf("short accessible title score = %d, want positive", score)
+	}
+}
+
+func TestReadWindowCandidateUsesCurrentCacheMetadata(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 4}
+	child := NodeID{BusName: root.BusName, ObjectPath: "/console", Generation: root.Generation}
+	backend := &dbusBackend{
+		generation: root.Generation,
+		cacheItems: make(map[NodeID]cacheItem),
+		cacheApps:  map[string]bool{root.BusName: true},
+	}
+	backend.cacheItems[child] = cacheItem{
+		Object:      cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+		Name:        "Parent process Browser Console",
+		Description: "Firefox",
+		Role:        23,
+		States:      []uint32{(1 << 8) | (1 << 11) | (1 << 25) | (1 << 30)},
+	}
+
+	node, err := backend.readWindowCandidate(context.Background(), child, root)
+	if err != nil {
+		t.Fatalf("readWindowCandidate: %v", err)
+	}
+	if node.Name != "Parent process Browser Console" || node.Role != "frame" {
+		t.Fatalf("cached candidate = %+v", node)
+	}
+	if !node.Enabled || !node.Showing || !node.Visible {
+		t.Fatalf("cached candidate states = %+v", node.States)
 	}
 }
 
