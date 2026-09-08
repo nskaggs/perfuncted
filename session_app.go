@@ -10,12 +10,9 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
 )
-
-const defaultApplicationGracePeriod = 2 * time.Second
 
 var sessionRoutingKeys = []string{
 	"XDG_RUNTIME_DIR",
@@ -235,7 +232,7 @@ func (s *Session) stopApplication(app *Application) error {
 	}
 	grace := s.config.ApplicationGracePeriod
 	if grace <= 0 {
-		grace = defaultApplicationGracePeriod
+		grace = s.config.Timeouts.WithDefaults().Short
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()

@@ -73,6 +73,7 @@ type sessionInfra struct {
 	unregister func()
 	stopOnce   sync.Once
 	stopDone   chan struct{}
+	timeouts   TimeoutPolicy
 }
 
 // Session is the central orchestrator of perfuncted. It owns all backends and
@@ -139,6 +140,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	if cfg.target.kind == TargetHeadless && cfg.target.config.Resolution == (image.Point{}) {
 		cfg.target.config.Resolution = image.Pt(1024, 768)
 	}
+	cfg.target.config.Timeouts = cfg.target.config.Timeouts.WithDefaults()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -536,6 +538,9 @@ func (s *Session) startSession(
 	if config.Resolution == (image.Point{}) {
 		config.Resolution = image.Pt(1024, 768)
 	}
+	config.Timeouts = config.Timeouts.WithDefaults()
+	startupCtx, startupCancel := context.WithTimeout(ctx, config.Timeouts.Startup)
+	defer startupCancel()
 
 	xdgDir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
@@ -561,6 +566,7 @@ func (s *Session) startSession(
 		ctx:       infraCtx,
 		cancel:    cancel,
 		stopDone:  make(chan struct{}),
+		timeouts:  config.Timeouts,
 	}
 
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
@@ -577,7 +583,7 @@ func (s *Session) startSession(
 		infra.ctx,
 	)
 
-	if launchErr := infra.launchDBus(ctx); launchErr != nil {
+	if launchErr := infra.launchDBus(startupCtx); launchErr != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
@@ -596,7 +602,7 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: sway config: %w", err)
 	}
 
-	if err := infra.launchSway(ctx, swayConf, mode); err != nil {
+	if err := infra.launchSway(startupCtx, swayConf, mode); err != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: sway: %w", err)
 	}
@@ -636,8 +642,8 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 	i.writeChildPID("dbus.pid", cmd.Process.Pid)
 
 	busPath := filepath.Join(i.xdgDir, "bus")
-	if err := waitForFile(ctx, busPath, 100, 100*time.Millisecond); err != nil {
-		return fmt.Errorf("dbus socket %s did not appear within 10s: %w", busPath, err)
+	if err := waitForFile(ctx, busPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
+		return fmt.Errorf("dbus socket %s did not appear within %s: %w", busPath, i.timeouts.Startup, err)
 	}
 	return nil
 }
@@ -722,14 +728,14 @@ func (i *sessionInfra) launchSway(
 	ipcGlob := filepath.Join(i.xdgDir, "sway-ipc.*.sock")
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		if err := waitForFile(ctx, socketPath, 150, 200*time.Millisecond); err != nil {
-			return fmt.Errorf("wayland socket %s did not appear within 30s: %w", socketPath, err)
+		if err := waitForFile(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
+			return fmt.Errorf("wayland socket %s did not appear within %s: %w", socketPath, i.timeouts.Startup, err)
 		}
 		return nil
 	})
 	g.Go(func() error {
-		if err := waitForGlob(ctx, ipcGlob, 150, 200*time.Millisecond); err != nil {
-			return fmt.Errorf("sway IPC socket in %s did not appear within 30s: %w", i.xdgDir, err)
+		if err := waitForGlob(ctx, ipcGlob, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
+			return fmt.Errorf("sway IPC socket in %s did not appear within %s: %w", i.xdgDir, i.timeouts.Startup, err)
 		}
 		return nil
 	})
@@ -929,10 +935,11 @@ func (i *sessionInfra) stop() {
 			i.cancel()
 		}
 
-		i.stopManagedProcess(i.wlPasteCmd, 200*time.Millisecond)
-		i.stopManagedProcess(i.swayCmd, 500*time.Millisecond)
-		i.stopManagedProcess(i.atspiCmd, 200*time.Millisecond)
-		i.stopManagedProcess(i.dbusCmd, 200*time.Millisecond)
+		stopTimeout := i.timeouts.WithDefaults().Short
+		i.stopManagedProcess(i.wlPasteCmd, stopTimeout)
+		i.stopManagedProcess(i.swayCmd, stopTimeout)
+		i.stopManagedProcess(i.atspiCmd, stopTimeout)
+		i.stopManagedProcess(i.dbusCmd, stopTimeout)
 		if i.xdgDir != "" {
 			if !isSafeToRemoveDir(i.xdgDir) {
 				slog.Warn("session: skip removal of non-managed directory", "path", i.xdgDir)
@@ -1492,6 +1499,15 @@ func waitForFile(
 		return fmt.Errorf("%s did not appear within %s", path, time.Duration(attempts)*interval)
 	}
 	return err
+}
+
+func startupWaitAttempts(policy TimeoutPolicy) int {
+	policy = policy.WithDefaults()
+	attempts := int((policy.Startup + policy.Poll - 1) / policy.Poll)
+	if attempts < 1 {
+		return 1
+	}
+	return attempts
 }
 
 func waitForGlob(

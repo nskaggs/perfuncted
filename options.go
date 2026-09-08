@@ -241,6 +241,9 @@ type SessionConfig struct {
 	LogDir string
 	// ApplicationGracePeriod controls how long managed applications receive to stop.
 	ApplicationGracePeriod time.Duration
+	// Timeouts controls managed desktop startup and operation waits. Zero fields
+	// inherit DefaultTimeoutPolicy.
+	Timeouts TimeoutPolicy
 }
 
 type targetSelection struct {
