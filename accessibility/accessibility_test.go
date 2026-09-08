@@ -23,6 +23,10 @@ func TestSnapshotOptionsNormalizeBounds(t *testing.T) {
 	if defaults.MaxDepth != defaultMaxDepth || defaults.MaxNodes != defaultMaxNodes || defaults.MaxTextBytes != defaultMaxText {
 		t.Fatalf("defaults = %+v", defaults)
 	}
+	roles := (SnapshotOptions{SkipRoles: []string{" landmark ", "LANDMARK", ""}}).normalized().SkipRoles
+	if len(roles) != 1 || roles[0] != "landmark" {
+		t.Fatalf("normalized skip roles = %#v, want [landmark]", roles)
+	}
 }
 
 func TestApplyStatesDecodesATSPIStateBitmask(t *testing.T) {
@@ -274,6 +278,9 @@ func TestSnapshotKeySeparatesSecurityAndLimits(t *testing.T) {
 	if snapshotKey(root, SnapshotOptions{VisibleOnly: true}) == snapshotKey(root, SnapshotOptions{}) {
 		t.Fatal("visibility policy not part of snapshot key")
 	}
+	if snapshotKey(root, SnapshotOptions{SkipRoles: []string{"landmark"}}) == snapshotKey(root, SnapshotOptions{}) {
+		t.Fatal("role pruning policy not part of snapshot key")
+	}
 }
 
 func TestTruncateUTF8HonorsByteLimit(t *testing.T) {
@@ -420,6 +427,43 @@ func TestSnapshotWalkerRecordsChildReadWarnings(t *testing.T) {
 	}
 	if len(walker.snapshot.Warnings) != 1 {
 		t.Fatalf("warnings = %+v", walker.snapshot.Warnings)
+	}
+}
+
+func TestSnapshotWalkerSkipsConfiguredRoleSubtree(t *testing.T) {
+	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
+	landmark := NodeID{BusName: "b", ObjectPath: "/landmark", Generation: 1}
+	entry := NodeID{BusName: "b", ObjectPath: "/entry", Generation: 1}
+	fake := walkerFake{
+		nodes: map[NodeID]Node{
+			root:     {ID: root, ChildCount: 2},
+			landmark: {ID: landmark, Role: "landmark", ChildCount: 1},
+			entry:    {ID: entry, Role: "entry", Name: "command"},
+		},
+		child: map[NodeID][]objectRef{
+			root:     {{BusName: "b", ObjectPath: "/landmark"}, {BusName: "b", ObjectPath: "/entry"}},
+			landmark: {{BusName: "b", ObjectPath: "/entry"}},
+		},
+		generation: root.Generation,
+	}
+	walker := snapshotWalker{
+		backend: fake,
+		opts: SnapshotOptions{
+			MaxDepth: 4, MaxNodes: 8, MaxTextBytes: 32, SkipRoles: []string{"landmark"},
+		},
+		snapshot: Snapshot{},
+		seen:     map[NodeID]struct{}{},
+	}
+	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
+		t.Fatalf("walk = %v", err)
+	}
+	if len(walker.snapshot.Nodes) != 3 {
+		t.Fatalf("snapshot nodes = %+v, want root, landmark, entry sibling", walker.snapshot.Nodes)
+	}
+	for _, node := range walker.snapshot.Nodes {
+		if node.ID == landmark && len(node.Children) != 0 {
+			t.Fatalf("skipped landmark children = %+v", node.Children)
+		}
 	}
 }
 

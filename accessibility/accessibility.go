@@ -233,6 +233,12 @@ type SnapshotOptions struct {
 	// is false by default so Snapshot and Find cannot accidentally traverse
 	// every application when a caller omitted scope.
 	AllowDesktopRoot bool `json:"allowDesktopRoot,omitempty"`
+	// SkipRoles prevents traversal below nodes with one of these exact
+	// normalized AT-SPI roles while retaining the node itself in the bounded
+	// snapshot. It is intended for a narrowly scoped semantic search that has
+	// an authoritative structural subtree to ignore, such as a console output
+	// landmark that precedes its command input.
+	SkipRoles []string `json:"skipRoles,omitempty"`
 }
 
 func (o SnapshotOptions) normalized() SnapshotOptions {
@@ -259,6 +265,23 @@ func (o SnapshotOptions) normalized() SnapshotOptions {
 	}
 	if o.MaxTotalBytes > absMaxTotal {
 		o.MaxTotalBytes = absMaxTotal
+	}
+	if len(o.SkipRoles) > 0 {
+		roles := make([]string, 0, len(o.SkipRoles))
+		seen := make(map[string]struct{}, len(o.SkipRoles))
+		for _, role := range o.SkipRoles {
+			role = strings.ToLower(strings.TrimSpace(role))
+			if role == "" {
+				continue
+			}
+			if _, ok := seen[role]; ok {
+				continue
+			}
+			seen[role] = struct{}{}
+			roles = append(roles, role)
+		}
+		sort.Strings(roles)
+		o.SkipRoles = roles
 	}
 	return o
 }
@@ -1119,7 +1142,7 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 }
 
 func snapshotKey(root NodeID, opts SnapshotOptions) string {
-	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.FormatUint(root.Generation, 10) + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.Itoa(opts.MaxTotalBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive) + "\x00" + strconv.FormatBool(opts.AllowDesktopRoot)
+	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.FormatUint(root.Generation, 10) + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.Itoa(opts.MaxTotalBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive) + "\x00" + strconv.FormatBool(opts.AllowDesktopRoot) + "\x00" + strings.Join(opts.SkipRoles, ",")
 }
 
 func (b *dbusBackend) generationError(expected uint64) error {
@@ -1400,7 +1423,7 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	}
 	nodeIndex := len(w.snapshot.Nodes)
 	w.snapshot.Nodes = append(w.snapshot.Nodes, node)
-	if node.ChildCount > 0 {
+	if node.ChildCount > 0 && !w.opts.skipRole(node.Role) {
 		if err := w.walkChildren(ctx, &node, id, depth); err != nil {
 			return Node{}, err
 		}
@@ -1410,6 +1433,16 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	}
 	w.snapshot.Nodes[nodeIndex] = node
 	return node, nil
+}
+
+func (o SnapshotOptions) skipRole(role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	for _, skipped := range o.SkipRoles {
+		if role == skipped {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID, depth int) error {
