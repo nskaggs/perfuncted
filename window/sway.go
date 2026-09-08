@@ -568,7 +568,7 @@ func (m *SwayManager) findByID(
 
 // ActivateByID focuses the window identified by id.
 func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
-	numeric, err := m.findByID(ctx, id)
+	numeric, err := signedNumericID(id)
 	if err != nil {
 		return err
 	}

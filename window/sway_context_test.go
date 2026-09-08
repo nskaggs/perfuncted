@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -297,6 +298,94 @@ func TestSwayCmdRequiresSuccessfulCommandResults(t *testing.T) {
 				t.Fatalf("server: %v", serverErr)
 			}
 		})
+	}
+}
+
+func TestSwayActivateByIDSendsOnlyFocusCommand(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	serverDone := make(chan error, 1)
+	go func() {
+		messageType, body, err := readSwayMessage(server)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if messageType != swayMsgRunCommand {
+			serverDone <- fmt.Errorf("request type = %d, want RUN_COMMAND", messageType)
+			return
+		}
+		if got := string(body); got != "[con_id=42] focus" {
+			serverDone <- fmt.Errorf("command = %q, want %q", got, "[con_id=42] focus")
+			return
+		}
+		serverDone <- writeSwayMessage(server, swayMsgRunCommand, `[ {"success":true} ]`)
+	}()
+
+	if err := (&SwayManager{conn: client}).ActivateByID(context.Background(), "42"); err != nil {
+		t.Fatalf("ActivateByID: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwayActivateByIDRejectsMalformedIDBeforeIPC(t *testing.T) {
+	conn := &stubSwayConn{}
+	for _, id := range []string{"", "not-a-number", "9223372036854775808"} {
+		t.Run(id, func(t *testing.T) {
+			conn.mu.Lock()
+			conn.writeCalls = 0
+			conn.setDeadlineCalls = 0
+			conn.mu.Unlock()
+
+			err := (&SwayManager{conn: conn}).ActivateByID(context.Background(), id)
+			if err == nil {
+				t.Fatal("ActivateByID accepted malformed ID")
+			}
+			_, deadlineCalls, writeCalls, _ := conn.snapshot()
+			if deadlineCalls != 0 || writeCalls != 0 {
+				t.Fatalf("malformed ID touched IPC: setDeadline=%d write=%d", deadlineCalls, writeCalls)
+			}
+		})
+	}
+}
+
+func TestSwayActivateByIDPropagatesCommandFailureWithoutTreePreflight(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	serverDone := make(chan error, 1)
+	go func() {
+		messageType, body, err := readSwayMessage(server)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if messageType != swayMsgRunCommand {
+			serverDone <- fmt.Errorf("request type = %d, want RUN_COMMAND", messageType)
+			return
+		}
+		if got := string(body); got != "[con_id=999999] focus" {
+			serverDone <- fmt.Errorf("command = %q, want %q", got, "[con_id=999999] focus")
+			return
+		}
+		serverDone <- writeSwayMessage(server, swayMsgRunCommand, `[{"success":false,"error":"No matches"}]`)
+	}()
+
+	err := (&SwayManager{conn: client}).ActivateByID(context.Background(), "999999")
+	if err == nil || !strings.Contains(err.Error(), "command failed: No matches") {
+		t.Fatalf("ActivateByID error = %v, want Sway command failure", err)
+	}
+	if serverErr := <-serverDone; serverErr != nil {
+		t.Fatal(serverErr)
 	}
 }
 
