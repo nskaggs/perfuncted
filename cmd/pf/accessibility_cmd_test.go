@@ -161,7 +161,7 @@ func (cliAmbiguousFake) Find(context.Context, accessibility.NodeID, accessibilit
 }
 
 func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "apps", "--json"}, func(*cliConfig) sessionOpener {
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "apps", "--json"}, func(*cliConfig) sessionOpener {
 		return func(context.Context) (*perfuncted.Session, error) {
 			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAccessibilityFake{}), nil
 		}
@@ -188,9 +188,9 @@ func TestAccessibilityCLIHumanOutputIsTheDefault(t *testing.T) {
 	}
 }
 
-func TestAccessibilityCLICompatibilityAlias(t *testing.T) {
+func TestAccessibilityCLIHasNoUnreleasedAlias(t *testing.T) {
 	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "apps"}, openCLIWithAccessibility)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "Test App\tpid=123") {
+	if code == 0 || stdout != "" || !strings.Contains(stderr, `unknown command "accessibility"`) {
 		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
 	}
 }
@@ -218,9 +218,9 @@ func TestAccessibilityCLIEventsRejectJSONFormatFlag(t *testing.T) {
 
 func TestAccessibilityCLIWorkflowCommandsUseSemanticScopeAndHelpers(t *testing.T) {
 	for _, args := range [][]string{
-		{"accessibility", "action", "--app", "Test", "--role", "button", "--json"},
-		{"accessibility", "focus", "--app", "Test", "--role", "button"},
-		{"accessibility", "text", "--app", "Test", "--role", "entry", "--value", "updated"},
+		{"a11y", "action", "--app", "Test", "--role", "button", "--json"},
+		{"a11y", "focus", "--app", "Test", "--role", "button"},
+		{"a11y", "text", "--app", "Test", "--role", "entry", "--value", "updated"},
 	} {
 		stdout, stderr, code := captureRunIO(t, args, openCLIWithAutomation)
 		if code != 0 || stderr != "" {
@@ -236,7 +236,7 @@ func TestAccessibilityCLIWindowOnlyScopeUsesCanonicalResolver(t *testing.T) {
 	} {
 		scope := scope
 		t.Run(strings.Join(scope, "-"), func(t *testing.T) {
-			args := append([]string{"accessibility", "tree"}, scope...)
+			args := append([]string{"a11y", "tree"}, scope...)
 			stdout, stderr, code := captureRunIO(t, args, openCLIWithWindowAndAccessibility)
 			if code != 0 || stderr != "" {
 				t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
@@ -260,26 +260,26 @@ func TestAccessibilityCLIScopeSessionRequiresWindowsOnlyForWindowSelectors(t *te
 			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAutomationFake{}), nil
 		}
 	}
-	_, _, code := captureRunIO(t, []string{"accessibility", "tree", "--window-id", "managed-window"}, factory)
+	_, _, code := captureRunIO(t, []string{"a11y", "tree", "--window-id", "managed-window"}, factory)
 	if code != 0 || len(requests) != 1 || !slices.Equal(requests[0], []perfuncted.Capability{perfuncted.CapabilityAccessibility, perfuncted.CapabilityWindows}) {
 		t.Fatalf("window selector requests=%v code=%d, want Accessibility+Windows", requests, code)
 	}
 	requests = nil
-	_, _, code = captureRunIO(t, []string{"accessibility", "tree", "--app", "Test"}, factory)
+	_, _, code = captureRunIO(t, []string{"a11y", "tree", "--app", "Test"}, factory)
 	if code != 0 || len(requests) != 1 || !slices.Equal(requests[0], []perfuncted.Capability{perfuncted.CapabilityAccessibility}) {
 		t.Fatalf("app selector requests=%v code=%d, want Accessibility only", requests, code)
 	}
 }
 
 func TestAccessibilityCLISemanticActionRejectsAmbiguity(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "action", "--app", "Test", "--role", "button"}, openCLIWithAmbiguousAccessibility)
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "action", "--app", "Test", "--role", "button"}, openCLIWithAmbiguousAccessibility)
 	if code == 0 || stdout != "" || !strings.Contains(stderr, "ambiguous") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
 func TestAccessibilityCLIHelpKeepsProtocolCommandsUnderRaw(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "--help"}, openCLIWithAccessibility)
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "--help"}, openCLIWithAccessibility)
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
 	}
@@ -296,7 +296,7 @@ func TestAccessibilityCLIHelpKeepsProtocolCommandsUnderRaw(t *testing.T) {
 }
 
 func TestAccessibilityCLIRawRequiresExplicitGeneration(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "raw", "action", "--bus", "org.test", "--path", "/node"}, openCLIWithAutomation)
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "raw", "action", "--bus", "org.test", "--path", "/node"}, openCLIWithAutomation)
 	if code == 0 || stdout != "" || !strings.Contains(stderr, "--generation") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -358,12 +358,12 @@ func TestAccessibilityCLICommandsJSON(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "tree", args: []string{"accessibility", "tree", "--app", "Test", "--json", "--max-depth", "2"}, want: "root"},
-		{name: "find", args: []string{"accessibility", "find", "--app", "Test", "--json", "--role", "button", "--name", "Save"}, want: "Save"},
-		{name: "focused", args: []string{"accessibility", "focused", "--json"}, want: "focused"},
-		{name: "at point", args: []string{"accessibility", "at-point", "--json", "--x", "10", "--y", "20"}, want: "point"},
-		{name: "at point positional", args: []string{"accessibility", "at-point", "--json", "10", "20"}, want: "point"},
-		{name: "events", args: []string{"accessibility", "events"}, want: ""},
+		{name: "tree", args: []string{"a11y", "tree", "--app", "Test", "--json", "--max-depth", "2"}, want: "root"},
+		{name: "find", args: []string{"a11y", "find", "--app", "Test", "--json", "--role", "button", "--name", "Save"}, want: "Save"},
+		{name: "focused", args: []string{"a11y", "focused", "--json"}, want: "focused"},
+		{name: "at point", args: []string{"a11y", "at-point", "--json", "--x", "10", "--y", "20"}, want: "point"},
+		{name: "at point positional", args: []string{"a11y", "at-point", "--json", "10", "20"}, want: "point"},
+		{name: "events", args: []string{"a11y", "events"}, want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -379,7 +379,7 @@ func TestAccessibilityCLICommandsJSON(t *testing.T) {
 }
 
 func TestAccessibilityCLIRejectsPartialRoot(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "tree"}, openCLIWithAccessibility)
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "tree"}, openCLIWithAccessibility)
 	if code == 0 || stdout != "" || !strings.Contains(stderr, "explicit --app") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -387,23 +387,23 @@ func TestAccessibilityCLIRejectsPartialRoot(t *testing.T) {
 
 func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 	tests := [][]string{
-		{"accessibility", "raw", "action", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"accessibility", "raw", "focus", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"accessibility", "raw", "scroll", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"accessibility", "raw", "set-value", "--bus", "org.test", "--path", "/node", "--generation", "1", "--value", "0.5"},
-		{"accessibility", "raw", "set-text-contents", "--bus", "org.test", "--path", "/node", "--generation", "1", "--text", "updated"},
-		{"accessibility", "raw", "set-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0", "--start", "0", "--end", "1"},
-		{"accessibility", "raw", "add-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--start", "0", "--end", "1"},
-		{"accessibility", "raw", "remove-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0"},
-		{"accessibility", "raw", "select-child", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"accessibility", "raw", "select-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"accessibility", "raw", "clear-selection", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"accessibility", "raw", "deselect-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"accessibility", "raw", "select-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"accessibility", "raw", "deselect-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"accessibility", "raw", "select-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"accessibility", "raw", "deselect-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"accessibility", "raw", "reopen"},
+		{"a11y", "raw", "action", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "focus", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "scroll", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "set-value", "--bus", "org.test", "--path", "/node", "--generation", "1", "--value", "0.5"},
+		{"a11y", "raw", "set-text-contents", "--bus", "org.test", "--path", "/node", "--generation", "1", "--text", "updated"},
+		{"a11y", "raw", "set-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0", "--start", "0", "--end", "1"},
+		{"a11y", "raw", "add-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--start", "0", "--end", "1"},
+		{"a11y", "raw", "remove-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0"},
+		{"a11y", "raw", "select-child", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "select-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "clear-selection", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "deselect-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "select-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "deselect-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "select-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "deselect-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "reopen"},
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args[1:], "-"), func(t *testing.T) {

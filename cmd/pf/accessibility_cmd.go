@@ -233,7 +233,7 @@ func (o accessibilityCLIOptions) hasWindowScope() bool {
 }
 
 func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nolint:gocyclo // command wiring keeps the public workflow in one place.
-	cmd := &cobra.Command{Use: "a11y", Aliases: []string{"accessibility"}, Short: "Inspect and operate the AT-SPI accessibility tree"}
+	cmd := &cobra.Command{Use: "a11y", Short: "Inspect and operate the AT-SPI accessibility tree"}
 
 	var appsJSON bool
 	apps := &cobra.Command{Use: "apps", Short: "List registered accessible applications", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
