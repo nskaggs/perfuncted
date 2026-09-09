@@ -14,9 +14,9 @@ import (
 	"github.com/nskaggs/perfuncted/internal/executil"
 )
 
-// TestGTKAccessibilityRepresentative keeps one lightweight GTK representative
-// in the suite. It uses a managed display only and verifies a real AT-SPI
-// action closes the dialog, with process exit as the independent outcome.
+// TestGTKAccessibilityRepresentative keeps optional Zenity action coverage in
+// the general suite. Strict GNOME/GTK editor certification lives in
+// TestAccessibilityCertification and verifies editable text plus file output.
 func TestGTKAccessibilityRepresentative(t *testing.T) {
 	s := mustSuite(t)
 	if !s.pf.Has(perfuncted.CapabilityAccessibility) {

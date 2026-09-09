@@ -164,6 +164,12 @@ test-integration-nested-x11-debug:
 test-integration-headless-wayland:
     just test-integration-suite headless-wayland
 
+# Strict KDE/Qt + GNOME/GTK AT-SPI certification in headless Wayland.
+# Unlike the general integration suite, missing accessibility or application
+# support is a certification failure, not an optional capability.
+test-accessibility-certification:
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland PF_REQUIRE_ACCESSIBILITY=1 go test -tags=integration ./integration -run '^TestAccessibilityCertification$$' -count=1 -v -timeout=10m
+
 # Run the shared integration suite against nested Wayland.
 test-integration-nested-wayland:
     just test-integration-suite nested-wayland

@@ -192,7 +192,11 @@ func newSuite(mode displayMode) (*suite, error) {
 			perfuncted.CapabilityOutputs,
 			perfuncted.CapabilityClipboard,
 		),
-		perfuncted.Optional(perfuncted.CapabilityAccessibility),
+	}
+	if envBool(os.Getenv("PF_REQUIRE_ACCESSIBILITY")) {
+		options = append(options, perfuncted.Require(perfuncted.CapabilityAccessibility))
+	} else {
+		options = append(options, perfuncted.Optional(perfuncted.CapabilityAccessibility))
 	}
 	if traceWriter != nil {
 		options = append(

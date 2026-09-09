@@ -74,6 +74,44 @@ jobs:
           path: /tmp/perfuncted-logs/**/*.log
           if-no-files-found: ignore
 
+  accessibility-certification:
+    name: AT-SPI Certification (Headless Wayland)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache: true
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/install-desktop-dependencies
+        with:
+          packages: |
+            sway
+            xwayland
+            dbus-x11
+            at-spi2-core
+            libwayland-client0
+            libwayland-server0
+            libwlroots-dev
+            wl-clipboard
+            xdg-utils
+            qtwayland5
+            kwrite
+            gnome-text-editor
+      - name: Run strict accessibility certification
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+        run: just test-accessibility-certification
+      - name: Upload certification logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-certification-logs
+          path: /tmp/perfuncted-logs/**/*.log
+          if-no-files-found: ignore
+
   integration-session:
     name: Integration (Session Lifecycle)
     runs-on: ubuntu-latest

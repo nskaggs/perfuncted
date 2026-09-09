@@ -22,8 +22,10 @@ inputs:
       xdg-utils
       xvfb
       qtwayland5
+      at-spi2-core
       kwrite
       featherpad
+      gnome-text-editor
 
 runs:
   using: composite
