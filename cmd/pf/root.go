@@ -142,6 +142,12 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		cfg,
 		perfuncted.CapabilityAccessibility,
 	)
+	accessibilityWindowOpen := openRequired(
+		openPFFactory,
+		cfg,
+		perfuncted.CapabilityAccessibility,
+		perfuncted.CapabilityWindows,
+	)
 	allCapabilities := []perfuncted.Capability{
 		perfuncted.CapabilityScreen,
 		perfuncted.CapabilityInput,
@@ -160,7 +166,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		findCmd(screenOpen),
 		runCmd(runOpen, cfg),
 		clipboardCmd(clipboardOpen),
-		accessibilityCmd(accessibilityOpen),
+		accessibilityCmd(accessibilityOpen, accessibilityWindowOpen),
 		infoCmd(infoOpen),
 		sessionCmd(),
 		docsCmd(root),

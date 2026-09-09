@@ -34,6 +34,9 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 	if strings.TrimSpace(o.appName) == "" && o.pid == 0 && strings.TrimSpace(o.window) == "" && strings.TrimSpace(o.windowID) == "" {
 		return accessibility.NodeID{}, fmt.Errorf("accessibility: an explicit --app, --pid, --window, or --window-id scope is required")
 	}
+	if strings.TrimSpace(o.window) != "" || strings.TrimSpace(o.windowID) != "" {
+		return o.windowRoot(ctx, pf)
+	}
 	app, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
 		Name:        strings.TrimSpace(o.appName),
 		PID:         o.pid,
@@ -44,6 +47,36 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 		return accessibility.NodeID{}, err
 	}
 	return app.ID, nil
+}
+
+func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.Session) (accessibility.NodeID, error) {
+	managedWindowID := strings.TrimSpace(o.windowID)
+	if strings.TrimSpace(o.window) != "" {
+		managedWindow, err := pf.Windows.Find(ctx, perfuncted.WindowMatch{TitleExact: strings.TrimSpace(o.window)})
+		if err != nil {
+			return accessibility.NodeID{}, err
+		}
+		if managedWindowID != "" && managedWindow.ID().String() != managedWindowID {
+			return accessibility.NodeID{}, fmt.Errorf("accessibility: --window and --window-id identify different managed windows")
+		}
+		managedWindowID = managedWindow.ID().String()
+	}
+	// Preserve additional app/PID scope constraints even though the returned
+	// root is the selected window rather than its application.
+	if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
+		if _, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+			Name:     strings.TrimSpace(o.appName),
+			PID:      o.pid,
+			WindowID: managedWindowID,
+		}); err != nil {
+			return accessibility.NodeID{}, err
+		}
+	}
+	scope, err := pf.Accessibility.WindowRoot(ctx, managedWindowID)
+	if err != nil {
+		return accessibility.NodeID{}, err
+	}
+	return scope.Root, nil
 }
 
 func (o accessibilityCLIOptions) snapshot() accessibility.SnapshotOptions {
@@ -188,7 +221,18 @@ func openAccessibilitySession(ctx context.Context, openPF sessionOpener) (*perfu
 	return pf, nil
 }
 
-func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo // command wiring keeps the public workflow in one place.
+func openAccessibilityScopeSession(ctx context.Context, openPF, openWindowPF sessionOpener, opts accessibilityCLIOptions) (*perfuncted.Session, error) {
+	if opts.hasWindowScope() && openWindowPF != nil {
+		return openAccessibilitySession(ctx, openWindowPF)
+	}
+	return openAccessibilitySession(ctx, openPF)
+}
+
+func (o accessibilityCLIOptions) hasWindowScope() bool {
+	return strings.TrimSpace(o.window) != "" || strings.TrimSpace(o.windowID) != ""
+}
+
+func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nolint:gocyclo // command wiring keeps the public workflow in one place.
 	cmd := &cobra.Command{Use: "accessibility", Aliases: []string{"a11y"}, Short: "Inspect and operate the AT-SPI accessibility tree"}
 
 	var appsJSON bool
@@ -208,7 +252,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 
 	var treeOpts accessibilityCLIOptions
 	tree := &cobra.Command{Use: "tree", Short: "Capture a bounded tree for one application or managed window", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openAccessibilitySession(c.Context(), openPF)
+		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, treeOpts)
 		if err != nil {
 			return err
 		}
@@ -234,7 +278,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	var findQuery accessibility.Query
 	var findAttributes []string
 	find := &cobra.Command{Use: "find", Short: "Find semantic nodes in one application or managed window", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openAccessibilitySession(c.Context(), openPF)
+		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, findOpts)
 		if err != nil {
 			return err
 		}
@@ -344,7 +388,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	var actionAttributes []string
 	var actionName string
 	action := &cobra.Command{Use: "action", Short: "Invoke one uniquely resolved semantic AT-SPI action", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openAccessibilitySession(c.Context(), openPF)
+		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, actionOpts)
 		if err != nil {
 			return err
 		}
@@ -371,7 +415,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	var focusQuery accessibility.Query
 	var focusAttributes []string
 	focus := &cobra.Command{Use: "focus", Short: "Resolve one semantic node and request AT-SPI focus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openAccessibilitySession(c.Context(), openPF)
+		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, focusOpts)
 		if err != nil {
 			return err
 		}
@@ -400,7 +444,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 	var textAttributes []string
 	var textValue string
 	text := &cobra.Command{Use: "text", Short: "Resolve one editable semantic node and replace its text", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openAccessibilitySession(c.Context(), openPF)
+		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, textOpts)
 		if err != nil {
 			return err
 		}

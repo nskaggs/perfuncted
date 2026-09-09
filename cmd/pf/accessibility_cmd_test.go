@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,8 +26,7 @@ func (cliAccessibilityFake) Applications(context.Context) ([]accessibility.Appli
 func (cliAccessibilityFake) FindApplication(context.Context, accessibility.ApplicationFilter) (accessibility.Application, error) { //nolint:unparam // the fake models a successful resolver.
 	return accessibility.Application{Node: accessibility.Node{ID: accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}, Name: "Test App", Role: "application"}, PID: 123}, nil
 }
-func (cliAccessibilityFake) Snapshot(context.Context, accessibility.NodeID, accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
-	rootID := accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}
+func (cliAccessibilityFake) Snapshot(_ context.Context, rootID accessibility.NodeID, _ accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	return accessibility.Snapshot{Root: accessibility.Node{ID: rootID, Name: "root", Role: "application"}, Nodes: []accessibility.Node{{ID: rootID, Name: "root", Role: "application"}}, Generation: 1, Source: "fake"}, nil
 }
 func (cliAccessibilityFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
@@ -190,9 +190,44 @@ func TestAccessibilityCLIWorkflowCommandsUseSemanticScopeAndHelpers(t *testing.T
 }
 
 func TestAccessibilityCLIWindowOnlyScopeUsesCanonicalResolver(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "tree", "--window-id", "managed-window"}, openCLIWithWindowAndAccessibility)
-	if code != 0 || stderr != "" {
-		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	for _, scope := range [][]string{
+		{"--window-id", "managed-window"},
+		{"--window", "Test window"},
+	} {
+		scope := scope
+		t.Run(strings.Join(scope, "-"), func(t *testing.T) {
+			args := append([]string{"accessibility", "tree"}, scope...)
+			stdout, stderr, code := captureRunIO(t, args, openCLIWithWindowAndAccessibility)
+			if code != 0 || stderr != "" {
+				t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+			}
+			if !strings.Contains(stdout, "/window") {
+				t.Fatalf("window scope output = %q, want canonical window root", stdout)
+			}
+		})
+	}
+}
+
+func TestAccessibilityCLIScopeSessionRequiresWindowsOnlyForWindowSelectors(t *testing.T) {
+	var requests [][]perfuncted.Capability
+	factory := func(cfg *cliConfig) sessionOpener {
+		requests = append(requests, slices.Clone(cfg.required))
+		return func(context.Context) (*perfuncted.Session, error) {
+			if slices.Contains(cfg.required, perfuncted.CapabilityWindows) {
+				manager := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "managed-window", Title: "Test window"}}}}
+				return perfuncted.NewSessionForTesting(nil, nil, manager, nil, nil, cliAutomationFake{}), nil
+			}
+			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAutomationFake{}), nil
+		}
+	}
+	_, _, code := captureRunIO(t, []string{"accessibility", "tree", "--window-id", "managed-window"}, factory)
+	if code != 0 || len(requests) != 1 || !slices.Equal(requests[0], []perfuncted.Capability{perfuncted.CapabilityAccessibility, perfuncted.CapabilityWindows}) {
+		t.Fatalf("window selector requests=%v code=%d, want Accessibility+Windows", requests, code)
+	}
+	requests = nil
+	_, _, code = captureRunIO(t, []string{"accessibility", "tree", "--app", "Test"}, factory)
+	if code != 0 || len(requests) != 1 || !slices.Equal(requests[0], []perfuncted.Capability{perfuncted.CapabilityAccessibility}) {
+		t.Fatalf("app selector requests=%v code=%d, want Accessibility only", requests, code)
 	}
 }
 
