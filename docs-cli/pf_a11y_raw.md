@@ -52,3 +52,4 @@ Use typed AT-SPI protocol primitives with explicit handles
 * [pf a11y raw set-text-contents](pf_a11y_raw_set-text-contents.md)	 - Invoke EditableText SetTextContents
 * [pf a11y raw set-text-selection](pf_a11y_raw_set-text-selection.md)	 - Invoke Text SetSelection
 * [pf a11y raw set-value](pf_a11y_raw_set-value.md)	 - Invoke the typed Value SetValue primitive
+
