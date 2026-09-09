@@ -149,3 +149,35 @@ func TestRuntimeLookupAndHas(t *testing.T) {
 		t.Fatalf("zero.Lookup(FOO) = (%q, %v), want (\"\", false)", val, ok)
 	}
 }
+
+func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
+	t.Parallel()
+
+	rt := FromEnviron([]string{
+		"AT_SPI_BUS=unix:path=/host/accessibility-bus",
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=/host/session-bus",
+	})
+	managed := rt.WithSession(
+		"/tmp/perfuncted-xdg",
+		"wayland-1",
+		"unix:path=/tmp/perfuncted-xdg/bus",
+	)
+	if got, ok := managed.Lookup("AT_SPI_BUS"); ok || got != "" {
+		t.Fatalf("AT_SPI_BUS = (%q, %t), want removed host override", got, ok)
+	}
+	if got := managed.Get("DBUS_SESSION_BUS_ADDRESS"); got != "unix:path=/tmp/perfuncted-xdg/bus" {
+		t.Fatalf("DBUS_SESSION_BUS_ADDRESS = %q, want managed bus", got)
+	}
+}
+
+func TestWithAccessibilityBusPublishesManagedAddress(t *testing.T) {
+	t.Parallel()
+
+	managed := FromEnviron(nil).WithAccessibilityBus(" unix:path=/tmp/perfuncted-a11y ")
+	if got := managed.Get("AT_SPI_BUS"); got != "unix:path=/tmp/perfuncted-a11y" {
+		t.Fatalf("AT_SPI_BUS = %q, want trimmed managed address", got)
+	}
+	if got, ok := managed.WithAccessibilityBus("").Lookup("AT_SPI_BUS"); ok || got != "" {
+		t.Fatalf("empty accessibility address = (%q, %t), want removed override", got, ok)
+	}
+}

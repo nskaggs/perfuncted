@@ -79,12 +79,29 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 	out.vars["XDG_RUNTIME_DIR"] = xdgRuntimeDir
 	out.vars["WAYLAND_DISPLAY"] = waylandDisplay
 	out.vars["DBUS_SESSION_BUS_ADDRESS"] = dbusAddr
+	// AT_SPI_BUS is a separate address from the session bus. Never let a host
+	// accessibility address leak into an isolated managed session; the session
+	// layer adds its own address when the launcher has published one.
+	delete(out.vars, "AT_SPI_BUS")
 	out.vars["XDG_SESSION_TYPE"] = "wayland"
 	out.vars["DISPLAY"] = ""
 	out.vars["SWAYSOCK"] = ""
 	out.vars["HYPRLAND_INSTANCE_SIGNATURE"] = ""
 	out.vars["GDK_BACKEND"] = "wayland"
 	out.vars["QT_QPA_PLATFORM"] = "wayland"
+	return out
+}
+
+// WithAccessibilityBus publishes the AT-SPI bus selected by a managed
+// session. An empty address removes the override so clients discover AT-SPI
+// through the session bus without inheriting a host-session address.
+func (r Runtime) WithAccessibilityBus(addr string) Runtime {
+	out := r.clone()
+	if strings.TrimSpace(addr) == "" {
+		delete(out.vars, "AT_SPI_BUS")
+	} else {
+		out.vars["AT_SPI_BUS"] = strings.TrimSpace(addr)
+	}
 	return out
 }
 

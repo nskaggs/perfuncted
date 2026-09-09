@@ -37,6 +37,12 @@ func TestAccessibilityCertification(t *testing.T) {
 	if !s.pf.Has(perfuncted.CapabilityWindows) {
 		t.Fatal("managed window capability is required for accessibility certification")
 	}
+	if strings.TrimSpace(s.rt.Get("DBUS_SESSION_BUS_ADDRESS")) == "" {
+		t.Fatal("managed session did not publish a session D-Bus address")
+	}
+	if strings.TrimSpace(s.rt.Get("AT_SPI_BUS")) == "" {
+		t.Fatal("managed session did not publish its AT-SPI bus address to child applications")
+	}
 	status := s.pf.Capability(perfuncted.CapabilityAccessibility)
 	if !status.Requested || !status.Required || !status.Available {
 		t.Fatalf("AT-SPI capability is mandatory for certification: %+v", status)
@@ -58,7 +64,7 @@ func TestAccessibilityCertification(t *testing.T) {
 			name:     "gnome-text-editor",
 			launch:   []string{"gnome-text-editor"},
 			winMatch: "Text Editor",
-			extraEnv: []string{"GTK_A11Y=atspi"},
+			extraEnv: nil,
 		},
 	}
 	for _, app := range apps {

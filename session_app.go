@@ -24,6 +24,7 @@ var sessionRoutingKeys = []string{
 	"HYPRLAND_INSTANCE_SIGNATURE",
 	"GDK_BACKEND",
 	"QT_QPA_PLATFORM",
+	"AT_SPI_BUS",
 }
 
 // Command describes an external program to launch as an Application.
@@ -82,9 +83,10 @@ func (s *Session) Launch(
 	execCommand := exec.Command(resolved, command.Args...)
 	execCommand.Dir = command.Dir
 	baseEnvironment := commandEnvironment(command.Env)
-	if command.Env == nil && s.target.Kind() == TargetExplicit {
-		// An explicit target is an immutable environment snapshot. Do not
-		// silently reintroduce host variables when the caller leaves Env nil.
+	if command.Env == nil {
+		// The session environment is already a host snapshot with managed
+		// routing applied. Use it directly so deleted routing keys, including a
+		// host AT_SPI_BUS, cannot be reintroduced from the live parent process.
 		baseEnvironment = s.env.EnvList()
 	}
 	execCommand.Env = env.Merge(

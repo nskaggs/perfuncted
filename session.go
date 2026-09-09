@@ -18,8 +18,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/godbus/dbus/v5"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/internal/util"
@@ -38,6 +40,9 @@ const (
 	noPIDFileReapGrace      = 5 * time.Minute
 	cleanupStaleMinInterval = 30 * time.Second
 	atspiBusLauncherName    = "at-spi-bus-launcher"
+	atspiBusService         = "org.a11y.Bus"
+	atspiBusPath            = dbus.ObjectPath("/org/a11y/bus")
+	atspiBusAddressMethod   = "org.a11y.Bus.GetAddress"
 	defaultSessionLogAge    = 7 * 24 * time.Hour
 	sessionLogPrefix        = "perfuncted-session-"
 )
@@ -65,6 +70,7 @@ type sessionInfra struct {
 	swayCmd    *managedSessionProcess
 	dbusCmd    *managedSessionProcess
 	atspiCmd   *managedSessionProcess
+	atspiAddr  string
 	wlPasteCmd *managedSessionProcess
 	ctx        context.Context //nolint:containedctx // infrastructure owns this context
 	cancel     context.CancelFunc
@@ -190,7 +196,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 			return err
 		}
 		s.infra = infra
-		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr)
+		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr).WithAccessibilityBus(infra.atspiAddr)
 	case TargetNested:
 		CleanupStaleSessions(24 * time.Hour)
 		infra, err := s.startSession(ctx, sessionModeNested, target.config, wantAccessibility)
@@ -198,7 +204,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 			return err
 		}
 		s.infra = infra
-		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr)
+		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr).WithAccessibilityBus(infra.atspiAddr)
 	default:
 		return fmt.Errorf("perfuncted: unknown target kind %q", target.kind)
 	}
@@ -590,7 +596,20 @@ func (s *Session) startSession(
 	if wantAccessibility {
 		// The launcher is optional on minimal CI images. OpenRuntime still
 		// reports a typed unavailable capability when no AT-SPI service exists.
-		_ = infra.launchAccessibility()
+		if launchErr := infra.launchAccessibility(); launchErr == nil {
+			// The launcher registers org.a11y.Bus asynchronously. Resolve its
+			// address under a bounded startup wait before publishing the
+			// managed runtime to child applications, so they and OpenRuntime use
+			// the same AT-SPI bus.
+			addressCtx, addressCancel := context.WithTimeout(startupCtx, config.Timeouts.Short)
+			address, addressErr := infra.accessibilityBusAddress(addressCtx)
+			addressCancel()
+			if addressErr == nil {
+				infra.atspiAddr = address
+			} else {
+				slog.Debug("session: accessibility bus address not ready", "error", addressErr)
+			}
+		}
 	}
 
 	swayConf := config.SwayConfigPath
@@ -674,6 +693,37 @@ func (i *sessionInfra) launchAccessibility() error {
 	return nil
 }
 
+func (i *sessionInfra) accessibilityBusAddress(ctx context.Context) (string, error) {
+	policy := i.timeouts.WithDefaults()
+	ticker := time.NewTicker(policy.Poll)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		conn, err := dbusutil.SessionBusAddressContext(ctx, i.dbusAddr)
+		if err == nil {
+			var address string
+			err = conn.Object(atspiBusService, atspiBusPath).CallWithContext(ctx, atspiBusAddressMethod, 0).Store(&address)
+			_ = conn.Close()
+			if err == nil {
+				address = strings.TrimSpace(address)
+				if address != "" {
+					return address, nil
+				}
+				err = errors.New("empty AT-SPI bus address")
+			}
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			if lastErr != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return "", ctx.Err()
+			}
+			return "", lastErr
+		case <-ticker.C:
+		}
+	}
+}
+
 func (i *sessionInfra) launchSway(
 	ctx context.Context,
 	confPath string,
@@ -689,7 +739,7 @@ func (i *sessionInfra) launchSway(
 	runtime := env.Current().
 		With("XDG_RUNTIME_DIR", i.xdgDir).
 		With("DBUS_SESSION_BUS_ADDRESS", i.dbusAddr).
-		Without("SWAYSOCK")
+		Without("SWAYSOCK", "AT_SPI_BUS")
 	switch mode {
 	case sessionModeHeadless:
 		runtime = runtime.Without("WAYLAND_DISPLAY", "DISPLAY")

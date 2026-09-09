@@ -414,6 +414,33 @@ func TestLaunchRoutesEnvironmentAndIgnoresLaterContextCancellation(
 	}
 }
 
+func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
+	t.Setenv("AT_SPI_BUS", "unix:path=/host/accessibility-bus")
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.env = env.FromEnviron([]string{"PATH=" + os.Getenv("PATH")})
+	session.target = DesktopTarget{kind: TargetHeadless, env: session.env.EnvList()}
+	t.Cleanup(func() { _ = session.Close() })
+
+	var stdout bytes.Buffer
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name:   "sh",
+			Args:   []string{"-c", `printf '%s' "${AT_SPI_BUS-unset}"`},
+			Stdout: &stdout,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if got := stdout.String(); got != "unset" {
+		t.Fatalf("AT_SPI_BUS in child = %q, want unset host address", got)
+	}
+}
+
 func TestSessionCloseStopsApplicationsInReverseLaunchOrder(t *testing.T) {
 	session := NewSessionForTesting(nil, nil, nil, nil, nil)
 	session.config.ApplicationGracePeriod = time.Second
