@@ -13,122 +13,228 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// accessibilityCLIOptions contains only selectors and bounds used by the
+// workflow commands. Protocol handles belong under raw, where they are
+// intentionally explicit and never confused with semantic selectors.
 type accessibilityCLIOptions struct {
-	output         string
 	json           bool
-	rootBus        string
-	rootPath       string
-	generation     uint64
-	desktopRoot    bool
 	appName        string
 	pid            int32
+	window         string
 	windowID       string
-	windowTitle    string
 	maxDepth       int
 	maxNodes       int
 	maxTextBytes   int
+	maxTotalBytes  int
 	visibleOnly    bool
 	allowSensitive bool
 }
 
 func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Session) (accessibility.NodeID, error) {
-	if strings.TrimSpace(o.appName) == "" && o.pid == 0 && strings.TrimSpace(o.rootBus) == "" && strings.TrimSpace(o.rootPath) == "" {
-		return accessibility.NodeID{}, nil
+	if strings.TrimSpace(o.appName) == "" && o.pid == 0 && strings.TrimSpace(o.window) == "" && strings.TrimSpace(o.windowID) == "" {
+		return accessibility.NodeID{}, fmt.Errorf("accessibility: an explicit --app, --pid, --window, or --window-id scope is required")
 	}
-	if o.appName != "" || o.pid != 0 {
-		app, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{Name: o.appName, PID: o.pid, Bus: o.rootBus, WindowID: o.windowID, WindowTitle: o.windowTitle})
-		if err != nil {
-			return accessibility.NodeID{}, err
-		}
-		return app.ID, nil
+	app, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+		Name:        strings.TrimSpace(o.appName),
+		PID:         o.pid,
+		WindowID:    strings.TrimSpace(o.windowID),
+		WindowTitle: strings.TrimSpace(o.window),
+	})
+	if err != nil {
+		return accessibility.NodeID{}, err
 	}
-	if o.rootBus == "" || o.rootPath == "" {
-		return accessibility.NodeID{}, fmt.Errorf("root requires both --root-bus and --root-path")
-	}
-	if o.generation == 0 {
-		return accessibility.NodeID{}, fmt.Errorf("root requires --generation from a current accessibility snapshot")
-	}
-	return accessibility.NodeID{BusName: o.rootBus, ObjectPath: o.rootPath, Generation: o.generation}, nil
+	return app.ID, nil
 }
 
 func (o accessibilityCLIOptions) snapshot() accessibility.SnapshotOptions {
-	return accessibility.SnapshotOptions{MaxDepth: o.maxDepth, MaxNodes: o.maxNodes, MaxTextBytes: o.maxTextBytes, VisibleOnly: o.visibleOnly, AllowSensitive: o.allowSensitive, AllowDesktopRoot: o.desktopRoot}
-}
-
-func (o accessibilityCLIOptions) format() string {
-	if o.json {
-		return "json"
+	return accessibility.SnapshotOptions{
+		MaxDepth:       o.maxDepth,
+		MaxNodes:       o.maxNodes,
+		MaxTextBytes:   o.maxTextBytes,
+		MaxTotalBytes:  o.maxTotalBytes,
+		VisibleOnly:    o.visibleOnly,
+		AllowSensitive: o.allowSensitive,
 	}
-	return o.output
 }
 
-func accessibilityOutput(w io.Writer, format string, value any) error {
-	if strings.EqualFold(format, "json") {
+type accessibilityRawOptions struct {
+	json       bool
+	bus        string
+	path       string
+	generation uint64
+}
+
+func (o accessibilityRawOptions) node() (accessibility.NodeID, error) {
+	if strings.TrimSpace(o.bus) == "" || strings.TrimSpace(o.path) == "" {
+		return accessibility.NodeID{}, fmt.Errorf("raw node operation requires both --bus and --path")
+	}
+	if o.generation == 0 {
+		return accessibility.NodeID{}, fmt.Errorf("raw node operation requires --generation from a current snapshot")
+	}
+	return accessibility.NodeID{BusName: strings.TrimSpace(o.bus), ObjectPath: strings.TrimSpace(o.path), Generation: o.generation}, nil
+}
+
+func accessibilityOutput(w io.Writer, jsonMode bool, value any) error {
+	if jsonMode {
 		return json.NewEncoder(w).Encode(value)
 	}
-	return fmt.Errorf("unknown output format %q (want json)", format)
+	return writeAccessibilityText(w, value)
 }
 
-func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo // Cobra command assembly is intentionally centralized.
-	cmd := &cobra.Command{Use: "accessibility", Aliases: []string{"a11y"}, Short: "Inspect the AT-SPI accessibility tree"}
-	common := func(c *cobra.Command, o *accessibilityCLIOptions) {
-		c.Flags().StringVar(&o.output, "output", "json", "output format (json)")
-		c.Flags().BoolVar(&o.json, "json", false, "output JSON (alias for --output json)")
-		c.Flags().StringVar(&o.rootBus, "root-bus", "", "AT-SPI application bus name")
-		c.Flags().StringVar(&o.rootPath, "root-path", "", "AT-SPI application object path")
-		c.Flags().Uint64Var(&o.generation, "generation", 0, "current accessibility generation for --root-bus/--root-path")
-		c.Flags().BoolVar(&o.desktopRoot, "desktop-root", false, "explicitly allow bounded whole-desktop traversal")
-		c.Flags().StringVar(&o.appName, "app", "", "application accessible-name substring")
-		c.Flags().StringVar(&o.appName, "application", "", "application accessible-name substring (alias for --app)")
-		c.Flags().Int32Var(&o.pid, "pid", 0, "application process ID")
-		c.Flags().StringVar(&o.windowID, "window-id", "", "managed window identifier")
-		c.Flags().StringVar(&o.windowTitle, "window-title", "", "managed window title (exact)")
-		c.Flags().IntVar(&o.maxDepth, "max-depth", 0, "maximum tree depth")
-		c.Flags().IntVar(&o.maxNodes, "max-nodes", 0, "maximum nodes")
-		c.Flags().IntVar(&o.maxTextBytes, "max-text-bytes", 0, "maximum text bytes per node")
-		c.Flags().BoolVar(&o.visibleOnly, "visible-only", false, "exclude invisible/off-screen nodes")
-		c.Flags().BoolVar(&o.allowSensitive, "allow-sensitive", false, "include sensitive/protected text (use with care)")
+func writeAccessibilityText(w io.Writer, value any) error {
+	switch typed := value.(type) {
+	case []accessibility.Application:
+		for _, app := range typed {
+			if _, err := fmt.Fprintf(w, "%s\tpid=%d\t%s/%s@%d\n", app.Name, app.PID, app.ID.BusName, app.ID.ObjectPath, app.ID.Generation); err != nil {
+				return err
+			}
+		}
+		return nil
+	case accessibility.Node:
+		return writeAccessibilityNode(w, typed, "")
+	case []accessibility.Node:
+		for _, node := range typed {
+			if err := writeAccessibilityNode(w, node, ""); err != nil {
+				return err
+			}
+		}
+		return nil
+	case accessibility.Snapshot:
+		return writeAccessibilityText(w, accessibility.BuildOutline(typed, accessibility.OutlineOptions{}))
+	case accessibility.Outline:
+		if err := writeAccessibilityOutlineNode(w, typed.Root, ""); err != nil {
+			return err
+		}
+		if typed.Truncated {
+			_, err := fmt.Fprintf(w, "[truncated generation=%d warnings=%v]\n", typed.Generation, typed.Warnings)
+			return err
+		}
+		return nil
+	case accessibility.Action:
+		_, err := fmt.Fprintf(w, "action index=%d name=%q description=%q key=%q\n", typed.Index, typed.Name, typed.Description, typed.KeyBinding)
+		return err
+	case perfuncted.AccessibilityActionReceipt:
+		if err := writeAccessibilityNode(w, typed.Node, "target "); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(w, "action index=%d name=%q mechanism=%s generation=%d\n", typed.Action.Index, typed.Action.Name, typed.Mechanism, typed.Generation)
+		return err
+	default:
+		_, err := fmt.Fprintln(w, value)
+		return err
 	}
+}
 
-	var appOpts accessibilityCLIOptions
-	applications := &cobra.Command{Use: "applications", Short: "List registered accessible applications", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+func writeAccessibilityNode(w io.Writer, node accessibility.Node, prefix string) error {
+	_, err := fmt.Fprintf(w, "%s%s %q [%s/%s@%d]\n", prefix, node.Role, node.Name, node.ID.BusName, node.ID.ObjectPath, node.ID.Generation)
+	return err
+}
+
+func writeAccessibilityOutlineNode(w io.Writer, node accessibility.OutlineNode, indent string) error {
+	label := node.Name
+	if label == "" {
+		label = node.Text
+	}
+	if _, err := fmt.Fprintf(w, "%s%s %q [%s/%s@%d]\n", indent, node.Role, label, node.ID.BusName, node.ID.ObjectPath, node.ID.Generation); err != nil {
+		return err
+	}
+	for _, child := range node.Children {
+		if err := writeAccessibilityOutlineNode(w, child, indent+"  "); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addJSONFlag(cmd *cobra.Command, target *bool) {
+	cmd.Flags().BoolVar(target, "json", false, "write machine-readable JSON")
+}
+
+func addScopeFlags(cmd *cobra.Command, opts *accessibilityCLIOptions) {
+	cmd.Flags().StringVar(&opts.appName, "app", "", "accessible application name substring")
+	cmd.Flags().Int32Var(&opts.pid, "pid", 0, "exact application process ID")
+	cmd.Flags().StringVar(&opts.window, "window", "", "exact managed window title")
+	cmd.Flags().StringVar(&opts.windowID, "window-id", "", "managed window ID")
+}
+
+func addSnapshotFlags(cmd *cobra.Command, opts *accessibilityCLIOptions) {
+	cmd.Flags().IntVar(&opts.maxDepth, "max-depth", 0, "maximum tree depth")
+	cmd.Flags().IntVar(&opts.maxNodes, "max-nodes", 0, "maximum nodes")
+	cmd.Flags().IntVar(&opts.maxTextBytes, "max-text-bytes", 0, "maximum UTF-8 text bytes per node")
+	cmd.Flags().IntVar(&opts.maxTotalBytes, "max-total-bytes", 0, "hard maximum serialized snapshot bytes")
+	cmd.Flags().BoolVar(&opts.visibleOnly, "visible-only", false, "exclude invisible/off-screen nodes")
+	cmd.Flags().BoolVar(&opts.allowSensitive, "allow-sensitive", false, "include protected text and values")
+}
+
+func addQueryFlags(cmd *cobra.Command, query *accessibility.Query, attributes *[]string) {
+	cmd.Flags().StringVar(&query.Name, "name", "", "accessible name substring")
+	cmd.Flags().StringVar(&query.Role, "role", "", "accessible role substring")
+	cmd.Flags().StringVar(&query.Text, "text", "", "accessible text substring")
+	cmd.Flags().StringArrayVar(&query.States, "state", nil, "required accessible state (repeatable)")
+	cmd.Flags().StringArrayVar(attributes, "attribute", nil, "required attribute key=value (repeatable)")
+}
+
+func openAccessibilitySession(ctx context.Context, openPF sessionOpener) (*perfuncted.Session, error) {
+	pf, err := openPF(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if pf == nil || pf.Accessibility == nil {
+		if pf != nil {
+			_ = pf.Close() //nolint:contextcheck // close is the bounded cleanup for a rejected session.
+		}
+		return nil, fmt.Errorf("accessibility: capability unavailable")
+	}
+	return pf, nil
+}
+
+func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo // command wiring keeps the public workflow in one place.
+	cmd := &cobra.Command{Use: "accessibility", Aliases: []string{"a11y"}, Short: "Inspect and operate the AT-SPI accessibility tree"}
+
+	var appsJSON bool
+	apps := &cobra.Command{Use: "apps", Short: "List registered accessible applications", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		apps, err := pf.Accessibility.Applications(c.Context())
+		value, err := pf.Accessibility.Applications(c.Context())
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), appOpts.format(), apps)
+		return accessibilityOutput(c.OutOrStdout(), appsJSON, value)
 	}}
-	common(applications, &appOpts)
+	addJSONFlag(apps, &appsJSON)
 
-	var snapOpts accessibilityCLIOptions
-	snapshot := &cobra.Command{Use: "snapshot", Aliases: []string{"tree"}, Short: "Capture a bounded accessibility tree", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	var treeOpts accessibilityCLIOptions
+	tree := &cobra.Command{Use: "tree", Short: "Capture a bounded tree for one application or managed window", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		root, err := snapOpts.root(c.Context(), pf)
+		root, err := treeOpts.root(c.Context(), pf)
 		if err != nil {
 			return err
 		}
-		value, err := pf.Accessibility.Snapshot(c.Context(), root, snapOpts.snapshot())
+		snapshot, err := pf.Accessibility.Snapshot(c.Context(), root, treeOpts.snapshot())
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), snapOpts.format(), value)
+		if treeOpts.json {
+			return accessibilityOutput(c.OutOrStdout(), true, snapshot)
+		}
+		return accessibilityOutput(c.OutOrStdout(), false, accessibility.BuildOutline(snapshot, accessibility.OutlineOptions{MaxDepth: treeOpts.maxDepth, MaxNodes: treeOpts.maxNodes}))
 	}}
-	common(snapshot, &snapOpts)
+	addJSONFlag(tree, &treeOpts.json)
+	addScopeFlags(tree, &treeOpts)
+	addSnapshotFlags(tree, &treeOpts)
 
 	var findOpts accessibilityCLIOptions
-	var query accessibility.Query
-	var attributeFlags []string
-	findCmd := &cobra.Command{Use: "find", Short: "Find accessible nodes by name, role, or text", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	var findQuery accessibility.Query
+	var findAttributes []string
+	find := &cobra.Command{Use: "find", Short: "Find semantic nodes in one application or managed window", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
@@ -137,74 +243,52 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		query.Attributes = parseAccessibilityAttributes(attributeFlags)
-		value, err := pf.Accessibility.Find(c.Context(), root, query, findOpts.snapshot())
+		findQuery.Attributes = parseAccessibilityAttributes(findAttributes)
+		value, err := pf.Accessibility.Find(c.Context(), root, findQuery, findOpts.snapshot())
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), findOpts.format(), value)
+		return accessibilityOutput(c.OutOrStdout(), findOpts.json, value)
 	}}
-	common(findCmd, &findOpts)
-	findCmd.Flags().StringVar(&query.Name, "name", "", "accessible name substring")
-	findCmd.Flags().StringVar(&query.Role, "role", "", "accessible role substring")
-	findCmd.Flags().StringVar(&query.Text, "text", "", "accessible text substring")
-	findCmd.Flags().StringSliceVar(&query.States, "state", nil, "required accessible state (repeatable)")
-	findCmd.Flags().StringArrayVar(&attributeFlags, "attribute", nil, "required attribute key=value (repeatable)")
+	addJSONFlag(find, &findOpts.json)
+	addScopeFlags(find, &findOpts)
+	addSnapshotFlags(find, &findOpts)
+	addQueryFlags(find, &findQuery, &findAttributes)
 
-	var outlineOpts accessibilityCLIOptions
-	outline := &cobra.Command{Use: "outline", Short: "Print a compact semantic outline for an explicit scope", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	var focusedJSON bool
+	focused := &cobra.Command{Use: "focused", Short: "Show the currently focused accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		root, err := outlineOpts.root(c.Context(), pf)
+		value, err := pf.Accessibility.Focused(c.Context(), accessibility.SnapshotOptions{})
 		if err != nil {
 			return err
 		}
-		value, err := pf.Accessibility.Outline(c.Context(), root, outlineOpts.snapshot(), accessibility.OutlineOptions{MaxDepth: outlineOpts.maxDepth, MaxNodes: outlineOpts.maxNodes})
-		if err != nil {
-			return err
-		}
-		return accessibilityOutput(c.OutOrStdout(), outlineOpts.format(), value)
+		return accessibilityOutput(c.OutOrStdout(), focusedJSON, value)
 	}}
-	common(outline, &outlineOpts)
+	addJSONFlag(focused, &focusedJSON)
 
-	focused := &cobra.Command{Use: "focused", Short: "Print the currently focused accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		value, err := pf.Accessibility.Focused(c.Context(), appOpts.snapshot())
-		if err != nil {
-			return err
-		}
-		return accessibilityOutput(c.OutOrStdout(), appOpts.format(), value)
-	}}
-	common(focused, &appOpts)
-
+	var pointJSON bool
 	var pointX, pointY int
-	atPoint := &cobra.Command{Use: "at-point [X Y]", Short: "Inspect the accessible object at a screen coordinate", Args: func(_ *cobra.Command, args []string) error {
-		switch len(args) {
-		case 0:
+	atPoint := &cobra.Command{Use: "at-point [X Y]", Short: "Show the accessible object at screen coordinates", Args: func(_ *cobra.Command, args []string) error {
+		if len(args) == 0 {
 			return nil
-		case 2:
-			x, err := strconv.Atoi(args[0])
-			if err != nil {
-				return fmt.Errorf("at-point x: %w", err)
-			}
-			y, err := strconv.Atoi(args[1])
-			if err != nil {
-				return fmt.Errorf("at-point y: %w", err)
-			}
-			pointX, pointY = x, y
-			return nil
-		default:
+		}
+		if len(args) != 2 {
 			return fmt.Errorf("at-point expects zero or two coordinates")
 		}
+		var err error
+		if pointX, err = strconv.Atoi(args[0]); err != nil {
+			return fmt.Errorf("at-point x: %w", err)
+		}
+		if pointY, err = strconv.Atoi(args[1]); err != nil {
+			return fmt.Errorf("at-point y: %w", err)
+		}
+		return nil
 	}, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
@@ -213,15 +297,16 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), appOpts.format(), value)
+		return accessibilityOutput(c.OutOrStdout(), pointJSON, value)
 	}}
-	common(atPoint, &appOpts)
+	addJSONFlag(atPoint, &pointJSON)
 	atPoint.Flags().IntVar(&pointX, "x", 0, "screen x coordinate")
 	atPoint.Flags().IntVar(&pointY, "y", 0, "screen y coordinate")
 
+	var eventsJSON bool
 	var eventBuffer int
-	events := &cobra.Command{Use: "events", Short: "Stream AT-SPI invalidation events as JSON lines", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	events := &cobra.Command{Use: "events", Short: "Stream bounded AT-SPI invalidation events", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
@@ -239,298 +324,365 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 				if !ok {
 					return nil
 				}
-				if err := enc.Encode(event); err != nil {
+				if eventsJSON {
+					if err := enc.Encode(event); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := writeAccessibilityText(c.OutOrStdout(), event); err != nil {
 					return err
 				}
 			}
 		}
 	}}
+	addJSONFlag(events, &eventsJSON)
 	events.Flags().IntVar(&eventBuffer, "buffer", 0, "event buffer size")
 
 	var actionOpts accessibilityCLIOptions
-	var actionIndex int32
+	var actionQuery accessibility.Query
+	var actionAttributes []string
 	var actionName string
-	action := &cobra.Command{Use: "invoke-action", Short: "Invoke an AT-SPI action on an explicit node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	action := &cobra.Command{Use: "action", Short: "Invoke one uniquely resolved semantic AT-SPI action", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		node, err := actionOpts.root(c.Context(), pf)
+		root, err := actionOpts.root(c.Context(), pf)
 		if err != nil {
 			return err
 		}
-		switch {
-		case strings.TrimSpace(actionName) != "":
-			err = pf.Accessibility.InvokeActionByName(c.Context(), node, actionName)
-		case actionIndex >= 0:
-			err = pf.Accessibility.InvokeAction(c.Context(), node, actionIndex)
-		default:
-			_, err = pf.Accessibility.InvokeDefaultAction(c.Context(), node)
+		actionQuery.Attributes = parseAccessibilityAttributes(actionAttributes)
+		receipt, err := pf.Accessibility.InvokeSemanticAction(c.Context(), root, actionQuery, actionName, actionOpts.snapshot())
+		if err != nil {
+			return err
 		}
-		return err
+		return accessibilityOutput(c.OutOrStdout(), actionOpts.json, receipt)
 	}}
-	common(action, &actionOpts)
-	action.Flags().Int32Var(&actionIndex, "action-index", -1, "stable AT-SPI action index")
-	action.Flags().StringVar(&actionName, "action-name", "", "exact AT-SPI action name (must be unique)")
+	addJSONFlag(action, &actionOpts.json)
+	addScopeFlags(action, &actionOpts)
+	addSnapshotFlags(action, &actionOpts)
+	addQueryFlags(action, &actionQuery, &actionAttributes)
+	action.Flags().StringVar(&actionName, "action", "", "exact action name; empty selects the provider's first action")
+	action.Flags().StringVar(&actionName, "action-name", "", "alias for --action")
+
 	var focusOpts accessibilityCLIOptions
-	focus := &cobra.Command{Use: "focus", Short: "Focus an explicit accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	var focusQuery accessibility.Query
+	var focusAttributes []string
+	focus := &cobra.Command{Use: "focus", Short: "Resolve one semantic node and request AT-SPI focus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		node, err := focusOpts.root(c.Context(), pf)
+		root, err := focusOpts.root(c.Context(), pf)
 		if err != nil {
 			return err
 		}
-		return pf.Accessibility.FocusNode(c.Context(), node)
+		focusQuery.Attributes = parseAccessibilityAttributes(focusAttributes)
+		node, err := pf.Accessibility.FindOne(c.Context(), root, focusQuery, focusOpts.snapshot())
+		if err != nil {
+			return err
+		}
+		if err := pf.Accessibility.FocusNode(c.Context(), node.ID); err != nil {
+			return err
+		}
+		return accessibilityOutput(c.OutOrStdout(), focusOpts.json, node)
 	}}
-	common(focus, &focusOpts)
-	var scrollOpts accessibilityCLIOptions
-	scroll := &cobra.Command{Use: "scroll", Short: "Scroll an explicit accessible node into view", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := scrollOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.ScrollNodeIntoView(c.Context(), node)
-	}}
-	common(scroll, &scrollOpts)
-	var scrollPointOpts accessibilityCLIOptions
-	var scrollPointX, scrollPointY int
-	var scrollPointCoord string
-	scrollPoint := &cobra.Command{Use: "scroll-to-point", Short: "Scroll an accessible node to a point in a coordinate space", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := scrollPointOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		coord, err := parseAccessibilityCoordType(scrollPointCoord)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.ScrollToPoint(c.Context(), node, coord, scrollPointX, scrollPointY)
-	}}
-	common(scrollPoint, &scrollPointOpts)
-	scrollPoint.Flags().IntVar(&scrollPointX, "x", 0, "point x coordinate")
-	scrollPoint.Flags().IntVar(&scrollPointY, "y", 0, "point y coordinate")
-	scrollPoint.Flags().StringVar(&scrollPointCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
-	var positionOpts accessibilityCLIOptions
-	var positionX, positionY int
-	var positionCoord string
-	setPosition := &cobra.Command{Use: "set-position", Short: "Move an accessible Component", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := positionOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		coord, err := parseAccessibilityCoordType(positionCoord)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.SetPosition(c.Context(), node, positionX, positionY, coord)
-	}}
-	common(setPosition, &positionOpts)
-	setPosition.Flags().IntVar(&positionX, "x", 0, "position x coordinate")
-	setPosition.Flags().IntVar(&positionY, "y", 0, "position y coordinate")
-	setPosition.Flags().StringVar(&positionCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
-	var sizeOpts accessibilityCLIOptions
-	var sizeWidth, sizeHeight int
-	setSize := &cobra.Command{Use: "set-size", Short: "Resize an accessible Component", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := sizeOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.SetSize(c.Context(), node, sizeWidth, sizeHeight)
-	}}
-	common(setSize, &sizeOpts)
-	setSize.Flags().IntVar(&sizeWidth, "width", 0, "component width")
-	setSize.Flags().IntVar(&sizeHeight, "height", 0, "component height")
-	var extentsOpts accessibilityCLIOptions
-	var extentX, extentY, extentWidth, extentHeight int
-	var extentCoord string
-	setExtents := &cobra.Command{Use: "set-extents", Short: "Move and resize an accessible Component", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := extentsOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		coord, err := parseAccessibilityCoordType(extentCoord)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.SetExtents(c.Context(), node, extentX, extentY, extentWidth, extentHeight, coord)
-	}}
-	common(setExtents, &extentsOpts)
-	setExtents.Flags().IntVar(&extentX, "x", 0, "position x coordinate")
-	setExtents.Flags().IntVar(&extentY, "y", 0, "position y coordinate")
-	setExtents.Flags().IntVar(&extentWidth, "width", 0, "component width")
-	setExtents.Flags().IntVar(&extentHeight, "height", 0, "component height")
-	setExtents.Flags().StringVar(&extentCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
-	var valueOpts accessibilityCLIOptions
-	var value float64
-	setValue := &cobra.Command{Use: "set-value", Short: "Set an accessible Value", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := valueOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.SetValue(c.Context(), node, value)
-	}}
-	common(setValue, &valueOpts)
-	setValue.Flags().Float64Var(&value, "value", 0, "new current value")
+	addJSONFlag(focus, &focusOpts.json)
+	addScopeFlags(focus, &focusOpts)
+	addSnapshotFlags(focus, &focusOpts)
+	addQueryFlags(focus, &focusQuery, &focusAttributes)
+
 	var textOpts accessibilityCLIOptions
+	var textQuery accessibility.Query
+	var textAttributes []string
 	var textValue string
-	setText := &cobra.Command{Use: "set-text", Short: "Set editable text through AT-SPI", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
+	text := &cobra.Command{Use: "text", Short: "Resolve one editable semantic node and replace its text", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		node, err := textOpts.root(c.Context(), pf)
+		root, err := textOpts.root(c.Context(), pf)
 		if err != nil {
 			return err
 		}
-		return pf.Accessibility.ReplaceEditableText(c.Context(), node, textValue)
+		textQuery.Attributes = parseAccessibilityAttributes(textAttributes)
+		node, err := pf.Accessibility.FindOne(c.Context(), root, textQuery, textOpts.snapshot())
+		if err != nil {
+			return err
+		}
+		if err := pf.Accessibility.ReplaceEditableText(c.Context(), node.ID, textValue); err != nil {
+			return err
+		}
+		return accessibilityOutput(c.OutOrStdout(), textOpts.json, node)
 	}}
-	common(setText, &textOpts)
-	setText.Flags().StringVar(&textValue, "text", "", "replacement text")
-	nodeMutation := func(use, short string, opts *accessibilityCLIOptions, mutate func(*perfuncted.Session, context.Context, accessibility.NodeID) error) *cobra.Command {
+	addJSONFlag(text, &textOpts.json)
+	addScopeFlags(text, &textOpts)
+	addSnapshotFlags(text, &textOpts)
+	addQueryFlags(text, &textQuery, &textAttributes)
+	text.Flags().StringVar(&textValue, "value", "", "replacement text")
+
+	raw := &cobra.Command{Use: "raw", Short: "Use typed AT-SPI protocol primitives with explicit handles"}
+	addRawNode := func(use, short string, run func(accessibility.Automation, context.Context, accessibility.NodeID) (any, error)) *cobra.Command {
+		opts := &accessibilityRawOptions{}
 		command := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-			pf, err := openPF(c.Context())
+			pf, err := openAccessibilitySession(c.Context(), openPF)
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			node, err := opts.root(c.Context(), pf)
+			node, err := opts.node()
 			if err != nil {
 				return err
 			}
-			return mutate(pf, c.Context(), node)
+			automation, err := pf.Accessibility.RawAutomation()
+			if err != nil {
+				return err
+			}
+			value, err := run(automation, c.Context(), node)
+			if err != nil {
+				return err
+			}
+			if value == nil {
+				value = "ok"
+			}
+			return accessibilityOutput(c.OutOrStdout(), opts.json, value)
 		}}
-		common(command, opts)
+		addJSONFlag(command, &opts.json)
+		command.Flags().StringVar(&opts.bus, "bus", "", "AT-SPI object bus name")
+		command.Flags().StringVar(&opts.path, "path", "", "AT-SPI object path")
+		command.Flags().Uint64Var(&opts.generation, "generation", 0, "current accessibility generation")
+		raw.AddCommand(command)
 		return command
 	}
-	var textRangeOpts accessibilityCLIOptions
-	var textSelection int32
-	var textStart, textEnd int32
-	setTextSelection := nodeMutation("set-text-selection", "Set a range through AT-SPI Text", &textRangeOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.SetTextSelection(ctx, node, textSelection, textStart, textEnd)
+
+	var rawActionName string
+	var rawActionIndex int32
+	rawAction := addRawNode("action", "Invoke an explicit AT-SPI action index or name", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		if strings.TrimSpace(rawActionName) != "" {
+			return nil, automation.InvokeActionByName(ctx, node, rawActionName)
+		}
+		if rawActionIndex >= 0 {
+			return nil, automation.InvokeAction(ctx, node, rawActionIndex)
+		}
+		return automation.InvokeDefaultAction(ctx, node)
 	})
-	setTextSelection.Flags().Int32Var(&textSelection, "selection", 0, "selection number")
-	setTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start character offset")
-	setTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end character offset")
-	var addTextSelectionOpts accessibilityCLIOptions
-	addTextSelection := nodeMutation("add-text-selection", "Add a range through AT-SPI Text", &addTextSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.AddTextSelection(ctx, node, textStart, textEnd)
+	rawAction.Flags().Int32Var(&rawActionIndex, "action-index", -1, "stable AT-SPI action index")
+	rawAction.Flags().StringVar(&rawActionName, "action-name", "", "exact AT-SPI action name")
+	addRawNode("focus", "Invoke the low-level AT-SPI Component GrabFocus primitive", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.GrabFocus(ctx, node)
 	})
-	addTextSelection.Flags().Int32Var(&textStart, "start", 0, "selection start character offset")
-	addTextSelection.Flags().Int32Var(&textEnd, "end", 0, "selection end character offset")
-	var removeTextSelectionOpts accessibilityCLIOptions
-	removeTextSelection := nodeMutation("remove-text-selection", "Remove a range through AT-SPI Text", &removeTextSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.RemoveTextSelection(ctx, node, textSelection)
+	var scrollType string
+	rawScroll := addRawNode("scroll", "Invoke the low-level AT-SPI Component ScrollTo primitive", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		kind, err := parseAccessibilityScrollType(scrollType)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.ScrollTo(ctx, node, kind)
 	})
-	removeTextSelection.Flags().Int32Var(&textSelection, "selection", 0, "selection number")
-	var documentSelectionOpts accessibilityCLIOptions
+	rawScroll.Flags().StringVar(&scrollType, "alignment", "anywhere", "alignment: top-left, bottom-right, top-edge, bottom-edge, left-edge, right-edge, or anywhere")
+
+	var pointCoord string
+	var rawPointX, rawPointY int
+	rawPoint := addRawNode("scroll-to-point", "Invoke Component ScrollToPoint", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		coord, err := parseAccessibilityCoordType(pointCoord)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.ScrollToPoint(ctx, node, coord, rawPointX, rawPointY)
+	})
+	rawPoint.Flags().IntVar(&rawPointX, "x", 0, "point x coordinate")
+	rawPoint.Flags().IntVar(&rawPointY, "y", 0, "point y coordinate")
+	rawPoint.Flags().StringVar(&pointCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
+
+	var rawX, rawY, rawWidth, rawHeight int
+	var rawCoord string
+	rawPosition := addRawNode("set-position", "Invoke Component SetPosition", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		coord, err := parseAccessibilityCoordType(rawCoord)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.SetPosition(ctx, node, rawX, rawY, coord)
+	})
+	rawPosition.Flags().IntVar(&rawX, "x", 0, "position x coordinate")
+	rawPosition.Flags().IntVar(&rawY, "y", 0, "position y coordinate")
+	rawPosition.Flags().StringVar(&rawCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
+	rawSize := addRawNode("set-size", "Invoke Component SetSize", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SetSize(ctx, node, rawWidth, rawHeight)
+	})
+	rawSize.Flags().IntVar(&rawWidth, "width", 0, "component width")
+	rawSize.Flags().IntVar(&rawHeight, "height", 0, "component height")
+	rawExtents := addRawNode("set-extents", "Invoke Component SetExtents", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		coord, err := parseAccessibilityCoordType(rawCoord)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.SetExtents(ctx, node, rawX, rawY, rawWidth, rawHeight, coord)
+	})
+	rawExtents.Flags().IntVar(&rawX, "x", 0, "position x coordinate")
+	rawExtents.Flags().IntVar(&rawY, "y", 0, "position y coordinate")
+	rawExtents.Flags().IntVar(&rawWidth, "width", 0, "component width")
+	rawExtents.Flags().IntVar(&rawHeight, "height", 0, "component height")
+	rawExtents.Flags().StringVar(&rawCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
+
+	var rawValue float64
+	rawCurrentValue := addRawNode("set-current-value", "Invoke Value SetCurrentValue", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SetCurrentValue(ctx, node, rawValue)
+	})
+	rawCurrentValue.Flags().Float64Var(&rawValue, "value", 0, "new current value")
+	rawValueCommand := addRawNode("set-value", "Invoke the typed Value SetValue primitive", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SetValue(ctx, node, rawValue)
+	})
+	rawValueCommand.Flags().Float64Var(&rawValue, "value", 0, "new current value")
+	var rawText string
+	rawTextCommand := addRawNode("set-text-contents", "Invoke EditableText SetTextContents", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SetTextContents(ctx, node, rawText)
+	})
+	rawTextCommand.Flags().StringVar(&rawText, "text", "", "replacement text")
+	var rawStart, rawEnd, rawOffset int32
+	var rawRangeText string
+	rawReplace := addRawNode("replace-text", "Invoke EditableText ReplaceText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.ReplaceText(ctx, node, rawStart, rawEnd, rawRangeText)
+	})
+	rawReplace.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
+	rawReplace.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
+	rawReplace.Flags().StringVar(&rawRangeText, "text", "", "replacement text")
+	rawInsert := addRawNode("insert-text", "Invoke EditableText InsertText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.InsertText(ctx, node, rawOffset, rawRangeText)
+	})
+	rawInsert.Flags().Int32Var(&rawOffset, "offset", 0, "character offset")
+	rawInsert.Flags().StringVar(&rawRangeText, "text", "", "inserted text")
+	rawDelete := addRawNode("delete-text", "Invoke EditableText DeleteText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.DeleteText(ctx, node, rawStart, rawEnd)
+	})
+	rawDelete.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
+	rawDelete.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
+	rawCopy := addRawNode("copy-text", "Invoke Text CopyText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.CopyText(ctx, node, rawStart, rawEnd)
+	})
+	rawCopy.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
+	rawCopy.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
+	rawCut := addRawNode("cut-text", "Invoke Text CutText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.CutText(ctx, node, rawStart, rawEnd)
+	})
+	rawCut.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
+	rawCut.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
+	var pastePosition int32
+	rawPaste := addRawNode("paste-text", "Invoke Text PasteText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.PasteText(ctx, node, pastePosition)
+	})
+	rawPaste.Flags().Int32Var(&pastePosition, "position", 0, "paste character position")
+	rawCaret := addRawNode("set-caret", "Invoke Text SetCaretOffset", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SetCaretOffset(ctx, node, rawOffset)
+	})
+	rawCaret.Flags().Int32Var(&rawOffset, "offset", 0, "caret character offset")
+
+	var selection int32
+	var selectionStart, selectionEnd int32
+	rawSetSelection := addRawNode("set-text-selection", "Invoke Text SetSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SetTextSelection(ctx, node, selection, selectionStart, selectionEnd)
+	})
+	rawSetSelection.Flags().Int32Var(&selection, "selection", 0, "selection number")
+	rawSetSelection.Flags().Int32Var(&selectionStart, "start", 0, "start character offset")
+	rawSetSelection.Flags().Int32Var(&selectionEnd, "end", 0, "end character offset")
+	rawAddSelection := addRawNode("add-text-selection", "Invoke Text AddSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.AddTextSelection(ctx, node, selectionStart, selectionEnd)
+	})
+	rawAddSelection.Flags().Int32Var(&selectionStart, "start", 0, "start character offset")
+	rawAddSelection.Flags().Int32Var(&selectionEnd, "end", 0, "end character offset")
+	rawRemoveSelection := addRawNode("remove-text-selection", "Invoke Text RemoveSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.RemoveTextSelection(ctx, node, selection)
+	})
+	rawRemoveSelection.Flags().Int32Var(&selection, "selection", 0, "selection number")
 	var documentSelectionsJSON string
-	setDocumentSelections := nodeMutation("set-document-text-selections", "Set cross-object selections through AT-SPI Document 2.52", &documentSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
+	rawDocumentSelections := addRawNode("set-document-text-selections", "Invoke Document SetTextSelections", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
 		var selections []accessibility.DocumentTextSelection
 		if err := json.Unmarshal([]byte(documentSelectionsJSON), &selections); err != nil {
-			return fmt.Errorf("invalid --selections JSON: %w", err)
+			return nil, fmt.Errorf("invalid --selections JSON: %w", err)
 		}
-		return pf.Accessibility.SetTextSelections(ctx, node, selections)
+		return nil, automation.SetTextSelections(ctx, node, selections)
 	})
-	setDocumentSelections.Flags().StringVar(&documentSelectionsJSON, "selections", "[]", "JSON array of DocumentTextSelection values (character offsets)")
-	var selectionOpts accessibilityCLIOptions
-	var childIndex int32
-	selectChild := &cobra.Command{Use: "select-child", Short: "Select a child through AT-SPI Selection", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		node, err := selectionOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		return pf.Accessibility.SelectChild(c.Context(), node, childIndex)
-	}}
-	common(selectChild, &selectionOpts)
-	selectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
-	var selectionAllOpts accessibilityCLIOptions
-	selectAll := nodeMutation("select-all", "Select all children through AT-SPI Selection", &selectionAllOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.SelectAll(ctx, node)
-	})
-	var clearSelectionOpts accessibilityCLIOptions
-	clearSelection := nodeMutation("clear-selection", "Clear AT-SPI Selection", &clearSelectionOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.ClearSelection(ctx, node)
-	})
-	var deselectAllOpts accessibilityCLIOptions
-	deselectAll := nodeMutation("deselect-all", "Deselect all children through AT-SPI Selection", &deselectAllOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.DeselectAll(ctx, node)
-	})
-	var deselectSelectedOpts accessibilityCLIOptions
-	deselectSelected := nodeMutation("deselect-selected-child", "Deselect the selected child through AT-SPI Selection", &deselectSelectedOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.DeselectSelectedChild(ctx, node)
-	})
-	var tableOpts accessibilityCLIOptions
-	var tableIndex int32
-	selectRow := nodeMutation("select-row", "Select a table row through AT-SPI Table", &tableOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.SelectRow(ctx, node, tableIndex)
-	})
-	selectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
-	var deselectRowOpts accessibilityCLIOptions
-	deselectRow := nodeMutation("deselect-row", "Deselect a table row through AT-SPI Table", &deselectRowOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.DeselectRow(ctx, node, tableIndex)
-	})
-	deselectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
-	var selectColumnOpts accessibilityCLIOptions
-	selectColumn := nodeMutation("select-column", "Select a table column through AT-SPI Table", &selectColumnOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.SelectColumn(ctx, node, tableIndex)
-	})
-	selectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
-	var deselectColumnOpts accessibilityCLIOptions
-	deselectColumn := nodeMutation("deselect-column", "Deselect a table column through AT-SPI Table", &deselectColumnOpts, func(pf *perfuncted.Session, ctx context.Context, node accessibility.NodeID) error {
-		return pf.Accessibility.DeselectColumn(ctx, node, tableIndex)
-	})
-	deselectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
-	reopen := &cobra.Command{Use: "reopen", Short: "Explicitly reopen the target accessibility bus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openPF(c.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		return pf.Accessibility.Reopen(c.Context())
-	}}
+	rawDocumentSelections.Flags().StringVar(&documentSelectionsJSON, "selections", "[]", "JSON array of DocumentTextSelection values")
 
-	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, scrollPoint, setPosition, setSize, setExtents, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, setDocumentSelections, selectChild, selectAll, clearSelection, deselectAll, deselectSelected, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
+	var childIndex int32
+	rawSelectChild := addRawNode("select-child", "Invoke Selection SelectChild", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SelectChild(ctx, node, childIndex)
+	})
+	rawSelectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
+	rawDeselectChild := addRawNode("deselect-child", "Invoke Selection DeselectChild", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.DeselectChild(ctx, node, childIndex)
+	})
+	rawDeselectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
+	addRawNode("select-all", "Invoke Selection SelectAll", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SelectAll(ctx, node)
+	})
+	addRawNode("clear-selection", "Invoke Selection ClearSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.ClearSelection(ctx, node)
+	})
+	addRawNode("deselect-all", "Invoke Selection DeselectAll", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.DeselectAll(ctx, node)
+	})
+	addRawNode("deselect-selected-child", "Invoke Selection DeselectSelectedChild", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.DeselectSelectedChild(ctx, node)
+	})
+
+	var tableIndex int32
+	rawSelectRow := addRawNode("select-row", "Invoke Table SelectRow", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SelectRow(ctx, node, tableIndex)
+	})
+	rawSelectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
+	rawDeselectRow := addRawNode("deselect-row", "Invoke Table DeselectRow", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.DeselectRow(ctx, node, tableIndex)
+	})
+	rawDeselectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
+	rawSelectColumn := addRawNode("select-column", "Invoke Table SelectColumn", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.SelectColumn(ctx, node, tableIndex)
+	})
+	rawSelectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
+	rawDeselectColumn := addRawNode("deselect-column", "Invoke Table DeselectColumn", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
+		return nil, automation.DeselectColumn(ctx, node, tableIndex)
+	})
+	rawDeselectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
+
+	rawReopen := &cobra.Command{Use: "reopen", Short: "Explicitly reopen the target accessibility bus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		pf, err := openAccessibilitySession(c.Context(), openPF)
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		if err := pf.Accessibility.Reopen(c.Context()); err != nil {
+			return err
+		}
+		return accessibilityOutput(c.OutOrStdout(), false, "ok")
+	}}
+	raw.AddCommand(rawReopen)
+
+	cmd.AddCommand(apps, tree, find, focused, atPoint, events, action, focus, text, raw)
 	return cmd
+}
+
+func parseAccessibilityScrollType(value string) (accessibility.ScrollType, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "top-left":
+		return accessibility.ScrollTopLeft, nil
+	case "bottom-right":
+		return accessibility.ScrollBottomRight, nil
+	case "top-edge":
+		return accessibility.ScrollTopEdge, nil
+	case "bottom-edge":
+		return accessibility.ScrollBottomEdge, nil
+	case "left-edge":
+		return accessibility.ScrollLeftEdge, nil
+	case "right-edge":
+		return accessibility.ScrollRightEdge, nil
+	case "anywhere", "any-where":
+		return accessibility.ScrollAnyWhere, nil
+	default:
+		return 0, fmt.Errorf("unknown alignment %q", value)
+	}
 }
 
 func parseAccessibilityCoordType(value string) (accessibility.CoordType, error) {

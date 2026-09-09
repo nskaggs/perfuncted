@@ -1,6 +1,6 @@
 ## pf accessibility focus
 
-Focus an explicit accessible node
+Resolve one semantic node and request AT-SPI focus
 
 ```
 pf accessibility focus [flags]
@@ -9,23 +9,23 @@ pf accessibility focus [flags]
 ### Options
 
 ```
-      --allow-sensitive       include sensitive/protected text (use with care)
-      --app string            application accessible-name substring
-      --application string    application accessible-name substring (alias for --app)
-      --desktop-root          explicitly allow bounded whole-desktop traversal
-      --generation uint       current accessibility generation for --root-bus/--root-path
-  -h, --help                  help for focus
-      --json                  output JSON (alias for --output json)
-      --max-depth int         maximum tree depth
-      --max-nodes int         maximum nodes
-      --max-text-bytes int    maximum text bytes per node
-      --output string         output format (json) (default "json")
-      --pid int32             application process ID
-      --root-bus string       AT-SPI application bus name
-      --root-path string      AT-SPI application object path
-      --visible-only          exclude invisible/off-screen nodes
-      --window-id string      managed window identifier
-      --window-title string   managed window title (exact)
+      --allow-sensitive         include protected text and values
+      --app string              accessible application name substring
+      --attribute stringArray   required attribute key=value (repeatable)
+  -h, --help                    help for focus
+      --json                    write machine-readable JSON
+      --max-depth int           maximum tree depth
+      --max-nodes int           maximum nodes
+      --max-text-bytes int      maximum UTF-8 text bytes per node
+      --max-total-bytes int     hard maximum serialized snapshot bytes
+      --name string             accessible name substring
+      --pid int32               exact application process ID
+      --role string             accessible role substring
+      --state stringArray       required accessible state (repeatable)
+      --text string             accessible text substring
+      --visible-only            exclude invisible/off-screen nodes
+      --window string           exact managed window title
+      --window-id string        managed window ID
 ```
 
 ### Options inherited from parent commands
@@ -39,5 +39,5 @@ pf accessibility focus [flags]
 
 ### SEE ALSO
 
-* [pf accessibility](pf_accessibility.md)	 - Inspect the AT-SPI accessibility tree
+* [pf accessibility](pf_accessibility.md)	 - Inspect and operate the AT-SPI accessibility tree
 

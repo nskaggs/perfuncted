@@ -1,16 +1,22 @@
 package accessibility
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"github.com/godbus/dbus/v5"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 )
 
@@ -531,6 +537,109 @@ func TestOpenRuntimeReportsMissingSessionBus(t *testing.T) {
 	_, err := OpenRuntime(env.FromEnviron([]string{}))
 	if err == nil {
 		t.Fatal("OpenRuntime unexpectedly succeeded without session bus")
+	}
+}
+
+type testAccessibilityBusProvider struct {
+	address string
+}
+
+func (p testAccessibilityBusProvider) GetAddress() (string, *dbus.Error) {
+	return p.address, nil
+}
+
+func startTestDBus(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bus")
+	address := "unix:path=" + path
+	var stderr bytes.Buffer
+	cmd := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start dbus-daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	})
+
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return address
+		}
+		select {
+		case <-ticker.C:
+		case <-timer.C:
+			t.Fatalf("dbus-daemon did not create %s: %s", path, strings.TrimSpace(stderr.String()))
+		}
+	}
+}
+
+func testDBusID(t *testing.T, conn *dbus.Conn) string {
+	t.Helper()
+	var id string
+	if err := conn.BusObject().Call("org.freedesktop.DBus.GetId", 0).Store(&id); err != nil {
+		t.Fatalf("get D-Bus ID: %v", err)
+	}
+	return id
+}
+
+func TestOpenRuntimeUsesSessionGetAddressWithoutOverride(t *testing.T) {
+	sessionAddress := startTestDBus(t)
+	accessibilityAddress := startTestDBus(t)
+
+	sessionConn, err := dbusutil.SessionBusAddress(sessionAddress)
+	if err != nil {
+		t.Fatalf("connect test session bus: %v", err)
+	}
+	defer sessionConn.Close()
+	provider := &testAccessibilityBusProvider{address: accessibilityAddress}
+	exportErr := sessionConn.Export(provider, busPath, busService)
+	if exportErr != nil {
+		t.Fatalf("export org.a11y.Bus provider: %v", exportErr)
+	}
+	reply, err := sessionConn.RequestName(busService, dbus.NameFlagDoNotQueue)
+	if err != nil {
+		t.Fatalf("claim %s: %v", busService, err)
+	}
+	if reply != dbus.RequestNameReplyPrimaryOwner {
+		t.Fatalf("claim %s reply = %d, want primary owner", busService, reply)
+	}
+
+	expectedAccess, err := dbusutil.ConnectContext(context.Background(), accessibilityAddress)
+	if err != nil {
+		t.Fatalf("connect expected accessibility bus: %v", err)
+	}
+	defer expectedAccess.Close()
+	wantID := testDBusID(t, expectedAccess)
+
+	backend, err := OpenRuntimeContext(context.Background(), env.FromEnviron([]string{
+		"DBUS_SESSION_BUS_ADDRESS=" + sessionAddress,
+		// These host/X-root or legacy routes must not redirect the client when
+		// the canonical managed override is absent.
+		"AT_SPI_BUS=unix:path=/wrong/accessibility-bus",
+		"AT_SPI_BUS_ADDRESS=unix:path=/wrong/legacy-accessibility-bus",
+	}))
+	if err != nil {
+		t.Fatalf("OpenRuntime through session GetAddress: %v", err)
+	}
+	defer backend.Close()
+
+	opened, ok := backend.(*dbusBackend)
+	if !ok {
+		t.Fatalf("OpenRuntime backend type = %T, want *dbusBackend", backend)
+	}
+	if got := testDBusID(t, opened.access); got != wantID {
+		t.Fatalf("accessibility bus ID = %q, want session provider bus %q", got, wantID)
+	}
+	if got := opened.runtime.Get("ATSPI_BUS_ADDRESS"); got != "" {
+		t.Fatalf("runtime unexpectedly supplied explicit ATSPI_BUS_ADDRESS %q", got)
 	}
 }
 

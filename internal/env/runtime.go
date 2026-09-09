@@ -80,14 +80,21 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 	out.vars["WAYLAND_DISPLAY"] = waylandDisplay
 	out.vars["DBUS_SESSION_BUS_ADDRESS"] = dbusAddr
 	// AT_SPI_BUS is an X root-window property, not the managed accessibility
-	// bus address. Never let host AT-SPI routing leak into an isolated session:
-	// the session layer publishes its address only after querying the managed
-	// org.a11y.Bus service.
-	delete(out.vars, "AT_SPI_BUS")
-	delete(out.vars, "ATSPI_BUS_ADDRESS")
-	// Some installed toolkit builds use this historical spelling. It must also
-	// be cleared so a host override cannot bypass the managed session contract.
-	delete(out.vars, "AT_SPI_BUS_ADDRESS")
+	// bus address. Never let host AT-SPI routing or toolkit bridge overrides
+	// leak into an isolated session: the session layer publishes its address
+	// only after querying the managed org.a11y.Bus service.
+	for _, key := range []string{
+		"AT_SPI_BUS",
+		"ATSPI_BUS_ADDRESS",
+		"AT_SPI_BUS_ADDRESS",
+		"GTK_MODULES",
+		"GTK_A11Y",
+		"GNOME_ACCESSIBILITY",
+		"QT_ACCESSIBILITY",
+		"QT_LINUX_ACCESSIBILITY_ALWAYS_ON",
+	} {
+		delete(out.vars, key)
+	}
 	out.vars["XDG_SESSION_TYPE"] = "wayland"
 	out.vars["DISPLAY"] = ""
 	out.vars["SWAYSOCK"] = ""

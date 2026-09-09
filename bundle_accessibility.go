@@ -323,6 +323,16 @@ func (b *AccessibilityBundle) automation(operation string) (accessibility.Automa
 	return automation, nil
 }
 
+// RawAutomation exposes the typed AT-SPI protocol primitives for diagnostic
+// and advanced callers. Workflow code should prefer FindOne plus FocusNode,
+// InvokeSemanticAction, and ReplaceEditableText so selection and ambiguity
+// remain explicit.
+func (b *AccessibilityBundle) RawAutomation() (accessibility.Automation, error) {
+	// The native backend advertises each primitive separately; raw is a CLI
+	// grouping rather than a provider operation of its own.
+	return b.automation("invoke-action")
+}
+
 // InvokeAction invokes a stable AT-SPI action index.
 func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("invoke-action")

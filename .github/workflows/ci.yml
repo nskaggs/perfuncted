@@ -91,6 +91,7 @@ jobs:
             xwayland
             dbus-x11
             at-spi2-core
+            libatk-bridge2.0-0t64
             libwayland-client0
             libwayland-server0
             libwlroots-dev

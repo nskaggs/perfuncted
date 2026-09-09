@@ -8,6 +8,8 @@ import (
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/window"
 )
 
 type cliAccessibilityFake struct{}
@@ -20,8 +22,12 @@ func (cliAccessibilityFake) SupportedOperations() []string {
 func (cliAccessibilityFake) Applications(context.Context) ([]accessibility.Application, error) {
 	return []accessibility.Application{{Node: accessibility.Node{ID: accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app"}, Name: "Test App", Role: "application"}, PID: 123}}, nil
 }
+func (cliAccessibilityFake) FindApplication(context.Context, accessibility.ApplicationFilter) (accessibility.Application, error) { //nolint:unparam // the fake models a successful resolver.
+	return accessibility.Application{Node: accessibility.Node{ID: accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}, Name: "Test App", Role: "application"}, PID: 123}, nil
+}
 func (cliAccessibilityFake) Snapshot(context.Context, accessibility.NodeID, accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
-	return accessibility.Snapshot{Root: accessibility.Node{Name: "root"}, Nodes: []accessibility.Node{{Name: "root"}}, Generation: 1, Source: "fake"}, nil
+	rootID := accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}
+	return accessibility.Snapshot{Root: accessibility.Node{ID: rootID, Name: "root", Role: "application"}, Nodes: []accessibility.Node{{ID: rootID, Name: "root", Role: "application"}}, Generation: 1, Source: "fake"}, nil
 }
 func (cliAccessibilityFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	return []accessibility.Node{{Name: "Save", Role: "button"}}, nil
@@ -40,7 +46,7 @@ func (cliAccessibilityFake) Events(context.Context, accessibility.EventOptions) 
 func (cliAccessibilityFake) Close() error { return nil }
 
 func (cliAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
@@ -124,8 +130,26 @@ func (cliAutomationFake) Reopen(context.Context) (accessibility.Backend, error) 
 	return cliAutomationFake{}, nil
 }
 
+func (cliAutomationFake) ResolveWindow(_ context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) { //nolint:unparam // the fake models a successful resolver.
+	appID := accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}
+	return accessibility.WindowScope{
+		WindowID:        target.ID,
+		Root:            accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/window", Generation: 1},
+		ApplicationRoot: appID,
+		Application:     accessibility.Application{Node: accessibility.Node{ID: appID, Name: "Test App", Role: "application"}, PID: 123},
+		PID:             123,
+		Generation:      1,
+	}, nil
+}
+
+type cliAmbiguousFake struct{ cliAutomationFake }
+
+func (cliAmbiguousFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	return []accessibility.Node{{Name: "one", Role: "button"}, {Name: "two", Role: "button"}}, nil
+}
+
 func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "applications"}, func(*cliConfig) sessionOpener {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "apps", "--json"}, func(*cliConfig) sessionOpener {
 		return func(context.Context) (*perfuncted.Session, error) {
 			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAccessibilityFake{}), nil
 		}
@@ -139,6 +163,67 @@ func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
 	}
 	if len(apps) != 1 || apps[0].PID != 123 || !strings.Contains(apps[0].Name, "Test") {
 		t.Fatalf("apps=%+v", apps)
+	}
+}
+
+func TestAccessibilityCLIHumanOutputIsTheDefault(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "apps"}, openCLIWithAccessibility)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "Test App\tpid=123") || strings.HasPrefix(stdout, "{") || strings.HasPrefix(stdout, "[") {
+		t.Fatalf("human apps output = %q", stdout)
+	}
+}
+
+func TestAccessibilityCLIWorkflowCommandsUseSemanticScopeAndHelpers(t *testing.T) {
+	for _, args := range [][]string{
+		{"accessibility", "action", "--app", "Test", "--role", "button", "--json"},
+		{"accessibility", "focus", "--app", "Test", "--role", "button"},
+		{"accessibility", "text", "--app", "Test", "--role", "entry", "--value", "updated"},
+	} {
+		stdout, stderr, code := captureRunIO(t, args, openCLIWithAutomation)
+		if code != 0 || stderr != "" {
+			t.Fatalf("args=%v code=%d stderr=%q stdout=%q", args, code, stderr, stdout)
+		}
+	}
+}
+
+func TestAccessibilityCLIWindowOnlyScopeUsesCanonicalResolver(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "tree", "--window-id", "managed-window"}, openCLIWithWindowAndAccessibility)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+}
+
+func TestAccessibilityCLISemanticActionRejectsAmbiguity(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "action", "--app", "Test", "--role", "button"}, openCLIWithAmbiguousAccessibility)
+	if code == 0 || stdout != "" || !strings.Contains(stderr, "ambiguous") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestAccessibilityCLIHelpKeepsProtocolCommandsUnderRaw(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "--help"}, openCLIWithAccessibility)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	for _, want := range []string{"action", "apps", "tree", "raw"} {
+		if !strings.Contains(stdout, "  "+want) {
+			t.Fatalf("help=%q, missing primary command %q", stdout, want)
+		}
+	}
+	for _, old := range []string{"\n  applications ", "\n  snapshot ", "\n  invoke-action "} {
+		if strings.Contains(stdout, old) {
+			t.Fatalf("help still exposes protocol-shaped command %q: %s", old, stdout)
+		}
+	}
+}
+
+func TestAccessibilityCLIRawRequiresExplicitGeneration(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "raw", "action", "--bus", "org.test", "--path", "/node"}, openCLIWithAutomation)
+	if code == 0 || stdout != "" || !strings.Contains(stderr, "--generation") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
@@ -173,19 +258,31 @@ func openCLIWithAutomation(*cliConfig) sessionOpener {
 	}
 }
 
+func openCLIWithWindowAndAccessibility(*cliConfig) sessionOpener {
+	return func(context.Context) (*perfuncted.Session, error) {
+		manager := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "managed-window", Title: "Test window"}}}}
+		return perfuncted.NewSessionForTesting(nil, nil, manager, nil, nil, cliAutomationFake{}), nil
+	}
+}
+
+func openCLIWithAmbiguousAccessibility(*cliConfig) sessionOpener {
+	return func(context.Context) (*perfuncted.Session, error) {
+		return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAmbiguousFake{}), nil
+	}
+}
+
 func TestAccessibilityCLICommandsJSON(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{name: "snapshot", args: []string{"accessibility", "snapshot", "--max-depth", "2"}, want: "root"},
-		{name: "tree alias", args: []string{"accessibility", "tree"}, want: "root"},
-		{name: "find", args: []string{"accessibility", "find", "--role", "button", "--name", "Save"}, want: "Save"},
-		{name: "focused", args: []string{"accessibility", "focused"}, want: "focused"},
-		{name: "at point", args: []string{"accessibility", "at-point", "--x", "10", "--y", "20"}, want: "point"},
-		{name: "at point positional", args: []string{"accessibility", "at-point", "10", "20"}, want: "point"},
-		{name: "events", args: []string{"accessibility", "events"}, want: ""},
+		{name: "tree", args: []string{"accessibility", "tree", "--app", "Test", "--json", "--max-depth", "2"}, want: "root"},
+		{name: "find", args: []string{"accessibility", "find", "--app", "Test", "--json", "--role", "button", "--name", "Save"}, want: "Save"},
+		{name: "focused", args: []string{"accessibility", "focused", "--json"}, want: "focused"},
+		{name: "at point", args: []string{"accessibility", "at-point", "--json", "--x", "10", "--y", "20"}, want: "point"},
+		{name: "at point positional", args: []string{"accessibility", "at-point", "--json", "10", "20"}, want: "point"},
+		{name: "events", args: []string{"accessibility", "events", "--json"}, want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -201,31 +298,31 @@ func TestAccessibilityCLICommandsJSON(t *testing.T) {
 }
 
 func TestAccessibilityCLIRejectsPartialRoot(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "snapshot", "--root-bus", "org.test"}, openCLIWithAccessibility)
-	if code == 0 || stdout != "" || !strings.Contains(stderr, "root requires both") {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "tree"}, openCLIWithAccessibility)
+	if code == 0 || stdout != "" || !strings.Contains(stderr, "explicit --app") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
 func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 	tests := [][]string{
-		{"accessibility", "invoke-action"},
-		{"accessibility", "focus"},
-		{"accessibility", "scroll"},
-		{"accessibility", "set-value", "--value", "0.5"},
-		{"accessibility", "set-text", "--text", "updated"},
-		{"accessibility", "set-text-selection", "--selection", "0", "--start", "0", "--end", "1"},
-		{"accessibility", "add-text-selection", "--start", "0", "--end", "1"},
-		{"accessibility", "remove-text-selection", "--selection", "0"},
-		{"accessibility", "select-child", "--index", "0"},
-		{"accessibility", "select-all"},
-		{"accessibility", "clear-selection"},
-		{"accessibility", "deselect-all"},
-		{"accessibility", "select-row", "--index", "0"},
-		{"accessibility", "deselect-row", "--index", "0"},
-		{"accessibility", "select-column", "--index", "0"},
-		{"accessibility", "deselect-column", "--index", "0"},
-		{"accessibility", "reopen"},
+		{"accessibility", "raw", "action", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"accessibility", "raw", "focus", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"accessibility", "raw", "scroll", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"accessibility", "raw", "set-value", "--bus", "org.test", "--path", "/node", "--generation", "1", "--value", "0.5"},
+		{"accessibility", "raw", "set-text-contents", "--bus", "org.test", "--path", "/node", "--generation", "1", "--text", "updated"},
+		{"accessibility", "raw", "set-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0", "--start", "0", "--end", "1"},
+		{"accessibility", "raw", "add-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--start", "0", "--end", "1"},
+		{"accessibility", "raw", "remove-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0"},
+		{"accessibility", "raw", "select-child", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"accessibility", "raw", "select-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"accessibility", "raw", "clear-selection", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"accessibility", "raw", "deselect-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"accessibility", "raw", "select-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"accessibility", "raw", "deselect-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"accessibility", "raw", "select-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"accessibility", "raw", "deselect-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"accessibility", "raw", "reopen"},
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args[1:], "-"), func(t *testing.T) {

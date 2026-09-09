@@ -1,18 +1,20 @@
-## pf accessibility find
+## pf accessibility action
 
-Find semantic nodes in one application or managed window
+Invoke one uniquely resolved semantic AT-SPI action
 
 ```
-pf accessibility find [flags]
+pf accessibility action [flags]
 ```
 
 ### Options
 
 ```
+      --action string           exact action name; empty selects the provider's first action
+      --action-name string      alias for --action
       --allow-sensitive         include protected text and values
       --app string              accessible application name substring
       --attribute stringArray   required attribute key=value (repeatable)
-  -h, --help                    help for find
+  -h, --help                    help for action
       --json                    write machine-readable JSON
       --max-depth int           maximum tree depth
       --max-nodes int           maximum nodes

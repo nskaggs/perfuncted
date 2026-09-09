@@ -160,6 +160,8 @@ Every session has non-nil capability facades:
   observable postcondition, usually through `WaitWithEvidence`. Use
   `AccessibilityWindow` only when an adapter already has an explicit
   compositor/accessibility correlation target; it is the advanced path.
+  `RawAutomation` is available for explicit protocol-level handles and
+  preserves the AT-SPI primitive names for diagnostic or expert use.
 
 Unavailable facade calls return `*perfuncted.CapabilityError`; inspect
 `errors.Is(err, perfuncted.ErrUnavailable)` or

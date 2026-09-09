@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -440,6 +441,30 @@ func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
 	}
 	if got := stdout.String(); got != "unset|unset|unset" {
 		t.Fatalf("AT-SPI routing variables in child = %q, want all unset", got)
+	}
+}
+
+func TestTargetHostPassesHostSessionBusWithoutAccessibilityOverride(t *testing.T) {
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/host/session-bus")
+	t.Setenv("ATSPI_BUS_ADDRESS", "")
+	previous := openAccessibility
+	t.Cleanup(func() { openAccessibility = previous })
+	var observed env.Runtime
+	openAccessibility = func(_ context.Context, rt env.Runtime) (accessibility.Backend, error) {
+		observed = rt
+		return &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}, nil
+	}
+
+	session, err := Open(context.Background(), Require(CapabilityAccessibility))
+	if err != nil {
+		t.Fatalf("Open TargetHost accessibility: %v", err)
+	}
+	defer session.Close()
+	if got := observed.Get("DBUS_SESSION_BUS_ADDRESS"); got != "unix:path=/host/session-bus" {
+		t.Fatalf("TargetHost session bus = %q, want host address", got)
+	}
+	if got := observed.Get("ATSPI_BUS_ADDRESS"); got != "" {
+		t.Fatalf("TargetHost unexpectedly supplied ATSPI_BUS_ADDRESS %q", got)
 	}
 }
 

@@ -157,6 +157,11 @@ func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
 		"AT_SPI_BUS=unix:path=/host/accessibility-bus",
 		"ATSPI_BUS_ADDRESS=unix:path=/host/canonical-accessibility-bus",
 		"AT_SPI_BUS_ADDRESS=unix:path=/host/legacy-accessibility-bus",
+		"GTK_MODULES=host-bridge",
+		"GTK_A11Y=1",
+		"GNOME_ACCESSIBILITY=1",
+		"QT_ACCESSIBILITY=1",
+		"QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1",
 		"DBUS_SESSION_BUS_ADDRESS=unix:path=/host/session-bus",
 	})
 	managed := rt.WithSession(
@@ -164,10 +169,7 @@ func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
 		"wayland-1",
 		"unix:path=/tmp/perfuncted-xdg/bus",
 	)
-	if got, ok := managed.Lookup("AT_SPI_BUS"); ok || got != "" {
-		t.Fatalf("AT_SPI_BUS = (%q, %t), want removed host override", got, ok)
-	}
-	for _, key := range []string{"ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS"} {
+	for _, key := range []string{"AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS", "GTK_MODULES", "GTK_A11Y", "GNOME_ACCESSIBILITY", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON"} {
 		if got, ok := managed.Lookup(key); ok || got != "" {
 			t.Fatalf("%s = (%q, %t), want removed host override", key, got, ok)
 		}

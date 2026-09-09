@@ -1,18 +1,16 @@
-## pf accessibility at-point
+## pf accessibility apps
 
-Show the accessible object at screen coordinates
+List registered accessible applications
 
 ```
-pf accessibility at-point [X Y] [flags]
+pf accessibility apps [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help    help for at-point
-      --json    write machine-readable JSON
-      --x int   screen x coordinate
-      --y int   screen y coordinate
+  -h, --help   help for apps
+      --json   write machine-readable JSON
 ```
 
 ### Options inherited from parent commands

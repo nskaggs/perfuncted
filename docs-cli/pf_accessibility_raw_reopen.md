@@ -1,9 +1,9 @@
-## pf accessibility reopen
+## pf accessibility raw reopen
 
 Explicitly reopen the target accessibility bus
 
 ```
-pf accessibility reopen [flags]
+pf accessibility raw reopen [flags]
 ```
 
 ### Options
@@ -23,5 +23,5 @@ pf accessibility reopen [flags]
 
 ### SEE ALSO
 
-* [pf accessibility](pf_accessibility.md)	 - Inspect the AT-SPI accessibility tree
+* [pf accessibility raw](pf_accessibility_raw.md)	 - Use typed AT-SPI protocol primitives with explicit handles
 

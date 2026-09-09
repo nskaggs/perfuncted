@@ -103,6 +103,17 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if _, err := waitForWindow(s.pf, app.winMatch, 60*time.Second); err != nil {
 		t.Fatalf("find managed %s window: %v", representative.name, err)
 	}
+	childEnv := readProcessEnvironment(t, cmd.Process.Pid)
+	if got := strings.TrimSpace(childEnv["ATSPI_BUS_ADDRESS"]); got == "" {
+		t.Fatalf("%s child did not inherit the managed ATSPI_BUS_ADDRESS", representative.name)
+	} else if got != strings.TrimSpace(s.rt.Get("ATSPI_BUS_ADDRESS")) {
+		t.Fatalf("%s child ATSPI bus = %q, managed session bus = %q", representative.name, got, s.rt.Get("ATSPI_BUS_ADDRESS"))
+	}
+	for _, key := range []string{"AT_SPI_BUS", "AT_SPI_BUS_ADDRESS"} {
+		if _, ok := childEnv[key]; ok {
+			t.Fatalf("%s child inherited host AT-SPI routing variable %s", representative.name, key)
+		}
+	}
 	info, err := findWindowInfo(s.pf, ctx, app.winMatch)
 	if err != nil {
 		t.Fatalf("read managed %s window: %v", representative.name, err)
@@ -179,6 +190,25 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err := waitForWindowClose(s.pf, app.winMatch, 30*time.Second); err != nil {
 		t.Fatalf("wait for certified %s window close: %v", representative.name, err)
 	}
+}
+
+func readProcessEnvironment(t *testing.T, pid int) map[string]string {
+	t.Helper()
+	if pid <= 0 {
+		t.Fatalf("invalid launched application PID %d", pid)
+	}
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+	if err != nil {
+		t.Fatalf("read launched application environment for PID %d: %v", pid, err)
+	}
+	env := make(map[string]string)
+	for _, entry := range strings.Split(string(raw), "\x00") {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			env[key] = value
+		}
+	}
+	return env
 }
 
 func findUniqueEditableTarget(snapshot accessibility.Snapshot) (accessibility.Node, error) {

@@ -1,6 +1,6 @@
 ## pf accessibility events
 
-Stream AT-SPI invalidation events as JSON lines
+Stream bounded AT-SPI invalidation events
 
 ```
 pf accessibility events [flags]
@@ -11,6 +11,7 @@ pf accessibility events [flags]
 ```
       --buffer int   event buffer size
   -h, --help         help for events
+      --json         write machine-readable JSON
 ```
 
 ### Options inherited from parent commands
@@ -24,5 +25,5 @@ pf accessibility events [flags]
 
 ### SEE ALSO
 
-* [pf accessibility](pf_accessibility.md)	 - Inspect the AT-SPI accessibility tree
+* [pf accessibility](pf_accessibility.md)	 - Inspect and operate the AT-SPI accessibility tree
 

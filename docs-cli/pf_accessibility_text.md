@@ -1,9 +1,9 @@
-## pf accessibility find
+## pf accessibility text
 
-Find semantic nodes in one application or managed window
+Resolve one editable semantic node and replace its text
 
 ```
-pf accessibility find [flags]
+pf accessibility text [flags]
 ```
 
 ### Options
@@ -12,7 +12,7 @@ pf accessibility find [flags]
       --allow-sensitive         include protected text and values
       --app string              accessible application name substring
       --attribute stringArray   required attribute key=value (repeatable)
-  -h, --help                    help for find
+  -h, --help                    help for text
       --json                    write machine-readable JSON
       --max-depth int           maximum tree depth
       --max-nodes int           maximum nodes
@@ -23,6 +23,7 @@ pf accessibility find [flags]
       --role string             accessible role substring
       --state stringArray       required accessible state (repeatable)
       --text string             accessible text substring
+      --value string            replacement text
       --visible-only            exclude invisible/off-screen nodes
       --window string           exact managed window title
       --window-id string        managed window ID
