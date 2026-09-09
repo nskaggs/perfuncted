@@ -153,3 +153,28 @@ func TestExtCmdClipboardSetDoesNotWaitForClipboardDaemon(t *testing.T) {
 		})
 	}
 }
+
+func TestWaitWaylandContentWaitsForExactSelection(t *testing.T) {
+	oldCmd := executil.CommandContext
+	defer func() { executil.CommandContext = oldCmd }()
+
+	attempt := 0
+	executil.CommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		attempt++
+		value := "old"
+		if attempt >= 2 {
+			value = "new"
+		}
+		return exec.CommandContext(ctx, "printf", "%s", value)
+	}
+
+	cb := &extCmdClipboard{getCmd: []string{"wl-paste", "--no-newline"}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := cb.waitWaylandContent(ctx, "new"); err != nil {
+		t.Fatalf("waitWaylandContent: %v", err)
+	}
+	if attempt != 2 {
+		t.Fatalf("waitWaylandContent attempts = %d, want 2", attempt)
+	}
+}

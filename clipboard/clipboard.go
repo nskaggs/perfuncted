@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -61,10 +62,10 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 			if _, err := executil.LookPath("wl-paste"); err == nil {
 				return &extCmdClipboard{
 					getCmd: []string{"wl-paste", "--no-newline"},
-					// Keep the one-shot owner in the foreground. Set starts it
-					// asynchronously so the subsequent physical paste request can
-					// arrive without waiting on wl-copy first.
-					setCmd: []string{"wl-copy", "--foreground", "--paste-once"},
+					// Keep the owner in the foreground. Set starts it asynchronously
+					// so the caller can issue the subsequent paste request without
+					// waiting for wl-copy to relinquish the selection.
+					setCmd: []string{"wl-copy", "--foreground"},
 					env:    extraEnv,
 				}, nil
 			}
@@ -168,54 +169,51 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	return nil
 }
 
-// setWayland starts a one-shot clipboard owner and returns before it waits for
-// the consumer. wl-copy cannot exit until a paste request arrives, while the
-// caller cannot send that request until Set returns. The owner is bounded and
-// reaped in the background so a failed paste cannot leave an unbounded child.
+// setWayland starts a foreground clipboard owner and returns before it waits
+// for a consumer. wl-copy cannot exit until its selection is replaced or the
+// process is stopped, while the caller cannot send the request until Set
+// returns. The owner is bounded and reaped in the background so a failed paste
+// cannot leave an unbounded child.
 func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("clipboard set: %w", err)
 	}
-	input, err := os.CreateTemp("", "perfuncted-clipboard-input-*")
+	input, inputPath, err := waylandInput(text)
 	if err != nil {
-		return fmt.Errorf("clipboard set: create input: %w", err)
+		return err
 	}
-	inputPath := input.Name()
 	defer os.Remove(inputPath)
-	if _, writeErr := input.WriteString(text); writeErr != nil {
-		_ = input.Close()
-		return fmt.Errorf("clipboard set: write input: %w", writeErr)
-	}
-	if _, seekErr := input.Seek(0, 0); seekErr != nil {
-		_ = input.Close()
-		return fmt.Errorf("clipboard set: rewind input: %w", seekErr)
-	}
-
-	cmd := executil.CommandContext(context.WithoutCancel(ctx), c.setCmd[0], c.setCmd[1:]...)
-	cmd.Env = c.env
-	cmd.Stdin = input
-	stderrFile, err := os.CreateTemp("", "perfuncted-clipboard-stderr-*")
+	cmd, done, err := c.startWaylandOwner(ctx, input)
 	if err != nil {
 		_ = input.Close()
-		return fmt.Errorf("clipboard set: create stderr capture: %w", err)
-	}
-	stderrPath := stderrFile.Name()
-	cmd.Stderr = stderrFile
-	if err := cmd.Start(); err != nil {
-		_ = input.Close()
-		_ = stderrFile.Close()
-		_ = os.Remove(stderrPath)
-		return fmt.Errorf("clipboard set: %w", err)
+		return err
 	}
 	_ = input.Close()
 
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		_ = stderrFile.Close()
-		_ = os.Remove(stderrPath)
-		close(done)
-	}()
+	// A foreground wl-copy has to finish connecting and advertise this exact
+	// selection before Set can safely return. The managed session also runs a
+	// wl-paste watcher, so an immediate Get otherwise races the owner and can
+	// observe an empty or previous clipboard value.
+	readyTimeout := time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < readyTimeout {
+			readyTimeout = remaining
+		}
+	}
+	if readyTimeout <= 0 {
+		stopWaylandOwner(cmd, done)
+		return fmt.Errorf("clipboard set: %w", ctx.Err())
+	}
+	readyCtx, readyCancel := context.WithTimeout(ctx, readyTimeout)
+	readyErr := c.waitWaylandContent(readyCtx, text)
+	readyCancel()
+	if readyErr != nil {
+		stopWaylandOwner(cmd, done)
+		if ctx.Err() != nil {
+			return fmt.Errorf("clipboard set: %w", ctx.Err())
+		}
+		return fmt.Errorf("clipboard set: owner readiness: %w", readyErr)
+	}
 
 	ownerTimeout := 5 * time.Second
 	if deadline, ok := ctx.Deadline(); ok {
@@ -224,7 +222,7 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		}
 	}
 	if ownerTimeout <= 0 {
-		_ = cmd.Process.Kill()
+		stopWaylandOwner(cmd, done)
 		return fmt.Errorf("clipboard set: %w", ctx.Err())
 	}
 	go func() {
@@ -233,11 +231,87 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		select {
 		case <-done:
 		case <-timer.C:
-			_ = cmd.Process.Kill()
-			<-done
+			stopWaylandOwner(cmd, done)
 		}
 	}()
 	return nil
+}
+
+func waylandInput(text string) (*os.File, string, error) {
+	input, err := os.CreateTemp("", "perfuncted-clipboard-input-*")
+	if err != nil {
+		return nil, "", fmt.Errorf("clipboard set: create input: %w", err)
+	}
+	inputPath := input.Name()
+	if _, err := input.WriteString(text); err != nil {
+		_ = input.Close()
+		return nil, "", fmt.Errorf("clipboard set: write input: %w", err)
+	}
+	if _, err := input.Seek(0, 0); err != nil {
+		_ = input.Close()
+		return nil, "", fmt.Errorf("clipboard set: rewind input: %w", err)
+	}
+	return input, inputPath, nil
+}
+
+func (c *extCmdClipboard) startWaylandOwner(ctx context.Context, input *os.File) (*exec.Cmd, <-chan struct{}, error) {
+	cmd := executil.CommandContext(context.WithoutCancel(ctx), c.setCmd[0], c.setCmd[1:]...)
+	cmd.Env = c.env
+	cmd.Stdin = input
+	stderrFile, err := os.CreateTemp("", "perfuncted-clipboard-stderr-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("clipboard set: create stderr capture: %w", err)
+	}
+	stderrPath := stderrFile.Name()
+	cmd.Stderr = stderrFile
+	if err := cmd.Start(); err != nil {
+		_ = stderrFile.Close()
+		_ = os.Remove(stderrPath)
+		return nil, nil, fmt.Errorf("clipboard set: %w", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		_ = stderrFile.Close()
+		_ = os.Remove(stderrPath)
+		close(done)
+	}()
+	return cmd, done, nil
+}
+
+func stopWaylandOwner(cmd *exec.Cmd, done <-chan struct{}) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
+}
+
+func (c *extCmdClipboard) waitWaylandContent(ctx context.Context, want string) error {
+	if len(c.getCmd) == 0 {
+		return nil
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
+		cmd.Env = c.env
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Run(); err == nil && out.String() == want {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (c *extCmdClipboard) Close() error { return nil }

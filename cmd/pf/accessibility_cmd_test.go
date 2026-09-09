@@ -45,6 +45,18 @@ func (cliAccessibilityFake) Events(context.Context, accessibility.EventOptions) 
 }
 func (cliAccessibilityFake) Close() error { return nil }
 
+type cliEventsFake struct {
+	cliAccessibilityFake
+	err error
+}
+
+func (f cliEventsFake) Events(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error) {
+	stream := make(chan accessibility.Event, 1)
+	stream <- accessibility.Event{Kind: "object:property-change", Property: "Name", Value: "updated"}
+	close(stream)
+	return stream, f.err
+}
+
 func (cliAutomationFake) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
@@ -167,12 +179,40 @@ func TestAccessibilityCLIApplicationsJSON(t *testing.T) {
 }
 
 func TestAccessibilityCLIHumanOutputIsTheDefault(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "apps"}, openCLIWithAccessibility)
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "apps"}, openCLIWithAccessibility)
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
 	}
 	if !strings.Contains(stdout, "Test App\tpid=123") || strings.HasPrefix(stdout, "{") || strings.HasPrefix(stdout, "[") {
 		t.Fatalf("human apps output = %q", stdout)
+	}
+}
+
+func TestAccessibilityCLICompatibilityAlias(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"accessibility", "apps"}, openCLIWithAccessibility)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "Test App\tpid=123") {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+}
+
+func TestAccessibilityCLIEventsDefaultToJSONLines(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "events"}, openCLIWithEvents)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	var event accessibility.Event
+	if err := json.Unmarshal([]byte(stdout), &event); err != nil {
+		t.Fatalf("events output is not JSONL: %q: %v", stdout, err)
+	}
+	if event.Kind != "object:property-change" || event.Property != "Name" || event.Value != "updated" {
+		t.Fatalf("event=%+v", event)
+	}
+}
+
+func TestAccessibilityCLIEventsRejectJSONFormatFlag(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "events", "--json"}, openCLIWithEvents)
+	if code == 0 || stdout != "" || !strings.Contains(stderr, "unknown flag: --json") {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
 	}
 }
 
@@ -287,6 +327,12 @@ func openCLIWithAccessibility(*cliConfig) sessionOpener {
 	}
 }
 
+func openCLIWithEvents(*cliConfig) sessionOpener {
+	return func(context.Context) (*perfuncted.Session, error) {
+		return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliEventsFake{}), nil
+	}
+}
+
 func openCLIWithAutomation(*cliConfig) sessionOpener {
 	return func(context.Context) (*perfuncted.Session, error) {
 		return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAutomationFake{}), nil
@@ -317,7 +363,7 @@ func TestAccessibilityCLICommandsJSON(t *testing.T) {
 		{name: "focused", args: []string{"accessibility", "focused", "--json"}, want: "focused"},
 		{name: "at point", args: []string{"accessibility", "at-point", "--json", "--x", "10", "--y", "20"}, want: "point"},
 		{name: "at point positional", args: []string{"accessibility", "at-point", "--json", "10", "20"}, want: "point"},
-		{name: "events", args: []string{"accessibility", "events", "--json"}, want: ""},
+		{name: "events", args: []string{"accessibility", "events"}, want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

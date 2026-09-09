@@ -42,18 +42,18 @@ func TestNewRootCmdConfiguresCobra(t *testing.T) {
 	}
 
 	wantSubs := map[string]bool{
-		"screen":        true,
-		"input":         true,
-		"window":        true,
-		"find":          true,
-		"output":        true,
-		"run":           true,
-		"clipboard":     true,
-		"accessibility": true,
-		"info":          true,
-		"session":       true,
-		"docs":          true,
-		"version":       true,
+		"screen":    true,
+		"input":     true,
+		"window":    true,
+		"find":      true,
+		"output":    true,
+		"run":       true,
+		"clipboard": true,
+		"a11y":      true,
+		"info":      true,
+		"session":   true,
+		"docs":      true,
+		"version":   true,
 	}
 	for _, sub := range cmd.Commands() {
 		delete(wantSubs, sub.Name())
@@ -167,12 +167,12 @@ func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
 		{"session"},
 		{"clipboard", "get"},
 		{"clipboard", "set"},
-		{"accessibility", "apps"},
-		{"accessibility", "tree"},
-		{"accessibility", "find"},
-		{"accessibility", "focused"},
-		{"accessibility", "at-point"},
-		{"accessibility", "events"},
+		{"a11y", "apps"},
+		{"a11y", "tree"},
+		{"a11y", "find"},
+		{"a11y", "focused"},
+		{"a11y", "at-point"},
+		{"a11y", "events"},
 	} {
 		if got := findCommandPath(root, path...); got == nil {
 			t.Fatalf("missing command path %q", strings.Join(path, " "))
