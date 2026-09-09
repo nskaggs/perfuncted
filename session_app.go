@@ -25,6 +25,8 @@ var sessionRoutingKeys = []string{
 	"GDK_BACKEND",
 	"QT_QPA_PLATFORM",
 	"AT_SPI_BUS",
+	"ATSPI_BUS_ADDRESS",
+	"AT_SPI_BUS_ADDRESS",
 }
 
 // Command describes an external program to launch as an Application.
@@ -85,8 +87,8 @@ func (s *Session) Launch(
 	baseEnvironment := commandEnvironment(command.Env)
 	if command.Env == nil {
 		// The session environment is already a host snapshot with managed
-		// routing applied. Use it directly so deleted routing keys, including a
-		// host AT_SPI_BUS, cannot be reintroduced from the live parent process.
+		// routing applied. Use it directly so deleted routing keys cannot be
+		// reintroduced from the live parent process.
 		baseEnvironment = s.env.EnvList()
 	}
 	execCommand.Env = env.Merge(

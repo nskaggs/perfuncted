@@ -577,7 +577,9 @@ func openRuntime(ctx context.Context, rt env.Runtime, generation uint64) (Backen
 	if err != nil {
 		return nil, fmt.Errorf("accessibility: connect to session bus: %w", err)
 	}
-	address := strings.TrimSpace(rt.Get("AT_SPI_BUS"))
+	// ATSPI_BUS_ADDRESS is the explicit accessibility-bus address override.
+	// AT_SPI_BUS is an X root-window property and is intentionally ignored.
+	address := strings.TrimSpace(rt.Get("ATSPI_BUS_ADDRESS"))
 	if address == "" {
 		call := session.Object(busService, busPath).CallWithContext(ctx, busAddressMethod, 0)
 		if storeErr := call.Store(&address); storeErr != nil {

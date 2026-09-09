@@ -739,7 +739,7 @@ func (i *sessionInfra) launchSway(
 	runtime := env.Current().
 		With("XDG_RUNTIME_DIR", i.xdgDir).
 		With("DBUS_SESSION_BUS_ADDRESS", i.dbusAddr).
-		Without("SWAYSOCK", "AT_SPI_BUS")
+		Without("SWAYSOCK", "AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS")
 	switch mode {
 	case sessionModeHeadless:
 		runtime = runtime.Without("WAYLAND_DISPLAY", "DISPLAY")

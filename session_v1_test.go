@@ -416,6 +416,8 @@ func TestLaunchRoutesEnvironmentAndIgnoresLaterContextCancellation(
 
 func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
 	t.Setenv("AT_SPI_BUS", "unix:path=/host/accessibility-bus")
+	t.Setenv("ATSPI_BUS_ADDRESS", "unix:path=/host/canonical-accessibility-bus")
+	t.Setenv("AT_SPI_BUS_ADDRESS", "unix:path=/host/legacy-accessibility-bus")
 	session := NewSessionForTesting(nil, nil, nil, nil, nil)
 	session.env = env.FromEnviron([]string{"PATH=" + os.Getenv("PATH")})
 	session.target = DesktopTarget{kind: TargetHeadless, env: session.env.EnvList()}
@@ -426,7 +428,7 @@ func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
 		context.Background(),
 		Command{
 			Name:   "sh",
-			Args:   []string{"-c", `printf '%s' "${AT_SPI_BUS-unset}"`},
+			Args:   []string{"-c", `printf '%s|%s|%s' "${AT_SPI_BUS-unset}" "${ATSPI_BUS_ADDRESS-unset}" "${AT_SPI_BUS_ADDRESS-unset}"`},
 			Stdout: &stdout,
 		},
 	)
@@ -436,8 +438,8 @@ func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
 	if err := app.Wait(context.Background()); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	if got := stdout.String(); got != "unset" {
-		t.Fatalf("AT_SPI_BUS in child = %q, want unset host address", got)
+	if got := stdout.String(); got != "unset|unset|unset" {
+		t.Fatalf("AT-SPI routing variables in child = %q, want all unset", got)
 	}
 }
 

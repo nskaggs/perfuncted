@@ -155,6 +155,8 @@ func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
 
 	rt := FromEnviron([]string{
 		"AT_SPI_BUS=unix:path=/host/accessibility-bus",
+		"ATSPI_BUS_ADDRESS=unix:path=/host/canonical-accessibility-bus",
+		"AT_SPI_BUS_ADDRESS=unix:path=/host/legacy-accessibility-bus",
 		"DBUS_SESSION_BUS_ADDRESS=unix:path=/host/session-bus",
 	})
 	managed := rt.WithSession(
@@ -165,6 +167,11 @@ func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
 	if got, ok := managed.Lookup("AT_SPI_BUS"); ok || got != "" {
 		t.Fatalf("AT_SPI_BUS = (%q, %t), want removed host override", got, ok)
 	}
+	for _, key := range []string{"ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS"} {
+		if got, ok := managed.Lookup(key); ok || got != "" {
+			t.Fatalf("%s = (%q, %t), want removed host override", key, got, ok)
+		}
+	}
 	if got := managed.Get("DBUS_SESSION_BUS_ADDRESS"); got != "unix:path=/tmp/perfuncted-xdg/bus" {
 		t.Fatalf("DBUS_SESSION_BUS_ADDRESS = %q, want managed bus", got)
 	}
@@ -173,11 +180,22 @@ func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
 func TestWithAccessibilityBusPublishesManagedAddress(t *testing.T) {
 	t.Parallel()
 
-	managed := FromEnviron(nil).WithAccessibilityBus(" unix:path=/tmp/perfuncted-a11y ")
-	if got := managed.Get("AT_SPI_BUS"); got != "unix:path=/tmp/perfuncted-a11y" {
-		t.Fatalf("AT_SPI_BUS = %q, want trimmed managed address", got)
+	managed := FromEnviron([]string{
+		"AT_SPI_BUS=host-x-root-property",
+		"AT_SPI_BUS_ADDRESS=host-legacy-address",
+	}).WithAccessibilityBus(" unix:path=/tmp/perfuncted-a11y ")
+	if got := managed.Get("ATSPI_BUS_ADDRESS"); got != "unix:path=/tmp/perfuncted-a11y" {
+		t.Fatalf("ATSPI_BUS_ADDRESS = %q, want trimmed managed address", got)
 	}
-	if got, ok := managed.WithAccessibilityBus("").Lookup("AT_SPI_BUS"); ok || got != "" {
-		t.Fatalf("empty accessibility address = (%q, %t), want removed override", got, ok)
+	for _, key := range []string{"AT_SPI_BUS", "AT_SPI_BUS_ADDRESS"} {
+		if got := managed.Get(key); got != "" {
+			t.Fatalf("%s = %q, want no compatibility override", key, got)
+		}
+	}
+	empty := managed.WithAccessibilityBus("")
+	for _, key := range []string{"AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS"} {
+		if got, ok := empty.Lookup(key); ok || got != "" {
+			t.Fatalf("empty accessibility address %s = (%q, %t), want removed override", key, got, ok)
+		}
 	}
 }

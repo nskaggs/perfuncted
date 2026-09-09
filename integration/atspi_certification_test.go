@@ -40,8 +40,11 @@ func TestAccessibilityCertification(t *testing.T) {
 	if strings.TrimSpace(s.rt.Get("DBUS_SESSION_BUS_ADDRESS")) == "" {
 		t.Fatal("managed session did not publish a session D-Bus address")
 	}
-	if strings.TrimSpace(s.rt.Get("AT_SPI_BUS")) == "" {
+	if strings.TrimSpace(s.rt.Get("ATSPI_BUS_ADDRESS")) == "" {
 		t.Fatal("managed session did not publish its AT-SPI bus address to child applications")
+	}
+	if s.rt.Has("AT_SPI_BUS") {
+		t.Fatal("managed session unexpectedly published the X-root AT_SPI_BUS property variable")
 	}
 	status := s.pf.Capability(perfuncted.CapabilityAccessibility)
 	if !status.Requested || !status.Required || !status.Available {

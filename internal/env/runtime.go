@@ -79,10 +79,15 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 	out.vars["XDG_RUNTIME_DIR"] = xdgRuntimeDir
 	out.vars["WAYLAND_DISPLAY"] = waylandDisplay
 	out.vars["DBUS_SESSION_BUS_ADDRESS"] = dbusAddr
-	// AT_SPI_BUS is a separate address from the session bus. Never let a host
-	// accessibility address leak into an isolated managed session; the session
-	// layer adds its own address when the launcher has published one.
+	// AT_SPI_BUS is an X root-window property, not the managed accessibility
+	// bus address. Never let host AT-SPI routing leak into an isolated session:
+	// the session layer publishes its address only after querying the managed
+	// org.a11y.Bus service.
 	delete(out.vars, "AT_SPI_BUS")
+	delete(out.vars, "ATSPI_BUS_ADDRESS")
+	// Some installed toolkit builds use this historical spelling. It must also
+	// be cleared so a host override cannot bypass the managed session contract.
+	delete(out.vars, "AT_SPI_BUS_ADDRESS")
 	out.vars["XDG_SESSION_TYPE"] = "wayland"
 	out.vars["DISPLAY"] = ""
 	out.vars["SWAYSOCK"] = ""
@@ -97,10 +102,12 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 // through the session bus without inheriting a host-session address.
 func (r Runtime) WithAccessibilityBus(addr string) Runtime {
 	out := r.clone()
+	delete(out.vars, "AT_SPI_BUS")
+	delete(out.vars, "AT_SPI_BUS_ADDRESS")
 	if strings.TrimSpace(addr) == "" {
-		delete(out.vars, "AT_SPI_BUS")
+		delete(out.vars, "ATSPI_BUS_ADDRESS")
 	} else {
-		out.vars["AT_SPI_BUS"] = strings.TrimSpace(addr)
+		out.vars["ATSPI_BUS_ADDRESS"] = strings.TrimSpace(addr)
 	}
 	return out
 }
