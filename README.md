@@ -151,9 +151,15 @@ Every session has non-nil capability facades:
   use `AllowDesktopRoot` only for an intentional bounded desktop diagnostic.
   Sensitive/protected text is redacted by default and mutation does not grant
   read access. A disconnected bus returns a typed error; call the explicit
-  `ReopenAccessibility` operation to establish a fresh generation. Request it with
+  `Reopen` operation to establish a fresh generation. Request it with
   `Optional(perfuncted.CapabilityAccessibility)` or `Require(...)`; sessions
   without an accessibility bus report it as unavailable.
+
+  The normal workflow is `WindowRoot` -> `FindOne` -> `FocusNode`,
+  `InvokeSemanticAction`, or `ReplaceEditableText` -> an independently
+  observable postcondition, usually through `WaitWithEvidence`. Use
+  `AccessibilityWindow` only when an adapter already has an explicit
+  compositor/accessibility correlation target; it is the advanced path.
 
 Unavailable facade calls return `*perfuncted.CapabilityError`; inspect
 `errors.Is(err, perfuncted.ErrUnavailable)` or

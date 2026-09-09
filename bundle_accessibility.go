@@ -79,8 +79,9 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 	return accessibility.BuildOutline(snapshot, outlineOptions), nil
 }
 
-// AccessibilityWindow resolves a managed compositor window to its exact
-// AT-SPI top-level subtree. It never substitutes the application root.
+// AccessibilityWindow resolves an explicit compositor/accessibility target to
+// its exact AT-SPI top-level subtree. It never substitutes the application
+// root. Prefer WindowRoot when the caller has a Perfuncted managed window ID.
 func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	if err := b.checkAvailable("window-root"); err != nil {
 		return accessibility.WindowScope{}, err
@@ -93,7 +94,9 @@ func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target ac
 	return scope, b.operationError("window-root", err)
 }
 
-// WindowRoot resolves a managed window by its authoritative native ID.
+// WindowRoot is the preferred high-level scope path. It resolves a managed
+// window by its authoritative native ID and correlates that window to its
+// exact AT-SPI top-level subtree.
 func (b *AccessibilityBundle) WindowRoot(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
 	if b == nil {
 		return accessibility.WindowScope{}, ErrNilSession
@@ -349,15 +352,6 @@ func (b *AccessibilityBundle) InvokeDefaultAction(ctx context.Context, id access
 	return chosen, b.operationError("invoke-default-action", callErr)
 }
 
-// GrabFocus requests focus for an AT-SPI node.
-func (b *AccessibilityBundle) GrabFocus(ctx context.Context, id accessibility.NodeID) error {
-	a, err := b.automation("grab-focus")
-	if err != nil {
-		return err
-	}
-	return b.operationError("grab-focus", a.GrabFocus(ctx, id))
-}
-
 // ScrollTo scrolls an AT-SPI node into view using the requested alignment.
 func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType) error {
 	a, err := b.automation("scroll")
@@ -403,31 +397,13 @@ func (b *AccessibilityBundle) SetExtents(ctx context.Context, id accessibility.N
 	return b.operationError("set-extents", a.SetExtents(ctx, id, x, y, width, height, kind))
 }
 
-// SetCurrentValue sets the current value exposed by an AT-SPI value object.
-func (b *AccessibilityBundle) SetCurrentValue(ctx context.Context, id accessibility.NodeID, value float64) error {
-	a, err := b.automation("set-current-value")
-	if err != nil {
-		return err
-	}
-	return b.operationError("set-current-value", a.SetCurrentValue(ctx, id, value))
-}
-
-// SetValue is an alias for setting an AT-SPI value object's current value.
+// SetValue sets the current value exposed by an AT-SPI Value object.
 func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.NodeID, value float64) error {
 	a, err := b.automation("set-value")
 	if err != nil {
 		return err
 	}
 	return b.operationError("set-value", a.SetValue(ctx, id, value))
-}
-
-// SetTextContents replaces all text exposed by an AT-SPI editable-text object.
-func (b *AccessibilityBundle) SetTextContents(ctx context.Context, id accessibility.NodeID, value string) error {
-	a, err := b.automation("set-text-contents")
-	if err != nil {
-		return err
-	}
-	return b.operationError("set-text-contents", a.SetTextContents(ctx, id, value))
 }
 
 // ReplaceText replaces the selected character range in an AT-SPI editable-text object.
@@ -629,9 +605,13 @@ func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibili
 	return b.operationError("deselect-column", a.DeselectColumn(ctx, id, column))
 }
 
-// FocusNode and ScrollNodeIntoView are explicit AT-SPI convenience helpers.
+// FocusNode requests focus for a semantic node.
 func (b *AccessibilityBundle) FocusNode(ctx context.Context, id accessibility.NodeID) error {
-	return b.GrabFocus(ctx, id)
+	a, err := b.automation("grab-focus")
+	if err != nil {
+		return err
+	}
+	return b.operationError("grab-focus", a.GrabFocus(ctx, id))
 }
 
 // ScrollNodeIntoView scrolls a node into view with default alignment.
@@ -641,11 +621,17 @@ func (b *AccessibilityBundle) ScrollNodeIntoView(ctx context.Context, id accessi
 
 // ReplaceEditableText replaces all contents of an editable text node.
 func (b *AccessibilityBundle) ReplaceEditableText(ctx context.Context, id accessibility.NodeID, value string) error {
-	return b.SetTextContents(ctx, id, value)
+	a, err := b.automation("set-text-contents")
+	if err != nil {
+		return err
+	}
+	return b.operationError("set-text-contents", a.SetTextContents(ctx, id, value))
 }
 
-// ReopenAccessibility explicitly reconnects to the same target session.
-func (b *AccessibilityBundle) ReopenAccessibility(ctx context.Context) error {
+// Reopen explicitly reconnects the accessibility bundle to the same target
+// session. Reconnection remains caller-directed; it does not happen in the
+// background.
+func (b *AccessibilityBundle) Reopen(ctx context.Context) error {
 	if b == nil {
 		return ErrNilSession
 	}

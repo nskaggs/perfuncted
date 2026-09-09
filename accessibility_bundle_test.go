@@ -270,13 +270,13 @@ func TestAccessibilityBundleDelegatesTypedAutomation(t *testing.T) {
 	if err := session.Accessibility.FocusNode(context.Background(), id); err != nil {
 		t.Fatalf("FocusNode: %v", err)
 	}
-	if err := session.Accessibility.SetCurrentValue(context.Background(), id, 0.5); err != nil {
-		t.Fatalf("SetCurrentValue: %v", err)
+	if err := session.Accessibility.SetValue(context.Background(), id, 0.5); err != nil {
+		t.Fatalf("SetValue: %v", err)
 	}
 	if _, err := session.Accessibility.InvokeDefaultAction(context.Background(), id); err != nil {
 		t.Fatalf("InvokeDefaultAction: %v", err)
 	}
-	if len(spy.calls) != 3 || spy.calls[0] != "focus" || spy.calls[1] != "value" || spy.calls[2] != "default-action" {
+	if len(spy.calls) != 3 || spy.calls[0] != "focus" || spy.calls[1] != "set-value" || spy.calls[2] != "default-action" {
 		t.Fatalf("automation calls = %v", spy.calls)
 	}
 }
@@ -368,8 +368,8 @@ func TestAccessibilityBundleExplicitReopenSwapsBackend(t *testing.T) {
 	old.fresh = fresh
 	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
 	defer session.Close()
-	if err := session.Accessibility.ReopenAccessibility(context.Background()); err != nil {
-		t.Fatalf("ReopenAccessibility: %v", err)
+	if err := session.Accessibility.Reopen(context.Background()); err != nil {
+		t.Fatalf("Reopen: %v", err)
 	}
 	apps, err := session.Accessibility.Applications(context.Background())
 	if err != nil || len(apps) != 1 || apps[0].Name != "fresh" {
@@ -390,8 +390,8 @@ func TestAccessibilityBundleExplicitReopenAfterDisconnect(t *testing.T) {
 	if _, err := session.Accessibility.Applications(context.Background()); !errors.Is(err, accessibility.ErrDisconnected) {
 		t.Fatalf("disconnected applications error = %v, want disconnected", err)
 	}
-	if err := session.Accessibility.ReopenAccessibility(context.Background()); err != nil {
-		t.Fatalf("ReopenAccessibility after disconnect: %v", err)
+	if err := session.Accessibility.Reopen(context.Background()); err != nil {
+		t.Fatalf("Reopen after disconnect: %v", err)
 	}
 	if got := session.Accessibility.Generation(); got != fresh.gen {
 		t.Fatalf("reopened generation = %d, want %d", got, fresh.gen)

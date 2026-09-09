@@ -401,7 +401,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 		if err != nil {
 			return err
 		}
-		return pf.Accessibility.SetCurrentValue(c.Context(), node, value)
+		return pf.Accessibility.SetValue(c.Context(), node, value)
 	}}
 	common(setValue, &valueOpts)
 	setValue.Flags().Float64Var(&value, "value", 0, "new current value")
@@ -526,7 +526,7 @@ func accessibilityCmd(openPF sessionOpener) *cobra.Command { //nolint:gocyclo //
 			return err
 		}
 		defer pf.Close()
-		return pf.Accessibility.ReopenAccessibility(c.Context())
+		return pf.Accessibility.Reopen(c.Context())
 	}}
 
 	cmd.AddCommand(applications, snapshot, findCmd, outline, focused, atPoint, events, action, focus, scroll, scrollPoint, setPosition, setSize, setExtents, setValue, setText, setTextSelection, addTextSelection, removeTextSelection, setDocumentSelections, selectChild, selectAll, clearSelection, deselectAll, deselectSelected, selectRow, deselectRow, selectColumn, deselectColumn, reopen)
