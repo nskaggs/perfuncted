@@ -577,15 +577,18 @@ func openRuntime(ctx context.Context, rt env.Runtime, generation uint64) (Backen
 	if err != nil {
 		return nil, fmt.Errorf("accessibility: connect to session bus: %w", err)
 	}
-	var address string
-	call := session.Object(busService, busPath).CallWithContext(ctx, busAddressMethod, 0)
-	if storeErr := call.Store(&address); storeErr != nil {
-		_ = session.Close()
-		return nil, fmt.Errorf("accessibility: get accessibility bus address: %w", storeErr)
-	}
-	if strings.TrimSpace(address) == "" {
-		_ = session.Close()
-		return nil, fmt.Errorf("accessibility: empty bus address")
+	address := strings.TrimSpace(rt.Get("AT_SPI_BUS"))
+	if address == "" {
+		call := session.Object(busService, busPath).CallWithContext(ctx, busAddressMethod, 0)
+		if storeErr := call.Store(&address); storeErr != nil {
+			_ = session.Close()
+			return nil, fmt.Errorf("accessibility: get accessibility bus address: %w", storeErr)
+		}
+		address = strings.TrimSpace(address)
+		if address == "" {
+			_ = session.Close()
+			return nil, fmt.Errorf("accessibility: empty bus address")
+		}
 	}
 	access, err := dbusutil.ConnectContext(ctx, address)
 	if err != nil {
