@@ -101,8 +101,8 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 	} {
 		delete(out.vars, key)
 	}
-	// Session-type and toolkit backends are not forced. Perfuncted
-	// reads them to select backends rather than setting them.
+	// Clear session-type and toolkit env so backends are selected by
+	// the caller.
 	return out
 }
 
