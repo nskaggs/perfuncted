@@ -444,6 +444,39 @@ func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
 	}
 }
 
+func TestLaunchCanUnsetManagedRoutingEnvironment(t *testing.T) {
+	session, err := Open(
+		context.Background(),
+		WithTarget(EnvironmentTarget([]string{
+			"QT_QPA_PLATFORM=wayland",
+		})),
+	)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	var stdout bytes.Buffer
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name:     "sh",
+			Args:     []string{"-c", `printf '%s' "${QT_QPA_PLATFORM-unset}"`},
+			UnsetEnv: []string{"QT_QPA_PLATFORM"},
+			Stdout:   &stdout,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if got := stdout.String(); got != "unset" {
+		t.Fatalf("QT_QPA_PLATFORM = %q, want unset", got)
+	}
+}
+
 func TestTargetHostPassesHostSessionBusWithoutAccessibilityOverride(t *testing.T) {
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/host/session-bus")
 	t.Setenv("ATSPI_BUS_ADDRESS", "")
