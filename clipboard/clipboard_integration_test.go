@@ -6,6 +6,7 @@ package clipboard
 import (
 	"net"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -50,6 +51,9 @@ func TestOpenCapturesSessionEnv(t *testing.T) {
 	}
 	if got := env["DBUS_SESSION_BUS_ADDRESS"]; got != "unix:path="+filepath.Join(runtimeDir, "bus") {
 		t.Fatalf("DBUS_SESSION_BUS_ADDRESS = %q", got)
+	}
+	if got, want := wl.setCmd, []string{"wl-copy", "--foreground"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Wayland clipboard set command = %v, want %v", got, want)
 	}
 }
 

@@ -17,7 +17,7 @@ func TestWaylandSetDoesNotWaitForPasteConsumer(t *testing.T) {
 	}
 
 	cb := &extCmdClipboard{
-		setCmd: []string{tool, "--foreground", "--paste-once"},
+		setCmd: []string{tool, "--foreground"},
 		env:    append(os.Environ(), "PF_TEST_CLIPBOARD_OUTPUT="+output),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
