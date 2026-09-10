@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -23,8 +22,6 @@ var sessionRoutingKeys = []string{
 	"DISPLAY",
 	"SWAYSOCK",
 	"HYPRLAND_INSTANCE_SIGNATURE",
-	"GDK_BACKEND",
-	"QT_QPA_PLATFORM",
 	"AT_SPI_BUS",
 	"ATSPI_BUS_ADDRESS",
 	"AT_SPI_BUS_ADDRESS",
@@ -40,11 +37,6 @@ type Command struct {
 	Dir string
 	// Env supplies child environment entries in addition to session routing values.
 	Env []string
-	// UnsetEnv removes named variables from the final child environment,
-	// including variables supplied by session routing. This is useful for
-	// applications whose startup behavior distinguishes an unset variable from
-	// the managed desktop default.
-	UnsetEnv []string
 	// Stdin supplies standard input to the child.
 	Stdin io.Reader
 	// Stdout receives child standard output.
@@ -97,12 +89,10 @@ func (s *Session) Launch(
 		// reintroduced from the live parent process.
 		baseEnvironment = s.env.EnvList()
 	}
-	childEnvironment := env.Merge(
+	execCommand.Env = env.Merge(
 		baseEnvironment,
 		s.routingEnvironment()...,
 	)
-	childEnvironment = removeEnvironmentKeys(childEnvironment, command.UnsetEnv)
-	execCommand.Env = childEnvironment
 	execCommand.Stdin = command.Stdin
 	execCommand.Stdout = command.Stdout
 	execCommand.Stderr = command.Stderr
@@ -136,32 +126,6 @@ func commandEnvironment(values []string) []string {
 		return os.Environ()
 	}
 	return values
-}
-
-func removeEnvironmentKeys(values, keys []string) []string {
-	if len(values) == 0 || len(keys) == 0 {
-		return values
-	}
-	remove := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		if key != "" {
-			remove[key] = struct{}{}
-		}
-	}
-	if len(remove) == 0 {
-		return values
-	}
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		key := value
-		if i := strings.IndexByte(value, '='); i >= 0 {
-			key = value[:i]
-		}
-		if _, ok := remove[key]; !ok {
-			out = append(out, value)
-		}
-	}
-	return out
 }
 
 func (s *Session) routingEnvironment() []string {
