@@ -1163,6 +1163,12 @@ func (a appSpec) extraEnvFor(mode displayMode) []string {
 	if mode == displayHeadlessX11 || mode == displayNestedX11 {
 		envs = append(envs, "GDK_BACKEND=x11", "QT_QPA_PLATFORM=xcb")
 	}
+	if mode == displayHeadlessWayland || mode == displayNestedWayland {
+		// Wayland toolkit selection is explicit per-launch. Perfuncted itself
+		// no longer forces GDK/QT globally; request Wayland for apps that
+		// support it.
+		envs = append(envs, "GDK_BACKEND=wayland", "QT_QPA_PLATFORM=wayland")
+	}
 	return envs
 }
 
