@@ -74,12 +74,36 @@ func (r Runtime) Without(keys ...string) Runtime {
 
 // WithSession returns a snapshot for the managed session.
 func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Runtime {
-	return r.clone()
+	out := r.clone()
+	out.vars["XDG_RUNTIME_DIR"] = xdgRuntimeDir
+	out.vars["WAYLAND_DISPLAY"] = waylandDisplay
+	out.vars["DBUS_SESSION_BUS_ADDRESS"] = dbusAddr
+	for _, key := range []string{
+		"AT_SPI_BUS",
+		"ATSPI_BUS_ADDRESS",
+		"AT_SPI_BUS_ADDRESS",
+		"GTK_MODULES",
+		"GTK_A11Y",
+		"GNOME_ACCESSIBILITY",
+		"QT_ACCESSIBILITY",
+		"QT_LINUX_ACCESSIBILITY_ALWAYS_ON",
+	} {
+		delete(out.vars, key)
+	}
+	return out
 }
 
 // WithAccessibilityBus returns a snapshot for the accessibility bus.
 func (r Runtime) WithAccessibilityBus(addr string) Runtime {
-	return r.clone()
+	out := r.clone()
+	delete(out.vars, "AT_SPI_BUS")
+	delete(out.vars, "AT_SPI_BUS_ADDRESS")
+	if strings.TrimSpace(addr) == "" {
+		delete(out.vars, "ATSPI_BUS_ADDRESS")
+	} else {
+		out.vars["ATSPI_BUS_ADDRESS"] = strings.TrimSpace(addr)
+	}
+	return out
 }
 
 // EnvList returns the runtime as a deterministic env slice suitable for

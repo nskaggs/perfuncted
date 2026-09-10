@@ -169,13 +169,13 @@ func TestWithSessionDoesNotInheritHostAccessibilityBus(t *testing.T) {
 		"wayland-1",
 		"unix:path=/tmp/perfuncted-xdg/bus",
 	)
-	// WithSession returns the snapshot unchanged.
-	for _, key := range []string{"AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS", "GTK_MODULES", "GTK_A11Y", "GNOME_ACCESSIBILITY", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON", "DBUS_SESSION_BUS_ADDRESS"} {
-		if got, ok := managed.Lookup(key); !ok {
-			t.Fatalf("%s missing after WithSession, want preserved", key)
-		} else if got == "" {
-			t.Fatalf("%s = %q, want preserved value", key, got)
+	for _, key := range []string{"AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS", "GTK_MODULES", "GTK_A11Y", "GNOME_ACCESSIBILITY", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON"} {
+		if got, ok := managed.Lookup(key); ok || got != "" {
+			t.Fatalf("%s = (%q, %t), want removed host override", key, got, ok)
 		}
+	}
+	if got := managed.Get("DBUS_SESSION_BUS_ADDRESS"); got != "unix:path=/tmp/perfuncted-xdg/bus" {
+		t.Fatalf("DBUS_SESSION_BUS_ADDRESS = %q, want managed bus", got)
 	}
 }
 
@@ -186,14 +186,18 @@ func TestWithAccessibilityBusPublishesManagedAddress(t *testing.T) {
 		"AT_SPI_BUS=host-x-root-property",
 		"AT_SPI_BUS_ADDRESS=host-legacy-address",
 	}).WithAccessibilityBus(" unix:path=/tmp/perfuncted-a11y ")
-	// WithAccessibilityBus returns the snapshot unchanged.
-	if got := managed.Get("AT_SPI_BUS_ADDRESS"); got != "host-legacy-address" {
-		t.Fatalf("AT_SPI_BUS_ADDRESS = %q, want preserved host value", got)
+	if got := managed.Get("ATSPI_BUS_ADDRESS"); got != "unix:path=/tmp/perfuncted-a11y" {
+		t.Fatalf("ATSPI_BUS_ADDRESS = %q, want trimmed managed address", got)
+	}
+	for _, key := range []string{"AT_SPI_BUS", "AT_SPI_BUS_ADDRESS"} {
+		if got := managed.Get(key); got != "" {
+			t.Fatalf("%s = %q, want no compatibility override", key, got)
+		}
 	}
 	empty := managed.WithAccessibilityBus("")
-	if got, ok := empty.Lookup("AT_SPI_BUS"); !ok {
-		t.Fatalf("AT_SPI_BUS missing after WithAccessibilityBus, want preserved")
-	} else if got != "host-x-root-property" {
-		t.Fatalf("AT_SPI_BUS = %q, want preserved", got)
+	for _, key := range []string{"AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS"} {
+		if got, ok := empty.Lookup(key); ok || got != "" {
+			t.Fatalf("empty accessibility address %s = (%q, %t), want removed override", key, got, ok)
+		}
 	}
 }

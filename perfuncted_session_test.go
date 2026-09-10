@@ -28,9 +28,26 @@ func TestEnviron(t *testing.T) { //nolint:gocyclo
 	t.Parallel()
 	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
 
-	// Environ returns a snapshot of the current environment.
-	if len(ev) == 0 {
-		t.Fatal("Environ returned empty slice")
+	var xdg, wl, dbus string
+	for _, e := range ev {
+		switch {
+		case strings.HasPrefix(e, "XDG_RUNTIME_DIR="):
+			xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
+		case strings.HasPrefix(e, "WAYLAND_DISPLAY="):
+			wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
+		case strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS="):
+			dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
+		}
+	}
+
+	if xdg != "/tmp/test-xdg" {
+		t.Errorf("XDG_RUNTIME_DIR = %q, want /tmp/test-xdg", xdg)
+	}
+	if wl != "wayland-99" {
+		t.Errorf("WAYLAND_DISPLAY = %q, want wayland-99", wl)
+	}
+	if dbus != "unix:path=/tmp/test-xdg/bus" {
+		t.Errorf("DBUS_SESSION_BUS_ADDRESS = %q", dbus)
 	}
 }
 
@@ -42,8 +59,14 @@ func TestEnvironFiltersHost(t *testing.T) {
 
 	ev := env.Environ("/tmp/sess", "wayland-1", "unix:path=/tmp/sess/bus")
 
-	if len(ev) == 0 {
-		t.Fatal("Environ returned empty slice")
+	count := 0
+	for _, e := range ev {
+		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("XDG_RUNTIME_DIR appears %d times, want 1", count)
 	}
 }
 
