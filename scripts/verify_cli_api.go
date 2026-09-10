@@ -244,6 +244,7 @@ func main() { //nolint:gocyclo
 	// Whitelist expected API-only methods that intentionally have no direct docs-cli command.
 	apiOnlyWhitelist := map[string]map[string]bool{
 		"screen": {
+			"Capture":       true,
 			"CaptureRegion": true,
 		},
 		"window": {
