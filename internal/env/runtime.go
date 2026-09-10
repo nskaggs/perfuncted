@@ -90,6 +90,10 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 	} {
 		delete(out.vars, key)
 	}
+	out.vars["XDG_SESSION_TYPE"] = "wayland"
+	out.vars["DISPLAY"] = ""
+	out.vars["SWAYSOCK"] = ""
+	out.vars["HYPRLAND_INSTANCE_SIGNATURE"] = ""
 	return out
 }
 

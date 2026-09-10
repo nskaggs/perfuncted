@@ -28,7 +28,7 @@ func TestEnviron(t *testing.T) { //nolint:gocyclo
 	t.Parallel()
 	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
 
-	var xdg, wl, dbus string
+	var xdg, wl, dbus, display, sessionType string
 	for _, e := range ev {
 		switch {
 		case strings.HasPrefix(e, "XDG_RUNTIME_DIR="):
@@ -37,6 +37,10 @@ func TestEnviron(t *testing.T) { //nolint:gocyclo
 			wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
 		case strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS="):
 			dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
+		case strings.HasPrefix(e, "DISPLAY="):
+			display = strings.TrimPrefix(e, "DISPLAY=")
+		case strings.HasPrefix(e, "XDG_SESSION_TYPE="):
+			sessionType = strings.TrimPrefix(e, "XDG_SESSION_TYPE=")
 		}
 	}
 
@@ -48,6 +52,12 @@ func TestEnviron(t *testing.T) { //nolint:gocyclo
 	}
 	if dbus != "unix:path=/tmp/test-xdg/bus" {
 		t.Errorf("DBUS_SESSION_BUS_ADDRESS = %q", dbus)
+	}
+	if display != "" {
+		t.Errorf("DISPLAY = %q, want empty", display)
+	}
+	if sessionType != "wayland" {
+		t.Errorf("XDG_SESSION_TYPE = %q, want wayland", sessionType)
 	}
 }
 
