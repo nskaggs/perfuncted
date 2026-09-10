@@ -64,8 +64,8 @@ func (cliAutomationFake) SupportedOperations() []string {
 func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
 	return nil
 }
-func (cliAutomationFake) InvokeActionByName(context.Context, accessibility.NodeID, string) error {
-	return nil
+func (cliAutomationFake) InvokeActionByName(context.Context, accessibility.NodeID, string) (accessibility.Action, error) { //nolint:unparam // the CLI fixture models a successful named action.
+	return accessibility.Action{Index: 1, Name: "named"}, nil
 }
 func (cliAutomationFake) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) { //nolint:unparam // the CLI fixture intentionally models a successful action.
 	return accessibility.Action{Index: 0, Name: "default"}, nil

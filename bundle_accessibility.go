@@ -194,15 +194,7 @@ func (b *AccessibilityBundle) InvokeSemanticAction(
 	if name == "" {
 		chosen, err = b.InvokeDefaultAction(ctx, node.ID)
 	} else {
-		if availabilityErr := b.checkAvailable("invoke-action-by-name"); availabilityErr != nil {
-			return AccessibilityActionReceipt{}, availabilityErr
-		}
-		exact, ok := b.backend.(accessibility.NamedActionInvoker)
-		if !ok {
-			return AccessibilityActionReceipt{}, b.operationError("invoke-semantic-action", accessibility.ErrUnsupported)
-		}
-		chosen, err = exact.InvokeActionByNameExact(ctx, node.ID, name)
-		err = b.operationError("invoke-semantic-action", err)
+		chosen, err = b.InvokeActionByName(ctx, node.ID, name)
 	}
 	if err != nil {
 		return AccessibilityActionReceipt{}, err
@@ -342,13 +334,15 @@ func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility
 	return b.operationError("invoke-action", a.InvokeAction(ctx, id, index))
 }
 
-// InvokeActionByName invokes a uniquely named AT-SPI action.
-func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) error {
+// InvokeActionByName invokes a uniquely named AT-SPI action and returns the
+// metadata selected by the same read used to choose its stable index.
+func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) (accessibility.Action, error) {
 	a, err := b.automation("invoke-action-by-name")
 	if err != nil {
-		return err
+		return accessibility.Action{}, err
 	}
-	return b.operationError("invoke-action-by-name", a.InvokeActionByName(ctx, id, name))
+	chosen, callErr := a.InvokeActionByName(ctx, id, name)
+	return chosen, b.operationError("invoke-action-by-name", callErr)
 }
 
 // InvokeDefaultAction invokes the first stable action and reports which one

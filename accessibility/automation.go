@@ -136,16 +136,9 @@ func (b *dbusBackend) InvokeAction(ctx context.Context, id NodeID, index int32) 
 	return b.mutationBool(ctx, id, actionIface, "DoAction", index)
 }
 
-func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name string) error {
-	_, err := b.InvokeActionByNameExact(ctx, id, name)
-	return err
-}
-
-// InvokeActionByNameExact selects one action from a single metadata read,
-// invokes that action's stable index, and returns the exact selected metadata.
-// Keeping this primitive separate preserves the existing low-level method
-// while allowing higher-level receipts to describe the physical invocation.
-func (b *dbusBackend) InvokeActionByNameExact(ctx context.Context, id NodeID, name string) (Action, error) {
+// InvokeActionByName selects one action from a single metadata read, invokes
+// its stable index, and returns the exact selected metadata.
+func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name string) (Action, error) {
 	actions, err := b.actions(ctx, id)
 	if err != nil {
 		return Action{}, err

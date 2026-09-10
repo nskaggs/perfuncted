@@ -131,17 +131,21 @@ func TestErrorPath_WaitForChange_NeverChanges(t *testing.T) {
 	}
 
 	rect := image.Rect(0, 0, min(screenW, 50), min(screenH, 50))
-	h0, err := s.pf.Screen.GrabRegionHash(hashCtx, rect)
+	_, err = s.pf.Screen.GrabRegionHash(hashCtx, rect)
 	if err != nil {
 		t.Fatalf("initial hash: %v", err)
 	}
 
+	// The live desktop is only a capability probe here: cursor animation and
+	// compositor activity can legitimately change the captured region. Assert
+	// the negative WaitForChange contract with a stable fixture instead.
+	fixture := &constScreenshotter{img: image.NewRGBA(image.Rect(0, 0, 1, 1))}
+	initial := find.PixelHash(fixture.img, nil)
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer waitCancel()
-	_, err = s.pf.Screen.WaitForChange(waitCtx, rect, h0, 50*time.Millisecond)
+	_, err = find.WaitForChange(waitCtx, fixture, rect, initial, 50*time.Millisecond, nil)
 	if err == nil {
-		// Screen may change due to cursor blink etc. — not a failure, just skip.
-		t.Skip("screen changed during WaitForChange_NeverChanges; skipping (non-deterministic)")
+		t.Fatal("WaitForChange returned nil for an unchanged fixture")
 	}
 }
 

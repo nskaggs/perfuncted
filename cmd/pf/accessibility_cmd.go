@@ -499,7 +499,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var rawActionIndex int32
 	rawAction := addRawNode("action", "Invoke an explicit AT-SPI action index or name", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
 		if strings.TrimSpace(rawActionName) != "" {
-			return nil, automation.InvokeActionByName(ctx, node, rawActionName)
+			return automation.InvokeActionByName(ctx, node, rawActionName)
 		}
 		if rawActionIndex >= 0 {
 			return nil, automation.InvokeAction(ctx, node, rawActionIndex)

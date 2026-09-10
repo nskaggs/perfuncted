@@ -384,16 +384,8 @@ type GenerationSource interface {
 // ActionInvoker exposes typed Action interface operations.
 type ActionInvoker interface {
 	InvokeAction(context.Context, NodeID, int32) error
-	InvokeActionByName(context.Context, NodeID, string) error
+	InvokeActionByName(context.Context, NodeID, string) (Action, error)
 	InvokeDefaultAction(context.Context, NodeID) (Action, error)
-}
-
-// NamedActionInvoker is the optional exact-action primitive used when a
-// caller needs the metadata selected by the same read that supplies the
-// DoAction index. It complements the compatibility-oriented
-// InvokeActionByName method without changing that method's signature.
-type NamedActionInvoker interface {
-	InvokeActionByNameExact(context.Context, NodeID, string) (Action, error)
 }
 
 // ComponentController exposes typed Component interface operations.
@@ -487,13 +479,6 @@ const (
 	CoordTypeScreen CoordType = iota
 	CoordTypeWindow
 	CoordTypeParent
-)
-
-// Short aliases retained for callers that prefer the AT-SPI terminology.
-const (
-	CoordScreen = CoordTypeScreen
-	CoordWindow = CoordTypeWindow
-	CoordParent = CoordTypeParent
 )
 
 // WindowTarget describes an authoritative Perfuncted window used to resolve

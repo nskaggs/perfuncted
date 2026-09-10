@@ -45,8 +45,9 @@ func (info CoordinateSpaceInfo) Validate() error {
 }
 
 // PointerCoordinateSpaceReporter is implemented only by backends that can
-// prove the absolute coordinate space they accept. It is optional so legacy
-// or compositor-agnostic backends fail closed instead of guessing.
+// prove the absolute coordinate space they accept. It is optional so a
+// backend without authoritative coordinate metadata fails closed instead of
+// guessing.
 type PointerCoordinateSpaceReporter interface {
 	PointerCoordinateSpace(context.Context) (CoordinateSpaceInfo, error)
 }

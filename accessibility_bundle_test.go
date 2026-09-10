@@ -37,12 +37,8 @@ func (s *accessibilityAutomationSpy) InvokeAction(context.Context, accessibility
 	s.mark("action")
 	return nil
 }
-func (s *accessibilityAutomationSpy) InvokeActionByName(context.Context, accessibility.NodeID, string) error {
+func (s *accessibilityAutomationSpy) InvokeActionByName(context.Context, accessibility.NodeID, string) (accessibility.Action, error) {
 	s.mark("action-name")
-	return nil
-}
-func (s *accessibilityAutomationSpy) InvokeActionByNameExact(context.Context, accessibility.NodeID, string) (accessibility.Action, error) {
-	s.mark("action-name-exact")
 	if s.exactAction == (accessibility.Action{}) {
 		s.exactAction = accessibility.Action{Index: 7, Name: "provider-actual", Description: "selected at invocation", KeyBinding: "Alt+S"}
 	}
@@ -312,7 +308,7 @@ func TestAccessibilityBundleInvokesSemanticActionWithReceipt(t *testing.T) {
 	if receipt.Mechanism != "at-spi.action" || receipt.Action.Index != 7 || receipt.Action.Name != "provider-actual" || receipt.Generation != 3 {
 		t.Fatalf("semantic action receipt = %+v", receipt)
 	}
-	if len(spy.calls) != 1 || spy.calls[0] != "action-name-exact" {
+	if len(spy.calls) != 1 || spy.calls[0] != "action-name" {
 		t.Fatalf("semantic action calls = %v", spy.calls)
 	}
 }
@@ -338,7 +334,7 @@ func TestAccessibilityBundleSemanticActionReceiptUsesInvocationMetadata(t *testi
 	if receipt.Action != spy.invokedAction {
 		t.Fatalf("receipt action = %+v, want invoked action %+v", receipt.Action, spy.invokedAction)
 	}
-	if len(spy.calls) != 1 || spy.calls[0] != "action-name-exact" {
+	if len(spy.calls) != 1 || spy.calls[0] != "action-name" {
 		t.Fatalf("calls = %v, want one exact invocation", spy.calls)
 	}
 }

@@ -707,7 +707,7 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		expected []call
 	}{
 		{"action", func() error { return backend.InvokeAction(ctx, id, 0) }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(0)}}}},
-		{"action-name", func() error { return backend.InvokeActionByName(ctx, id, "alternate") }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(1)}}}},
+		{"action-name", func() error { _, err := backend.InvokeActionByName(ctx, id, "alternate"); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(1)}}}},
 		{"default-action", func() error { _, err := backend.InvokeDefaultAction(ctx, id); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(0)}}}},
 		{"focus", func() error { return backend.GrabFocus(ctx, id) }, []call{{componentIface + ".GrabFocus", nil}}},
 		{"scroll", func() error { return backend.ScrollTo(ctx, id, ScrollAnyWhere) }, []call{{componentIface + ".ScrollTo", []any{uint32(ScrollAnyWhere)}}}},

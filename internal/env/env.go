@@ -4,9 +4,8 @@ import (
 	"strings"
 )
 
-// Environ builds a complete environment variable slice by overlaying session
-// variables on the current process environment. This mirrors the previous
-// session.Environ implementation but centralizes it for reuse.
+// Environ builds a complete environment variable slice by overlaying the
+// managed session variables on the current process environment.
 func Environ(xdgRuntimeDir, waylandDisplay, dbusAddr string) []string {
 	return Current().WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr).EnvList()
 }
