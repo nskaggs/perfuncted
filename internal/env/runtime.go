@@ -92,17 +92,9 @@ func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Run
 		"GNOME_ACCESSIBILITY",
 		"QT_ACCESSIBILITY",
 		"QT_LINUX_ACCESSIBILITY_ALWAYS_ON",
-		"XDG_SESSION_TYPE",
-		"DISPLAY",
-		"SWAYSOCK",
-		"HYPRLAND_INSTANCE_SIGNATURE",
-		"GDK_BACKEND",
-		"QT_QPA_PLATFORM",
 	} {
 		delete(out.vars, key)
 	}
-	// Clear session-type and toolkit env so backends are selected by
-	// the caller.
 	return out
 }
 

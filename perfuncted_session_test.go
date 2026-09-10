@@ -49,12 +49,6 @@ func TestEnviron(t *testing.T) { //nolint:gocyclo
 	if dbus != "unix:path=/tmp/test-xdg/bus" {
 		t.Errorf("DBUS_SESSION_BUS_ADDRESS = %q", dbus)
 	}
-	// Verify session-type, display, and toolkit backends are absent.
-	for _, e := range ev {
-		if strings.HasPrefix(e, "XDG_SESSION_TYPE=") || strings.HasPrefix(e, "DISPLAY=") || strings.HasPrefix(e, "GDK_BACKEND=") || strings.HasPrefix(e, "QT_QPA_PLATFORM=") || strings.HasPrefix(e, "SWAYSOCK=") || strings.HasPrefix(e, "HYPRLAND_INSTANCE_SIGNATURE=") {
-			t.Errorf("unexpected forced session key %q, want unset", e)
-		}
-	}
 }
 
 func TestEnvironFiltersHost(t *testing.T) {
