@@ -72,45 +72,14 @@ func (r Runtime) Without(keys ...string) Runtime {
 	return out
 }
 
-// WithSession overlays session-routing variables and clears conflicting host
-// desktop routing that would otherwise leak actions outside the target session.
+// WithSession returns a snapshot for the managed session.
 func (r Runtime) WithSession(xdgRuntimeDir, waylandDisplay, dbusAddr string) Runtime {
-	out := r.clone()
-	out.vars["XDG_RUNTIME_DIR"] = xdgRuntimeDir
-	out.vars["WAYLAND_DISPLAY"] = waylandDisplay
-	out.vars["DBUS_SESSION_BUS_ADDRESS"] = dbusAddr
-	// AT_SPI_BUS is an X root-window property, not the managed accessibility
-	// bus address. Never let host AT-SPI routing or toolkit bridge overrides
-	// leak into an isolated session: the session layer publishes its address
-	// only after querying the managed org.a11y.Bus service.
-	for _, key := range []string{
-		"AT_SPI_BUS",
-		"ATSPI_BUS_ADDRESS",
-		"AT_SPI_BUS_ADDRESS",
-		"GTK_MODULES",
-		"GTK_A11Y",
-		"GNOME_ACCESSIBILITY",
-		"QT_ACCESSIBILITY",
-		"QT_LINUX_ACCESSIBILITY_ALWAYS_ON",
-	} {
-		delete(out.vars, key)
-	}
-	return out
+	return r.clone()
 }
 
-// WithAccessibilityBus publishes the AT-SPI bus selected by a managed
-// session. An empty address removes the override so clients discover AT-SPI
-// through the session bus without inheriting a host-session address.
+// WithAccessibilityBus returns a snapshot for the accessibility bus.
 func (r Runtime) WithAccessibilityBus(addr string) Runtime {
-	out := r.clone()
-	delete(out.vars, "AT_SPI_BUS")
-	delete(out.vars, "AT_SPI_BUS_ADDRESS")
-	if strings.TrimSpace(addr) == "" {
-		delete(out.vars, "ATSPI_BUS_ADDRESS")
-	} else {
-		out.vars["ATSPI_BUS_ADDRESS"] = strings.TrimSpace(addr)
-	}
-	return out
+	return r.clone()
 }
 
 // EnvList returns the runtime as a deterministic env slice suitable for
