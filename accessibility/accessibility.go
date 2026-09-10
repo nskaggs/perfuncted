@@ -638,8 +638,8 @@ type cachedSnapshot struct {
 
 // cacheObjectRef and cacheItem mirror the current Cache.GetItems wire shape:
 // a((so)(so)(so)iiassusau). Keep these private so protocol details do not leak
-// into the public API. Older providers may return the historical signature;
-// a failed decode simply falls back to direct reads.
+// into the public API. A payload that cannot be decoded invalidates the local
+// cache and leaves direct reads authoritative.
 type cacheObjectRef struct {
 	BusName    string
 	ObjectPath dbus.ObjectPath
@@ -1723,9 +1723,9 @@ func (b *dbusBackend) applyCacheAddLocked(body []any) {
 		}
 		item = *value
 	default:
-		// A provider with an older wire signature may still emit a valid
-		// cache signal. Invalidate the local item map and let the next
-		// snapshot reload it rather than guessing at its shape.
+		// An unrecognized cache signal cannot safely update the local item map.
+		// Invalidate it and let the next snapshot reload authoritative state
+		// rather than guessing at the payload shape.
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}

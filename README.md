@@ -62,7 +62,7 @@ func main() {
 | wlr foreign-toplevel | compositor capture protocol | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `zwlr_foreign_toplevel_manager_v1` | activate, close, minimize, maximize, restore |
 | ext foreign-toplevel | compositor capture protocol or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `ext_foreign_toplevel_list_v1` | list-only |
 | KDE Plasma Wayland | KWin.ScreenShot2, ext capture, or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | KWin D-Bus scripting | activate, move, resize, close, minimize, maximize, restore |
-| GNOME Wayland | bundled GNOME bridge, legacy Shell screenshot, or portal | bundled GNOME bridge, then generic fallbacks | bundled GNOME bridge, Shell.Eval compatibility fallback | activate, move, resize, close, minimize, maximize, fullscreen, restore |
+| GNOME Wayland | bundled GNOME bridge, GNOME Shell screenshot, or portal | bundled GNOME bridge, wl-virtual, XTEST, or uinput | bundled GNOME bridge or GNOME Shell Eval | activate, move, resize, close, minimize, maximize, fullscreen, restore |
 
 `pf info` reports the backend actually opened, failures for unavailable optional
 capabilities, and the exact operation list. Discovery does not imply that every
@@ -70,18 +70,20 @@ control operation is available.
 
 Wayland portal capture may show a consent dialog. Perfuncted does not implement
 portal input: input needs a compositor injection protocol or permission to open
-`/dev/uinput`. KDE and non-native GNOME fallback paths may use uinput.
+`/dev/uinput`. KDE and GNOME sessions without native bridge input may use
+uinput.
 
 **GNOME (Mutter):** perfuncted carries a small, versioned GNOME Shell
 integration and installs it automatically when a GNOME-native capability is
 requested. It uses typed Mutter/Clutter/Shell APIs for windows, input, screen
 capture, and clipboard; no unsafe mode, portal consent, `wl-clipboard`, or
 `/dev/uinput` setup is needed on the native path. GNOME Shell may require one
-logout/login after the first installation so it can load the extension. The
-older Shell.Eval and screenshot paths remain compatibility fallbacks.
+logout/login after the first installation so it can load the extension. When
+the bridge is unavailable, GNOME Shell screenshot and Shell.Eval remain
+supported capability paths for the corresponding operations.
 ASCII literal input uses direct key events, preserving held modifiers. Unicode
-input uses a clipboard-paste fallback, so that fallback updates clipboard
-contents.
+input uses clipboard paste when direct key events cannot represent the text;
+this updates clipboard contents.
 Flatpak can use an already-installed bridge; host extension provisioning from
 inside the sandbox is not automatic, so install the native package once when
 using the Flatpak. The bundled extension currently declares GNOME Shell 50;
