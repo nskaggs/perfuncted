@@ -79,7 +79,7 @@ jobs:
 
       - name: Record completed environment gate
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
-        run: echo "- Environment-dependent Flatpak smoke: passed" >> "$GITHUB_STEP_SUMMARY"
+        run: 'echo "- Environment-dependent Flatpak smoke: passed" >> "$GITHUB_STEP_SUMMARY"'
 
       - name: Attach Flatpak bundle to release
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}

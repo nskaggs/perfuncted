@@ -11,7 +11,7 @@ export GOWORK := "off"
 # Keep CI quality-tool installation reproducible.
 golangci_lint_version := "v2.13.2"
 vulncheck_version := "v1.7.0"
-deadcode_version := "v0.44.0"
+deadcode_version := "v0.49.0"
 
 default:
     @just --list
@@ -109,9 +109,8 @@ quality: quality-fast lint deadcode vulncheck test-unit
 # Pre-commit: runs only the fastest essential checks
 precommit: quality-fast
 
-# Run everything CI does: quality + integration + release smoke tests
-# This aggregates all major CI jobs for local reproduction.
-ci: quality test-integration test-release
+# Run every local CI gate with headless display coverage.
+ci: test-race benchmark quality test-integration-headless-x11 test-integration-headless-wayland test-session test-integration-backends test-accessibility-certification test-release
 
 
 # ── build & install ────────────────────────────────────────────────────────────
@@ -136,6 +135,10 @@ test-unit:
 # Run unit tests with race detector
 test-race:
     CGO_ENABLED=1 go test -race -short -count=1 ./...
+
+# Run the benchmark lane used by the remote performance job.
+benchmark:
+    CGO_ENABLED=0 go test ./find -run '^$' -bench 'Pixel(Hash|Found)' -benchmem -count=5
 
 # Run unit tests (default alias)
 test: test-unit

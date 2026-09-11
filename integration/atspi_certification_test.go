@@ -126,10 +126,19 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	}
 	options := certificationSnapshotOptions()
 
-	// WindowRoot is the canonical high-level path from the compositor-managed
-	// identity to the correlated AT-SPI application and window subtree.
+	target := accessibility.WindowTarget{
+		ID:      info.NativeID,
+		Title:   info.Title,
+		PID:     info.PID,
+		AppID:   info.AppID,
+		Bounds:  accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H},
+		Active:  info.Active,
+		Focused: info.Active,
+	}
+	// The managed window metadata is already authoritative. Reusing it avoids
+	// a second compositor discovery request while the AT-SPI provider is starting.
 	correlationCtx, correlationCancel := context.WithTimeout(ctx, 30*time.Second)
-	scope, snapshot, err := resolveCertificationScopeAndSnapshot(correlationCtx, s.pf.Accessibility, info.NativeID, options)
+	scope, snapshot, err := resolveCertificationScopeAndSnapshot(correlationCtx, s.pf.Accessibility, target, options)
 	correlationCancel()
 	if err != nil {
 		logAccessibilityCorrelationDiagnostics(t, ctx, s.pf.Accessibility, info, optionsForCorrelationDiagnostics())
@@ -160,7 +169,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 		if err := s.pf.Accessibility.FocusNode(ctx, editable.ID); err != nil {
 			t.Fatalf("AT-SPI focus %s editable target: %v (node=%+v)", representative.name, err, editable)
 		}
-		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility, app.winMatch, editable.ID, options); err != nil {
+		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility, target, editable.ID, options); err != nil {
 			t.Fatalf("independent AT-SPI focus verification for %s: %v", representative.name, err)
 		}
 	}
@@ -359,13 +368,13 @@ func certificationSnapshotOptions() accessibility.SnapshotOptions {
 func waitForAccessibilityWindow(
 	ctx context.Context,
 	bundle *perfuncted.AccessibilityBundle,
-	windowID string,
+	target accessibility.WindowTarget,
 ) (accessibility.WindowScope, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	var lastErr error
 	for {
-		scope, err := bundle.WindowRoot(ctx, windowID)
+		scope, err := bundle.AccessibilityWindow(ctx, target)
 		if err == nil {
 			return scope, nil
 		}
@@ -387,13 +396,13 @@ func waitForAccessibilityWindow(
 func resolveCertificationScopeAndSnapshot(
 	ctx context.Context,
 	bundle *perfuncted.AccessibilityBundle,
-	windowID string,
+	target accessibility.WindowTarget,
 	options accessibility.SnapshotOptions,
 ) (accessibility.WindowScope, accessibility.Snapshot, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		scope, err := waitForAccessibilityWindow(ctx, bundle, windowID)
+		scope, err := waitForAccessibilityWindow(ctx, bundle, target)
 		if err != nil {
 			return accessibility.WindowScope{}, accessibility.Snapshot{}, err
 		}
@@ -441,14 +450,14 @@ func logAccessibilityCorrelationDiagnostics(
 func waitForFocusedAccessibilityNode(
 	ctx context.Context,
 	bundle *perfuncted.AccessibilityBundle,
-	windowID string,
+	target accessibility.WindowTarget,
 	want accessibility.NodeID,
 	options accessibility.SnapshotOptions,
 ) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		_, snapshot, err := resolveCertificationScopeAndSnapshot(ctx, bundle, windowID, options)
+		_, snapshot, err := resolveCertificationScopeAndSnapshot(ctx, bundle, target, options)
 		if err != nil {
 			return err
 		}
