@@ -56,9 +56,15 @@ func TestCaptureScreenPoint(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "out of bounds",
+			name:    "exclusive max x",
 			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(0, 0, 2, 2)},
 			pixel:   image.Pt(7, 8),
+			wantErr: true,
+		},
+		{
+			name:    "exclusive max y",
+			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(0, 0, 2, 2)},
+			pixel:   image.Pt(6, 9),
 			wantErr: true,
 		},
 	}
