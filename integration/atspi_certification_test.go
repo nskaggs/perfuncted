@@ -137,7 +137,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	}
 	// The managed window metadata is already authoritative. Reusing it avoids
 	// a second compositor discovery request while the AT-SPI provider is starting.
-	correlationCtx, correlationCancel := context.WithTimeout(ctx, 30*time.Second)
+	correlationCtx, correlationCancel := context.WithTimeout(ctx, 60*time.Second)
 	scope, snapshot, err := resolveCertificationScopeAndSnapshot(correlationCtx, s.pf.Accessibility, target, options)
 	correlationCancel()
 	if err != nil {

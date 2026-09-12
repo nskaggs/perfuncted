@@ -600,8 +600,10 @@ func (s *Session) startSession(
 			// The launcher registers org.a11y.Bus asynchronously. Resolve its
 			// address under a bounded startup wait before publishing the
 			// managed runtime to child applications, so they and OpenRuntime use
-			// the same AT-SPI bus.
-			addressCtx, addressCancel := context.WithTimeout(startupCtx, config.Timeouts.Short)
+			// the same AT-SPI bus. Use Medium rather than Short so a loaded CI
+			// host does not leave the managed bus unpublished while still
+			// bounded by the overall startup deadline.
+			addressCtx, addressCancel := context.WithTimeout(startupCtx, config.Timeouts.Medium)
 			address, addressErr := infra.accessibilityBusAddress(addressCtx)
 			addressCancel()
 			if addressErr == nil {

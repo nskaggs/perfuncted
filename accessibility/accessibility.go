@@ -1594,12 +1594,27 @@ func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, err
 	}
 	var refs []objectRef
 	if err := obj.CallWithContext(ctx, accessibleIface+".GetChildren", 0).Store(&refs); err != nil {
+		if isDisconnectedDBusError(err) {
+			b.markDisconnected()
+			return nil, fmt.Errorf("accessibility: children %s: %w: %w", id.ObjectPath, ErrDisconnected, err)
+		}
 		return nil, fmt.Errorf("accessibility: children %s: %w", id.ObjectPath, err)
 	}
 	if err := b.generationError(expected); err != nil {
 		return nil, err
 	}
 	return b.tagRefs(refs), nil
+}
+
+func isDisconnectedDBusError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrDisconnected) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "disconnected") || strings.Contains(msg, "message recipient") || strings.Contains(msg, "no reply")
 }
 
 func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
@@ -2063,7 +2078,12 @@ func (b *dbusBackend) call(ctx context.Context, id NodeID, method string, args [
 	if args == nil {
 		args = []any{}
 	}
-	return obj.CallWithContext(ctx, method, 0, args...).Store(out)
+	err = obj.CallWithContext(ctx, method, 0, args...).Store(out)
+	if err != nil && isDisconnectedDBusError(err) {
+		b.markDisconnected()
+		return fmt.Errorf("%w: %w", ErrDisconnected, err)
+	}
+	return err
 }
 
 func (b *dbusBackend) property(ctx context.Context, id NodeID, iface, name string, out any) error {
