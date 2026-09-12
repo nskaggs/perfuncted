@@ -77,34 +77,28 @@ jobs:
   accessibility-certification:
     name: AT-SPI Certification (Headless Wayland)
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
+      options: --privileged --pid=host --ipc=host --cap-add=SYS_ADMIN --cap-add=CAP_DAC_OVERRIDE --cap-add=CAP_SYS_RESOURCE
+      env:
+        LIBGL_ALWAYS_SOFTWARE: "1"
+        MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
     steps:
+      - name: Install test dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            sway xwayland dbus-x11 at-spi2-core libatk-bridge2.0-0t64 \
+            libwayland-client0 libwayland-server0 libwlroots-dev \
+            wl-clipboard xdg-utils qtwayland5 qt6-wayland kwrite gnome-text-editor \
+            ca-certificates git
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
           cache: true
       - uses: taiki-e/install-action@just
-      - uses: ./.github/actions/install-desktop-dependencies
-        with:
-          packages: |
-            sway
-            xwayland
-            dbus-x11
-            at-spi2-core
-            libatk-bridge2.0-0t64
-            libwayland-client0
-            libwayland-server0
-            libwlroots-dev
-            wl-clipboard
-            xdg-utils
-            qtwayland5
-            qt6-wayland
-            kwrite
-            gnome-text-editor
       - name: Run strict accessibility certification
-        env:
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
         run: just test-accessibility-certification
       - name: Upload certification logs
         if: failure()
