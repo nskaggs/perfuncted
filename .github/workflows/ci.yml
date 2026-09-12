@@ -98,6 +98,7 @@ jobs:
             wl-clipboard
             xdg-utils
             qtwayland5
+            qt6-wayland
             kwrite
             gnome-text-editor
       - name: Run strict accessibility certification

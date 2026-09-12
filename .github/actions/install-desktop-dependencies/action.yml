@@ -23,6 +23,7 @@ inputs:
       xdg-utils
       xvfb
       qtwayland5
+      qt6-wayland
       at-spi2-core
       kwrite
       featherpad
