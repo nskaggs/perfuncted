@@ -142,15 +142,6 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	correlationCancel()
 	if err != nil {
 		logAccessibilityCorrelationDiagnostics(t, ctx, s.pf.Accessibility, info, optionsForCorrelationDiagnostics())
-		// QT Wayland AT-SPI registration can be slow to appear on loaded CI
-		// hosts. The integration suite already probes Wayland optionally, so a
-		// transient kwrite correlation failure here should not fail the entire
-		// certification lane when the GTK reference (gnome-text-editor) is
-		// healthy. Keep the failure visible but allow the job to stay green
-		// while the Wayland QT bridge is investigated.
-		if representative.name == "kwrite" && (strings.Contains(strings.ToLower(err.Error()), "context deadline") || strings.Contains(err.Error(), "object not found") || strings.Contains(err.Error(), "deadline exceeded")) {
-			t.Skipf("kwrite Wayland AT-SPI correlation unavailable in this environment: %v", err)
-		}
 		t.Fatalf("correlate managed %s window to AT-SPI: %v", representative.name, err)
 	}
 	if !certificationNodeIDValid(scope.Root) || !certificationNodeIDValid(scope.ApplicationRoot) || scope.Generation == 0 {
