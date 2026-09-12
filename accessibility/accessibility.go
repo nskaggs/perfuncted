@@ -1595,7 +1595,6 @@ func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, err
 	var refs []objectRef
 	if err := obj.CallWithContext(ctx, accessibleIface+".GetChildren", 0).Store(&refs); err != nil {
 		if isDisconnectedDBusError(err) {
-			b.markDisconnected()
 			return nil, fmt.Errorf("accessibility: children %s: %w: %w", id.ObjectPath, ErrDisconnected, err)
 		}
 		return nil, fmt.Errorf("accessibility: children %s: %w", id.ObjectPath, err)
@@ -2080,7 +2079,6 @@ func (b *dbusBackend) call(ctx context.Context, id NodeID, method string, args [
 	}
 	err = obj.CallWithContext(ctx, method, 0, args...).Store(out)
 	if err != nil && isDisconnectedDBusError(err) {
-		b.markDisconnected()
 		return fmt.Errorf("%w: %w", ErrDisconnected, err)
 	}
 	return err
