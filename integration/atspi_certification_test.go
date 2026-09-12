@@ -61,7 +61,7 @@ func TestAccessibilityCertification(t *testing.T) {
 			name:     "kwrite",
 			launch:   []string{"kwrite"},
 			winMatch: "kwrite",
-			extraEnv: []string{"QT_ACCESSIBILITY=1", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1"},
+			extraEnv: nil,
 		},
 		{
 			name:     "gnome-text-editor",
