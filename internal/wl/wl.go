@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 var le = binary.LittleEndian
@@ -128,12 +130,27 @@ func (ctx *Context) checkOpen(cancel context.Context) error {
 
 // Connect opens a Wayland connection to addr (must be an absolute socket path).
 func Connect(addr string) (*Context, error) {
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: addr, Net: "unix"})
+	return ConnectContext(context.Background(), addr)
+}
+
+// ConnectContext opens a Wayland connection to addr and honors cancellation
+// while establishing the Unix socket connection.
+func ConnectContext(cancel context.Context, addr string) (*Context, error) {
+	cancel = contextutil.Default(cancel)
+	if err := cancel.Err(); err != nil {
+		return nil, err
+	}
+	conn, err := (&net.Dialer{}).DialContext(cancel, "unix", addr)
 	if err != nil {
 		return nil, err
 	}
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		_ = conn.Close()
+		return nil, fmt.Errorf("wl: Unix dial returned %T", conn)
+	}
 	return &Context{
-		conn:    conn,
+		conn:    unixConn,
 		objects: make(map[uint32]Proxy),
 		nextID:  1,
 		buf:     make([]byte, 4096),

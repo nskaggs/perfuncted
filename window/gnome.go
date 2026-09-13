@@ -33,16 +33,26 @@ type GnomeManager struct {
 // NewGnomeManagerForBus opens a D-Bus connection at addr and verifies that
 // org.gnome.Shell.Eval is accessible.
 func NewGnomeManagerForBus(addr string) (*GnomeManager, error) {
+	return NewGnomeManagerForBusContext(context.Background(), addr)
+}
+
+// NewGnomeManagerForBusContext verifies Shell Eval access while honoring ctx
+// during session-bus setup and its initial probe.
+func NewGnomeManagerForBusContext(ctx context.Context, addr string) (*GnomeManager, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if addr == "" {
 		return nil, fmt.Errorf("gnome: session bus unset")
 	}
-	conn, err := dbusutil.SessionBusAddress(addr)
+	conn, err := dbusutil.SessionBusAddressContext(ctx, addr)
 	if err != nil {
 		return nil, fmt.Errorf("gnome: session bus: %w", err)
 	}
 	g := &GnomeManager{conn: conn}
 	// Probe to ensure Eval works.
-	_, err = g.eval(context.Background(), `"ok"`)
+	_, err = g.eval(ctx, `"ok"`)
 	if err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("gnome: Shell Eval not available: %w", err),

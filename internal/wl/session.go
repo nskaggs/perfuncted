@@ -7,6 +7,8 @@ import (
 	"net"
 	"slices"
 	"sync"
+
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 // Session encapsulates a Wayland connection and the display/registry helpers.
@@ -44,8 +46,26 @@ var (
 // session exists, a new connection is established and cached. Call Close() on
 // the returned Session to release the reference.
 func NewSession(sock string) (*Session, error) {
+	return NewSessionContext(context.Background(), sock)
+}
+
+// NewSessionContext returns a cached, reference-counted Session for sock or
+// establishes one while honoring cancel through connection and registry setup.
+// A successful session is independent of cancel after this function returns.
+func NewSessionContext(cancel context.Context, sock string) (*Session, error) {
+	cancel = contextutil.Default(cancel)
+	if err := cancel.Err(); err != nil {
+		return nil, err
+	}
+	setupCtx, cancelSetup := context.WithTimeout(cancel, defaultRoundTripTimeout)
+	defer cancelSetup()
+	cancel = setupCtx
 	sessionCacheMu.Lock()
 	if ref, ok := sessionCache[sock]; ok {
+		if err := cancel.Err(); err != nil {
+			sessionCacheMu.Unlock()
+			return nil, err
+		}
 		ref.refs++
 		s := newSessionHandle(ref)
 		sessionCacheMu.Unlock()
@@ -53,12 +73,12 @@ func NewSession(sock string) (*Session, error) {
 	}
 	sessionCacheMu.Unlock()
 
-	ctx, err := Connect(sock)
+	ctx, err := ConnectContext(cancel, sock)
 	if err != nil {
 		return nil, fmt.Errorf("wl: connect: %w", err)
 	}
 	d := NewDisplay(ctx)
-	r, err := d.GetRegistry()
+	r, err := d.GetRegistryContext(cancel)
 	if err != nil {
 		_ = ctx.Close()
 		return nil, fmt.Errorf("wl: get registry: %w", err)
@@ -72,19 +92,33 @@ func NewSession(sock string) (*Session, error) {
 	}
 	r.SetGlobalHandler(canonical.addGlobal)
 	r.SetGlobalRemoveHandler(canonical.removeGlobal)
-	if err := d.RoundTrip(); err != nil {
+	if err := d.RoundTripContext(cancel); err != nil {
 		_ = ctx.Close()
 		return nil, fmt.Errorf("wl: registry round-trip: %w", err)
+	}
+	if err := cancel.Err(); err != nil {
+		_ = ctx.Close()
+		return nil, err
 	}
 
 	sessionCacheMu.Lock()
 	// Another goroutine may have created the session while we were dialing.
 	if ref, ok := sessionCache[sock]; ok {
+		if err := cancel.Err(); err != nil {
+			sessionCacheMu.Unlock()
+			_ = ctx.Close()
+			return nil, err
+		}
 		ref.refs++
 		sessionCacheMu.Unlock()
 		// Close newly created ctx; use the existing cached session instead.
 		_ = ctx.Close()
 		return newSessionHandle(ref), nil
+	}
+	if err := cancel.Err(); err != nil {
+		sessionCacheMu.Unlock()
+		_ = ctx.Close()
+		return nil, err
 	}
 	ref := &sessionRef{sess: canonical, refs: 1}
 	canonical.ref = ref

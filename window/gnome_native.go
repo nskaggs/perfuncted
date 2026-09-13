@@ -31,11 +31,18 @@ type GnomeNativeManager struct {
 
 // NewGnomeNativeManagerForRuntime connects to the native GNOME bridge.
 func NewGnomeNativeManagerForRuntime(rt env.Runtime) (*GnomeNativeManager, error) {
-	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityWindows)
+	return NewGnomeNativeManagerForRuntimeContext(context.Background(), rt)
+}
+
+// NewGnomeNativeManagerForRuntimeContext connects to the native GNOME bridge
+// and subscribes to window events while honoring ctx.
+func NewGnomeNativeManagerForRuntimeContext(ctx context.Context, rt env.Runtime) (*GnomeNativeManager, error) {
+	ctx = contextutil.Default(ctx)
+	bridge, err := gnomebridge.ConnectForCapability(ctx, rt, gnomebridge.CapabilityWindows)
 	if err != nil {
 		return nil, fmt.Errorf("window/gnome-native: %w", err)
 	}
-	bridgeEvents, cancelEvents, err := bridge.SubscribeWindowEvents(context.Background())
+	bridgeEvents, cancelEvents, err := bridge.SubscribeWindowEvents(ctx)
 	if err != nil {
 		_ = bridge.Close()
 		return nil, fmt.Errorf("window/gnome-native: subscribe to window events: %w", err)

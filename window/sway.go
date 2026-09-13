@@ -79,10 +79,22 @@ type SwayManager struct {
 
 // NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
 func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
+	return NewSwayManagerRuntimeContext(context.Background(), rt)
+}
+
+// NewSwayManagerRuntimeContext probes candidate sway IPC sockets while
+// honoring ctx during connection and tree discovery.
+func NewSwayManagerRuntimeContext(ctx context.Context, rt env.Runtime) (*SwayManager, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	sock := rt.Get("SWAYSOCK")
 	if sock != "" {
-		if _, err := swayQueryOnce(sock, swayMsgGetTree, ""); err == nil {
+		if err := swayQueryOnceContext(ctx, sock, swayMsgGetTree, ""); err == nil {
 			return &SwayManager{sock: sock}, nil
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 	}
 	rdir := rt.Get("XDG_RUNTIME_DIR")
@@ -94,8 +106,10 @@ func NewSwayManagerRuntime(rt env.Runtime) (*SwayManager, error) {
 		return nil, fmt.Errorf("window/sway: glob sway sockets: %w", err)
 	}
 	for _, m := range matches {
-		if _, err := swayQueryOnce(m, swayMsgGetTree, ""); err == nil {
+		if err := swayQueryOnceContext(ctx, m, swayMsgGetTree, ""); err == nil {
 			return &SwayManager{sock: m}, nil
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 	}
 	return nil, fmt.Errorf("window/sway: no reachable sway IPC socket found (set SWAYSOCK or start sway)")
@@ -683,27 +697,23 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 	return FindByID(ctx, m, numeric)
 }
 
-// swayQueryOnce sends a single IPC request and returns the raw JSON response.
-func swayQueryOnce(sock string, msgType uint32, payload string) ([]byte, error) {
-	return swayQueryOnceContext(context.Background(), sock, msgType, payload)
-}
-
 var swayDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 	dialer := net.Dialer{Timeout: 5 * time.Second}
 	return dialer.DialContext(ctx, network, address)
 }
 
-func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) ([]byte, error) {
+func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) error {
 	ctx = contextutil.Default(ctx)
 	conn, err := swayDialContext(ctx, "unix", sock)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return ctxErr
 		}
-		return nil, err
+		return err
 	}
 	defer conn.Close()
-	return swayQueryConnContext(ctx, conn, msgType, payload)
+	_, err = swayQueryConnContext(ctx, conn, msgType, payload)
+	return err
 }
 
 func swayQueryConnContext(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {

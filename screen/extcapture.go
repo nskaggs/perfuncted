@@ -83,10 +83,20 @@ func applyExtSessionEvent(si *extSessionInfo, stopped, invalid *bool, opcode uin
 // NewExtCaptureBackendForSocket returns an ExtCaptureBackend for sock if the
 // compositor advertises the full ext-image-copy stack needed for capture.
 func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //nolint:gocyclo
+	return NewExtCaptureBackendForSocketContext(context.Background(), sock)
+}
+
+// NewExtCaptureBackendForSocketContext initializes the image-copy protocol
+// while honoring ctx during connection and protocol setup.
+func NewExtCaptureBackendForSocketContext(cancel context.Context, sock string) (*ExtCaptureBackend, error) { //nolint:gocyclo
+	cancel = contextutil.Default(cancel)
+	if err := cancel.Err(); err != nil {
+		return nil, err
+	}
 	if sock == "" {
 		return nil, fmt.Errorf("screen/ext: WAYLAND_DISPLAY not set")
 	}
-	s, err := wl.NewSession(sock)
+	s, err := wl.NewSessionContext(cancel, sock)
 	if err != nil {
 		return nil, fmt.Errorf("screen/ext: %w", err)
 	}
@@ -108,14 +118,14 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 			}
 		}
 	}
-	initErr := wl.WithOperation(ctx, func() error {
+	initErr := wl.WithOperationContext(cancel, ctx, func() error {
 		for _, ev := range s.GlobalsSnapshot() {
 			if ev.Interface != "wl_output" {
 				continue
 			}
 			out := &wlRawProxy{}
 			ctx.Register(out)
-			if err := registry.Bind(ev.Name, ev.Interface, 1, out.ID()); err == nil {
+			if err := registry.BindContext(cancel, ev.Name, ev.Interface, 1, out.ID()); err == nil {
 				b.outputProxy = out
 				// record output scale via dispatchFn
 				out.dispatchFn = func(op uint32, _ int, data []byte) {
@@ -135,7 +145,7 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 			}
 			shm := &wl.Shm{}
 			ctx.Register(shm)
-			if err := registry.Bind(ev.Name, ev.Interface, 1, shm.ID()); err == nil {
+			if err := registry.BindContext(cancel, ev.Name, ev.Interface, 1, shm.ID()); err == nil {
 				b.shm = shm
 			}
 			break
@@ -157,25 +167,25 @@ func NewExtCaptureBackendForSocket(sock string) (*ExtCaptureBackend, error) { //
 		// Initialize persistent proxies.
 		b.mgrProxy = &wlRawProxy{}
 		ctx.Register(b.mgrProxy)
-		if err := registry.Bind(b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), b.mgrProxy.ID()); err != nil {
+		if err := registry.BindContext(cancel, b.mgrID, "ext_image_copy_capture_manager_v1", min(b.mgrVer, 1), b.mgrProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: bind manager: %w", err)
 		}
 
 		b.sourceMgrProxy = &wlRawProxy{}
 		ctx.Register(b.sourceMgrProxy)
-		if err := registry.Bind(b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), b.sourceMgrProxy.ID()); err != nil {
+		if err := registry.BindContext(cancel, b.sourceMgrID, "ext_output_image_capture_source_manager_v1", min(b.sourceMgrVer, 1), b.sourceMgrProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: bind output source manager: %w", err)
 		}
 
 		b.sourceProxy = &wlRawProxy{}
 		ctx.Register(b.sourceProxy)
-		if err := sendExtOutputCreateSource(context.Background(), ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
+		if err := sendExtOutputCreateSource(cancel, ctx, b.sourceMgrProxy.ID(), b.sourceProxy.ID(), b.outputProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: create_source: %w", err)
 		}
 
 		b.sessProxy = &wlRawProxy{}
 		ctx.Register(b.sessProxy)
-		if err := sendExtCreateSession(context.Background(), ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
+		if err := sendExtCreateSession(cancel, ctx, b.mgrProxy.ID(), b.sessProxy.ID(), b.sourceProxy.ID()); err != nil {
 			return fmt.Errorf("screen/ext: create_session: %w", err)
 		}
 		return nil

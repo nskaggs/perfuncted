@@ -14,14 +14,15 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
-var newWlVirtualBackend = func(sock string) (Inputter, error) {
-	return NewWlVirtualBackend(sock)
+var newWlVirtualBackend = func(ctx context.Context, sock string) (Inputter, error) {
+	return NewWlVirtualBackendContext(ctx, sock)
 }
 
 var newUinputBackend = func(maxX, maxY int32) (Inputter, error) {
@@ -112,10 +113,26 @@ type Inputter interface {
 
 // OpenRuntime returns the best available Inputter for rt.
 func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:gocyclo
+	return OpenRuntimeContext(context.Background(), rt, maxX, maxY)
+}
+
+// OpenRuntimeContext opens the input backend for rt while honoring ctx during
+// context-aware transport setup.
+func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:gocyclo
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Allow forcing a particular backend for debugging in CI/local runs.
 	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
 		if statErr := statUinput(); statErr == nil {
 			b, err := newUinputBackend(maxX, maxY)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				if b != nil {
+					_ = b.Close()
+				}
+				return nil, ctxErr
+			}
 			if err == nil {
 				return b, nil
 			}
@@ -127,10 +144,12 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 	// GNOME's Shell extension has compositor authority and therefore avoids
 	// both wlroots-only virtual protocols and host-level uinput permissions.
 	if compositor.DetectRuntime(rt) == compositor.GNOME {
-		if b, err := NewGnomeNativeBackendForRuntime(rt); err == nil {
+		if b, err := NewGnomeNativeBackendForRuntimeContext(ctx, rt); err == nil {
 			return b, nil
 		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
 			return nil, err
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 	}
 
@@ -138,12 +157,16 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 	//
 	//	wl-virtual -> XTEST (if DISPLAY set) -> uinput
 	if sock := rt.SocketPath(); sock != "" {
-		if b, err := newWlVirtualBackend(sock); err == nil {
+		if b, err := newWlVirtualBackend(ctx, sock); err == nil {
 			return b, nil
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 		if d := rt.Display(); d != "" {
 			if b, err := newXTestBackend(d); err == nil {
 				return b, nil
+			} else if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
 			}
 		}
 		// wl-virtual/XTEST unavailable; uinput is the last Wayland fallback
@@ -151,6 +174,8 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 		if statErr := statUinput(); statErr == nil {
 			if b, err := newUinputBackend(maxX, maxY); err == nil {
 				return b, nil
+			} else if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
 			}
 		}
 	}
@@ -159,12 +184,20 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 	if d := rt.Display(); d != "" {
 		if b, err := newXTestBackend(d); err == nil {
 			return b, nil
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 	}
 
 	// Final fallback: uinput on systems without a Wayland session.
 	if err := statUinput(); err == nil {
 		b, err := newUinputBackend(maxX, maxY)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if b != nil {
+				_ = b.Close()
+			}
+			return nil, ctxErr
+		}
 		if err == nil {
 			return b, nil
 		}
@@ -172,6 +205,9 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 		return nil, err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return nil, fmt.Errorf("input: no backend available (uinput inaccessible, DISPLAY not set)")
 }
 

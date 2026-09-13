@@ -29,7 +29,14 @@ type GnomeNativeScreenBackend struct {
 
 // NewGnomeNativeScreenBackendForRuntime connects to the versioned bridge.
 func NewGnomeNativeScreenBackendForRuntime(rt env.Runtime) (*GnomeNativeScreenBackend, error) {
-	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityScreen)
+	return NewGnomeNativeScreenBackendForRuntimeContext(context.Background(), rt)
+}
+
+// NewGnomeNativeScreenBackendForRuntimeContext connects to the versioned
+// bridge while honoring ctx during capability negotiation.
+func NewGnomeNativeScreenBackendForRuntimeContext(ctx context.Context, rt env.Runtime) (*GnomeNativeScreenBackend, error) {
+	ctx = contextutil.Default(ctx)
+	bridge, err := gnomebridge.ConnectForCapability(ctx, rt, gnomebridge.CapabilityScreen)
 	if err != nil {
 		return nil, fmt.Errorf("gnome screen: %w", err)
 	}

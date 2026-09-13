@@ -3,6 +3,7 @@ package wl
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"path/filepath"
@@ -63,5 +64,62 @@ func TestContextRoundTripHandlesImmediateCallback(t *testing.T) {
 	case <-serverDone:
 	case <-time.After(time.Second):
 		t.Fatal("Wayland round-trip server did not stop")
+	}
+}
+
+func TestNewSessionContextCancelsRegistryRoundTrip(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+
+	serverReady := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		var request [12]byte
+		if _, readErr := io.ReadFull(conn, request[:]); readErr != nil {
+			return
+		}
+		if _, readErr := io.ReadFull(conn, request[:]); readErr != nil {
+			return
+		}
+		close(serverReady)
+		var one [1]byte
+		_, _ = conn.Read(one[:])
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		session, openErr := NewSessionContext(ctx, sock)
+		if session != nil {
+			_ = session.Close()
+		}
+		result <- openErr
+	}()
+	<-serverReady
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("NewSessionContext error = %v, want context.Canceled", err)
+	}
+	select {
+	case <-serverDone:
+	case <-time.After(time.Second):
+		t.Fatal("Wayland server did not stop after canceled setup")
+	}
+
+	sessionCacheMu.Lock()
+	_, cached := sessionCache[sock]
+	sessionCacheMu.Unlock()
+	if cached {
+		t.Fatal("canceled Wayland session was cached")
 	}
 }

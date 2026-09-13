@@ -37,7 +37,7 @@ func TestOpenRuntimeFallsBackToXTestWhenWaylandSocketUnresolvable(t *testing.T) 
 		newUinputBackend = oldUinput
 	})
 
-	newWlVirtualBackend = func(string) (Inputter, error) {
+	newWlVirtualBackend = func(context.Context, string) (Inputter, error) {
 		return nil, os.ErrNotExist
 	}
 	newXTestBackend = func(string) (Inputter, error) {
@@ -60,6 +60,53 @@ func TestOpenRuntimeFallsBackToXTestWhenWaylandSocketUnresolvable(t *testing.T) 
 	}
 	if _, ok := inp.(noopInputter); !ok {
 		t.Fatalf("OpenRuntime type = %T, want noopInputter", inp)
+	}
+}
+
+func TestOpenRuntimeContextStopsFallbackWhenCanceled(t *testing.T) {
+	oldWlVirtual := newWlVirtualBackend
+	oldXTest := newXTestBackend
+	oldUinput := newUinputBackend
+	t.Cleanup(func() {
+		newWlVirtualBackend = oldWlVirtual
+		newXTestBackend = oldXTest
+		newUinputBackend = oldUinput
+	})
+
+	started := make(chan struct{})
+	newWlVirtualBackend = func(ctx context.Context, _ string) (Inputter, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, os.ErrNotExist
+	}
+	xTestCalls, uinputCalls := 0, 0
+	newXTestBackend = func(string) (Inputter, error) {
+		xTestCalls++
+		return noopInputter{}, nil
+	}
+	newUinputBackend = func(int32, int32) (Inputter, error) {
+		uinputCalls++
+		return noopInputter{}, nil
+	}
+	t.Setenv("PF_FORCE_INPUT", "")
+	rt := env.FromEnviron([]string{
+		"DISPLAY=:99",
+		"WAYLAND_DISPLAY=wayland-0",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := OpenRuntimeContext(ctx, rt, 1024, 768)
+		result <- err
+	}()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("OpenRuntimeContext error = %v, want context.Canceled", err)
+	}
+	if xTestCalls != 0 || uinputCalls != 0 {
+		t.Fatalf("fallback calls = xtest:%d uinput:%d, want neither after cancellation", xTestCalls, uinputCalls)
 	}
 }
 
@@ -97,7 +144,7 @@ func TestProbeRuntimeFallsBackToXTestWhenWaylandSocketUnresolvable(t *testing.T)
 		newUinputBackend = oldUinput
 	})
 
-	newWlVirtualBackend = func(string) (Inputter, error) {
+	newWlVirtualBackend = func(context.Context, string) (Inputter, error) {
 		return nil, os.ErrNotExist
 	}
 	newXTestBackend = func(string) (Inputter, error) {
@@ -137,7 +184,7 @@ func TestOpenUsesCurrentEnvironment(t *testing.T) {
 	})
 
 	var virtualCalls, xTestCalls, uinputCalls int
-	newWlVirtualBackend = func(string) (Inputter, error) {
+	newWlVirtualBackend = func(context.Context, string) (Inputter, error) {
 		virtualCalls++
 		return noopInputter{}, nil
 	}
@@ -177,7 +224,7 @@ func TestProbeUsesCurrentEnvironment(t *testing.T) {
 		newUinputBackend = oldUinput
 	})
 
-	newWlVirtualBackend = func(string) (Inputter, error) {
+	newWlVirtualBackend = func(context.Context, string) (Inputter, error) {
 		return nil, os.ErrNotExist
 	}
 	newXTestBackend = func(string) (Inputter, error) {
@@ -215,7 +262,7 @@ func TestOpenRuntimePrefersXTestOnX11(t *testing.T) {
 	})
 
 	var virtualCalls, xTestCalls, uinputCalls int
-	newWlVirtualBackend = func(string) (Inputter, error) {
+	newWlVirtualBackend = func(context.Context, string) (Inputter, error) {
 		virtualCalls++
 		return nil, os.ErrNotExist
 	}

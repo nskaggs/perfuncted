@@ -64,7 +64,14 @@ func gnomeNamedKeyval(k keymap.Key) (uint32, bool) {
 // NewGnomeNativeBackendForRuntime connects to GNOME's bundled virtual-input
 // adapter.
 func NewGnomeNativeBackendForRuntime(rt env.Runtime) (*GnomeNativeBackend, error) {
-	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityInput)
+	return NewGnomeNativeBackendForRuntimeContext(context.Background(), rt)
+}
+
+// NewGnomeNativeBackendForRuntimeContext connects to GNOME's bundled
+// virtual-input adapter while honoring ctx during capability negotiation.
+func NewGnomeNativeBackendForRuntimeContext(ctx context.Context, rt env.Runtime) (*GnomeNativeBackend, error) {
+	ctx = contextutil.Default(ctx)
+	bridge, err := gnomebridge.ConnectForCapability(ctx, rt, gnomebridge.CapabilityInput)
 	if err != nil {
 		return nil, fmt.Errorf("input/gnome-native: %w", err)
 	}

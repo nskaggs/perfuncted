@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 )
@@ -22,7 +23,14 @@ type GnomeNativeClipboard struct {
 
 // NewGnomeNativeClipboardForRuntime connects to the GNOME-native clipboard.
 func NewGnomeNativeClipboardForRuntime(rt env.Runtime) (*GnomeNativeClipboard, error) {
-	bridge, err := gnomebridge.ConnectForCapability(context.Background(), rt, gnomebridge.CapabilityClipboard)
+	return NewGnomeNativeClipboardForRuntimeContext(context.Background(), rt)
+}
+
+// NewGnomeNativeClipboardForRuntimeContext connects to the GNOME-native
+// clipboard while honoring ctx during capability negotiation.
+func NewGnomeNativeClipboardForRuntimeContext(ctx context.Context, rt env.Runtime) (*GnomeNativeClipboard, error) {
+	ctx = contextutil.Default(ctx)
+	bridge, err := gnomebridge.ConnectForCapability(ctx, rt, gnomebridge.CapabilityClipboard)
 	if err != nil {
 		return nil, fmt.Errorf("clipboard/gnome-native: %w", err)
 	}

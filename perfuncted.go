@@ -24,11 +24,11 @@ var ErrGNOMESessionRestartRequired = gnomebridge.ErrSessionRestartRequired
 
 // Injectable backend constructors for testing.
 var (
-	openScreen    = screen.OpenRuntime
-	openInput     = input.OpenRuntime
-	openWindow    = window.OpenRuntime
-	openOutput    = output.OpenRuntime
-	openClipboard = clipboard.OpenRuntime
+	openScreen    = screen.OpenRuntimeContext
+	openInput     = input.OpenRuntimeContext
+	openWindow    = window.OpenRuntimeContext
+	openOutput    = output.OpenRuntimeContext
+	openClipboard = clipboard.OpenRuntimeContext
 )
 
 func nestedSessionPattern() string {

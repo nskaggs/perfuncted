@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
@@ -157,33 +158,53 @@ func signedNumericID(id string) (uint64, error) {
 
 // OpenRuntime returns the best available Manager for rt.
 func OpenRuntime(rt env.Runtime) (Manager, error) {
+	return OpenRuntimeContext(context.Background(), rt)
+}
+
+// OpenRuntimeContext opens the window backend for rt while honoring ctx during
+// context-aware transport setup.
+func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Manager, error) { //nolint:gocyclo // Explicit backend priority and cancellation exits keep fallback behavior auditable.
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
 		return NewX11Backend(display)
 	}
 	switch compositor.DetectRuntime(rt) {
 	case compositor.KDE:
-		m, err := NewKWinScriptManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+		m, err := NewKWinScriptManagerForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			return nil, fmt.Errorf("window: KDE detected but KWin scripting unavailable: %w", err)
 		}
 		return m, nil
 
 	case compositor.Wlroots:
-		if m, err := NewSwayManagerRuntime(rt); err == nil {
+		if m, err := NewSwayManagerRuntimeContext(ctx, rt); err == nil {
 			return m, nil
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
-		m, err := NewWaylandWindowManagerForSocket(rt.SocketPath())
+		m, err := NewWaylandWindowManagerForSocketContext(ctx, rt.SocketPath())
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			return nil, fmt.Errorf("window: no window manager available on this wlroots compositor: %w", err)
 		}
 		return m, nil
 
 	case compositor.GNOME:
-		return openGNOMERuntime(rt)
+		return openGNOMERuntimeContext(ctx, rt)
 
 	case compositor.Unknown:
-		if m, err := NewWaylandWindowManagerForSocket(rt.SocketPath()); err == nil {
+		if m, err := NewWaylandWindowManagerForSocketContext(ctx, rt.SocketPath()); err == nil {
 			return m, nil
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 		if display := rt.Display(); display != "" {
 			return NewX11Backend(display)
@@ -199,14 +220,19 @@ func OpenRuntime(rt env.Runtime) (Manager, error) {
 	}
 }
 
-func openGNOMERuntime(rt env.Runtime) (Manager, error) {
-	if m, err := NewGnomeNativeManagerForRuntime(rt); err == nil {
+func openGNOMERuntimeContext(ctx context.Context, rt env.Runtime) (Manager, error) {
+	if m, err := NewGnomeNativeManagerForRuntimeContext(ctx, rt); err == nil {
 		return m, nil
 	} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
 		return nil, err
+	} else if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
-	m, err := NewGnomeManagerForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	m, err := NewGnomeManagerForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("window: GNOME Shell Eval unavailable (unsafe mode required): %w", err)
 	}
 	return m, nil

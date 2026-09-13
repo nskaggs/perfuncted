@@ -71,16 +71,16 @@ type wlKeyboard struct {
 
 // newWlKeyboard binds zwp_virtual_keyboard_manager_v1 and creates a virtual
 // keyboard. seatID is the wl_registry name of the wl_seat (required by protocol).
-func newWlKeyboard(ctx *wl.Context, registry *wl.Registry, mgrID, mgrVer, seatID uint32) (*wlKeyboard, error) {
+func newWlKeyboard(cancel context.Context, ctx *wl.Context, registry *wl.Registry, mgrID, mgrVer, seatID uint32) (*wlKeyboard, error) {
 	seat := &wl.RawProxy{}
 	ctx.Register(seat)
-	if err := registry.Bind(seatID, "wl_seat", 1, seat.ID()); err != nil {
+	if err := registry.BindContext(cancel, seatID, "wl_seat", 1, seat.ID()); err != nil {
 		return nil, fmt.Errorf("bind wl_seat: %w", err)
 	}
 
 	mgr := &wl.RawProxy{}
 	ctx.Register(mgr)
-	if err := registry.Bind(mgrID, "zwp_virtual_keyboard_manager_v1", min(mgrVer, 1), mgr.ID()); err != nil {
+	if err := registry.BindContext(cancel, mgrID, "zwp_virtual_keyboard_manager_v1", min(mgrVer, 1), mgr.ID()); err != nil {
 		return nil, fmt.Errorf("bind virtual keyboard manager: %w", err)
 	}
 
@@ -94,27 +94,32 @@ func newWlKeyboard(ctx *wl.Context, registry *wl.Registry, mgrID, mgrVer, seatID
 	wl.PutUint32(buf[4:], 16<<16) // size=16, opcode=0
 	wl.PutUint32(buf[8:], seat.ID())
 	wl.PutUint32(buf[12:], k.kbd.ID())
-	if err := ctx.WriteMsg(buf[:], nil); err != nil {
+	if err := ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		return nil, fmt.Errorf("create virtual keyboard: %w", err)
 	}
 
 	// Prime the compositor seat. Some headless compositors drop the first key
 	// event if the seat's keyboard state has not been initialised yet.
-	if err := k.warmup(); err != nil {
+	if err := k.warmupContext(cancel); err != nil {
 		return nil, fmt.Errorf("keyboard warmup: %w", err)
 	}
 	return k, nil
 }
 
-func (k *wlKeyboard) warmup() error {
-	ctx := context.Background()
+func (k *wlKeyboard) warmupContext(ctx context.Context) error {
 	if err := k.uploadKeymap(ctx, xkbModsOnly()); err != nil {
 		return err
 	}
 	if err := k.sendKey(ctx, kcShift, 1); err != nil {
 		return err
 	}
-	time.Sleep(2 * time.Millisecond)
+	timer := time.NewTimer(2 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
 	return k.sendKey(ctx, kcShift, 0)
 }
 

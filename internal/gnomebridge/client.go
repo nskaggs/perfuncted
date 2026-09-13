@@ -63,7 +63,11 @@ func NewClientForBus(ctx context.Context, addr string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gnome bridge: session bus: %w", err)
 	}
-	if !dbusutil.HasService(conn, BusName) {
+	hasService, err := dbusutil.HasServiceContext(ctx, conn, BusName)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("gnome bridge: inspect session bus: %w", err), conn.Close())
+	}
+	if !hasService {
 		_ = conn.Close()
 		return nil, fmt.Errorf("%w: %s is not on the session bus", ErrUnavailable, BusName)
 	}

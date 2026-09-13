@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -71,14 +72,30 @@ type Lister interface {
 
 // OpenRuntime returns the best available output lister for rt.
 func OpenRuntime(rt env.Runtime) (Lister, error) {
+	return OpenRuntimeContext(context.Background(), rt)
+}
+
+// OpenRuntimeContext opens the output backend for rt while honoring ctx during
+// context-aware transport setup.
+func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Lister, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	display := rt.Display()
 	sock := rt.SocketPath()
 	if display != "" && sock == "" {
 		return NewX11Lister(display)
 	}
 	if sock != "" {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if wl.SocketReachable(sock) {
-			return NewWaylandLister(sock)
+			return NewWaylandListerContext(ctx, sock)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		if display != "" {
 			return NewX11Lister(display)

@@ -34,7 +34,7 @@ type WlrScreencopyBackend struct {
 	ctxMu        sync.Mutex
 	ctx          *wl.Context
 	lastUsed     time.Time
-	connect      func(string) (*wl.Context, error)
+	connect      func(context.Context, string) (*wl.Context, error)
 	ttl          time.Duration
 	initJanitor  func()
 	done         chan struct{}
@@ -61,7 +61,19 @@ type WlrScreencopyBackend struct {
 // connector and TTL (used by tests). Use NewWlrScreencopyBackend for normal use.
 func NewWlrScreencopyBackendWithConnector(sock string, connect func(string) (*wl.Context, error), ttl time.Duration) *WlrScreencopyBackend {
 	if connect == nil {
-		connect = wl.Connect
+		return newWlrScreencopyBackendWithContextConnector(sock, wl.ConnectContext, ttl)
+	}
+	return newWlrScreencopyBackendWithContextConnector(sock, func(ctx context.Context, socket string) (*wl.Context, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return connect(socket)
+	}, ttl)
+}
+
+func newWlrScreencopyBackendWithContextConnector(sock string, connect func(context.Context, string) (*wl.Context, error), ttl time.Duration) *WlrScreencopyBackend {
+	if connect == nil {
+		connect = wl.ConnectContext
 	}
 	if ttl <= 0 {
 		ttl = defaultWlrCacheTTL
@@ -134,7 +146,7 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 		b.activeMu.Unlock()
 	}()
 	if b.ctx == nil {
-		ctx, err := b.connect(b.sock)
+		ctx, err := b.connect(operationCtx, b.sock)
 		if err != nil {
 			return fmt.Errorf("screen/wlr: connect: %w", err)
 		}
@@ -497,10 +509,20 @@ func (b *WlrScreencopyBackend) Close() error {
 
 // NewWlrScreencopyBackendForSocket connects to sock and creates a wlr backend.
 func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error) {
+	return NewWlrScreencopyBackendForSocketContext(context.Background(), sock)
+}
+
+// NewWlrScreencopyBackendForSocketContext validates the compositor protocol
+// while honoring ctx during connection setup.
+func NewWlrScreencopyBackendForSocketContext(ctx context.Context, sock string) (*WlrScreencopyBackend, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if sock == "" {
 		return nil, fmt.Errorf("screen/wlr: WAYLAND_DISPLAY not set")
 	}
-	s, err := wl.NewSession(sock)
+	s, err := wl.NewSessionContext(ctx, sock)
 	if err != nil {
 		return nil, fmt.Errorf("screen/wlr: %w", err)
 	}
@@ -516,7 +538,7 @@ func NewWlrScreencopyBackendForSocket(sock string) (*WlrScreencopyBackend, error
 		return nil, fmt.Errorf("screen/wlr: compositor does not advertise zwlr_screencopy_manager_v1")
 	}
 	_ = s.Close()
-	return NewWlrScreencopyBackendWithConnector(sock, wl.Connect, defaultWlrCacheTTL), nil
+	return newWlrScreencopyBackendWithContextConnector(sock, wl.ConnectContext, defaultWlrCacheTTL), nil
 }
 
 type wlRawProxy struct {

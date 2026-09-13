@@ -120,14 +120,28 @@ func portalSignalMatches(sig *dbus.Signal, paths ...dbus.ObjectPath) bool {
 // NewPortalDBusBackendForBus verifies that the xdg-desktop-portal Screenshot
 // interface is reachable on the session bus at addr.
 func NewPortalDBusBackendForBus(addr string) (*PortalDBusBackend, error) {
+	return NewPortalDBusBackendForBusContext(context.Background(), addr)
+}
+
+// NewPortalDBusBackendForBusContext verifies portal availability while
+// honoring ctx during session-bus setup and service discovery.
+func NewPortalDBusBackendForBusContext(ctx context.Context, addr string) (*PortalDBusBackend, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if addr == "" {
 		return nil, fmt.Errorf("screen/portal: D-Bus session unset")
 	}
-	conn, err := dbusutil.SessionBusAddress(addr)
+	conn, err := dbusutil.SessionBusAddressContext(ctx, addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/portal: D-Bus session: %w", err)
 	}
-	if !dbusutil.HasService(conn, portalDest) {
+	hasService, err := dbusutil.HasServiceContext(ctx, conn, portalDest)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("screen/portal: inspect session bus: %w", err), conn.Close())
+	}
+	if !hasService {
 		return nil, errors.Join(
 			fmt.Errorf("screen/portal: %s not on session bus", portalDest),
 			conn.Close(),

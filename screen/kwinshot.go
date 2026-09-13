@@ -57,14 +57,28 @@ type kwinDBusTransport struct {
 // NewKWinShotBackendForBus opens a KWin screenshot backend on the session bus
 // at addr and verifies that the caller is authorized to capture the screen.
 func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
+	return NewKWinShotBackendForBusContext(context.Background(), addr)
+}
+
+// NewKWinShotBackendForBusContext verifies KWin screenshot authorization on
+// the session bus while honoring ctx during connection and probe capture.
+func NewKWinShotBackendForBusContext(ctx context.Context, addr string) (*KWinShotBackend, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if addr == "" {
 		return nil, fmt.Errorf("screen/kwin: D-Bus session unset")
 	}
-	conn, err := dbusutil.SessionBusAddress(addr)
+	conn, err := dbusutil.SessionBusAddressContext(ctx, addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/kwin: D-Bus session: %w", err)
 	}
-	if !dbusutil.HasService(conn, kwinShotDest) {
+	hasService, err := dbusutil.HasServiceContext(ctx, conn, kwinShotDest)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("screen/kwin: inspect session bus: %w", err), conn.Close())
+	}
+	if !hasService {
 		return nil, errors.Join(
 			fmt.Errorf("screen/kwin: %s not on session bus", kwinShotDest),
 			conn.Close(),
@@ -75,7 +89,7 @@ func NewKWinShotBackendForBus(addr string) (*KWinShotBackend, error) {
 	// Probe grab: verify the process has screenshot authorization.
 	// KDE Plasma 6 requires explicit per-process permission via the xdg
 	// permission store; this check allows Open() to fall back to the portal.
-	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
+	if _, err := b.Grab(ctx, image.Rect(0, 0, 1, 1)); err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("screen/kwin: authorization check failed: %w", err),
 			conn.Close(),

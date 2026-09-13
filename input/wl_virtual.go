@@ -59,8 +59,18 @@ type WlVirtualBackend struct {
 // NewWlVirtualBackend connects to sock and initialises virtual pointer and keyboard.
 // The output dimensions are probed from the first wl_output advertised.
 func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocyclo
+	return NewWlVirtualBackendContext(context.Background(), sock)
+}
+
+// NewWlVirtualBackendContext connects to sock and initializes virtual pointer
+// and keyboard while honoring ctx during protocol setup.
+func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtualBackend, error) { //nolint:gocyclo
+	cancel = contextutil.Default(cancel)
+	if err := cancel.Err(); err != nil {
+		return nil, err
+	}
 	// Use the helper to connect and enumerate globals.
-	s, err := wl.NewSession(sock)
+	s, err := wl.NewSessionContext(cancel, sock)
 	if err != nil {
 		return nil, fmt.Errorf("input/wl-virtual: %w", err)
 	}
@@ -108,20 +118,20 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocy
 
 	// Bind virtual pointer manager.
 	registry := s.Registry
-	ctx := s.Ctx
-	initErr := wl.WithOperation(ctx, func() error {
+	wlctx := s.Ctx
+	initErr := wl.WithOperationContext(cancel, wlctx, func() error {
 		mgrProxy := &wl.RawProxy{}
-		ctx.Register(mgrProxy)
-		if bindErr := registry.Bind(ptrMgrID, "zwlr_virtual_pointer_manager_v1", min(ptrMgrVer, 2), mgrProxy.ID()); bindErr != nil {
+		wlctx.Register(mgrProxy)
+		if bindErr := registry.BindContext(cancel, ptrMgrID, "zwlr_virtual_pointer_manager_v1", min(ptrMgrVer, 2), mgrProxy.ID()); bindErr != nil {
 			return fmt.Errorf("input/wl-virtual: bind virtual pointer manager: %w", bindErr)
 		}
 
 		// Bind wl_output to read dimensions.
 		outProxy := &wl.RawProxy{}
-		ctx.Register(outProxy)
+		wlctx.Register(outProxy)
 		b.outW, b.outH = 1920, 1080 // fallback
 		if outID != 0 {
-			if bindErr := registry.Bind(outID, "wl_output", 1, outProxy.ID()); bindErr == nil {
+			if bindErr := registry.BindContext(cancel, outID, "wl_output", 1, outProxy.ID()); bindErr == nil {
 				// Handle mode (physical size) and scale events and maintain logical dims.
 				outProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 					switch opcode {
@@ -150,7 +160,7 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocy
 						}
 					}
 				}
-				if err := s.Display.RoundTrip(); err != nil {
+				if err := s.Display.RoundTripContext(cancel); err != nil {
 					return fmt.Errorf("input/wl-virtual: output round-trip: %w", err)
 				}
 			}
@@ -158,17 +168,17 @@ func NewWlVirtualBackend(sock string) (*WlVirtualBackend, error) { //nolint:gocy
 
 		// Create virtual pointer: manager.create_virtual_pointer(seat=null, new_id)
 		b.ptr = &wl.RawProxy{}
-		ctx.Register(b.ptr)
+		wlctx.Register(b.ptr)
 		var buf [16]byte
 		wl.PutUint32(buf[0:], mgrProxy.ID())
 		wl.PutUint32(buf[4:], 16<<16) // size=16, opcode=0 (create_virtual_pointer)
 		wl.PutUint32(buf[8:], 0)      // seat = null
 		wl.PutUint32(buf[12:], b.ptr.ID())
-		if writeErr := wl.WriteMsg(ctx, buf[:], nil); writeErr != nil {
+		if writeErr := wlctx.WriteMsgContext(cancel, buf[:], nil); writeErr != nil {
 			return fmt.Errorf("input/wl-virtual: create virtual pointer: %w", writeErr)
 		}
 
-		kbd, kbdErr := newWlKeyboard(ctx, registry, kbdMgrID, kbdMgrVer, seatID)
+		kbd, kbdErr := newWlKeyboard(cancel, wlctx, registry, kbdMgrID, kbdMgrVer, seatID)
 		if kbdErr != nil {
 			return fmt.Errorf("input/wl-virtual: %w", kbdErr)
 		}

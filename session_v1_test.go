@@ -7,7 +7,6 @@ import (
 	"image"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,23 +57,6 @@ func (s *capabilityScreen) Close() error {
 
 type capabilityClipboard struct{}
 
-type cancelDuringOpenContext struct {
-	context.Context //nolint:containedctx // deterministic test context
-	done            chan struct{}
-	cancelOnce      func()
-	checks          atomic.Int32
-}
-
-func (c *cancelDuringOpenContext) Err() error {
-	if c.checks.Add(1) > 1 {
-		c.cancelOnce()
-		return context.Canceled
-	}
-	return nil
-}
-
-func (c *cancelDuringOpenContext) Done() <-chan struct{} { return c.done }
-
 func (*capabilityClipboard) Get(context.Context) (string, error) {
 	return "", nil
 }
@@ -106,23 +88,23 @@ func preserveOpeners(t *testing.T) {
 func TestOpenLeavesUnrequestedCapabilitiesClosed(t *testing.T) {
 	preserveOpeners(t)
 	var calls atomic.Int32
-	openScreen = func(env.Runtime) (screen.Screenshotter, error) {
+	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
 		calls.Add(1)
 		return nil, errors.New("unexpected screen open")
 	}
-	openInput = func(env.Runtime, int32, int32) (input.Inputter, error) {
+	openInput = func(context.Context, env.Runtime, int32, int32) (input.Inputter, error) {
 		calls.Add(1)
 		return nil, errors.New("unexpected input open")
 	}
-	openWindow = func(env.Runtime) (window.Manager, error) {
+	openWindow = func(context.Context, env.Runtime) (window.Manager, error) {
 		calls.Add(1)
 		return nil, errors.New("unexpected window open")
 	}
-	openOutput = func(env.Runtime) (output.Lister, error) {
+	openOutput = func(context.Context, env.Runtime) (output.Lister, error) {
 		calls.Add(1)
 		return nil, errors.New("unexpected output open")
 	}
-	openClipboard = func(env.Runtime) (clipboard.Clipboard, error) {
+	openClipboard = func(context.Context, env.Runtime) (clipboard.Clipboard, error) {
 		calls.Add(1)
 		return nil, errors.New("unexpected clipboard open")
 	}
@@ -155,7 +137,7 @@ func TestOpenCapabilityInputUsesManagedResolution(t *testing.T) {
 	preserveOpeners(t)
 	wantErr := errors.New("input opener called")
 	var gotX, gotY int32
-	openInput = func(_ env.Runtime, maxX, maxY int32) (input.Inputter, error) {
+	openInput = func(_ context.Context, _ env.Runtime, maxX, maxY int32) (input.Inputter, error) {
 		gotX, gotY = maxX, maxY
 		return nil, wantErr
 	}
@@ -182,20 +164,62 @@ func TestOpenRejectsCanceledContext(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsContextCanceledDuringInitialization(t *testing.T) {
-	done := make(chan struct{})
-	ctx := &cancelDuringOpenContext{
-		Context: context.Background(),
-		done:    done,
-		cancelOnce: sync.OnceFunc(func() {
-			close(done)
-		}),
+func TestOpenStopsCapabilityInitializationWhenContextCanceled(t *testing.T) {
+	preserveOpeners(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var inputOpenCalls atomic.Int32
+	screenBackend := &capabilityScreen{}
+	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
+		cancel()
+		return screenBackend, nil
+	}
+	openInput = func(context.Context, env.Runtime, int32, int32) (input.Inputter, error) {
+		inputOpenCalls.Add(1)
+		return nil, errors.New("input opener ran after cancellation")
 	}
 
-	if session, err := Open(ctx); !errors.Is(err, context.Canceled) {
+	if session, err := Open(ctx, Require(CapabilityScreen, CapabilityInput)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context.Canceled", err)
 	} else if session != nil {
 		t.Fatal("Open returned a session after cancellation")
+	}
+	if got := inputOpenCalls.Load(); got != 0 {
+		t.Fatalf("input opener calls = %d, want 0 after cancellation", got)
+	}
+	if got := screenBackend.closeCalls.Load(); got != 1 {
+		t.Fatalf("opened screen backend close calls = %d, want 1", got)
+	}
+}
+
+func TestOpenPassesContextToCapabilityOpener(t *testing.T) {
+	preserveOpeners(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	openInputCalls := 0
+	openScreen = func(ctx context.Context, _ env.Runtime) (screen.Screenshotter, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	openInput = func(context.Context, env.Runtime, int32, int32) (input.Inputter, error) {
+		openInputCalls++
+		return nil, errors.New("input opener ran after cancellation")
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := Open(ctx, Require(CapabilityScreen, CapabilityInput))
+		result <- err
+	}()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Open error = %v, want context.Canceled", err)
+	}
+	if openInputCalls != 0 {
+		t.Fatalf("input opener calls = %d, want 0 after cancellation", openInputCalls)
 	}
 }
 
@@ -203,10 +227,10 @@ func TestOpenRequiredAndOptionalCapabilities(t *testing.T) {
 	preserveOpeners(t)
 	clipboardBackend := &capabilityClipboard{}
 	optionalErr := errors.New("outputs unavailable")
-	openClipboard = func(env.Runtime) (clipboard.Clipboard, error) {
+	openClipboard = func(context.Context, env.Runtime) (clipboard.Clipboard, error) {
 		return clipboardBackend, nil
 	}
-	openOutput = func(env.Runtime) (output.Lister, error) {
+	openOutput = func(context.Context, env.Runtime) (output.Lister, error) {
 		return nil, optionalErr
 	}
 
@@ -250,10 +274,10 @@ func TestOpenRequiredFailureCleansPartialCapabilities(t *testing.T) {
 	preserveOpeners(t)
 	screenBackend := &capabilityScreen{}
 	inputErr := errors.New("input unavailable")
-	openScreen = func(env.Runtime) (screen.Screenshotter, error) {
+	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
 		return screenBackend, nil
 	}
-	openInput = func(env.Runtime, int32, int32) (input.Inputter, error) {
+	openInput = func(context.Context, env.Runtime, int32, int32) (input.Inputter, error) {
 		return nil, inputErr
 	}
 
@@ -280,7 +304,7 @@ func TestOpenRequiredFailureCleansPartialCapabilities(t *testing.T) {
 
 func TestOpenTreatsNilBackendAsUnavailable(t *testing.T) {
 	preserveOpeners(t)
-	openScreen = func(env.Runtime) (screen.Screenshotter, error) {
+	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
 		return nil, nil
 	}
 
@@ -299,7 +323,7 @@ func TestOpenTreatsNilBackendAsUnavailable(t *testing.T) {
 func TestOpenTreatsTypedNilBackendAsUnavailable(t *testing.T) {
 	preserveOpeners(t)
 	var backend *capabilityScreen
-	openScreen = func(env.Runtime) (screen.Screenshotter, error) {
+	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
 		return backend, nil
 	}
 

@@ -56,14 +56,28 @@ type GnomeShellScreenshotBackend struct {
 // NewGnomeShellScreenshotBackendForBus returns a backend for the session bus at
 // addr when GNOME Shell's screenshot service is reachable and authorized.
 func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBackend, error) {
+	return NewGnomeShellScreenshotBackendForBusContext(context.Background(), addr)
+}
+
+// NewGnomeShellScreenshotBackendForBusContext verifies screenshot access
+// while honoring ctx during session-bus setup and authorization probing.
+func NewGnomeShellScreenshotBackendForBusContext(ctx context.Context, addr string) (*GnomeShellScreenshotBackend, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if addr == "" {
 		return nil, fmt.Errorf("screen/gnome-shell: D-Bus session unset")
 	}
-	conn, err := dbusutil.SessionBusAddress(addr)
+	conn, err := dbusutil.SessionBusAddressContext(ctx, addr)
 	if err != nil {
 		return nil, fmt.Errorf("screen/gnome-shell: D-Bus session: %w", err)
 	}
-	if !dbusutil.HasService(conn, gnomeShellShotDest) {
+	hasService, err := dbusutil.HasServiceContext(ctx, conn, gnomeShellShotDest)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("screen/gnome-shell: inspect session bus: %w", err), conn.Close())
+	}
+	if !hasService {
 		return nil, errors.Join(
 			fmt.Errorf("screen/gnome-shell: %s not on session bus", gnomeShellShotDest),
 			conn.Close(),
@@ -73,7 +87,7 @@ func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBac
 		conn: conn,
 		obj:  conn.Object(gnomeShellShotDest, gnomeShellShotPath),
 	}
-	if _, err := b.Grab(context.Background(), image.Rect(0, 0, 1, 1)); err != nil {
+	if _, err := b.Grab(ctx, image.Rect(0, 0, 1, 1)); err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("screen/gnome-shell: authorization check failed: %w", err),
 			conn.Close(),

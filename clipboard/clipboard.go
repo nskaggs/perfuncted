@@ -42,6 +42,16 @@ func Open() (Clipboard, error) {
 // OpenRuntime detects the environment represented by rt and returns the
 // appropriate Clipboard backend.
 func OpenRuntime(rt env.Runtime) (Clipboard, error) {
+	return OpenRuntimeContext(context.Background(), rt)
+}
+
+// OpenRuntimeContext opens the clipboard backend for rt while honoring ctx
+// during context-aware GNOME bridge setup.
+func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Clipboard, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Capture current session-specific environment so external clipboard
 	// tools (wl-copy/wl-paste) are invoked against the correct Wayland
 	// compositor when the parent process later calls Set/Get.
@@ -50,10 +60,12 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 	sock := rt.SocketPath()
 
 	if compositor.DetectRuntime(rt) == compositor.GNOME {
-		if clipboard, err := NewGnomeNativeClipboardForRuntime(rt); err == nil {
+		if clipboard, err := NewGnomeNativeClipboardForRuntimeContext(ctx, rt); err == nil {
 			return clipboard, nil
 		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
 			return nil, err
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 	}
 
@@ -82,6 +94,9 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return nil, ErrNoClipboardTool
 }
 

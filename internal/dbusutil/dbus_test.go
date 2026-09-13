@@ -16,6 +16,14 @@ func TestHasServiceNil(t *testing.T) {
 	}
 }
 
+func TestHasServiceContextRejectsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if available, err := HasServiceContext(ctx, nil, "org.freedesktop.DBus"); available || !errors.Is(err, context.Canceled) {
+		t.Fatalf("HasServiceContext() = (%v, %v), want (false, context.Canceled)", available, err)
+	}
+}
+
 func TestSessionBusAddressInvalid(t *testing.T) {
 	_, err := SessionBusAddress("unix:path=/tmp/nonexistent-dbus-socket-12345")
 	if err == nil {

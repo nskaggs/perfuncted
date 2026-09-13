@@ -85,45 +85,79 @@ type Resolver interface {
 
 // OpenRuntime returns the best available Screenshotter for rt.
 func OpenRuntime(rt env.Runtime) (Screenshotter, error) { //nolint:gocyclo
+	return OpenRuntimeContext(context.Background(), rt)
+}
+
+// OpenRuntimeContext opens the screenshot backend for rt while honoring ctx
+// during context-aware transport setup.
+func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Screenshotter, error) { //nolint:gocyclo
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
 		return NewX11Backend(display)
 	}
 	switch compositor.DetectRuntime(rt) {
 	case compositor.KDE:
-		if b, err := NewKWinShotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
+		if b, err := NewKWinShotBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
-		if b, err := NewExtCaptureBackendForSocket(rt.SocketPath()); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b, err := NewExtCaptureBackendForSocketContext(ctx, rt.SocketPath()); err == nil {
 			return b, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		// Fall back to xdg-desktop-portal (xdg-desktop-portal-kde) when KWin
 		// screenshot authorization is denied. The portal may show a one-time
 		// consent dialog on first use; once granted the permission is remembered.
-		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
+		if b, err := NewPortalDBusBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return nil, fmt.Errorf("screen: KDE requires KWin.ScreenShot2 auth or xdg-desktop-portal")
 
 	case compositor.Wlroots:
-		if b, err := NewWlrScreencopyBackendForSocket(rt.SocketPath()); err == nil {
+		if b, err := NewWlrScreencopyBackendForSocketContext(ctx, rt.SocketPath()); err == nil {
 			return b, nil
 		}
-		if b, err := NewExtCaptureBackendForSocket(rt.SocketPath()); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b, err := NewExtCaptureBackendForSocketContext(ctx, rt.SocketPath()); err == nil {
 			return b, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return nil, fmt.Errorf("screen: wlroots compositor but no screencopy protocol available")
 
 	case compositor.GNOME:
-		if b, err := NewGnomeNativeScreenBackendForRuntime(rt); err == nil {
+		if b, err := NewGnomeNativeScreenBackendForRuntimeContext(ctx, rt); err == nil {
 			return b, nil
 		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
 			return nil, err
 		}
-		if b, err := NewGnomeShellScreenshotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b, err := NewGnomeShellScreenshotBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
 		}
-		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b, err := NewPortalDBusBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return nil, fmt.Errorf("screen: GNOME Wayland requires GNOME Shell unsafe mode or xdg-desktop-portal")
 
@@ -135,14 +169,23 @@ func OpenRuntime(rt env.Runtime) (Screenshotter, error) { //nolint:gocyclo
 		return NewX11Backend(display)
 
 	default: // Unknown Wayland compositor — try protocols then portal
-		if b, err := NewWlrScreencopyBackendForSocket(rt.SocketPath()); err == nil {
+		if b, err := NewWlrScreencopyBackendForSocketContext(ctx, rt.SocketPath()); err == nil {
 			return b, nil
 		}
-		if b, err := NewExtCaptureBackendForSocket(rt.SocketPath()); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b, err := NewExtCaptureBackendForSocketContext(ctx, rt.SocketPath()); err == nil {
 			return b, nil
 		}
-		if b, err := NewPortalDBusBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b, err := NewPortalDBusBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		if display := rt.Display(); display != "" {
 			return NewX11Backend(display)

@@ -48,21 +48,31 @@ type WaylandLister struct {
 
 // NewWaylandLister connects to the Wayland socket and discovers outputs.
 func NewWaylandLister(sock string) (*WaylandLister, error) {
+	return NewWaylandListerContext(context.Background(), sock)
+}
+
+// NewWaylandListerContext connects to the Wayland socket and discovers
+// outputs while honoring ctx during connection and protocol initialization.
+func NewWaylandListerContext(ctx context.Context, sock string) (*WaylandLister, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if sock == "" {
 		return nil, fmt.Errorf("output/wayland: WAYLAND_DISPLAY not set")
 	}
-	s, err := wl.NewSession(sock)
+	s, err := wl.NewSessionContext(ctx, sock)
 	if err != nil {
 		return nil, fmt.Errorf("output/wayland: connect: %w", err)
 	}
 	stopCtx, stopCancel := context.WithCancel(context.Background())
 	l := &WaylandLister{session: s, stopCtx: stopCtx, stopCancel: stopCancel}
 
-	initErr := wl.WithOperation(s.Ctx, func() error {
+	initErr := wl.WithOperationContext(ctx, s.Ctx, func() error {
 		globals := s.GlobalsSnapshot()
 		for _, ev := range outputGlobals(globals) {
 			out := newWaylandOutput(ev)
-			if err := l.bindOutput(context.Background(), out, ev); err != nil {
+			if err := l.bindOutput(ctx, out, ev); err != nil {
 				return err
 			}
 			l.outputs = append(l.outputs, out)
@@ -76,21 +86,21 @@ func NewWaylandLister(sock string) (*WaylandLister, error) {
 			}
 			l.xdgManager = &wl.RawProxy{}
 			s.Ctx.Register(l.xdgManager)
-			if err := s.Registry.Bind(ev.Name, ev.Interface, minUint32(ev.Version, 3), l.xdgManager.ID()); err != nil {
+			if err := s.Registry.BindContext(ctx, ev.Name, ev.Interface, minUint32(ev.Version, 3), l.xdgManager.ID()); err != nil {
 				return fmt.Errorf("output/wayland: bind xdg-output manager: %w", err)
 			}
 			break
 		}
-		if err := s.Display.RoundTrip(); err != nil {
+		if err := s.Display.RoundTripContext(ctx); err != nil {
 			return err
 		}
 		if l.xdgManager != nil {
 			for _, out := range l.outputs {
-				if err := l.bindXDGOutput(context.Background(), out); err != nil {
+				if err := l.bindXDGOutput(ctx, out); err != nil {
 					return err
 				}
 			}
-			return s.Display.RoundTrip()
+			return s.Display.RoundTripContext(ctx)
 		}
 		return nil
 	})

@@ -236,11 +236,17 @@ func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) er
 	}
 
 	for _, capability := range allCapabilities {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		status := s.capabilities[capability]
 		if !status.Requested {
 			continue
 		}
 		backend, err := s.openCapabilityContext(ctx, capability)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			status.Failure = errors.Join(ErrUnavailable, err)
 		}
@@ -301,7 +307,7 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 func (s *Session) openCapabilityContext(ctx context.Context, capability Capability) (any, error) {
 	switch capability {
 	case CapabilityScreen:
-		backend, err := openScreen(s.env)
+		backend, err := openScreen(ctx, s.env)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Screen.backend = backend
@@ -313,7 +319,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		if s.config.Resolution != (image.Point{}) {
 			maxX, maxY = int32(s.config.Resolution.X), int32(s.config.Resolution.Y)
 		}
-		backend, err := openInput(s.env, maxX, maxY)
+		backend, err := openInput(ctx, s.env, maxX, maxY)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Input.backend = backend
@@ -321,7 +327,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityWindows:
-		backend, err := openWindow(s.env)
+		backend, err := openWindow(ctx, s.env)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Windows.backend = backend
@@ -329,7 +335,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityOutputs:
-		backend, err := openOutput(s.env)
+		backend, err := openOutput(ctx, s.env)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Outputs.backend = backend
@@ -337,7 +343,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		closeFailedBackend(backend, err)
 		return backend, err
 	case CapabilityClipboard:
-		backend, err := openClipboard(s.env)
+		backend, err := openClipboard(ctx, s.env)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
 			s.Clipboard.backend = backend

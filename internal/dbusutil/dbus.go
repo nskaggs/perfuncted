@@ -94,12 +94,25 @@ func runHandshakeContext(ctx context.Context, handshake func() error, closeConn 
 
 // HasService reports whether the given service name is present on the session bus.
 func HasService(conn *dbus.Conn, name string) bool {
+	available, _ := HasServiceContext(context.Background(), conn, name)
+	return available
+}
+
+// HasServiceContext reports whether name is present on conn and permits the
+// bus method call to be canceled before the service snapshot arrives.
+func HasServiceContext(ctx context.Context, conn *dbus.Conn, name string) (bool, error) {
+	if ctx == nil {
+		return false, errors.New("dbusutil: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if conn == nil {
-		return false
+		return false, nil
 	}
 	var names []string
-	if err := conn.BusObject().Call("org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
-		return false
+	if err := conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
+		return false, err
 	}
-	return slices.Contains(names, name)
+	return slices.Contains(names, name), nil
 }

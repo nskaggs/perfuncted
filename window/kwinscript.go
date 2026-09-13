@@ -55,16 +55,26 @@ type KWinScriptManager struct {
 // NewKWinScriptManagerForBus returns a KWinScriptManager for the session bus
 // at addr if the KWin scripting interface is accessible.
 func NewKWinScriptManagerForBus(addr string) (*KWinScriptManager, error) {
+	return NewKWinScriptManagerForBusContext(context.Background(), addr)
+}
+
+// NewKWinScriptManagerForBusContext verifies the KWin scripting interface
+// while honoring ctx during session-bus setup and introspection.
+func NewKWinScriptManagerForBusContext(ctx context.Context, addr string) (*KWinScriptManager, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if addr == "" {
 		return nil, fmt.Errorf("window/kwinscript: D-Bus session unset")
 	}
-	conn, err := dbusutil.SessionBusAddress(addr)
+	conn, err := dbusutil.SessionBusAddressContext(ctx, addr)
 	if err != nil {
 		return nil, fmt.Errorf("window/kwinscript: D-Bus: %w", err)
 	}
 	var intro string
 	obj := conn.Object(kwinScriptSvc, kwinScriptPath)
-	if err := obj.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Store(&intro); err != nil {
+	if err := obj.CallWithContext(ctx, "org.freedesktop.DBus.Introspectable.Introspect", 0).Store(&intro); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("window/kwinscript: KWin Scripting not on session bus: %w", err)
 	}

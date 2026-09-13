@@ -99,11 +99,21 @@ func applyToplevelString(info *Info, opcode uint32, data []byte) bool {
 // NewWaylandWindowManagerForSocket connects to sock and returns a manager if
 // the compositor advertises at least one foreign-toplevel protocol.
 func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error) {
+	return NewWaylandWindowManagerForSocketContext(context.Background(), sock)
+}
+
+// NewWaylandWindowManagerForSocketContext connects to sock and initializes a
+// foreign-toplevel manager while honoring ctx during protocol setup.
+func NewWaylandWindowManagerForSocketContext(ctx context.Context, sock string) (*WaylandWindowManager, error) { //nolint:gocyclo // Protocol discovery and capability setup are deliberately kept together.
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if sock == "" {
 		return nil, fmt.Errorf("window/wayland: WAYLAND_DISPLAY not set")
 	}
 
-	s, err := wl.NewSession(sock)
+	s, err := wl.NewSessionContext(ctx, sock)
 	if err != nil {
 		return nil, fmt.Errorf("window/wayland: %w", err)
 	}
@@ -135,16 +145,16 @@ func NewWaylandWindowManagerForSocket(sock string) (*WaylandWindowManager, error
 	// reference a valid seat object. Binding now avoids a race when Activate()
 	// is called later and the caller expects the request to contain a real
 	// seat object id.
-	initErr := wl.WithOperation(m.display.Context(), func() error {
+	initErr := wl.WithOperationContext(ctx, m.display.Context(), func() error {
 		if m.seatID != 0 {
 			seatProxy := &wl.RawProxy{}
 			m.display.Context().Register(seatProxy)
-			if err := m.registry.Bind(m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
+			if err := m.registry.BindContext(ctx, m.seatID, "wl_seat", 1, seatProxy.ID()); err != nil {
 				return fmt.Errorf("window/wayland: bind wl_seat: %w", err)
 			}
 			m.seat = seatProxy
 		}
-		return m.fetchToplevels(context.Background())
+		return m.fetchToplevels(ctx)
 	})
 	if initErr != nil {
 		_ = s.Close()
