@@ -71,6 +71,15 @@ func (cliAutomationFake) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
+type cliAutomationCapabilitiesFake struct {
+	cliAutomationFake
+	operations []string
+}
+
+func (f cliAutomationCapabilitiesFake) SupportedOperations() []string {
+	return slices.Clone(f.operations)
+}
+
 func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
 	return nil
 }
@@ -359,6 +368,15 @@ func openCLIWithAutomation(*cliConfig) sessionOpener {
 	}
 }
 
+func openCLIWithAutomationOperations(operations []string) func(*cliConfig) sessionOpener {
+	return func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			backend := cliAutomationCapabilitiesFake{operations: operations}
+			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, backend), nil
+		}
+	}
+}
+
 func openCLIWithWindowAndAccessibility(*cliConfig) sessionOpener {
 	return func(context.Context) (*perfuncted.Session, error) {
 		manager := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "managed-window", Title: "Test window"}}}}
@@ -427,6 +445,40 @@ func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 	for _, args := range tests {
 		t.Run(strings.Join(args[1:], "-"), func(t *testing.T) {
 			stdout, stderr, code := captureRunIO(t, args, openCLIWithAutomation)
+			if code != 0 || stderr != "" {
+				t.Fatalf("args=%v code=%d stderr=%q stdout=%q", args, code, stderr, stdout)
+			}
+		})
+	}
+}
+
+func TestAccessibilityCLIRawActionUsesSpecificCapability(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		capability string
+	}{
+		{
+			name:       "default action",
+			capability: "invoke-default-action",
+		},
+		{
+			name:       "indexed action",
+			args:       []string{"--action-index", "1"},
+			capability: "invoke-action",
+		},
+		{
+			name:       "named action",
+			args:       []string{"--action-name", "press"},
+			capability: "invoke-action-by-name",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := []string{"a11y", "raw", "--op", "action", "--bus", "org.test", "--path", "/node", "--generation", "1"}
+			args = append(args, tt.args...)
+			open := openCLIWithAutomationOperations([]string{tt.capability})
+			stdout, stderr, code := captureRunIO(t, args, open)
 			if code != 0 || stderr != "" {
 				t.Fatalf("args=%v code=%d stderr=%q stdout=%q", args, code, stderr, stdout)
 			}

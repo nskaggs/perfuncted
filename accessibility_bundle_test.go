@@ -167,6 +167,14 @@ type accessibilityAutomationFake struct {
 	*accessibilityAutomationSpy
 }
 
+type accessibilityLimitedAutomationFake struct {
+	*accessibilityAutomationFake
+}
+
+func (*accessibilityLimitedAutomationFake) SupportedOperations() []string {
+	return []string{"applications"}
+}
+
 type accessibilityReopenerFake struct {
 	*bundleAccessibilityFake
 	fresh        accessibility.Backend
@@ -197,8 +205,22 @@ func TestAccessibilityBundleRawAutomationIsExplicit(t *testing.T) {
 		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 1},
 		accessibilityAutomationSpy: &accessibilityAutomationSpy{},
 	})
-	if _, err := session.Accessibility.RawAutomation("invoke-action"); err != nil {
+	if _, err := session.Accessibility.RawAutomation(); err != nil {
 		t.Fatalf("RawAutomation: %v", err)
+	}
+}
+
+func TestAccessibilityBundleRawAutomationLeavesOperationGateToCaller(t *testing.T) {
+	backend := &accessibilityLimitedAutomationFake{accessibilityAutomationFake: &accessibilityAutomationFake{
+		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 1},
+		accessibilityAutomationSpy: &accessibilityAutomationSpy{},
+	}}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	if _, err := session.Accessibility.RawAutomation(); err != nil {
+		t.Fatalf("RawAutomation: %v", err)
+	}
+	if err := session.Accessibility.CheckOperation("invoke-action"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("CheckOperation(invoke-action) = %v, want unsupported operation", err)
 	}
 }
 

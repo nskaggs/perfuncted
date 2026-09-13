@@ -491,11 +491,15 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		if err != nil {
 			return err
 		}
-		automation, err := pf.Accessibility.RawAutomation(rawOpCapability(op))
+		inv := rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex}
+		if capabilityErr := pf.Accessibility.CheckOperation(rawOpCapability(op, inv)); capabilityErr != nil {
+			return capabilityErr
+		}
+		automation, err := pf.Accessibility.RawAutomation()
 		if err != nil {
 			return err
 		}
-		value, err := invokeRawOp(c.Context(), automation, node, rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex})
+		value, err := invokeRawOp(c.Context(), automation, node, inv)
 		if err != nil {
 			return err
 		}
@@ -550,13 +554,25 @@ type rawInvocation struct {
 	index           int32
 }
 
+// rawActionCapability returns the capability operation name for the specific
+// action variant implied by the raw invocation flags.
+func rawActionCapability(in rawInvocation) string {
+	if strings.TrimSpace(in.actionName) != "" {
+		return "invoke-action-by-name"
+	}
+	if in.actionIndex >= 0 {
+		return "invoke-action"
+	}
+	return "invoke-default-action"
+}
+
 // rawOpCapability maps raw CLI operation names to their underlying capability
 // operation for proper gating. The CLI exposes a user-friendly name; the
 // capability system uses the actual AT-SPI interface operation.
-func rawOpCapability(op string) string {
+func rawOpCapability(op string, in rawInvocation) string {
 	switch op {
 	case "action":
-		return "invoke-action"
+		return rawActionCapability(in)
 	case "focus":
 		return "grab-focus"
 	default:

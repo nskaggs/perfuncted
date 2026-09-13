@@ -267,15 +267,15 @@ func windowTitleMatchScore(name, title, description string) (int, bool) {
 	switch {
 	case name == title:
 		return 100, true
-	case len(name) >= 3 && strings.Contains(name, title) && hasWordBoundaryMatch(name, title):
+	case len([]rune(title)) >= 3 && strings.Contains(name, title) && hasWordBoundaryMatch(name, title):
 		return 45, true
-	case len(name) >= 5 && strings.Contains(title, name) && hasWordBoundaryMatch(title, name):
+	case len([]rune(name)) >= 5 && strings.Contains(title, name) && hasWordBoundaryMatch(title, name):
 		// Firefox chrome windows may append the browser or profile title in
 		// the compositor while AT-SPI exposes the stable dialog/frame name.
 		// Require a word-boundary match so generic short names cannot
 		// correlate with unrelated longer titles.
 		return 35, true
-	case strings.Contains(strings.ToLower(description), title):
+	case len([]rune(title)) >= 3 && strings.Contains(strings.ToLower(description), title) && hasWordBoundaryMatch(strings.ToLower(description), title):
 		return 25, true
 	default:
 		return 0, false

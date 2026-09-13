@@ -194,6 +194,64 @@ func TestWindowTitleMatchAcceptsUnicodeExactMatch(t *testing.T) {
 	}
 }
 
+func TestWindowTitleMatchUsesRuneCountsForMinimumLengths(t *testing.T) {
+	tests := []struct {
+		name        string
+		windowName  string
+		title       string
+		description string
+	}{
+		{
+			name:       "short Unicode title",
+			windowName: "éé - settings",
+			title:      "éé",
+		},
+		{
+			name:       "short Unicode window name",
+			windowName: "éééé",
+			title:      "éééé - browser",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, ok := windowTitleMatchScore(tt.windowName, tt.title, tt.description); ok {
+				t.Fatalf("short Unicode evidence matched: window=%q title=%q", tt.windowName, tt.title)
+			}
+		})
+	}
+}
+
+func TestWindowTitleMatchDescriptionRequiresWordBoundary(t *testing.T) {
+	tests := []struct {
+		name        string
+		title       string
+		description string
+		wantScore   int
+		wantOK      bool
+	}{
+		{
+			name:        "rejects title prefix inside a word",
+			title:       "edit",
+			description: "editorial settings",
+		},
+		{
+			name:        "accepts separator-delimited title",
+			title:       "editor",
+			description: "open editor settings",
+			wantScore:   25,
+			wantOK:      true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			score, ok := windowTitleMatchScore("preferences", tt.title, tt.description)
+			if score != tt.wantScore || ok != tt.wantOK {
+				t.Fatalf("description match: score=%d ok=%v, want score=%d ok=%v", score, ok, tt.wantScore, tt.wantOK)
+			}
+		})
+	}
+}
+
 func TestWindowTitleMatchSameTitleSiblingsAmbiguous(t *testing.T) {
 	candidates := []windowCandidate{
 		{node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/a", Generation: 1}, Role: "frame", Name: "Editor"}, score: 100},
