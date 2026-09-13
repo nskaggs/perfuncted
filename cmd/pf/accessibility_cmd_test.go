@@ -68,7 +68,7 @@ func (f cliEventsFake) Events(context.Context, accessibility.EventOptions) (<-ch
 }
 
 func (cliAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
@@ -135,7 +135,6 @@ func (cliAutomationFake) DeselectChild(context.Context, accessibility.NodeID, in
 }
 func (cliAutomationFake) SelectAll(context.Context, accessibility.NodeID) error      { return nil }
 func (cliAutomationFake) ClearSelection(context.Context, accessibility.NodeID) error { return nil }
-func (cliAutomationFake) DeselectAll(context.Context, accessibility.NodeID) error    { return nil }
 func (cliAutomationFake) DeselectSelectedChild(context.Context, accessibility.NodeID) error {
 	return nil
 }
@@ -419,7 +418,6 @@ func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 		{"a11y", "raw", "--op", "select-child", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
 		{"a11y", "raw", "--op", "select-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
 		{"a11y", "raw", "--op", "clear-selection", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "--op", "deselect-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
 		{"a11y", "raw", "--op", "select-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
 		{"a11y", "raw", "--op", "deselect-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
 		{"a11y", "raw", "--op", "select-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},

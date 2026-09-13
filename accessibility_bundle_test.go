@@ -141,10 +141,6 @@ func (s *accessibilityAutomationSpy) ClearSelection(context.Context, accessibili
 	s.mark("clear-selection")
 	return nil
 }
-func (s *accessibilityAutomationSpy) DeselectAll(context.Context, accessibility.NodeID) error {
-	s.mark("deselect-all")
-	return nil
-}
 func (s *accessibilityAutomationSpy) DeselectSelectedChild(context.Context, accessibility.NodeID) error {
 	s.mark("deselect-selected-child")
 	return nil
@@ -193,7 +189,7 @@ func (f *accessibilityReopenerFake) Applications(ctx context.Context) ([]accessi
 }
 
 func (*accessibilityAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func TestAccessibilityBundleRawAutomationIsExplicit(t *testing.T) {

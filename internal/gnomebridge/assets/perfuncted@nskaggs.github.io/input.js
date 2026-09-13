@@ -103,10 +103,16 @@ export class Input {
     }
 
     pointerLocation() {
-        const pointer = global.get_pointer?.() ?? global.display?.get_cursor_tracker?.()?.get_pointer?.() ?? [0, 0];
-        if (!Array.isArray(pointer) || pointer.length < 2)
-            return [0, 0];
-        return [Number(pointer[0]), Number(pointer[1])];
+        const pointer = global.get_pointer?.();
+        if (Array.isArray(pointer) && pointer.length >= 2)
+            return [Number(pointer[0]), Number(pointer[1])];
+        const tracker = global.display?.get_cursor_tracker?.();
+        if (tracker?.get_pointer) {
+            const pos = tracker.get_pointer();
+            if (Array.isArray(pos) && pos.length >= 2)
+                return [Number(pos[0]), Number(pos[1])];
+        }
+        throw new Error('GNOME pointer location is unavailable');
     }
 
 }

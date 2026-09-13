@@ -697,6 +697,19 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		if method == actionIface+".GetActions" {
 			return []Action{{Index: 0, Name: "activate"}, {Index: 1, Name: "alternate"}}, nil
 		}
+		if method == actionIface+".GetName" {
+			if len(args) > 0 {
+				if idx, ok := args[0].(int32); ok {
+					switch idx {
+					case 0:
+						return "activate", nil
+					case 1:
+						return "alternate", nil
+					}
+				}
+			}
+			return "", nil
+		}
 		return true, nil
 	}}
 	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
@@ -718,7 +731,7 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		{"value", func() error { return backend.SetValue(ctx, id, 0.5) }, []call{{propertiesIface + ".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(0.5)}}}},
 		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }, []call{{editableTextIface + ".SetTextContents", []any{"safe"}}}},
 		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }, []call{{editableTextIface + ".DeleteText", []any{int32(0), int32(1)}}, {editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
-		{"insert", func() error { return backend.InsertText(ctx, id, 0, "é😀") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "é😀", int32(2)}}}},
+		{"insert", func() error { return backend.InsertText(ctx, id, 0, "é😀") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "é😀", int32(6)}}}},
 		{"copy", func() error { return backend.CopyText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CopyText", []any{int32(0), int32(1)}}}},
 		{"cut", func() error { return backend.CutText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CutText", []any{int32(0), int32(1)}}}},
 		{"paste", func() error { return backend.PasteText(ctx, id, 0) }, []call{{editableTextIface + ".PasteText", []any{int32(0)}}}},
@@ -733,7 +746,6 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		{"deselect-child", func() error { return backend.DeselectChild(ctx, id, 0) }, []call{{selectionIface + ".DeselectChild", []any{int32(0)}}}},
 		{"select-all", func() error { return backend.SelectAll(ctx, id) }, []call{{selectionIface + ".SelectAll", nil}}},
 		{"clear-selection", func() error { return backend.ClearSelection(ctx, id) }, []call{{selectionIface + ".ClearSelection", nil}}},
-		{"deselect-all-alias", func() error { return backend.DeselectAll(ctx, id) }, []call{{selectionIface + ".ClearSelection", nil}}},
 		{"deselect-selected-child", func() error { return backend.DeselectSelectedChild(ctx, id) }, []call{{selectionIface + ".DeselectSelectedChild", nil}}},
 		{"select-row", func() error { return backend.SelectRow(ctx, id, 0) }, []call{{tableIface + ".AddRowSelection", []any{int32(0)}}}},
 		{"deselect-row", func() error { return backend.DeselectRow(ctx, id, 0) }, []call{{tableIface + ".RemoveRowSelection", []any{int32(0)}}}},
@@ -771,6 +783,61 @@ func TestTypedAutomationRejectsStaleAndDisconnectedHandles(t *testing.T) {
 	backend.markDisconnected()
 	if err := backend.GrabFocus(context.Background(), NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 2}); !errors.Is(err, ErrDisconnected) {
 		t.Fatalf("disconnected mutation error = %v", err)
+	}
+}
+
+func TestTypedAutomationRejectsInvalidArguments(t *testing.T) {
+	backend := &dbusBackend{generation: 1, callOverride: func(context.Context, NodeID, string, []any) (any, error) { return true, nil }}
+	id := NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 1}
+	ctx := context.Background()
+
+	// PasteText with negative position.
+	if err := backend.PasteText(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative paste position")
+	}
+	// SetTextSelection with negative index.
+	if err := backend.SetTextSelection(ctx, id, -1, 0, 1); err == nil {
+		t.Fatal("expected error for negative selection index")
+	}
+	// SetTextSelection with end before start.
+	if err := backend.SetTextSelection(ctx, id, 0, 5, 3); err == nil {
+		t.Fatal("expected error for end before start")
+	}
+	// AddTextSelection with negative index.
+	if err := backend.AddTextSelection(ctx, id, -1, 1); err == nil {
+		t.Fatal("expected error for negative start")
+	}
+	// AddTextSelection with end before start.
+	if err := backend.AddTextSelection(ctx, id, 5, 3); err == nil {
+		t.Fatal("expected error for end before start")
+	}
+	// RemoveTextSelection with negative index.
+	if err := backend.RemoveTextSelection(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative selection")
+	}
+	// SelectChild with negative index.
+	if err := backend.SelectChild(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative child index")
+	}
+	// DeselectChild with negative index.
+	if err := backend.DeselectChild(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative child index")
+	}
+	// SelectRow with negative index.
+	if err := backend.SelectRow(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative row index")
+	}
+	// DeselectRow with negative index.
+	if err := backend.DeselectRow(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative row index")
+	}
+	// SelectColumn with negative index.
+	if err := backend.SelectColumn(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative column index")
+	}
+	// DeselectColumn with negative index.
+	if err := backend.DeselectColumn(ctx, id, -1); err == nil {
+		t.Fatal("expected error for negative column index")
 	}
 }
 

@@ -80,7 +80,6 @@ func TestAdversarialBundleWrappersCoverAutomationSurface(t *testing.T) {
 		{"deselect-child", func() error { return bundle.DeselectChild(ctx, id, 0) }},
 		{"select-all", func() error { return bundle.SelectAll(ctx, id) }},
 		{"clear-selection", func() error { return bundle.ClearSelection(ctx, id) }},
-		{"deselect-all", func() error { return bundle.DeselectAll(ctx, id) }},
 		{"deselect-selected-child", func() error { return bundle.DeselectSelectedChild(ctx, id) }},
 		{"select-row", func() error { return bundle.SelectRow(ctx, id, 0) }},
 		{"deselect-row", func() error { return bundle.DeselectRow(ctx, id, 0) }},

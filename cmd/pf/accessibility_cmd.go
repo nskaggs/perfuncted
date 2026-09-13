@@ -505,7 +505,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		return accessibilityOutput(c.OutOrStdout(), rawOpts.json, value)
 	}}
 	addJSONFlag(raw, &rawOpts.json)
-	raw.Flags().StringVar(&rawOp, "op", "", "primitive: action, focus, scroll, scroll-to-point, set-position, set-size, set-extents, set-value, set-text-contents, replace-text, insert-text, delete-text, copy-text, cut-text, paste-text, set-caret, set-text-selection, add-text-selection, remove-text-selection, set-document-text-selections, select-child, deselect-child, select-all, clear-selection, deselect-all, deselect-selected-child, select-row, deselect-row, select-column, deselect-column, reopen")
+	raw.Flags().StringVar(&rawOp, "op", "", "primitive: action, focus, scroll, scroll-to-point, set-position, set-size, set-extents, set-value, set-text-contents, insert-text, delete-text, copy-text, cut-text, paste-text, set-caret, set-text-selection, add-text-selection, remove-text-selection, set-document-text-selections, select-child, deselect-child, select-all, clear-selection, deselect-selected-child, select-row, deselect-row, select-column, deselect-column, reopen")
 	raw.Flags().StringVar(&rawOpts.bus, "bus", "", "AT-SPI object bus name")
 	raw.Flags().StringVar(&rawOpts.path, "path", "", "AT-SPI object path")
 	raw.Flags().Uint64Var(&rawOpts.generation, "generation", 0, "current accessibility generation")
@@ -606,12 +606,6 @@ func invokeRawOp(ctx context.Context, automation accessibility.Automation, node 
 		return nil, automation.SetValue(ctx, node, in.value)
 	case "set-text-contents":
 		return nil, automation.SetTextContents(ctx, node, in.text)
-	case "replace-text":
-		text := in.rangeText
-		if text == "" {
-			text = in.text
-		}
-		return nil, automation.ReplaceText(ctx, node, in.start, in.end, text)
 	case "insert-text":
 		text := in.rangeText
 		if text == "" {
@@ -648,8 +642,6 @@ func invokeRawOp(ctx context.Context, automation accessibility.Automation, node 
 		return nil, automation.SelectAll(ctx, node)
 	case "clear-selection":
 		return nil, automation.ClearSelection(ctx, node)
-	case "deselect-all":
-		return nil, automation.DeselectAll(ctx, node)
 	case "deselect-selected-child":
 		return nil, automation.DeselectSelectedChild(ctx, node)
 	case "select-row":

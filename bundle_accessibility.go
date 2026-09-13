@@ -499,15 +499,6 @@ func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibili
 	return b.operationError("clear-selection", a.ClearSelection(ctx, id))
 }
 
-// DeselectAll deselects all children in an AT-SPI selection object.
-func (b *AccessibilityBundle) DeselectAll(ctx context.Context, id accessibility.NodeID) error {
-	a, err := b.automation("deselect-all")
-	if err != nil {
-		return err
-	}
-	return b.operationError("deselect-all", a.DeselectAll(ctx, id))
-}
-
 // DeselectSelectedChild deselects the currently selected child in an AT-SPI Selection object.
 func (b *AccessibilityBundle) DeselectSelectedChild(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("deselect-selected-child")

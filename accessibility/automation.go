@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -120,9 +119,22 @@ func (b *dbusBackend) actions(ctx context.Context, id NodeID) ([]Action, error) 
 	}
 	actions := make([]Action, len(wire))
 	for i, action := range wire {
-		actions[i] = Action{Index: int32(i), Name: action.Name, Description: action.Description, KeyBinding: action.KeyBinding}
+		// GetActions returns localized names. The machine-readable,
+		// non-localized name comes from GetName(index) per the AT-SPI2 spec.
+		actions[i] = Action{Index: int32(i), Name: b.actionName(ctx, id, int32(i)), Description: action.Description, KeyBinding: action.KeyBinding}
 	}
 	return actions, nil
+}
+
+// actionName returns the machine-readable (non-localized) action name from
+// org.a11y.atspi.Action.GetName. Falls back to empty string on error so
+// callers can still invoke by index.
+func (b *dbusBackend) actionName(ctx context.Context, id NodeID, index int32) string {
+	var name string
+	if err := b.call(ctx, id, actionIface+".GetName", []any{index}, &name); err != nil {
+		return ""
+	}
+	return name
 }
 
 func (b *dbusBackend) InvokeAction(ctx context.Context, id NodeID, index int32) error {
@@ -271,7 +283,11 @@ func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, t
 	if offset < 0 {
 		return fmt.Errorf("accessibility: invalid text offset %d", offset)
 	}
-	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(utf8.RuneCountInString(text)))
+	byteLen := len(text)
+	if byteLen > 2147483647 {
+		return fmt.Errorf("accessibility: text too long for AT-SPI signed length field (%d bytes)", byteLen)
+	}
+	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(byteLen))
 }
 
 func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int32) error {
@@ -303,6 +319,9 @@ func validTextRange(start, end int32) error {
 }
 
 func (b *dbusBackend) PasteText(ctx context.Context, id NodeID, position int32) error {
+	if position < 0 {
+		return fmt.Errorf("accessibility: invalid paste position %d", position)
+	}
 	return b.mutationBool(ctx, id, editableTextIface, "PasteText", position)
 }
 
@@ -314,14 +333,29 @@ func (b *dbusBackend) SetCaretOffset(ctx context.Context, id NodeID, offset int3
 }
 
 func (b *dbusBackend) SetTextSelection(ctx context.Context, id NodeID, selection, start, end int32) error {
+	if selection < 0 || start < 0 || end < 0 {
+		return fmt.Errorf("accessibility: invalid text selection indices (selection=%d, start=%d, end=%d)", selection, start, end)
+	}
+	if end < start {
+		return fmt.Errorf("accessibility: text selection end %d before start %d", end, start)
+	}
 	return b.mutationBool(ctx, id, textIface, "SetSelection", selection, start, end)
 }
 
 func (b *dbusBackend) AddTextSelection(ctx context.Context, id NodeID, start, end int32) error {
+	if start < 0 || end < 0 {
+		return fmt.Errorf("accessibility: invalid text selection range (start=%d, end=%d)", start, end)
+	}
+	if end < start {
+		return fmt.Errorf("accessibility: text selection end %d before start %d", end, start)
+	}
 	return b.mutationBool(ctx, id, textIface, "AddSelection", start, end)
 }
 
 func (b *dbusBackend) RemoveTextSelection(ctx context.Context, id NodeID, selection int32) error {
+	if selection < 0 {
+		return fmt.Errorf("accessibility: invalid selection index %d", selection)
+	}
 	return b.mutationBool(ctx, id, textIface, "RemoveSelection", selection)
 }
 
@@ -340,6 +374,9 @@ type documentTextSelectionWire struct {
 func (b *dbusBackend) SetTextSelections(ctx context.Context, id NodeID, selections []DocumentTextSelection) error {
 	if err := b.validateHandle(id); err != nil {
 		return err
+	}
+	if len(selections) == 0 {
+		return fmt.Errorf("accessibility: document selections list must not be empty")
 	}
 	wire := make([]documentTextSelectionWire, len(selections))
 	for i, selection := range selections {
@@ -364,10 +401,16 @@ func (b *dbusBackend) SetTextSelections(ctx context.Context, id NodeID, selectio
 }
 
 func (b *dbusBackend) SelectChild(ctx context.Context, id NodeID, index int32) error {
+	if index < 0 {
+		return fmt.Errorf("accessibility: invalid child index %d", index)
+	}
 	return b.mutationBool(ctx, id, selectionIface, "SelectChild", index)
 }
 
 func (b *dbusBackend) DeselectChild(ctx context.Context, id NodeID, index int32) error {
+	if index < 0 {
+		return fmt.Errorf("accessibility: invalid child index %d", index)
+	}
 	return b.mutationBool(ctx, id, selectionIface, "DeselectChild", index)
 }
 
@@ -379,29 +422,35 @@ func (b *dbusBackend) ClearSelection(ctx context.Context, id NodeID) error {
 	return b.mutationBool(ctx, id, selectionIface, "ClearSelection")
 }
 
-func (b *dbusBackend) DeselectAll(ctx context.Context, id NodeID) error {
-	// AT-SPI has no DeselectAll method. Keep this ergonomic alias wired to the
-	// standard ClearSelection operation.
-	return b.ClearSelection(ctx, id)
-}
-
 func (b *dbusBackend) DeselectSelectedChild(ctx context.Context, id NodeID) error {
 	return b.mutationBool(ctx, id, selectionIface, "DeselectSelectedChild")
 }
 
 func (b *dbusBackend) SelectRow(ctx context.Context, id NodeID, row int32) error {
+	if row < 0 {
+		return fmt.Errorf("accessibility: invalid row index %d", row)
+	}
 	return b.mutationBool(ctx, id, tableIface, "AddRowSelection", row)
 }
 
 func (b *dbusBackend) DeselectRow(ctx context.Context, id NodeID, row int32) error {
+	if row < 0 {
+		return fmt.Errorf("accessibility: invalid row index %d", row)
+	}
 	return b.mutationBool(ctx, id, tableIface, "RemoveRowSelection", row)
 }
 
 func (b *dbusBackend) SelectColumn(ctx context.Context, id NodeID, column int32) error {
+	if column < 0 {
+		return fmt.Errorf("accessibility: invalid column index %d", column)
+	}
 	return b.mutationBool(ctx, id, tableIface, "AddColumnSelection", column)
 }
 
 func (b *dbusBackend) DeselectColumn(ctx context.Context, id NodeID, column int32) error {
+	if column < 0 {
+		return fmt.Errorf("accessibility: invalid column index %d", column)
+	}
 	return b.mutationBool(ctx, id, tableIface, "RemoveColumnSelection", column)
 }
 

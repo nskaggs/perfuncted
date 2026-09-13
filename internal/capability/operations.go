@@ -78,7 +78,6 @@ var operationsBySurface = map[string][]string{
 		"deselect-child",
 		"select-all",
 		"clear-selection",
-		"deselect-all",
 		"deselect-selected-child",
 		"select-row",
 		"deselect-row",

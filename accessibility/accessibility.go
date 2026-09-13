@@ -432,7 +432,6 @@ type SelectionController interface {
 	DeselectChild(context.Context, NodeID, int32) error
 	SelectAll(context.Context, NodeID) error
 	ClearSelection(context.Context, NodeID) error
-	DeselectAll(context.Context, NodeID) error
 	DeselectSelectedChild(context.Context, NodeID) error
 }
 
