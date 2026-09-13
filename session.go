@@ -738,10 +738,7 @@ func (i *sessionInfra) launchSway(
 	}
 
 	cmd := executil.CommandContext(i.ctx, "sway", "--unsupported-gpu", "-c", confPath) //nolint:contextcheck // process lifetime outlives startup context
-	runtime := env.Current().
-		With("XDG_RUNTIME_DIR", i.xdgDir).
-		With("DBUS_SESSION_BUS_ADDRESS", i.dbusAddr).
-		Without("SWAYSOCK", "AT_SPI_BUS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS")
+	runtime := env.Current().WithSession(i.xdgDir, "", i.dbusAddr)
 	switch mode {
 	case sessionModeHeadless:
 		runtime = runtime.Without("WAYLAND_DISPLAY", "DISPLAY")

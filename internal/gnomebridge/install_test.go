@@ -309,3 +309,19 @@ func assertEmbeddedFragmentsAbsent(t *testing.T, text, message string, fragments
 		}
 	}
 }
+
+func TestBundledExtensionDeclaresSupportedShellRange(t *testing.T) {
+	raw, err := fs.ReadFile(extensionAssets, "assets/"+extensionUUID+"/metadata.json")
+	if err != nil {
+		t.Fatalf("read metadata.json: %v", err)
+	}
+	text := string(raw)
+	for _, version := range []string{`"46"`, `"48"`, `"50"`} {
+		if !strings.Contains(text, version) {
+			t.Fatalf("metadata.json missing Shell %s: %s", version, text)
+		}
+	}
+	if strings.Contains(text, `"50"`) && !strings.Contains(text, `"51"`) {
+		t.Fatal("single-version Shell pin rots; declare the supported range")
+	}
+}

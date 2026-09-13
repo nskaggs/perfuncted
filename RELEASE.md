@@ -32,12 +32,12 @@ The release workflow is defined in
 
 ## Release notes
 
-Use [`release/RELEASE_NOTES_TEMPLATE.md`](release/RELEASE_NOTES_TEMPLATE.md)
-as the default format for every release:
+The workflow generates notes from the commit history via the GitHub
+generate-notes API. Keep the history thematic so the generated notes read
+well:
 
-- Open with a one- or two-sentence summary.
-- Group the details by theme under short headings.
+- Open significant changes with a one- or two-sentence summary.
+- Group related work in focused commits under short headings.
 - Use dry, factual bullets for user-visible changes and validation.
-- Do not repeat the project or version header in the release body.
 - Omit commit counts and extended narrative; the comparison link provides the
   complete commit list.

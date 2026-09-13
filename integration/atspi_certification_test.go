@@ -61,6 +61,8 @@ func TestAccessibilityCertification(t *testing.T) {
 			name:     "kwrite",
 			launch:   []string{"kwrite"},
 			winMatch: "kwrite",
+			// Qt6 Wayland exposes AT-SPI only with both variables. Do not
+			// remove one to "simplify": certification regresses to no bus.
 			extraEnv: []string{"QT_ACCESSIBILITY=1", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1"},
 		},
 		{
