@@ -217,14 +217,19 @@ func (f *bundleAccessibilityFake) Applications(context.Context) ([]accessibility
 	return append([]accessibility.Application(nil), f.apps...), nil
 }
 func (f *bundleAccessibilityFake) Snapshot(context.Context, accessibility.NodeID, accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
-	return accessibility.Snapshot{Generation: f.gen, Source: "fake"}, nil
-}
-func (f *bundleAccessibilityFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	generation := f.gen
 	if generation == 0 {
 		generation = 1
 	}
-	return []accessibility.Node{{ID: accessibility.NodeID{BusName: "org.test", ObjectPath: "/node", Generation: generation}, Name: "ok", Actions: []accessibility.Action{{Index: 1, Name: "press"}}}}, nil
+	node := accessibility.Node{ID: accessibility.NodeID{BusName: "org.test", ObjectPath: "/node", Generation: generation}, Name: "Save", Actions: []accessibility.Action{{Index: 1, Name: "press"}}}
+	return accessibility.Snapshot{Nodes: []accessibility.Node{node}, Root: node, Generation: generation, Source: "fake"}, nil
+}
+func (f *bundleAccessibilityFake) Find(_ context.Context, _ accessibility.NodeID, query accessibility.Query, _ accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := f.Snapshot(context.Background(), accessibility.NodeID{}, accessibility.SnapshotOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return accessibility.FilterSnapshot(snapshot, query), nil
 }
 func (f *bundleAccessibilityFake) Focused(context.Context, accessibility.SnapshotOptions) (accessibility.Node, error) {
 	return accessibility.Node{Name: "focused"}, nil

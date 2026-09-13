@@ -136,22 +136,20 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 	return nodes, b.operationError("find", err)
 }
 
-// FindOne resolves a unique node and includes bounded candidate context when
-// no node or more than one node satisfies the query.
+// FindOne resolves a unique node from a single bounded snapshot. Candidate
+// context comes from the same snapshot so a miss costs one AT-SPI traversal,
+// not a find plus a second diagnostic snapshot.
 func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	if err := b.checkAvailable("find"); err != nil {
 		return accessibility.Node{}, err
 	}
-	nodes, err := b.backend.Find(ctx, root, query, opts)
+	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	if err != nil {
 		return accessibility.Node{}, b.operationError("find", err)
 	}
+	nodes := accessibility.FilterSnapshot(snapshot, query)
 	if len(nodes) == 1 {
 		return nodes[0], nil
-	}
-	snapshot, snapshotErr := b.backend.Snapshot(ctx, root, opts)
-	if snapshotErr != nil {
-		return accessibility.Node{}, b.operationError("find", snapshotErr)
 	}
 	candidates := accessibility.CandidatesForQuery(snapshot, query, 32)
 	if len(nodes) == 0 {

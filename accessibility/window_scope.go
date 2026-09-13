@@ -268,17 +268,41 @@ func windowTitleMatchScore(name, title, description string) (int, bool) {
 		return 100, true
 	case strings.Contains(name, title):
 		return 45, true
-	case len(name) >= 4 && strings.Contains(title, name):
+	case len(name) >= 5 && strings.Contains(title, name) && hasWordBoundaryMatch(title, name):
 		// Firefox chrome windows may append the browser or profile title in
 		// the compositor while AT-SPI exposes the stable dialog/frame name.
-		// Keep the shorter accessible name bounded to avoid accepting empty
-		// or generic one-character matches.
+		// Require a word-boundary match so generic short names cannot
+		// correlate with unrelated longer titles.
 		return 35, true
 	case strings.Contains(strings.ToLower(description), title):
 		return 25, true
 	default:
 		return 0, false
 	}
+}
+
+// hasWordBoundaryMatch reports whether name occurs in title at a word
+// boundary. Both inputs are already lower-cased and trimmed by the caller.
+func hasWordBoundaryMatch(title, name string) bool {
+	for i := 0; i+len(name) <= len(title); i++ {
+		if title[i:i+len(name)] != name {
+			continue
+		}
+		beforeOK := i == 0 || !isWordChar(title[i-1])
+		after := i + len(name)
+		afterOK := after >= len(title) || !isWordChar(title[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		// A trailing separator such as " - " still terminates the word even
+		// when the next character is a word char further on; the boundary
+		// check above already covers the immediate separator.
+	}
+	return false
+}
+
+func isWordChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_'
 }
 
 func rectOverlap(a, b Rect) int {

@@ -27,10 +27,20 @@ func (cliAccessibilityFake) FindApplication(context.Context, accessibility.Appli
 	return accessibility.Application{Node: accessibility.Node{ID: accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}, Name: "Test App", Role: "application"}, PID: 123}, nil
 }
 func (cliAccessibilityFake) Snapshot(_ context.Context, rootID accessibility.NodeID, _ accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
-	return accessibility.Snapshot{Root: accessibility.Node{ID: rootID, Name: "root", Role: "application"}, Nodes: []accessibility.Node{{ID: rootID, Name: "root", Role: "application"}}, Generation: 1, Source: "fake"}, nil
+	if rootID == (accessibility.NodeID{}) {
+		rootID = accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}
+	}
+	root := accessibility.Node{ID: rootID, Name: "Test App", Role: "application"}
+	save := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/save", Generation: 1}, Name: "Save", Role: "button", Actions: []accessibility.Action{{Index: 1, Name: "press"}}}
+	entry := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/entry", Generation: 1}, Name: "Name", Role: "entry", Text: "current"}
+	return accessibility.Snapshot{Root: root, Nodes: []accessibility.Node{root, save, entry}, Generation: 1, Source: "fake"}, nil
 }
-func (cliAccessibilityFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
-	return []accessibility.Node{{Name: "Save", Role: "button"}}, nil
+func (cliAccessibilityFake) Find(_ context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := (cliAccessibilityFake{}).Snapshot(context.Background(), root, opts)
+	if err != nil {
+		return nil, err
+	}
+	return accessibility.FilterSnapshot(snapshot, query), nil
 }
 func (cliAccessibilityFake) Focused(context.Context, accessibility.SnapshotOptions) (accessibility.Node, error) {
 	return accessibility.Node{Name: "focused"}, nil
@@ -156,8 +166,22 @@ func (cliAutomationFake) ResolveWindow(_ context.Context, target accessibility.W
 
 type cliAmbiguousFake struct{ cliAutomationFake }
 
-func (cliAmbiguousFake) Find(context.Context, accessibility.NodeID, accessibility.Query, accessibility.SnapshotOptions) ([]accessibility.Node, error) {
-	return []accessibility.Node{{Name: "one", Role: "button"}, {Name: "two", Role: "button"}}, nil
+func (cliAmbiguousFake) Find(_ context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := (cliAmbiguousFake{}).Snapshot(context.Background(), root, opts)
+	if err != nil {
+		return nil, err
+	}
+	return accessibility.FilterSnapshot(snapshot, query), nil
+}
+
+func (cliAmbiguousFake) Snapshot(_ context.Context, rootID accessibility.NodeID, _ accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
+	if rootID == (accessibility.NodeID{}) {
+		rootID = accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1}
+	}
+	root := accessibility.Node{ID: rootID, Name: "Test App", Role: "application"}
+	one := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/one", Generation: 1}, Name: "one", Role: "button"}
+	two := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/two", Generation: 1}, Name: "two", Role: "button"}
+	return accessibility.Snapshot{Root: root, Nodes: []accessibility.Node{root, one, two}, Generation: 1, Source: "fake"}, nil
 }
 
 func TestAccessibilityCLIApplicationsJSON(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
+	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 )
@@ -667,7 +668,7 @@ func (item cacheItem) nodeIDAt(generation uint64) NodeID {
 }
 
 func (b *dbusBackend) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return capability.Operations("accessibility")
 }
 
 // Generation returns the current invalidation generation. It changes when an
@@ -1487,6 +1488,14 @@ func (b *dbusBackend) Find(ctx context.Context, root NodeID, query Query, opts S
 	if err != nil {
 		return nil, err
 	}
+	return FilterSnapshot(snapshot, query), nil
+}
+
+// FilterSnapshot returns the snapshot nodes matching query using the same
+// case-insensitive substring contract as Backend.Find. It lets callers reuse
+// one bounded snapshot for both selection and diagnostic candidates instead
+// of paying two AT-SPI traversals.
+func FilterSnapshot(snapshot Snapshot, query Query) []Node {
 	wantName, wantRole, wantText := strings.ToLower(strings.TrimSpace(query.Name)), strings.ToLower(strings.TrimSpace(query.Role)), strings.ToLower(strings.TrimSpace(query.Text))
 	result := make([]Node, 0)
 	for _, node := range snapshot.Nodes {
@@ -1504,7 +1513,7 @@ func (b *dbusBackend) Find(ctx context.Context, root NodeID, query Query, opts S
 		}
 		result = append(result, node)
 	}
-	return result, nil
+	return result
 }
 
 func matchesStates(have, want []string) bool {
