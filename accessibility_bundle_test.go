@@ -246,6 +246,9 @@ func (f *bundleAccessibilityFake) ResolveWindow(_ context.Context, target access
 	if target.ID == "missing" {
 		return accessibility.WindowScope{}, accessibility.ErrNotFound
 	}
+	if len(f.apps) == 0 {
+		return accessibility.WindowScope{}, accessibility.ErrNotFound
+	}
 	app := f.apps[0]
 	if app.ID.BusName == "" {
 		app.ID = accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: f.gen}

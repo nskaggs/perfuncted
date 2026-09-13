@@ -2,7 +2,6 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/accessibility"
@@ -98,33 +97,11 @@ func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target ac
 // window by its authoritative native ID and correlates that window to its
 // exact AT-SPI top-level subtree.
 func (b *AccessibilityBundle) WindowRoot(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
-	if b == nil {
-		return accessibility.WindowScope{}, ErrNilSession
-	}
-	if b.session == nil || b.session.Windows == nil {
-		return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
-	}
-	windows, err := b.session.Windows.List(ctx, WindowMatch{})
+	selected, err := b.resolveManagedWindow(ctx, windowID, "")
 	if err != nil {
-		return accessibility.WindowScope{}, b.operationError("window-root", err)
+		return accessibility.WindowScope{}, err
 	}
-	var selected *Window
-	for _, candidate := range windows {
-		if candidate.ID().String() != strings.TrimSpace(windowID) {
-			continue
-		}
-		if selected != nil {
-			return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrAmbiguous)
-		}
-		selected = candidate
-	}
-	if selected == nil {
-		return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrNotFound)
-	}
-	selected.mu.RLock()
-	info := selected.snapshot
-	selected.mu.RUnlock()
-	return b.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: selected.ID().String(), Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active})
+	return b.AccessibilityWindow(ctx, windowTargetFor(selected, 0))
 }
 
 // Find returns nodes matching a bounded case-insensitive query.
@@ -225,38 +202,14 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 
 // FindApplication selects a single application by accessible name, PID, or
 // AT-SPI bus name when the runtime backend exposes process ownership.
-func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) { //nolint:gocyclo // scope validation and correlation are intentionally explicit.
+func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
 	if err := b.checkAvailable("find-application"); err != nil {
 		return accessibility.Application{}, err
 	}
 	if filter.WindowID != "" || filter.WindowTitle != "" {
-		var selectedWindow *Window
-		if b.session == nil || b.session.Windows == nil {
-			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
-		}
-		windows, listErr := b.session.Windows.List(ctx, WindowMatch{})
-		if listErr != nil {
-			return accessibility.Application{}, b.operationError("find-application", listErr)
-		}
-		wantID := strings.TrimSpace(filter.WindowID)
-		wantTitle := strings.TrimSpace(filter.WindowTitle)
-		for _, candidate := range windows {
-			candidate.mu.RLock()
-			candidateInfo := candidate.snapshot
-			candidate.mu.RUnlock()
-			if wantID != "" && candidate.ID().String() != wantID {
-				continue
-			}
-			if wantTitle != "" && candidateInfo.Title != wantTitle {
-				continue
-			}
-			if selectedWindow != nil {
-				return accessibility.Application{}, b.operationError("find-application", accessibility.ErrAmbiguous)
-			}
-			selectedWindow = candidate
-		}
-		if selectedWindow == nil {
-			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
+		selectedWindow, err := b.resolveManagedWindow(ctx, filter.WindowID, filter.WindowTitle)
+		if err != nil {
+			return accessibility.Application{}, err
 		}
 		selectedWindow.mu.RLock()
 		selectedInfo := selectedWindow.snapshot
@@ -264,11 +217,7 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 		if filter.PID != 0 && selectedInfo.PID != 0 && filter.PID != selectedInfo.PID {
 			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
 		}
-		target := accessibility.WindowTarget{ID: selectedWindow.ID().String(), Title: selectedInfo.Title, PID: selectedInfo.PID, AppID: selectedInfo.AppID, Bounds: accessibility.Rect{X: selectedInfo.X, Y: selectedInfo.Y, Width: selectedInfo.W, Height: selectedInfo.H}, Active: selectedInfo.Active}
-		if target.PID == 0 {
-			target.PIDHint = filter.PID
-		}
-		scope, err := b.AccessibilityWindow(ctx, target)
+		scope, err := b.AccessibilityWindow(ctx, windowTargetFor(selectedWindow, filter.PID))
 		if err != nil {
 			return accessibility.Application{}, b.operationError("find-application", err)
 		}
@@ -484,19 +433,15 @@ func (b *AccessibilityBundle) SetTextSelections(ctx context.Context, id accessib
 	return b.operationError("set-document-text-selections", a.SetTextSelections(ctx, id, selections))
 }
 
-// SetTextSelection sets a character-offset range in an AT-SPI text object.
-func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, offsets ...int32) error {
+// SetTextSelection sets selection N to a character-offset range in an AT-SPI
+// text object. All three arguments are required; there is no implicit
+// selection zero.
+func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
 	a, err := b.automation("set-text-selection")
 	if err != nil {
 		return err
 	}
-	if len(offsets) == 2 {
-		offsets = []int32{0, offsets[0], offsets[1]}
-	}
-	if len(offsets) != 3 {
-		return b.operationError("set-text-selection", fmt.Errorf("accessibility: SetTextSelection expects start,end or selection,start,end"))
-	}
-	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, offsets[0], offsets[1], offsets[2]))
+	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, selection, start, end))
 }
 
 // AddTextSelection adds a character-offset range to an AT-SPI text object.
