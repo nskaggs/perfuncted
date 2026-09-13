@@ -35,8 +35,8 @@ func (cliAccessibilityFake) Snapshot(_ context.Context, rootID accessibility.Nod
 	entry := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/entry", Generation: 1}, Name: "Name", Role: "entry", Text: "current"}
 	return accessibility.Snapshot{Root: root, Nodes: []accessibility.Node{root, save, entry}, Generation: 1, Source: "fake"}, nil
 }
-func (cliAccessibilityFake) Find(_ context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
-	snapshot, err := (cliAccessibilityFake{}).Snapshot(context.Background(), root, opts)
+func (cliAccessibilityFake) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := (cliAccessibilityFake{}).Snapshot(ctx, root, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -166,8 +166,8 @@ func (cliAutomationFake) ResolveWindow(_ context.Context, target accessibility.W
 
 type cliAmbiguousFake struct{ cliAutomationFake }
 
-func (cliAmbiguousFake) Find(_ context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
-	snapshot, err := (cliAmbiguousFake{}).Snapshot(context.Background(), root, opts)
+func (cliAmbiguousFake) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := (cliAmbiguousFake{}).Snapshot(ctx, root, opts)
 	if err != nil {
 		return nil, err
 	}

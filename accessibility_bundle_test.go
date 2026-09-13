@@ -224,8 +224,8 @@ func (f *bundleAccessibilityFake) Snapshot(context.Context, accessibility.NodeID
 	node := accessibility.Node{ID: accessibility.NodeID{BusName: "org.test", ObjectPath: "/node", Generation: generation}, Name: "Save", Actions: []accessibility.Action{{Index: 1, Name: "press"}}}
 	return accessibility.Snapshot{Nodes: []accessibility.Node{node}, Root: node, Generation: generation, Source: "fake"}, nil
 }
-func (f *bundleAccessibilityFake) Find(_ context.Context, _ accessibility.NodeID, query accessibility.Query, _ accessibility.SnapshotOptions) ([]accessibility.Node, error) {
-	snapshot, err := f.Snapshot(context.Background(), accessibility.NodeID{}, accessibility.SnapshotOptions{})
+func (f *bundleAccessibilityFake) Find(ctx context.Context, _ accessibility.NodeID, query accessibility.Query, _ accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := f.Snapshot(ctx, accessibility.NodeID{}, accessibility.SnapshotOptions{})
 	if err != nil {
 		return nil, err
 	}

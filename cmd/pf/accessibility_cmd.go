@@ -482,8 +482,8 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return fmt.Errorf("raw requires --op")
 		}
 		if op == "reopen" {
-			if err := pf.Accessibility.Reopen(c.Context()); err != nil {
-				return err
+			if reopenErr := pf.Accessibility.Reopen(c.Context()); reopenErr != nil {
+				return reopenErr
 			}
 			return accessibilityOutput(c.OutOrStdout(), false, "ok")
 		}
@@ -495,7 +495,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		if err != nil {
 			return err
 		}
-		value, err := invokeRawOp(automation, c.Context(), node, rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex})
+		value, err := invokeRawOp(c.Context(), automation, node, rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex})
 		if err != nil {
 			return err
 		}
@@ -550,7 +550,7 @@ type rawInvocation struct {
 	index           int32
 }
 
-func invokeRawOp(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
+func invokeRawOp(ctx context.Context, automation accessibility.Automation, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
 	switch in.op {
 	case "action":
 		if strings.TrimSpace(in.actionName) != "" {

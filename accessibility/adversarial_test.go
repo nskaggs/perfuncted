@@ -1,50 +1,12 @@
 package accessibility
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
 )
-
-// Counting backend proves FindOne-style workflows pay two snapshots when one
-// suffices. The bundle must resolve a query from a single bounded snapshot.
-type countingSnapshotBackend struct {
-	snapshots int
-	finds     int
-	snapshot  Snapshot
-}
-
-func (f *countingSnapshotBackend) SupportedOperations() []string {
-	return (&dbusBackend{}).SupportedOperations()
-}
-func (f *countingSnapshotBackend) Applications(context.Context) ([]Application, error) {
-	return nil, ErrUnsupported
-}
-func (f *countingSnapshotBackend) Snapshot(context.Context, NodeID, SnapshotOptions) (Snapshot, error) {
-	f.snapshots++
-	return f.snapshot, nil
-}
-func (f *countingSnapshotBackend) Find(_ context.Context, _ NodeID, query Query, _ SnapshotOptions) ([]Node, error) {
-	f.finds++
-	var out []Node
-	for _, node := range f.snapshot.Nodes {
-		if query.Name != "" && !strings.Contains(strings.ToLower(node.Name), strings.ToLower(query.Name)) {
-			continue
-		}
-		out = append(out, node)
-	}
-	return out, nil
-}
-func (f *countingSnapshotBackend) Focused(context.Context, SnapshotOptions) (Node, error) {
-	return Node{}, ErrNotFound
-}
-func (f *countingSnapshotBackend) AtPoint(context.Context, int, int) (Node, error) {
-	return Node{}, ErrNotFound
-}
-func (f *countingSnapshotBackend) Close() error { return nil }
 
 func TestAdversarialSnapshotBudgetIsEnforced(t *testing.T) {
 	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 1}
