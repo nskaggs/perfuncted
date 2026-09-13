@@ -403,14 +403,10 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 }
 
 // PasteText pastes clipboard text at a character offset in an AT-SPI editable-text object.
-func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, positions ...int32) error {
+func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
 	a, err := b.automation("paste-text")
 	if err != nil {
 		return err
-	}
-	position := int32(0)
-	if len(positions) > 0 {
-		position = positions[0]
 	}
 	return b.operationError("paste-text", a.PasteText(ctx, id, position))
 }

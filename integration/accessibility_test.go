@@ -49,7 +49,7 @@ func TestAccessibilityManagedSession(t *testing.T) {
 		"set-position",
 		"set-size",
 		"set-extents",
-		"set-current-value",
+		"set-value",
 		"set-text-contents",
 		"set-document-text-selections",
 		"select-child",

@@ -73,10 +73,6 @@ func (s *accessibilityAutomationSpy) SetExtents(context.Context, accessibility.N
 	s.mark("set-extents")
 	return nil
 }
-func (s *accessibilityAutomationSpy) SetCurrentValue(context.Context, accessibility.NodeID, float64) error {
-	s.mark("value")
-	return nil
-}
 func (s *accessibilityAutomationSpy) SetValue(context.Context, accessibility.NodeID, float64) error {
 	s.mark("set-value")
 	return nil
@@ -197,7 +193,7 @@ func (f *accessibilityReopenerFake) Applications(ctx context.Context) ([]accessi
 }
 
 func (*accessibilityAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func TestAccessibilityBundleRawAutomationIsExplicit(t *testing.T) {

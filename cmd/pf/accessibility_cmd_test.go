@@ -68,7 +68,7 @@ func (f cliEventsFake) Events(context.Context, accessibility.EventOptions) (<-ch
 }
 
 func (cliAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-current-value", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-all", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func (cliAutomationFake) InvokeAction(context.Context, accessibility.NodeID, int32) error {
@@ -92,9 +92,6 @@ func (cliAutomationFake) SetPosition(context.Context, accessibility.NodeID, int,
 }
 func (cliAutomationFake) SetSize(context.Context, accessibility.NodeID, int, int) error { return nil }
 func (cliAutomationFake) SetExtents(context.Context, accessibility.NodeID, int, int, int, int, accessibility.CoordType) error {
-	return nil
-}
-func (cliAutomationFake) SetCurrentValue(context.Context, accessibility.NodeID, float64) error {
 	return nil
 }
 func (cliAutomationFake) SetValue(context.Context, accessibility.NodeID, float64) error { return nil }

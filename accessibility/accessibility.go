@@ -399,9 +399,8 @@ type ComponentController interface {
 	SetExtents(context.Context, NodeID, int, int, int, int, CoordType) error
 }
 
-// ValueController exposes typed Value interface operations.
+// ValueController exposes the typed Value interface operation.
 type ValueController interface {
-	SetCurrentValue(context.Context, NodeID, float64) error
 	SetValue(context.Context, NodeID, float64) error
 }
 

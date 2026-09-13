@@ -232,8 +232,8 @@ func (b *dbusBackend) SetExtents(ctx context.Context, id NodeID, x, y, width, he
 	return b.mutationBool(ctx, id, componentIface, "SetExtents", int32(x), int32(y), int32(width), int32(height), uint32(coordType))
 }
 
-func (b *dbusBackend) SetCurrentValue(ctx context.Context, id NodeID, value float64) error {
-	if err := mutationContext(ctx, "SetCurrentValue"); err != nil {
+func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) error {
+	if err := mutationContext(ctx, "SetValue"); err != nil {
 		return err
 	}
 	if b != nil && b.callOverride != nil {
@@ -251,10 +251,6 @@ func (b *dbusBackend) SetCurrentValue(ctx context.Context, id NodeID, value floa
 		return normalizeMutationError(valueIface, "CurrentValue", err)
 	}
 	return nil
-}
-
-func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) error {
-	return b.SetCurrentValue(ctx, id, value)
 }
 
 func (b *dbusBackend) SetTextContents(ctx context.Context, id NodeID, text string) error {
