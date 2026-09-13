@@ -306,27 +306,14 @@ func isWordChar(c byte) bool {
 }
 
 func rectOverlap(a, b Rect) int {
-	left := maxInt(a.X, b.X)
-	top := maxInt(a.Y, b.Y)
-	right := minInt(a.X+a.Width, b.X+b.Width)
-	bottom := minInt(a.Y+a.Height, b.Y+b.Height)
+	left := max(a.X, b.X)
+	top := max(a.Y, b.Y)
+	right := min(a.X+a.Width, b.X+b.Width)
+	bottom := min(a.Y+a.Height, b.Y+b.Height)
 	if right <= left || bottom <= top {
 		return 0
 	}
 	return (right - left) * (bottom - top)
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 var _ WindowResolver = (*dbusBackend)(nil)

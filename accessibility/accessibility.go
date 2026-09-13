@@ -6,7 +6,6 @@ package accessibility
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -1175,6 +1174,9 @@ func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
 		return snapshot, nil
 	}
 
+	// Binary search for the largest prefix that fits. The snapshotJSONSize
+	// estimator is conservative (upper-bound), so every "fits" decision in
+	// the search is correct. The final marshal validates the winner.
 	originalRoot := snapshot.Root.ID
 	low, high, best := 0, len(snapshot.Nodes), -1
 	for low <= high {
@@ -1258,7 +1260,7 @@ func pruneSnapshotReferences(snapshot *Snapshot) {
 }
 
 func boundNodeResponse(node Node, maxBytes int) Node {
-	for snapshotJSONSize(Snapshot{Root: node, Nodes: []Node{node}}) > maxBytes {
+	for estimateNodeJSONSize(node)+60 > maxBytes {
 		switch {
 		case node.Text != "":
 			limit := len(node.Text) / 2
@@ -1292,12 +1294,77 @@ func boundNodeResponse(node Node, maxBytes int) Node {
 	return node
 }
 
-func snapshotJSONSize(snapshot Snapshot) int {
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		return int(^uint(0) >> 1)
+// estimateNodeJSONSize returns a fast upper-bound estimate of the JSON-encoded
+// size of a single node. The estimate is intentionally conservative (slightly
+// larger than actual) so binary-search truncation converges correctly while
+// avoiding repeated json.Marshal calls.
+func estimateNodeJSONSize(node Node) int {
+	// Fixed per-node JSON structure: field names, braces, colons, NodeID
+	// objects, bounds, boolean keys, etc.
+	const fixed = 460
+
+	n := fixed + len(node.Name) + len(node.Description) + len(node.Role) + len(node.Text)
+	n += 12 + len(node.Text)
+	n += 13 + len(node.Role)
+
+	n += len(node.Interfaces) * 25
+	for _, s := range node.Interfaces {
+		n += len(s)
 	}
-	return len(data)
+	n += len(node.States) * 25
+	for _, s := range node.States {
+		n += len(s)
+	}
+	n += len(node.Children) * 60
+	n += len(node.Warnings) * 25
+	for _, w := range node.Warnings {
+		n += len(w)
+	}
+	for k, v := range node.Attributes {
+		n += 20 + len(k) + len(v)
+	}
+	for k, targets := range node.Relations {
+		n += 20 + len(k) + len(targets)*60
+	}
+	if v := node.Value; v != nil {
+		n += 120
+	}
+	if s := node.Selection; s != nil {
+		n += 40
+	}
+	if t := node.Table; t != nil {
+		n += 50
+	}
+	if d := node.Document; d != nil {
+		n += 30 + len(d.Locale)
+	}
+	if a := node.Actions; len(a) > 0 {
+		n += len(a) * 80
+		for _, act := range a {
+			n += len(act.Name) + len(act.Description) + len(act.KeyBinding)
+		}
+	}
+	return n
+}
+
+// snapshotJSONSize estimates the total JSON-encoded size of a snapshot by
+// summing per-node estimates. It avoids json.Marshal so callers can use it in
+// hot loops (e.g. binary-search truncation) without repeated serialization.
+func snapshotJSONSize(snapshot Snapshot) int {
+	// Snapshot envelope: {"root":...,"nodes":[...],"truncated":...,...}
+	const envelope = 200
+	n := envelope
+	for _, node := range snapshot.Nodes {
+		n += estimateNodeJSONSize(node) + 1 // 1 for comma separator
+	}
+	for _, r := range snapshot.TruncationReasons {
+		n += 30 + len(r)
+	}
+	for _, w := range snapshot.Warnings {
+		n += 20 + len(w)
+	}
+	n += len(snapshot.Source)
+	return n
 }
 
 func truncateUTF8(value string, maxBytes int) (string, bool) {
@@ -2124,13 +2191,6 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func roleName(role uint32) string {

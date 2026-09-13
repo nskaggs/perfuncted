@@ -1186,17 +1186,3 @@ func isAccessibilityTemporarilyUnavailable(err error) bool {
 func colorAt(img image.Image, x, y int) color.RGBA {
 	return color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
