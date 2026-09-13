@@ -436,6 +436,16 @@ func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 	}
 }
 
+func TestAccessibilityCLIReopenJSONOutput(t *testing.T) {
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "raw", "--op", "reopen", "--json"}, openCLIWithAutomation)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, `"ok"`) && !strings.Contains(stdout, "ok") {
+		t.Fatalf("expected JSON ok output, got stdout=%q", stdout)
+	}
+}
+
 func TestParseAccessibilityAttributes(t *testing.T) {
 	got := parseAccessibilityAttributes([]string{"kind=Primary", " aria-label = Save = now", "invalid", "=empty"})
 	if got["kind"] != "Primary" || got["aria-label"] != "Save = now" {

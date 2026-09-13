@@ -485,13 +485,13 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			if reopenErr := pf.Accessibility.Reopen(c.Context()); reopenErr != nil {
 				return reopenErr
 			}
-			return accessibilityOutput(c.OutOrStdout(), false, "ok")
+			return accessibilityOutput(c.OutOrStdout(), rawOpts.json, "ok")
 		}
 		node, err := rawOpts.node()
 		if err != nil {
 			return err
 		}
-		automation, err := pf.Accessibility.RawAutomation()
+		automation, err := pf.Accessibility.RawAutomation(rawOpCapability(op))
 		if err != nil {
 			return err
 		}
@@ -548,6 +548,20 @@ type rawInvocation struct {
 	selection       int32
 	position        int32
 	index           int32
+}
+
+// rawOpCapability maps raw CLI operation names to their underlying capability
+// operation for proper gating. The CLI exposes a user-friendly name; the
+// capability system uses the actual AT-SPI interface operation.
+func rawOpCapability(op string) string {
+	switch op {
+	case "action":
+		return "invoke-action"
+	case "focus":
+		return "grab-focus"
+	default:
+		return op
+	}
 }
 
 func invokeRawOp(ctx context.Context, automation accessibility.Automation, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.

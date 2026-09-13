@@ -97,7 +97,7 @@ func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target ac
 // window by its authoritative native ID and correlates that window to its
 // exact AT-SPI top-level subtree.
 func (b *AccessibilityBundle) WindowRoot(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
-	selected, err := b.resolveManagedWindow(ctx, windowID, "")
+	selected, err := b.resolveManagedWindow(ctx, windowID, "", "window-root")
 	if err != nil {
 		return accessibility.WindowScope{}, err
 	}
@@ -132,9 +132,15 @@ func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.No
 	if len(nodes) == 0 {
 		return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: accessibility.ErrNotFound, Candidates: candidates})
 	}
+	existing := make(map[accessibility.NodeID]struct{}, len(candidates))
+	for _, c := range candidates {
+		existing[c.ID] = struct{}{}
+	}
 	for _, node := range nodes {
-		candidate := accessibility.Candidate{ID: node.ID, Role: node.Role, Name: node.Name, States: node.States, Actions: node.Actions, Bounds: node.Bounds, HasBounds: node.HasBounds, Visible: node.Visible, Showing: node.Showing, Enabled: node.Enabled, Relations: node.Relations, Rejection: "multiple nodes matched"}
-		candidates = append(candidates, candidate)
+		if _, dup := existing[node.ID]; dup {
+			continue
+		}
+		candidates = append(candidates, accessibility.Candidate{ID: node.ID, Role: node.Role, Name: node.Name, States: node.States, Actions: node.Actions, Bounds: node.Bounds, HasBounds: node.HasBounds, Visible: node.Visible, Showing: node.Showing, Enabled: node.Enabled, Relations: node.Relations, Rejection: "multiple nodes matched"})
 	}
 	return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: accessibility.ErrAmbiguous, Candidates: candidates})
 }
@@ -207,7 +213,7 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 		return accessibility.Application{}, err
 	}
 	if filter.WindowID != "" || filter.WindowTitle != "" {
-		selectedWindow, err := b.resolveManagedWindow(ctx, filter.WindowID, filter.WindowTitle)
+		selectedWindow, err := b.resolveManagedWindow(ctx, filter.WindowID, filter.WindowTitle, "find-application")
 		if err != nil {
 			return accessibility.Application{}, err
 		}
@@ -263,13 +269,12 @@ func (b *AccessibilityBundle) automation(operation string) (accessibility.Automa
 }
 
 // RawAutomation exposes the typed AT-SPI protocol primitives for diagnostic
-// and advanced callers. Workflow code should prefer FindOne plus FocusNode,
-// InvokeSemanticAction, and ReplaceEditableText so selection and ambiguity
-// remain explicit.
-func (b *AccessibilityBundle) RawAutomation() (accessibility.Automation, error) {
-	// The native backend advertises each primitive separately; raw is a CLI
-	// grouping rather than a provider operation of its own.
-	return b.automation("invoke-action")
+// and advanced callers. The operation name is used for capability gating so
+// partial or custom backends can reject unsupported primitives. Workflow code
+// should prefer FindOne plus FocusNode, InvokeSemanticAction, and
+// ReplaceEditableText so selection and ambiguity remain explicit.
+func (b *AccessibilityBundle) RawAutomation(operation string) (accessibility.Automation, error) {
+	return b.automation(operation)
 }
 
 // InvokeAction invokes a stable AT-SPI action index.

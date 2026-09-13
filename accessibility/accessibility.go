@@ -296,8 +296,9 @@ type Query struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
-// ApplicationFilter selects an application root without relying on a window
-// title. Empty fields are ignored; PID is an exact process match.
+// ApplicationFilter selects an application root. Empty fields are ignored;
+// PID is an exact process match. WindowID and WindowTitle correlate through
+// the managed window resolver when set.
 type ApplicationFilter struct {
 	Name        string `json:"name,omitempty"`
 	PID         int32  `json:"pid,omitempty"`

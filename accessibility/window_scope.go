@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const windowCandidateReadTimeout = 750 * time.Millisecond
@@ -266,7 +267,7 @@ func windowTitleMatchScore(name, title, description string) (int, bool) {
 	switch {
 	case name == title:
 		return 100, true
-	case strings.Contains(name, title):
+	case len(name) >= 3 && strings.Contains(name, title) && hasWordBoundaryMatch(name, title):
 		return 45, true
 	case len(name) >= 5 && strings.Contains(title, name) && hasWordBoundaryMatch(title, name):
 		// Firefox chrome windows may append the browser or profile title in
@@ -284,25 +285,31 @@ func windowTitleMatchScore(name, title, description string) (int, bool) {
 // hasWordBoundaryMatch reports whether name occurs in title at a word
 // boundary. Both inputs are already lower-cased and trimmed by the caller.
 func hasWordBoundaryMatch(title, name string) bool {
-	for i := 0; i+len(name) <= len(title); i++ {
-		if title[i:i+len(name)] != name {
+	nameRunes := []rune(name)
+	titleRunes := []rune(title)
+	for i := 0; i+len(nameRunes) <= len(titleRunes); i++ {
+		match := true
+		for j, r := range nameRunes {
+			if titleRunes[i+j] != r {
+				match = false
+				break
+			}
+		}
+		if !match {
 			continue
 		}
-		beforeOK := i == 0 || !isWordChar(title[i-1])
-		after := i + len(name)
-		afterOK := after >= len(title) || !isWordChar(title[after])
+		beforeOK := i == 0 || !isWordRune(titleRunes[i-1])
+		after := i + len(nameRunes)
+		afterOK := after >= len(titleRunes) || !isWordRune(titleRunes[after])
 		if beforeOK && afterOK {
 			return true
 		}
-		// A trailing separator such as " - " still terminates the word even
-		// when the next character is a word char further on; the boundary
-		// check above already covers the immediate separator.
 	}
 	return false
 }
 
-func isWordChar(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_'
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
 func rectOverlap(a, b Rect) int {

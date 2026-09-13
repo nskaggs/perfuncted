@@ -5,6 +5,7 @@ package gnomebridge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -315,13 +316,14 @@ func TestBundledExtensionDeclaresSupportedShellRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read metadata.json: %v", err)
 	}
-	text := string(raw)
-	for _, version := range []string{`"46"`, `"48"`, `"50"`} {
-		if !strings.Contains(text, version) {
-			t.Fatalf("metadata.json missing Shell %s: %s", version, text)
-		}
+	var meta struct {
+		ShellVersion []string `json:"shell-version"`
 	}
-	if strings.Contains(text, `"50"`) && !strings.Contains(text, `"51"`) {
-		t.Fatal("single-version Shell pin rots; declare the supported range")
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("parse metadata.json: %v", err)
+	}
+	want := []string{"46", "47", "48", "49", "50", "51"}
+	if !slices.Equal(meta.ShellVersion, want) {
+		t.Fatalf("shell-version = %v, want %v", meta.ShellVersion, want)
 	}
 }

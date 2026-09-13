@@ -9,17 +9,18 @@ import (
 
 // resolveManagedWindow selects exactly one managed window by native ID and/or
 // exact title. It is the single authority for compositor-window selection
-// across WindowRoot, FindApplication, and CLI scope resolution.
-func (b *AccessibilityBundle) resolveManagedWindow(ctx context.Context, windowID, windowTitle string) (*Window, error) {
+// across WindowRoot, FindApplication, and CLI scope resolution. The operation
+// label is caller-owned so error messages reflect the actual entry point.
+func (b *AccessibilityBundle) resolveManagedWindow(ctx context.Context, windowID, windowTitle, operation string) (*Window, error) {
 	if b == nil {
 		return nil, ErrNilSession
 	}
 	if b.session == nil || b.session.Windows == nil {
-		return nil, b.operationError("window-root", accessibility.ErrUnsupported)
+		return nil, b.operationError(operation, accessibility.ErrUnsupported)
 	}
 	windows, err := b.session.Windows.List(ctx, WindowMatch{})
 	if err != nil {
-		return nil, b.operationError("window-root", err)
+		return nil, b.operationError(operation, err)
 	}
 	wantID, wantTitle := strings.TrimSpace(windowID), strings.TrimSpace(windowTitle)
 	var selected *Window
@@ -34,12 +35,12 @@ func (b *AccessibilityBundle) resolveManagedWindow(ctx context.Context, windowID
 			continue
 		}
 		if selected != nil {
-			return nil, b.operationError("window-root", accessibility.ErrAmbiguous)
+			return nil, b.operationError(operation, accessibility.ErrAmbiguous)
 		}
 		selected = candidate
 	}
 	if selected == nil {
-		return nil, b.operationError("window-root", accessibility.ErrNotFound)
+		return nil, b.operationError(operation, accessibility.ErrNotFound)
 	}
 	return selected, nil
 }

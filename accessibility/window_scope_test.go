@@ -155,3 +155,52 @@ func TestChooseWindowCandidateSelectsUniqueStrongestEvidence(t *testing.T) {
 		t.Fatalf("best candidates = %+v, want strongest candidate only", candidates)
 	}
 }
+
+func TestWindowTitleMatchRejectsPrefixSubstring(t *testing.T) {
+	// "Edit" is a prefix of "Editor - Preferences" but not a word-boundary
+	// match; correlation must fail closed.
+	if _, ok := windowTitleMatchScore("editor - preferences", "edit", ""); ok {
+		t.Fatal("title substring prefix was accepted without word-boundary check")
+	}
+}
+
+func TestWindowTitleMatchAcceptsWordBoundaryPrefix(t *testing.T) {
+	// "Editor" occurs at a word boundary in "Editor - Preferences".
+	score, ok := windowTitleMatchScore("editor", "editor - preferences", "")
+	if !ok || score <= 0 {
+		t.Fatalf("word-boundary prefix match: score=%d ok=%v", score, ok)
+	}
+}
+
+func TestWindowTitleMatchAcceptsSeparatorDelimitedMatch(t *testing.T) {
+	score, ok := windowTitleMatchScore("console", "browser console - mozilla firefox", "")
+	if !ok || score <= 0 {
+		t.Fatalf("separator-delimited match: score=%d ok=%v", score, ok)
+	}
+}
+
+func TestWindowTitleMatchRejectsUnicodeFalseBoundary(t *testing.T) {
+	// Unicode letters should be treated as word characters, so "edit" must
+	// not match "Editorédité" (where "édité" continues the word).
+	if _, ok := windowTitleMatchScore("editorédité", "edit", ""); ok {
+		t.Fatal("unicode-adjacent substring was accepted as word boundary")
+	}
+}
+
+func TestWindowTitleMatchAcceptsUnicodeExactMatch(t *testing.T) {
+	score, ok := windowTitleMatchScore("éditeur", "éditeur", "")
+	if !ok || score != 100 {
+		t.Fatalf("unicode exact match: score=%d ok=%v", score, ok)
+	}
+}
+
+func TestWindowTitleMatchSameTitleSiblingsAmbiguous(t *testing.T) {
+	candidates := []windowCandidate{
+		{node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/a", Generation: 1}, Role: "frame", Name: "Editor"}, score: 100},
+		{node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/b", Generation: 1}, Role: "frame", Name: "Editor"}, score: 100},
+	}
+	selected, _, ambiguous := chooseWindowCandidate(candidates)
+	if !ambiguous || selected != nil {
+		t.Fatalf("same-title siblings: selected=%+v ambiguous=%v", selected, ambiguous)
+	}
+}

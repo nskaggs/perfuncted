@@ -201,7 +201,7 @@ func TestAccessibilityBundleRawAutomationIsExplicit(t *testing.T) {
 		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 1},
 		accessibilityAutomationSpy: &accessibilityAutomationSpy{},
 	})
-	if _, err := session.Accessibility.RawAutomation(); err != nil {
+	if _, err := session.Accessibility.RawAutomation("invoke-action"); err != nil {
 		t.Fatalf("RawAutomation: %v", err)
 	}
 }
