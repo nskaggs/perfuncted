@@ -320,7 +320,7 @@ func TestAccessibilityCLIHelpKeepsProtocolCommandsUnderRaw(t *testing.T) {
 }
 
 func TestAccessibilityCLIRawRequiresExplicitGeneration(t *testing.T) {
-	stdout, stderr, code := captureRunIO(t, []string{"a11y", "raw", "action", "--bus", "org.test", "--path", "/node"}, openCLIWithAutomation)
+	stdout, stderr, code := captureRunIO(t, []string{"a11y", "raw", "--op", "action", "--bus", "org.test", "--path", "/node"}, openCLIWithAutomation)
 	if code == 0 || stdout != "" || !strings.Contains(stderr, "--generation") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -411,23 +411,23 @@ func TestAccessibilityCLIRejectsPartialRoot(t *testing.T) {
 
 func TestAccessibilityCLIAutomationCommands(t *testing.T) {
 	tests := [][]string{
-		{"a11y", "raw", "action", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "focus", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "scroll", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "set-value", "--bus", "org.test", "--path", "/node", "--generation", "1", "--value", "0.5"},
-		{"a11y", "raw", "set-text-contents", "--bus", "org.test", "--path", "/node", "--generation", "1", "--text", "updated"},
-		{"a11y", "raw", "set-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0", "--start", "0", "--end", "1"},
-		{"a11y", "raw", "add-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--start", "0", "--end", "1"},
-		{"a11y", "raw", "remove-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0"},
-		{"a11y", "raw", "select-child", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"a11y", "raw", "select-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "clear-selection", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "deselect-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
-		{"a11y", "raw", "select-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"a11y", "raw", "deselect-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"a11y", "raw", "select-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"a11y", "raw", "deselect-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
-		{"a11y", "raw", "reopen"},
+		{"a11y", "raw", "--op", "action", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "--op", "focus", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "--op", "scroll", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "--op", "set-value", "--bus", "org.test", "--path", "/node", "--generation", "1", "--value", "0.5"},
+		{"a11y", "raw", "--op", "set-text-contents", "--bus", "org.test", "--path", "/node", "--generation", "1", "--text", "updated"},
+		{"a11y", "raw", "--op", "set-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0", "--start", "0", "--end", "1"},
+		{"a11y", "raw", "--op", "add-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--start", "0", "--end", "1"},
+		{"a11y", "raw", "--op", "remove-text-selection", "--bus", "org.test", "--path", "/node", "--generation", "1", "--selection", "0"},
+		{"a11y", "raw", "--op", "select-child", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "--op", "select-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "--op", "clear-selection", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "--op", "deselect-all", "--bus", "org.test", "--path", "/node", "--generation", "1"},
+		{"a11y", "raw", "--op", "select-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "--op", "deselect-row", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "--op", "select-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "--op", "deselect-column", "--bus", "org.test", "--path", "/node", "--generation", "1", "--index", "0"},
+		{"a11y", "raw", "--op", "reopen"},
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args[1:], "-"), func(t *testing.T) {

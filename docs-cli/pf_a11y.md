@@ -27,7 +27,7 @@ Inspect and operate the AT-SPI accessibility tree
 * [pf a11y find](pf_a11y_find.md)	 - Find semantic nodes in one application or managed window
 * [pf a11y focus](pf_a11y_focus.md)	 - Resolve one semantic node and request AT-SPI focus
 * [pf a11y focused](pf_a11y_focused.md)	 - Show the currently focused accessible node
-* [pf a11y raw](pf_a11y_raw.md)	 - Use typed AT-SPI protocol primitives with explicit handles
+* [pf a11y raw](pf_a11y_raw.md)	 - Invoke one typed AT-SPI primitive with an explicit handle
 * [pf a11y text](pf_a11y_text.md)	 - Resolve one editable semantic node and replace its text
 * [pf a11y tree](pf_a11y_tree.md)	 - Capture a bounded tree for one application or managed window
 

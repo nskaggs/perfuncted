@@ -461,243 +461,196 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	addQueryFlags(text, &textQuery, &textAttributes)
 	text.Flags().StringVar(&textValue, "value", "", "replacement text")
 
-	raw := &cobra.Command{Use: "raw", Short: "Use typed AT-SPI protocol primitives with explicit handles"}
-	addRawNode := func(use, short string, run func(accessibility.Automation, context.Context, accessibility.NodeID) (any, error)) *cobra.Command {
-		opts := &accessibilityRawOptions{}
-		command := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-			pf, err := openAccessibilitySession(c.Context(), openPF)
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			node, err := opts.node()
-			if err != nil {
-				return err
-			}
-			automation, err := pf.Accessibility.RawAutomation()
-			if err != nil {
-				return err
-			}
-			value, err := run(automation, c.Context(), node)
-			if err != nil {
-				return err
-			}
-			if value == nil {
-				value = "ok"
-			}
-			return accessibilityOutput(c.OutOrStdout(), opts.json, value)
-		}}
-		addJSONFlag(command, &opts.json)
-		command.Flags().StringVar(&opts.bus, "bus", "", "AT-SPI object bus name")
-		command.Flags().StringVar(&opts.path, "path", "", "AT-SPI object path")
-		command.Flags().Uint64Var(&opts.generation, "generation", 0, "current accessibility generation")
-		raw.AddCommand(command)
-		return command
-	}
-
+	rawOpts := &accessibilityRawOptions{}
+	var rawOp string
 	var rawActionName string
 	var rawActionIndex int32
-	rawAction := addRawNode("action", "Invoke an explicit AT-SPI action index or name", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		if strings.TrimSpace(rawActionName) != "" {
-			return automation.InvokeActionByName(ctx, node, rawActionName)
-		}
-		if rawActionIndex >= 0 {
-			return nil, automation.InvokeAction(ctx, node, rawActionIndex)
-		}
-		return automation.InvokeDefaultAction(ctx, node)
-	})
-	rawAction.Flags().Int32Var(&rawActionIndex, "action-index", -1, "stable AT-SPI action index")
-	rawAction.Flags().StringVar(&rawActionName, "action-name", "", "exact AT-SPI action name")
-	addRawNode("focus", "Invoke the low-level AT-SPI Component GrabFocus primitive", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.GrabFocus(ctx, node)
-	})
-	var scrollType string
-	rawScroll := addRawNode("scroll", "Invoke the low-level AT-SPI Component ScrollTo primitive", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		kind, err := parseAccessibilityScrollType(scrollType)
-		if err != nil {
-			return nil, err
-		}
-		return nil, automation.ScrollTo(ctx, node, kind)
-	})
-	rawScroll.Flags().StringVar(&scrollType, "alignment", "anywhere", "alignment: top-left, bottom-right, top-edge, bottom-edge, left-edge, right-edge, or anywhere")
-
-	var pointCoord string
-	var rawPointX, rawPointY int
-	rawPoint := addRawNode("scroll-to-point", "Invoke Component ScrollToPoint", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		coord, err := parseAccessibilityCoordType(pointCoord)
-		if err != nil {
-			return nil, err
-		}
-		return nil, automation.ScrollToPoint(ctx, node, coord, rawPointX, rawPointY)
-	})
-	rawPoint.Flags().IntVar(&rawPointX, "x", 0, "point x coordinate")
-	rawPoint.Flags().IntVar(&rawPointY, "y", 0, "point y coordinate")
-	rawPoint.Flags().StringVar(&pointCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
-
-	var rawX, rawY, rawWidth, rawHeight int
+	var rawAlignment string
 	var rawCoord string
-	rawPosition := addRawNode("set-position", "Invoke Component SetPosition", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		coord, err := parseAccessibilityCoordType(rawCoord)
-		if err != nil {
-			return nil, err
-		}
-		return nil, automation.SetPosition(ctx, node, rawX, rawY, coord)
-	})
-	rawPosition.Flags().IntVar(&rawX, "x", 0, "position x coordinate")
-	rawPosition.Flags().IntVar(&rawY, "y", 0, "position y coordinate")
-	rawPosition.Flags().StringVar(&rawCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
-	rawSize := addRawNode("set-size", "Invoke Component SetSize", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SetSize(ctx, node, rawWidth, rawHeight)
-	})
-	rawSize.Flags().IntVar(&rawWidth, "width", 0, "component width")
-	rawSize.Flags().IntVar(&rawHeight, "height", 0, "component height")
-	rawExtents := addRawNode("set-extents", "Invoke Component SetExtents", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		coord, err := parseAccessibilityCoordType(rawCoord)
-		if err != nil {
-			return nil, err
-		}
-		return nil, automation.SetExtents(ctx, node, rawX, rawY, rawWidth, rawHeight, coord)
-	})
-	rawExtents.Flags().IntVar(&rawX, "x", 0, "position x coordinate")
-	rawExtents.Flags().IntVar(&rawY, "y", 0, "position y coordinate")
-	rawExtents.Flags().IntVar(&rawWidth, "width", 0, "component width")
-	rawExtents.Flags().IntVar(&rawHeight, "height", 0, "component height")
-	rawExtents.Flags().StringVar(&rawCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
-
+	var rawX, rawY, rawWidth, rawHeight int
 	var rawValue float64
-	rawCurrentValue := addRawNode("set-current-value", "Invoke Value SetCurrentValue", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SetCurrentValue(ctx, node, rawValue)
-	})
-	rawCurrentValue.Flags().Float64Var(&rawValue, "value", 0, "new current value")
-	rawValueCommand := addRawNode("set-value", "Invoke the typed Value SetValue primitive", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SetValue(ctx, node, rawValue)
-	})
-	rawValueCommand.Flags().Float64Var(&rawValue, "value", 0, "new current value")
-	var rawText string
-	rawTextCommand := addRawNode("set-text-contents", "Invoke EditableText SetTextContents", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SetTextContents(ctx, node, rawText)
-	})
-	rawTextCommand.Flags().StringVar(&rawText, "text", "", "replacement text")
-	var rawStart, rawEnd, rawOffset int32
-	var rawRangeText string
-	rawReplace := addRawNode("replace-text", "Invoke EditableText ReplaceText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.ReplaceText(ctx, node, rawStart, rawEnd, rawRangeText)
-	})
-	rawReplace.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
-	rawReplace.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
-	rawReplace.Flags().StringVar(&rawRangeText, "text", "", "replacement text")
-	rawInsert := addRawNode("insert-text", "Invoke EditableText InsertText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.InsertText(ctx, node, rawOffset, rawRangeText)
-	})
-	rawInsert.Flags().Int32Var(&rawOffset, "offset", 0, "character offset")
-	rawInsert.Flags().StringVar(&rawRangeText, "text", "", "inserted text")
-	rawDelete := addRawNode("delete-text", "Invoke EditableText DeleteText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.DeleteText(ctx, node, rawStart, rawEnd)
-	})
-	rawDelete.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
-	rawDelete.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
-	rawCopy := addRawNode("copy-text", "Invoke Text CopyText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.CopyText(ctx, node, rawStart, rawEnd)
-	})
-	rawCopy.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
-	rawCopy.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
-	rawCut := addRawNode("cut-text", "Invoke Text CutText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.CutText(ctx, node, rawStart, rawEnd)
-	})
-	rawCut.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
-	rawCut.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
-	var pastePosition int32
-	rawPaste := addRawNode("paste-text", "Invoke Text PasteText", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.PasteText(ctx, node, pastePosition)
-	})
-	rawPaste.Flags().Int32Var(&pastePosition, "position", 0, "paste character position")
-	rawCaret := addRawNode("set-caret", "Invoke Text SetCaretOffset", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SetCaretOffset(ctx, node, rawOffset)
-	})
-	rawCaret.Flags().Int32Var(&rawOffset, "offset", 0, "caret character offset")
-
-	var selection int32
-	var selectionStart, selectionEnd int32
-	rawSetSelection := addRawNode("set-text-selection", "Invoke Text SetSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SetTextSelection(ctx, node, selection, selectionStart, selectionEnd)
-	})
-	rawSetSelection.Flags().Int32Var(&selection, "selection", 0, "selection number")
-	rawSetSelection.Flags().Int32Var(&selectionStart, "start", 0, "start character offset")
-	rawSetSelection.Flags().Int32Var(&selectionEnd, "end", 0, "end character offset")
-	rawAddSelection := addRawNode("add-text-selection", "Invoke Text AddSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.AddTextSelection(ctx, node, selectionStart, selectionEnd)
-	})
-	rawAddSelection.Flags().Int32Var(&selectionStart, "start", 0, "start character offset")
-	rawAddSelection.Flags().Int32Var(&selectionEnd, "end", 0, "end character offset")
-	rawRemoveSelection := addRawNode("remove-text-selection", "Invoke Text RemoveSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.RemoveTextSelection(ctx, node, selection)
-	})
-	rawRemoveSelection.Flags().Int32Var(&selection, "selection", 0, "selection number")
-	var documentSelectionsJSON string
-	rawDocumentSelections := addRawNode("set-document-text-selections", "Invoke Document SetTextSelections", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		var selections []accessibility.DocumentTextSelection
-		if err := json.Unmarshal([]byte(documentSelectionsJSON), &selections); err != nil {
-			return nil, fmt.Errorf("invalid --selections JSON: %w", err)
-		}
-		return nil, automation.SetTextSelections(ctx, node, selections)
-	})
-	rawDocumentSelections.Flags().StringVar(&documentSelectionsJSON, "selections", "[]", "JSON array of DocumentTextSelection values")
-
-	var childIndex int32
-	rawSelectChild := addRawNode("select-child", "Invoke Selection SelectChild", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SelectChild(ctx, node, childIndex)
-	})
-	rawSelectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
-	rawDeselectChild := addRawNode("deselect-child", "Invoke Selection DeselectChild", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.DeselectChild(ctx, node, childIndex)
-	})
-	rawDeselectChild.Flags().Int32Var(&childIndex, "index", 0, "child index")
-	addRawNode("select-all", "Invoke Selection SelectAll", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SelectAll(ctx, node)
-	})
-	addRawNode("clear-selection", "Invoke Selection ClearSelection", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.ClearSelection(ctx, node)
-	})
-	addRawNode("deselect-all", "Invoke Selection DeselectAll", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.DeselectAll(ctx, node)
-	})
-	addRawNode("deselect-selected-child", "Invoke Selection DeselectSelectedChild", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.DeselectSelectedChild(ctx, node)
-	})
-
-	var tableIndex int32
-	rawSelectRow := addRawNode("select-row", "Invoke Table SelectRow", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SelectRow(ctx, node, tableIndex)
-	})
-	rawSelectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
-	rawDeselectRow := addRawNode("deselect-row", "Invoke Table DeselectRow", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.DeselectRow(ctx, node, tableIndex)
-	})
-	rawDeselectRow.Flags().Int32Var(&tableIndex, "index", 0, "row index")
-	rawSelectColumn := addRawNode("select-column", "Invoke Table SelectColumn", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.SelectColumn(ctx, node, tableIndex)
-	})
-	rawSelectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
-	rawDeselectColumn := addRawNode("deselect-column", "Invoke Table DeselectColumn", func(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID) (any, error) {
-		return nil, automation.DeselectColumn(ctx, node, tableIndex)
-	})
-	rawDeselectColumn.Flags().Int32Var(&tableIndex, "index", 0, "column index")
-
-	rawReopen := &cobra.Command{Use: "reopen", Short: "Explicitly reopen the target accessibility bus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+	var rawText, rawRangeText, rawSelectionsJSON string
+	var rawStart, rawEnd, rawOffset, rawSelection, rawPosition, rawIndex int32
+	raw := &cobra.Command{Use: "raw", Short: "Invoke one typed AT-SPI primitive with an explicit handle", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
 		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		if err := pf.Accessibility.Reopen(c.Context()); err != nil {
+		op := strings.ToLower(strings.TrimSpace(rawOp))
+		if op == "" {
+			return fmt.Errorf("raw requires --op")
+		}
+		if op == "reopen" {
+			if err := pf.Accessibility.Reopen(c.Context()); err != nil {
+				return err
+			}
+			return accessibilityOutput(c.OutOrStdout(), false, "ok")
+		}
+		node, err := rawOpts.node()
+		if err != nil {
 			return err
 		}
-		return accessibilityOutput(c.OutOrStdout(), false, "ok")
+		automation, err := pf.Accessibility.RawAutomation()
+		if err != nil {
+			return err
+		}
+		value, err := invokeRawOp(automation, c.Context(), node, rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex})
+		if err != nil {
+			return err
+		}
+		if value == nil {
+			value = "ok"
+		}
+		return accessibilityOutput(c.OutOrStdout(), rawOpts.json, value)
 	}}
-	raw.AddCommand(rawReopen)
+	addJSONFlag(raw, &rawOpts.json)
+	raw.Flags().StringVar(&rawOp, "op", "", "primitive: action, focus, scroll, scroll-to-point, set-position, set-size, set-extents, set-current-value, set-value, set-text-contents, replace-text, insert-text, delete-text, copy-text, cut-text, paste-text, set-caret, set-text-selection, add-text-selection, remove-text-selection, set-document-text-selections, select-child, deselect-child, select-all, clear-selection, deselect-all, deselect-selected-child, select-row, deselect-row, select-column, deselect-column, reopen")
+	raw.Flags().StringVar(&rawOpts.bus, "bus", "", "AT-SPI object bus name")
+	raw.Flags().StringVar(&rawOpts.path, "path", "", "AT-SPI object path")
+	raw.Flags().Uint64Var(&rawOpts.generation, "generation", 0, "current accessibility generation")
+	raw.Flags().Int32Var(&rawActionIndex, "action-index", -1, "stable AT-SPI action index")
+	raw.Flags().StringVar(&rawActionName, "action-name", "", "exact AT-SPI action name")
+	raw.Flags().StringVar(&rawAlignment, "alignment", "anywhere", "alignment for scroll")
+	raw.Flags().StringVar(&rawCoord, "coordinate-space", "screen", "coordinate space: screen, window, or parent")
+	raw.Flags().IntVar(&rawX, "x", 0, "x coordinate")
+	raw.Flags().IntVar(&rawY, "y", 0, "y coordinate")
+	raw.Flags().IntVar(&rawWidth, "width", 0, "component width")
+	raw.Flags().IntVar(&rawHeight, "height", 0, "component height")
+	raw.Flags().Float64Var(&rawValue, "value", 0, "new current value")
+	raw.Flags().StringVar(&rawText, "text", "", "replacement text")
+	raw.Flags().StringVar(&rawRangeText, "range-text", "", "range replacement text")
+	raw.Flags().StringVar(&rawSelectionsJSON, "selections", "[]", "JSON array of DocumentTextSelection values")
+	raw.Flags().Int32Var(&rawStart, "start", 0, "start character offset")
+	raw.Flags().Int32Var(&rawEnd, "end", 0, "end character offset")
+	raw.Flags().Int32Var(&rawOffset, "offset", 0, "character offset")
+	raw.Flags().Int32Var(&rawSelection, "selection", 0, "selection number")
+	raw.Flags().Int32Var(&rawPosition, "position", 0, "paste character position")
+	raw.Flags().Int32Var(&rawIndex, "index", 0, "child/row/column index")
 
 	cmd.AddCommand(apps, tree, find, focused, atPoint, events, action, focus, text, raw)
 	return cmd
+}
+
+type rawInvocation struct {
+	op              string
+	actionName      string
+	actionIndex     int32
+	alignment       string
+	coord           string
+	x, y            int
+	width, height   int
+	value           float64
+	text, rangeText string
+	selectionsJSON  string
+	start, end      int32
+	offset          int32
+	selection       int32
+	position        int32
+	index           int32
+}
+
+func invokeRawOp(automation accessibility.Automation, ctx context.Context, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
+	switch in.op {
+	case "action":
+		if strings.TrimSpace(in.actionName) != "" {
+			return automation.InvokeActionByName(ctx, node, in.actionName)
+		}
+		if in.actionIndex >= 0 {
+			return nil, automation.InvokeAction(ctx, node, in.actionIndex)
+		}
+		return automation.InvokeDefaultAction(ctx, node)
+	case "focus":
+		return nil, automation.GrabFocus(ctx, node)
+	case "scroll":
+		kind, err := parseAccessibilityScrollType(in.alignment)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.ScrollTo(ctx, node, kind)
+	case "scroll-to-point":
+		coord, err := parseAccessibilityCoordType(in.coord)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.ScrollToPoint(ctx, node, coord, in.x, in.y)
+	case "set-position":
+		coord, err := parseAccessibilityCoordType(in.coord)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.SetPosition(ctx, node, in.x, in.y, coord)
+	case "set-size":
+		return nil, automation.SetSize(ctx, node, in.width, in.height)
+	case "set-extents":
+		coord, err := parseAccessibilityCoordType(in.coord)
+		if err != nil {
+			return nil, err
+		}
+		return nil, automation.SetExtents(ctx, node, in.x, in.y, in.width, in.height, coord)
+	case "set-current-value":
+		return nil, automation.SetCurrentValue(ctx, node, in.value)
+	case "set-value":
+		return nil, automation.SetValue(ctx, node, in.value)
+	case "set-text-contents":
+		return nil, automation.SetTextContents(ctx, node, in.text)
+	case "replace-text":
+		text := in.rangeText
+		if text == "" {
+			text = in.text
+		}
+		return nil, automation.ReplaceText(ctx, node, in.start, in.end, text)
+	case "insert-text":
+		text := in.rangeText
+		if text == "" {
+			text = in.text
+		}
+		return nil, automation.InsertText(ctx, node, in.offset, text)
+	case "delete-text":
+		return nil, automation.DeleteText(ctx, node, in.start, in.end)
+	case "copy-text":
+		return nil, automation.CopyText(ctx, node, in.start, in.end)
+	case "cut-text":
+		return nil, automation.CutText(ctx, node, in.start, in.end)
+	case "paste-text":
+		return nil, automation.PasteText(ctx, node, in.position)
+	case "set-caret":
+		return nil, automation.SetCaretOffset(ctx, node, in.offset)
+	case "set-text-selection":
+		return nil, automation.SetTextSelection(ctx, node, in.selection, in.start, in.end)
+	case "add-text-selection":
+		return nil, automation.AddTextSelection(ctx, node, in.start, in.end)
+	case "remove-text-selection":
+		return nil, automation.RemoveTextSelection(ctx, node, in.selection)
+	case "set-document-text-selections":
+		var selections []accessibility.DocumentTextSelection
+		if err := json.Unmarshal([]byte(in.selectionsJSON), &selections); err != nil {
+			return nil, fmt.Errorf("invalid --selections JSON: %w", err)
+		}
+		return nil, automation.SetTextSelections(ctx, node, selections)
+	case "select-child":
+		return nil, automation.SelectChild(ctx, node, in.index)
+	case "deselect-child":
+		return nil, automation.DeselectChild(ctx, node, in.index)
+	case "select-all":
+		return nil, automation.SelectAll(ctx, node)
+	case "clear-selection":
+		return nil, automation.ClearSelection(ctx, node)
+	case "deselect-all":
+		return nil, automation.DeselectAll(ctx, node)
+	case "deselect-selected-child":
+		return nil, automation.DeselectSelectedChild(ctx, node)
+	case "select-row":
+		return nil, automation.SelectRow(ctx, node, in.index)
+	case "deselect-row":
+		return nil, automation.DeselectRow(ctx, node, in.index)
+	case "select-column":
+		return nil, automation.SelectColumn(ctx, node, in.index)
+	case "deselect-column":
+		return nil, automation.DeselectColumn(ctx, node, in.index)
+	default:
+		return nil, fmt.Errorf("unknown raw op %q", in.op)
+	}
 }
 
 func parseAccessibilityScrollType(value string) (accessibility.ScrollType, error) {

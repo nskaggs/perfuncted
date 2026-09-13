@@ -1,11 +1,38 @@
 ## pf a11y raw
 
-Use typed AT-SPI protocol primitives with explicit handles
+Invoke one typed AT-SPI primitive with an explicit handle
+
+```
+pf a11y raw [flags]
+```
 
 ### Options
 
 ```
-  -h, --help   help for raw
+      --action-index int32        stable AT-SPI action index (default -1)
+      --action-name string        exact AT-SPI action name
+      --alignment string          alignment for scroll (default "anywhere")
+      --bus string                AT-SPI object bus name
+      --coordinate-space string   coordinate space: screen, window, or parent (default "screen")
+      --end int32                 end character offset
+      --generation uint           current accessibility generation
+      --height int                component height
+  -h, --help                      help for raw
+      --index int32               child/row/column index
+      --json                      write machine-readable JSON
+      --offset int32              character offset
+      --op string                 primitive: action, focus, scroll, scroll-to-point, set-position, set-size, set-extents, set-current-value, set-value, set-text-contents, replace-text, insert-text, delete-text, copy-text, cut-text, paste-text, set-caret, set-text-selection, add-text-selection, remove-text-selection, set-document-text-selections, select-child, deselect-child, select-all, clear-selection, deselect-all, deselect-selected-child, select-row, deselect-row, select-column, deselect-column, reopen
+      --path string               AT-SPI object path
+      --position int32            paste character position
+      --range-text string         range replacement text
+      --selection int32           selection number
+      --selections string         JSON array of DocumentTextSelection values (default "[]")
+      --start int32               start character offset
+      --text string               replacement text
+      --value float               new current value
+      --width int                 component width
+      --x int                     x coordinate
+      --y int                     y coordinate
 ```
 
 ### Options inherited from parent commands
@@ -20,36 +47,4 @@ Use typed AT-SPI protocol primitives with explicit handles
 ### SEE ALSO
 
 * [pf a11y](pf_a11y.md)	 - Inspect and operate the AT-SPI accessibility tree
-* [pf a11y raw action](pf_a11y_raw_action.md)	 - Invoke an explicit AT-SPI action index or name
-* [pf a11y raw add-text-selection](pf_a11y_raw_add-text-selection.md)	 - Invoke Text AddSelection
-* [pf a11y raw clear-selection](pf_a11y_raw_clear-selection.md)	 - Invoke Selection ClearSelection
-* [pf a11y raw copy-text](pf_a11y_raw_copy-text.md)	 - Invoke Text CopyText
-* [pf a11y raw cut-text](pf_a11y_raw_cut-text.md)	 - Invoke Text CutText
-* [pf a11y raw delete-text](pf_a11y_raw_delete-text.md)	 - Invoke EditableText DeleteText
-* [pf a11y raw deselect-all](pf_a11y_raw_deselect-all.md)	 - Invoke Selection DeselectAll
-* [pf a11y raw deselect-child](pf_a11y_raw_deselect-child.md)	 - Invoke Selection DeselectChild
-* [pf a11y raw deselect-column](pf_a11y_raw_deselect-column.md)	 - Invoke Table DeselectColumn
-* [pf a11y raw deselect-row](pf_a11y_raw_deselect-row.md)	 - Invoke Table DeselectRow
-* [pf a11y raw deselect-selected-child](pf_a11y_raw_deselect-selected-child.md)	 - Invoke Selection DeselectSelectedChild
-* [pf a11y raw focus](pf_a11y_raw_focus.md)	 - Invoke the low-level AT-SPI Component GrabFocus primitive
-* [pf a11y raw insert-text](pf_a11y_raw_insert-text.md)	 - Invoke EditableText InsertText
-* [pf a11y raw paste-text](pf_a11y_raw_paste-text.md)	 - Invoke Text PasteText
-* [pf a11y raw remove-text-selection](pf_a11y_raw_remove-text-selection.md)	 - Invoke Text RemoveSelection
-* [pf a11y raw reopen](pf_a11y_raw_reopen.md)	 - Explicitly reopen the target accessibility bus
-* [pf a11y raw replace-text](pf_a11y_raw_replace-text.md)	 - Invoke EditableText ReplaceText
-* [pf a11y raw scroll](pf_a11y_raw_scroll.md)	 - Invoke the low-level AT-SPI Component ScrollTo primitive
-* [pf a11y raw scroll-to-point](pf_a11y_raw_scroll-to-point.md)	 - Invoke Component ScrollToPoint
-* [pf a11y raw select-all](pf_a11y_raw_select-all.md)	 - Invoke Selection SelectAll
-* [pf a11y raw select-child](pf_a11y_raw_select-child.md)	 - Invoke Selection SelectChild
-* [pf a11y raw select-column](pf_a11y_raw_select-column.md)	 - Invoke Table SelectColumn
-* [pf a11y raw select-row](pf_a11y_raw_select-row.md)	 - Invoke Table SelectRow
-* [pf a11y raw set-caret](pf_a11y_raw_set-caret.md)	 - Invoke Text SetCaretOffset
-* [pf a11y raw set-current-value](pf_a11y_raw_set-current-value.md)	 - Invoke Value SetCurrentValue
-* [pf a11y raw set-document-text-selections](pf_a11y_raw_set-document-text-selections.md)	 - Invoke Document SetTextSelections
-* [pf a11y raw set-extents](pf_a11y_raw_set-extents.md)	 - Invoke Component SetExtents
-* [pf a11y raw set-position](pf_a11y_raw_set-position.md)	 - Invoke Component SetPosition
-* [pf a11y raw set-size](pf_a11y_raw_set-size.md)	 - Invoke Component SetSize
-* [pf a11y raw set-text-contents](pf_a11y_raw_set-text-contents.md)	 - Invoke EditableText SetTextContents
-* [pf a11y raw set-text-selection](pf_a11y_raw_set-text-selection.md)	 - Invoke Text SetSelection
-* [pf a11y raw set-value](pf_a11y_raw_set-value.md)	 - Invoke the typed Value SetValue primitive
 
