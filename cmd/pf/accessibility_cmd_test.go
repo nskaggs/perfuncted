@@ -219,6 +219,16 @@ func TestAccessibilityCLIHasNoUnreleasedAlias(t *testing.T) {
 	if code == 0 || stdout != "" || !strings.Contains(stderr, `unknown command "accessibility"`) {
 		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
 	}
+
+	stdout, stderr, code = captureRunIO(t, []string{"a11y", "action", "--action-name", "press"}, openCLIWithAccessibility)
+	if code == 0 || !strings.Contains(stderr, "unknown flag: --action-name") {
+		t.Fatalf("semantic action accepted an unreleased flag alias: code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+
+	stdout, stderr, code = captureRunIO(t, []string{"a11y", "raw", "--help"}, openCLIWithAccessibility)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "--action-name string") {
+		t.Fatalf("raw action-name flag missing: code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
 }
 
 func TestAccessibilityCLIEventsDefaultToJSONLines(t *testing.T) {

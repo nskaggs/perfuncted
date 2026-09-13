@@ -24,9 +24,6 @@ type accessibilityAutomationSpy struct {
 }
 
 func TestPublicAccessibilityHelpersRemainReachable(t *testing.T) {
-	if bundle := NewAccessibilityBundle(nil); bundle == nil {
-		t.Fatal("NewAccessibilityBundle returned nil")
-	}
 	if condition := AccessibilityFocused(accessibility.SnapshotOptions{}); condition == nil {
 		t.Fatal("AccessibilityFocused returned nil")
 	}

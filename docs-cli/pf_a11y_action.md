@@ -10,7 +10,6 @@ pf a11y action [flags]
 
 ```
       --action string           exact action name; empty selects the provider's first action
-      --action-name string      alias for --action
       --allow-sensitive         include protected text and values
       --app string              accessible application name substring
       --attribute stringArray   required attribute key=value (repeatable)

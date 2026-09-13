@@ -401,7 +401,6 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	addSnapshotFlags(action, &actionOpts)
 	addQueryFlags(action, &actionQuery, &actionAttributes)
 	action.Flags().StringVar(&actionName, "action", "", "exact action name; empty selects the provider's first action")
-	action.Flags().StringVar(&actionName, "action-name", "", "alias for --action")
 
 	var focusOpts accessibilityCLIOptions
 	var focusQuery accessibility.Query

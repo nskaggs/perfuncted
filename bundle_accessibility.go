@@ -18,13 +18,6 @@ type AccessibilityBundle struct {
 	bundleBase
 }
 
-// NewAccessibilityBundle binds a deterministic accessibility backend. It is
-// useful for adapters and tests that need to exercise semantic workflows
-// without a live AT-SPI bus.
-func NewAccessibilityBundle(backend accessibility.Backend) *AccessibilityBundle {
-	return &AccessibilityBundle{backend: backend, bundleBase: bundleBase{capability: CapabilityAccessibility}}
-}
-
 func (b *AccessibilityBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
