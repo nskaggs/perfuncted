@@ -167,14 +167,6 @@ type accessibilityAutomationFake struct {
 	*accessibilityAutomationSpy
 }
 
-type accessibilityLimitedAutomationFake struct {
-	*accessibilityAutomationFake
-}
-
-func (*accessibilityLimitedAutomationFake) SupportedOperations() []string {
-	return []string{"applications"}
-}
-
 type accessibilityReopenerFake struct {
 	*bundleAccessibilityFake
 	fresh        accessibility.Backend
@@ -198,30 +190,6 @@ func (f *accessibilityReopenerFake) Applications(ctx context.Context) ([]accessi
 
 func (*accessibilityAutomationFake) SupportedOperations() []string {
 	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
-}
-
-func TestAccessibilityBundleRawAutomationIsExplicit(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, &accessibilityAutomationFake{
-		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 1},
-		accessibilityAutomationSpy: &accessibilityAutomationSpy{},
-	})
-	if _, err := session.Accessibility.RawAutomation(); err != nil {
-		t.Fatalf("RawAutomation: %v", err)
-	}
-}
-
-func TestAccessibilityBundleRawAutomationLeavesOperationGateToCaller(t *testing.T) {
-	backend := &accessibilityLimitedAutomationFake{accessibilityAutomationFake: &accessibilityAutomationFake{
-		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 1},
-		accessibilityAutomationSpy: &accessibilityAutomationSpy{},
-	}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
-	if _, err := session.Accessibility.RawAutomation(); err != nil {
-		t.Fatalf("RawAutomation: %v", err)
-	}
-	if err := session.Accessibility.CheckOperation("invoke-action"); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("CheckOperation(invoke-action) = %v, want unsupported operation", err)
-	}
 }
 
 func (f *bundleAccessibilityFake) SupportedOperations() []string {

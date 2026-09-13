@@ -185,6 +185,9 @@ func TestWindowTitleMatchRejectsUnicodeFalseBoundary(t *testing.T) {
 	if _, ok := windowTitleMatchScore("editorédité", "edit", ""); ok {
 		t.Fatal("unicode-adjacent substring was accepted as word boundary")
 	}
+	if _, ok := windowTitleMatchScore("editor", "éeditor - preferences", ""); ok {
+		t.Fatal("substring following a Unicode letter was accepted as word boundary")
+	}
 }
 
 func TestWindowTitleMatchAcceptsUnicodeExactMatch(t *testing.T) {
@@ -201,6 +204,11 @@ func TestWindowTitleMatchUsesRuneCountsForMinimumLengths(t *testing.T) {
 		title       string
 		description string
 	}{
+		{
+			name:       "single-character title",
+			windowName: "a - settings",
+			title:      "a",
+		},
 		{
 			name:       "short Unicode title",
 			windowName: "éé - settings",
@@ -232,7 +240,7 @@ func TestWindowTitleMatchDescriptionRequiresWordBoundary(t *testing.T) {
 		{
 			name:        "rejects title prefix inside a word",
 			title:       "edit",
-			description: "editorial settings",
+			description: "editor preferences",
 		},
 		{
 			name:        "accepts separator-delimited title",

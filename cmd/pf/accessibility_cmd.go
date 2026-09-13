@@ -492,14 +492,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		inv := rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex}
-		if capabilityErr := pf.Accessibility.CheckOperation(rawOpCapability(op, inv)); capabilityErr != nil {
-			return capabilityErr
-		}
-		automation, err := pf.Accessibility.RawAutomation()
-		if err != nil {
-			return err
-		}
-		value, err := invokeRawOp(c.Context(), automation, node, inv)
+		value, err := invokeRawOp(c.Context(), pf.Accessibility, node, inv)
 		if err != nil {
 			return err
 		}
@@ -554,120 +547,94 @@ type rawInvocation struct {
 	index           int32
 }
 
-// rawActionCapability returns the capability operation name for the specific
-// action variant implied by the raw invocation flags.
-func rawActionCapability(in rawInvocation) string {
-	if strings.TrimSpace(in.actionName) != "" {
-		return "invoke-action-by-name"
-	}
-	if in.actionIndex >= 0 {
-		return "invoke-action"
-	}
-	return "invoke-default-action"
-}
-
-// rawOpCapability maps raw CLI operation names to their underlying capability
-// operation for proper gating. The CLI exposes a user-friendly name; the
-// capability system uses the actual AT-SPI interface operation.
-func rawOpCapability(op string, in rawInvocation) string {
-	switch op {
-	case "action":
-		return rawActionCapability(in)
-	case "focus":
-		return "grab-focus"
-	default:
-		return op
-	}
-}
-
-func invokeRawOp(ctx context.Context, automation accessibility.Automation, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
+func invokeRawOp(ctx context.Context, bundle *perfuncted.AccessibilityBundle, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
 	switch in.op {
 	case "action":
 		if strings.TrimSpace(in.actionName) != "" {
-			return automation.InvokeActionByName(ctx, node, in.actionName)
+			return bundle.InvokeActionByName(ctx, node, in.actionName)
 		}
 		if in.actionIndex >= 0 {
-			return nil, automation.InvokeAction(ctx, node, in.actionIndex)
+			return nil, bundle.InvokeAction(ctx, node, in.actionIndex)
 		}
-		return automation.InvokeDefaultAction(ctx, node)
+		return bundle.InvokeDefaultAction(ctx, node)
 	case "focus":
-		return nil, automation.GrabFocus(ctx, node)
+		return nil, bundle.FocusNode(ctx, node)
 	case "scroll":
 		kind, err := parseAccessibilityScrollType(in.alignment)
 		if err != nil {
 			return nil, err
 		}
-		return nil, automation.ScrollTo(ctx, node, kind)
+		return nil, bundle.ScrollTo(ctx, node, kind)
 	case "scroll-to-point":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, automation.ScrollToPoint(ctx, node, coord, in.x, in.y)
+		return nil, bundle.ScrollToPoint(ctx, node, coord, in.x, in.y)
 	case "set-position":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, automation.SetPosition(ctx, node, in.x, in.y, coord)
+		return nil, bundle.SetPosition(ctx, node, in.x, in.y, coord)
 	case "set-size":
-		return nil, automation.SetSize(ctx, node, in.width, in.height)
+		return nil, bundle.SetSize(ctx, node, in.width, in.height)
 	case "set-extents":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, automation.SetExtents(ctx, node, in.x, in.y, in.width, in.height, coord)
+		return nil, bundle.SetExtents(ctx, node, in.x, in.y, in.width, in.height, coord)
 	case "set-value":
-		return nil, automation.SetValue(ctx, node, in.value)
+		return nil, bundle.SetValue(ctx, node, in.value)
 	case "set-text-contents":
-		return nil, automation.SetTextContents(ctx, node, in.text)
+		return nil, bundle.ReplaceEditableText(ctx, node, in.text)
 	case "insert-text":
 		text := in.rangeText
 		if text == "" {
 			text = in.text
 		}
-		return nil, automation.InsertText(ctx, node, in.offset, text)
+		return nil, bundle.InsertText(ctx, node, in.offset, text)
 	case "delete-text":
-		return nil, automation.DeleteText(ctx, node, in.start, in.end)
+		return nil, bundle.DeleteText(ctx, node, in.start, in.end)
 	case "copy-text":
-		return nil, automation.CopyText(ctx, node, in.start, in.end)
+		return nil, bundle.CopyText(ctx, node, in.start, in.end)
 	case "cut-text":
-		return nil, automation.CutText(ctx, node, in.start, in.end)
+		return nil, bundle.CutText(ctx, node, in.start, in.end)
 	case "paste-text":
-		return nil, automation.PasteText(ctx, node, in.position)
+		return nil, bundle.PasteText(ctx, node, in.position)
 	case "set-caret":
-		return nil, automation.SetCaretOffset(ctx, node, in.offset)
+		return nil, bundle.SetCaretOffset(ctx, node, in.offset)
 	case "set-text-selection":
-		return nil, automation.SetTextSelection(ctx, node, in.selection, in.start, in.end)
+		return nil, bundle.SetTextSelection(ctx, node, in.selection, in.start, in.end)
 	case "add-text-selection":
-		return nil, automation.AddTextSelection(ctx, node, in.start, in.end)
+		return nil, bundle.AddTextSelection(ctx, node, in.start, in.end)
 	case "remove-text-selection":
-		return nil, automation.RemoveTextSelection(ctx, node, in.selection)
+		return nil, bundle.RemoveTextSelection(ctx, node, in.selection)
 	case "set-document-text-selections":
 		var selections []accessibility.DocumentTextSelection
 		if err := json.Unmarshal([]byte(in.selectionsJSON), &selections); err != nil {
 			return nil, fmt.Errorf("invalid --selections JSON: %w", err)
 		}
-		return nil, automation.SetTextSelections(ctx, node, selections)
+		return nil, bundle.SetTextSelections(ctx, node, selections)
 	case "select-child":
-		return nil, automation.SelectChild(ctx, node, in.index)
+		return nil, bundle.SelectChild(ctx, node, in.index)
 	case "deselect-child":
-		return nil, automation.DeselectChild(ctx, node, in.index)
+		return nil, bundle.DeselectChild(ctx, node, in.index)
 	case "select-all":
-		return nil, automation.SelectAll(ctx, node)
+		return nil, bundle.SelectAll(ctx, node)
 	case "clear-selection":
-		return nil, automation.ClearSelection(ctx, node)
+		return nil, bundle.ClearSelection(ctx, node)
 	case "deselect-selected-child":
-		return nil, automation.DeselectSelectedChild(ctx, node)
+		return nil, bundle.DeselectSelectedChild(ctx, node)
 	case "select-row":
-		return nil, automation.SelectRow(ctx, node, in.index)
+		return nil, bundle.SelectRow(ctx, node, in.index)
 	case "deselect-row":
-		return nil, automation.DeselectRow(ctx, node, in.index)
+		return nil, bundle.DeselectRow(ctx, node, in.index)
 	case "select-column":
-		return nil, automation.SelectColumn(ctx, node, in.index)
+		return nil, bundle.SelectColumn(ctx, node, in.index)
 	case "deselect-column":
-		return nil, automation.DeselectColumn(ctx, node, in.index)
+		return nil, bundle.DeselectColumn(ctx, node, in.index)
 	default:
 		return nil, fmt.Errorf("unknown raw op %q", in.op)
 	}

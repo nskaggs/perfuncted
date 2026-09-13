@@ -268,32 +268,6 @@ func (b *AccessibilityBundle) automation(operation string) (accessibility.Automa
 	return automation, nil
 }
 
-// RawAutomation exposes the typed AT-SPI protocol primitives for diagnostic
-// and advanced callers. It performs no capability gating; callers should use
-// CheckOperation to verify the specific primitive is available before calling
-// it. Workflow code should prefer FindOne plus FocusNode, InvokeSemanticAction,
-// and ReplaceEditableText so selection and ambiguity remain explicit.
-func (b *AccessibilityBundle) RawAutomation() (accessibility.Automation, error) {
-	if b == nil {
-		return nil, (&bundleBase{}).unavailable("raw")
-	}
-	if util.IsNil(b.backend) {
-		return nil, b.operationError("raw", accessibility.ErrUnsupported)
-	}
-	automation, ok := b.backend.(accessibility.Automation)
-	if !ok {
-		return nil, b.operationError("raw", accessibility.ErrUnsupported)
-	}
-	return automation, nil
-}
-
-// CheckOperation reports whether the named capability operation is available.
-// Use this to gate individual primitives when the caller needs to choose
-// between multiple operations under a single user-facing verb.
-func (b *AccessibilityBundle) CheckOperation(operation string) error {
-	return b.checkAvailable(operation)
-}
-
 // InvokeAction invokes a stable AT-SPI action index.
 func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("invoke-action")
