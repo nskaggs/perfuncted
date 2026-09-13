@@ -107,9 +107,6 @@ func (cliAutomationFake) SetValue(context.Context, accessibility.NodeID, float64
 func (cliAutomationFake) SetTextContents(context.Context, accessibility.NodeID, string) error {
 	return nil
 }
-func (cliAutomationFake) ReplaceText(context.Context, accessibility.NodeID, int32, int32, string) error {
-	return nil
-}
 func (cliAutomationFake) InsertText(context.Context, accessibility.NodeID, int32, string) error {
 	return nil
 }

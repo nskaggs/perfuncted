@@ -50,7 +50,7 @@ func TestAccessibilityCertification(t *testing.T) {
 	if !status.Requested || !status.Required || !status.Available {
 		t.Fatalf("AT-SPI capability is mandatory for certification: %+v", status)
 	}
-	for _, operation := range []string{"applications", "snapshot", "find", "window-root", "grab-focus", "set-text-contents"} {
+	for _, operation := range []string{"applications", "snapshot", "find", "window-root", "grab-focus", "set-text-contents", "insert-text", "set-caret", "invoke-action-by-name"} {
 		if !status.Supports(operation) {
 			t.Fatalf("AT-SPI certification requires operation %q: %+v", operation, status)
 		}
@@ -156,7 +156,6 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if snapshot.Root.ID != scope.Root || snapshot.Generation != scope.Generation || len(snapshot.Nodes) == 0 {
 		t.Fatalf("invalid bounded %s AT-SPI tree: scope=%+v snapshot=%+v", representative.name, scope, snapshot)
 	}
-
 	editable, err := findUniqueEditableTarget(snapshot)
 	if err != nil {
 		t.Fatalf("unique editable %s semantic target: %v", representative.name, err)
@@ -175,11 +174,32 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 			t.Fatalf("independent AT-SPI focus verification for %s: %v", representative.name, err)
 		}
 	}
+	if representative.name == "kwrite" {
+		actionNode, action, err := findSaveAction(snapshot)
+		if err != nil {
+			t.Fatalf("machine-readable named action target for %s: %v", representative.name, err)
+		}
+		selected, err := s.pf.Accessibility.InvokeActionByName(ctx, actionNode.ID, action.Name)
+		if err != nil {
+			t.Fatalf("invoke %s action %q by machine-readable name: %v", representative.name, action.Name, err)
+		}
+		if selected.Name != action.Name || selected.LocalizedName != action.LocalizedName {
+			t.Fatalf("named action result = %+v, snapshot action = %+v", selected, action)
+		}
+	}
 
 	marker := "Perfuncted AT-SPI certification " + representative.name
 	if err := s.pf.Accessibility.ReplaceEditableText(ctx, editable.ID, marker); err != nil {
 		t.Fatalf("AT-SPI text mutation %s: %v", representative.name, err)
 	}
+	unicodeSuffix := " — café"
+	if err := s.pf.Accessibility.InsertText(ctx, editable.ID, int32(len([]rune(marker))), unicodeSuffix); err != nil {
+		t.Fatalf("AT-SPI UTF-8 InsertText %s: %v", representative.name, err)
+	}
+	if err := s.pf.Accessibility.SetCaretOffset(ctx, editable.ID, int32(len([]rune(marker+unicodeSuffix)))); err != nil {
+		t.Fatalf("AT-SPI caret mutation %s: %v", representative.name, err)
+	}
+	expected := marker + unicodeSuffix
 
 	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate %s for save: %v", representative.name, err)
@@ -187,12 +207,12 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("save %s: %v", representative.name, err)
 	}
-	saved, err := waitForFileContains(ctx, saveFile, marker, 30*time.Second)
+	saved, err := waitForFileContains(ctx, saveFile, expected, 30*time.Second)
 	if err != nil {
 		t.Fatalf("independent on-disk verification for %s: %v", representative.name, err)
 	}
-	if !strings.Contains(saved, marker) {
-		t.Fatalf("on-disk %s contents do not contain certification marker: %q", representative.name, saved)
+	if !strings.Contains(saved, expected) {
+		t.Fatalf("on-disk %s contents do not contain the Unicode certification text: %q", representative.name, saved)
 	}
 
 	if err := closeWindow(s.pf, ctx, app.winMatch); err != nil {
@@ -201,6 +221,22 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err := waitForWindowClose(s.pf, app.winMatch, 30*time.Second); err != nil {
 		t.Fatalf("wait for certified %s window close: %v", representative.name, err)
 	}
+}
+
+func findSaveAction(snapshot accessibility.Snapshot) (accessibility.Node, accessibility.Action, error) {
+	for _, node := range snapshot.Nodes {
+		role := strings.ToLower(node.Role)
+		name := strings.ToLower(node.Name)
+		if (!strings.Contains(role, "button") && !strings.Contains(role, "menu item")) || !strings.Contains(name, "save") || !node.Enabled || (!node.Visible && !node.Showing) {
+			continue
+		}
+		for _, action := range node.Actions {
+			if strings.TrimSpace(action.Name) != "" {
+				return node, action, nil
+			}
+		}
+	}
+	return accessibility.Node{}, accessibility.Action{}, fmt.Errorf("no visible enabled Save button or menu item with a machine-readable action (nodes=%s)", strings.Join(snapshotNodeSummaries(snapshot.Nodes, 24), "; "))
 }
 
 func readProcessEnvironment(t *testing.T, pid int) map[string]string {

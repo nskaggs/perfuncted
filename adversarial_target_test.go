@@ -65,7 +65,6 @@ func TestAdversarialBundleWrappersCoverAutomationSurface(t *testing.T) {
 		{"set-extents", func() error { return bundle.SetExtents(ctx, id, 1, 2, 3, 4, accessibility.CoordTypeScreen) }},
 		{"set-value", func() error { return bundle.SetValue(ctx, id, 0.5) }},
 		{"text", func() error { return bundle.ReplaceEditableText(ctx, id, "x") }},
-		{"replace", func() error { return bundle.ReplaceText(ctx, id, 0, 1, "x") }},
 		{"insert", func() error { return bundle.InsertText(ctx, id, 0, "x") }},
 		{"delete", func() error { return bundle.DeleteText(ctx, id, 0, 1) }},
 		{"copy", func() error { return bundle.CopyText(ctx, id, 0, 1) }},

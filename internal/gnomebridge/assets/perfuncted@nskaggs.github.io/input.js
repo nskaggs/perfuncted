@@ -1,5 +1,6 @@
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
+import {bridgeError} from './errors.js';
 
 function now() {
     return Number(GLib.get_monotonic_time?.() ?? Date.now() * 1000);
@@ -112,7 +113,7 @@ export class Input {
             if (Array.isArray(pos) && pos.length >= 2)
                 return [Number(pos[0]), Number(pos[1])];
         }
-        throw new Error('GNOME pointer location is unavailable');
+        throw bridgeError('Unsupported', 'GNOME pointer location is unavailable');
     }
 
 }

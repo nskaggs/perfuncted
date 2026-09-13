@@ -86,10 +86,18 @@ func normalizeMutationError(iface, method string, err error) error {
 	return fmt.Errorf("accessibility: %s.%s: %w", iface, method, err)
 }
 
-func (b *dbusBackend) actions(ctx context.Context, id NodeID) ([]Action, error) {
+// actionMetadataWire mirrors the localized fields returned by Action.GetActions.
+type actionMetadataWire struct {
+	LocalizedName string
+	Description   string
+	KeyBinding    string
+}
+
+func (b *dbusBackend) actionMetadata(ctx context.Context, id NodeID) ([]Action, error) {
 	if err := mutationContext(ctx, "GetActions"); err != nil {
 		return nil, err
 	}
+	var wire []actionMetadataWire
 	if b != nil && b.callOverride != nil {
 		if err := b.validateHandle(id); err != nil {
 			return nil, err
@@ -98,47 +106,61 @@ func (b *dbusBackend) actions(ctx context.Context, id NodeID) ([]Action, error) 
 		if normalizedErr := normalizeMutationError(actionIface, "GetActions", err); normalizedErr != nil {
 			return nil, normalizedErr
 		}
-		if actions, ok := result.([]Action); ok {
-			return actions, nil
+		var ok bool
+		wire, ok = result.([]actionMetadataWire)
+		if !ok {
+			return nil, fmt.Errorf("accessibility: %s.GetActions returned malformed result %T", actionIface, result)
 		}
-		return nil, fmt.Errorf("accessibility: action fixture returned %T", result)
-	}
-	if _, err := b.object(id); err != nil {
-		return nil, err
-	}
-	var wire []struct {
-		Name        string
-		Description string
-		KeyBinding  string
-	}
-	if err := b.call(ctx, id, actionIface+".GetActions", nil, &wire); err != nil {
-		if strings.Contains(err.Error(), "UnknownMethod") || strings.Contains(err.Error(), "UnknownInterface") {
-			return nil, fmt.Errorf("%w: action metadata", ErrUnsupported)
+	} else {
+		if _, err := b.object(id); err != nil {
+			return nil, err
 		}
-		return nil, err
+		if err := b.call(ctx, id, actionIface+".GetActions", nil, &wire); err != nil {
+			return nil, normalizeMutationError(actionIface, "GetActions", err)
+		}
 	}
 	actions := make([]Action, len(wire))
 	for i, action := range wire {
-		// GetActions returns localized names. The machine-readable,
-		// non-localized name comes from GetName(index) per the AT-SPI2 spec.
-		actions[i] = Action{Index: int32(i), Name: b.actionName(ctx, id, int32(i)), Description: action.Description, KeyBinding: action.KeyBinding}
+		actions[i] = Action{
+			Index:         int32(i),
+			LocalizedName: action.LocalizedName,
+			Description:   action.Description,
+			KeyBinding:    action.KeyBinding,
+		}
 	}
 	return actions, nil
 }
 
-// actionName returns the machine-readable (non-localized) action name from
-// org.a11y.atspi.Action.GetName. Falls back to empty string on error so
-// callers can still invoke by index.
-func (b *dbusBackend) actionName(ctx context.Context, id NodeID, index int32) string {
+func (b *dbusBackend) actionName(ctx context.Context, id NodeID, index int32) (string, error) {
+	if err := mutationContext(ctx, "GetName"); err != nil {
+		return "", err
+	}
+	if b != nil && b.callOverride != nil {
+		if err := b.validateHandle(id); err != nil {
+			return "", err
+		}
+		result, err := b.callOverride(ctx, id, actionIface+".GetName", []any{index})
+		if normalizedErr := normalizeMutationError(actionIface, "GetName", err); normalizedErr != nil {
+			return "", normalizedErr
+		}
+		name, ok := result.(string)
+		if !ok {
+			return "", fmt.Errorf("accessibility: %s.GetName returned malformed result %T", actionIface, result)
+		}
+		return name, nil
+	}
+	if _, err := b.object(id); err != nil {
+		return "", err
+	}
 	var name string
 	if err := b.call(ctx, id, actionIface+".GetName", []any{index}, &name); err != nil {
-		return ""
+		return "", normalizeMutationError(actionIface, "GetName", err)
 	}
-	return name
+	return name, nil
 }
 
 func (b *dbusBackend) InvokeAction(ctx context.Context, id NodeID, index int32) error {
-	actions, err := b.actions(ctx, id)
+	actions, err := b.actionMetadata(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -151,7 +173,7 @@ func (b *dbusBackend) InvokeAction(ctx context.Context, id NodeID, index int32) 
 // InvokeActionByName selects one action from a single metadata read, invokes
 // its stable index, and returns the exact selected metadata.
 func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name string) (Action, error) {
-	actions, err := b.actions(ctx, id)
+	actions, err := b.actionMetadata(ctx, id)
 	if err != nil {
 		return Action{}, err
 	}
@@ -162,7 +184,12 @@ func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name st
 	var chosen Action
 	found := false
 	for _, action := range actions {
-		if strings.EqualFold(strings.TrimSpace(action.Name), want) {
+		machineName, nameErr := b.actionName(ctx, id, action.Index)
+		if nameErr != nil {
+			return Action{}, fmt.Errorf("accessibility: retrieve machine-readable action name at index %d: %w", action.Index, nameErr)
+		}
+		action.Name = machineName
+		if strings.EqualFold(strings.TrimSpace(machineName), want) {
 			if found {
 				return Action{}, fmt.Errorf("%w: action %q", ErrAmbiguous, want)
 			}
@@ -182,7 +209,7 @@ func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name st
 }
 
 func (b *dbusBackend) InvokeDefaultAction(ctx context.Context, id NodeID) (Action, error) {
-	actions, err := b.actions(ctx, id)
+	actions, err := b.actionMetadata(ctx, id)
 	if err != nil {
 		return Action{}, err
 	}
@@ -190,6 +217,10 @@ func (b *dbusBackend) InvokeDefaultAction(ctx context.Context, id NodeID) (Actio
 		return Action{}, ErrNotFound
 	}
 	chosen := actions[0]
+	chosen.Name, err = b.actionName(ctx, id, chosen.Index)
+	if err != nil {
+		return Action{}, fmt.Errorf("accessibility: retrieve machine-readable action name at index %d: %w", chosen.Index, err)
+	}
 	if err := b.mutationBool(ctx, id, actionIface, "DoAction", chosen.Index); err != nil {
 		return Action{}, err
 	}
@@ -267,16 +298,6 @@ func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) er
 
 func (b *dbusBackend) SetTextContents(ctx context.Context, id NodeID, text string) error {
 	return b.mutationBool(ctx, id, editableTextIface, "SetTextContents", text)
-}
-
-func (b *dbusBackend) ReplaceText(ctx context.Context, id NodeID, start, end int32, text string) error {
-	if start < 0 || end < start {
-		return fmt.Errorf("accessibility: invalid text range %d:%d", start, end)
-	}
-	if err := b.DeleteText(ctx, id, start, end); err != nil {
-		return err
-	}
-	return b.InsertText(ctx, id, start, text)
 }
 
 func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, text string) error {

@@ -17,9 +17,10 @@ import (
 )
 
 type recordingObject struct {
-	mu       sync.Mutex
-	protocol uint32
-	calls    []recordedCall
+	mu                 sync.Mutex
+	protocol           uint32
+	calls              []recordedCall
+	pointerLocationErr error
 }
 
 type recordedCall struct {
@@ -51,6 +52,9 @@ func (o *recordingObject) CallWithContext(ctx context.Context, method string, _ 
 	case WindowsInterface + ".GetActiveWindow":
 		call.Body = []any{WindowInfo{ID: "17", Title: "Terminal", Active: true}}
 	case InputInterface + ".PointerLocation":
+		if o.pointerLocationErr != nil {
+			return &dbus.Call{Err: o.pointerLocationErr}
+		}
 		call.Body = []any{int32(11), int32(22)}
 	case ScreenInterface + ".CaptureFull":
 		call.Body = []any{int32(0), int32(0), int32(1280), int32(720), int32(2560), int32(1440), float64(2)}
@@ -243,6 +247,18 @@ func TestTranslateDBusError(t *testing.T) {
 		if !errors.Is(err, test.want) {
 			t.Errorf("translateDBusError(%q) = %v, want %v", test.name, err, test.want)
 		}
+	}
+}
+
+func TestPointerLocationTranslatesTypedUnsupportedError(t *testing.T) {
+	client, object := newRecordingClient(t)
+	object.pointerLocationErr = dbus.NewError("io.github.nskaggs.perfuncted.Gnome1.Error.Unsupported", []any{"GNOME pointer location is unavailable"})
+	_, _, err := client.PointerLocation(context.Background())
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("PointerLocation error = %v, want typed bridge unsupported translated to ErrUnavailable", err)
+	}
+	if !strings.Contains(err.Error(), "GNOME pointer location is unavailable") {
+		t.Fatalf("PointerLocation error = %v, missing bridge diagnostic", err)
 	}
 }
 

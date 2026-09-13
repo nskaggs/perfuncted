@@ -169,12 +169,15 @@ type ValueInfo struct {
 	MinimumIncrement float64 `json:"minimumIncrement"`
 }
 
-// Action describes one optional AT-SPI action exposed by an object.
+// Action describes one optional AT-SPI action exposed by an object. Name is
+// the machine-readable value from Action.GetName; LocalizedName, Description,
+// and KeyBinding come from the localized Action.GetActions metadata.
 type Action struct {
-	Index       int32  `json:"index"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	KeyBinding  string `json:"keyBinding,omitempty"`
+	Index         int32  `json:"index"`
+	Name          string `json:"name,omitempty"`
+	LocalizedName string `json:"localizedName,omitempty"`
+	Description   string `json:"description,omitempty"`
+	KeyBinding    string `json:"keyBinding,omitempty"`
 }
 
 // SelectionInfo summarizes the optional selection interface.
@@ -408,7 +411,6 @@ type ValueController interface {
 // may return ErrUnsupported for operations not implemented by an object.
 type TextController interface {
 	SetTextContents(context.Context, NodeID, string) error
-	ReplaceText(context.Context, NodeID, int32, int32, string) error
 	InsertText(context.Context, NodeID, int32, string) error
 	DeleteText(context.Context, NodeID, int32, int32) error
 	CopyText(context.Context, NodeID, int32, int32) error
@@ -1294,77 +1296,353 @@ func boundNodeResponse(node Node, maxBytes int) Node {
 	return node
 }
 
-// estimateNodeJSONSize returns a fast upper-bound estimate of the JSON-encoded
-// size of a single node. The estimate is intentionally conservative (slightly
-// larger than actual) so binary-search truncation converges correctly while
-// avoiding repeated json.Marshal calls.
+// estimateNodeJSONSize returns a conservative upper bound for a node's JSON
+// representation. String token sizes follow encoding/json's escaping rules;
+// fixed structural allowances cover field names, punctuation, and scalar
+// values so response-budget enforcement cannot admit an oversized node.
 func estimateNodeJSONSize(node Node) int {
-	// Fixed per-node JSON structure: field names, braces, colons, NodeID
-	// objects, bounds, boolean keys, etc.
-	const fixed = 460
+	// A zero Node contributes 248 JSON bytes, including two 45-byte NodeID
+	// values. This fixed remainder covers its outer fields and zero-valued
+	// scalar members; variable NodeID contents are counted separately.
+	const fixedNodeStructure = 158
+	n := fixedNodeStructure
+	n = addJSONSize(n, estimateNodeStringsAndIDsJSONSize(node))
+	n = addJSONSize(n, estimateNodeScalarFieldsJSONSize(node))
+	n = addJSONSize(n, estimateNodeCollectionsJSONSize(node))
+	n = addJSONSize(n, estimateNodeOptionalInfoJSONSize(node))
+	return n
+}
 
-	n := fixed + len(node.Name) + len(node.Description) + len(node.Role) + len(node.Text)
-	n += 12 + len(node.Text)
-	n += 13 + len(node.Role)
+func estimateNodeStringsAndIDsJSONSize(node Node) int {
+	n := 0
+	n = addJSONSize(n, estimateStringFieldJSONSize("name", node.Name))
+	n = addJSONSize(n, estimateStringFieldJSONSize("description", node.Description))
+	n = addJSONSize(n, estimateStringFieldJSONSize("role", node.Role))
+	n = addJSONSize(n, estimateStringFieldJSONSize("text", node.Text))
+	n = addJSONSize(n, estimateNodeIDJSONSize(node.ID))
+	n = addJSONSize(n, estimateNodeIDJSONSize(node.Parent))
+	return n
+}
 
-	n += len(node.Interfaces) * 25
-	for _, s := range node.Interfaces {
-		n += len(s)
+func estimateNodeScalarFieldsJSONSize(node Node) int {
+	n := 0
+	for _, value := range []int{node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height, node.ChildCount} {
+		n = addJSONSize(n, decimalIntSize(value)-1)
 	}
-	n += len(node.States) * 25
-	for _, s := range node.States {
-		n += len(s)
+	if node.RoleID != 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("roleId", decimalUint32Size(node.RoleID)))
 	}
-	n += len(node.Children) * 60
-	n += len(node.Warnings) * 25
-	for _, w := range node.Warnings {
-		n += len(w)
+	if node.TextTruncated {
+		n = addJSONSize(n, estimateJSONMemberSize("textTruncated", len("true")))
 	}
-	for k, v := range node.Attributes {
-		n += 20 + len(k) + len(v)
+	if node.Redacted {
+		n = addJSONSize(n, estimateJSONMemberSize("redacted", len("true")))
 	}
-	for k, targets := range node.Relations {
-		n += 20 + len(k) + len(targets)*60
+	return n
+}
+
+func estimateNodeCollectionsJSONSize(node Node) int {
+	n := 0
+	if len(node.Interfaces) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("interfaces", estimateStringSliceJSONSize(node.Interfaces)))
 	}
-	if v := node.Value; v != nil {
-		n += 120
+	if len(node.States) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("states", estimateStringSliceJSONSize(node.States)))
 	}
-	if s := node.Selection; s != nil {
-		n += 40
+	if len(node.Warnings) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("warnings", estimateStringSliceJSONSize(node.Warnings)))
 	}
-	if t := node.Table; t != nil {
-		n += 50
+	if len(node.Children) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("children", estimateNodeIDSliceJSONSize(node.Children)))
 	}
-	if d := node.Document; d != nil {
-		n += 30 + len(d.Locale)
+	if len(node.Attributes) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("attributes", estimateStringMapJSONSize(node.Attributes)))
 	}
-	if a := node.Actions; len(a) > 0 {
-		n += len(a) * 80
-		for _, act := range a {
-			n += len(act.Name) + len(act.Description) + len(act.KeyBinding)
+	if len(node.Relations) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("relations", estimateRelationsJSONSize(node.Relations)))
+	}
+	if len(node.Actions) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("actions", estimateActionsJSONSize(node.Actions)))
+	}
+	return n
+}
+
+func estimateNodeOptionalInfoJSONSize(node Node) int {
+	n := 0
+	if node.Value != nil {
+		n = addJSONSize(n, estimateJSONMemberSize("value", estimateValueInfoJSONSize()))
+	}
+	if node.Selection != nil {
+		n = addJSONSize(n, estimateJSONMemberSize("selection", estimateSelectionInfoJSONSize(*node.Selection)))
+	}
+	if node.Table != nil {
+		n = addJSONSize(n, estimateJSONMemberSize("table", estimateTableInfoJSONSize(*node.Table)))
+	}
+	if node.Document != nil {
+		n = addJSONSize(n, estimateJSONMemberSize("document", estimateDocumentInfoJSONSize(*node.Document)))
+	}
+	return n
+}
+
+// snapshotJSONSize conservatively estimates the total JSON-encoded size of a
+// snapshot, including the separately serialized root node and all strings in
+// the snapshot envelope. It avoids repeated full-snapshot serialization while
+// binary-search truncation enforces MaxTotalBytes.
+func snapshotJSONSize(snapshot Snapshot) int {
+	// Snapshot{} has a 65-byte envelope outside the root node, nodes value, and
+	// timestamp token. The envelope includes all fixed keys and scalar fields.
+	const fixedSnapshotStructure = 65
+	n := addJSONSize(fixedSnapshotStructure, estimateNodeJSONSize(snapshot.Root))
+	n = addJSONSize(n, jsonStringSize(snapshot.CapturedAt.Format(time.RFC3339Nano)))
+	switch {
+	case snapshot.Nodes == nil:
+		n = addJSONSize(n, len("null"))
+	case len(snapshot.Nodes) == 0:
+		n = addJSONSize(n, 2)
+	default:
+		n = addJSONSize(n, 2)
+		for i, node := range snapshot.Nodes {
+			if i > 0 {
+				n = addJSONSize(n, 1)
+			}
+			n = addJSONSize(n, estimateNodeJSONSize(node))
+		}
+	}
+	n = addJSONSize(n, decimalUint64Size(snapshot.Generation)-1)
+	if snapshot.ProviderErrors != 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("providerErrors", decimalIntSize(snapshot.ProviderErrors)))
+	}
+	if len(snapshot.TruncationReasons) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("truncationReasons", estimateStringSliceJSONSize(snapshot.TruncationReasons)))
+	}
+	if len(snapshot.Warnings) > 0 {
+		n = addJSONSize(n, estimateJSONMemberSize("warnings", estimateStringSliceJSONSize(snapshot.Warnings)))
+	}
+	if snapshot.Source != "" {
+		n = addJSONSize(n, estimateStringFieldJSONSize("source", snapshot.Source))
+	}
+	return n
+}
+
+func estimateNodeIDJSONSize(id NodeID) int {
+	const fixedNodeIDStructure = 40
+	n := fixedNodeIDStructure
+	n = addJSONSize(n, jsonStringSize(id.BusName))
+	n = addJSONSize(n, jsonStringSize(id.ObjectPath))
+	n = addJSONSize(n, decimalUint64Size(id.Generation))
+	return n
+}
+
+func estimateNodeIDSliceJSONSize(values []NodeID) int {
+	n := 2
+	for i, value := range values {
+		if i > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, estimateNodeIDJSONSize(value))
+	}
+	return n
+}
+
+func estimateActionsJSONSize(values []Action) int {
+	n := 2
+	for i, action := range values {
+		if i > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, estimateActionJSONSize(action))
+	}
+	return n
+}
+
+func estimateStringMapJSONSize(values map[string]string) int {
+	n := 2
+	i := 0
+	for key, value := range values {
+		if i > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, jsonStringSize(key))
+		n = addJSONSize(n, 1)
+		n = addJSONSize(n, jsonStringSize(value))
+		i++
+	}
+	return n
+}
+
+func estimateRelationsJSONSize(values map[string][]NodeID) int {
+	n := 2
+	i := 0
+	for key, targets := range values {
+		if i > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, jsonStringSize(key))
+		n = addJSONSize(n, 1)
+		if targets == nil {
+			n = addJSONSize(n, len("null"))
+		} else {
+			n = addJSONSize(n, estimateNodeIDSliceJSONSize(targets))
+		}
+		i++
+	}
+	return n
+}
+
+func estimateValueInfoJSONSize() int {
+	n := 2
+	for i, field := range []string{"current", "minimum", "maximum", "minimumIncrement"} {
+		if i > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, estimateJSONMemberSize(field, 32))
+	}
+	return n
+}
+
+func estimateSelectionInfoJSONSize(value SelectionInfo) int {
+	return 2 + estimateJSONMemberSize("selectedChildCount", decimalInt32Size(value.SelectedChildCount))
+}
+
+func estimateTableInfoJSONSize(value TableInfo) int {
+	n := 2 + estimateJSONMemberSize("rows", decimalInt32Size(value.Rows))
+	n = addJSONSize(n, estimateJSONMemberSize("columns", decimalInt32Size(value.Columns)))
+	return n
+}
+
+func estimateDocumentInfoJSONSize(value DocumentInfo) int {
+	n := 2
+	count := 0
+	if value.Locale != "" {
+		n = addJSONSize(n, estimateStringFieldJSONSize("locale", value.Locale))
+		count++
+	}
+	if value.CurrentPageNumber != 0 {
+		if count > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, estimateJSONMemberSize("currentPageNumber", decimalInt32Size(value.CurrentPageNumber)))
+		count++
+	}
+	if value.PageCount != 0 {
+		if count > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, estimateJSONMemberSize("pageCount", decimalInt32Size(value.PageCount)))
+	}
+	return n
+}
+
+func estimateActionJSONSize(action Action) int {
+	n := 2 + estimateJSONMemberSize("index", decimalInt32Size(action.Index))
+	for _, field := range []struct{ key, value string }{
+		{key: "name", value: action.Name},
+		{key: "localizedName", value: action.LocalizedName},
+		{key: "description", value: action.Description},
+		{key: "keyBinding", value: action.KeyBinding},
+	} {
+		if field.value != "" {
+			n = addJSONSize(n, estimateStringFieldJSONSize(field.key, field.value))
 		}
 	}
 	return n
 }
 
-// snapshotJSONSize estimates the total JSON-encoded size of a snapshot by
-// summing per-node estimates. It avoids json.Marshal so callers can use it in
-// hot loops (e.g. binary-search truncation) without repeated serialization.
-func snapshotJSONSize(snapshot Snapshot) int {
-	// Snapshot envelope: {"root":...,"nodes":[...],"truncated":...,...}
-	const envelope = 200
-	n := envelope
-	for _, node := range snapshot.Nodes {
-		n += estimateNodeJSONSize(node) + 1 // 1 for comma separator
+func estimateStringFieldJSONSize(key, value string) int {
+	if value == "" {
+		return 0
 	}
-	for _, r := range snapshot.TruncationReasons {
-		n += 30 + len(r)
+	return estimateJSONMemberSize(key, jsonStringSize(value))
+}
+
+func estimateJSONMemberSize(key string, valueSize int) int {
+	// Include a trailing comma for each member so callers need not know whether
+	// it is the final member in the object.
+	n := len(key) + 4
+	return addJSONSize(n, valueSize)
+}
+
+func decimalIntSize(value int) int {
+	var buffer [20]byte
+	return len(strconv.AppendInt(buffer[:0], int64(value), 10))
+}
+
+func decimalInt32Size(value int32) int {
+	var buffer [11]byte
+	return len(strconv.AppendInt(buffer[:0], int64(value), 10))
+}
+
+func decimalUint32Size(value uint32) int {
+	var buffer [10]byte
+	return len(strconv.AppendUint(buffer[:0], uint64(value), 10))
+}
+
+func decimalUint64Size(value uint64) int {
+	var buffer [20]byte
+	return len(strconv.AppendUint(buffer[:0], value, 10))
+}
+
+func estimateStringSliceJSONSize(values []string) int {
+	if len(values) == 0 {
+		return 0
 	}
-	for _, w := range snapshot.Warnings {
-		n += 20 + len(w)
+	n := 2
+	for i, value := range values {
+		if i > 0 {
+			n = addJSONSize(n, 1)
+		}
+		n = addJSONSize(n, jsonStringSize(value))
 	}
-	n += len(snapshot.Source)
 	return n
+}
+
+func jsonStringSize(value string) int {
+	n := 2
+	for i := 0; i < len(value); {
+		switch value[i] {
+		case '"', '\\':
+			n = addJSONSize(n, 2)
+			i++
+		case '\b', '\f', '\n', '\r', '\t':
+			n = addJSONSize(n, 2)
+			i++
+		case '<', '>', '&':
+			n = addJSONSize(n, 6)
+			i++
+		default:
+			if value[i] < 0x20 {
+				n = addJSONSize(n, 6)
+				i++
+				continue
+			}
+			if value[i] < utf8.RuneSelf {
+				n = addJSONSize(n, 1)
+				i++
+				continue
+			}
+			r, size := utf8.DecodeRuneInString(value[i:])
+			if r == utf8.RuneError && size == 1 {
+				n = addJSONSize(n, 3)
+				i++
+				continue
+			}
+			if r == '\u2028' || r == '\u2029' {
+				n = addJSONSize(n, 6)
+			} else {
+				n = addJSONSize(n, size)
+			}
+			i += size
+		}
+	}
+	return n
+}
+
+func addJSONSize(size, addition int) int {
+	maxInt := int(^uint(0) >> 1)
+	if addition > 0 && size > maxInt-addition {
+		return maxInt
+	}
+	return size + addition
 }
 
 func truncateUTF8(value string, maxBytes int) (string, bool) {
@@ -2039,15 +2317,15 @@ func (b *dbusBackend) readNodeOptional(ctx context.Context, id NodeID, interface
 		}
 	}
 	if contains(interfaces, actionIface) {
-		var wire []struct {
-			Name        string
-			Description string
-			KeyBinding  string
-		}
-		if err := b.call(ctx, id, actionIface+".GetActions", nil, &wire); err == nil {
-			node.Actions = make([]Action, len(wire))
-			for i, action := range wire {
-				node.Actions[i] = Action{Index: int32(i), Name: action.Name, Description: action.Description, KeyBinding: action.KeyBinding}
+		if actions, err := b.actionMetadata(ctx, id); err == nil {
+			node.Actions = actions
+			for i := range node.Actions {
+				name, nameErr := b.actionName(ctx, id, node.Actions[i].Index)
+				if nameErr != nil {
+					node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetName(%d): %v", actionIface, node.Actions[i].Index, nameErr))
+					continue
+				}
+				node.Actions[i].Name = name
 			}
 		} else {
 			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetActions: %v", actionIface, err))

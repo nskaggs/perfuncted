@@ -695,7 +695,7 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 	backend := &dbusBackend{generation: 1, callOverride: func(_ context.Context, _ NodeID, method string, args []any) (any, error) {
 		calls = append(calls, call{method: method, args: args})
 		if method == actionIface+".GetActions" {
-			return []Action{{Index: 0, Name: "activate"}, {Index: 1, Name: "alternate"}}, nil
+			return []actionMetadataWire{{LocalizedName: "Activate", Description: "Activate this item", KeyBinding: "Enter"}, {LocalizedName: "Alternative", Description: "Run the alternative action", KeyBinding: "Alt+Enter"}}, nil
 		}
 		if method == actionIface+".GetName" {
 			if len(args) > 0 {
@@ -720,8 +720,8 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		expected []call
 	}{
 		{"action", func() error { return backend.InvokeAction(ctx, id, 0) }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(0)}}}},
-		{"action-name", func() error { _, err := backend.InvokeActionByName(ctx, id, "alternate"); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(1)}}}},
-		{"default-action", func() error { _, err := backend.InvokeDefaultAction(ctx, id); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".DoAction", []any{int32(0)}}}},
+		{"action-name", func() error { _, err := backend.InvokeActionByName(ctx, id, "alternate"); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".GetName", []any{int32(0)}}, {actionIface + ".GetName", []any{int32(1)}}, {actionIface + ".DoAction", []any{int32(1)}}}},
+		{"default-action", func() error { _, err := backend.InvokeDefaultAction(ctx, id); return err }, []call{{actionIface + ".GetActions", nil}, {actionIface + ".GetName", []any{int32(0)}}, {actionIface + ".DoAction", []any{int32(0)}}}},
 		{"focus", func() error { return backend.GrabFocus(ctx, id) }, []call{{componentIface + ".GrabFocus", nil}}},
 		{"scroll", func() error { return backend.ScrollTo(ctx, id, ScrollAnyWhere) }, []call{{componentIface + ".ScrollTo", []any{uint32(ScrollAnyWhere)}}}},
 		{"scroll-point", func() error { return backend.ScrollToPoint(ctx, id, CoordTypeWindow, 10, 20) }, []call{{componentIface + ".ScrollToPoint", []any{uint32(CoordTypeWindow), int32(10), int32(20)}}}},
@@ -730,7 +730,6 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		{"set-extents", func() error { return backend.SetExtents(ctx, id, 1, 2, 640, 480, CoordTypeScreen) }, []call{{componentIface + ".SetExtents", []any{int32(1), int32(2), int32(640), int32(480), uint32(CoordTypeScreen)}}}},
 		{"value", func() error { return backend.SetValue(ctx, id, 0.5) }, []call{{propertiesIface + ".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(0.5)}}}},
 		{"text", func() error { return backend.SetTextContents(ctx, id, "safe") }, []call{{editableTextIface + ".SetTextContents", []any{"safe"}}}},
-		{"replace", func() error { return backend.ReplaceText(ctx, id, 0, 1, "x") }, []call{{editableTextIface + ".DeleteText", []any{int32(0), int32(1)}}, {editableTextIface + ".InsertText", []any{int32(0), "x", int32(1)}}}},
 		{"insert", func() error { return backend.InsertText(ctx, id, 0, "é😀") }, []call{{editableTextIface + ".InsertText", []any{int32(0), "é😀", int32(6)}}}},
 		{"copy", func() error { return backend.CopyText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CopyText", []any{int32(0), int32(1)}}}},
 		{"cut", func() error { return backend.CutText(ctx, id, 0, 1) }, []call{{editableTextIface + ".CutText", []any{int32(0), int32(1)}}}},
@@ -760,6 +759,67 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 		if !reflect.DeepEqual(calls, check.expected) {
 			t.Fatalf("%s wire calls = %#v, want %#v", check.name, calls, check.expected)
 		}
+	}
+}
+
+func TestActionMetadataUsesGetActionsAndGetNameConsistently(t *testing.T) {
+	id := NodeID{BusName: "org.test", ObjectPath: "/button", Generation: 1}
+	var calls []string
+	backend := &dbusBackend{generation: 1, callOverride: func(_ context.Context, _ NodeID, method string, args []any) (any, error) {
+		calls = append(calls, method)
+		switch method {
+		case actionIface + ".GetActions":
+			return []actionMetadataWire{{LocalizedName: "Activar", Description: "Guarda el documento", KeyBinding: "Ctrl+S"}}, nil
+		case actionIface + ".GetName":
+			if len(args) == 1 && args[0] == int32(0) {
+				return "save", nil
+			}
+			return "", fmt.Errorf("unexpected GetName arguments: %v", args)
+		case actionIface + ".DoAction":
+			return true, nil
+		default:
+			return nil, fmt.Errorf("unexpected method %s", method)
+		}
+	}}
+
+	got, err := backend.InvokeActionByName(context.Background(), id, "SAVE")
+	want := Action{Index: 0, Name: "save", LocalizedName: "Activar", Description: "Guarda el documento", KeyBinding: "Ctrl+S"}
+	if err != nil || got != want {
+		t.Fatalf("InvokeActionByName = %+v, %v; want %+v", got, err, want)
+	}
+	wantCalls := []string{actionIface + ".GetActions", actionIface + ".GetName", actionIface + ".DoAction"}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("named invocation calls = %v, want %v", calls, wantCalls)
+	}
+
+	calls = nil
+	var node Node
+	backend.readNodeOptional(context.Background(), id, []string{actionIface}, &node)
+	if len(node.Actions) != 1 || node.Actions[0] != want {
+		t.Fatalf("snapshot action = %+v, want %+v", node.Actions, []Action{want})
+	}
+	wantCalls = []string{actionIface + ".GetActions", actionIface + ".GetName"}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("snapshot action calls = %v, want %v", calls, wantCalls)
+	}
+}
+
+func TestNamedActionReturnsProviderErrorWhenMachineNameLookupFails(t *testing.T) {
+	providerErr := errors.New("provider rejected GetName")
+	backend := &dbusBackend{generation: 1, callOverride: func(_ context.Context, _ NodeID, method string, _ []any) (any, error) {
+		switch method {
+		case actionIface + ".GetActions":
+			return []actionMetadataWire{{LocalizedName: "Abrir"}}, nil
+		case actionIface + ".GetName":
+			return nil, providerErr
+		default:
+			return true, nil
+		}
+	}}
+	id := NodeID{BusName: "org.test", ObjectPath: "/button", Generation: 1}
+	_, err := backend.InvokeActionByName(context.Background(), id, "open")
+	if err == nil || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), providerErr.Error()) {
+		t.Fatalf("InvokeActionByName error = %v, want surfaced provider GetName error", err)
 	}
 }
 

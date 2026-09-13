@@ -81,10 +81,6 @@ func (s *accessibilityAutomationSpy) SetTextContents(context.Context, accessibil
 	s.mark("text")
 	return nil
 }
-func (s *accessibilityAutomationSpy) ReplaceText(context.Context, accessibility.NodeID, int32, int32, string) error {
-	s.mark("replace")
-	return nil
-}
 func (s *accessibilityAutomationSpy) InsertText(context.Context, accessibility.NodeID, int32, string) error {
 	s.mark("insert")
 	return nil
@@ -189,7 +185,7 @@ func (f *accessibilityReopenerFake) Applications(ctx context.Context) ([]accessi
 }
 
 func (*accessibilityAutomationFake) SupportedOperations() []string {
-	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "replace-text", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
+	return []string{"applications", "snapshot", "find", "find-application", "focused", "at-point", "events", "outline", "invoke-action", "invoke-action-by-name", "invoke-default-action", "grab-focus", "scroll", "scroll-to-point", "set-position", "set-size", "set-extents", "set-value", "set-text-contents", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "set-document-text-selections", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column", "window-root", "reopen"}
 }
 
 func (f *bundleAccessibilityFake) SupportedOperations() []string {

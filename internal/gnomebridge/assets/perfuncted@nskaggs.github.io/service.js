@@ -4,6 +4,7 @@ import Gio from 'gi://Gio';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 
 import {Clipboard} from './clipboard.js';
+import {bridgeError} from './errors.js';
 import {Input} from './input.js';
 import {Screen} from './screen.js';
 import {Windows} from './windows.js';
@@ -87,14 +88,6 @@ const CLIPBOARD_XML = `
     <method name="SetText"><arg name="text" type="s" direction="in"/></method>
   </interface>
 </node>`;
-
-const ERROR_PREFIX = `${BUS_NAME}.Error.`;
-
-function bridgeError(kind, message) {
-    const error = new Error(message);
-    error.name = ERROR_PREFIX + kind;
-    return error;
-}
 
 export class BridgeService {
     constructor() {

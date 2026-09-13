@@ -72,7 +72,7 @@ func TestInstallerWritesBundledExtensionAndPreservesEnabledList(t *testing.T) {
 	if want := filepath.Join(dataHome, extensionDirectory); path != want {
 		t.Fatalf("Install path = %q, want %q", path, want)
 	}
-	for _, name := range []string{"metadata.json", "extension.js", "service.js", "windows.js", "screen.js", "input.js", "clipboard.js"} {
+	for _, name := range []string{"metadata.json", "extension.js", "service.js", "windows.js", "screen.js", "input.js", "clipboard.js", "errors.js"} {
 		if _, err := os.Stat(filepath.Join(path, name)); err != nil {
 			t.Fatalf("installed %s: %v", name, err)
 		}
@@ -213,6 +213,11 @@ func TestExtensionVersionNeedsUpdateIsMonotonic(t *testing.T) {
 }
 
 func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
+	errorText := embeddedAssetText(t, "errors.js")
+	assertEmbeddedFragmentsPresent(t, errorText, "errors.js is missing the bridge error contract",
+		"export function bridgeError(kind, message)",
+		"io.github.nskaggs.perfuncted.Gnome1.Error.",
+	)
 	serviceText := embeddedAssetText(t, "service.js")
 	if got := strings.Count(serviceText, `<interface name="io.github.nskaggs.perfuncted.Gnome1.`); got != 5 {
 		t.Fatalf("bridge interface XML count = %d, want 5", got)
@@ -279,6 +284,7 @@ func TestEmbeddedBridgeExportsInterfacesAndResolvesUnixFDHandles(t *testing.T) {
 		"const control = 0xffe3",
 		"const v = 0x76",
 		"notify_discrete_scroll",
+		"throw bridgeError('Unsupported', 'GNOME pointer location is unavailable')",
 	)
 	assertEmbeddedFragmentsAbsent(t, inputText, "input.js must not use layout-dependent or continuous input",
 		"unicode_to_keysym", "notify_scroll_continuous", "text(text, clipboard)")

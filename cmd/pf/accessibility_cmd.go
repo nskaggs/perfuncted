@@ -144,13 +144,13 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		}
 		return nil
 	case accessibility.Action:
-		_, err := fmt.Fprintf(w, "action index=%d name=%q description=%q key=%q\n", typed.Index, typed.Name, typed.Description, typed.KeyBinding)
+		_, err := fmt.Fprintf(w, "action index=%d name=%q localized=%q description=%q key=%q\n", typed.Index, typed.Name, typed.LocalizedName, typed.Description, typed.KeyBinding)
 		return err
 	case perfuncted.AccessibilityActionReceipt:
 		if err := writeAccessibilityNode(w, typed.Node, "target "); err != nil {
 			return err
 		}
-		_, err := fmt.Fprintf(w, "action index=%d name=%q mechanism=%s generation=%d\n", typed.Action.Index, typed.Action.Name, typed.Mechanism, typed.Generation)
+		_, err := fmt.Fprintf(w, "action index=%d name=%q localized=%q mechanism=%s generation=%d\n", typed.Action.Index, typed.Action.Name, typed.Action.LocalizedName, typed.Mechanism, typed.Generation)
 		return err
 	default:
 		_, err := fmt.Fprintln(w, value)

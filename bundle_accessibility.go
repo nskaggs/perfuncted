@@ -353,15 +353,6 @@ func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.Nod
 	return b.operationError("set-value", a.SetValue(ctx, id, value))
 }
 
-// ReplaceText replaces the selected character range in an AT-SPI editable-text object.
-func (b *AccessibilityBundle) ReplaceText(ctx context.Context, id accessibility.NodeID, start, end int32, value string) error {
-	a, err := b.automation("replace-text")
-	if err != nil {
-		return err
-	}
-	return b.operationError("replace-text", a.ReplaceText(ctx, id, start, end, value))
-}
-
 // InsertText inserts text at a character offset in an AT-SPI editable-text object.
 func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
 	a, err := b.automation("insert-text")

@@ -63,7 +63,6 @@ var operationsBySurface = map[string][]string{
 		"set-extents",
 		"set-value",
 		"set-text-contents",
-		"replace-text",
 		"insert-text",
 		"delete-text",
 		"copy-text",

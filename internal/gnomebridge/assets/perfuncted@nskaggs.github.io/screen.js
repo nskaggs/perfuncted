@@ -1,12 +1,7 @@
 import Gio from 'gi://Gio';
 import Mtk from 'gi://Mtk';
 import Shell from 'gi://Shell';
-
-function bridgeError(kind, message) {
-    const error = new Error(message);
-    error.name = `io.github.nskaggs.perfuncted.Gnome1.Error.${kind}`;
-    return error;
-}
+import {bridgeError} from './errors.js';
 
 function resolveFD(handle, fdList) {
     const index = Number(handle);
