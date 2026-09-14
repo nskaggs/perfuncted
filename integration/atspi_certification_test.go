@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -26,9 +29,10 @@ type accessibilityCertificationApp struct {
 }
 
 // TestAccessibilityCertification is the strict cross-toolkit acceptance
-// lane. The general integration suite deliberately keeps accessibility
-// optional; this test is run by its own headless-Wayland target and every
-// missing capability or failed semantic step is fatal.
+// lane. It runs under headless Sway Wayland and certifies GTK/Qt AT-SPI
+// behavior, not the GNOME Shell extension. The general integration suite keeps
+// accessibility optional; every missing capability or failed semantic step
+// in this target is fatal.
 func TestAccessibilityCertification(t *testing.T) {
 	s := mustSuite(t)
 	if s.mode != displayHeadlessWayland {
@@ -77,6 +81,247 @@ func TestAccessibilityCertification(t *testing.T) {
 		t.Run(app.name, func(t *testing.T) {
 			certifyAccessibilityEditor(t, s, app)
 		})
+	}
+	t.Run("gtk-text-entry-parity", func(t *testing.T) {
+		certifyGTKTextEntryParity(t, s)
+	})
+	t.Run("kwrite-save-action-parity", func(t *testing.T) {
+		certifyKWriteSaveActionParity(t, s)
+	})
+}
+
+func certifyGTKTextEntryParity(t *testing.T, s *suite) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	// The Qt provider emits trailing non-text bytes for multibyte InsertText in
+	// this headless session, so exact Unicode parity uses GTK; KWrite remains the
+	// target for named Save-action parity below.
+	textEditor := appSpec{name: "gnome-text-editor", launch: []string{"gnome-text-editor"}}
+	semanticFile := filepath.Join(t.TempDir(), "semantic-parity.txt")
+	semanticApp, semanticCmd := startEditorForParity(t, s, ctx, textEditor, semanticFile)
+	_, _, _, editable := resolveEditorForParity(t, s, ctx, semanticApp.winMatch)
+
+	marker := `AT-SPI parity: "quoted" \ path /`
+	suffix := " — café 東京"
+	expected := marker + suffix
+	if err := s.pf.Accessibility.ReplaceEditableText(ctx, editable.ID, marker); err != nil {
+		t.Fatalf("set semantic parity text: %v", err)
+	}
+	if err := s.pf.Accessibility.InsertText(ctx, editable.ID, int32(len([]rune(marker))), suffix); err != nil {
+		t.Fatalf("append Unicode semantic parity suffix: %v", err)
+	}
+	if err := activateWindow(s.pf, ctx, semanticApp.winMatch); err != nil {
+		t.Fatalf("activate semantic editor for physical save: %v", err)
+	}
+	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+		t.Fatalf("save semantic text through physical input: %v", err)
+	}
+	semanticContents := requireExactSavedFile(t, ctx, semanticFile, expected+"\n")
+	stopEditorForParity(t, s, ctx, semanticApp.winMatch, semanticCmd)
+
+	// The physical process shares the certification session to avoid starting a
+	// second managed headless compositor. Its path uses only managed windows
+	// and physical keyboard input; it makes no AT-SPI calls.
+	// This proves operation-path independence, not startup without accessibility.
+	physicalFile := filepath.Join(t.TempDir(), "physical-parity.txt")
+	physicalApp, physicalCmd := startEditorForParity(t, s, ctx, textEditor, physicalFile)
+	waitForEditorStable(t, s, ctx, physicalApp.winMatch)
+	if err := s.pf.Input.Type(ctx, expected); err != nil {
+		t.Fatalf("enter Unicode parity text through physical keyboard input: %v", err)
+	}
+	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+		t.Fatalf("save physical parity text: %v", err)
+	}
+	physicalContents := requireExactSavedFile(t, ctx, physicalFile, expected+"\n")
+	if semanticContents != physicalContents {
+		t.Fatalf("semantic and physical text paths differ: semantic=%q physical=%q", semanticContents, physicalContents)
+	}
+	stopEditorForParity(t, s, ctx, physicalApp.winMatch, physicalCmd)
+}
+
+func certifyKWriteSaveActionParity(t *testing.T, s *suite) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	kwrite := appSpec{
+		name:     "kwrite",
+		launch:   []string{"kwrite"},
+		extraEnv: []string{"QT_ACCESSIBILITY=1", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1"},
+	}
+	semanticFile := filepath.Join(t.TempDir(), "semantic-save-action.txt")
+	semanticApp, semanticCmd := startEditorForParity(t, s, ctx, kwrite, semanticFile)
+	_, scope, _, editable := resolveEditorForParity(t, s, ctx, semanticApp.winMatch)
+
+	const expected = "Save action parity: café 東京"
+	if err := s.pf.Accessibility.ReplaceEditableText(ctx, editable.ID, expected); err != nil {
+		t.Fatalf("dirty semantic save-action document: %v", err)
+	}
+	dirtySnapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, certificationSnapshotOptions())
+	if err != nil {
+		t.Fatalf("snapshot dirty semantic save-action document: %v", err)
+	}
+	actionNode, action, err := findSaveAction(dirtySnapshot)
+	if err != nil {
+		t.Fatalf("find machine-readable Save action: %v", err)
+	}
+	selected, err := s.pf.Accessibility.InvokeActionByName(ctx, actionNode.ID, action.Name)
+	if err != nil {
+		t.Fatalf("invoke machine-readable Save action %q: %v", action.Name, err)
+	}
+	if selected.Name != action.Name {
+		t.Fatalf("invoked action name = %q, want machine-readable name %q", selected.Name, action.Name)
+	}
+	semanticContents := requireExactSavedFile(t, ctx, semanticFile, expected+"\n")
+	stopEditorForParity(t, s, ctx, semanticApp.winMatch, semanticCmd)
+
+	physicalFile := filepath.Join(t.TempDir(), "physical-save-action.txt")
+	physicalApp, physicalCmd := startEditorForParity(t, s, ctx, kwrite, physicalFile)
+	waitForEditorStable(t, s, ctx, physicalApp.winMatch)
+	if err := s.pf.Paste(ctx, expected); err != nil {
+		t.Fatalf("dirty physical save-action document: %v", err)
+	}
+	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+		t.Fatalf("save physical save-action document: %v", err)
+	}
+	physicalContents := requireExactSavedFile(t, ctx, physicalFile, expected+"\n")
+	if semanticContents != physicalContents {
+		t.Fatalf("semantic action and physical save paths differ: semantic=%q physical=%q", semanticContents, physicalContents)
+	}
+	stopEditorForParity(t, s, ctx, physicalApp.winMatch, physicalCmd)
+}
+
+func startEditorForParity(t *testing.T, s *suite, ctx context.Context, app appSpec, saveFile string) (appSpec, *exec.Cmd) {
+	t.Helper()
+	// This setup observes and activates windows only. Physical-path callers do
+	// not resolve a scope or invoke the Accessibility bundle.
+	if err := os.WriteFile(saveFile, nil, 0o600); err != nil {
+		t.Fatalf("create parity file: %v", err)
+	}
+	app.winMatch = filepath.Base(saveFile)
+	app.saveFile = saveFile
+	cmd, err := launchApp(s.rt, app, app.extraEnvFor(s.mode)...)
+	if err != nil {
+		t.Fatalf("launch %s parity editor: %v", app.name, err)
+	}
+	t.Cleanup(func() { terminateCmd(cmd, 10*time.Second) })
+	_, err = waitForWindow(s.pf, app.winMatch, 60*time.Second)
+	if err != nil {
+		t.Fatalf("find %s parity window %q: %v", app.name, app.winMatch, err)
+	}
+	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
+		t.Fatalf("activate %s parity window %q: %v", app.name, app.winMatch, err)
+	}
+	if err := waitForActiveWindow(ctx, s.pf, app.winMatch); err != nil {
+		t.Fatalf("wait for active %s parity window %q: %v", app.name, app.winMatch, err)
+	}
+	return app, cmd
+}
+
+func resolveEditorForParity(
+	t *testing.T,
+	s *suite,
+	ctx context.Context,
+	windowMatch string,
+) (window.Info, accessibility.WindowScope, accessibility.Snapshot, accessibility.Node) {
+	t.Helper()
+	info, err := findWindowInfo(s.pf, ctx, windowMatch)
+	if err != nil {
+		t.Fatalf("read managed KWrite parity window: %v", err)
+	}
+	target := accessibility.WindowTarget{
+		ID:      info.NativeID,
+		Title:   info.Title,
+		PID:     info.PID,
+		AppID:   info.AppID,
+		Bounds:  accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H},
+		Active:  info.Active,
+		Focused: info.Active,
+	}
+	scope, snapshot, err := resolveCertificationScopeAndSnapshot(ctx, s.pf.Accessibility, target, certificationSnapshotOptions())
+	if err != nil {
+		t.Fatalf("correlate parity window to AT-SPI: %v", err)
+	}
+	editable, err := findUniqueEditableTarget(snapshot)
+	if err != nil {
+		t.Fatalf("find unique parity editable node: %v", err)
+	}
+	if !editable.Focused {
+		if err := s.pf.Accessibility.FocusNode(ctx, editable.ID); err != nil {
+			t.Fatalf("focus parity editable node: %v", err)
+		}
+		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility, target, editable.ID, certificationSnapshotOptions()); err != nil {
+			t.Fatalf("verify parity editable focus: %v", err)
+		}
+	}
+	return info, scope, snapshot, editable
+}
+
+func waitForActiveWindow(ctx context.Context, pf *perfuncted.Session, pattern string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var lastTitle string
+	for {
+		title, err := pf.Windows.ActiveTitle(ctx)
+		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "no focused window") {
+			return err
+		}
+		if err == nil {
+			lastTitle = title
+			if strings.Contains(strings.ToLower(title), strings.ToLower(pattern)) {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("active title remained %q, want to contain %q: %w", lastTitle, pattern, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForEditorStable(t *testing.T, s *suite, ctx context.Context, windowMatch string) {
+	t.Helper()
+	info, err := findWindowInfo(s.pf, ctx, windowMatch)
+	if err != nil {
+		t.Fatalf("find parity editor window %q: %v", windowMatch, err)
+	}
+	region := image.Rect(
+		info.X+info.W/4,
+		info.Y+info.H/4,
+		info.X+3*info.W/4,
+		info.Y+3*info.H/4,
+	)
+	stableCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if _, err := find.WaitForNoChange(stableCtx, s.pf.Screen, region, 3, 200*time.Millisecond, nil); err != nil {
+		t.Fatalf("wait for parity editor window %q to settle: %v", windowMatch, err)
+	}
+}
+
+func requireExactSavedFile(t *testing.T, ctx context.Context, path, expected string) string {
+	t.Helper()
+	contents, err := waitForFileContains(ctx, path, expected, 30*time.Second)
+	if err != nil {
+		current, readErr := os.ReadFile(path)
+		t.Fatalf("wait for saved file %q: %v (current=%q readErr=%v)", path, err, current, readErr)
+	}
+	if contents != expected {
+		t.Fatalf("saved file %q = %q, want exact content %q", path, contents, expected)
+	}
+	return contents
+}
+
+func stopEditorForParity(t *testing.T, s *suite, ctx context.Context, windowMatch string, cmd *exec.Cmd) {
+	t.Helper()
+	if err := closeWindow(s.pf, ctx, windowMatch); err != nil {
+		t.Errorf("close parity editor window %q: %v", windowMatch, err)
+	}
+	terminateCmd(cmd, 5*time.Second)
+	if err := waitForWindowClose(s.pf, windowMatch, 15*time.Second); err != nil {
+		t.Errorf("wait for parity editor window %q to close: %v", windowMatch, err)
 	}
 }
 

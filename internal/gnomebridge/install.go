@@ -18,6 +18,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"golang.org/x/sys/unix"
 )
 
 const extensionDirectory = "gnome-shell/extensions/" + extensionUUID
@@ -68,7 +69,16 @@ func InstallRuntime(ctx context.Context, rt env.Runtime) (string, error) {
 
 // ConnectForCapability dials the bridge and verifies capability is advertised.
 func ConnectForCapability(ctx context.Context, rt env.Runtime, capability string) (*Client, error) {
-	bridge, err := ConnectRuntime(ctx, rt)
+	return connectForCapability(ctx, rt, capability, ConnectRuntime)
+}
+
+func connectForCapability(
+	ctx context.Context,
+	rt env.Runtime,
+	capability string,
+	connect func(context.Context, env.Runtime) (*Client, error),
+) (*Client, error) {
+	bridge, err := connect(ctx, rt)
 	if err != nil {
 		return nil, err
 	}
@@ -84,17 +94,26 @@ func ConnectForCapability(ctx context.Context, rt env.Runtime, capability string
 // restart condition: a live Shell cannot be assumed to load a newly installed
 // extension in the current session.
 func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
+	return connectRuntime(ctx, rt, NewClientForBus, InstallRuntime)
+}
+
+func connectRuntime(
+	ctx context.Context,
+	rt env.Runtime,
+	connect func(context.Context, string) (*Client, error),
+	install func(context.Context, env.Runtime) (string, error),
+) (*Client, error) {
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 	}
 	address := rt.Get("DBUS_SESSION_BUS_ADDRESS")
-	client, err := NewClientForBus(ctx, address)
+	client, err := connect(ctx, address)
 	if err == nil {
 		if extensionVersionNeedsUpdate(client.ExtensionVersion(), ExtensionVersion) {
 			runningVersion := client.ExtensionVersion()
-			path, installErr := InstallRuntime(ctx, rt)
+			path, installErr := install(ctx, rt)
 			_ = client.Close()
 			if installErr != nil {
 				return nil, fmt.Errorf("%w: running GNOME bridge extension %q is obsolete; refresh it before use: %w", ErrUnavailable, runningVersion, installErr)
@@ -109,11 +128,15 @@ func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
 	if address == "" {
 		return nil, err
 	}
-	path, installErr := InstallRuntime(ctx, rt)
+	path, installErr := install(ctx, rt)
 	if installErr != nil {
 		return nil, fmt.Errorf("%w: %w; install bundled extension: %w", ErrUnavailable, err, installErr)
 	}
-	return nil, &SessionRestartRequiredError{Path: path}
+	restartErr := &SessionRestartRequiredError{Path: path}
+	if errors.Is(err, ErrProtocolMismatch) {
+		return nil, errors.Join(restartErr, err)
+	}
+	return nil, restartErr
 }
 
 // extensionVersionNeedsUpdate reports whether the running bridge is an older
@@ -195,19 +218,19 @@ func writeEmbeddedExtension(dest string) error {
 }
 
 func atomicReplaceDirectory(tmp, dest string) error {
-	backup := dest + ".old"
-	_ = os.RemoveAll(backup)
-	if err := os.Rename(dest, backup); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("gnome bridge: stage existing extension: %w", err)
+	if filepath.Dir(tmp) != filepath.Dir(dest) {
+		return fmt.Errorf("gnome bridge: atomic extension replacement requires a shared parent directory")
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		if _, statErr := os.Stat(backup); statErr == nil {
-			_ = os.Rename(backup, dest)
-		}
-		return fmt.Errorf("gnome bridge: install extension: %w", err)
+	if err := unix.Renameat2(unix.AT_FDCWD, tmp, unix.AT_FDCWD, dest, unix.RENAME_NOREPLACE); err == nil {
+		return nil
+	} else if !errors.Is(err, unix.EEXIST) {
+		return fmt.Errorf("gnome bridge: atomically install extension: %w", err)
 	}
-	if err := os.RemoveAll(backup); err != nil {
-		return fmt.Errorf("gnome bridge: remove old extension: %w", err)
+	if err := unix.Renameat2(unix.AT_FDCWD, tmp, unix.AT_FDCWD, dest, unix.RENAME_EXCHANGE); err != nil {
+		return fmt.Errorf("gnome bridge: atomically replace extension: %w", err)
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		return fmt.Errorf("gnome bridge: remove previous extension after atomic replacement: %w", err)
 	}
 	return nil
 }

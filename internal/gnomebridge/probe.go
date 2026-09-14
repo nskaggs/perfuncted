@@ -16,12 +16,20 @@ import (
 // negotiation, and capability checking used by window, input, screen, and
 // clipboard backends.
 func ProbeCapability(rt env.Runtime, capability string) probe.Result {
+	return probeCapability(rt, capability, NewClientForBus)
+}
+
+func probeCapability(
+	rt env.Runtime,
+	capability string,
+	connect func(context.Context, string) (*Client, error),
+) probe.Result {
 	r := probe.Result{Name: "gnome-native"}
 	if compositor.DetectRuntime(rt) != compositor.GNOME {
 		r.Reason = "not a GNOME session"
 		return r
 	}
-	bridge, err := NewClientForBus(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
+	bridge, err := connect(context.Background(), rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
 		r.Reason = err.Error()
 		return r
