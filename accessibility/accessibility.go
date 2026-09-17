@@ -587,6 +587,7 @@ func openRuntime(ctx context.Context, rt env.Runtime, generation uint64) (Backen
 		runtime: rt, session: session, access: access, generation: generation,
 		cache:      make(map[string]cachedSnapshot),
 		cacheItems: make(map[NodeID]cacheItem), cacheApps: make(map[string]bool),
+		toolkits:    make(map[string]string),
 		subscribers: make(map[uint64]*eventSubscriber),
 	}
 	backend.watchDisconnect()
@@ -598,6 +599,7 @@ type dbusBackend struct {
 	session      *dbus.Conn
 	access       *dbus.Conn
 	mu           sync.RWMutex
+	toolkitMu    sync.RWMutex
 	generation   uint64
 	disconnected bool
 	closed       bool
@@ -608,6 +610,7 @@ type dbusBackend struct {
 	// optimization; cacheItems is refreshed by Cache.GetItems and signals.
 	cacheItems     map[NodeID]cacheItem
 	cacheApps      map[string]bool
+	toolkits       map[string]string
 	eventsMu       sync.Mutex
 	subscribers    map[uint64]*eventSubscriber
 	nextSubscriber uint64
@@ -696,6 +699,9 @@ func (b *dbusBackend) Invalidate(_ NodeID) {
 	b.generation++
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.mu.Unlock()
+	b.toolkitMu.Lock()
+	b.toolkits = nil
+	b.toolkitMu.Unlock()
 }
 
 func (b *dbusBackend) Close() error {
@@ -715,6 +721,9 @@ func (b *dbusBackend) Close() error {
 	b.access, b.session = nil, nil
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.mu.Unlock()
+	b.toolkitMu.Lock()
+	b.toolkits = nil
+	b.toolkitMu.Unlock()
 	b.stopEvents(access)
 	if access != nil {
 		errs = append(errs, access.Close())
@@ -739,6 +748,50 @@ func (b *dbusBackend) object(id NodeID) (dbus.BusObject, error) {
 		return nil, ErrDisconnected
 	}
 	return access.Object(id.BusName, dbus.ObjectPath(id.ObjectPath)), nil
+}
+
+// toolkitForNode resolves and caches the toolkit that owns a node's
+// application. Toolkit identity is scoped to the current backend generation;
+// invalidation clears the cache so an object reference is never reused across
+// sessions.
+func (b *dbusBackend) toolkitForNode(ctx context.Context, id NodeID) (string, error) {
+	if err := mutationContext(ctx, "GetApplication"); err != nil {
+		return "", err
+	}
+	if err := b.validateHandle(id); err != nil {
+		return "", err
+	}
+	b.toolkitMu.RLock()
+	toolkit, ok := b.toolkits[id.BusName]
+	b.toolkitMu.RUnlock()
+	if ok {
+		return toolkit, nil
+	}
+	obj, err := b.object(id)
+	if err != nil {
+		return "", err
+	}
+	var application objectRef
+	if err := obj.CallWithContext(ctx, accessibleIface+".GetApplication", 0).Store(&application); err != nil {
+		return "", fmt.Errorf("accessibility: get application: %w", err)
+	}
+	if application.null() {
+		return "", fmt.Errorf("accessibility: node has no application")
+	}
+	var name string
+	if err := b.property(ctx, b.refID(application), "org.a11y.atspi.Application", "ToolkitName", &name); err != nil {
+		return "", err
+	}
+	if err := b.generationError(id.Generation); err != nil {
+		return "", err
+	}
+	b.toolkitMu.Lock()
+	if b.toolkits == nil {
+		b.toolkits = make(map[string]string)
+	}
+	b.toolkits[id.BusName] = name
+	b.toolkitMu.Unlock()
+	return name, nil
 }
 
 func (b *dbusBackend) validateHandle(id NodeID) error {

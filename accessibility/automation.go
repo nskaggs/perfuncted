@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -308,7 +309,21 @@ func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, t
 	if byteLen > 2147483647 {
 		return fmt.Errorf("accessibility: text too long for AT-SPI signed length field (%d bytes)", byteLen)
 	}
-	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(byteLen))
+	wireLen := byteLen
+	if byteLen != len([]rune(text)) && b != nil && b.callOverride == nil {
+		if toolkit, err := b.toolkitForNode(ctx, id); err == nil {
+			wireLen = insertTextWireLength(text, toolkit)
+		}
+	}
+	return b.mutationBool(ctx, id, editableTextIface, "InsertText", offset, text, int32(wireLen))
+}
+
+func insertTextWireLength(text, toolkit string) int {
+	byteLen := len(text)
+	if byteLen == len([]rune(text)) || !strings.EqualFold(strings.TrimSpace(toolkit), "qt") {
+		return byteLen
+	}
+	return len(utf16.Encode([]rune(text)))
 }
 
 func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int32) error {

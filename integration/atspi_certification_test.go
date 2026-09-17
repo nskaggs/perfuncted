@@ -94,9 +94,6 @@ func certifyGTKTextEntryParity(t *testing.T, s *suite) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	// The Qt provider emits trailing non-text bytes for multibyte InsertText in
-	// this headless session, so exact Unicode parity uses GTK; KWrite remains the
-	// target for named Save-action parity below.
 	textEditor := appSpec{name: "gnome-text-editor", launch: []string{"gnome-text-editor"}}
 	semanticFile := filepath.Join(t.TempDir(), "semantic-parity.txt")
 	semanticApp, semanticCmd := startEditorForParity(t, s, ctx, textEditor, semanticFile)
@@ -456,8 +453,8 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err != nil {
 		t.Fatalf("independent on-disk verification for %s: %v", representative.name, err)
 	}
-	if !strings.Contains(saved, expected) {
-		t.Fatalf("on-disk %s contents do not contain the Unicode certification text: %q", representative.name, saved)
+	if saved != expected+"\n" {
+		t.Fatalf("on-disk %s contents differ from expected Unicode certification text: got=%q want=%q", representative.name, saved, expected+"\n")
 	}
 
 	if err := closeWindow(s.pf, ctx, app.winMatch); err != nil {

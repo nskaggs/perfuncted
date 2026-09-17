@@ -762,6 +762,28 @@ func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 	}
 }
 
+func TestInsertTextWireLengthAdaptsKnownQtProvider(t *testing.T) {
+	tests := []struct {
+		name    string
+		text    string
+		toolkit string
+		want    int
+	}{
+		{name: "spec-compliant provider uses UTF-8 bytes", text: "é😀", toolkit: "GTK", want: 6},
+		{name: "unknown provider uses UTF-8 bytes", text: "é😀", toolkit: "", want: 6},
+		{name: "Qt uses UTF-16 units", text: "é😀", toolkit: "Qt", want: 3},
+		{name: "Qt matching is case-insensitive", text: "東京", toolkit: "qt", want: 2},
+		{name: "ASCII has the same count", text: "plain", toolkit: "Qt", want: 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := insertTextWireLength(tt.text, tt.toolkit); got != tt.want {
+				t.Fatalf("insertTextWireLength(%q, %q) = %d, want %d", tt.text, tt.toolkit, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestActionMetadataUsesGetActionsAndGetNameConsistently(t *testing.T) {
 	id := NodeID{BusName: "org.test", ObjectPath: "/button", Generation: 1}
 	var calls []string
