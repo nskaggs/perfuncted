@@ -93,10 +93,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES=$(gh api -X POST \
-            /repos/${{ github.repository }}/releases/generate-notes \
-            -f tag_name="${{ github.ref_name }}" \
-            -q .body)
+          notes_path=".github/release-notes/${{ github.ref_name }}.md"
+          if [[ -f "$notes_path" ]]; then
+            NOTES="$(cat "$notes_path")"
+          else
+            NOTES=$(gh api -X POST \
+              /repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="${{ github.ref_name }}" \
+              -q .body)
+          fi
           RELEASE_ID=$(gh api /repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} -q .id)
           gh api -X PATCH /repos/${{ github.repository }}/releases/$RELEASE_ID \
             -F body="$NOTES"

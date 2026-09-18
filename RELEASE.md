@@ -33,9 +33,11 @@ The release workflow is defined in
 
 ## Release notes
 
-The workflow generates notes from the commit history via the GitHub
-generate-notes API. Keep the history thematic so the generated notes read
-well:
+For a curated release body, add `.github/release-notes/vX.Y.Z.md` before creating the
+tag. The release workflow uses that file when it exists. If no curated file is
+present, it generates notes from the commit history via the GitHub
+generate-notes API. Keep the history thematic so the generated fallback notes
+read well:
 
 - Open significant changes with a one- or two-sentence summary.
 - Group related work in focused commits under short headings.
