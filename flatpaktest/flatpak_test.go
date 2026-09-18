@@ -293,14 +293,28 @@ func (s *dbusSession) close() {
 }
 
 func allowKnownManifestException(stdout string) bool {
-	// Flathub treats the KDE window-management talk-name as a review exception.
+	// Flathub treats the KDE window-management and native bridge talk-names as
+	// review exceptions. Both permissions are required by the supported runtime
+	// capability paths.
 	var report struct {
 		Errors []string `json:"errors"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 		return false
 	}
-	return len(report.Errors) == 1 && report.Errors[0] == "finish-args-kwin-talk-name"
+	known := map[string]struct{}{
+		"finish-args-kwin-talk-name":              {},
+		"finish-args-unnecessary-appid-talk-name": {},
+	}
+	if len(report.Errors) == 0 || len(report.Errors) > len(known) {
+		return false
+	}
+	for _, issue := range report.Errors {
+		if _, ok := known[issue]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func assertVersionOutput(t *testing.T, stdout string) {
