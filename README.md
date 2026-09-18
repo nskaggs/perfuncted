@@ -90,10 +90,12 @@ using the Flatpak. The bundled extension declares GNOME Shell 46 through 51.
 
 ## Install
 
-**Flatpak bundle (CI artifact):**
+**Flatpak bundle:**
 
 The Flatpak workflow builds `dist/flatpak/perfuncted.flatpak` for tagged
-releases and workflow dispatches. Download that artifact before installing it.
+releases and manual workflow dispatches. For a tagged release, download the
+Flatpak asset from the GitHub release; for a manual run, download the
+`perfuncted-flatpak` artifact from the workflow run.
 
 ```bash
 flatpak install --user -y ./dist/flatpak/perfuncted.flatpak
@@ -118,6 +120,7 @@ go get github.com/nskaggs/perfuncted
 |---|---|
 | `wl-clipboard` | Clipboard access on Wayland when no native compositor clipboard backend is available |
 | `xclip` | Clipboard access on X11 |
+| `at-spi2-core` and toolkit accessibility bridges | AT-SPI accessibility for applications that expose an accessibility tree |
 | `udev` rule or `input` group | `/dev/uinput` access when compositor-scoped or XTEST input is unavailable (see Setup below) |
 
 The selected session also needs its compositor/session services and display
