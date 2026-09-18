@@ -14,6 +14,7 @@ github.com/inconshreveable/mousetrap
 ## explicit; go 1.11
 github.com/jezek/xgb
 github.com/jezek/xgb/composite
+github.com/jezek/xgb/randr
 github.com/jezek/xgb/render
 github.com/jezek/xgb/shape
 github.com/jezek/xgb/xfixes
