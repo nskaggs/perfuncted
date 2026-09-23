@@ -258,6 +258,7 @@ func (b *GnomeNativeBackend) releaseModifierKeys(ctx context.Context, keys []uin
 	if len(keys) == 0 {
 		return nil
 	}
+	// Modifier release is best-effort cleanup after the primary operation.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 	defer cancel()
 	var cleanupErr error
@@ -364,6 +365,7 @@ func (b *GnomeNativeBackend) MouseClick(ctx context.Context, x, y, button int) e
 // deadline expired during the hold or immediately before release.
 func releaseMouseButton(ctx context.Context, release func(context.Context) error) error {
 	ctx = contextutil.Default(ctx)
+	// Clipboard/input cleanup must run after cancellation but remains bounded.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 	defer cancel()
 	return errors.Join(ctx.Err(), release(cleanupCtx))

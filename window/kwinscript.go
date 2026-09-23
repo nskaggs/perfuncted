@@ -180,6 +180,8 @@ func (k *KWinScriptManager) runScript(ctx context.Context, buildJS func(svc stri
 		// Detach from the caller's context so cleanup still runs after a
 		// cancellation or deadline, but bound it so a wedged bus cannot
 		// stall the caller.
+		// Script removal is independent best-effort cleanup after cancellation;
+		// keep the D-Bus call from delaying the caller indefinitely.
 		unloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
 		if err := scr.CallWithContext(unloadCtx, kwinScriptIface+".unloadScript", 0, plugin).Err; err != nil {
@@ -207,7 +209,18 @@ func requestKWinName(ctx context.Context, conn *dbus.Conn, svc string) error {
 }
 
 func waitForKWinResult(ctx context.Context, recv *pfReceiver, scriptID int) (string, error) {
-	timer := time.NewTimer(5 * time.Second)
+	// KWin's callback has a direct-backend safety ceiling. A Session-bound
+	// caller context is authoritative when its deadline is earlier.
+	timeout := 5 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			timeout = remaining
+		}
+	}
+	if timeout <= 0 {
+		return "", ctx.Err()
+	}
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():

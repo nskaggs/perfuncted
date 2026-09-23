@@ -25,6 +25,10 @@ func (b *AccessibilityBundle) checkAvailable(operation string) error {
 	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
 }
 
+func (b *AccessibilityBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return b.backendContext(ctx, b.session.Timeouts().Long)
+}
+
 func (b *AccessibilityBundle) close() error {
 	if b == nil || util.IsNil(b.backend) {
 		return nil
@@ -37,6 +41,8 @@ func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility
 	if err := b.checkAvailable("applications"); err != nil {
 		return nil, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	apps, err := b.backend.Applications(ctx)
 	return apps, b.operationError("applications", err)
 }
@@ -48,6 +54,8 @@ func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.N
 	if err := b.checkAvailable("snapshot"); err != nil {
 		return accessibility.Snapshot{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	return snapshot, b.operationError("snapshot", err)
 }
@@ -58,6 +66,8 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 	if err := b.checkAvailable("outline"); err != nil {
 		return accessibility.Outline{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	if source, ok := b.backend.(interface {
 		Outline(context.Context, accessibility.NodeID, accessibility.SnapshotOptions, accessibility.OutlineOptions) (accessibility.Outline, error)
 	}); ok {
@@ -78,6 +88,8 @@ func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target ac
 	if err := b.checkAvailable("window-root"); err != nil {
 		return accessibility.WindowScope{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	resolver, ok := b.backend.(accessibility.WindowResolver)
 	if !ok {
 		return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
@@ -102,6 +114,8 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 	if err := b.checkAvailable("find"); err != nil {
 		return nil, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	nodes, err := b.backend.Find(ctx, root, query, opts)
 	return nodes, b.operationError("find", err)
 }
@@ -113,6 +127,8 @@ func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.No
 	if err := b.checkAvailable("find"); err != nil {
 		return accessibility.Node{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	if err != nil {
 		return accessibility.Node{}, b.operationError("find", err)
@@ -186,6 +202,8 @@ func (b *AccessibilityBundle) Focused(ctx context.Context, opts accessibility.Sn
 	if err := b.checkAvailable("focused"); err != nil {
 		return accessibility.Node{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	node, err := b.backend.Focused(ctx, opts)
 	return node, b.operationError("focused", err)
 }
@@ -195,6 +213,8 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 	if err := b.checkAvailable("at-point"); err != nil {
 		return accessibility.Node{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	node, err := b.backend.AtPoint(ctx, x, y)
 	return node, b.operationError("at-point", err)
 }
@@ -233,11 +253,15 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 	if !ok {
 		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	app, err := finder.FindApplication(ctx, filter)
 	return app, b.operationError("find-application", err)
 }
 
-// Events returns the bounded AT-SPI invalidation stream when supported.
+// Events returns the bounded AT-SPI invalidation stream when supported. Its
+// context owns the stream lifetime; backend setup has its own short protocol
+// guard and is not replaced with a fixed stream expiry.
 func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
 	if err := b.checkAvailable("events"); err != nil {
 		return nil, err
@@ -267,6 +291,8 @@ func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("invoke-action", a.InvokeAction(ctx, id, index))
 }
 
@@ -277,6 +303,8 @@ func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessi
 	if err != nil {
 		return accessibility.Action{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	chosen, callErr := a.InvokeActionByName(ctx, id, name)
 	return chosen, b.operationError("invoke-action-by-name", callErr)
 }
@@ -288,6 +316,8 @@ func (b *AccessibilityBundle) InvokeDefaultAction(ctx context.Context, id access
 	if err != nil {
 		return accessibility.Action{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	chosen, callErr := a.InvokeDefaultAction(ctx, id)
 	return chosen, b.operationError("invoke-default-action", callErr)
 }
@@ -298,6 +328,8 @@ func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.Nod
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("scroll", a.ScrollTo(ctx, id, kind))
 }
 
@@ -307,6 +339,8 @@ func (b *AccessibilityBundle) ScrollToPoint(ctx context.Context, id accessibilit
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("scroll-to-point", a.ScrollToPoint(ctx, id, kind, x, y))
 }
 
@@ -316,6 +350,8 @@ func (b *AccessibilityBundle) SetPosition(ctx context.Context, id accessibility.
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-position", a.SetPosition(ctx, id, x, y, kind))
 }
 
@@ -325,6 +361,8 @@ func (b *AccessibilityBundle) SetSize(ctx context.Context, id accessibility.Node
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-size", a.SetSize(ctx, id, width, height))
 }
 
@@ -334,6 +372,8 @@ func (b *AccessibilityBundle) SetExtents(ctx context.Context, id accessibility.N
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-extents", a.SetExtents(ctx, id, x, y, width, height, kind))
 }
 
@@ -343,6 +383,8 @@ func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.Nod
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-value", a.SetValue(ctx, id, value))
 }
 
@@ -352,6 +394,8 @@ func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.N
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("insert-text", a.InsertText(ctx, id, offset, value))
 }
 
@@ -361,6 +405,8 @@ func (b *AccessibilityBundle) DeleteText(ctx context.Context, id accessibility.N
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("delete-text", a.DeleteText(ctx, id, start, end))
 }
 
@@ -370,6 +416,8 @@ func (b *AccessibilityBundle) CopyText(ctx context.Context, id accessibility.Nod
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("copy-text", a.CopyText(ctx, id, start, end))
 }
 
@@ -379,6 +427,8 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("cut-text", a.CutText(ctx, id, start, end))
 }
 
@@ -388,6 +438,8 @@ func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.No
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("paste-text", a.PasteText(ctx, id, position))
 }
 
@@ -397,6 +449,8 @@ func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibili
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-caret", a.SetCaretOffset(ctx, id, offset))
 }
 
@@ -406,6 +460,8 @@ func (b *AccessibilityBundle) SetTextSelections(ctx context.Context, id accessib
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-document-text-selections", a.SetTextSelections(ctx, id, selections))
 }
 
@@ -417,6 +473,8 @@ func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibi
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, selection, start, end))
 }
 
@@ -426,6 +484,8 @@ func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibi
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("add-text-selection", a.AddTextSelection(ctx, id, start, end))
 }
 
@@ -435,6 +495,8 @@ func (b *AccessibilityBundle) RemoveTextSelection(ctx context.Context, id access
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("remove-text-selection", a.RemoveTextSelection(ctx, id, selection))
 }
 
@@ -444,6 +506,8 @@ func (b *AccessibilityBundle) SelectChild(ctx context.Context, id accessibility.
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("select-child", a.SelectChild(ctx, id, index))
 }
 
@@ -453,6 +517,8 @@ func (b *AccessibilityBundle) DeselectChild(ctx context.Context, id accessibilit
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("deselect-child", a.DeselectChild(ctx, id, index))
 }
 
@@ -462,6 +528,8 @@ func (b *AccessibilityBundle) SelectAll(ctx context.Context, id accessibility.No
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("select-all", a.SelectAll(ctx, id))
 }
 
@@ -471,6 +539,8 @@ func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibili
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("clear-selection", a.ClearSelection(ctx, id))
 }
 
@@ -480,6 +550,8 @@ func (b *AccessibilityBundle) DeselectSelectedChild(ctx context.Context, id acce
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("deselect-selected-child", a.DeselectSelectedChild(ctx, id))
 }
 
@@ -489,6 +561,8 @@ func (b *AccessibilityBundle) SelectRow(ctx context.Context, id accessibility.No
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("select-row", a.SelectRow(ctx, id, row))
 }
 
@@ -498,6 +572,8 @@ func (b *AccessibilityBundle) DeselectRow(ctx context.Context, id accessibility.
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("deselect-row", a.DeselectRow(ctx, id, row))
 }
 
@@ -507,6 +583,8 @@ func (b *AccessibilityBundle) SelectColumn(ctx context.Context, id accessibility
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("select-column", a.SelectColumn(ctx, id, column))
 }
 
@@ -516,6 +594,8 @@ func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibili
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("deselect-column", a.DeselectColumn(ctx, id, column))
 }
 
@@ -525,6 +605,8 @@ func (b *AccessibilityBundle) FocusNode(ctx context.Context, id accessibility.No
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("grab-focus", a.GrabFocus(ctx, id))
 }
 
@@ -539,6 +621,8 @@ func (b *AccessibilityBundle) ReplaceEditableText(ctx context.Context, id access
 	if err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("set-text-contents", a.SetTextContents(ctx, id, value))
 }
 
@@ -556,6 +640,8 @@ func (b *AccessibilityBundle) Reopen(ctx context.Context) error {
 	if !ok {
 		return b.operationError("reopen", accessibility.ErrUnsupported)
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	fresh, err := reopener.Reopen(ctx)
 	if err != nil {
 		return b.operationError("reopen", err)

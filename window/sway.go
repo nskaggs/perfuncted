@@ -49,6 +49,8 @@ type swayRect struct {
 
 var _ Manager = (*SwayManager)(nil)
 
+// defaultReflowTimeout is a compositor reflow observation window. Move's
+// caller/session context remains authoritative and can end the wait earlier.
 const defaultReflowTimeout = 500 * time.Millisecond
 
 // SwayManager implements Manager via sway's IPC socket (i3-ipc protocol).
@@ -116,6 +118,8 @@ func NewSwayManagerRuntimeContext(ctx context.Context, rt env.Runtime) (*SwayMan
 }
 
 func swayQueryDeadline(ctx context.Context) time.Time {
+	// Sway IPC has no per-message deadline. This direct-backend safety ceiling
+	// is narrowed by the caller/session context whenever one is present.
 	deadline := time.Now().Add(5 * time.Second)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		return ctxDeadline
@@ -536,6 +540,8 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 		m.eventMu.Unlock()
 	}()
 
+	// Subscription setup is a protocol handshake for a caller-owned long-lived
+	// stream. Bound only this handshake; the stream itself has no expiry.
 	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return
 	}
@@ -698,6 +704,8 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 }
 
 var swayDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+	// DialContext remains authoritative for Session-bound operations; this
+	// finite fallback also bounds direct callers that omit a deadline.
 	dialer := net.Dialer{Timeout: 5 * time.Second}
 	return dialer.DialContext(ctx, network, address)
 }

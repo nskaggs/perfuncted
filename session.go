@@ -36,6 +36,9 @@ var (
 )
 
 const (
+	// These values govern stale-session and retained-log maintenance, not a
+	// caller's active backend operation. Active startup/shutdown uses
+	// TimeoutPolicy below.
 	sessionOwnerPIDFile     = "perfuncted.pid"
 	noPIDFileReapGrace      = 5 * time.Minute
 	cleanupStaleMinInterval = 30 * time.Second
@@ -312,7 +315,17 @@ func (s *Session) openCapability(capability Capability) (any, error) {
 	return s.openCapabilityContext(context.Background(), capability)
 }
 
-func (s *Session) openCapabilityContext(ctx context.Context, capability Capability) (any, error) {
+func (s *Session) openCapabilityContext(ctx context.Context, capability Capability) (any, error) { //nolint:contextcheck // capability setup derives the effective startup policy.
+	// Capability setup is a startup operation. The caller's context remains the
+	// outer authority, while the effective startup policy prevents a backend's
+	// direct-call fallback timeout from extending initialization forever.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, s.Timeouts().Startup)
+	defer cancel()
+
 	switch capability {
 	case CapabilityScreen:
 		backend, err := openScreen(ctx, s.env)
@@ -1237,10 +1250,27 @@ func (m *managedProc) waitGroup(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return contextErrorWithCause(ctx)
 		case <-ticker.C:
 		}
 	}
+}
+
+// contextErrorWithCause keeps the standard cancellation/deadline category
+// while retaining a caller-supplied cancellation cause for diagnostics.
+func contextErrorWithCause(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	err := ctx.Err()
+	if err == nil {
+		return nil
+	}
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, err) {
+		return err
+	}
+	return errors.Join(err, cause)
 }
 
 func (m *managedProc) waitGroupTimeout(timeout time.Duration) bool {
@@ -1342,6 +1372,8 @@ func reapSessionDir(dir string) {
 		if err != nil {
 			continue
 		}
+		// Stale-owner cleanup is an independent maintenance action. Its short
+		// grace does not bound active Session process-stop operations.
 		if !stopRecordedProcess(pid, dir, 100*time.Millisecond) {
 			slog.Debug(
 				"session: skip stale child with mismatched runtime directory",

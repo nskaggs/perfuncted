@@ -605,9 +605,9 @@ func (d *Display) RoundTripContext(cancel context.Context) error {
 }
 
 // defaultRoundTripTimeout bounds the non-cancelable convenience round-trip
-// used by bootstrap paths (session env detection, backend initialization) so
-// a wedged compositor socket that accepts but never replies cannot hang Open
-// forever despite the caller's deadline. Tests may shrink it.
+// used only by direct bootstrap callers. Session-bound backend setup uses a
+// policy-bearing context and RoundTripContext; this ceiling prevents a direct
+// convenience call from hanging forever. Tests may shrink it.
 var defaultRoundTripTimeout = 10 * time.Second
 
 // RoundTrip performs a synchronous wl_display.sync using this context. The

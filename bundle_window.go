@@ -49,6 +49,8 @@ func (b *WindowBundle) Sync(ctx context.Context) error {
 	if err := b.checkAvailable("sync"); err != nil {
 		return err
 	}
+	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
+	defer cancel()
 	type syncer interface {
 		Sync(context.Context) error
 	}
@@ -63,6 +65,8 @@ func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	if err := b.checkAvailable("active-title"); err != nil {
 		return "", err
 	}
+	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
+	defer cancel()
 	title, err := b.backend.ActiveTitle(ctx)
 	return title, b.operationError("active-title", err)
 }
@@ -72,6 +76,9 @@ func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 // dropped, including lifecycle and focus events, if the consumer is slow.
 // Refresh authoritative state with List or Window.Info after receiving an
 // event. The channel closes when the session closes or the backend stops.
+// Event subscription setup is performed during backend initialization under
+// the session startup policy; the returned stream is caller-owned and has no
+// artificial expiry.
 func (b *WindowBundle) Events() (<-chan WindowEvent, error) {
 	if err := b.checkAvailable("events"); err != nil {
 		return nil, err

@@ -24,11 +24,17 @@ func (b *InputBundle) checkAvailable(operation string) error {
 	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
 }
 
+func (b *InputBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return b.backendContext(ctx, b.session.Timeouts().Short)
+}
+
 // KeyDown presses and holds key.
 func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "key-down %s", key)
 	return b.operationError("keyboard", b.backend.KeyDown(ctx, key))
 }
@@ -38,6 +44,8 @@ func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "key-up %s", key)
 	return b.operationError("keyboard", b.backend.KeyUp(ctx, key))
 }
@@ -51,6 +59,8 @@ func (b *InputBundle) typeContext(ctx context.Context, text string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "type")
 	return b.operationError("keyboard", b.backend.Type(ctx, text))
 }
@@ -61,6 +71,8 @@ func (b *InputBundle) TypeLiteral(ctx context.Context, text string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "type-literal")
 	return b.operationError("keyboard", b.backend.TypeLiteral(ctx, text))
 }
@@ -74,6 +86,8 @@ func (b *InputBundle) MouseMove(
 	if err := b.checkAvailable("pointer"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "mouse-move %d,%d", x, y)
 	return b.operationError("pointer", b.backend.MouseMove(ctx, x, y))
 }
@@ -88,6 +102,8 @@ func (b *InputBundle) MouseClick(
 	if checkErr := b.checkAvailable("click"); checkErr != nil {
 		return checkErr
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "mouse-click %d,%d,%d", x, y, button)
 	return b.operationError("click", b.backend.MouseClick(ctx, x, y, button))
 }
@@ -115,6 +131,8 @@ func (b *InputBundle) DoubleClick(
 	if checkErr := b.checkAvailable("click"); checkErr != nil {
 		return checkErr
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	released := true
 	defer func() {
 		if !released {
@@ -138,6 +156,8 @@ func (b *InputBundle) DoubleClick(
 		return err
 	}
 	released = true
+	// Double-click inter-click spacing is an input protocol gesture interval;
+	// cancellation of the caller context still ends it immediately.
 	timer := time.NewTimer(20 * time.Millisecond)
 	defer timer.Stop()
 	select {
@@ -161,6 +181,8 @@ func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
 	if err := b.checkAvailable("click"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "mouse-down %d", button)
 	return b.operationError("click", b.backend.MouseDown(ctx, button))
 }
@@ -170,6 +192,8 @@ func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
 	if err := b.checkAvailable("click"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	b.traceAction("input", "mouse-up %d", button)
 	return b.operationError("click", b.backend.MouseUp(ctx, button))
 }
@@ -179,6 +203,8 @@ func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("scroll", b.backend.ScrollUp(ctx, clicks))
 }
 
@@ -187,6 +213,8 @@ func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("scroll", b.backend.ScrollDown(ctx, clicks))
 }
 
@@ -195,6 +223,8 @@ func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("scroll", b.backend.ScrollLeft(ctx, clicks))
 }
 
@@ -203,6 +233,8 @@ func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	return b.operationError("scroll", b.backend.ScrollRight(ctx, clicks))
 }
 
@@ -211,6 +243,8 @@ func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 	if err := b.checkAvailable("pointer-location"); err != nil {
 		return 0, 0, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	x, y, err := b.backend.PointerLocation(ctx)
 	return x, y, b.operationError("pointer-location", err)
 }
@@ -223,6 +257,8 @@ func (b *InputBundle) PointerCoordinateSpace(ctx context.Context) (input.Coordin
 	if err := b.checkAvailable("pointer-coordinate-space"); err != nil {
 		return input.CoordinateSpaceInfo{}, err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	reporter, ok := b.backend.(input.PointerCoordinateSpaceReporter)
 	if !ok {
 		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", input.ErrNotSupported)
@@ -242,6 +278,8 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 	if err := b.checkAvailable("sync"); err != nil {
 		return err
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	type syncer interface {
 		Sync(context.Context) error
 	}
@@ -263,6 +301,8 @@ func (b *InputBundle) DragAndDrop(
 	if checkErr := b.checkAvailable("drag"); checkErr != nil {
 		return checkErr
 	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
 	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
 		return moveErr
 	}

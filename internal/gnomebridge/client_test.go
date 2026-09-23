@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -21,6 +22,16 @@ type recordingObject struct {
 	protocol           uint32
 	calls              []recordedCall
 	pointerLocationErr error
+}
+
+type blockingObject struct {
+	seen chan context.Context
+}
+
+func (o *blockingObject) CallWithContext(ctx context.Context, _ string, _ dbus.Flags, _ ...any) *dbus.Call {
+	o.seen <- ctx
+	<-ctx.Done()
+	return &dbus.Call{Err: ctx.Err()}
 }
 
 type recordedCall struct {
@@ -84,6 +95,39 @@ func TestClientNegotiates(t *testing.T) {
 	caps[0] = "changed"
 	if !client.HasCapability(CapabilityScreen) || client.Capabilities()[0] == "changed" {
 		t.Fatalf("Capabilities did not return a defensive copy: %v", client.Capabilities())
+	}
+}
+
+func TestClientCallHonorsCallerDeadlineAndCancellationCause(t *testing.T) {
+	object := &blockingObject{seen: make(chan context.Context, 1)}
+	client := &Client{obj: object, closeDone: make(chan struct{})}
+	parent, cancelCause := context.WithCancelCause(context.Background())
+	ctx, deadlineCancel := context.WithTimeout(parent, time.Second)
+	defer deadlineCancel()
+	result := make(chan error, 1)
+	go func() { result <- client.call(ctx, CoreInterface, "Ping") }()
+	observed := <-object.seen
+	deadline, ok := observed.Deadline()
+	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > time.Second {
+		t.Fatalf("caller deadline = %v, ok=%v; want preserved deadline", deadline, ok)
+	}
+	cause := errors.New("caller stopped DBus operation")
+	cancelCause(cause)
+	if err := <-result; !errors.Is(err, cause) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("call error = %v, want cancellation and caller cause", err)
+	}
+
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer deadlineCancel()
+	result = make(chan error, 1)
+	go func() { result <- client.call(deadlineCtx, CoreInterface, "Ping") }()
+	observed = <-object.seen
+	deadline, ok = observed.Deadline()
+	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Millisecond {
+		t.Fatalf("caller deadline = %v, ok=%v; want preserved deadline", deadline, ok)
+	}
+	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline call error = %v, want context deadline", err)
 	}
 }
 

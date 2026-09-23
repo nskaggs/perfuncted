@@ -13,6 +13,9 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+// handshakeCleanupTimeout bounds joining a canceled authentication worker
+// after its connection has been closed. It is cleanup only; the caller's
+// context determines the handshake deadline.
 const handshakeCleanupTimeout = 250 * time.Millisecond
 
 // SessionBusAddress returns a session bus connection using addr when provided.

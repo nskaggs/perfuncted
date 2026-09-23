@@ -64,6 +64,8 @@ func NewXTestBackend(displayName string) (*XTestBackend, error) {
 		return nil, fmt.Errorf("input/xtest: init XTEST: %w", err)
 	}
 	root := conn.DefaultScreen().Root
+	// XTest's initial event delay is protocol pacing. Each operation still
+	// receives the caller/session context from the bundle.
 	return &XTestBackend{conn: conn, root: root, delay: 50 * time.Millisecond}, nil
 }
 

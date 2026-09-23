@@ -3,15 +3,32 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/window"
 )
 
 type bundleBase struct {
 	session    *Session
 	capability Capability
+}
+
+// backendContext gives each bounded backend operation the session's effective
+// policy while retaining an earlier caller deadline or cancellation cause.
+// Long-lived event streams intentionally do not use this helper: their
+// lifetime belongs to the caller's context.
+func (b *bundleBase) backendContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx = contextutil.Default(ctx)
+	if b == nil || b.session == nil {
+		return ctx, func() {}
+	}
+	if timeout <= 0 {
+		timeout = b.session.Timeouts().Medium
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func (b *bundleBase) traceAction(component, format string, args ...any) {

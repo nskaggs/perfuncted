@@ -1,20 +1,20 @@
-# Baseline captured on 2026-09-23 with Go 1.27.0, linux/amd64, Intel Core
-# i7-10510U, headless Wayland, GOWORK=off, benchtime=3x. The checker allows a
-# documented 50% increase because compositor-backed measurements are noisy on
-# shared CI.
+# Baseline recaptured on 2026-09-23 after session-policy context plumbing with
+# Go 1.27.0, linux/amd64, Intel Core i7-10510U, headless Wayland, GOWORK=off,
+# benchtime=3x. The checker allows a documented 50% increase because
+# compositor-backed measurements are noisy on shared CI.
 goos: linux
 goarch: amd64
 pkg: github.com/nskaggs/perfuncted
 cpu: Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz
-BenchmarkDesktopOpenClose-8               3 321631596 ns/op 558536 B/op 4875 allocs/op
-BenchmarkDesktopOpenClose-8               3 343118913 ns/op 552893 B/op 4887 allocs/op
-BenchmarkDesktopOpenClose-8               3 330311400 ns/op 552738 B/op 4902 allocs/op
-BenchmarkDesktopRegionHash-8              3 15029961 ns/op 279733 B/op 206 allocs/op
-BenchmarkDesktopRegionHash-8              3 16055302 ns/op 277066 B/op 205 allocs/op
-BenchmarkDesktopRegionHash-8              3 15629661 ns/op 276906 B/op 205 allocs/op
-BenchmarkDesktopInputClickType-8          3 64302686 ns/op 6888 B/op 76 allocs/op
-BenchmarkDesktopInputClickType-8          3 63047727 ns/op 6445 B/op 73 allocs/op
-BenchmarkDesktopInputClickType-8          3 62390910 ns/op 7208 B/op 74 allocs/op
-BenchmarkDesktopWindowListActivate-8      3 485624 ns/op 7296 B/op 26 allocs/op
-BenchmarkDesktopWindowListActivate-8      3 349734 ns/op 7296 B/op 26 allocs/op
-BenchmarkDesktopWindowListActivate-8      3 393466 ns/op 7368 B/op 28 allocs/op
+BenchmarkDesktopOpenClose-8               3 314759566 ns/op 582058 B/op 5206 allocs/op
+BenchmarkDesktopOpenClose-8               3 313453055 ns/op 585101 B/op 5225 allocs/op
+BenchmarkDesktopOpenClose-8               3 313094099 ns/op 596328 B/op 5251 allocs/op
+BenchmarkDesktopRegionHash-8              3 16285786 ns/op 280554 B/op 213 allocs/op
+BenchmarkDesktopRegionHash-8              3 16398726 ns/op 277546 B/op 212 allocs/op
+BenchmarkDesktopRegionHash-8              3 16298767 ns/op 277546 B/op 212 allocs/op
+BenchmarkDesktopInputClickType-8          3 61242927 ns/op 7746 B/op 85 allocs/op
+BenchmarkDesktopInputClickType-8          3 61089010 ns/op 7933 B/op 86 allocs/op
+BenchmarkDesktopInputClickType-8          3 60910624 ns/op 7570 B/op 85 allocs/op
+BenchmarkDesktopWindowListActivate-8      3 369760 ns/op 11357 B/op 77 allocs/op
+BenchmarkDesktopWindowListActivate-8      3 408644 ns/op 13162 B/op 82 allocs/op
+BenchmarkDesktopWindowListActivate-8      3 376893 ns/op 11216 B/op 75 allocs/op

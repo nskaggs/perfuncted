@@ -55,33 +55,37 @@ var (
 )
 
 const (
-	busService           = "org.a11y.Bus"
-	busAddressMethod     = busService + ".GetAddress"
-	busPath              = dbus.ObjectPath("/org/a11y/bus")
-	registryName         = "org.a11y.atspi.Registry"
-	registryPath         = dbus.ObjectPath("/org/a11y/atspi/registry")
-	desktopPath          = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
-	nullObjectPath       = dbus.ObjectPath("/org/a11y/atspi/null")
-	accessibleIface      = "org.a11y.atspi.Accessible"
-	componentIface       = "org.a11y.atspi.Component"
-	textIface            = "org.a11y.atspi.Text"
-	editableTextIface    = "org.a11y.atspi.EditableText"
-	valueIface           = "org.a11y.atspi.Value"
-	actionIface          = "org.a11y.atspi.Action"
-	selectionIface       = "org.a11y.atspi.Selection"
-	tableIface           = "org.a11y.atspi.Table"
-	documentIface        = "org.a11y.atspi.Document"
-	cacheIface           = "org.a11y.atspi.Cache"
-	cachePath            = dbus.ObjectPath("/org/a11y/atspi/cache")
-	propertiesIface      = "org.freedesktop.DBus.Properties"
-	defaultMaxDepth      = 32
-	defaultMaxNodes      = 10000
-	defaultMaxText       = 4096
-	defaultMaxTotal      = 1 << 20
-	defaultEventBuffer   = 64
-	maxApplications      = 1024
-	cacheTTL             = 250 * time.Millisecond
-	eventCoalesceWindow  = 10 * time.Millisecond
+	busService         = "org.a11y.Bus"
+	busAddressMethod   = busService + ".GetAddress"
+	busPath            = dbus.ObjectPath("/org/a11y/bus")
+	registryName       = "org.a11y.atspi.Registry"
+	registryPath       = dbus.ObjectPath("/org/a11y/atspi/registry")
+	desktopPath        = dbus.ObjectPath("/org/a11y/atspi/accessible/root")
+	nullObjectPath     = dbus.ObjectPath("/org/a11y/atspi/null")
+	accessibleIface    = "org.a11y.atspi.Accessible"
+	componentIface     = "org.a11y.atspi.Component"
+	textIface          = "org.a11y.atspi.Text"
+	editableTextIface  = "org.a11y.atspi.EditableText"
+	valueIface         = "org.a11y.atspi.Value"
+	actionIface        = "org.a11y.atspi.Action"
+	selectionIface     = "org.a11y.atspi.Selection"
+	tableIface         = "org.a11y.atspi.Table"
+	documentIface      = "org.a11y.atspi.Document"
+	cacheIface         = "org.a11y.atspi.Cache"
+	cachePath          = dbus.ObjectPath("/org/a11y/atspi/cache")
+	propertiesIface    = "org.freedesktop.DBus.Properties"
+	defaultMaxDepth    = 32
+	defaultMaxNodes    = 10000
+	defaultMaxText     = 4096
+	defaultMaxTotal    = 1 << 20
+	defaultEventBuffer = 64
+	maxApplications    = 1024
+	// Cache and event coalescing windows govern backend bookkeeping, not
+	// caller-visible operation deadlines.
+	cacheTTL            = 250 * time.Millisecond
+	eventCoalesceWindow = 10 * time.Millisecond
+	// Event setup/cleanup are short protocol lifecycle guards. The bundle's
+	// session policy remains the outer deadline for accessibility operations.
 	eventSetupTimeout    = 2 * time.Second
 	eventCleanupTimeout  = 750 * time.Millisecond
 	eventStartRetryLimit = 1

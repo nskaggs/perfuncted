@@ -288,6 +288,8 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 		var cleanupCancel context.CancelFunc
 		cleanupContext := func() context.Context {
 			if cleanupCtx == nil {
+				// External capture cleanup is a bounded best-effort release after
+				// the caller's operation has ended, not a second operation budget.
 				cleanupCtx, cleanupCancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
 			}
 			return cleanupCtx

@@ -55,6 +55,9 @@ func NewClientForBus(ctx context.Context, addr string) (*Client, error) {
 	// Negotiation must not hang indefinitely when callers pass a
 	// background context from OpenRuntime probes or session setup.
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// This direct-client safety ceiling is used only when a caller does
+		// not supply a deadline. Session capability operations always pass
+		// their effective TimeoutPolicy deadline before reaching the bridge.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -164,6 +167,8 @@ func (c *Client) call(ctx context.Context, iface, method string, out ...any) err
 		return err
 	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// Direct callers get a finite protocol safety ceiling; Session-bound
+		// calls already carry the effective operation policy.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -177,6 +182,12 @@ func (c *Client) call(ctx context.Context, iface, method string, out ...any) err
 	c.mu.Unlock()
 	call := object.CallWithContext(ctx, iface+"."+method, 0)
 	if call.Err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, ctxErr) {
+				return errors.Join(ctxErr, cause)
+			}
+			return ctxErr
+		}
 		return translateDBusError(call.Err)
 	}
 	if len(out) == 0 {
@@ -259,6 +270,8 @@ func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent,
 	}
 	addCtx := ctx
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// Signal registration is a short protocol handshake. The returned
+		// stream remains governed by the caller's context after setup.
 		var cancel context.CancelFunc
 		addCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -402,6 +415,8 @@ func (c *Client) callWithArgsOut(ctx context.Context, iface, method string, args
 		return err
 	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// Direct bridge callers get a finite method ceiling. Session-bound
+		// operations pass their effective TimeoutPolicy deadline here.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -415,6 +430,12 @@ func (c *Client) callWithArgsOut(ctx context.Context, iface, method string, args
 	c.mu.Unlock()
 	call := object.CallWithContext(ctx, iface+"."+method, 0, args...)
 	if call.Err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, ctxErr) {
+				return errors.Join(ctxErr, cause)
+			}
+			return ctxErr
+		}
 		return translateDBusError(call.Err)
 	}
 	if len(out) != 0 {
@@ -504,6 +525,9 @@ func (c *Client) capture(ctx context.Context, method string, fd int, args []any,
 		return err
 	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// Capture has a larger direct-client safety ceiling for compositor
+		// image transfer. Session-bound captures carry the effective policy
+		// deadline, which remains authoritative when it is earlier.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -522,6 +546,12 @@ func (c *Client) capture(ctx context.Context, method string, fd int, args []any,
 	params := append([]any{dbus.UnixFD(fd)}, args...)
 	call := object.CallWithContext(ctx, ScreenInterface+"."+method, 0, params...)
 	if call.Err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, ctxErr) {
+				return fmt.Errorf("gnome bridge: %s: %w", method, errors.Join(ctxErr, cause))
+			}
+			return fmt.Errorf("gnome bridge: %s: %w", method, ctxErr)
+		}
 		return fmt.Errorf("gnome bridge: %s: %w", method, translateDBusError(call.Err))
 	}
 	if len(out) > 0 {

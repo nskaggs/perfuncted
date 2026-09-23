@@ -239,6 +239,49 @@ func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
 	}
 }
 
+func TestApplicationStopPreservesCancellationCause(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	app, err := session.Launch(context.Background(), Command{Name: "sleep", Args: []string{"10"}})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Kill()
+		_ = session.Close()
+	})
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cause := errors.New("caller stopped application shutdown")
+	cancel(cause)
+	err = app.Stop(ctx)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+		t.Fatalf("Stop error = %v, want context cancellation and caller cause", err)
+	}
+}
+
+func TestSessionCloseUsesShortTimeoutPolicyForProcessStop(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.config.Timeouts = TimeoutPolicy{Short: 25 * time.Millisecond}
+	app, err := session.Launch(
+		context.Background(),
+		Command{Name: "sh", Args: []string{"-c", `trap '' TERM; while :; do :; done`}},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	started := time.Now()
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("Close elapsed = %s, want bounded by short policy", elapsed)
+	}
+	if app.proc.groupAlive() {
+		t.Fatal("application process group survived policy-bounded shutdown")
+	}
+}
+
 func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
 	session := NewSessionForTesting(nil, nil, nil, nil, nil)
 	session.config.ApplicationGracePeriod = 200 * time.Millisecond

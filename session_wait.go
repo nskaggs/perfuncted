@@ -262,6 +262,8 @@ func WindowClosed(target *Window) Condition {
 					errors.Join(ErrUnsupported, window.ErrNotSupported),
 				)
 			}
+			ctx, cancel := session.Windows.backendContext(ctx, session.Timeouts().Medium)
+			defer cancel()
 			_, err := backend.InfoByID(
 				ctx,
 				target.id.native,

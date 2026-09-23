@@ -39,6 +39,8 @@ func (s *ScreenBundle) grabHash(
 	if err := s.checkAvailable("hash"); err != nil {
 		return 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	hash, err := find.GrabHash(ctx, s.backend, rect, nil)
 	return hash, s.operationError("hash", err)
 }
@@ -51,6 +53,8 @@ func (s *ScreenBundle) grab(
 	if err := s.checkAvailable("capture"); err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	img, err := s.backend.Grab(ctx, rect)
 	return img, s.operationError("capture", err)
 }
@@ -138,6 +142,8 @@ func (s *ScreenBundle) GetPixel(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return color.RGBA{}, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	if x == math.MaxInt || y == math.MaxInt {
 		return color.RGBA{}, s.operationError("pixel", fmt.Errorf("screen: pixel coordinate overflows one-pixel capture: (%d,%d)", x, y))
 	}
@@ -228,6 +234,8 @@ func (s *ScreenBundle) WaitForFn(
 	if err := s.checkAvailable("wait"); err != nil {
 		return nil, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	img, err := find.WaitForFn(ctx, s.backend, rect, fn, poll)
 	return img, s.operationError("wait", err)
 }
@@ -250,6 +258,8 @@ func (s *ScreenBundle) WaitForSettle(
 	if err := s.checkAvailable("wait-stable"); err != nil {
 		return 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	before, err := s.grabHash(ctx, rect)
 	if err != nil {
 		return 0, err
@@ -300,6 +310,8 @@ func (s *ScreenBundle) WaitForNoChange(
 	if err := s.checkAvailable("wait-stable"); err != nil {
 		return 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	hash, err := find.WaitForNoChange(
 		ctx,
 		s.backend,
@@ -322,6 +334,8 @@ func (s *ScreenBundle) WaitForNoChangeFrom(
 	if err := s.checkAvailable("wait-stable"); err != nil {
 		return 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	hash, err := find.WaitForNoChangeFrom(
 		ctx,
 		s.backend,
@@ -344,6 +358,8 @@ func (s *ScreenBundle) FindColor(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return image.Point{}, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	point, err := find.FindColor(ctx, s.backend, rect, target, tolerance)
 	return point, s.operationError("pixel", err)
 }
@@ -358,6 +374,8 @@ func (s *ScreenBundle) WaitForChange(
 	if err := s.checkAvailable("wait-change"); err != nil {
 		return 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	hash, err := find.WaitForChange(
 		ctx,
 		s.backend,
@@ -379,6 +397,8 @@ func (s *ScreenBundle) WaitFor(
 	if err := s.checkAvailable("wait"); err != nil {
 		return 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	hash, err := find.WaitFor(ctx, s.backend, rect, want, poll, nil)
 	return hash, s.operationError("wait", err)
 }
@@ -393,6 +413,8 @@ func (s *ScreenBundle) ScanFor(
 	if err := s.checkAvailable("wait"); err != nil {
 		return find.Result{}, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	result, err := find.ScanFor(ctx, s.backend, rects, wants, poll, nil)
 	return result, s.operationError("wait", err)
 }
@@ -402,6 +424,8 @@ func (s *ScreenBundle) Resolution(ctx context.Context) (int, int, error) {
 	if err := s.checkAvailable("resolution"); err != nil {
 		return 0, 0, err
 	}
+	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
 	width, height, err := screen.ResolutionWithContext(ctx, s.backend)
 	return width, height, s.operationError("resolution", err)
 }

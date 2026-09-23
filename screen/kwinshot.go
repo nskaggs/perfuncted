@@ -33,9 +33,10 @@ const (
 	kwinShotPath  = "/org/kde/KWin/ScreenShot2"
 	kwinShotIface = "org.kde.KWin.ScreenShot2"
 
-	// kwinPipeDrainTimeout bounds the pixel-pipe drain when the caller
-	// supplied no deadline. Full-screen captures drain from the kernel pipe
-	// buffer in milliseconds once KWin closes its end.
+	// kwinPipeDrainTimeout is the direct-backend safety ceiling for draining a
+	// KWin pixel pipe. Session-bound captures carry the effective policy
+	// deadline, and the drain uses the earlier of that deadline and this
+	// protocol ceiling.
 	kwinPipeDrainTimeout = 30 * time.Second
 )
 

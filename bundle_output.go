@@ -21,6 +21,8 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	if err := b.checkAvailable("list", !util.IsNil(b.backend)); err != nil {
 		return nil, err
 	}
+	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
+	defer cancel()
 	b.traceAction("output", "list")
 	items, err := b.backend.List(ctx)
 	return items, b.operationError("list", err)

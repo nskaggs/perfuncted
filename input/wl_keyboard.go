@@ -113,6 +113,8 @@ func (k *wlKeyboard) warmupContext(ctx context.Context) error {
 	if err := k.sendKey(ctx, kcShift, 1); err != nil {
 		return err
 	}
+	// The compositor protocol requires a short modifier settling interval;
+	// ctx remains authoritative for cancellation.
 	timer := time.NewTimer(2 * time.Millisecond)
 	defer timer.Stop()
 	select {
@@ -169,6 +171,7 @@ func (k *wlKeyboard) clearTempModsBestEffort(ctx context.Context, modBitmask uin
 		return
 	}
 	k.mods &^= modBitmask
+	// Releasing modifiers is best-effort cleanup after cancellation.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 	defer cancel()
 	_ = k.sendModifiers(cleanupCtx)
@@ -287,6 +290,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				if err := k.tap(ctx, slot); err != nil {
 					return err
 				}
+				// Key sequence pacing is required by the virtual-key protocol.
 				if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
 					return err
 				}

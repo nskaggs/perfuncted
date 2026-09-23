@@ -57,6 +57,8 @@ func validateScrollClicks(clicks int) error {
 
 const maxScrollClicks = (1<<31 - 1) / (15 * 256)
 
+// mouseClickHoldDuration is the protocol-required physical button hold
+// interval, not an operation deadline; the caller context can cancel it.
 const mouseClickHoldDuration = 40 * time.Millisecond
 
 func validateMouseButton(backend string, button int) error {

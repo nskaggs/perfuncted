@@ -21,6 +21,8 @@ func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	if err := b.checkAvailable("get", !util.IsNil(b.backend)); err != nil {
 		return "", err
 	}
+	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
+	defer cancel()
 	b.traceAction("clipboard", "get")
 	text, err := b.backend.Get(ctx)
 	return text, b.operationError("get", err)
@@ -34,6 +36,8 @@ func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 	if err := b.checkAvailable("set", !util.IsNil(b.backend)); err != nil {
 		return err
 	}
+	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
+	defer cancel()
 	b.traceAction("clipboard", "set")
 	return b.operationError("set", b.backend.Set(ctx, text))
 }

@@ -114,10 +114,19 @@ func (s *Session) captureFailureArtifacts(ctx context.Context, directory string,
 	return errors.Join(collector.errors...)
 }
 
+func (s *Session) diagnosticContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, s.Timeouts().Diagnostic)
+}
+
 func (s *Session) captureScreenshot(ctx context.Context, directory string) error {
 	if s.Screen == nil || util.IsNil(s.Screen.backend) {
 		return errors.New("screen capability is not configured")
 	}
+	ctx, cancel := s.diagnosticContext(ctx)
+	defer cancel()
 	img, err := s.Screen.backend.Grab(ctx, image.Rectangle{})
 	if err != nil {
 		return err
@@ -132,6 +141,8 @@ func (s *Session) captureWindows(ctx context.Context, directory string) error {
 	if s.Windows == nil || util.IsNil(s.Windows.backend) {
 		return errors.New("window capability is not configured")
 	}
+	ctx, cancel := s.diagnosticContext(ctx)
+	defer cancel()
 	windows, err := s.Windows.backend.List(ctx)
 	if err != nil {
 		return err
@@ -143,6 +154,8 @@ func (s *Session) captureActiveWindow(ctx context.Context, directory string) err
 	if s.Windows == nil || util.IsNil(s.Windows.backend) {
 		return errors.New("window capability is not configured")
 	}
+	ctx, cancel := s.diagnosticContext(ctx)
+	defer cancel()
 	title, err := s.Windows.backend.ActiveTitle(ctx)
 	if err != nil {
 		return err
@@ -156,6 +169,8 @@ func (s *Session) captureOutputs(ctx context.Context, directory string) error {
 	if s.Outputs == nil || util.IsNil(s.Outputs.backend) {
 		return errors.New("output capability is not configured")
 	}
+	ctx, cancel := s.diagnosticContext(ctx)
+	defer cancel()
 	outputs, err := s.Outputs.backend.List(ctx)
 	if err != nil {
 		return err

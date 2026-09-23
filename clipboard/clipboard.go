@@ -205,6 +205,9 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 	}
 	_ = input.Close()
 
+	// These are protocol phase ceilings, not a second Session policy. The
+	// bundle supplies the effective policy deadline and this phase is clamped
+	// to the remaining caller/session budget below.
 	readyTimeout := time.Second
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining < readyTimeout {
@@ -226,6 +229,9 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		return fmt.Errorf("clipboard set: owner readiness: %w", readyErr)
 	}
 
+	// The owner must remain alive long enough for readers to consume the
+	// selection, but its lifetime is bounded independently from the caller's
+	// readiness operation. A session deadline still caps this duration.
 	ownerTimeout := 5 * time.Second
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining < ownerTimeout {
@@ -297,6 +303,8 @@ func stopWaylandOwner(cmd *exec.Cmd, done <-chan struct{}) {
 		return
 	}
 	_ = cmd.Process.Kill()
+	// Reaping is best-effort cleanup after the caller has already requested a
+	// stop; this short grace is deliberately independent of operation policy.
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {
@@ -309,6 +317,8 @@ func (c *extCmdClipboard) waitWaylandContent(ctx context.Context, want string) e
 	if len(c.getCmd) == 0 {
 		return nil
 	}
+	// Clipboard ownership has no readiness event in this external-tool
+	// protocol, so this is protocol pacing rather than an operation deadline.
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {

@@ -33,6 +33,28 @@ type timeoutReportingScreen struct {
 	timeout time.Duration
 }
 
+type contextReportingScreen struct {
+	capabilityScreen
+	contexts chan context.Context
+}
+
+func (s *contextReportingScreen) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	s.contexts <- ctx
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+type contextReportingAccessibility struct {
+	*bundleAccessibilityFake
+	contexts chan context.Context
+}
+
+func (b *contextReportingAccessibility) Applications(ctx context.Context) ([]accessibility.Application, error) {
+	b.contexts <- ctx
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (*operationReportingScreen) SupportedOperations() []string {
 	return []string{"hash"}
 }
@@ -185,6 +207,77 @@ func TestOpenCapabilityScreenUsesEffectiveTimeoutPolicy(t *testing.T) {
 	}
 	if backend.timeout != 17*time.Second {
 		t.Fatalf("capture timeout = %s, want 17s", backend.timeout)
+	}
+}
+
+func TestOpenCapabilityPassesEffectiveDeadlineToBackendSetup(t *testing.T) {
+	preserveOpeners(t)
+	backend := &capabilityScreen{}
+	observed := make(chan time.Time, 1)
+	openScreen = func(ctx context.Context, _ env.Runtime) (screen.Screenshotter, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("capability opener context has no deadline")
+		}
+		observed <- deadline
+		return backend, nil
+	}
+	s := &Session{
+		config: SessionConfig{Timeouts: TimeoutPolicy{Startup: 40 * time.Millisecond}},
+		env:    env.FromEnviron(nil),
+		Screen: &ScreenBundle{bundleBase: bundleBase{session: nil, capability: CapabilityScreen}},
+	}
+	s.Screen.session = s
+	if _, err := s.openCapability(CapabilityScreen); err != nil {
+		t.Fatalf("openCapability screen: %v", err)
+	}
+	deadline := <-observed
+	remaining := time.Until(deadline)
+	if remaining <= 0 || remaining > 40*time.Millisecond {
+		t.Fatalf("opener deadline remaining = %s, want <= 40ms and positive", remaining)
+	}
+}
+
+func TestScreenCaptureUsesEffectiveTimeoutAndReturnsDeadlineCause(t *testing.T) {
+	backend := &contextReportingScreen{contexts: make(chan context.Context, 1)}
+	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session.config.Timeouts = TimeoutPolicy{Medium: 20 * time.Millisecond}
+	t.Cleanup(func() { _ = session.Close() })
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+		result <- err
+	}()
+	ctx := <-backend.contexts
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("capture context has no effective deadline")
+	}
+	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("capture error = %v, want context deadline", err)
+	}
+}
+
+func TestAccessibilityUsesEffectiveLongTimeout(t *testing.T) {
+	backend := &contextReportingAccessibility{
+		bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1},
+		contexts:                make(chan context.Context, 1),
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session.config.Timeouts = TimeoutPolicy{Long: 20 * time.Millisecond}
+	t.Cleanup(func() { _ = session.Close() })
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := session.Accessibility.Applications(context.Background())
+		result <- err
+	}()
+	ctx := <-backend.contexts
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("accessibility context has no effective deadline")
+	}
+	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("accessibility error = %v, want context deadline", err)
 	}
 }
 

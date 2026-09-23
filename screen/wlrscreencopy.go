@@ -23,7 +23,8 @@ var _ Screenshotter = (*WlrScreencopyBackend)(nil)
 func (b *WlrScreencopyBackend) CanonicalHashing() bool { return true }
 
 var (
-	// default TTL for a backend's cached context.
+	// Cache retention is an idle-resource policy, not a capture operation
+	// deadline. Active captures remain governed by their caller context.
 	defaultWlrCacheTTL = 5 * time.Minute
 )
 
@@ -307,6 +308,8 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		var cleanupCancel context.CancelFunc
 		cleanupContext := func() context.Context {
 			if cleanupCtx == nil {
+				// Frame/pool destruction is best-effort cleanup after the operation
+				// context ends; it must not prolong the caller's capture deadline.
 				cleanupCtx, cleanupCancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
 			}
 			return cleanupCtx

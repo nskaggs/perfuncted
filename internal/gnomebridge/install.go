@@ -98,11 +98,16 @@ func ConnectRuntime(ctx context.Context, rt env.Runtime) (*Client, error) {
 }
 
 func connectRuntime(
-	ctx context.Context,
+	ctx context.Context, //nolint:contextcheck // direct callers receive a finite fallback when no deadline is supplied.
 	rt env.Runtime,
 	connect func(context.Context, string) (*Client, error),
 	install func(context.Context, env.Runtime) (string, error),
 ) (*Client, error) {
+	// Session capability setup supplies its effective deadline. Keep this
+	// direct-runtime fallback finite for callers that omit one.
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)

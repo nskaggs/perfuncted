@@ -9,6 +9,9 @@ import (
 	"unicode"
 )
 
+// windowCandidateReadTimeout bounds one small identity read while correlating
+// a compositor window. The resolver's caller/session context remains the
+// outer deadline for the complete correlation operation.
 const windowCandidateReadTimeout = 750 * time.Millisecond
 
 type windowCandidate struct {

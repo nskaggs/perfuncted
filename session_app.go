@@ -209,7 +209,7 @@ func (a *Application) Stop(ctx context.Context) error {
 		return fmt.Errorf("perfuncted: stop application: %w: nil context", ErrInvalidArgument)
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return contextErrorWithCause(ctx)
 	}
 	if err := a.proc.signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("perfuncted: stop application %d: %w", a.proc.pid, err)
