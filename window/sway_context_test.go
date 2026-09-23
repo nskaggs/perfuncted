@@ -389,14 +389,15 @@ func TestSwayActivateByIDPropagatesCommandFailureWithoutTreePreflight(t *testing
 	}
 }
 
-func TestSwayQueryCancelableContextDoesNotReusePersistentConn(t *testing.T) {
+func TestSwayQueryCancelableContextReusesPersistentConn(t *testing.T) {
 	origDial := swayDialContext
 	defer func() { swayDialContext = origDial }()
 
-	persistent := &stubSwayConn{}
-	transient := newSuccessSwayConn([]byte(`{"ok":true}`))
+	persistent := newSuccessSwayConn([]byte(`{"ok":true}`))
+	dialCalls := 0
 	swayDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		return transient, nil
+		dialCalls++
+		return nil, errors.New("unexpected transient dial")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -410,14 +411,14 @@ func TestSwayQueryCancelableContextDoesNotReusePersistentConn(t *testing.T) {
 	if string(body) != `{"ok":true}` {
 		t.Fatalf("query body = %s, want JSON body", body)
 	}
-	if _, _, persistentWrites, _ := persistent.snapshot(); persistentWrites != 0 {
-		t.Fatalf("persistent conn writeCalls = %d, want 0", persistentWrites)
+	if _, _, persistentWrites, persistentClosed := persistent.snapshot(); persistentWrites == 0 || persistentClosed {
+		t.Fatalf("persistent conn writeCalls=%d closed=%v, want write and reuse", persistentWrites, persistentClosed)
 	}
-	if _, _, transientWrites, transientClosed := transient.snapshot(); transientWrites == 0 || !transientClosed {
-		t.Fatalf("transient conn writeCalls=%d closed=%v, want write and close", transientWrites, transientClosed)
+	if dialCalls != 0 {
+		t.Fatalf("transient dial calls = %d, want 0", dialCalls)
 	}
 	if m.conn != persistent {
-		t.Fatal("query replaced persistent conn for cancelable context")
+		t.Fatal("query replaced persistent conn")
 	}
 }
 

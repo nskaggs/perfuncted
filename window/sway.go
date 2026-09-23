@@ -59,11 +59,11 @@ const defaultReflowTimeout = 500 * time.Millisecond
 type SwayManager struct {
 	sock string
 	// mu protects conn.
-	mu   sync.Mutex
-	conn net.Conn
-
-	transientMu    sync.Mutex
-	transientConns []net.Conn
+	mu        sync.Mutex
+	conn      net.Conn
+	closeMu   sync.Mutex
+	closeCh   chan struct{}
+	closeOnce sync.Once
 
 	eventOnce      sync.Once
 	eventMu        sync.Mutex
@@ -219,10 +219,7 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 	if m.closed.Load() {
 		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
-	if ctx.Done() != nil {
-		return m.queryOnceContext(ctx, msgType, payload)
-	}
-
+	closed := m.closedContext()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed.Load() {
@@ -240,7 +237,11 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 		m.conn = conn
 	}
 
-	body, err := swayQueryConn(ctx, m.conn, msgType, payload)
+	// Keep the manager's persistent connection for policy-bearing contexts as
+	// well as background contexts. The context-aware query pumps cancellation
+	// through the connection deadline, so every operation keeps its caller
+	// deadline without turning each request into a new socket dial.
+	body, err := swayQueryConnWithManagerClose(ctx, closed, m.conn, msgType, payload)
 	if err != nil {
 		_ = m.conn.Close()
 		m.conn = nil
@@ -374,7 +375,7 @@ func (m *SwayManager) Close() error {
 	if m == nil {
 		return nil
 	}
-	m.closed.Store(true)
+	m.signalClosed()
 	m.mu.Lock()
 	var queryErr error
 	if m.conn != nil {
@@ -382,13 +383,6 @@ func (m *SwayManager) Close() error {
 		m.conn = nil
 	}
 	m.mu.Unlock()
-
-	m.transientMu.Lock()
-	for _, conn := range m.transientConns {
-		_ = conn.Close()
-	}
-	m.transientConns = nil
-	m.transientMu.Unlock()
 
 	m.eventMu.Lock()
 	m.eventCloseOnce.Do(func() {
@@ -408,50 +402,25 @@ func (m *SwayManager) Close() error {
 	return queryErr
 }
 
-func (m *SwayManager) queryOnceContext(
-	ctx context.Context,
-	msgType uint32,
-	payload string,
-) ([]byte, error) {
-	ctx = contextutil.Default(ctx)
-	conn, err := swayDialContext(ctx, "unix", m.sock)
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		return nil, err
+func (m *SwayManager) closedContext() <-chan struct{} {
+	m.closeMu.Lock()
+	defer m.closeMu.Unlock()
+	if m.closeCh == nil {
+		m.closeCh = make(chan struct{})
 	}
-	if !m.trackTransientConn(conn) {
-		_ = conn.Close()
-		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
-	}
-	defer func() {
-		m.untrackTransientConn(conn)
-		_ = conn.Close()
-	}()
-
-	return swayQueryConnContext(ctx, conn, msgType, payload)
+	return m.closeCh
 }
 
-func (m *SwayManager) trackTransientConn(conn net.Conn) bool {
-	m.transientMu.Lock()
-	defer m.transientMu.Unlock()
-	if m.closed.Load() {
-		return false
-	}
-	m.transientConns = append(m.transientConns, conn)
-	return true
-}
-
-func (m *SwayManager) untrackTransientConn(conn net.Conn) {
-	m.transientMu.Lock()
-	defer m.transientMu.Unlock()
-	for i, tracked := range m.transientConns {
-		if tracked == conn {
-			m.transientConns = append(m.transientConns[:i], m.transientConns[i+1:]...)
-			return
+func (m *SwayManager) signalClosed() {
+	m.closeOnce.Do(func() {
+		m.closed.Store(true)
+		m.closeMu.Lock()
+		if m.closeCh == nil {
+			m.closeCh = make(chan struct{})
 		}
-	}
+		close(m.closeCh)
+		m.closeMu.Unlock()
+	})
 }
 
 // Sync verifies that the Sway IPC connection is usable.
@@ -743,5 +712,35 @@ func swayQueryConnContext(ctx context.Context, conn net.Conn, msgType uint32, pa
 		return nil, ctx.Err()
 	case r := <-ch:
 		return r.data, r.err
+	}
+}
+
+func swayQueryConnWithManagerClose(
+	ctx context.Context,
+	managerClosed <-chan struct{},
+	conn net.Conn,
+	msgType uint32,
+	payload string,
+) ([]byte, error) {
+	type queryResult struct {
+		data []byte
+		err  error
+	}
+	done := make(chan queryResult, 1)
+	go func() {
+		data, err := swayQueryConn(ctx, conn, msgType, payload)
+		done <- queryResult{data: data, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		_ = conn.SetDeadline(time.Now())
+		<-done
+		return nil, ctx.Err()
+	case <-managerClosed:
+		_ = conn.SetDeadline(time.Now())
+		<-done
+		return nil, net.ErrClosed
+	case result := <-done:
+		return result.data, result.err
 	}
 }

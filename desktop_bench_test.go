@@ -14,18 +14,22 @@ import (
 
 const desktopBenchmarkTimeout = 2 * time.Minute
 
-func openDesktopBenchmarkSession(b *testing.B, accessibilityOptional bool) *Session {
-	b.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-	defer cancel()
+func desktopBenchmarkOptions(logDir string, accessibilityOptional bool) []Option {
 	options := []Option{
-		WithHeadless(SessionConfig{Resolution: image.Pt(1024, 768)}),
+		WithHeadless(SessionConfig{Resolution: image.Pt(1024, 768), LogDir: logDir}),
 		Require(CapabilityScreen, CapabilityInput, CapabilityWindows),
 	}
 	if accessibilityOptional {
 		options = append(options, Optional(CapabilityAccessibility))
 	}
-	session, err := Open(ctx, options...)
+	return options
+}
+
+func openDesktopBenchmarkSession(b *testing.B, logDir string, accessibilityOptional bool) *Session {
+	b.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
+	defer cancel()
+	session, err := Open(ctx, desktopBenchmarkOptions(logDir, accessibilityOptional)...)
 	if err != nil {
 		b.Fatalf("open real headless benchmark session: %v", err)
 	}
@@ -41,18 +45,18 @@ func openDesktopBenchmarkSession(b *testing.B, accessibilityOptional bool) *Sess
 // BenchmarkDesktopOpenClose measures managed desktop startup and shutdown,
 // including the real D-Bus and compositor process boundary.
 func BenchmarkDesktopOpenClose(b *testing.B) {
-	probe := openDesktopBenchmarkSession(b, false)
+	// Use a private root so startup measurements include real log-directory
+	// creation without charging each iteration for unrelated host history in
+	// the process-wide retention directory.
+	logDir := b.TempDir()
+	probe := openDesktopBenchmarkSession(b, logDir, false)
 	if err := probe.Close(); err != nil {
 		b.Fatalf("close benchmark label probe: %v", err)
 	}
 	b.ResetTimer()
 	for b.Loop() {
 		ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-		session, err := Open(
-			ctx,
-			WithHeadless(SessionConfig{Resolution: image.Pt(1024, 768)}),
-			Require(CapabilityScreen, CapabilityInput, CapabilityWindows),
-		)
+		session, err := Open(ctx, desktopBenchmarkOptions(logDir, false)...)
 		cancel()
 		if err != nil {
 			b.Fatalf("open real headless benchmark session: %v", err)
@@ -65,7 +69,7 @@ func BenchmarkDesktopOpenClose(b *testing.B) {
 
 // BenchmarkDesktopRegionHash measures one real compositor-backed region hash.
 func BenchmarkDesktopRegionHash(b *testing.B) {
-	session := openDesktopBenchmarkSession(b, false)
+	session := openDesktopBenchmarkSession(b, b.TempDir(), false)
 	ctx := context.Background()
 	region := image.Rect(0, 0, 256, 256)
 	for b.Loop() {
@@ -113,7 +117,7 @@ func launchDesktopBenchmarkWindow(b *testing.B, session *Session) (*Application,
 
 // BenchmarkDesktopInputClickType measures real pointer and keyboard actions.
 func BenchmarkDesktopInputClickType(b *testing.B) {
-	session := openDesktopBenchmarkSession(b, false)
+	session := openDesktopBenchmarkSession(b, b.TempDir(), false)
 	_, window := launchDesktopBenchmarkWindow(b, session)
 	ctx := context.Background()
 	if err := window.Activate(ctx); err != nil {
@@ -132,7 +136,7 @@ func BenchmarkDesktopInputClickType(b *testing.B) {
 // BenchmarkDesktopWindowListActivate measures window synchronization and
 // activation against a real application window.
 func BenchmarkDesktopWindowListActivate(b *testing.B) {
-	session := openDesktopBenchmarkSession(b, false)
+	session := openDesktopBenchmarkSession(b, b.TempDir(), false)
 	_, window := launchDesktopBenchmarkWindow(b, session)
 	ctx := context.Background()
 	for b.Loop() {
@@ -151,7 +155,7 @@ func BenchmarkDesktopWindowListActivate(b *testing.B) {
 
 func openAccessibilityBenchmarkRoot(b *testing.B) (*Session, accessibility.NodeID) {
 	b.Helper()
-	session := openDesktopBenchmarkSession(b, true)
+	session := openDesktopBenchmarkSession(b, b.TempDir(), true)
 	status := session.Capability(CapabilityAccessibility)
 	if !status.Available {
 		b.Skipf("accessibility capability unavailable: %v", status.Failure)
