@@ -28,6 +28,16 @@ type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
 }
 
+// CanonicalHashScreenshotter may be implemented by a backend whose specialized
+// hash methods return exactly the same value as PixelHash on the corresponding
+// Grab image. The marker is required because a backend-local checksum is not
+// interchangeable with the public pixel hash merely because both are 32-bit.
+type CanonicalHashScreenshotter interface {
+	GrabFullHash(ctx context.Context) (uint32, error)
+	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
+	CanonicalHashing() bool
+}
+
 // Hasher returns a fresh hash.Hash32 for each call. Swap out for stronger
 // hashing if CRC32 collisions become a practical concern.
 type Hasher func() hash.Hash32
@@ -132,6 +142,14 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 	ctx = contextutil.Default(ctx)
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
+	}
+	if newHash == nil {
+		if fast, ok := sc.(CanonicalHashScreenshotter); ok && fast.CanonicalHashing() {
+			if rect.Empty() {
+				return fast.GrabFullHash(ctx)
+			}
+			return fast.GrabRegionHash(ctx, rect)
+		}
 	}
 	img, err := sc.Grab(ctx, rect)
 	if err != nil {

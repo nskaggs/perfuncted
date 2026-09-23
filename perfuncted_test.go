@@ -382,6 +382,8 @@ type legacyHashScreenshotter struct {
 	regionHashCalls int
 }
 
+func (s *legacyHashScreenshotter) CanonicalHashing() bool { return false }
+
 func (s *legacyHashScreenshotter) GrabFullHash(context.Context) (uint32, error) {
 	s.fullHashCalls++
 	return 0xdeadbeef, nil

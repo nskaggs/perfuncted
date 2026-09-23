@@ -53,6 +53,10 @@ type GnomeShellScreenshotBackend struct {
 	obj  dbus.BusObject
 }
 
+// CanonicalHashing reports that GNOME Shell hashes are computed from Grab
+// pixels using the public find.PixelHash representation.
+func (b *GnomeShellScreenshotBackend) CanonicalHashing() bool { return true }
+
 // NewGnomeShellScreenshotBackendForBus returns a backend for the session bus at
 // addr when GNOME Shell's screenshot service is reachable and authorized.
 func NewGnomeShellScreenshotBackendForBus(addr string) (*GnomeShellScreenshotBackend, error) {

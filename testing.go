@@ -107,6 +107,7 @@ func NewSessionForTesting(
 		if available {
 			status.Backend = fmt.Sprintf("%T", backend)
 			status.Operations = supportedOperations(capability, backend)
+			status.Diagnostics = backendDiagnostics(backend)
 		}
 		session.capabilities[capability] = status
 	}

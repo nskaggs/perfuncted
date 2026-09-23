@@ -49,6 +49,9 @@ type KWinShotBackend struct {
 	transport kwinShotTransport
 }
 
+// CanonicalHashing reports that KWin hashes are computed from Grab pixels.
+func (b *KWinShotBackend) CanonicalHashing() bool { return true }
+
 type kwinDBusTransport struct {
 	conn *dbus.Conn
 	kwin dbus.BusObject

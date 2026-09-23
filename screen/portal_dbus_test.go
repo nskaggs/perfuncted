@@ -6,7 +6,10 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -65,6 +68,45 @@ func TestPortalSignalMatchesReturnedHandle(t *testing.T) {
 	}
 	if portalSignalMatches(sig, expected) {
 		t.Fatal("portalSignalMatches unexpectedly matched the wrong expected path")
+	}
+}
+
+func TestPortalCaptureTimeoutHonorsPolicyAndProtocolCeiling(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy time.Duration
+		want   time.Duration
+	}{
+		{name: "default protocol ceiling", policy: 0, want: portalProtocolTimeout},
+		{name: "shorter policy", policy: 2 * time.Second, want: 2 * time.Second},
+		{name: "longer policy capped", policy: 2 * time.Minute, want: portalProtocolTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := portalCaptureTimeout(tt.policy); got != tt.want {
+				t.Fatalf("portalCaptureTimeout(%s) = %s, want %s", tt.policy, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPortalDiagnosticsDeclareCostAndWaitLimitation(t *testing.T) {
+	b := &PortalDBusBackend{}
+	diagnostics := b.Diagnostics()
+	joined := strings.Join(diagnostics, "\n")
+	for _, want := range []string{
+		"full-screen PNG",
+		"serialized",
+		"high-frequency waits",
+		"capture timeout: policy",
+		"protocol ceiling",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("diagnostics %q missing %q", joined, want)
+		}
+	}
+	if slices.Contains(b.SupportedOperations(), "wait") {
+		t.Fatalf("portal operations = %v, unexpectedly advertises wait", b.SupportedOperations())
 	}
 }
 

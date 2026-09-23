@@ -27,6 +27,10 @@ type GnomeNativeScreenBackend struct {
 	bridge *gnomebridge.Client
 }
 
+// CanonicalHashing reports that GNOME native hashes are computed from Grab
+// pixels using the public find.PixelHash representation.
+func (b *GnomeNativeScreenBackend) CanonicalHashing() bool { return true }
+
 // NewGnomeNativeScreenBackendForRuntime connects to the versioned bridge.
 func NewGnomeNativeScreenBackendForRuntime(rt env.Runtime) (*GnomeNativeScreenBackend, error) {
 	return NewGnomeNativeScreenBackendForRuntimeContext(context.Background(), rt)

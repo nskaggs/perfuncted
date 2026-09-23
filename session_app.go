@@ -35,7 +35,10 @@ type Command struct {
 	Args []string
 	// Dir is the child working directory.
 	Dir string
-	// Env supplies child environment entries in addition to session routing values.
+	// Env supplies the complete child environment base when non-nil. The
+	// session environment is used when Env is nil, and authoritative session
+	// routing keys are overlaid in both cases. An empty, non-nil slice therefore
+	// intentionally launches with only the routing keys present in the session.
 	Env []string
 	// Stdin supplies standard input to the child.
 	Stdin io.Reader

@@ -28,8 +28,21 @@ type operationReportingScreen struct {
 	capabilityScreen
 }
 
+type timeoutReportingScreen struct {
+	capabilityScreen
+	timeout time.Duration
+}
+
 func (*operationReportingScreen) SupportedOperations() []string {
 	return []string{"hash"}
+}
+
+func (*operationReportingScreen) Diagnostics() []string {
+	return []string{"capture cost: test backend", "connection health: healthy"}
+}
+
+func (s *timeoutReportingScreen) SetCaptureTimeout(timeout time.Duration) {
+	s.timeout = timeout
 }
 
 func (s *capabilityScreen) Grab(
@@ -152,6 +165,26 @@ func TestOpenCapabilityInputUsesManagedResolution(t *testing.T) {
 	}
 	if gotX != 1234 || gotY != 567 {
 		t.Fatalf("input dimensions = %dx%d, want 1234x567", gotX, gotY)
+	}
+}
+
+func TestOpenCapabilityScreenUsesEffectiveTimeoutPolicy(t *testing.T) {
+	preserveOpeners(t)
+	backend := &timeoutReportingScreen{}
+	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
+		return backend, nil
+	}
+	s := &Session{
+		config: SessionConfig{Timeouts: TimeoutPolicy{Medium: 17 * time.Second}},
+		env:    env.FromEnviron(nil),
+		Screen: &ScreenBundle{},
+	}
+
+	if _, err := s.openCapability(CapabilityScreen); err != nil {
+		t.Fatalf("openCapability screen: %v", err)
+	}
+	if backend.timeout != 17*time.Second {
+		t.Fatalf("capture timeout = %s, want 17s", backend.timeout)
 	}
 }
 
@@ -366,6 +399,9 @@ func TestSessionEnforcesBackendOperationReport(t *testing.T) {
 	status := session.Capability(CapabilityScreen)
 	if !status.Available || status.Supports("capture") {
 		t.Fatalf("screen status = %+v, want available without capture", status)
+	}
+	if len(status.Diagnostics) != 2 || status.Diagnostics[0] != "capture cost: test backend" {
+		t.Fatalf("screen diagnostics = %v, want backend diagnostics", status.Diagnostics)
 	}
 	_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
 	if !errors.Is(err, ErrUnsupported) {

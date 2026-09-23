@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -48,6 +49,13 @@ func (b *PortalDBusBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 // additional portal permissions.
 type PortalDBusBackend struct {
 	conn *dbus.Conn
+
+	captureOnce sync.Once
+	captureGate chan struct{}
+	healthMu    sync.RWMutex
+	lastFailure string
+	timeoutMu   sync.RWMutex
+	policyLimit time.Duration
 }
 
 const (
@@ -55,7 +63,80 @@ const (
 	portalPath  = "/org/freedesktop/portal/desktop"
 	portalSsIf  = "org.freedesktop.portal.Screenshot"
 	portalReqIf = "org.freedesktop.portal.Request"
+	// portalProtocolTimeout bounds a response request because the portal
+	// protocol provides no caller-configurable consent deadline.
+	portalProtocolTimeout = 30 * time.Second
 )
+
+// portalCaptureTimeout returns the smaller of the caller policy and the
+// portal protocol ceiling. A portal screenshot always captures and decodes a
+// full workspace image, so it is deliberately unsuitable for tight polling.
+func portalCaptureTimeout(policyLimit time.Duration) time.Duration {
+	if policyLimit <= 0 || policyLimit > portalProtocolTimeout {
+		return portalProtocolTimeout
+	}
+	return policyLimit
+}
+
+func (b *PortalDBusBackend) initCaptureGate() {
+	b.captureOnce.Do(func() {
+		b.captureGate = make(chan struct{}, 1)
+		b.policyLimit = portalProtocolTimeout
+	})
+}
+
+func (b *PortalDBusBackend) captureTimeoutPolicy() (policy, effective time.Duration) {
+	b.initCaptureGate()
+	b.timeoutMu.RLock()
+	policy = b.policyLimit
+	b.timeoutMu.RUnlock()
+	return policy, portalCaptureTimeout(policy)
+}
+
+// SetCaptureTimeout sets the session policy limit for portal requests. The
+// protocol ceiling remains authoritative even when the policy is larger.
+func (b *PortalDBusBackend) SetCaptureTimeout(policyLimit time.Duration) {
+	if b == nil {
+		return
+	}
+	b.initCaptureGate()
+	b.timeoutMu.Lock()
+	b.policyLimit = policyLimit
+	b.timeoutMu.Unlock()
+}
+
+// Diagnostics reports the bounded cost, serialization, timeout, and latest
+// failure state of this portal backend.
+func (b *PortalDBusBackend) Diagnostics() []string {
+	if b == nil {
+		return []string{"backend unavailable"}
+	}
+	policy, timeout := b.captureTimeoutPolicy()
+	b.healthMu.RLock()
+	lastFailure := b.lastFailure
+	b.healthMu.RUnlock()
+	diagnostics := []string{
+		"capture cost: every request captures and decodes a full-screen PNG",
+		"capture concurrency: requests are serialized per backend",
+		"high-frequency waits: unsupported because each read is a full-screen capture",
+		fmt.Sprintf("capture timeout: policy %s, protocol ceiling %s, effective %s", policy, portalProtocolTimeout, timeout),
+	}
+	if lastFailure != "" {
+		diagnostics = append(diagnostics, "last failure: "+lastFailure)
+	} else {
+		diagnostics = append(diagnostics, "connection health: no recorded failures")
+	}
+	return diagnostics
+}
+
+func (b *PortalDBusBackend) recordFailure(err error) {
+	if b == nil || err == nil {
+		return
+	}
+	b.healthMu.Lock()
+	b.lastFailure = err.Error()
+	b.healthMu.Unlock()
+}
 
 func fileURIPath(fileURI string) (string, error) {
 	const prefix = "file://"
@@ -147,18 +228,39 @@ func NewPortalDBusBackendForBusContext(ctx context.Context, addr string) (*Porta
 			conn.Close(),
 		)
 	}
-	return &PortalDBusBackend{conn: conn}, nil
+	backend := &PortalDBusBackend{conn: conn}
+	backend.initCaptureGate()
+	return backend, nil
 }
 
 // Grab takes a full workspace screenshot via the portal and returns the
 // requested rectangle. The portal may show a consent dialog on first use.
-func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) { //nolint:gocyclo
+func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img image.Image, err error) { //nolint:gocyclo
 	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("screen/portal: grab canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("screen/portal: grab canceled: %w", ctxErr)
 	}
 	if b == nil || b.conn == nil {
 		return nil, fmt.Errorf("screen/portal: backend not initialised")
+	}
+	b.initCaptureGate()
+	select {
+	case b.captureGate <- struct{}{}:
+		defer func() { <-b.captureGate }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
+	}
+	defer func() {
+		if err != nil {
+			b.recordFailure(err)
+		}
+	}()
+
+	requestPolicy, requestTimeout := b.captureTimeoutPolicy()
+	requestCtx, requestCancel := context.WithTimeout(ctx, requestTimeout)
+	defer requestCancel()
+	if requestErr := requestCtx.Err(); requestErr != nil {
+		return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", requestErr)
 	}
 	// Build a unique token; the portal embeds it in the request handle path.
 	token := fmt.Sprintf("pf%d", time.Now().UnixNano())
@@ -180,12 +282,12 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		dbus.WithMatchInterface(portalReqIf),
 		dbus.WithMatchMember("Response"),
 	}
-	if err := b.conn.AddMatchSignalContext(ctx, matchOptions...); err != nil {
+	if err := b.conn.AddMatchSignalContext(requestCtx, matchOptions...); err != nil {
 		return nil, fmt.Errorf("screen/portal: AddMatch: %w", err)
 	}
 	defer func(cleanupCtx context.Context) {
 		_ = b.conn.RemoveMatchSignalContext(cleanupCtx, matchOptions...)
-	}(context.WithoutCancel(ctx))
+	}(context.WithoutCancel(requestCtx))
 
 	obj := b.conn.Object(portalDest, portalPath)
 	opts := map[string]dbus.Variant{
@@ -193,21 +295,26 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 		"interactive":  dbus.MakeVariant(false),
 	}
 	var gotHandle dbus.ObjectPath
-	if err := obj.CallWithContext(ctx, portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
+	if err := obj.CallWithContext(requestCtx, portalSsIf+".Screenshot", 0, "", opts).Store(&gotHandle); err != nil {
 		return nil, fmt.Errorf("screen/portal: Screenshot: %w", err)
 	}
 	if gotHandle == "" {
 		gotHandle = expectedHandlePath
 	}
 
-	// Wait for the portal response. The compositor may block for user consent.
-	// Timeout is 30s to allow time for the user to respond to the consent dialog.
-	timer := time.NewTimer(30 * time.Second)
+	// Wait for the portal response. The compositor may block for user consent,
+	// but the effective session policy and protocol ceiling bound the wait.
+	timer := time.NewTimer(requestTimeout)
 	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
+		case <-requestCtx.Done():
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
+			}
+			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (policy/protocol %s/%s, effective %s)", requestPolicy, portalProtocolTimeout, requestTimeout)
 		case sig, ok := <-ch:
 			if !ok {
 				return nil, fmt.Errorf("screen/portal: D-Bus signal channel closed")
@@ -250,7 +357,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 			}
 			return cropImage(img, rect), nil
 		case <-timer.C:
-			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (30s)")
+			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (policy/protocol %s/%s, effective %s)", requestPolicy, portalProtocolTimeout, requestTimeout)
 		}
 	}
 }

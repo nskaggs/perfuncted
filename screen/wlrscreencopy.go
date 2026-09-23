@@ -18,6 +18,10 @@ import (
 
 var _ Screenshotter = (*WlrScreencopyBackend)(nil)
 
+// CanonicalHashing reports that this backend's specialized hashes use the
+// public find.PixelHash representation after format conversion.
+func (b *WlrScreencopyBackend) CanonicalHashing() bool { return true }
+
 var (
 	// default TTL for a backend's cached context.
 	defaultWlrCacheTTL = 5 * time.Minute
@@ -42,6 +46,8 @@ type WlrScreencopyBackend struct {
 	closed       atomic.Bool
 	activeMu     sync.Mutex
 	activeCancel context.CancelFunc
+	healthMu     sync.RWMutex
+	lastFailure  string
 	// last observed output dimensions and scale (1 if unknown)
 	scale  uint32
 	pW, pH int // physical dimensions from mode event
@@ -117,8 +123,17 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 	})
 }
 
-func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn func(*wl.Context, context.Context) error) error {
+func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn func(*wl.Context, context.Context) error) (err error) {
 	ctx = contextutil.Default(ctx)
+	if b != nil {
+		defer func() {
+			if err != nil {
+				b.healthMu.Lock()
+				b.lastFailure = err.Error()
+				b.healthMu.Unlock()
+			}
+		}()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -176,6 +191,33 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	}
 	b.lastUsed = time.Now()
 	return nil
+}
+
+// Diagnostics reports the serialization and connection health guarantees of
+// the screencopy backend without exposing backend internals to consumers.
+func (b *WlrScreencopyBackend) Diagnostics() []string {
+	if b == nil {
+		return []string{"backend unavailable"}
+	}
+	b.healthMu.RLock()
+	lastFailure := b.lastFailure
+	b.healthMu.RUnlock()
+	diagnostics := []string{
+		"capture concurrency: serialized by the backend connection lock",
+		"active cancellation: the current capture is canceled on Close",
+	}
+	switch {
+	case b.closed.Load():
+		diagnostics = append(diagnostics, "connection health: closed")
+	case lastFailure != "":
+		diagnostics = append(diagnostics, "connection health: reconnect required after last failure")
+	default:
+		diagnostics = append(diagnostics, "connection health: no recorded failures")
+	}
+	if lastFailure != "" {
+		diagnostics = append(diagnostics, "last failure: "+lastFailure)
+	}
+	return diagnostics
 }
 
 func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *wl.Context) error { //nolint:gocyclo

@@ -7,12 +7,12 @@ import "time"
 // SessionConfig; derived waits must use these values instead of introducing a
 // second host-specific timeout.
 type TimeoutPolicy struct {
-	Short      time.Duration
-	Medium     time.Duration
-	Long       time.Duration
-	Startup    time.Duration
-	Diagnostic time.Duration
-	Poll       time.Duration
+	Short      time.Duration `json:"short"`
+	Medium     time.Duration `json:"medium"`
+	Long       time.Duration `json:"long"`
+	Startup    time.Duration `json:"startup"`
+	Diagnostic time.Duration `json:"diagnostic"`
+	Poll       time.Duration `json:"poll"`
 }
 
 // DefaultTimeoutPolicy is the ordinary library policy. Parent contexts still

@@ -254,6 +254,7 @@ func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) er
 		if err == nil {
 			status.Backend = fmt.Sprintf("%T", backend)
 			status.Operations = slices.Clone(supportedOperations(capability, backend))
+			status.Diagnostics = backendDiagnostics(backend)
 		}
 		s.capabilities[capability] = status
 		if err != nil && status.Required {
@@ -275,6 +276,13 @@ func supportedOperations(capability Capability, backend any) []string {
 		return slices.Clone(reporter.SupportedOperations())
 	}
 	return capabilityOperations(capability)
+}
+
+func backendDiagnostics(backend any) []string {
+	if reporter, ok := backend.(interface{ Diagnostics() []string }); ok {
+		return slices.Clone(reporter.Diagnostics())
+	}
+	return nil
 }
 
 func (s *Session) bundleBase(capability Capability) bundleBase {
@@ -310,6 +318,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		backend, err := openScreen(ctx, s.env)
 		backend, err = validateBackend(capability, backend, err)
 		if err == nil {
+			configureScreenBackendTimeout(backend, s.Timeouts().Medium)
 			s.Screen.backend = backend
 		}
 		closeFailedBackend(backend, err)
@@ -360,6 +369,15 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		return backend, err
 	default:
 		return nil, fmt.Errorf("unknown capability %q", capability)
+	}
+}
+
+func configureScreenBackendTimeout(backend any, timeout time.Duration) {
+	if backend == nil {
+		return
+	}
+	if configurable, ok := backend.(interface{ SetCaptureTimeout(time.Duration) }); ok {
+		configurable.SetCaptureTimeout(timeout)
 	}
 }
 
@@ -473,6 +491,15 @@ func (s *Session) Capabilities() []CapabilityStatus {
 		statuses = append(statuses, s.Capability(capability))
 	}
 	return statuses
+}
+
+// Timeouts returns the effective timing policy used by this session. The
+// returned value is a copy and can be safely modified by the caller.
+func (s *Session) Timeouts() TimeoutPolicy {
+	if s == nil {
+		return DefaultTimeoutPolicy
+	}
+	return s.config.Timeouts.WithDefaults()
 }
 
 // Target returns the exact immutable desktop target.

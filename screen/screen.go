@@ -23,11 +23,13 @@ type Screenshotter interface {
 	// Grab captures rect, or the full screen when rect is empty.
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
 	// GrabFullHash returns a fast pixel hash of the entire screen.
-	// Backends should optimize this to avoid intermediate image allocations.
+	// Backends that implement CanonicalHashing may optimize this to avoid
+	// intermediate image allocations.
 	GrabFullHash(ctx context.Context) (uint32, error)
 	// GrabRegionHash returns a fast pixel hash for the specified rectangle.
-	// Implementations should avoid allocating an image or doing BGRA->RGBA
-	// decoding when possible (use raw buffer hashing).
+	// Implementations may avoid allocating an image or doing BGRA->RGBA decoding
+	// when possible, but find.GrabHash dispatches here only when the backend's
+	// CanonicalHashing marker proves pixel equivalence.
 	GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error)
 	// Close releases capture resources.
 	Close() error

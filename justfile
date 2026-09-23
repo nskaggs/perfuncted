@@ -110,7 +110,7 @@ quality: quality-fast lint deadcode vulncheck test-unit
 precommit: quality-fast
 
 # Run every local CI gate with headless display coverage.
-ci: test-race benchmark quality test-integration-headless-x11 test-integration-headless-wayland test-session test-integration-backends test-accessibility-certification test-release
+ci: test-race benchmark desktop-benchmark quality test-integration-headless-x11 test-integration-headless-wayland test-session test-integration-backends test-accessibility-certification test-release
 
 
 # ── build & install ────────────────────────────────────────────────────────────
@@ -139,6 +139,16 @@ test-race:
 # Run the benchmark lane used by the remote performance job.
 benchmark:
     CGO_ENABLED=0 go test ./find -run '^$' -bench 'Pixel(Hash|Found)' -benchmem -count=5
+
+# Run bounded real desktop benchmarks. The suite starts its own headless
+# Wayland session and records the backend/display/runtime labels in -v output.
+# The 50% comparison budget is intentionally broad for shared CI hosts.
+desktop-benchmark:
+    @set -euo pipefail; \
+      output=$(mktemp); \
+      trap 'rm -f "$output"' EXIT; \
+      CGO_ENABLED=0 go test -tags=desktopbench . -run '^$' -bench '^BenchmarkDesktop(OpenClose|RegionHash|InputClickType|WindowListActivate|AccessibilitySnapshot|AccessibilityAction)$' -benchmem -benchtime=3x -count=3 -v | tee "$output"; \
+      CGO_ENABLED=0 go run ./scripts/check_benchmark_regression -baseline benchmarks/desktop-baseline.txt -current "$output" -max-regression 0.50
 
 # Run unit tests (default alias)
 test: test-unit

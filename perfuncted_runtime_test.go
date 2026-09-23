@@ -97,6 +97,43 @@ func TestLaunchWithExplicitTargetDoesNotInheritHostEnvironment(t *testing.T) {
 	}
 }
 
+func TestLaunchEmptyEnvironmentUsesOnlyRoutingOverlay(t *testing.T) {
+	session, err := Open(
+		context.Background(),
+		WithTarget(EnvironmentTarget([]string{
+			"WAYLAND_DISPLAY=target-wayland",
+			"CUSTOM_SESSION=value",
+		})),
+	)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	var stdout strings.Builder
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: "sh",
+			Args: []string{
+				"-c",
+				`printf '%s|%s' "${CUSTOM_SESSION-unset}" "$WAYLAND_DISPLAY"`,
+			},
+			Env:    []string{},
+			Stdout: &stdout,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch with empty environment: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if got := stdout.String(); got != "unset|target-wayland" {
+		t.Fatalf("stdout = %q, want unset|target-wayland", got)
+	}
+}
+
 func TestRuntimeSocketPathResolvesRelativeWaylandDisplay(t *testing.T) {
 	rt := env.FromEnviron([]string{
 		"XDG_RUNTIME_DIR=/tmp/perfuncted-host",

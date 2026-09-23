@@ -26,17 +26,46 @@ jobs:
         with:
           go-version: '1.27.0'
           cache: true
+      - uses: ./.github/actions/install-desktop-dependencies
       - name: Run race detector
         env:
           CGO_ENABLED: "1"
         run: go test -race -short ./...
       - name: Run core benchmarks
         run: go test ./find -run '^$' -bench 'Pixel(Hash|Found)' -benchmem -count=5 | tee benchmarks.txt
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260615155930-9e4b9ddef5b6
+      - name: Record benchmark stack
+        run: |
+          {
+            go version
+            go env GOOS GOARCH GOTOOLCHAIN GOWORK
+            go list -m all
+          } | tee benchmark-environment.txt
+      - name: Run real desktop benchmarks
+        run: |
+          go test -tags=desktopbench . -run '^$' \
+            -bench '^BenchmarkDesktop(OpenClose|RegionHash|InputClickType|WindowListActivate|AccessibilitySnapshot|AccessibilityAction)$' \
+            -benchmem -benchtime=3x -count=3 -v | tee desktop-benchmarks.txt
+      - name: Compare desktop benchmark distributions
+        run: |
+          "$(go env GOPATH)/bin/benchstat" \
+            benchmarks/desktop-baseline.txt desktop-benchmarks.txt | tee desktop-benchstat.txt
+      - name: Check desktop benchmark regression budget
+        run: |
+          go run ./scripts/check_benchmark_regression \
+            -baseline benchmarks/desktop-baseline.txt \
+            -current desktop-benchmarks.txt \
+            -max-regression 0.50
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: benchmarks.txt
+          path: |
+            benchmarks.txt
+            desktop-benchmarks.txt
+            desktop-benchstat.txt
+            benchmark-environment.txt
 
   quality:
     name: Build & Quality

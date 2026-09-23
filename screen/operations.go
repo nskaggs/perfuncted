@@ -13,7 +13,19 @@ func (b *X11Backend) SupportedOperations() []string { return supportedOperations
 func (b *KWinShotBackend) SupportedOperations() []string { return supportedOperations() }
 
 // SupportedOperations returns the operations supported by the portal backend.
-func (b *PortalDBusBackend) SupportedOperations() []string { return supportedOperations() }
+// Portal screenshots are full-screen PNG captures even for a small region, so
+// repeated wait operations are intentionally not advertised.
+func (b *PortalDBusBackend) SupportedOperations() []string {
+	return capability.Operations(
+		"screen",
+		"wait",
+		"wait-change",
+		"wait-stable",
+	)
+}
+
+// CanonicalHashing reports that portal hash methods use the public pixel hash.
+func (b *PortalDBusBackend) CanonicalHashing() bool { return true }
 
 // SupportedOperations returns the operations supported by the GNOME backend.
 func (b *GnomeShellScreenshotBackend) SupportedOperations() []string {

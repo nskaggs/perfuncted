@@ -43,6 +43,10 @@ type Screenshotter struct {
 	idx int
 }
 
+// CanonicalHashing marks this deterministic test backend's hash methods as
+// equivalent to find.PixelHash on the corresponding capture.
+func (s *Screenshotter) CanonicalHashing() bool { return true }
+
 // Grab returns the next configured frame, optionally cropped to rect.
 func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	if s.Err != nil {

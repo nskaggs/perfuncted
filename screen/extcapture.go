@@ -17,6 +17,10 @@ import (
 
 var _ Screenshotter = (*ExtCaptureBackend)(nil)
 
+// CanonicalHashing reports that this backend's specialized hashes use the
+// public find.PixelHash representation after format conversion.
+func (b *ExtCaptureBackend) CanonicalHashing() bool { return true }
+
 // ExtCaptureBackend captures the screen using ext_image_copy_capture_manager_v1.
 // This protocol is detected by probing compositor globals at runtime; it is
 // available where the compositor advertises ext_image_copy_capture_manager_v1.

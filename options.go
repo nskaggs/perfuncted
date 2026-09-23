@@ -153,8 +153,8 @@ func (e *CapabilityError) Is(target error) bool {
 }
 
 // CapabilityStatus describes how one capability was resolved for a Session.
-// Operations is an immutable snapshot of the operations exposed by the
-// selected backend.
+// Operations and Diagnostics are immutable snapshots of the selected backend
+// contract and bounded runtime health information.
 type CapabilityStatus struct {
 	// Capability identifies the capability.
 	Capability Capability
@@ -170,6 +170,9 @@ type CapabilityStatus struct {
 	Failure error
 	// Operations lists the operations advertised by the selected backend.
 	Operations []string
+	// Diagnostics contains bounded backend health and cost details for logs and
+	// failure reports. It is not a control-flow or feature-detection API.
+	Diagnostics []string
 }
 
 // Supports reports whether the resolved backend advertises operation.
@@ -179,6 +182,7 @@ func (s CapabilityStatus) Supports(operation string) bool {
 
 func (s CapabilityStatus) clone() CapabilityStatus {
 	s.Operations = slices.Clone(s.Operations)
+	s.Diagnostics = slices.Clone(s.Diagnostics)
 	return s
 }
 

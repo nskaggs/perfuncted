@@ -72,6 +72,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 		LogDirectory:   s.LogPath(),
 		Metadata:       copyStringMap(options.Metadata),
 		Capabilities:   diagnosticCapabilities(s.Capabilities()),
+		Timeouts:       s.Timeouts(),
 		Probes:         diagnostic.Probes(s.env), //nolint:contextcheck // probe APIs are synchronous and do not accept a context.
 		ArtifactErrors: make(map[string]string),
 	}
@@ -182,42 +183,53 @@ type failureManifest struct {
 	LogDirectory   string                    `json:"log_directory,omitempty"`
 	Metadata       map[string]string         `json:"metadata,omitempty"`
 	Capabilities   []diagnosticCapability    `json:"capabilities"`
+	Timeouts       TimeoutPolicy             `json:"timeouts"`
 	Probes         map[string][]probe.Result `json:"probes"`
 	Artifacts      []string                  `json:"artifacts"`
 	ArtifactErrors map[string]string         `json:"artifact_errors,omitempty"`
 }
 
 type diagnosticCapability struct {
-	Capability string   `json:"capability"`
-	Requested  bool     `json:"requested"`
-	Required   bool     `json:"required"`
-	Available  bool     `json:"available"`
-	Backend    string   `json:"backend,omitempty"`
-	Operations []string `json:"operations,omitempty"`
-	Failure    string   `json:"failure,omitempty"`
+	Capability  string   `json:"capability"`
+	Requested   bool     `json:"requested"`
+	Required    bool     `json:"required"`
+	Available   bool     `json:"available"`
+	Backend     string   `json:"backend,omitempty"`
+	Operations  []string `json:"operations,omitempty"`
+	Diagnostics []string `json:"diagnostics,omitempty"`
+	Failure     string   `json:"failure,omitempty"`
 }
 
 type diagnosticBuildInfo struct {
-	GoVersion     string `json:"go_version"`
-	OS            string `json:"os"`
-	Arch          string `json:"arch"`
-	Module        string `json:"module,omitempty"`
-	ModuleVersion string `json:"module_version,omitempty"`
-	Revision      string `json:"revision,omitempty"`
-	RevisionTime  string `json:"revision_time,omitempty"`
-	Modified      bool   `json:"modified,omitempty"`
+	GoVersion     string                 `json:"go_version"`
+	OS            string                 `json:"os"`
+	Arch          string                 `json:"arch"`
+	WorkspaceMode string                 `json:"workspace_mode"`
+	Module        string                 `json:"module,omitempty"`
+	ModuleVersion string                 `json:"module_version,omitempty"`
+	Revision      string                 `json:"revision,omitempty"`
+	RevisionTime  string                 `json:"revision_time,omitempty"`
+	Modified      bool                   `json:"modified,omitempty"`
+	Dependencies  []diagnosticDependency `json:"dependencies,omitempty"`
+}
+
+type diagnosticDependency struct {
+	Path    string `json:"path"`
+	Version string `json:"version,omitempty"`
+	Sum     string `json:"sum,omitempty"`
 }
 
 func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability {
 	out := make([]diagnosticCapability, 0, len(statuses))
 	for _, status := range statuses {
 		item := diagnosticCapability{
-			Capability: string(status.Capability),
-			Requested:  status.Requested,
-			Required:   status.Required,
-			Available:  status.Available,
-			Backend:    status.Backend,
-			Operations: append([]string(nil), status.Operations...),
+			Capability:  string(status.Capability),
+			Requested:   status.Requested,
+			Required:    status.Required,
+			Available:   status.Available,
+			Backend:     status.Backend,
+			Operations:  append([]string(nil), status.Operations...),
+			Diagnostics: append([]string(nil), status.Diagnostics...),
 		}
 		if status.Failure != nil {
 			item.Failure = status.Failure.Error()
@@ -228,13 +240,31 @@ func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability 
 }
 
 func currentBuildInfo() diagnosticBuildInfo {
-	info := diagnosticBuildInfo{GoVersion: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH}
+	workspaceMode := os.Getenv("GOWORK")
+	if workspaceMode == "" {
+		workspaceMode = "default"
+	}
+	info := diagnosticBuildInfo{
+		GoVersion:     runtime.Version(),
+		OS:            runtime.GOOS,
+		Arch:          runtime.GOARCH,
+		WorkspaceMode: workspaceMode,
+	}
 	build, ok := debug.ReadBuildInfo()
 	if !ok || build == nil {
 		return info
 	}
 	info.Module = build.Path
 	info.ModuleVersion = build.Main.Version
+	info.Dependencies = make([]diagnosticDependency, 0, len(build.Deps))
+	for _, dependency := range build.Deps {
+		if dependency == nil {
+			continue
+		}
+		info.Dependencies = append(info.Dependencies, diagnosticDependency{
+			Path: dependency.Path, Version: dependency.Version, Sum: dependency.Sum,
+		})
+	}
 	for _, setting := range build.Settings {
 		switch setting.Key {
 		case "vcs.revision":

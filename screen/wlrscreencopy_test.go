@@ -2,6 +2,7 @@ package screen
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,6 +133,17 @@ func TestWlrScreencopyBackendCloseIsIdempotent(t *testing.T) {
 	}
 	if err := b.Close(); err != nil {
 		t.Fatalf("second Close() error: %v", err)
+	}
+}
+
+func TestWlrScreencopyBackendDiagnosticsReportSerializationAndHealth(t *testing.T) {
+	b := NewWlrScreencopyBackendWithConnector("fake-diagnostics", nil, time.Minute)
+	t.Cleanup(func() { _ = b.Close() })
+	diagnostics := strings.Join(b.Diagnostics(), "\n")
+	for _, want := range []string{"serialized", "active cancellation", "no recorded failures"} {
+		if !strings.Contains(diagnostics, want) {
+			t.Fatalf("diagnostics %q missing %q", diagnostics, want)
+		}
 	}
 }
 

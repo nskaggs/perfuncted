@@ -57,6 +57,7 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	if manifest["operation"] != "save document" || manifest["error"] != "document did not appear" {
 		t.Fatalf("manifest context = %v", manifest)
 	}
+	assertManifestRuntimeEvidence(t, manifest)
 	artifacts, ok := manifest["artifacts"].([]any)
 	if !ok || len(artifacts) != 5 {
 		t.Fatalf("manifest artifacts = %v, want five artifacts", manifest["artifacts"])
@@ -81,6 +82,18 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	}
 	if err := json.Unmarshal(outputData, &outputInfos); err != nil || len(outputInfos) != 1 {
 		t.Fatalf("outputs.json = %s, err=%v", outputData, err)
+	}
+}
+
+func assertManifestRuntimeEvidence(t *testing.T, manifest map[string]any) {
+	t.Helper()
+	timeouts, ok := manifest["timeouts"].(map[string]any)
+	if !ok || timeouts["medium"] == nil {
+		t.Fatalf("manifest timeouts = %v, want effective timeout policy", manifest["timeouts"])
+	}
+	build, ok := manifest["build"].(map[string]any)
+	if !ok || build["workspace_mode"] == nil {
+		t.Fatalf("manifest build = %v, want workspace mode", manifest["build"])
 	}
 }
 
