@@ -12,8 +12,6 @@ import (
 	"github.com/nskaggs/perfuncted/window"
 )
 
-const defaultWaitInterval = 100 * time.Millisecond
-
 // waitEvaluateFailureLimit bounds consecutive condition-evaluation errors
 // before a wait gives up. Conditions query live window-manager state, and on
 // slow or loaded hosts a single query can exceed its internal deadline (for
@@ -336,7 +334,7 @@ func (s *Session) WaitWithEvidence(
 	if condition == nil {
 		return WaitEvidence{}, fmt.Errorf("perfuncted: wait: %w: nil condition", ErrInvalidArgument)
 	}
-	config := waitConfig{interval: defaultWaitInterval}
+	config := waitConfig{interval: s.Timeouts().Poll}
 	for _, option := range options {
 		if option == nil {
 			continue
