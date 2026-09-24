@@ -118,13 +118,13 @@ func NewSwayManagerRuntimeContext(ctx context.Context, rt env.Runtime) (*SwayMan
 }
 
 func swayQueryDeadline(ctx context.Context) time.Time {
-	// Sway IPC has no per-message deadline. This direct-backend safety ceiling
-	// is narrowed by the caller/session context whenever one is present.
-	deadline := time.Now().Add(5 * time.Second)
-	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
-		return ctxDeadline
+	// Sway IPC has no per-message deadline. Use a safety ceiling only when a
+	// direct caller provides no caller or session deadline.
+	ctx = contextutil.Default(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline
 	}
-	return deadline
+	return time.Now().Add(5 * time.Second)
 }
 
 func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {
@@ -673,10 +673,16 @@ func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
 }
 
 var swayDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-	// DialContext remains authoritative for Session-bound operations; this
-	// finite fallback also bounds direct callers that omit a deadline.
-	dialer := net.Dialer{Timeout: 5 * time.Second}
+	ctx = contextutil.Default(ctx)
+	dialer := net.Dialer{Timeout: swayDialTimeout(ctx)}
 	return dialer.DialContext(ctx, network, address)
+}
+
+func swayDialTimeout(ctx context.Context) time.Duration {
+	if _, ok := contextutil.Default(ctx).Deadline(); ok {
+		return 0
+	}
+	return 5 * time.Second
 }
 
 func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payload string) error {

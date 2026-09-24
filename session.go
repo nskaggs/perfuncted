@@ -101,12 +101,14 @@ type Session struct {
 	// Accessibility exposes AT-SPI semantic queries and typed automation for this session.
 	Accessibility *AccessibilityBundle
 
-	config       SessionConfig
-	target       DesktopTarget
-	env          env.Runtime
-	tracer       *actionTracer
-	infra        *sessionInfra
-	capabilities map[Capability]CapabilityStatus
+	config          SessionConfig
+	timeoutInput    TimeoutPolicy
+	hasTimeoutInput bool
+	target          DesktopTarget
+	env             env.Runtime
+	tracer          *actionTracer
+	infra           *sessionInfra
+	capabilities    map[Capability]CapabilityStatus
 
 	ctx    context.Context //nolint:containedctx // session owns this context
 	cancel context.CancelFunc
@@ -149,15 +151,18 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	if cfg.target.kind == TargetHeadless && cfg.target.config.Resolution == (image.Point{}) {
 		cfg.target.config.Resolution = image.Pt(1024, 768)
 	}
+	timeoutInput := cfg.target.config.Timeouts
 	cfg.target.config.Timeouts = cfg.target.config.Timeouts.WithDefaults()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
 	s := &Session{
-		config:       cfg.target.config,
-		capabilities: make(map[Capability]CapabilityStatus, len(allCapabilities)),
-		closeDone:    make(chan struct{}),
+		config:          cfg.target.config,
+		timeoutInput:    timeoutInput,
+		hasTimeoutInput: true,
+		capabilities:    make(map[Capability]CapabilityStatus, len(allCapabilities)),
+		closeDone:       make(chan struct{}),
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 

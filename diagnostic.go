@@ -41,7 +41,8 @@ type FailureBundleOptions struct {
 // CaptureFailureBundle collects best-effort diagnostic artifacts into a
 // directory and returns its path. Each artifact is attempted independently;
 // the returned error reports collection failures after the successful files
-// have been written.
+// have been written. Its manifest records the effective timeout policy and
+// whether each field came from SessionConfig or the library defaults.
 func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundleOptions) (string, error) {
 	if s == nil {
 		return "", ErrNilSession
@@ -62,19 +63,20 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 	}
 
 	manifest := failureManifest{
-		FormatVersion:  1,
-		CapturedAt:     time.Now().UTC(),
-		Operation:      options.Operation,
-		Target:         string(s.Target().Kind()),
-		Compositor:     compositor.DetectRuntime(s.env).String(),
-		Environment:    diagnostic.Environment(s.env.EnvList()),
-		Build:          currentBuildInfo(),
-		LogDirectory:   s.LogPath(),
-		Metadata:       copyStringMap(options.Metadata),
-		Capabilities:   diagnosticCapabilities(s.Capabilities()),
-		Timeouts:       s.Timeouts(),
-		Probes:         diagnostic.Probes(s.env), //nolint:contextcheck // probe APIs are synchronous and do not accept a context.
-		ArtifactErrors: make(map[string]string),
+		FormatVersion:     1,
+		CapturedAt:        time.Now().UTC(),
+		Operation:         options.Operation,
+		Target:            string(s.Target().Kind()),
+		Compositor:        compositor.DetectRuntime(s.env).String(),
+		Environment:       diagnostic.Environment(s.env.EnvList()),
+		Build:             currentBuildInfo(),
+		LogDirectory:      s.LogPath(),
+		Metadata:          copyStringMap(options.Metadata),
+		Capabilities:      diagnosticCapabilities(s.Capabilities()),
+		Timeouts:          s.Timeouts(),
+		TimeoutProvenance: s.timeoutProvenance(),
+		Probes:            diagnostic.Probes(s.env), //nolint:contextcheck // probe APIs are synchronous and do not accept a context.
+		ArtifactErrors:    make(map[string]string),
 	}
 	if options.Error != nil {
 		manifest.Error = options.Error.Error()
@@ -187,21 +189,44 @@ func (s *Session) captureTrace(directory string) error {
 }
 
 type failureManifest struct {
-	FormatVersion  int                       `json:"format_version"`
-	CapturedAt     time.Time                 `json:"captured_at"`
-	Operation      string                    `json:"operation,omitempty"`
-	Error          string                    `json:"error,omitempty"`
-	Target         string                    `json:"target"`
-	Compositor     string                    `json:"compositor"`
-	Environment    map[string]string         `json:"environment"`
-	Build          diagnosticBuildInfo       `json:"build"`
-	LogDirectory   string                    `json:"log_directory,omitempty"`
-	Metadata       map[string]string         `json:"metadata,omitempty"`
-	Capabilities   []diagnosticCapability    `json:"capabilities"`
-	Timeouts       TimeoutPolicy             `json:"timeouts"`
-	Probes         map[string][]probe.Result `json:"probes"`
-	Artifacts      []string                  `json:"artifacts"`
-	ArtifactErrors map[string]string         `json:"artifact_errors,omitempty"`
+	FormatVersion     int                       `json:"format_version"`
+	CapturedAt        time.Time                 `json:"captured_at"`
+	Operation         string                    `json:"operation,omitempty"`
+	Error             string                    `json:"error,omitempty"`
+	Target            string                    `json:"target"`
+	Compositor        string                    `json:"compositor"`
+	Environment       map[string]string         `json:"environment"`
+	Build             diagnosticBuildInfo       `json:"build"`
+	LogDirectory      string                    `json:"log_directory,omitempty"`
+	Metadata          map[string]string         `json:"metadata,omitempty"`
+	Capabilities      []diagnosticCapability    `json:"capabilities"`
+	Timeouts          TimeoutPolicy             `json:"timeouts"`
+	TimeoutProvenance map[string]string         `json:"timeout_provenance"`
+	Probes            map[string][]probe.Result `json:"probes"`
+	Artifacts         []string                  `json:"artifacts"`
+	ArtifactErrors    map[string]string         `json:"artifact_errors,omitempty"`
+}
+
+func (s *Session) timeoutProvenance() map[string]string {
+	configured := s.config.Timeouts
+	if s.hasTimeoutInput {
+		configured = s.timeoutInput
+	}
+	return map[string]string{
+		"short":      timeoutFieldProvenance(configured.Short),
+		"medium":     timeoutFieldProvenance(configured.Medium),
+		"long":       timeoutFieldProvenance(configured.Long),
+		"startup":    timeoutFieldProvenance(configured.Startup),
+		"diagnostic": timeoutFieldProvenance(configured.Diagnostic),
+		"poll":       timeoutFieldProvenance(configured.Poll),
+	}
+}
+
+func timeoutFieldProvenance(value time.Duration) string {
+	if value > 0 {
+		return "session_config"
+	}
+	return "library_default"
 }
 
 type diagnosticCapability struct {

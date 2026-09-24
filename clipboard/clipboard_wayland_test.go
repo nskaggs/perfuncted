@@ -8,6 +8,30 @@ import (
 	"time"
 )
 
+func TestWaylandReadinessContextHonorsCallerDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	readyCtx, readyCancel := waylandReadinessContext(ctx)
+	defer readyCancel()
+	got, ok := readyCtx.Deadline()
+	if !ok || !got.Equal(deadline) {
+		t.Fatalf("readiness deadline = %v, present=%v, want caller policy deadline %v", got, ok, deadline)
+	}
+}
+
+func TestWaylandReadinessContextKeepsDirectCallerFallback(t *testing.T) {
+	readyCtx, cancel := waylandReadinessContext(context.Background())
+	defer cancel()
+
+	deadline, ok := readyCtx.Deadline()
+	remaining := time.Until(deadline)
+	if !ok || remaining <= 0 || remaining > time.Second {
+		t.Fatalf("readiness deadline remaining = %v, present=%v, want positive and <= 1s", remaining, ok)
+	}
+}
+
 func TestWaylandSetDoesNotWaitForPasteConsumer(t *testing.T) {
 	dir := t.TempDir()
 	output := filepath.Join(dir, "clipboard.txt")

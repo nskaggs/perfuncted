@@ -33,10 +33,7 @@ const (
 	kwinShotPath  = "/org/kde/KWin/ScreenShot2"
 	kwinShotIface = "org.kde.KWin.ScreenShot2"
 
-	// kwinPipeDrainTimeout is the direct-backend safety ceiling for draining a
-	// KWin pixel pipe. Session-bound captures carry the effective policy
-	// deadline, and the drain uses the earlier of that deadline and this
-	// protocol ceiling.
+	// kwinPipeDrainTimeout bounds direct captures that provide no deadline.
 	kwinPipeDrainTimeout = 30 * time.Second
 )
 
@@ -200,22 +197,43 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 		return nil, fmt.Errorf("screen/kwin: store results: %w", storeErr)
 	}
 
-	// KWin writes the pixels before sending its synchronous reply, so the
-	// drain below should hit EOF immediately. Bound it anyway so a stalled
-	// compositor that breaks that ordering cannot pin Grab past its deadline
-	// forever.
-	drainDeadline := time.Now().Add(kwinPipeDrainTimeout)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(drainDeadline) {
-		drainDeadline = dl
-	}
-	if dlErr := r.SetReadDeadline(drainDeadline); dlErr != nil {
-		return nil, fmt.Errorf("screen/kwin: pipe deadline: %w", dlErr)
-	}
-	data, err := io.ReadAll(r)
+	data, err := drainKWinPipe(ctx, r)
 	if err != nil {
 		return nil, fmt.Errorf("screen/kwin: read pipe: %w", err)
 	}
 	return decodeKWinPixels(data, rect, results)
+}
+
+func kwinPipeDrainContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return contextutil.WithTimeoutFallback(ctx, kwinPipeDrainTimeout)
+}
+
+func drainKWinPipe(ctx context.Context, r *os.File) ([]byte, error) {
+	drainCtx, cancel := kwinPipeDrainContext(ctx)
+	defer cancel()
+	deadline, _ := drainCtx.Deadline()
+	if err := r.SetReadDeadline(deadline); err != nil {
+		return nil, fmt.Errorf("pipe deadline: %w", err)
+	}
+
+	cancelDone := make(chan struct{})
+	stopCancel := context.AfterFunc(drainCtx, func() {
+		_ = r.SetReadDeadline(time.Now())
+		close(cancelDone)
+	})
+	defer func() {
+		if !stopCancel() {
+			<-cancelDone
+		}
+	}()
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		if drainErr := drainCtx.Err(); drainErr != nil {
+			return nil, drainErr
+		}
+	}
+	return data, err
 }
 
 // decodeKWinPixels decodes raw pixel data from the KWin ScreenShot2 pipe.

@@ -84,8 +84,8 @@ const (
 	// caller-visible operation deadlines.
 	cacheTTL            = 250 * time.Millisecond
 	eventCoalesceWindow = 10 * time.Millisecond
-	// Event setup/cleanup are short protocol lifecycle guards. The bundle's
-	// session policy remains the outer deadline for accessibility operations.
+	// Event setup/cleanup are lifecycle guards; the returned stream remains
+	// caller-owned and does not inherit an artificial expiry.
 	eventSetupTimeout    = 2 * time.Second
 	eventCleanupTimeout  = 750 * time.Millisecond
 	eventStartRetryLimit = 1

@@ -2,9 +2,12 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
@@ -143,6 +146,45 @@ func TestKWinShotBackend_ResolutionUsesActiveScreen(t *testing.T) {
 	}
 	if transport.activeCalls != 1 || transport.areaCalls != 0 {
 		t.Fatalf("calls = active:%d area:%d, want active:1 area:0", transport.activeCalls, transport.areaCalls)
+	}
+}
+
+func TestKWinPipeDrainContextPreservesPolicyDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	drainCtx, drainCancel := kwinPipeDrainContext(ctx)
+	defer drainCancel()
+	got, ok := drainCtx.Deadline()
+	if !ok || !got.Equal(deadline) {
+		t.Fatalf("pipe drain deadline = %v, present=%v, want caller policy deadline %v", got, ok, deadline)
+	}
+}
+
+func TestDrainKWinPipeHonorsCallerCancellation(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, drainErr := drainKWinPipe(ctx, reader)
+		result <- drainErr
+	}()
+	cancel()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("drainKWinPipe error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("drainKWinPipe did not unblock after caller cancellation")
 	}
 }
 

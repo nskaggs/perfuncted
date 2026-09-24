@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 func (b *dbusBackend) connected() error {
@@ -112,7 +113,7 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 			return err
 		}
 		state := &eventStart{done: make(chan struct{})}
-		setupCtx, setupCancel := context.WithTimeout(ctx, eventSetupTimeout) //nolint:contextcheck // setup has an explicit bounded caller-derived deadline.
+		setupCtx, setupCancel := eventSetupContext(ctx)
 		access := b.eventConnection()
 		if access == nil {
 			b.eventsMu.Unlock()
@@ -173,6 +174,10 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 		}()
 		return nil
 	}
+}
+
+func eventSetupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return contextutil.WithTimeoutFallback(ctx, eventSetupTimeout)
 }
 
 // waitForEventStart isolates a setup attempt's caller-owned cancellation from

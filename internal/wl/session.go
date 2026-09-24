@@ -57,7 +57,7 @@ func NewSessionContext(cancel context.Context, sock string) (*Session, error) {
 	if err := cancel.Err(); err != nil {
 		return nil, err
 	}
-	setupCtx, cancelSetup := context.WithTimeout(cancel, defaultRoundTripTimeout)
+	setupCtx, cancelSetup := sessionSetupContext(cancel)
 	defer cancelSetup()
 	cancel = setupCtx
 	sessionCacheMu.Lock()
@@ -125,6 +125,10 @@ func NewSessionContext(cancel context.Context, sock string) (*Session, error) {
 	sessionCache[sock] = ref
 	sessionCacheMu.Unlock()
 	return newSessionHandle(ref), nil
+}
+
+func sessionSetupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return contextutil.WithTimeoutFallback(ctx, defaultRoundTripTimeout)
 }
 
 func newSessionHandle(ref *sessionRef) *Session {

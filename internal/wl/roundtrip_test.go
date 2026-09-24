@@ -123,3 +123,16 @@ func TestNewSessionContextCancelsRegistryRoundTrip(t *testing.T) {
 		t.Fatal("canceled Wayland session was cached")
 	}
 }
+
+func TestSessionSetupContextPreservesPolicyDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	setupCtx, setupCancel := sessionSetupContext(ctx)
+	defer setupCancel()
+	got, ok := setupCtx.Deadline()
+	if !ok || !got.Equal(deadline) {
+		t.Fatalf("session setup deadline = %v, present=%v, want caller policy deadline %v", got, ok, deadline)
+	}
+}

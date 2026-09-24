@@ -4,9 +4,36 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
+
+func TestWindowCandidateContextUsesCallerDeadlineOrFallback(t *testing.T) {
+	t.Run("caller policy deadline", func(t *testing.T) {
+		deadline := time.Now().Add(time.Minute)
+		ctx, cancel := context.WithDeadline(context.Background(), deadline)
+		defer cancel()
+
+		readCtx, readCancel := windowCandidateContext(ctx)
+		defer readCancel()
+		got, ok := readCtx.Deadline()
+		if !ok || !got.Equal(deadline) {
+			t.Fatalf("candidate deadline = %v, present=%v, want caller deadline %v", got, ok, deadline)
+		}
+	})
+
+	t.Run("direct caller fallback", func(t *testing.T) {
+		readCtx, cancel := windowCandidateContext(context.Background())
+		defer cancel()
+
+		deadline, ok := readCtx.Deadline()
+		remaining := time.Until(deadline)
+		if !ok || remaining <= 0 || remaining > windowCandidateReadTimeout {
+			t.Fatalf("candidate deadline remaining = %v, present=%v, want positive and <= %v", remaining, ok, windowCandidateReadTimeout)
+		}
+	})
+}
 
 func TestWindowCandidateCorrelationUsesIndependentEvidence(t *testing.T) {
 	target := WindowTarget{ID: "window-2", Title: "Editor", PID: 44, Bounds: Rect{X: 100, Y: 100, Width: 400, Height: 300}, Active: true}

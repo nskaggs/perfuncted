@@ -205,20 +205,9 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 	}
 	_ = input.Close()
 
-	// These are protocol phase ceilings, not a second Session policy. The
-	// bundle supplies the effective policy deadline and this phase is clamped
-	// to the remaining caller/session budget below.
-	readyTimeout := time.Second
-	if deadline, ok := ctx.Deadline(); ok {
-		if remaining := time.Until(deadline); remaining < readyTimeout {
-			readyTimeout = remaining
-		}
-	}
-	if readyTimeout <= 0 {
-		stopWaylandOwner(cmd, done)
-		return fmt.Errorf("clipboard set: %w", ctx.Err())
-	}
-	readyCtx, readyCancel := context.WithTimeout(ctx, readyTimeout)
+	// Session-bound calls carry their policy deadline. Direct callers without
+	// one retain a finite readiness fallback.
+	readyCtx, readyCancel := waylandReadinessContext(ctx)
 	readyErr := c.waitWaylandContent(readyCtx, text)
 	readyCancel()
 	if readyErr != nil {
@@ -252,6 +241,10 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		}
 	}()
 	return nil
+}
+
+func waylandReadinessContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return contextutil.WithTimeoutFallback(ctx, time.Second)
 }
 
 func waylandInput(text string) (*os.File, string, error) {

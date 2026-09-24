@@ -258,6 +258,53 @@ func TestScreenCaptureUsesEffectiveTimeoutAndReturnsDeadlineCause(t *testing.T) 
 	}
 }
 
+func TestScreenCaptureCallerDeadlineCapsPolicyDeadline(t *testing.T) {
+	backend := &contextReportingScreen{contexts: make(chan context.Context, 1)}
+	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session.config.Timeouts = TimeoutPolicy{Medium: time.Minute}
+	t.Cleanup(func() { _ = session.Close() })
+
+	callerCtx, callerCancel := context.WithTimeout(context.Background(), time.Second)
+	defer callerCancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := session.Screen.Grab(callerCtx, image.Rect(0, 0, 1, 1))
+		result <- err
+	}()
+
+	operationCtx := <-backend.contexts
+	wantDeadline, _ := callerCtx.Deadline()
+	gotDeadline, ok := operationCtx.Deadline()
+	if !ok || !gotDeadline.Equal(wantDeadline) {
+		t.Fatalf("capture deadline = %v, present=%v, want caller deadline %v", gotDeadline, ok, wantDeadline)
+	}
+	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("capture error = %v, want caller deadline", err)
+	}
+}
+
+func TestScreenCapturePreservesCallerCancellationWithPolicy(t *testing.T) {
+	backend := &contextReportingScreen{contexts: make(chan context.Context, 1)}
+	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session.config.Timeouts = TimeoutPolicy{Medium: time.Minute}
+	t.Cleanup(func() { _ = session.Close() })
+
+	callerCtx, callerCancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := session.Screen.Grab(callerCtx, image.Rect(0, 0, 1, 1))
+		result <- err
+	}()
+	operationCtx := <-backend.contexts
+	if _, ok := operationCtx.Deadline(); !ok {
+		t.Fatal("capture context has no policy deadline")
+	}
+	callerCancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("capture error = %v, want caller cancellation", err)
+	}
+}
+
 func TestAccessibilityUsesEffectiveLongTimeout(t *testing.T) {
 	backend := &contextReportingAccessibility{
 		bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1},

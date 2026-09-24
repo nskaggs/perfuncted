@@ -43,6 +43,8 @@ const (
 	kwinScriptSvc   = "org.kde.KWin"
 	kwinScriptPath  = dbus.ObjectPath("/Scripting")
 	kwinScriptIface = "org.kde.kwin.Scripting"
+
+	kwinResultFallbackTimeout = 5 * time.Second
 )
 
 var kwinScriptSequence uint64
@@ -209,27 +211,21 @@ func requestKWinName(ctx context.Context, conn *dbus.Conn, svc string) error {
 }
 
 func waitForKWinResult(ctx context.Context, recv *pfReceiver, scriptID int) (string, error) {
-	// KWin's callback has a direct-backend safety ceiling. A Session-bound
-	// caller context is authoritative when its deadline is earlier.
-	timeout := 5 * time.Second
-	if deadline, ok := ctx.Deadline(); ok {
-		if remaining := time.Until(deadline); remaining < timeout {
-			timeout = remaining
-		}
-	}
-	if timeout <= 0 {
-		return "", ctx.Err()
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	waitCtx, cancel := kwinResultContext(ctx)
+	defer cancel()
 	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
+	case <-waitCtx.Done():
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("window/kwinscript: timeout — script %d did not call back (is KWin scripting enabled?)", scriptID)
 	case data := <-recv.ch:
 		return data, nil
-	case <-timer.C:
-		return "", fmt.Errorf("window/kwinscript: timeout — script %d did not call back (is KWin scripting enabled?)", scriptID)
 	}
+}
+
+func kwinResultContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return contextutil.WithTimeoutFallback(ctx, kwinResultFallbackTimeout)
 }
 
 type kwinWindowRow struct {

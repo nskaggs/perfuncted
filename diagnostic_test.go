@@ -91,6 +91,10 @@ func assertManifestRuntimeEvidence(t *testing.T, manifest map[string]any) {
 	if !ok || timeouts["medium"] == nil {
 		t.Fatalf("manifest timeouts = %v, want effective timeout policy", manifest["timeouts"])
 	}
+	provenance, ok := manifest["timeout_provenance"].(map[string]any)
+	if !ok || provenance["medium"] != "library_default" || provenance["short"] != "library_default" {
+		t.Fatalf("manifest timeout provenance = %v, want library defaults", manifest["timeout_provenance"])
+	}
 	build, ok := manifest["build"].(map[string]any)
 	if !ok || build["workspace_mode"] == nil {
 		t.Fatalf("manifest build = %v, want workspace mode", manifest["build"])

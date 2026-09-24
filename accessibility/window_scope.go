@@ -7,12 +7,17 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
-// windowCandidateReadTimeout bounds one small identity read while correlating
-// a compositor window. The resolver's caller/session context remains the
-// outer deadline for the complete correlation operation.
+// windowCandidateReadTimeout is the safety fallback for one identity read
+// when direct callers provide no deadline.
 const windowCandidateReadTimeout = 750 * time.Millisecond
+
+func windowCandidateContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return contextutil.WithTimeoutFallback(ctx, windowCandidateReadTimeout)
+}
 
 type windowCandidate struct {
 	node  Node
@@ -144,7 +149,7 @@ func (b *dbusBackend) windowCandidates(ctx context.Context, target WindowTarget,
 		}
 		for _, child := range children {
 			id := b.refID(child)
-			readCtx, cancel := context.WithTimeout(ctx, windowCandidateReadTimeout)
+			readCtx, cancel := windowCandidateContext(ctx)
 			node, readErr := b.readWindowCandidate(readCtx, id, app.ID)
 			cancel()
 			if readErr != nil || !isWindowRole(node.Role) {

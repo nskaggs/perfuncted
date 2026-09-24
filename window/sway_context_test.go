@@ -230,6 +230,31 @@ func TestSwayQueryConnUsesContextDeadline(t *testing.T) {
 	}
 }
 
+func TestSwayQueryAndDialFallbacksRespectPolicyDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	if got := swayQueryDeadline(ctx); !got.Equal(deadline) {
+		t.Fatalf("query deadline = %v, want caller policy deadline %v", got, deadline)
+	}
+	if got := swayDialTimeout(ctx); got != 0 {
+		t.Fatalf("dial timeout with caller policy deadline = %s, want no independent timeout", got)
+	}
+}
+
+func TestSwayQueryAndDialUseDirectCallerSafetyFallbacks(t *testing.T) {
+	ctx := context.Background()
+	queryDeadline := swayQueryDeadline(ctx)
+	queryRemaining := time.Until(queryDeadline)
+	if queryRemaining <= 0 || queryRemaining > 5*time.Second {
+		t.Fatalf("query fallback remaining = %s, want positive and <= 5s", queryRemaining)
+	}
+	if got := swayDialTimeout(ctx); got != 5*time.Second {
+		t.Fatalf("dial fallback timeout = %s, want 5s", got)
+	}
+}
+
 func TestWriteSwayMessageRejectsShortWrite(t *testing.T) {
 	conn := &stubSwayConn{writeLimit: 1}
 

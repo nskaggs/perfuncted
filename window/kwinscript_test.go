@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestParseKWinWindowListPreservesWindowIDs(t *testing.T) {
@@ -92,5 +93,28 @@ func TestKWinRunScriptRequiresInitializedBackend(t *testing.T) {
 	_, err := (&KWinScriptManager{}).runScript(context.Background(), func(string) string { return "" })
 	if err == nil || err.Error() != "window/kwinscript: backend not initialised" {
 		t.Fatalf("runScript error = %v, want backend not initialised", err)
+	}
+}
+
+func TestKWinResultContextPreservesPolicyDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	waitCtx, waitCancel := kwinResultContext(ctx)
+	defer waitCancel()
+	got, ok := waitCtx.Deadline()
+	if !ok || !got.Equal(deadline) {
+		t.Fatalf("KWin callback deadline = %v, present=%v, want caller policy deadline %v", got, ok, deadline)
+	}
+}
+
+func TestWaitForKWinResultPreservesCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := waitForKWinResult(ctx, &pfReceiver{ch: make(chan string)}, 7)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitForKWinResult error = %v, want context.Canceled", err)
 	}
 }

@@ -249,6 +249,19 @@ func TestDeregisterEventsCleansEveryRegistration(t *testing.T) {
 	}
 }
 
+func TestEventSetupContextPreservesCallerPolicyDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	setupCtx, setupCancel := eventSetupContext(ctx)
+	defer setupCancel()
+	got, ok := setupCtx.Deadline()
+	if !ok || !got.Equal(deadline) {
+		t.Fatalf("event setup deadline = %v, present=%v, want caller policy deadline %v", got, ok, deadline)
+	}
+}
+
 func TestEventStartCallerCancellationDoesNotPoisonHealthyWaiter(t *testing.T) {
 	state := &eventStart{done: make(chan struct{})}
 	result := make(chan struct {
