@@ -24,6 +24,13 @@ func (b *InputBundle) checkAvailable(operation string) error {
 	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
 }
 
+func (b *InputBundle) close() error {
+	if b == nil || util.IsNil(b.backend) {
+		return nil
+	}
+	return b.backend.Close()
+}
+
 func (b *InputBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return b.backendContext(ctx, b.session.Timeouts().Short)
 }

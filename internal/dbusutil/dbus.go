@@ -35,9 +35,9 @@ func SessionBusAddressContext(ctx context.Context, addr string) (*dbus.Conn, err
 		return nil, err
 	}
 	if addr == "" {
-		// SessionBus returns a shared, already-handshaken connection. It cannot
-		// be made caller-cancellable without affecting other users.
-		return dbus.SessionBus()
+		// Return a private connection so the caller can Close it without
+		// disturbing other users of the shared session bus.
+		return dbus.SessionBusPrivate()
 	}
 	return ConnectContext(ctx, addr)
 }

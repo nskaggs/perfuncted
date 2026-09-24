@@ -452,11 +452,11 @@ func (s *Session) close() error {
 			errs = append(errs, err)
 		}
 	}
-	if s.Screen != nil && !util.IsNil(s.Screen.backend) {
-		errs = append(errs, s.Screen.backend.Close())
+	if s.Screen != nil {
+		errs = append(errs, s.Screen.close())
 	}
-	if s.Input != nil && !util.IsNil(s.Input.backend) {
-		errs = append(errs, s.Input.backend.Close())
+	if s.Input != nil {
+		errs = append(errs, s.Input.close())
 	}
 	if s.Windows != nil {
 		errs = append(errs, s.Windows.close())

@@ -31,6 +31,22 @@ func TestSessionBusAddressInvalid(t *testing.T) {
 	}
 }
 
+func TestSessionBusAddressEmptyReturnsPrivateClosable(t *testing.T) {
+	first, err := SessionBusAddress("")
+	if err != nil {
+		t.Skipf("no session bus available: %v", err)
+	}
+	defer func() { _ = first.Close() }()
+	second, err := SessionBusAddress("")
+	if err != nil {
+		t.Fatalf("second SessionBusAddress() = %v", err)
+	}
+	defer func() { _ = second.Close() }()
+	if first == second {
+		t.Fatal("SessionBusAddress() returned the shared connection; want a private connection safe to Close")
+	}
+}
+
 func TestRunHandshakeContextBoundsCancellationWait(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	started := make(chan struct{})

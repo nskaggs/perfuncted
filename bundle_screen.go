@@ -31,6 +31,13 @@ func (s *ScreenBundle) checkAvailable(operation string) error {
 	return s.bundleBase.checkAvailable(operation, !util.IsNil(s.backend))
 }
 
+func (s *ScreenBundle) close() error {
+	if s == nil || util.IsNil(s.backend) {
+		return nil
+	}
+	return s.backend.Close()
+}
+
 func (s *ScreenBundle) grabHash(
 	ctx context.Context,
 	rect image.Rectangle,
