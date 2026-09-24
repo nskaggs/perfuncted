@@ -55,7 +55,10 @@ func (b *ClipboardBundle) pasteWithInputContext(
 	input *InputBundle,
 ) error {
 	if input == nil {
-		return ErrUnavailable
+		if b == nil {
+			return (&bundleBase{}).unavailable("paste")
+		}
+		return b.unavailable("paste")
 	}
 	if err := input.checkAvailable("keyboard"); err != nil {
 		return err

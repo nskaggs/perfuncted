@@ -101,9 +101,12 @@ func (w *Window) backend(operation string) (window.IDManager, error) {
 	}
 	backend, ok := w.id.session.Windows.backend.(window.IDManager)
 	if !ok {
-		return nil, fmt.Errorf(
-			"perfuncted: window backend does not support stable handles: %w",
-			window.ErrNotSupported,
+		return nil, w.id.session.Windows.operationError(
+			operation,
+			fmt.Errorf(
+				"perfuncted: window backend does not support stable handles: %w",
+				window.ErrNotSupported,
+			),
 		)
 	}
 	return backend, nil
@@ -268,15 +271,18 @@ func (b *WindowBundle) Find(
 	}
 	switch len(windows) {
 	case 0:
-		return nil, fmt.Errorf("%s: %w", match.String(), ErrWindowNotFound)
+		return nil, b.operationError("discover", fmt.Errorf("%s: %w", match.String(), ErrWindowNotFound))
 	case 1:
 		return windows[0], nil
 	default:
-		return nil, fmt.Errorf(
-			"%s matched %d windows: %w",
-			match.String(),
-			len(windows),
-			ErrWindowAmbiguous,
+		return nil, b.operationError(
+			"discover",
+			fmt.Errorf(
+				"%s matched %d windows: %w",
+				match.String(),
+				len(windows),
+				ErrWindowAmbiguous,
+			),
 		)
 	}
 }
@@ -357,11 +363,14 @@ func (a *Application) WaitForWindow(
 				matched = candidates[0]
 				return true, nil
 			default:
-				return false, fmt.Errorf(
-					"%s matched %d application windows: %w",
-					match.String(),
-					len(candidates),
-					ErrWindowAmbiguous,
+				return false, a.session.Windows.operationError(
+					"discover",
+					fmt.Errorf(
+						"%s matched %d application windows: %w",
+						match.String(),
+						len(candidates),
+						ErrWindowAmbiguous,
+					),
 				)
 			}
 		},

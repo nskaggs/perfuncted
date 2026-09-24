@@ -216,7 +216,7 @@ func (s *ScreenBundle) GetMultiplePixels(
 			img.At(imagePoint.X, imagePoint.Y),
 		).(color.RGBA)
 		if !ok {
-			return nil, errors.New("screen: RGBA conversion returned unexpected type")
+			return nil, s.operationError("pixel", errors.New("screen: RGBA conversion returned unexpected type"))
 		}
 		out[i] = rgba
 	}

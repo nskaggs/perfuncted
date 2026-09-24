@@ -54,7 +54,7 @@ func contextErr(ctx context.Context) error {
 
 func checkAvailable(sc Screenshotter) error {
 	if util.IsNil(sc) {
-		return fmt.Errorf("find: screen backend not available")
+		return fmt.Errorf("find: screen backend %w", util.ErrNotAvailable)
 	}
 	return nil
 }

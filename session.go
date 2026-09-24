@@ -553,7 +553,11 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 		return s.Clipboard.pasteWithInputContext(ctx, text, s.Input)
 	}
 	if s.Input == nil {
-		return ErrUnavailable
+		return &CapabilityError{
+			Capability: CapabilityInput,
+			Operation:  "paste",
+			Err:        ErrUnavailable,
+		}
 	}
 	return s.Input.TypeLiteral(ctx, text)
 }

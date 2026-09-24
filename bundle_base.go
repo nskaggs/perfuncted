@@ -6,8 +6,12 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -83,8 +87,15 @@ func (b *bundleBase) operationError(operation string, err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	if errors.Is(err, input.ErrNotSupported) || errors.Is(err, window.ErrNotSupported) || errors.Is(err, accessibility.ErrUnsupported) {
+	if errors.Is(err, input.ErrNotSupported) || errors.Is(err, window.ErrNotSupported) || errors.Is(err, accessibility.ErrUnsupported) || errors.Is(err, accessibility.ErrUnsupportedCorrelation) {
 		err = errors.Join(ErrUnsupported, err)
+	}
+	var unsupported capability.UnsupportedError
+	if errors.As(err, &unsupported) {
+		err = errors.Join(ErrUnsupported, err)
+	}
+	if errors.Is(err, gnomebridge.ErrUnavailable) || errors.Is(err, clipboard.ErrNoClipboardTool) || errors.Is(err, util.ErrNotAvailable) {
+		err = errors.Join(ErrUnavailable, err)
 	}
 	return &OperationError{
 		Capability: b.capability,

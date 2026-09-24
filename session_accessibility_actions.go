@@ -30,7 +30,11 @@ func (s *Session) InvokeAccessibilityActionAndWait(
 		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: accessibility action and wait: %w: nil postcondition", ErrInvalidArgument)
 	}
 	if s.Accessibility == nil {
-		return AccessibilityActionReceipt{}, WaitEvidence{}, ErrUnavailable
+		return AccessibilityActionReceipt{}, WaitEvidence{}, &CapabilityError{
+			Capability: CapabilityAccessibility,
+			Operation:  "invoke-action-and-wait",
+			Err:        ErrUnavailable,
+		}
 	}
 	receipt, err := s.Accessibility.InvokeSemanticAction(ctx, root, query, actionName, snapshotOptions)
 	if err != nil {

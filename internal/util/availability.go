@@ -2,15 +2,19 @@
 package util
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 )
+
+// ErrNotAvailable reports that a required resource handle is nil.
+var ErrNotAvailable = errors.New("not available")
 
 // CheckAvailable checks if a resource is available and returns an appropriate error if not.
 // It handles typed-nil interface values by using reflection.
 func CheckAvailable(name string, resource any) error {
 	if IsNil(resource) {
-		return fmt.Errorf("%s: not available", name)
+		return fmt.Errorf("%s: %w", name, ErrNotAvailable)
 	}
 	return nil
 }
