@@ -109,6 +109,7 @@ type Session struct {
 	tracer          *actionTracer
 	infra           *sessionInfra
 	capabilities    map[Capability]CapabilityStatus
+	capabilitiesMu  sync.RWMutex
 
 	ctx    context.Context //nolint:containedctx // session owns this context
 	cancel context.CancelFunc
@@ -483,7 +484,9 @@ func (s *Session) Has(cap Capability) bool {
 	if s == nil || s.isClosed() {
 		return false
 	}
+	s.capabilitiesMu.RLock()
 	status, ok := s.capabilities[cap]
+	s.capabilitiesMu.RUnlock()
 	return ok && status.Available
 }
 
@@ -495,7 +498,9 @@ func (s *Session) Capability(cap Capability) CapabilityStatus {
 			Failure:    ErrNilSession,
 		}
 	}
+	s.capabilitiesMu.RLock()
 	status, ok := s.capabilities[cap]
+	s.capabilitiesMu.RUnlock()
 	if !ok {
 		return CapabilityStatus{Capability: cap}
 	}

@@ -324,19 +324,49 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o600)
+	return writeAtomic(path, data, 0o600)
 }
 
 func writePNG(path string, img image.Image) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	dir := filepath.Dir(path)
+	file, err := os.CreateTemp(dir, ".perfuncted-png-*")
 	if err != nil {
 		return err
 	}
-	if err := png.Encode(f, img); err != nil {
-		_ = f.Close()
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
 		return err
 	}
-	return f.Close()
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tempPath, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, path)
+}
+
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	file, err := os.CreateTemp(dir, ".perfuncted-atomic-*")
+	if err != nil {
+		return err
+	}
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tempPath, perm); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, path)
 }
 
 func copyStringMap(values map[string]string) map[string]string {

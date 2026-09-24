@@ -2,6 +2,8 @@ package perfuncted
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/accessibility"
@@ -651,7 +653,27 @@ func (b *AccessibilityBundle) Reopen(ctx context.Context) error {
 	if old != nil {
 		_ = old.Close()
 	}
+	b.refreshCapabilitiesLocked()
 	return nil
+}
+
+func (b *AccessibilityBundle) refreshCapabilitiesLocked() {
+	session := b.session
+	if session == nil {
+		return
+	}
+	session.capabilitiesMu.Lock()
+	defer session.capabilitiesMu.Unlock()
+	status, ok := session.capabilities[CapabilityAccessibility]
+	if !ok {
+		return
+	}
+	status.Available = true
+	status.Failure = nil
+	status.Backend = fmt.Sprintf("%T", b.backend)
+	status.Operations = slices.Clone(supportedOperations(CapabilityAccessibility, b.backend))
+	status.Diagnostics = backendDiagnostics(b.backend)
+	session.capabilities[CapabilityAccessibility] = status
 }
 
 // Generation returns the current accessibility invalidation generation.

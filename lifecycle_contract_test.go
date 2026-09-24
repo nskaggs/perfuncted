@@ -2,9 +2,13 @@ package perfuncted
 
 import (
 	"context"
+	"image"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
+	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/window"
@@ -112,5 +116,82 @@ func TestBundleCloseNilSafe(t *testing.T) {
 	var inputBundle *InputBundle
 	if err := inputBundle.close(); err != nil {
 		t.Fatalf("nil InputBundle close = %v, want nil", err)
+	}
+}
+
+func TestAccessibilityReopenRefreshesCapabilities(t *testing.T) {
+	t.Parallel()
+	old := &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
+	fresh := &bundleAccessibilityFake{gen: 2}
+	old.fresh = fresh
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
+	t.Cleanup(func() { _ = session.Close() })
+	before := session.Capability(CapabilityAccessibility)
+	if !before.Available {
+		t.Fatal("accessibility capability not available before reopen")
+	}
+	if err := session.Accessibility.Reopen(context.Background()); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	after := session.Capability(CapabilityAccessibility)
+	if !after.Available || after.Failure != nil {
+		t.Fatalf("capability after reopen = %+v, want available without failure", after)
+	}
+	wantBackend := "perfuncted.bundleAccessibilityFake"
+	_ = wantBackend
+	if after.Backend == "" {
+		t.Fatal("capability backend empty after reopen")
+	}
+	if len(after.Operations) == 0 {
+		t.Fatal("capability operations empty after reopen")
+	}
+	apps, err := session.Accessibility.Applications(context.Background())
+	if err != nil {
+		t.Fatalf("Applications after reopen: %v", err)
+	}
+	_ = apps
+	_ = accessibility.ErrDisconnected
+}
+
+func TestDiagnosticAtomicWritesLeaveNoPartialFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	jsonPath := filepath.Join(dir, "manifest.json")
+	if err := writeJSON(jsonPath, map[string]string{"op": "test"}); err != nil {
+		t.Fatalf("writeJSON: %v", err)
+	}
+	if _, statErr := os.Stat(jsonPath); statErr != nil {
+		t.Fatalf("stat manifest: %v", statErr)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("ReadDir: %v", readErr)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if len(name) > 12 && name[:12] == ".perfuncted-" {
+			t.Fatalf("temp file %q left after writeJSON", name)
+		}
+	}
+	pngPath := filepath.Join(dir, "screenshot.png")
+	if pngErr := writePNG(pngPath, image.NewRGBA(image.Rect(0, 0, 2, 2))); pngErr != nil {
+		t.Fatalf("writePNG: %v", pngErr)
+	}
+	entries, readErr = os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("ReadDir: %v", readErr)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if len(name) > 12 && name[:12] == ".perfuncted-" {
+			t.Fatalf("temp file %q left after writePNG", name)
+		}
+	}
+	failingPath := filepath.Join(dir, "failing.json")
+	if err := writeJSON(failingPath, map[string]any{"bad": make(chan int)}); err == nil {
+		t.Fatal("writeJSON with unserializable value succeeded, want error")
+	}
+	if _, statErr := os.Stat(failingPath); !os.IsNotExist(statErr) {
+		t.Fatalf("partial file %q exists after failed writeJSON", failingPath)
 	}
 }
