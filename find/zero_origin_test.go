@@ -39,6 +39,14 @@ func (z *zeroOriginScreenshotter) GrabRegionHash(ctx context.Context, rect image
 	return PixelHash(img, nil), nil
 }
 
+type fullFrameScreenshotter struct {
+	frame image.Image
+}
+
+func (s fullFrameScreenshotter) Grab(context.Context, image.Rectangle) (image.Image, error) {
+	return s.frame, nil
+}
+
 func TestLocateExactZeroOriginCapture(t *testing.T) {
 	full := image.NewRGBA(image.Rect(10, 20, 30, 40))
 	needle := image.NewRGBA(image.Rect(0, 0, 3, 3))
@@ -117,5 +125,69 @@ func TestFindColorZeroOriginCapture(t *testing.T) {
 	want := image.Pt(13, 24)
 	if p != want {
 		t.Fatalf("p = %v, want %v", p, want)
+	}
+}
+
+func TestFindColorFullScreenCapturePreservesImageOrigin(t *testing.T) {
+	bounds := image.Rect(10, 20, 30, 40)
+	want := image.Pt(13, 24)
+	gray := color.Gray{Y: 128}
+
+	tests := []struct {
+		name   string
+		frame  image.Image
+		target color.RGBA
+	}{
+		{
+			name: "rgba",
+			frame: func() image.Image {
+				img := image.NewRGBA(bounds)
+				img.SetRGBA(want.X, want.Y, color.RGBA{R: 23, G: 45, B: 67, A: 255})
+				return img
+			}(),
+			target: color.RGBA{R: 23, G: 45, B: 67, A: 255},
+		},
+		{
+			name: "generic image",
+			frame: func() image.Image {
+				img := image.NewGray(bounds)
+				img.SetGray(want.X, want.Y, gray)
+				return img
+			}(),
+			target: color.RGBA{R: gray.Y, G: gray.Y, B: gray.Y, A: 255},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := FindColor(context.Background(), fullFrameScreenshotter{frame: tt.frame}, image.Rectangle{}, tt.target, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Fatalf("FindColor point = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestFindColorFullFrameImageHonorsRequestedRegion(t *testing.T) {
+	frame := image.NewRGBA(image.Rect(10, 20, 30, 40))
+	target := color.RGBA{R: 23, G: 45, B: 67, A: 255}
+	frame.SetRGBA(10, 20, target)
+	frame.SetRGBA(15, 26, target)
+
+	got, err := FindColor(
+		context.Background(),
+		fullFrameScreenshotter{frame: frame},
+		image.Rect(13, 24, 18, 29),
+		target,
+		0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := image.Pt(15, 26); got != want {
+		t.Fatalf("FindColor point = %v, want %v", got, want)
 	}
 }

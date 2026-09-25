@@ -695,29 +695,39 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 	}
 	b := img.Bounds()
 	scanBounds := b
+	pointOrigin := rect.Min
 	if !rect.Empty() {
-		// A backend should return the requested region, but accepting a larger
-		// image must not allow a match outside that region. Keep the image's
-		// origin (which may be zero or absolute) and limit the scanned extent.
-		if width := rect.Dx(); width < scanBounds.Dx() {
-			scanBounds.Max.X = scanBounds.Min.X + width
+		if rect.In(b) {
+			// Bounds that contain the requested desktop rectangle use screen
+			// coordinates directly, so scan only that portion of the image.
+			scanBounds = rect
+			pointOrigin = b.Min
+		} else {
+			// A zero-origin capture of the requested region maps its first pixel
+			// to rect.Min. Limit larger region images to the requested extent.
+			if width := rect.Dx(); width < scanBounds.Dx() {
+				scanBounds.Max.X = scanBounds.Min.X + width
+			}
+			if height := rect.Dy(); height < scanBounds.Dy() {
+				scanBounds.Max.Y = scanBounds.Min.Y + height
+			}
 		}
-		if height := rect.Dy(); height < scanBounds.Dy() {
-			scanBounds.Max.Y = scanBounds.Min.Y + height
-		}
+	} else {
+		// A full-screen capture already carries the desktop point in its bounds.
+		pointOrigin = b.Min
 	}
 
 	// Fast path: read directly from Pix for *image.RGBA, avoiding per-pixel
 	// At() calls and colour model conversion.
 	if rgba, ok := img.(*image.RGBA); ok {
-		return scanPackedPixels(rgba.Pix, scanBounds, rgba.Stride, rect, target, tolerance)
+		return scanPackedPixels(rgba.Pix, rgba.Rect, scanBounds, rgba.Stride, pointOrigin, target, tolerance)
 	}
 
 	// NRGBA is the native layout returned by several screenshot backends.
 	// Scan its Pix buffer directly; calling At and converting through
 	// color.RGBAModel allocates for every pixel.
 	if nrgba, ok := img.(*image.NRGBA); ok {
-		return scanPackedPixels(nrgba.Pix, scanBounds, nrgba.Stride, rect, target, tolerance)
+		return scanPackedPixels(nrgba.Pix, nrgba.Rect, scanBounds, nrgba.Stride, pointOrigin, target, tolerance)
 	}
 
 	// Slow path: generic image via At() + colour model conversion.
@@ -725,7 +735,7 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 		for x := scanBounds.Min.X; x < scanBounds.Max.X; x++ {
 			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 			if colorClose(c, target, tolerance) {
-				return image.Pt(rect.Min.X+x-b.Min.X, rect.Min.Y+y-b.Min.Y), true
+				return image.Pt(pointOrigin.X+x-b.Min.X, pointOrigin.Y+y-b.Min.Y), true
 			}
 		}
 	}
@@ -734,21 +744,22 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 
 func scanPackedPixels(
 	pix []byte,
+	imageBounds image.Rectangle,
 	bounds image.Rectangle,
 	stride int,
-	rect image.Rectangle,
+	pointOrigin image.Point,
 	target color.RGBA,
 	tolerance int,
 ) (image.Point, bool) {
-	if _, ok := packedBufferSize(bounds, stride); !ok {
+	if _, ok := packedBufferSize(imageBounds, stride); !ok {
 		return image.Point{}, false
 	}
-	minRequired, _ := packedBufferSize(bounds, stride)
+	minRequired, _ := packedBufferSize(imageBounds, stride)
 	if len(pix) < minRequired {
 		return image.Point{}, false
 	}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		off := (y - bounds.Min.Y) * stride
+		off := (y-imageBounds.Min.Y)*stride + (bounds.Min.X-imageBounds.Min.X)*4
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			_ = pix[off+3] // eliminate bounds check
 			if (tolerance == 0 &&
@@ -759,7 +770,7 @@ func scanPackedPixels(
 					abs(int(pix[off])-int(target.R)) <= tolerance &&
 					abs(int(pix[off+1])-int(target.G)) <= tolerance &&
 					abs(int(pix[off+2])-int(target.B)) <= tolerance) {
-				return image.Pt(rect.Min.X+x-bounds.Min.X, rect.Min.Y+y-bounds.Min.Y), true
+				return image.Pt(pointOrigin.X+x-imageBounds.Min.X, pointOrigin.Y+y-imageBounds.Min.Y), true
 			}
 			off += 4
 		}

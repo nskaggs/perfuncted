@@ -204,6 +204,40 @@ func TestSwayManagerCloseClosesTransientQuery(t *testing.T) {
 	}
 }
 
+func TestSwayQueryConnContextCancellationUnblocksRead(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	requestRead := make(chan error, 1)
+	go func() {
+		_, _, err := readSwayMessage(server)
+		requestRead <- err
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := swayQueryConnContext(ctx, client, swayMsgGetTree, "")
+		queryDone <- err
+	}()
+	if err := <-requestRead; err != nil {
+		t.Fatalf("read query request: %v", err)
+	}
+
+	cancel()
+	select {
+	case err := <-queryDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("query error = %v, want context.Canceled", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("context cancellation did not unblock the Sway query")
+	}
+}
+
 func TestSwayQueryConnUsesContextDeadline(t *testing.T) {
 	deadline := time.Now().Add(75 * time.Millisecond)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
