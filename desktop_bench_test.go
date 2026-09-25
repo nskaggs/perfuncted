@@ -10,26 +10,27 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/internal/env"
 )
 
 const desktopBenchmarkTimeout = 2 * time.Minute
 
-func desktopBenchmarkOptions(logDir string, accessibilityOptional bool) []Option {
+func desktopBenchmarkOptions(logDir string, accessibilityRequired bool) []Option {
 	options := []Option{
 		WithHeadless(SessionConfig{Resolution: image.Pt(1024, 768), LogDir: logDir}),
 		Require(CapabilityScreen, CapabilityInput, CapabilityWindows),
 	}
-	if accessibilityOptional {
-		options = append(options, Optional(CapabilityAccessibility))
+	if accessibilityRequired {
+		options = append(options, Require(CapabilityAccessibility))
 	}
 	return options
 }
 
-func openDesktopBenchmarkSession(b *testing.B, logDir string, accessibilityOptional bool) *Session {
+func openDesktopBenchmarkSession(b *testing.B, logDir string, accessibilityRequired bool) *Session {
 	b.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 	defer cancel()
-	session, err := Open(ctx, desktopBenchmarkOptions(logDir, accessibilityOptional)...)
+	session, err := Open(ctx, desktopBenchmarkOptions(logDir, accessibilityRequired)...)
 	if err != nil {
 		b.Fatalf("open real headless benchmark session: %v", err)
 	}
@@ -79,7 +80,7 @@ func BenchmarkDesktopRegionHash(b *testing.B) {
 	}
 }
 
-func launchDesktopBenchmarkWindow(b *testing.B, session *Session) (*Application, *Window) {
+func launchDesktopBenchmarkWindow(b *testing.B, session *Session, accessibility bool) (*Application, *Window) {
 	b.Helper()
 	commands := []struct {
 		name  string
@@ -94,12 +95,25 @@ func launchDesktopBenchmarkWindow(b *testing.B, session *Session) (*Application,
 		if _, err := exec.LookPath(candidate.name); err != nil {
 			continue
 		}
-		app, err := session.Launch(context.Background(), Command{
+		command := Command{
 			Name:   candidate.name,
 			Args:   candidate.args,
 			Stdout: nil,
 			Stderr: nil,
-		})
+		}
+		if accessibility {
+			switch candidate.name {
+			case "kwrite":
+				command.Args = nil
+				command.Env = env.Merge(session.Env(),
+					"QT_ACCESSIBILITY=1",
+					"QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1",
+				)
+			case "gnome-text-editor":
+				command.Env = env.Merge(session.Env(), "GTK_A11Y=atspi")
+			}
+		}
+		app, err := session.Launch(context.Background(), command)
 		if err != nil {
 			continue
 		}
@@ -118,7 +132,7 @@ func launchDesktopBenchmarkWindow(b *testing.B, session *Session) (*Application,
 // BenchmarkDesktopInputClickType measures real pointer and keyboard actions.
 func BenchmarkDesktopInputClickType(b *testing.B) {
 	session := openDesktopBenchmarkSession(b, b.TempDir(), false)
-	_, window := launchDesktopBenchmarkWindow(b, session)
+	_, window := launchDesktopBenchmarkWindow(b, session, false)
 	ctx := context.Background()
 	if err := window.Activate(ctx); err != nil {
 		b.Fatalf("activate benchmark window: %v", err)
@@ -137,7 +151,7 @@ func BenchmarkDesktopInputClickType(b *testing.B) {
 // activation against a real application window.
 func BenchmarkDesktopWindowListActivate(b *testing.B) {
 	session := openDesktopBenchmarkSession(b, b.TempDir(), false)
-	_, window := launchDesktopBenchmarkWindow(b, session)
+	_, window := launchDesktopBenchmarkWindow(b, session, false)
 	ctx := context.Background()
 	for b.Loop() {
 		windows, err := session.Windows.List(ctx, WindowMatch{})
@@ -158,22 +172,40 @@ func openAccessibilityBenchmarkRoot(b *testing.B) (*Session, accessibility.NodeI
 	session := openDesktopBenchmarkSession(b, b.TempDir(), true)
 	status := session.Capability(CapabilityAccessibility)
 	if !status.Available {
-		b.Skipf("accessibility capability unavailable: %v", status.Failure)
+		b.Fatalf("accessibility capability required for benchmark: %v", status.Failure)
 	}
-	// A managed session without an application has no AT-SPI application root;
-	// launch the same real editor used by the input/window benchmarks before
-	// measuring the accessibility boundary.
-	launchDesktopBenchmarkWindow(b, session)
-	ctx, cancel := context.WithTimeout(context.Background(), session.Timeouts().Short)
+	ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 	defer cancel()
-	apps, err := session.Accessibility.Applications(ctx)
+	// Subscribe before launch so the benchmark starts its snapshot only after
+	// AT-SPI reports application-tree changes. The application list remains the
+	// authoritative readiness check because the event stream is lossy.
+	events, err := session.Accessibility.Events(ctx, accessibility.EventOptions{})
 	if err != nil {
-		b.Skipf("accessibility applications unavailable: %v", err)
+		b.Fatalf("start AT-SPI benchmark readiness events: %v", err)
 	}
-	if len(apps) == 0 {
-		b.Skip("accessibility backend has no application root")
+	app, _ := launchDesktopBenchmarkWindow(b, session, true)
+	if app == nil || app.PID() <= 0 {
+		b.Fatal("accessibility benchmark application has no managed process identity")
 	}
-	return session, apps[0].ID
+	for {
+		apps, err := session.Accessibility.Applications(ctx)
+		if err != nil {
+			b.Fatalf("list AT-SPI benchmark applications: %v", err)
+		}
+		for _, candidate := range apps {
+			if candidate.PID == int32(app.PID()) {
+				return session, candidate.ID
+			}
+		}
+		select {
+		case _, ok := <-events:
+			if !ok {
+				b.Fatal("AT-SPI readiness event stream closed before application registration")
+			}
+		case <-ctx.Done():
+			b.Fatalf("AT-SPI application %d did not register before benchmark deadline: %v", app.PID(), ctx.Err())
+		}
+	}
 }
 
 // BenchmarkDesktopAccessibilitySnapshot measures one bounded AT-SPI snapshot.

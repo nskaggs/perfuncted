@@ -3,7 +3,6 @@ package perfuncted
 import (
 	"context"
 
-	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -34,14 +33,14 @@ func (b *WindowBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
 	}
-	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
+	return b.checkBackend(operation, b.backend)
 }
 
 func (b *WindowBundle) close() error {
-	if b == nil || util.IsNil(b.backend) {
+	if b == nil {
 		return nil
 	}
-	return b.backend.Close()
+	return closeBackend(b.backend)
 }
 
 // Sync refreshes pending window-backend state when supported.

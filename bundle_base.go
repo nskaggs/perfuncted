@@ -80,6 +80,17 @@ func (b *bundleBase) checkAvailable(operation string, available bool) error {
 	return nil
 }
 
+func (b *bundleBase) checkBackend(operation string, backend any) error {
+	return b.checkAvailable(operation, !util.IsNil(backend))
+}
+
+func closeBackend[T interface{ Close() error }](backend T) error {
+	if util.IsNil(backend) {
+		return nil
+	}
+	return backend.Close()
+}
+
 func (b *bundleBase) operationError(operation string, err error) error {
 	if err == nil {
 		return nil

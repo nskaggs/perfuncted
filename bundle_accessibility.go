@@ -24,7 +24,7 @@ func (b *AccessibilityBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
 	}
-	return b.bundleBase.checkAvailable(operation, !util.IsNil(b.backend))
+	return b.checkBackend(operation, b.backend)
 }
 
 func (b *AccessibilityBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -32,10 +32,10 @@ func (b *AccessibilityBundle) operationContext(ctx context.Context) (context.Con
 }
 
 func (b *AccessibilityBundle) close() error {
-	if b == nil || util.IsNil(b.backend) {
+	if b == nil {
 		return nil
 	}
-	return b.backend.Close()
+	return closeBackend(b.backend)
 }
 
 // Applications lists application roots currently registered with AT-SPI.

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 // ClipboardBundle exposes clipboard operations through a Session.
@@ -13,12 +12,19 @@ type ClipboardBundle struct {
 	bundleBase
 }
 
+func (b *ClipboardBundle) checkAvailable(operation string) error {
+	if b == nil {
+		return (&bundleBase{}).unavailable(operation)
+	}
+	return b.checkBackend(operation, b.backend)
+}
+
 // Get returns the current clipboard text.
 func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	if b == nil {
 		return "", (&bundleBase{}).unavailable("get")
 	}
-	if err := b.checkAvailable("get", !util.IsNil(b.backend)); err != nil {
+	if err := b.checkAvailable("get"); err != nil {
 		return "", err
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
@@ -33,7 +39,7 @@ func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable("set")
 	}
-	if err := b.checkAvailable("set", !util.IsNil(b.backend)); err != nil {
+	if err := b.checkAvailable("set"); err != nil {
 		return err
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
@@ -43,10 +49,10 @@ func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 }
 
 func (b *ClipboardBundle) close() error {
-	if b == nil || util.IsNil(b.backend) {
+	if b == nil {
 		return nil
 	}
-	return b.backend.Close()
+	return closeBackend(b.backend)
 }
 
 func (b *ClipboardBundle) pasteWithInputContext(
