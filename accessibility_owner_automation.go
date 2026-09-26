@@ -16,28 +16,30 @@ func (o *accessibilityBackendOwner) withAutomation(ctx context.Context, call fun
 	})
 }
 
+func withAutomationResult[T any](ctx context.Context, o *accessibilityBackendOwner, call func(accessibility.Automation, context.Context) (T, error)) (T, error) {
+	var result T
+	err := o.withAutomation(ctx, func(automation accessibility.Automation, callCtx context.Context) error {
+		var err error
+		result, err = call(automation, callCtx)
+		return err
+	})
+	return result, err
+}
+
 func (o *accessibilityBackendOwner) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.InvokeAction(ctx, id, index) })
 }
 
 func (o *accessibilityBackendOwner) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) (accessibility.Action, error) {
-	var result accessibility.Action
-	err := o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
-		var err error
-		result, err = a.InvokeActionByName(ctx, id, name)
-		return err
+	return withAutomationResult(ctx, o, func(a accessibility.Automation, callCtx context.Context) (accessibility.Action, error) {
+		return a.InvokeActionByName(callCtx, id, name)
 	})
-	return result, err
 }
 
 func (o *accessibilityBackendOwner) InvokeDefaultAction(ctx context.Context, id accessibility.NodeID) (accessibility.Action, error) {
-	var result accessibility.Action
-	err := o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
-		var err error
-		result, err = a.InvokeDefaultAction(ctx, id)
-		return err
+	return withAutomationResult(ctx, o, func(a accessibility.Automation, callCtx context.Context) (accessibility.Action, error) {
+		return a.InvokeDefaultAction(callCtx, id)
 	})
-	return result, err
 }
 
 func (o *accessibilityBackendOwner) GrabFocus(ctx context.Context, id accessibility.NodeID) error {

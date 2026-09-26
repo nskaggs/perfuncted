@@ -20,7 +20,6 @@ type accessibilityBackendGeneration struct {
 	active       int
 	closeStarted bool
 	closeDone    chan struct{}
-	closeErr     error
 }
 
 type accessibilityBackendOwner struct {
@@ -30,9 +29,11 @@ type accessibilityBackendOwner struct {
 	current     *accessibilityBackendGeneration
 	generations map[*accessibilityBackendGeneration]struct{}
 	eventSubs   map[*accessibilityEventSubscription]struct{}
+	eventLimits map[*accessibilityEventSubscription]string
 	closed      bool
 	closeDone   chan struct{}
 	closeErr    error
+	closeErrors error
 
 	epochMu  sync.Mutex
 	reopenMu sync.Mutex
@@ -46,15 +47,25 @@ type accessibilityBackendLease struct {
 
 type accessibilityEventSubscription struct {
 	owner *accessibilityBackendOwner
-	ctx   context.Context //nolint:containedctx // the caller context owns the lifetime of this event stream.
 	opts  accessibility.EventOptions
 	out   chan accessibility.Event
 
 	mu      sync.Mutex
-	bound   *accessibilityBackendGeneration
-	changed chan struct{}
+	binding *accessibilityEventBinding
 	done    chan struct{}
 	finish  sync.Once
+}
+
+type accessibilityEventBinding struct {
+	gen  *accessibilityBackendGeneration
+	done chan struct{}
+	once sync.Once
+	err  error
+}
+
+type accessibilityEventBindingWaiter struct {
+	subscription *accessibilityEventSubscription
+	binding      *accessibilityEventBinding
 }
 
 func newAccessibilityBackendOwner(session *Session) *accessibilityBackendOwner {
@@ -62,6 +73,7 @@ func newAccessibilityBackendOwner(session *Session) *accessibilityBackendOwner {
 		session:     session,
 		generations: make(map[*accessibilityBackendGeneration]struct{}),
 		eventSubs:   make(map[*accessibilityEventSubscription]struct{}),
+		eventLimits: make(map[*accessibilityEventSubscription]string),
 	}
 }
 
@@ -113,6 +125,19 @@ func (o *accessibilityBackendOwner) acquire() (*accessibilityBackendLease, error
 	return &accessibilityBackendLease{owner: o, gen: o.current}, nil
 }
 
+func (o *accessibilityBackendOwner) acquireGeneration(gen *accessibilityBackendGeneration) (*accessibilityBackendLease, error) {
+	if o == nil || gen == nil {
+		return nil, accessibility.ErrDisconnected
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed || o.current != gen || gen.retired {
+		return nil, accessibility.ErrDisconnected
+	}
+	gen.active++
+	return &accessibilityBackendLease{owner: o, gen: gen}, nil
+}
+
 func (o *accessibilityBackendOwner) hasBackend() bool {
 	if o == nil {
 		return false
@@ -128,18 +153,21 @@ func (l *accessibilityBackendLease) release() {
 		return
 	}
 	l.once.Do(func() {
-		o := l.owner
-		o.mu.Lock()
-		l.gen.active--
-		closeNow := l.gen.retired && l.gen.active == 0 && !l.gen.closeStarted
-		if closeNow {
-			l.gen.closeStarted = true
-		}
-		o.mu.Unlock()
-		if closeNow {
-			o.closeGeneration(l.gen)
-		}
+		l.owner.releaseGeneration(l.gen)
 	})
+}
+
+func (o *accessibilityBackendOwner) releaseGeneration(gen *accessibilityBackendGeneration) {
+	o.mu.Lock()
+	gen.active--
+	closeNow := gen.retired && gen.active == 0 && !gen.closeStarted
+	if closeNow {
+		gen.closeStarted = true
+	}
+	o.mu.Unlock()
+	if closeNow {
+		o.closeGeneration(gen)
+	}
 }
 
 func (l *accessibilityBackendLease) context(parent context.Context) (context.Context, func()) {
@@ -215,7 +243,10 @@ func (o *accessibilityBackendOwner) retireLocked(gen *accessibilityBackendGenera
 func (o *accessibilityBackendOwner) closeGeneration(gen *accessibilityBackendGeneration) {
 	err := gen.backend.Close()
 	o.mu.Lock()
-	gen.closeErr = err
+	delete(o.generations, gen)
+	if err != nil {
+		o.closeErrors = errors.Join(o.closeErrors, err)
+	}
 	close(gen.closeDone)
 	o.mu.Unlock()
 }
@@ -224,12 +255,10 @@ func (o *accessibilityBackendOwner) Close() error {
 	if o == nil {
 		return nil
 	}
-	o.epochMu.Lock()
 	o.mu.Lock()
 	if o.closed {
 		done := o.closeDone
 		o.mu.Unlock()
-		o.epochMu.Unlock()
 		if done != nil {
 			<-done
 		}
@@ -240,31 +269,29 @@ func (o *accessibilityBackendOwner) Close() error {
 	}
 	o.closed = true
 	o.closeDone = make(chan struct{})
-	current := o.current
 	o.current = nil
-	closeNow := o.retireLocked(current)
 	gens := make([]*accessibilityBackendGeneration, 0, len(o.generations))
+	holds := make([]*accessibilityBackendLease, 0, len(o.generations))
 	for gen := range o.generations {
 		gens = append(gens, gen)
+		if !gen.closeStarted {
+			gen.active++
+			o.retireLocked(gen)
+			holds = append(holds, &accessibilityBackendLease{owner: o, gen: gen})
+		}
 	}
 	done := o.closeDone
 	o.mu.Unlock()
-	o.epochMu.Unlock()
-	if closeNow {
-		o.closeGeneration(current)
+	for _, hold := range holds {
+		_ = o.retireEvents(context.Background(), hold)
+		hold.release()
 	}
 	for _, gen := range gens {
 		<-gen.closeDone
 	}
-	errs := make([]error, 0, len(gens))
-	for _, gen := range gens {
-		if gen.closeErr != nil {
-			errs = append(errs, gen.closeErr)
-		}
-	}
-	err := errors.Join(errs...)
 	o.mu.Lock()
-	o.closeErr = err
+	o.closeErr = o.closeErrors
+	err := o.closeErr
 	close(done)
 	o.mu.Unlock()
 	return err
@@ -421,12 +448,10 @@ func (o *accessibilityBackendOwner) eventsAcrossReopens(ctx context.Context, opt
 		opts.Buffer = 4096
 	}
 	sub := &accessibilityEventSubscription{
-		owner:   o,
-		ctx:     ctx,
-		opts:    opts,
-		out:     make(chan accessibility.Event, opts.Buffer),
-		changed: make(chan struct{}),
-		done:    make(chan struct{}),
+		owner: o,
+		opts:  opts,
+		out:   make(chan accessibility.Event, opts.Buffer),
+		done:  make(chan struct{}),
 	}
 	if o == nil {
 		return nil, accessibility.ErrDisconnected
@@ -437,70 +462,14 @@ func (o *accessibilityBackendOwner) eventsAcrossReopens(ctx context.Context, opt
 		return nil, accessibility.ErrDisconnected
 	}
 	o.eventSubs[sub] = struct{}{}
+	binding := sub.beginBinding(o.current)
 	o.mu.Unlock()
-	gen, events, cancel, err := o.subscribeCurrent(ctx, opts, sub)
-	if err != nil {
+	if binding == nil {
 		sub.finishStream()
-		return nil, err
+		return nil, accessibility.ErrDisconnected
 	}
-	go sub.pump(gen, events, cancel)
+	go sub.pump(ctx, binding)
 	return sub.out, nil
-}
-
-func (o *accessibilityBackendOwner) subscribeCurrent(ctx context.Context, opts accessibility.EventOptions, sub *accessibilityEventSubscription) (*accessibilityBackendGeneration, <-chan accessibility.Event, context.CancelFunc, error) {
-	for {
-		lease, err := o.acquire()
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		gen := lease.gen
-		source, ok := gen.backend.(accessibility.EventSource)
-		if !ok {
-			lease.release()
-			return nil, nil, nil, accessibility.ErrUnsupported
-		}
-		sourceCtx, cancel := lease.context(ctx)
-		events, sourceErr := source.Events(sourceCtx, opts)
-		lease.release()
-		if sourceErr != nil || events == nil {
-			cancel()
-			if sourceErr == nil {
-				sourceErr = accessibility.ErrDisconnected
-			}
-			if !waitAccessibilityTransition(ctx, gen) {
-				return nil, nil, nil, sourceErr
-			}
-			continue
-		}
-
-		o.mu.Lock()
-		current := !o.closed && o.current == gen && !gen.retired
-		if current {
-			sub.markBound(gen)
-		}
-		o.mu.Unlock()
-		if current {
-			return gen, events, cancel, nil
-		}
-		cancel()
-		if !waitAccessibilityTransition(ctx, gen) {
-			return nil, nil, nil, accessibility.ErrDisconnected
-		}
-	}
-}
-
-func waitAccessibilityTransition(ctx context.Context, gen *accessibilityBackendGeneration) bool {
-	select {
-	case <-gen.retiredCh:
-		return true
-	default:
-	}
-	select {
-	case <-gen.retiredCh:
-		return true
-	case <-ctx.Done():
-		return false
-	}
 }
 
 func (o *accessibilityBackendOwner) isCurrent(gen *accessibilityBackendGeneration) bool {
@@ -513,78 +482,150 @@ func (o *accessibilityBackendOwner) isCurrent(gen *accessibilityBackendGeneratio
 	return current
 }
 
-func (s *accessibilityEventSubscription) markBound(gen *accessibilityBackendGeneration) {
+func (s *accessibilityEventSubscription) beginBinding(gen *accessibilityBackendGeneration) *accessibilityEventBinding {
 	s.mu.Lock()
-	s.bound = gen
-	close(s.changed)
-	s.changed = make(chan struct{})
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	select {
+	case <-s.done:
+		return nil
+	default:
+	}
+	if s.binding != nil && s.binding.gen == gen {
+		return s.binding
+	}
+	s.binding = &accessibilityEventBinding{gen: gen, done: make(chan struct{})}
+	return s.binding
 }
 
-func (s *accessibilityEventSubscription) waitBound(ctx context.Context, gen *accessibilityBackendGeneration) {
-	for {
-		s.mu.Lock()
-		if s.bound == gen {
-			s.mu.Unlock()
-			return
-		}
-		changed, done := s.changed, s.done
-		s.mu.Unlock()
-		select {
-		case <-changed:
-		case <-done:
-			return
-		case <-ctx.Done():
-			return
-		}
+func (b *accessibilityEventBinding) complete(err error) {
+	if b == nil {
+		return
+	}
+	b.once.Do(func() {
+		b.err = err
+		close(b.done)
+	})
+}
+
+func (s *accessibilityEventSubscription) waitBinding(ctx context.Context, binding *accessibilityEventBinding) error {
+	if binding == nil {
+		return accessibility.ErrDisconnected
+	}
+	select {
+	case <-binding.done:
+		return binding.err
+	case <-s.done:
+		return accessibility.ErrDisconnected
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
-func (s *accessibilityEventSubscription) pump(gen *accessibilityBackendGeneration, events <-chan accessibility.Event, cancel context.CancelFunc) {
+func (s *accessibilityEventSubscription) pump(ctx context.Context, binding *accessibilityEventBinding) {
 	defer s.finishStream()
 	var dropped uint64
-	rebind := func() bool {
-		nextGen, nextEvents, nextCancel, err := s.owner.subscribeCurrent(s.ctx, s.opts, s)
-		if err != nil {
-			return false
-		}
-		gen, events, cancel = nextGen, nextEvents, nextCancel
-		return true
-	}
 	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-gen.retiredCh:
-			cancel()
-			if !rebind() {
+		gen := binding.gen
+		events, cancel, err := s.openBinding(ctx, binding)
+		if err != nil {
+			binding, err = s.nextBinding(ctx, gen)
+			if err != nil {
 				return
 			}
+			continue
+		}
+		binding, err = s.forwardGeneration(ctx, binding, events, cancel, &dropped)
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (s *accessibilityEventSubscription) nextBinding(ctx context.Context, previous *accessibilityBackendGeneration) (*accessibilityEventBinding, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-previous.retiredCh:
+	}
+	s.owner.mu.Lock()
+	defer s.owner.mu.Unlock()
+	if s.owner.closed || s.owner.current == nil || s.owner.current == previous {
+		return nil, accessibility.ErrDisconnected
+	}
+	next := s.beginBinding(s.owner.current)
+	if next == nil {
+		return nil, accessibility.ErrDisconnected
+	}
+	return next, nil
+}
+
+func (s *accessibilityEventSubscription) forwardGeneration(ctx context.Context, binding *accessibilityEventBinding, events <-chan accessibility.Event, cancel context.CancelFunc, dropped *uint64) (*accessibilityEventBinding, error) {
+	gen := binding.gen
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return nil, ctx.Err()
+		case <-gen.retiredCh:
+			cancel()
+			return s.nextBinding(ctx, gen)
 		case event, ok := <-events:
 			if !ok {
 				cancel()
-				select {
-				case <-gen.retiredCh:
-					if !rebind() {
-						return
-					}
-				case <-s.ctx.Done():
-					return
-				}
-				continue
+				s.owner.setEventLimit(s, accessibility.ErrDisconnected)
+				return s.nextBinding(ctx, gen)
 			}
 			if !s.owner.isCurrent(gen) {
 				continue
 			}
-			event.Dropped += dropped
+			event.Dropped += *dropped
 			select {
 			case s.out <- event:
-				dropped = 0
+				*dropped = 0
 			default:
-				dropped++
+				*dropped++
 			}
 		}
 	}
+}
+
+func (s *accessibilityEventSubscription) openBinding(ctx context.Context, binding *accessibilityEventBinding) (<-chan accessibility.Event, context.CancelFunc, error) {
+	lease, err := s.owner.acquireGeneration(binding.gen)
+	if err != nil {
+		s.owner.setEventLimit(s, err)
+		binding.complete(err)
+		return nil, nil, err
+	}
+	source, ok := lease.gen.backend.(accessibility.EventSource)
+	if !ok {
+		lease.release()
+		sourceErr := accessibility.ErrUnsupported
+		s.owner.setEventLimit(s, sourceErr)
+		binding.complete(sourceErr)
+		return nil, nil, sourceErr
+	}
+	streamCtx, cancel := lease.context(ctx)
+	events, err := source.Events(streamCtx, s.opts)
+	lease.release()
+	if err == nil && events == nil {
+		err = accessibility.ErrDisconnected
+	}
+	if err != nil {
+		cancel()
+		s.owner.setEventLimit(s, err)
+		binding.complete(err)
+		return nil, nil, err
+	}
+	if !s.owner.isCurrent(lease.gen) {
+		cancel()
+		err = accessibility.ErrDisconnected
+		s.owner.setEventLimit(s, err)
+		binding.complete(err)
+		return nil, nil, err
+	}
+	s.owner.setEventLimit(s, nil)
+	binding.complete(nil)
+	return events, cancel, nil
 }
 
 func (s *accessibilityEventSubscription) finishStream() {
@@ -592,11 +633,16 @@ func (s *accessibilityEventSubscription) finishStream() {
 		owner := s.owner
 		owner.mu.Lock()
 		delete(owner.eventSubs, s)
+		delete(owner.eventLimits, s)
 		owner.mu.Unlock()
 		s.mu.Lock()
+		binding := s.binding
 		close(s.done)
 		close(s.out)
 		s.mu.Unlock()
+		if binding != nil {
+			binding.complete(accessibility.ErrDisconnected)
+		}
 	})
 }
 
@@ -605,76 +651,123 @@ func (o *accessibilityBackendOwner) reopen(ctx context.Context) error {
 		return errors.New("accessibility: nil context")
 	}
 	o.reopenMu.Lock()
-	defer o.reopenMu.Unlock()
 	lease, err := o.acquire()
 	if err != nil {
+		o.reopenMu.Unlock()
 		return err
 	}
 	defer lease.release()
+	defer o.reopenMu.Unlock()
 	reopener, ok := lease.gen.backend.(accessibility.Reopener)
 	if !ok {
 		return accessibility.ErrUnsupported
 	}
+	fresh, err := o.openFreshBackend(ctx, lease, reopener)
+	if err != nil {
+		return err
+	}
+	if retireErr := o.retireBeforeReopen(ctx, lease); retireErr != nil {
+		_ = fresh.Close()
+		return retireErr
+	}
+	bindings, closeOld, err := o.publishFreshBackend(ctx, lease, fresh)
+	if closeOld {
+		o.closeGeneration(lease.gen)
+	}
+	if err != nil {
+		_ = fresh.Close()
+		return err
+	}
+	return o.finishReopen(ctx, bindings)
+}
+
+func (o *accessibilityBackendOwner) openFreshBackend(ctx context.Context, lease *accessibilityBackendLease, reopener accessibility.Reopener) (accessibility.Backend, error) {
 	reopenCtx, cancel := lease.context(ctx)
 	fresh, err := reopener.Reopen(reopenCtx)
 	cancel()
 	if err != nil {
-		return err
+		if !util.IsNil(fresh) {
+			_ = fresh.Close()
+		}
+		return nil, err
 	}
 	if util.IsNil(fresh) {
-		return accessibility.ErrDisconnected
+		return nil, accessibility.ErrDisconnected
 	}
-	unlockEpoch, err := o.prepareReopenedBackend(lease, fresh)
-	if err != nil {
-		return err
+	return fresh, nil
+}
+
+func (o *accessibilityBackendOwner) retireBeforeReopen(ctx context.Context, lease *accessibilityBackendLease) error {
+	retireErr := o.retireEvents(ctx, lease)
+	if retireErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if o.session == nil || o.session.isClosed() {
+			return ErrSessionClosed
+		}
+		o.setAllEventLimits(retireErr)
 	}
-	newGen, subs, closeNow, err := o.publishReopenedBackend(lease, fresh)
-	unlockEpoch()
-	if err != nil {
-		_ = fresh.Close()
-		return err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
-	if closeNow {
-		o.closeGeneration(lease.gen)
-	}
-	waitCtx := o.session.ctx
-	for _, sub := range subs {
-		sub.waitBound(waitCtx, newGen) //nolint:contextcheck // session cancellation bounds rebinding after commit; caller cancellation cannot skip wake registration.
-	}
-	o.refreshCapabilities()
-	o.session.notifyWaiters()
 	return nil
 }
 
-func (o *accessibilityBackendOwner) prepareReopenedBackend(lease *accessibilityBackendLease, fresh accessibility.Backend) (func(), error) {
+func (o *accessibilityBackendOwner) publishFreshBackend(ctx context.Context, lease *accessibilityBackendLease, fresh accessibility.Backend) ([]*accessibilityEventBindingWaiter, bool, error) {
 	o.epochMu.Lock()
-	o.mu.Lock()
-	if o.closed || o.current != lease.gen {
-		o.mu.Unlock()
-		o.epochMu.Unlock()
-		_ = fresh.Close()
-		if o.session != nil && o.session.isClosed() {
-			return nil, ErrSessionClosed
-		}
-		return nil, accessibility.ErrDisconnected
+	defer o.epochMu.Unlock()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, false, ctxErr
 	}
+	o.mu.Lock()
+	canPublish := !o.closed && o.current == lease.gen
 	o.mu.Unlock()
-
-	if retire, ok := lease.gen.backend.(interface{ RetireEventsForReopen() }); ok {
-		retire.RetireEventsForReopen()
+	if !canPublish {
+		if o.session != nil && o.session.isClosed() {
+			return nil, false, ErrSessionClosed
+		}
+		return nil, false, accessibility.ErrDisconnected
 	}
 	if err := advanceReopenedGeneration(lease.gen.backend, fresh); err != nil {
-		o.abandonCurrentGeneration(lease.gen, err)
-		o.epochMu.Unlock()
-		_ = fresh.Close()
-		return nil, err
+		closeOld := o.abandonCurrentGeneration(lease.gen, err)
+		return nil, closeOld, err
 	}
-	if o.session == nil {
-		o.epochMu.Unlock()
-		_ = fresh.Close()
-		return nil, ErrNilSession
+	bindings, closeNow, err := o.publishReopenedBackend(lease, fresh)
+	return bindings, closeNow, err
+}
+
+func (o *accessibilityBackendOwner) finishReopen(ctx context.Context, bindings []*accessibilityEventBindingWaiter) error {
+	var waitErr error
+	for _, waiter := range bindings {
+		if err := waiter.subscription.waitBinding(ctx, waiter.binding); err != nil {
+			if ctx.Err() != nil {
+				waitErr = ctx.Err()
+				break
+			}
+		}
 	}
-	return o.epochMu.Unlock, nil
+	o.refreshCapabilities()
+	o.session.notifyWaiters()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if o.session.isClosed() {
+		return ErrSessionClosed
+	}
+	return waitErr
+}
+
+func (o *accessibilityBackendOwner) retireEvents(ctx context.Context, lease *accessibilityBackendLease) error {
+	retirer, ok := lease.gen.backend.(interface {
+		RetireEventsForReopen(context.Context) error
+	})
+	if !ok {
+		return nil
+	}
+	retireCtx, cancel := lease.context(ctx)
+	defer cancel()
+	return retirer.RetireEventsForReopen(retireCtx)
 }
 
 func advanceReopenedGeneration(old, fresh accessibility.Backend) error {
@@ -693,11 +786,13 @@ func advanceReopenedGeneration(old, fresh accessibility.Backend) error {
 	return fmt.Errorf("accessibility: reopened generation %d does not exceed retired generation %d: %w", source.Generation(), oldGeneration, accessibility.ErrStaleGeneration)
 }
 
-func (o *accessibilityBackendOwner) abandonCurrentGeneration(gen *accessibilityBackendGeneration, cause error) {
+func (o *accessibilityBackendOwner) abandonCurrentGeneration(gen *accessibilityBackendGeneration, cause error) bool {
 	o.mu.Lock()
 	closeNow := false
+	abandoned := false
 	if o.current == gen {
 		o.current = nil
+		abandoned = true
 		closeNow = o.retireLocked(gen)
 	}
 	closeNow = closeNow || (gen.retired && gen.active == 0 && !gen.closeStarted)
@@ -705,10 +800,7 @@ func (o *accessibilityBackendOwner) abandonCurrentGeneration(gen *accessibilityB
 		gen.closeStarted = true
 	}
 	o.mu.Unlock()
-	if closeNow {
-		o.closeGeneration(gen)
-	}
-	if o.session != nil {
+	if abandoned && o.session != nil {
 		o.session.capabilitiesMu.Lock()
 		status := o.session.capabilities[CapabilityAccessibility]
 		status.Available = false
@@ -716,32 +808,66 @@ func (o *accessibilityBackendOwner) abandonCurrentGeneration(gen *accessibilityB
 		o.session.capabilities[CapabilityAccessibility] = status
 		o.session.capabilitiesMu.Unlock()
 	}
+	return closeNow
 }
 
-func (o *accessibilityBackendOwner) publishReopenedBackend(lease *accessibilityBackendLease, fresh accessibility.Backend) (*accessibilityBackendGeneration, []*accessibilityEventSubscription, bool, error) {
+func (o *accessibilityBackendOwner) publishReopenedBackend(lease *accessibilityBackendLease, fresh accessibility.Backend) ([]*accessibilityEventBindingWaiter, bool, error) {
 	session := o.session
 	if session == nil {
-		return nil, nil, false, ErrNilSession
+		return nil, false, ErrNilSession
 	}
 	session.lifecycleMu.Lock()
 	defer session.lifecycleMu.Unlock()
 	if session.closed || session.ctx == nil {
-		return nil, nil, false, ErrSessionClosed
+		return nil, false, ErrSessionClosed
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.closed || o.current != lease.gen {
-		return nil, nil, false, accessibility.ErrDisconnected
+		return nil, false, accessibility.ErrDisconnected
 	}
 	newGen := newAccessibilityBackendGeneration(fresh)
 	o.current = newGen
 	o.generations[newGen] = struct{}{}
 	closeNow := o.retireLocked(lease.gen)
-	subs := make([]*accessibilityEventSubscription, 0, len(o.eventSubs))
+	bindings := make([]*accessibilityEventBindingWaiter, 0, len(o.eventSubs))
 	for sub := range o.eventSubs {
-		subs = append(subs, sub)
+		binding := sub.beginBinding(newGen)
+		if binding != nil {
+			bindings = append(bindings, &accessibilityEventBindingWaiter{subscription: sub, binding: binding})
+		}
 	}
-	return newGen, subs, closeNow, nil
+	return bindings, closeNow, nil
+}
+
+func (o *accessibilityBackendOwner) setEventLimit(sub *accessibilityEventSubscription, err error) {
+	o.mu.Lock()
+	if _, active := o.eventSubs[sub]; active {
+		if err == nil {
+			delete(o.eventLimits, sub)
+		} else {
+			message := err.Error()
+			if len(message) > 256 {
+				message = message[:256]
+			}
+			o.eventLimits[sub] = "accessibility events unavailable: " + message
+		}
+	}
+	o.mu.Unlock()
+	o.refreshCapabilities()
+}
+
+func (o *accessibilityBackendOwner) setAllEventLimits(err error) {
+	o.mu.Lock()
+	for sub := range o.eventSubs {
+		message := err.Error()
+		if len(message) > 256 {
+			message = message[:256]
+		}
+		o.eventLimits[sub] = "accessibility events unavailable: " + message
+	}
+	o.mu.Unlock()
+	o.refreshCapabilities()
 }
 
 func (o *accessibilityBackendOwner) refreshCapabilities() {
@@ -759,9 +885,22 @@ func (o *accessibilityBackendOwner) refreshCapabilities() {
 	status.Backend = fmt.Sprintf("%T", backend)
 	status.Operations = slices.Clone(supportedOperations(CapabilityAccessibility, backend))
 	status.Diagnostics = backendDiagnostics(backend)
+	o.mu.Lock()
+	if o.closed || o.current != lease.gen {
+		o.mu.Unlock()
+		lease.release()
+		return
+	}
+	limits := make([]string, 0, len(o.eventLimits))
+	for _, limit := range o.eventLimits {
+		limits = append(limits, limit)
+	}
+	slices.Sort(limits)
+	status.Diagnostics = append(status.Diagnostics, limits...)
 	o.session.capabilitiesMu.Lock()
 	o.session.capabilities[CapabilityAccessibility] = status
 	o.session.capabilitiesMu.Unlock()
+	o.mu.Unlock()
 	lease.release()
 }
 
