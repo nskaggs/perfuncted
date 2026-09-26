@@ -37,6 +37,11 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 	b.eventsMu.Lock()
 	b.nextSubscriber++
 	id := b.nextSubscriber
+	if b.eventsRetired {
+		b.eventsMu.Unlock()
+		close(out)
+		return nil, ErrDisconnected
+	}
 	b.subscribers[id] = &eventSubscriber{out: out}
 	start := b.eventCancel == nil
 	b.eventsMu.Unlock()
@@ -184,6 +189,10 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 	retries := 0
 	for {
 		b.eventsMu.Lock()
+		if b.eventsRetired {
+			b.eventsMu.Unlock()
+			return ErrDisconnected
+		}
 		if b.eventCancel != nil {
 			b.eventsMu.Unlock()
 			return nil
@@ -233,7 +242,7 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 		eventCtx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		b.eventsMu.Lock()
-		live := b.connectedAccess(access)
+		live := !b.eventsRetired && b.connectedAccess(access)
 		if live {
 			b.eventCancel, b.eventDone = cancel, done
 			b.eventAccess = access
@@ -249,6 +258,7 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 		b.eventsMu.Unlock()
 		if !live {
 			cancel()
+			access.RemoveSignal(signals)
 			cleanupCtx, cleanupCancel := eventCleanupContext() //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
 			removeEventMatches(cleanupCtx, access, matches)    //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
 			deregisterEvents(cleanupCtx, registry, registered) //nolint:contextcheck // cleanup is an independent bounded shutdown operation.
@@ -370,6 +380,7 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				b.disconnected = true
 				b.generation++
 				b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+				b.toolkits = nil
 			}
 			b.mu.Unlock()
 			return
@@ -382,7 +393,11 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 			// coalescing is deliberately evaluated only after invalidation/cache
 			// handling so a dropped notification can never leave a fresh snapshot
 			// looking current after a second signal.
-			event = b.prepareEvent(sig, event)
+			var active bool
+			event, active = b.prepareEventTransition(sig, event)
+			if !active {
+				continue
+			}
 			if coalesceEvent(&lastKey, &lastAt, event) {
 				b.eventsMu.Lock()
 				for _, subscriber := range b.subscribers {
@@ -400,44 +415,41 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 // a delivered physical signal and stamps the resulting event with a handle
 // valid for the new generation.
 func (b *dbusBackend) prepareEvent(sig *dbus.Signal, event Event) Event {
-	// A cache signal carries an authoritative delta. Preserve the prior
-	// upstream cache state across the generation transition, then apply that
-	// delta under the new generation. Other signals deliberately discard cache
-	// metadata so a changed name/state cannot leak into a fresh snapshot.
-	var cacheItems map[NodeID]cacheItem
-	var cacheApps map[string]bool
-	if sig != nil && stringsHasCachePrefix(sig.Name) {
-		b.mu.RLock()
-		if b.cacheItems != nil {
-			cacheItems = make(map[NodeID]cacheItem, len(b.cacheItems))
-			for id, item := range b.cacheItems {
-				cacheItems[id] = item
-			}
-		}
-		if b.cacheApps != nil {
-			cacheApps = make(map[string]bool, len(b.cacheApps))
-			for name, present := range b.cacheApps {
-				cacheApps[name] = present
-			}
-		}
-		b.mu.RUnlock()
+	prepared, _ := b.prepareEventTransition(sig, event)
+	return prepared
+}
+
+func (b *dbusBackend) prepareEventTransition(sig *dbus.Signal, event Event) (Event, bool) {
+	if b == nil {
+		return event, false
 	}
-	b.Invalidate(event.Node)
-	if sig != nil && stringsHasCachePrefix(sig.Name) {
-		b.mu.Lock()
-		if cacheItems != nil {
-			rekeyed := make(map[NodeID]cacheItem, len(cacheItems))
-			for _, item := range cacheItems {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || b.disconnected {
+		event.Node.Generation = b.generation
+		return event, false
+	}
+
+	cacheSignal := sig != nil && stringsHasCachePrefix(sig.Name)
+	items := b.cacheItems
+	apps := b.cacheApps
+	b.generation++
+	b.cache, b.toolkits = nil, nil
+	if cacheSignal {
+		if items != nil {
+			rekeyed := make(map[NodeID]cacheItem, len(items))
+			for _, item := range items {
 				rekeyed[item.nodeIDAt(b.generation)] = item
 			}
-			cacheItems = rekeyed
+			items = rekeyed
 		}
-		b.cacheItems, b.cacheApps = cacheItems, cacheApps
-		b.mu.Unlock()
-		b.applyCacheSignal(sig)
+		b.cacheItems, b.cacheApps = items, apps
+		b.applyCacheSignalLocked(sig)
+	} else {
+		b.cacheItems, b.cacheApps = nil, nil
 	}
-	event.Node.Generation = b.Generation()
-	return event
+	event.Node.Generation = b.generation
+	return event, true
 }
 
 // deliverEvent is the single fan-out point. Holding eventsMu while sending

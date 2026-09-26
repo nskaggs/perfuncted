@@ -80,12 +80,13 @@ func NewSessionForTesting(
 		),
 	}
 	session.Accessibility = &AccessibilityBundle{
+		backend:    newAccessibilityBackendOwner(session),
 		bundleBase: session.bundleBase(CapabilityAccessibility),
 	}
 	var accessibilityImpl accessibility.Backend
 	if len(accessibilityBackend) > 0 && !util.IsNil(accessibilityBackend[0]) {
 		accessibilityImpl = accessibilityBackend[0]
-		session.Accessibility.backend = accessibilityImpl
+		session.Accessibility.installBackend(accessibilityImpl)
 	}
 	backends := map[Capability]any{
 		CapabilityScreen:        screenshotter,

@@ -141,7 +141,6 @@ type dbusBackend struct {
 	session      *dbus.Conn
 	access       *dbus.Conn
 	mu           sync.RWMutex
-	toolkitMu    sync.RWMutex
 	generation   uint64
 	disconnected bool
 	closed       bool
@@ -161,6 +160,7 @@ type dbusBackend struct {
 	eventAccess    *dbus.Conn
 	eventStarting  *eventStart
 	eventStartStop context.CancelFunc
+	eventsRetired  bool
 	// callOverride is used only by deterministic package tests to exercise
 	// protocol and error handling without a host D-Bus daemon.
 	callOverride func(context.Context, NodeID, string, []any) (any, error)
@@ -193,11 +193,8 @@ func (b *dbusBackend) Invalidate(_ NodeID) {
 	}
 	b.mu.Lock()
 	b.generation++
-	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+	b.cache, b.cacheItems, b.cacheApps, b.toolkits = nil, nil, nil, nil
 	b.mu.Unlock()
-	b.toolkitMu.Lock()
-	b.toolkits = nil
-	b.toolkitMu.Unlock()
 }
 
 func (b *dbusBackend) Close() error {
@@ -216,10 +213,8 @@ func (b *dbusBackend) Close() error {
 	access, session := b.access, b.session
 	b.access, b.session = nil, nil
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
-	b.mu.Unlock()
-	b.toolkitMu.Lock()
 	b.toolkits = nil
-	b.toolkitMu.Unlock()
+	b.mu.Unlock()
 	b.stopEvents(access)
 	if access != nil {
 		errs = append(errs, access.Close())
@@ -257,9 +252,10 @@ func (b *dbusBackend) toolkitForNode(ctx context.Context, id NodeID) (string, er
 	if err := b.validateHandle(id); err != nil {
 		return "", err
 	}
-	b.toolkitMu.RLock()
-	toolkit, ok := b.toolkits[id.BusName]
-	b.toolkitMu.RUnlock()
+	toolkit, ok, err := b.cachedToolkit(id)
+	if err != nil {
+		return "", err
+	}
 	if ok {
 		return toolkit, nil
 	}
@@ -281,13 +277,33 @@ func (b *dbusBackend) toolkitForNode(ctx context.Context, id NodeID) (string, er
 	if err := b.generationError(id.Generation); err != nil {
 		return "", err
 	}
-	b.toolkitMu.Lock()
+	if err := b.cacheToolkit(id, name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func (b *dbusBackend) cachedToolkit(id NodeID) (string, bool, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if id.Generation != b.generation || b.closed || b.disconnected {
+		return "", false, ErrStaleNode
+	}
+	toolkit, ok := b.toolkits[id.BusName]
+	return toolkit, ok, nil
+}
+
+func (b *dbusBackend) cacheToolkit(id NodeID, name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if id.Generation != b.generation || b.closed || b.disconnected {
+		return ErrStaleNode
+	}
 	if b.toolkits == nil {
 		b.toolkits = make(map[string]string)
 	}
 	b.toolkits[id.BusName] = name
-	b.toolkitMu.Unlock()
-	return name, nil
+	return nil
 }
 
 func (b *dbusBackend) validateHandle(id NodeID) error {

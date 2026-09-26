@@ -1247,6 +1247,51 @@ func TestNonCacheEventDiscardsPreviousGenerationCacheMetadata(t *testing.T) {
 	}
 }
 
+func TestCacheSignalAndExplicitInvalidationKeepOneCacheEpoch(t *testing.T) {
+	oldID := NodeID{BusName: "org.test", ObjectPath: "/old", Generation: 10}
+	backend := &dbusBackend{
+		generation: 10,
+		cacheItems: map[NodeID]cacheItem{
+			oldID: {Object: cacheObjectRef{BusName: oldID.BusName, ObjectPath: dbus.ObjectPath(oldID.ObjectPath)}, Name: "old"},
+		},
+		cacheApps: map[string]bool{"org.test": true},
+	}
+	added := cacheItem{Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/new"}}
+	signal := &dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{added}}
+	start := make(chan struct{})
+	finished := make(chan bool, 1)
+	go func() {
+		<-start
+		_, active := backend.prepareEventTransition(signal, Event{Kind: signal.Name})
+		finished <- active
+	}()
+	go func() {
+		<-start
+		backend.Invalidate(NodeID{})
+		finished <- true
+	}()
+	close(start)
+	for i := 0; i < 2; i++ {
+		if !<-finished {
+			t.Fatal("cache signal was discarded while backend remained active")
+		}
+	}
+
+	backend.mu.RLock()
+	defer backend.mu.RUnlock()
+	if backend.generation != 12 {
+		t.Fatalf("generation = %d, want both serialized transitions", backend.generation)
+	}
+	for id, item := range backend.cacheItems {
+		if id.Generation != backend.generation {
+			t.Fatalf("cache key generation = %d, owner generation = %d", id.Generation, backend.generation)
+		}
+		if item.Name == "old" || id.ObjectPath == oldID.ObjectPath {
+			t.Fatalf("stale cache item resurfaced after invalidation: %+v", item)
+		}
+	}
+}
+
 func TestWatchSubscriberReturnsForNonCancelableContext(t *testing.T) {
 	backend := &dbusBackend{subscribers: map[uint64]*eventSubscriber{}}
 	done := make(chan struct{})

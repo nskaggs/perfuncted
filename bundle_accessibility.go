@@ -2,8 +2,6 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/nskaggs/perfuncted/accessibility"
@@ -24,7 +22,25 @@ func (b *AccessibilityBundle) checkAvailable(operation string) error {
 	if b == nil {
 		return (&bundleBase{}).unavailable(operation)
 	}
+	owner, ok := b.backend.(*accessibilityBackendOwner)
+	if ok {
+		return b.bundleBase.checkAvailable(operation, owner.hasBackend())
+	}
 	return b.checkBackend(operation, b.backend)
+}
+
+func (b *AccessibilityBundle) installBackend(backend accessibility.Backend) {
+	if b == nil {
+		if !util.IsNil(backend) {
+			_ = backend.Close()
+		}
+		return
+	}
+	if owner, ok := b.backend.(*accessibilityBackendOwner); ok {
+		owner.install(backend)
+	} else if !util.IsNil(backend) {
+		_ = backend.Close()
+	}
 }
 
 func (b *AccessibilityBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -638,42 +654,13 @@ func (b *AccessibilityBundle) Reopen(ctx context.Context) error {
 	if err := b.checkAvailable("reopen"); err != nil {
 		return err
 	}
-	reopener, ok := b.backend.(accessibility.Reopener)
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
+	owner, ok := b.backend.(*accessibilityBackendOwner)
 	if !ok {
 		return b.operationError("reopen", accessibility.ErrUnsupported)
 	}
-	ctx, cancel := b.operationContext(ctx)
-	defer cancel()
-	fresh, err := reopener.Reopen(ctx)
-	if err != nil {
-		return b.operationError("reopen", err)
-	}
-	old := b.backend
-	b.backend = fresh
-	if old != nil {
-		_ = old.Close()
-	}
-	b.refreshCapabilitiesLocked()
-	return nil
-}
-
-func (b *AccessibilityBundle) refreshCapabilitiesLocked() {
-	session := b.session
-	if session == nil {
-		return
-	}
-	session.capabilitiesMu.Lock()
-	defer session.capabilitiesMu.Unlock()
-	status, ok := session.capabilities[CapabilityAccessibility]
-	if !ok {
-		return
-	}
-	status.Available = true
-	status.Failure = nil
-	status.Backend = fmt.Sprintf("%T", b.backend)
-	status.Operations = slices.Clone(supportedOperations(CapabilityAccessibility, b.backend))
-	status.Diagnostics = backendDiagnostics(b.backend)
-	session.capabilities[CapabilityAccessibility] = status
+	return b.operationError("reopen", owner.reopen(ctx))
 }
 
 // Generation returns the current accessibility invalidation generation.

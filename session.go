@@ -165,7 +165,10 @@ func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) er
 	}
 	s.Outputs = &OutputBundle{bundleBase: s.bundleBase(CapabilityOutputs)}
 	s.Clipboard = &ClipboardBundle{bundleBase: s.bundleBase(CapabilityClipboard)}
-	s.Accessibility = &AccessibilityBundle{bundleBase: s.bundleBase(CapabilityAccessibility)}
+	s.Accessibility = &AccessibilityBundle{
+		backend:    newAccessibilityBackendOwner(s),
+		bundleBase: s.bundleBase(CapabilityAccessibility),
+	}
 
 	for _, capability := range allCapabilities {
 		_, required := cfg.required[capability]
@@ -300,7 +303,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (accessibility.Backend, error) { return openAccessibility(ctx, s.env) },
 			nil,
-			func(backend accessibility.Backend) { s.Accessibility.backend = backend },
+			func(backend accessibility.Backend) { s.Accessibility.installBackend(backend) },
 		)
 	default:
 		return nil, fmt.Errorf("unknown capability %q", capability)

@@ -176,6 +176,10 @@ func (b *dbusBackend) applyCacheSignal(sig *dbus.Signal) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.applyCacheSignalLocked(sig)
+}
+
+func (b *dbusBackend) applyCacheSignalLocked(sig *dbus.Signal) {
 	if b.cacheItems == nil {
 		b.cacheItems = make(map[NodeID]cacheItem)
 	}

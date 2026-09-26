@@ -44,8 +44,34 @@ func (b *dbusBackend) markDisconnected() {
 	b.disconnected = true
 	b.generation++
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+	b.toolkits = nil
 	b.mu.Unlock()
 	b.stopEvents(nil)
+}
+
+// RetireEventsForReopen stops the event dispatcher while keeping the bus
+// connections available to calls pinned to this backend generation.
+func (b *dbusBackend) RetireEventsForReopen() {
+	if b == nil {
+		return
+	}
+	b.eventsMu.Lock()
+	b.eventsRetired = true
+	start, startCancel := b.eventStarting, b.eventStartStop
+	cancel, done := b.eventCancel, b.eventDone
+	b.eventsMu.Unlock()
+	if startCancel != nil {
+		startCancel()
+	}
+	if cancel != nil {
+		cancel()
+	}
+	if start != nil {
+		<-start.done
+	}
+	if done != nil {
+		<-done
+	}
 }
 
 // Reopen creates a fresh backend against the same target session. The new

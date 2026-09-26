@@ -510,9 +510,15 @@ func (s *Session) waitChanges() *waitEpoch { //nolint:gocyclo // one hub owns in
 			}
 		}
 		if s.Accessibility != nil && !util.IsNil(s.Accessibility.backend) {
-			if source, ok := s.Accessibility.backend.(accessibility.EventSource); ok {
+			var openEvents func(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error)
+			if owner, ok := s.Accessibility.backend.(*accessibilityBackendOwner); ok {
+				openEvents = owner.eventsAcrossReopens
+			} else if source, ok := s.Accessibility.backend.(accessibility.EventSource); ok {
+				openEvents = source.Events
+			}
+			if openEvents != nil {
 				go func() {
-					events, err := source.Events(s.ctx, accessibility.EventOptions{Buffer: 128})
+					events, err := openEvents(s.ctx, accessibility.EventOptions{Buffer: 128})
 					if err != nil || events == nil {
 						return
 					}
