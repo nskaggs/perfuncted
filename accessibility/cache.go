@@ -47,11 +47,21 @@ func (item cacheItem) nodeIDAt(generation uint64) NodeID {
 }
 
 func (b *dbusBackend) children(ctx context.Context, id NodeID) ([]objectRef, error) {
+	return b.childrenWithCache(ctx, id, true)
+}
+
+func (b *dbusBackend) childrenFresh(ctx context.Context, id NodeID) ([]objectRef, error) {
+	return b.childrenWithCache(ctx, id, false)
+}
+
+func (b *dbusBackend) childrenWithCache(ctx context.Context, id NodeID, allowCache bool) ([]objectRef, error) {
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
 	}
-	if cached := b.cachedChildren(id); cached != nil {
-		return cached, nil
+	if allowCache {
+		if cached := b.cachedChildren(id); cached != nil {
+			return cached, nil
+		}
 	}
 	expected := id.Generation
 	obj, err := b.object(id)

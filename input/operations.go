@@ -2,8 +2,8 @@ package input
 
 import "github.com/nskaggs/perfuncted/internal/capability"
 
-func supportedOperations(pointerLocation, coordinateSpace bool) []string {
-	var exclude []string
+func supportedOperations(pointerLocation, coordinateSpace bool, additionalExclusions ...string) []string {
+	exclude := append([]string(nil), additionalExclusions...)
 	if !pointerLocation {
 		exclude = append(exclude, "pointer-location")
 	}

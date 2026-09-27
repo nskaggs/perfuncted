@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
 )
@@ -38,8 +39,13 @@ func (s *Session) InvokeAccessibilityActionAndWait(
 	}
 	receipt, err := s.Accessibility.InvokeSemanticAction(ctx, root, query, actionName, snapshotOptions)
 	if err != nil {
-		return AccessibilityActionReceipt{}, WaitEvidence{}, err
+		return receipt, WaitEvidence{}, err
 	}
 	evidence, err := s.WaitWithEvidence(ctx, postcondition, waitOptions...)
+	receipt.Outcome = ActionOutcomeProof{Status: ActionOutcomeNotVerified, Condition: postcondition.describe()}
+	if err == nil {
+		receipt.Outcome.Status = ActionOutcomeVerified
+		receipt.Outcome.ObservedAt = time.Now().UTC()
+	}
 	return receipt, evidence, err
 }

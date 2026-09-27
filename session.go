@@ -35,6 +35,7 @@ type Session struct {
 	Accessibility *AccessibilityBundle
 
 	config          SessionConfig
+	portalInput     *input.RemoteDesktopOptions
 	timeoutInput    TimeoutPolicy
 	hasTimeoutInput bool
 	target          DesktopTarget
@@ -93,6 +94,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 
 	s := &Session{
 		config:          cfg.target.config,
+		portalInput:     cfg.portalInput,
 		timeoutInput:    timeoutInput,
 		hasTimeoutInput: true,
 		capabilities:    make(map[Capability]CapabilityStatus, len(allCapabilities)),
@@ -273,7 +275,12 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 		}
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
-			func(ctx context.Context) (input.Inputter, error) { return openInput(ctx, s.env, maxX, maxY) },
+			func(ctx context.Context) (input.Inputter, error) {
+				if s.portalInput != nil {
+					return openRemoteDesktopInput(ctx, s.env, *s.portalInput)
+				}
+				return openInput(ctx, s.env, maxX, maxY)
+			},
 			nil,
 			func(backend input.Inputter) { s.Input.backend = backend },
 		)

@@ -1,7 +1,8 @@
-// Package input provides keyboard and mouse injection backends.
-// Backend priority on Wayland: wl-virtual -> XTEST (when DISPLAY is set) ->
-// uinput. On X11, XTEST is used first; uinput remains the final fallback.
-// uinput requires membership in the "input" group or a udev rule:
+// Package input provides keyboard and mouse input backends. The runtime
+// selector uses compositor injection, XTEST, and uinput according to the
+// current session. Callers may instead explicitly select the user-authorized
+// RemoteDesktop portal and EIS backend; that path has no fallback. uinput
+// requires membership in the "input" group or a udev rule:
 //
 // KERNEL=="uinput", GROUP="input", MODE="0660"
 package input
@@ -20,6 +21,13 @@ import (
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
+
+// RemoteDesktopOptions controls explicit XDG RemoteDesktop/EIS input. The
+// portal presents device consent when a new persistent permission is needed.
+type RemoteDesktopOptions struct {
+	ParentWindow      string
+	PersistPermission bool
+}
 
 var newWlVirtualBackend = func(ctx context.Context, sock string) (Inputter, error) {
 	return NewWlVirtualBackendContext(ctx, sock)
@@ -40,6 +48,15 @@ var statUinput = func() error {
 
 // ErrNotSupported is returned when the selected input backend cannot perform an operation.
 var ErrNotSupported = errors.New("input: operation not supported on this backend")
+
+var (
+	// ErrRemoteDesktopUnavailable indicates that the portal or EIS path cannot be opened.
+	ErrRemoteDesktopUnavailable = errors.New("input: RemoteDesktop portal or EIS unavailable")
+	// ErrRemoteDesktopDenied indicates that the user or portal denied input access.
+	ErrRemoteDesktopDenied = errors.New("input: RemoteDesktop permission denied")
+	// ErrRemoteDesktopRevoked indicates that an active portal or EIS session ended.
+	ErrRemoteDesktopRevoked = errors.New("input: RemoteDesktop permission revoked")
+)
 
 func unsupportedError(backend, operation string) error {
 	return fmt.Errorf("%s: %s: %w", backend, operation, ErrNotSupported)

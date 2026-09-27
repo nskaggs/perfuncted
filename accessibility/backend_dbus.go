@@ -435,6 +435,80 @@ func (b *dbusBackend) FindApplication(ctx context.Context, filter ApplicationFil
 	}
 }
 
+// FindApplicationFresh resolves an application from current desktop children
+// and identity properties. It does not load or consult the AT-SPI cache.
+func (b *dbusBackend) FindApplicationFresh(ctx context.Context, filter ApplicationFilter) (Application, error) { //nolint:gocyclo // fresh lookup keeps identity, completeness, and generation checks in one bounded resolution.
+	if ctx == nil {
+		return Application{}, errors.New("accessibility: nil context")
+	}
+	want := strings.ToLower(strings.TrimSpace(filter.Name))
+	wantTitle := strings.ToLower(strings.TrimSpace(filter.WindowTitle))
+	for attempt := 0; attempt < 2; attempt++ {
+		expected := b.Generation()
+		refs, err := b.childrenFresh(ctx, b.desktop())
+		if err != nil {
+			if errors.Is(err, ErrStaleGeneration) {
+				continue
+			}
+			return Application{}, err
+		}
+		if len(refs) > maxApplications {
+			return Application{}, fmt.Errorf("%w: application list exceeds %d entries", ErrIncompleteSnapshot, maxApplications)
+		}
+		matches := make([]Application, 0, 1)
+		for _, ref := range refs {
+			if err := ctx.Err(); err != nil {
+				return Application{}, err
+			}
+			if filter.Bus != "" && ref.BusName != filter.Bus {
+				continue
+			}
+			id := b.refID(ref)
+			if filter.WindowID != "" && id.ObjectPath != filter.WindowID {
+				continue
+			}
+			pid, pidErr := b.connectionPID(ctx, ref.BusName)
+			if filter.PID != 0 {
+				if pidErr != nil {
+					return Application{}, fmt.Errorf("accessibility: resolve application PID: %w", pidErr)
+				}
+				if pid != filter.PID {
+					continue
+				}
+			}
+			var name string
+			if err := b.property(ctx, id, accessibleIface, "Name", &name); err != nil {
+				return Application{}, fmt.Errorf("accessibility: read application name: %w", err)
+			}
+			var description string
+			if wantTitle != "" {
+				if err := b.property(ctx, id, accessibleIface, "Description", &description); err != nil {
+					return Application{}, fmt.Errorf("accessibility: read application description: %w", err)
+				}
+			}
+			if want != "" && !strings.Contains(strings.ToLower(name), want) {
+				continue
+			}
+			if wantTitle != "" && !strings.Contains(strings.ToLower(name), wantTitle) && !strings.Contains(strings.ToLower(description), wantTitle) {
+				continue
+			}
+			matches = append(matches, Application{Node: Node{ID: id, Name: name, Description: description}, PID: pid})
+		}
+		if err := b.generationError(expected); err != nil {
+			continue
+		}
+		switch len(matches) {
+		case 0:
+			return Application{}, ErrNotFound
+		case 1:
+			return matches[0], nil
+		default:
+			return Application{}, fmt.Errorf("%w: %d applications matched", ErrAmbiguous, len(matches))
+		}
+	}
+	return Application{}, fmt.Errorf("%w: bounded fresh application resolution exhausted", ErrStaleGeneration)
+}
+
 func (b *dbusBackend) connectionPID(ctx context.Context, busName string) (int32, error) {
 	if strings.TrimSpace(busName) == "" || b == nil {
 		return 0, nil

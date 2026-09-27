@@ -29,6 +29,24 @@ type windowCandidate struct {
 // dialog. PID is only a narrowing signal; title, role, geometry, and active
 // state decide the final candidate.
 func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (WindowScope, error) { //nolint:gocyclo // correlation keeps each ambiguity and evidence rule explicit.
+	return b.resolveWindow(ctx, target, false)
+}
+
+// ResolveWindowFresh performs the same correlation from current AT-SPI
+// children and identity properties. Incomplete provider reads fail closed so
+// a locator cannot inherit a stale or partial scope root.
+func (b *dbusBackend) ResolveWindowFresh(ctx context.Context, target WindowTarget) (WindowScope, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		scope, err := b.resolveWindow(ctx, target, true)
+		if !errors.Is(err, ErrStaleGeneration) || attempt == 1 {
+			return scope, err
+		}
+	}
+	return WindowScope{}, ErrStaleGeneration
+}
+
+func (b *dbusBackend) resolveWindow(ctx context.Context, target WindowTarget, fresh bool) (WindowScope, error) { //nolint:gocyclo // correlation keeps each ambiguity and evidence rule explicit.
+	expectedGeneration := b.Generation()
 	if strings.TrimSpace(target.ID) == "" {
 		return WindowScope{}, fmt.Errorf("%w: window identity is empty", ErrNotFound)
 	}
@@ -41,11 +59,28 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 	// can block on Firefox while its chrome is publishing. Keep this resolver
 	// on the narrow identity path so BrowserConsole startup is not held hostage
 	// by unrelated application content.
-	apps, err := b.windowApplications(ctx, target)
+	var apps []Application
+	var err error
+	if fresh {
+		apps, err = b.windowApplicationsFresh(ctx, target)
+	} else {
+		apps, err = b.windowApplications(ctx, target)
+	}
 	if err != nil {
 		return WindowScope{}, err
 	}
-	candidates := b.windowCandidates(ctx, target, apps)
+	var candidates []windowCandidate
+	if fresh {
+		candidates, err = b.windowCandidatesFresh(ctx, target, apps)
+		if err != nil {
+			return WindowScope{}, err
+		}
+		if err := b.generationError(expectedGeneration); err != nil {
+			return WindowScope{}, err
+		}
+	} else {
+		candidates = b.windowCandidates(ctx, target, apps)
+	}
 	if len(candidates) == 0 {
 		return WindowScope{WindowID: target.ID, Title: target.Title}, &MatchError{Operation: "window correlation", Err: ErrNotFound}
 	}
@@ -88,6 +123,123 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 		Candidates:      bestCandidates,
 		Evidence:        evidence,
 	}, nil
+}
+
+func (b *dbusBackend) windowApplicationsFresh(ctx context.Context, target WindowTarget) ([]Application, error) { //nolint:gocyclo // app ownership and generation checks jointly establish a complete window scope.
+	if ctx == nil {
+		return nil, errors.New("accessibility: nil context")
+	}
+	expected := b.Generation()
+	refs, err := b.childrenFresh(ctx, NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: expected})
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) > maxApplications {
+		return nil, fmt.Errorf("%w: application list exceeds %d entries", ErrIncompleteSnapshot, maxApplications)
+	}
+	wantPID := target.PID
+	if wantPID == 0 {
+		wantPID = target.PIDHint
+	}
+	apps := make([]Application, 0, len(refs))
+	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		pid, pidErr := b.connectionPID(ctx, ref.BusName)
+		if wantPID != 0 {
+			if pidErr != nil {
+				return nil, fmt.Errorf("accessibility: resolve window application PID: %w", pidErr)
+			}
+			if pid != wantPID {
+				continue
+			}
+		}
+		id := b.refID(ref)
+		app := Application{Node: Node{ID: id}, PID: pid}
+		if wantPID == 0 && target.Title == "" && target.AppID != "" {
+			if err := b.property(ctx, id, accessibleIface, "Name", &app.Name); err != nil {
+				return nil, fmt.Errorf("accessibility: read window application name: %w", err)
+			}
+			if err := b.property(ctx, id, accessibleIface, "Description", &app.Description); err != nil {
+				return nil, fmt.Errorf("accessibility: read window application description: %w", err)
+			}
+		}
+		apps = append(apps, app)
+	}
+	if err := b.generationError(expected); err != nil {
+		return nil, err
+	}
+	return apps, nil
+}
+
+func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTarget, apps []Application) ([]windowCandidate, error) {
+	expected := b.Generation()
+	var candidates []windowCandidate
+	for _, app := range apps {
+		if app.ID.Generation != expected {
+			return nil, ErrStaleGeneration
+		}
+		if err := b.generationError(expected); err != nil {
+			return nil, err
+		}
+		if !windowAppMatches(app, target) {
+			continue
+		}
+		children, err := b.childrenFresh(ctx, app.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(children) > maxApplications {
+			return nil, fmt.Errorf("%w: window child list exceeds %d entries", ErrIncompleteSnapshot, maxApplications)
+		}
+		for _, child := range children {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			id := b.refID(child)
+			readCtx, cancel := windowCandidateContext(ctx)
+			node, readErr := b.readWindowCandidateFresh(readCtx, id, app.ID, target.Title != "")
+			cancel()
+			if readErr != nil {
+				return nil, fmt.Errorf("accessibility: resolve fresh window candidate %s: %w", id.ObjectPath, readErr)
+			}
+			if !isWindowRole(node.Role) {
+				continue
+			}
+			if score := windowCandidateScore(node, target); score > 0 {
+				candidates = append(candidates, windowCandidate{node: node, app: app, score: score})
+			}
+		}
+	}
+	return candidates, b.generationError(expected)
+}
+
+func (b *dbusBackend) readWindowCandidateFresh(ctx context.Context, id, parent NodeID, needDescription bool) (Node, error) {
+	if _, err := b.object(id); err != nil {
+		return Node{}, err
+	}
+	node := Node{ID: id, Parent: parent}
+	if err := b.property(ctx, id, accessibleIface, "Name", &node.Name); err != nil {
+		return Node{}, err
+	}
+	if needDescription {
+		if err := b.property(ctx, id, accessibleIface, "Description", &node.Description); err != nil {
+			return Node{}, err
+		}
+	}
+	var role uint32
+	if err := b.call(ctx, id, accessibleIface+".GetRole", nil, &role); err != nil {
+		return Node{}, err
+	}
+	node.RoleID = role
+	node.Role = roleName(role)
+	var states []uint32
+	if err := b.call(ctx, id, accessibleIface+".GetState", nil, &states); err != nil {
+		return Node{}, err
+	}
+	b.applyStates(states, &node)
+	return node, b.generationError(id.Generation)
 }
 
 func (b *dbusBackend) windowApplications(ctx context.Context, target WindowTarget) ([]Application, error) {

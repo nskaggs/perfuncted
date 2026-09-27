@@ -36,7 +36,7 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 			return Snapshot{}, err
 		}
 		expectedGeneration := root.Generation
-		if root.BusName != registryName {
+		if !opts.Fresh && root.BusName != registryName {
 			if err := b.loadCache(ctx, root.BusName); err != nil && errors.Is(err, ErrStaleGeneration) {
 				if requestedRoot == (NodeID{}) {
 					continue
@@ -47,7 +47,7 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		key := snapshotKey(root, opts)
 		now := time.Now()
 		b.mu.RLock()
-		if entry, ok := b.cache[key]; ok && now.Sub(entry.at) < cacheTTL && entry.snapshot.Generation == expectedGeneration {
+		if entry, ok := b.cache[key]; !opts.Fresh && ok && now.Sub(entry.at) < cacheTTL && entry.snapshot.Generation == expectedGeneration {
 			snapshot := cloneSnapshot(entry.snapshot)
 			b.mu.RUnlock()
 			return snapshot, nil
@@ -698,7 +698,12 @@ type snapshotBackend interface {
 	refID(objectRef) NodeID
 }
 
-func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int) (Node, error) {
+type freshSnapshotBackend interface {
+	readNodeFresh(context.Context, NodeID, NodeID, int, bool) (Node, error)
+	childrenFresh(context.Context, NodeID) ([]objectRef, error)
+}
+
+func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int) (Node, error) { //nolint:gocyclo // one node visit commits bounds, cache policy, and subtree completeness together.
 	if err := ctx.Err(); err != nil {
 		return Node{}, err
 	}
@@ -714,7 +719,17 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 		return Node{}, nil
 	}
 	w.seen[id] = struct{}{}
-	node, err := w.backend.readNode(ctx, id, parent, w.opts.MaxTextBytes, w.opts.AllowSensitive)
+	var node Node
+	var err error
+	if w.opts.Fresh {
+		if fresh, ok := w.backend.(freshSnapshotBackend); ok {
+			node, err = fresh.readNodeFresh(ctx, id, parent, w.opts.MaxTextBytes, w.opts.AllowSensitive)
+		} else {
+			node, err = w.backend.readNode(ctx, id, parent, w.opts.MaxTextBytes, w.opts.AllowSensitive)
+		}
+	} else {
+		node, err = w.backend.readNode(ctx, id, parent, w.opts.MaxTextBytes, w.opts.AllowSensitive)
+	}
 	if err != nil {
 		return Node{}, err
 	}
@@ -727,8 +742,10 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 	}
 	nodeIndex := len(w.snapshot.Nodes)
 	w.snapshot.Nodes = append(w.snapshot.Nodes, node)
-	if node.ChildCount > 0 && !w.opts.skipRole(node.Role) {
-		if err := w.walkChildren(ctx, &node, id, depth); err != nil {
+	if node.ChildCount > 0 {
+		if w.opts.skipRole(node.Role) {
+			w.markTruncated(fmt.Sprintf("subtree below role %q was skipped", node.Role))
+		} else if err := w.walkChildren(ctx, &node, id, depth); err != nil {
 			return Node{}, err
 		}
 	}
@@ -750,7 +767,17 @@ func (o SnapshotOptions) skipRole(role string) bool {
 }
 
 func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID, depth int) error {
-	children, err := w.backend.children(ctx, id)
+	var children []objectRef
+	var err error
+	if w.opts.Fresh {
+		if fresh, ok := w.backend.(freshSnapshotBackend); ok {
+			children, err = fresh.childrenFresh(ctx, id)
+		} else {
+			children, err = w.backend.children(ctx, id)
+		}
+	} else {
+		children, err = w.backend.children(ctx, id)
+	}
 	if err != nil {
 		if errors.Is(err, ErrStaleGeneration) {
 			w.err = err
@@ -809,24 +836,130 @@ func (b *dbusBackend) Find(ctx context.Context, root NodeID, query Query, opts S
 // one bounded snapshot for both selection and diagnostic candidates instead
 // of paying two AT-SPI traversals.
 func FilterSnapshot(snapshot Snapshot, query Query) []Node {
-	wantName, wantRole, wantText := strings.ToLower(strings.TrimSpace(query.Name)), strings.ToLower(strings.TrimSpace(query.Role)), strings.ToLower(strings.TrimSpace(query.Text))
+	return FilterSnapshotSelector(snapshot, Selector{
+		Name:       query.Name,
+		Role:       query.Role,
+		Text:       query.Text,
+		States:     query.States,
+		Attributes: query.Attributes,
+	})
+}
+
+// FilterSnapshotSelector is the shared predicate path for semantic discovery,
+// locator waits, and actions. It resolves labels and ancestry only from nodes
+// inside the supplied managed snapshot.
+func FilterSnapshotSelector(snapshot Snapshot, selector Selector) []Node {
 	result := make([]Node, 0)
+	byID := make(map[NodeID]Node, len(snapshot.Nodes))
+	labelsFor := make(map[NodeID][]NodeID)
 	for _, node := range snapshot.Nodes {
-		if wantName != "" && !strings.Contains(strings.ToLower(node.Name), wantName) {
-			continue
+		byID[node.ID] = node
+		for _, target := range node.Relations["label-for"] {
+			labelsFor[target] = append(labelsFor[target], node.ID)
 		}
-		if wantRole != "" && !strings.Contains(strings.ToLower(node.Role), wantRole) {
-			continue
-		}
-		if wantText != "" && !strings.Contains(strings.ToLower(node.Text), wantText) {
-			continue
-		}
-		if !matchesStates(node.States, query.States) || !matchesAttributes(node.Attributes, query.Attributes) {
+	}
+	for _, node := range snapshot.Nodes {
+		if !matchesSelectorNode(node, selector) || !matchesLabel(byID, labelsFor, node, selector.Label) || !matchesAncestors(byID, node, selector.Ancestors) {
 			continue
 		}
 		result = append(result, node)
 	}
 	return result
+}
+
+// ValidateSemanticSnapshot rejects observations that cannot prove the target
+// set is complete. Text limits matter only when the selector depends on text.
+func ValidateSemanticSnapshot(snapshot Snapshot, selector Selector) error {
+	reasons := make([]string, 0, 4)
+	if snapshot.Truncated {
+		if len(snapshot.TruncationReasons) == 0 {
+			reasons = append(reasons, "bounded traversal was truncated")
+		} else {
+			reasons = append(reasons, "bounded traversal was truncated: "+strings.Join(snapshot.TruncationReasons, ", "))
+		}
+	}
+	if snapshot.ProviderErrors > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d provider reads failed", snapshot.ProviderErrors))
+	}
+	if len(snapshot.Warnings) > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d snapshot warnings", len(snapshot.Warnings)))
+	}
+	usesText := strings.TrimSpace(selector.Text) != "" || strings.TrimSpace(selector.Label) != ""
+	for _, node := range snapshot.Nodes {
+		if len(node.Warnings) > 0 {
+			reasons = append(reasons, "node properties were not fully observed")
+			break
+		}
+		if usesText && node.TextTruncated {
+			reasons = append(reasons, "selector text was truncated")
+			break
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrIncompleteSnapshot, strings.Join(reasons, "; "))
+}
+
+func matchesSelectorNode(node Node, selector Selector) bool {
+	if want := strings.ToLower(strings.TrimSpace(selector.Name)); want != "" && !strings.Contains(strings.ToLower(node.Name), want) {
+		return false
+	}
+	if want := strings.ToLower(strings.TrimSpace(selector.Role)); want != "" && !strings.Contains(strings.ToLower(node.Role), want) {
+		return false
+	}
+	if want := strings.ToLower(strings.TrimSpace(selector.Text)); want != "" && !strings.Contains(strings.ToLower(node.Text), want) {
+		return false
+	}
+	return matchesStates(node.States, selector.States) && matchesAttributes(node.Attributes, selector.Attributes)
+}
+
+func matchesLabel(byID map[NodeID]Node, labelsFor map[NodeID][]NodeID, node Node, requested string) bool {
+	want := strings.ToLower(strings.TrimSpace(requested))
+	if want == "" {
+		return true
+	}
+	for _, id := range node.Relations["labelled-by"] {
+		if label, ok := byID[id]; ok && labelMatches(label, want) {
+			return true
+		}
+	}
+	for _, labelID := range labelsFor[node.ID] {
+		if label, ok := byID[labelID]; ok && labelMatches(label, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func labelMatches(label Node, want string) bool {
+	return strings.Contains(strings.ToLower(label.Name), want) || strings.Contains(strings.ToLower(label.Text), want)
+}
+
+func matchesAncestors(byID map[NodeID]Node, node Node, requested []AncestorSelector) bool {
+	if len(requested) == 0 {
+		return true
+	}
+	parent := node.Parent
+	for _, constraint := range requested {
+		found := false
+		for steps := 0; parent.valid() && steps < len(byID); steps++ {
+			ancestor, ok := byID[parent]
+			if !ok {
+				return false
+			}
+			if matchesSelectorNode(ancestor, Selector{Role: constraint.Role, Name: constraint.Name}) {
+				parent = ancestor.Parent
+				found = true
+				break
+			}
+			parent = ancestor.Parent
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func matchesStates(have, want []string) bool {

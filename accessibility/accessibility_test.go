@@ -390,6 +390,26 @@ func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	}
 }
 
+func TestFreshChildrenBypassATSPICacheItems(t *testing.T) {
+	root := NodeID{BusName: "org.test.App", ObjectPath: "/root", Generation: 1}
+	child := NodeID{BusName: root.BusName, ObjectPath: "/cached-child", Generation: 1}
+	item := cacheItem{
+		Object: cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)},
+		Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+	}
+	backend := &dbusBackend{
+		generation: 1,
+		cacheItems: map[NodeID]cacheItem{child: item},
+		cacheApps:  map[string]bool{root.BusName: true},
+	}
+	if children, err := backend.children(context.Background(), root); err != nil || len(children) != 1 {
+		t.Fatalf("cached children = %+v, %v; want one cache item", children, err)
+	}
+	if _, err := backend.childrenFresh(context.Background(), root); !errors.Is(err, ErrDisconnected) {
+		t.Fatalf("fresh children error = %v, want direct-provider disconnected error", err)
+	}
+}
+
 func TestFindMatchesStatesAndAttributes(t *testing.T) {
 	if !matchesStates([]string{"enabled", "focused"}, []string{"focused"}) {
 		t.Fatal("state match rejected present state")
@@ -501,6 +521,9 @@ func TestSnapshotWalkerSkipsConfiguredRoleSubtree(t *testing.T) {
 	}
 	if len(walker.snapshot.Nodes) != 3 {
 		t.Fatalf("snapshot nodes = %+v, want root, landmark, entry sibling", walker.snapshot.Nodes)
+	}
+	if !walker.snapshot.Truncated {
+		t.Fatal("snapshot omitted a configured subtree without marking its target set incomplete")
 	}
 	for _, node := range walker.snapshot.Nodes {
 		if node.ID == landmark && len(node.Children) != 0 {

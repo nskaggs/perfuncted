@@ -68,10 +68,25 @@ func main() {
 capabilities, and the exact operation list. Discovery does not imply that every
 control operation is available.
 
-Wayland portal capture may show a consent dialog. Perfuncted does not implement
-portal input: input needs a compositor injection protocol or permission to open
-`/dev/uinput`. KDE and GNOME sessions without native bridge input may use
-uinput.
+Wayland portal capture may show a consent dialog. Portal input is an explicit
+choice: `WithRemoteDesktopInput` requests keyboard and pointer authorization
+through the XDG RemoteDesktop portal and sends input only over its EIS
+connection. A denied or unavailable portal fails the required input
+capability; it does not fall back to compositor injection or uinput. EIS
+absolute pointer events are checked against the regions advertised for the
+authorized devices. Persistent portal permission is opt-in and its single-use
+restore token is kept in a private file under `XDG_STATE_HOME`.
+
+```go
+session, err := perfuncted.Open(ctx,
+	perfuncted.WithRemoteDesktopInput(perfuncted.RemoteDesktopInputOptions{
+		ParentWindow: "xdg-parent-handle",
+	}),
+)
+```
+
+Without this option, Perfuncted keeps its regular backend selection. KDE and
+GNOME sessions without native bridge input may use uinput.
 
 **GNOME (Mutter):** perfuncted carries a small, versioned GNOME Shell
 integration and installs it automatically when a GNOME-native capability is
@@ -163,6 +178,12 @@ Every session has non-nil capability facades:
   observable postcondition, usually through `WaitWithEvidence`. Use
   `AccessibilityWindow` only when an adapter already has an explicit
   compositor/accessibility correlation target; it is the advanced path.
+  `LocatorForWindow` and `LocatorForApplication` retain selector intent and
+  resolve fresh snapshots for `Matches`, `Resolve`, `Wait`, and
+  `InvokeActionAndWait`. `ClickAndWait` invokes the accessible default action;
+  `FillAndWait` uses one EditableText `SetTextContents` call. Both return a
+  receipt that reports dispatch acknowledgement separately from the
+  independent postcondition result; uncertain dispatches are not repeated.
   Typed low-level operations remain available on `AccessibilityBundle`; use
   `pf a11y raw` when working with explicit protocol-level handles.
 

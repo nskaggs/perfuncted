@@ -135,6 +135,9 @@ type SnapshotOptions struct {
 	// AllowSensitive disables the default redaction of AT-SPI sensitive and
 	// protected text/value attributes. Use only for an explicit trusted flow.
 	AllowSensitive bool `json:"allowSensitive,omitempty"`
+	// Fresh bypasses both snapshot and AT-SPI cache data so semantic actions and
+	// locator checks read current provider nodes and child lists.
+	Fresh bool `json:"fresh,omitempty"`
 	// AllowDesktopRoot explicitly opts into a bounded whole-desktop tree. It
 	// is false by default so Snapshot and Find cannot accidentally traverse
 	// every application when a caller omitted scope.
@@ -200,6 +203,26 @@ type Query struct {
 	Text       string            `json:"text,omitempty"`
 	States     []string          `json:"states,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+// Selector matches accessible objects by semantic properties in one bounded
+// snapshot. Name, role, label, and ancestor fields use case-insensitive
+// substring matching; every requested state must be present.
+type Selector struct {
+	Role       string             `json:"role,omitempty"`
+	Name       string             `json:"name,omitempty"`
+	Label      string             `json:"label,omitempty"`
+	Text       string             `json:"text,omitempty"`
+	States     []string           `json:"states,omitempty"`
+	Attributes map[string]string  `json:"attributes,omitempty"`
+	Ancestors  []AncestorSelector `json:"ancestors,omitempty"`
+}
+
+// AncestorSelector describes one ancestor constraint, ordered from the
+// nearest required ancestor outward. Unspecified fields are ignored.
+type AncestorSelector struct {
+	Role string `json:"role,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // ApplicationFilter selects an application root. Empty fields are ignored;
@@ -274,6 +297,13 @@ type Backend interface {
 // only the operations they need.
 type ApplicationFinder interface {
 	FindApplication(context.Context, ApplicationFilter) (Application, error)
+}
+
+// FreshApplicationFinder resolves an application without AT-SPI cache data.
+// Semantic locators use it so their scope identity and descendants describe
+// the same current provider state.
+type FreshApplicationFinder interface {
+	FindApplicationFresh(context.Context, ApplicationFilter) (Application, error)
 }
 
 // EventSource is an optional extension for backends that can receive AT-SPI
@@ -422,6 +452,13 @@ type WindowScope struct {
 // corresponding AT-SPI top-level accessible subtree.
 type WindowResolver interface {
 	ResolveWindow(context.Context, WindowTarget) (WindowScope, error)
+}
+
+// FreshWindowResolver correlates a managed window using current AT-SPI
+// children and identity properties, and fails when that correlation cannot
+// be observed completely.
+type FreshWindowResolver interface {
+	ResolveWindowFresh(context.Context, WindowTarget) (WindowScope, error)
 }
 
 // Reopener creates a fresh backend for the same target session. It is

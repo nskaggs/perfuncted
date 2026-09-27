@@ -168,7 +168,7 @@ func (b *dbusBackend) InvokeAction(ctx context.Context, id NodeID, index int32) 
 	if index < 0 || int(index) >= len(actions) {
 		return fmt.Errorf("%w: %d", ErrInvalidAction, index)
 	}
-	return b.mutationBool(ctx, id, actionIface, "DoAction", index)
+	return b.dispatchAction(ctx, id, actions[index])
 }
 
 // InvokeActionByName selects one action from a single metadata read, invokes
@@ -203,8 +203,8 @@ func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name st
 	}
 	// Invoke the index selected from this metadata read. Re-reading actions
 	// could select a different operation if the provider changes between calls.
-	if err := b.mutationBool(ctx, id, actionIface, "DoAction", chosen.Index); err != nil {
-		return Action{}, err
+	if err := b.dispatchAction(ctx, id, chosen); err != nil {
+		return chosen, err
 	}
 	return chosen, nil
 }
@@ -222,10 +222,52 @@ func (b *dbusBackend) InvokeDefaultAction(ctx context.Context, id NodeID) (Actio
 	if err != nil {
 		return Action{}, fmt.Errorf("accessibility: retrieve machine-readable action name at index %d: %w", chosen.Index, err)
 	}
-	if err := b.mutationBool(ctx, id, actionIface, "DoAction", chosen.Index); err != nil {
-		return Action{}, err
+	if err := b.dispatchAction(ctx, id, chosen); err != nil {
+		return chosen, err
 	}
 	return chosen, nil
+}
+
+func (b *dbusBackend) dispatchAction(ctx context.Context, id NodeID, chosen Action) error {
+	if err := mutationContext(ctx, "DoAction"); err != nil {
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchNotSent, Err: err}
+	}
+	if b != nil && b.callOverride != nil {
+		if err := b.validateHandle(id); err != nil {
+			return &ActionInvocationError{Action: chosen, Dispatch: DispatchNotSent, Err: err}
+		}
+		result, err := b.callOverride(ctx, id, actionIface+".DoAction", []any{chosen.Index})
+		if normalizedErr := normalizeMutationError(actionIface, "DoAction", err); normalizedErr != nil {
+			return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: normalizedErr}
+		}
+		accepted, ok := result.(bool)
+		if !ok {
+			err := fmt.Errorf("accessibility: %s.DoAction returned malformed result %T", actionIface, result)
+			return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: err}
+		}
+		if !accepted {
+			return &ActionInvocationError{Action: chosen, Dispatch: DispatchRejected, Err: ErrMutationRejected}
+		}
+		return nil
+	}
+	obj, err := b.object(id)
+	if err != nil {
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchNotSent, Err: err}
+	}
+	call := obj.CallWithContext(ctx, actionIface+".DoAction", 0, chosen.Index)
+	if call.Err != nil {
+		err := normalizeMutationError(actionIface, "DoAction", call.Err)
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: err}
+	}
+	var accepted bool
+	if err := call.Store(&accepted); err != nil {
+		err = normalizeMutationError(actionIface, "DoAction", err)
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: err}
+	}
+	if !accepted {
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchRejected, Err: ErrMutationRejected}
+	}
+	return nil
 }
 
 func (b *dbusBackend) GrabFocus(ctx context.Context, id NodeID) error {

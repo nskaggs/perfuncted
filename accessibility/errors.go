@@ -6,6 +6,7 @@ package accessibility
 
 import (
 	"errors"
+	"fmt"
 )
 
 var (
@@ -38,4 +39,44 @@ var (
 	// ErrResponseBudget indicates that even the minimum safe snapshot envelope
 	// cannot fit within the caller's hard response limit.
 	ErrResponseBudget = errors.New("accessibility: snapshot response budget exceeded")
+	// ErrIncompleteSnapshot indicates that bounded observation did not cover
+	// enough provider state to establish a unique semantic target.
+	ErrIncompleteSnapshot = errors.New("accessibility: incomplete snapshot")
 )
+
+// DispatchOutcome describes what is known about an AT-SPI action dispatch.
+type DispatchOutcome string
+
+const (
+	// DispatchNotSent means validation failed before the provider mutation call.
+	DispatchNotSent DispatchOutcome = "not-sent"
+	// DispatchAccepted means the provider returned a successful action response.
+	DispatchAccepted DispatchOutcome = "accepted"
+	// DispatchRejected means the provider explicitly returned false.
+	DispatchRejected DispatchOutcome = "rejected"
+	// DispatchUnknown means the provider call may have executed but its result
+	// could not be established. Callers must not replay the action.
+	DispatchUnknown DispatchOutcome = "unknown"
+)
+
+// ActionInvocationError retains dispatch certainty and the selected action
+// when an invocation fails after action metadata has been read.
+type ActionInvocationError struct {
+	Action   Action          `json:"action"`
+	Dispatch DispatchOutcome `json:"dispatch"`
+	Err      error           `json:"-"`
+}
+
+func (e *ActionInvocationError) Error() string {
+	if e == nil {
+		return "accessibility: action invocation failed"
+	}
+	return fmt.Sprintf("accessibility: action dispatch %s: %v", e.Dispatch, e.Err)
+}
+
+func (e *ActionInvocationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}

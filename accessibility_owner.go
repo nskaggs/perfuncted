@@ -370,6 +370,20 @@ func (o *accessibilityBackendOwner) FindApplication(ctx context.Context, filter 
 	return result, err
 }
 
+func (o *accessibilityBackendOwner) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+	var result accessibility.Application
+	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
+		finder, ok := backend.(accessibility.FreshApplicationFinder)
+		if !ok {
+			return accessibility.ErrUnsupported
+		}
+		var err error
+		result, err = finder.FindApplicationFresh(callCtx, filter)
+		return err
+	})
+	return result, err
+}
+
 func (o *accessibilityBackendOwner) ResolveWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	var result accessibility.WindowScope
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
@@ -379,6 +393,20 @@ func (o *accessibilityBackendOwner) ResolveWindow(ctx context.Context, target ac
 		}
 		var err error
 		result, err = resolver.ResolveWindow(callCtx, target)
+		return err
+	})
+	return result, err
+}
+
+func (o *accessibilityBackendOwner) ResolveWindowFresh(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+	var result accessibility.WindowScope
+	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
+		resolver, ok := backend.(accessibility.FreshWindowResolver)
+		if !ok {
+			return accessibility.ErrUnsupported
+		}
+		var err error
+		result, err = resolver.ResolveWindowFresh(callCtx, target)
 		return err
 	})
 	return result, err

@@ -10,15 +10,32 @@ import (
 )
 
 func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {
+	return b.readNodeWithCache(ctx, id, parent, maxText, allowSensitive, true)
+}
+
+func (b *dbusBackend) readNodeFresh(ctx context.Context, id, parent NodeID, maxText int, allowSensitive bool) (Node, error) {
+	return b.readNodeWithCache(ctx, id, parent, maxText, allowSensitive, false)
+}
+
+func (b *dbusBackend) readNodeWithCache(ctx context.Context, id, parent NodeID, maxText int, allowSensitive, allowCache bool) (Node, error) { //nolint:gocyclo // cached and fresh reads share one node assembly and redaction invariant.
 	if ctx == nil {
 		return Node{}, errors.New("accessibility: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return Node{}, err
 	}
 	expected := id.Generation
 	if _, err := b.object(id); err != nil {
 		return Node{}, err
 	}
 	node := Node{ID: id, Parent: parent}
-	if item, ok := b.cachedItem(id); ok {
+	var item cacheItem
+	var found bool
+	if allowCache {
+		item, found = b.cachedItem(id)
+	}
+	switch {
+	case found:
 		node.Name = item.Name
 		node.Description = item.Description
 		node.ChildCount = int(maxInt32(item.ChildCount))
@@ -26,16 +43,47 @@ func (b *dbusBackend) readNode(ctx context.Context, id, parent NodeID, maxText i
 		node.Role = roleName(item.Role)
 		node.Interfaces = append([]string(nil), item.Interfaces...)
 		b.applyStates(item.States, &node)
-	} else {
+	case allowCache:
 		_ = b.property(ctx, id, accessibleIface, "Name", &node.Name)
 		_ = b.property(ctx, id, accessibleIface, "Description", &node.Description)
 		b.readNodeRoleAndCount(ctx, id, &node)
 		node.Interfaces = b.readNodeInterfaces(ctx, id)
 		b.readNodeStates(ctx, id, &node)
+	default:
+		if err := b.property(ctx, id, accessibleIface, "Name", &node.Name); err != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.Name: %v", accessibleIface, err))
+		}
+		_ = b.property(ctx, id, accessibleIface, "Description", &node.Description)
+		var childCount int32
+		if err := b.property(ctx, id, accessibleIface, "ChildCount", &childCount); err != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.ChildCount: %v", accessibleIface, err))
+		} else {
+			node.ChildCount = int(maxInt32(childCount))
+		}
+		var role uint32
+		if err := b.call(ctx, id, accessibleIface+".GetRole", nil, &role); err != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetRole: %v", accessibleIface, err))
+		} else {
+			node.RoleID = role
+			node.Role = roleName(role)
+		}
+		if err := b.call(ctx, id, accessibleIface+".GetInterfaces", nil, &node.Interfaces); err != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetInterfaces: %v", accessibleIface, err))
+		}
+		var states []uint32
+		if err := b.call(ctx, id, accessibleIface+".GetState", nil, &states); err != nil {
+			node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetState: %v", accessibleIface, err))
+		} else {
+			b.applyStates(states, &node)
+		}
 	}
 	b.readNodeComponent(ctx, id, node.Interfaces, &node)
-	b.readNodeText(ctx, id, node.Interfaces, maxText, &node)
-	b.readNodeAttributes(ctx, id, &node)
+	if err := b.readNodeText(ctx, id, node.Interfaces, maxText, &node); err != nil && !allowCache {
+		node.Warnings = append(node.Warnings, fmt.Sprintf("%s: %v", textIface, err))
+	}
+	if err := b.readNodeAttributes(ctx, id, &node); err != nil && !allowCache {
+		node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetAttributes: %v", accessibleIface, err))
+	}
 	b.readNodeOptional(ctx, id, node.Interfaces, &node)
 	if !allowSensitive && hasSensitiveState(node.States) {
 		redactSensitiveNode(&node)
@@ -144,13 +192,16 @@ func (b *dbusBackend) readNodeComponent(ctx context.Context, id NodeID, interfac
 	node.HasBounds = true
 }
 
-func (b *dbusBackend) readNodeText(ctx context.Context, id NodeID, interfaces []string, maxText int, node *Node) {
+func (b *dbusBackend) readNodeText(ctx context.Context, id NodeID, interfaces []string, maxText int, node *Node) error {
 	if !contains(interfaces, textIface) {
-		return
+		return nil
 	}
 	var chars int32
-	if err := b.property(ctx, id, textIface, "CharacterCount", &chars); err != nil || chars <= 0 {
-		return
+	if err := b.property(ctx, id, textIface, "CharacterCount", &chars); err != nil {
+		return err
+	}
+	if chars <= 0 {
+		return nil
 	}
 	if maxText <= 0 {
 		maxText = defaultMaxText
@@ -159,16 +210,19 @@ func (b *dbusBackend) readNodeText(ctx context.Context, id NodeID, interfaces []
 		chars = int32(maxText)
 	}
 	if err := b.call(ctx, id, textIface+".GetText", []any{int32(0), chars}, &node.Text); err != nil {
-		return
+		return err
 	}
 	node.Text, node.TextTruncated = truncateUTF8(node.Text, maxText)
+	return nil
 }
 
-func (b *dbusBackend) readNodeAttributes(ctx context.Context, id NodeID, node *Node) {
+func (b *dbusBackend) readNodeAttributes(ctx context.Context, id NodeID, node *Node) error {
 	var attrs map[string]string
-	if err := b.call(ctx, id, accessibleIface+".GetAttributes", nil, &attrs); err == nil {
-		node.Attributes = attrs
+	if err := b.call(ctx, id, accessibleIface+".GetAttributes", nil, &attrs); err != nil {
+		return err
 	}
+	node.Attributes = attrs
+	return nil
 }
 
 // readNodeOptional performs best-effort reads for the optional AT-SPI

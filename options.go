@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nskaggs/perfuncted/input"
 	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 )
 
@@ -28,6 +29,9 @@ var (
 	ErrNilSession = errors.New("session is nil")
 	// ErrSessionClosed is returned when starting work on a closed Session.
 	ErrSessionClosed = errors.New("session is closed")
+	// ErrManagedScopeChanged means the managed window or application selected
+	// for a locator changed identity before its action could be dispatched.
+	ErrManagedScopeChanged = errors.New("managed accessibility scope changed")
 )
 
 // Capability identifies a category of desktop automation operations.
@@ -263,10 +267,11 @@ type openConfig struct {
 	required map[Capability]struct{}
 	optional map[Capability]struct{}
 
-	trace      bool
-	traceDelay time.Duration
-	traceOut   io.Writer
-	logger     *slog.Logger
+	trace       bool
+	traceDelay  time.Duration
+	traceOut    io.Writer
+	logger      *slog.Logger
+	portalInput *input.RemoteDesktopOptions
 }
 
 // Option configures Open.
@@ -296,6 +301,24 @@ func WithHeadless(sessionConfig SessionConfig) Option {
 // Wayland session.
 func WithNested(sessionConfig SessionConfig) Option {
 	return selectManagedTarget(TargetNested, sessionConfig)
+}
+
+// WithRemoteDesktopInput selects the user-authorized XDG RemoteDesktop portal
+// and EIS path as the session's required input backend. It never falls back to
+// compositor injection or uinput if portal setup is unavailable or denied.
+func WithRemoteDesktopInput(options input.RemoteDesktopOptions) Option {
+	return func(cfg *openConfig) error {
+		if cfg.portalInput != nil {
+			return fmt.Errorf("perfuncted: %w: RemoteDesktop input options may be set once", ErrInvalidArgument)
+		}
+		if _, optional := cfg.optional[CapabilityInput]; optional {
+			return fmt.Errorf("perfuncted: %w: portal input cannot be optional", ErrInvalidArgument)
+		}
+		copy := options
+		cfg.portalInput = &copy
+		cfg.required[CapabilityInput] = struct{}{}
+		return nil
+	}
 }
 
 func selectManagedTarget(kind TargetKind, sessionConfig SessionConfig) Option {

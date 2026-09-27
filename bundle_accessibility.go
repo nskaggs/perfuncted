@@ -2,7 +2,9 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/internal/util"
@@ -103,11 +105,23 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 // its exact AT-SPI top-level subtree. It never substitutes the application
 // root. Prefer WindowRoot when the caller has a Perfuncted managed window ID.
 func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+	return b.accessibilityWindow(ctx, target, false)
+}
+
+func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target accessibility.WindowTarget, fresh bool) (accessibility.WindowScope, error) {
 	if err := b.checkAvailable("window-root"); err != nil {
 		return accessibility.WindowScope{}, err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if fresh {
+		resolver, ok := b.backend.(accessibility.FreshWindowResolver)
+		if !ok {
+			return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
+		}
+		scope, err := resolver.ResolveWindowFresh(ctx, target)
+		return scope, b.operationError("window-root", err)
+	}
 	resolver, ok := b.backend.(accessibility.WindowResolver)
 	if !ok {
 		return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
@@ -120,11 +134,22 @@ func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target ac
 // window by its authoritative native ID and correlates that window to its
 // exact AT-SPI top-level subtree.
 func (b *AccessibilityBundle) WindowRoot(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
+	return b.windowRoot(ctx, windowID, false)
+}
+
+// WindowRootFresh re-correlates a managed window from uncached AT-SPI state.
+// It is used by semantic locators so the scope root and matched descendants
+// are observed from the same current generation.
+func (b *AccessibilityBundle) WindowRootFresh(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
+	return b.windowRoot(ctx, windowID, true)
+}
+
+func (b *AccessibilityBundle) windowRoot(ctx context.Context, windowID string, fresh bool) (accessibility.WindowScope, error) {
 	selected, err := b.resolveManagedWindow(ctx, windowID, "", "window-root")
 	if err != nil {
 		return accessibility.WindowScope{}, err
 	}
-	return b.AccessibilityWindow(ctx, windowTargetFor(selected, 0))
+	return b.accessibilityWindow(ctx, windowTargetFor(selected, 0), fresh)
 }
 
 // Find returns nodes matching a bounded case-insensitive query.
@@ -142,16 +167,33 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 // context comes from the same snapshot so a miss costs one AT-SPI traversal,
 // not a find plus a second diagnostic snapshot.
 func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
+	return b.FindOneSelector(ctx, root, accessibility.Selector{
+		Name:       query.Name,
+		Role:       query.Role,
+		Text:       query.Text,
+		States:     query.States,
+		Attributes: query.Attributes,
+	}, opts)
+}
+
+// FindOneSelector resolves one target through the shared semantic predicate
+// path and rejects observations that cannot prove the result is unique.
+func (b *AccessibilityBundle) FindOneSelector(ctx context.Context, root accessibility.NodeID, selector accessibility.Selector, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	if err := b.checkAvailable("find"); err != nil {
 		return accessibility.Node{}, err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	opts.Fresh = true
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	if err != nil {
 		return accessibility.Node{}, b.operationError("find", err)
 	}
-	nodes := accessibility.FilterSnapshot(snapshot, query)
+	query := accessibility.Query{Name: selector.Name, Role: selector.Role, Text: selector.Text, States: selector.States, Attributes: selector.Attributes}
+	if err := accessibility.ValidateSemanticSnapshot(snapshot, selector); err != nil {
+		return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: err, Candidates: accessibility.CandidatesForQuery(snapshot, query, 32)})
+	}
+	nodes := accessibility.FilterSnapshotSelector(snapshot, selector)
 	if len(nodes) == 1 {
 		return nodes[0], nil
 	}
@@ -176,10 +218,34 @@ func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.No
 // action selected by InvokeSemanticAction. The action is never replaced by a
 // physical input fallback.
 type AccessibilityActionReceipt struct {
-	Node       accessibility.Node   `json:"node"`
-	Action     accessibility.Action `json:"action"`
-	Mechanism  string               `json:"mechanism"`
-	Generation uint64               `json:"generation"`
+	Node         accessibility.Node            `json:"node"`
+	Action       accessibility.Action          `json:"action"`
+	Operation    string                        `json:"operation,omitempty"`
+	Mechanism    string                        `json:"mechanism"`
+	Generation   uint64                        `json:"generation"`
+	Dispatch     accessibility.DispatchOutcome `json:"dispatch"`
+	DispatchedAt time.Time                     `json:"dispatchedAt,omitempty"`
+	Outcome      ActionOutcomeProof            `json:"outcome"`
+}
+
+// ActionOutcomeStatus describes independent observation after dispatch.
+type ActionOutcomeStatus string
+
+const (
+	// ActionOutcomeNotObserved means no independent postcondition was evaluated.
+	ActionOutcomeNotObserved ActionOutcomeStatus = "not-observed"
+	// ActionOutcomeVerified means the caller's postcondition became true.
+	ActionOutcomeVerified ActionOutcomeStatus = "verified"
+	// ActionOutcomeNotVerified means the postcondition did not complete successfully.
+	ActionOutcomeNotVerified ActionOutcomeStatus = "not-verified"
+)
+
+// ActionOutcomeProof records whether the caller's independent condition was
+// observed after the provider acknowledged dispatch.
+type ActionOutcomeProof struct {
+	Status     ActionOutcomeStatus `json:"status"`
+	Condition  string              `json:"condition,omitempty"`
+	ObservedAt time.Time           `json:"observedAt,omitempty"`
 }
 
 // InvokeSemanticAction finds exactly one accessible node in root and invokes
@@ -197,21 +263,48 @@ func (b *AccessibilityBundle) InvokeSemanticAction(
 	if err != nil {
 		return AccessibilityActionReceipt{}, err
 	}
+	return b.invokeSemanticActionOnNode(ctx, node, actionName)
+}
+
+// InvokeSelectorSemanticAction applies a rich semantic selector before one
+// action dispatch. The same matcher is used by locators and discovery.
+func (b *AccessibilityBundle) InvokeSelectorSemanticAction(ctx context.Context, root accessibility.NodeID, selector accessibility.Selector, actionName string, opts accessibility.SnapshotOptions) (AccessibilityActionReceipt, error) {
+	node, err := b.FindOneSelector(ctx, root, selector, opts)
+	if err != nil {
+		return AccessibilityActionReceipt{}, err
+	}
+	return b.invokeSemanticActionOnNode(ctx, node, actionName)
+}
+
+func (b *AccessibilityBundle) invokeSemanticActionOnNode(ctx context.Context, node accessibility.Node, actionName string) (AccessibilityActionReceipt, error) {
 	name := strings.TrimSpace(actionName)
 	var chosen accessibility.Action
+	var err error
 	if name == "" {
 		chosen, err = b.InvokeDefaultAction(ctx, node.ID)
 	} else {
 		chosen, err = b.InvokeActionByName(ctx, node.ID, name)
 	}
 	if err != nil {
+		var dispatchErr *accessibility.ActionInvocationError
+		if errors.As(err, &dispatchErr) {
+			return AccessibilityActionReceipt{
+				Node: node, Action: dispatchErr.Action, Operation: "invoke-action", Mechanism: "at-spi.action",
+				Generation: node.ID.Generation, Dispatch: dispatchErr.Dispatch,
+				Outcome: ActionOutcomeProof{Status: ActionOutcomeNotObserved},
+			}, err
+		}
 		return AccessibilityActionReceipt{}, err
 	}
 	return AccessibilityActionReceipt{
-		Node:       node,
-		Action:     chosen,
-		Mechanism:  "at-spi.action",
-		Generation: node.ID.Generation,
+		Node:         node,
+		Action:       chosen,
+		Operation:    "invoke-action",
+		Mechanism:    "at-spi.action",
+		Generation:   node.ID.Generation,
+		Dispatch:     accessibility.DispatchAccepted,
+		DispatchedAt: time.Now().UTC(),
+		Outcome:      ActionOutcomeProof{Status: ActionOutcomeNotObserved},
 	}, nil
 }
 
@@ -240,6 +333,16 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 // FindApplication selects a single application by accessible name, PID, or
 // AT-SPI bus name when the runtime backend exposes process ownership.
 func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+	return b.findApplication(ctx, filter, false)
+}
+
+// FindApplicationFresh selects an application from current backend identity
+// state when supported by the runtime.
+func (b *AccessibilityBundle) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+	return b.findApplication(ctx, filter, true)
+}
+
+func (b *AccessibilityBundle) findApplication(ctx context.Context, filter accessibility.ApplicationFilter, fresh bool) (accessibility.Application, error) { //nolint:gocyclo // window and app filters share the same ownership and ambiguity rules.
 	if err := b.checkAvailable("find-application"); err != nil {
 		return accessibility.Application{}, err
 	}
@@ -254,7 +357,7 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 		if filter.PID != 0 && selectedInfo.PID != 0 && filter.PID != selectedInfo.PID {
 			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
 		}
-		scope, err := b.AccessibilityWindow(ctx, windowTargetFor(selectedWindow, filter.PID))
+		scope, err := b.accessibilityWindow(ctx, windowTargetFor(selectedWindow, filter.PID), fresh)
 		if err != nil {
 			return accessibility.Application{}, b.operationError("find-application", err)
 		}
@@ -273,7 +376,17 @@ func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter access
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	app, err := finder.FindApplication(ctx, filter)
+	var app accessibility.Application
+	var err error
+	if fresh {
+		freshFinder, supported := b.backend.(accessibility.FreshApplicationFinder)
+		if !supported {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
+		}
+		app, err = freshFinder.FindApplicationFresh(ctx, filter)
+	} else {
+		app, err = finder.FindApplication(ctx, filter)
+	}
 	return app, b.operationError("find-application", err)
 }
 
