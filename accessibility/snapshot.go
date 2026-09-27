@@ -878,27 +878,127 @@ func ValidateSemanticSnapshot(snapshot Snapshot, selector Selector) error {
 			reasons = append(reasons, "bounded traversal was truncated: "+strings.Join(snapshot.TruncationReasons, ", "))
 		}
 	}
-	if snapshot.ProviderErrors > 0 {
-		reasons = append(reasons, fmt.Sprintf("%d provider reads failed", snapshot.ProviderErrors))
-	}
-	if len(snapshot.Warnings) > 0 {
-		reasons = append(reasons, fmt.Sprintf("%d snapshot warnings", len(snapshot.Warnings)))
-	}
-	usesText := strings.TrimSpace(selector.Text) != "" || strings.TrimSpace(selector.Label) != ""
-	for _, node := range snapshot.Nodes {
-		if len(node.Warnings) > 0 {
-			reasons = append(reasons, "node properties were not fully observed")
-			break
-		}
-		if usesText && node.TextTruncated {
-			reasons = append(reasons, "selector text was truncated")
-			break
-		}
-	}
+	reasons = append(reasons, semanticSnapshotDiagnosticReasons(snapshot, selector)...)
 	if len(reasons) == 0 {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", ErrIncompleteSnapshot, strings.Join(reasons, "; "))
+}
+
+func semanticSnapshotDiagnosticReasons(snapshot Snapshot, selector Selector) []string {
+	reasons := make([]string, 0, 4)
+	nodeWarnings := make(map[string]int)
+	for _, node := range snapshot.Nodes {
+		for _, warning := range node.Warnings {
+			nodeWarnings[warning]++
+			if semanticWarningAffectsSelector(warning, selector) {
+				reasons = append(reasons, "a property required by the selector was not observed")
+			}
+		}
+		if strings.TrimSpace(selector.Text) != "" && node.TextTruncated {
+			reasons = append(reasons, "selector text was truncated")
+		}
+	}
+	if snapshot.ProviderErrors != len(snapshot.Warnings) {
+		reasons = append(reasons, "provider error and warning totals do not agree")
+	}
+	for _, warning := range snapshot.Warnings {
+		if nodeWarnings[warning] > 0 {
+			nodeWarnings[warning]--
+			continue
+		}
+		if semanticWarningAffectsSelector(warning, selector) || !knownNodeWarning(warning) {
+			reasons = append(reasons, "tree traversal or a property required by the selector was not observed")
+		}
+	}
+	for _, remaining := range nodeWarnings {
+		if remaining > 0 {
+			reasons = append(reasons, "node warnings are missing from snapshot diagnostics")
+			break
+		}
+	}
+	return reasons
+}
+
+func semanticWarningAffectsSelector(warning string, selector Selector) bool {
+	property, _, _ := strings.Cut(strings.TrimSpace(warning), ":")
+	switch property {
+	case accessibleIface + ".Name":
+		return selectorUsesName(selector)
+	case accessibleIface + ".GetRole":
+		return selectorUsesRole(selector)
+	case accessibleIface + ".GetState":
+		return len(selector.States) > 0
+	case accessibleIface + ".ChildCount":
+		return true
+	case accessibleIface + ".GetInterfaces":
+		return strings.TrimSpace(selector.Text) != "" || strings.TrimSpace(selector.Label) != ""
+	case accessibleIface + ".GetAttributes":
+		return len(selector.Attributes) > 0
+	case accessibleIface + ".GetRelationSet":
+		return strings.TrimSpace(selector.Label) != ""
+	case textIface:
+		return strings.TrimSpace(selector.Text) != ""
+	default:
+		return !isOptionalWarning(warning)
+	}
+}
+
+func knownNodeWarning(warning string) bool {
+	property, _, ok := strings.Cut(strings.TrimSpace(warning), ":")
+	if !ok {
+		return false
+	}
+	switch property {
+	case accessibleIface + ".Name",
+		accessibleIface + ".ChildCount",
+		accessibleIface + ".GetRole",
+		accessibleIface + ".GetInterfaces",
+		accessibleIface + ".GetState",
+		accessibleIface + ".GetAttributes",
+		accessibleIface + ".GetRelationSet",
+		textIface:
+		return true
+	default:
+		return isOptionalWarning(warning)
+	}
+}
+
+func selectorUsesName(selector Selector) bool {
+	if strings.TrimSpace(selector.Name) != "" || strings.TrimSpace(selector.Label) != "" {
+		return true
+	}
+	for _, ancestor := range selector.Ancestors {
+		if strings.TrimSpace(ancestor.Name) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func selectorUsesRole(selector Selector) bool {
+	if strings.TrimSpace(selector.Role) != "" {
+		return true
+	}
+	for _, ancestor := range selector.Ancestors {
+		if strings.TrimSpace(ancestor.Role) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isOptionalWarning(warning string) bool {
+	property, _, ok := strings.Cut(strings.TrimSpace(warning), ":")
+	if !ok {
+		return false
+	}
+	for _, iface := range []string{valueIface, actionIface, selectionIface, tableIface, documentIface} {
+		if strings.HasPrefix(property, iface+".") || property == iface {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesSelectorNode(node Node, selector Selector) bool {
