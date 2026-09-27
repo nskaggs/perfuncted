@@ -65,6 +65,16 @@ func TestValidateSemanticSnapshotRejectsIncompleteTargetEvidence(t *testing.T) {
 			selector: Selector{Label: "email"},
 		},
 		{
+			name:     "label text warning",
+			snapshot: snapshotWithNodeWarning(textIface + ": text read failed"),
+			selector: Selector{Label: "email"},
+		},
+		{
+			name:     "label interfaces warning",
+			snapshot: snapshotWithNodeWarning(accessibleIface + ".GetInterfaces: interfaces read failed"),
+			selector: Selector{Label: "email"},
+		},
+		{
 			name:     "ancestor name warning",
 			snapshot: snapshotWithNodeWarning(accessibleIface + ".Name: name read failed"),
 			selector: Selector{Ancestors: []AncestorSelector{{Name: "dialog"}}},
@@ -112,6 +122,13 @@ func TestValidateSemanticSnapshotIgnoresWarningsOutsideSelectorEvidence(t *testi
 				t.Fatalf("ValidateSemanticSnapshot = %v, want complete selector evidence", err)
 			}
 		})
+	}
+}
+
+func TestValidateSemanticSnapshotRejectsLabelTextTruncation(t *testing.T) {
+	snapshot := Snapshot{Nodes: []Node{{TextTruncated: true}}}
+	if err := ValidateSemanticSnapshot(snapshot, Selector{Label: "email"}); !errors.Is(err, ErrIncompleteSnapshot) {
+		t.Fatalf("ValidateSemanticSnapshot error = %v, want ErrIncompleteSnapshot", err)
 	}
 }
 

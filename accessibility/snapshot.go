@@ -895,7 +895,7 @@ func semanticSnapshotDiagnosticReasons(snapshot Snapshot, selector Selector) []s
 				reasons = append(reasons, "a property required by the selector was not observed")
 			}
 		}
-		if strings.TrimSpace(selector.Text) != "" && node.TextTruncated {
+		if selectorUsesText(selector) && node.TextTruncated {
 			reasons = append(reasons, "selector text was truncated")
 		}
 	}
@@ -932,13 +932,13 @@ func semanticWarningAffectsSelector(warning string, selector Selector) bool {
 	case accessibleIface + ".ChildCount":
 		return true
 	case accessibleIface + ".GetInterfaces":
-		return strings.TrimSpace(selector.Text) != "" || strings.TrimSpace(selector.Label) != ""
+		return selectorUsesText(selector)
 	case accessibleIface + ".GetAttributes":
 		return len(selector.Attributes) > 0
 	case accessibleIface + ".GetRelationSet":
 		return strings.TrimSpace(selector.Label) != ""
 	case textIface:
-		return strings.TrimSpace(selector.Text) != ""
+		return selectorUsesText(selector)
 	default:
 		return !isOptionalWarning(warning)
 	}
@@ -986,6 +986,10 @@ func selectorUsesRole(selector Selector) bool {
 		}
 	}
 	return false
+}
+
+func selectorUsesText(selector Selector) bool {
+	return strings.TrimSpace(selector.Text) != "" || strings.TrimSpace(selector.Label) != ""
 }
 
 func isOptionalWarning(warning string) bool {
