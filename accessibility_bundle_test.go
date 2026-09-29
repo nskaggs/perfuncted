@@ -37,11 +37,14 @@ type snapshotAccessibilityAutomationFake struct {
 	*accessibilityAutomationFake
 	snapshot        accessibility.Snapshot
 	snapshotOptions accessibility.SnapshotOptions
+	snapshotErr     error
+	snapshotCalls   int
 }
 
 func (f *snapshotAccessibilityAutomationFake) Snapshot(_ context.Context, _ accessibility.NodeID, options accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	f.snapshotOptions = options
-	return f.snapshot, nil
+	f.snapshotCalls++
+	return f.snapshot, f.snapshotErr
 }
 
 func TestPublicAccessibilityHelpersRemainReachable(t *testing.T) {
@@ -487,6 +490,35 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 	}
 	if evidence.Evaluations != 1 || checks != 1 || spy.invokeCount != 1 {
 		t.Fatalf("evaluations=%d postcondition checks=%d dispatches=%d, want one each", evidence.Evaluations, checks, spy.invokeCount)
+	}
+}
+
+func TestAccessibilityLocatorDoesNotActOnObservationChangedSnapshot(t *testing.T) {
+	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 3}
+	spy := &accessibilityAutomationSpy{}
+	fake := &snapshotAccessibilityAutomationFake{
+		accessibilityAutomationFake: &accessibilityAutomationFake{
+			bundleAccessibilityFake:    &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{ID: root, Name: "Editor"}}}, gen: 3},
+			accessibilityAutomationSpy: spy,
+		},
+		snapshotErr: accessibility.ErrObservationChanged,
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	checks := 0
+	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	_, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
+		checks++
+		return true, nil
+	}))
+	if !errors.Is(err, accessibility.ErrObservationChanged) {
+		t.Fatalf("locator error = %v, want observation changed", err)
+	}
+	if fake.snapshotCalls != locatorResolutionAttempts || !fake.snapshotOptions.Fresh {
+		t.Fatalf("snapshot calls=%d options=%+v, want bounded fresh resolution", fake.snapshotCalls, fake.snapshotOptions)
+	}
+	if spy.invokeCount != 0 || checks != 0 {
+		t.Fatalf("action dispatches=%d postcondition checks=%d, want no action before a stable snapshot", spy.invokeCount, checks)
 	}
 }
 

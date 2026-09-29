@@ -30,9 +30,12 @@ var (
 	ErrInvalidAction = errors.New("accessibility: invalid action index")
 	// ErrMutationRejected indicates that a provider declined a valid mutation.
 	ErrMutationRejected = errors.New("accessibility: mutation rejected")
-	// ErrStaleGeneration indicates that a remote read crossed an AT-SPI
+	// ErrStaleGeneration indicates that a remote read crossed an object-handle
 	// invalidation boundary and its result was discarded.
 	ErrStaleGeneration = errors.New("accessibility: generation changed during read")
+	// ErrObservationChanged indicates provider state changed during a multi-call
+	// observation, so the result cannot prove one consistent view.
+	ErrObservationChanged = errors.New("accessibility: observation changed during read")
 	// ErrUnsupportedCorrelation indicates that compositor and accessibility
 	// identity could not be correlated from authoritative evidence.
 	ErrUnsupportedCorrelation = errors.New("accessibility: window correlation unsupported")

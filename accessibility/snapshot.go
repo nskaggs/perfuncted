@@ -36,6 +36,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 			return Snapshot{}, err
 		}
 		expectedGeneration := root.Generation
+		b.mu.RLock()
+		expectedObservation := b.observationRevision
+		b.mu.RUnlock()
 		if !opts.Fresh && root.BusName != registryName {
 			if err := b.loadCache(ctx, root.BusName); err != nil && errors.Is(err, ErrStaleGeneration) {
 				if requestedRoot == (NodeID{}) {
@@ -85,13 +88,22 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 			}
 			return Snapshot{}, generationErr
 		}
+		if observationErr := b.observationChangesError(expectedObservation, root, walker.snapshot, opts.Fresh); observationErr != nil {
+			if requestedRoot == (NodeID{}) {
+				continue
+			}
+			return Snapshot{}, observationErr
+		}
 		bounded, err := boundSnapshotResponse(walker.snapshot, opts.MaxTotalBytes)
 		if err != nil {
 			return Snapshot{}, err
 		}
 		walker.snapshot = bounded
-		if err := b.publishSnapshot(key, expectedGeneration, walker.snapshot); err != nil {
+		if err := b.publishSnapshot(key, expectedGeneration, expectedObservation, root, opts.Fresh, walker.snapshot); err != nil {
 			if requestedRoot == (NodeID{}) && errors.Is(err, ErrStaleGeneration) {
+				continue
+			}
+			if requestedRoot == (NodeID{}) && errors.Is(err, ErrObservationChanged) {
 				continue
 			}
 			return Snapshot{}, err
@@ -102,7 +114,7 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 }
 
 func snapshotKey(root NodeID, opts SnapshotOptions) string {
-	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.FormatUint(root.Generation, 10) + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.Itoa(opts.MaxTotalBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive) + "\x00" + strconv.FormatBool(opts.AllowDesktopRoot) + "\x00" + strings.Join(opts.SkipRoles, ",")
+	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.FormatUint(root.Generation, 10) + "\x00" + strconv.FormatUint(effectiveIncarnation(root), 10) + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.Itoa(opts.MaxTotalBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive) + "\x00" + strconv.FormatBool(opts.AllowDesktopRoot) + "\x00" + strings.Join(opts.SkipRoles, ",")
 }
 
 func (b *dbusBackend) generationError(expected uint64) error {
@@ -113,19 +125,260 @@ func (b *dbusBackend) generationError(expected uint64) error {
 	return fmt.Errorf("%w: expected %d, current %d: %w", ErrStaleGeneration, expected, current, ErrStaleNode)
 }
 
-func (b *dbusBackend) publishSnapshot(key string, expected uint64, snapshot Snapshot) error {
+func (b *dbusBackend) publishSnapshot(key string, expectedGeneration, expectedObservation uint64, root NodeID, fresh bool, snapshot Snapshot) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed || b.disconnected {
 		return ErrDisconnected
 	}
-	if b.generation != expected {
-		return fmt.Errorf("%w: expected %d, current %d: %w", ErrStaleGeneration, expected, b.generation, ErrStaleNode)
+	if b.generation != expectedGeneration {
+		return fmt.Errorf("%w: expected %d, current %d: %w", ErrStaleGeneration, expectedGeneration, b.generation, ErrStaleNode)
+	}
+	if !b.handleCurrentLocked(root) {
+		return ErrStaleNode
+	}
+	if err := b.observationChangesErrorLocked(expectedObservation, root, snapshot, fresh); err != nil {
+		return err
 	}
 	if b.cache == nil {
 		b.cache = make(map[string]cachedSnapshot)
 	}
 	b.cache[key] = cachedSnapshot{at: snapshot.CapturedAt, snapshot: cloneSnapshot(snapshot)}
+	return nil
+}
+
+func (b *dbusBackend) observationChangesError(expected uint64, root NodeID, snapshot Snapshot, fresh bool) error {
+	if b == nil {
+		return ErrDisconnected
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.observationChangesErrorLocked(expected, root, snapshot, fresh)
+}
+
+func (b *dbusBackend) observationChangesErrorLocked(expected uint64, root NodeID, snapshot Snapshot, fresh bool) error {
+	if expected == b.observationRevision {
+		return nil
+	}
+	if expected < b.observationFloor {
+		return fmt.Errorf("%w: event history for revision %d is no longer complete", ErrObservationChanged, expected)
+	}
+	nodes := make(map[objectIdentity]Node, len(snapshot.Nodes)+1)
+	for _, node := range snapshot.Nodes {
+		nodes[objectIdentity{busName: node.ID.BusName, objectPath: node.ID.ObjectPath}] = node
+	}
+	if snapshot.Root.ID.valid() {
+		nodes[objectIdentity{busName: snapshot.Root.ID.BusName, objectPath: snapshot.Root.ID.ObjectPath}] = snapshot.Root
+	}
+	rootID := objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}
+	for _, change := range b.observationHistory {
+		if change.revision <= expected {
+			continue
+		}
+		if err := observationChangeError(change, rootID, rootID, snapshot.Root.Role, nodes, fresh); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func observationChangeError(change observationChange, rootID, root objectIdentity, rootRole string, nodes map[objectIdentity]Node, fresh bool) error { //nolint:gocyclo // each signal type has a distinct fail-closed relevance rule.
+	if change.unknown {
+		return fmt.Errorf("%w: signal identity could not be established", ErrObservationChanged)
+	}
+	if change.cacheAdd {
+		return cacheAdditionError(change, rootID, nodes, fresh)
+	}
+	if change.cacheRemove || change.childrenRemove {
+		return cacheRemovalError(change, root, nodes)
+	}
+	if _, relevant := nodes[change.node]; relevant {
+		return fmt.Errorf("%w: provider state changed for an observed object", ErrObservationChanged)
+	}
+	if strings.HasSuffix(change.kind, "Window:Create") &&
+		(root.busName == registryName || (rootRole == "application" && change.node.busName == root.busName)) {
+		return fmt.Errorf("%w: window creation could add a semantic match to the observed scope", ErrObservationChanged)
+	}
+	return nil
+}
+
+func cacheAdditionError(change observationChange, rootID objectIdentity, nodes map[objectIdentity]Node, fresh bool) error {
+	added, addedInScope := nodes[change.node]
+	parent, parentInScope := nodes[change.parent]
+	if !addedInScope && !parentInScope {
+		// Distinct application buses are outside an application or window
+		// snapshot. Within the same app, object paths are opaque, so unknown
+		// ancestry cannot establish that an addition belongs to another window.
+		if rootID.busName != registryName && change.node.busName != rootID.busName {
+			return nil
+		}
+		return fmt.Errorf("%w: cache addition ancestry is unknown within the observed scope", ErrObservationChanged)
+	}
+	if !fresh {
+		return fmt.Errorf("%w: accessibility cache changed during a cached snapshot", ErrObservationChanged)
+	}
+	if !addedInScope || !parentInScope {
+		return fmt.Errorf("%w: new child or parent was not present in the fresh snapshot", ErrObservationChanged)
+	}
+	if (objectIdentity{busName: added.Parent.BusName, objectPath: added.Parent.ObjectPath}) != change.parent ||
+		!containsObjectIdentity(parent.Children, change.node) || !cacheNodeMatchesItem(added, change.cacheItem) {
+		return fmt.Errorf("%w: new object ancestry was not established by the fresh snapshot", ErrObservationChanged)
+	}
+	return nil
+}
+
+func containsObjectIdentity(ids []NodeID, want objectIdentity) bool {
+	for _, id := range ids {
+		if id.BusName == want.busName && id.ObjectPath == want.objectPath {
+			return true
+		}
+	}
+	return false
+}
+
+func cacheNodeMatchesItem(node Node, item cacheItem) bool {
+	if node.Name != item.Name || node.Description != item.Description || node.RoleID != item.Role || node.ChildCount != int(maxInt32(item.ChildCount)) {
+		return false
+	}
+	if !sameStringSet(node.Interfaces, item.Interfaces) {
+		return false
+	}
+	states := make([]string, 0, len(item.States))
+	for word, bits := range item.States {
+		for bit := uint32(0); bit < 32; bit++ {
+			if bits&(uint32(1)<<bit) != 0 {
+				if name := stateName(uint32(word*32) + bit); name != "" {
+					states = append(states, name)
+				}
+			}
+		}
+	}
+	return sameStringSet(node.States, states)
+}
+
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[string]int, len(left))
+	for _, value := range left {
+		counts[value]++
+	}
+	for _, value := range right {
+		counts[value]--
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func cacheRemovalError(change observationChange, root objectIdentity, nodes map[objectIdentity]Node) error {
+	_, removedInScope := nodes[change.node]
+	_, parentInScope := nodes[change.parent]
+	_, removedChildInScope := nodes[change.removedChild]
+	if removedInScope || parentInScope || removedChildInScope || (!change.parent.valid() && change.node.busName == root.busName) {
+		return fmt.Errorf("%w: object removal intersected the fresh snapshot", ErrObservationChanged)
+	}
+	return nil
+}
+
+func (b *dbusBackend) applicationResolutionChangesError(expected uint64, desktop NodeID, observed []Node) error {
+	if b == nil {
+		return ErrDisconnected
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if expected == b.observationRevision {
+		return nil
+	}
+	if expected < b.observationFloor {
+		return fmt.Errorf("%w: event history for revision %d is no longer complete", ErrObservationChanged, expected)
+	}
+	desktopIdentity := objectIdentity{busName: desktop.BusName, objectPath: desktop.ObjectPath}
+	apps := make(map[objectIdentity]struct{}, len(observed))
+	appBuses := make(map[string]struct{}, len(observed))
+	for _, node := range observed {
+		identity := objectIdentity{busName: node.ID.BusName, objectPath: node.ID.ObjectPath}
+		apps[identity] = struct{}{}
+		appBuses[identity.busName] = struct{}{}
+	}
+	for _, change := range b.observationHistory {
+		if change.revision <= expected {
+			continue
+		}
+		if change.unknown {
+			return fmt.Errorf("%w: signal identity could not be established", ErrObservationChanged)
+		}
+		if change.node == desktopIdentity || change.parent == desktopIdentity {
+			return fmt.Errorf("%w: desktop application list changed during fresh resolution", ErrObservationChanged)
+		}
+		if _, ok := apps[change.node]; ok {
+			return fmt.Errorf("%w: application identity changed during fresh resolution", ErrObservationChanged)
+		}
+		if _, ok := apps[change.removedChild]; ok {
+			return fmt.Errorf("%w: application was removed during fresh resolution", ErrObservationChanged)
+		}
+		if change.cacheRemove && !change.parent.valid() {
+			if _, relevant := appBuses[change.node.busName]; relevant {
+				return fmt.Errorf("%w: removed cache object ancestry is unknown within the observed application", ErrObservationChanged)
+			}
+		}
+	}
+	return nil
+}
+
+func (b *dbusBackend) windowResolutionChangesError(expected uint64, desktop NodeID, apps []Application, observedCandidates []Node) error {
+	if b == nil {
+		return ErrDisconnected
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if expected == b.observationRevision {
+		return nil
+	}
+	if expected < b.observationFloor {
+		return fmt.Errorf("%w: event history for revision %d is no longer complete", ErrObservationChanged, expected)
+	}
+	nodes := make(map[objectIdentity]Node, len(apps)+len(observedCandidates)+1)
+	for _, app := range apps {
+		nodes[objectIdentity{busName: app.ID.BusName, objectPath: app.ID.ObjectPath}] = app.Node
+	}
+	for _, node := range observedCandidates {
+		nodes[objectIdentity{busName: node.ID.BusName, objectPath: node.ID.ObjectPath}] = node
+	}
+	desktopIdentity := objectIdentity{busName: desktop.BusName, objectPath: desktop.ObjectPath}
+	for _, change := range b.observationHistory {
+		if change.revision <= expected {
+			continue
+		}
+		if err := windowResolutionChangeError(change, desktopIdentity, apps, nodes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func windowResolutionChangeError(change observationChange, desktop objectIdentity, apps []Application, nodes map[objectIdentity]Node) error {
+	if change.unknown {
+		return fmt.Errorf("%w: signal identity could not be established", ErrObservationChanged)
+	}
+	if change.node == desktop || change.parent == desktop {
+		return fmt.Errorf("%w: desktop application list changed during fresh window resolution", ErrObservationChanged)
+	}
+	for _, app := range apps {
+		appIdentity := objectIdentity{busName: app.ID.BusName, objectPath: app.ID.ObjectPath}
+		if err := observationChangeError(change, appIdentity, appIdentity, "application", nodes, true); err != nil {
+			return err
+		}
+	}
+	if change.childrenRemove {
+		if _, ok := nodes[change.removedChild]; ok {
+			return fmt.Errorf("%w: removed window intersects the fresh resolution", ErrObservationChanged)
+		}
+	}
 	return nil
 }
 
@@ -399,6 +652,9 @@ func estimateNodeIDJSONSize(id NodeID) int {
 	n = addJSONSize(n, jsonStringSize(id.BusName))
 	n = addJSONSize(n, jsonStringSize(id.ObjectPath))
 	n = addJSONSize(n, decimalUint64Size(id.Generation))
+	if id.Incarnation != 0 {
+		n = addJSONSize(n, addJSONSize(1, estimateJSONMemberSize("incarnation", decimalUint64Size(id.Incarnation))))
+	}
 	return n
 }
 
@@ -719,6 +975,9 @@ func (w *snapshotWalker) walk(ctx context.Context, id, parent NodeID, depth int)
 		return Node{}, nil
 	}
 	w.seen[id] = struct{}{}
+	if recorder, ok := w.backend.(interface{ recordObjectParent(NodeID, NodeID) }); ok && parent.valid() {
+		recorder.recordObjectParent(id, parent)
+	}
 	var node Node
 	var err error
 	if w.opts.Fresh {

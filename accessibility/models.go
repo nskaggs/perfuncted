@@ -7,13 +7,15 @@ import (
 	"time"
 )
 
-// NodeID is an AT-SPI object reference scoped to one backend generation.
+// NodeID is an AT-SPI object reference scoped to one backend generation and
+// one incarnation of that object path.
 // BusName and ObjectPath are opaque and should be retained together; object
 // paths are not globally unique and Generation rejects stale references.
 type NodeID struct {
-	BusName    string `json:"busName"`
-	ObjectPath string `json:"objectPath"`
-	Generation uint64 `json:"generation"`
+	BusName     string `json:"busName"`
+	ObjectPath  string `json:"objectPath"`
+	Generation  uint64 `json:"generation"`
+	Incarnation uint64 `json:"incarnation,omitempty"`
 }
 
 func (id NodeID) valid() bool {
@@ -236,11 +238,9 @@ type ApplicationFilter struct {
 	WindowTitle string `json:"windowTitle,omitempty"`
 }
 
-// Event is an invalidation-oriented AT-SPI signal. Node is stamped with the
-// generation created by this signal and is valid when the event is enqueued.
-// A later physical signal may advance the backend generation before a caller
-// reads the event, so consumers must validate the handle and refresh a
-// Snapshot before acting on it; event handles are not durable capabilities.
+// Event is an AT-SPI observation. Node is stamped with the current object
+// handle epoch when enqueued. Event handles are not durable capabilities;
+// callers should resolve current state before acting.
 type Event struct {
 	Kind      string    `json:"kind"`
 	Node      NodeID    `json:"node"`
@@ -312,7 +312,7 @@ type EventSource interface {
 	Events(context.Context, EventOptions) (<-chan Event, error)
 }
 
-// GenerationSource exposes the monotonic cache/invalidation generation.
+// GenerationSource exposes the monotonic object-handle epoch.
 type GenerationSource interface {
 	Generation() uint64
 	Invalidate(NodeID)

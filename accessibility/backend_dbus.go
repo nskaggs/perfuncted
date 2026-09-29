@@ -55,15 +55,11 @@ const (
 	absMaxTotal          = 16 << 20
 )
 
-// objectRef is an AT-SPI wire reference. NodeID adds the local generation
-// required to keep handles scoped to one live backend lifecycle.
+// objectRef is an AT-SPI wire reference. NodeID adds the backend epoch and
+// object incarnation required to keep handles scoped to live provider objects.
 type objectRef struct {
 	BusName    string
 	ObjectPath dbus.ObjectPath
-}
-
-func (r objectRef) idAt(generation uint64) NodeID {
-	return NodeID{BusName: r.BusName, ObjectPath: string(r.ObjectPath), Generation: generation}
 }
 
 func (r objectRef) null() bool {
@@ -126,6 +122,7 @@ func openRuntime(ctx context.Context, rt env.Runtime, generation uint64) (Backen
 		runtime: rt, session: session, access: access, generation: generation,
 		cache:      make(map[string]cachedSnapshot),
 		cacheItems: make(map[NodeID]cacheItem), cacheApps: make(map[string]bool),
+		incarnations: make(map[objectIdentity]uint64), parents: make(map[objectIdentity]objectIdentity),
 		toolkits:    make(map[string]string),
 		subscribers: make(map[uint64]*eventSubscriber),
 	}
@@ -137,30 +134,41 @@ func openRuntime(ctx context.Context, rt env.Runtime, generation uint64) (Backen
 // private bus connections, generation, snapshot/cache state, and event stream
 // all share this lifecycle and are released by Close.
 type dbusBackend struct {
-	runtime      env.Runtime
-	session      *dbus.Conn
-	access       *dbus.Conn
-	mu           sync.RWMutex
-	generation   uint64
-	disconnected bool
-	closed       bool
-	cache        map[string]cachedSnapshot
+	runtime    env.Runtime
+	session    *dbus.Conn
+	access     *dbus.Conn
+	mu         sync.RWMutex
+	generation uint64
+	// observationRevision tracks provider-state consistency. cacheRevision also
+	// tracks cache-only updates that do not change a direct AT-SPI observation.
+	observationRevision uint64
+	cacheRevision       uint64
+	observationHistory  []observationChange
+	observationFloor    uint64
+	disconnected        bool
+	closed              bool
+	cache               map[string]cachedSnapshot
 	// cacheItems is the optional upstream AT-SPI cache. It is keyed by the
 	// complete object reference, so objects from different application buses
 	// cannot collide. The local snapshot cache remains a short-lived response
 	// optimization; cacheItems is refreshed by Cache.GetItems and signals.
-	cacheItems     map[NodeID]cacheItem
-	cacheApps      map[string]bool
-	toolkits       map[string]string
-	eventsMu       sync.Mutex
-	subscribers    map[uint64]*eventSubscriber
-	nextSubscriber uint64
-	eventCancel    context.CancelFunc
-	eventDone      chan struct{}
-	eventAccess    *dbus.Conn
-	eventStarting  *eventStart
-	eventStartStop context.CancelFunc
-	eventsRetired  bool
+	cacheItems map[NodeID]cacheItem
+	cacheApps  map[string]bool
+	// incarnations prevent a reused object path from reviving IDs issued for a
+	// removed object. parents records observed ancestry for subtree revocation.
+	incarnations             map[objectIdentity]uint64
+	parents                  map[objectIdentity]objectIdentity
+	parentTrackingIncomplete bool
+	toolkits                 map[string]string
+	eventsMu                 sync.Mutex
+	subscribers              map[uint64]*eventSubscriber
+	nextSubscriber           uint64
+	eventCancel              context.CancelFunc
+	eventDone                chan struct{}
+	eventAccess              *dbus.Conn
+	eventStarting            *eventStart
+	eventStartStop           context.CancelFunc
+	eventsRetired            bool
 	// callOverride is used only by deterministic package tests to exercise
 	// protocol and error handling without a host D-Bus daemon.
 	callOverride func(context.Context, NodeID, string, []any) (any, error)
@@ -170,8 +178,8 @@ func (b *dbusBackend) SupportedOperations() []string {
 	return capability.Operations("accessibility")
 }
 
-// Generation returns the current invalidation generation. It changes when an
-// AT-SPI signal is observed or Invalidate is called explicitly.
+// Generation returns the backend-wide handle epoch. Object-specific removal
+// and path reuse are guarded separately by NodeID.Incarnation.
 func (b *dbusBackend) Generation() uint64 {
 	if b == nil {
 		return 0
@@ -181,20 +189,140 @@ func (b *dbusBackend) Generation() uint64 {
 	return b.generation
 }
 
-// Invalidate advances the generation and clears both the bounded snapshot
-// cache and the upstream cache metadata. AT-SPI cache entries are generation
-// scoped too: a non-cache signal may have changed a cached name, role, or
-// state, so retaining entries across the transition would silently reuse
-// stale metadata. Cache signals preserve and update the upstream state in
-// prepareEvent after this transition.
+// Invalidate advances the object-handle epoch and clears all observations.
 func (b *dbusBackend) Invalidate(_ NodeID) {
 	if b == nil {
 		return
 	}
 	b.mu.Lock()
 	b.generation++
+	b.observationRevision++
+	b.cacheRevision++
 	b.cache, b.cacheItems, b.cacheApps, b.toolkits = nil, nil, nil, nil
+	b.incarnations, b.parents = nil, nil
+	b.parentTrackingIncomplete = false
 	b.mu.Unlock()
+}
+
+func (b *dbusBackend) incarnationLocked(id objectIdentity) uint64 {
+	if b.incarnations == nil {
+		b.incarnations = make(map[objectIdentity]uint64)
+	}
+	if b.incarnations[id] == 0 {
+		if len(b.incarnations) >= maxTrackedObjects {
+			b.parentTrackingIncomplete = true
+			return 1
+		}
+		b.incarnations[id] = 1
+	}
+	return b.incarnations[id]
+}
+
+func (b *dbusBackend) nodeIDLocked(ref objectRef) NodeID {
+	identity := objectIdentity{busName: ref.BusName, objectPath: string(ref.ObjectPath)}
+	return NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath), Generation: b.generation, Incarnation: b.incarnationLocked(identity)}
+}
+
+func (b *dbusBackend) recordObjectParent(child, parent NodeID) {
+	if b == nil || !child.valid() || !parent.valid() {
+		return
+	}
+	b.mu.Lock()
+	childIdentity := objectIdentity{busName: child.BusName, objectPath: child.ObjectPath}
+	parentIdentity := objectIdentity{busName: parent.BusName, objectPath: parent.ObjectPath}
+	if b.handleCurrentLocked(child) && b.handleCurrentLocked(parent) && b.incarnationLocked(childIdentity) == effectiveIncarnation(child) && b.incarnationLocked(parentIdentity) == effectiveIncarnation(parent) {
+		b.recordParentLocked(cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)}, cacheObjectRef{BusName: parent.BusName, ObjectPath: dbus.ObjectPath(parent.ObjectPath)})
+	}
+	b.mu.Unlock()
+}
+
+func (b *dbusBackend) recordParentLocked(child, parent cacheObjectRef) {
+	childIdentity := objectIdentity{busName: child.BusName, objectPath: string(child.ObjectPath)}
+	parentIdentity := objectIdentity{busName: parent.BusName, objectPath: string(parent.ObjectPath)}
+	if !childIdentity.valid() || !parentIdentity.valid() || b.closed || b.disconnected {
+		return
+	}
+	if b.incarnations == nil {
+		b.incarnations = make(map[objectIdentity]uint64)
+	}
+	if b.parents == nil {
+		b.parents = make(map[objectIdentity]objectIdentity)
+	}
+	if _, exists := b.parents[childIdentity]; !exists && len(b.parents) >= maxTrackedObjects {
+		b.parentTrackingIncomplete = true
+		return
+	}
+	b.parents[childIdentity] = parentIdentity
+}
+
+func effectiveIncarnation(id NodeID) uint64 {
+	if id.Incarnation == 0 {
+		return 1
+	}
+	return id.Incarnation
+}
+
+func (b *dbusBackend) handleCurrentLocked(id NodeID) bool {
+	current := b.incarnations[objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}]
+	if current == 0 {
+		current = 1
+	}
+	return id.Generation == b.generation && effectiveIncarnation(id) == current && !b.closed && !b.disconnected
+}
+
+const maxTrackedObjects = 100000
+
+// revokeObjectLocked invalidates a removed object and every descendant whose
+// ancestry has been observed. It returns false when ancestry or incarnation
+// tracking is incomplete, requiring a backend-wide epoch transition.
+func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
+	if !root.valid() || b.parentTrackingIncomplete {
+		return false
+	}
+	if b.incarnations == nil {
+		b.incarnations = make(map[objectIdentity]uint64)
+	}
+	children := make(map[objectIdentity][]objectIdentity, len(b.parents))
+	for child, parent := range b.parents {
+		children[parent] = append(children[parent], child)
+	}
+	for _, item := range b.cacheItems {
+		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
+		child := objectIdentity{busName: item.Object.BusName, objectPath: string(item.Object.ObjectPath)}
+		children[parent] = append(children[parent], child)
+	}
+	removed := map[objectIdentity]struct{}{root: {}}
+	queue := []objectIdentity{root}
+	for i := 0; i < len(queue); i++ {
+		for _, child := range children[queue[i]] {
+			if _, seen := removed[child]; !seen {
+				removed[child] = struct{}{}
+				queue = append(queue, child)
+			}
+		}
+	}
+	newIncarnations := 0
+	for identity := range removed {
+		if b.incarnations[identity] == 0 {
+			newIncarnations++
+		}
+	}
+	if len(b.incarnations)+newIncarnations > maxTrackedObjects {
+		return false
+	}
+	for identity := range removed {
+		current := b.incarnationLocked(identity)
+		b.incarnations[identity] = current + 1
+		delete(b.parents, identity)
+	}
+	for id := range b.cacheItems {
+		identity := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
+		if _, ok := removed[identity]; ok {
+			delete(b.cacheItems, id)
+		}
+	}
+	b.cache = nil
+	return true
 }
 
 func (b *dbusBackend) Close() error {
@@ -210,6 +338,8 @@ func (b *dbusBackend) Close() error {
 	b.closed = true
 	b.disconnected = true
 	b.generation++
+	b.observationRevision++
+	b.cacheRevision++
 	access, session := b.access, b.session
 	b.access, b.session = nil, nil
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
@@ -286,7 +416,7 @@ func (b *dbusBackend) toolkitForNode(ctx context.Context, id NodeID) (string, er
 func (b *dbusBackend) cachedToolkit(id NodeID) (string, bool, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if id.Generation != b.generation || b.closed || b.disconnected {
+	if !b.handleCurrentLocked(id) {
 		return "", false, ErrStaleNode
 	}
 	toolkit, ok := b.toolkits[id.BusName]
@@ -296,7 +426,7 @@ func (b *dbusBackend) cachedToolkit(id NodeID) (string, bool, error) {
 func (b *dbusBackend) cacheToolkit(id NodeID, name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if id.Generation != b.generation || b.closed || b.disconnected {
+	if !b.handleCurrentLocked(id) {
 		return ErrStaleNode
 	}
 	if b.toolkits == nil {
@@ -311,7 +441,8 @@ func (b *dbusBackend) validateHandle(id NodeID) error {
 		return ErrDisconnected
 	}
 	b.mu.RLock()
-	disconnected, closed, generation := b.disconnected, b.closed, b.generation
+	current := b.handleCurrentLocked(id)
+	disconnected, closed := b.disconnected, b.closed
 	b.mu.RUnlock()
 	if disconnected || closed {
 		return ErrDisconnected
@@ -319,21 +450,23 @@ func (b *dbusBackend) validateHandle(id NodeID) error {
 	if !id.valid() {
 		return ErrStaleNode
 	}
-	if id.Generation != generation {
-		return fmt.Errorf("%w: handle generation %d, current generation %d", ErrStaleNode, id.Generation, generation)
+	if !current {
+		return ErrStaleNode
 	}
 	return nil
 }
 
 func (b *dbusBackend) desktop() NodeID {
-	return NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: b.Generation()}
+	return b.refID(objectRef{BusName: registryName, ObjectPath: desktopPath})
 }
 
 func (b *dbusBackend) refID(ref objectRef) NodeID {
 	if b == nil {
 		return NodeID{}
 	}
-	return ref.idAt(b.Generation())
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.nodeIDLocked(ref)
 }
 
 func (b *dbusBackend) tagRefs(refs []objectRef) []objectRef {
@@ -443,9 +576,14 @@ func (b *dbusBackend) FindApplicationFresh(ctx context.Context, filter Applicati
 	}
 	want := strings.ToLower(strings.TrimSpace(filter.Name))
 	wantTitle := strings.ToLower(strings.TrimSpace(filter.WindowTitle))
+	var lastObservationErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		expected := b.Generation()
-		refs, err := b.childrenFresh(ctx, b.desktop())
+		b.mu.RLock()
+		expectedObservation := b.observationRevision
+		b.mu.RUnlock()
+		desktop := b.desktop()
+		refs, err := b.childrenFresh(ctx, desktop)
 		if err != nil {
 			if errors.Is(err, ErrStaleGeneration) {
 				continue
@@ -456,6 +594,7 @@ func (b *dbusBackend) FindApplicationFresh(ctx context.Context, filter Applicati
 			return Application{}, fmt.Errorf("%w: application list exceeds %d entries", ErrIncompleteSnapshot, maxApplications)
 		}
 		matches := make([]Application, 0, 1)
+		observedApps := make([]Node, 0, len(refs))
 		for _, ref := range refs {
 			if err := ctx.Err(); err != nil {
 				return Application{}, err
@@ -486,6 +625,7 @@ func (b *dbusBackend) FindApplicationFresh(ctx context.Context, filter Applicati
 					return Application{}, fmt.Errorf("accessibility: read application description: %w", err)
 				}
 			}
+			observedApps = append(observedApps, Node{ID: id, Name: name, Description: description})
 			if want != "" && !strings.Contains(strings.ToLower(name), want) {
 				continue
 			}
@@ -497,6 +637,10 @@ func (b *dbusBackend) FindApplicationFresh(ctx context.Context, filter Applicati
 		if err := b.generationError(expected); err != nil {
 			continue
 		}
+		if err := b.applicationResolutionChangesError(expectedObservation, desktop, observedApps); err != nil {
+			lastObservationErr = err
+			continue
+		}
 		switch len(matches) {
 		case 0:
 			return Application{}, ErrNotFound
@@ -505,6 +649,9 @@ func (b *dbusBackend) FindApplicationFresh(ctx context.Context, filter Applicati
 		default:
 			return Application{}, fmt.Errorf("%w: %d applications matched", ErrAmbiguous, len(matches))
 		}
+	}
+	if lastObservationErr != nil {
+		return Application{}, lastObservationErr
 	}
 	return Application{}, fmt.Errorf("%w: bounded fresh application resolution exhausted", ErrStaleGeneration)
 }

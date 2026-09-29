@@ -101,7 +101,7 @@ func TestSnapshotPublicationRejectsInvalidatedRead(t *testing.T) {
 		CapturedAt: time.Now(),
 	}
 	backend.Invalidate(root)
-	if err := backend.publishSnapshot(snapshotKey(root, SnapshotOptions{}), root.Generation, snapshot); !errors.Is(err, ErrStaleGeneration) {
+	if err := backend.publishSnapshot(snapshotKey(root, SnapshotOptions{}), root.Generation, 0, root, true, snapshot); !errors.Is(err, ErrStaleGeneration) {
 		t.Fatalf("stale snapshot publication error = %v, want ErrStaleGeneration", err)
 	}
 	if len(backend.cache) != 0 {
@@ -368,8 +368,9 @@ func TestBoundSnapshotResponseRejectsIrreduciblyTinyBudget(t *testing.T) {
 
 func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	root := NodeID{BusName: "org.test.App", ObjectPath: "/root", Generation: 1}
-	first := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/first"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 1}
-	second := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/second"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
+	application := cacheObjectRef{BusName: root.BusName, ObjectPath: "/application"}
+	first := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/first"}, Application: application, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 1}
+	second := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/second"}, Application: application, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
 	backend := &dbusBackend{
 		generation: 1,
 		cacheItems: map[NodeID]cacheItem{first.nodeID(): first, second.nodeID(): second},
@@ -379,12 +380,12 @@ func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	if len(children) != 2 || children[0].ObjectPath != "/second" || children[1].ObjectPath != "/first" {
 		t.Fatalf("children = %+v, want index order", children)
 	}
-	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Body: []any{cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/second")}}})
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Sender: root.BusName, Body: []any{cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/second")}}})
 	if got := len(backend.cachedChildren(root)); got != 1 {
 		t.Fatalf("children after remove = %d, want 1", got)
 	}
-	added := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/third"}, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
-	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{added}})
+	added := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/third"}, Application: application, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{added}})
 	if got := len(backend.cachedChildren(root)); got != 2 {
 		t.Fatalf("children after add = %d, want 2", got)
 	}
@@ -1099,8 +1100,8 @@ func TestEventFanoutConcurrentSubscribersStayRaceFree(t *testing.T) {
 
 func TestCacheSignalMutationDoesNotPerformSecondGenerationTransition(t *testing.T) {
 	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem)}
-	item := cacheItem{Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"}}
-	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}})
+	item := cacheItem{Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"}, Application: cacheObjectRef{BusName: "org.test", ObjectPath: "/app"}, Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"}}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{item}})
 	if got := backend.Generation(); got != 5 {
 		t.Fatalf("cache signal changed generation before dispatcher invalidation: %d", got)
 	}
@@ -1110,16 +1111,83 @@ func TestCacheSignalMutationDoesNotPerformSecondGenerationTransition(t *testing.
 	}
 }
 
+func TestCacheAddDeltaDoesNotClaimCompleteApplicationCache(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 5}
+	item := cacheItem{
+		Object:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/new")},
+		Application: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/app")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+	}
+	backend := &dbusBackend{generation: 5}
+	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{item}})
+	if backend.cacheApps[root.BusName] {
+		t.Fatal("one AddAccessible delta was treated as a complete GetItems cache")
+	}
+	if children := backend.cachedChildren(root); children != nil {
+		t.Fatalf("incomplete app cache returned %d children as authoritative", len(children))
+	}
+}
+
+func TestCompleteCacheLoadPromotesDeltaAndKeepsAuthoritativeSiblings(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 5}
+	backend := &dbusBackend{generation: 5}
+	newItem := cacheItem{
+		Object:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/new")},
+		Application: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/app")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+		Index:       1,
+	}
+	backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{newItem}}, Event{Kind: cacheIface + ":AddAccessible"})
+	if backend.cacheApps[root.BusName] {
+		t.Fatal("Cache:Add delta claimed full-cache completeness")
+	}
+	existing := cacheItem{
+		Object:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/existing")},
+		Application: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/app")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+		Index:       0,
+	}
+	if err := backend.publishLoadedCache(root.BusName, []cacheItem{existing, newItem}, backend.Generation(), backend.cacheRevision); err != nil {
+		t.Fatalf("publish full GetItems result: %v", err)
+	}
+	children := backend.cachedChildren(root)
+	if len(children) != 2 || children[0].ObjectPath != "/existing" || children[1].ObjectPath != "/new" {
+		t.Fatalf("promoted complete cache children=%+v, want both authoritative siblings in index order", children)
+	}
+}
+
+func TestCacheAddDuringGetItemsCannotPromotePartialCache(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 5}
+	backend := &dbusBackend{generation: 5}
+	expectedRevision := backend.cacheRevision
+	item := cacheItem{
+		Object:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/new")},
+		Application: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/app")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+	}
+	backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{item}}, Event{Kind: cacheIface + ":AddAccessible"})
+	if err := backend.publishLoadedCache(root.BusName, []cacheItem{item}, backend.Generation(), expectedRevision); err != nil {
+		t.Fatalf("raced GetItems publication: %v", err)
+	}
+	if backend.cacheApps[root.BusName] {
+		t.Fatal("in-flight GetItems published completeness after a Cache:Add revision")
+	}
+	if children := backend.cachedChildren(root); children != nil {
+		t.Fatalf("raced partial cache returned %d authoritative children", len(children))
+	}
+}
+
 func TestPreparedEventUsesPostInvalidationGeneration(t *testing.T) {
 	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem), cacheApps: map[string]bool{"org.test": true}}
 	item := cacheItem{
-		Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
-		Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
+		Application: cacheObjectRef{BusName: "org.test", ObjectPath: "/app"},
+		Parent:      cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
 	}
-	sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}}
+	sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{item}}
 	event := backend.prepareEvent(sig, Event{Kind: sig.Name, Node: NodeID{BusName: "org.test", ObjectPath: "/node"}})
-	if event.Node.Generation != 6 {
-		t.Fatalf("event generation = %d, want 6", event.Node.Generation)
+	if event.Node.Generation != 5 {
+		t.Fatalf("event handle generation = %d, want unchanged epoch 5", event.Node.Generation)
 	}
 	if err := backend.validateHandle(event.Node); err != nil {
 		t.Fatalf("prepared event handle is not current: %v", err)
@@ -1153,8 +1221,8 @@ func TestCoalescedSignalStillTransitionsBackend(t *testing.T) {
 	if coalesceEvent(&lastKey, &lastAt, firstEvent) {
 		t.Fatal("first signal was coalesced")
 	}
-	if backend.Generation() != 6 || firstEvent.Node.Generation != 6 {
-		t.Fatalf("first transition = generation %d/event %d, want 6", backend.Generation(), firstEvent.Node.Generation)
+	if backend.Generation() != 5 || firstEvent.Node.Generation != 5 || backend.observationRevision != 1 {
+		t.Fatalf("first transition = generation %d/event %d/observation %d, want handle epoch 5 and observation 1", backend.Generation(), firstEvent.Node.Generation, backend.observationRevision)
 	}
 
 	// A caller may rebuild a snapshot here. The second physical signal must
@@ -1165,11 +1233,11 @@ func TestCoalescedSignalStillTransitionsBackend(t *testing.T) {
 	if !coalesceEvent(&lastKey, &lastAt, secondEvent) {
 		t.Fatal("duplicate signal was not delivery-coalesced")
 	}
-	if backend.Generation() != 7 || secondEvent.Node.Generation != 7 {
-		t.Fatalf("coalesced transition = generation %d/event %d, want 7", backend.Generation(), secondEvent.Node.Generation)
+	if backend.Generation() != 5 || secondEvent.Node.Generation != 5 || backend.observationRevision != 2 {
+		t.Fatalf("coalesced transition = generation %d/event %d/observation %d, want handle epoch 5 and observation 2", backend.Generation(), secondEvent.Node.Generation, backend.observationRevision)
 	}
-	if err := backend.validateHandle(firstEvent.Node); !errors.Is(err, ErrStaleNode) {
-		t.Fatalf("first event handle error = %v, want stale node", err)
+	if err := backend.validateHandle(firstEvent.Node); err != nil {
+		t.Fatalf("property change invalidated object identity: %v", err)
 	}
 	if backend.cacheItems != nil || backend.cacheApps != nil {
 		t.Fatalf("non-cache coalesced signal retained stale cache metadata: items=%v apps=%v", backend.cacheItems, backend.cacheApps)
@@ -1179,25 +1247,26 @@ func TestCoalescedSignalStillTransitionsBackend(t *testing.T) {
 func TestCoalescedCacheSignalAppliesDelta(t *testing.T) {
 	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem)}
 	item := cacheItem{
-		Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
-		Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
+		Application: cacheObjectRef{BusName: "org.test", ObjectPath: "/app"},
+		Parent:      cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
 	}
 	base := time.Now()
 	lastKey := ""
 	var lastAt time.Time
 	for i := 0; i < 2; i++ {
-		sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}}
+		sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{item}}
 		event := backend.prepareEvent(sig, Event{Kind: sig.Name, Node: item.nodeIDAt(backend.Generation()), Timestamp: base.Add(time.Duration(i) * time.Millisecond)})
 		if coalesced := coalesceEvent(&lastKey, &lastAt, event); i == 0 && coalesced {
 			t.Fatal("first cache signal was coalesced")
 		} else if i == 1 && !coalesced {
 			t.Fatal("second cache signal was not delivery-coalesced")
 		}
-		if event.Node.Generation != uint64(6+i) || backend.Generation() != uint64(6+i) {
-			t.Fatalf("cache transition %d = generation %d/event %d, want %d", i, backend.Generation(), event.Node.Generation, 6+i)
+		if event.Node.Generation != 5 || backend.Generation() != 5 {
+			t.Fatalf("cache addition %d changed object handle epoch: generation %d/event %d, want 5", i, backend.Generation(), event.Node.Generation)
 		}
-		if _, ok := backend.cachedItem(NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath), Generation: backend.Generation()}); !ok {
-			t.Fatalf("cache delta was lost at generation %d", backend.Generation())
+		if _, ok := backend.cachedItem(NodeID{BusName: item.Object.BusName, ObjectPath: string(item.Object.ObjectPath), Generation: 5}); !ok {
+			t.Fatalf("cache delta was lost at handle epoch 5")
 		}
 	}
 }
@@ -1209,25 +1278,498 @@ func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
 		cacheApps:  map[string]bool{"org.test": true},
 	}
 	item := cacheItem{
-		Object: cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
-		Parent: cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: "/node"},
+		Application: cacheObjectRef{BusName: "org.test", ObjectPath: "/app"},
+		Parent:      cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
 	}
-	added := backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{item}}, Event{Node: NodeID{BusName: "org.test", ObjectPath: "/node"}})
-	if added.Node.Generation != 6 || backend.Generation() != 6 {
-		t.Fatalf("cache add generation = event %d/backend %d, want 6", added.Node.Generation, backend.Generation())
+	added := backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{item}}, Event{Node: NodeID{BusName: "org.test", ObjectPath: "/node"}})
+	if added.Node.Generation != 5 || backend.Generation() != 5 {
+		t.Fatalf("cache add generation = event %d/backend %d, want stable handle epoch 5", added.Node.Generation, backend.Generation())
 	}
 	if _, ok := backend.cachedItem(added.Node); !ok {
 		t.Fatal("cache add was lost after generation transition")
 	}
-	removed := backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Body: []any{item.Object}}, Event{Node: added.Node})
-	if removed.Node.Generation != 7 || backend.Generation() != 7 {
-		t.Fatalf("cache remove generation = event %d/backend %d, want 7", removed.Node.Generation, backend.Generation())
+	removed := backend.prepareEvent(&dbus.Signal{
+		Name: cacheIface + ":RemoveAccessible", Sender: "org.test",
+		Body: []any{[]any{item.Object.BusName, item.Object.ObjectPath}},
+	}, Event{Node: added.Node})
+	if removed.Node.Generation != 5 || backend.Generation() != 5 {
+		t.Fatalf("cache remove changed global generation = event %d/backend %d, want 5", removed.Node.Generation, backend.Generation())
 	}
-	if _, ok := backend.cachedItem(NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 7}); ok {
+	if err := backend.validateHandle(added.Node); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("cache remove left the removed object handle valid: %v", err)
+	}
+	if _, ok := backend.cachedItem(NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 5, Incarnation: 2}); ok {
 		t.Fatal("cache remove left the removed object present")
 	}
 	if !backend.cacheApps["org.test"] {
 		t.Fatal("cache application registration was lost during signal invalidation")
+	}
+}
+
+func TestFreshSnapshotChecksCacheAddTopologyAgainstParent(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/window", Generation: 5}
+	child := NodeID{BusName: "org.test", ObjectPath: "/window/new", Generation: 5}
+	otherWindowChild := NodeID{BusName: "org.test", ObjectPath: "/other_window/new", Generation: 5}
+	parent := cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)}
+	backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem)}
+	add := func(objectPath string, parent cacheObjectRef) {
+		t.Helper()
+		item := cacheItem{
+			Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath(objectPath)},
+			Application: cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/app")},
+			Parent:      parent,
+			Name:        "new",
+			Role:        43,
+		}
+		backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{item}}, Event{Kind: cacheIface + ":AddAccessible"})
+	}
+	base := Snapshot{Root: Node{ID: root}, Nodes: []Node{{ID: root}}}
+	add(child.ObjectPath, parent)
+	if err := backend.observationChangesError(0, root, base, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("unobserved in-scope cache addition = %v, want ErrObservationChanged", err)
+	}
+	observed := Snapshot{
+		Root:  Node{ID: root, Children: []NodeID{child}},
+		Nodes: []Node{{ID: root, Children: []NodeID{child}}, {ID: child, Parent: root, Name: "new", RoleID: 43}},
+	}
+	if err := backend.observationChangesError(0, root, observed, true); err != nil {
+		t.Fatalf("fresh snapshot that proves added child and parent = %v", err)
+	}
+	if err := backend.observationChangesError(0, root, observed, false); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("cached snapshot with concurrent cache addition = %v, want ErrObservationChanged", err)
+	}
+
+	outsideBackend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem)}
+	addOutside := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.other", ObjectPath: dbus.ObjectPath(otherWindowChild.ObjectPath)},
+		Application: cacheObjectRef{BusName: "org.other", ObjectPath: dbus.ObjectPath("/other_app")},
+		Parent:      cacheObjectRef{BusName: "org.other", ObjectPath: dbus.ObjectPath("/other_window")},
+	}
+	outsideBackend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.other", Body: []any{addOutside}}, Event{Kind: cacheIface + ":AddAccessible"})
+	if err := outsideBackend.observationChangesError(0, root, base, true); err != nil {
+		t.Fatalf("cache addition on a distinct app bus invalidated this window snapshot: %v", err)
+	}
+}
+
+func TestFreshApplicationResolutionRejectsMixedIdentityObservations(t *testing.T) {
+	desktop := NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: 5, Incarnation: 1}
+	app := NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 5, Incarnation: 1}
+	backend := &dbusBackend{generation: 5}
+	sig := &dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange", Sender: app.BusName, Path: dbus.ObjectPath(app.ObjectPath)}
+	backend.prepareEvent(sig, Event{Kind: sig.Name, Node: app})
+	if err := backend.applicationResolutionChangesError(0, desktop, []Node{{ID: app, Name: "before"}}); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("application property change during fresh resolution = %v, want ErrObservationChanged", err)
+	}
+
+	unrelated := &dbusBackend{generation: 5}
+	other := NodeID{BusName: "org.other", ObjectPath: "/unrelated", Generation: 5, Incarnation: 1}
+	unrelatedSig := &dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange", Sender: other.BusName, Path: dbus.ObjectPath(other.ObjectPath)}
+	unrelated.prepareEvent(unrelatedSig, Event{Kind: unrelatedSig.Name, Node: other})
+	if err := unrelated.applicationResolutionChangesError(0, desktop, []Node{{ID: app, Name: "stable"}}); err != nil {
+		t.Fatalf("unrelated application property change invalidated fresh resolution: %v", err)
+	}
+}
+
+func TestFreshWindowResolutionRejectsMixedCandidateObservations(t *testing.T) {
+	app := Application{Node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 5, Incarnation: 1}}}
+	window := Node{ID: NodeID{BusName: "org.test", ObjectPath: "/window", Generation: 5, Incarnation: 1}, Name: "before", Role: "frame"}
+	backend := &dbusBackend{generation: 5}
+	sig := &dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange", Sender: window.ID.BusName, Path: dbus.ObjectPath(window.ID.ObjectPath)}
+	backend.prepareEvent(sig, Event{Kind: sig.Name, Node: window.ID})
+	desktop := NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: 5, Incarnation: 1}
+	if err := backend.windowResolutionChangesError(0, desktop, []Application{app}, []Node{window}); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("window property change during fresh resolution = %v, want ErrObservationChanged", err)
+	}
+
+	unrelated := &dbusBackend{generation: 5}
+	other := NodeID{BusName: "org.other", ObjectPath: "/unrelated", Generation: 5, Incarnation: 1}
+	unrelatedSig := &dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange", Sender: other.BusName, Path: dbus.ObjectPath(other.ObjectPath)}
+	unrelated.prepareEvent(unrelatedSig, Event{Kind: unrelatedSig.Name, Node: other})
+	if err := unrelated.windowResolutionChangesError(0, desktop, []Application{app}, []Node{window}); err != nil {
+		t.Fatalf("unrelated property change invalidated fresh window resolution: %v", err)
+	}
+}
+
+func TestFreshResolversScopeUnknownCacheRemovalToApplicationBus(t *testing.T) {
+	desktop := NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: 5, Incarnation: 1}
+	app := Application{Node: Node{ID: NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 5, Incarnation: 1}}}
+	window := Node{ID: NodeID{BusName: app.ID.BusName, ObjectPath: "/window", Generation: 5, Incarnation: 1}, Role: "frame"}
+	check := func(bus string, wantChanged bool) {
+		t.Helper()
+		backend := &dbusBackend{generation: 5}
+		removed := NodeID{BusName: bus, ObjectPath: "/removed", Generation: 5, Incarnation: 1}
+		sig := &dbus.Signal{
+			Name:   cacheIface + ":RemoveAccessible",
+			Sender: bus,
+			Body:   []any{[]any{removed.BusName, dbus.ObjectPath(removed.ObjectPath)}},
+		}
+		backend.prepareEvent(sig, Event{Kind: sig.Name, Node: removed})
+		appErr := backend.applicationResolutionChangesError(0, desktop, []Node{app.Node})
+		windowErr := backend.windowResolutionChangesError(0, desktop, []Application{app}, []Node{window})
+		if wantChanged {
+			if !errors.Is(appErr, ErrObservationChanged) || !errors.Is(windowErr, ErrObservationChanged) {
+				t.Fatalf("same-app unknown removal errors = application %v, window %v; want ErrObservationChanged", appErr, windowErr)
+			}
+			return
+		}
+		if appErr != nil || windowErr != nil {
+			t.Fatalf("other-app unknown removal invalidated target: application %v, window %v", appErr, windowErr)
+		}
+	}
+	check("org.other", false)
+	check(app.ID.BusName, true)
+}
+
+func TestCacheAddRequiresEstablishedSameApplicationAncestry(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/window", Generation: 5}
+	backend := &dbusBackend{generation: 5}
+	item := cacheItem{
+		Object:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/opaque_child")},
+		Application: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/app")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/opaque_parent")},
+	}
+	sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{item}}
+	backend.prepareEvent(sig, Event{Kind: sig.Name})
+	if err := backend.observationChangesError(0, root, Snapshot{Root: Node{ID: root}, Nodes: []Node{{ID: root}}}, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("same-app addition with unknown ancestry = %v, want ErrObservationChanged", err)
+	}
+}
+
+func TestFreshCacheAdditionRequiresChildParentAndMetadataAgreement(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 5}
+	child := NodeID{BusName: "org.test", ObjectPath: "/child", Generation: 5}
+	item := cacheItem{
+		Object:      cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)},
+		Application: cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath("/app")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+		Name:        "button",
+		Role:        43,
+	}
+	change := observationChange{
+		cacheAdd:  true,
+		node:      objectIdentity{busName: child.BusName, objectPath: child.ObjectPath},
+		parent:    objectIdentity{busName: root.BusName, objectPath: root.ObjectPath},
+		cacheItem: item,
+	}
+	valid := map[objectIdentity]Node{
+		{busName: root.BusName, objectPath: root.ObjectPath}:   {ID: root, Children: []NodeID{child}},
+		{busName: child.BusName, objectPath: child.ObjectPath}: {ID: child, Parent: root, Name: "button", RoleID: 43},
+	}
+	if err := cacheAdditionError(change, objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}, valid, true); err != nil {
+		t.Fatalf("complete observed addition proof = %v", err)
+	}
+	wrongParent := make(map[objectIdentity]Node, len(valid))
+	for id, node := range valid {
+		wrongParent[id] = node
+	}
+	wrongParent[objectIdentity{busName: child.BusName, objectPath: child.ObjectPath}] = Node{ID: child, Parent: NodeID{BusName: root.BusName, ObjectPath: "/elsewhere", Generation: 5}, Name: "button", RoleID: 43}
+	if err := cacheAdditionError(change, objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}, wrongParent, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("wrong child parent proof = %v, want ErrObservationChanged", err)
+	}
+	missingChildLink := make(map[objectIdentity]Node, len(valid))
+	for id, node := range valid {
+		missingChildLink[id] = node
+	}
+	parentNode := missingChildLink[objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}]
+	parentNode.Children = nil
+	missingChildLink[objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}] = parentNode
+	if err := cacheAdditionError(change, objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}, missingChildLink, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("missing parent's child reference = %v, want ErrObservationChanged", err)
+	}
+	metadataMismatch := make(map[objectIdentity]Node, len(valid))
+	for id, node := range valid {
+		metadataMismatch[id] = node
+	}
+	changedNode := metadataMismatch[objectIdentity{busName: child.BusName, objectPath: child.ObjectPath}]
+	changedNode.Name = "different"
+	metadataMismatch[objectIdentity{busName: child.BusName, objectPath: child.ObjectPath}] = changedNode
+	if err := cacheAdditionError(change, objectIdentity{busName: root.BusName, objectPath: root.ObjectPath}, metadataMismatch, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("cache metadata mismatch = %v, want ErrObservationChanged", err)
+	}
+}
+
+func TestChildrenChangedRemovalStalesTargetBeforeAction(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/window", Generation: 5}
+	child := NodeID{BusName: "org.test", ObjectPath: "/window/child", Generation: 5}
+	descendant := NodeID{BusName: "org.test", ObjectPath: "/descendant", Generation: 5}
+	backend := &dbusBackend{
+		generation: 5,
+		parents: map[objectIdentity]objectIdentity{
+			{busName: descendant.BusName, objectPath: descendant.ObjectPath}: {busName: child.BusName, objectPath: child.ObjectPath},
+		},
+	}
+	signal := &dbus.Signal{
+		Name:   "org.a11y.atspi.Event.Object:ChildrenChanged",
+		Sender: root.BusName,
+		Path:   dbus.ObjectPath(root.ObjectPath),
+		Body: []any{
+			"remove", int32(0), int32(0),
+			dbus.MakeVariant([]any{child.BusName, dbus.ObjectPath(child.ObjectPath)}),
+			map[string]dbus.Variant{},
+		},
+	}
+	event := backend.prepareEvent(signal, signalEvent(signal))
+	if err := backend.validateHandle(root); err != nil {
+		t.Fatalf("child removal invalidated its surviving parent: %v", err)
+	}
+	if err := backend.validateHandle(child); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("removed child remained a valid action target: %v", err)
+	}
+	if err := backend.validateHandle(descendant); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("removed descendant remained a valid action target: %v", err)
+	}
+	actionCalls := 0
+	backend.callOverride = func(context.Context, NodeID, string, []any) (any, error) {
+		actionCalls++
+		return []actionMetadataWire{{}}, nil
+	}
+	if _, err := backend.InvokeActionByName(context.Background(), child, "delete"); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("removed child action error = %v, want ErrStaleNode", err)
+	}
+	if actionCalls != 0 {
+		t.Fatalf("removed child action made %d provider calls, want none", actionCalls)
+	}
+	before := Snapshot{Root: Node{ID: root}, Nodes: []Node{{ID: root}, {ID: child, Parent: root}}}
+	if err := backend.observationChangesError(0, root, before, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("child removal did not invalidate the snapshot containing the target: %v", err)
+	}
+	if event.Node.Generation != root.Generation {
+		t.Fatalf("ChildrenChanged event changed global handle epoch to %d, want %d", event.Node.Generation, root.Generation)
+	}
+	// A fresh tree after the removal is authoritative. A semantic locator sees
+	// the child is absent instead of dispatching through the old snapshot.
+	after := Snapshot{Root: Node{ID: root}, Nodes: []Node{{ID: root}}}
+	if err := backend.observationChangesError(backend.observationRevision, root, after, true); err != nil {
+		t.Fatalf("post-removal fresh resolution remained invalid: %v", err)
+	}
+	// Reuse of the same object path gets a new incarnation. The old ID must
+	// remain stale even after the provider announces the replacement.
+	item := cacheItem{
+		Object:      cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)},
+		Application: cacheObjectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath("/application")},
+		Parent:      cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)},
+	}
+	backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: child.BusName, Body: []any{item}}, Event{Kind: cacheIface + ":AddAccessible"})
+	replacement := backend.refID(objectRef{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)})
+	if replacement.Incarnation == child.Incarnation || backend.validateHandle(replacement) != nil {
+		t.Fatalf("replacement ID=%+v was not issued as a current new incarnation", replacement)
+	}
+	if err := backend.validateHandle(child); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("path reuse revived old child handle: %v", err)
+	}
+}
+
+func TestChildrenChangedRemovalRejectsWindowRootPublication(t *testing.T) {
+	parent := NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 5, Incarnation: 1}
+	window := NodeID{BusName: "org.test", ObjectPath: "/window", Generation: 5, Incarnation: 1}
+	backend := &dbusBackend{generation: 5}
+	sig := &dbus.Signal{
+		Name:   "org.a11y.atspi.Event.Object:ChildrenChanged",
+		Sender: parent.BusName,
+		Path:   dbus.ObjectPath(parent.ObjectPath),
+		Body: []any{
+			"remove", int32(0), int32(0),
+			dbus.MakeVariant([]any{window.BusName, dbus.ObjectPath(window.ObjectPath)}),
+			map[string]dbus.Variant{},
+		},
+	}
+	backend.prepareEvent(sig, Event{Kind: sig.Name, Node: parent})
+	if backend.Generation() != window.Generation {
+		t.Fatalf("scoped window removal changed global generation to %d, want %d", backend.Generation(), window.Generation)
+	}
+	if err := backend.validateHandle(parent); err != nil {
+		t.Fatalf("window removal invalidated surviving application parent: %v", err)
+	}
+	if err := backend.validateHandle(window); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("removed window root remains valid: %v", err)
+	}
+	oldSnapshot := Snapshot{Root: Node{ID: window}, Nodes: []Node{{ID: window}}}
+	if err := backend.observationChangesError(0, window, oldSnapshot, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("window-root removal escaped fresh snapshot consistency: %v", err)
+	}
+	if err := backend.publishSnapshot("window", window.Generation, 0, window, true, oldSnapshot); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("window-root removal published stale snapshot: %v", err)
+	}
+	if len(backend.cache) != 0 {
+		t.Fatalf("window-root removal left %d stale snapshots cached", len(backend.cache))
+	}
+	replacement := backend.refID(objectRef{BusName: window.BusName, ObjectPath: dbus.ObjectPath(window.ObjectPath)})
+	if replacement.Incarnation == window.Incarnation || snapshotKey(replacement, SnapshotOptions{}) == snapshotKey(window, SnapshotOptions{}) {
+		t.Fatalf("same-path replacement reused snapshot identity: old=%+v new=%+v", window, replacement)
+	}
+}
+
+func TestDefunctStateRevokesOnlyTheDefunctObject(t *testing.T) {
+	parent := NodeID{BusName: "org.test", ObjectPath: "/parent", Generation: 8}
+	target := NodeID{BusName: "org.test", ObjectPath: "/defunct", Generation: 8}
+	backend := &dbusBackend{generation: 8}
+	makeSignal := func(enabled int32) *dbus.Signal {
+		return &dbus.Signal{
+			Name:   "org.a11y.atspi.Event.Object:StateChanged",
+			Sender: target.BusName,
+			Path:   dbus.ObjectPath(target.ObjectPath),
+			Body: []any{
+				"defunct", enabled, int32(0), dbus.MakeVariant(int32(0)), map[string]dbus.Variant{},
+			},
+		}
+	}
+	backend.prepareEvent(makeSignal(0), signalEvent(makeSignal(0)))
+	if err := backend.validateHandle(target); err != nil {
+		t.Fatalf("defunct=false revoked object handle: %v", err)
+	}
+	backend.prepareEvent(makeSignal(1), signalEvent(makeSignal(1)))
+	if err := backend.validateHandle(parent); err != nil {
+		t.Fatalf("defunct state invalidated unrelated parent: %v", err)
+	}
+	if err := backend.validateHandle(target); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("defunct=true handle validation = %v, want ErrStaleNode", err)
+	}
+	malformed := makeSignal(1)
+	malformed.Body = []any{"defunct", int32(1), int32(0), dbus.MakeVariant(int32(0))}
+	before := backend.Generation()
+	backend.prepareEvent(malformed, signalEvent(malformed))
+	if backend.Generation() != before+1 {
+		t.Fatalf("malformed defunct signal did not fail closed: generation=%d want %d", backend.Generation(), before+1)
+	}
+}
+
+func TestCoalescedChildrenRemovalStillRevokesTarget(t *testing.T) {
+	parent := NodeID{BusName: "org.test", ObjectPath: "/parent", Generation: 8}
+	child := NodeID{BusName: "org.test", ObjectPath: "/child", Generation: 8}
+	backend := &dbusBackend{generation: 8}
+	newSignal := func() *dbus.Signal {
+		return &dbus.Signal{
+			Name:   "org.a11y.atspi.Event.Object:ChildrenChanged",
+			Sender: parent.BusName,
+			Path:   dbus.ObjectPath(parent.ObjectPath),
+			Body: []any{
+				"remove", int32(0), int32(0),
+				dbus.MakeVariant([]any{child.BusName, dbus.ObjectPath(child.ObjectPath)}),
+				map[string]dbus.Variant{},
+			},
+		}
+	}
+	lastKey := ""
+	var lastAt time.Time
+	base := time.Now()
+	for i := 0; i < 2; i++ {
+		sig := newSignal()
+		event := backend.prepareEvent(sig, Event{Kind: sig.Name, Node: NodeID{BusName: sig.Sender, ObjectPath: string(sig.Path)}, Timestamp: base.Add(time.Duration(i) * time.Millisecond)})
+		if coalesced := coalesceEvent(&lastKey, &lastAt, event); i == 0 && coalesced {
+			t.Fatal("first child removal was coalesced")
+		} else if i == 1 && !coalesced {
+			t.Fatal("duplicate child removal was not coalesced for delivery")
+		}
+	}
+	if backend.observationRevision != 2 {
+		t.Fatalf("physical removal transitions=%d, want both signals processed", backend.observationRevision)
+	}
+	if err := backend.validateHandle(parent); err != nil {
+		t.Fatalf("coalesced child removal invalidated parent: %v", err)
+	}
+	if err := backend.validateHandle(child); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("coalesced child removal left target usable: %v", err)
+	}
+}
+
+func TestMalformedChildrenRemovalFailsClosed(t *testing.T) {
+	backend := &dbusBackend{generation: 5}
+	parent := NodeID{BusName: "org.test", ObjectPath: "/parent", Generation: 5}
+	child := NodeID{BusName: "org.test", ObjectPath: "/child", Generation: 5}
+	sig := &dbus.Signal{
+		Name:   "org.a11y.atspi.Event.Object:ChildrenChanged",
+		Sender: parent.BusName,
+		Path:   dbus.ObjectPath(parent.ObjectPath),
+		// The child reference is missing from the standard five-field event
+		// body, so the backend cannot safely scope this removal.
+		Body: []any{"remove", int32(0), int32(0)},
+	}
+	backend.prepareEvent(sig, signalEvent(sig))
+	if backend.Generation() != 6 {
+		t.Fatalf("malformed removal global epoch=%d, want fail-closed epoch 6", backend.Generation())
+	}
+	if err := backend.validateHandle(child); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("malformed removal left prior child usable: %v", err)
+	}
+}
+
+func TestIncompleteAncestryTrackingFallsBackToGlobalInvalidation(t *testing.T) {
+	backend := &dbusBackend{generation: 5, parentTrackingIncomplete: true}
+	parent := NodeID{BusName: "org.test", ObjectPath: "/parent", Generation: 5}
+	target := NodeID{BusName: "org.test", ObjectPath: "/child", Generation: 5}
+	sig := &dbus.Signal{
+		Name:   "org.a11y.atspi.Event.Object:ChildrenChanged",
+		Sender: parent.BusName,
+		Path:   dbus.ObjectPath(parent.ObjectPath),
+		Body: []any{
+			"remove", int32(0), int32(0),
+			dbus.MakeVariant([]any{target.BusName, dbus.ObjectPath(target.ObjectPath)}),
+			map[string]dbus.Variant{},
+		},
+	}
+	backend.prepareEvent(sig, signalEvent(sig))
+	if backend.Generation() != 6 {
+		t.Fatalf("incomplete ancestry did not advance backend epoch: %d, want 6", backend.Generation())
+	}
+	if err := backend.validateHandle(parent); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("incomplete ancestry left old parent handle valid: %v", err)
+	}
+}
+
+func TestIncarnationTrackingCapFailsClosedWithoutGrowing(t *testing.T) {
+	backend := &dbusBackend{generation: 5, incarnations: make(map[objectIdentity]uint64, maxTrackedObjects)}
+	for i := 0; i < maxTrackedObjects; i++ {
+		backend.incarnations[objectIdentity{busName: "org.test", objectPath: fmt.Sprintf("/tracked/%d", i)}] = 1
+	}
+	backend.mu.Lock()
+	parent := backend.nodeIDLocked(objectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/parent")})
+	target := backend.nodeIDLocked(objectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/target")})
+	trackedCount := len(backend.incarnations)
+	trackingIncomplete := backend.parentTrackingIncomplete
+	backend.mu.Unlock()
+	if trackedCount != maxTrackedObjects || !trackingIncomplete {
+		t.Fatalf("capped identity tracking = %d entries, incomplete=%t; want %d and true", trackedCount, trackingIncomplete, maxTrackedObjects)
+	}
+	sig := &dbus.Signal{
+		Name:   "org.a11y.atspi.Event.Object:ChildrenChanged",
+		Sender: parent.BusName,
+		Path:   dbus.ObjectPath(parent.ObjectPath),
+		Body: []any{
+			"remove", int32(0), int32(0),
+			dbus.MakeVariant([]any{target.BusName, dbus.ObjectPath(target.ObjectPath)}),
+			map[string]dbus.Variant{},
+		},
+	}
+	backend.prepareEvent(sig, Event{Kind: sig.Name, Node: parent})
+	if backend.Generation() != 6 {
+		t.Fatalf("incomplete capped ancestry did not advance handle epoch: %d, want 6", backend.Generation())
+	}
+	if err := backend.validateHandle(parent); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("incomplete capped ancestry left parent handle valid: %v", err)
+	}
+	if len(backend.incarnations) > maxTrackedObjects {
+		t.Fatalf("incarnation tracking grew to %d entries beyond cap %d", len(backend.incarnations), maxTrackedObjects)
+	}
+}
+
+func TestCacheSignalWirePayloadRetainsParentIdentity(t *testing.T) {
+	payload := []any{
+		[]any{"org.test", dbus.ObjectPath("/child")},
+		[]any{"org.test", dbus.ObjectPath("/application")},
+		[]any{"org.test", dbus.ObjectPath("/parent")},
+		int32(3), int32(0), []string{"org.a11y.atspi.Accessible"}, "child", uint32(43), "", []uint32{8, 24},
+	}
+	item, ok := cacheItemFromSignal([]any{payload})
+	if !ok {
+		t.Fatal("AT-SPI Cache.AddAccessible wire payload was not decoded")
+	}
+	if item.Object.ObjectPath != "/child" || item.Parent.ObjectPath != "/parent" || item.Index != 3 {
+		t.Fatalf("decoded cache addition lost object ancestry: %+v", item)
+	}
+	ref, ok := cacheObjectRefFromSignal([]any{payload[0]})
+	if !ok || ref.ObjectPath != "/child" {
+		t.Fatalf("AT-SPI cache object reference decode = %+v, %v", ref, ok)
 	}
 }
 
@@ -1259,10 +1801,10 @@ func TestNonCacheEventDiscardsPreviousGenerationCacheMetadata(t *testing.T) {
 		t.Fatal("fixture cache item was not available")
 	}
 	event := backend.prepareEvent(&dbus.Signal{Name: "org.a11y.atspi.Event.Object:PropertyChange"}, Event{Node: oldID})
-	if event.Node.Generation != 6 {
-		t.Fatalf("event generation = %d, want 6", event.Node.Generation)
+	if event.Node.Generation != 5 || backend.observationRevision != 1 {
+		t.Fatalf("property event handle epoch/observation = %d/%d, want 5/1", event.Node.Generation, backend.observationRevision)
 	}
-	if _, ok := backend.cachedItem(NodeID{BusName: oldID.BusName, ObjectPath: oldID.ObjectPath, Generation: 6}); ok {
+	if _, ok := backend.cachedItem(NodeID{BusName: oldID.BusName, ObjectPath: oldID.ObjectPath, Generation: 5}); ok {
 		t.Fatal("stale cached name/state was reused after a non-cache event")
 	}
 	if backend.cacheApps[oldID.BusName] {
@@ -1302,12 +1844,12 @@ func TestCacheSignalAndExplicitInvalidationKeepOneCacheEpoch(t *testing.T) {
 
 	backend.mu.RLock()
 	defer backend.mu.RUnlock()
-	if backend.generation != 12 {
-		t.Fatalf("generation = %d, want both serialized transitions", backend.generation)
+	if backend.generation != 11 {
+		t.Fatalf("generation = %d, want explicit invalidation to advance the handle epoch once", backend.generation)
 	}
 	for id, item := range backend.cacheItems {
 		if id.Generation != backend.generation {
-			t.Fatalf("cache key generation = %d, owner generation = %d", id.Generation, backend.generation)
+			t.Fatalf("cache key handle epoch = %d, owner epoch = %d", id.Generation, backend.generation)
 		}
 		if item.Name == "old" || id.ObjectPath == oldID.ObjectPath {
 			t.Fatalf("stale cache item resurfaced after invalidation: %+v", item)
@@ -1326,5 +1868,151 @@ func TestWatchSubscriberReturnsForNonCancelableContext(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("watchSubscriber blocked on context.Background")
+	}
+}
+
+func TestEventAdmissionWaitsForDispatcherTeardown(t *testing.T) {
+	oldDone := make(chan struct{})
+	oldSubscriber := &eventSubscriber{out: make(chan Event, 1)}
+	backend := &dbusBackend{
+		subscribers: map[uint64]*eventSubscriber{1: oldSubscriber},
+		eventCancel: func() {},
+		eventDone:   oldDone,
+	}
+
+	backend.beginEventDispatcherCleanup(oldDone)
+	select {
+	case _, open := <-oldSubscriber.out:
+		if open {
+			t.Fatal("old subscriber stream remained open during dispatcher cleanup")
+		}
+	default:
+		t.Fatal("old subscriber stream was not closed before remote cleanup")
+	}
+
+	out := make(chan Event, 1)
+	id, start, wait, err := backend.reserveEventSubscriber(out)
+	if err != nil {
+		t.Fatalf("reserve while old dispatcher stops: %v", err)
+	}
+	if id != 0 || start || wait != oldDone || len(backend.subscribers) != 0 {
+		t.Fatalf("stopping dispatcher admission = id %d, start %v, wait %v, subscribers %d; want wait for old run without insertion", id, start, wait, len(backend.subscribers))
+	}
+
+	backend.finishEventDispatcher(oldDone)
+	if waitErr := waitForEventRun(context.Background(), wait); waitErr != nil {
+		t.Fatalf("wait for old dispatcher completion: %v", waitErr)
+	}
+	id, start, wait, err = backend.reserveEventSubscriber(out)
+	if err != nil {
+		t.Fatalf("reserve after old dispatcher completion: %v", err)
+	}
+	if id == 0 || !start || wait != nil || len(backend.subscribers) != 1 {
+		t.Fatalf("post-teardown admission = id %d, start %v, wait %v, subscribers %d; want one new run", id, start, wait, len(backend.subscribers))
+	}
+}
+
+func TestEventAdmissionWaitCancellationDoesNotInsertSubscriber(t *testing.T) {
+	done := make(chan struct{})
+	backend := &dbusBackend{
+		subscribers: map[uint64]*eventSubscriber{},
+		eventCancel: func() {},
+		eventDone:   done,
+	}
+	out := make(chan Event, 1)
+	id, start, wait, err := backend.reserveEventSubscriber(out)
+	if err != nil {
+		t.Fatalf("reserve while dispatcher stops: %v", err)
+	}
+	if id != 0 || start || wait != done || len(backend.subscribers) != 0 {
+		t.Fatalf("stopping dispatcher admission = id %d, start %v, wait %v, subscribers %d; want no insertion", id, start, wait, len(backend.subscribers))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitForEventRun(ctx, wait); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled admission wait error = %v, want context.Canceled", err)
+	}
+	if len(backend.subscribers) != 0 {
+		t.Fatalf("canceled admission inserted %d subscribers", len(backend.subscribers))
+	}
+}
+
+func TestLastSubscriberCancellationGatesRestartUntilRunDone(t *testing.T) {
+	runDone := make(chan struct{})
+	dispatcherCanceled := make(chan struct{})
+	subscriberCtx, cancelSubscriber := context.WithCancel(context.Background())
+	backend := &dbusBackend{
+		subscribers: map[uint64]*eventSubscriber{1: {out: make(chan Event, 1)}},
+		eventCancel: func() { close(dispatcherCanceled) },
+		eventDone:   runDone,
+	}
+	go backend.watchSubscriber(subscriberCtx, 1)
+	cancelSubscriber()
+	<-dispatcherCanceled
+
+	out := make(chan Event, 1)
+	id, start, wait, err := backend.reserveEventSubscriber(out)
+	if err != nil {
+		t.Fatalf("reserve after last subscriber cancellation: %v", err)
+	}
+	if id != 0 || start || wait != runDone || len(backend.subscribers) != 0 {
+		t.Fatalf("last-subscriber restart admission = id %d, start %v, wait %v, subscribers %d; want wait for canceled dispatcher", id, start, wait, len(backend.subscribers))
+	}
+
+	backend.finishEventDispatcher(runDone)
+	id, start, wait, err = backend.reserveEventSubscriber(out)
+	if err != nil || id == 0 || !start || wait != nil {
+		t.Fatalf("restart after dispatcher completion = id %d, start %v, wait %v, err %v; want fresh run", id, start, wait, err)
+	}
+}
+
+func TestStaleSubscriberCancellationDoesNotStopNewSetup(t *testing.T) {
+	subscriberCtx, cancelSubscriber := context.WithCancel(context.Background())
+	setupCanceled := make(chan struct{})
+	watcherDone := make(chan struct{})
+	backend := &dbusBackend{
+		subscribers:   map[uint64]*eventSubscriber{},
+		eventStarting: &eventStart{done: make(chan struct{})},
+		eventStartStop: func() {
+			close(setupCanceled)
+		},
+	}
+	go func() {
+		backend.watchSubscriber(subscriberCtx, 1)
+		close(watcherDone)
+	}()
+	cancelSubscriber()
+	<-watcherDone
+	select {
+	case <-setupCanceled:
+		t.Fatal("stale subscriber cancellation stopped a different event setup")
+	default:
+	}
+}
+
+func TestEventAdmissionWaitsForUnobservedSetupAndHonorsRetirement(t *testing.T) {
+	state := &eventStart{done: make(chan struct{})}
+	backend := &dbusBackend{subscribers: map[uint64]*eventSubscriber{}, eventStarting: state}
+	out := make(chan Event, 1)
+	id, start, wait, err := backend.reserveEventSubscriber(out)
+	if err != nil {
+		t.Fatalf("reserve while event setup is in progress: %v", err)
+	}
+	if id != 0 || start || wait != state.done || len(backend.subscribers) != 0 {
+		t.Fatalf("setup-in-progress admission = id %d, start %v, wait %v, subscribers %d; want wait without insertion", id, start, wait, len(backend.subscribers))
+	}
+	backend.finishEventStart(state, context.Canceled, true)
+	if waitErr := waitForEventRun(context.Background(), wait); waitErr != nil {
+		t.Fatalf("wait for setup completion: %v", waitErr)
+	}
+	id, start, wait, err = backend.reserveEventSubscriber(out)
+	if err != nil || id == 0 || !start || wait != nil {
+		t.Fatalf("admission after canceled setup = id %d, start %v, wait %v, err %v; want fresh setup", id, start, wait, err)
+	}
+
+	retired := &dbusBackend{subscribers: map[uint64]*eventSubscriber{}, eventsRetired: true}
+	if _, _, _, err := retired.reserveEventSubscriber(make(chan Event, 1)); !errors.Is(err, ErrDisconnected) {
+		t.Fatalf("retired backend admission error = %v, want ErrDisconnected", err)
 	}
 }

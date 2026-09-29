@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/internal/probe"
@@ -36,6 +37,24 @@ type FailureBundleOptions struct {
 	Error error
 	// Metadata contains caller-supplied context to include in manifest.json.
 	Metadata map[string]string
+	// Accessibility adds a bounded, content-redacted semantic evidence artifact.
+	// Snapshot and event values are summarized; names, descriptions, text,
+	// selector values, action conditions, and provider warnings are omitted.
+	Accessibility *AccessibilityFailureEvidence
+	// IncludeInputReceipts adds the bounded recent input operation history.
+	// Receipts omit key and text payloads, coordinates, and raw error messages.
+	IncludeInputReceipts bool
+}
+
+// AccessibilityFailureEvidence supplies the semantic context associated with
+// a failure. Values are summarized into accessibility.json so input contents
+// and provider text do not enter the artifact.
+type AccessibilityFailureEvidence struct {
+	Locator       *AccessibilityLocator
+	Snapshot      *accessibility.Snapshot
+	Events        []accessibility.Event
+	Action        *AccessibilityActionReceipt
+	Postcondition *WaitEvidence
 }
 
 // CaptureFailureBundle collects best-effort diagnostic artifacts into a
@@ -82,7 +101,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 		manifest.Error = options.Error.Error()
 	}
 
-	artifactErrors := s.captureFailureArtifacts(ctx, directory, &manifest)
+	artifactErrors := s.captureFailureArtifacts(ctx, directory, &manifest, options)
 
 	manifest.Artifacts = uniqueSortedStrings(manifest.Artifacts)
 	manifest.ArtifactErrors = copyStringMap(manifest.ArtifactErrors)
@@ -106,13 +125,27 @@ func (c *failureArtifactCollector) capture(name string, fn func() error) {
 	c.manifest.Artifacts = append(c.manifest.Artifacts, name)
 }
 
-func (s *Session) captureFailureArtifacts(ctx context.Context, directory string, manifest *failureManifest) error {
+func (s *Session) captureFailureArtifacts(ctx context.Context, directory string, manifest *failureManifest, options FailureBundleOptions) error {
 	collector := failureArtifactCollector{manifest: manifest}
 	collector.capture("screenshot.png", func() error { return s.captureScreenshot(ctx, directory) })
 	collector.capture("windows.json", func() error { return s.captureWindows(ctx, directory) })
 	collector.capture("active-window.json", func() error { return s.captureActiveWindow(ctx, directory) })
 	collector.capture("outputs.json", func() error { return s.captureOutputs(ctx, directory) })
 	collector.capture("trace.txt", func() error { return s.captureTrace(directory) })
+	if options.Accessibility != nil {
+		collector.capture("accessibility.json", func() error {
+			return writeJSON(filepath.Join(directory, "accessibility.json"), summarizeAccessibilityFailure(options.Accessibility))
+		})
+	}
+	if options.IncludeInputReceipts {
+		collector.capture("input-receipts.json", func() error {
+			receipts := s.Input.recentInputReceipts()
+			if receipts == nil {
+				receipts = []InputActionReceipt{}
+			}
+			return writeJSON(filepath.Join(directory, "input-receipts.json"), summarizeInputReceipts(receipts))
+		})
+	}
 	return errors.Join(collector.errors...)
 }
 

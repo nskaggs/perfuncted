@@ -38,7 +38,7 @@ func (b *dbusBackend) ResolveWindow(ctx context.Context, target WindowTarget) (W
 func (b *dbusBackend) ResolveWindowFresh(ctx context.Context, target WindowTarget) (WindowScope, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		scope, err := b.resolveWindow(ctx, target, true)
-		if !errors.Is(err, ErrStaleGeneration) || attempt == 1 {
+		if (!errors.Is(err, ErrStaleGeneration) && !errors.Is(err, ErrObservationChanged)) || attempt == 1 {
 			return scope, err
 		}
 	}
@@ -47,6 +47,10 @@ func (b *dbusBackend) ResolveWindowFresh(ctx context.Context, target WindowTarge
 
 func (b *dbusBackend) resolveWindow(ctx context.Context, target WindowTarget, fresh bool) (WindowScope, error) { //nolint:gocyclo // correlation keeps each ambiguity and evidence rule explicit.
 	expectedGeneration := b.Generation()
+	b.mu.RLock()
+	expectedObservation := b.observationRevision
+	b.mu.RUnlock()
+	desktop := b.desktop()
 	if strings.TrimSpace(target.ID) == "" {
 		return WindowScope{}, fmt.Errorf("%w: window identity is empty", ErrNotFound)
 	}
@@ -70,12 +74,16 @@ func (b *dbusBackend) resolveWindow(ctx context.Context, target WindowTarget, fr
 		return WindowScope{}, err
 	}
 	var candidates []windowCandidate
+	var observedCandidates []Node
 	if fresh {
-		candidates, err = b.windowCandidatesFresh(ctx, target, apps)
+		candidates, observedCandidates, err = b.windowCandidatesFresh(ctx, target, apps)
 		if err != nil {
 			return WindowScope{}, err
 		}
 		if err := b.generationError(expectedGeneration); err != nil {
+			return WindowScope{}, err
+		}
+		if err := b.windowResolutionChangesError(expectedObservation, desktop, apps, observedCandidates); err != nil {
 			return WindowScope{}, err
 		}
 	} else {
@@ -130,7 +138,7 @@ func (b *dbusBackend) windowApplicationsFresh(ctx context.Context, target Window
 		return nil, errors.New("accessibility: nil context")
 	}
 	expected := b.Generation()
-	refs, err := b.childrenFresh(ctx, NodeID{BusName: registryName, ObjectPath: string(desktopPath), Generation: expected})
+	refs, err := b.childrenFresh(ctx, b.desktop())
 	if err != nil {
 		return nil, err
 	}
@@ -173,37 +181,39 @@ func (b *dbusBackend) windowApplicationsFresh(ctx context.Context, target Window
 	return apps, nil
 }
 
-func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTarget, apps []Application) ([]windowCandidate, error) {
+func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTarget, apps []Application) ([]windowCandidate, []Node, error) {
 	expected := b.Generation()
 	var candidates []windowCandidate
+	var observed []Node
 	for _, app := range apps {
 		if app.ID.Generation != expected {
-			return nil, ErrStaleGeneration
+			return nil, nil, ErrStaleGeneration
 		}
 		if err := b.generationError(expected); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !windowAppMatches(app, target) {
 			continue
 		}
 		children, err := b.childrenFresh(ctx, app.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(children) > maxApplications {
-			return nil, fmt.Errorf("%w: window child list exceeds %d entries", ErrIncompleteSnapshot, maxApplications)
+			return nil, nil, fmt.Errorf("%w: window child list exceeds %d entries", ErrIncompleteSnapshot, maxApplications)
 		}
 		for _, child := range children {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			id := b.refID(child)
 			readCtx, cancel := windowCandidateContext(ctx)
 			node, readErr := b.readWindowCandidateFresh(readCtx, id, app.ID, target.Title != "")
 			cancel()
 			if readErr != nil {
-				return nil, fmt.Errorf("accessibility: resolve fresh window candidate %s: %w", id.ObjectPath, readErr)
+				return nil, nil, fmt.Errorf("accessibility: resolve fresh window candidate %s: %w", id.ObjectPath, readErr)
 			}
+			observed = append(observed, node)
 			if !isWindowRole(node.Role) {
 				continue
 			}
@@ -212,7 +222,10 @@ func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTa
 			}
 		}
 	}
-	return candidates, b.generationError(expected)
+	if err := b.generationError(expected); err != nil {
+		return nil, nil, err
+	}
+	return candidates, observed, nil
 }
 
 func (b *dbusBackend) readWindowCandidateFresh(ctx context.Context, id, parent NodeID, needDescription bool) (Node, error) {

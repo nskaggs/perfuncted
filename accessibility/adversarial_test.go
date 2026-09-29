@@ -73,7 +73,7 @@ func TestAdversarialStalePublicationNeverCaches(t *testing.T) {
 	root := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 8}
 	snapshot := Snapshot{Root: Node{ID: root}, Nodes: []Node{{ID: root}}, Generation: 8}
 	backend.Invalidate(root)
-	if err := backend.publishSnapshot("k", root.Generation, snapshot); !errors.Is(err, ErrStaleGeneration) {
+	if err := backend.publishSnapshot("k", root.Generation, 0, root, true, snapshot); !errors.Is(err, ErrStaleGeneration) {
 		t.Fatalf("stale publish = %v, want ErrStaleGeneration", err)
 	}
 	if len(backend.cache) != 0 {

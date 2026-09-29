@@ -326,6 +326,48 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	failureEvidence := &perfuncted.AccessibilityFailureEvidence{}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		captureCtx, captureCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer captureCancel()
+		path, err := s.pf.CaptureFailureBundle(captureCtx, perfuncted.FailureBundleOptions{
+			Operation:            "AT-SPI locator certification " + representative.name,
+			Accessibility:        failureEvidence,
+			IncludeInputReceipts: true,
+		})
+		if err != nil {
+			t.Logf("failure bundle written to %s with collection errors: %v", path, err)
+			return
+		}
+		t.Logf("failure bundle written to %s", path)
+	})
+	eventCtx, eventCancel := context.WithCancel(ctx)
+	eventStream, eventErr := s.pf.Accessibility.Events(eventCtx, accessibility.EventOptions{Buffer: 256})
+	if eventErr == nil {
+		t.Cleanup(func() {
+			if !t.Failed() {
+				return
+			}
+			for len(failureEvidence.Events) < 128 {
+				select {
+				case event, ok := <-eventStream:
+					if !ok {
+						return
+					}
+					failureEvidence.Events = append(failureEvidence.Events, event)
+				default:
+					return
+				}
+			}
+		})
+		t.Cleanup(eventCancel)
+	} else {
+		eventCancel()
+		t.Logf("AT-SPI event subscription unavailable for failure artifacts: %v", eventErr)
+	}
 
 	saveFile := filepath.Join(t.TempDir(), representative.name+"-certification.txt")
 	if err := os.WriteFile(saveFile, nil, 0o600); err != nil {
@@ -398,6 +440,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if snapshot.Root.ID != scope.Root || snapshot.Generation != scope.Generation || len(snapshot.Nodes) == 0 {
 		t.Fatalf("invalid bounded %s AT-SPI tree: scope=%+v snapshot=%+v", representative.name, scope, snapshot)
 	}
+	failureEvidence.Snapshot = &snapshot
 	editable, err := findUniqueEditableTarget(snapshot)
 	if err != nil {
 		t.Fatalf("unique editable %s semantic target: %v", representative.name, err)
@@ -417,26 +460,76 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 		}
 	}
 	if representative.name == "kwrite" {
-		actionNode, action, err := findSaveAction(snapshot)
+		actionNode, _, err := findSaveAction(snapshot)
 		if err != nil {
 			t.Fatalf("machine-readable named action target for %s: %v", representative.name, err)
 		}
-		selected, err := s.pf.Accessibility.InvokeActionByName(ctx, actionNode.ID, action.Name)
+		freshActionSnapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, options)
 		if err != nil {
-			t.Fatalf("invoke %s action %q by machine-readable name: %v", representative.name, action.Name, err)
+			t.Fatalf("refresh %s action metadata after focus verification: %v", representative.name, err)
 		}
-		if selected.Name != action.Name || selected.LocalizedName != action.LocalizedName {
-			t.Fatalf("named action result = %+v, snapshot action = %+v", selected, action)
+		freshActionNode, freshAction, err := findSaveAction(freshActionSnapshot)
+		if err != nil {
+			t.Fatalf("re-resolve machine-readable named action for %s after focus: %v", representative.name, err)
+		}
+		if freshActionNode.ID.BusName != actionNode.ID.BusName || freshActionNode.ID.ObjectPath != actionNode.ID.ObjectPath {
+			t.Fatalf("%s action identity changed after focus: initial=%+v fresh=%+v", representative.name, actionNode.ID, freshActionNode.ID)
+		}
+		selected, err := s.pf.Accessibility.InvokeActionByName(ctx, freshActionNode.ID, freshAction.Name)
+		if err != nil {
+			t.Fatalf("invoke %s action %q by machine-readable name: %v", representative.name, freshAction.Name, err)
+		}
+		if selected.Name != freshAction.Name || selected.LocalizedName != freshAction.LocalizedName {
+			t.Fatalf("named action result = %+v, snapshot action = %+v", selected, freshAction)
 		}
 	}
 
+	if strings.TrimSpace(editable.Role) == "" {
+		t.Fatalf("%s editable semantic target has no role for Locator certification: %+v", representative.name, editable)
+	}
+	locatorOptions := options
+	locatorOptions.AllowSensitive = true
+	selector := accessibility.Selector{Role: editable.Role, Name: editable.Name}
+	locator := s.pf.Accessibility.LocatorForWindow(info.NativeID, selector, locatorOptions)
+	failureEvidence.Locator = locator
+
 	marker := "Perfuncted AT-SPI certification " + representative.name
-	if err := s.pf.Accessibility.ReplaceEditableText(ctx, editable.ID, marker); err != nil {
-		t.Fatalf("AT-SPI text mutation %s: %v", representative.name, err)
+	postcondition := perfuncted.Predicate("editable content equals certification marker", func(checkCtx context.Context) (bool, error) {
+		refreshed, resolveErr := locator.Resolve(checkCtx)
+		if errors.Is(resolveErr, accessibility.ErrNotFound) {
+			return false, nil
+		}
+		if resolveErr != nil {
+			return false, resolveErr
+		}
+		return refreshed.Text == marker, nil
+	})
+	receipt, fillEvidence, fillErr := locator.FillAndWait(ctx, marker, postcondition)
+	failureEvidence.Action = &receipt
+	failureEvidence.Postcondition = &fillEvidence
+	if fillEvidence.LastAccessibilityEvent != nil {
+		failureEvidence.Events = append(failureEvidence.Events, *fillEvidence.LastAccessibilityEvent)
+	}
+	if fillErr != nil {
+		t.Fatalf("real %s Locator fill with independent content postcondition: %v", representative.name, fillErr)
+	}
+	if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != perfuncted.ActionOutcomeVerified || fillEvidence.Evaluations == 0 {
+		t.Fatalf("real %s Locator action lacks independent postcondition proof: receipt=%+v evidence=%+v", representative.name, receipt, fillEvidence)
+	}
+	if receipt.Node.ID.BusName != editable.ID.BusName || receipt.Node.ID.ObjectPath != editable.ID.ObjectPath {
+		t.Fatalf("real %s Locator acted on a different semantic target: locator=%+v snapshot=%+v", representative.name, receipt.Node.ID, editable.ID)
+	}
+	editable, err = locator.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("re-resolve real %s editable target after verified fill: %v", representative.name, err)
 	}
 	unicodeSuffix := " — café"
 	if err := s.pf.Accessibility.InsertText(ctx, editable.ID, int32(len([]rune(marker))), unicodeSuffix); err != nil {
 		t.Fatalf("AT-SPI UTF-8 InsertText %s: %v", representative.name, err)
+	}
+	editable, err = locator.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("re-resolve real %s editable target after Unicode insert: %v", representative.name, err)
 	}
 	if err := s.pf.Accessibility.SetCaretOffset(ctx, editable.ID, int32(len([]rune(marker+unicodeSuffix)))); err != nil {
 		t.Fatalf("AT-SPI caret mutation %s: %v", representative.name, err)

@@ -110,6 +110,9 @@ func sameLocatorScope(a, b locatorIdentity) bool {
 			return false
 		}
 	}
+	if a.busName != "" && b.busName != "" && a.busName != b.busName {
+		return false
+	}
 	if a.pid != 0 && b.pid != 0 {
 		return a.pid == b.pid && sameOptionalIdentity(a.appID, b.appID)
 	}
@@ -126,6 +129,19 @@ func sameOptionalIdentity(a, b string) bool {
 	return a == "" || b == "" || a == b
 }
 
+func locatorIdentityChanged(have bool, initial locatorIdentity, initialRoot accessibility.NodeID, current locatorIdentity, currentRoot accessibility.NodeID) bool {
+	if !have {
+		return false
+	}
+	return !sameLocatorScope(initial, current) || initialRoot.BusName != currentRoot.BusName || initialRoot.ObjectPath != currentRoot.ObjectPath
+}
+
+func locatorResolutionMayRetry(err error) bool {
+	return errors.Is(err, accessibility.ErrStaleGeneration) ||
+		errors.Is(err, accessibility.ErrStaleNode) ||
+		errors.Is(err, accessibility.ErrObservationChanged)
+}
+
 func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, locatorIdentity, error) {
 	if l == nil || l.bundle == nil {
 		return nil, locatorIdentity{}, ErrUnavailable
@@ -133,9 +149,20 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 	if err := l.bundle.checkAvailable("find"); err != nil {
 		return nil, locatorIdentity{}, err
 	}
+	var initialIdentity locatorIdentity
+	var initialRoot accessibility.NodeID
+	haveInitialIdentity := false
 	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
 		root, identity, err := l.scopeRoot(ctx)
 		if err == nil {
+			if locatorIdentityChanged(haveInitialIdentity, initialIdentity, initialRoot, identity, root) {
+				return nil, identity, l.bundle.operationError("find", fmt.Errorf("%w: locator scope identity changed during resolution", accessibility.ErrScope))
+			}
+			if !haveInitialIdentity {
+				initialIdentity = identity
+				initialRoot = root
+				haveInitialIdentity = true
+			}
 			opts := l.options
 			opts.Fresh = true
 			ctxForRead, cancel := l.bundle.operationContext(ctx)
@@ -149,7 +176,7 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			}
 			err = readErr
 		}
-		if !errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode) {
+		if !locatorResolutionMayRetry(err) {
 			return nil, identity, l.bundle.operationError("find", err)
 		}
 		if attempt+1 == locatorResolutionAttempts {

@@ -91,6 +91,9 @@ func (b *dbusBackend) readNodeWithCache(ctx context.Context, id, parent NodeID, 
 	if err := b.generationError(expected); err != nil {
 		return Node{}, err
 	}
+	if err := b.validateHandle(id); err != nil {
+		return Node{}, err
+	}
 	return node, nil
 }
 
