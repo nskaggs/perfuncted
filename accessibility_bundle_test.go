@@ -21,6 +21,7 @@ type bundleAccessibilityFake struct {
 	eventCalls           int
 	eventErr             error
 	eventDone            <-chan struct{}
+	eventOptions         accessibility.EventOptions
 	eventMu              sync.Mutex
 	resolvedTargets      []accessibility.WindowTarget
 	freshApplicationFind int
@@ -340,10 +341,11 @@ func (f *bundleAccessibilityFake) FindApplicationFresh(ctx context.Context, filt
 	}
 	return f.FindApplication(ctx, filter)
 }
-func (f *bundleAccessibilityFake) Events(ctx context.Context, _ accessibility.EventOptions) (<-chan accessibility.Event, error) {
+func (f *bundleAccessibilityFake) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
 	f.eventMu.Lock()
 	defer f.eventMu.Unlock()
 	f.eventCalls++
+	f.eventOptions = opts
 	f.eventDone = ctx.Done()
 	if f.eventErr != nil {
 		return nil, f.eventErr
@@ -351,10 +353,10 @@ func (f *bundleAccessibilityFake) Events(ctx context.Context, _ accessibility.Ev
 	return make(chan accessibility.Event), nil
 }
 
-func (f *bundleAccessibilityFake) eventObservationState() (int, <-chan struct{}) {
+func (f *bundleAccessibilityFake) eventObservationState() (int, <-chan struct{}, accessibility.EventOptions) {
 	f.eventMu.Lock()
 	defer f.eventMu.Unlock()
-	return f.eventCalls, f.eventDone
+	return f.eventCalls, f.eventDone, f.eventOptions
 }
 func (f *bundleAccessibilityFake) ResolveWindow(_ context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	f.resolvedTargets = append(f.resolvedTargets, target)
@@ -561,7 +563,7 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 		}, Generation: 3},
 	}
 	spy.dispatchCheck = func() error {
-		_, eventDone := fake.eventObservationState()
+		_, eventDone, _ := fake.eventObservationState()
 		if eventDone == nil {
 			return errors.New("locator did not start event observation")
 		}
@@ -590,10 +592,11 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 	if !fake.snapshotOptions.Fresh {
 		t.Fatal("locator did not request a fresh provider snapshot")
 	}
-	eventCalls, _ := fake.eventObservationState()
+	eventCalls, _, eventOptions := fake.eventObservationState()
 	if eventCalls < 1 || fake.eventCallsAtSnapshot != 1 {
 		t.Fatalf("event subscriptions=%d at snapshot=%d, want locator observation active before snapshot", eventCalls, fake.eventCallsAtSnapshot)
 	}
+	requireSemanticEventCoverage(t, eventOptions)
 	if fake.freshApplicationFind == 0 {
 		t.Fatal("application locator did not resolve its scope from fresh provider state")
 	}
@@ -623,6 +626,64 @@ func TestAccessibilityLocatorFailsClosedWhenEventObservationIsUnavailable(t *tes
 	}
 	if fake.snapshotCalls != 0 || fake.freshApplicationFind != 0 {
 		t.Fatalf("scope resolutions=%d snapshots=%d, want failure before observing unguarded state", fake.freshApplicationFind, fake.snapshotCalls)
+	}
+	_, observationDone, eventOptions := fake.eventObservationState()
+	requireSemanticEventCoverage(t, eventOptions)
+	select {
+	case <-observationDone:
+	default:
+		t.Fatal("failed event observation did not cancel its subscription context")
+	}
+}
+
+func TestAccessibilityLocatorCancelsObservationAfterResolutionErrors(t *testing.T) {
+	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 3}
+	targets := []accessibility.Node{
+		{ID: accessibility.NodeID{BusName: root.BusName, ObjectPath: "/save-one", Generation: root.Generation}, Parent: root, Name: "Save", Role: "button"},
+		{ID: accessibility.NodeID{BusName: root.BusName, ObjectPath: "/save-two", Generation: root.Generation}, Parent: root, Name: "Save", Role: "button"},
+	}
+	for _, test := range []struct {
+		name      string
+		nodes     []accessibility.Node
+		wantError error
+	}{
+		{name: "not found", wantError: accessibility.ErrNotFound},
+		{name: "ambiguous", nodes: targets, wantError: accessibility.ErrAmbiguous},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			app := accessibility.Application{Node: accessibility.Node{ID: root, Name: "Editor", Role: "application"}}
+			nodes := append([]accessibility.Node{app.Node}, test.nodes...)
+			fake := &snapshotAccessibilityAutomationFake{
+				accessibilityAutomationFake: &accessibilityAutomationFake{
+					bundleAccessibilityFake:    &bundleAccessibilityFake{apps: []accessibility.Application{app}, gen: root.Generation},
+					accessibilityAutomationSpy: &accessibilityAutomationSpy{},
+				},
+				snapshot: accessibility.Snapshot{Root: app.Node, Nodes: nodes, Generation: root.Generation},
+			}
+			session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+			defer session.Close()
+			locator := session.Accessibility.LocatorForApplication(
+				accessibility.ApplicationFilter{Name: "Editor"},
+				accessibility.Selector{Role: "button", Name: "Save"},
+				accessibility.SnapshotOptions{},
+			)
+			if _, err := locator.Resolve(context.Background()); !errors.Is(err, test.wantError) {
+				t.Fatalf("Resolve error = %v, want %v", err, test.wantError)
+			}
+			_, observationDone, _ := fake.eventObservationState()
+			select {
+			case <-observationDone:
+			default:
+				t.Fatal("resolution error left locator event subscription active")
+			}
+		})
+	}
+}
+
+func requireSemanticEventCoverage(t *testing.T, options accessibility.EventOptions) {
+	t.Helper()
+	if !options.RequireSemanticCoverage {
+		t.Fatal("locator subscription did not require semantic event coverage")
 	}
 }
 

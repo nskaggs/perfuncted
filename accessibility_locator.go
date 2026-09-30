@@ -158,7 +158,7 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 	haveInitialIdentity := false
 	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
 		observationCtx, stopObservation := context.WithCancel(ctx)
-		if _, err := l.bundle.Events(observationCtx, accessibility.EventOptions{Buffer: 1}); err != nil {
+		if _, err := l.bundle.Events(observationCtx, accessibility.EventOptions{Buffer: 1, RequireSemanticCoverage: true}); err != nil {
 			stopObservation()
 			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", fmt.Errorf("%w: locator event observation is unavailable: %w", accessibility.ErrObservationChanged, err))
 		}

@@ -155,7 +155,8 @@ type dbusBackend struct {
 	cacheItems map[NodeID]cacheItem
 	cacheApps  map[string]bool
 	// incarnations prevent a reused object path from reviving IDs issued for a
-	// removed object. parents records observed ancestry for subtree revocation.
+	// removed object. parents records the latest observed ancestry for subtree
+	// revocation; cacheItems supplies ancestry only when no direct edge is known.
 	incarnations             map[objectIdentity]uint64
 	parents                  map[objectIdentity]objectIdentity
 	parentTrackingIncomplete bool
@@ -166,6 +167,7 @@ type dbusBackend struct {
 	eventCancel              context.CancelFunc
 	eventDone                chan struct{}
 	eventAccess              *dbus.Conn
+	eventRegistered          []string
 	eventStarting            *eventStart
 	eventStartStop           context.CancelFunc
 	eventsRetired            bool
@@ -273,8 +275,8 @@ func (b *dbusBackend) handleCurrentLocked(id NodeID) bool {
 const maxTrackedObjects = 100000
 
 // revokeObjectLocked invalidates a removed object and every descendant whose
-// ancestry has been observed. It returns false when ancestry or incarnation
-// tracking is incomplete, requiring a backend-wide epoch transition.
+// latest observed ancestry is known. It returns false when ancestry or
+// incarnation tracking is incomplete, requiring a backend-wide epoch transition.
 func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 	if !root.valid() || b.parentTrackingIncomplete {
 		return false
@@ -283,9 +285,10 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 		b.incarnations = make(map[objectIdentity]uint64)
 	}
 	removed := b.removedObjectTreeLocked(root)
-	if !b.canTrackRevokedObjectsLocked(removed) || !b.adjustCachedChildrenForRevocationLocked(removed) {
+	if !b.canTrackRevokedObjectsLocked(removed) {
 		return false
 	}
+	b.adjustCachedChildrenForRevocationLocked(removed)
 	for identity := range removed {
 		current := b.incarnationLocked(identity)
 		b.incarnations[identity] = current + 1
@@ -307,8 +310,11 @@ func (b *dbusBackend) removedObjectTreeLocked(root objectIdentity) map[objectIde
 		children[parent] = append(children[parent], child)
 	}
 	for _, item := range b.cacheItems {
-		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
 		child := objectIdentity{busName: item.Object.BusName, objectPath: string(item.Object.ObjectPath)}
+		if _, observed := b.parents[child]; observed {
+			continue
+		}
+		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
 		children[parent] = append(children[parent], child)
 	}
 	removed := map[objectIdentity]struct{}{root: {}}
@@ -334,7 +340,7 @@ func (b *dbusBackend) canTrackRevokedObjectsLocked(removed map[objectIdentity]st
 	return len(b.incarnations)+newIncarnations <= maxTrackedObjects
 }
 
-func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[objectIdentity]struct{}) bool {
+func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[objectIdentity]struct{}) {
 	parentsByChild := make(map[objectIdentity]objectIdentity, len(b.parents)+len(b.cacheItems))
 	for child, parent := range b.parents {
 		parentsByChild[child] = parent
@@ -342,8 +348,11 @@ func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[object
 	for id, item := range b.cacheItems {
 		child := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
 		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
-		if existing, ok := parentsByChild[child]; ok && existing != parent {
-			return false
+		if observed, ok := parentsByChild[child]; ok {
+			if observed != parent {
+				b.invalidateCacheApplicationLocked(child.busName)
+			}
+			continue
 		}
 		parentsByChild[child] = parent
 	}
@@ -362,7 +371,18 @@ func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[object
 			-int64(count),
 		)
 	}
-	return true
+}
+
+func (b *dbusBackend) invalidateCacheApplicationLocked(busName string) {
+	if b.cacheApps != nil {
+		b.cacheApps[busName] = false
+	}
+	for id := range b.cacheItems {
+		if id.BusName == busName {
+			delete(b.cacheItems, id)
+		}
+	}
+	b.cache = nil
 }
 
 func (b *dbusBackend) Close() error {

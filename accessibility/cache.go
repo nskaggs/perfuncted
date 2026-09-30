@@ -284,11 +284,8 @@ func (b *dbusBackend) applyCacheRemoveLocked(body []any) {
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}
-	for id, item := range b.cacheItems {
+	for id := range b.cacheItems {
 		if id.BusName == ref.BusName && id.ObjectPath == string(ref.ObjectPath) {
-			if b.cacheApps[ref.BusName] {
-				b.adjustCachedChildCountLocked(item.Parent, -1)
-			}
 			delete(b.cacheItems, id)
 		}
 	}

@@ -153,8 +153,10 @@ func (b *AccessibilityBundle) windowRoot(ctx context.Context, windowID string, f
 }
 
 // Find returns nodes matching a bounded case-insensitive query from one fresh,
-// structurally complete traversal. Use a scoped AccessibilityLocator when the
-// result must be guarded against AT-SPI events during resolution and action.
+// structurally complete traversal. opts.Fresh does not disable the fresh read.
+// A truncated or structurally inconsistent traversal returns
+// accessibility.ErrIncompleteSnapshot. Use a scoped AccessibilityLocator when
+// the result must be guarded against AT-SPI events during resolution and action.
 func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	if err := b.checkAvailable("find"); err != nil {
 		return nil, err

@@ -40,3 +40,5 @@ clipboard.txt
 /ffprof/
 coverage*.out
 *.cover
+WORKSTREAM.md
+workstream.md

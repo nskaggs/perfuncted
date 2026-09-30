@@ -89,6 +89,9 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 
 func assertManifestErrorRedacted(t *testing.T, directory string, manifest map[string]any, privateContent string) {
 	t.Helper()
+	if manifest["format_version"] != float64(2) {
+		t.Fatalf("manifest format version = %v, want 2 for the presence-only error field", manifest["format_version"])
+	}
 	if manifest["error_present"] != true {
 		t.Fatalf("manifest error presence = %v, want true", manifest["error_present"])
 	}

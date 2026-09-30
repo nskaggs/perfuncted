@@ -225,6 +225,25 @@ func TestRegisterEventFamiliesFailsWhenNoFamilyWorks(t *testing.T) {
 	}
 }
 
+func TestSemanticEventCoverageRejectsMissingCriticalFamily(t *testing.T) {
+	registered := append([]string(nil), semanticObservationEventFamilies[:]...)
+	registered = append(registered, "window:activate", "window:deactivate")
+	if err := validateSemanticEventCoverage(registered); err != nil {
+		t.Fatalf("complete semantic event coverage: %v", err)
+	}
+	for _, missing := range semanticObservationEventFamilies {
+		partial := make([]string, 0, len(registered)-1)
+		for _, family := range registered {
+			if family != missing {
+				partial = append(partial, family)
+			}
+		}
+		if err := validateSemanticEventCoverage(partial); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("semantic coverage without %s = %v, want ErrUnsupported", missing, err)
+		}
+	}
+}
+
 func (r *recordingEventRegistrar) CallWithContext(_ context.Context, method string, _ dbus.Flags, args ...any) *dbus.Call {
 	r.methods = append(r.methods, method)
 	if len(args) > 0 {
@@ -395,6 +414,130 @@ func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	}
 	if got := backend.cacheItems[rootItem.nodeIDAt(1)].ChildCount; got != 2 {
 		t.Fatalf("cached child count after add = %d, want 2", got)
+	}
+}
+
+func TestCacheAddReparentAdjustsBothParentChildCounts(t *testing.T) {
+	const generation = 5
+	app := cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/app")}
+	oldParent := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/old_parent")},
+		Application: app, Parent: app, ChildCount: 1,
+	}
+	newParent := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/new_parent")},
+		Application: app, Parent: app, ChildCount: 0,
+	}
+	child := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/child")},
+		Application: app, Parent: cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/old_parent")},
+	}
+	backend := &dbusBackend{
+		generation: generation,
+		cacheItems: map[NodeID]cacheItem{
+			oldParent.nodeIDAt(generation): oldParent,
+			newParent.nodeIDAt(generation): newParent,
+			child.nodeIDAt(generation):     child,
+		},
+		cacheApps: map[string]bool{"org.test": true},
+	}
+	updated := child
+	updated.Parent = newParent.Object
+	backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{updated}}, Event{Kind: cacheIface + ":AddAccessible"})
+	if got := backend.cacheItems[oldParent.nodeIDAt(generation)].ChildCount; got != 0 {
+		t.Fatalf("old parent child count = %d, want 0", got)
+	}
+	if got := backend.cacheItems[newParent.nodeIDAt(generation)].ChildCount; got != 1 {
+		t.Fatalf("new parent child count = %d, want 1", got)
+	}
+	if got := backend.parents[objectIdentity{busName: "org.test", objectPath: "/child"}]; got != (objectIdentity{busName: "org.test", objectPath: "/new_parent"}) {
+		t.Fatalf("recorded child parent = %+v, want /new_parent", got)
+	}
+}
+
+func TestCacheChildCountUncertaintyInvalidatesApplicationCache(t *testing.T) {
+	tests := []struct {
+		name  string
+		item  *cacheItem
+		delta int64
+	}{
+		{name: "missing parent"},
+		{name: "underflow", item: &cacheItem{ChildCount: 0}, delta: -1},
+		{name: "overflow", item: &cacheItem{ChildCount: 1<<31 - 1}, delta: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ref := cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/parent")}
+			backend := &dbusBackend{generation: 5, cacheItems: make(map[NodeID]cacheItem), cacheApps: map[string]bool{"org.test": true}}
+			if test.item != nil {
+				item := *test.item
+				item.Object, item.Parent = ref, ref
+				backend.cacheItems[item.nodeIDAt(5)] = item
+			}
+			backend.adjustCachedChildCountLocked(ref, test.delta)
+			if backend.cacheApps["org.test"] {
+				t.Fatal("application cache remained complete after uncertain child count")
+			}
+			if _, ok := backend.cacheItems[NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath), Generation: 5, Incarnation: 1}]; ok {
+				t.Fatal("uncertain parent remained in the application cache")
+			}
+		})
+	}
+}
+
+func TestCacheReparentDoesNotRevokeMovedChildOrAdvanceBackendEpoch(t *testing.T) {
+	const generation = 5
+	app := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/app")},
+		Application: cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/app")},
+	}
+	oldParent := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/old_parent")},
+		Application: app.Object, Parent: app.Object,
+	}
+	newParent := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/new_parent")},
+		Application: app.Object, Parent: app.Object,
+	}
+	child := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/child")},
+		Application: app.Object, Parent: oldParent.Object,
+	}
+	oldID, newID, childID := oldParent.nodeIDAt(generation), newParent.nodeIDAt(generation), child.nodeIDAt(generation)
+	backend := &dbusBackend{
+		generation: generation,
+		cacheItems: map[NodeID]cacheItem{app.nodeIDAt(generation): app, oldID: oldParent, newID: newParent, childID: child},
+		cacheApps:  map[string]bool{"org.test": true},
+		incarnations: map[objectIdentity]uint64{
+			{busName: "org.test", objectPath: "/app"}:        1,
+			{busName: "org.test", objectPath: "/old_parent"}: 1,
+			{busName: "org.test", objectPath: "/new_parent"}: 1,
+			{busName: "org.test", objectPath: "/child"}:      1,
+		},
+		parents: map[objectIdentity]objectIdentity{
+			{busName: "org.test", objectPath: "/old_parent"}: {busName: "org.test", objectPath: "/app"},
+			{busName: "org.test", objectPath: "/new_parent"}: {busName: "org.test", objectPath: "/app"},
+			{busName: "org.test", objectPath: "/child"}:      {busName: "org.test", objectPath: "/new_parent"},
+		},
+	}
+	backend.prepareEvent(&dbus.Signal{
+		Name: cacheIface + ":RemoveAccessible", Sender: "org.test",
+		Body: []any{[]any{"org.test", dbus.ObjectPath("/old_parent")}},
+	}, Event{Kind: cacheIface + ":RemoveAccessible"})
+	if backend.Generation() != generation {
+		t.Fatalf("backend generation = %d, want unchanged %d", backend.Generation(), generation)
+	}
+	if err := backend.validateHandle(oldID); !errors.Is(err, ErrStaleNode) {
+		t.Fatalf("removed parent handle validation = %v, want ErrStaleNode", err)
+	}
+	if err := backend.validateHandle(childID); err != nil {
+		t.Fatalf("moved child handle was revoked with old parent: %v", err)
+	}
+	if backend.cacheApps["org.test"] {
+		t.Fatal("cache remained complete after cached and observed ancestry disagreed")
+	}
+	if _, ok := backend.cacheItems[childID]; ok {
+		t.Fatal("uncertain application cache retained child topology")
 	}
 }
 

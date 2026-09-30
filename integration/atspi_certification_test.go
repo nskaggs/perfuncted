@@ -49,6 +49,9 @@ func TestDrainFailureAccessibilityEventsCancelsBeforeDrain(t *testing.T) {
 }
 
 func drainFailureAccessibilityEvents(cancel context.CancelFunc, stream <-chan accessibility.Event) []accessibility.Event {
+	// Canceling the owning context closes the subscriber channel before the
+	// dispatcher performs remote deregistration, so the close is the completion
+	// signal for draining buffered events without a time-based bound.
 	cancel()
 	events := make([]accessibility.Event, 0, maxAccessibilityFailureEvents)
 	for len(events) < maxAccessibilityFailureEvents {
@@ -463,6 +466,16 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if snapshot.Root.ID != scope.Root || snapshot.Generation != scope.Generation || len(snapshot.Nodes) == 0 {
 		t.Fatalf("invalid bounded %s AT-SPI tree: scope=%+v snapshot=%+v", representative.name, scope, snapshot)
 	}
+	cardinalityOptions := options
+	cardinalityOptions.Fresh = true
+	cardinalityOptions.VisibleOnly = false
+	cardinalitySnapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, cardinalityOptions)
+	if err != nil {
+		t.Fatalf("fresh unfiltered %s AT-SPI snapshot for child cardinality: %v", representative.name, err)
+	}
+	if err := snapshotChildCardinalityError(cardinalitySnapshot); err != nil {
+		t.Fatalf("%s AT-SPI child cardinality certification: %v", representative.name, err)
+	}
 	failureEvidence.Snapshot = &snapshot
 	editable, err := findUniqueEditableTarget(snapshot)
 	if err != nil {
@@ -759,6 +772,29 @@ func optionsForCorrelationDiagnostics() accessibility.SnapshotOptions {
 
 func certificationSnapshotOptions() accessibility.SnapshotOptions {
 	return accessibility.SnapshotOptions{MaxDepth: 32, MaxNodes: 4096, MaxTextBytes: 4096, MaxTotalBytes: 512 * 1024, VisibleOnly: true}
+}
+
+func snapshotChildCardinalityError(snapshot accessibility.Snapshot) error {
+	if snapshot.Truncated {
+		return fmt.Errorf("unfiltered snapshot is truncated: %v", snapshot.TruncationReasons)
+	}
+	for _, node := range snapshot.Nodes {
+		if len(node.Children) != node.ChildCount {
+			return fmt.Errorf("node %s reports %d children but exposes %d", node.ID.ObjectPath, node.ChildCount, len(node.Children))
+		}
+	}
+	return nil
+}
+
+func TestSnapshotChildCardinalityErrorRejectsMismatch(t *testing.T) {
+	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 1}
+	snapshot := accessibility.Snapshot{
+		Root:  accessibility.Node{ID: root, ChildCount: 2, Children: []accessibility.NodeID{{BusName: root.BusName, ObjectPath: "/child", Generation: root.Generation}}},
+		Nodes: []accessibility.Node{{ID: root, ChildCount: 2, Children: []accessibility.NodeID{{BusName: root.BusName, ObjectPath: "/child", Generation: root.Generation}}}},
+	}
+	if err := snapshotChildCardinalityError(snapshot); err == nil {
+		t.Fatal("child count mismatch passed strict certification")
+	}
 }
 
 func waitForAccessibilityWindow(

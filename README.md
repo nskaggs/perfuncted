@@ -185,8 +185,13 @@ Every session has non-nil capability facades:
   receipt that reports dispatch acknowledgement separately from the
   independent postcondition result; uncertain dispatches are not repeated.
   Locator resolution requires an active AT-SPI event stream to detect provider
-  changes during the fresh snapshot; it fails closed when event registration
-  is unavailable.
+  changes during the fresh snapshot and action; it fails closed unless the
+  provider registers the property, state, children, text, visibility, focus,
+  window-create, and window-destroy event families. `Find` always reads a fresh
+  structurally complete snapshot but does not subscribe to events. Its wait
+  conditions treat an incomplete snapshot as a transient evaluation error and
+  return the error after the consecutive-failure limit if completeness does
+  not recover.
   Typed low-level operations remain available on `AccessibilityBundle`; use
   `pf a11y raw` when working with explicit protocol-level handles.
 

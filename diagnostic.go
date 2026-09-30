@@ -33,8 +33,9 @@ type FailureBundleOptions struct {
 	Directory string
 	// Operation identifies the operation or test that failed.
 	Operation string
-	// Error identifies whether a failure prompted the capture. Its message is
-	// omitted because provider errors can contain user supplied text.
+	// Error identifies whether a failure prompted the capture. Manifest format
+	// version 2 records only its presence because provider errors can contain
+	// user supplied text.
 	Error error
 	// Metadata contains caller-supplied context to include in manifest.json.
 	Metadata map[string]string
@@ -83,7 +84,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 	}
 
 	manifest := failureManifest{
-		FormatVersion:     1,
+		FormatVersion:     2,
 		CapturedAt:        time.Now().UTC(),
 		Operation:         options.Operation,
 		Target:            string(s.Target().Kind()),

@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,7 +10,9 @@ import (
 )
 
 type waitAccessibilityBackend struct {
-	calls int
+	calls               int
+	incompleteSnapshots int
+	alwaysIncomplete    bool
 }
 
 func (b *waitAccessibilityBackend) SupportedOperations() []string { return []string{"find", "focused"} }
@@ -36,7 +39,12 @@ func (b *waitAccessibilityBackend) Snapshot(_ context.Context, root accessibilit
 			Attributes: map[string]string{"kind": "primary"},
 		})
 	}
-	return accessibility.Snapshot{Root: rootNode, Nodes: nodes, Generation: generation}, nil
+	snapshot := accessibility.Snapshot{Root: rootNode, Nodes: nodes, Generation: generation}
+	if b.alwaysIncomplete || b.calls <= b.incompleteSnapshots {
+		snapshot.Truncated = true
+		snapshot.TruncationReasons = []string{"test completeness boundary"}
+	}
+	return snapshot, nil
 }
 func (b *waitAccessibilityBackend) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	snapshot, err := b.Snapshot(ctx, root, opts)
@@ -72,6 +80,50 @@ func TestAccessibilityWaitConditionsRefreshUntilSatisfied(t *testing.T) {
 		t.Fatalf("backend calls = %d, want repeated authoritative refreshes", backend.calls)
 	}
 	_ = session.Close()
+}
+
+func TestAccessibilityNodeExistsWaitRetriesIncompleteSnapshots(t *testing.T) {
+	backend := &waitAccessibilityBackend{incompleteSnapshots: 1}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	defer session.Close()
+	condition := AccessibilityNodeExists(
+		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root"},
+		accessibility.Query{Role: "button"},
+		accessibility.SnapshotOptions{},
+	)
+	var failures int
+	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); ok || err != nil || failures != 1 {
+		t.Fatalf("first incomplete evaluation = ok %t, err %v, failures %d; want retryable false", ok, err, failures)
+	}
+	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); !ok || err != nil || failures != 0 {
+		t.Fatalf("complete evaluation = ok %t, err %v, failures %d; want success", ok, err, failures)
+	}
+	if backend.calls != 2 {
+		t.Fatalf("snapshot calls = %d, want incomplete then complete", backend.calls)
+	}
+}
+
+func TestAccessibilityNodeExistsWaitSurfacesSustainedIncompleteSnapshots(t *testing.T) {
+	backend := &waitAccessibilityBackend{alwaysIncomplete: true}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	defer session.Close()
+	condition := AccessibilityNodeExists(
+		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root"},
+		accessibility.Query{Role: "button"},
+		accessibility.SnapshotOptions{},
+	)
+	var failures int
+	for i := 1; i < waitEvaluateFailureLimit; i++ {
+		if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); ok || err != nil {
+			t.Fatalf("incomplete evaluation %d = ok %t, err %v; want retryable false", i, ok, err)
+		}
+	}
+	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); ok || !errors.Is(err, accessibility.ErrIncompleteSnapshot) {
+		t.Fatalf("terminal incomplete evaluation = ok %t, err %v; want ErrIncompleteSnapshot", ok, err)
+	}
+	if backend.calls != waitEvaluateFailureLimit {
+		t.Fatalf("snapshot calls = %d, want bounded failure limit %d", backend.calls, waitEvaluateFailureLimit)
+	}
 }
 
 type waitAccessibilityEventBackend struct {

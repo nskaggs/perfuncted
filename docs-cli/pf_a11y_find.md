@@ -2,6 +2,10 @@
 
 Find semantic nodes in one application or managed window
 
+### Synopsis
+
+Query a fresh, structurally complete AT-SPI snapshot. The command fails when provider behavior or snapshot bounds prevent a complete traversal.
+
 ```
 pf a11y find [flags]
 ```

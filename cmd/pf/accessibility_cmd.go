@@ -277,23 +277,29 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var findOpts accessibilityCLIOptions
 	var findQuery accessibility.Query
 	var findAttributes []string
-	find := &cobra.Command{Use: "find", Short: "Find semantic nodes in one application or managed window", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, findOpts)
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		root, err := findOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		findQuery.Attributes = parseAccessibilityAttributes(findAttributes)
-		value, err := pf.Accessibility.Find(c.Context(), root, findQuery, findOpts.snapshot())
-		if err != nil {
-			return err
-		}
-		return accessibilityOutput(c.OutOrStdout(), findOpts.json, value)
-	}}
+	find := &cobra.Command{
+		Use:   "find",
+		Short: "Find semantic nodes in one application or managed window",
+		Long:  "Query a fresh, structurally complete AT-SPI snapshot. The command fails when provider behavior or snapshot bounds prevent a complete traversal.",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, findOpts)
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			root, err := findOpts.root(c.Context(), pf)
+			if err != nil {
+				return err
+			}
+			findQuery.Attributes = parseAccessibilityAttributes(findAttributes)
+			value, err := pf.Accessibility.Find(c.Context(), root, findQuery, findOpts.snapshot())
+			if err != nil {
+				return err
+			}
+			return accessibilityOutput(c.OutOrStdout(), findOpts.json, value)
+		},
+	}
 	addJSONFlag(find, &findOpts.json)
 	addScopeFlags(find, &findOpts)
 	addSnapshotFlags(find, &findOpts)

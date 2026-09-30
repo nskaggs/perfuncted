@@ -195,9 +195,10 @@ func WindowExists(match WindowMatch) Condition {
 	)
 }
 
-// AccessibilityNodeExists succeeds when a bounded AT-SPI query returns at
-// least one matching node. It is polling-safe and refreshes the backend cache
-// through the normal generation boundary.
+// AccessibilityNodeExists succeeds when a fresh, structurally complete AT-SPI
+// query returns at least one matching node. An incomplete query is an
+// evaluation error: Session.Wait retries it as transient up to the consecutive
+// evaluation failure limit, then returns the last error.
 func AccessibilityNodeExists(root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) Condition {
 	return sessionCondition("accessibility node exists", func(ctx context.Context, session *Session) (bool, error) {
 		nodes, err := session.Accessibility.Find(ctx, root, query, opts)
@@ -217,8 +218,10 @@ func AccessibilityFocused(opts accessibility.SnapshotOptions) Condition {
 }
 
 // AccessibilityStateContains succeeds when a matching accessible node has
-// every requested state. The condition always performs a fresh bounded query;
-// AT-SPI events only wake Session.Wait and are never treated as authoritative.
+// every requested state in a fresh, structurally complete query. An incomplete
+// query is retried by Session.Wait as a transient evaluation error up to the
+// consecutive evaluation failure limit. AT-SPI events only wake Session.Wait
+// and are never treated as authoritative.
 func AccessibilityStateContains(root accessibility.NodeID, query accessibility.Query, states []string, opts accessibility.SnapshotOptions) Condition {
 	query.States = append([]string(nil), states...)
 	return sessionCondition("accessibility state contains", func(ctx context.Context, session *Session) (bool, error) {

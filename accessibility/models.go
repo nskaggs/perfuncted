@@ -250,9 +250,13 @@ type Event struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// EventOptions bounds the notification stream.
+// EventOptions bounds the notification stream and can require the signal
+// families needed to validate semantic snapshots across provider changes.
 type EventOptions struct {
 	Buffer int `json:"buffer,omitempty"`
+	// RequireSemanticCoverage rejects streams that cannot report changes to
+	// object properties, state, children, text, visibility, focus, or windows.
+	RequireSemanticCoverage bool `json:"requireSemanticCoverage,omitempty"`
 }
 
 func (o EventOptions) normalized() EventOptions {

@@ -64,7 +64,7 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 			close(out)
 			return nil, err
 		}
-		id, start, wait, err := b.reserveEventSubscriber(out)
+		id, _, wait, err := b.reserveEventSubscriber(out)
 		if err != nil {
 			close(out)
 			return nil, err
@@ -76,16 +76,14 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 			}
 			continue
 		}
-		if start {
-			if err := b.startEvents(ctx); err != nil {
-				b.eventsMu.Lock()
-				if subscriber, ok := b.subscribers[id]; ok {
-					delete(b.subscribers, id)
-					close(subscriber.out)
-				}
-				b.eventsMu.Unlock()
-				return nil, err
+		if err := b.startEvents(ctx, opts.RequireSemanticCoverage); err != nil {
+			b.eventsMu.Lock()
+			if subscriber, ok := b.subscribers[id]; ok {
+				delete(b.subscribers, id)
+				close(subscriber.out)
 			}
+			b.eventsMu.Unlock()
+			return nil, err
 		}
 		go b.watchSubscriber(ctx, id)
 		return out, nil
@@ -149,13 +147,14 @@ func (b *dbusBackend) finishEventDispatcher(done chan struct{}) {
 	if b.eventDone == done {
 		b.eventCancel, b.eventDone = nil, nil
 		b.eventAccess = nil
+		b.eventRegistered = nil
 	}
 	// Wake admission waiters only after the old run is no longer published.
 	close(done)
 	b.eventsMu.Unlock()
 }
 
-func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []string, error) {
+func registerEvents(ctx context.Context, access *dbus.Conn, requireSemanticCoverage bool) (dbus.BusObject, []string, error) {
 	registered := []string{
 		"object:property-change",
 		"object:state-changed",
@@ -177,12 +176,42 @@ func registerEvents(ctx context.Context, access *dbus.Conn) (dbus.BusObject, []s
 	if err != nil {
 		return registry, registered, err
 	}
+	if requireSemanticCoverage {
+		if err := validateSemanticEventCoverage(registered); err != nil {
+			return registry, registered, err
+		}
+	}
 	return registry, registered, nil
 }
 
+var semanticObservationEventFamilies = [...]string{
+	"object:property-change",
+	"object:state-changed",
+	"object:children-changed",
+	"object:text-changed",
+	"object:visible-data-changed",
+	"focus:focus",
+	"window:create",
+	"window:destroy",
+}
+
+func validateSemanticEventCoverage(registered []string) error {
+	have := make(map[string]struct{}, len(registered))
+	for _, family := range registered {
+		have[family] = struct{}{}
+	}
+	for _, required := range semanticObservationEventFamilies {
+		if _, ok := have[required]; !ok {
+			return fmt.Errorf("accessibility: semantic event coverage missing %s: %w", required, ErrUnsupported)
+		}
+	}
+	return nil
+}
+
 // registerEventFamilies tolerates providers that do not expose every AT-SPI
-// event family. A stream remains usable when at least one family registers;
-// the returned slice is the exact ownership record needed for cleanup.
+// event family for general notifications. Semantic observation applies an
+// additional coverage check before accepting the stream. The returned slice
+// is the exact ownership record needed for cleanup.
 func registerEventFamilies(ctx context.Context, registry eventRegistrar, unique string, eventTypes []string) ([]string, error) {
 	registered := make([]string, 0, len(eventTypes))
 	for _, eventType := range eventTypes {
@@ -272,7 +301,7 @@ func sensitiveEventProperty(property string) bool {
 	return lower == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "protected")
 }
 
-func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextcheck,gocyclo // setup owns a bounded context derived from the caller.
+func (b *dbusBackend) startEvents(ctx context.Context, requireSemanticCoverage bool) error { //nolint:contextcheck,gocyclo // setup owns a bounded context derived from the caller.
 	if ctx == nil {
 		return errors.New("accessibility: nil context")
 	}
@@ -291,6 +320,12 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 			return ErrDisconnected
 		}
 		if b.eventCancel != nil {
+			if requireSemanticCoverage {
+				if err := validateSemanticEventCoverage(b.eventRegistered); err != nil {
+					b.eventsMu.Unlock()
+					return err
+				}
+			}
 			b.eventsMu.Unlock()
 			return nil
 		}
@@ -303,7 +338,10 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 				retries++
 				continue
 			}
-			return err
+			if err != nil {
+				return err
+			}
+			continue
 		}
 		state := &eventStart{done: make(chan struct{})}
 		setupCtx, setupCancel := eventSetupContext(ctx)
@@ -318,7 +356,7 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 		b.eventAccess = access
 		b.eventsMu.Unlock()
 
-		registry, registered, err := registerEvents(setupCtx, access)
+		registry, registered, err := registerEvents(setupCtx, access, requireSemanticCoverage)
 		var matches [][]dbus.MatchOption
 		if err == nil {
 			matches, err = subscribeEventMatches(setupCtx, access)
@@ -343,6 +381,7 @@ func (b *dbusBackend) startEvents(ctx context.Context) error { //nolint:contextc
 		if live {
 			b.eventCancel, b.eventDone = cancel, done
 			b.eventAccess = access
+			b.eventRegistered = append(b.eventRegistered[:0], registered...)
 		}
 		if b.eventStarting == state {
 			if !live {
@@ -424,6 +463,7 @@ func (b *dbusBackend) finishEventStart(state *eventStart, err error, callerCance
 		b.eventStarting = nil
 		b.eventStartStop = nil
 		b.eventAccess = nil
+		b.eventRegistered = nil
 		close(state.done)
 	}
 	b.eventsMu.Unlock()
