@@ -184,7 +184,7 @@ func (b *dbusBackend) publishLoadedCache(busName string, items []cacheItem, expe
 
 func validateLoadedCacheItems(busName string, items []cacheItem) error {
 	for _, item := range items {
-		if !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheObjectRef(item.Parent) ||
+		if !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheParentRef(item.Parent) ||
 			item.Object.BusName != busName || item.Application.BusName != busName {
 			return fmt.Errorf("accessibility: cache get items for %s returned foreign or malformed identity", busName)
 		}
@@ -260,7 +260,8 @@ func (b *dbusBackend) applyCacheAddLocked(body []any) {
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}
-	if item.Object.BusName != item.Application.BusName || !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheObjectRef(item.Parent) {
+	if item.Object.BusName != item.Application.BusName ||
+		!validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheParentRef(item.Parent) {
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}

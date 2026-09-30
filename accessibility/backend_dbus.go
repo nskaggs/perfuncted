@@ -288,6 +288,7 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 	if !b.canTrackRevokedObjectsLocked(removed) {
 		return false
 	}
+	b.detachForeignParentEdgesLocked(removed)
 	b.adjustCachedChildrenForRevocationLocked(removed)
 	for identity := range removed {
 		current := b.incarnationLocked(identity)
@@ -307,6 +308,9 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 func (b *dbusBackend) removedObjectTreeLocked(root objectIdentity) map[objectIdentity]struct{} {
 	children := make(map[objectIdentity][]objectIdentity, len(b.parents))
 	for child, parent := range b.parents {
+		if child.busName != parent.busName {
+			continue
+		}
 		children[parent] = append(children[parent], child)
 	}
 	for _, item := range b.cacheItems {
@@ -314,7 +318,10 @@ func (b *dbusBackend) removedObjectTreeLocked(root objectIdentity) map[objectIde
 		if _, observed := b.parents[child]; observed {
 			continue
 		}
-		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
+		parent := cacheParentIdentity(item.Parent)
+		if child.busName != parent.busName {
+			continue
+		}
 		children[parent] = append(children[parent], child)
 	}
 	removed := map[objectIdentity]struct{}{root: {}}
@@ -328,6 +335,33 @@ func (b *dbusBackend) removedObjectTreeLocked(root objectIdentity) map[objectIde
 		}
 	}
 	return removed
+}
+
+func (b *dbusBackend) detachForeignParentEdgesLocked(removed map[objectIdentity]struct{}) {
+	affectedApplications := make(map[string]struct{})
+	for child, parent := range b.parents {
+		if child.busName == parent.busName {
+			continue
+		}
+		if _, parentRemoved := removed[parent]; parentRemoved {
+			delete(b.parents, child)
+			affectedApplications[child.busName] = struct{}{}
+		}
+	}
+	for id, item := range b.cacheItems {
+		child := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
+		parent := cacheParentIdentity(item.Parent)
+		if child.busName != parent.busName {
+			if _, parentRemoved := removed[parent]; parentRemoved {
+				affectedApplications[child.busName] = struct{}{}
+			}
+		}
+	}
+	for busName := range affectedApplications {
+		// A foreign child remains a live handle, but its owning cache can no
+		// longer prove that it belongs beneath the removed parent identity.
+		b.invalidateCacheApplicationLocked(busName)
+	}
 }
 
 func (b *dbusBackend) canTrackRevokedObjectsLocked(removed map[objectIdentity]struct{}) bool {

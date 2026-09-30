@@ -244,6 +244,115 @@ func TestSemanticEventCoverageRejectsMissingCriticalFamily(t *testing.T) {
 	}
 }
 
+func TestSemanticSubscriberRejectsRunningPartialEventStream(t *testing.T) {
+	generalStream := make(chan Event, 1)
+	backend := &dbusBackend{
+		access:          &dbus.Conn{},
+		generation:      1,
+		subscribers:     map[uint64]*eventSubscriber{1: {out: generalStream}},
+		nextSubscriber:  1,
+		eventCancel:     func() {},
+		eventDone:       make(chan struct{}),
+		eventRegistered: []string{"object:property-change"},
+	}
+
+	stream, err := backend.Events(context.Background(), EventOptions{RequireSemanticCoverage: true})
+	if stream != nil || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("semantic subscription on partial dispatcher = %v, %v; want nil stream and ErrUnsupported", stream, err)
+	}
+	if len(backend.subscribers) != 1 || backend.subscribers[1].out != generalStream {
+		t.Fatalf("rejected semantic subscription changed existing subscribers: %+v", backend.subscribers)
+	}
+	select {
+	case _, open := <-generalStream:
+		if !open {
+			t.Fatal("rejecting semantic subscription closed the existing general stream")
+		}
+	default:
+	}
+}
+
+type testEventRegistry struct {
+	mu           sync.Mutex
+	failEvent    string
+	registered   []string
+	deregistered []string
+}
+
+func (r *testEventRegistry) RegisterEvent(eventType string, _ []string, _ string) *dbus.Error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.registered = append(r.registered, eventType)
+	if eventType == r.failEvent {
+		return dbus.NewError("org.freedesktop.DBus.Error.NotSupported", []any{"unsupported test event"})
+	}
+	return nil
+}
+
+func (r *testEventRegistry) DeregisterEvent(eventType string) *dbus.Error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deregistered = append(r.deregistered, eventType)
+	return nil
+}
+
+func (r *testEventRegistry) registrations() (registered, deregistered []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.registered...), append([]string(nil), r.deregistered...)
+}
+
+func TestSemanticCoverageSetupDeregistersPartialRegistrations(t *testing.T) {
+	const rejectedFamily = "window:create"
+
+	address := startTestDBus(t)
+	server, err := dbusutil.ConnectContext(context.Background(), address)
+	if err != nil {
+		t.Fatalf("connect test registry bus: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	registry := &testEventRegistry{failEvent: rejectedFamily}
+	if exportErr := server.Export(registry, registryPath, registryName); exportErr != nil {
+		t.Fatalf("export test AT-SPI registry: %v", exportErr)
+	}
+	reply, err := server.RequestName(registryName, dbus.NameFlagDoNotQueue)
+	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
+		t.Fatalf("own test AT-SPI registry name: reply %d, err %v", reply, err)
+	}
+	access, err := dbusutil.ConnectContext(context.Background(), address)
+	if err != nil {
+		t.Fatalf("connect event client: %v", err)
+	}
+	backend := &dbusBackend{access: access, generation: 1, subscribers: make(map[uint64]*eventSubscriber)}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	stream, err := backend.Events(context.Background(), EventOptions{RequireSemanticCoverage: true})
+	if stream != nil || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("semantic subscription with rejected family = %v, %v; want nil stream and ErrUnsupported", stream, err)
+	}
+	if len(backend.subscribers) != 0 || backend.eventCancel != nil || backend.eventRegistered != nil {
+		t.Fatalf("failed semantic setup retained dispatcher state: subscribers=%d cancel=%t registered=%v", len(backend.subscribers), backend.eventCancel != nil, backend.eventRegistered)
+	}
+
+	registered, deregistered := registry.registrations()
+	wantRegistered := []string{
+		"object:property-change", "object:state-changed", "object:children-changed", "object:text-changed",
+		"object:visible-data-changed", "focus:focus", "window:activate", "window:deactivate", "window:create", "window:destroy",
+	}
+	wantDeregistered := make([]string, 0, len(wantRegistered)-1)
+	for _, family := range wantRegistered {
+		if family != rejectedFamily {
+			wantDeregistered = append(wantDeregistered, family)
+		}
+	}
+	if !reflect.DeepEqual(registered, wantRegistered) {
+		t.Fatalf("registered families = %v, want %v", registered, wantRegistered)
+	}
+	if !reflect.DeepEqual(deregistered, wantDeregistered) {
+		t.Fatalf("cleanup deregistered families = %v, want %v", deregistered, wantDeregistered)
+	}
+}
+
 func (r *recordingEventRegistrar) CallWithContext(_ context.Context, method string, _ dbus.Flags, args ...any) *dbus.Call {
 	r.methods = append(r.methods, method)
 	if len(args) > 0 {
@@ -1978,6 +2087,139 @@ func TestMalformedCacheSignalForcesCacheReload(t *testing.T) {
 	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Body: []any{"unexpected-wire-shape"}})
 	if backend.cacheItems != nil || backend.cacheApps != nil {
 		t.Fatalf("malformed cache signal retained state: items=%v apps=%v", backend.cacheItems, backend.cacheApps)
+	}
+}
+
+func TestCacheAcceptsProtocolParentReferences(t *testing.T) {
+	tests := []struct {
+		name   string
+		parent []any
+		role   uint32
+		want   cacheObjectRef
+	}{
+		{
+			name:   "application root with null parent",
+			parent: []any{"", nullObjectPath},
+			role:   75,
+			want:   cacheObjectRef{ObjectPath: nullObjectPath},
+		},
+		{
+			name:   "application root with desktop parent",
+			parent: []any{registryName, desktopPath},
+			role:   75,
+			want:   cacheObjectRef{BusName: registryName, ObjectPath: desktopPath},
+		},
+		{
+			name:   "embedded child with foreign parent",
+			parent: []any{"org.parent.App", dbus.ObjectPath("/socket")},
+			role:   78,
+			want:   cacheObjectRef{BusName: "org.parent.App", ObjectPath: dbus.ObjectPath("/socket")},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := []any{
+				[]any{"org.child.App", dbus.ObjectPath("/accessible/root")},
+				[]any{"org.child.App", dbus.ObjectPath("/accessible/root")},
+				test.parent,
+				int32(0), int32(1), []string{"org.a11y.atspi.Accessible"}, "child", test.role, "", []uint32{},
+			}
+			item, ok := cacheItemFromSignal([]any{payload})
+			if !ok {
+				t.Fatal("valid protocol parent reference was rejected from a cache signal")
+			}
+			if item.Parent != test.want {
+				t.Fatalf("decoded parent = %+v, want %+v", item.Parent, test.want)
+			}
+			if err := validateLoadedCacheItems("org.child.App", []cacheItem{item}); err != nil {
+				t.Fatalf("valid protocol parent reference rejected from cache snapshot: %v", err)
+			}
+		})
+	}
+}
+
+func TestNullParentCacheAdditionIsKnownObservation(t *testing.T) {
+	item := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/application")},
+		Application: cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/application")},
+		Parent:      cacheObjectRef{ObjectPath: nullObjectPath},
+		Role:        75,
+	}
+	backend := &dbusBackend{
+		generation: 5,
+		cacheItems: make(map[NodeID]cacheItem),
+		cacheApps:  map[string]bool{"org.test": true},
+		parents:    make(map[objectIdentity]objectIdentity),
+	}
+	sig := &dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.test", Body: []any{item}}
+	backend.prepareEvent(sig, Event{Kind: sig.Name, Node: NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 5}})
+	if len(backend.observationHistory) != 1 || backend.observationHistory[0].unknown {
+		t.Fatalf("null-parent cache addition observation = %+v, want a known event", backend.observationHistory)
+	}
+	if got, ok := backend.cacheItems[item.nodeIDAt(5)]; !ok || got.Parent != item.Parent {
+		t.Fatalf("null-parent cache item = %+v, present %t; want original parent reference", got, ok)
+	}
+}
+
+func TestSubtreeRevocationDoesNotCrossApplicationParentEdge(t *testing.T) {
+	for _, useObservedParent := range []bool{false, true} {
+		name := "cache ancestry"
+		if useObservedParent {
+			name = "observed ancestry"
+		}
+		t.Run(name, func(t *testing.T) {
+			const generation = 5
+			root := objectIdentity{busName: "org.parent.App", objectPath: "/embed-parent"}
+			localChild := objectIdentity{busName: root.busName, objectPath: "/local-child"}
+			foreignChild := objectIdentity{busName: "org.child.App", objectPath: "/plug"}
+			childItem := cacheItem{
+				Object:      cacheObjectRef{BusName: foreignChild.busName, ObjectPath: dbus.ObjectPath(foreignChild.objectPath)},
+				Application: cacheObjectRef{BusName: foreignChild.busName, ObjectPath: dbus.ObjectPath("/application")},
+				Parent:      cacheObjectRef{BusName: root.busName, ObjectPath: dbus.ObjectPath(root.objectPath)},
+				Role:        78,
+			}
+			localID := NodeID{BusName: localChild.busName, ObjectPath: localChild.objectPath, Generation: generation, Incarnation: 1}
+			foreignID := NodeID{BusName: foreignChild.busName, ObjectPath: foreignChild.objectPath, Generation: generation, Incarnation: 1}
+			parents := map[objectIdentity]objectIdentity{localChild: root}
+			if useObservedParent {
+				parents[foreignChild] = root
+			}
+			backend := &dbusBackend{
+				generation: generation,
+				cacheItems: map[NodeID]cacheItem{childItem.nodeIDAt(generation): childItem},
+				cacheApps:  map[string]bool{root.busName: true, foreignChild.busName: true},
+				incarnations: map[objectIdentity]uint64{
+					root: 1, localChild: 1, foreignChild: 1,
+				},
+				parents: parents,
+			}
+
+			if !backend.revokeObjectLocked(root) {
+				t.Fatal("known same-application subtree revocation failed")
+			}
+			if backend.Generation() != generation {
+				t.Fatalf("cross-application edge advanced global generation to %d", backend.Generation())
+			}
+			if err := backend.validateHandle(localID); !errors.Is(err, ErrStaleNode) {
+				t.Fatalf("same-application child validation = %v, want ErrStaleNode", err)
+			}
+			if err := backend.validateHandle(foreignID); err != nil {
+				t.Fatalf("foreign child was revoked with embedded parent: %v", err)
+			}
+			if _, ok := backend.parents[foreignChild]; ok {
+				t.Fatal("foreign child retained an edge to the removed parent identity")
+			}
+			if backend.cacheApps[foreignChild.busName] {
+				t.Fatal("foreign child's application cache remained complete after its parent was removed")
+			}
+			if _, ok := backend.cacheItems[foreignID]; ok {
+				t.Fatal("foreign child's cache row retained the removed parent reference")
+			}
+			reusedRootID := backend.nodeIDLocked(objectRef{BusName: root.busName, ObjectPath: dbus.ObjectPath(root.objectPath)})
+			if children := backend.cachedChildren(reusedRootID); len(children) != 0 {
+				t.Fatalf("removed parent cache exposed foreign child to a reused path: %v", children)
+			}
+		})
 	}
 }
 

@@ -734,8 +734,8 @@ func (b *dbusBackend) recordObservationLocked(sig *dbus.Signal, event Event, rev
 			} else {
 				change.cacheItem = item
 				change.node = objectIdentity{busName: item.Object.BusName, objectPath: string(item.Object.ObjectPath)}
-				change.parent = objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
-				if !change.node.valid() || !change.parent.valid() {
+				change.parent = cacheParentIdentity(item.Parent)
+				if !change.node.valid() {
 					change.unknown = true
 				}
 			}
@@ -767,7 +767,7 @@ func (b *dbusBackend) recordCacheRemovalObservationLocked(change *observationCha
 	change.node = objectIdentity{busName: ref.BusName, objectPath: string(ref.ObjectPath)}
 	id := b.nodeIDLocked(objectRef(ref))
 	if item, exists := b.cacheItems[id]; exists {
-		change.parent = objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
+		change.parent = cacheParentIdentity(item.Parent)
 	}
 }
 
@@ -800,7 +800,7 @@ func cacheItemFromSignal(body []any) (cacheItem, bool) { //nolint:gocyclo // eve
 		}
 		object, objectOK := cacheObjectRefFromValue(value[0])
 		application, applicationOK := cacheObjectRefFromValue(value[1])
-		parent, parentOK := cacheObjectRefFromValue(value[2])
+		parent, parentOK := cacheParentRefFromValue(value[2])
 		index, indexOK := value[3].(int32)
 		childCount, childCountOK := value[4].(int32)
 		interfaces, interfacesOK := value[5].([]string)
@@ -819,7 +819,7 @@ func cacheItemFromSignal(body []any) (cacheItem, bool) { //nolint:gocyclo // eve
 	default:
 		return cacheItem{}, false
 	}
-	if !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheObjectRef(item.Parent) || item.Object.BusName != item.Application.BusName {
+	if !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheParentRef(item.Parent) || item.Object.BusName != item.Application.BusName {
 		return cacheItem{}, false
 	}
 	return item, true
@@ -833,14 +833,22 @@ func cacheObjectRefFromSignal(body []any) (cacheObjectRef, bool) {
 }
 
 func cacheObjectRefFromValue(value any) (cacheObjectRef, bool) {
+	return cacheRefFromValue(value, validCacheObjectRef)
+}
+
+func cacheParentRefFromValue(value any) (cacheObjectRef, bool) {
+	return cacheRefFromValue(value, validCacheParentRef)
+}
+
+func cacheRefFromValue(value any, valid func(cacheObjectRef) bool) (cacheObjectRef, bool) {
 	switch ref := value.(type) {
 	case dbus.Variant:
-		return cacheObjectRefFromValue(ref.Value())
+		return cacheRefFromValue(ref.Value(), valid)
 	case objectRef:
 		converted := cacheObjectRef(ref)
-		return converted, validCacheObjectRef(converted)
+		return converted, valid(converted)
 	case cacheObjectRef:
-		return ref, validCacheObjectRef(ref)
+		return ref, valid(ref)
 	case []any:
 		if len(ref) != 2 {
 			return cacheObjectRef{}, false
@@ -854,7 +862,7 @@ func cacheObjectRefFromValue(value any) (cacheObjectRef, bool) {
 			}
 		}
 		decoded := cacheObjectRef{BusName: busName, ObjectPath: objectPath}
-		if !busOK || !pathOK || !validCacheObjectRef(decoded) {
+		if !busOK || !pathOK || !valid(decoded) {
 			return cacheObjectRef{}, false
 		}
 		return decoded, true
@@ -865,6 +873,20 @@ func cacheObjectRefFromValue(value any) (cacheObjectRef, bool) {
 
 func validCacheObjectRef(ref cacheObjectRef) bool {
 	return ref.BusName != "" && strings.TrimSpace(ref.BusName) == ref.BusName && !strings.ContainsAny(ref.BusName, " \t\r\n") && ref.ObjectPath.IsValid()
+}
+
+func validCacheParentRef(ref cacheObjectRef) bool {
+	if ref.BusName == "" {
+		return ref.ObjectPath == nullObjectPath
+	}
+	return validCacheObjectRef(ref)
+}
+
+func cacheParentIdentity(ref cacheObjectRef) objectIdentity {
+	if ref.BusName == "" && ref.ObjectPath == nullObjectPath {
+		return objectIdentity{}
+	}
+	return objectIdentity{busName: ref.BusName, objectPath: string(ref.ObjectPath)}
 }
 
 // deliverEvent is the single fan-out point. Holding eventsMu while sending
