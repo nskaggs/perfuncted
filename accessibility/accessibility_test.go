@@ -369,25 +369,32 @@ func TestBoundSnapshotResponseRejectsIrreduciblyTinyBudget(t *testing.T) {
 func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	root := NodeID{BusName: "org.test.App", ObjectPath: "/root", Generation: 1}
 	application := cacheObjectRef{BusName: root.BusName, ObjectPath: "/application"}
+	rootItem := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath(root.ObjectPath)}, Application: application, Parent: application, ChildCount: 2}
 	first := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/first"}, Application: application, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 1}
 	second := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/second"}, Application: application, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
 	backend := &dbusBackend{
 		generation: 1,
-		cacheItems: map[NodeID]cacheItem{first.nodeID(): first, second.nodeID(): second},
+		cacheItems: map[NodeID]cacheItem{rootItem.nodeIDAt(1): rootItem, first.nodeIDAt(1): first, second.nodeIDAt(1): second},
 		cacheApps:  map[string]bool{root.BusName: true},
 	}
 	children := backend.cachedChildren(root)
 	if len(children) != 2 || children[0].ObjectPath != "/second" || children[1].ObjectPath != "/first" {
 		t.Fatalf("children = %+v, want index order", children)
 	}
-	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Sender: root.BusName, Body: []any{cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/second")}}})
+	backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Sender: root.BusName, Body: []any{cacheObjectRef{BusName: root.BusName, ObjectPath: dbus.ObjectPath("/second")}}}, Event{Node: NodeID{BusName: root.BusName, ObjectPath: "/second"}})
 	if got := len(backend.cachedChildren(root)); got != 1 {
 		t.Fatalf("children after remove = %d, want 1", got)
 	}
+	if got := backend.cacheItems[rootItem.nodeIDAt(1)].ChildCount; got != 1 {
+		t.Fatalf("cached child count after remove = %d, want 1", got)
+	}
 	added := cacheItem{Object: cacheObjectRef{BusName: root.BusName, ObjectPath: "/third"}, Application: application, Parent: cacheObjectRef{BusName: root.BusName, ObjectPath: "/root"}, Index: 0}
-	backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{added}})
+	backend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: root.BusName, Body: []any{added}}, Event{Node: NodeID{BusName: root.BusName, ObjectPath: "/third"}})
 	if got := len(backend.cachedChildren(root)); got != 2 {
 		t.Fatalf("children after add = %d, want 2", got)
+	}
+	if got := backend.cacheItems[rootItem.nodeIDAt(1)].ChildCount; got != 2 {
+		t.Fatalf("cached child count after add = %d, want 2", got)
 	}
 }
 
@@ -490,6 +497,29 @@ func TestSnapshotWalkerRecordsChildReadWarnings(t *testing.T) {
 	}
 	if len(walker.snapshot.Warnings) != 1 {
 		t.Fatalf("warnings = %+v", walker.snapshot.Warnings)
+	}
+}
+
+func TestSnapshotWalkerRejectsShortChildListAsIncomplete(t *testing.T) {
+	root := NodeID{BusName: "b", ObjectPath: "/root", Generation: 1}
+	child := NodeID{BusName: "b", ObjectPath: "/child", Generation: 1}
+	fake := walkerFake{
+		nodes: map[NodeID]Node{
+			root:  {ID: root, ChildCount: 2},
+			child: {ID: child, Parent: root, Role: "button", Name: "Save"},
+		},
+		child:      map[NodeID][]objectRef{root: {{BusName: child.BusName, ObjectPath: dbus.ObjectPath(child.ObjectPath)}}},
+		generation: root.Generation,
+	}
+	walker := snapshotWalker{backend: fake, opts: SnapshotOptions{MaxDepth: 4, MaxNodes: 4, MaxTextBytes: 32}, snapshot: Snapshot{}, seen: map[NodeID]struct{}{}}
+	if _, err := walker.walk(context.Background(), root, NodeID{}, 0); err != nil {
+		t.Fatalf("walk = %v", err)
+	}
+	if !walker.snapshot.Truncated {
+		t.Fatalf("short child list was treated as complete: %+v", walker.snapshot)
+	}
+	if err := ValidateSemanticSnapshot(walker.snapshot, Selector{Name: "Save", Role: "button"}); !errors.Is(err, ErrIncompleteSnapshot) {
+		t.Fatalf("ValidateSemanticSnapshot error = %v, want ErrIncompleteSnapshot", err)
 	}
 }
 
@@ -1272,9 +1302,14 @@ func TestCoalescedCacheSignalAppliesDelta(t *testing.T) {
 }
 
 func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
+	parent := cacheItem{
+		Object:      cacheObjectRef{BusName: "org.test", ObjectPath: "/parent"},
+		Application: cacheObjectRef{BusName: "org.test", ObjectPath: "/app"},
+		Parent:      cacheObjectRef{BusName: "org.test", ObjectPath: "/app"},
+	}
 	backend := &dbusBackend{
 		generation: 5,
-		cacheItems: make(map[NodeID]cacheItem),
+		cacheItems: map[NodeID]cacheItem{parent.nodeIDAt(5): parent},
 		cacheApps:  map[string]bool{"org.test": true},
 	}
 	item := cacheItem{
@@ -1304,6 +1339,9 @@ func TestCacheSignalTransitionPreservesAddAndRemoveState(t *testing.T) {
 	}
 	if !backend.cacheApps["org.test"] {
 		t.Fatal("cache application registration was lost during signal invalidation")
+	}
+	if got := backend.cacheItems[parent.nodeIDAt(5)].ChildCount; got != 0 {
+		t.Fatalf("parent cached child count after add and remove = %d, want 0", got)
 	}
 }
 
@@ -1349,6 +1387,21 @@ func TestFreshSnapshotChecksCacheAddTopologyAgainstParent(t *testing.T) {
 	outsideBackend.prepareEvent(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: "org.other", Body: []any{addOutside}}, Event{Kind: cacheIface + ":AddAccessible"})
 	if err := outsideBackend.observationChangesError(0, root, base, true); err != nil {
 		t.Fatalf("cache addition on a distinct app bus invalidated this window snapshot: %v", err)
+	}
+}
+
+func TestObservationHistoryEvictionFailsClosed(t *testing.T) {
+	root := NodeID{BusName: "org.test", ObjectPath: "/window", Generation: 5}
+	backend := &dbusBackend{generation: root.Generation}
+	for index := 0; index < observationHistoryLimit+1; index++ {
+		backend.prepareEvent(nil, Event{Kind: "object:property-change", Node: NodeID{BusName: root.BusName, ObjectPath: "/observed"}})
+	}
+	if backend.observationRevision != observationHistoryLimit+1 || backend.observationFloor != 1 {
+		t.Fatalf("observation revision/floor = %d/%d, want %d/1", backend.observationRevision, backend.observationFloor, observationHistoryLimit+1)
+	}
+	snapshot := Snapshot{Root: Node{ID: root}, Nodes: []Node{{ID: root}}}
+	if err := backend.observationChangesError(0, root, snapshot, true); !errors.Is(err, ErrObservationChanged) {
+		t.Fatalf("observation history eviction error = %v, want ErrObservationChanged", err)
 	}
 }
 

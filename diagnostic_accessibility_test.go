@@ -48,7 +48,7 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	inputBackend.Err = nil
 
 	longRole := strings.Repeat("r", 2*128)
-	nodeID := accessibility.NodeID{BusName: "org.test.Editor", ObjectPath: "/window/node", Generation: 9}
+	nodeID := accessibility.NodeID{BusName: "org.test.Editor", ObjectPath: "/window/node", Generation: 9, Incarnation: 7}
 	nodes := make([]accessibility.Node, 70)
 	for i := range nodes {
 		nodes[i] = accessibility.Node{
@@ -129,6 +129,9 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 		t.Fatalf("summarized nodes = %d, want 64", len(nodeSummaries))
 	}
 	nodeSummary := requireDiagnosticMap(t, nodeSummaries[0])
+	if id := requireDiagnosticMap(t, nodeSummary["id"]); id["incarnation"] != float64(nodeID.Incarnation) {
+		t.Fatalf("diagnostic node ID = %v, want incarnation %d", id, nodeID.Incarnation)
+	}
 	if nodeSummary["has_name"] != true || nodeSummary["has_description"] != true || nodeSummary["has_text"] != true {
 		t.Fatalf("node summary omitted content-presence flags: %v", nodeSummary)
 	}

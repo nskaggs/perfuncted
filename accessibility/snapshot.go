@@ -1046,6 +1046,9 @@ func (w *snapshotWalker) walkChildren(ctx context.Context, node *Node, id NodeID
 		w.providerErrors++
 		return nil
 	}
+	if len(children) != node.ChildCount {
+		w.markTruncated(fmt.Sprintf("child count mismatch for %s: reported %d, returned %d", id.ObjectPath, node.ChildCount, len(children)))
+	}
 	for _, childRef := range children {
 		if len(w.snapshot.Nodes) >= w.opts.MaxNodes {
 			w.markTruncated(fmt.Sprintf("max nodes %d", w.opts.MaxNodes))

@@ -16,19 +16,34 @@ func (b *waitAccessibilityBackend) SupportedOperations() []string { return []str
 func (b *waitAccessibilityBackend) Applications(context.Context) ([]accessibility.Application, error) {
 	return nil, nil
 }
-func (b *waitAccessibilityBackend) Snapshot(context.Context, accessibility.NodeID, accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
-	return accessibility.Snapshot{}, nil
-}
-func (b *waitAccessibilityBackend) Find(_ context.Context, _ accessibility.NodeID, query accessibility.Query, _ accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+func (b *waitAccessibilityBackend) Snapshot(_ context.Context, root accessibility.NodeID, _ accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	b.calls++
-	if b.calls < 2 {
-		return nil, nil
+	generation := root.Generation
+	if generation == 0 {
+		generation = 1
 	}
-	node := accessibility.Node{Name: "Save", Text: "Saved", States: []string{"enabled", "focused"}, Attributes: map[string]string{"kind": "primary"}}
-	if query.Text != "" && query.Text != node.Text {
-		return nil, nil
+	root.Generation = generation
+	rootNode := accessibility.Node{ID: root, Role: "application"}
+	nodes := []accessibility.Node{rootNode}
+	if b.calls >= 2 {
+		nodes = append(nodes, accessibility.Node{
+			ID:         accessibility.NodeID{BusName: root.BusName, ObjectPath: "/save", Generation: generation},
+			Parent:     root,
+			Name:       "Save",
+			Text:       "Saved",
+			Role:       "button",
+			States:     []string{"enabled", "focused"},
+			Attributes: map[string]string{"kind": "primary"},
+		})
 	}
-	return []accessibility.Node{node}, nil
+	return accessibility.Snapshot{Root: rootNode, Nodes: nodes, Generation: generation}, nil
+}
+func (b *waitAccessibilityBackend) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := b.Snapshot(ctx, root, opts)
+	if err != nil {
+		return nil, err
+	}
+	return accessibility.FilterSnapshot(snapshot, query), nil
 }
 func (b *waitAccessibilityBackend) Focused(context.Context, accessibility.SnapshotOptions) (accessibility.Node, error) {
 	return accessibility.Node{Focused: true}, nil

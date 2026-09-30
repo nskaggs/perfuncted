@@ -28,6 +28,39 @@ type accessibilityCertificationApp struct {
 	extraEnv []string
 }
 
+const maxAccessibilityFailureEvents = 128
+
+func TestDrainFailureAccessibilityEventsCancelsBeforeDrain(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := make(chan accessibility.Event)
+	done := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		stream <- accessibility.Event{Kind: "object:property-change"}
+		close(stream)
+		close(done)
+	}()
+
+	events := drainFailureAccessibilityEvents(cancel, stream)
+	<-done
+	if len(events) != 1 || events[0].Kind != "object:property-change" {
+		t.Fatalf("drained events = %+v, want the event delivered during cancellation", events)
+	}
+}
+
+func drainFailureAccessibilityEvents(cancel context.CancelFunc, stream <-chan accessibility.Event) []accessibility.Event {
+	cancel()
+	events := make([]accessibility.Event, 0, maxAccessibilityFailureEvents)
+	for len(events) < maxAccessibilityFailureEvents {
+		event, ok := <-stream
+		if !ok {
+			return events
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
 // TestAccessibilityCertification is the strict cross-toolkit acceptance
 // lane. It runs under headless Sway Wayland and certifies GTK/Qt AT-SPI
 // behavior, not the GNOME Shell extension. The general integration suite keeps
@@ -349,21 +382,11 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if eventErr == nil {
 		t.Cleanup(func() {
 			if !t.Failed() {
+				eventCancel()
 				return
 			}
-			for len(failureEvidence.Events) < 128 {
-				select {
-				case event, ok := <-eventStream:
-					if !ok {
-						return
-					}
-					failureEvidence.Events = append(failureEvidence.Events, event)
-				default:
-					return
-				}
-			}
+			failureEvidence.Events = drainFailureAccessibilityEvents(eventCancel, eventStream)
 		})
-		t.Cleanup(eventCancel)
 	} else {
 		eventCancel()
 		t.Logf("AT-SPI event subscription unavailable for failure artifacts: %v", eventErr)

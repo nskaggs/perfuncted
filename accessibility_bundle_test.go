@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +15,13 @@ import (
 
 type bundleAccessibilityFake struct {
 	apps                 []accessibility.Application
+	freshApps            []accessibility.Application
 	gen                  uint64
+	findCalls            int
+	eventCalls           int
+	eventErr             error
+	eventDone            <-chan struct{}
+	eventMu              sync.Mutex
 	resolvedTargets      []accessibility.WindowTarget
 	freshApplicationFind int
 	freshWindowResolve   int
@@ -27,6 +34,7 @@ type accessibilityAutomationSpy struct {
 	invokeErr     error
 	invokeErrors  []error
 	invokeCount   int
+	dispatchCheck func() error
 	textErr       error
 	textErrors    []error
 	textCount     int
@@ -35,21 +43,84 @@ type accessibilityAutomationSpy struct {
 
 type snapshotAccessibilityAutomationFake struct {
 	*accessibilityAutomationFake
-	snapshot        accessibility.Snapshot
-	snapshotOptions accessibility.SnapshotOptions
-	snapshotErr     error
-	snapshotCalls   int
+	snapshot             accessibility.Snapshot
+	snapshotOptions      accessibility.SnapshotOptions
+	snapshotErr          error
+	snapshotCalls        int
+	eventCallsAtSnapshot int
 }
 
 func (f *snapshotAccessibilityAutomationFake) Snapshot(_ context.Context, _ accessibility.NodeID, options accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	f.snapshotOptions = options
 	f.snapshotCalls++
+	f.eventMu.Lock()
+	f.eventCallsAtSnapshot = f.eventCalls
+	f.eventMu.Unlock()
 	return f.snapshot, f.snapshotErr
 }
 
 func TestPublicAccessibilityHelpersRemainReachable(t *testing.T) {
 	if condition := AccessibilityFocused(accessibility.SnapshotOptions{}); condition == nil {
 		t.Fatal("AccessibilityFocused returned nil")
+	}
+}
+
+func TestAccessibilityFindRequiresFreshCompleteSnapshot(t *testing.T) {
+	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 3}
+	target := accessibility.NodeID{BusName: "org.test", ObjectPath: "/save", Generation: 3}
+	other := accessibility.NodeID{BusName: "org.test", ObjectPath: "/cancel", Generation: 3}
+	tests := []struct {
+		name      string
+		truncated bool
+		wantErr   bool
+	}{
+		{name: "complete snapshot returns all matching nodes"},
+		{name: "truncated snapshot fails closed", truncated: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := &snapshotAccessibilityAutomationFake{
+				accessibilityAutomationFake: &accessibilityAutomationFake{
+					bundleAccessibilityFake:    &bundleAccessibilityFake{gen: root.Generation},
+					accessibilityAutomationSpy: &accessibilityAutomationSpy{},
+				},
+				snapshot: accessibility.Snapshot{
+					Root: accessibility.Node{ID: root, Role: "application"},
+					Nodes: []accessibility.Node{
+						{ID: root, Role: "application"},
+						{ID: target, Parent: root, Name: "Save", Role: "button"},
+						{ID: other, Parent: root, Name: "Cancel", Role: "button"},
+					},
+					Generation: root.Generation,
+					Truncated:  test.truncated,
+				},
+			}
+			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			defer session.Close()
+
+			got, err := session.Accessibility.Find(context.Background(), root, accessibility.Query{Name: "Save", Role: "button"}, accessibility.SnapshotOptions{})
+			if test.wantErr {
+				if !errors.Is(err, accessibility.ErrIncompleteSnapshot) {
+					t.Fatalf("Find error = %v, want ErrIncompleteSnapshot", err)
+				}
+				if len(got) != 0 {
+					t.Fatalf("Find returned partial matches %+v", got)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("Find: %v", err)
+				}
+				if len(got) != 1 || got[0].ID != target {
+					t.Fatalf("Find = %+v, want only %v", got, target)
+				}
+			}
+			if !backend.snapshotOptions.Fresh || backend.snapshotCalls != 1 {
+				t.Fatalf("snapshot options/calls = %+v/%d, want one fresh snapshot", backend.snapshotOptions, backend.snapshotCalls)
+			}
+			if backend.findCalls != 0 {
+				t.Fatalf("backend.Find calls = %d, want shared snapshot query path", backend.findCalls)
+			}
+		})
 	}
 }
 
@@ -61,6 +132,11 @@ func (s *accessibilityAutomationSpy) InvokeAction(context.Context, accessibility
 func (s *accessibilityAutomationSpy) InvokeActionByName(context.Context, accessibility.NodeID, string) (accessibility.Action, error) {
 	s.mark("action-name")
 	s.invokeCount++
+	if s.dispatchCheck != nil {
+		if err := s.dispatchCheck(); err != nil {
+			return s.exactAction, err
+		}
+	}
 	if s.invokeCount <= len(s.invokeErrors) {
 		if err := s.invokeErrors[s.invokeCount-1]; err != nil {
 			return s.exactAction, err
@@ -240,6 +316,7 @@ func (f *bundleAccessibilityFake) Snapshot(context.Context, accessibility.NodeID
 	return accessibility.Snapshot{Nodes: []accessibility.Node{node}, Root: node, Generation: generation, Source: "fake"}, nil
 }
 func (f *bundleAccessibilityFake) Find(ctx context.Context, _ accessibility.NodeID, query accessibility.Query, _ accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	f.findCalls++
 	snapshot, err := f.Snapshot(ctx, accessibility.NodeID{}, accessibility.SnapshotOptions{})
 	if err != nil {
 		return nil, err
@@ -258,7 +335,26 @@ func (f *bundleAccessibilityFake) FindApplication(context.Context, accessibility
 }
 func (f *bundleAccessibilityFake) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
 	f.freshApplicationFind++
+	if f.freshApplicationFind <= len(f.freshApps) {
+		return f.freshApps[f.freshApplicationFind-1], nil
+	}
 	return f.FindApplication(ctx, filter)
+}
+func (f *bundleAccessibilityFake) Events(ctx context.Context, _ accessibility.EventOptions) (<-chan accessibility.Event, error) {
+	f.eventMu.Lock()
+	defer f.eventMu.Unlock()
+	f.eventCalls++
+	f.eventDone = ctx.Done()
+	if f.eventErr != nil {
+		return nil, f.eventErr
+	}
+	return make(chan accessibility.Event), nil
+}
+
+func (f *bundleAccessibilityFake) eventObservationState() (int, <-chan struct{}) {
+	f.eventMu.Lock()
+	defer f.eventMu.Unlock()
+	return f.eventCalls, f.eventDone
 }
 func (f *bundleAccessibilityFake) ResolveWindow(_ context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	f.resolvedTargets = append(f.resolvedTargets, target)
@@ -464,6 +560,18 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 			{ID: target, Parent: root, Name: "Save", Role: "button", States: []string{"enabled"}},
 		}, Generation: 3},
 	}
+	spy.dispatchCheck = func() error {
+		_, eventDone := fake.eventObservationState()
+		if eventDone == nil {
+			return errors.New("locator did not start event observation")
+		}
+		select {
+		case <-eventDone:
+			return errors.New("locator stopped event observation before dispatch")
+		default:
+			return nil
+		}
+	}
 	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	locator := session.Accessibility.LocatorForApplication(
@@ -482,6 +590,10 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 	if !fake.snapshotOptions.Fresh {
 		t.Fatal("locator did not request a fresh provider snapshot")
 	}
+	eventCalls, _ := fake.eventObservationState()
+	if eventCalls < 1 || fake.eventCallsAtSnapshot != 1 {
+		t.Fatalf("event subscriptions=%d at snapshot=%d, want locator observation active before snapshot", eventCalls, fake.eventCallsAtSnapshot)
+	}
 	if fake.freshApplicationFind == 0 {
 		t.Fatal("application locator did not resolve its scope from fresh provider state")
 	}
@@ -490,6 +602,27 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 	}
 	if evidence.Evaluations != 1 || checks != 1 || spy.invokeCount != 1 {
 		t.Fatalf("evaluations=%d postcondition checks=%d dispatches=%d, want one each", evidence.Evaluations, checks, spy.invokeCount)
+	}
+}
+
+func TestAccessibilityLocatorFailsClosedWhenEventObservationIsUnavailable(t *testing.T) {
+	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 3}
+	app := accessibility.Application{Node: accessibility.Node{ID: root, Name: "Editor"}}
+	fake := &snapshotAccessibilityAutomationFake{
+		accessibilityAutomationFake: &accessibilityAutomationFake{
+			bundleAccessibilityFake:    &bundleAccessibilityFake{apps: []accessibility.Application{app}, gen: 3, eventErr: accessibility.ErrUnsupported},
+			accessibilityAutomationSpy: &accessibilityAutomationSpy{},
+		},
+		snapshot: accessibility.Snapshot{Root: app.Node, Nodes: []accessibility.Node{app.Node}, Generation: 3},
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
+	if _, err := locator.Matches(context.Background()); !errors.Is(err, accessibility.ErrObservationChanged) || !errors.Is(err, accessibility.ErrUnsupported) {
+		t.Fatalf("Matches error = %v, want observation-changed and unsupported causes", err)
+	}
+	if fake.snapshotCalls != 0 || fake.freshApplicationFind != 0 {
+		t.Fatalf("scope resolutions=%d snapshots=%d, want failure before observing unguarded state", fake.freshApplicationFind, fake.snapshotCalls)
 	}
 }
 
@@ -691,6 +824,44 @@ func TestAccessibilityLocatorRetriesOnlyKnownNotSentStaleAction(t *testing.T) {
 	}
 	if spy.invokeCount != 2 || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeVerified {
 		t.Fatalf("invocations=%d receipt=%+v, want bounded retry then verified success", spy.invokeCount, receipt)
+	}
+}
+
+func TestAccessibilityLocatorRejectsStaleActionRetryOnChangedRootPath(t *testing.T) {
+	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 3}
+	replacementRoot := accessibility.NodeID{BusName: "org.test", ObjectPath: "/replacement-application", Generation: 3}
+	target := accessibility.NodeID{BusName: "org.test", ObjectPath: "/save", Generation: 3}
+	app := accessibility.Application{Node: accessibility.Node{ID: root, Name: "Editor"}, PID: 77}
+	replacement := accessibility.Application{Node: accessibility.Node{ID: replacementRoot, Name: "Editor"}, PID: 77}
+	spy := &accessibilityAutomationSpy{exactAction: accessibility.Action{Index: 2, Name: "press"}}
+	spy.invokeErrors = []error{&accessibility.ActionInvocationError{
+		Action: spy.exactAction, Dispatch: accessibility.DispatchNotSent, Err: accessibility.ErrStaleNode,
+	}}
+	fake := &snapshotAccessibilityAutomationFake{
+		accessibilityAutomationFake: &accessibilityAutomationFake{
+			bundleAccessibilityFake: &bundleAccessibilityFake{
+				apps: []accessibility.Application{app}, freshApps: []accessibility.Application{app, replacement}, gen: 3,
+			},
+			accessibilityAutomationSpy: spy,
+		},
+		snapshot: accessibility.Snapshot{Root: app.Node, Nodes: []accessibility.Node{
+			app.Node,
+			{ID: target, Parent: root, Name: "Save", Role: "button"},
+		}, Generation: 3},
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
+	postconditionChecks := 0
+	_, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
+		postconditionChecks++
+		return true, nil
+	}))
+	if !errors.Is(err, ErrManagedScopeChanged) {
+		t.Fatalf("InvokeActionAndWait error = %v, want ErrManagedScopeChanged", err)
+	}
+	if spy.invokeCount != 1 || fake.snapshotCalls != 1 || postconditionChecks != 0 {
+		t.Fatalf("dispatches=%d snapshots=%d postcondition checks=%d, want one dispatch, one snapshot, no wait", spy.invokeCount, fake.snapshotCalls, postconditionChecks)
 	}
 }
 

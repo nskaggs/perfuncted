@@ -152,28 +152,42 @@ func (b *AccessibilityBundle) windowRoot(ctx context.Context, windowID string, f
 	return b.accessibilityWindow(ctx, windowTargetFor(selected, 0), fresh)
 }
 
-// Find returns nodes matching a bounded case-insensitive query.
+// Find returns nodes matching a bounded case-insensitive query from one fresh,
+// structurally complete traversal. Use a scoped AccessibilityLocator when the
+// result must be guarded against AT-SPI events during resolution and action.
 func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	if err := b.checkAvailable("find"); err != nil {
 		return nil, err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	nodes, err := b.backend.Find(ctx, root, query, opts)
-	return nodes, b.operationError("find", err)
+	opts.Fresh = true
+	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	if err != nil {
+		return nil, b.operationError("find", err)
+	}
+	selector := selectorFromQuery(query)
+	if err := accessibility.ValidateSemanticSnapshot(snapshot, selector); err != nil {
+		return nil, b.operationError("find", err)
+	}
+	return accessibility.FilterSnapshotSelector(snapshot, selector), nil
 }
 
 // FindOne resolves a unique node from a single bounded snapshot. Candidate
 // context comes from the same snapshot so a miss costs one AT-SPI traversal,
 // not a find plus a second diagnostic snapshot.
 func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
-	return b.FindOneSelector(ctx, root, accessibility.Selector{
+	return b.FindOneSelector(ctx, root, selectorFromQuery(query), opts)
+}
+
+func selectorFromQuery(query accessibility.Query) accessibility.Selector {
+	return accessibility.Selector{
 		Name:       query.Name,
 		Role:       query.Role,
 		Text:       query.Text,
 		States:     query.States,
 		Attributes: query.Attributes,
-	}, opts)
+	}
 }
 
 // FindOneSelector resolves one target through the shared semantic predicate

@@ -264,7 +264,17 @@ func (b *dbusBackend) applyCacheAddLocked(body []any) {
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}
-	b.cacheItems[b.nodeIDLocked(objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath})] = item
+	id := b.nodeIDLocked(objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath})
+	if b.cacheApps[item.Object.BusName] {
+		old, exists := b.cacheItems[id]
+		if exists && old.Parent != item.Parent {
+			b.adjustCachedChildCountLocked(old.Parent, -1)
+		}
+		if !exists || old.Parent != item.Parent {
+			b.adjustCachedChildCountLocked(item.Parent, 1)
+		}
+	}
+	b.cacheItems[id] = item
 	b.recordParentLocked(item.Object, item.Parent)
 }
 
@@ -274,11 +284,35 @@ func (b *dbusBackend) applyCacheRemoveLocked(body []any) {
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}
-	for id := range b.cacheItems {
+	for id, item := range b.cacheItems {
 		if id.BusName == ref.BusName && id.ObjectPath == string(ref.ObjectPath) {
+			if b.cacheApps[ref.BusName] {
+				b.adjustCachedChildCountLocked(item.Parent, -1)
+			}
 			delete(b.cacheItems, id)
 		}
 	}
+}
+
+func (b *dbusBackend) adjustCachedChildCountLocked(parent cacheObjectRef, delta int64) {
+	if !parent.ObjectPath.IsValid() || !b.cacheApps[parent.BusName] {
+		return
+	}
+	parentID := b.nodeIDLocked(objectRef(parent))
+	item, ok := b.cacheItems[parentID]
+	if !ok || item.ChildCount < 0 {
+		b.cacheApps[parent.BusName] = false
+		delete(b.cacheItems, parentID)
+		return
+	}
+	updated := int64(item.ChildCount) + delta
+	if updated < 0 || updated > 1<<31-1 {
+		b.cacheApps[parent.BusName] = false
+		delete(b.cacheItems, parentID)
+		return
+	}
+	item.ChildCount = int32(updated)
+	b.cacheItems[parentID] = item
 }
 
 func (b *dbusBackend) cachedItem(id NodeID) (cacheItem, bool) {

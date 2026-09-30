@@ -236,9 +236,10 @@ func summarizeAccessibilityEvent(event accessibility.Event) eventDiagnosticSumma
 
 func diagnosticNodeID(id accessibility.NodeID) accessibility.NodeID {
 	return accessibility.NodeID{
-		BusName:    diagnosticLabel(id.BusName),
-		ObjectPath: diagnosticLabel(id.ObjectPath),
-		Generation: id.Generation,
+		BusName:     diagnosticLabel(id.BusName),
+		ObjectPath:  diagnosticLabel(id.ObjectPath),
+		Generation:  id.Generation,
+		Incarnation: id.Incarnation,
 	}
 }
 

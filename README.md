@@ -184,6 +184,9 @@ Every session has non-nil capability facades:
   `FillAndWait` uses one EditableText `SetTextContents` call. Both return a
   receipt that reports dispatch acknowledgement separately from the
   independent postcondition result; uncertain dispatches are not repeated.
+  Locator resolution requires an active AT-SPI event stream to detect provider
+  changes during the fresh snapshot; it fails closed when event registration
+  is unavailable.
   Typed low-level operations remain available on `AccessibilityBundle`; use
   `pf a11y raw` when working with explicit protocol-level handles.
 

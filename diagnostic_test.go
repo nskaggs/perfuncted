@@ -19,6 +19,7 @@ import (
 )
 
 func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
+	const privateContent = "private-document-fragment-7fce43"
 	screenshotter := &pftest.Screenshotter{
 		Frames: []image.Image{pftest.SolidImage(4, 3, color.RGBA{R: 10, G: 20, B: 30, A: 255})},
 	}
@@ -43,7 +44,7 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	path, err := session.CaptureFailureBundle(context.Background(), perfuncted.FailureBundleOptions{
 		Directory: directory,
 		Operation: "save document",
-		Error:     errors.New("document did not appear"),
+		Error:     errors.New("document did not appear: " + privateContent),
 		Metadata:  map[string]string{"case": "multi-output"},
 	})
 	if err != nil {
@@ -54,9 +55,10 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	}
 
 	manifest := readJSONMap(t, filepath.Join(directory, "manifest.json"))
-	if manifest["operation"] != "save document" || manifest["error"] != "document did not appear" {
+	if manifest["operation"] != "save document" {
 		t.Fatalf("manifest context = %v", manifest)
 	}
+	assertManifestErrorRedacted(t, directory, manifest, privateContent)
 	assertManifestRuntimeEvidence(t, manifest)
 	artifacts, ok := manifest["artifacts"].([]any)
 	if !ok || len(artifacts) != 5 {
@@ -82,6 +84,23 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	}
 	if err := json.Unmarshal(outputData, &outputInfos); err != nil || len(outputInfos) != 1 {
 		t.Fatalf("outputs.json = %s, err=%v", outputData, err)
+	}
+}
+
+func assertManifestErrorRedacted(t *testing.T, directory string, manifest map[string]any, privateContent string) {
+	t.Helper()
+	if manifest["error_present"] != true {
+		t.Fatalf("manifest error presence = %v, want true", manifest["error_present"])
+	}
+	if _, ok := manifest["error"]; ok {
+		t.Fatalf("manifest includes raw error text: %v", manifest["error"])
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifestBytes), privateContent) {
+		t.Fatalf("manifest leaked error content %q", privateContent)
 	}
 }
 

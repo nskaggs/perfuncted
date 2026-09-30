@@ -36,7 +36,8 @@ type locatorIdentity struct {
 
 // AccessibilityLocator is a lazy semantic target scoped to a managed window
 // or a uniquely identified application. It stores selector intent and resolves
-// provider nodes only when an operation runs.
+// provider nodes only when an operation runs. Resolution requires an active
+// AT-SPI event stream so provider changes during a fresh snapshot can fail closed.
 type AccessibilityLocator struct {
 	bundle   *AccessibilityBundle
 	scope    locatorScope
@@ -142,21 +143,30 @@ func locatorResolutionMayRetry(err error) bool {
 		errors.Is(err, accessibility.ErrObservationChanged)
 }
 
-func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, locatorIdentity, error) {
+func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, locatorIdentity, accessibility.NodeID, context.CancelFunc, error) {
 	if l == nil || l.bundle == nil {
-		return nil, locatorIdentity{}, ErrUnavailable
+		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, ErrUnavailable
+	}
+	if ctx == nil {
+		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, fmt.Errorf("perfuncted: locator: %w: nil context", ErrInvalidArgument)
 	}
 	if err := l.bundle.checkAvailable("find"); err != nil {
-		return nil, locatorIdentity{}, err
+		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, err
 	}
 	var initialIdentity locatorIdentity
 	var initialRoot accessibility.NodeID
 	haveInitialIdentity := false
 	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
+		observationCtx, stopObservation := context.WithCancel(ctx)
+		if _, err := l.bundle.Events(observationCtx, accessibility.EventOptions{Buffer: 1}); err != nil {
+			stopObservation()
+			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", fmt.Errorf("%w: locator event observation is unavailable: %w", accessibility.ErrObservationChanged, err))
+		}
 		root, identity, err := l.scopeRoot(ctx)
 		if err == nil {
 			if locatorIdentityChanged(haveInitialIdentity, initialIdentity, initialRoot, identity, root) {
-				return nil, identity, l.bundle.operationError("find", fmt.Errorf("%w: locator scope identity changed during resolution", accessibility.ErrScope))
+				stopObservation()
+				return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", fmt.Errorf("%w: locator scope identity changed during resolution", accessibility.ErrScope))
 			}
 			if !haveInitialIdentity {
 				initialIdentity = identity
@@ -170,20 +180,24 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			cancel()
 			if readErr == nil {
 				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, l.selector); incomplete != nil {
-					return nil, identity, l.bundle.operationError("find", incomplete)
+					stopObservation()
+					return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", incomplete)
 				}
-				return accessibility.FilterSnapshotSelector(snapshot, l.selector), identity, nil
+				return accessibility.FilterSnapshotSelector(snapshot, l.selector), identity, root, stopObservation, nil
 			}
 			err = readErr
 		}
 		if !locatorResolutionMayRetry(err) {
-			return nil, identity, l.bundle.operationError("find", err)
+			stopObservation()
+			return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", err)
 		}
 		if attempt+1 == locatorResolutionAttempts {
-			return nil, identity, l.bundle.operationError("find", err)
+			stopObservation()
+			return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", err)
 		}
+		stopObservation()
 	}
-	return nil, locatorIdentity{}, accessibility.ErrStaleGeneration
+	return nil, locatorIdentity{}, accessibility.NodeID{}, nil, accessibility.ErrStaleGeneration
 }
 
 // Matches returns all matches from one complete, current snapshot. It preserves
@@ -192,10 +206,11 @@ func (l *AccessibilityLocator) Matches(ctx context.Context) ([]accessibility.Nod
 	if ctx == nil {
 		return nil, fmt.Errorf("perfuncted: locator: %w: nil context", ErrInvalidArgument)
 	}
-	nodes, _, err := l.find(ctx)
+	nodes, _, _, stopObservation, err := l.find(ctx)
 	if err != nil {
 		return nil, err
 	}
+	stopObservation()
 	return nodes, nil
 }
 
@@ -251,31 +266,41 @@ func (l *AccessibilityLocator) InvokeActionAndWait(ctx context.Context, actionNa
 	}
 	var receipt AccessibilityActionReceipt
 	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
-		matches, identity, err := l.find(ctx)
+		retry, err := func() (bool, error) {
+			matches, identity, root, stopObservation, err := l.find(ctx)
+			if err != nil {
+				return false, err
+			}
+			defer stopObservation()
+			node, err := uniqueLocatorMatch(matches)
+			if err != nil {
+				return false, err
+			}
+			receipt, err = l.bundle.invokeSemanticActionOnNode(ctx, node, actionName)
+			if err == nil {
+				return false, nil
+			}
+			var dispatchErr *accessibility.ActionInvocationError
+			if errors.As(err, &dispatchErr) && dispatchErr.Dispatch == accessibility.DispatchUnknown {
+				return false, err
+			}
+			if (!errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode)) || attempt+1 == locatorResolutionAttempts {
+				return false, err
+			}
+			refreshedRoot, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
+			if scopeErr != nil {
+				return false, scopeErr
+			}
+			if !sameLocatorScope(identity, refreshedIdentity) || root.BusName != refreshedRoot.BusName || root.ObjectPath != refreshedRoot.ObjectPath {
+				return false, fmt.Errorf("perfuncted: locator action scope changed before dispatch: %w", ErrManagedScopeChanged)
+			}
+			return true, nil
+		}()
 		if err != nil {
 			return receipt, WaitEvidence{}, err
 		}
-		node, err := uniqueLocatorMatch(matches)
-		if err != nil {
-			return receipt, WaitEvidence{}, err
-		}
-		receipt, err = l.bundle.invokeSemanticActionOnNode(ctx, node, actionName)
-		if err == nil {
+		if !retry {
 			break
-		}
-		var dispatchErr *accessibility.ActionInvocationError
-		if errors.As(err, &dispatchErr) && dispatchErr.Dispatch == accessibility.DispatchUnknown {
-			return receipt, WaitEvidence{}, err
-		}
-		if (!errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode)) || attempt+1 == locatorResolutionAttempts {
-			return receipt, WaitEvidence{}, err
-		}
-		_, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
-		if scopeErr != nil {
-			return receipt, WaitEvidence{}, scopeErr
-		}
-		if !sameLocatorScope(identity, refreshedIdentity) {
-			return receipt, WaitEvidence{}, fmt.Errorf("perfuncted: locator action scope changed before dispatch: %w", ErrManagedScopeChanged)
 		}
 	}
 	return l.waitForOutcome(ctx, receipt, postcondition, options...)
@@ -305,38 +330,48 @@ func (l *AccessibilityLocator) FillAndWait(ctx context.Context, value string, po
 	}
 	var receipt AccessibilityActionReceipt
 	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
-		matches, identity, err := l.find(ctx)
+		retry, err := func() (bool, error) {
+			matches, identity, root, stopObservation, err := l.find(ctx)
+			if err != nil {
+				return false, err
+			}
+			defer stopObservation()
+			node, err := uniqueLocatorMatch(matches)
+			if err != nil {
+				return false, err
+			}
+			receipt = AccessibilityActionReceipt{
+				Node: node, Operation: "set-text-contents", Mechanism: "at-spi.editable-text",
+				Generation: node.ID.Generation, Dispatch: accessibility.DispatchNotSent,
+				Outcome: ActionOutcomeProof{Status: ActionOutcomeNotObserved},
+			}
+			if contextErr := ctx.Err(); contextErr != nil {
+				return false, contextErr
+			}
+			err = l.bundle.ReplaceEditableText(ctx, node.ID, value)
+			if err == nil {
+				receipt.Dispatch = accessibility.DispatchAccepted
+				receipt.DispatchedAt = time.Now().UTC()
+				return false, nil
+			}
+			receipt.Dispatch = textDispatchOutcome(err)
+			if receipt.Dispatch != accessibility.DispatchNotSent || (!errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode)) || attempt+1 == locatorResolutionAttempts {
+				return false, err
+			}
+			refreshedRoot, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
+			if scopeErr != nil {
+				return false, scopeErr
+			}
+			if !sameLocatorScope(identity, refreshedIdentity) || root.BusName != refreshedRoot.BusName || root.ObjectPath != refreshedRoot.ObjectPath {
+				return false, fmt.Errorf("perfuncted: locator fill scope changed before dispatch: %w", ErrManagedScopeChanged)
+			}
+			return true, nil
+		}()
 		if err != nil {
 			return receipt, WaitEvidence{}, err
 		}
-		node, err := uniqueLocatorMatch(matches)
-		if err != nil {
-			return receipt, WaitEvidence{}, err
-		}
-		receipt = AccessibilityActionReceipt{
-			Node: node, Operation: "set-text-contents", Mechanism: "at-spi.editable-text",
-			Generation: node.ID.Generation, Dispatch: accessibility.DispatchNotSent,
-			Outcome: ActionOutcomeProof{Status: ActionOutcomeNotObserved},
-		}
-		if contextErr := ctx.Err(); contextErr != nil {
-			return receipt, WaitEvidence{}, contextErr
-		}
-		err = l.bundle.ReplaceEditableText(ctx, node.ID, value)
-		if err == nil {
-			receipt.Dispatch = accessibility.DispatchAccepted
-			receipt.DispatchedAt = time.Now().UTC()
+		if !retry {
 			break
-		}
-		receipt.Dispatch = textDispatchOutcome(err)
-		if receipt.Dispatch != accessibility.DispatchNotSent || (!errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode)) || attempt+1 == locatorResolutionAttempts {
-			return receipt, WaitEvidence{}, err
-		}
-		_, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
-		if scopeErr != nil {
-			return receipt, WaitEvidence{}, scopeErr
-		}
-		if !sameLocatorScope(identity, refreshedIdentity) {
-			return receipt, WaitEvidence{}, fmt.Errorf("perfuncted: locator fill scope changed before dispatch: %w", ErrManagedScopeChanged)
 		}
 	}
 	return l.waitForOutcome(ctx, receipt, postcondition, options...)

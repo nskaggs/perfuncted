@@ -282,6 +282,26 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 	if b.incarnations == nil {
 		b.incarnations = make(map[objectIdentity]uint64)
 	}
+	removed := b.removedObjectTreeLocked(root)
+	if !b.canTrackRevokedObjectsLocked(removed) || !b.adjustCachedChildrenForRevocationLocked(removed) {
+		return false
+	}
+	for identity := range removed {
+		current := b.incarnationLocked(identity)
+		b.incarnations[identity] = current + 1
+		delete(b.parents, identity)
+	}
+	for id := range b.cacheItems {
+		identity := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
+		if _, ok := removed[identity]; ok {
+			delete(b.cacheItems, id)
+		}
+	}
+	b.cache = nil
+	return true
+}
+
+func (b *dbusBackend) removedObjectTreeLocked(root objectIdentity) map[objectIdentity]struct{} {
 	children := make(map[objectIdentity][]objectIdentity, len(b.parents))
 	for child, parent := range b.parents {
 		children[parent] = append(children[parent], child)
@@ -301,27 +321,47 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 			}
 		}
 	}
+	return removed
+}
+
+func (b *dbusBackend) canTrackRevokedObjectsLocked(removed map[objectIdentity]struct{}) bool {
 	newIncarnations := 0
 	for identity := range removed {
 		if b.incarnations[identity] == 0 {
 			newIncarnations++
 		}
 	}
-	if len(b.incarnations)+newIncarnations > maxTrackedObjects {
-		return false
+	return len(b.incarnations)+newIncarnations <= maxTrackedObjects
+}
+
+func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[objectIdentity]struct{}) bool {
+	parentsByChild := make(map[objectIdentity]objectIdentity, len(b.parents)+len(b.cacheItems))
+	for child, parent := range b.parents {
+		parentsByChild[child] = parent
 	}
-	for identity := range removed {
-		current := b.incarnationLocked(identity)
-		b.incarnations[identity] = current + 1
-		delete(b.parents, identity)
+	for id, item := range b.cacheItems {
+		child := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
+		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
+		if existing, ok := parentsByChild[child]; ok && existing != parent {
+			return false
+		}
+		parentsByChild[child] = parent
 	}
-	for id := range b.cacheItems {
-		identity := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
-		if _, ok := removed[identity]; ok {
-			delete(b.cacheItems, id)
+	removedChildrenByParent := make(map[objectIdentity]int)
+	for child, parent := range parentsByChild {
+		if _, childRemoved := removed[child]; !childRemoved {
+			continue
+		}
+		if _, parentRemoved := removed[parent]; !parentRemoved {
+			removedChildrenByParent[parent]++
 		}
 	}
-	b.cache = nil
+	for parent, count := range removedChildrenByParent {
+		b.adjustCachedChildCountLocked(
+			cacheObjectRef{BusName: parent.busName, ObjectPath: dbus.ObjectPath(parent.objectPath)},
+			-int64(count),
+		)
+	}
 	return true
 }
 
