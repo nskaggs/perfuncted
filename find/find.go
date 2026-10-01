@@ -78,6 +78,73 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 	return pixelHashImage(img, img.Bounds(), newHash)
 }
 
+// PixelHashBGRA hashes raw BGRA frame pixels in the same canonical opaque RGBA
+// representation as PixelHash. An empty rect hashes the full frame; otherwise
+// rect is clipped to the frame bounds before hashing. Invalid or incomplete
+// frame data returns the zero hash.
+func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle) uint32 {
+	const maxBGRAHashChunkBytes = 32 * 1024
+
+	frame, ok := bgraFrameBounds(data, width, height, stride)
+	if !ok {
+		return 0
+	}
+	if rect.Empty() {
+		rect = frame
+	} else {
+		rect = rect.Intersect(frame)
+	}
+	if rect.Empty() {
+		return 0
+	}
+	rowBytes := rect.Dx() * 4
+	xOffset := rect.Min.X * 4
+	chunk := make([]byte, min(rowBytes, maxBGRAHashChunkBytes))
+	var sum uint32
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		srcStart := y*stride + xOffset
+		sum = pixelHashBGRARow(sum, data[srcStart:srcStart+rowBytes], chunk)
+	}
+	return sum
+}
+
+func bgraFrameBounds(data []byte, width, height, stride int) (image.Rectangle, bool) {
+	if len(data) == 0 || width <= 0 || height <= 0 || stride <= 0 {
+		return image.Rectangle{}, false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if width > maxInt/4 {
+		return image.Rectangle{}, false
+	}
+	rowBytes := width * 4
+	if stride < rowBytes {
+		return image.Rectangle{}, false
+	}
+	lastRow := height - 1
+	if lastRow > (maxInt-rowBytes)/stride {
+		return image.Rectangle{}, false
+	}
+	if required := lastRow*stride + rowBytes; required > len(data) {
+		return image.Rectangle{}, false
+	}
+	return image.Rect(0, 0, width, height), true
+}
+
+func pixelHashBGRARow(sum uint32, data, chunk []byte) uint32 {
+	for offset := 0; offset < len(data); offset += len(chunk) {
+		row := chunk[:min(len(chunk), len(data)-offset)]
+		for i := 0; i < len(row); i += 4 {
+			src := offset + i
+			row[i] = data[src+2]
+			row[i+1] = data[src+1]
+			row[i+2] = data[src]
+			row[i+3] = 0xff
+		}
+		sum = crc32.Update(sum, crc32.IEEETable, row)
+	}
+	return sum
+}
+
 // pixelHashImage hashes rect from img without creating a subimage for the
 // RGBA fast path. Keeping the rectangle in the source image's coordinate
 // space lets callers hash compact regions without allocating a temporary

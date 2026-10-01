@@ -4,7 +4,86 @@ import (
 	"image"
 	"image/color"
 	"testing"
+
+	"github.com/nskaggs/perfuncted/find"
 )
+
+func TestPixelHashBGRA_MatchesDecodedFrames(t *testing.T) {
+	const width, height, stride = 4, 3, 20
+	fullFrame := make([]byte, stride*height)
+	for i := range fullFrame {
+		fullFrame[i] = byte(i*37 + 11)
+	}
+	rects := []struct {
+		name string
+		rect image.Rectangle
+	}{
+		{name: "full frame"},
+		{name: "explicit full frame", rect: image.Rect(0, 0, width, height)},
+		{name: "subregion", rect: image.Rect(1, 1, 3, 3)},
+		{name: "clipped region", rect: image.Rect(-1, 1, 3, 8)},
+		{name: "outside region", rect: image.Rect(8, 8, 9, 9)},
+	}
+	for _, rect := range rects {
+		t.Run(rect.name, func(t *testing.T) {
+			var decoded *image.RGBA
+			if rect.rect.Empty() {
+				decoded = decodeBGRA(fullFrame, width, height, stride)
+			} else {
+				decoded = decodeBGRARect(fullFrame, width, height, stride, rect.rect)
+			}
+			got := find.PixelHashBGRA(fullFrame, width, height, stride, rect.rect)
+			want := find.PixelHash(decoded, nil)
+			if got != want {
+				t.Fatalf("PixelHashBGRA() = %08x, decoded hash = %08x", got, want)
+			}
+		})
+	}
+}
+
+func TestPixelHashBGRA_InvalidFrameMetadata(t *testing.T) {
+	tests := []struct {
+		name                  string
+		data                  []byte
+		width, height, stride int
+	}{
+		{name: "empty data", data: nil, width: 1, height: 1, stride: 4},
+		{name: "zero width", data: []byte{1, 2, 3, 4}, width: 0, height: 1, stride: 4},
+		{name: "zero height", data: []byte{1, 2, 3, 4}, width: 1, height: 0, stride: 4},
+		{name: "short stride", data: []byte{1, 2, 3, 4}, width: 2, height: 1, stride: 4},
+		{name: "incomplete frame", data: []byte{1, 2, 3, 4}, width: 1, height: 2, stride: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := find.PixelHashBGRA(tt.data, tt.width, tt.height, tt.stride, image.Rectangle{}); got != 0 {
+				t.Fatalf("PixelHashBGRA() = %08x, want zero hash for invalid frame metadata", got)
+			}
+		})
+	}
+}
+
+func TestPixelHashBGRA_WideRowsMatchDecodedFrames(t *testing.T) {
+	const width, height, stride = 9000, 2, 36016
+	data := make([]byte, stride*height)
+	for i := range data {
+		data[i] = byte(i*19 + 7)
+	}
+	for _, rect := range []image.Rectangle{
+		{},
+		image.Rect(123, 0, 8900, height),
+	} {
+		var decoded *image.RGBA
+		if rect.Empty() {
+			decoded = decodeBGRA(data, width, height, stride)
+		} else {
+			decoded = decodeBGRARect(data, width, height, stride, rect)
+		}
+		got := find.PixelHashBGRA(data, width, height, stride, rect)
+		if want := find.PixelHash(decoded, nil); got != want {
+			t.Fatalf("PixelHashBGRA(%v) = %08x, decoded hash = %08x", rect, got, want)
+		}
+	}
+}
 
 type solidTestImage struct {
 	rect image.Rectangle

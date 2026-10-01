@@ -449,8 +449,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
 	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
-		img := decodeBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride))
-		hash = find.PixelHash(img, nil)
+		hash = find.PixelHashBGRA(pixels, int(bi.width), int(bi.height), int(bi.stride), image.Rectangle{})
 		return nil
 	}); err != nil {
 		return 0, err
@@ -480,7 +479,7 @@ func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Re
 		if (r.Max.Y-1)*int(bi.stride)+r.Max.X*4 > len(pixels) {
 			return fmt.Errorf("screen/wlr: invalid region bounds for hash: %v (buf %d)", r, len(pixels))
 		}
-		hash = find.PixelHash(decodeBGRARect(pixels, fullW, fullH, int(bi.stride), r), nil)
+		hash = find.PixelHashBGRA(pixels, fullW, fullH, int(bi.stride), r)
 		return nil
 	}); err != nil {
 		return 0, err

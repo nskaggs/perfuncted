@@ -207,7 +207,7 @@ func NewExtCaptureBackendForSocketContext(cancel context.Context, sock string) (
 func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
 	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
-		hash = find.PixelHash(decodeBGRA(pixels, w, h, stride), nil)
+		hash = find.PixelHashBGRA(pixels, w, h, stride, image.Rectangle{})
 		return nil
 	}); err != nil {
 		return 0, err
@@ -235,7 +235,7 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 		if r.Min.X < 0 || (r.Max.Y-1)*stride+r.Max.X*4 > len(pixels) {
 			return fmt.Errorf("screen/ext: region out of bounds")
 		}
-		hash = find.PixelHash(decodeBGRARect(pixels, w, h, stride, r), nil)
+		hash = find.PixelHashBGRA(pixels, w, h, stride, r)
 		return nil
 	}); err != nil {
 		return 0, err
