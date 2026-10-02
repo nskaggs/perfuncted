@@ -24,10 +24,18 @@ const gnomeShellService = "org.gnome.Shell"
 // JavaScript numbers represent integers exactly only through 2^53-1.
 const maxGnomeJSSafeInteger = uint64(1<<53 - 1)
 
+// gnomeWindowMissing is returned by a Shell Eval snippet when the handle no
+// longer names a window, so callers see ErrWindowNotFound rather than a generic
+// script failure.
+const gnomeWindowMissing = "__pf_window_missing__"
+
 // GnomeManager implements window management for GNOME Shell via the
 // org.gnome.Shell.Eval D-Bus interface.
 type GnomeManager struct {
 	conn *dbus.Conn
+	// evalJS runs a Shell Eval snippet. It is a field so the generated script
+	// and its outcome contract can be exercised without a session bus.
+	evalJS func(context.Context, string) (string, error)
 }
 
 // NewGnomeManagerForBus opens a D-Bus connection at addr and verifies that
@@ -64,6 +72,9 @@ func NewGnomeManagerForBusContext(ctx context.Context, addr string) (*GnomeManag
 
 // eval runs JavaScript in gnome-shell and returns the result string.
 func (g *GnomeManager) eval(ctx context.Context, js string) (string, error) {
+	if g != nil && g.evalJS != nil {
+		return g.evalJS(ctx, js)
+	}
 	ctx = contextutil.Default(ctx)
 	if g == nil || g.conn == nil {
 		return "", fmt.Errorf("gnome: manager is not initialized")
@@ -208,9 +219,19 @@ func (g *GnomeManager) actOnWindowByID(ctx context.Context, id string, action st
 	if numeric > maxGnomeJSSafeInteger {
 		return fmt.Errorf("window/gnome: numeric id %q exceeds JavaScript safe integer range", id)
 	}
-	js := "(function(){ let w=" + g.findWindowByID(numeric) + "; if(!w) throw \"not found\"; " + action + "; return \"ok\"; })()"
-	_, err = g.eval(ctx, js)
-	return err
+	// A missing window is reported with its own marker rather than by throwing
+	// text, so a genuine failure of the action itself stays distinguishable from
+	// the handle no longer naming a window.
+	js := "(function(){ let w=" + g.findWindowByID(numeric) +
+		"; if(!w) return " + strconv.Quote(gnomeWindowMissing) + "; " + action + "; return \"ok\"; })()"
+	result, err := g.eval(ctx, js)
+	if err != nil {
+		return err
+	}
+	if result == gnomeWindowMissing {
+		return ErrWindowNotFound
+	}
+	return nil
 }
 
 // ActivateByID focuses the window identified by id.
