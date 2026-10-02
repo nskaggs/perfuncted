@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 	"os"
 	"path/filepath"
@@ -453,5 +454,45 @@ func TestScreenBundle_Resolution(t *testing.T) {
 	}
 	if w != 1920 || h != 1080 {
 		t.Fatalf("Resolution: got %dx%d, want 1920x1080", w, h)
+	}
+}
+
+func TestScreenBundle_GetMultiplePixelsMapsAcrossOutputScale(t *testing.T) {
+	const (
+		scale  = 2
+		region = 10
+		scaled = region * scale
+	)
+	bgColor := color.RGBA{R: 1, G: 2, B: 3, A: 255}
+	want := color.RGBA{R: 200, G: 100, B: 50, A: 255}
+
+	// The backend returns a capture at twice the requested region's scale, which
+	// is what a scaled output does. Every pixel that is not one of the expected
+	// positions is a decoy, so a wrong lookup cannot pass.
+	capture := image.NewRGBA(image.Rect(0, 0, scaled, scaled))
+	draw.Draw(capture, capture.Bounds(), &image.Uniform{C: bgColor}, image.Point{}, draw.Src)
+	points := []image.Point{{0, 0}, {5, 5}, {9, 9}}
+	for _, point := range points {
+		capture.SetRGBA(point.X*scale, point.Y*scale, want)
+	}
+
+	sc := &pftest.Screenshotter{Frames: []image.Image{capture}}
+	pf := newTestPF(sc)
+	defer pf.Close()
+
+	got, err := pf.Screen.GetMultiplePixels(context.Background(), points)
+	if err != nil {
+		t.Fatalf("GetMultiplePixels: %v", err)
+	}
+	if len(got) != len(points) {
+		t.Fatalf("GetMultiplePixels len = %d, want %d", len(got), len(points))
+	}
+	for i, gotColor := range got {
+		if gotColor != want {
+			t.Fatalf(
+				"desktop point %v (image pixel %d,%d) = %#v, want %#v",
+				points[i], points[i].X*scale, points[i].Y*scale, gotColor, want,
+			)
+		}
 	}
 }

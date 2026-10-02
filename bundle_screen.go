@@ -178,26 +178,10 @@ func (s *ScreenBundle) GetMultiplePixels(
 		return out, nil
 	}
 
-	minX, minY := points[0].X, points[0].Y
-	maxX, maxY := minX, minY
-	for _, point := range points {
-		if point.X == math.MaxInt || point.Y == math.MaxInt {
-			return nil, s.operationError("pixel", fmt.Errorf("screen: pixel coordinate overflows capture bounds: %v", point))
-		}
-		if point.X < minX {
-			minX = point.X
-		}
-		if point.Y < minY {
-			minY = point.Y
-		}
-		if point.X > maxX {
-			maxX = point.X
-		}
-		if point.Y > maxY {
-			maxY = point.Y
-		}
+	bounds, err := pointsBounds(points)
+	if err != nil {
+		return nil, s.operationError("pixel", err)
 	}
-	bounds := image.Rect(minX, minY, maxX+1, maxY+1)
 	img, err := s.grab(ctx, bounds)
 	if err != nil {
 		return nil, err
@@ -206,16 +190,15 @@ func (s *ScreenBundle) GetMultiplePixels(
 		return nil, s.operationError("pixel", errors.New("screen: capture returned nil image"))
 	}
 	imgBounds := img.Bounds()
-	for i, point := range points {
-		imagePoint := translatePointToBounds(
-			point,
-			bounds.Min,
-			imgBounds.Min,
-		)
+	imagePoints, err := translatePointsToImage(points, bounds, imgBounds)
+	if err != nil {
+		return nil, s.operationError("pixel", err)
+	}
+	for i, imagePoint := range imagePoints {
 		if !imagePoint.In(imgBounds) {
 			return nil, s.operationError(
 				"pixel",
-				fmt.Errorf("screen: capture bounds %v do not contain requested point %v", imgBounds, point),
+				fmt.Errorf("screen: capture bounds %v do not contain requested point %v", imgBounds, points[i]),
 			)
 		}
 		rgba, ok := color.RGBAModel.Convert(
@@ -298,12 +281,64 @@ func (s *ScreenBundle) WaitForSettle(
 	return stableHash, s.operationError("wait-stable", err)
 }
 
-func translatePointToBounds(
-	point image.Point,
-	fromMin image.Point,
-	toMin image.Point,
-) image.Point {
-	return point.Add(toMin.Sub(fromMin))
+// pointsBounds returns the smallest region containing every point, which is the
+// region that has to be captured to read them all from one image.
+func pointsBounds(points []image.Point) (image.Rectangle, error) {
+	for _, point := range points {
+		if point.X == math.MaxInt || point.Y == math.MaxInt {
+			return image.Rectangle{}, fmt.Errorf(
+				"screen: pixel coordinate overflows capture bounds: %v", point,
+			)
+		}
+	}
+	minX, minY := points[0].X, points[0].Y
+	maxX, maxY := minX, minY
+	for _, point := range points[1:] {
+		minX = min(minX, point.X)
+		minY = min(minY, point.Y)
+		maxX = max(maxX, point.X)
+		maxY = max(maxY, point.Y)
+	}
+	// The points are pixels to read, so the region has to include the last one
+	// even though a rectangle's maximum is exclusive.
+	return image.Rect(minX, minY, maxX+1, maxY+1), nil
+}
+
+// translatePointsToImage maps points given in desktop coordinates onto the
+// pixels of a capture of the region they span.
+//
+// A capture of a desktop region is returned at the output's pixel scale, so the
+// mapping is a ratio along each axis rather than a constant offset: with a
+// doubled scale the point half way across the region is half way across the
+// image, not at the same pixel offset. This is the inverse of Capture.ScreenPoint
+// and uses the same rounding, so the two directions agree.
+func translatePointsToImage(
+	points []image.Point,
+	region image.Rectangle,
+	imageBounds image.Rectangle,
+) ([]image.Point, error) {
+	regionWidth, regionWidthOK := captureAxisSpan(region.Min.X, region.Max.X)
+	regionHeight, regionHeightOK := captureAxisSpan(region.Min.Y, region.Max.Y)
+	imageWidth, imageWidthOK := captureAxisSpan(imageBounds.Min.X, imageBounds.Max.X)
+	imageHeight, imageHeightOK := captureAxisSpan(imageBounds.Min.Y, imageBounds.Max.Y)
+	if !regionWidthOK || !regionHeightOK || !imageWidthOK || !imageHeightOK {
+		return nil, errors.New("screen: capture region or image has empty bounds")
+	}
+
+	out := make([]image.Point, 0, len(points))
+	for _, point := range points {
+		if !point.In(region) {
+			return nil, fmt.Errorf(
+				"screen: point %v is outside the captured region %v",
+				point, region,
+			)
+		}
+		out = append(out, image.Point{
+			X: imageBounds.Min.X + int(scaleCaptureOffset(uint64(point.X-region.Min.X), regionWidth, imageWidth)),
+			Y: imageBounds.Min.Y + int(scaleCaptureOffset(uint64(point.Y-region.Min.Y), regionHeight, imageHeight)),
+		})
+	}
+	return out, nil
 }
 
 // WaitForNoChange waits until rect remains unchanged for stable samples.
