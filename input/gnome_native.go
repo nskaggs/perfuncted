@@ -20,9 +20,29 @@ var _ Inputter = (*GnomeNativeBackend)(nil)
 
 // GnomeNativeBackend resolves the public input syntax in Go and sends only
 // primitive key/pointer notifications through the GNOME bridge.
+// gnomeBridge is the GNOME Shell bridge surface this backend uses. Isolating it
+// from *gnomebridge.Client lets the key and text paths be exercised without a
+// session bus.
+type gnomeBridge interface {
+	Key(ctx context.Context, keyval uint32, pressed bool) error
+	Text(ctx context.Context, text string) error
+	Paste(ctx context.Context, text string) error
+	PointerMove(ctx context.Context, x, y int32) error
+	PointerButton(ctx context.Context, button uint32, pressed bool) error
+	PointerLocation(ctx context.Context) (int, int, error)
+	Scroll(ctx context.Context, axis string, amount float64) error
+	Close() error
+}
+
 type GnomeNativeBackend struct {
-	bridge *gnomebridge.Client
-	mu     sync.Mutex
+	bridge gnomeBridge
+	// held records which modifiers the caller is holding through KeyDown. A
+	// combination presses the modifiers it needs and releases them afterwards,
+	// so one the caller already holds must not be released or the caller's
+	// gesture ends partway through. It is read and written only inside an
+	// operation, which mu serializes.
+	held modifiers
+	mu   sync.Mutex
 }
 
 var gnomeSpecialKeyvals = map[keymap.Key]uint32{
@@ -118,7 +138,13 @@ func (b *GnomeNativeBackend) KeyDown(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	return b.operation(ctx, func(ctx context.Context) error { return b.bridge.Key(ctx, keyval, true) })
+	return b.operation(ctx, func(ctx context.Context) error {
+		if err := b.bridge.Key(ctx, keyval, true); err != nil {
+			return err
+		}
+		updateHeldModifier(&b.held, key, true)
+		return nil
+	})
 }
 
 // KeyUp releases a named key through GNOME Shell.
@@ -127,7 +153,13 @@ func (b *GnomeNativeBackend) KeyUp(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	return b.operation(ctx, func(ctx context.Context) error { return b.bridge.Key(ctx, keyval, false) })
+	return b.operation(ctx, func(ctx context.Context) error {
+		if err := b.bridge.Key(ctx, keyval, false); err != nil {
+			return err
+		}
+		updateHeldModifier(&b.held, key, false)
+		return nil
+	})
 }
 
 // Type sends key syntax through GNOME Shell virtual input.
@@ -137,17 +169,19 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 		if err != nil {
 			return err
 		}
-		held := modifiers{}
+		// pressedByCall tracks only the modifiers this call brought down, so an
+		// error releases those and never a modifier the caller already held.
+		pressedByCall := modifiers{}
 		defer func() {
-			if err != nil && held.any() {
-				err = errors.Join(err, b.releaseModifierKeys(ctx, gnomeModifierKeyvals(held)))
+			if err != nil && pressedByCall.any() {
+				err = errors.Join(err, b.releaseModifierKeys(ctx, gnomeModifierKeyvals(pressedByCall)))
 			}
 		}()
 		for _, action := range actions {
 			if contextErr := ctx.Err(); contextErr != nil {
 				return contextErr
 			}
-			if actionErr := b.typeAction(ctx, action, &held); actionErr != nil {
+			if actionErr := b.typeAction(ctx, action, &b.held, &pressedByCall); actionErr != nil {
 				return actionErr
 			}
 		}
@@ -187,7 +221,12 @@ func (m modifiers) any() bool {
 	return m.ctrl || m.alt || m.shift || m.super
 }
 
-func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend, held *modifiers) error {
+func (b *GnomeNativeBackend) typeAction(
+	ctx context.Context,
+	action keySend,
+	held *modifiers,
+	pressedByCall *modifiers,
+) error {
 	if action.text != "" {
 		return b.typeText(ctx, action.text, *held)
 	}
@@ -195,7 +234,9 @@ func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend, hel
 	if err != nil {
 		return err
 	}
-	modifierKeys := gnomeModifierKeyvals(action.modifiers)
+	// Only the modifiers the caller is not already holding are pressed here, and
+	// only those are released afterwards.
+	modifierKeys := b.temporaryModifierKeyvals(action.modifiers, *held)
 	pressed := make([]uint32, 0, len(modifierKeys))
 	for _, modifierKey := range modifierKeys {
 		if keyErr := b.bridge.Key(ctx, modifierKey, true); keyErr != nil {
@@ -217,8 +258,21 @@ func (b *GnomeNativeBackend) typeAction(ctx context.Context, action keySend, hel
 	err = errors.Join(actionErr, b.releaseModifierKeys(ctx, pressed))
 	if err == nil && (action.down || action.up) {
 		updateHeldModifier(held, action.key, action.down)
+		updateHeldModifier(pressedByCall, action.key, action.down)
 	}
 	return err
+}
+
+// temporaryModifierKeyvals returns the keyvals for the modifiers a combination
+// must press, which is the requested set minus the ones already held.
+func (b *GnomeNativeBackend) temporaryModifierKeyvals(mod modifiers, held modifiers) []uint32 {
+	requested := modifiers{
+		shift: mod.shift && !held.shift,
+		ctrl:  mod.ctrl && !held.ctrl,
+		alt:   mod.alt && !held.alt,
+		super: mod.super && !held.super,
+	}
+	return gnomeModifierKeyvals(requested)
 }
 
 func updateHeldModifier(held *modifiers, key string, down bool) {
