@@ -404,12 +404,10 @@ func (m *SwayManager) Close() error {
 	}
 	m.signalClosed()
 	m.interruptActiveQuery()
-	// Shutdown has no caller deadline to honor, so it waits for the gate: the
-	// in-flight query was already interrupted above and must release it.
-	release, admitErr := m.admit(context.Background())
-	if admitErr != nil {
-		return admitErr
-	}
+	// Shutdown has no caller deadline to honor, so admission cannot be abandoned
+	// and does not report an error: the in-flight query was already interrupted
+	// above and is what releases the gate.
+	release, _ := m.admit(context.Background())
 	var queryErr error
 	if m.conn != nil {
 		queryErr = m.conn.Close()
