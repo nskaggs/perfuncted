@@ -32,7 +32,7 @@ jobs:
           CGO_ENABLED: "1"
         run: go test -race -short ./...
       - name: Run core benchmarks
-        run: go test ./find -run '^$' -bench 'Pixel(Hash|Found)' -benchmem -count=5 | tee benchmarks.txt
+        run: go test ./find ./accessibility -run '^$' -bench 'Pixel(Hash|Found)|LocateExact|CachedChildren' -benchmem -count=5 | tee benchmarks.txt
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260615155930-9e4b9ddef5b6
       - name: Record benchmark stack
