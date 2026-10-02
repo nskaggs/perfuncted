@@ -46,14 +46,68 @@ type WlVirtualBackend struct {
 	gateOnce      sync.Once
 	operationGate chan struct{}
 
-	session  *wl.Session
-	ptr      *wl.RawProxy // zwlr_virtual_pointer_v1
-	kbd      *wlKeyboard
+	session *wl.Session
+	ptr     *wl.RawProxy // zwlr_virtual_pointer_v1
+	kbd     *wlKeyboard
+
+	// extentMu guards the output geometry below. The wl_output event handler
+	// runs on the shared session's dispatch goroutine while input operations
+	// run on their own, so these fields are written and read concurrently.
+	extentMu sync.Mutex
 	outW     uint32 // logical output width
 	outH     uint32 // logical output height
 	outPhysW uint32 // physical output width (pixels)
 	outPhysH uint32 // physical output height (pixels)
 	outScale uint32 // wl_output scale factor
+}
+
+// outputExtent returns the logical extent that motion_absolute events are
+// measured against. Callers take one snapshot per operation so the extent used
+// to validate a coordinate is the same extent encoded in the event carrying it:
+// a mode or scale change between two reads would otherwise validate a
+// coordinate against one space and send it in another.
+func (b *WlVirtualBackend) outputExtent() (width, height uint32) {
+	b.extentMu.Lock()
+	defer b.extentMu.Unlock()
+	return b.outW, b.outH
+}
+
+// setOutputExtentFallback seeds the logical extent used until a wl_output mode
+// event reports the real geometry.
+func (b *WlVirtualBackend) setOutputExtentFallback(width, height uint32) {
+	b.extentMu.Lock()
+	defer b.extentMu.Unlock()
+	b.outW = width
+	b.outH = height
+}
+
+// applyOutputMode and applyOutputScale are called from the wl_output event
+// handler and recompute the logical extent from the physical size and scale.
+func (b *WlVirtualBackend) applyOutputMode(physW, physH uint32) {
+	b.extentMu.Lock()
+	defer b.extentMu.Unlock()
+	b.outPhysW = physW
+	b.outPhysH = physH
+	if b.outScale == 0 {
+		b.outScale = 1
+	}
+	b.outW = b.outPhysW / b.outScale
+	b.outH = b.outPhysH / b.outScale
+}
+
+func (b *WlVirtualBackend) applyOutputScale(scale uint32) {
+	b.extentMu.Lock()
+	defer b.extentMu.Unlock()
+	b.outScale = scale
+	if b.outScale == 0 {
+		b.outScale = 1
+	}
+	if b.outPhysW != 0 {
+		b.outW = b.outPhysW / b.outScale
+	}
+	if b.outPhysH != 0 {
+		b.outH = b.outPhysH / b.outScale
+	}
 }
 
 // NewWlVirtualBackend connects to sock and initialises virtual pointer and keyboard.
@@ -129,7 +183,7 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 		// Bind wl_output to read dimensions.
 		outProxy := &wl.RawProxy{}
 		wlctx.Register(outProxy)
-		b.outW, b.outH = 1920, 1080 // fallback
+		b.setOutputExtentFallback(1920, 1080)
 		if outID != 0 {
 			if bindErr := registry.BindContext(cancel, outID, "wl_output", 1, outProxy.ID()); bindErr == nil {
 				// Handle mode (physical size) and scale events and maintain logical dims.
@@ -137,26 +191,11 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 					switch opcode {
 					case 1: // mode: flags, width, height, refresh
 						if len(data) >= 12 {
-							b.outPhysW = wl.Uint32(data[4:8])
-							b.outPhysH = wl.Uint32(data[8:12])
-							if b.outScale == 0 {
-								b.outScale = 1
-							}
-							b.outW = b.outPhysW / b.outScale
-							b.outH = b.outPhysH / b.outScale
+							b.applyOutputMode(wl.Uint32(data[4:8]), wl.Uint32(data[8:12]))
 						}
 					case 3: // scale
 						if len(data) >= 4 {
-							b.outScale = wl.Uint32(data[0:4])
-							if b.outScale == 0 {
-								b.outScale = 1
-							}
-							if b.outPhysW != 0 {
-								b.outW = b.outPhysW / b.outScale
-							}
-							if b.outPhysH != 0 {
-								b.outH = b.outPhysH / b.outScale
-							}
+							b.applyOutputScale(wl.Uint32(data[0:4]))
 						}
 					}
 				}
@@ -284,8 +323,9 @@ func (b *WlVirtualBackend) mouseMoveEvent(cancel context.Context, ctx wl.Ctx, x,
 	if uint64(x) > uint64(^uint32(0)) || uint64(y) > uint64(^uint32(0)) {
 		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed uint32 range, got (%d,%d)", x, y)
 	}
-	if (b.outW > 0 && uint64(x) > uint64(b.outW)) || (b.outH > 0 && uint64(y) > uint64(b.outH)) {
-		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed output extent, got (%d,%d) for %dx%d", x, y, b.outW, b.outH)
+	outW, outH := b.outputExtent()
+	if (outW > 0 && uint64(x) > uint64(outW)) || (outH > 0 && uint64(y) > uint64(outH)) {
+		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed output extent, got (%d,%d) for %dx%d", x, y, outW, outH)
 	}
 	var buf [28]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
@@ -294,8 +334,8 @@ func (b *WlVirtualBackend) mouseMoveEvent(cancel context.Context, ctx wl.Ctx, x,
 	// motion_absolute uses unsigned pixel coordinates, not wl_fixed_t.
 	wl.PutUint32(buf[12:], uint32(x))
 	wl.PutUint32(buf[16:], uint32(y))
-	wl.PutUint32(buf[20:], b.outW)
-	wl.PutUint32(buf[24:], b.outH)
+	wl.PutUint32(buf[20:], outW)
+	wl.PutUint32(buf[24:], outH)
 	if err := ctx.WriteMsgContext(cancel, buf[:], nil); err != nil {
 		return err
 	}
