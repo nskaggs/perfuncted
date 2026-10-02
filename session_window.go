@@ -123,18 +123,26 @@ func (w *Window) Activate(ctx context.Context) error {
 	return w.id.session.Windows.operationError("activate", backend.ActivateByID(ctx, w.id.native))
 }
 
-// Move positions the window at x and y.
+// Move positions the window at x and y. Negative coordinates are valid for a
+// monitor left of or above the primary one; a coordinate no backend can carry
+// is rejected with ErrInvalidArgument.
 func (w *Window) Move(ctx context.Context, x int, y int) error {
 	backend, err := w.backend("move")
 	if err != nil {
 		return err
+	}
+	if err := window.ValidatePosition(x, y); err != nil {
+		return w.id.session.Windows.operationError("move", err)
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
 	return w.id.session.Windows.operationError("move", backend.MoveByID(ctx, w.id.native, x, y))
 }
 
-// Resize changes the window size to width by height.
+// Resize changes the window size to width by height. Both edges must be
+// positive and within the geometry range every backend can represent; anything
+// else is rejected with ErrInvalidArgument rather than sent to a compositor that
+// would truncate it.
 func (w *Window) Resize(
 	ctx context.Context,
 	width int,
@@ -143,6 +151,9 @@ func (w *Window) Resize(
 	backend, err := w.backend("resize")
 	if err != nil {
 		return err
+	}
+	if err := window.ValidateSize(width, height); err != nil {
+		return w.id.session.Windows.operationError("resize", err)
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()

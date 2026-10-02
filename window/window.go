@@ -28,6 +28,10 @@ var ErrWindowNotFound = errors.New("window: not found")
 // ErrWindowAmbiguous is returned when a match identifies multiple windows.
 var ErrWindowAmbiguous = errors.New("window: ambiguous match")
 
+// ErrInvalidArgument is returned when a caller supplies geometry the backends
+// cannot represent, such as a non-positive window edge.
+var ErrInvalidArgument = errors.New("window: invalid argument")
+
 // Info describes a managed window.
 // Note: Geometry fields (X,Y,W,H) are best-effort. Wayland's foreign-toplevel
 // protocols do not always provide bounds; backends may leave them zero. Do not
