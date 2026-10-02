@@ -146,9 +146,9 @@ func (b *XTestBackend) withOperation(ctx context.Context, fn func(context.Contex
 }
 
 // keysymForName maps a key name to an X11 keysym value.
-// Letters map to their correct keysyms (A→0x41, a→0x61); typeText queries
-// the server keymap to determine which level each keysym lives at and holds
-// Shift only when level >= 1.
+// Letters map to their correct keysyms (A→0x41, a→0x61). typeText queries
+// the server keymap to determine which level each keysym lives at, and holds
+// the modifiers that level requires; see levelModifiers.
 var keysymForName = map[string]xproto.Keysym{
 	"a": 0x61, "b": 0x62, "c": 0x63, "d": 0x64, "e": 0x65,
 	"f": 0x66, "g": 0x67, "h": 0x68, "i": 0x69, "j": 0x6a,
@@ -178,6 +178,10 @@ var keysymForName = map[string]xproto.Keysym{
 // right Alt.
 const isoLevel3ShiftKeysym xproto.Keysym = 0xfe03
 
+// levelModifierCapacity is the number of modifiers a keysym level can require:
+// Shift plus the layout's Mode_switch key.
+const levelModifierCapacity = 2
+
 // levelModifiers returns the keycodes that must be held to produce a keysym
 // found at the given level of the keyboard mapping.
 //
@@ -189,8 +193,15 @@ const isoLevel3ShiftKeysym xproto.Keysym = 0xfe03
 // keycodes, so AltGr has to be applied by pressing the key the layout maps to
 // Mode_switch.
 func (b *XTestBackend) levelModifiers(level int) ([]xproto.Keycode, error) {
+	return b.levelModifiersInto(nil, level)
+}
+
+// levelModifiersInto appends levelModifiers' result to dst so a caller typing a
+// whole string can reuse one buffer. dst must have room for
+// levelModifierCapacity entries; a short one simply grows.
+func (b *XTestBackend) levelModifiersInto(dst []xproto.Keycode, level int) ([]xproto.Keycode, error) {
 	if level == 0 {
-		return nil, nil
+		return dst, nil
 	}
 	var shift, altGr bool
 	switch level {
@@ -201,24 +212,23 @@ func (b *XTestBackend) levelModifiers(level int) ([]xproto.Keycode, error) {
 	case 3:
 		shift, altGr = true, true
 	default:
-		return nil, fmt.Errorf("input/xtest: keysym level %d exceeds the four levels X11 defines", level)
+		return dst, fmt.Errorf("input/xtest: keysym level %d exceeds the four levels X11 defines", level)
 	}
-	codes := make([]xproto.Keycode, 0, 2)
 	if shift {
 		kc, err := b.keycodeFor("shift")
 		if err != nil {
-			return nil, err
+			return dst, err
 		}
-		codes = append(codes, kc)
+		dst = append(dst, kc)
 	}
 	if altGr {
 		kc, err := b.altGrKeycode()
 		if err != nil {
-			return nil, err
+			return dst, err
 		}
-		codes = append(codes, kc)
+		dst = append(dst, kc)
 	}
-	return codes, nil
+	return dst, nil
 }
 
 // altGrKeycode returns the keycode this layout assigns to Mode_switch, or an
@@ -442,15 +452,21 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 
 // modifierCodeSet resolves the keycodes a combination can request for its
 // modifiers, so a held modifier is recognised by keycode regardless of which
-// name the caller pressed.
+// name the caller pressed. The layout's Mode_switch key is included because
+// levelModifiers applies it to reach keysyms behind AltGr, and an applied
+// modifier this set did not know about would be pressed again on every
+// character instead of being recognised as already held.
 func (b *XTestBackend) modifierCodeSet() map[xproto.Keycode]bool {
 	b.modifierOnce.Do(func() {
 		names := modifierNames(modifiers{shift: true, ctrl: true, alt: true, super: true})
-		set := make(map[xproto.Keycode]bool, len(names))
+		set := make(map[xproto.Keycode]bool, len(names)+1)
 		for _, name := range names {
 			if kc, err := b.keycodeFor(name); err == nil {
 				set[kc] = true
 			}
+		}
+		if kc, err := b.altGrKeycode(); err == nil {
+			set[kc] = true
 		}
 		b.modCodes = set
 	})
@@ -513,27 +529,31 @@ func (b *XTestBackend) temporaryModifierKeycodes(mod modifiers) ([]xproto.Keycod
 
 // typeText types literal text character-by-character using the XTEST keysym
 // mapping. Each character's keysym is looked up directly in the server's
-// GetKeyboardMapping reply; Shift is held when the keysym lives at level >= 1.
-// This is layout-independent: the X server tells us which keysyms need Shift.
+// GetKeyboardMapping reply, and the modifiers that keysym's level requires are
+// applied around it. This is layout-independent: the X server tells us which
+// keysyms need which modifiers.
 func (b *XTestBackend) typeText(ctx context.Context, s string) error {
 	ctx = contextutil.Default(ctx)
+	// One buffer for the whole string, so a long literal does not allocate a
+	// modifier slice per character.
+	scratch := make([]xproto.Keycode, 0, levelModifierCapacity)
 	for _, ch := range s {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.typeTextRune(ctx, ch); err != nil {
+		if err := b.typeTextRune(ctx, ch, scratch[:0]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) (err error) {
+func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune, scratch []xproto.Keycode) (err error) {
 	kc, level, err := b.keycodeAndLevel(xproto.Keysym(ch))
 	if err != nil {
 		return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
 	}
-	required, err := b.levelModifiers(level)
+	required, err := b.levelModifiersInto(scratch, level)
 	if err != nil {
 		return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
 	}
@@ -550,7 +570,10 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) (err error) {
 		pressed = pressed[:0]
 		return errors.Join(join, cleanupErr)
 	}
-	for _, mod := range b.temporaryModifiers(required) {
+	for _, mod := range required {
+		if b.modifierHeld(mod) {
+			continue
+		}
 		if keyErr := b.keyDownKC(mod); keyErr != nil {
 			return releaseApplied(keyErr)
 		}

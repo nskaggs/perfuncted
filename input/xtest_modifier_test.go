@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package input
 
 import (
@@ -318,5 +321,40 @@ func TestXTestShiftedCharacterPreservesCallerHeldShift(t *testing.T) {
 	}
 	if !b.modifierHeld(shiftCode) {
 		t.Fatal("caller's held shift was forgotten")
+	}
+}
+
+// levelModifiers applies the layout's Mode_switch key to reach keysyms behind
+// AltGr. Because modifierCodeSet is what recognises an already-held modifier by
+// keycode, the Mode_switch keycode has to be in that set: without it, a caller
+// holding AltGr has it pressed again on every character and released again after
+// each one, so the caller's own hold is broken by ordinary text.
+func TestXTestModifierCodeSetIncludesLayoutModeSwitchKey(t *testing.T) {
+	b, _ := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+
+	altGr, err := b.altGrKeycode()
+	if err != nil {
+		t.Fatalf("altGrKeycode: %v", err)
+	}
+	if !b.modifierCodeSet()[altGr] {
+		t.Fatalf("Mode_switch keycode %d is not in the modifier code set; a caller holding AltGr would have it re-pressed per character", altGr)
+	}
+	if b.modifierHeld(altGr) {
+		t.Fatal("Mode_switch keycode reported as held before anything pressed it")
+	}
+	b.markModifierHeld(altGr)
+	if !b.modifierHeld(altGr) {
+		t.Fatal("a Mode_shift key the caller is holding was not recognised")
+	}
+
+	// A character behind AltGr must then leave the caller's hold alone.
+	required, err := b.levelModifiers(2)
+	if err != nil {
+		t.Fatalf("levelModifiers(2): %v", err)
+	}
+	for _, kc := range b.temporaryModifiers(required) {
+		if kc == altGr {
+			t.Fatal("temporaryModifiers wants to press a Mode_shift key the caller already holds")
+		}
 	}
 }

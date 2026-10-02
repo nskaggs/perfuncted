@@ -91,12 +91,12 @@ func TestAccessibilityNodeExistsWaitRetriesIncompleteSnapshots(t *testing.T) {
 		accessibility.Query{Role: "button"},
 		accessibility.SnapshotOptions{},
 	)
-	var failures int
-	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); ok || err != nil || failures != 1 {
-		t.Fatalf("first incomplete evaluation = ok %t, err %v, failures %d; want retryable false", ok, err, failures)
+	var failures waitEvaluateFailures
+	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); ok || err != nil || failures.consecutive != 1 || failures.total != 1 {
+		t.Fatalf("first incomplete evaluation = ok %t, err %v, consecutive %d, total %d; want retryable false", ok, err, failures.consecutive, failures.total)
 	}
-	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); !ok || err != nil || failures != 0 {
-		t.Fatalf("complete evaluation = ok %t, err %v, failures %d; want success", ok, err, failures)
+	if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); !ok || err != nil || failures.consecutive != 0 || failures.total != 1 {
+		t.Fatalf("complete evaluation = ok %t, err %v, consecutive %d, total %d; want success", ok, err, failures.consecutive, failures.total)
 	}
 	if backend.calls != 2 {
 		t.Fatalf("snapshot calls = %d, want incomplete then complete", backend.calls)
@@ -112,7 +112,7 @@ func TestAccessibilityNodeExistsWaitSurfacesSustainedIncompleteSnapshots(t *test
 		accessibility.Query{Role: "button"},
 		accessibility.SnapshotOptions{},
 	)
-	var failures int
+	var failures waitEvaluateFailures
 	for i := 1; i < waitEvaluateFailureLimit; i++ {
 		if ok, err := session.evaluateWaitCondition(context.Background(), condition, &failures); ok || err != nil {
 			t.Fatalf("incomplete evaluation %d = ok %t, err %v; want retryable false", i, ok, err)

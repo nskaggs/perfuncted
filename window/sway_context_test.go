@@ -600,3 +600,35 @@ func TestSwayNilReceiverIsSafe(t *testing.T) {
 		t.Fatalf("Close error = %v, want nil", err)
 	}
 }
+
+// A query holds the IPC gate across a socket round-trip. A caller must not stay
+// queued for admission after its own deadline passes: it has no reason to wait
+// for work it no longer wants, and reporting the deadline only after an
+// unrelated query finished misstates why the operation was abandoned.
+func TestSwayQueryDoesNotWaitForGatePastItsDeadline(t *testing.T) {
+	m := &SwayManager{sock: "unused"}
+	// Hold the gate with an unrelated caller that is never released before the
+	// assertion below, so returning can only mean admission was abandoned.
+	held, err := m.admit(context.Background())
+	if err != nil {
+		t.Fatalf("admit first: %v", err)
+	}
+	defer held()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := m.List(ctx)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("List error = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("List kept waiting for the IPC gate after its own deadline passed")
+	}
+}

@@ -54,9 +54,14 @@ var _ Manager = (*SwayManager)(nil)
 // Unix socket with length-prefixed JSON messages.
 type SwayManager struct {
 	sock string
-	// mu protects conn.
-	mu         sync.Mutex
-	conn       net.Conn
+	// gate admits one IPC round-trip at a time and protects conn. Admission is a
+	// channel rather than a mutex because a query holds the gate across a socket
+	// round-trip: with a mutex a caller whose deadline passed while another query
+	// was in flight would block on admission until that query finished, even
+	// though it has no reason to wait for work it no longer wants.
+	gateOnce sync.Once
+	gate     chan struct{}
+	conn     net.Conn
 	activeMu   sync.Mutex
 	activeConn net.Conn
 	closeOnce  sync.Once
@@ -69,6 +74,28 @@ type SwayManager struct {
 	eventDone      chan struct{}
 	closed         atomic.Bool
 	eventCloseOnce sync.Once
+}
+
+// admit takes the IPC gate, reporting the context error if ctx ends before the
+// gate is free. The returned release func must be called once admission is done.
+func (m *SwayManager) admit(ctx context.Context) (func(), error) {
+	m.gateOnce.Do(func() {
+		m.gate = make(chan struct{}, 1)
+		m.gate <- struct{}{}
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-m.gate:
+	}
+	// Admission and expiry can become ready together; taking the gate in that
+	// case and then dropping the caller's work would still block the caller
+	// behind a query it no longer wants, so hand the gate straight back.
+	if err := ctx.Err(); err != nil {
+		m.gate <- struct{}{}
+		return nil, err
+	}
+	return func() { m.gate <- struct{}{} }, nil
 }
 
 // NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
@@ -211,19 +238,22 @@ func (m *SwayManager) query(ctx context.Context, msgType uint32, payload string)
 	if m.closed.Load() {
 		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	release, err := m.admit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if m.closed.Load() {
 		return nil, fmt.Errorf("window/sway: manager is closed: %w", net.ErrClosed)
 	}
 
 	if m.conn == nil {
-		conn, err := swayDialContext(ctx, "unix", m.sock)
-		if err != nil {
+		conn, dialErr := swayDialContext(ctx, "unix", m.sock)
+		if dialErr != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
 			}
-			return nil, err
+			return nil, dialErr
 		}
 		m.conn = conn
 	}
@@ -374,13 +404,18 @@ func (m *SwayManager) Close() error {
 	}
 	m.signalClosed()
 	m.interruptActiveQuery()
-	m.mu.Lock()
+	// Shutdown has no caller deadline to honor, so it waits for the gate: the
+	// in-flight query was already interrupted above and must release it.
+	release, admitErr := m.admit(context.Background())
+	if admitErr != nil {
+		return admitErr
+	}
 	var queryErr error
 	if m.conn != nil {
 		queryErr = m.conn.Close()
 		m.conn = nil
 	}
-	m.mu.Unlock()
+	release()
 
 	m.eventMu.Lock()
 	m.eventCloseOnce.Do(func() {

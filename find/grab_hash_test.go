@@ -2,10 +2,12 @@ package find
 
 import (
 	"context"
+	"errors"
 	"hash/crc32"
 	"image"
 	"image/color"
 	"testing"
+	"time"
 )
 
 type divergentHashScreenshotter struct {
@@ -105,6 +107,112 @@ func TestGrabHashUsesMarkedCanonicalFastPathOnlyForDefaultHasher(t *testing.T) {
 	}
 	if sc.grabCalls != 1 {
 		t.Fatalf("custom hasher grab calls = %d, want 1", sc.grabCalls)
+	}
+}
+
+var errGrabMustNotBeCalled = errors.New("canonical fast path must not materialize an image")
+
+// canonicalSettlingScreenshotter reports a scripted hash sequence through the
+// canonical path, so a poll loop can be observed without materializing an image
+// per iteration. Grab fails the test if it is reached.
+type canonicalSettlingScreenshotter struct {
+	hashes      []uint32
+	next        int
+	regionCalls int
+	grabCalls   int
+	canonical   bool
+}
+
+func (s *canonicalSettlingScreenshotter) hash() uint32 {
+	if s.next >= len(s.hashes) {
+		return s.hashes[len(s.hashes)-1]
+	}
+	h := s.hashes[s.next]
+	s.next++
+	return h
+}
+
+func (s *canonicalSettlingScreenshotter) Grab(context.Context, image.Rectangle) (image.Image, error) {
+	s.grabCalls++
+	return nil, errGrabMustNotBeCalled
+}
+
+func (s *canonicalSettlingScreenshotter) CanonicalHashing() bool { return s.canonical }
+
+func (s *canonicalSettlingScreenshotter) GrabFullHash(context.Context) (uint32, error) {
+	return s.hash(), nil
+}
+
+func (s *canonicalSettlingScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	s.regionCalls++
+	return s.hash(), nil
+}
+
+// The settle loop runs at the caller's poll cadence, often full-screen. A
+// canonical backend can answer it from the framebuffer in place, so it must not
+// allocate an image per poll, and it must agree with WaitForChange about which
+// frame it compared.
+func TestWaitForNoChangeFromUsesCanonicalHashFastPath(t *testing.T) {
+	t.Parallel()
+
+	rect := image.Rect(0, 0, 4, 4)
+	settle := &canonicalSettlingScreenshotter{
+		hashes:    []uint32{1, 2, 2, 2, 2},
+		canonical: true,
+	}
+	got, err := WaitForNoChangeFrom(context.Background(), settle, rect, 0, 3, time.Millisecond, nil)
+	if err != nil {
+		t.Fatalf("WaitForNoChangeFrom: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("stable hash = %08x, want 00000002", got)
+	}
+	if settle.grabCalls != 0 {
+		t.Fatalf("grab calls = %d, want 0; the canonical path must not materialize an image", settle.grabCalls)
+	}
+	if settle.regionCalls == 0 {
+		t.Fatal("region calls = 0, want the canonical path to answer every poll")
+	}
+
+	change := &canonicalSettlingScreenshotter{
+		hashes:    []uint32{2, 2, 2, 2, 2},
+		canonical: true,
+	}
+	before, err := GrabHash(context.Background(), change, rect, nil)
+	if err != nil {
+		t.Fatalf("GrabHash: %v", err)
+	}
+	after, err := WaitForNoChangeFrom(context.Background(), change, rect, before, 3, time.Millisecond, nil)
+	if err != nil {
+		t.Fatalf("WaitForNoChangeFrom from initial: %v", err)
+	}
+	if after != before {
+		t.Fatalf("stable hash = %08x, want the initial %08x observed unchanged", after, before)
+	}
+	if change.grabCalls != 0 {
+		t.Fatalf("grab calls = %d, want 0", change.grabCalls)
+	}
+}
+
+// A caller-supplied hasher is not interchangeable with a backend-local checksum,
+// so it must keep using Grab even when the backend is marked canonical.
+func TestWaitForNoChangeFromFallsBackToGrabForCustomHasher(t *testing.T) {
+	t.Parallel()
+
+	sc := &canonicalSettlingScreenshotter{
+		hashes:    []uint32{1, 1, 1},
+		canonical: true,
+	}
+	// The scripted canonical hash is irrelevant here; the custom hasher forces
+	// Grab, which this double refuses.
+	if _, err := WaitForNoChangeFrom(context.Background(), sc, image.Rect(0, 0, 4, 4), 0, 2, time.Millisecond, crc32.NewIEEE); !errors.Is(err, errGrabMustNotBeCalled) {
+		t.Fatalf("error = %v, want the Grab fallback to be taken for a custom hasher", err)
+	}
+	if sc.grabCalls != 1 {
+		t.Fatalf("grab calls = %d, want 1", sc.grabCalls)
+	}
+	if sc.regionCalls != 0 {
+		t.Fatalf("region calls = %d, want 0 for a custom hasher", sc.regionCalls)
 	}
 }
 

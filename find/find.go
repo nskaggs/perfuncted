@@ -398,6 +398,113 @@ func WaitForNoChange(ctx context.Context, sc Screenshotter, rect image.Rectangle
 	return WaitForNoChangeFrom(ctx, sc, rect, 0, stable, poll, newHash)
 }
 
+// stableStreak folds successive pixel hashes into an "unchanged for N
+// consecutive samples" test.
+type stableStreak struct {
+	last   uint32
+	count  int
+	stable int
+}
+
+func newStableStreak(initial uint32, stable int) stableStreak {
+	if stable <= 0 {
+		stable = 1
+	}
+	s := stableStreak{last: initial, stable: stable}
+	if initial != 0 {
+		s.count = 1
+	}
+	return s
+}
+
+// advance folds one hash into the streak, reporting whether the region has now
+// looked unchanged for the required number of samples.
+func (s *stableStreak) advance(h uint32) (done bool, last uint32) {
+	if s.count > 0 && h == s.last {
+		s.count++
+		if s.count >= s.stable {
+			return true, h
+		}
+		return false, h
+	}
+	s.last = h
+	s.count = 1
+	return false, h
+}
+
+// changed records a certain change that was observed without hashing, so the
+// next hash restarts the streak rather than extending it.
+func (s *stableStreak) changed() { s.count = 0 }
+
+// canonicalHashProbe answers polls from a backend that can hash its framebuffer
+// in place, which is what keeps a full-screen settle loop from materializing an
+// image every poll. It returns nil when the backend cannot do that, so the caller
+// falls back to Grab. GrabHash makes the same selection internally; a
+// caller-supplied hasher is not interchangeable with a backend-local checksum,
+// so it cannot take this path.
+func canonicalHashProbe(
+	ctx context.Context,
+	sc Screenshotter,
+	rect image.Rectangle,
+	newHash Hasher,
+	streak *stableStreak,
+) func(int) (bool, uint32, error) {
+	if newHash != nil {
+		return nil
+	}
+	fast, ok := sc.(CanonicalHashScreenshotter)
+	if !ok || !fast.CanonicalHashing() {
+		return nil
+	}
+	return func(int) (bool, uint32, error) {
+		h, err := GrabHash(ctx, sc, rect, newHash)
+		if err != nil {
+			return false, 0, err
+		}
+		done, h := streak.advance(h)
+		return done, h, nil
+	}
+}
+
+// grabHashProbe compares through Grab. Before hashing, it compares the top-left
+// pixel with the previous sample: if that changed the hashes cannot match, so
+// the full-image hash is skipped and the streak restarts. This is conservative —
+// it only skips a hash when a change is certain.
+func grabHashProbe(
+	ctx context.Context,
+	sc Screenshotter,
+	rect image.Rectangle,
+	newHash Hasher,
+	streak *stableStreak,
+) func(int) (bool, uint32, error) {
+	var sentinel color.RGBA
+	sentinelSet := false
+	return func(int) (bool, uint32, error) {
+		img, err := sc.Grab(ctx, rect)
+		if err != nil {
+			return false, 0, err
+		}
+		if err := checkImage(img, "wait-for-no-change grab"); err != nil {
+			return false, 0, err
+		}
+		b := img.Bounds()
+		if b.Empty() {
+			return false, 0, fmt.Errorf("find: wait-for-no-change grab returned empty image")
+		}
+		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
+		if sentinelSet && cur != sentinel {
+			sentinel = cur
+			streak.changed()
+			// Keep polling until stable, but skip this round's hash.
+			return false, streak.last, nil
+		}
+		sentinel = cur
+		sentinelSet = true
+		done, h := streak.advance(PixelHash(img, newHash))
+		return done, h, nil
+	}
+}
+
 // WaitForNoChangeFrom is the same as WaitForNoChange but accepts an initial hash
 // to avoid the first capture if the caller already knows the current state.
 // If initial is 0, the first capture is performed immediately.
@@ -406,59 +513,17 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
 	}
-	if stable <= 0 {
-		stable = 1
+	streak := newStableStreak(initial, stable)
+
+	probe := canonicalHashProbe(ctx, sc, rect, newHash, &streak)
+	if probe == nil {
+		probe = grabHashProbe(ctx, sc, rect, newHash, &streak)
 	}
-	last := initial
-	streak := 0
-	if initial != 0 {
-		streak = 1
-	}
-	var sentinel color.RGBA
-	sentinelSet := false
 
-	h, err := poll(ctx, pollDur, last, func(attempt int) (bool, uint32, error) {
-		img, err := sc.Grab(ctx, rect)
-		if err != nil {
-			return false, 0, err
-		}
-		if err := checkImage(img, "wait-for-no-change grab"); err != nil {
-			return false, 0, err
-		}
-
-		// Fast pixel check before full CRC32: if the top-left pixel of the
-		// grabbed image changed since the last iteration, the hash is
-		// definitely different — skip the CRC32 and reset the streak.
-		// This is conservative: we only skip when we are certain of a change.
-		b := img.Bounds()
-		if b.Empty() {
-			return false, 0, fmt.Errorf("find: wait-for-no-change grab returned empty image")
-		}
-		cur := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
-		if sentinelSet && cur != sentinel {
-			sentinel = cur
-			streak = 0
-			// We skip the hash but must continue polling until stable.
-			return false, last, nil
-		}
-		sentinel = cur
-		sentinelSet = true
-
-		h := PixelHash(img, newHash)
-		if streak > 0 && h == last {
-			streak++
-			if streak >= stable {
-				return true, h, nil
-			}
-		} else {
-			last = h
-			streak = 1
-		}
-		return false, last, nil
-	})
+	h, err := poll(ctx, pollDur, streak.last, probe)
 	if err != nil {
 		if ctx.Err() != nil {
-			return h, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x): %w", streak, stable, last, ctx.Err())
+			return h, fmt.Errorf("find: WaitForNoChange timeout: region still changing after %d/%d stable samples (last hash %08x): %w", streak.count, streak.stable, streak.last, ctx.Err())
 		}
 		return 0, err
 	}

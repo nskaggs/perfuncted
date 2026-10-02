@@ -19,6 +19,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/executil"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/wl"
+	pollpkg "github.com/nskaggs/perfuncted/poll"
 )
 
 // ErrNoClipboardTool reports that no supported clipboard executable is installed.
@@ -306,26 +307,51 @@ func stopWaylandOwner(cmd *exec.Cmd, done <-chan struct{}) {
 	}
 }
 
+const (
+	// waylandPollMinInterval and waylandPollMaxInterval bound how often the
+	// compositor is asked for the new selection. Every read forks wl-paste, so
+	// the interval is the fork rate: asking more often than the compositor can
+	// answer only spends process creation.
+	waylandPollMinInterval = 10 * time.Millisecond
+	waylandPollMaxInterval = 250 * time.Millisecond
+)
+
+// waylandContentMatches reports whether the compositor already serves want.
+func (c *extCmdClipboard) waylandContentMatches(ctx context.Context, want string) bool {
+	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
+	cmd.Env = c.env
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	return cmd.Run() == nil && out.String() == want
+}
+
+// waitWaylandContent waits until the compositor serves want.
+//
+// Clipboard ownership has no readiness event in this external-tool protocol.
+// The owner is started with --foreground precisely so it keeps running while it
+// holds the selection, which means its exit is a death signal rather than
+// evidence that the new content is being served. Observation of the compositor
+// is therefore polled, and the interval backs off because each read forks
+// wl-paste: the compositor needs the same order of time to answer no matter how
+// often it is asked, so a fixed short interval converts a slow compositor into
+// thousands of process creations inside one readiness budget.
 func (c *extCmdClipboard) waitWaylandContent(ctx context.Context, want string) error {
 	if len(c.getCmd) == 0 {
 		return nil
 	}
-	// Clipboard ownership has no readiness event in this external-tool
-	// protocol, so this is protocol pacing rather than an operation deadline.
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
-		cmd.Env = c.env
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		if err := cmd.Run(); err == nil && out.String() == want {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if c.waylandContentMatches(ctx, want) {
 			return nil
 		}
+		timer := time.NewTimer(pollpkg.AdaptivePoll(attempt, waylandPollMinInterval, waylandPollMaxInterval))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }

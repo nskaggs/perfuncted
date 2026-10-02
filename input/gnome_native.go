@@ -18,8 +18,6 @@ import (
 
 var _ Inputter = (*GnomeNativeBackend)(nil)
 
-// GnomeNativeBackend resolves the public input syntax in Go and sends only
-// primitive key/pointer notifications through the GNOME bridge.
 // gnomeBridge is the GNOME Shell bridge surface this backend uses. Isolating it
 // from *gnomebridge.Client lets the key and text paths be exercised without a
 // session bus.
@@ -34,6 +32,8 @@ type gnomeBridge interface {
 	Close() error
 }
 
+// GnomeNativeBackend resolves the public input syntax in Go and sends only
+// primitive key/pointer notifications through the GNOME bridge.
 type GnomeNativeBackend struct {
 	bridge gnomeBridge
 	// held records which modifiers the caller is holding through KeyDown. A

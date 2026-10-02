@@ -12,13 +12,68 @@ import (
 	"github.com/nskaggs/perfuncted/window"
 )
 
-// waitEvaluateFailureLimit bounds consecutive condition-evaluation errors
-// before a wait gives up. Conditions query live window-manager state, and on
-// slow or loaded hosts a single query can exceed its internal deadline (for
-// example sway IPC under CPU contention while another session tears down).
-// Such transient failures must not abort a long window wait, so they are
-// retried; sustained failure still fails with the last error attached.
-const waitEvaluateFailureLimit = 30
+const (
+	// waitEvaluateFailureLimit bounds consecutive condition-evaluation errors
+	// before a wait gives up. Conditions query live window-manager state, and on
+	// slow or loaded hosts a single query can exceed its internal deadline (for
+	// example sway IPC under CPU contention while another session tears down).
+	// Such transient failures must not abort a long window wait, so they are
+	// retried; sustained failure still fails with the last error attached.
+	waitEvaluateFailureLimit = 30
+
+	// waitEvaluateStreakBudget bounds how long one run of consecutive failures may
+	// stay unanswered. The count alone is not a bound in the dimension that
+	// matters: a wait driven by window or accessibility events evaluates far more
+	// often than one driven by its poll interval, so the same count spans very
+	// different durations, and a caller with a long deadline would keep waiting
+	// on a source that has stopped answering.
+	waitEvaluateStreakBudget = 2 * time.Second
+
+	// waitEvaluateTotalLimit bounds failures across the whole wait. A backend
+	// that alternates between answering and failing resets the consecutive count
+	// every time it answers, so without a separate total it can be waited out
+	// indefinitely while the caller is told nothing.
+	waitEvaluateTotalLimit = 120
+)
+
+// waitEvaluateFailures tracks condition-evaluation failures so a wait can tell
+// "the condition is not satisfied yet" apart from "the state cannot be read".
+type waitEvaluateFailures struct {
+	consecutive int
+	total       int
+	since       time.Time
+	now         func() time.Time
+}
+
+func (f *waitEvaluateFailures) clock() time.Time {
+	if f.now != nil {
+		return f.now()
+	}
+	return time.Now()
+}
+
+// record accounts for one failed evaluation and reports whether the wait has
+// tolerated failures long enough that continuing hides an unreadable state.
+func (f *waitEvaluateFailures) record() (exhausted bool, consecutive, total int) {
+	now := f.clock()
+	if f.consecutive == 0 {
+		f.since = now
+	}
+	f.consecutive++
+	f.total++
+	exhausted = f.consecutive >= waitEvaluateFailureLimit ||
+		f.total >= waitEvaluateTotalLimit ||
+		now.Sub(f.since) >= waitEvaluateStreakBudget
+	return exhausted, f.consecutive, f.total
+}
+
+// reset records that the state was read successfully, ending the current run of
+// failures. The wait-wide total deliberately survives, because a source that
+// keeps failing between successful reads is still mostly unreadable.
+func (f *waitEvaluateFailures) reset() {
+	f.consecutive = 0
+	f.since = time.Time{}
+}
 
 // isPermanentWaitError reports whether an evaluation error means the wait can
 // never be satisfied and must abort immediately instead of being retried.
@@ -361,7 +416,7 @@ func (s *Session) waitWithEvidence(
 	}
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
-	evaluationFailures := 0
+	var evaluationFailures waitEvaluateFailures
 	for {
 		if err := s.waitState(ctx); err != nil {
 			return evidence, err
@@ -393,10 +448,10 @@ func (s *Session) waitWithEvidence(
 	}
 }
 
-func (s *Session) evaluateWaitCondition(ctx context.Context, condition Condition, failures *int) (bool, error) {
+func (s *Session) evaluateWaitCondition(ctx context.Context, condition Condition, failures *waitEvaluateFailures) (bool, error) {
 	ok, err := condition.evaluate(ctx, s)
 	if err == nil {
-		*failures = 0
+		failures.reset()
 		return ok, nil
 	}
 	if stateErr := s.waitState(ctx); stateErr != nil {
@@ -405,9 +460,10 @@ func (s *Session) evaluateWaitCondition(ctx context.Context, condition Condition
 	if isPermanentWaitError(err) {
 		return false, fmt.Errorf("wait %s: %w", condition.describe(), err)
 	}
-	*failures++
-	if *failures >= waitEvaluateFailureLimit {
-		return false, fmt.Errorf("wait %s: %d consecutive evaluation errors: %w", condition.describe(), *failures, err)
+	exhausted, consecutive, total := failures.record()
+	if exhausted {
+		return false, fmt.Errorf("wait %s: %d consecutive and %d total evaluation errors: %w",
+			condition.describe(), consecutive, total, err)
 	}
 	// Transient query failure: keep polling until the caller's deadline; the
 	// condition may still be satisfied later.

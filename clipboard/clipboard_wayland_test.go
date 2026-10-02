@@ -1,7 +1,9 @@
 package clipboard
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,5 +96,64 @@ func TestWaylandSetDoesNotWaitForPasteConsumer(t *testing.T) {
 			t.Fatalf("fake wl-copy state: content delivered=%t holding selection=%t, want both", delivered, holdingNow)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// Every read of the compositor's answer forks a process, so the interval at
+// which readiness is observed is the fork rate. A compositor that never
+// answers must cost a bounded number of forks inside the readiness budget
+// rather than one per poll tick.
+func TestWaylandContentReadinessBoundsProcessCreations(t *testing.T) {
+	dir := t.TempDir()
+	count := filepath.Join(dir, "paste-count")
+	paste := filepath.Join(dir, "wl-paste")
+	// The paste tool records each invocation and never reports the wanted text,
+	// which is the compositor that never becomes ready.
+	script := "#!/bin/sh\necho x >> \"$PF_TEST_PASTE_COUNT\"\nprintf 'not-the-wanted-text'\n"
+	if err := os.WriteFile(paste, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake wl-paste: %v", err)
+	}
+
+	cb := &extCmdClipboard{
+		getCmd: []string{paste, "--no-newline"},
+		env:    append(os.Environ(), "PF_TEST_PASTE_COUNT="+count),
+	}
+	// The readiness window is long enough that a fixed short interval would
+	// produce a count that is orders of magnitude above the bounded one.
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+
+	if err := cb.waitWaylandContent(ctx, "wanted"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitWaylandContent error = %v, want context.DeadlineExceeded", err)
+	}
+
+	data, err := os.ReadFile(count)
+	if err != nil {
+		t.Fatalf("read paste count: %v", err)
+	}
+	calls := bytes.Count(data, []byte("x"))
+	// A fixed 10ms interval over this window would fork roughly 60 times. The
+	// backed-off schedule answers about seven times, so this bound separates the
+	// two designs by a wide margin rather than by a timing threshold.
+	if calls == 0 {
+		t.Fatal("no paste attempt was made; readiness was never observed")
+	}
+	if calls > 12 {
+		t.Fatalf("paste attempts = %d, want a bounded count well below one per 10ms tick", calls)
+	}
+}
+
+// A compositor that answers must still be recognized on the first read, so the
+// backing off schedule costs nothing on the ordinary path.
+func TestWaylandContentReadinessAcceptsImmediateAnswer(t *testing.T) {
+	dir := t.TempDir()
+	paste := filepath.Join(dir, "wl-paste")
+	if err := os.WriteFile(paste, []byte("#!/bin/sh\nprintf 'wanted'\n"), 0o700); err != nil {
+		t.Fatalf("write fake wl-paste: %v", err)
+	}
+
+	cb := &extCmdClipboard{getCmd: []string{paste, "--no-newline"}}
+	if err := cb.waitWaylandContent(context.Background(), "wanted"); err != nil {
+		t.Fatalf("waitWaylandContent: %v", err)
 	}
 }
