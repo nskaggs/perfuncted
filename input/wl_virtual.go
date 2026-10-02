@@ -72,13 +72,19 @@ func (b *WlVirtualBackend) outputExtent() (width, height uint32) {
 	return b.outW, b.outH
 }
 
+// Nominal extents used until a wl_output mode event reports the real geometry.
+const (
+	fallbackOutputWidth  = 1920
+	fallbackOutputHeight = 1080
+)
+
 // setOutputExtentFallback seeds the logical extent used until a wl_output mode
 // event reports the real geometry.
-func (b *WlVirtualBackend) setOutputExtentFallback(width, height uint32) {
+func (b *WlVirtualBackend) setOutputExtentFallback() {
 	b.extentMu.Lock()
 	defer b.extentMu.Unlock()
-	b.outW = width
-	b.outH = height
+	b.outW = fallbackOutputWidth
+	b.outH = fallbackOutputHeight
 }
 
 // applyOutputMode and applyOutputScale are called from the wl_output event
@@ -183,15 +189,15 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 		// Bind wl_output to read dimensions.
 		outProxy := &wl.RawProxy{}
 		wlctx.Register(outProxy)
-		b.setOutputExtentFallback(1920, 1080)
+		b.setOutputExtentFallback()
 		if outID != 0 {
 			if bindErr := registry.BindContext(cancel, outID, "wl_output", 1, outProxy.ID()); bindErr == nil {
 				// Handle mode (physical size) and scale events and maintain logical dims.
 				outProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 					switch opcode {
 					case 1: // mode: flags, width, height, refresh
-						if len(data) >= 12 {
-							b.applyOutputMode(wl.Uint32(data[4:8]), wl.Uint32(data[8:12]))
+						if mode, ok := wl.DecodeOutputMode(data); ok {
+							b.applyOutputMode(mode.Width, mode.Height)
 						}
 					case 3: // scale
 						if len(data) >= 4 {

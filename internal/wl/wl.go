@@ -887,3 +887,33 @@ func ListGlobals(sock string) map[string]bool {
 	}
 	return globals
 }
+
+// OutputModeCurrent is the wl_output.mode flag bit that marks a mode as the
+// output's current one.
+const OutputModeCurrent = 1
+
+// OutputMode holds the arguments of a wl_output.mode event.
+type OutputMode struct {
+	Flags   uint32
+	Width   uint32
+	Height  uint32
+	Refresh uint32
+}
+
+// DecodeOutputMode decodes a dispatched wl_output.mode payload.
+//
+// The event carries four arguments in order: flags, width, height, and
+// refresh. A dispatched payload omits the object id and the size/opcode header,
+// so the arguments start at offset zero. Decoding is defined here so every
+// consumer reads the same offsets.
+func DecodeOutputMode(data []byte) (OutputMode, bool) {
+	if len(data) < 16 {
+		return OutputMode{}, false
+	}
+	return OutputMode{
+		Flags:   Uint32(data[0:4]),
+		Width:   Uint32(data[4:8]),
+		Height:  Uint32(data[8:12]),
+		Refresh: Uint32(data[12:16]),
+	}, true
+}

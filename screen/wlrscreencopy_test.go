@@ -207,3 +207,44 @@ func TestWlrCloseMarksBackendClosedBeforeWaitingForContext(t *testing.T) {
 		t.Fatal("Close did not finish after context mutex was released")
 	}
 }
+
+// wl_output.mode carries flags before width and height. Reading the size one
+// field late reported Resolution as (height, refresh), which then scaled every
+// capture region wrongly.
+func TestWlrModeEventDecodesSizeInProtocolOrder(t *testing.T) {
+	data := make([]byte, 16)
+	wl.PutUint32(data[0:4], 1)       // flags
+	wl.PutUint32(data[4:8], 3840)    // width
+	wl.PutUint32(data[8:12], 2160)   // height
+	wl.PutUint32(data[12:16], 60000) // refresh
+
+	mode, ok := wl.DecodeOutputMode(data)
+	if !ok {
+		t.Fatal("DecodeOutputMode rejected the payload")
+	}
+	b := &WlrScreencopyBackend{pW: int(mode.Width), pH: int(mode.Height), scale: 1}
+
+	width, height, err := b.Resolution()
+	if err != nil {
+		t.Fatalf("Resolution: %v", err)
+	}
+	if width != 3840 || height != 2160 {
+		t.Fatalf("Resolution = %dx%d, want 3840x2160", width, height)
+	}
+}
+
+// A truncated mode payload must leave the previous extent untouched rather than
+// half-applying a geometry change.
+func TestWlrModeEventRejectsTruncatedPayload(t *testing.T) {
+	if _, ok := wl.DecodeOutputMode(make([]byte, 12)); ok {
+		t.Fatal("DecodeOutputMode accepted a 12-byte payload")
+	}
+	b := &WlrScreencopyBackend{pW: 1920, pH: 1080, scale: 1}
+	width, height, err := b.Resolution()
+	if err != nil {
+		t.Fatalf("Resolution: %v", err)
+	}
+	if width != 1920 || height != 1080 {
+		t.Fatalf("Resolution = %dx%d, want the unchanged 1920x1080", width, height)
+	}
+}

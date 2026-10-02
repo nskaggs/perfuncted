@@ -3,6 +3,8 @@ package input
 import (
 	"sync"
 	"testing"
+
+	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
 // The logical extent is derived from the reported physical size and scale, and
@@ -63,7 +65,7 @@ func TestOutputGeometryDerivesLogicalExtent(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &WlVirtualBackend{}
-			b.setOutputExtentFallback(1920, 1080)
+			b.setOutputExtentFallback()
 			tc.apply(b)
 
 			width, height := b.outputExtent()
@@ -88,7 +90,7 @@ func TestOutputExtentIsSafeDuringConcurrentGeometryChanges(t *testing.T) {
 	)
 
 	b := &WlVirtualBackend{}
-	b.setOutputExtentFallback(1920, 1080)
+	b.setOutputExtentFallback()
 
 	var ready, done sync.WaitGroup
 	start := make(chan struct{})
@@ -132,4 +134,29 @@ func TestOutputExtentIsSafeDuringConcurrentGeometryChanges(t *testing.T) {
 	ready.Wait()
 	close(start)
 	done.Wait()
+}
+
+// The wl_output.mode event carries flags before width and height. Reading the
+// size one field late took the height and the refresh rate as the output size,
+// which then became the extent every absolute pointer coordinate was validated
+// and encoded against.
+func TestWlVirtualModeEventDecodesSizeInProtocolOrder(t *testing.T) {
+	data := make([]byte, 16)
+	wl.PutUint32(data[0:4], 1)       // flags
+	wl.PutUint32(data[4:8], 3840)    // width
+	wl.PutUint32(data[8:12], 2160)   // height
+	wl.PutUint32(data[12:16], 60000) // refresh
+
+	mode, ok := wl.DecodeOutputMode(data)
+	if !ok {
+		t.Fatal("DecodeOutputMode rejected the payload")
+	}
+	b := &WlVirtualBackend{}
+	b.setOutputExtentFallback()
+	b.applyOutputMode(mode.Width, mode.Height)
+
+	width, height := b.outputExtent()
+	if width != 3840 || height != 2160 {
+		t.Fatalf("extent = %dx%d, want 3840x2160 (height and refresh must not be read as the size)", width, height)
+	}
 }

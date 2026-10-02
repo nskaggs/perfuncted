@@ -188,16 +188,11 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 				o.info.Make = make
 				o.info.Model = model
 			}
-		case 1: // mode
-			if len(data) >= 16 {
-				flags := wl.Uint32(data[0:4])
-				w := int(wl.Uint32(data[4:8]))
-				h := int(wl.Uint32(data[8:12]))
-				if flags&1 != 0 {
-					o.info.ResolutionW = w
-					o.info.ResolutionH = h
-					o.recomputeGeometryLocked()
-				}
+		case 1: // mode: flags, width, height, refresh
+			if mode, ok := wl.DecodeOutputMode(data); ok && mode.Flags&wl.OutputModeCurrent != 0 {
+				o.info.ResolutionW = int(mode.Width)
+				o.info.ResolutionH = int(mode.Height)
+				o.recomputeGeometryLocked()
 			}
 		case 3: // scale
 			if len(data) >= 4 {

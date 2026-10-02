@@ -277,10 +277,10 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 
 	b.output.dispatchFn = func(opcode uint32, _ int, data []byte) {
 		switch opcode {
-		case 1: // mode
-			if len(data) >= 12 {
-				b.pW = int(wl.Uint32(data[4:8]))
-				b.pH = int(wl.Uint32(data[8:12]))
+		case 1: // mode: flags, width, height, refresh
+			if mode, ok := wl.DecodeOutputMode(data); ok {
+				b.pW = int(mode.Width)
+				b.pH = int(mode.Height)
 			}
 		case 3: // scale
 			if len(data) >= 4 {
