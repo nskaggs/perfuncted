@@ -138,7 +138,7 @@ test-race:
 
 # Run the benchmark lane used by the remote performance job.
 benchmark:
-    CGO_ENABLED=0 go test ./find ./accessibility -run '^$' -bench 'Pixel(Hash|Found)|LocateExact|CachedChildren' -benchmem -count=5
+    CGO_ENABLED=0 go test ./find ./accessibility ./input -run '^$' -bench 'Pixel(Hash|Found)|LocateExact|CachedChildren|RemoteKeyCode' -benchmem -count=5
 
 # Run bounded real desktop benchmarks. The suite starts its own headless
 # Wayland session and records the backend/display/runtime labels in -v output.

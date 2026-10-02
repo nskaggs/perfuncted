@@ -453,7 +453,7 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 		if clickErr != nil {
 			return clickErr
 		}
-		return ctx.Err()
+		return contextOutcome(ctx)
 	})
 }
 
@@ -797,9 +797,10 @@ func buildKernelRuneMap() (map[rune]kernelChar, error) {
 	return m, nil
 }
 
-// qwertyRuneMap returns a static US QWERTY rune → keycode map as fallback
-// when the kernel keymap cannot be queried.
-func qwertyRuneMap() map[rune]kernelChar {
+// qwertyRuneTable is the static US QWERTY rune → keycode fallback used when
+// the kernel keymap cannot be queried. The table is built once and shared: it is
+// read-only, so callers must not modify it.
+var qwertyRuneTable = sync.OnceValue(func() map[rune]kernelChar {
 	return map[rune]kernelChar{
 		' ':  {uinput.KeySpace, false},
 		'\t': {uinput.KeyTab, false},
@@ -842,4 +843,10 @@ func qwertyRuneMap() map[rune]kernelChar {
 		'"': {uinput.KeyApostrophe, true}, '~': {uinput.KeyGrave, true},
 		'<': {uinput.KeyComma, true}, '>': {uinput.KeyDot, true}, '?': {uinput.KeySlash, true},
 	}
+})
+
+// qwertyRuneMap returns the shared static US QWERTY rune → keycode table. The
+// returned map must not be modified.
+func qwertyRuneMap() map[rune]kernelChar {
+	return qwertyRuneTable()
 }

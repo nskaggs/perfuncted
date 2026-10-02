@@ -723,11 +723,12 @@ func remoteKeyCode(key string) (uint32, error) { //nolint:gocyclo // explicit ke
 		}
 	}
 	if utf8.RuneCountInString(key) == 1 {
+		runes := qwertyRuneMap()
 		r, _ := utf8.DecodeRuneInString(key)
-		if mapping, ok := qwertyRuneMap()[r]; ok {
+		if mapping, ok := runes[r]; ok {
 			return uint32(mapping.keycode), nil
 		}
-		if mapping, ok := qwertyRuneMap()[[]rune(strings.ToLower(key))[0]]; ok {
+		if mapping, ok := runes[[]rune(strings.ToLower(key))[0]]; ok {
 			return uint32(mapping.keycode), nil
 		}
 	}
