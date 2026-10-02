@@ -821,9 +821,32 @@ func estimateStringSliceJSONSize(values []string) int {
 	return n
 }
 
+// jsonPlainByteSize[b] is 1 for a byte that contributes one encoded byte to a
+// JSON string, and 0 for every byte that needs escaping, control-character
+// handling, or multi-byte decoding. Replacing the per-byte decision switch with
+// one table lookup keeps the result identical while removing the branch chain
+// from the hot snapshot-sizing path.
+var jsonPlainByteSize = buildJSONPlainByteSize()
+
+func buildJSONPlainByteSize() [256]uint8 {
+	var table [256]uint8
+	for b := 0x20; b < utf8.RuneSelf; b++ {
+		table[b] = 1
+	}
+	for _, b := range []byte{'"', '\\', '<', '>', '&'} {
+		table[b] = 0
+	}
+	return table
+}
+
 func jsonStringSize(value string) int {
 	n := 2
 	for i := 0; i < len(value); {
+		if plain := jsonPlainByteSize[value[i]]; plain != 0 {
+			n += int(plain)
+			i++
+			continue
+		}
 		switch value[i] {
 		case '"', '\\':
 			n = addJSONSize(n, 2)
@@ -837,11 +860,6 @@ func jsonStringSize(value string) int {
 		default:
 			if value[i] < 0x20 {
 				n = addJSONSize(n, 6)
-				i++
-				continue
-			}
-			if value[i] < utf8.RuneSelf {
-				n = addJSONSize(n, 1)
 				i++
 				continue
 			}
