@@ -23,6 +23,11 @@ import (
 // ErrNotFound is returned when a pixel pattern or color could not be located.
 var ErrNotFound = errors.New("not found")
 
+const (
+	locateAnchorFallbackCandidates = 8
+	locateAnchorWindowBytes        = 16
+)
+
 // Screenshotter is the subset of screen.Screenshotter needed by this package.
 type Screenshotter interface {
 	Grab(ctx context.Context, rect image.Rectangle) (image.Image, error)
@@ -631,9 +636,7 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 		return image.Rectangle{}, fmt.Errorf("find: reference image larger than search area")
 	}
 
-	// Precompute the top-left pixel of the reference. Most candidate positions
-	// can be rejected with a single pixel comparison before calling matchAt
-	// (which does rb.Dx() × rb.Dy() comparisons per position).
+	// Keep the top-left pixel ready for the generic image path.
 	refFirst := color.RGBAModel.Convert(reference.At(rb.Min.X, rb.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
 
 	// Fast path: direct Pix access when both images are *image.RGBA.
@@ -648,26 +651,54 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 		// Read the reference bytes directly from Pix (avoids color model conversion in inner loop).
 		refOff0 := (rb.Min.Y-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
 		if refOff0 >= 0 && refOff0 <= len(refRGBA.Pix)-4 && srcRGBA.Stride >= srcRowBytes && refRGBA.Stride >= refRowBytes {
-			refFirstBytes := refRGBA.Pix[refOff0 : refOff0+4]
-			for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
-				rowStart := (y-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
-				if rowStart < 0 || rowStart > len(srcRGBA.Pix)-srcRowBytes {
-					break
-				}
-				row := srcRGBA.Pix[rowStart : rowStart+srcRowBytes]
-				for from := 0; from < len(row); {
-					offset := bytes.Index(row[from:], refFirstBytes)
-					if offset < 0 {
+			refBufferSize, refBufferOK := packedBufferSize(refRGBA.Rect, refRGBA.Stride)
+			if !refBufferOK || len(refRGBA.Pix) < refBufferSize {
+				return image.Rectangle{}, fmt.Errorf("%w: invalid reference row layout", ErrNotFound)
+			}
+			anchorRow, anchorStart, anchorLen := 0, 0, 4
+			for anchorPass := 0; anchorPass < 2; anchorPass++ {
+				reselectAnchor := false
+				falseCandidates := 0
+				refRowStart := (rb.Min.Y+anchorRow-refRGBA.Rect.Min.Y)*refRGBA.Stride + (rb.Min.X-refRGBA.Rect.Min.X)*4
+				refAnchor := refRGBA.Pix[refRowStart+anchorStart : refRowStart+anchorStart+anchorLen]
+				for y := sb.Min.Y; y <= sb.Max.Y-rb.Dy(); y++ {
+					rowStart := (y+anchorRow-srcRGBA.Rect.Min.Y)*srcRGBA.Stride + (sb.Min.X-srcRGBA.Rect.Min.X)*4
+					if rowStart < 0 || rowStart > len(srcRGBA.Pix)-srcRowBytes {
 						break
 					}
-					pixelOffset := from + offset
-					if pixelOffset%4 == 0 {
-						x := sb.Min.X + pixelOffset/4
-						if x <= sb.Max.X-rb.Dx() && matchAt(src, reference, x, y) {
-							return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
+					row := srcRGBA.Pix[rowStart : rowStart+srcRowBytes]
+					for from := 0; from < len(row); {
+						offset := bytes.Index(row[from:], refAnchor)
+						if offset < 0 {
+							break
 						}
+						byteOffset := from + offset
+						pixelOffset := byteOffset - anchorStart
+						if pixelOffset >= 0 && pixelOffset%4 == 0 {
+							x := sb.Min.X + pixelOffset/4
+							if x <= sb.Max.X-rb.Dx() {
+								if matchAt(src, reference, x, y) {
+									return translateRect(image.Rect(x, y, x+rb.Dx(), y+rb.Dy()), sb.Min, searchArea.Min), nil
+								}
+								falseCandidates++
+								if anchorPass == 0 && falseCandidates == locateAnchorFallbackCandidates {
+									candidateStart := rowStart + pixelOffset
+									anchorRow, anchorStart, anchorLen = selectLocateAnchor(refRGBA, rb, refRowBytes, srcRGBA.Pix[candidateStart:candidateStart+4])
+									reselectAnchor = anchorRow != 0 || anchorStart != 0 || anchorLen != 4
+									if reselectAnchor {
+										break
+									}
+								}
+							}
+						}
+						from = byteOffset + 1
 					}
-					from = pixelOffset + 1
+					if reselectAnchor {
+						break
+					}
+				}
+				if !reselectAnchor {
+					break
 				}
 			}
 			return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
@@ -685,6 +716,51 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 		}
 	}
 	return image.Rectangle{}, fmt.Errorf("%w: exact match", ErrNotFound)
+}
+
+// selectLocateAnchor chooses a detailed reference row and a byte window that
+// contrasts with the source pixel at a failed candidate.
+func selectLocateAnchor(ref *image.RGBA, bounds image.Rectangle, rowBytes int, sourcePixel []byte) (row, start, length int) {
+	row = 0
+	if bounds.Dy() > 1 {
+		// Repeated collisions on the first row require a different reference row.
+		selectedRow, score := 1, -1
+		for candidate := 1; candidate < bounds.Dy(); candidate++ {
+			rowStart := (bounds.Min.Y+candidate-ref.Rect.Min.Y)*ref.Stride + (bounds.Min.X-ref.Rect.Min.X)*4
+			pixels := ref.Pix[rowStart : rowStart+rowBytes]
+			candidateScore := 0
+			for offset := 4; offset < len(pixels); offset += 4 {
+				if pixels[offset] != pixels[offset-4] || pixels[offset+1] != pixels[offset-3] || pixels[offset+2] != pixels[offset-2] || pixels[offset+3] != pixels[offset-1] {
+					candidateScore++
+				}
+			}
+			if candidateScore > score {
+				selectedRow, score = candidate, candidateScore
+			}
+		}
+		row = selectedRow
+	}
+
+	rowStart := (bounds.Min.Y+row-ref.Rect.Min.Y)*ref.Stride + (bounds.Min.X-ref.Rect.Min.X)*4
+	anchorRow := ref.Pix[rowStart : rowStart+rowBytes]
+	length = min(rowBytes, locateAnchorWindowBytes)
+	bestScore := -1
+	for candidate := 0; candidate <= rowBytes-length; candidate++ {
+		contrast := int(anchorRow[candidate]) - int(sourcePixel[candidate%4])
+		if contrast < 0 {
+			contrast = -contrast
+		}
+		score := contrast * length
+		for i := 1; i < length; i++ {
+			if anchorRow[candidate+i] != anchorRow[candidate+i-1] {
+				score++
+			}
+		}
+		if score > bestScore {
+			start, bestScore = candidate, score
+		}
+	}
+	return row, start, length
 }
 
 // LocateExact performs an exact byte-for-byte search of reference within the searchArea.

@@ -2,6 +2,7 @@ package find
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"testing"
@@ -45,6 +46,28 @@ func BenchmarkLocateExactRGBA(b *testing.B) {
 	for b.Loop() {
 		if _, err := LocateExact(context.Background(), sc, image.Rect(0, 0, 256, 256), ref); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLocateExactCommonAnchorMissRGBA(b *testing.B) {
+	const sourceSize, referenceSize = 512, 32
+	src := image.NewRGBA(image.Rect(0, 0, sourceSize, sourceSize))
+	ref := image.NewRGBA(image.Rect(0, 0, referenceSize, referenceSize))
+	for y := 1; y < referenceSize; y++ {
+		for x := range referenceSize {
+			ref.SetRGBA(x, y, color.RGBA{R: uint8(x * 7), G: uint8(y * 5), B: uint8(x + y), A: 255})
+		}
+	}
+	// The reference begins with a flat background row, while later rows have
+	// detail that cannot match. This models a missing visual target over a flat
+	// desktop region.
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := LocateExactInImage(src, src.Bounds(), ref); !errors.Is(err, ErrNotFound) {
+			b.Fatalf("LocateExactInImage error = %v, want ErrNotFound", err)
 		}
 	}
 }

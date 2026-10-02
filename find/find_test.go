@@ -166,6 +166,39 @@ func TestLocateExact(t *testing.T) {
 	}
 }
 
+func TestLocateExactFlatFirstRow(t *testing.T) {
+	src := image.NewRGBA(image.Rect(10, 20, 26, 36))
+	background := color.RGBA{R: 32, G: 48, B: 64, A: 255}
+	for y := src.Rect.Min.Y; y < src.Rect.Max.Y; y++ {
+		for x := src.Rect.Min.X; x < src.Rect.Max.X; x++ {
+			src.SetRGBA(x, y, background)
+		}
+	}
+	ref := image.NewRGBA(image.Rect(0, 0, 4, 3))
+	for y := 0; y < ref.Rect.Dy(); y++ {
+		for x := 0; x < ref.Rect.Dx(); x++ {
+			pixel := color.RGBA{R: uint8(90 + x), G: uint8(120 + y), B: 200, A: 255}
+			if y == 0 {
+				pixel = background
+			}
+			ref.SetRGBA(x, y, pixel)
+		}
+	}
+	for y := 0; y < ref.Rect.Dy(); y++ {
+		copy(src.Pix[(22+y-src.Rect.Min.Y)*src.Stride+(14-src.Rect.Min.X)*4:], ref.Pix[y*ref.Stride:y*ref.Stride+ref.Rect.Dx()*4])
+	}
+
+	searchArea := image.Rect(100, 200, 116, 216)
+	found, err := LocateExactInImage(src, searchArea, ref)
+	if err != nil {
+		t.Fatalf("LocateExactInImage: %v", err)
+	}
+	want := image.Rect(104, 202, 108, 205)
+	if found != want {
+		t.Fatalf("LocateExactInImage = %v, want %v", found, want)
+	}
+}
+
 func TestLocateExactEmptyReference(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
 	sc := &fakeScreen{img: img}
