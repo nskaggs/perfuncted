@@ -173,3 +173,150 @@ func TestXTestModifierCodeSetCoversAllModifiers(t *testing.T) {
 		}
 	}
 }
+
+// germanLikeKeysyms is a four-level keymap in the order GetKeyboardMapping
+// reports them: unshifted, shifted, AltGr, AltGr+Shift. The first keycode is
+// mapped to ISO_Level3_Shift the way a German layout maps the right Alt.
+func germanLikeKeysyms() []xproto.Keysym {
+	return []xproto.Keysym{
+		// ctrl
+		0xffe3, 0, 0, 0,
+		// shift
+		0xffe1, 0, 0, 0,
+		// ISO_Level3_Shift, the Mode_switch key
+		isoLevel3ShiftKeysym, 0, 0, 0,
+		// alt
+		0xffe9, 0, 0, 0,
+		// e, E, Euro sign, at sign
+		0x65, 0x45, 0x20ac, 0x40,
+		// s, S, sharp s, question mark
+		0x73, 0x53, 0xdf, 0x3f,
+	}
+}
+
+const keycodesPerKeycode4 = 4
+
+// A keysym at the AltGr level must be produced by pressing the layout's
+// Mode_switch key. Pressing Shift, as the level index alone used to imply,
+// delivers a different character with no error.
+func TestXTestLevelThreeUsesModeSwitchNotShift(t *testing.T) {
+	b, events := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+	ctx := context.Background()
+
+	shiftCode, err := b.keycodeFor("shift")
+	if err != nil {
+		t.Fatalf("keycodeFor(shift): %v", err)
+	}
+	altGrCode, err := b.altGrKeycode()
+	if err != nil {
+		t.Fatalf("altGrKeycode: %v", err)
+	}
+	if altGrCode == shiftCode {
+		t.Fatalf("altGrKeycode = %d, which is also the shift keycode", altGrCode)
+	}
+
+	if err := b.TypeLiteral(ctx, "€"); err != nil {
+		t.Fatalf("TypeLiteral(Euro sign): %v", err)
+	}
+
+	if ups := countXTestEvents(*events, xproto.KeyRelease, byte(shiftCode)); ups != 0 {
+		t.Fatalf("shift released %d times typing an AltGr keysym, want 0\n%v", ups, *events)
+	}
+	if downs := countXTestEvents(*events, xproto.KeyPress, byte(altGrCode)); downs != 1 {
+		t.Fatalf("Mode_shift pressed %d times, want 1\n%v", downs, *events)
+	}
+	if ups := countXTestEvents(*events, xproto.KeyRelease, byte(altGrCode)); ups != 1 {
+		t.Fatalf("Mode_shift released %d times, want 1\n%v", ups, *events)
+	}
+}
+
+// The second level is the only shifted one, so an uppercase letter still uses
+// Shift and nothing else.
+func TestXTestLevelTwoStillUsesShift(t *testing.T) {
+	b, events := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+	ctx := context.Background()
+
+	shiftCode, err := b.keycodeFor("shift")
+	if err != nil {
+		t.Fatalf("keycodeFor(shift): %v", err)
+	}
+	altGrCode, err := b.altGrKeycode()
+	if err != nil {
+		t.Fatalf("altGrKeycode: %v", err)
+	}
+
+	if err := b.TypeLiteral(ctx, "E"); err != nil {
+		t.Fatalf("TypeLiteral(E): %v", err)
+	}
+	if downs := countXTestEvents(*events, xproto.KeyPress, byte(shiftCode)); downs != 1 {
+		t.Fatalf("shift pressed %d times, want 1\n%v", downs, *events)
+	}
+	if downs := countXTestEvents(*events, xproto.KeyPress, byte(altGrCode)); downs != 0 {
+		t.Fatalf("Mode_shift pressed %d times for a shifted keysym, want 0\n%v", downs, *events)
+	}
+}
+
+// A layout with no Mode_shift key cannot type a level-three keysym. Reporting
+// that is better than sending a key combination that produces another character.
+func TestXTestAltGrWithoutModeShiftKeyIsReported(t *testing.T) {
+	// Three levels per keycode, so the Euro sign has no Mode_shift to press.
+	b, _ := newTestXTestBackend(t, 3, []xproto.Keysym{
+		0xffe3, 0xffe1, 0xffe9, // ctrl, shift, alt
+		0x65, 0x45, 0x20ac, // e, E, Euro sign
+	}, nil)
+
+	if _, err := b.altGrKeycode(); err == nil {
+		t.Fatal("altGrKeycode resolved without a Mode_shift key")
+	}
+	if err := b.TypeLiteral(context.Background(), "€"); err == nil {
+		t.Fatal("TypeLiteral typed an AltGr keysym on a layout without Mode_shift")
+	}
+}
+
+// Level one needs no modifiers at all.
+func TestXTestLevelOneNeedsNoModifiers(t *testing.T) {
+	b, _ := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+	codes, err := b.levelModifiers(0)
+	if err != nil {
+		t.Fatalf("levelModifiers(0): %v", err)
+	}
+	if len(codes) != 0 {
+		t.Fatalf("level 0 = %v, want no modifiers", codes)
+	}
+}
+
+// A level beyond the four X11 defines is rejected rather than guessed.
+func TestXTestLevelBeyondFourIsRejected(t *testing.T) {
+	b, _ := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+	if _, err := b.levelModifiers(4); err == nil {
+		t.Fatal("level 4 was accepted")
+	}
+}
+
+// A caller holding shift does not have it pressed or released again for a
+// shifted character.
+func TestXTestShiftedCharacterPreservesCallerHeldShift(t *testing.T) {
+	b, events := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+	ctx := context.Background()
+
+	shiftCode, err := b.keycodeFor("shift")
+	if err != nil {
+		t.Fatalf("keycodeFor(shift): %v", err)
+	}
+	if err := b.KeyDown(ctx, "shift"); err != nil {
+		t.Fatalf("KeyDown(shift): %v", err)
+	}
+	*events = nil
+	if err := b.TypeLiteral(ctx, "E"); err != nil {
+		t.Fatalf("TypeLiteral(E): %v", err)
+	}
+	if downs := countXTestEvents(*events, xproto.KeyPress, byte(shiftCode)); downs != 0 {
+		t.Fatalf("shift pressed %d times, want 0\n%v", downs, *events)
+	}
+	if ups := countXTestEvents(*events, xproto.KeyRelease, byte(shiftCode)); ups != 0 {
+		t.Fatalf("shift released %d times, want 0\n%v", ups, *events)
+	}
+	if !b.modifierHeld(shiftCode) {
+		t.Fatal("caller's held shift was forgotten")
+	}
+}

@@ -173,11 +173,73 @@ var keysymForName = map[string]xproto.Keysym{
 	"f9": 0xffc6, "f10": 0xffc7, "f11": 0xffc8, "f12": 0xffc9,
 }
 
+// isoLevel3ShiftKeysym is ISO_Level3_Shift, the Mode_switch keysym. Layouts
+// that place characters behind AltGr map it to a physical key, usually the
+// right Alt.
+const isoLevel3ShiftKeysym xproto.Keysym = 0xfe03
+
+// levelModifiers returns the keycodes that must be held to produce a keysym
+// found at the given level of the keyboard mapping.
+//
+// GetKeyboardMapping lists each keycode's levels in a fixed order: unshifted,
+// shifted, AltGr, then AltGr+Shift. Only the second level is Shift. Treating
+// every level above the first as Shift produced a different character on any
+// layout with a third level, so a Euro sign typed on a German layout sent
+// Shift+key and delivered whatever Shift yields instead. XTEST can only send
+// keycodes, so AltGr has to be applied by pressing the key the layout maps to
+// Mode_switch.
+func (b *XTestBackend) levelModifiers(level int) ([]xproto.Keycode, error) {
+	if level == 0 {
+		return nil, nil
+	}
+	var shift, altGr bool
+	switch level {
+	case 1:
+		shift = true
+	case 2:
+		altGr = true
+	case 3:
+		shift, altGr = true, true
+	default:
+		return nil, fmt.Errorf("input/xtest: keysym level %d exceeds the four levels X11 defines", level)
+	}
+	codes := make([]xproto.Keycode, 0, 2)
+	if shift {
+		kc, err := b.keycodeFor("shift")
+		if err != nil {
+			return nil, err
+		}
+		codes = append(codes, kc)
+	}
+	if altGr {
+		kc, err := b.altGrKeycode()
+		if err != nil {
+			return nil, err
+		}
+		codes = append(codes, kc)
+	}
+	return codes, nil
+}
+
+// altGrKeycode returns the keycode this layout assigns to Mode_switch, or an
+// error when the layout has none, in which case a level-three keysym cannot be
+// typed and saying so is better than sending the wrong character.
+func (b *XTestBackend) altGrKeycode() (xproto.Keycode, error) {
+	mapping, err := b.ensureKeymap()
+	if err != nil {
+		return 0, err
+	}
+	kl, ok := mapping[isoLevel3ShiftKeysym]
+	if !ok {
+		return 0, fmt.Errorf("input/xtest: layout has no Mode_shift key, so keysyms behind AltGr cannot be typed")
+	}
+	return kl.keycode, nil
+}
+
 // keycodeAndLevel looks up the keycode and level for a keysym by searching
-// the X server's full GetKeyboardMapping reply. Level 0 means no Shift
-// needed; level >= 1 means Shift (or other group) is required. This lets
-// the X server's actual keymap dictate which keysyms need Shift rather than
-// assuming a US QWERTY layout.
+// the X server's full GetKeyboardMapping reply. The level selects which
+// modifiers must be held; see levelModifiers. This lets the X server's actual
+// keymap dictate reachability rather than assuming a US QWERTY layout.
 func (b *XTestBackend) keycodeAndLevel(sym xproto.Keysym) (xproto.Keycode, int, error) {
 	mapping, err := b.ensureKeymap()
 	if err != nil {
@@ -471,41 +533,46 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune) (err error) {
 	if err != nil {
 		return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
 	}
-	shiftHeld := false
-	var shiftKC xproto.Keycode
-	if level >= 1 {
-		shiftKC, err = b.keycodeFor("shift")
-		if err != nil {
-			return err
-		}
-		if keyErr := b.keyDownKC(shiftKC); keyErr != nil {
-			return keyErr
-		}
-		shiftHeld = true
+	required, err := b.levelModifiers(level)
+	if err != nil {
+		return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
 	}
+	// Only the modifiers the caller is not already holding are applied here, and
+	// only those are released afterwards.
+	pressed := make([]xproto.Keycode, 0, len(required))
+	// releaseApplied drains what has been pressed, so calling it from an error
+	// path and again from the deferred cleanup cannot release a modifier twice.
+	releaseApplied := func(join error) error {
+		var cleanupErr error
+		for i := len(pressed) - 1; i >= 0; i-- {
+			cleanupErr = errors.Join(cleanupErr, b.keyUpKC(pressed[i]))
+		}
+		pressed = pressed[:0]
+		return errors.Join(join, cleanupErr)
+	}
+	for _, mod := range b.temporaryModifiers(required) {
+		if keyErr := b.keyDownKC(mod); keyErr != nil {
+			return releaseApplied(keyErr)
+		}
+		pressed = append(pressed, mod)
+	}
+
 	defer func() {
-		if shiftHeld {
-			err = errors.Join(err, b.keyUpKC(shiftKC))
+		if len(pressed) > 0 {
+			err = releaseApplied(err)
 		}
 	}()
-
 	if err := b.keyDownKC(kc); err != nil {
-		return err
+		return releaseApplied(err)
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
 		if upErr := b.keyUpKC(kc); upErr != nil {
-			return upErr
+			return releaseApplied(upErr)
 		}
-		return err
+		return releaseApplied(err)
 	}
 	if err := b.keyUpKC(kc); err != nil {
-		return err
-	}
-	if shiftHeld {
-		if err := b.keyUpKC(shiftKC); err != nil {
-			return err
-		}
-		shiftHeld = false
+		return releaseApplied(err)
 	}
 	return nil
 }
