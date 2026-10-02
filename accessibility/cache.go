@@ -95,42 +95,78 @@ func isDisconnectedDBusError(err error) bool {
 	return strings.Contains(msg, "disconnected") || strings.Contains(msg, "message recipient") || strings.Contains(msg, "no reply")
 }
 
+// cachedChildren uses the sorted provider-cache index so each parent lookup is
+// constant-time after the index is built for the current cache contents.
 func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	if b == nil {
 		return nil
 	}
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if len(b.cacheItems) == 0 || !b.cacheApps[id.BusName] || !b.handleCurrentLocked(id) {
+	if !b.cachedChildrenAvailableLocked(id) {
+		b.mu.RUnlock()
 		return nil
 	}
-	type indexed struct {
+	parent := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
+	if b.cacheChildrenIndex != nil {
+		children := b.cacheChildrenIndex[parent]
+		b.mu.RUnlock()
+		if len(children) == 0 {
+			return nil
+		}
+		return children
+	}
+	b.mu.RUnlock()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.cachedChildrenAvailableLocked(id) {
+		return nil
+	}
+	if b.cacheChildrenIndex == nil {
+		b.cacheChildrenIndex = b.buildCacheChildrenIndexLocked(id.Generation)
+	}
+	children := b.cacheChildrenIndex[parent]
+	if len(children) == 0 {
+		return nil
+	}
+	return children
+}
+
+func (b *dbusBackend) cachedChildrenAvailableLocked(id NodeID) bool {
+	return len(b.cacheItems) > 0 && b.cacheApps[id.BusName] && b.handleCurrentLocked(id)
+}
+
+func (b *dbusBackend) buildCacheChildrenIndexLocked(generation uint64) map[objectIdentity][]objectRef {
+	type indexedChild struct {
 		index int32
 		ref   objectRef
 	}
-	items := make([]indexed, 0)
-	for key, item := range b.cacheItems {
-		if key.Generation != id.Generation {
+	byParent := make(map[objectIdentity][]indexedChild)
+	for id, item := range b.cacheItems {
+		if id.Generation != generation {
 			continue
 		}
-		if item.Parent.BusName == id.BusName && string(item.Parent.ObjectPath) == id.ObjectPath {
-			items = append(items, indexed{index: item.Index, ref: objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath}})
+		parent := objectIdentity{busName: item.Parent.BusName, objectPath: string(item.Parent.ObjectPath)}
+		byParent[parent] = append(byParent[parent], indexedChild{
+			index: item.Index,
+			ref:   objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath},
+		})
+	}
+	index := make(map[objectIdentity][]objectRef, len(byParent))
+	for parent, children := range byParent {
+		sort.SliceStable(children, func(i, j int) bool {
+			if children[i].index != children[j].index {
+				return children[i].index < children[j].index
+			}
+			return children[i].ref.ObjectPath < children[j].ref.ObjectPath
+		})
+		refs := make([]objectRef, len(children))
+		for i := range children {
+			refs[i] = children[i].ref
 		}
+		index[parent] = refs
 	}
-	if len(items) == 0 {
-		return nil
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].index != items[j].index {
-			return items[i].index < items[j].index
-		}
-		return items[i].ref.ObjectPath < items[j].ref.ObjectPath
-	})
-	refs := make([]objectRef, 0, len(items))
-	for _, item := range items {
-		refs = append(refs, item.ref)
-	}
-	return refs
+	return index
 }
 
 func (b *dbusBackend) loadCache(ctx context.Context, busName string) error { //nolint:gocyclo // cache loading has explicit protocol, generation, and publication guards.
@@ -193,6 +229,7 @@ func validateLoadedCacheItems(busName string, items []cacheItem) error {
 }
 
 func (b *dbusBackend) replaceCompleteCacheLocked(busName string, items []cacheItem) {
+	b.cacheChildrenIndex = nil
 	if b.cacheItems == nil {
 		b.cacheItems = make(map[NodeID]cacheItem)
 	}
@@ -229,6 +266,7 @@ func (b *dbusBackend) applyCacheSignal(sig *dbus.Signal) {
 }
 
 func (b *dbusBackend) applyCacheSignalLocked(sig *dbus.Signal) {
+	b.cacheChildrenIndex = nil
 	if b.cacheItems == nil {
 		b.cacheItems = make(map[NodeID]cacheItem)
 	}

@@ -46,6 +46,7 @@ func (b *dbusBackend) markDisconnected() {
 	b.observationRevision++
 	b.cacheRevision++
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+	b.cacheChildrenIndex = nil
 	b.toolkits = nil
 	b.mu.Unlock()
 	b.stopEvents(nil)

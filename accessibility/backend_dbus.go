@@ -153,7 +153,9 @@ type dbusBackend struct {
 	// cannot collide. The local snapshot cache remains a short-lived response
 	// optimization; cacheItems is refreshed by Cache.GetItems and signals.
 	cacheItems map[NodeID]cacheItem
-	cacheApps  map[string]bool
+	// cacheChildrenIndex is a lazy, sorted child lookup derived from cacheItems.
+	cacheChildrenIndex map[objectIdentity][]objectRef
+	cacheApps          map[string]bool
 	// incarnations prevent a reused object path from reviving IDs issued for a
 	// removed object. parents records the latest observed ancestry for subtree
 	// revocation; cacheItems supplies ancestry only when no direct edge is known.
@@ -201,6 +203,7 @@ func (b *dbusBackend) Invalidate(_ NodeID) {
 	b.observationRevision++
 	b.cacheRevision++
 	b.cache, b.cacheItems, b.cacheApps, b.toolkits = nil, nil, nil, nil
+	b.cacheChildrenIndex = nil
 	b.incarnations, b.parents = nil, nil
 	b.parentTrackingIncomplete = false
 	b.mu.Unlock()
@@ -301,6 +304,7 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 			delete(b.cacheItems, id)
 		}
 	}
+	b.cacheChildrenIndex = nil
 	b.cache = nil
 	return true
 }
@@ -408,6 +412,7 @@ func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[object
 }
 
 func (b *dbusBackend) invalidateCacheApplicationLocked(busName string) {
+	b.cacheChildrenIndex = nil
 	if b.cacheApps != nil {
 		b.cacheApps[busName] = false
 	}
@@ -437,6 +442,7 @@ func (b *dbusBackend) Close() error {
 	access, session := b.access, b.session
 	b.access, b.session = nil, nil
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+	b.cacheChildrenIndex = nil
 	b.toolkits = nil
 	b.mu.Unlock()
 	b.stopEvents(access)

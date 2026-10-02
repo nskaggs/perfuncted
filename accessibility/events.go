@@ -526,6 +526,7 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				b.observationRevision++
 				b.cacheRevision++
 				b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+				b.cacheChildrenIndex = nil
 				b.toolkits = nil
 			}
 			b.mu.Unlock()
@@ -588,6 +589,7 @@ func (b *dbusBackend) prepareEventTransition(sig *dbus.Signal, event Event) (Eve
 		items, apps = nil, nil
 	}
 	b.cache, b.toolkits = nil, nil
+	b.cacheChildrenIndex = nil
 	if cacheSignal {
 		if items != nil {
 			rekeyed := make(map[NodeID]cacheItem, len(items))
@@ -671,6 +673,7 @@ func (b *dbusBackend) revokeOrInvalidateLocked(identity objectIdentity) {
 func (b *dbusBackend) invalidateAllHandlesLocked() {
 	b.generation++
 	b.cache, b.cacheItems, b.cacheApps, b.toolkits = nil, nil, nil, nil
+	b.cacheChildrenIndex = nil
 	b.incarnations, b.parents = nil, nil
 	b.parentTrackingIncomplete = false
 }

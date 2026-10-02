@@ -526,6 +526,30 @@ func TestCacheItemsProvideDeterministicChildrenAndSignals(t *testing.T) {
 	}
 }
 
+func TestCompleteCacheReplacementRefreshesChildren(t *testing.T) {
+	const busName = "org.test.App"
+	root := NodeID{BusName: busName, ObjectPath: "/root", Generation: 1}
+	application := cacheObjectRef{BusName: busName, ObjectPath: "/application"}
+	rootItem := cacheItem{Object: cacheObjectRef{BusName: busName, ObjectPath: "/root"}, Application: application, Parent: application, ChildCount: 1}
+	oldChild := cacheItem{Object: cacheObjectRef{BusName: busName, ObjectPath: "/old"}, Application: application, Parent: cacheObjectRef{BusName: busName, ObjectPath: "/root"}}
+	backend := &dbusBackend{
+		generation: 1,
+		cacheItems: map[NodeID]cacheItem{rootItem.nodeIDAt(1): rootItem, oldChild.nodeIDAt(1): oldChild},
+		cacheApps:  map[string]bool{busName: true},
+	}
+	if got := backend.cachedChildren(root); len(got) != 1 || got[0].ObjectPath != "/old" {
+		t.Fatalf("initial children = %+v, want /old", got)
+	}
+
+	newChild := cacheItem{Object: cacheObjectRef{BusName: busName, ObjectPath: "/new"}, Application: application, Parent: cacheObjectRef{BusName: busName, ObjectPath: "/root"}}
+	backend.mu.Lock()
+	backend.replaceCompleteCacheLocked(busName, []cacheItem{rootItem, newChild})
+	backend.mu.Unlock()
+	if got := backend.cachedChildren(root); len(got) != 1 || got[0].ObjectPath != "/new" {
+		t.Fatalf("children after complete cache replacement = %+v, want /new", got)
+	}
+}
+
 func TestCacheAddReparentAdjustsBothParentChildCounts(t *testing.T) {
 	const generation = 5
 	app := cacheObjectRef{BusName: "org.test", ObjectPath: dbus.ObjectPath("/app")}
