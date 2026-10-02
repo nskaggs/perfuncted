@@ -41,10 +41,10 @@ func (s *ScreenBundle) grabHash(
 	ctx context.Context,
 	rect image.Rectangle,
 ) (uint32, error) {
-	s.traceAction("screen", "grab-hash rect=%s", rect)
 	if err := s.checkAvailable("hash"); err != nil {
 		return 0, err
 	}
+	s.traceAction("screen", "grab-hash rect=%s", rect)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	hash, err := find.GrabHash(ctx, s.backend, rect, nil)
@@ -55,10 +55,10 @@ func (s *ScreenBundle) grab(
 	ctx context.Context,
 	rect image.Rectangle,
 ) (image.Image, error) {
-	s.traceAction("screen", "grab rect=%s", rect)
 	if err := s.checkAvailable("capture"); err != nil {
 		return nil, err
 	}
+	s.traceAction("screen", "grab rect=%s", rect)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := s.backend.Grab(ctx, rect)
@@ -144,10 +144,10 @@ func (s *ScreenBundle) GetPixel(
 	x int,
 	y int,
 ) (color.RGBA, error) {
-	s.traceAction("screen", "get-pixel x=%d y=%d", x, y)
 	if err := s.checkAvailable("pixel"); err != nil {
 		return color.RGBA{}, err
 	}
+	s.traceAction("screen", "get-pixel x=%d y=%d", x, y)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	if x == math.MaxInt || y == math.MaxInt {
@@ -169,10 +169,10 @@ func (s *ScreenBundle) GetMultiplePixels(
 	ctx context.Context,
 	points []image.Point,
 ) ([]color.RGBA, error) {
-	s.traceAction("screen", "get-multiple-pixels count=%d", len(points))
 	if err := s.checkAvailable("pixel"); err != nil {
 		return nil, err
 	}
+	s.traceAction("screen", "get-multiple-pixels count=%d", len(points))
 	out := make([]color.RGBA, len(points))
 	if len(points) == 0 {
 		return out, nil
@@ -236,10 +236,10 @@ func (s *ScreenBundle) WaitForFn(
 	fn func(context.Context, image.Image) bool,
 	poll time.Duration,
 ) (image.Image, error) {
-	s.traceAction("screen", "wait-for-fn rect=%s poll=%s", rect, poll)
 	if err := s.checkAvailable("wait"); err != nil {
 		return nil, err
 	}
+	s.traceAction("screen", "wait-for-fn rect=%s poll=%s", rect, poll)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := find.WaitForFn(ctx, s.backend, rect, fn, poll)
@@ -254,6 +254,9 @@ func (s *ScreenBundle) WaitForSettle(
 	stable int,
 	poll time.Duration,
 ) (uint32, error) {
+	if err := s.checkAvailable("wait-stable"); err != nil {
+		return 0, err
+	}
 	s.traceAction(
 		"screen",
 		"wait-for-settle rect=%s stable=%d poll=%s",
@@ -261,9 +264,6 @@ func (s *ScreenBundle) WaitForSettle(
 		stable,
 		poll,
 	)
-	if err := s.checkAvailable("wait-stable"); err != nil {
-		return 0, err
-	}
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	before, err := s.grabHash(ctx, rect)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -670,18 +671,28 @@ func TestTargetHostPassesHostSessionBusWithoutAccessibilityOverride(t *testing.T
 
 func TestSessionCloseStopsApplicationsInReverseLaunchOrder(t *testing.T) {
 	session := NewSessionForTesting(nil, nil, nil, nil, nil)
-	session.config.ApplicationGracePeriod = time.Second
-	orderPath := t.TempDir() + "/order"
+	// This asserts shutdown order, and the grace period is only the ceiling
+	// before Close escalates to SIGKILL. It has to be comfortably longer than
+	// the scheduler needs to deliver SIGTERM to a child and let its trap run,
+	// otherwise a loaded host kills the child before it can record anything.
+	// The success path returns as soon as the children exit, so a large ceiling
+	// costs nothing.
+	session.config.ApplicationGracePeriod = 30 * time.Second
+	dir := t.TempDir()
+	orderPath := filepath.Join(dir, "order")
+	readyPath := filepath.Join(dir, "ready")
 	launch := func(name string) {
 		t.Helper()
+		// Announce readiness only after the trap is installed, so shutdown cannot
+		// race the shell's own startup and lose the recorded order.
 		script := "trap 'printf " + name + " >> \"$ORDER\"; exit 0' TERM; " +
-			"while :; do sleep 1; done"
+			"printf '" + name + "\\n' >> \"$READY\"; while :; do sleep 1; done"
 		if _, err := session.Launch(
 			context.Background(),
 			Command{
 				Name: "sh",
 				Args: []string{"-c", script},
-				Env:  []string{"ORDER=" + orderPath},
+				Env:  []string{"ORDER=" + orderPath, "READY=" + readyPath},
 			},
 		); err != nil {
 			t.Fatalf("Launch %s: %v", name, err)
@@ -689,7 +700,32 @@ func TestSessionCloseStopsApplicationsInReverseLaunchOrder(t *testing.T) {
 	}
 	launch("a")
 	launch("b")
-	time.Sleep(30 * time.Millisecond)
+
+	// Wait for both children to report that they can handle TERM. The children
+	// are separate processes, so this observes their state rather than assuming
+	// a fixed startup delay is long enough.
+	readyDeadline := time.Now().Add(10 * time.Second)
+	for {
+		data, err := os.ReadFile(readyPath)
+		lines := 0
+		if err == nil {
+			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				if strings.TrimSpace(line) != "" {
+					lines++
+				}
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read readiness: %v", err)
+		}
+		if lines >= 2 {
+			break
+		}
+		if time.Now().After(readyDeadline) {
+			t.Fatalf("only %d of 2 applications reported readiness", lines)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
 	if err := session.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}

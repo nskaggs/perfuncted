@@ -474,15 +474,24 @@ func (s *Session) XDG() string {
 
 // DBusAddress returns the session D-Bus bus address.
 func (s *Session) DBusAddress() string {
+	if s == nil {
+		return ""
+	}
 	return s.env.Get("DBUS_SESSION_BUS_ADDRESS")
 }
 
 // WaylandDisplay returns the session Wayland display name.
 func (s *Session) WaylandDisplay() string {
+	if s == nil {
+		return ""
+	}
 	return s.env.Get("WAYLAND_DISPLAY")
 }
 
 // X11Display returns the session X11 display string.
 func (s *Session) X11Display() string {
+	if s == nil {
+		return ""
+	}
 	return s.env.Display()
 }
