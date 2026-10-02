@@ -143,6 +143,58 @@ func OpenRuntime(rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:
 	return OpenRuntimeContext(context.Background(), rt, maxX, maxY)
 }
 
+// inputAttempts records why each backend in selection order could not be used.
+// Without it a failed open reports only the final fallback, which hides the
+// most relevant cause: on GNOME, for example, the compositor-authoritative
+// bridge can fail for any number of reasons and the caller would only learn
+// that /dev/uinput was inaccessible.
+type inputAttempts []error
+
+func (a *inputAttempts) add(label string, err error) {
+	if err == nil {
+		return
+	}
+	*a = append(*a, fmt.Errorf("input: %s unavailable: %w", label, err))
+}
+
+// join returns the recorded causes together with err, keeping the direct error
+// last so a specific message such as the uinput permission hint stays visible.
+func (a inputAttempts) join(err error) error {
+	if len(a) == 0 {
+		return err
+	}
+	causes := make([]error, 0, len(a)+1)
+	causes = append(causes, a...)
+	if err != nil {
+		causes = append(causes, err)
+	}
+	return errors.Join(causes...)
+}
+
+// openInputCandidate runs one constructor in selection order. A success returns
+// the backend; a failure records why under label and returns the error so the
+// caller can continue to the next backend. Cancellation is reported as such
+// rather than recorded as a backend failure.
+func openInputCandidate(
+	ctx context.Context,
+	attempts *inputAttempts,
+	label string,
+	open func() (Inputter, error),
+) (Inputter, error) {
+	b, err := open()
+	if err == nil {
+		return b, nil
+	}
+	if ctx.Err() != nil {
+		if b != nil {
+			_ = b.Close()
+		}
+		return nil, ctx.Err()
+	}
+	attempts.add(label, err)
+	return nil, err
+}
+
 // OpenRuntimeContext opens the input backend for rt while honoring ctx during
 // context-aware transport setup.
 func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (Inputter, error) { //nolint:gocyclo
@@ -168,15 +220,26 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 		return nil, fmt.Errorf("forced uinput selected but /dev/uinput not accessible")
 	}
 
+	var attempts inputAttempts
+
 	// GNOME's Shell extension has compositor authority and therefore avoids
 	// both wlroots-only virtual protocols and host-level uinput permissions.
 	if compositor.DetectRuntime(rt) == compositor.GNOME {
-		if b, err := NewGnomeNativeBackendForRuntimeContext(ctx, rt); err == nil {
+		b, err := NewGnomeNativeBackendForRuntimeContext(ctx, rt)
+		switch {
+		case err == nil:
 			return b, nil
-		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
+		case errors.Is(err, gnomebridge.ErrSessionRestartRequired):
+			// A restart is the one bridge failure with no alternative: the
+			// extension is installed but will not serve this session.
 			return nil, err
-		} else if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+		case ctx.Err() != nil:
+			if b != nil {
+				_ = b.Close()
+			}
+			return nil, ctx.Err()
+		default:
+			attempts.add("GNOME Shell bridge input", err)
 		}
 	}
 
@@ -184,40 +247,48 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 	//
 	//	wl-virtual -> XTEST (if DISPLAY set) -> uinput
 	if sock := rt.SocketPath(); sock != "" {
-		if b, err := newWlVirtualBackend(ctx, sock); err == nil {
+		if b, err := openInputCandidate(ctx, &attempts, "wl-virtual input", func() (Inputter, error) {
+			return newWlVirtualBackend(ctx, sock)
+		}); err == nil {
 			return b, nil
-		} else if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+		} else if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 		if d := rt.Display(); d != "" {
-			if b, err := newXTestBackend(d); err == nil {
+			if b, err := openInputCandidate(ctx, &attempts, "XTEST input", func() (Inputter, error) {
+				return newXTestBackend(d)
+			}); err == nil {
 				return b, nil
-			} else if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, ctxErr
+			} else if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
 		}
 		// wl-virtual/XTEST unavailable; uinput is the last Wayland fallback
 		// when the compositor-scoped backends are unavailable.
-		if statErr := statUinput(); statErr == nil {
-			if b, err := newUinputBackend(maxX, maxY); err == nil {
+		if statUinput() == nil {
+			if b, err := openInputCandidate(ctx, &attempts, "uinput input", func() (Inputter, error) {
+				return newUinputBackend(maxX, maxY)
+			}); err == nil {
 				return b, nil
-			} else if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, ctxErr
+			} else if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
 		}
 	}
 
 	// Pure X11 or XWayland: XTest is scoped to the target display.
 	if d := rt.Display(); d != "" {
-		if b, err := newXTestBackend(d); err == nil {
+		if b, err := openInputCandidate(ctx, &attempts, "XTEST input", func() (Inputter, error) {
+			return newXTestBackend(d)
+		}); err == nil {
 			return b, nil
-		} else if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+		} else if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 	}
 
 	// Final fallback: uinput on systems without a Wayland session.
-	if err := statUinput(); err == nil {
+	if statUinput() == nil {
 		b, err := newUinputBackend(maxX, maxY)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			if b != nil {
@@ -228,14 +299,15 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 		if err == nil {
 			return b, nil
 		}
-		// Return uinput error directly—it includes permission hints.
-		return nil, err
+		// The uinput error carries the permission hint, so it is reported last
+		// after the earlier causes.
+		return nil, attempts.join(err)
 	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("input: no backend available (uinput inaccessible, DISPLAY not set)")
+	return nil, attempts.join(fmt.Errorf("no backend available (uinput inaccessible, DISPLAY not set)"))
 }
 
 // Probe returns availability details for each input backend in the same

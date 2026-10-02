@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -331,5 +332,55 @@ func TestCheckWlVirtualWithGlobs(t *testing.T) {
 				t.Fatalf("Reason = %q, want %q", r.Reason, tt.wantRe)
 			}
 		})
+	}
+}
+
+// A failed open must explain itself. The compositor-scoped backends are tried
+// before the host-level ones, so reporting only the last failure hides the most
+// relevant cause.
+func TestOpenRuntimeContextReportsEveryBackendFailure(t *testing.T) {
+	oldWlVirtual := newWlVirtualBackend
+	oldXTest := newXTestBackend
+	oldUinput := newUinputBackend
+	oldStat := statUinput
+	t.Cleanup(func() {
+		newWlVirtualBackend = oldWlVirtual
+		newXTestBackend = oldXTest
+		newUinputBackend = oldUinput
+		statUinput = oldStat
+	})
+
+	wlVirtualCause := errors.New("zwlr_virtual_pointer_manager_v1 not advertised")
+	xTestCause := errors.New("cannot open display :99")
+	newWlVirtualBackend = func(context.Context, string) (Inputter, error) { return nil, wlVirtualCause }
+	newXTestBackend = func(string) (Inputter, error) { return nil, xTestCause }
+	newUinputBackend = func(int32, int32) (Inputter, error) { return nil, errors.New("unexpected uinput attempt") }
+	statUinput = func() error { return os.ErrNotExist }
+
+	t.Setenv("PF_FORCE_INPUT", "")
+	rt := env.FromEnviron([]string{
+		"DISPLAY=:99",
+		"WAYLAND_DISPLAY=wayland-0",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+	})
+
+	_, err := OpenRuntimeContext(context.Background(), rt, 1024, 768)
+	if err == nil {
+		t.Fatal("OpenRuntimeContext succeeded with every backend stubbed to fail")
+	}
+	for _, want := range []string{
+		"wl-virtual input",
+		"zwlr_virtual_pointer_manager_v1 not advertised",
+		"XTEST input",
+		"cannot open display :99",
+		"no backend available",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("open error missing %q:\n%v", want, err)
+		}
+	}
+	// The causes stay inspectable, not merely rendered.
+	if !errors.Is(err, wlVirtualCause) || !errors.Is(err, xTestCause) {
+		t.Fatalf("open error lost its wrapped causes: %v", err)
 	}
 }
