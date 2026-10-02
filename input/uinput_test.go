@@ -673,7 +673,6 @@ func TestUinputOperationsRejectAfterClose(t *testing.T) {
 			_, _, err := b.PointerLocation(context.Background())
 			return err
 		}},
-		{name: "Sync", call: func() error { return b.Sync(context.Background()) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1132,10 +1131,6 @@ func TestUinputBackend_CanceledContextShortCircuitsPointerMethods(t *testing.T) 
 		{
 			name: "ScrollRight",
 			run:  func() error { return b.ScrollRight(ctx, 1) },
-		},
-		{
-			name: "Sync",
-			run:  func() error { return b.Sync(ctx) },
 		},
 		{
 			name: "PointerLocation",

@@ -1058,11 +1058,6 @@ func (*RemoteDesktopBackend) PointerLocation(context.Context) (int, int, error) 
 	return 0, 0, unsupportedError("remote-desktop", "pointer location")
 }
 
-// Sync is unsupported because EIS does not expose an input completion barrier.
-func (*RemoteDesktopBackend) Sync(context.Context) error {
-	return unsupportedError("remote-desktop", "sync")
-}
-
 // Close releases held input, stops EIS devices, and closes the portal session.
 func (b *RemoteDesktopBackend) Close() error {
 	if b == nil {

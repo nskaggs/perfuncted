@@ -623,12 +623,6 @@ func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
 }
 
 // Sync flushes pending uinput events.
-func (b *UinputBackend) Sync(ctx context.Context) error {
-	return b.withOperation(ctx, func(ctx context.Context) error {
-		return ctx.Err()
-	})
-}
-
 // Close marks the backend closed, waits for admitted operations to finish, and
 // releases each uinput device exactly once.
 func (b *UinputBackend) Close() error {

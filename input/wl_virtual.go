@@ -605,11 +605,6 @@ func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error
 }
 
 // Sync flushes pending virtual-input events.
-func (b *WlVirtualBackend) Sync(ctx context.Context) error {
-	ctx = contextutil.Default(ctx)
-	return b.withOperation(ctx, func(wl.Ctx, context.Context) error { return nil })
-}
-
 func (b *WlVirtualBackend) checkOpen() error {
 	if b == nil {
 		return nil

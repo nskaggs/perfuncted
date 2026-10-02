@@ -361,10 +361,6 @@ func TestWlVirtualBackend_CanceledContextShortCircuitsMethods(t *testing.T) {
 			run:  func() error { return b.ScrollRight(ctx, 1) },
 		},
 		{
-			name: "Sync",
-			run:  func() error { return b.Sync(ctx) },
-		},
-		{
 			name: "PointerLocation",
 			run: func() error {
 				_, _, err := b.PointerLocation(ctx)
@@ -447,9 +443,6 @@ blocked:
 	}
 	if err := b.MouseMove(context.Background(), 1, 2); err == nil {
 		t.Fatal("MouseMove succeeded after Close")
-	}
-	if err := b.Sync(context.Background()); err == nil {
-		t.Fatal("Sync succeeded after Close")
 	}
 }
 

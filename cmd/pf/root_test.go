@@ -283,7 +283,7 @@ type syncTrackingInputter struct {
 
 func (s *syncTrackingInputter) Sync(context.Context) error {
 	s.syncCalls++
-	return nil
+	return s.Err
 }
 
 type syncTrackingManager struct {

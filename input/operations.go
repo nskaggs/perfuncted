@@ -21,15 +21,18 @@ func (b *XTestBackend) SupportedOperations() []string {
 }
 
 // SupportedOperations reports operations that are executable by the selected
-// backend. uinput cannot query the current pointer location.
+// backend. uinput cannot query the current pointer location, and writing to
+// /dev/uinput offers no completion barrier, so this backend omits sync.
 func (b *UinputBackend) SupportedOperations() []string {
-	return supportedOperations(false, false)
+	return supportedOperations(false, false, "sync")
 }
 
 // SupportedOperations reports operations that are executable by the selected
-// backend. The virtual Wayland backend cannot query the current pointer.
+// backend. The virtual Wayland backend cannot query the current pointer, and a
+// virtual-input request offers no completion barrier, so this backend omits
+// sync.
 func (b *WlVirtualBackend) SupportedOperations() []string {
-	return supportedOperations(false, true)
+	return supportedOperations(false, true, "sync")
 }
 
 // SupportedOperations reports the input surface provided by the GNOME Shell

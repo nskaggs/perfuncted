@@ -124,10 +124,18 @@ type Inputter interface {
 	ScrollRight(ctx context.Context, clicks int) error
 	// PointerLocation returns the current pointer location if the backend can query it.
 	PointerLocation(ctx context.Context) (x, y int, err error)
-	// Sync flushes any pending backend state when supported.
-	Sync(ctx context.Context) error
 	// Close releases all backend resources.
 	Close() error
+}
+
+// Syncer is implemented by input backends that expose a completion barrier for
+// injected events. Only XTEST provides one: virtual-input requests on
+// Wayland, portal EIS, and /dev/uinput all return as soon as the event is
+// queued, and the GNOME Shell bridge does not expose a barrier either. Callers
+// discover support through the capability's advertised operations rather than
+// by asserting this interface.
+type Syncer interface {
+	Sync(ctx context.Context) error
 }
 
 // OpenRuntime returns the best available Inputter for rt.
