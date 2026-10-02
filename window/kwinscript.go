@@ -338,6 +338,11 @@ func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, 
 
 const kwinScriptErrorPrefix = "__pf_error__:"
 
+// kwinScriptFoundResult is what a handle-based script reports once it has
+// located the window. Presence of the handle, not window data, decides whether
+// the action ran.
+const kwinScriptFoundResult = "__pf_found__"
+
 // ActiveTitle returns the caption of the currently focused window.
 func (k *KWinScriptManager) ActiveTitle(ctx context.Context) (string, error) {
 	return k.runScript(ctx, func(svc string) string {
@@ -391,7 +396,7 @@ try {
         var w = wins[i];
         var wid = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;
         if (String(wid) === targetId) {
-            found = w.caption;
+            found = %q;
             %s
             break;
         }
@@ -400,9 +405,12 @@ try {
     found = %q + String(e);
 }
 callDBus('%s', '/', '%s', 'ReportWindows', found);
-`, strconv.Quote(id), actionJS, kwinScriptErrorPrefix, svc, svc)
+`, strconv.Quote(id), kwinScriptFoundResult, actionJS, kwinScriptErrorPrefix, svc, svc)
 }
 
+// kwinActionResultByID maps the script's outcome for a handle-based operation.
+// The script reports whether it located the window separately from any window
+// data, so an untitled window is never mistaken for a missing one.
 func kwinActionResultByID(id, result string) error {
 	if strings.HasPrefix(result, kwinScriptErrorPrefix) {
 		return fmt.Errorf(
@@ -411,7 +419,7 @@ func kwinActionResultByID(id, result string) error {
 			strings.TrimPrefix(result, kwinScriptErrorPrefix),
 		)
 	}
-	if result == "" {
+	if result != kwinScriptFoundResult {
 		return ErrWindowNotFound
 	}
 	return nil
