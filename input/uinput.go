@@ -37,6 +37,13 @@ type UinputBackend struct {
 	mouse      uinput.Mouse // lazy-initialised on first scroll
 	charToRune map[rune]kernelChar
 
+	// heldMods records which modifier keys the caller is holding through
+	// KeyDown. Type sends a combination by pressing modifiers around the key and
+	// releasing them afterwards; a modifier the caller already holds must not be
+	// released, or the caller's gesture ends partway through.
+	heldMu   sync.Mutex
+	heldMods uint32
+
 	// lifecycleMu protects closed, closeDone, closeErr, and active.
 	// It is never held while device I/O runs.
 	lifecycleMu sync.Mutex
@@ -233,7 +240,11 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
-		return b.kb.KeyDown(code)
+		if err := b.kb.KeyDown(code); err != nil {
+			return err
+		}
+		b.markModifierHeld(code)
+		return nil
 	})
 }
 
@@ -244,7 +255,11 @@ func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
-		return b.kb.KeyUp(code)
+		if err := b.kb.KeyUp(code); err != nil {
+			return err
+		}
+		b.markModifierReleased(code)
+		return nil
 	})
 }
 
@@ -295,6 +310,64 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	return nil
 }
 
+// modifierBits maps a modifier keycode to its bit in the held-modifier mask.
+// Codes that are not modifiers map to zero.
+var modifierBits = map[int]uint32{
+	uinput.KeyLeftshift:  1 << 0,
+	uinput.KeyRightshift: 1 << 1,
+	uinput.KeyLeftctrl:   1 << 2,
+	uinput.KeyRightctrl:  1 << 3,
+	uinput.KeyLeftalt:    1 << 4,
+	uinput.KeyRightalt:   1 << 5,
+	uinput.KeyLeftmeta:   1 << 6,
+	uinput.KeyRightmeta:  1 << 7,
+}
+
+func modifierBit(code int) uint32 { return modifierBits[code] }
+
+// modifierHeld reports whether the caller is already holding code.
+func (b *UinputBackend) modifierHeld(code int) bool {
+	bit := modifierBit(code)
+	if bit == 0 {
+		return false
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	return b.heldMods&bit != 0
+}
+
+func (b *UinputBackend) markModifierHeld(code int) {
+	bit := modifierBit(code)
+	if bit == 0 {
+		return
+	}
+	b.heldMu.Lock()
+	b.heldMods |= bit
+	b.heldMu.Unlock()
+}
+
+func (b *UinputBackend) markModifierReleased(code int) {
+	bit := modifierBit(code)
+	if bit == 0 {
+		return
+	}
+	b.heldMu.Lock()
+	b.heldMods &^= bit
+	b.heldMu.Unlock()
+}
+
+// temporaryModifiers returns the modifiers this operation must press, which is
+// the requested set minus the ones the caller is already holding.
+func (b *UinputBackend) temporaryModifiers(modKeys []int) []int {
+	temporary := make([]int, 0, len(modKeys))
+	for _, mk := range modKeys {
+		if !b.modifierHeld(mk) {
+			temporary = append(temporary, mk)
+		}
+	}
+	return temporary
+}
+
 // typeKeyWithMods presses modifier keys, sends the key action, then releases
 // modifiers in reverse order. If any step fails, already-pressed modifiers
 // are released before the error is returned.
@@ -318,6 +391,10 @@ func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up 
 	if mods.super {
 		modKeys = append(modKeys, uinput.KeyLeftmeta)
 	}
+
+	// Only the modifiers the caller is not already holding are pressed here, and
+	// only those are released afterwards.
+	modKeys = b.temporaryModifiers(modKeys)
 
 	// Press modifiers; release any already-pressed ones on failure.
 	pressed := 0
@@ -394,18 +471,21 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 		if !ok {
 			return fmt.Errorf("input/uinput: unsupported character %q (not found in kernel keymap)", string(ch))
 		}
-		if kc.shift {
+		// A shift the caller is already holding stays held: it is not pressed
+		// again here and must not be released afterwards.
+		pressedShift := kc.shift && !b.modifierHeld(uinput.KeyLeftshift)
+		if pressedShift {
 			if err := b.kb.KeyDown(uinput.KeyLeftshift); err != nil {
 				return err
 			}
 		}
 		if err := b.kb.KeyPress(kc.keycode); err != nil {
-			if kc.shift {
+			if pressedShift {
 				return b.releaseShift(err)
 			}
 			return err
 		}
-		if kc.shift {
+		if pressedShift {
 			if err := b.kb.KeyUp(uinput.KeyLeftshift); err != nil {
 				return err
 			}
