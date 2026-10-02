@@ -35,7 +35,13 @@ func NewGnomeNativeManagerForRuntime(rt env.Runtime) (*GnomeNativeManager, error
 }
 
 // NewGnomeNativeManagerForRuntimeContext connects to the native GNOME bridge
-// and subscribes to window events while honoring ctx.
+// and registers its window event subscription while honoring ctx.
+//
+// ctx bounds connection and event-registration setup only. The event stream
+// deliberately outlives it: session capability setup cancels its startup
+// context as soon as this constructor returns, so a stream governed by ctx
+// would report a closed stream for the whole session. Close owns the stream's
+// end.
 func NewGnomeNativeManagerForRuntimeContext(ctx context.Context, rt env.Runtime) (*GnomeNativeManager, error) {
 	ctx = contextutil.Default(ctx)
 	bridge, err := gnomebridge.ConnectForCapability(ctx, rt, gnomebridge.CapabilityWindows)

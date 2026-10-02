@@ -22,10 +22,23 @@ type objectCaller interface {
 	CallWithContext(context.Context, string, dbus.Flags, ...any) *dbus.Call
 }
 
+// signalSubscription is the connection surface a signal subscription needs:
+// registering and releasing a match rule, attaching and detaching a delivery
+// channel, capability queries, and shutdown. Isolating it from *dbus.Conn lets
+// the subscription lifecycle be exercised without a session bus.
+type signalSubscription interface {
+	AddMatchSignalContext(context.Context, ...dbus.MatchOption) error
+	RemoveMatchSignalContext(context.Context, ...dbus.MatchOption) error
+	Signal(chan<- *dbus.Signal)
+	RemoveSignal(chan<- *dbus.Signal)
+	SupportsUnixFDs() bool
+	Close() error
+}
+
 // Client is a typed client for the explicit GNOME bridge interfaces. It does
 // not expose an arbitrary method/property dispatcher.
 type Client struct {
-	conn *dbus.Conn
+	conn signalSubscription
 	obj  objectCaller
 	// supportsFDs is set for test transports; real connections use the
 	// capability advertised by the underlying D-Bus transport.
@@ -254,26 +267,34 @@ func (c *Client) GetActiveWindow(ctx context.Context) (WindowInfo, error) {
 // SubscribeWindowEvents subscribes to lifecycle and focus signals from the
 // Windows interface. The returned cancel function is idempotent and must be
 // called when the subscriber is no longer needed.
-func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent, func(), error) {
-	ctx = contextutil.Default(ctx)
+//
+// setupCtx bounds the match-rule registration handshake only. The returned
+// stream deliberately outlives setup: session capability setup cancels its
+// startup context as soon as the backend is constructed, so a context that
+// governed the stream would end it before the first event. The subscription's
+// lifetime is owned by the subscriber through cancel, and by the client through
+// Close.
+func (c *Client) SubscribeWindowEvents(setupCtx context.Context) (<-chan WindowEvent, func(), error) {
+	setupCtx = contextutil.Default(setupCtx)
 	c.mu.Lock()
 	if c.closed || c.conn == nil {
 		c.mu.Unlock()
 		return nil, nil, fmt.Errorf("%w: client is closed", ErrUnavailable)
 	}
 	conn := c.conn
+	closed := c.closeDone
 	c.mu.Unlock()
 
 	matchOptions := []dbus.MatchOption{
 		dbus.WithMatchInterface(WindowsInterface),
 		dbus.WithMatchObjectPath(dbus.ObjectPath(ObjectPath)),
 	}
-	addCtx := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		// Signal registration is a short protocol handshake. The returned
-		// stream remains governed by the caller's context after setup.
+	addCtx := setupCtx
+	if _, hasDeadline := setupCtx.Deadline(); !hasDeadline {
+		// Registration is a short protocol handshake and needs a finite
+		// ceiling even when the caller supplies none.
 		var cancel context.CancelFunc
-		addCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		addCtx, cancel = context.WithTimeout(setupCtx, 5*time.Second)
 		defer cancel()
 	}
 	if err := conn.AddMatchSignalContext(addCtx, matchOptions...); err != nil {
@@ -288,7 +309,7 @@ func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent,
 		once.Do(func() {
 			close(stop)
 			conn.RemoveSignal(raw)
-			cleanupCtx, cleanup := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			cleanupCtx, cleanup := context.WithTimeout(context.WithoutCancel(setupCtx), time.Second)
 			defer cleanup()
 			_ = conn.RemoveMatchSignalContext(cleanupCtx, matchOptions...)
 		})
@@ -305,7 +326,7 @@ func (c *Client) SubscribeWindowEvents(ctx context.Context) (<-chan WindowEvent,
 				next = pending[0]
 			}
 			select {
-			case <-ctx.Done():
+			case <-closed:
 				return
 			case <-stop:
 				return

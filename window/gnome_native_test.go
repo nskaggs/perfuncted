@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 )
@@ -48,6 +49,57 @@ func TestGnomeNativeManagerCloseHandlesPartialConstruction(t *testing.T) {
 	manager := &GnomeNativeManager{bridge: &gnomebridge.Client{}}
 	if err := manager.Close(); err != nil {
 		t.Fatalf("partial Close error = %v, want nil", err)
+	}
+}
+
+func TestGnomeNativeManagerCloseEndsLiveEventStream(t *testing.T) {
+	bridgeEvents := make(chan gnomebridge.WindowEvent)
+	released := make(chan struct{})
+	manager := &GnomeNativeManager{
+		bridge:     &gnomebridge.Client{},
+		events:     make(chan Event, 4),
+		stopEvents: make(chan struct{}),
+		eventsDone: make(chan struct{}),
+	}
+	go manager.forwardWindowEvents(bridgeEvents, func() { close(released) })
+
+	select {
+	case bridgeEvents <- gnomebridge.WindowEvent{Kind: gnomebridge.WindowAddedEvent, Window: gnomebridge.WindowInfo{ID: "17"}}:
+	case <-time.After(5 * time.Second):
+		t.Fatal("bridge stream not accepted while the manager is live")
+	}
+	select {
+	case event, ok := <-manager.WindowEvents():
+		if !ok {
+			t.Fatal("event stream closed while the bridge stream is still open")
+		}
+		if event.Kind != WindowAddedEvent || event.ID != "17" {
+			t.Fatalf("forwarded event = %+v, want window-added for 17", event)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no event forwarded while the bridge stream is still open")
+	}
+
+	// The bridge stream is deliberately still open: the manager owns the end
+	// of its own event stream and must not depend on the bridge going away.
+	closed := make(chan error, 1)
+	go func() { closed <- manager.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not finish while the bridge event stream stayed open")
+	}
+
+	select {
+	case <-released:
+	default:
+		t.Fatal("bridge subscription was not released")
+	}
+	if _, ok := <-manager.WindowEvents(); ok {
+		t.Fatal("event stream still open after Close")
 	}
 }
 
