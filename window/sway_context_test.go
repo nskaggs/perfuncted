@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -481,42 +482,52 @@ func TestSwayQueryCancelableContextReusesPersistentConn(t *testing.T) {
 	}
 }
 
-func TestSwayMoveByIDPropagatesReflowListError(t *testing.T) {
+// Move enables floating and then moves, and nothing else. It used to poll the
+// tree for the window after enabling floating, but findByID had already read
+// that tree, so the window was always present on the first poll and the wait
+// never deferred the move. It cost a full tree round trip per move.
+func TestSwayMoveByIDIssuesExactlyOneTreeRead(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 
+	tree := `{"id":1,"type":"root","nodes":[{"id":42,"type":"con","name":"window"}]} `
+	var seen []uint32
 	serverDone := make(chan struct{})
 	go func() {
 		defer close(serverDone)
-		responses := []struct {
-			messageType uint32
-			body        []byte
-		}{
-			{messageType: swayMsgGetTree, body: []byte(`{"id":1,"type":"root","nodes":[{"id":42,"type":"con","name":"window"}]} `)},
-			{messageType: swayMsgRunCommand, body: []byte(`[{"success":true}]`)},
-			{messageType: swayMsgGetTree, body: []byte(`not-json`)},
-			{messageType: swayMsgRunCommand, body: []byte(`[{"success":true}]`)},
-		}
-		for _, response := range responses {
+		for {
 			header := make([]byte, 14)
 			if _, err := io.ReadFull(server, header); err != nil {
 				return
 			}
-			body := make([]byte, binary.LittleEndian.Uint32(header[6:10]))
+			size := binary.LittleEndian.Uint32(header[6:10])
+			messageType := binary.LittleEndian.Uint32(header[10:14])
+			body := make([]byte, size)
 			if _, err := io.ReadFull(server, body); err != nil {
 				return
 			}
-			if err := writeSwayMessage(server, response.messageType, string(response.body)); err != nil {
-				return
+			seen = append(seen, messageType)
+			if messageType == swayMsgGetTree {
+				if err := writeSwayMessage(server, messageType, tree); err != nil {
+					return
+				}
+			} else {
+				if err := writeSwayMessage(server, messageType, `[{"success":true}]`); err != nil {
+					return
+				}
 			}
 		}
 	}()
 
-	m := &SwayManager{conn: client, ReflowTimeout: 20 * time.Millisecond}
-	err := m.MoveByID(context.Background(), "42", 10, 20)
-	if err == nil || !strings.Contains(err.Error(), "window/sway: parse tree") {
-		t.Fatalf("MoveByID error = %v, want reflow list parse error", err)
+	m := &SwayManager{conn: client}
+	if err := m.MoveByID(context.Background(), "42", 10, 20); err != nil {
+		t.Fatalf("MoveByID: %v", err)
+	}
+
+	want := []uint32{swayMsgGetTree, swayMsgRunCommand, swayMsgRunCommand}
+	if !slices.Equal(seen, want) {
+		t.Fatalf("sway messages = %v, want %v (one tree read, then floating and move)", seen, want)
 	}
 	_ = client.Close()
 	<-serverDone

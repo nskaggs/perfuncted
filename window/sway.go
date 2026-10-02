@@ -49,10 +49,6 @@ type swayRect struct {
 
 var _ Manager = (*SwayManager)(nil)
 
-// defaultReflowTimeout is a compositor reflow observation window. Move's
-// caller/session context remains authoritative and can end the wait earlier.
-const defaultReflowTimeout = 500 * time.Millisecond
-
 // SwayManager implements Manager via sway's IPC socket (i3-ipc protocol).
 // It does not require any Wayland protocol machinery — it uses a simple
 // Unix socket with length-prefixed JSON messages.
@@ -73,10 +69,6 @@ type SwayManager struct {
 	eventDone      chan struct{}
 	closed         atomic.Bool
 	eventCloseOnce sync.Once
-
-	// ReflowTimeout controls how long Move waits for float layout reflow
-	// after enabling floating on a tiled window. Zero means the default (500ms).
-	ReflowTimeout time.Duration
 }
 
 // NewSwayManagerRuntime returns a SwayManager for the sway IPC environment in rt.
@@ -587,33 +579,6 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 	}
 	if err := m.swayCmd(ctx, fmt.Sprintf("[con_id=%d] floating enable", int64(numeric))); err != nil {
 		return err
-	}
-	reflowTimeout := m.ReflowTimeout
-	if reflowTimeout <= 0 {
-		reflowTimeout = defaultReflowTimeout
-	}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	timer := time.NewTimer(reflowTimeout)
-	defer timer.Stop()
-loop:
-	for {
-		wins, err := m.List(ctx)
-		if err != nil {
-			return err
-		}
-		for _, win := range wins {
-			if win.ID == numeric {
-				break loop
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-			break loop
-		case <-ticker.C:
-		}
 	}
 	return m.swayCmd(ctx, "[con_id="+strconv.FormatInt(int64(numeric), 10)+"] move position "+strconv.Itoa(x)+" "+strconv.Itoa(y))
 }
