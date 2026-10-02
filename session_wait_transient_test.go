@@ -111,8 +111,8 @@ func TestSessionWaitGivesUpAfterSustainedTransientErrors(t *testing.T) {
 // answer, so a wait that resets its failure count on every successful read can
 // never accumulate enough consecutive failures to give up.
 type alternatingWindowManager struct {
-	mu   sync.Mutex
-	err  error
+	mu    sync.Mutex
+	err   error
 	calls int
 }
 

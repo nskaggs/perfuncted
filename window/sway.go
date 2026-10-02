@@ -59,9 +59,9 @@ type SwayManager struct {
 	// round-trip: with a mutex a caller whose deadline passed while another query
 	// was in flight would block on admission until that query finished, even
 	// though it has no reason to wait for work it no longer wants.
-	gateOnce sync.Once
-	gate     chan struct{}
-	conn     net.Conn
+	gateOnce   sync.Once
+	gate       chan struct{}
+	conn       net.Conn
 	activeMu   sync.Mutex
 	activeConn net.Conn
 	closeOnce  sync.Once
