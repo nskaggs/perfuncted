@@ -42,7 +42,16 @@ type XTestBackend struct {
 
 	keymapOnce sync.Once
 	keymap     map[xproto.Keysym]keycodeLevel
-	keymapErr  error
+
+	// heldMods records which modifier keys the caller is holding through
+	// KeyDown. A combination presses the modifiers it needs and releases them
+	// afterwards, so one the caller already holds must not be released or the
+	// caller's gesture ends partway through.
+	heldMu       sync.Mutex
+	heldMods     map[xproto.Keycode]bool
+	modifierOnce sync.Once
+	modCodes     map[xproto.Keycode]bool
+	keymapErr    error
 }
 
 type keycodeLevel struct {
@@ -241,7 +250,11 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
-		return b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+		if err := b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
+			return err
+		}
+		b.markModifierHeld(kc)
+		return nil
 	})
 }
 
@@ -252,7 +265,11 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
-		return b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check()
+		if err := b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
+			return err
+		}
+		b.markModifierReleased(kc)
+		return nil
 	})
 }
 
@@ -305,6 +322,9 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 	if err != nil {
 		return err
 	}
+	// Only the modifiers the caller is not already holding are pressed here, and
+	// only those are released afterwards.
+	modKeys = b.temporaryModifiers(modKeys)
 
 	pressedMods := make([]xproto.Keycode, 0, len(modKeys))
 	cleanupNeeded := true
@@ -358,20 +378,65 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 	return nil
 }
 
+// modifierCodeSet resolves the keycodes a combination can request for its
+// modifiers, so a held modifier is recognised by keycode regardless of which
+// name the caller pressed.
+func (b *XTestBackend) modifierCodeSet() map[xproto.Keycode]bool {
+	b.modifierOnce.Do(func() {
+		names := modifierNames(modifiers{shift: true, ctrl: true, alt: true, super: true})
+		set := make(map[xproto.Keycode]bool, len(names))
+		for _, name := range names {
+			if kc, err := b.keycodeFor(name); err == nil {
+				set[kc] = true
+			}
+		}
+		b.modCodes = set
+	})
+	return b.modCodes
+}
+
+// modifierHeld reports whether the caller is already holding this modifier.
+func (b *XTestBackend) modifierHeld(kc xproto.Keycode) bool {
+	if !b.modifierCodeSet()[kc] {
+		return false
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	return b.heldMods[kc]
+}
+
+func (b *XTestBackend) markModifierHeld(kc xproto.Keycode) {
+	if !b.modifierCodeSet()[kc] {
+		return
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	if b.heldMods == nil {
+		b.heldMods = make(map[xproto.Keycode]bool, len(b.modCodes))
+	}
+	b.heldMods[kc] = true
+}
+
+func (b *XTestBackend) markModifierReleased(kc xproto.Keycode) {
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	delete(b.heldMods, kc)
+}
+
+// temporaryModifiers returns the modifiers this operation must press, which is
+// the requested set minus the ones the caller is already holding.
+func (b *XTestBackend) temporaryModifiers(codes []xproto.Keycode) []xproto.Keycode {
+	out := make([]xproto.Keycode, 0, len(codes))
+	for _, kc := range codes {
+		if !b.modifierHeld(kc) {
+			out = append(out, kc)
+		}
+	}
+	return out
+}
+
 func (b *XTestBackend) temporaryModifierKeycodes(mod modifiers) ([]xproto.Keycode, error) {
-	keys := make([]string, 0, 4)
-	if mod.shift {
-		keys = append(keys, "shift")
-	}
-	if mod.ctrl {
-		keys = append(keys, "ctrl")
-	}
-	if mod.alt {
-		keys = append(keys, "alt")
-	}
-	if mod.super {
-		keys = append(keys, "super")
-	}
+	keys := modifierNames(mod)
 
 	out := make([]xproto.Keycode, 0, len(keys))
 	for _, key := range keys {
