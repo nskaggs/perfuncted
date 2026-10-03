@@ -25,6 +25,34 @@ func (b *ExtCaptureBackend) CanonicalHashing() bool { return true }
 // This protocol is detected by probing compositor globals at runtime; it is
 // available where the compositor advertises ext_image_copy_capture_manager_v1.
 // Do not assume specific compositor versions — rely solely on protocol presence.
+// wlOutputScaleVersion is the first wl_output version that sends the scale
+// event, and wlOutputScaleOpcode is that event's opcode from that version on.
+const (
+	wlOutputScaleVersion = 2
+	wlOutputScaleOpcode  = 3
+)
+
+// wlOutputBindVersion returns the wl_output version to bind at. Version 2 is the
+// minimum that delivers the scale event, so binding lower leaves the output
+// scale unknown and every capture crops at scale one. Newer versions add events
+// this backend does not read, so it never binds above 2.
+func wlOutputBindVersion(advertised uint32) uint32 {
+	return min(advertised, wlOutputScaleVersion)
+}
+
+// applyOutputEvent records the wl_output events this backend needs. The scale
+// event is the only one, because it is what converts a requested region from
+// logical coordinates into the output's pixel scale.
+func (b *ExtCaptureBackend) applyOutputEvent(opcode uint32, data []byte) {
+	if opcode != wlOutputScaleOpcode || len(data) < 4 {
+		return
+	}
+	b.outputScale = wl.Uint32(data[0:4])
+	if b.outputScale == 0 {
+		b.outputScale = 1
+	}
+}
+
 type ExtCaptureBackend struct {
 	// mu protects the session-owned protocol state, shm, manager globals, and outputProxy.
 	mu sync.Mutex
@@ -129,16 +157,18 @@ func NewExtCaptureBackendForSocketContext(cancel context.Context, sock string) (
 			}
 			out := &wlRawProxy{}
 			ctx.Register(out)
-			if err := registry.BindContext(cancel, ev.Name, ev.Interface, 1, out.ID()); err == nil {
+			// wl_output gained the scale event in version 2. Bound at version 1
+			// the compositor never sends it, so the output scale stayed unknown
+			// and every capture cropped at scale one on a scaled output.
+			if err := registry.BindContext(
+				cancel, ev.Name, ev.Interface,
+				wlOutputBindVersion(ev.Version),
+				out.ID(),
+			); err == nil {
 				b.outputProxy = out
 				// record output scale via dispatchFn
 				out.dispatchFn = func(op uint32, _ int, data []byte) {
-					if op == 3 && len(data) >= 4 { // scale
-						b.outputScale = wl.Uint32(data[0:4])
-						if b.outputScale == 0 {
-							b.outputScale = 1
-						}
-					}
+					b.applyOutputEvent(op, data)
 				}
 			}
 			break

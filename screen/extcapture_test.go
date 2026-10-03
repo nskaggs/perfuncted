@@ -3,6 +3,7 @@ package screen
 import (
 	"context"
 	"errors"
+	"image"
 	"io"
 	"net"
 	"path/filepath"
@@ -290,4 +291,79 @@ func writeExtTestEvent(w io.Writer, sender, opcode uint32, body []byte) error {
 	copy(msg[8:], body)
 	_, err := w.Write(msg)
 	return err
+}
+
+// wl_output only sends the scale event from version 2, so binding lower leaves
+// the output scale unknown and every capture crops at scale one.
+func TestWlOutputBindVersionRequestsTheScaleEvent(t *testing.T) {
+	cases := []struct {
+		name       string
+		advertised uint32
+		want       uint32
+	}{
+		{name: "version 1 cannot carry scale", advertised: 1, want: 1},
+		{name: "version 2 carries scale", advertised: 2, want: 2},
+		{name: "newer versions bind no higher", advertised: 4, want: 2},
+		{name: "unspecified", advertised: 0, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wlOutputBindVersion(tc.advertised); got != tc.want {
+				t.Fatalf("wlOutputBindVersion(%d) = %d, want %d", tc.advertised, got, tc.want)
+			}
+		})
+	}
+}
+
+// The scale event is what turns a logical region into the output's pixel scale,
+// so it has to be recorded, and a zero scale normalized to one.
+func TestApplyOutputEventRecordsScale(t *testing.T) {
+	cases := []struct {
+		name    string
+		opcode  uint32
+		data    []byte
+		want    uint32
+		comment string
+	}{
+		{name: "scale 2", opcode: wlOutputScaleOpcode, data: []byte{2, 0, 0, 0}, want: 2},
+		{name: "scale 3", opcode: wlOutputScaleOpcode, data: []byte{3, 0, 0, 0}, want: 3},
+		{name: "little endian", opcode: wlOutputScaleOpcode, data: []byte{0x02, 0x01, 0, 0}, want: 258},
+		{name: "zero normalized to one", opcode: wlOutputScaleOpcode, data: []byte{0, 0, 0, 0}, want: 1},
+		{name: "geometry ignored", opcode: 0, data: []byte{9, 0, 0, 0}, want: 0},
+		{name: "mode ignored", opcode: 1, data: []byte{2, 0, 0, 0}, want: 0},
+		{name: "done ignored", opcode: 2, data: nil, want: 0},
+		{name: "short payload ignored", opcode: wlOutputScaleOpcode, data: []byte{2, 0}, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &ExtCaptureBackend{}
+			b.applyOutputEvent(tc.opcode, tc.data)
+			if b.outputScale != tc.want {
+				t.Fatalf("outputScale = %d, want %d", b.outputScale, tc.want)
+			}
+		})
+	}
+}
+
+// A recorded scale has to reach the crop, which is the whole point of reading
+// the event. With the scale unknown the region is cropped at scale one.
+func TestExtCaptureScaleDrivesTheCaptureRegion(t *testing.T) {
+	region := image.Rect(0, 0, 100, 100)
+
+	if got := logicalRectToPhysical(region, 1); got != region {
+		t.Fatalf("scale 1 region = %v, want %v", got, region)
+	}
+	if got, want := logicalRectToPhysical(region, 2), image.Rect(0, 0, 200, 200); got != want {
+		t.Fatalf("scale 2 region = %v, want %v", got, want)
+	}
+
+	b := &ExtCaptureBackend{}
+	b.applyOutputEvent(wlOutputScaleOpcode, []byte{2, 0, 0, 0})
+	if b.outputScale == 0 {
+		t.Fatal("output scale was not recorded")
+	}
+	got := logicalRectToPhysical(region, int(b.outputScale))
+	if want := image.Rect(0, 0, 200, 200); got != want {
+		t.Fatalf("region at the recorded scale = %v, want %v", got, want)
+	}
 }
