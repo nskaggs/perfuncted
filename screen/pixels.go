@@ -1,9 +1,31 @@
 package screen
 
 import (
+	"fmt"
 	"image"
 	"image/draw"
 )
+
+// requireCapturedImage rejects a decode that produced no pixels.
+//
+// The decoders return a zero-sized image rather than an error when the buffer
+// is unusable or the requested region does not intersect the output, because
+// they are called from inside a frame callback that has no way to report a
+// failure of its own. Handing that to a caller as a successful capture would
+// read as a transparent black frame, so the emptiness is turned into an error
+// here, at the seam that returns an image.
+func requireCapturedImage(backend string, img image.Image) (image.Image, error) {
+	if img == nil {
+		return nil, fmt.Errorf("screen/%s: capture produced no image", backend)
+	}
+	if img.Bounds().Empty() {
+		return nil, fmt.Errorf(
+			"screen/%s: capture produced an empty image, the requested region is not on the output",
+			backend,
+		)
+	}
+	return img, nil
+}
 
 // decodeBGRA decodes raw BGRA pixel data (little-endian byte order) into an
 // RGBA image. The stride parameter specifies bytes per row—this may be w*4 for

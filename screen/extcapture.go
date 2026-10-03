@@ -262,7 +262,7 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	}); err != nil {
 		return nil, err
 	}
-	return outImg, nil
+	return requireCapturedImage("extcapture", outImg)
 }
 
 func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error { //nolint:gocyclo

@@ -440,7 +440,7 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 	}); err != nil {
 		return nil, err
 	}
-	return outImg, nil
+	return requireCapturedImage("wlr", outImg)
 }
 
 // GrabFullHash returns a pixel hash of the full output in the canonical

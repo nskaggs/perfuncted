@@ -358,3 +358,64 @@ func TestCropRGBAShortBufferDoesNotPanic(t *testing.T) {
 		t.Fatal("expected non-nil cropped image")
 	}
 }
+
+// A capture of a region that does not reach the output decodes to a zero-sized
+// image. Returning that as a successful capture reads as a transparent black
+// frame, so the seam that hands an image to a caller turns it into an error.
+func TestRequireCapturedImageRejectsEmptyDecode(t *testing.T) {
+	const width, height, stride = 4, 3, 20
+	pixels := make([]byte, stride*height)
+	for i := range pixels {
+		pixels[i] = byte(i*37 + 11)
+	}
+
+	regions := []struct {
+		name string
+		rect image.Rectangle
+	}{
+		{name: "past the right edge", rect: image.Rect(8, 0, 10, 2)},
+		{name: "below the bottom edge", rect: image.Rect(0, 9, 2, 10)},
+		{name: "entirely past the output", rect: image.Rect(50, 50, 60, 60)},
+		{name: "wholly negative", rect: image.Rect(-20, -20, -10, -10)},
+	}
+	for _, region := range regions {
+		t.Run(region.name, func(t *testing.T) {
+			decoded := decodeBGRARect(pixels, width, height, stride, region.rect)
+			if !decoded.Bounds().Empty() {
+				t.Fatalf("decodeBGRARect(%v) = %v, want an empty image", region.rect, decoded.Bounds())
+			}
+			if _, err := requireCapturedImage("test", decoded); err == nil {
+				t.Fatalf("requireCapturedImage accepted the empty decode of %v", region.rect)
+			}
+		})
+	}
+}
+
+// A decode of a region that does reach the output is passed through unchanged.
+func TestRequireCapturedImagePassesThroughUsableDecode(t *testing.T) {
+	const width, height, stride = 4, 3, 20
+	pixels := make([]byte, stride*height)
+	for i := range pixels {
+		pixels[i] = byte(i*37 + 11)
+	}
+
+	decoded := decodeBGRARect(pixels, width, height, stride, image.Rect(1, 1, 3, 3))
+	if decoded.Bounds().Empty() {
+		t.Fatal("decodeBGRARect produced an empty image for an in-bounds region")
+	}
+	got, err := requireCapturedImage("test", decoded)
+	if err != nil {
+		t.Fatalf("requireCapturedImage: %v", err)
+	}
+	if got.Bounds() != decoded.Bounds() {
+		t.Fatalf("bounds = %v, want %v", got.Bounds(), decoded.Bounds())
+	}
+}
+
+// A backend that never decoded anything at all is an error too, rather than a
+// nil image handed back with a nil error.
+func TestRequireCapturedImageRejectsNil(t *testing.T) {
+	if _, err := requireCapturedImage("test", nil); err == nil {
+		t.Fatal("requireCapturedImage accepted a nil image")
+	}
+}
