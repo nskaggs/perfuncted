@@ -23,6 +23,21 @@ type ScreenBundle struct {
 	bundleBase
 }
 
+// traceAction shadows the promoted bundleBase method so a nil bundle is handled
+// before it is dereferenced.
+//
+// bundleBase is embedded by value, so the promoted method's receiver is
+// &s.bundleBase: calling it on a nil *ScreenBundle dereferences s to compute the
+// receiver and panics, before bundleBase's own nil check can run. Every traced
+// entry point therefore has to tolerate a nil receiver the way checkAvailable
+// does.
+func (s *ScreenBundle) traceAction(component, format string, args ...any) {
+	if s == nil {
+		return
+	}
+	s.bundleBase.traceAction(component, format, args...)
+}
+
 func (s *ScreenBundle) checkAvailable(operation string) error {
 	if s == nil {
 		return (&bundleBase{}).unavailable(operation)
