@@ -340,6 +340,8 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 					k.mods &^= bit
 					if err := k.sendModifiers(ctx); err != nil {
+						// The modifier is still down on the compositor, so the bookkeeping has to keep saying so.
+						k.mods |= bit
 						k.clearTempModsBestEffort(ctx, tempMods)
 						return err
 					}
@@ -350,6 +352,8 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 					k.mods |= bit
 					if err := k.sendModifiers(ctx); err != nil {
+						// The modifier never reached the compositor, so it must not stay recorded as held.
+						k.mods &^= bit
 						k.clearTempModsBestEffort(ctx, tempMods)
 						return err
 					}
@@ -360,6 +364,8 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 					k.mods |= bit
 					if err := k.sendModifiers(ctx); err != nil {
+						// The modifier never reached the compositor, so it must not stay recorded as held.
+						k.mods &^= bit
 						k.clearTempModsBestEffort(ctx, tempMods)
 						return err
 					}
@@ -369,6 +375,8 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 					k.mods &^= bit
 					if err := k.sendModifiers(ctx); err != nil {
+						// The modifier is still down on the compositor, so the bookkeeping has to keep saying so.
+						k.mods |= bit
 						k.clearTempModsBestEffort(ctx, tempMods)
 						return err
 					}

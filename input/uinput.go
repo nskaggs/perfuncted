@@ -422,15 +422,21 @@ func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	// The explicit down/up syntax has to move the same bookkeeping KeyDown and
+	// KeyUp move. Without it a modifier held through Type was invisible to
+	// modifierHeld, so the next operation pressed it a second time instead of
+	// recognising it was already down.
 	switch {
 	case up:
 		if err := b.kb.KeyUp(code); err != nil {
 			return fail(err)
 		}
+		b.markModifierReleased(code)
 	case down:
 		if err := b.kb.KeyDown(code); err != nil {
 			return fail(err)
 		}
+		b.markModifierHeld(code)
 	default:
 		if err := b.kb.KeyPress(code); err != nil {
 			return fail(err)

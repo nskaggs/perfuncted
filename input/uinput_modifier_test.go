@@ -205,3 +205,50 @@ func TestTemporaryModifiersExcludesHeldOnes(t *testing.T) {
 		t.Fatalf("temporaryModifiers with everything held = %v, want none", got)
 	}
 }
+
+// A modifier held through the Type down/up syntax has to reach the same
+// bookkeeping KeyDown uses. Otherwise it stayed invisible to modifierHeld and the
+// next operation pressed it again instead of recognising it was already down.
+func TestUinputTypeDownRecordsHeldModifier(t *testing.T) {
+	kb := &recordingKeyboard{}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap()}
+
+	if err := b.Type(context.Background(), "{ctrl down}"); err != nil {
+		t.Fatalf("Type down: %v", err)
+	}
+	if !b.modifierHeld(uinput.KeyLeftctrl) {
+		t.Fatal("a modifier held through Type was not recorded as held")
+	}
+	requested := []int{uinput.KeyLeftctrl, uinput.KeyLeftshift}
+	if got := b.temporaryModifiers(requested); len(got) != 1 || got[0] != uinput.KeyLeftshift {
+		t.Fatalf("temporaryModifiers = %v, want only the shift; the held ctrl was pressed again", got)
+	}
+
+	if err := b.Type(context.Background(), "{ctrl up}"); err != nil {
+		t.Fatalf("Type up: %v", err)
+	}
+	if b.modifierHeld(uinput.KeyLeftctrl) {
+		t.Fatal("a modifier released through Type was still recorded as held")
+	}
+}
+
+// The GNOME backend released the keys it had pressed when a call failed, but left
+// the held set saying they were down. The next call then skipped pressing a
+// modifier that was no longer down.
+func TestGnomeTypeFailureClearsHeldModifiersItReleased(t *testing.T) {
+	held := modifiers{ctrl: true}
+	clearHeldModifiers(&held, modifiers{ctrl: true})
+	if held.any() {
+		t.Fatalf("held = %+v, want the released modifier cleared", held)
+	}
+
+	// A modifier this call did not press must survive the cleanup.
+	held = modifiers{ctrl: true, shift: true}
+	clearHeldModifiers(&held, modifiers{ctrl: true})
+	if !held.shift || held.ctrl {
+		t.Fatalf("held = %+v, want shift kept and ctrl cleared", held)
+	}
+
+	var nilHeld *modifiers
+	clearHeldModifiers(nilHeld, modifiers{ctrl: true})
+}

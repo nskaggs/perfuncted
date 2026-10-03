@@ -175,6 +175,11 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 		defer func() {
 			if err != nil && pressedByCall.any() {
 				err = errors.Join(err, b.releaseModifierKeys(ctx, gnomeModifierKeyvals(pressedByCall)))
+				// The keys are up again, so the bookkeeping has to say so. Leaving a
+				// modifier recorded as held made the next call skip pressing it
+				// because it believed the key was already down.
+				clearHeldModifiers(&b.held, pressedByCall)
+				pressedByCall = modifiers{}
 			}
 		}()
 		for _, action := range actions {
@@ -261,6 +266,26 @@ func (b *GnomeNativeBackend) typeAction(
 		updateHeldModifier(pressedByCall, action.key, action.down)
 	}
 	return err
+}
+
+// clearHeldModifiers drops the named modifiers from the held set, for the error
+// path where the keys have just been released.
+func clearHeldModifiers(held *modifiers, released modifiers) {
+	if held == nil {
+		return
+	}
+	if released.ctrl {
+		held.ctrl = false
+	}
+	if released.alt {
+		held.alt = false
+	}
+	if released.shift {
+		held.shift = false
+	}
+	if released.super {
+		held.super = false
+	}
 }
 
 // temporaryModifierKeyvals returns the keyvals for the modifiers a combination

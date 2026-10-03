@@ -416,15 +416,21 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 		pressedMods = append(pressedMods, modKey)
 	}
 
+	// The explicit down/up syntax has to move the same bookkeeping KeyDown and
+	// KeyUp move. Without it a modifier held through Type was invisible to
+	// modifierHeld, so the next operation pressed it a second time instead of
+	// recognising it was already down.
 	switch {
 	case a.up:
 		if err := b.keyUpKC(kc); err != nil {
 			return err
 		}
+		b.markModifierReleased(kc)
 	case a.down:
 		if err := b.keyDownKC(kc); err != nil {
 			return err
 		}
+		b.markModifierHeld(kc)
 	default:
 		if err := b.keyDownKC(kc); err != nil {
 			return err
