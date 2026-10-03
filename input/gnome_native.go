@@ -262,10 +262,48 @@ func (b *GnomeNativeBackend) typeAction(
 	}
 	err = errors.Join(actionErr, b.releaseModifierKeys(ctx, pressed))
 	if err == nil && (action.down || action.up) {
+		// A duplicate down for a key the caller already holds acquires nothing, so
+		// recording it as this call's would make the error path release a hold it
+		// never took. The physical key was already down either way, so the held set
+		// is updated unconditionally.
+		alreadyHeld := modifierIsHeld(*held, action.key)
 		updateHeldModifier(held, action.key, action.down)
-		updateHeldModifier(pressedByCall, action.key, action.down)
+		if action.down {
+			if !alreadyHeld {
+				updateHeldModifier(pressedByCall, action.key, true)
+			}
+		} else {
+			// A key this call brought up is no longer its own to release.
+			updateHeldModifier(pressedByCall, action.key, false)
+		}
 	}
 	return err
+}
+
+// modifierIsHeld reports whether the held set already contains the modifier a key
+// name resolves to.
+func modifierIsHeld(held modifiers, key string) bool {
+	for _, bit := range gnomeModifierBits(key) {
+		switch bit {
+		case modifierShift:
+			if held.shift {
+				return true
+			}
+		case modifierCtrl:
+			if held.ctrl {
+				return true
+			}
+		case modifierAlt:
+			if held.alt {
+				return true
+			}
+		case modifierSuper:
+			if held.super {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // clearHeldModifiers drops the named modifiers from the held set, for the error

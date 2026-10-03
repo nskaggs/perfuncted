@@ -23,6 +23,11 @@ import (
 // ErrNotFound is returned when a pixel pattern or color could not be located.
 var ErrNotFound = errors.New("not found")
 
+// ErrEmptyRegion reports a rectangle that covers no pixels, so there is nothing to
+// observe. It is distinct from ErrNotFound: the region was well formed, it simply
+// has no area.
+var ErrEmptyRegion = errors.New("region covers no pixels")
+
 const (
 	locateAnchorFallbackCandidates = 8
 	locateAnchorWindowBytes        = 16
@@ -520,6 +525,15 @@ func WaitForNoChangeFrom(ctx context.Context, sc Screenshotter, rect image.Recta
 	ctx = contextutil.Default(ctx)
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
+	}
+	// An empty rectangle covers no pixels. Backends read it as a request for the
+	// whole screen, so a settle loop given one compares full-screen content while
+	// the caller believes it is watching a region, and reports that region stable.
+	// Neither probe can catch it: the canonical path has nothing to hash and the
+	// Grab path gets a full-screen image back, which is not empty. Refuse it here,
+	// where the region is still known.
+	if rect.Empty() {
+		return 0, fmt.Errorf("find: wait-for-no-change region %v covers no pixels: %w", rect, ErrEmptyRegion)
 	}
 	streak := newStableStreak(initial, stable)
 

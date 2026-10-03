@@ -14,6 +14,8 @@ type recordingGnomeBridge struct {
 	// failOn makes a specific key event fail, so a failure can be aimed at the
 	// combination's own key rather than at setup.
 	failOn func(state string, keyval uint32) error
+	// textErr fails literal text, which is the step after a modifier is pressed.
+	textErr error
 }
 
 func (b *recordingGnomeBridge) Key(_ context.Context, keyval uint32, pressed bool) error {
@@ -28,7 +30,7 @@ func (b *recordingGnomeBridge) Key(_ context.Context, keyval uint32, pressed boo
 	return nil
 }
 
-func (b *recordingGnomeBridge) Text(context.Context, string) error  { return nil }
+func (b *recordingGnomeBridge) Text(context.Context, string) error  { return b.textErr }
 func (b *recordingGnomeBridge) Paste(context.Context, string) error { return nil }
 func (b *recordingGnomeBridge) PointerMove(context.Context, int32, int32) error {
 	return nil
@@ -190,4 +192,47 @@ func TestGnomeHeldModifierRecognizesEveryAcceptedSpelling(t *testing.T) {
 	if !held.ctrl || held.shift || held.alt || held.super {
 		t.Fatalf("a non-modifier key changed the held set: %+v", held)
 	}
+}
+
+// A duplicate down for a modifier the caller already holds acquires nothing. The
+// error path releases what this call pressed, so claiming it would drop a hold the
+// caller set up before the call started and leave their gesture broken.
+func TestGnomeDuplicateDownDoesNotReleaseAPreheldModifier(t *testing.T) {
+	for _, spelling := range []string{"ctrl", "shift", "alt", "super"} {
+		t.Run(spelling, func(t *testing.T) {
+			// Fail the literal that follows, so the duplicate down has already been
+			// processed when the call fails.
+			bridge := &recordingGnomeBridge{textErr: fmt.Errorf("injected failure")}
+			b := &GnomeNativeBackend{bridge: bridge}
+			ctx := context.Background()
+
+			if err := b.KeyDown(ctx, spelling); err != nil {
+				t.Fatalf("KeyDown(%s): %v", spelling, err)
+			}
+			keyval := gnomeModifierKeyvalForTest(spelling)
+			bridge.events = nil
+
+			// The modifier goes down again inside the call, then the call fails.
+			if err := b.Type(ctx, "{"+spelling+" down}x"); err == nil {
+				t.Fatal("Type succeeded, want the injected failure")
+			}
+
+			if ups := countGnomeKeyEvents(bridge.events, "up", keyval); ups != 0 {
+				t.Fatalf("%s released %d time(s) by a call that never acquired it\n%v", spelling, ups, bridge.events)
+			}
+			if !modifierIsHeld(b.held, spelling) {
+				t.Fatalf("%s is no longer recorded as held after the failed call", spelling)
+			}
+		})
+	}
+}
+
+// gnomeModifierKeyvalForTest returns the keyval the backend uses for a modifier
+// name, so a test can assert on the physical key events.
+func gnomeModifierKeyvalForTest(name string) uint32 {
+	resolved, ok := keymap.FromString(name)
+	if !ok {
+		return 0
+	}
+	return gnomeSpecialKeyvals[resolved]
 }
