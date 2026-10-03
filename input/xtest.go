@@ -173,10 +173,15 @@ var keysymForName = map[string]xproto.Keysym{
 	"f9": 0xffc6, "f10": 0xffc7, "f11": 0xffc8, "f12": 0xffc9,
 }
 
-// isoLevel3ShiftKeysym is ISO_Level3_Shift, the Mode_switch keysym. Layouts
-// that place characters behind AltGr map it to a physical key, usually the
-// right Alt.
+// isoLevel3ShiftKeysym is ISO_Level3_Shift, the keysym a layout assigns to the
+// key that switches to its third level, usually the right Alt. It is a different
+// keysym from modeSwitchKeysym even though both serve that role, and a layout may
+// map either one.
 const isoLevel3ShiftKeysym xproto.Keysym = 0xfe03
+
+// modeSwitchKeysym is Mode_switch, the alternative keysym a layout may map to the
+// key that reaches its third level.
+const modeSwitchKeysym xproto.Keysym = 0xff7e
 
 // levelModifierCapacity is the number of modifiers a keysym level can require:
 // Shift plus the layout's Mode_switch key.
@@ -185,13 +190,19 @@ const levelModifierCapacity = 2
 // levelModifiers returns the keycodes that must be held to produce a keysym
 // found at the given level of the keyboard mapping.
 //
-// GetKeyboardMapping lists each keycode's levels in a fixed order: unshifted,
-// shifted, AltGr, then AltGr+Shift. Only the second level is Shift. Treating
-// every level above the first as Shift produced a different character on any
-// layout with a third level, so a Euro sign typed on a German layout sent
-// Shift+key and delivered whatever Shift yields instead. XTEST can only send
-// keycodes, so AltGr has to be applied by pressing the key the layout maps to
-// Mode_switch.
+// For the common single-group mapping, GetKeyboardMapping lists each keycode's
+// levels as unshifted, shifted, AltGr, then AltGr+Shift, and only the second is
+// Shift. Treating every level above the first as Shift produced a different
+// character on any layout with a third level, so a Euro sign typed on a German
+// layout sent Shift+key and delivered whatever Shift yields instead.
+//
+// That four-slot order is a convention, not a guarantee: the reply reports its own
+// keysyms-per-keycode count and a map may hold more slots per keycode, in which
+// case a slot beyond the third needs XKB group and level information to name its
+// modifiers. Rather than guess a modifier for an unknown slot, a level this
+// backend cannot express is reported as unsupported. XTEST can only send
+// keycodes, so AltGr has to be applied by pressing the key the layout maps to the
+// keysym that switches to it.
 func (b *XTestBackend) levelModifiers(level int) ([]xproto.Keycode, error) {
 	return b.levelModifiersInto(nil, level)
 }
@@ -212,7 +223,7 @@ func (b *XTestBackend) levelModifiersInto(dst []xproto.Keycode, level int) ([]xp
 	case 3:
 		shift, altGr = true, true
 	default:
-		return dst, fmt.Errorf("input/xtest: keysym level %d exceeds the four levels X11 defines", level)
+		return dst, fmt.Errorf("input/xtest: keysym level %d needs keyboard-group information this backend does not have; it can only express unshifted, Shift, AltGr and AltGr+Shift", level)
 	}
 	if shift {
 		kc, err := b.keycodeFor("shift")
@@ -239,11 +250,17 @@ func (b *XTestBackend) altGrKeycode() (xproto.Keycode, error) {
 	if err != nil {
 		return 0, err
 	}
-	kl, ok := mapping[isoLevel3ShiftKeysym]
-	if !ok {
-		return 0, fmt.Errorf("input/xtest: layout has no Mode_shift key, so keysyms behind AltGr cannot be typed")
+	// Layouts disagree on which keysym switches to the third level. Some map
+	// ISO_Level3_Shift, some map Mode_switch, and the two are distinct keysyms, so
+	// looking only for the first reported a layout that does have AltGr as having
+	// none.
+	if kl, ok := mapping[isoLevel3ShiftKeysym]; ok {
+		return kl.keycode, nil
 	}
-	return kl.keycode, nil
+	if kl, ok := mapping[modeSwitchKeysym]; ok {
+		return kl.keycode, nil
+	}
+	return 0, fmt.Errorf("input/xtest: layout maps neither ISO_Level3_Shift nor Mode_switch, so keysyms behind AltGr cannot be typed")
 }
 
 // keycodeAndLevel looks up the keycode and level for a keysym by searching

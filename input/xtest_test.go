@@ -6,6 +6,7 @@ package input
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -569,5 +570,112 @@ func TestXTestRejectsNewWorkAfterClose(t *testing.T) {
 	}
 	if got := conn.closeCallCount(); got != 1 {
 		t.Fatalf("connection close calls after repeated Close = %d, want 1", got)
+	}
+}
+
+// A layout may map either ISO_Level3_Shift or Mode_switch to the key that reaches
+// its third level. They are distinct keysyms, so looking for only the first
+// reported a layout that does have AltGr as having none.
+func TestXTestAltGrAcceptsEitherThirdLevelKeysym(t *testing.T) {
+	const (
+		keysymsPerKey = 4
+		charKeycode   = 10
+		altGrKeycode  = 11
+	)
+
+	for _, testCase := range []struct {
+		name     string
+		altGrSym xproto.Keysym
+	}{
+		{"ISO_Level3_Shift", 0xfe03},
+		{"Mode_switch", 0xff7e},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			keysyms := []xproto.Keysym{
+				0, 0, 0, 0, // keycode 8: unused
+				0xffe1, 0, 0, 0, // keycode 9: left shift
+				0x61, 0x41, 0x20ac, 0x20ac, // keycode 10: a, A, Euro
+				testCase.altGrSym, 0, 0, 0, // keycode 11: the AltGr key
+			}
+
+			b, _ := newTestXTestBackend(t, keysymsPerKey, keysyms, nil)
+
+			kc, err := b.altGrKeycode()
+			if err != nil {
+				t.Fatalf("altGrKeycode: %v", err)
+			}
+			if kc != altGrKeycode {
+				t.Fatalf("altGrKeycode = %d, want %d", kc, altGrKeycode)
+			}
+
+			// The Euro sign sits at the third level, so reaching it needs AltGr.
+			required, err := b.levelModifiers(2)
+			if err != nil {
+				t.Fatalf("levelModifiers(2): %v", err)
+			}
+			if len(required) != 1 || required[0] != altGrKeycode {
+				t.Fatalf("levelModifiers(2) = %v, want just the AltGr keycode %d", required, altGrKeycode)
+			}
+			gotKeycode, level, err := b.keycodeAndLevel(0x20ac)
+			if err != nil {
+				t.Fatalf("Euro sign not reachable: %v", err)
+			}
+			if gotKeycode != charKeycode || level != 2 {
+				t.Fatalf("Euro sign at keycode %d level %d, want keycode %d level 2", gotKeycode, level, charKeycode)
+			}
+		})
+	}
+}
+
+// A layout that maps neither keysym genuinely has no reachable third level.
+func TestXTestAltGrAbsentReportsBothKeysyms(t *testing.T) {
+	keysyms := []xproto.Keysym{
+		0, 0, 0, 0, // keycode 8: unused
+		0xffe1, 0, 0, 0, // keycode 9: left shift
+		0x61, 0x41, 0x20ac, 0x20ac, // keycode 10: a, A, Euro
+		0xffe3, 0, 0, 0, // keycode 11: plain right Alt, not a third-level switch
+	}
+	b, _ := newTestXTestBackend(t, 4, keysyms, nil)
+
+	if _, err := b.altGrKeycode(); err == nil {
+		t.Fatal("altGrKeycode succeeded on a layout with no third-level switch")
+	} else if !strings.Contains(err.Error(), "ISO_Level3_Shift") || !strings.Contains(err.Error(), "Mode_switch") {
+		t.Fatalf("error = %v, want it to name both keysyms it looked for", err)
+	}
+}
+
+// A map may report more slots per keycode than the four this backend can name.
+// Naming a modifier for an unknown slot would guess, so the level is reported as
+// unsupported, and the message says what is actually missing rather than claiming
+// a limit X11 does not impose.
+func TestXTestWideMapReportsUnsupportedLevel(t *testing.T) {
+	const keysymsPerKey = 7
+
+	keysyms := []xproto.Keysym{
+		0, 0, 0, 0, 0, 0, 0, // keycode 8: unused
+		0xffe1, 0, 0, 0, 0, 0, 0, // keycode 9: left shift
+		0x61, 0x41, 0x20ac, 0x20ac, 0, 0, 0, // keycode 10: a, A, Euro
+		0xfe03, 0, 0, 0, 0, 0, 0, // keycode 11: ISO_Level3_Shift
+	}
+
+	b, _ := newTestXTestBackend(t, keysymsPerKey, keysyms, nil)
+
+	kc, level, err := b.keycodeAndLevel(0x20ac)
+	if err != nil {
+		t.Fatalf("Euro sign not reachable: %v", err)
+	}
+	if kc != 10 || level != 2 {
+		t.Fatalf("Euro sign at keycode %d level %d, want keycode 10 level 2", kc, level)
+	}
+	// A level this backend can name stays expressible on a wider map.
+	if required, err := b.levelModifiers(level); err != nil || len(required) != 1 {
+		t.Fatalf("levelModifiers(%d) = %v, err=%v; want one AltGr keycode", level, required, err)
+	}
+
+	// A level past what this backend can name is refused, and says why.
+	if _, err := b.levelModifiers(5); err == nil {
+		t.Fatal("levelModifiers(5) succeeded, want an unsupported-level error")
+	} else if !strings.Contains(err.Error(), "keyboard-group") {
+		t.Fatalf("unsupported-level error = %v, want it to name the missing keyboard-group information", err)
 	}
 }
