@@ -340,6 +340,19 @@ func translatePointsToImage(
 		return nil, errors.New("screen: capture region or image has empty bounds")
 	}
 
+	// A capture that came back smaller than the requested region is not a scaled
+	// version of the whole region: it is the part the backend could actually get.
+	// Scaling the region into it anyway maps a point near the clipped edge onto a
+	// pixel that stands for a different place on screen. Require the two axes to
+	// describe one uniform scale before translating anything, so a clipped capture
+	// is refused rather than sampled from the wrong location.
+	if imageWidth*uint64(regionHeight) != imageHeight*uint64(regionWidth) {
+		return nil, fmt.Errorf(
+			"screen: capture %v is not a uniform scaling of region %v: the capture is clipped",
+			imageBounds, region,
+		)
+	}
+
 	out := make([]image.Point, 0, len(points))
 	for _, point := range points {
 		if !point.In(region) {

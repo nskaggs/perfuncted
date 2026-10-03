@@ -234,3 +234,35 @@ func abs(v int) int {
 	}
 	return v
 }
+
+// A capture smaller than the requested region is the part the backend could get,
+// not a scaled version of the whole thing. Scaling the region into it anyway maps
+// a point near the clipped edge onto a pixel standing for a different place, so
+// the mismatch has to be refused rather than sampled.
+func TestTranslatePointsRejectsAClippedCapture(t *testing.T) {
+	region := image.Rect(0, 0, 100, 100)
+
+	// A uniform downscale is fine: 50x50 for a 100x100 region.
+	uniform := image.Rect(0, 0, 50, 50)
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, uniform); err != nil {
+		t.Fatalf("a uniform scaling was refused: %v", err)
+	}
+
+	// A uniform upscale is fine too.
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 200, 200)); err != nil {
+		t.Fatalf("a uniform upscale was refused: %v", err)
+	}
+
+	// Clipped on one axis only: 50x100 for a 100x100 region.
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 100)); err == nil {
+		t.Fatal("a capture clipped on one axis was treated as a scaled region")
+	}
+	// Clipped on the other axis only.
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 25)); err == nil {
+		t.Fatal("a capture clipped on the other axis was treated as a scaled region")
+	}
+	// A non-uniform stretch is not a capture at all.
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 25)); err == nil {
+		t.Fatal("a non-uniform scaling was accepted")
+	}
+}
