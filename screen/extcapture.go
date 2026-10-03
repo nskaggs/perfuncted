@@ -246,6 +246,23 @@ func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 }
 
 // GrabRegionHash computes a canonical find.PixelHash fingerprint for rect.
+// croppedHashRegion resolves the requested logical region to the physical pixels of
+// a w x h capture, and refuses a region that covers none of them.
+//
+// Refusing matters because zero is a perfectly valid checksum for a real region: a
+// settle loop polling a region that covers nothing would otherwise see a constant
+// value and declare it stable.
+func croppedHashRegion(rect image.Rectangle, scale, w, h int) (image.Rectangle, error) {
+	if scale <= 0 {
+		scale = 1
+	}
+	r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, w, h))
+	if r.Empty() {
+		return image.Rectangle{}, fmt.Errorf("screen/ext: region %v covers no pixels of a %dx%d capture", rect, w, h)
+	}
+	return r, nil
+}
+
 func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
@@ -257,10 +274,9 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 		if scale <= 0 {
 			scale = 1
 		}
-		r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, w, h))
-		if r.Empty() {
-			hash = 0
-			return nil
+		r, err := croppedHashRegion(rect, scale, w, h)
+		if err != nil {
+			return err
 		}
 		if r.Min.X < 0 || (r.Max.Y-1)*stride+r.Max.X*4 > len(pixels) {
 			return fmt.Errorf("screen/ext: region out of bounds")

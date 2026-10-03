@@ -367,3 +367,31 @@ func TestExtCaptureScaleDrivesTheCaptureRegion(t *testing.T) {
 		t.Fatalf("region at the recorded scale = %v, want %v", got, want)
 	}
 }
+
+// A region that covers no pixels of the capture must not hash to zero. Zero is a
+// valid checksum for a real region, so a settle loop polling a nonexistent region
+// saw a constant value and declared it stable.
+func TestCroppedHashRegionRejectsRegionCoveringNoPixels(t *testing.T) {
+	const w, h = 100, 50
+	inside := image.Rect(0, 0, 10, 10)
+	got, err := croppedHashRegion(inside, 1, w, h)
+	if err != nil {
+		t.Fatalf("a region inside the capture was refused: %v", err)
+	}
+	if got.Empty() {
+		t.Fatal("a region inside the capture resolved to nothing")
+	}
+
+	// Wholly outside the capture.
+	if _, err := croppedHashRegion(image.Rect(500, 500, 520, 520), 1, w, h); err == nil {
+		t.Fatal("a region wholly outside the capture was accepted")
+	}
+	// Degenerate: no pixels at all.
+	if _, err := croppedHashRegion(image.Rectangle{}, 1, w, h); err == nil {
+		t.Fatal("an empty region was accepted")
+	}
+	// Entirely outside in the scaled space only.
+	if _, err := croppedHashRegion(image.Rect(10, 10, 20, 20), 8, w, h); err == nil {
+		t.Fatal("a region pushed outside the capture by scaling was accepted")
+	}
+}

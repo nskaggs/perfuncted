@@ -456,6 +456,14 @@ func canonicalHashProbe(
 	if !ok || !fast.CanonicalHashing() {
 		return nil
 	}
+	// An empty rectangle has no pixels to hash, and GrabHash reads it as a request
+	// for the whole screen. Letting that through would settle the loop against the
+	// full screen while the caller believed it was watching a region, so decline
+	// the fast path and let the Grab fallback reject it the way it does for an
+	// empty image.
+	if rect.Empty() {
+		return nil
+	}
 	return func(int) (bool, uint32, error) {
 		h, err := GrabHash(ctx, sc, rect, newHash)
 		if err != nil {
