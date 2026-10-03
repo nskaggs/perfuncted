@@ -476,7 +476,7 @@ func TestScreenBundle_GetMultiplePixelsMapsAcrossOutputScale(t *testing.T) {
 		capture.SetRGBA(point.X*scale, point.Y*scale, want)
 	}
 
-	sc := &pftest.Screenshotter{Frames: []image.Image{capture}}
+	sc := &pftest.Screenshotter{GrabFunc: func(context.Context, image.Rectangle) (image.Image, error) { return capture, nil }}
 	pf := newTestPF(sc)
 	defer pf.Close()
 

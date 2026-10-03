@@ -38,6 +38,10 @@ type Screenshotter struct {
 	Err error
 	// ZeroOrigin rebases returned images to an origin of (0, 0).
 	ZeroOrigin bool
+	// GrabFunc replaces the built-in capture behaviour entirely, for a backend
+	// that returns something the configured frames cannot express, such as a
+	// capture already at the output's pixel scale.
+	GrabFunc func(ctx context.Context, rect image.Rectangle) (image.Image, error)
 
 	mu  sync.Mutex
 	idx int
@@ -49,6 +53,9 @@ func (s *Screenshotter) CanonicalHashing() bool { return true }
 
 // Grab returns the next configured frame, optionally cropped to rect.
 func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	if s.GrabFunc != nil {
+		return s.GrabFunc(ctx, rect)
+	}
 	if s.Err != nil {
 		return nil, s.Err
 	}
@@ -62,14 +69,20 @@ func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.I
 		if h == 0 {
 			h = 1
 		}
-		return image.NewRGBA(image.Rect(0, 0, w, h)), nil
+		full := image.Rect(0, 0, w, h)
+		if rect.Empty() {
+			return image.NewRGBA(full), nil
+		}
+		// Return the requested region, as a real capture backend does.
+		target := rect.Intersect(full)
+		if target.Empty() {
+			return image.NewRGBA(image.Rect(0, 0, 0, 0)), nil
+		}
+		return image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy())), nil
 	}
 	f := s.Frames[s.idx]
 	if s.idx < len(s.Frames)-1 {
 		s.idx++
-	}
-	if !s.ZeroOrigin {
-		return f, nil
 	}
 	target := rect
 	if target.Empty() {
@@ -79,6 +92,12 @@ func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.I
 	if target.Empty() {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0)), nil
 	}
+	if !s.ZeroOrigin && target == f.Bounds() {
+		return f, nil
+	}
+	// A capture backend returns the requested region, and callers rely on that: a
+	// whole frame returned for a sub-region is read as a capture that came back
+	// clipped rather than scaled, which the pixel-mapping path refuses.
 	out := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
 	draw.Draw(out, out.Bounds(), f, target.Min, draw.Src)
 	return out, nil
