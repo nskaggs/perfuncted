@@ -160,3 +160,34 @@ func TestGnomeFailureReleasesOnlyItsOwnModifiers(t *testing.T) {
 		t.Fatal("the caller's held shift was forgotten after a failed combination")
 	}
 }
+
+// The keymap accepts several spellings for each modifier. Held-state tracking
+// switched on the raw string, so a modifier the caller held under an alias was
+// invisible and the next combination released it mid-gesture.
+func TestGnomeHeldModifierRecognizesEveryAcceptedSpelling(t *testing.T) {
+	for _, name := range []string{
+		"ctrl", "control", "control_l", "CTRL", "Control_L",
+		"shift", "shift_l", "SHIFT",
+		"alt", "alt_l", "Alt_L",
+		"super", "meta", "logo", "super_l",
+	} {
+		t.Run(name, func(t *testing.T) {
+			held := modifiers{}
+			updateHeldModifier(&held, name, true)
+			if !held.any() {
+				t.Fatalf("%q resolved to a modifier but was not recorded as held", name)
+			}
+			updateHeldModifier(&held, name, false)
+			if held.any() {
+				t.Fatalf("%q was not cleared on release: %+v", name, held)
+			}
+		})
+	}
+
+	// A key that is not a modifier must not touch the held set.
+	held := modifiers{ctrl: true}
+	updateHeldModifier(&held, "a", true)
+	if !held.ctrl || held.shift || held.alt || held.super {
+		t.Fatalf("a non-modifier key changed the held set: %+v", held)
+	}
+}

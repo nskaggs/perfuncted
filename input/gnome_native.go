@@ -300,20 +300,60 @@ func (b *GnomeNativeBackend) temporaryModifierKeyvals(mod modifiers, held modifi
 	return gnomeModifierKeyvals(requested)
 }
 
+// updateHeldModifier records or clears the modifier a key name resolved to.
+//
+// The identity comes from the resolved keyval rather than the spelling, because
+// the keymap accepts several names for the same modifier: "control_l",
+// "shift_l", "alt_l", "super_l" and any casing all resolve to the modifier they
+// name. Switching on the raw string missed those, so a modifier held by the
+// caller under one spelling was invisible and a later combination released it.
 func updateHeldModifier(held *modifiers, key string, down bool) {
 	if held == nil {
 		return
 	}
-	switch key {
-	case "ctrl", "control":
-		held.ctrl = down
-	case "alt":
-		held.alt = down
-	case "shift":
-		held.shift = down
-	case "super", "meta", "win", "logo":
-		held.super = down
+	for _, bit := range gnomeModifierBits(key) {
+		switch bit {
+		case modifierCtrl:
+			held.ctrl = down
+		case modifierAlt:
+			held.alt = down
+		case modifierShift:
+			held.shift = down
+		case modifierSuper:
+			held.super = down
+		}
 	}
+}
+
+// The modifier identities a key name can resolve to.
+const (
+	modifierShift = 1 << iota
+	modifierCtrl
+	modifierAlt
+	modifierSuper
+)
+
+// gnomeModifierBits reports which modifier a key name resolves to, or none when it
+// is not one of the modifiers this backend holds.
+func gnomeModifierBits(key string) []uint {
+	var bits []uint
+	resolved, ok := keymap.FromString(key)
+	if !ok {
+		return nil
+	}
+	// FromString canonicalizes every accepted spelling, including the _l forms and
+	// any casing, to one key per physical modifier.
+	switch resolved {
+	case keymap.KeyShift:
+		bits = append(bits, modifierShift)
+	case keymap.KeyCtrl:
+		bits = append(bits, modifierCtrl)
+	case keymap.KeyAlt:
+		bits = append(bits, modifierAlt)
+	case keymap.KeySuper:
+		bits = append(bits, modifierSuper)
+	}
+	return bits
 }
 
 func gnomeModifierKeyvals(mod modifiers) []uint32 {
