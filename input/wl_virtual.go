@@ -78,6 +78,22 @@ const (
 	fallbackOutputHeight = 1080
 )
 
+// wl_output delivers the scale event from version 2. motion_absolute is
+// measured against the output's logical size, so without the scale the physical
+// mode size is encoded as if it were logical and absolute pointer motion lands
+// in the wrong place on a scaled output.
+const (
+	wlOutputScaleVersion = 2
+	wlOutputScaleOpcode  = 3
+)
+
+// wlOutputBindVersion returns the wl_output version to bind at: high enough to
+// deliver the scale event, never higher than the compositor advertises, and
+// never above the version whose opcodes this backend reads.
+func wlOutputBindVersion(advertised uint32) uint32 {
+	return min(advertised, wlOutputScaleVersion)
+}
+
 // setOutputExtentFallback seeds the logical extent used until a wl_output mode
 // event reports the real geometry.
 func (b *WlVirtualBackend) setOutputExtentFallback() {
@@ -138,7 +154,7 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 
 	var ptrMgrID, ptrMgrVer uint32
 	var kbdMgrID, kbdMgrVer uint32
-	var outID, seatID uint32
+	var outID, outVer, seatID uint32
 
 	for _, ev := range s.GlobalsSnapshot() {
 		switch ev.Interface {
@@ -159,6 +175,7 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 		case "wl_output":
 			if outID == 0 {
 				outID = ev.Name
+				outVer = ev.Version
 			}
 		}
 	}
@@ -191,7 +208,11 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 		wlctx.Register(outProxy)
 		b.setOutputExtentFallback()
 		if outID != 0 {
-			if bindErr := registry.BindContext(cancel, outID, "wl_output", 1, outProxy.ID()); bindErr == nil {
+			if bindErr := registry.BindContext(
+				cancel, outID, "wl_output",
+				wlOutputBindVersion(outVer),
+				outProxy.ID(),
+			); bindErr == nil {
 				// Handle mode (physical size) and scale events and maintain logical dims.
 				outProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 					switch opcode {
@@ -199,7 +220,7 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 						if mode, ok := wl.DecodeOutputMode(data); ok {
 							b.applyOutputMode(mode.Width, mode.Height)
 						}
-					case 3: // scale
+					case wlOutputScaleOpcode: // scale
 						if len(data) >= 4 {
 							b.applyOutputScale(wl.Uint32(data[0:4]))
 						}

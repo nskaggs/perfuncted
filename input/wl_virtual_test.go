@@ -488,3 +488,76 @@ func TestWlVirtualBackendQueuedOperationCancellation(t *testing.T) {
 		t.Fatalf("first operation error = %v, want context.Canceled", err)
 	}
 }
+
+// wl_output only sends the scale event from version 2, and the logical extent
+// that motion_absolute is measured and encoded against depends on it.
+func TestWlOutputBindVersionRequestsTheScaleEvent(t *testing.T) {
+	cases := []struct {
+		name       string
+		advertised uint32
+		want       uint32
+	}{
+		{name: "version 1 cannot carry scale", advertised: 1, want: 1},
+		{name: "version 2 carries scale", advertised: 2, want: 2},
+		{name: "newer versions bind no higher", advertised: 4, want: 2},
+		{name: "unspecified", advertised: 0, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wlOutputBindVersion(tc.advertised); got != tc.want {
+				t.Fatalf("wlOutputBindVersion(%d) = %d, want %d", tc.advertised, got, tc.want)
+			}
+		})
+	}
+}
+
+// motion_absolute carries the output's logical size, so the extent has to come
+// from the mode size divided by the output scale.
+//
+// A version 1 bind receives no scale event at all, which is why the bind
+// version decides this: the two cases below differ only in whether the scale
+// event arrived, and the extent differs by the scale factor.
+func TestOutputExtentDependsOnWhetherTheScaleEventArrives(t *testing.T) {
+	const (
+		modeW = uint32(3840)
+		modeH = uint32(2160)
+	)
+
+	// Version 1: only the mode event is delivered.
+	v1 := &WlVirtualBackend{}
+	v1.applyOutputMode(modeW, modeH)
+	gotW, gotH := v1.outputExtent()
+	if gotW != modeW || gotH != modeH {
+		t.Fatalf("version 1 extent = %dx%d, want the mode size %dx%d", gotW, gotH, modeW, modeH)
+	}
+
+	// Version 2: the scale event is delivered before the mode.
+	for _, scale := range []uint32{1, 2, 3} {
+		v2 := &WlVirtualBackend{}
+		v2.applyOutputScale(scale)
+		v2.applyOutputMode(modeW, modeH)
+		gotW, gotH := v2.outputExtent()
+		if wantW, wantH := modeW/scale, modeH/scale; gotW != wantW || gotH != wantH {
+			t.Fatalf("scale %d extent = %dx%d, want %dx%d", scale, gotW, gotH, wantW, wantH)
+		}
+	}
+
+	// A scale event before any mode has no geometry to divide yet.
+	early := &WlVirtualBackend{}
+	early.applyOutputScale(2)
+	if gotW, gotH := early.outputExtent(); gotW != 0 || gotH != 0 {
+		t.Fatalf("extent before any mode = %dx%d, want 0x0", gotW, gotH)
+	}
+}
+
+// The scale has to survive a zero, which wl_output never sends but which would
+// otherwise divide by zero.
+func TestApplyOutputScaleNormalizesZero(t *testing.T) {
+	b := &WlVirtualBackend{}
+	b.applyOutputMode(2560, 1440)
+	b.applyOutputScale(0)
+	gotW, gotH := b.outputExtent()
+	if gotW != 2560 || gotH != 1440 {
+		t.Fatalf("extent after a zero scale = %dx%d, want 2560x1440", gotW, gotH)
+	}
+}
