@@ -708,7 +708,6 @@ func (b *UinputBackend) PointerLocation(ctx context.Context) (int, int, error) {
 	return 0, 0, err
 }
 
-// Sync flushes pending uinput events.
 // Close marks the backend closed, waits for admitted operations to finish, and
 // releases each uinput device exactly once.
 func (b *UinputBackend) Close() error {

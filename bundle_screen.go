@@ -31,11 +31,11 @@ type ScreenBundle struct {
 // receiver and panics, before bundleBase's own nil check can run. Every traced
 // entry point therefore has to tolerate a nil receiver the way checkAvailable
 // does.
-func (s *ScreenBundle) traceAction(component, format string, args ...any) {
+func (s *ScreenBundle) traceAction(format string, args ...any) {
 	if s == nil {
 		return
 	}
-	s.bundleBase.traceAction(component, format, args...)
+	s.bundleBase.traceAction("screen", format, args...)
 }
 
 func (s *ScreenBundle) checkAvailable(operation string) error {
@@ -59,7 +59,7 @@ func (s *ScreenBundle) grabHash(
 	if err := s.checkAvailable("hash"); err != nil {
 		return 0, err
 	}
-	s.traceAction("screen", "grab-hash rect=%s", rect)
+	s.traceAction("grab-hash rect=%s", rect)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	hash, err := find.GrabHash(ctx, s.backend, rect, nil)
@@ -73,7 +73,7 @@ func (s *ScreenBundle) grab(
 	if err := s.checkAvailable("capture"); err != nil {
 		return nil, err
 	}
-	s.traceAction("screen", "grab rect=%s", rect)
+	s.traceAction("grab rect=%s", rect)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := s.backend.Grab(ctx, rect)
@@ -103,7 +103,7 @@ func (s *ScreenBundle) GrabRegionHash(
 
 // GetAllPixels captures the full screen.
 func (s *ScreenBundle) GetAllPixels(ctx context.Context) (image.Image, error) {
-	s.traceAction("screen", "get-all-pixels")
+	s.traceAction("get-all-pixels")
 	return s.grab(ctx, image.Rectangle{})
 }
 
@@ -112,7 +112,7 @@ func (s *ScreenBundle) GrabRegion(
 	ctx context.Context,
 	rect image.Rectangle,
 ) (image.Image, error) {
-	s.traceAction("screen", "grab-region rect=%s", rect)
+	s.traceAction("grab-region rect=%s", rect)
 	return s.grab(ctx, rect)
 }
 
@@ -122,7 +122,7 @@ func (s *ScreenBundle) CaptureRegion(
 	rect image.Rectangle,
 	path string,
 ) error {
-	s.traceAction("screen", "capture-region rect=%s path=%q", rect, path)
+	s.traceAction("capture-region rect=%s path=%q", rect, path)
 	img, err := s.grab(ctx, rect)
 	if err != nil {
 		return err
@@ -162,7 +162,7 @@ func (s *ScreenBundle) GetPixel(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return color.RGBA{}, err
 	}
-	s.traceAction("screen", "get-pixel x=%d y=%d", x, y)
+	s.traceAction("get-pixel x=%d y=%d", x, y)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	if x == math.MaxInt || y == math.MaxInt {
@@ -187,7 +187,7 @@ func (s *ScreenBundle) GetMultiplePixels(
 	if err := s.checkAvailable("pixel"); err != nil {
 		return nil, err
 	}
-	s.traceAction("screen", "get-multiple-pixels count=%d", len(points))
+	s.traceAction("get-multiple-pixels count=%d", len(points))
 	out := make([]color.RGBA, len(points))
 	if len(points) == 0 {
 		return out, nil
@@ -237,7 +237,7 @@ func (s *ScreenBundle) WaitForFn(
 	if err := s.checkAvailable("wait"); err != nil {
 		return nil, err
 	}
-	s.traceAction("screen", "wait-for-fn rect=%s poll=%s", rect, poll)
+	s.traceAction("wait-for-fn rect=%s poll=%s", rect, poll)
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := find.WaitForFn(ctx, s.backend, rect, fn, poll)
@@ -256,7 +256,6 @@ func (s *ScreenBundle) WaitForSettle(
 		return 0, err
 	}
 	s.traceAction(
-		"screen",
 		"wait-for-settle rect=%s stable=%d poll=%s",
 		rect,
 		stable,
@@ -346,7 +345,7 @@ func translatePointsToImage(
 	// pixel that stands for a different place on screen. Require the two axes to
 	// describe one uniform scale before translating anything, so a clipped capture
 	// is refused rather than sampled from the wrong location.
-	if imageWidth*uint64(regionHeight) != imageHeight*uint64(regionWidth) {
+	if imageWidth*regionHeight != imageHeight*regionWidth {
 		return nil, fmt.Errorf(
 			"screen: capture %v is not a uniform scaling of region %v: the capture is clipped",
 			imageBounds, region,

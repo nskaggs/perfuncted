@@ -49,7 +49,7 @@ func (c Capture) ScreenPoint(pixel image.Point) (image.Point, error) {
 // backend does not expose a backend-independent desktop rectangle for an
 // image-only full-screen capture.
 func (s *ScreenBundle) Capture(ctx context.Context, rect image.Rectangle) (Capture, error) {
-	s.traceAction("screen", "capture rect=%s", rect)
+	s.traceAction("capture rect=%s", rect)
 	if rect.Empty() {
 		return Capture{}, fmt.Errorf("screen: capture provenance requires a non-empty rectangle: %w", ErrInvalidArgument)
 	}

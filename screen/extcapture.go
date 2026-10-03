@@ -53,6 +53,10 @@ func (b *ExtCaptureBackend) applyOutputEvent(opcode uint32, data []byte) {
 	}
 }
 
+// ExtCaptureBackend captures screen regions through an external capture process
+// reached over the accessibility bus. It exists because some compositors expose no
+// in-process capture path, so the pixels come from a helper this backend owns and
+// must shut down.
 type ExtCaptureBackend struct {
 	// mu protects the session-owned protocol state, shm, manager globals, and outputProxy.
 	mu sync.Mutex
@@ -263,6 +267,8 @@ func croppedHashRegion(rect image.Rectangle, scale, w, h int) (image.Rectangle, 
 	return r, nil
 }
 
+// GrabRegionHash hashes the capture of rect, so callers that only compare regions
+// do not have to retain the pixels.
 func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)

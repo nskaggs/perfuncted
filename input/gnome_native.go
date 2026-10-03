@@ -533,8 +533,6 @@ func (b *GnomeNativeBackend) PointerLocation(ctx context.Context) (int, int, err
 	return x, y, err
 }
 
-// Sync is unavailable because Mutter's virtual-input API does not expose a
-// completion barrier for its input-thread work.
 // Close releases the GNOME bridge connection.
 func (b *GnomeNativeBackend) Close() error {
 	if b == nil || b.bridge == nil {
