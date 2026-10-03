@@ -383,6 +383,13 @@ func windowResolutionChangeError(change observationChange, desktop objectIdentit
 }
 
 func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
+	// Work on nodes this function owns. Without this it bounded the caller's node
+	// structs in place and returned a graph still sharing the caller's maps, so a
+	// caller that read the result could reach back into the snapshot it supplied.
+	snapshot.Nodes = cloneSnapshotNodes(snapshot.Nodes)
+	if len(snapshot.Nodes) > 0 {
+		snapshot.Root = snapshot.Nodes[0]
+	}
 	if maxBytes <= 0 || snapshotJSONSize(snapshot) <= maxBytes {
 		return snapshot, nil
 	}
@@ -405,8 +412,13 @@ func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
 	low, high, best := 0, len(snapshot.Nodes), -1
 	for low <= high {
 		middle := low + (high-low)/2
+		// The candidate has to own its nodes' maps. Node carries a Relations map and
+		// an Attributes map, so a shallow copy shares them with the input and with
+		// every other probe. Pruning then deleted relations from the snapshot it was
+		// supposed to be measuring, which corrupted the caller's graph and made a
+		// later, larger probe see an already-pruned one.
 		candidate := snapshot
-		candidate.Nodes = append([]Node(nil), snapshot.Nodes[:middle]...)
+		candidate.Nodes = cloneSnapshotNodes(snapshot.Nodes[:middle])
 		if middle == 0 {
 			candidate.Root = Node{ID: originalRoot}
 		} else {
@@ -424,7 +436,9 @@ func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
 		snapshot.Nodes = nil
 		snapshot.Root = Node{ID: originalRoot}
 	} else {
-		snapshot.Nodes = append([]Node(nil), snapshot.Nodes[:best]...)
+		// The returned graph owns its nodes too, so the caller's snapshot is not
+		// aliased by whatever the caller does with the result.
+		snapshot.Nodes = cloneSnapshotNodes(snapshot.Nodes[:best])
 		if best == 0 {
 			snapshot.Root = Node{ID: originalRoot}
 		} else {
@@ -445,6 +459,35 @@ func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
 		return minimum, nil
 	}
 	return snapshot, nil
+}
+
+// cloneSnapshotNodes copies the node slice along with each node's maps and
+// slices, so a projection can be pruned without touching what it was derived
+// from.
+func cloneSnapshotNodes(nodes []Node) []Node {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make([]Node, len(nodes))
+	for i := range nodes {
+		out[i] = nodes[i]
+		if attrs := nodes[i].Attributes; len(attrs) > 0 {
+			out[i].Attributes = make(map[string]string, len(attrs))
+			for k, v := range attrs {
+				out[i].Attributes[k] = v
+			}
+		}
+		if relations := nodes[i].Relations; len(relations) > 0 {
+			out[i].Relations = make(map[string][]NodeID, len(relations))
+			for relation, targets := range relations {
+				out[i].Relations[relation] = append([]NodeID(nil), targets...)
+			}
+		}
+		if children := nodes[i].Children; len(children) > 0 {
+			out[i].Children = append([]NodeID(nil), children...)
+		}
+	}
+	return out
 }
 
 func pruneSnapshotReferences(snapshot *Snapshot) {
