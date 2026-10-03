@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,14 +130,55 @@ func TestAccessibilityNodeExistsWaitSurfacesSustainedIncompleteSnapshots(t *test
 type waitAccessibilityEventBackend struct {
 	waitAccessibilityBackend
 	events chan accessibility.Event
+
+	// opened closes once the wait machinery has opened an event stream, and
+	// delivered closes once an event has been handed to that stream. A test
+	// needs both to claim an event arrived during a wait, rather than before
+	// the wait was subscribed.
+	opened        chan struct{}
+	delivered     chan struct{}
+	openedOnce    sync.Once
+	deliveredOnce sync.Once
 }
 
-func (b *waitAccessibilityEventBackend) Events(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error) {
-	return b.events, nil
+func newWaitAccessibilityEventBackend() *waitAccessibilityEventBackend {
+	return &waitAccessibilityEventBackend{
+		events:    make(chan accessibility.Event, 1),
+		opened:    make(chan struct{}),
+		delivered: make(chan struct{}),
+	}
+}
+
+func (b *waitAccessibilityEventBackend) Events(
+	ctx context.Context,
+	_ accessibility.EventOptions,
+) (<-chan accessibility.Event, error) {
+	b.openedOnce.Do(func() { close(b.opened) })
+	out := make(chan accessibility.Event, 8)
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-b.events:
+				if !ok {
+					return
+				}
+				select {
+				case out <- event:
+					b.deliveredOnce.Do(func() { close(b.delivered) })
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return out, nil
 }
 
 func TestWaitChangesIncludesAccessibilityEvents(t *testing.T) {
-	backend := &waitAccessibilityEventBackend{events: make(chan accessibility.Event, 1)}
+	backend := newWaitAccessibilityEventBackend()
 	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
 	wake := session.waitChanges()
@@ -169,33 +211,46 @@ func TestWaitEpochKeepsWakeAttributionAcrossRapidNotifications(t *testing.T) {
 }
 
 func TestWaitWithEvidenceReportsAccessibilityWake(t *testing.T) {
-	backend := &waitAccessibilityEventBackend{
-		events: make(chan accessibility.Event, 1),
-	}
+	backend := newWaitAccessibilityEventBackend()
 	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
-	entered := make(chan struct{})
+
+	// The wait opens its event stream lazily, on its first evaluation, so the
+	// event is sent once the stream exists. The condition then blocks until the
+	// event has entered the stream and only reports satisfied on the evaluation
+	// after the wake it produced, so the wait ends on the wakeup rather than on
+	// a timeout. The poll interval is long enough that the event, not the poll,
+	// is what wakes the wait, which is what the evidence asserts.
 	go func() {
-		<-entered
+		<-backend.opened
 		backend.events <- accessibility.Event{Kind: "state-changed", Property: "enabled"}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	first := true
-	evidence, err := session.WaitWithEvidence(ctx, sessionCondition("never", func(context.Context, *Session) (bool, error) {
-		if first {
-			first = false
-			close(entered)
+	evaluations := 0
+	evidence, err := session.WaitWithEvidence(ctx, sessionCondition("after event", func(ctx context.Context, _ *Session) (bool, error) {
+		evaluations++
+		if evaluations == 1 {
+			select {
+			case <-backend.delivered:
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+			return false, nil
 		}
-		return false, nil
-	}), WaitEvery(time.Millisecond))
-	if err == nil {
-		t.Fatal("WaitWithEvidence error = nil, want deadline")
+		return true, nil
+	}), WaitEvery(250*time.Millisecond))
+	if err != nil {
+		t.Fatalf("WaitWithEvidence: %v", err)
 	}
 	if evidence.AccessibilityWakeups == 0 || evidence.LastAccessibilityEvent == nil {
 		t.Fatalf("wait evidence = %+v, want accessibility wakeup and event", evidence)
 	}
 	if evidence.LastAccessibilityEvent.Kind != "state-changed" {
 		t.Fatalf("last accessibility event = %+v", evidence.LastAccessibilityEvent)
+	}
+	if evidence.PollWakeups != 0 {
+		t.Fatalf("wait evidence = %+v, want the wake attributed to the event rather than a poll", evidence)
 	}
 }
