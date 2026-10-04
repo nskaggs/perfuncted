@@ -100,7 +100,11 @@ var nameToKey = map[string]Key{
 	"ctrl": KeyCtrl, "control": KeyCtrl, "control_l": KeyCtrl,
 	"alt": KeyAlt, "alt_l": KeyAlt,
 	"shift": KeyShift, "shift_l": KeyShift,
-	"super": KeySuper, "meta": KeySuper, "logo": KeySuper, "super_l": KeySuper,
+	// "win" is accepted in combo syntax by input/keysend.go, so it is part of the
+	// input contract and has to resolve here too. Held-modifier tracking resolves
+	// names through this table, so a name it lacks is invisible to that tracking
+	// even though the combo parser accepts it.
+	"super": KeySuper, "meta": KeySuper, "logo": KeySuper, "super_l": KeySuper, "win": KeySuper,
 
 	// arrows and navigation
 	"up": KeyUp, "down": KeyDown, "left": KeyLeft, "right": KeyRight,

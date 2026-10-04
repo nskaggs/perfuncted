@@ -236,3 +236,33 @@ func gnomeModifierKeyvalForTest(name string) uint32 {
 	}
 	return gnomeSpecialKeyvals[resolved]
 }
+
+// "win" is accepted in combo syntax, so a caller may hold the modifier under that
+// name. Held-modifier tracking resolves names through the keymap, so a name it
+// lacks is invisible and a later combination presses and then releases the
+// caller's own key.
+func TestGnomeHeldModifierRecognizesWinAlias(t *testing.T) {
+	held := modifiers{}
+	updateHeldModifier(&held, "win", true)
+	if !modifierIsHeld(held, "win") {
+		t.Fatal(`"win" is accepted in combo syntax but was not recorded as a held modifier`)
+	}
+	if !held.super {
+		t.Fatalf(`"win" did not resolve to the super modifier: %+v`, held)
+	}
+	updateHeldModifier(&held, "win", false)
+	if held.any() {
+		t.Fatalf(`"win" was not cleared on release: %+v`, held)
+	}
+
+	// Every name the combo parser accepts must resolve, or the two disagree about
+	// what a modifier is called.
+	for _, name := range []string{"ctrl", "control", "control_l", "alt", "alt_l", "shift", "shift_l", "super", "meta", "logo", "super_l", "win"} {
+		if !isModifierName(name) {
+			continue
+		}
+		if _, ok := keymap.FromString(name); !ok {
+			t.Errorf("combo parser accepts modifier %q but the keymap does not resolve it", name)
+		}
+	}
+}
