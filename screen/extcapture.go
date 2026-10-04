@@ -241,8 +241,9 @@ func NewExtCaptureBackendForSocketContext(cancel context.Context, sock string) (
 func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	var hash uint32
 	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
-		hash = find.PixelHashBGRA(pixels, w, h, stride, image.Rectangle{})
-		return nil
+		var err error
+		hash, err = find.PixelHashBGRA(pixels, w, h, stride, image.Rectangle{})
+		return err
 	}); err != nil {
 		return 0, err
 	}
@@ -255,14 +256,16 @@ func (b *ExtCaptureBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 //
 // Refusing matters because zero is a perfectly valid checksum for a real region: a
 // settle loop polling a region that covers nothing would otherwise see a constant
-// value and declare it stable.
+// value and declare it stable. Every region-hash backend resolves its region here so
+// that a region outside the frame is an error rather than a checksum that reads as
+// stability.
 func croppedHashRegion(rect image.Rectangle, scale, w, h int) (image.Rectangle, error) {
 	if scale <= 0 {
 		scale = 1
 	}
 	r := logicalRectToPhysical(rect, scale).Intersect(image.Rect(0, 0, w, h))
 	if r.Empty() {
-		return image.Rectangle{}, fmt.Errorf("screen/ext: region %v covers no pixels of a %dx%d capture", rect, w, h)
+		return image.Rectangle{}, fmt.Errorf("screen: region %v covers no pixels of a %dx%d capture: %w", rect, w, h, find.ErrEmptyRegion)
 	}
 	return r, nil
 }
@@ -287,8 +290,8 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 		if r.Min.X < 0 || (r.Max.Y-1)*stride+r.Max.X*4 > len(pixels) {
 			return fmt.Errorf("screen/ext: region out of bounds")
 		}
-		hash = find.PixelHashBGRA(pixels, w, h, stride, r)
-		return nil
+		hash, err = find.PixelHashBGRA(pixels, w, h, stride, r)
+		return err
 	}); err != nil {
 		return 0, err
 	}

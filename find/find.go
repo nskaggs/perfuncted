@@ -23,6 +23,10 @@ import (
 // ErrNotFound is returned when a pixel pattern or color could not be located.
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalidFrame reports pixel metadata that does not describe the buffer it came
+// with, so no region of it can be read.
+var ErrInvalidFrame = errors.New("frame metadata does not describe the pixel buffer")
+
 // ErrEmptyRegion reports a rectangle that covers no pixels, so there is nothing to
 // observe. It is distinct from ErrNotFound: the region was well formed, it simply
 // has no area.
@@ -92,12 +96,12 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 // representation as PixelHash. An empty rect hashes the full frame; otherwise
 // rect is clipped to the frame bounds before hashing. Invalid or incomplete
 // frame data returns the zero hash.
-func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle) uint32 {
+func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle) (uint32, error) {
 	const maxBGRAHashChunkBytes = 32 * 1024
 
 	frame, ok := bgraFrameBounds(data, width, height, stride)
 	if !ok {
-		return 0
+		return 0, fmt.Errorf("find: %dx%d stride %d does not describe a %d-byte BGRA frame: %w", width, height, stride, len(data), ErrInvalidFrame)
 	}
 	if rect.Empty() {
 		rect = frame
@@ -105,7 +109,7 @@ func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle)
 		rect = rect.Intersect(frame)
 	}
 	if rect.Empty() {
-		return 0
+		return 0, fmt.Errorf("find: region %v covers no pixels of a %dx%d frame: %w", rect, frame.Dx(), frame.Dy(), ErrEmptyRegion)
 	}
 	rowBytes := rect.Dx() * 4
 	xOffset := rect.Min.X * 4
@@ -115,7 +119,7 @@ func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle)
 		srcStart := y*stride + xOffset
 		sum = pixelHashBGRARow(sum, data[srcStart:srcStart+rowBytes], chunk)
 	}
-	return sum
+	return sum, nil
 }
 
 func bgraFrameBounds(data []byte, width, height, stride int) (image.Rectangle, bool) {

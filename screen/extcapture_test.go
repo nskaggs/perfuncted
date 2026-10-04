@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -382,9 +383,10 @@ func TestCroppedHashRegionRejectsRegionCoveringNoPixels(t *testing.T) {
 		t.Fatal("a region inside the capture resolved to nothing")
 	}
 
-	// Wholly outside the capture.
-	if _, err := croppedHashRegion(image.Rect(500, 500, 520, 520), 1, w, h); err == nil {
-		t.Fatal("a region wholly outside the capture was accepted")
+	// Wholly outside the capture. The cause is matchable so a caller can tell a
+	// region that covers nothing from a backend that failed for another reason.
+	if _, err := croppedHashRegion(image.Rect(500, 500, 520, 520), 1, w, h); !errors.Is(err, find.ErrEmptyRegion) {
+		t.Fatalf("a region wholly outside the capture: error = %v, want ErrEmptyRegion", err)
 	}
 	// Degenerate: no pixels at all.
 	if _, err := croppedHashRegion(image.Rectangle{}, 1, w, h); err == nil {

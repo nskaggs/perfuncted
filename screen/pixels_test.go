@@ -1,6 +1,7 @@
 package screen
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"testing"
@@ -22,7 +23,6 @@ func TestPixelHashBGRA_MatchesDecodedFrames(t *testing.T) {
 		{name: "explicit full frame", rect: image.Rect(0, 0, width, height)},
 		{name: "subregion", rect: image.Rect(1, 1, 3, 3)},
 		{name: "clipped region", rect: image.Rect(-1, 1, 3, 8)},
-		{name: "outside region", rect: image.Rect(8, 8, 9, 9)},
 	}
 	for _, rect := range rects {
 		t.Run(rect.name, func(t *testing.T) {
@@ -32,7 +32,10 @@ func TestPixelHashBGRA_MatchesDecodedFrames(t *testing.T) {
 			} else {
 				decoded = decodeBGRARect(fullFrame, width, height, stride, rect.rect)
 			}
-			got := find.PixelHashBGRA(fullFrame, width, height, stride, rect.rect)
+			got, hashErr := find.PixelHashBGRA(fullFrame, width, height, stride, rect.rect)
+			if hashErr != nil {
+				t.Fatalf("PixelHashBGRA() error = %v", hashErr)
+			}
 			want := find.PixelHash(decoded, nil)
 			if got != want {
 				t.Fatalf("PixelHashBGRA() = %08x, decoded hash = %08x", got, want)
@@ -55,8 +58,12 @@ func TestPixelHashBGRA_InvalidFrameMetadata(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := find.PixelHashBGRA(tt.data, tt.width, tt.height, tt.stride, image.Rectangle{}); got != 0 {
-				t.Fatalf("PixelHashBGRA() = %08x, want zero hash for invalid frame metadata", got)
+			got, err := find.PixelHashBGRA(tt.data, tt.width, tt.height, tt.stride, image.Rectangle{})
+			if !errors.Is(err, find.ErrInvalidFrame) {
+				t.Fatalf("PixelHashBGRA() error = %v, want ErrInvalidFrame for invalid frame metadata", err)
+			}
+			if got != 0 {
+				t.Fatalf("PixelHashBGRA() = %08x alongside an error, want no checksum", got)
 			}
 		})
 	}
@@ -78,7 +85,10 @@ func TestPixelHashBGRA_WideRowsMatchDecodedFrames(t *testing.T) {
 		} else {
 			decoded = decodeBGRARect(data, width, height, stride, rect)
 		}
-		got := find.PixelHashBGRA(data, width, height, stride, rect)
+		got, hashErr := find.PixelHashBGRA(data, width, height, stride, rect)
+		if hashErr != nil {
+			t.Fatalf("PixelHashBGRA() error = %v", hashErr)
+		}
 		if want := find.PixelHash(decoded, nil); got != want {
 			t.Fatalf("PixelHashBGRA(%v) = %08x, decoded hash = %08x", rect, got, want)
 		}
@@ -417,5 +427,29 @@ func TestRequireCapturedImagePassesThroughUsableDecode(t *testing.T) {
 func TestRequireCapturedImageRejectsNil(t *testing.T) {
 	if _, err := requireCapturedImage("test", nil); err == nil {
 		t.Fatal("requireCapturedImage accepted a nil image")
+	}
+}
+
+// A region entirely outside the frame has no pixels to hash. Returning zero for it
+// is indistinguishable from a real region whose checksum happens to be zero, so a
+// settle loop polling such a region saw a constant value and declared it stable.
+func TestPixelHashBGRA_RejectsOutsideRegion(t *testing.T) {
+	const width, height, stride = 4, 3, 20
+	data := make([]byte, stride*height)
+	for i := range data {
+		data[i] = byte(i*37 + 11)
+	}
+
+	got, err := find.PixelHashBGRA(data, width, height, stride, image.Rect(8, 8, 9, 9))
+	if !errors.Is(err, find.ErrEmptyRegion) {
+		t.Fatalf("PixelHashBGRA() error = %v, want ErrEmptyRegion for a region outside the frame", err)
+	}
+	if got != 0 {
+		t.Fatalf("PixelHashBGRA() = %08x alongside an error, want no checksum", got)
+	}
+
+	// A region that only partly overlaps still hashes the part that exists.
+	if _, err := find.PixelHashBGRA(data, width, height, stride, image.Rect(2, 2, 9, 9)); err != nil {
+		t.Fatalf("PixelHashBGRA() on a partly-overlapping region: %v", err)
 	}
 }
