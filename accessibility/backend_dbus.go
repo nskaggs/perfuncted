@@ -153,9 +153,14 @@ type dbusBackend struct {
 	// cannot collide. The local snapshot cache remains a short-lived response
 	// optimization; cacheItems is refreshed by Cache.GetItems and signals.
 	cacheItems map[NodeID]cacheItem
-	// cacheChildrenIndex is a lazy, sorted child lookup derived from cacheItems.
-	cacheChildrenIndex map[objectIdentity][]objectRef
-	cacheApps          map[string]bool
+	// cacheChildrenIndex is a lazy, sorted child lookup derived from cacheItems,
+	// and cacheChildrenIndexGen is the cache generation it was built from. The
+	// index is keyed only by bus name and object path, so without the generation a
+	// reload that produced a new generation would keep serving the previous
+	// generation's children.
+	cacheChildrenIndex    map[objectIdentity][]objectRef
+	cacheChildrenIndexGen uint64
+	cacheApps             map[string]bool
 	// incarnations prevent a reused object path from reviving IDs issued for a
 	// removed object. parents records the latest observed ancestry for subtree
 	// revocation; cacheItems supplies ancestry only when no direct edge is known.
@@ -204,6 +209,7 @@ func (b *dbusBackend) Invalidate(_ NodeID) {
 	b.cacheRevision++
 	b.cache, b.cacheItems, b.cacheApps, b.toolkits = nil, nil, nil, nil
 	b.cacheChildrenIndex = nil
+	b.cacheChildrenIndexGen = 0
 	b.incarnations, b.parents = nil, nil
 	b.parentTrackingIncomplete = false
 	b.mu.Unlock()
@@ -305,6 +311,7 @@ func (b *dbusBackend) revokeObjectLocked(root objectIdentity) bool {
 		}
 	}
 	b.cacheChildrenIndex = nil
+	b.cacheChildrenIndexGen = 0
 	b.cache = nil
 	return true
 }
@@ -413,6 +420,7 @@ func (b *dbusBackend) adjustCachedChildrenForRevocationLocked(removed map[object
 
 func (b *dbusBackend) invalidateCacheApplicationLocked(busName string) {
 	b.cacheChildrenIndex = nil
+	b.cacheChildrenIndexGen = 0
 	if b.cacheApps != nil {
 		b.cacheApps[busName] = false
 	}
@@ -443,6 +451,7 @@ func (b *dbusBackend) Close() error {
 	b.access, b.session = nil, nil
 	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
 	b.cacheChildrenIndex = nil
+	b.cacheChildrenIndexGen = 0
 	b.toolkits = nil
 	b.mu.Unlock()
 	b.stopEvents(access)

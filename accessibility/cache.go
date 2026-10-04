@@ -107,7 +107,7 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 		return nil
 	}
 	parent := objectIdentity{busName: id.BusName, objectPath: id.ObjectPath}
-	if b.cacheChildrenIndex != nil {
+	if b.cacheChildrenIndex != nil && b.cacheChildrenIndexGen == id.Generation {
 		children := b.cacheChildrenIndex[parent]
 		b.mu.RUnlock()
 		if len(children) == 0 {
@@ -122,13 +122,16 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	if !b.cachedChildrenAvailableLocked(id) {
 		return nil
 	}
-	if b.cacheChildrenIndex == nil {
+	if b.cacheChildrenIndex == nil || b.cacheChildrenIndexGen != id.Generation {
 		b.cacheChildrenIndex = b.buildCacheChildrenIndexLocked(id.Generation)
+		b.cacheChildrenIndexGen = id.Generation
 	}
 	children := b.cacheChildrenIndex[parent]
 	if len(children) == 0 {
 		return nil
 	}
+	// The slice is the index's own storage and must be treated as read-only by the
+	// caller; it is shared by every lookup for this generation.
 	return children
 }
 

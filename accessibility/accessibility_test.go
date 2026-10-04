@@ -2478,3 +2478,45 @@ func TestEventAdmissionWaitsForUnobservedSetupAndHonorsRetirement(t *testing.T) 
 		t.Fatalf("retired backend admission error = %v, want ErrDisconnected", err)
 	}
 }
+
+// The child index is keyed only by bus name and object path, so it has to record
+// the generation it was built from. Without that, a reload that produced a new
+// generation left the previous generation's index in place and every parent lookup
+// returned the old children.
+func TestCachedChildrenRebuildsWhenTheGenerationAdvances(t *testing.T) {
+	const busName = "org.test.App"
+	application := cacheObjectRef{BusName: busName, ObjectPath: "/application"}
+	rootItem := cacheItem{Object: cacheObjectRef{BusName: busName, ObjectPath: "/root"}, Application: application, Parent: application, ChildCount: 1}
+	oldChild := cacheItem{Object: cacheObjectRef{BusName: busName, ObjectPath: "/old"}, Application: application, Parent: cacheObjectRef{BusName: busName, ObjectPath: "/root"}}
+
+	backend := &dbusBackend{
+		generation: 1,
+		cacheItems: map[NodeID]cacheItem{rootItem.nodeIDAt(1): rootItem, oldChild.nodeIDAt(1): oldChild},
+		cacheApps:  map[string]bool{busName: true},
+	}
+
+	first := NodeID{BusName: busName, ObjectPath: "/root", Generation: 1}
+	if got := backend.cachedChildren(first); len(got) != 1 || got[0].ObjectPath != "/old" {
+		t.Fatalf("children at generation 1 = %+v, want /old", got)
+	}
+
+	// A new generation arrives with different children. The index is left in place
+	// deliberately: nothing about a reload is required to clear it.
+	newChild := cacheItem{Object: cacheObjectRef{BusName: busName, ObjectPath: "/new"}, Application: application, Parent: cacheObjectRef{BusName: busName, ObjectPath: "/root"}}
+	backend.mu.Lock()
+	backend.generation = 2
+	backend.cacheItems = map[NodeID]cacheItem{
+		rootItem.nodeIDAt(2): rootItem,
+		newChild.nodeIDAt(2): newChild,
+	}
+	stillCached := backend.cacheChildrenIndex != nil
+	backend.mu.Unlock()
+	if !stillCached {
+		t.Fatal("test needs the index to survive the reload; this fixture cleared it")
+	}
+
+	second := NodeID{BusName: busName, ObjectPath: "/root", Generation: 2}
+	if got := backend.cachedChildren(second); len(got) != 1 || got[0].ObjectPath != "/new" {
+		t.Fatalf("children at generation 2 = %+v, want /new from the new generation", got)
+	}
+}
