@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"time"
@@ -345,7 +346,13 @@ func translatePointsToImage(
 	// pixel that stands for a different place on screen. Require the two axes to
 	// describe one uniform scale before translating anything, so a clipped capture
 	// is refused rather than sampled from the wrong location.
-	if imageWidth*regionHeight != imageHeight*regionWidth {
+	// Compared through 128-bit products. A capture span and a region span are each
+	// derived from int coordinates, so on a wide enough synthetic rectangle the
+	// 64-bit products wrap and two spans of different aspect ratios compare equal,
+	// which would let a clipped capture through as a scaled one.
+	lhsHi, lhsLo := bits.Mul64(imageWidth, regionHeight)
+	rhsHi, rhsLo := bits.Mul64(imageHeight, regionWidth)
+	if lhsHi != rhsHi || lhsLo != rhsLo {
 		return nil, fmt.Errorf(
 			"screen: capture %v is not a uniform scaling of region %v: the capture is clipped",
 			imageBounds, region,

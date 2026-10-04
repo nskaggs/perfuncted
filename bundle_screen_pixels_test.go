@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"image"
+	"math/bits"
 	"math/rand"
 	"testing"
 )
@@ -269,5 +270,36 @@ func TestTranslatePointsRejectsAClippedCapture(t *testing.T) {
 	// A non-uniform stretch is not a capture at all.
 	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 25)); err == nil {
 		t.Fatal("a non-uniform scaling was accepted")
+	}
+}
+
+// The two spans are compared through 128-bit products. Their coordinates come from
+// ints, so on a wide enough rectangle the 64-bit products wrap and spans of
+// different aspect ratios share a low word, which a 64-bit comparison reads as equal.
+func TestSpanProductsDistinguishPairsThatShareALowWord(t *testing.T) {
+	const twoTo32 = uint64(1) << 32
+
+	hiSmall, loSmall := bits.Mul64(twoTo32, twoTo32)
+	hiLarge, loLarge := bits.Mul64(3*twoTo32, twoTo32)
+
+	if loSmall != loLarge {
+		t.Fatalf("fixture does not exercise the low word: %d and %d", loSmall, loLarge)
+	}
+	if hiSmall == hiLarge {
+		t.Fatalf("fixture does not exercise the high word: both %d", hiSmall)
+	}
+	if hiSmall == 0 || hiLarge == 0 {
+		t.Fatalf("fixture does not overflow 64 bits: %d and %d", hiSmall, hiLarge)
+	}
+	// The low words are equal and the products differ, so a comparison that looked at
+	// only the low word would call them the same number.
+}
+
+// A capture whose aspect ratio differs from the region's is refused at the sizes a
+// real screen produces.
+func TestTranslatePointsRejectsAMismatchedAspectRatio(t *testing.T) {
+	region := image.Rect(0, 0, 100, 50)
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 100)); err == nil {
+		t.Fatal("a capture of a different aspect ratio was accepted as a scaled capture")
 	}
 }
