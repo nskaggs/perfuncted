@@ -18,15 +18,23 @@ func (m *MockGetPropertyCookie) Reply() (*xproto.GetPropertyReply, error) { retu
 
 type MockGetKeyboardMappingCookie struct {
 	reply *xproto.GetKeyboardMappingReply
+	err   error
 }
 
 func (m *MockGetKeyboardMappingCookie) Reply() (*xproto.GetKeyboardMappingReply, error) {
-	return m.reply, nil
+	return m.reply, m.err
 }
 
 // NewMockGetKeyboardMappingCookie returns a keyboard-mapping cookie for tests.
 func NewMockGetKeyboardMappingCookie(reply *xproto.GetKeyboardMappingReply) GetKeyboardMappingCookie {
 	return &MockGetKeyboardMappingCookie{reply: reply}
+}
+
+// NewMockGetKeyboardMappingErrorCookie returns a keyboard-mapping cookie whose
+// Reply fails, so a caller that caches a failed read rather than retrying it can
+// be told apart from one that recovers.
+func NewMockGetKeyboardMappingErrorCookie(err error) GetKeyboardMappingCookie {
+	return &MockGetKeyboardMappingCookie{err: err}
 }
 
 type MockCheckCookie struct{}

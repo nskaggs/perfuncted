@@ -40,18 +40,23 @@ type XTestBackend struct {
 	operationGateOnce sync.Once
 	operationGate     chan struct{}
 
-	keymapOnce sync.Once
-	keymap     map[xproto.Keysym]keycodeLevel
+	// keymapMu guards the cached keymap. A failed read is not cached: a transient
+	// failure would otherwise leave the backend unable to name any keycode for the
+	// rest of the process, so every keystroke failed permanently.
+	keymapMu sync.Mutex
+	keymap   map[xproto.Keysym]keycodeLevel
 
 	// heldMods records which modifier keys the caller is holding through
 	// KeyDown. A combination presses the modifiers it needs and releases them
 	// afterwards, so one the caller already holds must not be released or the
 	// caller's gesture ends partway through.
-	heldMu       sync.Mutex
-	heldMods     map[xproto.Keycode]bool
-	modifierOnce sync.Once
-	modCodes     map[xproto.Keycode]bool
-	keymapErr    error
+	heldMu   sync.Mutex
+	heldMods map[xproto.Keycode]bool
+
+	// modifierMu guards the cached modifier keycode set, which is likewise only
+	// cached once it has been built completely.
+	modifierMu sync.Mutex
+	modCodes   map[xproto.Keycode]bool
 }
 
 type keycodeLevel struct {
@@ -280,37 +285,41 @@ func (b *XTestBackend) keycodeAndLevel(sym xproto.Keysym) (xproto.Keycode, int, 
 }
 
 func (b *XTestBackend) ensureKeymap() (map[xproto.Keysym]keycodeLevel, error) {
-	b.keymapOnce.Do(func() {
-		setup := b.conn.Setup()
-		first := setup.MinKeycode
-		count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
-		km, err := b.conn.GetKeyboardMapping(first, count).Reply()
-		if err != nil {
-			b.keymapErr = fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
-			return
+	b.keymapMu.Lock()
+	defer b.keymapMu.Unlock()
+	if b.keymap != nil {
+		return b.keymap, nil
+	}
+	setup := b.conn.Setup()
+	first := setup.MinKeycode
+	count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
+	km, err := b.conn.GetKeyboardMapping(first, count).Reply()
+	if err != nil {
+		// Deliberately not cached. The mapping is re-read on the next call so a
+		// transient failure clears itself instead of leaving the backend unable to
+		// name a single keycode for the rest of the process.
+		return nil, fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
+	}
+	kpk := int(km.KeysymsPerKeycode)
+	if kpk <= 0 {
+		return nil, fmt.Errorf("input/xtest: invalid keyboard mapping: keysyms_per_keycode=%d", kpk)
+	}
+	min := int(setup.MinKeycode)
+	m := make(map[xproto.Keysym]keycodeLevel, len(km.Keysyms))
+	for i, s := range km.Keysyms {
+		if s == 0 {
+			continue
 		}
-		kpk := int(km.KeysymsPerKeycode)
-		if kpk <= 0 {
-			b.keymapErr = fmt.Errorf("input/xtest: invalid keyboard mapping: keysyms_per_keycode=%d", kpk)
-			return
+		if _, exists := m[s]; exists {
+			continue
 		}
-		min := int(setup.MinKeycode)
-		m := make(map[xproto.Keysym]keycodeLevel, len(km.Keysyms))
-		for i, s := range km.Keysyms {
-			if s == 0 {
-				continue
-			}
-			if _, exists := m[s]; exists {
-				continue
-			}
-			m[s] = keycodeLevel{
-				keycode: xproto.Keycode(min + i/kpk),
-				level:   i % kpk,
-			}
+		m[s] = keycodeLevel{
+			keycode: xproto.Keycode(min + i/kpk),
+			level:   i % kpk,
 		}
-		b.keymap = m
-	})
-	return b.keymap, b.keymapErr
+	}
+	b.keymap = m
+	return m, nil
 }
 
 func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
@@ -480,19 +489,33 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 // modifier this set did not know about would be pressed again on every
 // character instead of being recognised as already held.
 func (b *XTestBackend) modifierCodeSet() map[xproto.Keycode]bool {
-	b.modifierOnce.Do(func() {
-		names := modifierNames(modifiers{shift: true, ctrl: true, alt: true, super: true})
-		set := make(map[xproto.Keycode]bool, len(names)+1)
-		for _, name := range names {
-			if kc, err := b.keycodeFor(name); err == nil {
-				set[kc] = true
-			}
-		}
-		if kc, err := b.altGrKeycode(); err == nil {
+	b.modifierMu.Lock()
+	defer b.modifierMu.Unlock()
+	if b.modCodes != nil {
+		return b.modCodes
+	}
+	// A keymap that could not be read leaves the set unknowable rather than merely
+	// incomplete, so nothing is cached and the next call re-reads it. Caching after
+	// a failed read made every held modifier invisible for the rest of the process,
+	// so a caller's Ctrl was pressed again on every character.
+	if _, err := b.ensureKeymap(); err != nil {
+		return nil
+	}
+	// A layout may genuinely map no key for one of these, so a missing modifier is
+	// tolerated rather than treated as a failure to retry.
+	names := modifierNames(modifiers{shift: true, ctrl: true, alt: true, super: true})
+	set := make(map[xproto.Keycode]bool, len(names)+1)
+	for _, name := range names {
+		if kc, err := b.keycodeFor(name); err == nil {
 			set[kc] = true
 		}
-		b.modCodes = set
-	})
+	}
+	// AltGr is optional for the same reason: plenty of layouts map no key to the
+	// third level.
+	if kc, err := b.altGrKeycode(); err == nil {
+		set[kc] = true
+	}
+	b.modCodes = set
 	return b.modCodes
 }
 

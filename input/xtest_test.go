@@ -679,3 +679,66 @@ func TestXTestWideMapReportsUnsupportedLevel(t *testing.T) {
 		t.Fatalf("unsupported-level error = %v, want it to name the missing keyboard-group information", err)
 	}
 }
+
+// The keymap is re-read after a failed read instead of the failure being cached.
+// Caching it left the backend unable to name any keycode for the rest of the
+// process, so every keystroke failed and no held modifier was ever recognised.
+func TestXTestRetriesTheKeymapAfterAFailedRead(t *testing.T) {
+	reads := 0
+	conn := &x11.MockConnection{
+		SetupFunc: func() *xproto.SetupInfo {
+			return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 8 + 3 - 1}
+		},
+		GetKeyboardMappingFunc: func(xproto.Keycode, byte) x11.GetKeyboardMappingCookie {
+			reads++
+			if reads == 1 {
+				return x11.NewMockGetKeyboardMappingErrorCookie(errTestKeymapRead)
+			}
+			return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
+				KeysymsPerKeycode: 4,
+				Keysyms:           []xproto.Keysym{0xffe1, 0, 0, 0, 0x61, 0x41, 0, 0},
+			})
+		},
+	}
+	b := &XTestBackend{conn: conn}
+
+	// The modifier set is the thing that must not be cached here: an empty one makes
+	// every held modifier invisible, so a caller's Ctrl is pressed again on every
+	// character and released after each one. The first read fails, so this call has
+	// nothing to build from and must leave nothing behind.
+	if got := b.modifierCodeSet(); got != nil {
+		t.Fatalf("modifier set = %v after a failed keymap read, want nil so the next call retries", got)
+	}
+
+	set := b.modifierCodeSet()
+	if set == nil {
+		t.Fatal("modifier set still nil after the keymap became readable")
+	}
+	if len(set) == 0 {
+		t.Fatal("modifier set is empty on a layout that maps a shift key")
+	}
+	if reads != 2 {
+		t.Fatalf("GetKeyboardMapping calls = %d, want 2", reads)
+	}
+}
+
+// The modifier set is only unknowable when the keymap could not be read. A layout
+// that genuinely maps no key for one modifier still gets a usable set.
+func TestXTestModifierSetCachesWhenOnlyOneModifierIsAbsent(t *testing.T) {
+	b, _ := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+
+	first := b.modifierCodeSet()
+	if first == nil {
+		t.Fatal("modifier set was not built on a usable layout")
+	}
+	second := b.modifierCodeSet()
+	if len(first) == 0 {
+		t.Fatal("modifier set is empty on a layout that maps modifiers")
+	}
+	// Cached: the same set comes back without re-reading.
+	if len(second) != len(first) {
+		t.Fatalf("cached modifier set changed size: %d then %d", len(first), len(second))
+	}
+}
+
+var errTestKeymapRead = errors.New("test keymap read failure")
