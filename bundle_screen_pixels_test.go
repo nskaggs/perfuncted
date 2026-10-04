@@ -242,10 +242,15 @@ func abs(v int) int {
 func TestTranslatePointsRejectsAClippedCapture(t *testing.T) {
 	region := image.Rect(0, 0, 100, 100)
 
-	// A uniform downscale is fine: 50x50 for a 100x100 region.
-	uniform := image.Rect(0, 0, 50, 50)
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, uniform); err != nil {
-		t.Fatalf("a uniform scaling was refused: %v", err)
+	// A uniform downscale is not fine. Output scaling multiplies a region's pixels and
+	// never divides them, so a capture smaller than the region is one that came back
+	// with part of the region missing. Reading a pixel out of it yields an averaged
+	// value standing for somewhere else on screen, and clipping both edges by the same
+	// proportion keeps the aspect ratio, so a uniform-scale check alone cannot tell
+	// the two apart.
+	downscale := image.Rect(0, 0, 50, 50)
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, downscale); err == nil {
+		t.Fatal("a capture smaller than the region was treated as a scaled capture")
 	}
 
 	// A uniform upscale is fine too.

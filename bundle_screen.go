@@ -351,6 +351,22 @@ func translatePointsToImage(
 			imageBounds, region,
 		)
 	}
+	// A capture carries at least one pixel per pixel of the region it covers, because
+	// output scaling multiplies the region's pixels and never divides them. A ratio
+	// below one is therefore not a smaller scale: it is a capture that came back with
+	// part of the region missing, and reading a pixel out of it yields an averaged
+	// value standing for somewhere else on screen.
+	//
+	// Clipping proportionally hides this. A region 100x50 whose right and bottom edges
+	// are both cut by the same proportion comes back 50x25, which keeps the aspect
+	// ratio and so passes a uniform-scale check, while every point past the midpoint
+	// reads a different place on screen than the one asked for.
+	if imageWidth < regionWidth || imageHeight < regionHeight {
+		return nil, fmt.Errorf(
+			"screen: capture %v has fewer pixels than region %v: the capture is clipped",
+			imageBounds, region,
+		)
+	}
 
 	out := make([]image.Point, 0, len(points))
 	for _, point := range points {

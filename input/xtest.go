@@ -310,13 +310,19 @@ func (b *XTestBackend) ensureKeymap() (map[xproto.Keysym]keycodeLevel, error) {
 		if s == 0 {
 			continue
 		}
-		if _, exists := m[s]; exists {
-			continue
-		}
-		m[s] = keycodeLevel{
+		candidate := keycodeLevel{
 			keycode: xproto.Keycode(min + i/kpk),
 			level:   i % kpk,
 		}
+		// A keysym can appear at several levels and groups. Keeping whichever came
+		// first reported a character as untypable when its first occurrence sits at a
+		// level this backend cannot express, while a later one is directly
+		// typable: a multi-group mapping puts the same symbol at a group-shifted level
+		// first. Prefer an expressible level, and the lowest such one.
+		if existing, exists := m[s]; exists && !preferKeycodeLevel(candidate, existing) {
+			continue
+		}
+		m[s] = candidate
 	}
 	b.keymap = m
 	return m, nil
@@ -848,4 +854,19 @@ func (b *XTestBackend) Close() error {
 	close(done)
 	b.lifecycleMu.Unlock()
 	return nil
+}
+
+// maxTypableLevel is the highest keysym level levelModifiers can name: unshifted,
+// Shift, AltGr and AltGr+Shift.
+const maxTypableLevel = 3
+
+// preferKeycodeLevel reports whether candidate describes the keysym's placement
+// better than existing does.
+func preferKeycodeLevel(candidate, existing keycodeLevel) bool {
+	candidateTypable := candidate.level <= maxTypableLevel
+	existingTypable := existing.level <= maxTypableLevel
+	if candidateTypable != existingTypable {
+		return candidateTypable
+	}
+	return candidate.level < existing.level
 }

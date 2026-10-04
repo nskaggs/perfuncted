@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -494,5 +495,30 @@ func TestScreenBundle_GetMultiplePixelsMapsAcrossOutputScale(t *testing.T) {
 				points[i], points[i].X*scale, points[i].Y*scale, gotColor, want,
 			)
 		}
+	}
+}
+
+// A capture clipped by the same proportion on both edges keeps its aspect ratio, so
+// a uniform-scale check alone accepts it, and a point past the midpoint reads a
+// different place on screen than the one requested.
+func TestScreenBundleRejectsAProportionallyClippedCapture(t *testing.T) {
+	pf := newTestPF(&pftest.Screenshotter{
+		GrabFunc: func(context.Context, image.Rectangle) (image.Image, error) {
+			// Half of the 100x50 region these points span: proportional, so the axes
+			// still agree at 2:1.
+			capture := image.NewRGBA(image.Rect(0, 0, 50, 25))
+			draw.Draw(capture, capture.Bounds(), &image.Uniform{C: color.Black}, image.Point{}, draw.Src)
+			return capture, nil
+		},
+	})
+	defer pf.Close()
+
+	points := []image.Point{{0, 0}, {99, 49}}
+	got, err := pf.Screen.GetMultiplePixels(context.Background(), points)
+	if err == nil {
+		t.Fatalf("GetMultiplePixels returned %v for a capture smaller than the region", got)
+	}
+	if !strings.Contains(err.Error(), "clipped") {
+		t.Fatalf("error = %v, want it to report the capture as clipped", err)
 	}
 }

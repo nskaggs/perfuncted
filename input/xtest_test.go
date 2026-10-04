@@ -742,3 +742,47 @@ func TestXTestModifierSetCachesWhenOnlyOneModifierIsAbsent(t *testing.T) {
 }
 
 var errTestKeymapRead = errors.New("test keymap read failure")
+
+// A keysym can appear at several levels and keycodes. Keeping whichever came first
+// reported a character as untypable when its first occurrence sits at a level this
+// backend cannot express, while a later one is directly typable.
+func TestEnsureKeymapPrefersATypableLevelForARepeatedKeysym(t *testing.T) {
+	// Nine keysyms per keycode, so levels run past the four levelModifiers can name.
+	// The same keysym sits at level 4 on the first keycode and level 0 on the second:
+	// iteration reaches the untypable one first.
+	const kpk = 9
+	keysyms := make([]xproto.Keysym, kpk*2)
+	keysyms[4] = 'a' // first keycode, level 4: not expressible
+	keysyms[kpk+0] = 'a'
+
+	conn := &x11.MockConnection{
+		SetupFunc: func() *xproto.SetupInfo {
+			return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 9}
+		},
+		GetKeyboardMappingFunc: func(xproto.Keycode, byte) x11.GetKeyboardMappingCookie {
+			return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
+				KeysymsPerKeycode: kpk,
+				Keysyms:           keysyms,
+			})
+		},
+	}
+	b := &XTestBackend{conn: conn}
+
+	mapping, err := b.ensureKeymap()
+	if err != nil {
+		t.Fatalf("ensureKeymap: %v", err)
+	}
+	got, ok := mapping['a']
+	if !ok {
+		t.Fatal("the repeated keysym is missing from the mapping")
+	}
+	if got.level > maxTypableLevel {
+		t.Fatalf("keysym 'a' resolved to level %d, which cannot be expressed; a typable occurrence existed", got.level)
+	}
+	if _, err := b.levelModifiers(got.level); err != nil {
+		t.Fatalf("the resolved level %d is not expressible: %v", got.level, err)
+	}
+	if _, _, err := b.keycodeAndLevel('a'); err != nil {
+		t.Fatalf("the keysym is reported untypable: %v", err)
+	}
+}
