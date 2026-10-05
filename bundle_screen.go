@@ -206,7 +206,7 @@ func (s *ScreenBundle) GetMultiplePixels(
 		return nil, s.operationError("pixel", errors.New("screen: capture returned nil image"))
 	}
 	imgBounds := img.Bounds()
-	imagePoints, err := translatePointsToImage(points, bounds, imgBounds)
+	imagePoints, err := translatePointsToImage(points, bounds, imgBounds, bounds)
 	if err != nil {
 		return nil, s.operationError("pixel", err)
 	}
@@ -327,10 +327,14 @@ func pointsBounds(points []image.Point) (image.Rectangle, error) {
 // doubled scale the point half way across the region is half way across the
 // image, not at the same pixel offset. This is the inverse of Capture.ScreenPoint
 // and uses the same rounding, so the two directions agree.
+// expectedImageBounds is what the grab was asked to produce. A capture that comes back
+// smaller is a downscale only when it matches that request; otherwise it is the part the
+// backend could get, and mapping screen points into it would read the wrong place.
 func translatePointsToImage(
 	points []image.Point,
 	region image.Rectangle,
 	imageBounds image.Rectangle,
+	expectedImageBounds image.Rectangle,
 ) ([]image.Point, error) {
 	regionWidth, regionWidthOK := captureAxisSpan(region.Min.X, region.Max.X)
 	regionHeight, regionHeightOK := captureAxisSpan(region.Min.Y, region.Max.Y)
@@ -369,10 +373,17 @@ func translatePointsToImage(
 	// ratio and so passes a uniform-scale check, while every point past the midpoint
 	// reads a different place on screen than the one asked for.
 	if imageWidth < regionWidth || imageHeight < regionHeight {
-		return nil, fmt.Errorf(
-			"screen: capture %v has fewer pixels than region %v: the capture is clipped",
-			imageBounds, region,
-		)
+		// A downscale and a proportional clip are indistinguishable from the bounds, so
+		// the request decides. It matched only when the capture is exactly what was
+		// asked for at the smaller size.
+		if !expectedImageBounds.Empty() && imageBounds == expectedImageBounds {
+			// The capture is the requested size, so translating through it is exact.
+		} else {
+			return nil, fmt.Errorf(
+				"screen: capture %v has fewer pixels than region %v: the capture is clipped",
+				imageBounds, region,
+			)
+		}
 	}
 
 	out := make([]image.Point, 0, len(points))

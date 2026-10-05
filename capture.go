@@ -15,6 +15,35 @@ import (
 type Capture struct {
 	Image      image.Image
 	ScreenRect image.Rectangle
+	// ExpectedImageBounds records the image bounds the capture was asked to produce,
+	// and is the zero Rectangle when the capture did not come from a known request.
+	//
+	// It exists because a capture smaller than the region it represents is ambiguous on
+	// its own. A backend asked for 100x50 and handed back 50x25 has either downscaled
+	// the region or returned only part of it, and the two are indistinguishable from the
+	// bounds alone: clipping both axes by the same proportion preserves the aspect
+	// ratio. Treating that as a downscale maps points onto pixels standing for a
+	// different place on screen, and treating it as clipped refuses a legitimate
+	// downscale. The request is what tells them apart.
+	ExpectedImageBounds image.Rectangle
+}
+
+// ReportsDownscale reports whether the capture is a smaller uniform rendering of the
+// region it represents. It is only meaningful when the expected bounds are known: a
+// capture with no recorded request cannot be told apart from a clipped one, so it is
+// never treated as a downscale.
+func (c Capture) ReportsDownscale() bool {
+	if c.ExpectedImageBounds.Empty() || util.IsNil(c.Image) {
+		return false
+	}
+	actual := c.Image.Bounds()
+	// The capture has to be exactly the size that was requested. A capture smaller than
+	// the request is the part the backend could get, and one larger is something else
+	// again; neither is the downscale the request describes.
+	if actual.Dx() != c.ExpectedImageBounds.Dx() || actual.Dy() != c.ExpectedImageBounds.Dy() {
+		return false
+	}
+	return actual.Dx() < c.ScreenRect.Dx() && actual.Dy() < c.ScreenRect.Dy()
 }
 
 // ScreenPoint maps a point in Image coordinates to the corresponding desktop
@@ -34,6 +63,17 @@ func (c Capture) ScreenPoint(pixel image.Point) (image.Point, error) {
 	}
 	if !pixel.In(imageBounds) {
 		return image.Point{}, fmt.Errorf("perfuncted: image point %v is outside capture bounds %v: %w", pixel, imageBounds, ErrInvalidArgument)
+	}
+	// A capture smaller than the region it represents is a downscale only when the
+	// recorded request says so. Otherwise it is the part the backend could get, and a
+	// point in it stands for somewhere else on screen. translatePointsToImage refuses
+	// the same capture, so accepting it here would hand back a desktop coordinate whose
+	// inverse this package disowns.
+	if (imageWidth < screenWidth || imageHeight < screenHeight) && !c.ReportsDownscale() {
+		return image.Point{}, fmt.Errorf(
+			"perfuncted: capture %v is smaller than region %v and no request records it as a downscale: %w",
+			imageBounds, c.ScreenRect, ErrInvalidArgument,
+		)
 	}
 
 	xOffset := scaleCaptureOffset(uint64(pixel.X)-uint64(imageBounds.Min.X), imageWidth, screenWidth)
@@ -61,7 +101,9 @@ func (s *ScreenBundle) Capture(ctx context.Context, rect image.Rectangle) (Captu
 		return Capture{}, s.operationError("capture", fmt.Errorf("screen: capture returned nil image"))
 	}
 
-	return Capture{Image: img, ScreenRect: rect}, nil
+	// The grab is requested at the region's own size, so that is the expectation the
+	// returned bounds are checked against.
+	return Capture{Image: img, ScreenRect: rect, ExpectedImageBounds: rect}, nil
 }
 
 func captureAxisSpan(min, max int) (uint64, bool) {
