@@ -15,7 +15,7 @@ func TestTranslatePointsToImageScalesByRatio(t *testing.T) {
 	region := image.Rect(0, 0, 100, 100)
 	imageBounds := image.Rect(0, 0, 200, 200) // scale 2
 
-	got, err := translatePointsToImage([]image.Point{{0, 0}, {50, 50}, {99, 99}}, region, imageBounds, region)
+	got, err := translatePointsToImage([]image.Point{{0, 0}, {50, 50}, {99, 99}}, region, imageBounds)
 	if err != nil {
 		t.Fatalf("translatePointsToImage: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestTranslatePointsToImageAccountsForImageOrigin(t *testing.T) {
 	region := image.Rect(40, 20, 140, 120)
 	imageBounds := image.Rect(80, 40, 280, 240) // scale 2, origin doubled
 
-	got, err := translatePointsToImage([]image.Point{{40, 20}, {90, 70}, {139, 119}}, region, imageBounds, region)
+	got, err := translatePointsToImage([]image.Point{{40, 20}, {90, 70}, {139, 119}}, region, imageBounds)
 	if err != nil {
 		t.Fatalf("translatePointsToImage: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestTranslatePointsToImageAtScaleOneIsAnOffset(t *testing.T) {
 	region := image.Rect(10, 10, 20, 20)
 	imageBounds := image.Rect(10, 10, 20, 20)
 
-	got, err := translatePointsToImage([]image.Point{{10, 10}, {15, 15}, {19, 19}}, region, imageBounds, region)
+	got, err := translatePointsToImage([]image.Point{{10, 10}, {15, 15}, {19, 19}}, region, imageBounds)
 	if err != nil {
 		t.Fatalf("translatePointsToImage: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestTranslatePointsToImageKeepsEveryPointInsideTheImage(t *testing.T) {
 				points = append(points, image.Point{x, y})
 			}
 		}
-		got, err := translatePointsToImage(points, region, imageBounds, region)
+		got, err := translatePointsToImage(points, region, imageBounds)
 		if err != nil {
 			t.Fatalf("scale %d: translatePointsToImage: %v", scale, err)
 		}
@@ -111,7 +111,7 @@ func TestTranslatePointsToImageRoundTripsWithScreenPoint(t *testing.T) {
 			{regionW / 2, regionH / 2},
 			{regionW - 1, regionH - 1},
 		}
-		mapped, err := translatePointsToImage(points, region, imageBounds, region)
+		mapped, err := translatePointsToImage(points, region, imageBounds)
 		if err != nil {
 			t.Fatalf("scale %d: translatePointsToImage: %v", scale, err)
 		}
@@ -154,7 +154,7 @@ func TestTranslatePointsToImageRejectsDegenerateBounds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := translatePointsToImage([]image.Point{{1, 1}}, tc.region, tc.imageBounds, tc.region); err == nil {
+			if _, err := translatePointsToImage([]image.Point{{1, 1}}, tc.region, tc.imageBounds); err == nil {
 				t.Fatalf("translatePointsToImage accepted %v for %v", tc.region, tc.imageBounds)
 			}
 		})
@@ -183,7 +183,7 @@ func TestTranslatePointsToImageRejectsPointOutsideRegion(t *testing.T) {
 					t.Fatalf("translatePointsToImage panicked on %v: %v", tc.point, r)
 				}
 			}()
-			if _, err := translatePointsToImage([]image.Point{tc.point}, region, imageBounds, region); err == nil {
+			if _, err := translatePointsToImage([]image.Point{tc.point}, region, imageBounds); err == nil {
 				t.Fatalf("translatePointsToImage accepted %v outside %v", tc.point, region)
 			}
 		})
@@ -212,7 +212,7 @@ func TestTranslatePointsToImageAgreesWithRatioMath(t *testing.T) {
 			{originX + regionW/2, originY + regionH/2},
 			{originX + regionW - 1, originY + regionH - 1},
 		}
-		got, err := translatePointsToImage(points, region, imageBounds, region)
+		got, err := translatePointsToImage(points, region, imageBounds)
 		if err != nil {
 			t.Fatalf("translatePointsToImage: %v", err)
 		}
@@ -250,25 +250,25 @@ func TestTranslatePointsRejectsAClippedCapture(t *testing.T) {
 	// proportion keeps the aspect ratio, so a uniform-scale check alone cannot tell
 	// the two apart.
 	downscale := image.Rect(0, 0, 50, 50)
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, downscale, region); err == nil {
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, downscale); err == nil {
 		t.Fatal("a capture smaller than the region was treated as a scaled capture")
 	}
 
 	// A uniform upscale is fine too.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 200, 200), region); err != nil {
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 200, 200)); err != nil {
 		t.Fatalf("a uniform upscale was refused: %v", err)
 	}
 
 	// Clipped on one axis only: 50x100 for a 100x100 region.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 100), region); err == nil {
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 100)); err == nil {
 		t.Fatal("a capture clipped on one axis was treated as a scaled region")
 	}
 	// Clipped on the other axis only.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 25), region); err == nil {
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 25)); err == nil {
 		t.Fatal("a capture clipped on the other axis was treated as a scaled region")
 	}
 	// A non-uniform stretch is not a capture at all.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 25), region); err == nil {
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 25)); err == nil {
 		t.Fatal("a non-uniform scaling was accepted")
 	}
 }
@@ -299,53 +299,50 @@ func TestSpanProductsDistinguishPairsThatShareALowWord(t *testing.T) {
 // real screen produces.
 func TestTranslatePointsRejectsAMismatchedAspectRatio(t *testing.T) {
 	region := image.Rect(0, 0, 100, 50)
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 100), region); err == nil {
+	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 100)); err == nil {
 		t.Fatal("a capture of a different aspect ratio was accepted as a scaled capture")
 	}
 }
 
 // Capture.ScreenPoint maps image points to the desktop and translatePointsToImage maps
-// them back. A capture smaller than the region it represents is a downscale or a
-// proportional clip, and the bounds alone cannot say which, so the two used to disagree:
-// one accepted the mapping and the other refused it. The recorded request decides, and
-// both directions have to reach the same conclusion about the same capture.
-func TestCaptureRoundTripAgreesOnWhatCountsAsADownscale(t *testing.T) {
+// them back, so they have to reach the same conclusion about the same capture. A capture
+// smaller than the region it represents used to be accepted by one and refused by the
+// other, and the bounds cannot say which case it is: a downscale and a region clipped on
+// both axes by the same proportion look identical.
+func TestCaptureDirectionsAgreeOnACaptureSmallerThanItsRegion(t *testing.T) {
 	region := image.Rect(0, 0, 100, 100)
 
-	// A capture that is exactly what was asked for, at the region's own size.
-	exact := Capture{Image: image.NewRGBA(image.Rect(0, 0, 100, 100)), ScreenRect: region, ExpectedImageBounds: region}
-	screenPoint, err := exact.ScreenPoint(image.Point{10, 10})
+	// A capture covering the region is mapped by both directions, and the round trip
+	// returns the pixel it started from.
+	exact := Capture{Image: image.NewRGBA(image.Rect(0, 0, 100, 100)), ScreenRect: region}
+	pixel := image.Point{10, 10}
+	forward, err := exact.ScreenPoint(pixel)
 	if err != nil {
-		t.Fatalf("ScreenPoint on an exact capture: %v", err)
+		t.Fatalf("ScreenPoint on a covering capture: %v", err)
 	}
-	if _, err := translatePointsToImage([]image.Point{screenPoint}, region, image.Rect(0, 0, 100, 100), region); err != nil {
+	back, err := translatePointsToImage([]image.Point{forward}, region, image.Rect(0, 0, 100, 100))
+	if err != nil {
 		t.Fatalf("translatePointsToImage refused the inverse of an accepted mapping: %v", err)
 	}
-
-	// A capture recorded as requested at half size. Both directions must accept it, and
-	// the round trip must land back on the desktop point it started from.
-	downscale := Capture{Image: image.NewRGBA(image.Rect(0, 0, 50, 50)), ScreenRect: region, ExpectedImageBounds: image.Rect(0, 0, 50, 50)}
-	pixel := image.Point{5, 5}
-	forward, err := downscale.ScreenPoint(pixel)
-	if err != nil {
-		t.Fatalf("ScreenPoint on a recorded downscale: %v", err)
-	}
-	back, err := translatePointsToImage([]image.Point{forward}, region, image.Rect(0, 0, 50, 50), image.Rect(0, 0, 50, 50))
-	if err != nil {
-		t.Fatalf("translatePointsToImage refused a capture ScreenPoint accepted: %v", err)
-	}
 	if back[0] != pixel {
-		t.Fatalf("round trip through a downscale = %v, want %v", back[0], pixel)
+		t.Fatalf("round trip = %v, want %v", back[0], pixel)
 	}
 
-	// The same bounds with no recorded request is a capture of unknown provenance. It
-	// cannot be told apart from a proportional clip, so it is refused rather than
-	// sampled, and ScreenPoint must not claim a mapping the inverse will not honour.
-	unknown := Capture{Image: image.NewRGBA(image.Rect(0, 0, 50, 50)), ScreenRect: region}
-	if unknown.ReportsDownscale() {
-		t.Fatal("a capture with no recorded request was reported as a downscale")
-	}
-	if _, err := translatePointsToImage([]image.Point{{10, 10}}, region, image.Rect(0, 0, 50, 50), image.Rect(0, 0, 100, 100)); err == nil {
-		t.Fatal("a capture with no recorded request was accepted as a downscale")
+	// Smaller than the region: refused by both, whichever origin the image uses, because
+	// the origin is not what makes a capture unusable.
+	for _, bounds := range []image.Rectangle{
+		image.Rect(0, 0, 50, 50),
+		image.Rect(5, 7, 55, 57),
+	} {
+		partial := Capture{Image: image.NewRGBA(bounds), ScreenRect: region}
+		if _, err := partial.ScreenPoint(image.Point{bounds.Min.X + 1, bounds.Min.Y + 1}); err == nil {
+			t.Fatalf("ScreenPoint accepted a capture smaller than its region: %v", bounds)
+		}
+		if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, bounds); err == nil {
+			t.Fatalf("translatePointsToImage accepted a capture smaller than its region: %v", bounds)
+		}
+		if partial.ReportsDownscale() {
+			t.Fatalf("a capture smaller than its region was reported as a downscale: %v", bounds)
+		}
 	}
 }

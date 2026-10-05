@@ -32,27 +32,14 @@ func TestCaptureScreenPoint(t *testing.T) {
 			want:    image.Pt(11, 22),
 		},
 		{
-			// A capture smaller than the region it represents is a downscale only when
-			// the request records it as one. Without that record it cannot be told apart
-			// from a capture of only part of the region, and translatePointsToImage
-			// refuses it, so ScreenPoint must not hand back a coordinate whose inverse
-			// this package disowns.
-			name:    "downscale recorded as requested",
-			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(-20, 30, -12, 38), ExpectedImageBounds: image.Rect(5, 7, 7, 9)},
-			pixel:   image.Pt(6, 8),
-			want:    image.Pt(-16, 34),
-		},
-		{
-			name:    "smaller capture with no recorded request",
+			name:    "smaller capture than the region",
 			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(-20, 30, -12, 38)},
 			pixel:   image.Pt(6, 8),
 			wantErr: true,
 		},
 		{
-			// The capture came back smaller than what was asked for, so it is the part
-			// the backend could get rather than a downscale of the request.
-			name:    "smaller capture than the recorded request",
-			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(-20, 30, -12, 38), ExpectedImageBounds: image.Rect(-20, 30, -12, 38)},
+			name:    "rebased smaller capture than the region",
+			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(0, 0, 8, 8)},
 			pixel:   image.Pt(6, 8),
 			wantErr: true,
 		},
