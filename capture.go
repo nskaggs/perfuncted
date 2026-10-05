@@ -49,9 +49,24 @@ func (c Capture) ScreenPoint(pixel image.Point) (image.Point, error) {
 	if !pixel.In(imageBounds) {
 		return image.Point{}, fmt.Errorf("perfuncted: image point %v is outside capture bounds %v: %w", pixel, imageBounds, ErrInvalidArgument)
 	}
-	// A capture smaller than the region it represents is refused rather than mapped
-	// through. translatePointsToImage refuses the same capture, so accepting it here
+	// A capture that is not a uniform scaling of the region is refused rather than mapped
+	// through. translatePointsToImage refuses the same captures, so accepting one here
 	// would hand back a desktop coordinate whose inverse this package disowns.
+	//
+	// Both axes have to describe one scale. Comparing them separately is not enough: a
+	// capture twice as wide as the region and half as tall passes both size checks and
+	// maps a point onto a pixel standing for a different place on screen. The products
+	// are compared through 128 bits because the spans come from int coordinates, so on a
+	// wide enough rectangle the 64-bit products wrap and two spans of different aspect
+	// ratios compare equal.
+	lhsHi, lhsLo := bits.Mul64(imageWidth, screenHeight)
+	rhsHi, rhsLo := bits.Mul64(imageHeight, screenWidth)
+	if lhsHi != rhsHi || lhsLo != rhsLo {
+		return image.Point{}, fmt.Errorf(
+			"perfuncted: capture %v is not a uniform scaling of region %v: %w",
+			imageBounds, c.ScreenRect, ErrInvalidArgument,
+		)
+	}
 	if imageWidth < screenWidth || imageHeight < screenHeight {
 		return image.Point{}, fmt.Errorf(
 			"perfuncted: capture %v is smaller than region %v: it cannot be told apart from a clipped capture: %w",

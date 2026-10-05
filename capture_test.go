@@ -190,3 +190,34 @@ func TestScreenCaptureRejectsUnknownFullScreenProvenance(t *testing.T) {
 		t.Fatalf("backend grab calls = %d, want 0", backend.grabCalls)
 	}
 }
+
+// A capture whose axes describe different scales is not a scaling of the region at all,
+// and translatePointsToImage refuses it. ScreenPoint refusing it too is what keeps the
+// two directions from disagreeing about the same capture: it used to accept this one and
+// hand back a coordinate whose inverse the package disowns.
+func TestCaptureScreenPointRefusesANonUniformCapture(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		region image.Rectangle
+		bounds image.Rectangle
+	}{
+		{"stretched on one axis", image.Rect(0, 0, 100, 100), image.Rect(0, 0, 200, 100)},
+		{"stretched on the other", image.Rect(0, 0, 100, 100), image.Rect(0, 0, 100, 200)},
+		{"rebased and stretched", image.Rect(0, 0, 100, 100), image.Rect(5, 7, 205, 107)},
+		{"square capture on a wide region", image.Rect(0, 0, 200, 100), image.Rect(0, 0, 100, 100)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			region := tc.region
+			capture := Capture{Image: image.NewRGBA(tc.bounds), ScreenRect: region}
+			if _, err := capture.ScreenPoint(image.Point{tc.bounds.Min.X + 1, tc.bounds.Min.Y + 1}); err == nil {
+				t.Fatalf("ScreenPoint accepted a capture that is not a uniform scaling of the region: %v", tc.bounds)
+			}
+			if _, err := translatePointsToImage([]image.Point{{X: 1, Y: 1}}, region, tc.bounds); err == nil {
+				t.Fatalf("translatePointsToImage accepted a capture that is not a uniform scaling of the region: %v", tc.bounds)
+			}
+		})
+	}
+}
