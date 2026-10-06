@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -113,34 +112,29 @@ func readSamples(path string) (map[string][]sample, error) {
 	return samples, nil
 }
 
-func bestSample(samples []sample) sample {
-	return sample{
-		name:       samples[0].name,
-		nsPerOp:    bestValue(samples, func(value sample) float64 { return value.nsPerOp }),
-		bytesPerOp: bestValue(samples, func(value sample) float64 { return value.bytesPerOp }),
-		allocsOp:   bestValue(samples, func(value sample) float64 { return value.allocsOp }),
-	}
-}
-
-// bestValue returns the least-disturbed sample rather than the middle one.
+// bestSample returns the single least-disturbed run and reports that run's own numbers.
 //
 // Every measurement here is compositor-backed and shares the machine with whatever else
-// the build is running, so a sample taken under load reads slower than the same code
-// running on an idle box. The median of three therefore tracks the machine's load as much
-// as the code's cost, and the gate failed on WindowListActivate only while the preceding
-// CI steps were still loading the box: the identical commit measures about 442000 ns/op
-// against a 376893 baseline on a quiet machine, inside the threshold.
+// the build is running, so a run taken under load reads slower than the same code on an
+// idle box. The median of three therefore tracked the machine's load as much as the code's
+// cost: WindowListActivate failed at about 780000 ns/op while the preceding CI steps were
+// still loading the box, and the identical commit measures about 442000 against a 369760
+// baseline on a quiet machine, which is inside the documented threshold.
 //
-// The minimum is the standard choice for a noisy benchmark: it is the sample least
-// disturbed by contention, and a genuine regression slows every sample rather than only
-// the unlucky ones. Comparing medians would keep reporting the neighbours' load.
-func bestValue(samples []sample, value func(sample) float64) float64 {
-	values := make([]float64, 0, len(samples))
-	for _, sample := range samples {
-		values = append(values, value(sample))
+// Taking the lowest run is the standard choice for a noisy timing measurement, and a real
+// regression slows every run rather than only the unlucky ones. The chosen run's bytes and
+// allocations are reported alongside its time, because they come from the same run: picking
+// the lowest value of each metric separately would combine numbers from different runs into
+// a run that never happened, and three regressions in three different metrics would each be
+// compared against a best case belonging to one of the others.
+func bestSample(samples []sample) sample {
+	best := samples[0]
+	for _, candidate := range samples[1:] {
+		if candidate.nsPerOp < best.nsPerOp {
+			best = candidate
+		}
 	}
-	sort.Float64s(values)
-	return values[0]
+	return best
 }
 
 func parseSample(fields []string) (sample, bool) {
