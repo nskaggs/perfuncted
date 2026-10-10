@@ -255,55 +255,12 @@ func (l *AccessibilityLocator) Wait(ctx context.Context, options ...WaitOption) 
 // InvokeActionAndWait resolves one current target, dispatches one semantic
 // action, and then waits for an independent caller-supplied postcondition.
 func (l *AccessibilityLocator) InvokeActionAndWait(ctx context.Context, actionName string, postcondition Condition, options ...WaitOption) (AccessibilityActionReceipt, WaitEvidence, error) { //nolint:gocyclo // unique resolution, dispatch certainty, and bounded stale handling are explicit safety gates.
-	if l == nil || l.bundle == nil || l.bundle.session == nil {
-		return AccessibilityActionReceipt{}, WaitEvidence{}, ErrUnavailable
-	}
-	if ctx == nil {
-		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator action: %w: nil context", ErrInvalidArgument)
-	}
-	if postcondition == nil {
-		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator action: %w: nil postcondition", ErrInvalidArgument)
-	}
-	var receipt AccessibilityActionReceipt
-	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
-		retry, err := func() (bool, error) {
-			matches, identity, root, stopObservation, err := l.find(ctx)
-			if err != nil {
-				return false, err
-			}
-			defer stopObservation()
-			node, err := uniqueLocatorMatch(matches)
-			if err != nil {
-				return false, err
-			}
-			receipt, err = l.bundle.invokeSemanticActionOnNode(ctx, node, actionName)
-			if err == nil {
-				return false, nil
-			}
-			var dispatchErr *accessibility.ActionInvocationError
-			if errors.As(err, &dispatchErr) && dispatchErr.Dispatch == accessibility.DispatchUnknown {
-				return false, err
-			}
-			if (!errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode)) || attempt+1 == locatorResolutionAttempts {
-				return false, err
-			}
-			refreshedRoot, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
-			if scopeErr != nil {
-				return false, scopeErr
-			}
-			if !sameLocatorScope(identity, refreshedIdentity) || root.BusName != refreshedRoot.BusName || root.ObjectPath != refreshedRoot.ObjectPath {
-				return false, fmt.Errorf("perfuncted: locator action scope changed before dispatch: %w", ErrManagedScopeChanged)
-			}
-			return true, nil
-		}()
-		if err != nil {
-			return receipt, WaitEvidence{}, err
-		}
-		if !retry {
-			break
-		}
-	}
-	return l.waitForOutcome(ctx, receipt, postcondition, options...)
+	return l.actionAndWait(ctx, "action", postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
+		receipt, err := l.bundle.invokeSemanticActionOnNode(ctx, node, actionName)
+		retryable := err != nil && locatorActionMayRetryStale(err) &&
+			(receipt.Dispatch == "" || receipt.Dispatch == accessibility.DispatchNotSent)
+		return locatorDispatchAttempt{receipt: receipt, err: err, retryableNotSent: retryable}
+	})
 }
 
 // ClickAndWait invokes the target's accessible default action once and records
@@ -328,53 +285,82 @@ func (l *AccessibilityLocator) FillAndWait(ctx context.Context, value string, po
 	if !utf8.ValidString(value) {
 		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator fill: %w: text must be valid UTF-8", ErrInvalidArgument)
 	}
+	return l.actionAndWait(ctx, "fill", postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
+		receipt := AccessibilityActionReceipt{
+			Node: node, Operation: "set-text-contents", Mechanism: "at-spi.editable-text",
+			Generation: node.ID.Generation, Dispatch: accessibility.DispatchNotSent,
+			Outcome: ActionOutcomeProof{Status: ActionOutcomeNotObserved},
+		}
+		if contextErr := ctx.Err(); contextErr != nil {
+			return locatorDispatchAttempt{receipt: receipt, err: contextErr}
+		}
+		err := l.bundle.ReplaceEditableText(ctx, node.ID, value)
+		if err == nil {
+			receipt.Dispatch = accessibility.DispatchAccepted
+			receipt.DispatchedAt = time.Now().UTC()
+			return locatorDispatchAttempt{receipt: receipt}
+		}
+		receipt.Dispatch = textDispatchOutcome(err)
+		return locatorDispatchAttempt{
+			receipt: receipt, err: err,
+			retryableNotSent: receipt.Dispatch == accessibility.DispatchNotSent && locatorActionMayRetryStale(err),
+		}
+	})
+}
+
+type locatorDispatchAttempt struct {
+	receipt          AccessibilityActionReceipt
+	err              error
+	retryableNotSent bool
+}
+
+func locatorRetryAllowed(attempt locatorDispatchAttempt, attemptNumber int) bool {
+	return attempt.err != nil && attempt.retryableNotSent && locatorActionMayRetryStale(attempt.err) && attemptNumber+1 < locatorResolutionAttempts
+}
+
+func locatorActionMayRetryStale(err error) bool {
+	return errors.Is(err, accessibility.ErrStaleGeneration) || errors.Is(err, accessibility.ErrStaleNode)
+}
+
+func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation string, postcondition Condition, options []WaitOption, dispatch func(context.Context, accessibility.Node) locatorDispatchAttempt) (AccessibilityActionReceipt, WaitEvidence, error) {
+	if l == nil || l.bundle == nil || l.bundle.session == nil {
+		return AccessibilityActionReceipt{}, WaitEvidence{}, ErrUnavailable
+	}
+	if ctx == nil {
+		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s: %w: nil context", operation, ErrInvalidArgument)
+	}
+	if postcondition == nil {
+		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s: %w: nil postcondition", operation, ErrInvalidArgument)
+	}
 	var receipt AccessibilityActionReceipt
-	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
-		retry, err := func() (bool, error) {
-			matches, identity, root, stopObservation, err := l.find(ctx)
-			if err != nil {
-				return false, err
-			}
-			defer stopObservation()
-			node, err := uniqueLocatorMatch(matches)
-			if err != nil {
-				return false, err
-			}
-			receipt = AccessibilityActionReceipt{
-				Node: node, Operation: "set-text-contents", Mechanism: "at-spi.editable-text",
-				Generation: node.ID.Generation, Dispatch: accessibility.DispatchNotSent,
-				Outcome: ActionOutcomeProof{Status: ActionOutcomeNotObserved},
-			}
-			if contextErr := ctx.Err(); contextErr != nil {
-				return false, contextErr
-			}
-			err = l.bundle.ReplaceEditableText(ctx, node.ID, value)
-			if err == nil {
-				receipt.Dispatch = accessibility.DispatchAccepted
-				receipt.DispatchedAt = time.Now().UTC()
-				return false, nil
-			}
-			receipt.Dispatch = textDispatchOutcome(err)
-			if receipt.Dispatch != accessibility.DispatchNotSent || (!errors.Is(err, accessibility.ErrStaleGeneration) && !errors.Is(err, accessibility.ErrStaleNode)) || attempt+1 == locatorResolutionAttempts {
-				return false, err
-			}
-			refreshedRoot, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
-			if scopeErr != nil {
-				return false, scopeErr
-			}
-			if !sameLocatorScope(identity, refreshedIdentity) || root.BusName != refreshedRoot.BusName || root.ObjectPath != refreshedRoot.ObjectPath {
-				return false, fmt.Errorf("perfuncted: locator fill scope changed before dispatch: %w", ErrManagedScopeChanged)
-			}
-			return true, nil
-		}()
+	for attemptNumber := 0; attemptNumber < locatorResolutionAttempts; attemptNumber++ {
+		matches, identity, root, stopObservation, err := l.find(ctx)
 		if err != nil {
 			return receipt, WaitEvidence{}, err
 		}
-		if !retry {
-			break
+		node, err := uniqueLocatorMatch(matches)
+		if err != nil {
+			stopObservation()
+			return receipt, WaitEvidence{}, err
+		}
+		dispatched := dispatch(ctx, node)
+		stopObservation()
+		receipt = dispatched.receipt
+		if dispatched.err == nil {
+			return l.waitForOutcome(ctx, receipt, postcondition, options...)
+		}
+		if !locatorRetryAllowed(dispatched, attemptNumber) {
+			return receipt, WaitEvidence{}, dispatched.err
+		}
+		refreshedRoot, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
+		if scopeErr != nil {
+			return receipt, WaitEvidence{}, scopeErr
+		}
+		if !sameLocatorScope(identity, refreshedIdentity) || root.BusName != refreshedRoot.BusName || root.ObjectPath != refreshedRoot.ObjectPath {
+			return receipt, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s scope changed before dispatch: %w", operation, ErrManagedScopeChanged)
 		}
 	}
-	return l.waitForOutcome(ctx, receipt, postcondition, options...)
+	return receipt, WaitEvidence{}, ErrUnavailable
 }
 
 func textDispatchOutcome(err error) accessibility.DispatchOutcome {

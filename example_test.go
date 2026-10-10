@@ -7,6 +7,7 @@ import (
 	"image"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/accessibility"
 )
 
 func ExampleCapabilityStatus_Supports() {
@@ -38,6 +39,24 @@ func ExampleSession_Wait_cancellation() {
 	}))
 	fmt.Println(errors.Is(err, context.Canceled))
 	// Output: true
+}
+
+func ExampleAccessibilityLocator_ClickAndWait() {
+	verifiedSave := func(ctx context.Context, session *perfuncted.Session, window *perfuncted.Window, saved perfuncted.Condition) error {
+		locator := session.Accessibility.LocatorForWindow(window.ID().String(), accessibility.Selector{
+			Role: "button", Name: "Save",
+		}, accessibility.SnapshotOptions{})
+		receipt, _, err := locator.ClickAndWait(ctx, saved)
+		if err != nil {
+			return err
+		}
+		if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != perfuncted.ActionOutcomeVerified {
+			return errors.New("save action lacks accepted dispatch or independent verification")
+		}
+		return nil
+	}
+	_ = verifiedSave
+	// Output:
 }
 
 // imageRect keeps the examples focused on the public session contract.

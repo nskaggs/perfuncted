@@ -184,6 +184,11 @@ Every session has non-nil capability facades:
   `FillAndWait` uses one EditableText `SetTextContents` call. Both return a
   receipt that reports dispatch acknowledgement separately from the
   independent postcondition result; uncertain dispatches are not repeated.
+  For a verified action, pass the current managed window handle and an
+  independent `Condition` to the locator; the receipt's `Outcome.Status` must
+  be `ActionOutcomeVerified` before treating the action as complete. See the
+  compile-checked `ExampleAccessibilityLocator_ClickAndWait` in
+  `example_test.go` for the golden path.
   Locator resolution requires an active AT-SPI event stream to detect provider
   changes during the fresh snapshot and action; it fails closed unless the
   provider registers the property, state, children, text, visibility, focus,
@@ -224,6 +229,9 @@ sudo usermod -aG input $USER   # log out and back in
 
 ## Testing
 
+`just test` runs the fast unit suite. The general integration commands cover
+display, session, and backend behavior; strict KDE/GTK AT-SPI certification is
+the separate mandatory target included by both `just test-all` and `just ci`.
 The integration suite runs in isolated nested Wayland/X11 sessions and never
 touches your real desktop:
 
@@ -232,9 +240,15 @@ just test-integration-headless-x11
 just test-integration-headless-wayland
 just test-integration-nested-x11
 just test-integration-nested-wayland
-just test-integration   # all local integration modes
+just test-integration   # general display, session, and backend integration
+just test-accessibility-certification  # mandatory KDE/GTK AT-SPI certification
 just test-flatpak      # build, install, and validate the Flatpak bundle
 ```
+
+The certification target is a separate required CI gate. `just ci` runs both
+the general integration coverage and strict AT-SPI certification; the latter
+fails when the required desktop applications or accessibility interfaces are
+unavailable.
 
 The integration recipes need the same system packages listed in the CI
 workflow. Install `wl-clipboard` for Wayland clipboard round-trip verification

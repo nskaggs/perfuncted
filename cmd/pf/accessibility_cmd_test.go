@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"slices"
@@ -12,6 +13,19 @@ import (
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/nskaggs/perfuncted/window"
 )
+
+func TestAccessibilityOutlineTextDistinguishesProviderIncompleteSnapshot(t *testing.T) {
+	var output bytes.Buffer
+	err := writeAccessibilityText(&output, accessibility.Outline{
+		Generation: 7, ProviderErrors: 2, Warnings: []string{"child read failed"},
+	})
+	if err != nil {
+		t.Fatalf("writeAccessibilityText: %v", err)
+	}
+	if !strings.Contains(output.String(), "truncated=false provider_errors=2") {
+		t.Fatalf("outline diagnostic = %q, want distinct provider-incomplete status", output.String())
+	}
+}
 
 type cliAccessibilityFake struct{}
 

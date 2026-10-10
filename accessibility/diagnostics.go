@@ -82,10 +82,11 @@ type OutlineNode struct {
 // Outline is the bounded semantic view and retains snapshot generation and
 // warnings so callers can reason about freshness and partial results.
 type Outline struct {
-	Root       OutlineNode `json:"root"`
-	Generation uint64      `json:"generation"`
-	Truncated  bool        `json:"truncated"`
-	Warnings   []string    `json:"warnings,omitempty"`
+	Root           OutlineNode `json:"root"`
+	Generation     uint64      `json:"generation"`
+	Truncated      bool        `json:"truncated"`
+	ProviderErrors int         `json:"providerErrors,omitempty"`
+	Warnings       []string    `json:"warnings,omitempty"`
 }
 
 // BuildOutline derives a compact semantic outline without introducing a
@@ -100,7 +101,10 @@ func BuildOutline(snapshot Snapshot, options OutlineOptions) Outline {
 	for _, node := range snapshot.Nodes {
 		children[node.ID] = append(children[node.ID], node.Children...)
 	}
-	out := Outline{Generation: snapshot.Generation, Truncated: snapshot.Truncated, Warnings: append([]string(nil), snapshot.Warnings...)}
+	out := Outline{
+		Generation: snapshot.Generation, Truncated: snapshot.Truncated,
+		ProviderErrors: snapshot.ProviderErrors, Warnings: append([]string(nil), snapshot.Warnings...),
+	}
 	var walk func(NodeID, int) OutlineNode
 	count := 0
 	walk = func(id NodeID, depth int) OutlineNode {

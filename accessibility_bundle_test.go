@@ -791,6 +791,36 @@ func TestAccessibilityLocatorClickAndFillVerifySingleDispatch(t *testing.T) { //
 	}
 }
 
+func TestLocatorActionRetryDispatchMatrix(t *testing.T) {
+	stale := fmt.Errorf("%w: stale target", accessibility.ErrStaleNode)
+	for _, test := range []struct {
+		name             string
+		dispatch         accessibility.DispatchOutcome
+		retryableNotSent bool
+		err              error
+		attempt          int
+		wantRetry        bool
+	}{
+		{name: "not sent stale target", dispatch: accessibility.DispatchNotSent, retryableNotSent: true, err: stale, attempt: 0, wantRetry: true},
+		{name: "unclassified pre-dispatch stale target", retryableNotSent: true, err: stale, attempt: 0, wantRetry: true},
+		{name: "unknown outcome", dispatch: accessibility.DispatchUnknown, retryableNotSent: false, err: stale, attempt: 0},
+		{name: "accepted outcome with error", dispatch: accessibility.DispatchAccepted, retryableNotSent: false, err: stale, attempt: 0},
+		{name: "rejected outcome", dispatch: accessibility.DispatchRejected, retryableNotSent: false, err: stale, attempt: 0},
+		{name: "not-sent unrelated error", dispatch: accessibility.DispatchNotSent, retryableNotSent: true, err: accessibility.ErrUnsupported, attempt: 0},
+		{name: "attempt budget exhausted", dispatch: accessibility.DispatchNotSent, retryableNotSent: true, err: stale, attempt: locatorResolutionAttempts - 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			attempt := locatorDispatchAttempt{
+				receipt: AccessibilityActionReceipt{Dispatch: test.dispatch}, err: test.err,
+				retryableNotSent: test.retryableNotSent,
+			}
+			if got := locatorRetryAllowed(attempt, test.attempt); got != test.wantRetry {
+				t.Fatalf("locatorRetryAllowed() = %t, want %t", got, test.wantRetry)
+			}
+		})
+	}
+}
+
 func TestAccessibilityLocatorFillDoesNotRepeatUnknownDispatch(t *testing.T) {
 	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/application", Generation: 3}
 	target := accessibility.NodeID{BusName: "org.test", ObjectPath: "/field", Generation: 3}

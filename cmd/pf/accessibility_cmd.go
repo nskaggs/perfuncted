@@ -138,8 +138,8 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		if err := writeAccessibilityOutlineNode(w, typed.Root, ""); err != nil {
 			return err
 		}
-		if typed.Truncated {
-			_, err := fmt.Fprintf(w, "[truncated generation=%d warnings=%v]\n", typed.Generation, typed.Warnings)
+		if typed.Truncated || typed.ProviderErrors > 0 {
+			_, err := fmt.Fprintf(w, "[partial generation=%d truncated=%t provider_errors=%d warnings=%v]\n", typed.Generation, typed.Truncated, typed.ProviderErrors, typed.Warnings)
 			return err
 		}
 		return nil

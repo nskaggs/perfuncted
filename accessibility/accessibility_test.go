@@ -1029,6 +1029,18 @@ func TestBuildOutlineAndCandidateContextPreserveGeneration(t *testing.T) {
 	}
 }
 
+func TestBuildOutlinePreservesProviderIncompleteEvidence(t *testing.T) {
+	rootID := NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 4}
+	snapshot := Snapshot{
+		Root: Node{ID: rootID}, Nodes: []Node{{ID: rootID}}, Generation: 4,
+		ProviderErrors: 1, Warnings: []string{"/child: child disappeared"},
+	}
+	outline := BuildOutline(snapshot, OutlineOptions{})
+	if outline.Truncated || outline.ProviderErrors != 1 || len(outline.Warnings) != 1 {
+		t.Fatalf("outline partial evidence = truncated:%t provider_errors:%d warnings:%v", outline.Truncated, outline.ProviderErrors, outline.Warnings)
+	}
+}
+
 func TestTypedAutomationProtocolFixtureCoversMutations(t *testing.T) {
 	type call struct {
 		method string

@@ -195,7 +195,8 @@ test-integration-nested-wayland-debug:
 test-integration-backends:
     CGO_ENABLED=0 go test -p 1 -tags=integration ./window ./input ./screen ./clipboard -count=1
     
-# Run all integration checks: shared suite across every environment plus session and backend coverage.
+# Run the general display, session, and backend integration coverage. Strict
+# KDE/GTK AT-SPI certification is a separate required CI gate below.
 test-integration:
     just test-integration-suite headless-x11
     just test-integration-suite nested-x11
@@ -212,8 +213,8 @@ build-flatpak:
 test-flatpak:
     CGO_ENABLED=0 go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
-# Run all test suites: unit + session + integration
-test-all: test-unit test-session test-integration
+# Run all test suites, including mandatory strict AT-SPI certification.
+test-all: test-unit test-session test-integration test-accessibility-certification
     @echo "Completed test-all"
 
 # ── release smoke tests ────────────────────────────────────────────────────
