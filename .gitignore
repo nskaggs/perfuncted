@@ -42,3 +42,6 @@ coverage*.out
 *.cover
 WORKSTREAM.md
 workstream.md
+
+# Private improvement audits and implementation plans
+/plans/

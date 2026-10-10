@@ -383,49 +383,107 @@ func windowResolutionChangeError(change observationChange, desktop objectIdentit
 }
 
 func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
-	// Work on nodes this function owns. Without this it bounded the caller's node
-	// structs in place and returned a graph still sharing the caller's maps, so a
-	// caller that read the result could reach back into the snapshot it supplied.
+	// The size search reads source nodes; trimming and returned projections use owned slices.
+	if len(snapshot.Nodes) > 0 {
+		snapshot.Root = snapshot.Nodes[0]
+	}
+	if maxBytes <= 0 {
+		return cloneSnapshotResponse(snapshot), nil
+	}
+	nodeSizes, prefixNodeSizes := snapshotNodeSizeIndex(snapshot.Nodes)
+	rootSize := snapshotRootJSONSize(snapshot, nodeSizes)
+	if snapshotJSONSizeFromParts(snapshot, rootSize, prefixNodeSizes[len(snapshot.Nodes)], len(snapshot.Nodes), snapshot.Nodes == nil) <= maxBytes {
+		return cloneSnapshotResponse(snapshot), nil
+	}
+	snapshot.Truncated = true
+	snapshot.TruncationReasons = append([]string(nil), snapshot.TruncationReasons...)
+	snapshot.TruncationReasons = appendUnique(snapshot.TruncationReasons, fmt.Sprintf("max total bytes %d", maxBytes))
+	baseSize := snapshotJSONBaseSize(snapshot)
+	snapshot, nodeSizes = boundSnapshotNodes(snapshot, nodeSizes, maxBytes)
+	if len(snapshot.Nodes) > 0 {
+		snapshot.Root = snapshot.Nodes[0]
+	}
+	rebuildSnapshotPrefixSizes(prefixNodeSizes, nodeSizes)
+	rootSize = snapshotRootJSONSize(snapshot, nodeSizes)
+	if snapshotJSONSizeFromBase(baseSize, rootSize, prefixNodeSizes[len(snapshot.Nodes)], len(snapshot.Nodes), snapshot.Nodes == nil) <= maxBytes {
+		return cloneSnapshotResponse(snapshot), nil
+	}
+
+	originalRoot := snapshot.Root.ID
+	snapshot = projectSnapshotPrefixWithinBudget(snapshot, nodeSizes, prefixNodeSizes, baseSize, maxBytes, originalRoot)
+	if snapshotJSONSize(snapshot) > maxBytes {
+		return minimumSnapshotResponse(snapshot, originalRoot, maxBytes)
+	}
+	return snapshot, nil
+}
+
+func snapshotNodeSizeIndex(nodes []Node) ([]int, []int) {
+	nodeSizes := make([]int, len(nodes))
+	prefixNodeSizes := make([]int, len(nodes)+1)
+	for i, node := range nodes {
+		nodeSizes[i] = estimateNodeJSONSize(node)
+		prefixNodeSizes[i+1] = addJSONSize(prefixNodeSizes[i], nodeSizes[i])
+	}
+	return nodeSizes, prefixNodeSizes
+}
+
+func snapshotRootJSONSize(snapshot Snapshot, nodeSizes []int) int {
+	if len(snapshot.Nodes) > 0 {
+		return nodeSizes[0]
+	}
+	return estimateNodeJSONSize(snapshot.Root)
+}
+
+func cloneSnapshotResponse(snapshot Snapshot) Snapshot {
 	snapshot.Nodes = cloneSnapshotNodes(snapshot.Nodes)
 	if len(snapshot.Nodes) > 0 {
 		snapshot.Root = snapshot.Nodes[0]
+	} else {
+		snapshot.Root = cloneSnapshotRoot(snapshot.Root)
 	}
-	if maxBytes <= 0 || snapshotJSONSize(snapshot) <= maxBytes {
-		return snapshot, nil
-	}
-	snapshot.Truncated = true
-	snapshot.TruncationReasons = appendUnique(snapshot.TruncationReasons, fmt.Sprintf("max total bytes %d", maxBytes))
-	for i := range snapshot.Nodes {
-		snapshot.Nodes[i] = boundNodeResponse(snapshot.Nodes[i], maxBytes)
-	}
-	if len(snapshot.Nodes) > 0 {
-		snapshot.Root = snapshot.Nodes[0]
-	}
-	if snapshotJSONSize(snapshot) <= maxBytes {
-		return snapshot, nil
-	}
+	return snapshot
+}
 
-	// Binary search for the largest prefix that fits. The snapshotJSONSize
-	// estimator is conservative (upper-bound), so every "fits" decision in
-	// the search is correct. The final marshal validates the winner.
-	originalRoot := snapshot.Root.ID
-	low, high, best := 0, len(snapshot.Nodes), -1
+func boundSnapshotNodes(snapshot Snapshot, nodeSizes []int, maxBytes int) (Snapshot, []int) {
+	var boundedNodes []Node
+	for i := range snapshot.Nodes {
+		if nodeSizes[i]+60 <= maxBytes {
+			continue
+		}
+		if boundedNodes == nil {
+			boundedNodes = append([]Node(nil), snapshot.Nodes...)
+		}
+		boundedNodes[i] = boundNodeResponse(snapshot.Nodes[i], maxBytes)
+		nodeSizes[i] = estimateNodeJSONSize(boundedNodes[i])
+	}
+	if boundedNodes != nil {
+		snapshot.Nodes = boundedNodes
+	}
+	return snapshot, nodeSizes
+}
+
+func rebuildSnapshotPrefixSizes(prefixNodeSizes, nodeSizes []int) {
+	prefixNodeSizes[0] = 0
+	for i, nodeSize := range nodeSizes {
+		prefixNodeSizes[i+1] = addJSONSize(prefixNodeSizes[i], nodeSize)
+	}
+}
+
+func projectSnapshotPrefixWithinBudget(snapshot Snapshot, nodeSizes, prefixNodeSizes []int, baseSize, maxBytes int, originalRoot NodeID) Snapshot {
+	// Binary search uses a conservative size estimate and returns the largest prefix that fits.
+	high := maximumPotentialSnapshotPrefix(snapshot, nodeSizes, baseSize, maxBytes, originalRoot)
+	var retained map[NodeID]struct{}
+	if high > 0 {
+		retained = make(map[NodeID]struct{}, high)
+	}
+	low, best := 0, -1
 	for low <= high {
 		middle := low + (high-low)/2
-		// The candidate has to own its nodes' maps. Node carries a Relations map and
-		// an Attributes map, so a shallow copy shares them with the input and with
-		// every other probe. Pruning then deleted relations from the snapshot it was
-		// supposed to be measuring, which corrupted the caller's graph and made a
-		// later, larger probe see an already-pruned one.
-		candidate := snapshot
-		candidate.Nodes = cloneSnapshotNodes(snapshot.Nodes[:middle])
-		if middle == 0 {
-			candidate.Root = Node{ID: originalRoot}
-		} else {
-			candidate.Root = candidate.Nodes[0]
+		clear(retained)
+		for _, node := range snapshot.Nodes[:middle] {
+			retained[node.ID] = struct{}{}
 		}
-		pruneSnapshotReferences(&candidate)
-		if snapshotJSONSize(candidate) <= maxBytes {
+		if snapshotJSONSizeForPrefix(snapshot, middle, nodeSizes, prefixNodeSizes, baseSize, retained, originalRoot) <= maxBytes {
 			best = middle
 			low = middle + 1
 			continue
@@ -443,60 +501,235 @@ func boundSnapshotResponse(snapshot Snapshot, maxBytes int) (Snapshot, error) {
 			snapshot.Root = Node{ID: originalRoot}
 		} else {
 			snapshot.Root = snapshot.Nodes[0]
+			clear(retained)
+			for _, node := range snapshot.Nodes {
+				retained[node.ID] = struct{}{}
+			}
+			pruneSnapshotReferencesWithRetained(&snapshot, retained)
 		}
 	}
-	pruneSnapshotReferences(&snapshot)
-	if snapshotJSONSize(snapshot) > maxBytes {
-		minimum := snapshot
-		minimum.Nodes = nil
-		minimum.Root = Node{ID: originalRoot}
-		minimum.Warnings = nil
-		minimum.ProviderErrors = 0
-		pruneSnapshotReferences(&minimum)
-		if snapshotJSONSize(minimum) > maxBytes {
-			return Snapshot{}, fmt.Errorf("%w: minimum response is %d bytes, limit is %d", ErrResponseBudget, snapshotJSONSize(minimum), maxBytes)
-		}
-		return minimum, nil
-	}
-	return snapshot, nil
+	return snapshot
 }
 
-// cloneSnapshotNodes copies the node slice along with each node's maps and
-// slices, so a projection can be pruned without touching what it was derived
-// from.
+func minimumSnapshotResponse(snapshot Snapshot, originalRoot NodeID, maxBytes int) (Snapshot, error) {
+	minimum := snapshot
+	minimum.Nodes = nil
+	minimum.Root = Node{ID: originalRoot}
+	minimum.Warnings = nil
+	minimum.ProviderErrors = 0
+	pruneSnapshotReferences(&minimum)
+	minimumSize := snapshotJSONSize(minimum)
+	if minimumSize > maxBytes {
+		return Snapshot{}, fmt.Errorf("%w: minimum response is %d bytes, limit is %d", ErrResponseBudget, minimumSize, maxBytes)
+	}
+	return minimum, nil
+}
+
+// maximumPotentialSnapshotPrefix excludes prefixes whose nodes cannot fit even
+// after every child and relation reference outside the prefix has been pruned.
+func maximumPotentialSnapshotPrefix(snapshot Snapshot, nodeSizes []int, baseSize, maxBytes int, originalRoot NodeID) int {
+	var nodesSize int
+	rootSize := estimateNodeJSONSize(Node{ID: originalRoot})
+	limit := 0
+	for i, node := range snapshot.Nodes {
+		minimumSize := estimateNodeJSONSizeAfterReferencePruning(node, nodeSizes[i], nil)
+		nodesSize = addJSONSize(nodesSize, minimumSize)
+		if i == 0 {
+			rootSize = minimumSize
+		}
+		candidateSize := snapshotJSONSizeFromBase(baseSize, rootSize, nodesSize, i+1, false)
+		if candidateSize > maxBytes {
+			return limit
+		}
+		limit = i + 1
+	}
+	return limit
+}
+
+func cloneSnapshotRoot(root Node) Node {
+	return cloneSnapshotNodes([]Node{root})[0]
+}
+
+// cloneSnapshotNodes copies every mutable node collection so callers can use a
+// projection without changing the snapshot it was derived from.
 func cloneSnapshotNodes(nodes []Node) []Node {
 	if len(nodes) == 0 {
 		return nil
 	}
+	var totalChildren, totalRelationTargets, totalActions int
+	var totalInterfaces, totalStates, totalWarnings int
+	for _, node := range nodes {
+		totalChildren += len(node.Children)
+		totalActions += len(node.Actions)
+		totalInterfaces += len(node.Interfaces)
+		totalStates += len(node.States)
+		totalWarnings += len(node.Warnings)
+		for _, targets := range node.Relations {
+			totalRelationTargets += len(targets)
+		}
+	}
+	children := make([]NodeID, totalChildren)
+	relationTargets := make([]NodeID, totalRelationTargets)
+	actions := make([]Action, totalActions)
+	interfaces := make([]string, totalInterfaces)
+	states := make([]string, totalStates)
+	warnings := make([]string, totalWarnings)
+	var childOffset, relationOffset, actionOffset int
+	var interfaceOffset, stateOffset, warningOffset int
 	out := make([]Node, len(nodes))
 	for i := range nodes {
 		out[i] = nodes[i]
-		if attrs := nodes[i].Attributes; len(attrs) > 0 {
+		if attrs := nodes[i].Attributes; attrs != nil {
 			out[i].Attributes = make(map[string]string, len(attrs))
 			for k, v := range attrs {
 				out[i].Attributes[k] = v
 			}
 		}
-		if relations := nodes[i].Relations; len(relations) > 0 {
+		if relations := nodes[i].Relations; relations != nil {
 			out[i].Relations = make(map[string][]NodeID, len(relations))
 			for relation, targets := range relations {
-				out[i].Relations[relation] = append([]NodeID(nil), targets...)
+				if len(targets) == 0 {
+					out[i].Relations[relation] = nil
+					continue
+				}
+				end := relationOffset + len(targets)
+				copy(relationTargets[relationOffset:end], targets)
+				out[i].Relations[relation] = relationTargets[relationOffset:end:end]
+				relationOffset = end
 			}
 		}
-		if children := nodes[i].Children; len(children) > 0 {
-			out[i].Children = append([]NodeID(nil), children...)
+		if nodes[i].Value != nil {
+			value := *nodes[i].Value
+			out[i].Value = &value
 		}
+		if nodes[i].Selection != nil {
+			selection := *nodes[i].Selection
+			out[i].Selection = &selection
+		}
+		if nodes[i].Table != nil {
+			table := *nodes[i].Table
+			out[i].Table = &table
+		}
+		if nodes[i].Document != nil {
+			document := *nodes[i].Document
+			out[i].Document = &document
+		}
+		out[i].Children = cloneSliceIntoPool(nodes[i].Children, children, &childOffset)
+		out[i].Actions = cloneSliceIntoPool(nodes[i].Actions, actions, &actionOffset)
+		out[i].Interfaces = cloneSliceIntoPool(nodes[i].Interfaces, interfaces, &interfaceOffset)
+		out[i].States = cloneSliceIntoPool(nodes[i].States, states, &stateOffset)
+		out[i].Warnings = cloneSliceIntoPool(nodes[i].Warnings, warnings, &warningOffset)
 	}
 	return out
 }
 
+// cloneSliceIntoPool gives each node a capacity-bounded slice in clone-owned storage.
+func cloneSliceIntoPool[T any](source, pool []T, offset *int) []T {
+	if source == nil {
+		return nil
+	}
+	if len(source) == 0 {
+		return make([]T, 0)
+	}
+	start := *offset
+	end := start + len(source)
+	copy(pool[start:end], source)
+	*offset = end
+	return pool[start:end:end]
+}
+
+// snapshotJSONSizeForPrefix sizes a candidate after excluding references beyond its node prefix.
+func snapshotJSONSizeForPrefix(snapshot Snapshot, nodeCount int, nodeSizes, prefixNodeSizes []int, baseSize int, retained map[NodeID]struct{}, originalRoot NodeID) int {
+	nodesSize := prefixNodeSizes[nodeCount]
+	for i, node := range snapshot.Nodes[:nodeCount] {
+		if len(node.Children) == 0 && len(node.Relations) == 0 {
+			continue
+		}
+		prunedSize := estimateNodeJSONSizeAfterReferencePruning(node, nodeSizes[i], retained)
+		nodesSize = addJSONSize(nodesSize-nodeSizes[i], prunedSize)
+	}
+	rootSize := estimateNodeJSONSize(Node{ID: originalRoot})
+	if nodeCount > 0 {
+		rootSize = estimateNodeJSONSizeAfterReferencePruning(snapshot.Nodes[0], nodeSizes[0], retained)
+	}
+	return snapshotJSONSizeFromBase(baseSize, rootSize, nodesSize, nodeCount, nodeCount == 0)
+}
+
+func estimateNodeJSONSizeAfterReferencePruning(node Node, size int, retained map[NodeID]struct{}) int {
+	if len(node.Children) > 0 {
+		childrenSize := 2
+		keptChildren := 0
+		for _, child := range node.Children {
+			if _, ok := retained[child]; !ok {
+				continue
+			}
+			if keptChildren > 0 {
+				childrenSize = addJSONSize(childrenSize, 1)
+			}
+			childrenSize = addJSONSize(childrenSize, estimateNodeIDJSONSize(child))
+			keptChildren++
+		}
+		if keptChildren < len(node.Children) {
+			size -= estimateJSONMemberSize("children", estimateNodeIDSliceJSONSize(node.Children))
+			if keptChildren > 0 {
+				size = addJSONSize(size, estimateJSONMemberSize("children", childrenSize))
+			}
+		}
+	}
+	if len(node.Relations) > 0 {
+		relationsSize, keptRelations := estimatePrunedRelationsJSONSize(node.Relations, retained)
+		size -= estimateJSONMemberSize("relations", estimateRelationsJSONSize(node.Relations))
+		if keptRelations > 0 {
+			size = addJSONSize(size, estimateJSONMemberSize("relations", relationsSize))
+		}
+	}
+	return size
+}
+
+func estimatePrunedRelationsJSONSize(relations map[string][]NodeID, retained map[NodeID]struct{}) (int, int) {
+	size := 2
+	keptRelations := 0
+	for relation, targets := range relations {
+		targetsSize := 2
+		keptTargets := 0
+		for _, target := range targets {
+			if _, ok := retained[target]; !ok {
+				continue
+			}
+			if keptTargets > 0 {
+				targetsSize = addJSONSize(targetsSize, 1)
+			}
+			targetsSize = addJSONSize(targetsSize, estimateNodeIDJSONSize(target))
+			keptTargets++
+		}
+		if keptTargets == 0 {
+			continue
+		}
+		if keptRelations > 0 {
+			size = addJSONSize(size, 1)
+		}
+		size = addJSONSize(size, jsonStringSize(relation))
+		size = addJSONSize(size, 1)
+		size = addJSONSize(size, targetsSize)
+		keptRelations++
+	}
+	return size, keptRelations
+}
+
 func pruneSnapshotReferences(snapshot *Snapshot) {
-	if snapshot == nil {
+	if snapshot == nil || len(snapshot.Nodes) == 0 {
 		return
 	}
 	retained := make(map[NodeID]struct{}, len(snapshot.Nodes))
 	for _, node := range snapshot.Nodes {
 		retained[node.ID] = struct{}{}
+	}
+	pruneSnapshotReferencesWithRetained(snapshot, retained)
+}
+
+func pruneSnapshotReferencesWithRetained(snapshot *Snapshot, retained map[NodeID]struct{}) {
+	if snapshot == nil {
+		return
 	}
 	for i := range snapshot.Nodes {
 		node := &snapshot.Nodes[i]
@@ -654,25 +887,20 @@ func estimateNodeOptionalInfoJSONSize(node Node) int {
 // the snapshot envelope. It avoids repeated full-snapshot serialization while
 // binary-search truncation enforces MaxTotalBytes.
 func snapshotJSONSize(snapshot Snapshot) int {
-	// Snapshot{} has a 65-byte envelope outside the root node, nodes value, and
-	// timestamp token. The envelope includes all fixed keys and scalar fields.
-	const fixedSnapshotStructure = 65
-	n := addJSONSize(fixedSnapshotStructure, estimateNodeJSONSize(snapshot.Root))
-	n = addJSONSize(n, jsonStringSize(snapshot.CapturedAt.Format(time.RFC3339Nano)))
-	switch {
-	case snapshot.Nodes == nil:
-		n = addJSONSize(n, len("null"))
-	case len(snapshot.Nodes) == 0:
-		n = addJSONSize(n, 2)
-	default:
-		n = addJSONSize(n, 2)
-		for i, node := range snapshot.Nodes {
-			if i > 0 {
-				n = addJSONSize(n, 1)
-			}
-			n = addJSONSize(n, estimateNodeJSONSize(node))
-		}
+	nodesSize := 0
+	for _, node := range snapshot.Nodes {
+		nodesSize = addJSONSize(nodesSize, estimateNodeJSONSize(node))
 	}
+	return snapshotJSONSizeFromParts(snapshot, estimateNodeJSONSize(snapshot.Root), nodesSize, len(snapshot.Nodes), snapshot.Nodes == nil)
+}
+
+func snapshotJSONSizeFromParts(snapshot Snapshot, rootSize, nodesSize, nodeCount int, nodesNil bool) int {
+	return snapshotJSONSizeFromBase(snapshotJSONBaseSize(snapshot), rootSize, nodesSize, nodeCount, nodesNil)
+}
+
+func snapshotJSONBaseSize(snapshot Snapshot) int {
+	const fixedSnapshotStructure = 65
+	n := addJSONSize(fixedSnapshotStructure, jsonStringSize(snapshot.CapturedAt.Format(time.RFC3339Nano)))
 	n = addJSONSize(n, decimalUint64Size(snapshot.Generation)-1)
 	if snapshot.ProviderErrors != 0 {
 		n = addJSONSize(n, estimateJSONMemberSize("providerErrors", decimalIntSize(snapshot.ProviderErrors)))
@@ -685,6 +913,21 @@ func snapshotJSONSize(snapshot Snapshot) int {
 	}
 	if snapshot.Source != "" {
 		n = addJSONSize(n, estimateStringFieldJSONSize("source", snapshot.Source))
+	}
+	return n
+}
+
+func snapshotJSONSizeFromBase(baseSize, rootSize, nodesSize, nodeCount int, nodesNil bool) int {
+	n := addJSONSize(baseSize, rootSize)
+	switch {
+	case nodesNil:
+		n = addJSONSize(n, len("null"))
+	case nodeCount == 0:
+		n = addJSONSize(n, 2)
+	default:
+		n = addJSONSize(n, 2)
+		n = addJSONSize(n, nodeCount-1)
+		n = addJSONSize(n, nodesSize)
 	}
 	return n
 }

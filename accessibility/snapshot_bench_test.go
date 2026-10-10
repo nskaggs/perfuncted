@@ -60,8 +60,18 @@ func buildBenchmarkSnapshot() Snapshot {
 func BenchmarkBoundSnapshotResponseWithinBudget(b *testing.B) {
 	snapshot := buildBenchmarkSnapshot()
 	const budget = 8 << 20
+	const maxAllocations = 4500
+	allocations := testing.AllocsPerRun(5, func() {
+		if _, err := boundSnapshotResponse(snapshot, budget); err != nil {
+			b.Fatalf("boundSnapshotResponse allocation check: %v", err)
+		}
+	})
+	if allocations > float64(maxAllocations) {
+		b.Fatalf("in-budget snapshot allocations = %.1f, want at most %d", allocations, maxAllocations)
+	}
 
 	b.ReportAllocs()
+	b.ResetTimer()
 	for b.Loop() {
 		bounded, err := boundSnapshotResponse(snapshot, budget)
 		if err != nil {
@@ -73,18 +83,39 @@ func BenchmarkBoundSnapshotResponseWithinBudget(b *testing.B) {
 	}
 }
 
-// A snapshot over budget takes the binary-search truncation path, which copies
-// the node prefix and re-estimates the size on every step.
+// An over-budget snapshot searches node prefixes and accounts for references
+// removed from each candidate.
 func BenchmarkBoundSnapshotResponseTruncating(b *testing.B) {
 	snapshot := buildBenchmarkSnapshot()
 	const budget = 48 << 10
+	const maxAllocations = 400
+	allocations := testing.AllocsPerRun(5, func() {
+		if _, err := boundSnapshotResponse(snapshot, budget); err != nil {
+			b.Fatalf("boundSnapshotResponse allocation check: %v", err)
+		}
+	})
+	if allocations > float64(maxAllocations) {
+		b.Fatalf("truncated snapshot allocations = %.1f, want at most %d", allocations, maxAllocations)
+	}
+	projected, err := boundSnapshotResponse(snapshot, budget)
+	if err != nil {
+		b.Fatalf("boundSnapshotResponse metric sample: %v", err)
+	}
+	responseBytes := snapshotJSONSize(projected)
+	if responseBytes > budget {
+		b.Fatalf("truncated response size = %d, want at most %d", responseBytes, budget)
+	}
 
 	b.ReportAllocs()
+	b.ResetTimer()
 	for b.Loop() {
 		if _, err := boundSnapshotResponse(snapshot, budget); err != nil {
 			b.Fatalf("boundSnapshotResponse: %v", err)
 		}
 	}
+	b.ReportMetric(float64(len(snapshot.Nodes)), "input_nodes/op")
+	b.ReportMetric(float64(len(projected.Nodes)), "returned_nodes/op")
+	b.ReportMetric(float64(responseBytes), "response_bytes/op")
 }
 
 func BenchmarkSnapshotJSONSize(b *testing.B) {
