@@ -89,6 +89,15 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: chmod: %w", chmodErr)
 	}
 
+	// Managed D-Bus and Wayland sockets must fit Linux sockaddr_un.
+	// Reject before starting children or writing owner PID files.
+	for _, name := range []string{"bus", "wayland-1"} {
+		if err := validateSessionUnixSocketPath(filepath.Join(xdgDir, name)); err != nil {
+			_ = os.RemoveAll(xdgDir)
+			return nil, err
+		}
+	}
+
 	logDir, logErr := createSessionLogDir(config.LogDir)
 	if logErr != nil {
 		os.RemoveAll(xdgDir)
@@ -179,7 +188,24 @@ func (i *sessionInfra) resolveSwayConfig(mode sessionMode, res image.Point) (str
 	return "", fmt.Errorf("session: unknown mode %d", mode)
 }
 
+var ErrSessionSocketPathTooLong = errors.New("session: socket pathname exceeds UNIX limit")
+
+func validateSessionUnixSocketPath(path string) error {
+	maxBytes := len(syscall.RawSockaddrUnix{}.Path) - 1
+	size := len([]byte(path))
+	if size > maxBytes {
+		return fmt.Errorf("%w: %d bytes, max %d bytes", ErrSessionSocketPathTooLong, size, maxBytes)
+	}
+	return nil
+}
+
 func (i *sessionInfra) launchDBus(ctx context.Context) error {
+	if !strings.HasPrefix(i.dbusAddr, "unix:path=") {
+		return errors.New("session: invalid D-Bus socket address")
+	}
+	if err := validateSessionUnixSocketPath(strings.TrimPrefix(i.dbusAddr, "unix:path=")); err != nil {
+		return err
+	}
 	cmd := executil.CommandContext(i.ctx, "dbus-daemon", "--session", //nolint:contextcheck // process lifetime outlives startup context
 		"--address="+i.dbusAddr,
 		"--nofork", "--nopidfile")
