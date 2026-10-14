@@ -44,6 +44,16 @@ func nestedSessionPrefix() string {
 	return filepath.Join(os.TempDir(), "perfuncted-xdg-")
 }
 
+// matchesManagedSessionRoot accepts only a directly nested managed runtime
+// directory. Never broaden /tmp cleanup to arbitrary caller-owned paths.
+func matchesManagedSessionRoot(dir, root string) bool {
+	prefix := filepath.Join(root, "perfuncted-xdg-")
+	if !strings.HasPrefix(dir, prefix) || len(dir) <= len(prefix) {
+		return false
+	}
+	return !strings.Contains(dir[len(prefix):], string(os.PathSeparator))
+}
+
 func isSafeToRemoveDir(dir string) bool {
 	if dir == "" {
 		return false
@@ -56,10 +66,11 @@ func isSafeToRemoveDir(dir string) bool {
 	if cleaned == tmp {
 		return false
 	}
-	if !strings.HasPrefix(cleaned, tmp+string(os.PathSeparator)) {
-		return false
+	if strings.HasPrefix(cleaned, tmp+string(os.PathSeparator)) {
+		return true
 	}
-	return true
+	// Only our exact managed pattern qualifies outside the caller's TMPDIR.
+	return matchesManagedSessionRoot(cleaned, "/tmp")
 }
 
 func isManagedSessionDir(dir string) bool {
@@ -67,15 +78,12 @@ func isManagedSessionDir(dir string) bool {
 		return false
 	}
 	cleaned := filepath.Clean(dir)
-	prefix := nestedSessionPrefix()
-	if !strings.HasPrefix(cleaned, prefix) {
-		return false
+	for _, root := range managedSessionTempRoots() {
+		if matchesManagedSessionRoot(cleaned, root) {
+			return true
+		}
 	}
-	if len(cleaned) <= len(prefix) {
-		return false
-	}
-	remainder := cleaned[len(prefix):]
-	return !strings.Contains(remainder, string(os.PathSeparator))
+	return false
 }
 
 func pidAlive(pid int) bool {
@@ -110,7 +118,7 @@ func DetectSession() SessionDetection {
 		WaylandDisplay: os.Getenv("WAYLAND_DISPLAY"),
 		DBusAddress:    os.Getenv("DBUS_SESSION_BUS_ADDRESS"),
 	}
-	if strings.HasPrefix(xdg, nestedSessionPrefix()) {
+	if isManagedSessionDir(xdg) {
 		detection.Kind = TargetNested
 	}
 	return detection

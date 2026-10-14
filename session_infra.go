@@ -80,22 +80,9 @@ func (s *Session) startSession(
 	startupCtx, startupCancel := context.WithTimeout(ctx, config.Timeouts.Startup)
 	defer startupCancel()
 
-	xdgDir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	xdgDir, err := createManagedSessionRuntimeDir()
 	if err != nil {
-		return nil, fmt.Errorf("session: mkdirtemp: %w", err)
-	}
-	if chmodErr := os.Chmod(xdgDir, 0700); chmodErr != nil {
-		os.RemoveAll(xdgDir)
-		return nil, fmt.Errorf("session: chmod: %w", chmodErr)
-	}
-
-	// Managed D-Bus and Wayland sockets must fit Linux sockaddr_un.
-	// Reject before starting children or writing owner PID files.
-	for _, name := range []string{"bus", "wayland-1"} {
-		if err := validateSessionUnixSocketPath(filepath.Join(xdgDir, name)); err != nil {
-			_ = os.RemoveAll(xdgDir)
-			return nil, err
-		}
+		return nil, fmt.Errorf("session: managed runtime: %w", err)
 	}
 
 	logDir, logErr := createSessionLogDir(config.LogDir)
@@ -188,6 +175,67 @@ func (i *sessionInfra) resolveSwayConfig(mode sessionMode, res image.Point) (str
 	return "", fmt.Errorf("session: unknown mode %d", mode)
 }
 
+// maxManagedSessionSocketPathBytes reserves space beyond the Linux sockaddr_un
+// pathname boundary (107 bytes). On real systems dbus-daemon can fail to
+// publish sockets at nominally valid pathname lengths: its address includes
+// "unix:path=" and startup helpers can apply stricter limits. Keep every
+// managed socket under this conservative, byte-counted budget. This is for
+// managed *runtime* sockets, not arbitrary application Unix sockets.
+const maxManagedSessionSocketPathBytes = 80
+
+// managedSessionTempRoots preserves the caller-selected temporary directory
+// when safe, but can fall back to /tmp for Unix socket paths that are too long.
+// The fallback must also be considered by stale-session cleanup.
+func managedSessionTempRoots() []string {
+	preferred := filepath.Clean(os.TempDir())
+	const shortRoot = "/tmp"
+	if preferred == shortRoot {
+		return []string{preferred}
+	}
+	return []string{preferred, shortRoot}
+}
+
+func validateManagedSessionSocketPath(path string) error {
+	if err := validateSessionUnixSocketPath(path); err != nil {
+		return err
+	}
+	if n := len([]byte(path)); n > maxManagedSessionSocketPathBytes {
+		return fmt.Errorf("%w: managed session socket %d bytes, conservative budget %d", ErrSessionSocketPathTooLong, n, maxManagedSessionSocketPathBytes)
+	}
+	return nil
+}
+
+// createManagedSessionRuntimeDir creates a private directory with bounded D-Bus
+// and Wayland socket names. If TMPDIR would create unusable sockets, retry
+// automatically using a short path; do not ask callers to fix their TMPDIR.
+// Random 0700 directories under sticky /tmp preserve session isolation.
+func createManagedSessionRuntimeDir() (string, error) {
+	var pathErr error
+	for _, root := range managedSessionTempRoots() {
+		dir, err := os.MkdirTemp(root, "perfuncted-xdg-")
+		if err != nil {
+			return "", fmt.Errorf("create managed runtime in %q: %w", root, err)
+		}
+		if err := os.Chmod(dir, 0700); err != nil {
+			_ = os.RemoveAll(dir)
+			return "", fmt.Errorf("secure managed runtime: %w", err)
+		}
+		var invalid error
+		for _, name := range []string{"bus", "wayland-1"} {
+			if err := validateManagedSessionSocketPath(filepath.Join(dir, name)); err != nil {
+				invalid = err
+				break
+			}
+		}
+		if invalid == nil {
+			return dir, nil
+		}
+		_ = os.RemoveAll(dir)
+		pathErr = invalid
+	}
+	return "", pathErr
+}
+
 var ErrSessionSocketPathTooLong = errors.New("session: socket pathname exceeds UNIX limit")
 
 func validateSessionUnixSocketPath(path string) error {
@@ -203,7 +251,7 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 	if !strings.HasPrefix(i.dbusAddr, "unix:path=") {
 		return errors.New("session: invalid D-Bus socket address")
 	}
-	if err := validateSessionUnixSocketPath(strings.TrimPrefix(i.dbusAddr, "unix:path=")); err != nil {
+	if err := validateManagedSessionSocketPath(strings.TrimPrefix(i.dbusAddr, "unix:path=")); err != nil {
 		return err
 	}
 	cmd := executil.CommandContext(i.ctx, "dbus-daemon", "--session", //nolint:contextcheck // process lifetime outlives startup context
