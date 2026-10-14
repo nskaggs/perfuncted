@@ -50,10 +50,17 @@ func CleanupStaleSessions(maxAge time.Duration) {
 	lastCleanupTime = time.Now()
 	cleanupStaleSessionsMu.Unlock()
 
-	matches, err := filepath.Glob(nestedSessionPattern())
-	if err != nil {
-		slog.Warn("unable to glob nested sessions", "error", err)
-		return
+	// Managed runtimes can fall back to a short /tmp path if caller TMPDIR
+	// would make D-Bus sockets too long. Reap both locations with the existing
+	// owner PID and strict managed-directory checks.
+	var matches []string
+	for _, root := range managedSessionTempRoots() {
+		found, err := filepath.Glob(filepath.Join(root, "perfuncted-xdg-*"))
+		if err != nil {
+			slog.Warn("unable to glob nested sessions", "error", err)
+			continue
+		}
+		matches = append(matches, found...)
 	}
 	now := time.Now()
 	for _, d := range matches {
