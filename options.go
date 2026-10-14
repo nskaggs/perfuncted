@@ -261,8 +261,9 @@ type targetSelection struct {
 }
 
 type openConfig struct {
-	target   targetSelection
-	selected bool
+	target          targetSelection
+	selected        bool
+	startupObserver StartupPhaseObserver
 
 	required map[Capability]struct{}
 	optional map[Capability]struct{}
@@ -276,6 +277,15 @@ type openConfig struct {
 
 // Option configures Open.
 type Option func(*openConfig) error
+
+// WithStartupPhaseObserver reports bounded Open stages using fixed phase and
+// state values. The observer must append sanitized data and return promptly.
+func WithStartupPhaseObserver(observer StartupPhaseObserver) Option {
+	return func(cfg *openConfig) error {
+		cfg.startupObserver = observer
+		return nil
+	}
+}
 
 // WithTarget routes the Session to an existing desktop target.
 func WithTarget(target DesktopTarget) Option {
