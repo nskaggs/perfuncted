@@ -45,23 +45,24 @@ const (
 // sessionInfra owns the runtime directory and child processes for a managed
 // target. Startup failures, signals, and Session.Close converge on stop.
 type sessionInfra struct {
-	xdgDir     string
-	wlDisplay  string
-	dbusAddr   string
-	logDir     string
-	swayCmd    *managedSessionProcess
-	dbusCmd    *managedSessionProcess
-	atspiCmd   *managedSessionProcess
-	atspiAddr  string
-	wlPasteCmd *managedSessionProcess
-	ctx        context.Context //nolint:containedctx // infrastructure owns this context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	stopped    bool
-	unregister func()
-	stopOnce   sync.Once
-	stopDone   chan struct{}
-	timeouts   TimeoutPolicy
+	xdgDir          string
+	wlDisplay       string
+	dbusAddr        string
+	logDir          string
+	swayCmd         *managedSessionProcess
+	dbusCmd         *managedSessionProcess
+	atspiCmd        *managedSessionProcess
+	atspiAddr       string
+	wlPasteCmd      *managedSessionProcess
+	ctx             context.Context //nolint:containedctx // infrastructure owns this context
+	cancel          context.CancelFunc
+	mu              sync.Mutex
+	stopped         bool
+	unregister      func()
+	stopOnce        sync.Once
+	stopDone        chan struct{}
+	timeouts        TimeoutPolicy
+	startupObserver StartupPhaseObserver
 }
 
 func (s *Session) startSession(
@@ -80,27 +81,36 @@ func (s *Session) startSession(
 	startupCtx, startupCancel := context.WithTimeout(ctx, config.Timeouts.Startup)
 	defer startupCancel()
 
-	xdgDir, err := createManagedSessionRuntimeDir()
+	var xdgDir string
+	var logDir string
+	err := s.runStartupPhase(startupCtx, StartupPhaseRuntimeDirectoryPreparation, func() error {
+		var prepareErr error
+		xdgDir, prepareErr = createManagedSessionRuntimeDir()
+		if prepareErr != nil {
+			return fmt.Errorf("session: managed runtime: %w", prepareErr)
+		}
+		logDir, prepareErr = createSessionLogDir(config.LogDir)
+		if prepareErr != nil {
+			_ = os.RemoveAll(xdgDir)
+			return fmt.Errorf("session: create logs: %w", prepareErr)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("session: managed runtime: %w", err)
-	}
-
-	logDir, logErr := createSessionLogDir(config.LogDir)
-	if logErr != nil {
-		os.RemoveAll(xdgDir)
-		return nil, fmt.Errorf("session: create logs: %w", logErr)
+		return nil, err
 	}
 
 	infraCtx, cancel := context.WithCancel(context.Background())
 	infra := &sessionInfra{
-		xdgDir:    xdgDir,
-		wlDisplay: "wayland-1",
-		dbusAddr:  fmt.Sprintf("unix:path=%s/bus", xdgDir),
-		logDir:    logDir,
-		ctx:       infraCtx,
-		cancel:    cancel,
-		stopDone:  make(chan struct{}),
-		timeouts:  config.Timeouts,
+		xdgDir:          xdgDir,
+		wlDisplay:       "wayland-1",
+		dbusAddr:        fmt.Sprintf("unix:path=%s/bus", xdgDir),
+		logDir:          logDir,
+		ctx:             infraCtx,
+		cancel:          cancel,
+		stopDone:        make(chan struct{}),
+		timeouts:        config.Timeouts,
+		startupObserver: s.startupObserver,
 	}
 
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
@@ -117,14 +127,16 @@ func (s *Session) startSession(
 		infra.ctx,
 	)
 
-	if launchErr := infra.launchDBus(startupCtx); launchErr != nil {
+	if launchErr := s.runStartupPhase(startupCtx, StartupPhaseDBusStartup, func() error {
+		return infra.launchDBus(startupCtx)
+	}); launchErr != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
 	if wantAccessibility {
 		// The launcher is optional on minimal CI images. OpenRuntime still
 		// reports a typed unavailable capability when no AT-SPI service exists.
-		if launchErr := infra.launchAccessibility(); launchErr == nil {
+		if launchErr := s.runStartupPhase(startupCtx, StartupPhaseAccessibilityLauncher, infra.launchAccessibility); launchErr == nil {
 			// The launcher registers org.a11y.Bus asynchronously. Resolve its
 			// address under a bounded startup wait before publishing the
 			// managed runtime to child applications, so they and OpenRuntime use
@@ -132,7 +144,12 @@ func (s *Session) startSession(
 			// host does not leave the managed bus unpublished while still
 			// bounded by the overall startup deadline.
 			addressCtx, addressCancel := context.WithTimeout(startupCtx, config.Timeouts.Medium)
-			address, addressErr := infra.accessibilityBusAddress(addressCtx)
+			var address string
+			addressErr := s.runStartupPhase(addressCtx, StartupPhaseAccessibilityBusAddress, func() error {
+				var addressErr error
+				address, addressErr = infra.accessibilityBusAddress(addressCtx)
+				return addressErr
+			})
 			addressCancel()
 			if addressErr == nil {
 				infra.atspiAddr = address
@@ -142,16 +159,22 @@ func (s *Session) startSession(
 		}
 	}
 
-	swayConf := config.SwayConfigPath
-	if swayConf == "" {
-		swayConf, err = infra.resolveSwayConfig(mode, config.Resolution)
-	}
+	var swayConf string
+	err = s.runStartupPhase(startupCtx, StartupPhaseSwayConfiguration, func() error {
+		swayConf = config.SwayConfigPath
+		if swayConf == "" {
+			swayConf, err = infra.resolveSwayConfig(mode, config.Resolution)
+		}
+		return err
+	})
 	if err != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: sway config: %w", err)
 	}
 
-	if err := infra.launchSway(startupCtx, swayConf, mode); err != nil {
+	if err := s.runStartupPhase(startupCtx, StartupPhaseSwayStartup, func() error {
+		return infra.launchSway(startupCtx, swayConf, mode)
+	}); err != nil {
 		infra.stop()
 		return nil, fmt.Errorf("session: sway: %w", err)
 	}
@@ -160,7 +183,7 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: startup: %w", err)
 	}
 
-	infra.launchWlPaste()
+	_ = s.runStartupPhase(startupCtx, StartupPhaseClipboardHelper, infra.launchWlPaste)
 
 	return infra, nil
 }
@@ -262,16 +285,22 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 		Without("WAYLAND_DISPLAY").
 		EnvList()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	observeStartupPhase(i.startupObserver, StartupPhaseDBusProcessSpawn, StartupPhaseStarted)
 	if err := cmd.Start(); err != nil {
+		observeStartupPhase(i.startupObserver, StartupPhaseDBusProcessSpawn, startupPhaseResult(ctx, err))
 		return err
 	}
 	i.dbusCmd = newManagedSessionProcess(cmd)
 	i.writeChildPID("dbus.pid", cmd.Process.Pid)
+	observeStartupPhase(i.startupObserver, StartupPhaseDBusProcessSpawn, StartupPhaseSucceeded)
 
 	busPath := filepath.Join(i.xdgDir, "bus")
+	observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, StartupPhaseStarted)
 	if err := waitForFile(ctx, busPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
+		observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, startupPhaseResult(ctx, err))
 		return fmt.Errorf("dbus socket %s did not appear within %s: %w", busPath, i.timeouts.Startup, err)
 	}
+	observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, StartupPhaseSucceeded)
 	return nil
 }
 
@@ -371,16 +400,20 @@ func (i *sessionInfra) launchSway(
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, StartupPhaseStarted)
 	if err := cmd.Start(); err != nil {
+		observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, startupPhaseResult(ctx, err))
 		logFileClose(logFile)
 		return err
 	}
 	i.swayCmd = newManagedSessionProcess(cmd)
 	i.writeChildPID("sway.pid", cmd.Process.Pid)
 	logFileClose(logFile)
+	observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, StartupPhaseSucceeded)
 
 	socketPath := filepath.Join(i.xdgDir, i.wlDisplay)
 	ipcGlob := filepath.Join(i.xdgDir, "sway-ipc.*.sock")
+	observeStartupPhase(i.startupObserver, StartupPhaseSwaySocketsReady, StartupPhaseStarted)
 	g := new(errgroup.Group)
 	g.Go(func() error {
 		if err := waitForFile(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
@@ -394,10 +427,12 @@ func (i *sessionInfra) launchSway(
 		}
 		return nil
 	})
-	return g.Wait()
+	err = g.Wait()
+	observeStartupPhase(i.startupObserver, StartupPhaseSwaySocketsReady, startupPhaseResult(ctx, err))
+	return err
 }
 
-func (i *sessionInfra) launchWlPaste() {
+func (i *sessionInfra) launchWlPaste() error {
 	cmd := executil.CommandContext(i.ctx, "wl-paste", "--watch", "cat")
 	cmd.Env = env.Environ(i.xdgDir, i.wlDisplay, i.dbusAddr)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -405,9 +440,10 @@ func (i *sessionInfra) launchWlPaste() {
 	if err == nil {
 		i.wlPasteCmd = newManagedSessionProcess(cmd)
 		i.writeChildPID("wl-paste.pid", cmd.Process.Pid)
-		return
+		return nil
 	}
 	slog.Warn("wl-paste helper failed to start", "error", err)
+	return err
 }
 
 func (i *sessionInfra) writeChildPID(name string, pid int) {

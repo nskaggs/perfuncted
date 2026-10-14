@@ -35,6 +35,7 @@ type Session struct {
 	Accessibility *AccessibilityBundle
 
 	config          SessionConfig
+	startupObserver StartupPhaseObserver
 	portalInput     *input.RemoteDesktopOptions
 	timeoutInput    TimeoutPolicy
 	hasTimeoutInput bool
@@ -94,6 +95,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 
 	s := &Session{
 		config:          cfg.target.config,
+		startupObserver: cfg.startupObserver,
 		portalInput:     cfg.portalInput,
 		timeoutInput:    timeoutInput,
 		hasTimeoutInput: true,
@@ -134,16 +136,36 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 	case TargetExplicit:
 		s.env = env.FromEnviron(target.target.Env())
 	case TargetHeadless:
-		CleanupStaleSessions(24 * time.Hour)
-		infra, err := s.startSession(ctx, sessionModeHeadless, target.config, wantAccessibility)
+		if err := s.runStartupPhase(ctx, StartupPhaseStaleSessionCleanup, func() error {
+			CleanupStaleSessions(24 * time.Hour)
+			return nil
+		}); err != nil {
+			return err
+		}
+		var infra *sessionInfra
+		err := s.runStartupPhase(ctx, StartupPhaseManagedRuntimeSetup, func() error {
+			var startErr error
+			infra, startErr = s.startSession(ctx, sessionModeHeadless, target.config, wantAccessibility)
+			return startErr
+		})
 		if err != nil {
 			return err
 		}
 		s.infra = infra
 		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr).WithAccessibilityBus(infra.atspiAddr)
 	case TargetNested:
-		CleanupStaleSessions(24 * time.Hour)
-		infra, err := s.startSession(ctx, sessionModeNested, target.config, wantAccessibility)
+		if err := s.runStartupPhase(ctx, StartupPhaseStaleSessionCleanup, func() error {
+			CleanupStaleSessions(24 * time.Hour)
+			return nil
+		}); err != nil {
+			return err
+		}
+		var infra *sessionInfra
+		err := s.runStartupPhase(ctx, StartupPhaseManagedRuntimeSetup, func() error {
+			var startErr error
+			infra, startErr = s.startSession(ctx, sessionModeNested, target.config, wantAccessibility)
+			return startErr
+		})
 		if err != nil {
 			return err
 		}
@@ -190,7 +212,13 @@ func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) er
 		if !status.Requested {
 			continue
 		}
-		backend, err := s.openCapabilityContext(ctx, capability)
+		phase := capabilityStartupPhase(capability)
+		var backend any
+		err := s.runStartupPhase(ctx, phase, func() error {
+			var openErr error
+			backend, openErr = s.openCapabilityContext(ctx, capability)
+			return openErr
+		})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
