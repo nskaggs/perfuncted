@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"slices"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/find"
@@ -451,5 +452,33 @@ func TestPixelHashBGRA_RejectsOutsideRegion(t *testing.T) {
 	// A region that only partly overlaps still hashes the part that exists.
 	if _, err := find.PixelHashBGRA(data, width, height, stride, image.Rect(2, 2, 9, 9)); err != nil {
 		t.Fatalf("PixelHashBGRA() on a partly-overlapping region: %v", err)
+	}
+}
+
+// The packed conversion must not read or write beyond an incomplete pixel,
+// even when the destination is shorter than the compositor source row.
+func TestCopyBGRAShortDestinationAndPartialPixels(t *testing.T) {
+	src := []byte{3, 2, 1, 17, 6, 5, 4, 25}
+	for _, tt := range []struct {
+		name   string
+		source []byte
+		dstLen int
+		want   []byte
+	}{
+		{"full", src, 8, []byte{1, 2, 3, 255, 4, 5, 6, 255}},
+		{"short destination", src, 4, []byte{1, 2, 3, 255}},
+		{"short source", src[:7], 8, []byte{1, 2, 3, 255, 170, 170, 170, 170}},
+		{"incomplete pixel", src[:3], 8, []byte{170, 170, 170, 170, 170, 170, 170, 170}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := make([]byte, tt.dstLen)
+			for i := range dst {
+				dst[i] = 170
+			}
+			copyBGRA(dst, tt.source)
+			if !slices.Equal(dst, tt.want) {
+				t.Fatalf("copyBGRA(%q) = %v; want %v", tt.name, dst, tt.want)
+			}
+		})
 	}
 }
