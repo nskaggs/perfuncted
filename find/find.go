@@ -312,8 +312,14 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 		}
 	}
 
-	ticker := time.NewTicker(pollpkg.Clamp(pollDur))
-	defer ticker.Stop()
+	// Most fixed-interval waits finish on their first observation. Do not
+	// allocate a ticker unless another observation is actually necessary.
+	var ticker *time.Ticker
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 	for {
 		if err := contextErr(ctx); err != nil {
 			return onCancel, err
@@ -327,6 +333,9 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 		}
 		if done {
 			return res, nil
+		}
+		if ticker == nil {
+			ticker = time.NewTicker(pollpkg.Clamp(pollDur))
 		}
 		select {
 		case <-ctx.Done():
