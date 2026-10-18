@@ -481,7 +481,9 @@ func canonicalHashProbe(
 		return nil
 	}
 	return func(int) (bool, uint32, error) {
-		h, err := GrabHash(ctx, sc, rect, newHash)
+		// The backend is already known to provide canonical hashes. Avoid
+		// repeating availability, type and marker checks on every visual poll.
+		h, err := fast.GrabRegionHash(ctx, rect)
 		if err != nil {
 			return false, 0, err
 		}
