@@ -396,6 +396,29 @@ func poll(ctx context.Context, pollDur time.Duration, onCancel uint32, fn func(a
 	}
 }
 
+// selectedHashBackend resolves canonical support once per wait. The public
+// GrabHash fallback remains responsible for custom hashers and other backends.
+func selectedHashBackend(sc Screenshotter, newHash Hasher) CanonicalHashScreenshotter {
+	if newHash != nil {
+		return nil
+	}
+	fast, ok := sc.(CanonicalHashScreenshotter)
+	if !ok || !fast.CanonicalHashing() {
+		return nil
+	}
+	return fast
+}
+
+func readWaitHash(ctx context.Context, sc Screenshotter, fast CanonicalHashScreenshotter, rect image.Rectangle, newHash Hasher) (uint32, error) {
+	if fast != nil {
+		if rect.Empty() {
+			return fast.GrabFullHash(ctx)
+		}
+		return fast.GrabRegionHash(ctx, rect)
+	}
+	return GrabHash(ctx, sc, rect, newHash)
+}
+
 // WaitFor polls rect every poll interval until its pixel hash equals want, or ctx expires.
 // On success, it returns the final hash (which equals want). On timeout, it returns
 // the last observed hash for debugging.
@@ -404,8 +427,9 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
 	}
+	fast := selectedHashBackend(sc, newHash)
 	h, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
-		h, err := GrabHash(ctx, sc, rect, newHash)
+		h, err := readWaitHash(ctx, sc, fast, rect, newHash)
 		if err != nil {
 			return false, 0, err
 		}
@@ -431,8 +455,9 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
 	}
+	fast := selectedHashBackend(sc, newHash)
 	h, err := poll(ctx, pollDur, initial, func(attempt int) (bool, uint32, error) {
-		h, err := GrabHash(ctx, sc, rect, newHash)
+		h, err := readWaitHash(ctx, sc, fast, rect, newHash)
 		if err != nil {
 			return false, 0, err
 		}
