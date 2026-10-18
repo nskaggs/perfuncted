@@ -33,9 +33,9 @@ func (b *InputBundle) recordInputReceipt(operation string, started time.Time, er
 		StartedAt:   started.UTC(),
 		CompletedAt: time.Now().UTC(),
 	}
-	if b.session != nil {
-		receipt.Mechanism = b.session.Capability(CapabilityInput).Backend
-	}
+	// The input backend is fixed for the life of the session. Resolving its
+	// metadata on every key, click, scroll, and type action is unnecessary:
+	// only diagnostic snapshots consume the mechanism field.
 	if err != nil {
 		receipt.FailureClass = inputFailureClass(err)
 	}
@@ -58,8 +58,16 @@ func (b *InputBundle) recentInputReceipts() []InputActionReceipt {
 		return nil
 	}
 	b.receiptMu.Lock()
-	defer b.receiptMu.Unlock()
-	return append([]InputActionReceipt(nil), b.receiptTrail...)
+	receipts := append([]InputActionReceipt(nil), b.receiptTrail...)
+	b.receiptMu.Unlock()
+
+	if len(receipts) > 0 && b.session != nil {
+		mechanism := b.session.Capability(CapabilityInput).Backend
+		for i := range receipts {
+			receipts[i].Mechanism = mechanism
+		}
+	}
+	return receipts
 }
 
 func inputDispatchResult(err error) string {
