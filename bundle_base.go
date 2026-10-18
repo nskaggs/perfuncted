@@ -32,6 +32,12 @@ func (b *bundleBase) backendContext(ctx context.Context, timeout time.Duration) 
 	if timeout <= 0 {
 		timeout = b.session.Timeouts().Medium
 	}
+	// A caller deadline already earlier than the backend limit needs no
+	// child cancellation context. This is especially useful for frequent
+	// screen hash polls under one shared page-readiness deadline.
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= timeout {
+		return ctx, func() {}
+	}
 	return context.WithTimeout(ctx, timeout)
 }
 
