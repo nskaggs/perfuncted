@@ -13,6 +13,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"reflect"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -58,6 +59,10 @@ type Hasher func() hash.Hash32
 
 // DefaultHasher uses CRC32 IEEE.
 var DefaultHasher Hasher = crc32.NewIEEE
+
+// DefaultHasher is exported and assignable. A caller that replaces it must
+// continue to define the hash used for a nil Hasher argument.
+var standardCRC32HasherCode = reflect.ValueOf(crc32.NewIEEE).Pointer()
 
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
@@ -157,21 +162,76 @@ func pixelHashBGRARow(sum uint32, data, chunk []byte) uint32 {
 	return sum
 }
 
+// pixelHashAccumulator uses CRC32's direct update API for the common default
+// hash, avoiding the allocation of a hash.Hash32 object on every screenshot
+// probe. Callers that supply a custom Hasher keep their exact hash semantics.
+type pixelHashAccumulator struct {
+	custom          hash.Hash32
+	customRequested bool
+	sum             uint32
+}
+
+func (a *pixelHashAccumulator) write(p []byte) {
+	if a.customRequested {
+		_, _ = a.custom.Write(p)
+	} else {
+		a.sum = crc32.Update(a.sum, crc32.IEEETable, p)
+	}
+}
+
+func (a *pixelHashAccumulator) sum32() uint32 {
+	if a.customRequested {
+		return a.custom.Sum32()
+	}
+	return a.sum
+}
+
+// writeRGBARows hashes padded/subimage rows without a per-row interface check
+// on the default CRC32 path. A malformed short backing buffer returns false.
+func (a *pixelHashAccumulator) writeRGBARows(rgba *image.RGBA, b image.Rectangle, rowBytes int) (uint32, bool) {
+	if !a.customRequested {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
+			end := off + rowBytes
+			if off < 0 || end > len(rgba.Pix) {
+				return 0, false
+			}
+			a.sum = crc32.Update(a.sum, crc32.IEEETable, rgba.Pix[off:end])
+		}
+		return a.sum, true
+	}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
+		end := off + rowBytes
+		if off < 0 || end > len(rgba.Pix) {
+			return 0, false
+		}
+		_, _ = a.custom.Write(rgba.Pix[off:end])
+	}
+	return a.custom.Sum32(), true
+}
+
 // pixelHashImage hashes rect from img without creating a subimage for the
 // RGBA fast path. Keeping the rectangle in the source image's coordinate
 // space lets callers hash compact regions without allocating a temporary
 // *image.RGBA for each one.
 func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint32 {
-	if newHash == nil {
+	// Keep the exported DefaultHasher override functional. When it remains
+	// CRC32 IEEE, hash directly without allocating a hash.Hash32 instance.
+	if newHash == nil && reflect.ValueOf(DefaultHasher).Pointer() != standardCRC32HasherCode {
 		newHash = DefaultHasher
 	}
-	h := newHash()
+	var h pixelHashAccumulator
+	if newHash != nil {
+		h.customRequested = true
+		h.custom = newHash()
+	}
 	b := rect.Intersect(img.Bounds())
 
 	// Fast path: direct Pix access for *image.RGBA.
 	if rgba, ok := img.(*image.RGBA); ok {
 		if b.Empty() {
-			return h.Sum32()
+			return h.sum32()
 		}
 		if _, ok := packedBufferSize(rgba.Rect, rgba.Stride); !ok {
 			return 0
@@ -188,30 +248,21 @@ func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint3
 			if len(rgba.Pix) < required {
 				return 0
 			}
-			h.Write(rgba.Pix[:required])
-			return h.Sum32()
+			h.write(rgba.Pix[:required])
+			return h.sum32()
 		}
-		safe := true
-		for y := b.Min.Y; y < b.Max.Y; y++ {
-			off := (y-rgba.Rect.Min.Y)*rgba.Stride + (b.Min.X-rgba.Rect.Min.X)*4
-			end := off + rowBytes
-			if off < 0 || end > len(rgba.Pix) {
-				safe = false
-				break
-			}
-			h.Write(rgba.Pix[off:end]) //nolint:errcheck
+		sum, ok := h.writeRGBARows(rgba, b, rowBytes)
+		if !ok {
+			return 0
 		}
-		if safe {
-			return h.Sum32()
-		}
-		return 0
+		return sum
 	}
 
 	// Convert non-RGBA images to RGBA once and then use the fast contiguous Pix path.
 	rgba := image.NewRGBA(b)
 	draw.Draw(rgba, b, img, b.Min, draw.Src)
-	h.Write(rgba.Pix)
-	return h.Sum32()
+	h.write(rgba.Pix)
+	return h.sum32()
 }
 
 // GrabHash captures rect from sc and returns the same hash as PixelHash on the
