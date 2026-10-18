@@ -8,33 +8,11 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode"
+
+	"github.com/nskaggs/perfuncted/scripts/internal/cliname"
 
 	"golang.org/x/tools/go/packages"
 )
-
-func hyphenate(s string) string {
-	if s == "" {
-		return ""
-	}
-	var words []string
-	var buf []rune
-	r := []rune(s)
-	for i := 0; i < len(r); i++ {
-		ch := r[i]
-		if i > 0 && unicode.IsUpper(ch) && (unicode.IsLower(r[i-1]) || (i+1 < len(r) && unicode.IsLower(r[i+1]))) {
-			if len(buf) > 0 {
-				words = append(words, string(buf))
-				buf = []rune{}
-			}
-		}
-		buf = append(buf, unicode.ToLower(ch))
-	}
-	if len(buf) > 0 {
-		words = append(words, string(buf))
-	}
-	return strings.Join(words, "-")
-}
 
 func uniq(xs []string) []string {
 	m := map[string]bool{}
@@ -58,7 +36,7 @@ var commonPrefixes = []string{
 
 func candidatesFromMethod(name string) []string {
 	c := []string{}
-	c = append(c, hyphenate(name))
+	c = append(c, cliname.Hyphenate(name))
 	// plain lowercase
 	c = append(c, strings.ToLower(name))
 
@@ -69,7 +47,7 @@ func candidatesFromMethod(name string) []string {
 			c = append(c, strings.ToLower(p))
 			s := strings.TrimPrefix(name, p)
 			if s != "" {
-				c = append(c, hyphenate(s))
+				c = append(c, cliname.Hyphenate(s))
 				c = append(c, strings.ToLower(s))
 			}
 		}
@@ -79,7 +57,7 @@ func candidatesFromMethod(name string) []string {
 	if strings.HasSuffix(name, "Hash") {
 		c = append(c, "hash")
 		base := strings.TrimSuffix(name, "Hash")
-		c = append(c, hyphenate(base))
+		c = append(c, cliname.Hyphenate(base))
 	}
 
 	return uniq(c)

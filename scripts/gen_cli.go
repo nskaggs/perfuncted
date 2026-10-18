@@ -21,7 +21,8 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"unicode"
+
+	"github.com/nskaggs/perfuncted/scripts/internal/cliname"
 
 	"golang.org/x/tools/go/packages"
 	"gopkg.in/yaml.v3"
@@ -44,29 +45,6 @@ type Mapping map[string]map[string]MethodMapping
 type generatedCommand struct {
 	block  string
 	cmdVar string
-}
-
-func hyphenate(s string) string {
-	if s == "" {
-		return ""
-	}
-	var words []string
-	var buf []rune
-	r := []rune(s)
-	for i := 0; i < len(r); i++ {
-		ch := r[i]
-		if i > 0 && unicode.IsUpper(ch) && (unicode.IsLower(r[i-1]) || (i+1 < len(r) && unicode.IsLower(r[i+1]))) {
-			if len(buf) > 0 {
-				words = append(words, string(buf))
-				buf = []rune{}
-			}
-		}
-		buf = append(buf, unicode.ToLower(ch))
-	}
-	if len(buf) > 0 {
-		words = append(words, string(buf))
-	}
-	return strings.Join(words, "-")
 }
 
 func methodsForType(pkg *packages.Package, typeName string) ([]*types.Func, error) {
@@ -336,7 +314,7 @@ func main() {
 				}
 			}
 			if cliName == "" {
-				cliName = hyphenate(mn)
+				cliName = cliname.Hyphenate(mn)
 			}
 			mappingEntry, hasMapping := MethodMapping{}, false
 			if mapping[grp] != nil {
