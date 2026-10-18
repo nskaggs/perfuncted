@@ -623,6 +623,15 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 			if err := contextErr(ctx); err != nil {
 				return Result{}, err
 			}
+			// For generic capture images, convert the compact screenshot
+			// once, not once per overlapping watched rectangle. The same
+			// premultiplied RGBA pixels are then hashed by every region.
+			if _, packed := img.(*image.RGBA); !packed {
+				bounds := img.Bounds()
+				rgba := image.NewRGBA(bounds)
+				draw.Draw(rgba, bounds, img, bounds.Min, draw.Src)
+				img = rgba
+			}
 			imgBase := img.Bounds().Min
 			for i, rect := range rects {
 				// Translate the requested screen rect into the grabbed image's
