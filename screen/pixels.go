@@ -113,11 +113,12 @@ func copyBGRA(dst, src []byte) {
 		n = len(dst)
 	}
 	n -= n % 4
+	// Use the optimized bulk copy for the unchanged green byte before
+	// swapping B/R and canonicalizing the alpha byte in place.
+	copy(dst[:n], src[:n])
 	for i := 0; i < n; i += 4 {
-		dst[i+0] = src[i+2] // R ← B
-		dst[i+1] = src[i+1] // G ← G
-		dst[i+2] = src[i+0] // B ← R
-		dst[i+3] = 0xff     // A
+		dst[i], dst[i+2] = dst[i+2], dst[i]
+		dst[i+3] = 0xff
 	}
 }
 
