@@ -147,12 +147,15 @@ func (c compositeCondition) describe() string {
 }
 
 func (c compositeCondition) pollingOnly() bool {
+	// An event from any event-capable child can change the composite result.
+	// Polling-only children still get checked on every event and on fallback
+	// polls, so they must not suppress useful event wakeups from siblings.
 	for _, child := range c.conditions {
-		if child != nil && child.pollingOnly() {
-			return true
+		if child != nil && !child.pollingOnly() {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (c compositeCondition) evaluate(
@@ -172,19 +175,24 @@ func (c compositeCondition) evaluate(
 		}
 		return true, nil
 	case "any":
+		var evaluationErrors []error
 		for _, child := range c.conditions {
 			if child == nil {
 				return false, errors.New("perfuncted: nil child condition")
 			}
 			ok, err := child.evaluate(ctx, session)
 			if err != nil {
-				return false, err
+				// One unreadable proof must not hide an independently
+				// satisfied alternative. Preserve every error if none
+				// succeeds, so Wait can report an unreadable condition.
+				evaluationErrors = append(evaluationErrors, err)
+				continue
 			}
 			if ok {
 				return true, nil
 			}
 		}
-		return false, nil
+		return false, errors.Join(evaluationErrors...)
 	default:
 		return false, fmt.Errorf("perfuncted: unknown composite mode %q", c.mode)
 	}
@@ -199,7 +207,9 @@ func All(conditions ...Condition) Condition {
 	}
 }
 
-// Any succeeds when at least one child condition succeeds.
+// Any succeeds when at least one child condition succeeds. Failed child
+// observations do not mask independent successes; if none succeeds, all
+// observation errors are preserved for the caller.
 func Any(conditions ...Condition) Condition {
 	return compositeCondition{
 		name:       "any",
@@ -364,8 +374,8 @@ func WaitEvery(interval time.Duration) WaitOption {
 	}
 }
 
-// Wait blocks until condition succeeds. Timeout and cancellation come only
-// from ctx; backend failures are returned immediately.
+// Wait blocks until condition succeeds. Timeout and cancellation follow ctx;
+// persistent observation failures are bounded, and terminal failures abort.
 func (s *Session) Wait(
 	ctx context.Context,
 	condition Condition,
@@ -428,6 +438,11 @@ func (s *Session) waitWithEvidence(
 			return evidence, err
 		}
 		if ok {
+			// A custom condition can finish concurrently with shutdown or
+			// cancel its own context; do not report an obsolete success.
+			if err := s.waitState(ctx); err != nil {
+				return evidence, err
+			}
 			return evidence, nil
 		}
 		if condition.pollingOnly() {
