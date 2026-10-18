@@ -129,3 +129,57 @@ func TestSyntheticScanCompactCustomHasher(t *testing.T) {
 		t.Fatalf("custom hash took %d captures, want 1", len(screen.grabs))
 	}
 }
+
+// A dense cluster of overlapping UI watch rectangles is captured once, but
+// each requested rectangle must still be checked in caller order and hashed
+// against the same canonical premultiplied RGBA representation as Grab.
+func syntheticOverlappingFixture() (image.Image, []image.Rectangle, []uint32) {
+	source := image.NewNRGBA(image.Rect(50, 70, 94, 114))
+	for y := 70; y < 114; y++ {
+		for x := 50; x < 94; x++ {
+			source.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(x * 7), G: uint8(y * 3), B: uint8(x ^ y),
+				A: uint8(80 + (x+y)%176),
+			})
+		}
+	}
+	rects := make([]image.Rectangle, 0, 16)
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			start := image.Pt(50+4*x, 70+4*y)
+			rects = append(rects, image.Rectangle{Min: start, Max: start.Add(image.Pt(32, 32))})
+		}
+	}
+	wants := make([]uint32, len(rects))
+	wants[len(wants)-1] = independentRegionHash(source, rects[len(rects)-1])
+	return source, rects, wants
+}
+
+func TestSyntheticScanOverlappingCanonicalAndCaptureCount(t *testing.T) {
+	src, rects, wants := syntheticOverlappingFixture()
+	for _, zeroOrigin := range []bool{false, true} {
+		screen := &syntheticScreen{source: src, zeroOrigin: zeroOrigin}
+		got, err := ScanFor(context.Background(), screen, rects, wants, 0, nil)
+		if err != nil || got.Rect != rects[len(rects)-1] || got.Hash != wants[len(wants)-1] {
+			t.Fatalf("zeroOrigin=%v: got=%+v err=%v", zeroOrigin, got, err)
+		}
+		if len(screen.grabs) != 1 || screen.grabs[0] != src.Bounds() {
+			t.Fatalf("zeroOrigin=%v: grabs=%v", zeroOrigin, screen.grabs)
+		}
+	}
+}
+
+func BenchmarkSyntheticScanOverlappingGeneric(b *testing.B) {
+	src, rects, wants := syntheticOverlappingFixture()
+	screen := &syntheticScreen{source: src, zeroOrigin: true}
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		screen.grabs = screen.grabs[:0]
+		got, err := ScanFor(ctx, screen, rects, wants, 0, nil)
+		if err != nil || got.Rect != rects[len(rects)-1] || len(screen.grabs) != 1 {
+			b.Fatalf("scan got=%+v err=%v captures=%d", got, err, len(screen.grabs))
+		}
+	}
+}
