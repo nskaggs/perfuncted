@@ -2,7 +2,6 @@ package window
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -47,25 +46,46 @@ func FindByID(ctx context.Context, m Manager, id uint64) (Info, error) {
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
 	ctx = contextutil.Default(ctx)
+	if err := util.CheckAvailable("window", m); err != nil {
+		return err
+	}
 	compiled := CompileMatch(match)
-	label := match.String()
-	ticker := time.NewTicker(clampPoll(poll))
-	defer ticker.Stop()
+	var ticker *time.Ticker
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("wait for window close %q: %w", label, err)
+			return fmt.Errorf("wait for window close %q: %w", match.String(), err)
 		}
-		_, err := find(ctx, m, compiled, label)
-		if err != nil {
-			if errors.Is(err, ErrWindowNotFound) {
-				return nil
+		// An absent window is successful completion, not an exceptional
+		// lookup failure. Avoid building an unused formatted not-found error
+		// (and a timer) for the common already-closed case.
+		found := false
+		for w, err := range m.IterateWindows(ctx) {
+			if err != nil {
+				return err
 			}
-			return err
+			if compiled.Matches(w) {
+				found = true
+				break
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("wait for window close %q: %w", match.String(), err)
+		}
+		if !found {
+			return nil
+		}
+		if ticker == nil {
+			ticker = time.NewTicker(clampPoll(poll))
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for window close %q: %w", label, ctx.Err())
+			return fmt.Errorf("wait for window close %q: %w", match.String(), ctx.Err())
 		case <-ticker.C:
 		}
 	}
