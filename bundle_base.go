@@ -76,7 +76,14 @@ func (b *bundleBase) checkAvailable(operation string, available bool) error {
 	if !available {
 		return b.unavailable(operation)
 	}
-	if !b.session.Capability(b.capability).Supports(operation) {
+	// This is an operation gate, not a public status snapshot. Read the
+	// immutable operation names under the capability lock instead of cloning
+	// Operations and Diagnostics on every screen, input and window call.
+	b.session.capabilitiesMu.RLock()
+	status := b.session.capabilities[b.capability]
+	supported := status.Supports(operation)
+	b.session.capabilitiesMu.RUnlock()
+	if !supported {
 		return &CapabilityError{
 			Capability: b.capability,
 			Operation:  operation,
