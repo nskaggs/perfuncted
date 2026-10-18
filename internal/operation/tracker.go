@@ -47,16 +47,19 @@ func (t *Tracker) Begin(ctx context.Context, closedErr error) (context.Context, 
 	t.active[id] = cancel
 	t.mu.Unlock()
 
-	finish := sync.OnceFunc(func() {
-		cancel()
-		t.mu.Lock()
-		delete(t.active, id)
-		if len(t.active) == 0 {
-			close(t.activeDone)
-			t.activeDone = nil
-		}
-		t.mu.Unlock()
-	})
+	var once sync.Once
+	finish := func() {
+		once.Do(func() {
+			cancel()
+			t.mu.Lock()
+			delete(t.active, id)
+			if len(t.active) == 0 {
+				close(t.activeDone)
+				t.activeDone = nil
+			}
+			t.mu.Unlock()
+		})
+	}
 	return opCtx, finish, nil
 }
 
