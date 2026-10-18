@@ -114,7 +114,34 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 }
 
 func snapshotKey(root NodeID, opts SnapshotOptions) string {
-	return root.BusName + "\x00" + root.ObjectPath + "\x00" + strconv.FormatUint(root.Generation, 10) + "\x00" + strconv.FormatUint(effectiveIncarnation(root), 10) + "\x00" + strconv.Itoa(opts.MaxDepth) + "\x00" + strconv.Itoa(opts.MaxNodes) + "\x00" + strconv.Itoa(opts.MaxTextBytes) + "\x00" + strconv.Itoa(opts.MaxTotalBytes) + "\x00" + strconv.FormatBool(opts.VisibleOnly) + "\x00" + strconv.FormatBool(opts.AllowSensitive) + "\x00" + strconv.FormatBool(opts.AllowDesktopRoot) + "\x00" + strings.Join(opts.SkipRoles, ",")
+	// Cache keys are built on a small stack buffer rather than allocating a
+	// temporary string for each number and joining the pieces afterward.
+	// Keep the exact separator and bool encoding used by existing cache keys.
+	var storage [192]byte
+	key := storage[:0]
+	key = append(key, root.BusName...)
+	key = append(key, 0)
+	key = append(key, root.ObjectPath...)
+	key = append(key, 0)
+	key = strconv.AppendUint(key, root.Generation, 10)
+	key = append(key, 0)
+	key = strconv.AppendUint(key, effectiveIncarnation(root), 10)
+	for _, value := range [...]int{opts.MaxDepth, opts.MaxNodes, opts.MaxTextBytes, opts.MaxTotalBytes} {
+		key = append(key, 0)
+		key = strconv.AppendInt(key, int64(value), 10)
+	}
+	for _, value := range [...]bool{opts.VisibleOnly, opts.AllowSensitive, opts.AllowDesktopRoot} {
+		key = append(key, 0)
+		key = strconv.AppendBool(key, value)
+	}
+	key = append(key, 0)
+	for i, role := range opts.SkipRoles {
+		if i != 0 {
+			key = append(key, ',')
+		}
+		key = append(key, role...)
+	}
+	return string(key)
 }
 
 func (b *dbusBackend) generationError(expected uint64) error {
