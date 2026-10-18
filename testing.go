@@ -112,5 +112,6 @@ func NewSessionForTesting(
 		}
 		session.capabilities[capability] = status
 	}
+	session.cacheResolvedBundleOperations()
 	return session
 }

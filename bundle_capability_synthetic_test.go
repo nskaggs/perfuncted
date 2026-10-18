@@ -2,12 +2,13 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 )
 
 func syntheticSupportedBundle() *bundleBase {
-	return &bundleBase{
+	bundle := &bundleBase{
 		capability: CapabilityInput,
 		session: &Session{ctx: context.Background(), capabilities: map[Capability]CapabilityStatus{
 			CapabilityInput: {
@@ -17,6 +18,8 @@ func syntheticSupportedBundle() *bundleBase {
 			},
 		}},
 	}
+	bundle.cacheOperations(bundle.session.capabilities[CapabilityInput].Operations)
+	return bundle
 }
 
 // Screen, windows, and input all use this exact availability gate on every
@@ -54,5 +57,74 @@ func TestBundleCapabilityLookupRetainsPublicSnapshotIsolation(t *testing.T) {
 	}
 	if err := b.checkAvailable("keyboard", true); err != nil {
 		t.Fatalf("snapshot mutated checkAvailability: %v", err)
+	}
+}
+
+// The metadata snapshot can be updated or returned to callers without changing
+// the operation contract cached when a normal session opens.
+func TestSessionStaticOperationContractRemainsFixed(t *testing.T) {
+	b := syntheticSupportedBundle()
+	b.session.capabilitiesMu.Lock()
+	status := b.session.capabilities[CapabilityInput]
+	status.Operations = []string{"different-operation"}
+	b.session.capabilities[CapabilityInput] = status
+	b.session.capabilitiesMu.Unlock()
+	if err := b.checkAvailable("keyboard", true); err != nil {
+		t.Fatalf("cached keyboard support unexpectedly disappeared: %v", err)
+	}
+	if err := b.checkAvailable("different-operation", true); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unadvertised operation unexpectedly succeeded: %v", err)
+	}
+	b.session.lifecycleMu.Lock()
+	b.session.closed = true
+	b.session.lifecycleMu.Unlock()
+	if err := b.checkAvailable("keyboard", true); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("closed session returned %v, want ErrSessionClosed", err)
+	}
+}
+
+func TestAccessibilityOperationSupportRemainsDynamic(t *testing.T) {
+	b := syntheticSupportedBundle()
+	b.capability = CapabilityAccessibility
+	b.cacheOperations([]string{"find"}) // must be ignored for dynamic accessibility
+	b.session.capabilities[CapabilityAccessibility] = CapabilityStatus{
+		Capability: CapabilityAccessibility,
+		Operations: []string{"find"},
+		Available:  true,
+	}
+	if err := b.checkAvailable("find", true); err != nil {
+		t.Fatal(err)
+	}
+	b.session.capabilitiesMu.Lock()
+	status := b.session.capabilities[CapabilityAccessibility]
+	status.Operations = []string{"snapshot"}
+	b.session.capabilities[CapabilityAccessibility] = status
+	b.session.capabilitiesMu.Unlock()
+	if err := b.checkAvailable("find", true); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("stale accessibility support was used: %v", err)
+	}
+	if err := b.checkAvailable("snapshot", true); err != nil {
+		t.Fatalf("newly available accessibility operation rejected: %v", err)
+	}
+}
+
+// Normal session construction wires the immutable contracts before returning.
+// Accessibility must remain on the live path because its backend may reopen.
+func TestSessionCreationCachesOnlyStaticOperations(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	defer session.Close()
+	for _, bundle := range []*bundleBase{
+		&session.Screen.bundleBase,
+		&session.Input.bundleBase,
+		&session.Windows.bundleBase,
+		&session.Outputs.bundleBase,
+		&session.Clipboard.bundleBase,
+	} {
+		if !bundle.operationsResolved {
+			t.Fatalf("%s was not prevalidated at session creation", bundle.capability)
+		}
+	}
+	if session.Accessibility.operationsResolved {
+		t.Fatal("accessibility cannot prevalidate a reopenable backend")
 	}
 }

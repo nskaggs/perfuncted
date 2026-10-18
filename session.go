@@ -126,6 +126,9 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 		return nil, errors.Join(err, closeErr)
 	}
 
+	// Backend support for these five facades is fixed during initialization.
+	// The accessibility backend can reopen and is intentionally excluded.
+	s.cacheResolvedBundleOperations()
 	return s, nil
 }
 
@@ -258,6 +261,20 @@ func backendDiagnostics(backend any) []string {
 		return slices.Clone(reporter.Diagnostics())
 	}
 	return nil
+}
+
+// cacheResolvedBundleOperations binds immutable backend support to the
+// per-capability facades before the session becomes visible to callers.
+func (s *Session) cacheResolvedBundleOperations() {
+	for _, bundle := range []*bundleBase{
+		&s.Screen.bundleBase,
+		&s.Input.bundleBase,
+		&s.Windows.bundleBase,
+		&s.Outputs.bundleBase,
+		&s.Clipboard.bundleBase,
+	} {
+		bundle.cacheOperations(s.capabilities[bundle.capability].Operations)
+	}
 }
 
 func (s *Session) bundleBase(capability Capability) bundleBase {

@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/nskaggs/perfuncted/accessibility"
@@ -18,6 +19,12 @@ import (
 type bundleBase struct {
 	session    *Session
 	capability Capability
+
+	// Fixed capabilities are resolved before Open returns and never change.
+	// This immutable view avoids locking capability metadata on every input,
+	// screen and window call. Accessibility deliberately remains dynamic.
+	resolvedOperations []string
+	operationsResolved bool
 }
 
 // backendContext gives each bounded backend operation the session's effective
@@ -63,6 +70,14 @@ func (b *bundleBase) unavailable(operation string) error {
 	}
 }
 
+// cacheOperations binds the immutable status slice rather than cloning it.
+// Session owns the data; public Capability returns independent snapshots.
+// It must run before the session is published and never after.
+func (b *bundleBase) cacheOperations(operations []string) {
+	b.resolvedOperations = operations
+	b.operationsResolved = true
+}
+
 func (b *bundleBase) checkAvailable(operation string, available bool) error {
 	if b == nil {
 		return b.unavailable(operation)
@@ -76,13 +91,19 @@ func (b *bundleBase) checkAvailable(operation string, available bool) error {
 	if !available {
 		return b.unavailable(operation)
 	}
-	// This is an operation gate, not a public status snapshot. Read the
-	// immutable operation names under the capability lock instead of cloning
-	// Operations and Diagnostics on every screen, input and window call.
-	b.session.capabilitiesMu.RLock()
-	status := b.session.capabilities[b.capability]
-	supported := status.Supports(operation)
-	b.session.capabilitiesMu.RUnlock()
+	// Non-accessibility backends have a fixed operation contract once the
+	// session opens; check the prevalidated list without locking the session.
+	// Accessibility can reopen or disconnect and must use the live status.
+	// Manually assembled test bundles without a cached list also use live data.
+	var supported bool
+	if b.operationsResolved && b.capability != CapabilityAccessibility {
+		supported = slices.Contains(b.resolvedOperations, operation)
+	} else {
+		b.session.capabilitiesMu.RLock()
+		status := b.session.capabilities[b.capability]
+		supported = status.Supports(operation)
+		b.session.capabilitiesMu.RUnlock()
+	}
 	if !supported {
 		return &CapabilityError{
 			Capability: b.capability,
