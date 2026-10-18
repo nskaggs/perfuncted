@@ -634,11 +634,10 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 					rect.Max.X-bbox.Min.X+imgBase.X,
 					rect.Max.Y-bbox.Min.Y+imgBase.Y,
 				)
-				h, ok := pixelHashScanRegion(img, tr, newHash)
-				if !ok {
-					useBbox = false // fall back if SubImage unavailable
-					break
-				}
+				// pixelHashImage can read any image.Image directly; a
+				// provider does not need to implement SubImage just to
+				// hash a compact captured region.
+				h := pixelHashImage(img, tr, newHash)
 				if err := contextErr(ctx); err != nil {
 					return Result{}, err
 				}
@@ -646,8 +645,7 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 					return Result{Hash: h, Rect: rect}, nil
 				}
 			}
-		}
-		if !useBbox {
+		} else {
 			for i, rect := range rects {
 				h, err := GrabHash(ctx, sc, rect, newHash)
 				if err != nil {
@@ -681,19 +679,6 @@ func rectangleArea(rect image.Rectangle) (uint64, bool) {
 		return 0, false
 	}
 	return width * height, true
-}
-
-func pixelHashScanRegion(img image.Image, rect image.Rectangle, newHash Hasher) (uint32, bool) {
-	if _, ok := img.(*image.RGBA); ok {
-		return pixelHashImage(img, rect, newHash), true
-	}
-	sub, ok := img.(interface {
-		SubImage(image.Rectangle) image.Image
-	})
-	if !ok {
-		return 0, false
-	}
-	return PixelHash(sub.SubImage(rect), newHash), true
 }
 
 // Anchor represents an absolute coordinate reference point on the screen.
