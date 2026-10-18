@@ -1,6 +1,8 @@
 package input
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -17,10 +19,10 @@ func TestOutputGeometryDerivesLogicalExtent(t *testing.T) {
 		wantHeight uint32
 	}{
 		{
-			name:       "fallback until a mode event arrives",
+			name:       "unknown until a mode event arrives",
 			apply:      func(*WlVirtualBackend) {},
-			wantWidth:  1920,
-			wantHeight: 1080,
+			wantWidth:  0,
+			wantHeight: 0,
 		},
 		{
 			name:       "mode event at scale one",
@@ -48,10 +50,10 @@ func TestOutputGeometryDerivesLogicalExtent(t *testing.T) {
 			wantHeight: 540,
 		},
 		{
-			name:       "zero scale is treated as one",
+			name:       "scale alone supplies no geometry",
 			apply:      func(b *WlVirtualBackend) { b.applyOutputScale(0) },
-			wantWidth:  1920,
-			wantHeight: 1080,
+			wantWidth:  0,
+			wantHeight: 0,
 		},
 		{
 			name: "scale before any mode keeps the known extent",
@@ -65,7 +67,6 @@ func TestOutputGeometryDerivesLogicalExtent(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &WlVirtualBackend{}
-			b.setOutputExtentFallback()
 			tc.apply(b)
 
 			width, height := b.outputExtent()
@@ -90,7 +91,7 @@ func TestOutputExtentIsSafeDuringConcurrentGeometryChanges(t *testing.T) {
 	)
 
 	b := &WlVirtualBackend{}
-	b.setOutputExtentFallback()
+	b.applyOutputMode(3840, 2160)
 
 	var ready, done sync.WaitGroup
 	start := make(chan struct{})
@@ -152,11 +153,39 @@ func TestWlVirtualModeEventDecodesSizeInProtocolOrder(t *testing.T) {
 		t.Fatal("DecodeOutputMode rejected the payload")
 	}
 	b := &WlVirtualBackend{}
-	b.setOutputExtentFallback()
 	b.applyOutputMode(mode.Width, mode.Height)
 
 	width, height := b.outputExtent()
 	if width != 3840 || height != 2160 {
 		t.Fatalf("extent = %dx%d, want 3840x2160 (height and refresh must not be read as the size)", width, height)
+	}
+}
+
+// Without wl_output mode, a guessed 1920x1080 frame can dispatch wrong
+// absolute pointer coordinates on smaller or scaled displays. No pointer
+// motion may be sent until the compositor publishes actual geometry.
+func TestWlVirtualPointerRejectsUnknownOutputGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		width, height uint32
+	}{
+		{"unreported", 0, 0}, {"missing width", 0, 1080}, {"missing height", 1920, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, conn := newCapturedWlVirtualBackend(t)
+			b.extentMu.Lock()
+			b.outW, b.outH = tc.width, tc.height
+			b.extentMu.Unlock()
+			err := b.MouseMove(context.Background(), 3, 5)
+			if !errors.Is(err, ErrNotSupported) {
+				t.Fatalf("unknown output extent allowed motion: %v", err)
+			}
+			if err := b.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if writes := readCapturedWlWrites(t, conn); len(writes) != 0 {
+				t.Fatalf("unexpected pointer messages: %d", len(writes))
+			}
+		})
 	}
 }

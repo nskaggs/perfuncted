@@ -65,12 +65,6 @@ func (b *WlVirtualBackend) outputExtent() (width, height uint32) {
 	return b.outW, b.outH
 }
 
-// Nominal extents used until a wl_output mode event reports the real geometry.
-const (
-	fallbackOutputWidth  = 1920
-	fallbackOutputHeight = 1080
-)
-
 // wl_output delivers the scale event from version 2. motion_absolute is
 // measured against the output's logical size, so without the scale the physical
 // mode size is encoded as if it were logical and absolute pointer motion lands
@@ -85,15 +79,6 @@ const (
 // never above the version whose opcodes this backend reads.
 func wlOutputBindVersion(advertised uint32) uint32 {
 	return min(advertised, wlOutputScaleVersion)
-}
-
-// setOutputExtentFallback seeds the logical extent used until a wl_output mode
-// event reports the real geometry.
-func (b *WlVirtualBackend) setOutputExtentFallback() {
-	b.extentMu.Lock()
-	defer b.extentMu.Unlock()
-	b.outW = fallbackOutputWidth
-	b.outH = fallbackOutputHeight
 }
 
 // applyOutputMode and applyOutputScale are called from the wl_output event
@@ -199,7 +184,6 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 		// Bind wl_output to read dimensions.
 		outProxy := &wl.RawProxy{}
 		wlctx.Register(outProxy)
-		b.setOutputExtentFallback()
 		if outID != 0 {
 			if bindErr := registry.BindContext(
 				cancel, outID, "wl_output",
@@ -311,7 +295,12 @@ func (b *WlVirtualBackend) mouseMoveEvent(cancel context.Context, ctx wl.Ctx, x,
 		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed uint32 range, got (%d,%d)", x, y)
 	}
 	outW, outH := b.outputExtent()
-	if (outW > 0 && uint64(x) > uint64(outW)) || (outH > 0 && uint64(y) > uint64(outH)) {
+	// Absolute motion requires the compositor's real logical output extent.
+	// Guessing a nominal desktop size silently sends the wrong coordinates.
+	if outW == 0 || outH == 0 {
+		return fmt.Errorf("input/wl-virtual: output extent unavailable: %w", ErrNotSupported)
+	}
+	if uint64(x) > uint64(outW) || uint64(y) > uint64(outH) {
 		return fmt.Errorf("input/wl-virtual: absolute coordinates exceed output extent, got (%d,%d) for %dx%d", x, y, outW, outH)
 	}
 	var buf [28]byte
