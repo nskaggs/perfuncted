@@ -11,6 +11,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	oplife "github.com/nskaggs/perfuncted/internal/operation"
 	"github.com/nskaggs/perfuncted/internal/shmutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
@@ -60,17 +61,8 @@ func (b *ExtCaptureBackend) applyOutputEvent(opcode uint32, data []byte) {
 type ExtCaptureBackend struct {
 	// mu protects the session-owned protocol state, shm, manager globals, and outputProxy.
 	mu sync.Mutex
-	// lifecycleMu protects closed, closeDone, and active capture cancellation.
-	// It is deliberately separate from mu: Close must be able to cancel a
-	// blocked Wayland operation without waiting for that operation's resource
-	// lock.
-	lifecycleMu  sync.Mutex
-	closed       bool
-	closeDone    chan struct{}
-	closeErr     error
-	active       map[uint64]context.CancelFunc
-	activeDone   chan struct{}
-	nextCapture  uint64
+	// operations owns admission, active cancellation, and close results.
+	operations   oplife.Tracker
 	session      *wl.Session
 	shm          *wl.Shm
 	mgrID        uint32
@@ -488,40 +480,10 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 // Admission is recorded before grabInternal takes mu, so Close cannot observe
 // an operation as absent and then race with it acquiring the resource lock.
 func (b *ExtCaptureBackend) beginCapture(ctx context.Context) (context.Context, func(), error) {
-	ctx = contextutil.Default(ctx)
-	captureCtx, cancel := context.WithCancel(ctx)
 	if b == nil {
-		cancel()
 		return nil, nil, fmt.Errorf("screen/ext: backend is nil")
 	}
-
-	b.lifecycleMu.Lock()
-	if b.closed {
-		b.lifecycleMu.Unlock()
-		cancel()
-		return nil, nil, fmt.Errorf("screen/ext: backend is closed")
-	}
-	if b.active == nil {
-		b.active = make(map[uint64]context.CancelFunc)
-	}
-	if len(b.active) == 0 {
-		b.activeDone = make(chan struct{})
-	}
-	b.nextCapture++
-	id := b.nextCapture
-	b.active[id] = cancel
-	b.lifecycleMu.Unlock()
-
-	finish := sync.OnceFunc(func() {
-		cancel()
-		b.lifecycleMu.Lock()
-		delete(b.active, id)
-		if len(b.active) == 0 && b.activeDone != nil {
-			close(b.activeDone)
-		}
-		b.lifecycleMu.Unlock()
-	})
-	return captureCtx, finish, nil
+	return b.operations.Begin(ctx, fmt.Errorf("screen/ext: backend is closed"))
 }
 
 // Close releases the ext-image-copy protocol resources.
@@ -529,58 +491,24 @@ func (b *ExtCaptureBackend) Close() error {
 	if b == nil {
 		return nil
 	}
-	b.lifecycleMu.Lock()
-	if b.closed {
-		done := b.closeDone
-		b.lifecycleMu.Unlock()
-		if done != nil {
-			<-done
+	return b.operations.Close(func() error {
+		// Keep protocol and mmap cleanup under mu, never while holding the
+		// lifecycle owner's state lock.
+		b.mu.Lock()
+		if b.cachedBuf != nil {
+			_ = syscall.Munmap(b.cachedBuf)
+			b.cachedBuf = nil
 		}
-		b.lifecycleMu.Lock()
-		err := b.closeErr
-		b.lifecycleMu.Unlock()
-		return err
-	}
-	b.closed = true
-	b.closeDone = make(chan struct{})
-	done := b.closeDone
-	activeDone := b.activeDone
-	cancels := make([]context.CancelFunc, 0, len(b.active))
-	for _, cancel := range b.active {
-		cancels = append(cancels, cancel)
-	}
-	b.lifecycleMu.Unlock()
-
-	// Never hold mu while canceling or waiting. A capture needs mu for its
-	// complete serialized Wayland operation and must be allowed to unwind.
-	for _, cancel := range cancels {
-		cancel()
-	}
-	if activeDone != nil {
-		<-activeDone
-	}
-
-	b.mu.Lock()
-	// clean up pooled mmap and associated fd
-	if b.cachedBuf != nil {
-		_ = syscall.Munmap(b.cachedBuf)
-		b.cachedBuf = nil
-	}
-	if b.cachedFd != nil {
-		_ = b.cachedFd.Close()
-		b.cachedFd = nil
-	}
-	b.mu.Unlock()
-
-	var err error
-	if b.session != nil {
-		err = b.session.Close()
-	}
-	b.lifecycleMu.Lock()
-	b.closeErr = err
-	close(done)
-	b.lifecycleMu.Unlock()
-	return err
+		if b.cachedFd != nil {
+			_ = b.cachedFd.Close()
+			b.cachedFd = nil
+		}
+		b.mu.Unlock()
+		if b.session != nil {
+			return b.session.Close()
+		}
+		return nil
+	})
 }
 
 func extCaptureAvailable(globals map[string]bool) (bool, string) {

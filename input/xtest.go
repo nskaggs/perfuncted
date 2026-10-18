@@ -12,6 +12,7 @@ import (
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	oplife "github.com/nskaggs/perfuncted/internal/operation"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
@@ -24,15 +25,8 @@ type XTestBackend struct {
 	root  xproto.Window
 	delay time.Duration
 
-	// lifecycleMu protects closed, closeDone, closeErr, and active. It is
-	// never held while connection I/O runs.
-	lifecycleMu sync.Mutex
-	closed      bool
-	closeDone   chan struct{}
-	closeErr    error
-	active      map[uint64]context.CancelFunc
-	activeDone  chan struct{}
-	nextActive  uint64
+	// operations owns admission, active cancellation, and close results.
+	operations oplife.Tracker
 
 	// operationGate serializes each complete public operation. Composite
 	// operations call gate-free helpers so they cannot deadlock by re-entering
@@ -95,37 +89,8 @@ func (b *XTestBackend) beginOperation(ctx context.Context) (context.Context, fun
 	if b == nil {
 		return nil, nil, errors.New("input/xtest: backend is nil")
 	}
-	opCtx, cancel := context.WithCancel(ctx)
-
-	b.lifecycleMu.Lock()
-	if b.closed {
-		b.lifecycleMu.Unlock()
-		cancel()
-		return nil, nil, errXTestBackendClosed
-	}
-	if b.active == nil {
-		b.active = make(map[uint64]context.CancelFunc)
-	}
-	if len(b.active) == 0 {
-		b.activeDone = make(chan struct{})
-	}
-	b.nextActive++
-	id := b.nextActive
-	b.active[id] = cancel
-	b.lifecycleMu.Unlock()
-
-	finish := sync.OnceFunc(func() {
-		cancel()
-		b.lifecycleMu.Lock()
-		delete(b.active, id)
-		if len(b.active) == 0 && b.activeDone != nil {
-			close(b.activeDone)
-		}
-		b.lifecycleMu.Unlock()
-	})
-	return opCtx, finish, nil
+	return b.operations.Begin(ctx, errXTestBackendClosed)
 }
-
 func (b *XTestBackend) withOperation(ctx context.Context, fn func(context.Context) error) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -818,42 +783,12 @@ func (b *XTestBackend) Close() error {
 	if b == nil {
 		return nil
 	}
-
-	b.lifecycleMu.Lock()
-	if b.closed {
-		done := b.closeDone
-		b.lifecycleMu.Unlock()
-		<-done
-		b.lifecycleMu.Lock()
-		err := b.closeErr
-		b.lifecycleMu.Unlock()
-		return err
-	}
-	b.closed = true
-	b.closeDone = make(chan struct{})
-	done := b.closeDone
-	activeDone := b.activeDone
-	cancels := make([]context.CancelFunc, 0, len(b.active))
-	for _, cancel := range b.active {
-		cancels = append(cancels, cancel)
-	}
-	b.lifecycleMu.Unlock()
-
-	for _, cancel := range cancels {
-		cancel()
-	}
-	if activeDone != nil {
-		<-activeDone
-	}
-	if b.conn != nil {
-		b.conn.Close()
-	}
-
-	b.lifecycleMu.Lock()
-	b.closeErr = nil
-	close(done)
-	b.lifecycleMu.Unlock()
-	return nil
+	return b.operations.Close(func() error {
+		if b.conn != nil {
+			b.conn.Close()
+		}
+		return nil
+	})
 }
 
 // maxTypableLevel is the highest keysym level levelModifiers can name: unshifted,

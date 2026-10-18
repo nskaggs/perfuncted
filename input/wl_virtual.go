@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	oplife "github.com/nskaggs/perfuncted/internal/operation"
 	"github.com/nskaggs/perfuncted/internal/wl"
 )
 
@@ -33,16 +34,8 @@ const (
 
 // WlVirtualBackend implements Inputter for wlroots Wayland compositors.
 type WlVirtualBackend struct {
-	// lifecycleMu protects closed, closeDone, and active operation cancellation.
-	// It is separate from operationGate so Close never waits while holding the
-	// state lock.
-	lifecycleMu   sync.Mutex
-	closed        bool
-	closeDone     chan struct{}
-	closeErr      error
-	active        map[uint64]context.CancelFunc
-	activeDone    chan struct{}
-	nextActive    uint64
+	// operations owns admission, active cancellation, and close results.
+	operations    oplife.Tracker
 	gateOnce      sync.Once
 	operationGate chan struct{}
 
@@ -271,41 +264,8 @@ func (b *WlVirtualBackend) operationGateChannel() chan struct{} {
 }
 
 func (b *WlVirtualBackend) beginOperation(ctx context.Context) (context.Context, func(), error) {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	opCtx, cancel := context.WithCancel(ctx)
-
-	b.lifecycleMu.Lock()
-	if b.closed {
-		b.lifecycleMu.Unlock()
-		cancel()
-		return nil, nil, fmt.Errorf("input/wl-virtual: backend is closed")
-	}
-	if b.active == nil {
-		b.active = make(map[uint64]context.CancelFunc)
-	}
-	if len(b.active) == 0 {
-		b.activeDone = make(chan struct{})
-	}
-	b.nextActive++
-	id := b.nextActive
-	b.active[id] = cancel
-	b.lifecycleMu.Unlock()
-
-	finish := sync.OnceFunc(func() {
-		cancel()
-		b.lifecycleMu.Lock()
-		delete(b.active, id)
-		if len(b.active) == 0 && b.activeDone != nil {
-			close(b.activeDone)
-		}
-		b.lifecycleMu.Unlock()
-	})
-	return opCtx, finish, nil
+	return b.operations.Begin(ctx, fmt.Errorf("input/wl-virtual: backend is closed"))
 }
-
 func (b *WlVirtualBackend) withOperation(ctx context.Context, fn func(wl.Ctx, context.Context) error) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -636,10 +596,7 @@ func (b *WlVirtualBackend) checkOpen() error {
 	if b == nil {
 		return nil
 	}
-	b.lifecycleMu.Lock()
-	closed := b.closed
-	b.lifecycleMu.Unlock()
-	if closed {
+	if b.operations.Closed() {
 		return fmt.Errorf("input/wl-virtual: backend is closed")
 	}
 	return nil
@@ -651,41 +608,10 @@ func (b *WlVirtualBackend) Close() error {
 	if b == nil {
 		return nil
 	}
-	b.lifecycleMu.Lock()
-	if b.closed {
-		done := b.closeDone
-		b.lifecycleMu.Unlock()
-		if done != nil {
-			<-done
+	return b.operations.Close(func() error {
+		if b.session != nil {
+			return b.session.Close()
 		}
-		b.lifecycleMu.Lock()
-		err := b.closeErr
-		b.lifecycleMu.Unlock()
-		return err
-	}
-	b.closed = true
-	b.closeDone = make(chan struct{})
-	done := b.closeDone
-	activeDone := b.activeDone
-	cancels := make([]context.CancelFunc, 0, len(b.active))
-	for _, cancel := range b.active {
-		cancels = append(cancels, cancel)
-	}
-	b.lifecycleMu.Unlock()
-
-	for _, cancel := range cancels {
-		cancel()
-	}
-	if activeDone != nil {
-		<-activeDone
-	}
-	var err error
-	if b.session != nil {
-		err = b.session.Close()
-	}
-	b.lifecycleMu.Lock()
-	b.closeErr = err
-	close(done)
-	b.lifecycleMu.Unlock()
-	return err
+		return nil
+	})
 }

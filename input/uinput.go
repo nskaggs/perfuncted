@@ -16,6 +16,7 @@ import (
 	"github.com/bendahl/uinput"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/keymap"
+	oplife "github.com/nskaggs/perfuncted/internal/operation"
 )
 
 var _ Inputter = (*UinputBackend)(nil)
@@ -44,15 +45,8 @@ type UinputBackend struct {
 	heldMu   sync.Mutex
 	heldMods uint32
 
-	// lifecycleMu protects closed, closeDone, closeErr, and active.
-	// It is never held while device I/O runs.
-	lifecycleMu sync.Mutex
-	closed      bool
-	closeDone   chan struct{}
-	closeErr    error
-	active      map[uint64]context.CancelFunc
-	activeDone  chan struct{}
-	nextActive  uint64
+	// operations owns admission, active cancellation, and close results.
+	operations oplife.Tracker
 
 	// operationGate serializes each complete public input operation so device
 	// event writes cannot interleave with another logical operation.
@@ -120,44 +114,11 @@ func (b *UinputBackend) operationGateChannel() chan struct{} {
 }
 
 func (b *UinputBackend) beginOperation(ctx context.Context) (context.Context, func(), error) {
-	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
 	if b == nil {
 		return nil, nil, errors.New("input/uinput: backend is nil")
 	}
-
-	opCtx, cancel := context.WithCancel(ctx)
-	b.lifecycleMu.Lock()
-	if b.closed {
-		b.lifecycleMu.Unlock()
-		cancel()
-		return nil, nil, errUinputBackendClosed
-	}
-	if b.active == nil {
-		b.active = make(map[uint64]context.CancelFunc)
-	}
-	if len(b.active) == 0 {
-		b.activeDone = make(chan struct{})
-	}
-	b.nextActive++
-	id := b.nextActive
-	b.active[id] = cancel
-	b.lifecycleMu.Unlock()
-
-	finish := sync.OnceFunc(func() {
-		cancel()
-		b.lifecycleMu.Lock()
-		delete(b.active, id)
-		if len(b.active) == 0 && b.activeDone != nil {
-			close(b.activeDone)
-		}
-		b.lifecycleMu.Unlock()
-	})
-	return opCtx, finish, nil
+	return b.operations.Begin(ctx, errUinputBackendClosed)
 }
-
 func (b *UinputBackend) withOperation(ctx context.Context, fn func(context.Context) error) error {
 	opCtx, finish, err := b.beginOperation(ctx)
 	if err != nil {
@@ -633,10 +594,7 @@ func (b *UinputBackend) ensureMouseLocked() error {
 }
 
 func (b *UinputBackend) closedForMouse() bool {
-	b.lifecycleMu.Lock()
-	closed := b.closed
-	b.lifecycleMu.Unlock()
-	return closed
+	return b.operations.Closed()
 }
 
 func (b *UinputBackend) withMouse(fn func(uinput.Mouse) error) error {
@@ -714,61 +672,29 @@ func (b *UinputBackend) Close() error {
 	if b == nil {
 		return nil
 	}
-
-	b.lifecycleMu.Lock()
-	if b.closed {
-		done := b.closeDone
-		b.lifecycleMu.Unlock()
-		<-done
-		b.lifecycleMu.Lock()
-		err := b.closeErr
-		b.lifecycleMu.Unlock()
-		return err
-	}
-	b.closed = true
-	b.closeDone = make(chan struct{})
-	done := b.closeDone
-	activeDone := b.activeDone
-	cancels := make([]context.CancelFunc, 0, len(b.active))
-	for _, cancel := range b.active {
-		cancels = append(cancels, cancel)
-	}
-	b.lifecycleMu.Unlock()
-
-	for _, cancel := range cancels {
-		cancel()
-	}
-	if activeDone != nil {
-		<-activeDone
-	}
-
-	var errs []error
-	if b.kb != nil {
-		if err := b.kb.Close(); err != nil {
-			errs = append(errs, err)
+	return b.operations.Close(func() error {
+		var errs []error
+		if b.kb != nil {
+			if err := b.kb.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
-	if b.touchpad != nil {
-		if err := b.touchpad.Close(); err != nil {
-			errs = append(errs, err)
+		if b.touchpad != nil {
+			if err := b.touchpad.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
-	b.mouseMu.Lock()
-	m := b.mouse
-	b.mouse = nil
-	b.mouseMu.Unlock()
-	if m != nil {
-		if err := m.Close(); err != nil {
-			errs = append(errs, err)
+		b.mouseMu.Lock()
+		m := b.mouse
+		b.mouse = nil
+		b.mouseMu.Unlock()
+		if m != nil {
+			if err := m.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
-	closeErr := errors.Join(errs...)
-
-	b.lifecycleMu.Lock()
-	b.closeErr = closeErr
-	close(done)
-	b.lifecycleMu.Unlock()
-	return closeErr
+		return errors.Join(errs...)
+	})
 }
 
 // ── Kernel keymap query (layout-independent rune → keycode mapping) ───────────
