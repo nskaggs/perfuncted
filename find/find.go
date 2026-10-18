@@ -97,8 +97,6 @@ func PixelHash(img image.Image, newHash Hasher) uint32 {
 // rect is clipped to the frame bounds before hashing. Invalid or incomplete
 // frame data returns the zero hash.
 func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle) (uint32, error) {
-	const maxBGRAHashChunkBytes = 32 * 1024
-
 	frame, ok := bgraFrameBounds(data, width, height, stride)
 	if !ok {
 		return 0, fmt.Errorf("find: %dx%d stride %d does not describe a %d-byte BGRA frame: %w", width, height, stride, len(data), ErrInvalidFrame)
@@ -113,7 +111,7 @@ func PixelHashBGRA(data []byte, width, height, stride int, rect image.Rectangle)
 	}
 	rowBytes := rect.Dx() * 4
 	xOffset := rect.Min.X * 4
-	chunk := make([]byte, min(rowBytes, maxBGRAHashChunkBytes))
+	chunk := make([]byte, min(rowBytes, 32*1024))
 	var sum uint32
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
 		srcStart := y*stride + xOffset
@@ -147,11 +145,11 @@ func bgraFrameBounds(data []byte, width, height, stride int) (image.Rectangle, b
 func pixelHashBGRARow(sum uint32, data, chunk []byte) uint32 {
 	for offset := 0; offset < len(data); offset += len(chunk) {
 		row := chunk[:min(len(chunk), len(data)-offset)]
+		// Bulk copy is optimized by the runtime. Swap channels in place
+		// and canonicalize alpha before feeding the unchanged CRC32 stream.
+		copy(row, data[offset:offset+len(row)])
 		for i := 0; i < len(row); i += 4 {
-			src := offset + i
-			row[i] = data[src+2]
-			row[i+1] = data[src+1]
-			row[i+2] = data[src]
+			row[i], row[i+2] = row[i+2], row[i]
 			row[i+3] = 0xff
 		}
 		sum = crc32.Update(sum, crc32.IEEETable, row)
