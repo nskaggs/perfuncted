@@ -53,8 +53,14 @@ func WaitFunc[T any](ctx context.Context, pollInterval time.Duration, fn func() 
 		return zero, fmt.Errorf("poll.WaitFunc: %w", ErrNilFunction)
 	}
 	pollInterval = Clamp(pollInterval)
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
+	// Most conditions are already satisfied. Allocate a ticker only if
+	// the first evaluation actually requires another observation.
+	var ticker *time.Ticker
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -69,6 +75,9 @@ func WaitFunc[T any](ctx context.Context, pollInterval time.Duration, fn func() 
 		}
 		if err == nil {
 			return result, nil
+		}
+		if ticker == nil {
+			ticker = time.NewTicker(pollInterval)
 		}
 		select {
 		case <-ctx.Done():
