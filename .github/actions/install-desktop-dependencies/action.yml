@@ -28,6 +28,7 @@ inputs:
       kwrite
       featherpad
       gnome-text-editor
+      pluma
 
 runs:
   using: composite

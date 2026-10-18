@@ -330,10 +330,9 @@ func TestSendkeys_ComboBeforeText_OrderedCorrectly(t *testing.T) {
 	if rc.writes != 7 {
 		t.Fatalf("expected 7 writes, got %d", rc.writes)
 	}
-	// Msgs 1-2: enter key events. enter is assigned a dynamic slot by sendkeys:
-	//   allRunes = ['a','b'], nextSlot = kcDynBase + 2 = 39
-	//   namedSlots["enter"] = 39, so keycode = 39 - 8 = 31
-	enterSlot := kcDynBase + 2 // 2 runes in "ab"
+	// Msgs 1-2: enter uses the next slot after the 62 stable
+	// ASCII letter/digit keycodes.
+	enterSlot := kcDynBase + 62 // stable ASCII letters and digits
 	enterKeycode := wl.Uint32(rc.msgs[1][12:16])
 	if enterKeycode != enterSlot-8 {
 		t.Errorf("enter keycode = %d, want %d (enterSlot-8)", enterKeycode, enterSlot-8)
@@ -351,10 +350,9 @@ func TestSendkeys_LiteralAndNamedKeysUseDistinctSlots(t *testing.T) {
 		t.Fatalf("sendkeys: %v", err)
 	}
 
-	// The literal key is assigned the first dynamic slot and the named key the
-	// next one. If named slots are allocated before literal keys are collected,
-	// both actions incorrectly use kcDynBase.
-	for i, want := range []uint32{kcDynBase, kcDynBase + 1} {
+	// The literal 'x' uses its stable ASCII slot; named 'enter' uses
+	// the next dynamic slot. They must not share a keycode.
+	for i, want := range []uint32{kcDynBase + 23, kcDynBase + 62} {
 		keycode := wl.Uint32(rc.msgs[1+i*2][12:16]) + 8
 		if keycode != want {
 			t.Errorf("action %d keycode = %d, want %d", i, keycode, want)
@@ -468,5 +466,28 @@ func TestUploadKeymap_Concurrent(t *testing.T) {
 	}
 	if f.writes != 1 {
 		t.Fatalf("expected 1 write after concurrent uploads, got %d", f.writes)
+	}
+}
+
+// Regression: a GTK3 app must see the same physical keycode for accelerator
+// letters on successive operations, not a changing one-slot-per-command map.
+func TestSendkeys_StableAcceleratorKeymap(t *testing.T) {
+	k, rc := newSendkeysTestKeyboard()
+	if err := k.sendkeys(context.Background(), []keySend{{text: "abcXYZ123"}}); err != nil {
+		t.Fatal(err)
+	}
+	initialMap := k.lastKeymap
+	initialWrites := rc.writes
+	for _, key := range []string{"s", "v", "a", "1"} {
+		if err := k.sendkeys(context.Background(), []keySend{{key: key, modifiers: modifiers{ctrl: true}}}); err != nil {
+			t.Fatalf("Ctrl+%s: %v", key, err)
+		}
+		if k.lastKeymap != initialMap {
+			t.Fatalf("Ctrl+%s unexpectedly replaced the XKB keymap", key)
+		}
+	}
+	// Each accelerator emits only modifiers down/up and key down/up.
+	if got, want := rc.writes-initialWrites, 4*4; got != want {
+		t.Fatalf("subsequent accelerator protocol writes = %d, want %d (no keymap uploads)", got, want)
 	}
 }

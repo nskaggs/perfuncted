@@ -223,6 +223,34 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			}
 		}
 	}
+	// Keep common accelerator keys at stable XKB keycodes across calls.
+	// Remapping the same keycode from e.g. 'a' to 'v' between Type("abc")
+	// and Type("{ctrl+v}") makes GTK3 miss its own keyboard bindings.
+	// Preserve the full dynamic-slot capacity for unusual Unicode-heavy input.
+	const acceleratorRunes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	stableRunes := make([]rune, 0, len(acceleratorRunes)+len(allRunes))
+	seenStable := make(map[rune]bool, len(acceleratorRunes)+len(allRunes))
+	for _, r := range acceleratorRunes {
+		stableRunes = append(stableRunes, r)
+		seenStable[r] = true
+	}
+	for _, r := range allRunes {
+		if !seenStable[r] {
+			stableRunes = append(stableRunes, r)
+			seenStable[r] = true
+		}
+	}
+	namedCount := 0
+	seenNamed := make(map[string]bool)
+	for _, ka := range keys {
+		if _, _, named := namedKey(ka.key); named && modBit(ka.key) == 0 && !seenNamed[ka.key] {
+			seenNamed[ka.key] = true
+			namedCount++
+		}
+	}
+	if len(stableRunes)+namedCount <= int(maxDynamicKeySlots) {
+		allRunes = stableRunes
+	}
 	if len(allRunes) > int(maxDynamicKeySlots) {
 		return fmt.Errorf("keyboard: key sequence has %d unique characters, max %d dynamic slots", len(allRunes), maxDynamicKeySlots)
 	}
