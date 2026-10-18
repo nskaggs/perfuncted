@@ -44,11 +44,12 @@ type accessibilityAutomationSpy struct {
 
 type snapshotAccessibilityAutomationFake struct {
 	*accessibilityAutomationFake
-	snapshot             accessibility.Snapshot
-	snapshotOptions      accessibility.SnapshotOptions
-	snapshotErr          error
-	snapshotCalls        int
-	eventCallsAtSnapshot int
+	snapshot               accessibility.Snapshot
+	snapshotOptions        accessibility.SnapshotOptions
+	snapshotErr            error
+	snapshotCalls          int
+	eventCallsAtSnapshot   int
+	eventOptionsAtSnapshot accessibility.EventOptions
 }
 
 func (f *snapshotAccessibilityAutomationFake) Snapshot(_ context.Context, _ accessibility.NodeID, options accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
@@ -56,6 +57,7 @@ func (f *snapshotAccessibilityAutomationFake) Snapshot(_ context.Context, _ acce
 	f.snapshotCalls++
 	f.eventMu.Lock()
 	f.eventCallsAtSnapshot = f.eventCalls
+	f.eventOptionsAtSnapshot = f.eventOptions
 	f.eventMu.Unlock()
 	return f.snapshot, f.snapshotErr
 }
@@ -592,11 +594,14 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 	if !fake.snapshotOptions.Fresh {
 		t.Fatal("locator did not request a fresh provider snapshot")
 	}
-	eventCalls, _, eventOptions := fake.eventObservationState()
+	eventCalls, _, _ := fake.eventObservationState()
 	if eventCalls < 1 || fake.eventCallsAtSnapshot != 1 {
 		t.Fatalf("event subscriptions=%d at snapshot=%d, want locator observation active before snapshot", eventCalls, fake.eventCallsAtSnapshot)
 	}
-	requireSemanticEventCoverage(t, eventOptions)
+	// Session.Wait starts its own general event subscription asynchronously.
+	// Prove the locator's scoped subscription at the action's snapshot
+	// boundary instead of checking the last (potentially unrelated) one.
+	requireSemanticEventCoverage(t, fake.eventOptionsAtSnapshot)
 	if fake.freshApplicationFind == 0 {
 		t.Fatal("application locator did not resolve its scope from fresh provider state")
 	}

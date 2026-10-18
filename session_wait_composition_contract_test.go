@@ -93,16 +93,23 @@ func TestMixedConditionPreservesEventWakeups(t *testing.T) {
 			manager := newHandleWindowManager()
 			session := NewSessionForTesting(nil, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			firstEvaluation := make(chan struct{})
+			// Wait for a completed first window query, not merely the first
+			// predicate call. Otherwise a ready window can be observed in
+			// the initial evaluation before the event is published.
+			firstWindowQuery := make(chan struct{})
 			poll := Predicate("local prerequisite", func(context.Context) (bool, error) {
-				select {
-				case <-firstEvaluation:
-				default:
-					close(firstEvaluation)
-				}
 				return tt.name == "All", nil
 			})
-			condition := tt.compose(poll, WindowExists(WindowMatch{TitleExact: "Ready"}))
+			windowReady := sessionCondition("ready window", func(ctx context.Context, s *Session) (bool, error) {
+				ready, err := WindowExists(WindowMatch{TitleExact: "Ready"}).evaluate(ctx, s)
+				select {
+				case <-firstWindowQuery:
+				default:
+					close(firstWindowQuery)
+				}
+				return ready, err
+			})
+			condition := tt.compose(poll, windowReady)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			type result struct {
@@ -115,7 +122,7 @@ func TestMixedConditionPreservesEventWakeups(t *testing.T) {
 				done <- result{evidence, err}
 			}()
 			select {
-			case <-firstEvaluation:
+			case <-firstWindowQuery:
 			case <-ctx.Done():
 				t.Fatal("initial wait evaluation never started")
 			}
