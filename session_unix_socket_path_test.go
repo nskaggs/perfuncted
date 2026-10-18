@@ -81,8 +81,8 @@ func TestManagedSessionLongTMPDIRAutomaticallyUsesShortPrivateRuntime(t *testing
 		t.Fatalf("runtime not shortened: %q", runtimeDir)
 	}
 	for _, socket := range []string{"bus", "wayland-1"} {
-		if err := validateManagedSessionSocketPath(filepath.Join(runtimeDir, socket)); err != nil {
-			t.Fatalf("runtime still too long: %v", err)
+		if socketErr := validateManagedSessionSocketPath(filepath.Join(runtimeDir, socket)); socketErr != nil {
+			t.Fatalf("runtime still too long: %v", socketErr)
 		}
 	}
 	info, err := os.Stat(runtimeDir)
@@ -111,8 +111,8 @@ func TestManagedSessionPathBelowKernelLimitStillShortensForDBus(t *testing.T) {
 		t.Fatalf("test root unexpectedly long: %d", len(root))
 	}
 	preferred := filepath.Join(root, strings.Repeat("q", desiredTMPDIRBytes-len(root)-1))
-	if err := os.MkdirAll(preferred, 0700); err != nil {
-		t.Fatal(err)
+	if mkdirErr := os.MkdirAll(preferred, 0700); mkdirErr != nil {
+		t.Fatal(mkdirErr)
 	}
 	// os.MkdirTemp normally generates ten random characters.
 	hypotheticalBus := filepath.Join(preferred, "perfuncted-xdg-1234567890", "bus")

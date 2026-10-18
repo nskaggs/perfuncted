@@ -259,6 +259,8 @@ func createManagedSessionRuntimeDir() (string, error) {
 	return "", pathErr
 }
 
+// ErrSessionSocketPathTooLong reports that a managed session socket pathname
+// exceeds the operating system's UNIX-domain socket limit.
 var ErrSessionSocketPathTooLong = errors.New("session: socket pathname exceeds UNIX limit")
 
 func validateSessionUnixSocketPath(path string) error {
@@ -401,7 +403,8 @@ func (i *sessionInfra) launchSway(
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, StartupPhaseStarted)
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	if err != nil {
 		observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, startupPhaseResult(ctx, err))
 		logFileClose(logFile)
 		return err
@@ -416,14 +419,14 @@ func (i *sessionInfra) launchSway(
 	observeStartupPhase(i.startupObserver, StartupPhaseSwaySocketsReady, StartupPhaseStarted)
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		if err := waitForFile(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
-			return fmt.Errorf("wayland socket %s did not appear within %s: %w", socketPath, i.timeouts.Startup, err)
+		if readinessErr := waitForFile(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
+			return fmt.Errorf("wayland socket %s did not appear within %s: %w", socketPath, i.timeouts.Startup, readinessErr)
 		}
 		return nil
 	})
 	g.Go(func() error {
-		if err := waitForGlob(ctx, ipcGlob, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
-			return fmt.Errorf("sway IPC socket in %s did not appear within %s: %w", i.xdgDir, i.timeouts.Startup, err)
+		if readinessErr := waitForGlob(ctx, ipcGlob, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
+			return fmt.Errorf("sway IPC socket in %s did not appear within %s: %w", i.xdgDir, i.timeouts.Startup, readinessErr)
 		}
 		return nil
 	})

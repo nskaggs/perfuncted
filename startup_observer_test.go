@@ -141,15 +141,7 @@ checked:
 			t.Fatalf("startup passed canceled D-Bus readiness and entered %q", phase)
 		}
 	}
-	entries, err := os.ReadDir(tmp)
-	if err != nil {
-		t.Fatalf("read synthetic temp root: %v", err)
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "perfuncted-xdg-") {
-			t.Fatalf("failed startup left managed runtime directory %q", entry.Name())
-		}
-	}
+	requireNoManagedSessionDirs(t, tmp)
 }
 
 func TestOpenStartupObserverIdentifiesTimedOutHeadlessDBusReadiness(t *testing.T) {
@@ -200,15 +192,7 @@ func TestOpenStartupObserverIdentifiesTimedOutHeadlessDBusReadiness(t *testing.T
 	if hasStartupEvent(observed, startupEvent{StartupPhaseSwayProcessSpawn, StartupPhaseStarted}) {
 		t.Fatal("startup passed the timed-out D-Bus readiness stage")
 	}
-	entries, err := os.ReadDir(tmp)
-	if err != nil {
-		t.Fatalf("read synthetic temp root: %v", err)
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "perfuncted-xdg-") {
-			t.Fatalf("timed-out startup left managed runtime directory %q", entry.Name())
-		}
-	}
+	requireNoManagedSessionDirs(t, tmp)
 }
 
 func TestOpenStartupObserverCallbackPanicDoesNotBreakOpen(t *testing.T) {
@@ -367,6 +351,21 @@ func drainStartupEvents(events <-chan startupEvent) []startupEvent {
 			drained = append(drained, event)
 		default:
 			return drained
+		}
+	}
+}
+
+// requireNoManagedSessionDirs verifies failed managed startup never leaks its
+// runtime directory, regardless of which stage failed.
+func requireNoManagedSessionDirs(t *testing.T, root string) {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read synthetic temp root: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "perfuncted-xdg-") {
+			t.Fatalf("failed startup left managed runtime directory %q", entry.Name())
 		}
 	}
 }

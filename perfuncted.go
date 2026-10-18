@@ -36,10 +36,6 @@ var (
 	openClipboard          = clipboard.OpenRuntimeContext
 )
 
-func nestedSessionPattern() string {
-	return filepath.Join(os.TempDir(), "perfuncted-xdg-*")
-}
-
 func nestedSessionPrefix() string {
 	return filepath.Join(os.TempDir(), "perfuncted-xdg-")
 }

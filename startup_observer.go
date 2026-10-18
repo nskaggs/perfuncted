@@ -9,7 +9,11 @@ import (
 // paths, environment values, process identifiers, or application data.
 type StartupPhase string
 
+// StartupPhase values identify the component being initialized or observed.
+// Each value is safe to expose as bounded diagnostic metadata.
 const (
+	// StartupPhaseStaleSessionCleanup identifies the managed-session scan before
+	// a new managed runtime is opened.
 	StartupPhaseStaleSessionCleanup         StartupPhase = "stale_session_cleanup"
 	StartupPhaseManagedRuntimeSetup         StartupPhase = "managed_runtime_setup"
 	StartupPhaseRuntimeDirectoryPreparation StartupPhase = "runtime_directory_preparation"
@@ -53,7 +57,9 @@ func capabilityStartupPhase(capability Capability) StartupPhase {
 // StartupPhaseState reports only stage start and its terminal result.
 type StartupPhaseState string
 
+// StartupPhaseState values distinguish phase entry, success, and failures.
 const (
+	// StartupPhaseStarted reports that the named Open phase has begun.
 	StartupPhaseStarted   StartupPhaseState = "started"
 	StartupPhaseSucceeded StartupPhaseState = "succeeded"
 	StartupPhaseFailed    StartupPhaseState = "failed"

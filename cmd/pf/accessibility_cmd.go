@@ -135,14 +135,7 @@ func writeAccessibilityText(w io.Writer, value any) error {
 	case accessibility.Snapshot:
 		return writeAccessibilityText(w, accessibility.BuildOutline(typed, accessibility.OutlineOptions{}))
 	case accessibility.Outline:
-		if err := writeAccessibilityOutlineNode(w, typed.Root, ""); err != nil {
-			return err
-		}
-		if typed.Truncated || typed.ProviderErrors > 0 {
-			_, err := fmt.Fprintf(w, "[partial generation=%d truncated=%t provider_errors=%d warnings=%v]\n", typed.Generation, typed.Truncated, typed.ProviderErrors, typed.Warnings)
-			return err
-		}
-		return nil
+		return writeAccessibilityOutline(w, typed)
 	case accessibility.Action:
 		_, err := fmt.Fprintf(w, "action index=%d name=%q localized=%q description=%q key=%q\n", typed.Index, typed.Name, typed.LocalizedName, typed.Description, typed.KeyBinding)
 		return err
@@ -156,6 +149,18 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		_, err := fmt.Fprintln(w, value)
 		return err
 	}
+}
+
+// writeAccessibilityOutline preserves incomplete-tree diagnostic evidence.
+func writeAccessibilityOutline(w io.Writer, outline accessibility.Outline) error {
+	if err := writeAccessibilityOutlineNode(w, outline.Root, ""); err != nil {
+		return err
+	}
+	if outline.Truncated || outline.ProviderErrors > 0 {
+		_, err := fmt.Fprintf(w, "[partial generation=%d truncated=%t provider_errors=%d warnings=%v]\n", outline.Generation, outline.Truncated, outline.ProviderErrors, outline.Warnings)
+		return err
+	}
+	return nil
 }
 
 func writeAccessibilityNode(w io.Writer, node accessibility.Node, prefix string) error {
