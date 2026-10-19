@@ -9,7 +9,7 @@ export GOTOOLCHAIN := "go1.27.2"
 export GOWORK := "off"
 
 # Keep CI quality-tool installation reproducible.
-golangci_lint_version := "v2.13.2"
+golangci_lint_version := "v2.15.0"
 vulncheck_version := "v1.7.0"
 deadcode_version := "v0.49.0"
 
