@@ -595,6 +595,12 @@ func TestAccessibilityWaitRebindsToReopenedBackendBeforeWaking(t *testing.T) {
 		}{evidence: evidence, err: err}
 	}()
 	oldEvents := awaitOwnerSignal(t, old.eventReady, "initial accessibility event subscription")
+	// The subscription can publish before WaitWithEvidence performs its first
+	// condition evaluation. Synchronize on that evaluation so the close/reopen
+	// sequence cannot race ahead of the wait and strand the test for an hour.
+	if got := awaitOwnerSignal(t, evaluations, "initial wait evaluation"); got != 1 {
+		t.Fatalf("initial wait evaluation = %d, want 1", got)
+	}
 	oldEvents.close()
 
 	reopenResult := make(chan error, 1)
