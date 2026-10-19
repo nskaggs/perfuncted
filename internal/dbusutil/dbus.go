@@ -87,7 +87,9 @@ func runHandshakeContext(ctx context.Context, handshake func() error, closeConn 
 		_ = closeConn()
 		timer := time.NewTimer(handshakeCleanupTimeout)
 		select {
-		case <-done:
+		case handshakeErr := <-done:
+			// Caller cancellation remains the result after closing the transport.
+			_ = handshakeErr
 			timer.Stop()
 		case <-timer.C:
 		}

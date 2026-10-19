@@ -269,7 +269,10 @@ func TestRemoteDesktopBackendCancellationInterruptsBlockedWrite(t *testing.T) { 
 		t.Fatal("context cancellation did not interrupt the blocked EIS write")
 	}
 	select {
-	case <-writeDone:
+	case writeErr := <-writeDone:
+		if writeErr == nil {
+			t.Fatal("canceled blocked EIS write unexpectedly succeeded")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("canceled writer did not finish after its socket deadline was interrupted")
 	}

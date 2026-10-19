@@ -199,7 +199,10 @@ func TestSwayManagerCloseClosesTransientQuery(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	select {
-	case <-queryDone:
+	case queryErr := <-queryDone:
+		if queryErr == nil {
+			t.Fatal("closed Sway connection unexpectedly completed its blocked query")
+		}
 	case <-time.After(250 * time.Millisecond):
 		t.Fatal("Close did not unblock the transient query")
 	}
