@@ -97,32 +97,38 @@ func BuildOutline(snapshot Snapshot, options OutlineOptions) Outline {
 	for _, node := range snapshot.Nodes {
 		byID[node.ID] = node
 	}
-	children := make(map[NodeID][]NodeID, len(snapshot.Nodes))
-	for _, node := range snapshot.Nodes {
-		children[node.ID] = append(children[node.ID], node.Children...)
-	}
 	out := Outline{
 		Generation: snapshot.Generation, Truncated: snapshot.Truncated,
 		ProviderErrors: snapshot.ProviderErrors, Warnings: append([]string(nil), snapshot.Warnings...),
 	}
+	// A provider may publish cyclic or incomplete child links. Keep only the
+	// current ancestry, allowing legitimate shared references in other branches.
+	ancestors := make(map[NodeID]struct{}, min(options.MaxDepth+1, len(byID)))
 	var walk func(NodeID, int) OutlineNode
 	count := 0
 	walk = func(id NodeID, depth int) OutlineNode {
 		node := byID[id]
 		count++
+		ancestors[id] = struct{}{}
+		defer delete(ancestors, id)
 		result := OutlineNode{ID: node.ID, Role: node.Role, Name: node.Name, Text: node.Text, States: append([]string(nil), node.States...), Actions: append([]Action(nil), node.Actions...), Bounds: node.Bounds, HasBounds: node.HasBounds}
 		if depth >= options.MaxDepth {
-			if len(children[id]) > 0 {
+			if len(node.Children) > 0 {
 				out.Truncated = true
 			}
 			return result
 		}
-		for _, child := range children[id] {
+		for _, child := range node.Children {
 			if count >= options.MaxNodes {
 				out.Truncated = true
 				break
 			}
 			if _, ok := byID[child]; !ok {
+				out.Truncated = true
+				continue
+			}
+			if _, cycle := ancestors[child]; cycle {
+				out.Truncated = true
 				continue
 			}
 			result.Children = append(result.Children, walk(child, depth+1))
@@ -130,7 +136,11 @@ func BuildOutline(snapshot Snapshot, options OutlineOptions) Outline {
 		return result
 	}
 	if snapshot.Root.ID.valid() {
-		out.Root = walk(snapshot.Root.ID, 0)
+		if _, ok := byID[snapshot.Root.ID]; ok {
+			out.Root = walk(snapshot.Root.ID, 0)
+		} else {
+			out.Truncated = true
+		}
 	}
 	return out
 }
