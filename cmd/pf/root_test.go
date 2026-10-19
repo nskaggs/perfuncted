@@ -659,7 +659,9 @@ func TestWindowCommands(t *testing.T) { //nolint:gocyclo
 			{{ID: 11, Title: "Firefox", AppID: "firefox", PID: 42}},
 			{},
 		}}
-		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "0s", "--timeout", "250ms"}, func(*cliConfig) sessionOpener {
+		// Zero poll deliberately falls back to a 100ms cadence. The test
+		// validates that fallback, not a 250ms wall-clock scheduling budget.
+		stdout, stderr, code := captureRunIO(t, []string{"window", "wait-close", "title:Firefox", "--poll", "0s", "--timeout", "2s"}, func(*cliConfig) sessionOpener {
 			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, nil, mgr, nil), nil
 			}
