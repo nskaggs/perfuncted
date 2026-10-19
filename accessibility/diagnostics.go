@@ -145,6 +145,10 @@ func CandidatesForQuery(snapshot Snapshot, query Query, limit int) []Candidate {
 	for _, node := range snapshot.Nodes {
 		byID[node.ID] = node
 	}
+	// Normalize the query once rather than once for every candidate node.
+	query.Name = strings.ToLower(query.Name)
+	query.Role = strings.ToLower(query.Role)
+	query.Text = strings.ToLower(query.Text)
 	result := make([]Candidate, 0, min(limit, len(snapshot.Nodes)))
 	for _, node := range snapshot.Nodes {
 		if !candidateNearQuery(node, query) {
@@ -191,9 +195,9 @@ func candidateNearQuery(node Node, query Query) bool {
 	if query.Name == "" && query.Role == "" && query.Text == "" {
 		return true
 	}
-	return (query.Name != "" && strings.Contains(strings.ToLower(node.Name), strings.ToLower(query.Name))) ||
-		(query.Role != "" && strings.Contains(strings.ToLower(node.Role), strings.ToLower(query.Role))) ||
-		(query.Text != "" && strings.Contains(strings.ToLower(node.Text), strings.ToLower(query.Text)))
+	return (query.Name != "" && strings.Contains(strings.ToLower(node.Name), query.Name)) ||
+		(query.Role != "" && strings.Contains(strings.ToLower(node.Role), query.Role)) ||
+		(query.Text != "" && strings.Contains(strings.ToLower(node.Text), query.Text))
 }
 
 func candidateFromNode(node Node) Candidate {
