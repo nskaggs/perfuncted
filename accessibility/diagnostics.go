@@ -151,7 +151,14 @@ func CandidatesForQuery(snapshot Snapshot, query Query, limit int) []Candidate {
 			continue
 		}
 		candidate := candidateFromNode(node)
+		// Provider parent links can be cyclic or self-referential. Never
+		// let a diagnostic candidate walk spin indefinitely on a bad tree.
+		seen := map[NodeID]struct{}{node.ID: {}}
 		for parent := node.Parent; parent.valid(); {
+			if _, repeated := seen[parent]; repeated {
+				break
+			}
+			seen[parent] = struct{}{}
 			ancestor, ok := byID[parent]
 			if !ok {
 				break
@@ -161,9 +168,14 @@ func CandidatesForQuery(snapshot Snapshot, query Query, limit int) []Candidate {
 				label += ": " + ancestor.Name
 			}
 			if label != "" {
-				candidate.Breadcrumb = append([]string{label}, candidate.Breadcrumb...)
+				candidate.Breadcrumb = append(candidate.Breadcrumb, label)
 			}
 			parent = ancestor.Parent
+		}
+		// Parent links were visited closest-first; expose root-first labels
+		// without repeatedly copying the growing breadcrumb slice.
+		for left, right := 0, len(candidate.Breadcrumb)-1; left < right; left, right = left+1, right-1 {
+			candidate.Breadcrumb[left], candidate.Breadcrumb[right] = candidate.Breadcrumb[right], candidate.Breadcrumb[left]
 		}
 		result = append(result, candidate)
 		if len(result) >= limit {
