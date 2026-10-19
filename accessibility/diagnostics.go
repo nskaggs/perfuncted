@@ -186,7 +186,9 @@ func CandidatesForQuery(snapshot Snapshot, query Query, limit int) []Candidate {
 }
 
 func candidateNearQuery(node Node, query Query) bool {
-	if query.Name == "" && query.Role == "" && query.Text == "" && len(query.States) == 0 && len(query.Attributes) == 0 {
+	// With state/attribute-only queries there is no text discriminator:
+	// report bounded nearby candidates instead of suppressing all diagnostics.
+	if query.Name == "" && query.Role == "" && query.Text == "" {
 		return true
 	}
 	return (query.Name != "" && strings.Contains(strings.ToLower(node.Name), strings.ToLower(query.Name))) ||
