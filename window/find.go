@@ -21,13 +21,22 @@ func find(ctx context.Context, m Manager, match Matcher, label string) (Info, er
 		return Info{}, err
 	}
 	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return Info{}, err
+	}
 	for w, err := range m.IterateWindows(ctx) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Info{}, ctxErr
+		}
 		if err != nil {
 			return Info{}, err
 		}
 		if match.Matches(w) {
 			return w, nil
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return Info{}, err
 	}
 	return Info{}, fmt.Errorf("window matching %q not found: %w", label, ErrWindowNotFound)
 }
