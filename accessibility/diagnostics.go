@@ -34,8 +34,11 @@ type MatchError struct {
 }
 
 func (e *MatchError) Error() string {
-	if e == nil {
+	if e == nil || e.Err == nil && e.Operation == "" {
 		return "accessibility: match failed"
+	}
+	if e.Err == nil {
+		return fmt.Sprintf("accessibility: %s: match failed", e.Operation)
 	}
 	if e.Operation == "" {
 		return e.Err.Error()
