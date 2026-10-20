@@ -75,6 +75,9 @@ func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Du
 		// (and a timer) for the common already-closed case.
 		found := false
 		for w, err := range m.IterateWindows(ctx) {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return fmt.Errorf("wait for window close %q: %w", match.String(), ctxErr)
+			}
 			if err != nil {
 				return err
 			}
