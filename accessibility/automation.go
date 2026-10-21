@@ -18,6 +18,9 @@ func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method str
 			return err
 		}
 		_, err := b.callOverride(ctx, id, iface+"."+method, args)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return normalizeMutationError(iface, method, err)
 	}
 	obj, err := b.object(id)
@@ -25,6 +28,9 @@ func (b *dbusBackend) mutation(ctx context.Context, id NodeID, iface, method str
 		return err
 	}
 	call := obj.CallWithContext(ctx, iface+"."+method, 0, args...)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if call.Err != nil {
 		return normalizeMutationError(iface, method, call.Err)
 	}
@@ -40,6 +46,9 @@ func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method
 			return err
 		}
 		result, err := b.callOverride(ctx, id, iface+"."+method, args)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if normalizedErr := normalizeMutationError(iface, method, err); normalizedErr != nil {
 			return normalizedErr
 		}
@@ -58,7 +67,11 @@ func (b *dbusBackend) mutationBool(ctx context.Context, id NodeID, iface, method
 	}
 	var accepted bool
 	call := obj.CallWithContext(ctx, iface+"."+method, 0, args...)
-	if err := call.Store(&accepted); err != nil {
+	err = call.Store(&accepted)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if err != nil {
 		return normalizeMutationError(iface, method, err)
 	}
 	if !accepted {
@@ -237,6 +250,9 @@ func (b *dbusBackend) dispatchAction(ctx context.Context, id NodeID, chosen Acti
 			return &ActionInvocationError{Action: chosen, Dispatch: DispatchNotSent, Err: err}
 		}
 		result, err := b.callOverride(ctx, id, actionIface+".DoAction", []any{chosen.Index})
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: ctxErr}
+		}
 		if normalizedErr := normalizeMutationError(actionIface, "DoAction", err); normalizedErr != nil {
 			return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: normalizedErr}
 		}
@@ -255,12 +271,19 @@ func (b *dbusBackend) dispatchAction(ctx context.Context, id NodeID, chosen Acti
 		return &ActionInvocationError{Action: chosen, Dispatch: DispatchNotSent, Err: err}
 	}
 	call := obj.CallWithContext(ctx, actionIface+".DoAction", 0, chosen.Index)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: ctxErr}
+	}
 	if call.Err != nil {
 		err := normalizeMutationError(actionIface, "DoAction", call.Err)
 		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: err}
 	}
 	var accepted bool
-	if err := call.Store(&accepted); err != nil {
+	err = call.Store(&accepted)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: ctxErr}
+	}
+	if err != nil {
 		err = normalizeMutationError(actionIface, "DoAction", err)
 		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: err}
 	}
