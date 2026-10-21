@@ -1,6 +1,7 @@
 package perfuncted
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +65,9 @@ func TestReapSessionDirSkipsNonManagedPath(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
 		t.Fatalf("write sentinel: %v", err)
 	}
-	reapSessionDir(dir)
+	if err := reapSessionDir(context.Background(), dir); err != nil {
+		t.Fatalf("reapSessionDir: %v", err)
+	}
 	if _, err := os.Stat(sentinel); err != nil {
 		t.Fatalf("reapSessionDir removed non-managed dir: %v", err)
 	}

@@ -275,8 +275,8 @@ func (b *dbusBackend) dispatchAction(ctx context.Context, id NodeID, chosen Acti
 		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: ctxErr}
 	}
 	if call.Err != nil {
-		err := normalizeMutationError(actionIface, "DoAction", call.Err)
-		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: err}
+		normalizedErr := normalizeMutationError(actionIface, "DoAction", call.Err)
+		return &ActionInvocationError{Action: chosen, Dispatch: DispatchUnknown, Err: normalizedErr}
 	}
 	var accepted bool
 	err = call.Store(&accepted)

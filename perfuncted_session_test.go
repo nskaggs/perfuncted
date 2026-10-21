@@ -396,13 +396,21 @@ func TestHelperProcess(t *testing.T) {
 		}
 		_ = os.Unsetenv("GO_HELPER_CHILD_READY")
 	}
+	if signalPath := os.Getenv("GO_HELPER_SIGTERM_MARKER"); signalPath != "" {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGTERM)
+		go func() {
+			for range signals {
+				_ = os.WriteFile(signalPath, nil, 0o600)
+			}
+		}()
+	} else if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+	}
 	if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
 		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
 			os.Exit(2)
 		}
-	}
-	if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
-		signal.Ignore(syscall.SIGTERM)
 	}
 	if readyPath := os.Getenv("GO_HELPER_CHILD_READY"); readyPath != "" {
 		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {

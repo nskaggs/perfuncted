@@ -1,6 +1,8 @@
 package perfuncted
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +18,7 @@ import (
 var (
 	cleanupStaleSessionsMu sync.Mutex
 	lastCleanupTime        time.Time
+	cleanupAttempt         uint64
 )
 
 const (
@@ -36,25 +39,75 @@ var sessionChildPIDFiles = []string{
 // gets a five-minute creation grace; malformed metadata uses maxAge, clamped
 // to that same minimum.
 func CleanupStaleSessions(maxAge time.Duration) {
-	// Take only the rate-limit decision under the lock. The scan itself can
-	// take hundreds of milliseconds (per-process termination waits,
-	// fusermount subprocesses); holding the mutex across it would stall
-	// concurrent Open calls that merely need to know whether cleanup is
-	// due. Overlapping scans are impossible within the rate interval and
-	// benign beyond it — reapSessionDir is idempotent per directory.
+	_ = CleanupStaleSessionsContext(context.Background(), maxAge)
+}
+
+// CleanupStaleSessionsContext removes stale managed sessions while honoring
+// cancellation during process shutdown and mount cleanup. Remaining directories
+// are safe to retry on a later cleanup pass.
+func CleanupStaleSessionsContext(ctx context.Context, maxAge time.Duration) error {
+	if ctx == nil {
+		return fmt.Errorf("session cleanup: %w: nil context", ErrInvalidArgument)
+	}
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
+	// Claim the interval while locked, then scan outside it so concurrent Opens
+	// don't wait for process termination. A canceled newest attempt releases its
+	// claim without clearing a newer scan's rate limit.
 	cleanupStaleSessionsMu.Lock()
 	if time.Since(lastCleanupTime) < cleanupStaleMinInterval {
 		cleanupStaleSessionsMu.Unlock()
-		return
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
+		return nil
 	}
+	cleanupAttempt++
+	attempt := cleanupAttempt
 	lastCleanupTime = time.Now()
 	cleanupStaleSessionsMu.Unlock()
 
+	err := scanStaleSessions(ctx, maxAge)
+	if err == nil && ctx.Err() != nil {
+		err = contextErrorWithCause(ctx)
+	}
+	if err != nil {
+		cleanupStaleSessionsMu.Lock()
+		if cleanupAttempt == attempt {
+			lastCleanupTime = time.Time{}
+		}
+		cleanupStaleSessionsMu.Unlock()
+	}
+	return err
+}
+
+func scanStaleSessions(ctx context.Context, maxAge time.Duration) error {
+	matches, err := staleSessionDirectories(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for _, dir := range matches {
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
+		if err := reapSessionDirIfStale(ctx, dir, maxAge, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func staleSessionDirectories(ctx context.Context) ([]string, error) {
 	// Managed runtimes can fall back to a short /tmp path if caller TMPDIR
 	// would make D-Bus sockets too long. Reap both locations with the existing
 	// owner PID and strict managed-directory checks.
 	var matches []string
 	for _, root := range managedSessionTempRoots() {
+		if err := ctx.Err(); err != nil {
+			return nil, contextErrorWithCause(ctx)
+		}
 		found, err := filepath.Glob(filepath.Join(root, "perfuncted-xdg-*"))
 		if err != nil {
 			slog.Warn("unable to glob nested sessions", "error", err)
@@ -62,49 +115,68 @@ func CleanupStaleSessions(maxAge time.Duration) {
 		}
 		matches = append(matches, found...)
 	}
-	now := time.Now()
-	for _, d := range matches {
-		pidPath := filepath.Join(d, sessionOwnerPIDFile)
-		data, err := os.ReadFile(pidPath)
-		if err != nil {
-			fi, statErr := os.Stat(d)
-			if statErr != nil {
-				continue
-			}
-			if now.Sub(fi.ModTime()) > noPIDFileReapGrace {
-				reapSessionDir(d)
-			}
-			continue
-		}
-		pidStr := strings.TrimSpace(string(data))
-		pid, perr := strconv.Atoi(pidStr)
-		if perr != nil {
-			fi, statErr := os.Stat(d)
-			if statErr == nil && now.Sub(fi.ModTime()) > staleMalformedPIDThreshold(maxAge) {
-				reapSessionDir(d)
-			}
-			continue
-		}
-		if !pidAlive(pid) {
-			reapSessionDir(d)
-			continue
-		}
-	}
+	return matches, nil
 }
 
-func reapSessionDir(dir string) {
+func reapSessionDirIfStale(
+	ctx context.Context,
+	dir string,
+	maxAge time.Duration,
+	now time.Time,
+) error {
+	data, err := os.ReadFile(filepath.Join(dir, sessionOwnerPIDFile))
+	if err != nil {
+		return reapSessionDirWhenOlderThan(ctx, dir, now, noPIDFileReapGrace)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return reapSessionDirWhenOlderThan(ctx, dir, now, staleMalformedPIDThreshold(maxAge))
+	}
+	if !pidAlive(pid) {
+		return reapSessionDir(ctx, dir)
+	}
+	return nil
+}
+
+func reapSessionDirWhenOlderThan(
+	ctx context.Context,
+	dir string,
+	now time.Time,
+	maxAge time.Duration,
+) error {
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || now.Sub(fi.ModTime()) <= maxAge {
+		return nil
+	}
+	return reapSessionDir(ctx, dir)
+}
+
+func reapSessionDir(ctx context.Context, dir string) error {
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
 	if !isManagedSessionDir(dir) {
 		slog.Debug("session: skip stale directory with unexpected path", "path", dir)
-		return
+		return nil
 	}
 	for _, name := range sessionChildPIDFiles {
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
 		pid, err := readPIDFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
 		// Stale-owner cleanup is an independent maintenance action. Its short
 		// grace does not bound active Session process-stop operations.
-		if !stopRecordedProcess(pid, dir, 100*time.Millisecond) {
+		stopped, err := stopRecordedProcess(ctx, pid, dir, 100*time.Millisecond)
+		if err != nil {
+			return err
+		}
+		if !stopped {
 			slog.Debug(
 				"session: skip stale child with mismatched runtime directory",
 				"pid", pid,
@@ -113,16 +185,46 @@ func reapSessionDir(dir string) {
 			continue
 		}
 	}
-	unmountSubdirs(dir)
+	if err := unmountSubdirsContext(ctx, dir); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		slog.Debug("session: reap remove dir", "path", dir, "error", err)
 	}
+	return nil
 }
 
 func unmountSubdirs(dir string) {
+	mounts := sessionSubdirMounts(dir)
+	for i := len(mounts) - 1; i >= 0; i-- {
+		_ = exec.Command("fusermount", "-u", mounts[i]).Run()
+	}
+}
+
+func unmountSubdirsContext(ctx context.Context, dir string) error {
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
+	mounts := sessionSubdirMounts(dir)
+	for i := len(mounts) - 1; i >= 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
+		_ = exec.CommandContext(ctx, "fusermount", "-u", mounts[i]).Run()
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
+	}
+	return nil
+}
+
+func sessionSubdirMounts(dir string) []string {
 	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
-		return
+		return nil
 	}
 	prefix := dir + "/"
 	var mounts []string
@@ -136,9 +238,7 @@ func unmountSubdirs(dir string) {
 			mounts = append(mounts, mountpoint)
 		}
 	}
-	for i := len(mounts) - 1; i >= 0; i-- {
-		exec.Command("fusermount", "-u", mounts[i]).Run() //nolint:errcheck
-	}
+	return mounts
 }
 
 func readPIDFile(path string) (int, error) {
@@ -289,34 +389,67 @@ func processUsesRuntimeDirAt(procRoot string, pid int, dir string) bool {
 	return false
 }
 
-func stopRecordedProcess(pid int, dir string, grace time.Duration) bool {
+func stopRecordedProcess(
+	ctx context.Context,
+	pid int,
+	dir string,
+	grace time.Duration,
+) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, contextErrorWithCause(ctx)
+	}
 	owner, ok := newProcessGroupOwner(pid, dir)
 	if !ok || !owner.refresh() {
-		return false
+		return false, nil
 	}
 	proc := &managedProc{pid: pid}
 	if err := proc.signal(syscall.SIGTERM); err != nil {
 		slog.Debug("session: terminate stale process group", "pid", pid, "error", err)
 	}
 
-	deadline := time.Now().Add(grace)
-	for time.Now().Before(deadline) {
-		if !processGroupAlive(pid) {
-			return true
-		}
-		if !owner.refresh() {
-			return true
-		}
-		time.Sleep(10 * time.Millisecond)
+	graceCtx, cancel := context.WithTimeout(ctx, grace)
+	waitErr := waitForOwnedProcessGroup(graceCtx, owner)
+	cancel()
+	if waitErr == nil {
+		return true, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, contextErrorWithCause(ctx)
+	}
+	if !errors.Is(waitErr, context.DeadlineExceeded) {
+		return false, waitErr
 	}
 	if !processGroupAlive(pid) || !owner.refresh() {
-		return true
+		return true, nil
 	}
 	if err := proc.signal(syscall.SIGKILL); err != nil {
 		slog.Debug("session: kill stale process group", "pid", pid, "error", err)
 	}
-	_ = proc.waitGroupTimeout(grace)
-	return true
+	postKillCtx, cancel := context.WithTimeout(ctx, grace)
+	_ = waitForOwnedProcessGroup(postKillCtx, owner)
+	cancel()
+	if err := ctx.Err(); err != nil {
+		return false, contextErrorWithCause(ctx)
+	}
+	return true, nil
+}
+
+func waitForOwnedProcessGroup(ctx context.Context, owner *processGroupOwner) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
+		if !processGroupAlive(owner.pgid) || !owner.refresh() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return contextErrorWithCause(ctx)
+		case <-ticker.C:
+		}
+	}
 }
 
 func staleMalformedPIDThreshold(maxAge time.Duration) time.Duration {

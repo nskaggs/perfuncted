@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -161,10 +162,10 @@ func writeInfoCapabilities(out io.Writer, statuses []perfuncted.CapabilityStatus
 // ── session ───────────────────────────────────────────────────────────────────────────
 
 func sessionCmd() *cobra.Command {
-	return sessionCmdWithCleaner(perfuncted.CleanupStaleSessions)
+	return sessionCmdWithCleaner(perfuncted.CleanupStaleSessionsContext)
 }
 
-func sessionCmdWithCleaner(cleanStaleSessions func(time.Duration)) *cobra.Command {
+func sessionCmdWithCleaner(cleanStaleSessions func(context.Context, time.Duration) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "session",
 		Short: "Session diagnostics and utilities",
@@ -339,7 +340,7 @@ Use the printed env vars in another terminal to connect:
 	return cmd
 }
 
-func sessionCleanupCmd(cleanStaleSessions func(time.Duration)) *cobra.Command {
+func sessionCleanupCmd(cleanStaleSessions func(context.Context, time.Duration) error) *cobra.Command {
 	const minimumCleanupAge = 5 * time.Minute
 	var cleanupMaxAge time.Duration
 	cmd := &cobra.Command{
@@ -356,7 +357,9 @@ governs malformed owner metadata.`,
 			if cleanupMaxAge < minimumCleanupAge {
 				return fmt.Errorf("--max-age must be at least %s", minimumCleanupAge)
 			}
-			cleanStaleSessions(cleanupMaxAge)
+			if err := cleanStaleSessions(cmd.Context(), cleanupMaxAge); err != nil {
+				return err
+			}
 			return writeCLIOutput(cmd.OutOrStdout(), "stale session cleanup pass completed (max age %s)\n", cleanupMaxAge)
 		},
 	}

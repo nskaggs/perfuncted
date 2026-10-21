@@ -1358,8 +1358,9 @@ func TestInfoSessionAndDocsCommands(t *testing.T) { //nolint:gocyclo // subtests
 
 	t.Run("session cleanup", func(t *testing.T) {
 		var cleanedMaxAge time.Duration
-		cmd := sessionCmdWithCleaner(func(maxAge time.Duration) {
+		cmd := sessionCmdWithCleaner(func(_ context.Context, maxAge time.Duration) error {
 			cleanedMaxAge = maxAge
+			return nil
 		})
 		var stdout bytes.Buffer
 		cmd.SetOut(&stdout)
@@ -1378,8 +1379,9 @@ func TestInfoSessionAndDocsCommands(t *testing.T) { //nolint:gocyclo // subtests
 
 	t.Run("session cleanup rejects unsafe age", func(t *testing.T) {
 		called := false
-		cmd := sessionCmdWithCleaner(func(time.Duration) {
+		cmd := sessionCmdWithCleaner(func(context.Context, time.Duration) error {
 			called = true
+			return nil
 		})
 		cmd.SetArgs([]string{"cleanup", "--max-age", "1m"})
 
@@ -1388,6 +1390,23 @@ func TestInfoSessionAndDocsCommands(t *testing.T) { //nolint:gocyclo // subtests
 		}
 		if called {
 			t.Fatal("cleanup ran with invalid max age")
+		}
+	})
+
+	t.Run("session cleanup honors cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		cmd := sessionCmd()
+		var stdout bytes.Buffer
+		cmd.SetContext(ctx)
+		cmd.SetOut(&stdout)
+		cmd.SetArgs([]string{"cleanup"})
+
+		if err := cmd.Execute(); !errors.Is(err, context.Canceled) {
+			t.Fatalf("session cleanup error = %v, want context.Canceled", err)
+		}
+		if strings.Contains(stdout.String(), "cleanup pass completed") {
+			t.Fatalf("stdout = %q after canceled cleanup", stdout.String())
 		}
 	})
 

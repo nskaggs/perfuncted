@@ -133,16 +133,24 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 }
 
 func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wantAccessibility bool) error {
+	runStaleCleanup := func() error {
+		cleanupCtx, cancel := context.WithTimeout(
+			ctx,
+			target.config.Timeouts.WithDefaults().Startup,
+		)
+		defer cancel()
+		return s.runStartupPhase(cleanupCtx, StartupPhaseStaleSessionCleanup, func() error {
+			return CleanupStaleSessionsContext(cleanupCtx, 24*time.Hour)
+		})
+	}
+
 	switch target.kind {
 	case TargetHost:
 		s.env = env.Current()
 	case TargetExplicit:
 		s.env = env.FromEnviron(target.target.Env())
 	case TargetHeadless:
-		if err := s.runStartupPhase(ctx, StartupPhaseStaleSessionCleanup, func() error {
-			CleanupStaleSessions(24 * time.Hour)
-			return nil
-		}); err != nil {
+		if err := runStaleCleanup(); err != nil {
 			return err
 		}
 		var infra *sessionInfra
@@ -157,10 +165,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 		s.infra = infra
 		s.env = env.Current().WithSession(infra.xdgDir, infra.wlDisplay, infra.dbusAddr).WithAccessibilityBus(infra.atspiAddr)
 	case TargetNested:
-		if err := s.runStartupPhase(ctx, StartupPhaseStaleSessionCleanup, func() error {
-			CleanupStaleSessions(24 * time.Hour)
-			return nil
-		}); err != nil {
+		if err := runStaleCleanup(); err != nil {
 			return err
 		}
 		var infra *sessionInfra
