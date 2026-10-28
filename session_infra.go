@@ -71,7 +71,7 @@ func (s *Session) startSession(
 	mode sessionMode,
 	config SessionConfig,
 	wantAccessibility bool,
-) (*sessionInfra, error) {
+) (_ *sessionInfra, startupErr error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("session: startup: %w", err)
 	}
@@ -84,6 +84,24 @@ func (s *Session) startSession(
 
 	var xdgDir string
 	var logDir string
+	var infra *sessionInfra
+	// Startup owns every created runtime until it returns success. One deferred
+	// cleanup handles failures at all stages and reports teardown errors instead
+	// of silently leaking an incompletely initialized session.
+	defer func() {
+		if startupErr == nil {
+			return
+		}
+		if infra != nil {
+			if cleanupErr := infra.stop(); cleanupErr != nil {
+				startupErr = errors.Join(startupErr, cleanupErr)
+			}
+		} else if xdgDir != "" {
+			if cleanupErr := os.RemoveAll(xdgDir); cleanupErr != nil {
+				startupErr = errors.Join(startupErr, fmt.Errorf("session: remove managed runtime after startup failure: %w", cleanupErr))
+			}
+		}
+	}()
 	err := s.runStartupPhase(startupCtx, StartupPhaseRuntimeDirectoryPreparation, func() error {
 		var prepareErr error
 		xdgDir, prepareErr = createManagedSessionRuntimeDir()
@@ -92,7 +110,6 @@ func (s *Session) startSession(
 		}
 		logDir, prepareErr = createSessionLogDir(config.LogDir)
 		if prepareErr != nil {
-			_ = os.RemoveAll(xdgDir)
 			return fmt.Errorf("session: create logs: %w", prepareErr)
 		}
 		return nil
@@ -102,7 +119,7 @@ func (s *Session) startSession(
 	}
 
 	infraCtx, cancel := context.WithCancel(context.Background())
-	infra := &sessionInfra{
+	infra = &sessionInfra{
 		xdgDir:          xdgDir,
 		wlDisplay:       "wayland-1",
 		dbusAddr:        fmt.Sprintf("unix:path=%s/bus", xdgDir),
@@ -120,7 +137,6 @@ func (s *Session) startSession(
 		[]byte(strconv.Itoa(os.Getpid())),
 		0644,
 	); writeErr != nil {
-		infra.stop()
 		return nil, fmt.Errorf("session: write owner pidfile: %w", writeErr)
 	}
 
@@ -131,7 +147,6 @@ func (s *Session) startSession(
 	if launchErr := s.runStartupPhase(startupCtx, StartupPhaseDBusStartup, func() error {
 		return infra.launchDBus(startupCtx)
 	}); launchErr != nil {
-		infra.stop()
 		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
 	if wantAccessibility {
@@ -169,18 +184,15 @@ func (s *Session) startSession(
 		return err
 	})
 	if err != nil {
-		infra.stop()
 		return nil, fmt.Errorf("session: sway config: %w", err)
 	}
 
 	if err := s.runStartupPhase(startupCtx, StartupPhaseSwayStartup, func() error {
 		return infra.launchSway(startupCtx, swayConf, mode)
 	}); err != nil {
-		infra.stop()
 		return nil, fmt.Errorf("session: sway: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		infra.stop()
 		return nil, fmt.Errorf("session: startup: %w", err)
 	}
 
