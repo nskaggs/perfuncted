@@ -61,6 +61,7 @@ type sessionInfra struct {
 	unregister      func()
 	stopOnce        sync.Once
 	stopDone        chan struct{}
+	stopErr         error // published by closing stopDone after teardown
 	timeouts        TimeoutPolicy
 	startupObserver StartupPhaseObserver
 }
@@ -512,9 +513,9 @@ func (i *sessionInfra) CleanupOnSignal(ctx context.Context) func() {
 	})
 }
 
-func (i *sessionInfra) stop() {
+func (i *sessionInfra) stop() error {
 	if i == nil {
-		return
+		return nil
 	}
 	// Lazily create the join channel so zero-value infra structs (tests,
 	// early startup failures) are safe too.
@@ -548,6 +549,7 @@ func (i *sessionInfra) stop() {
 		i.stopManagedProcess(i.dbusCmd, stopTimeout)
 		if i.xdgDir != "" {
 			if !isSafeToRemoveDir(i.xdgDir) {
+				i.stopErr = fmt.Errorf("session: refuse unsafe managed runtime directory %q", i.xdgDir)
 				slog.Warn("session: skip removal of non-managed directory", "path", i.xdgDir)
 			} else {
 				unmountCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
@@ -556,8 +558,10 @@ func (i *sessionInfra) stop() {
 				if unmountErr != nil {
 					// Leave the directory intact for a later stale-session cleanup.
 					// Never traverse a filesystem that may still be mounted.
+					i.stopErr = fmt.Errorf("session: unmount managed runtime: %w", unmountErr)
 					slog.Warn("session: managed runtime unmount incomplete; retain directory", "error", unmountErr)
 				} else if err := os.RemoveAll(i.xdgDir); err != nil {
+					i.stopErr = fmt.Errorf("session: remove managed runtime: %w", err)
 					slog.Debug("session: remove xdg dir", "path", i.xdgDir, "error", err)
 				}
 			}
@@ -569,6 +573,7 @@ func (i *sessionInfra) stop() {
 	// the first teardown is still killing sway/dbus or unmounting the XDG
 	// dir, orphaning those processes and mounts.
 	<-i.stopDone
+	return i.stopErr
 }
 
 func (i *sessionInfra) stopManagedProcess(proc *managedSessionProcess, waitTimeout time.Duration) {

@@ -3,6 +3,7 @@ package perfuncted
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -42,5 +43,20 @@ func TestSessionCloseNil(t *testing.T) {
 	var session *Session
 	if err := session.Close(); err != nil {
 		t.Fatalf("nil Close returned error: %v", err)
+	}
+}
+
+// A rejected runtime cleanup is not a successful session teardown. Every
+// caller of Close must observe the same failure even when shutdown joins a
+// concurrent signal-triggered stop.
+func TestSessionCloseReportsUnsafeRuntimeCleanup(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.infra = &sessionInfra{xdgDir: "/"}
+	err := session.Close()
+	if err == nil || !strings.Contains(err.Error(), "unsafe") {
+		t.Fatalf("Close error=%v, want unsafe runtime cleanup failure", err)
+	}
+	if again := session.Close(); again != err {
+		t.Fatalf("Close replay error=%v, want original error=%v", again, err)
 	}
 }

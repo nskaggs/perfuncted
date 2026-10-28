@@ -420,7 +420,7 @@ func (s *Session) close() error {
 	}
 
 	if s.infra != nil {
-		s.infra.stop()
+		errs = append(errs, s.infra.stop())
 	}
 
 	return errors.Join(errs...)

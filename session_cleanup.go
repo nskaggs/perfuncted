@@ -193,7 +193,7 @@ func reapSessionDir(ctx context.Context, dir string) error {
 		return contextErrorWithCause(ctx)
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		slog.Debug("session: reap remove dir", "path", dir, "error", err)
+		return fmt.Errorf("session: remove stale runtime %q: %w", dir, err)
 	}
 	return nil
 }

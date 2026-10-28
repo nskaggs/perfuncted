@@ -3,6 +3,8 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -105,5 +107,34 @@ func TestUnmountSubdirsWithFailsClosedWhenMountsCannotBeRead(t *testing.T) {
 		func(_ context.Context, _ string) error { invoked = true; return nil })
 	if !errors.Is(err, want) || invoked {
 		t.Fatalf("err=%v invoked=%v", err, invoked)
+	}
+}
+
+// A stale cleanup that cannot remove an owned directory must report failure;
+// otherwise the scan suppresses future attempts for its normal throttle window.
+func TestReapSessionDirReportsRemovalFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires unprivileged filesystem permissions")
+	}
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chmod(dir, 0700)
+		_ = os.RemoveAll(dir)
+	}()
+	if err := os.WriteFile(filepath.Join(dir, "sentinel"), []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	err = reapSessionDir(context.Background(), dir)
+	if err == nil {
+		t.Fatal("reap reported success despite permission-denied removal")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "sentinel")); statErr != nil {
+		t.Fatalf("stale cleanup lost sentinel despite failed removal: %v", statErr)
 	}
 }
