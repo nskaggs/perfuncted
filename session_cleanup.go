@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -197,44 +198,93 @@ func reapSessionDir(ctx context.Context, dir string) error {
 	return nil
 }
 
-func unmountSubdirs(dir string) {
-	mounts := sessionSubdirMounts(dir)
-	for i := len(mounts) - 1; i >= 0; i-- {
-		_ = exec.Command("fusermount", "-u", mounts[i]).Run()
-	}
+// unmountSubdirsContext must prove all mounts under a managed runtime have
+// disappeared before callers may remove its directory tree. Otherwise RemoveAll
+// could descend into a still-mounted filesystem and delete unrelated data.
+func unmountSubdirsContext(ctx context.Context, dir string) error {
+	return unmountSubdirsWith(ctx, dir, readSessionSubdirMounts, func(ctx context.Context, mount string) error {
+		return exec.CommandContext(ctx, "fusermount", "-u", mount).Run()
+	})
 }
 
-func unmountSubdirsContext(ctx context.Context, dir string) error {
+func unmountSubdirsWith(
+	ctx context.Context,
+	dir string,
+	readMounts func(string) ([]string, error),
+	unmount func(context.Context, string) error,
+) error {
 	if err := ctx.Err(); err != nil {
 		return contextErrorWithCause(ctx)
 	}
-	mounts := sessionSubdirMounts(dir)
-	for i := len(mounts) - 1; i >= 0; i-- {
+	if dir == "" {
+		return nil
+	}
+	mounts, err := readMounts(dir)
+	if err != nil {
+		return fmt.Errorf("session: inspect mounts before cleanup: %w", err)
+	}
+	if len(mounts) == 0 {
+		return nil
+	}
+	// Parent-first ordering from mountinfo is not an unmount contract. Always
+	// retire nested mountpoints before their parents.
+	sort.Slice(mounts, func(i, j int) bool { return len(mounts[i]) > len(mounts[j]) })
+	for _, mount := range mounts {
 		if err := ctx.Err(); err != nil {
 			return contextErrorWithCause(ctx)
 		}
-		_ = exec.CommandContext(ctx, "fusermount", "-u", mounts[i]).Run()
-		if err := ctx.Err(); err != nil {
-			return contextErrorWithCause(ctx)
+		if err := unmount(ctx, mount); err != nil {
+			if ctx.Err() != nil {
+				return contextErrorWithCause(ctx)
+			}
+			slog.Debug("session: unmount helper failed", "error", err)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
+	remaining, err := readMounts(dir)
+	if err != nil {
+		return fmt.Errorf("session: verify mounts after cleanup: %w", err)
+	}
+	if len(remaining) != 0 {
+		return fmt.Errorf("session: refuse directory removal: %d mounts remain below managed runtime", len(remaining))
 	}
 	return nil
 }
 
-func sessionSubdirMounts(dir string) []string {
+func readSessionSubdirMounts(dir string) ([]string, error) {
 	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
+		return nil, err
+	}
+	return parseSessionSubdirMounts(dir, data), nil
+}
+
+// Linux mountinfo percent-encodes neither spaces nor backslashes: it encodes
+// ASCII whitespace and '\\' as octal escapes. Compare decoded mountpoints
+// rather than the raw fields, or a managed runtime with spaces can go unseen.
+var mountInfoPathUnescape = strings.NewReplacer(
+	`\040`, " ",
+	`\011`, "\t",
+	`\012`, "\n",
+	`\134`, `\`,
+)
+
+func parseSessionSubdirMounts(dir string, data []byte) []string {
+	if dir == "" {
 		return nil
 	}
-	prefix := dir + "/"
+	dir = filepath.Clean(dir)
+	prefix := dir + string(filepath.Separator)
 	var mounts []string
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue
 		}
-		mountpoint := fields[4]
-		if strings.HasPrefix(mountpoint, prefix) || mountpoint == dir {
+		mountpoint := mountInfoPathUnescape.Replace(fields[4])
+		if mountpoint == dir || strings.HasPrefix(mountpoint, prefix) {
 			mounts = append(mounts, mountpoint)
 		}
 	}

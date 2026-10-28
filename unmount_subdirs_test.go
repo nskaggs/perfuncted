@@ -1,19 +1,20 @@
 package perfuncted
 
 import (
+	"context"
 	"os"
 	"testing"
 )
 
 func TestUnmountSubdirs_NonExistentDir(t *testing.T) {
 	// Should not panic or error on non-existent directory
-	unmountSubdirs("/nonexistent/path/that/does/not/exist")
+	unmountSubdirsContext(context.Background(), "/nonexistent/path/that/does/not/exist")
 }
 
 func TestUnmountSubdirs_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	// Should not panic or error on a temp dir (no FUSE mounts under it)
-	unmountSubdirs(dir)
+	unmountSubdirsContext(context.Background(), dir)
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("dir was removed after unmountSubdirs: %v", err)
 	}
@@ -21,7 +22,7 @@ func TestUnmountSubdirs_EmptyDir(t *testing.T) {
 
 func TestUnmountSubdirs_EmptyString(t *testing.T) {
 	// Should not panic or error on empty string
-	unmountSubdirs("")
+	unmountSubdirsContext(context.Background(), "")
 }
 
 func TestUnmountSubdirs_FileInsteadOfDir(t *testing.T) {
@@ -34,5 +35,5 @@ func TestUnmountSubdirs_FileInsteadOfDir(t *testing.T) {
 	defer os.Remove(path)
 
 	// Should not panic when called with a file path
-	unmountSubdirs(path)
+	unmountSubdirsContext(context.Background(), path)
 }

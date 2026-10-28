@@ -550,8 +550,14 @@ func (i *sessionInfra) stop() {
 			if !isSafeToRemoveDir(i.xdgDir) {
 				slog.Warn("session: skip removal of non-managed directory", "path", i.xdgDir)
 			} else {
-				unmountSubdirs(i.xdgDir)
-				if err := os.RemoveAll(i.xdgDir); err != nil {
+				unmountCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+				unmountErr := unmountSubdirsContext(unmountCtx, i.xdgDir)
+				cancel()
+				if unmountErr != nil {
+					// Leave the directory intact for a later stale-session cleanup.
+					// Never traverse a filesystem that may still be mounted.
+					slog.Warn("session: managed runtime unmount incomplete; retain directory", "error", unmountErr)
+				} else if err := os.RemoveAll(i.xdgDir); err != nil {
 					slog.Debug("session: remove xdg dir", "path", i.xdgDir, "error", err)
 				}
 			}
