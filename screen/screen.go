@@ -59,7 +59,14 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 		return width, height, nil
 	}
 	if r, ok := sc.(Resolver); ok {
-		return r.Resolution()
+		width, height, err := r.Resolution()
+		if err != nil {
+			return 0, 0, err
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, 0, err
+		}
+		return width, height, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
@@ -70,6 +77,9 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
+	}
+	if util.IsNil(img) {
+		return 0, 0, fmt.Errorf("screen: resolution probe returned nil image")
 	}
 	b := img.Bounds()
 	if b.Dx() == 0 || b.Dy() == 0 {
