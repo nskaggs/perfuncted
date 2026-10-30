@@ -17,12 +17,14 @@ import (
 )
 
 type cliConfig struct {
-	nested       bool
-	traceActions bool
-	traceDelay   time.Duration
-	sync         bool
-	required     []perfuncted.Capability
-	optional     []perfuncted.Capability
+	nested                  bool
+	traceActions            bool
+	traceDelay              time.Duration
+	sync                    bool
+	inputBackend            string
+	rememberInputPermission bool
+	required                []perfuncted.Capability
+	optional                []perfuncted.Capability
 }
 
 type sessionOpener func(context.Context) (*perfuncted.Session, error)
@@ -48,14 +50,35 @@ func defaultOpenPFFactory(cfg *cliConfig) sessionOpener {
 		if len(cfg.required) > 0 {
 			opts = append(opts, perfuncted.Require(cfg.required...))
 		}
-		if len(cfg.optional) > 0 {
-			opts = append(opts, perfuncted.Optional(cfg.optional...))
+		optional := cfg.optional
+		if cfg.inputBackend == "remote-desktop" {
+			// Portal input is required by definition and must not also be
+			// requested as optional by broad info/diagnostic commands.
+			optional = make([]perfuncted.Capability, 0, len(cfg.optional))
+			for _, cap := range cfg.optional {
+				if cap != perfuncted.CapabilityInput {
+					optional = append(optional, cap)
+				}
+			}
+		}
+		if len(optional) > 0 {
+			opts = append(opts, perfuncted.Optional(optional...))
 		}
 		if cfg.traceActions || cfg.traceDelay > 0 {
 			opts = append(opts, perfuncted.WithTrace(true), perfuncted.WithTraceOut(os.Stderr))
 		}
 		if cfg.traceDelay > 0 {
 			opts = append(opts, perfuncted.WithTraceDelay(cfg.traceDelay))
+		}
+		switch cfg.inputBackend {
+		case "", "auto":
+			if cfg.rememberInputPermission {
+				return nil, fmt.Errorf("--remember-input-permission requires --input-backend remote-desktop")
+			}
+		case "remote-desktop":
+			opts = append(opts, perfuncted.WithRemoteDesktopInput(perfuncted.RemoteDesktopInputOptions{PersistPermission: cfg.rememberInputPermission}))
+		default:
+			return nil, fmt.Errorf("unknown --input-backend %q (supported: auto, remote-desktop)", cfg.inputBackend)
 		}
 		return perfuncted.Open(ctx, opts...)
 	}
@@ -111,12 +134,17 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		"sleep after each traced action")
 	root.PersistentFlags().BoolVar(&cfg.sync, "sync", false,
 		"sync after observable mutating commands when supported")
+	root.PersistentFlags().StringVar(&cfg.inputBackend, "input-backend", "auto", "input backend: auto or remote-desktop (authorized Wayland portal/EIS)")
+	root.PersistentFlags().BoolVar(&cfg.rememberInputPermission, "remember-input-permission", false, "request persistent authorization for remote-desktop input")
 
 	screenOpen := openRequired(
 		openPFFactory,
 		cfg,
 		perfuncted.CapabilityScreen,
 	)
+	inputWindowOpen := openRequired(openPFFactory, cfg, perfuncted.CapabilityInput, perfuncted.CapabilityWindows)
+	inputOutputOpen := openRequired(openPFFactory, cfg, perfuncted.CapabilityInput, perfuncted.CapabilityOutputs)
+	inputDialogOpen := openRequired(openPFFactory, cfg, perfuncted.CapabilityInput, perfuncted.CapabilityWindows, perfuncted.CapabilityClipboard)
 	inputOpen := openRequired(
 		openPFFactory,
 		cfg,
@@ -160,7 +188,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 	runOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	root.AddCommand(
 		screenCmd(screenOpen),
-		inputCmd(inputOpen, cfg),
+		inputCmd(inputOpen, cfg, inputWindowOpen, inputOutputOpen, inputDialogOpen),
 		windowCmd(windowOpen, cfg),
 		outputCmd(outputOpen),
 		findCmd(screenOpen),

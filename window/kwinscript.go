@@ -238,6 +238,7 @@ type kwinWindowRow struct {
 	Y      float64 `json:"y"`
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
+	Active bool    `json:"active"`
 }
 
 func parseKWinWindowList(data string) ([]Info, error) {
@@ -279,6 +280,7 @@ func parseKWinWindowList(data string) ([]Info, error) {
 			Y:        y,
 			W:        width,
 			H:        height,
+			Active:   row.Active,
 		}
 		if id, err := strconv.ParseUint(info.NativeID, 0, 64); err == nil {
 			info.ID = id
@@ -316,7 +318,7 @@ func (k *KWinScriptManager) List(ctx context.Context) ([]Info, error) {
 func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
 		data, err := k.runScript(ctx, func(svc string) string {
-			return "\nvar listFunc = (typeof workspace.windowList === \"function\") ? workspace.windowList : workspace.clientList;\nvar wins = listFunc();\nvar rows = [];\nfor (var i = 0; i < wins.length; i++) {\n    var w = wins[i];\n    if (w.normalWindow) {\n        var g = w.frameGeometry;\n        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;\n        rows.push({id: String(id), title: String(w.caption || ''), app_id: String(w.resourceName || ''),\n            class: String(w.resourceClass || ''), pid: Number(w.pid) || 0, x: Number(g.x), y: Number(g.y),\n            width: Number(g.width), height: Number(g.height)});\n    }\n}\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', JSON.stringify(rows));\n"
+			return "\nvar listFunc = (typeof workspace.windowList === \"function\") ? workspace.windowList : workspace.clientList;\nvar wins = listFunc();\nvar focus = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;\nvar focusID = focus ? String((typeof focus.internalId !== 'undefined') ? focus.internalId : focus.windowId) : null;\nvar rows = [];\nfor (var i = 0; i < wins.length; i++) {\n    var w = wins[i];\n    if (w.normalWindow) {\n        var g = w.frameGeometry;\n        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;\n        rows.push({id: String(id), title: String(w.caption || ''), app_id: String(w.resourceName || ''),\n            class: String(w.resourceClass || ''), pid: Number(w.pid) || 0, active: String(id) === focusID, x: Number(g.x), y: Number(g.y),\n            width: Number(g.width), height: Number(g.height)});\n    }\n}\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', JSON.stringify(rows));\n"
 		})
 		if err != nil {
 			yield(Info{}, err)

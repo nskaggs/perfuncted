@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
@@ -14,7 +18,19 @@ import (
 func inputCmd(
 	openPF sessionOpener,
 	cfg *cliConfig,
+	inputWindowOpeners ...sessionOpener,
 ) *cobra.Command {
+	var openInputWindow sessionOpener
+	if len(inputWindowOpeners) > 0 {
+		openInputWindow = inputWindowOpeners[0]
+	}
+	var openInputOutput, openInputDialog sessionOpener
+	if len(inputWindowOpeners) > 1 {
+		openInputOutput = inputWindowOpeners[1]
+	}
+	if len(inputWindowOpeners) > 2 {
+		openInputDialog = inputWindowOpeners[2]
+	}
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
@@ -337,6 +353,181 @@ func inputCmd(
 			return writeCLIOutput(cmd.OutOrStdout(), "kind=%s scaleX=%g scaleY=%g\n", info.Kind, info.ScaleX, info.ScaleY)
 		},
 	}
+
+	var clickWindowID string
+	var clickWindowTitle string
+	var clickWindowX, clickWindowY, clickWindowButton int
+	clickWindow := &cobra.Command{
+		Use:   "click-window",
+		Short: "Click a window-relative logical point using an explicitly declared backend coordinate space",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if (clickWindowID == "") == (clickWindowTitle == "") {
+				return fmt.Errorf("specify exactly one of --id or --title")
+			}
+			if openInputWindow == nil {
+				return fmt.Errorf("click-window requires windows capability")
+			}
+			pf, err := openInputWindow(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			var target *perfuncted.Window
+			if clickWindowID != "" {
+				target, err = findWindowByStableID(cmd.Context(), pf.Windows, clickWindowID)
+			} else {
+				target, err = findWindowByTitle(cmd.Context(), pf.Windows, clickWindowTitle)
+			}
+			if err != nil {
+				return err
+			}
+			info, err := target.Info(cmd.Context())
+			if err != nil {
+				return err
+			}
+			space, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("cannot safely map window coordinates to current input backend: %w (use --input-backend remote-desktop on Wayland)", err)
+			}
+			px, py, err := windowRelativePoint(info, clickWindowX, clickWindowY, space)
+			if err != nil {
+				return err
+			}
+			if err := pf.Input.MouseClick(cmd.Context(), px, py, clickWindowButton); err != nil {
+				return err
+			}
+			if err := syncIf(cmd.Context(), pf); err != nil {
+				return err
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "click event sent to window %s at %d,%d (backend %d,%d)\n", target.ID().String(), clickWindowX, clickWindowY, px, py)
+		},
+	}
+	clickWindow.Flags().StringVar(&clickWindowID, "id", "", "stable ID from window list")
+	clickWindow.Flags().StringVar(&clickWindowTitle, "title", "", "unique window title substring")
+	clickWindow.Flags().IntVar(&clickWindowX, "x", -1, "logical window-relative X")
+	clickWindow.Flags().IntVar(&clickWindowY, "y", -1, "logical window-relative Y")
+	clickWindow.Flags().IntVar(&clickWindowButton, "button", 1, "mouse button")
+	cmd.AddCommand(clickWindow)
+	var clickScreenX, clickScreenY, clickScreenButton int
+	clickScreen := &cobra.Command{Use: "click-screen", Short: "Click at physical screenshot pixels via authoritative output and backend coordinates", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if clickScreenX < 0 || clickScreenY < 0 {
+			return fmt.Errorf("screen coordinates must be non-negative")
+		}
+		if openInputOutput == nil {
+			return fmt.Errorf("click-screen requires outputs capability")
+		}
+		pf, err := openInputOutput(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		outs, err := pf.Outputs.List(cmd.Context())
+		if err != nil {
+			return err
+		}
+		lx, ly, err := screenshotPointToLogical(outs, clickScreenX, clickScreenY)
+		if err != nil {
+			return err
+		}
+		space, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("cannot map screenshot point to input backend: %w (use --input-backend remote-desktop on Wayland)", err)
+		}
+		fx, fy := math.Round(float64(lx)*space.ScaleX), math.Round(float64(ly)*space.ScaleY)
+		if fx > math.MaxInt || fx < math.MinInt || fy > math.MaxInt || fy < math.MinInt {
+			return fmt.Errorf("mapped screenshot point outside pointer range")
+		}
+		px, py := int(fx), int(fy)
+		if err := pf.Input.MouseClick(cmd.Context(), px, py, clickScreenButton); err != nil {
+			return err
+		}
+		if err := syncIf(cmd.Context(), pf); err != nil {
+			return err
+		}
+		return writeCLIOutput(cmd.OutOrStdout(), "click event sent at screenshot %d,%d -> input %d,%d\n", clickScreenX, clickScreenY, px, py)
+	}}
+	clickScreen.Flags().IntVar(&clickScreenX, "x", -1, "physical screenshot X")
+	clickScreen.Flags().IntVar(&clickScreenY, "y", -1, "physical screenshot Y")
+	clickScreen.Flags().IntVar(&clickScreenButton, "button", 1, "mouse button")
+	cmd.AddCommand(clickScreen)
+
+	var fileTargetID, fileTargetTitle, filePath string
+	var confirmFile bool
+	selectFile := &cobra.Command{Use: "select-file", Short: "Select a local file in an existing native file picker, preserving clipboard", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) (retErr error) {
+		if (fileTargetID == "") == (fileTargetTitle == "") {
+			return fmt.Errorf("specify exactly one of --id or --title for the open file chooser")
+		}
+		if !filepath.IsAbs(filePath) {
+			return fmt.Errorf("file path must be absolute")
+		}
+		st, err := os.Stat(filePath)
+		if err != nil {
+			return fmt.Errorf("file chooser path: %w", err)
+		}
+		if st.IsDir() {
+			return fmt.Errorf("file chooser expects a regular file, not a directory")
+		}
+		if !st.Mode().IsRegular() {
+			return fmt.Errorf("file chooser path is not a regular file")
+		}
+		if openInputDialog == nil {
+			return fmt.Errorf("select-file requires window and clipboard capabilities")
+		}
+		pf, err := openInputDialog(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		var target *perfuncted.Window
+		if fileTargetID != "" {
+			target, err = findWindowByStableID(cmd.Context(), pf.Windows, fileTargetID)
+		} else {
+			target, err = findWindowByTitle(cmd.Context(), pf.Windows, fileTargetTitle)
+		}
+		if err != nil {
+			return err
+		}
+		if err := target.Activate(cmd.Context()); err != nil {
+			return err
+		}
+		if err := waitWindowActive(cmd.Context(), target, 2*time.Second, 50*time.Millisecond); err != nil {
+			return err
+		}
+		prev, err := pf.Clipboard.Get(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if err := pf.Clipboard.Set(cmd.Context(), filePath); err != nil {
+			return err
+		}
+		defer func() {
+			if restoreErr := pf.Clipboard.Set(context.WithoutCancel(cmd.Context()), prev); restoreErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("restore clipboard: %w", restoreErr))
+			}
+		}()
+		if err := pf.Input.Type(cmd.Context(), "{ctrl+l}{ctrl+v}{enter}"); err != nil {
+			return err
+		}
+		if confirmFile {
+			// KDE and other choosers may first navigate into a directory and
+			// select the filename. The final Enter accepts the selected file.
+			if err := pf.Input.Type(cmd.Context(), "{enter}"); err != nil {
+				return err
+			}
+		}
+		// Only restore clipboard after the chooser disappears: event dispatch
+		// alone does not prove that Ctrl+V has been processed.
+		if err := waitWindowGone(cmd.Context(), pf.Windows, target.ID().String(), 10*time.Second, 75*time.Millisecond); err != nil {
+			return err
+		}
+		return writeCLIOutput(cmd.OutOrStdout(), "file chooser closed after selection: %s (not proof of cloud upload)\n", target.ID().String())
+	}}
+	selectFile.Flags().StringVar(&fileTargetID, "id", "", "stable window ID of open file chooser")
+	selectFile.Flags().StringVar(&fileTargetTitle, "title", "", "unique file chooser title")
+	selectFile.Flags().StringVar(&filePath, "path", "", "absolute path to existing file")
+	selectFile.Flags().BoolVar(&confirmFile, "confirm", true, "press final Enter to accept selection")
+	cmd.AddCommand(selectFile)
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
 		typeCmd, keydown, keyup, mousedown, mouseup, location, coordinateSpace, scrollCmd(openPF, cfg))

@@ -440,7 +440,13 @@ func (b *RemoteDesktopBackend) Diagnostics() []string {
 }
 
 // PointerCoordinateSpace reports the logical coordinate space advertised by EIS.
-func (b *RemoteDesktopBackend) PointerCoordinateSpace(context.Context) (CoordinateSpaceInfo, error) {
+func (b *RemoteDesktopBackend) PointerCoordinateSpace(ctx context.Context) (CoordinateSpaceInfo, error) {
+	if ctx == nil {
+		return CoordinateSpaceInfo{}, fmt.Errorf("input/remote-desktop: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return CoordinateSpaceInfo{}, err
+	}
 	if err := b.stateError(); err != nil {
 		return CoordinateSpaceInfo{}, err
 	}
@@ -453,6 +459,11 @@ func (b *RemoteDesktopBackend) stateError() error {
 	}
 	if state := b.revokedState.Load(); state != nil {
 		return state.err
+	}
+	// A partially initialized portal backend must never enqueue work to a
+	// nil commands channel, nor dereference a sender before session setup.
+	if b.sender == nil || b.portal == nil || b.commands == nil || b.stop == nil || b.revoked == nil {
+		return ErrRemoteDesktopUnavailable
 	}
 	select {
 	case <-b.stop:
@@ -737,6 +748,9 @@ func remoteKeyCode(key string) (uint32, error) { //nolint:gocyclo // explicit ke
 
 // Type sends key syntax and literal text through the authorized EIS devices.
 func (b *RemoteDesktopBackend) Type(ctx context.Context, value string) error {
+	if err := b.stateError(); err != nil {
+		return err
+	}
 	actions, err := parseKeySend(value)
 	if err != nil {
 		return err
@@ -888,6 +902,9 @@ func (b *RemoteDesktopBackend) typeAction(action keySend, keycode uint32) error 
 
 // TypeLiteral sends unparsed UTF-8 text through the authorized EIS text interface.
 func (b *RemoteDesktopBackend) TypeLiteral(ctx context.Context, value string) error {
+	if err := b.stateError(); err != nil {
+		return err
+	}
 	frames, err := eiTextFrames(b.sender, value)
 	if err != nil {
 		return err
@@ -902,6 +919,9 @@ func (b *RemoteDesktopBackend) TypeLiteral(ctx context.Context, value string) er
 
 // MouseMove places the pointer inside one advertised EIS region.
 func (b *RemoteDesktopBackend) MouseMove(ctx context.Context, x, y int) error {
+	if err := b.stateError(); err != nil {
+		return err
+	}
 	if !b.sender.validatePoint(x, y) {
 		return fmt.Errorf("input/remote-desktop: (%d,%d) is outside the authorized EIS regions", x, y)
 	}
@@ -934,6 +954,9 @@ func remoteButtonCode(button int) (uint32, error) {
 
 // MouseClick moves to the target point and sends one button press and release.
 func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if err := b.stateError(); err != nil {
+		return err
+	}
 	buttonCode, err := remoteButtonCode(button)
 	if err != nil {
 		return err
@@ -1032,6 +1055,9 @@ func (b *RemoteDesktopBackend) ScrollRight(ctx context.Context, clicks int) erro
 }
 
 func (b *RemoteDesktopBackend) scroll(ctx context.Context, x, y, clicks int) error {
+	if err := b.stateError(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -1062,6 +1088,9 @@ func (*RemoteDesktopBackend) PointerLocation(context.Context) (int, int, error) 
 func (b *RemoteDesktopBackend) Close() error {
 	if b == nil {
 		return nil
+	}
+	if b.sender == nil || b.portal == nil || b.commands == nil || b.stop == nil || b.writerDone == nil || b.closeDone == nil {
+		return nil // no fully acquired session resources to own
 	}
 	if !b.closeStarted.CompareAndSwap(false, true) {
 		<-b.closeDone

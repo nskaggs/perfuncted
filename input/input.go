@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -171,6 +172,20 @@ func (a inputAttempts) join(err error) error {
 	return errors.Join(causes...)
 }
 
+// usableInputter rejects both nil interfaces and typed nil pointers returned
+// by a constructor, which otherwise silently become a "successful" backend.
+func usableInputter(b Inputter) bool {
+	if b == nil {
+		return false
+	}
+	v := reflect.ValueOf(b)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !v.IsNil()
+	}
+	return true
+}
+
 // openInputCandidate runs one constructor in selection order. A success returns
 // the backend; a failure records why under label and returns the error so the
 // caller can continue to the next backend. Cancellation is reported as such
@@ -182,13 +197,23 @@ func openInputCandidate(
 	open func() (Inputter, error),
 ) (Inputter, error) {
 	b, err := open()
+	if ctx.Err() != nil {
+		if usableInputter(b) {
+			_ = b.Close()
+		}
+		return nil, ctx.Err()
+	}
+	if err == nil && !usableInputter(b) {
+		err = fmt.Errorf("constructor returned nil input backend")
+	}
 	if err == nil {
 		return b, nil
 	}
+	if usableInputter(b) {
+		_ = b.Close()
+	}
+
 	if ctx.Err() != nil {
-		if b != nil {
-			_ = b.Close()
-		}
 		return nil, ctx.Err()
 	}
 	attempts.add(label, err)
@@ -205,7 +230,10 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 	// Allow forcing a particular backend for debugging in CI/local runs.
 	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
 		if statErr := statUinput(); statErr == nil {
-			b, err := newUinputBackend(maxX, maxY)
+			b, err := newResolvedUinputBackend(ctx, rt, maxX, maxY)
+			if err == nil && !usableInputter(b) {
+				err = fmt.Errorf("constructor returned nil backend")
+			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				if b != nil {
 					_ = b.Close()
@@ -227,8 +255,10 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 	if compositor.DetectRuntime(rt) == compositor.GNOME {
 		b, err := NewGnomeNativeBackendForRuntimeContext(ctx, rt)
 		switch {
-		case err == nil:
+		case err == nil && usableInputter(b):
 			return b, nil
+		case err == nil:
+			attempts.add("GNOME Shell bridge input", fmt.Errorf("constructor returned nil backend"))
 		case errors.Is(err, gnomebridge.ErrSessionRestartRequired):
 			// A restart is the one bridge failure with no alternative: the
 			// extension is installed but will not serve this session.
@@ -243,9 +273,10 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 		}
 	}
 
-	// On Wayland, prefer the compositor-scoped virtual backend. Fallback order:
-	//
-	//	wl-virtual -> XTEST (if DISPLAY set) -> uinput
+	// On Wayland prefer compositor-authorized virtual input, then a valid
+	// compositor-wide uinput device. XTEST is an explicitly limited fallback:
+	// it can send events to XWayland windows but not native Wayland surfaces.
+	// Selection must not report XTEST as full-desktop input when uinput works.
 	if sock := rt.SocketPath(); sock != "" {
 		if b, err := openInputCandidate(ctx, &attempts, "wl-virtual input", func() (Inputter, error) {
 			return newWlVirtualBackend(ctx, sock)
@@ -254,8 +285,17 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 		} else if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if statUinput() == nil {
+			if b, err := openInputCandidate(ctx, &attempts, "uinput input", func() (Inputter, error) {
+				return newResolvedUinputBackend(ctx, rt, maxX, maxY)
+			}); err == nil {
+				return b, nil
+			} else if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+		}
 		if d := rt.Display(); d != "" {
-			if b, err := openInputCandidate(ctx, &attempts, "XTEST input", func() (Inputter, error) {
+			if b, err := openInputCandidate(ctx, &attempts, "XTEST input (XWayland only)", func() (Inputter, error) {
 				return newXTestBackend(d)
 			}); err == nil {
 				return b, nil
@@ -263,17 +303,11 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 				return nil, ctx.Err()
 			}
 		}
-		// wl-virtual/XTEST unavailable; uinput is the last Wayland fallback
-		// when the compositor-scoped backends are unavailable.
-		if statUinput() == nil {
-			if b, err := openInputCandidate(ctx, &attempts, "uinput input", func() (Inputter, error) {
-				return newUinputBackend(maxX, maxY)
-			}); err == nil {
-				return b, nil
-			} else if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
+		// Exhausted Wayland choices. Avoid opening the same backend twice.
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
+		return nil, attempts.join(fmt.Errorf("no backend available for Wayland desktop"))
 	}
 
 	// Pure X11 or XWayland: XTest is scoped to the target display.
@@ -289,15 +323,18 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 
 	// Final fallback: uinput on systems without a Wayland session.
 	if statUinput() == nil {
-		b, err := newUinputBackend(maxX, maxY)
+		b, err := newResolvedUinputBackend(ctx, rt, maxX, maxY)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			if b != nil {
 				_ = b.Close()
 			}
 			return nil, ctxErr
 		}
-		if err == nil {
+		if err == nil && usableInputter(b) {
 			return b, nil
+		}
+		if err == nil {
+			err = fmt.Errorf("uinput constructor returned nil backend")
 		}
 		// The uinput error carries the permission hint, so it is reported last
 		// after the earlier causes.
@@ -324,13 +361,11 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 	}
 	if sock := rt.SocketPath(); sock != "" {
 		globs := wl.ListGlobals(sock)
-		results = append(results, []probe.Result{
-			checkWlVirtualWithGlobs(sock, globs),
-		}...)
+		results = append(results, checkWlVirtualWithGlobs(sock, globs))
+		results = append(results, checkUinput())
 		if rt.Display() != "" {
 			results = append(results, checkXTest(rt))
 		}
-		results = append(results, checkUinput())
 		return probe.SelectBest(results)
 	}
 	results = append(results, []probe.Result{

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +114,28 @@ func findWindowByTitle(
 	)
 }
 
+// findWindowByStableID resolves a concrete native ID rather than a title. The
+// ID is displayed by `window list`; UUIDs and numeric X11 identifiers both work.
+func findWindowByStableID(ctx context.Context, bundle *perfuncted.WindowBundle, id string) (*perfuncted.Window, error) {
+	if id == "" {
+		return nil, fmt.Errorf("window ID must be non-empty: %w", window.ErrInvalidArgument)
+	}
+	wins, err := bundle.List(ctx, window.Match{})
+	if err != nil {
+		return nil, err
+	}
+	number, numberErr := strconv.ParseUint(id, 0, 64)
+	if numberErr != nil {
+		number, numberErr = strconv.ParseUint(id, 10, 64)
+	}
+	for _, win := range wins {
+		if win.ID().String() == id || (numberErr == nil && win.CachedInfo().ID == number && number != 0) {
+			return win, nil
+		}
+	}
+	return nil, fmt.Errorf("window id %q: %w", id, window.ErrWindowNotFound)
+}
+
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func windowCmd(
 	openPF sessionOpener,
@@ -160,6 +183,8 @@ func windowCmd(
 	}
 	list.Flags().StringVar(&listOutputFlag, "output", listOutputFlag, "plain|json")
 
+	var verifyTitle bool
+	var verifyTitleTimeout, verifyTitlePoll time.Duration
 	activate := &cobra.Command{
 		Use:   "activate <pattern>",
 		Short: "Bring a window to the foreground by title substring (case-insensitive)",
@@ -184,9 +209,19 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "activated: %s\n", args[0])
+			if verifyTitle {
+				if err := waitWindowActive(cmd.Context(), target, verifyTitleTimeout, verifyTitlePoll); err != nil {
+					return err
+				}
+				return writeCLIOutput(cmd.OutOrStdout(), "activation verified: %s\n", args[0])
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "activation requested: %s\n", args[0])
 		},
 	}
+
+	activate.Flags().BoolVar(&verifyTitle, "verify", false, "verify actual window focus")
+	activate.Flags().DurationVar(&verifyTitleTimeout, "verify-timeout", 2*time.Second, "maximum time to verify focus")
+	activate.Flags().DurationVar(&verifyTitlePoll, "verify-poll", 50*time.Millisecond, "verification polling interval")
 
 	active := &cobra.Command{
 		Use:   "active",
@@ -605,6 +640,66 @@ func windowCmd(
 	}
 	watch.Flags().StringVar(&watchOutputFlag, "output", "plain", "plain|json")
 
+	var verifyActivation bool
+	var activationVerifyTimeout, activationVerifyPoll time.Duration
+	activateID := &cobra.Command{Use: "activate-id <stable-id>", Short: "Activate a specific window even when titles are duplicated", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		pf, err := openPF(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		target, err := findWindowByStableID(cmd.Context(), pf.Windows, args[0])
+		if err != nil {
+			return err
+		}
+		if err := target.Activate(cmd.Context()); err != nil {
+			return err
+		}
+		if err := syncIf(cmd.Context(), pf); err != nil {
+			return err
+		}
+		if verifyActivation {
+			if err := waitWindowActive(cmd.Context(), target, activationVerifyTimeout, activationVerifyPoll); err != nil {
+				return err
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "activation verified: %s\n", args[0])
+		}
+		return writeCLIOutput(cmd.OutOrStdout(), "activation requested: %s\n", args[0])
+	}}
+	var verifyClose bool
+	var verifyCloseTimeout, verifyClosePoll time.Duration
+	closeID := &cobra.Command{Use: "close-id <stable-id>", Short: "Close a specific window even when titles are duplicated", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		pf, err := openPF(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		target, err := findWindowByStableID(cmd.Context(), pf.Windows, args[0])
+		if err != nil {
+			return err
+		}
+		if err := target.Close(cmd.Context()); err != nil {
+			return err
+		}
+		if err := syncIf(cmd.Context(), pf); err != nil {
+			return err
+		}
+		if verifyClose {
+			if err := waitWindowGone(cmd.Context(), pf.Windows, target.ID().String(), verifyCloseTimeout, verifyClosePoll); err != nil {
+				return err
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "close verified: %s\n", args[0])
+		}
+		return writeCLIOutput(cmd.OutOrStdout(), "close requested: %s\n", args[0])
+	}}
+	activateID.Flags().BoolVar(&verifyActivation, "verify", false, "wait for actual target focus confirmation")
+	activateID.Flags().DurationVar(&activationVerifyTimeout, "verify-timeout", 2*time.Second, "maximum wait for target to become active")
+	activateID.Flags().DurationVar(&activationVerifyPoll, "verify-poll", 50*time.Millisecond, "focus verification poll interval")
+	closeID.Flags().BoolVar(&verifyClose, "verify", false, "verify target window disappears")
+	closeID.Flags().DurationVar(&verifyCloseTimeout, "verify-timeout", 2*time.Second, "maximum time to verify disappearance")
+	closeID.Flags().DurationVar(&verifyClosePoll, "verify-poll", 50*time.Millisecond, "verification polling interval")
+
+	cmd.AddCommand(activateID, closeID)
 	cmd.AddCommand(find, waitFor, waitClose, watch, findByTitle, getGeom, isVisible)
 
 	closeWin := &cobra.Command{

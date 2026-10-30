@@ -33,10 +33,13 @@ var _ Inputter = (*UinputBackend)(nil)
 // Mouse movement uses a virtual touchpad with absolute coordinates in the range
 // [0, maxCoord]. Callers should pass the screen dimensions as maxX/maxY.
 type UinputBackend struct {
-	kb         uinput.Keyboard
-	touchpad   uinput.TouchPad
-	mouse      uinput.Mouse // lazy-initialised on first scroll
-	charToRune map[rune]kernelChar
+	// Authoritative only for a compositor-reported, single logical output
+	// starting at (0,0). Explicit constructor dimensions are not proof.
+	verifiedSingleLogicalOutput bool
+	kb                          uinput.Keyboard
+	touchpad                    uinput.TouchPad
+	mouse                       uinput.Mouse // lazy-initialised on first scroll
+	charToRune                  map[rune]kernelChar
 
 	// heldMods records which modifier keys the caller is holding through
 	// KeyDown. Type sends a combination by pressing modifiers around the key and
@@ -77,6 +80,9 @@ type kernelChar struct {
 // determine which evdev keycode + shift state produces each character.
 // Falls back to a static US QWERTY map if the kernel keymap is inaccessible.
 func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
+	if err := validateUinputDimensions(maxX, maxY); err != nil {
+		return nil, err
+	}
 	if _, err := os.Stat("/dev/uinput"); errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("input/uinput: /dev/uinput not found; kernel module uinput may not be loaded")
 	}
@@ -103,6 +109,20 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	}
 
 	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune}, nil
+}
+
+// PointerCoordinateSpace is available only when the runtime established a
+// single-output logical coordinate mapping during device creation. Direct
+// constructor callers and multimonitor setups cannot assume this mapping.
+func (b *UinputBackend) PointerCoordinateSpace(ctx context.Context) (CoordinateSpaceInfo, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return CoordinateSpaceInfo{}, err
+	}
+	if b == nil || !b.verifiedSingleLogicalOutput {
+		return CoordinateSpaceInfo{}, unsupportedError("input/uinput", "pointer coordinate space")
+	}
+	return CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
 }
 
 func (b *UinputBackend) operationGateChannel() chan struct{} {

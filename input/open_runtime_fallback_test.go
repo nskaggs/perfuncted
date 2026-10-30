@@ -163,15 +163,16 @@ func TestProbeRuntimeFallsBackToXTestWhenWaylandSocketUnresolvable(t *testing.T)
 	})
 
 	results := ProbeRuntime(rt)
-	if len(results) < 2 {
-		t.Fatalf("ProbeRuntime len = %d, want at least 2", len(results))
+	if len(results) < 3 || results[1].Name != "uinput" || results[2].Name != "xtest" {
+		t.Fatalf("Wayland probe priority should be wl-virtual/uinput/xtest, got %+v", results)
 	}
-	if results[1].Name != "xtest" {
-		t.Fatalf("ProbeRuntime second result = %q, want xtest", results[1].Name)
+	if !results[2].Available {
+		t.Fatal("fallback XTest unexpectedly unavailable")
 	}
-	if !results[1].Available || !results[1].Selected {
-		t.Fatalf("ProbeRuntime xtest available=%v selected=%v, want true/true", results[1].Available, results[1].Selected)
+	if results[1].Selected == results[2].Selected {
+		t.Fatalf("exactly one of uinput and xtest should be selected: %+v", results)
 	}
+
 }
 
 func TestOpenUsesCurrentEnvironment(t *testing.T) {
@@ -241,15 +242,16 @@ func TestProbeUsesCurrentEnvironment(t *testing.T) {
 	t.Setenv("DISPLAY", ":99")
 
 	results := Probe()
-	if len(results) < 2 {
-		t.Fatalf("Probe len = %d, want at least 2", len(results))
+	if len(results) < 3 || results[1].Name != "uinput" || results[2].Name != "xtest" {
+		t.Fatalf("Wayland probe priority should be wl-virtual/uinput/xtest, got %+v", results)
 	}
-	if results[1].Name != "xtest" {
-		t.Fatalf("Probe second result = %q, want xtest", results[1].Name)
+	if !results[2].Available {
+		t.Fatal("fallback XTest unexpectedly unavailable")
 	}
-	if !results[1].Available || !results[1].Selected {
-		t.Fatalf("Probe xtest available=%v selected=%v, want true/true", results[1].Available, results[1].Selected)
+	if results[1].Selected == results[2].Selected {
+		t.Fatalf("exactly one of uinput and xtest should be selected: %+v", results)
 	}
+
 }
 
 func TestOpenRuntimePrefersXTestOnX11(t *testing.T) {

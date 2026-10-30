@@ -24,7 +24,7 @@ func (b *XTestBackend) SupportedOperations() []string {
 // backend. uinput cannot query the current pointer location, and writing to
 // /dev/uinput offers no completion barrier, so this backend omits sync.
 func (b *UinputBackend) SupportedOperations() []string {
-	return supportedOperations(false, false, "sync")
+	return supportedOperations(false, b != nil && b.verifiedSingleLogicalOutput, "sync")
 }
 
 // SupportedOperations reports operations that are executable by the selected

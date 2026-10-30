@@ -93,6 +93,16 @@ func infoCmd(
 	return cmd
 }
 
+// inputBackendWarning does not mistake XTest's available connection to an
+// XWayland server for native Wayland desktop control.
+func inputBackendWarning(report infoReport) string {
+	entry := report.Capabilities["input"]
+	if strings.Contains(strings.ToLower(report.Compositor), "wayland") && strings.Contains(entry.Backend, "XTestBackend") {
+		return "XTest controls X11/XWayland windows, NOT native Wayland windows; use --input-backend remote-desktop for authorized compositor-wide input"
+	}
+	return ""
+}
+
 func writeInfoPlain(out io.Writer, session *perfuncted.Session, report infoReport) error {
 	if err := writeCLIMessage(out, "── Environment ────────────────────────────────────"); err != nil {
 		return err
@@ -103,7 +113,13 @@ func writeInfoPlain(out io.Writer, session *perfuncted.Session, report infoRepor
 	if err := writeCLIMessage(out, "\n── Capabilities ────────────────────────────────────"); err != nil {
 		return err
 	}
-	return writeInfoCapabilities(out, session.Capabilities(), report)
+	if err := writeInfoCapabilities(out, session.Capabilities(), report); err != nil {
+		return err
+	}
+	if warning := inputBackendWarning(report); warning != "" {
+		return writeCLIOutput(out, "  WARNING: %s\n", warning)
+	}
+	return nil
 }
 
 func writeInfoEnvironment(out io.Writer, report infoReport) error {
