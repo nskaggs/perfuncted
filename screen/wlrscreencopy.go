@@ -322,6 +322,12 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("screen/wlr: capture canceled: %w", err)
 		}
+		// The compositor may stop advertising screencopy between initial
+		// capability discovery and a reconnect. Synthetic contexts used by
+		// cache tests can also lack globals. Never dereference absent proxies.
+		if b.mgrProxy == nil || b.output == nil || b.shm == nil {
+			return fmt.Errorf("screen/wlr: required screencopy protocol proxies unavailable")
+		}
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
 		defer func() {
