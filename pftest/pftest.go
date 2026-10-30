@@ -53,6 +53,9 @@ func (s *Screenshotter) CanonicalHashing() bool { return true }
 
 // Grab returns the next configured frame, optionally cropped to rect.
 func (s *Screenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if s.GrabFunc != nil {
 		return s.GrabFunc(ctx, rect)
 	}
@@ -309,6 +312,10 @@ func (m *Manager) List(ctx context.Context) ([]window.Info, error) {
 // IterateWindows iterates over the next configured window list.
 func (m *Manager) IterateWindows(ctx context.Context) iter.Seq2[window.Info, error] {
 	return func(yield func(window.Info, error) bool) {
+		if ctx != nil && ctx.Err() != nil {
+			yield(window.Info{}, ctx.Err())
+			return
+		}
 		if m.Err != nil {
 			yield(window.Info{}, m.Err)
 			return
@@ -325,6 +332,10 @@ func (m *Manager) IterateWindows(ctx context.Context) iter.Seq2[window.Info, err
 		m.mu.Unlock()
 
 		for _, win := range r {
+			if ctx != nil && ctx.Err() != nil {
+				yield(window.Info{}, ctx.Err())
+				return
+			}
 			if !yield(win, nil) {
 				return
 			}

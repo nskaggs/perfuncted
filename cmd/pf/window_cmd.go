@@ -615,6 +615,9 @@ func windowCmd(
 					window.Match{},
 				)
 				if err != nil {
+					if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+						return nil
+					}
 					return err
 				}
 				raw, err := json.Marshal(wins)

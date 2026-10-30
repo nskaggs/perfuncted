@@ -1,0 +1,32 @@
+## pf input click-screen
+
+Click at physical screenshot pixels via authoritative output and backend coordinates
+
+```
+pf input click-screen [flags]
+```
+
+### Options
+
+```
+      --button int   mouse button (default 1)
+  -h, --help         help for click-screen
+      --x int        physical screenshot X (default -1)
+      --y int        physical screenshot Y (default -1)
+```
+
+### Options inherited from parent commands
+
+```
+      --input-backend string        input backend: auto or remote-desktop (authorized Wayland portal/EIS) (default "auto")
+      --nested                      start and target a new nested Wayland session
+      --remember-input-permission   request persistent authorization for remote-desktop input
+      --sync                        sync after observable mutating commands when supported
+      --trace-actions               print each API action to stderr as it runs
+      --trace-delay duration        sleep after each traced action
+```
+
+### SEE ALSO
+
+* [pf input](pf_input.md)	 - Mouse and keyboard injection
+

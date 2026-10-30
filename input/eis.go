@@ -1,6 +1,7 @@
 package input
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -669,6 +670,9 @@ func eiReadString(body []byte, offset int) (string, error) {
 		return "", errors.New("input/eis: invalid string argument")
 	}
 	value := body[start : end-1]
+	if bytes.IndexByte(value, 0) >= 0 {
+		return "", errors.New("input/eis: embedded NUL in string argument")
+	}
 	if !utf8.Valid(value) {
 		return "", errors.New("input/eis: invalid UTF-8 string argument")
 	}

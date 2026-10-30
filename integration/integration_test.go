@@ -772,6 +772,11 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if err := s.pf.Paste(ctx, marker); err != nil {
 		t.Fatalf("paste: %v", err)
 	}
+	// Wayland clipboard reads are asynchronous. Allow the target editor to
+	// consume the selection and settle before Ctrl+S can preempt that read.
+	ctxPaste, cancelPaste := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelPaste()
+	verify.VerifyStableRegion(ctxPaste, "post-paste", typingRect)
 	if got, err := s.pf.Clipboard.Get(ctx); err != nil || got != marker {
 		t.Fatalf("clipboard get after paste = %q, %v", got, err)
 	}

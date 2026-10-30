@@ -11,18 +11,22 @@ Window management
 ### Options inherited from parent commands
 
 ```
-      --nested                 start and target a new nested Wayland session
-      --sync                   sync after observable mutating commands when supported
-      --trace-actions          print each API action to stderr as it runs
-      --trace-delay duration   sleep after each traced action
+      --input-backend string        input backend: auto or remote-desktop (authorized Wayland portal/EIS) (default "auto")
+      --nested                      start and target a new nested Wayland session
+      --remember-input-permission   request persistent authorization for remote-desktop input
+      --sync                        sync after observable mutating commands when supported
+      --trace-actions               print each API action to stderr as it runs
+      --trace-delay duration        sleep after each traced action
 ```
 
 ### SEE ALSO
 
 * [pf](pf.md)	 - perfuncted — screen automation CLI
 * [pf window activate](pf_window_activate.md)	 - Bring a window to the foreground by title substring (case-insensitive)
+* [pf window activate-id](pf_window_activate-id.md)	 - Activate a specific window even when titles are duplicated
 * [pf window active](pf_window_active.md)	 - Print the title of the currently focused window
 * [pf window close](pf_window_close.md)	 - Close a window by title
+* [pf window close-id](pf_window_close-id.md)	 - Close a specific window even when titles are duplicated
 * [pf window find](pf_window_find.md)	 - Find matching windows and print them
 * [pf window find-by-title](pf_window_find-by-title.md)	 - Find a window by title and print info
 * [pf window fullscreen](pf_window_fullscreen.md)	 - Fullscreen a window by title

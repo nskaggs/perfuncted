@@ -7,6 +7,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -31,8 +32,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: check_benchmark_regression -baseline FILE -current FILE [-max-regression FRACTION]")
 		os.Exit(2)
 	}
-	if *maxRegression < 0 {
-		fmt.Fprintln(os.Stderr, "max-regression must be non-negative")
+	if !validMaxRegression(*maxRegression) {
+		fmt.Fprintln(os.Stderr, "max-regression must be finite and non-negative")
 		os.Exit(2)
 	}
 	baseline, err := readSamples(*baselinePath)
@@ -81,6 +82,10 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+func validMaxRegression(value float64) bool {
+	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func validateSamples(baseline, current map[string][]sample) error {
@@ -153,7 +158,8 @@ func parseSample(fields []string) (sample, bool) {
 			s.allocsOp = value
 		}
 	}
-	return s, s.nsPerOp > 0 && s.bytesPerOp > 0 && s.allocsOp > 0
+	return s, s.nsPerOp > 0 && s.bytesPerOp > 0 && s.allocsOp > 0 &&
+		!math.IsInf(s.nsPerOp, 0) && !math.IsInf(s.bytesPerOp, 0) && !math.IsInf(s.allocsOp, 0)
 }
 
 func fail(err error) {

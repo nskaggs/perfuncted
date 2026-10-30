@@ -322,7 +322,10 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			if !portalSignalMatches(sig, gotHandle, expectedHandlePath) || len(sig.Body) < 2 {
 				continue
 			}
-			code, _ := sig.Body[0].(uint32)
+			code, ok := sig.Body[0].(uint32)
+			if !ok {
+				return nil, fmt.Errorf("screen/portal: malformed screenshot authorization response")
+			}
 			if code != 0 {
 				return nil, fmt.Errorf("screen/portal: screenshot denied (code=%d)", code)
 			}

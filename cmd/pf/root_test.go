@@ -1095,7 +1095,7 @@ func TestWindowWatchAndOutputValidation(t *testing.T) {
 			{{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42}},
 			{{ID: 7, Title: "Firefox", AppID: "firefox", PID: 42}, {ID: 8, Title: "Terminal", AppID: "org.gnome.Terminal", PID: 99}},
 		}}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		stdout, stderr, code := captureRunIOContext(ctx, t, []string{"window", "watch", "--output", "json"}, func(*cliConfig) sessionOpener {
 			return func(context.Context) (*perfuncted.Session, error) {

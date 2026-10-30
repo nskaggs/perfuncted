@@ -36,7 +36,8 @@ func CreateFile(size int64) (*os.File, error) {
 		return nil, err
 	}
 	if err := f.Truncate(size); err != nil {
-		f.Close()
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return nil, err
 	}
 	os.Remove(f.Name()) //nolint:errcheck
