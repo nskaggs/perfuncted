@@ -20,6 +20,7 @@ type syntheticATSPINode struct {
 	attrs               map[string]string
 	interfaces          []string
 	children            []objectRef
+	application         objectRef
 	x, y, width, height int32
 }
 
@@ -28,6 +29,7 @@ func (n *syntheticATSPINode) GetInterfaces() ([]string, *dbus.Error)          { 
 func (n *syntheticATSPINode) GetState() ([]uint32, *dbus.Error)               { return n.states, nil }
 func (n *syntheticATSPINode) GetAttributes() (map[string]string, *dbus.Error) { return n.attrs, nil }
 func (n *syntheticATSPINode) GetChildren() ([]objectRef, *dbus.Error)         { return n.children, nil }
+func (n *syntheticATSPINode) GetApplication() (objectRef, *dbus.Error)        { return n.application, nil }
 func (n *syntheticATSPINode) GetText(start, end int32) (string, *dbus.Error) {
 	if start < 0 || end < start || end > int32(len(n.text)) {
 		return "", dbus.MakeFailedError(errors.New("invalid text range"))
@@ -85,10 +87,11 @@ func newSyntheticATSPIBackend(t *testing.T, protected bool) (*dbusBackend, NodeI
 	frame := &syntheticATSPINode{
 		name: "Editor — document", description: "Editor",
 		role: 23, text: "sensitive text",
-		attrs:      map[string]string{"password": "secret", "role": "editor", "text-value": "sensitive text"},
-		interfaces: []string{componentIface, textIface},
-		states:     []uint32{(1 << 8) | (1 << 12) | (1 << 25) | (1 << 30)},
-		x:          10, y: 15, width: 900, height: 700,
+		attrs:       map[string]string{"password": "secret", "role": "editor", "text-value": "sensitive text"},
+		interfaces:  []string{componentIface, textIface},
+		application: appRef,
+		states:      []uint32{(1 << 8) | (1 << 12) | (1 << 25) | (1 << 30)},
+		x:           10, y: 15, width: 900, height: 700,
 	}
 	if protected {
 		frame.states = append(frame.states, 1<<2)
