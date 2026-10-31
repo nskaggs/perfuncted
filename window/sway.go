@@ -605,6 +605,12 @@ func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
 
 // MoveByID positions the window identified by id.
 func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
+	// Sway's geometry protocol uses signed 32-bit coordinates. Validate before
+	// discovery or the preceding floating-enable operation so an impossible
+	// move cannot leave the target in an unexpectedly floating state.
+	if x < -2147483648 || x > 2147483647 || y < -2147483648 || y > 2147483647 {
+		return fmt.Errorf("window/sway: invalid move coordinates (%d,%d): %w", x, y, ErrInvalidArgument)
+	}
 	ctx = contextutil.Default(ctx)
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {

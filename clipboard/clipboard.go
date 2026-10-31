@@ -109,6 +109,9 @@ type extCmdClipboard struct {
 
 func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("clipboard get: %w", err)
+	}
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
@@ -122,11 +125,17 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 		}
 		return "", fmt.Errorf("clipboard get: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("clipboard get: %w", err)
+	}
 	return out.String(), nil
 }
 
 func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("clipboard set: %w", err)
+	}
 	if filepath.Base(c.setCmd[0]) == "wl-copy" {
 		return c.setWayland(ctx, text)
 	}
@@ -181,6 +190,9 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 			return fmt.Errorf("clipboard set: %w", runErr)
 		}
 		return fmt.Errorf("clipboard set: %w: %s", runErr, message)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("clipboard set: %w", err)
 	}
 	return nil
 }
