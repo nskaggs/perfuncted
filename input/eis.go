@@ -554,7 +554,10 @@ func (s *eiSender) devicesReady() bool { //nolint:gocyclo // readiness requires 
 	sort.Slice(deviceIDs, func(i, j int) bool { return deviceIDs[i] < deviceIDs[j] })
 	for _, id := range deviceIDs {
 		device := s.devices[id]
-		if !device.resumed {
+		// A resumed device is not yet usable until its enumeration is
+		// complete. Otherwise a partial interface or region advertisement
+		// can be treated as an authoritative input grant.
+		if !device.resumed || !device.done {
 			continue
 		}
 		if s.keyboardDev == 0 && device.interfaces["ei_keyboard"] != 0 {

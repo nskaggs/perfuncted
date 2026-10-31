@@ -284,7 +284,11 @@ func coalesceEvent(lastKey *string, lastAt *time.Time, event Event) bool {
 		return false
 	}
 	key := event.Kind + "\x00" + event.Node.BusName + "\x00" + event.Node.ObjectPath + "\x00" + event.Property
-	if key == *lastKey && !lastAt.IsZero() && event.Timestamp.Sub(*lastAt) <= eventCoalesceWindow {
+	// Out-of-order timestamps must not be treated as duplicates: negative
+	// durations are also less than the coalescing window but indicate that
+	// the earlier reference is no longer authoritative.
+	elapsed := event.Timestamp.Sub(*lastAt)
+	if key == *lastKey && !lastAt.IsZero() && elapsed >= 0 && elapsed <= eventCoalesceWindow {
 		return true
 	}
 	*lastKey, *lastAt = key, event.Timestamp

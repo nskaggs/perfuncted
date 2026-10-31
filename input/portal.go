@@ -687,6 +687,10 @@ func (b *RemoteDesktopBackend) watchLifecycle() {
 }
 
 func (b *RemoteDesktopBackend) isSelectedDevicePaused(message eiMessage) bool {
+	// Zero is the EIS global protocol object, not an optional device ID.
+	if message.object == 0 {
+		return false
+	}
 	if message.opcode == 0 || message.opcode == 8 {
 		if message.object == b.sender.keyboardDev || message.object == b.sender.buttonDev || message.object == b.sender.scrollDev || message.object == b.sender.textDev {
 			return true
@@ -701,6 +705,11 @@ func (b *RemoteDesktopBackend) isSelectedDevicePaused(message eiMessage) bool {
 }
 
 func (b *RemoteDesktopBackend) isEISLifecycleFailure(message eiMessage) bool {
+	// Absent optional interfaces have object ID zero. A global EIS message
+	// must not be mistaken for their destruction or suspension.
+	if message.object == 0 {
+		return false
+	}
 	if isEISDisconnected(message, b.sender.connection) || (message.object == b.sender.seat && message.opcode == 0) || b.isSelectedDevicePaused(message) {
 		return true
 	}
