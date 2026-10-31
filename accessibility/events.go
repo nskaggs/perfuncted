@@ -283,7 +283,16 @@ func coalesceEvent(lastKey *string, lastAt *time.Time, event Event) bool {
 	if lastKey == nil || lastAt == nil {
 		return false
 	}
-	key := event.Kind + "\x00" + event.Node.BusName + "\x00" + event.Node.ObjectPath + "\x00" + event.Property
+	// A redacted event carries no reliable value identity. Multiple changes
+	// to a protected field must remain observable even when they happen in
+	// one coalescing interval; identical empty payloads prove nothing.
+	if sensitiveEventProperty(event.Property) {
+		*lastKey, *lastAt = "", event.Timestamp
+		return false
+	}
+	// A non-sensitive property can change multiple times inside one window.
+	// Only coalesce genuinely identical visible values.
+	key := event.Kind + "\x00" + event.Node.BusName + "\x00" + event.Node.ObjectPath + "\x00" + event.Property + "\x00" + event.Value
 	// Out-of-order timestamps must not be treated as duplicates: negative
 	// durations are also less than the coalescing window but indicate that
 	// the earlier reference is no longer authoritative.
