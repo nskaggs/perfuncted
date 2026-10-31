@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/spf13/cobra"
@@ -113,7 +114,11 @@ func (o accessibilityRawOptions) node() (accessibility.NodeID, error) {
 	if o.generation == 0 {
 		return accessibility.NodeID{}, fmt.Errorf("raw node operation requires --generation from a current snapshot")
 	}
-	return accessibility.NodeID{BusName: strings.TrimSpace(o.bus), ObjectPath: strings.TrimSpace(o.path), Generation: o.generation}, nil
+	path := strings.TrimSpace(o.path)
+	if !dbus.ObjectPath(path).IsValid() {
+		return accessibility.NodeID{}, fmt.Errorf("raw node operation requires a valid D-Bus object path; got %q", path)
+	}
+	return accessibility.NodeID{BusName: strings.TrimSpace(o.bus), ObjectPath: path, Generation: o.generation}, nil
 }
 
 func accessibilityOutput(w io.Writer, jsonMode bool, value any) error {
