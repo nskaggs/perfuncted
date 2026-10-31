@@ -1018,6 +1018,9 @@ func (b *RemoteDesktopBackend) MouseMove(ctx context.Context, x, y int) error {
 	if err := b.stateError(); err != nil {
 		return err
 	}
+	if !b.sender.hasAuthorizedPointer() {
+		return unsupportedError("remote-desktop", "absolute pointer input")
+	}
 	if !b.sender.validatePoint(x, y) {
 		return fmt.Errorf("input/remote-desktop: (%d,%d) is outside the authorized EIS regions", x, y)
 	}
@@ -1061,6 +1064,9 @@ func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int)
 	// motion if the session cannot send the required button frame.
 	if b.sender.button == 0 || b.sender.buttonDev == 0 {
 		return unsupportedError("remote-desktop", "button input")
+	}
+	if !b.sender.hasAuthorizedPointer() {
+		return unsupportedError("remote-desktop", "absolute pointer input")
 	}
 	if !b.sender.validatePoint(x, y) {
 		return fmt.Errorf("input/remote-desktop: (%d,%d) is outside the authorized EIS regions", x, y)

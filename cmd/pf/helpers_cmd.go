@@ -151,26 +151,36 @@ func parsePoint(s string) (image.Point, error) {
 func screenPredicate(name string) (func(context.Context, image.Image) bool, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "non-empty", "non-zero":
-		return func(_ context.Context, img image.Image) bool {
+		return func(ctx context.Context, img image.Image) bool {
 			bounds := img.Bounds()
 			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					// Large transparent frames can take millions of pixel reads;
+					// bound cancellation latency even within a single long row.
+					if (x-bounds.Min.X)&63 == 0 && ctx != nil && ctx.Err() != nil {
+						return false
+					}
 					r, g, blue, a := img.At(x, y).RGBA()
 					if r|g|blue|a != 0 {
-						return true
+						return ctx == nil || ctx.Err() == nil
 					}
 				}
 			}
 			return false
 		}, nil
 	case "opaque":
-		return func(_ context.Context, img image.Image) bool {
+		return func(ctx context.Context, img image.Image) bool {
 			bounds := img.Bounds()
 			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					// Large transparent frames can take millions of pixel reads;
+					// bound cancellation latency even within a single long row.
+					if (x-bounds.Min.X)&63 == 0 && ctx != nil && ctx.Err() != nil {
+						return false
+					}
 					_, _, _, a := img.At(x, y).RGBA()
 					if a != 0 {
-						return true
+						return ctx == nil || ctx.Err() == nil
 					}
 				}
 			}

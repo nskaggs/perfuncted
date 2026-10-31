@@ -644,6 +644,12 @@ func (s *eiSender) pointerForPoint(x, y int) (eiPointerDevice, bool) {
 	var selected eiPointerDevice
 	found := false
 	for _, pointer := range s.pointers {
+		// Inactive or unbound devices do not own any part of the absolute
+		// coordinate space. A stale region must neither grant authorization
+		// nor mask an overlapping region from a live device.
+		if pointer.device == 0 || pointer.pointer == 0 {
+			continue
+		}
 		for _, region := range pointer.regions {
 			if uint64(x) >= uint64(region.x) && uint64(y) >= uint64(region.y) && uint64(x) < uint64(region.x)+uint64(region.width) && uint64(y) < uint64(region.y)+uint64(region.height) {
 				if found && selected.device != pointer.device {

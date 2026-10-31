@@ -214,7 +214,17 @@ func candidateNearQuery(node Node, query Query) bool {
 }
 
 func candidateFromNode(node Node) Candidate {
-	return Candidate{ID: node.ID, Role: node.Role, Name: node.Name, States: append([]string(nil), node.States...), Actions: append([]Action(nil), node.Actions...), Bounds: node.Bounds, HasBounds: node.HasBounds, Visible: node.Visible, Showing: node.Showing, Enabled: node.Enabled, Relations: node.Relations}
+	// Candidate is a mutable response independent from the source snapshot.
+	// Clone both map entries and their slices: copying only the map would
+	// still let consumers overwrite or extend cached provider relations.
+	var relations map[string][]NodeID
+	if node.Relations != nil {
+		relations = make(map[string][]NodeID, len(node.Relations))
+		for name, targets := range node.Relations {
+			relations[name] = append([]NodeID(nil), targets...)
+		}
+	}
+	return Candidate{ID: node.ID, Role: node.Role, Name: node.Name, States: append([]string(nil), node.States...), Actions: append([]Action(nil), node.Actions...), Bounds: node.Bounds, HasBounds: node.HasBounds, Visible: node.Visible, Showing: node.Showing, Enabled: node.Enabled, Relations: relations}
 }
 
 // Outline captures an existing scoped snapshot through the native backend.
