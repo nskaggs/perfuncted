@@ -267,6 +267,21 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	if err != nil {
 		return err
 	}
+	// Validate the *entire* command before emitting any keyboard events.
+	// Otherwise an unsupported tail leaves unintended text or a shortcut in
+	// the focused application even though the requested command failed.
+	for _, a := range actions {
+		if a.text != "" {
+			if err := b.validateTextRunes(a.text); err != nil {
+				return err
+			}
+		}
+		if a.key != "" {
+			if _, err := b.resolveKey(a.key); err != nil {
+				return err
+			}
+		}
+	}
 	for _, a := range actions {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -448,8 +463,26 @@ func (b *UinputBackend) releaseShift(err error) error {
 // typeText types literal text character-by-character using the kernel keymap
 // to determine the correct evdev keycode and shift state for each rune.
 // This is layout-independent: on AZERTY 'a' is at KEY_Q position, on QWERTY it's KEY_A, etc.
+
+// validateTextRunes rejects unsupported characters without producing a
+// partial prefix of input on the virtual keyboard.
+func (b *UinputBackend) validateTextRunes(s string) error {
+	for _, ch := range s {
+		if _, ok := b.charToRune[ch]; !ok {
+			return fmt.Errorf("input/uinput: unsupported character %q (not found in kernel keymap)", string(ch))
+		}
+	}
+	return nil
+}
+
 func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.validateTextRunes(s); err != nil {
+		return err
+	}
 	for _, ch := range s {
 		if err := ctx.Err(); err != nil {
 			return err

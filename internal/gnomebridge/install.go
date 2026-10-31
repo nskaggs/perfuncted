@@ -175,8 +175,17 @@ func (i Installer) Install(ctx context.Context, rt env.Runtime) (string, error) 
 	if !filepath.IsAbs(dest) {
 		return "", fmt.Errorf("gnome bridge: extension path must be absolute")
 	}
+	// A user-data path may be replaced by a symlink to an unrelated tree.
+	// Reject existing symlink ancestors before creating or replacing any
+	// extension files; also recheck after creating missing directories.
+	if err := rejectSymlinkDirectoryAncestors(root); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", fmt.Errorf("gnome bridge: create extension directory: %w", err)
+	}
+	if err := rejectSymlinkDirectoryAncestors(root); err != nil {
+		return "", err
 	}
 	tmp, err := os.MkdirTemp(root, ".perfuncted-extension-")
 	if err != nil {
@@ -199,6 +208,24 @@ func (i Installer) Install(ctx context.Context, rt env.Runtime) (string, error) 
 		return dest, err
 	}
 	return dest, nil
+}
+
+// rejectSymlinkDirectoryAncestors refuses to provision through a symlink in
+// the user-data tree. No existing symlink is followed before installation.
+func rejectSymlinkDirectoryAncestors(path string) error {
+	for path = filepath.Clean(path); path != string(filepath.Separator); path = filepath.Dir(path) {
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("gnome bridge: inspect extension directory %q: %w", path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("gnome bridge: extension directory %q must not be a symlink", path)
+		}
+	}
+	return nil
 }
 
 func writeEmbeddedExtension(dest string) error {
