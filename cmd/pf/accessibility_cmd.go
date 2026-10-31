@@ -612,6 +612,11 @@ func validateRawInvocation(in rawInvocation) error {
 		if err := json.Unmarshal([]byte(in.selectionsJSON), &selections); err != nil {
 			return fmt.Errorf("invalid --selections JSON: %w", err)
 		}
+		// Empty batches cannot be applied by the AT-SPI Document backend.
+		// Reject them before opening a desktop authorization session.
+		if len(selections) == 0 {
+			return fmt.Errorf("accessibility: document selections list must not be empty")
+		}
 		return nil
 	default:
 		return fmt.Errorf("unknown raw op %q", in.op)

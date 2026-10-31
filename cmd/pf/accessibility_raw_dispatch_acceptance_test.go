@@ -90,7 +90,7 @@ func TestAccessibilityRawCLIRoutesEveryRemainingMutationToCorrectBackendMethod(t
 		{"cut", "cut-text", []string{"--start", "9", "--end", "19"}, "cut:9:19"},
 		{"paste", "paste-text", []string{"--position", "22"}, "paste:22"},
 		{"caret", "set-caret", []string{"--offset", "18"}, "caret:18"},
-		{"document selections empty", "set-document-text-selections", []string{"--selections", "[]"}, "selection-count:0"},
+		{"document selection with one valid text range", "set-document-text-selections", []string{"--selections", `[{"startObject":{"busName":"org.test.App","objectPath":"/entry","generation":1},"startOffset":1,"endObject":{"busName":"org.test.App","objectPath":"/entry","generation":1},"endOffset":4}]`}, "selection-count:1"},
 		{"deselect child", "deselect-child", []string{"--index", "7"}, "deselect-child:7"},
 		{"deselect selected child", "deselect-selected-child", nil, "deselect-selected-child"},
 	}
