@@ -35,9 +35,17 @@ func SessionBusAddressContext(ctx context.Context, addr string) (*dbus.Conn, err
 		return nil, err
 	}
 	if addr == "" {
-		// Return a private connection so the caller can Close it without
-		// disturbing other users of the shared session bus.
-		return dbus.SessionBusPrivate()
+		// Keep the default bus private, but it still needs the same Auth and
+		// Hello negotiation as a connection to an explicit address. Without
+		// this, callers can obtain a socket that cannot execute bus methods.
+		conn, err := dbus.SessionBusPrivate()
+		if err != nil {
+			return nil, err
+		}
+		if err := handshakeContext(ctx, conn); err != nil {
+			return nil, errors.Join(err, conn.Close())
+		}
+		return conn, nil
 	}
 	return ConnectContext(ctx, addr)
 }
