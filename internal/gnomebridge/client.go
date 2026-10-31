@@ -174,6 +174,18 @@ func (c *Client) HasCapability(capability string) bool {
 	return c != nil && slices.Contains(c.caps, capability)
 }
 
+// bridgeContextError preserves cancellation and its cause across late D-Bus
+// acknowledgments, including callers with an independent cancellation cause.
+func bridgeContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, err) {
+			return errors.Join(err, cause)
+		}
+		return err
+	}
+	return nil
+}
+
 func (c *Client) call(ctx context.Context, iface, method string, out ...any) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -203,19 +215,26 @@ func (c *Client) call(ctx context.Context, iface, method string, out ...any) err
 		}
 		return translateDBusError(call.Err)
 	}
-	if len(out) == 0 {
-		return nil
+	if len(out) != 0 {
+		if err := call.Store(out...); err != nil {
+			return fmt.Errorf("decode %s.%s reply: %w", iface, method, err)
+		}
 	}
-	if err := call.Store(out...); err != nil {
-		return fmt.Errorf("decode %s.%s reply: %w", iface, method, err)
-	}
-	return nil
+	return bridgeContextError(ctx)
 }
 
 func translateDBusError(err error) error {
 	var dbusErr *dbus.Error
 	if !errors.As(err, &dbusErr) {
-		return err
+		// godbus returns wire-level replies as dbus.Error values, whereas
+		// exported local methods commonly return *dbus.Error. Both must be
+		// normalized or genuine missing-interface errors lose their typed
+		// unavailable status at the production D-Bus boundary.
+		var value dbus.Error
+		if !errors.As(err, &value) {
+			return err
+		}
+		dbusErr = &value
 	}
 	switch dbusErr.Name {
 	case "org.freedesktop.DBus.Error.Disconnected",
@@ -223,7 +242,9 @@ func translateDBusError(err error) error {
 		"org.freedesktop.DBus.Error.NoReply",
 		"org.freedesktop.DBus.Error.ServiceUnknown",
 		"org.freedesktop.DBus.Error.UnknownMethod",
-		"org.freedesktop.DBus.Error.UnknownObject":
+		"org.freedesktop.DBus.Error.UnknownInterface",
+		"org.freedesktop.DBus.Error.UnknownObject",
+		"org.freedesktop.DBus.Error.NoSuchObject":
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	case "io.github.nskaggs.perfuncted.Gnome1.Error.NotFound":
 		return fmt.Errorf("%w: %w", ErrObjectNotFound, err)
@@ -464,7 +485,7 @@ func (c *Client) callWithArgsOut(ctx context.Context, iface, method string, args
 			return fmt.Errorf("decode %s.%s reply: %w", iface, method, err)
 		}
 	}
-	return nil
+	return bridgeContextError(ctx)
 }
 
 func (c *Client) Activate(ctx context.Context, id string) error {
@@ -580,7 +601,7 @@ func (c *Client) capture(ctx context.Context, method string, fd int, args []any,
 			return fmt.Errorf("decode %s reply: %w", method, err)
 		}
 	}
-	return nil
+	return bridgeContextError(ctx)
 }
 
 func (c *Client) Key(ctx context.Context, keyval uint32, pressed bool) error {
