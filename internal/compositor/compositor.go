@@ -7,8 +7,10 @@
 package compositor
 
 import (
+	"context"
 	"strings"
 
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -42,35 +44,53 @@ func (s Session) String() string {
 
 // DetectRuntime identifies the compositor represented by rt.
 func DetectRuntime(rt env.Runtime) Session {
+	found, _ := DetectRuntimeContext(context.Background(), rt)
+	return found
+}
+
+// DetectRuntimeContext bounds Wayland protocol discovery by the requesting
+// operation's deadline. A reachable but unresponsive compositor must not
+// block authorization or backend selection after the caller cancels.
+func DetectRuntimeContext(ctx context.Context, rt env.Runtime) (Session, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return Unknown, err
+	}
 	if rt.Get("WAYLAND_DISPLAY") == "" {
-		return X11
+		return X11, nil
 	}
 
 	// Probe the real compositor socket first.
-	if s, ok := probeGlobals(rt); ok {
-		return s
+	if s, ok := probeGlobalsContext(ctx, rt); ok {
+		return s, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return Unknown, err
 	}
 
 	// Env-var fallbacks (fast but unreliable for nested sessions).
 	if rt.Get("SWAYSOCK") != "" || rt.Get("HYPRLAND_INSTANCE_SIGNATURE") != "" {
-		return Wlroots
+		return Wlroots, nil
 	}
 	desktop := strings.ToUpper(rt.Get("XDG_CURRENT_DESKTOP"))
 	switch {
 	case desktopHasID(desktop, "KDE"):
-		return KDE
+		return KDE, nil
 	case desktopHasID(desktop, "GNOME"):
-		return GNOME
+		return GNOME, nil
 	case desktopHasID(desktop, "SWAY"),
 		desktopHasID(desktop, "HYPRLAND"),
 		desktopHasID(desktop, "RIVER"),
 		desktopHasID(desktop, "WAYFIRE"):
-		return Wlroots
+		return Wlroots, nil
 	}
 	if kwinOnBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")) {
-		return KDE
+		return KDE, nil
 	}
-	return Unknown
+	if err := ctx.Err(); err != nil {
+		return Unknown, err
+	}
+	return Unknown, nil
 }
 
 // XDG_CURRENT_DESKTOP is a colon-separated list of desktop IDs, not a
@@ -91,13 +111,13 @@ func desktopHasID(desktops, name string) bool {
 // Wlroots protocols seen on the actual socket take priority over KDE D-Bus
 // presence, so nested sway/Hyprland sessions inside a KDE desktop are
 // correctly identified as wlroots.
-func probeGlobals(rt env.Runtime) (Session, bool) {
+func probeGlobalsContext(ctx context.Context, rt env.Runtime) (Session, bool) {
 	sock := rt.SocketPath()
 	if sock == "" {
 		return 0, false
 	}
 	// Use the Session helper to connect and synchronously collect globals.
-	s, err := wl.NewSession(sock)
+	s, err := wl.NewSessionContext(ctx, sock)
 	if err != nil {
 		return 0, false
 	}

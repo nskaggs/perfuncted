@@ -60,7 +60,11 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Clipboard, error) 
 	display := rt.Display()
 	sock := rt.SocketPath()
 
-	if compositor.DetectRuntime(rt) == compositor.GNOME {
+	compositorKind, err := compositor.DetectRuntimeContext(ctx, rt)
+	if err != nil {
+		return nil, err
+	}
+	if compositorKind == compositor.GNOME {
 		if clipboard, err := NewGnomeNativeClipboardForRuntimeContext(ctx, rt); err == nil {
 			return clipboard, nil
 		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {

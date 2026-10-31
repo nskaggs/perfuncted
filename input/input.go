@@ -253,7 +253,11 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 
 	// GNOME's Shell extension has compositor authority and therefore avoids
 	// both wlroots-only virtual protocols and host-level uinput permissions.
-	if compositor.DetectRuntime(rt) == compositor.GNOME {
+	compositorKind, detectErr := compositor.DetectRuntimeContext(ctx, rt)
+	if detectErr != nil {
+		return nil, detectErr
+	}
+	if compositorKind == compositor.GNOME {
 		b, err := newGnomeNativeBackend(ctx, rt)
 		switch {
 		case ctx.Err() != nil:

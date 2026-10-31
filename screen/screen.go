@@ -119,7 +119,11 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Screenshotter, err
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
 		return NewX11Backend(display)
 	}
-	switch compositor.DetectRuntime(rt) {
+	compositorKind, detectErr := compositor.DetectRuntimeContext(ctx, rt)
+	if detectErr != nil {
+		return nil, detectErr
+	}
+	switch compositorKind {
 	case compositor.KDE:
 		if b, err := NewKWinShotBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS")); err == nil {
 			return b, nil
