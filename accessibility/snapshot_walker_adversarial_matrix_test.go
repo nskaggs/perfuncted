@@ -18,9 +18,14 @@ type syntheticTreeReader struct {
 	parents       map[string]NodeID
 	freshReads    int
 	freshChildren int
+	afterRead     func()
+	beforeRef     func()
 }
 
 func (r *syntheticTreeReader) refID(ref objectRef) NodeID {
+	if r.beforeRef != nil {
+		r.beforeRef()
+	}
 	return NodeID{BusName: ref.BusName, ObjectPath: string(ref.ObjectPath), Generation: 7}
 }
 func (r *syntheticTreeReader) readNode(ctx context.Context, id, parent NodeID, _ int, _ bool) (Node, error) {
@@ -37,6 +42,9 @@ func (r *syntheticTreeReader) readNode(ctx context.Context, id, parent NodeID, _
 	}
 	node.ID = id
 	node.Parent = parent
+	if r.afterRead != nil {
+		r.afterRead()
+	}
 	return node, nil
 }
 func (r *syntheticTreeReader) children(ctx context.Context, id NodeID) ([]objectRef, error) {
@@ -82,6 +90,84 @@ func newSyntheticTreeWalker(opts SnapshotOptions) *snapshotWalker {
 }
 func runSyntheticWalk(w *snapshotWalker) (Node, error) {
 	return w.walk(context.Background(), NodeID{BusName: "org.synthetic.App", ObjectPath: "/root", Generation: 7}, NodeID{}, 0)
+}
+
+type snapshotReaderWithoutFreshMethods struct{ reader *syntheticTreeReader }
+
+func (r snapshotReaderWithoutFreshMethods) readNode(ctx context.Context, id, parent NodeID, limit int, sensitive bool) (Node, error) {
+	return r.reader.readNode(ctx, id, parent, limit, sensitive)
+}
+func (r snapshotReaderWithoutFreshMethods) children(ctx context.Context, id NodeID) ([]objectRef, error) {
+	return r.reader.children(ctx, id)
+}
+func (r snapshotReaderWithoutFreshMethods) refID(ref objectRef) NodeID { return r.reader.refID(ref) }
+
+func TestSnapshotWalkerFreshFallsBackWhenReaderHasNoFreshAPI(t *testing.T) {
+	w := newSyntheticTreeWalker(SnapshotOptions{Fresh: true, MaxNodes: 8, MaxDepth: 8})
+	reader := w.backend.(*syntheticTreeReader)
+	w.backend = snapshotReaderWithoutFreshMethods{reader: reader}
+	root, err := runSyntheticWalk(w)
+	if err != nil || root.ID.ObjectPath != "/root" || len(w.snapshot.Nodes) != 4 {
+		t.Fatalf("fresh traversal without specialized reader = root %+v, nodes %d, err %v", root, len(w.snapshot.Nodes), err)
+	}
+	if reader.freshReads != 0 || reader.freshChildren != 0 || len(reader.parents) != 0 {
+		t.Fatalf("fallback invoked unavailable fresh/parent APIs: reads=%d children=%d parents=%v", reader.freshReads, reader.freshChildren, reader.parents)
+	}
+}
+
+func TestSnapshotWalkerRejectsEntryAtNodeLimit(t *testing.T) {
+	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 1, MaxDepth: 8})
+	id := NodeID{BusName: "org.synthetic.App", ObjectPath: "/root", Generation: 7}
+	w.snapshot.Nodes = []Node{{ID: id}}
+	if _, err := w.walk(context.Background(), id, NodeID{}, 0); err == nil || !w.snapshot.Truncated {
+		t.Fatalf("walker accepted a node beyond its bound: err=%v snapshot=%+v", err, w.snapshot)
+	}
+}
+
+func TestSnapshotWalkerPropagatesCancellationAfterProviderRead(t *testing.T) {
+	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
+	reader := w.backend.(*syntheticTreeReader)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader.afterRead = cancel
+	id := NodeID{BusName: "org.synthetic.App", ObjectPath: "/root", Generation: 7}
+	if _, err := w.walk(ctx, id, NodeID{}, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation during provider response was hidden: %v", err)
+	}
+	if len(w.snapshot.Nodes) != 1 {
+		t.Fatalf("canceled traversal continued to child objects: %+v", w.snapshot.Nodes)
+	}
+}
+
+func TestSnapshotWalkerPropagatesCancellationAtChildBoundary(t *testing.T) {
+	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
+	reader := w.backend.(*syntheticTreeReader)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader.beforeRef = cancel
+	id := NodeID{BusName: "org.synthetic.App", ObjectPath: "/root", Generation: 7}
+	if _, err := w.walk(ctx, id, NodeID{}, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation before child read was hidden: %v", err)
+	}
+	if len(w.snapshot.Nodes) != 1 {
+		t.Fatalf("canceled traversal committed a child: %+v", w.snapshot.Nodes)
+	}
+}
+
+func TestSnapshotWalkerPromotesNodeWarningsToProviderErrors(t *testing.T) {
+	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
+	reader := w.backend.(*syntheticTreeReader)
+	reader.nodes["/root"] = Node{
+		Name: "App", Role: "application", ChildCount: 3,
+		Warnings: []string{"AT-SPI omitted one optional root property"},
+	}
+	root, err := runSyntheticWalk(w)
+	if err != nil || root.ID.ObjectPath != "/root" {
+		t.Fatalf("warning-bearing root traversal = %+v, %v", root, err)
+	}
+	if w.providerErrors != 1 || len(w.snapshot.Warnings) != 1 || w.snapshot.Warnings[0] != "AT-SPI omitted one optional root property" {
+		t.Fatalf("node warning was not included in snapshot completeness evidence: %+v, errors=%d", w.snapshot, w.providerErrors)
+	}
 }
 func TestSnapshotWalkerDetectsDuplicateLinksAndPreservesParentHandles(t *testing.T) {
 	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8, MaxTextBytes: 100})

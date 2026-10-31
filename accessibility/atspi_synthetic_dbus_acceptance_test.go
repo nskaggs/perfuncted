@@ -20,7 +20,10 @@ type syntheticATSPINode struct {
 	attrs               map[string]string
 	interfaces          []string
 	children            []objectRef
+	childrenFailure     string
 	application         objectRef
+	pointResult         objectRef
+	pointFailure        string
 	x, y, width, height int32
 }
 
@@ -28,8 +31,22 @@ func (n *syntheticATSPINode) GetRole() (uint32, *dbus.Error)                  { 
 func (n *syntheticATSPINode) GetInterfaces() ([]string, *dbus.Error)          { return n.interfaces, nil }
 func (n *syntheticATSPINode) GetState() ([]uint32, *dbus.Error)               { return n.states, nil }
 func (n *syntheticATSPINode) GetAttributes() (map[string]string, *dbus.Error) { return n.attrs, nil }
-func (n *syntheticATSPINode) GetChildren() ([]objectRef, *dbus.Error)         { return n.children, nil }
-func (n *syntheticATSPINode) GetApplication() (objectRef, *dbus.Error)        { return n.application, nil }
+func (n *syntheticATSPINode) GetChildren() ([]objectRef, *dbus.Error) {
+	if n.childrenFailure != "" {
+		return nil, dbus.MakeFailedError(errors.New(n.childrenFailure))
+	}
+	return n.children, nil
+}
+func (n *syntheticATSPINode) GetApplication() (objectRef, *dbus.Error) { return n.application, nil }
+func (n *syntheticATSPINode) GetAccessibleAtPoint(_, _ int32, _ uint32) (objectRef, *dbus.Error) {
+	if n.pointFailure != "" {
+		return objectRef{}, dbus.MakeFailedError(errors.New(n.pointFailure))
+	}
+	if n.pointResult.null() {
+		return objectRef{BusName: registryName, ObjectPath: nullObjectPath}, nil
+	}
+	return n.pointResult, nil
+}
 func (n *syntheticATSPINode) GetText(start, end int32) (string, *dbus.Error) {
 	if start < 0 || end < start || end > int32(len(n.text)) {
 		return "", dbus.MakeFailedError(errors.New("invalid text range"))
@@ -66,6 +83,10 @@ func (n *syntheticATSPINode) Get(iface, key string) (dbus.Variant, *dbus.Error) 
 }
 
 func newSyntheticATSPIBackend(t *testing.T, protected bool) (*dbusBackend, NodeID, WindowTarget) {
+	return newSyntheticATSPIBackendWithFrameSetup(t, protected, nil)
+}
+
+func newSyntheticATSPIBackendWithFrameSetup(t *testing.T, protected bool, setup func(*syntheticATSPINode, *syntheticATSPINode)) (*dbusBackend, NodeID, WindowTarget) {
 	t.Helper()
 	address := startTestDBus(t)
 	ctx := context.Background()
@@ -95,6 +116,9 @@ func newSyntheticATSPIBackend(t *testing.T, protected bool) (*dbusBackend, NodeI
 	}
 	if protected {
 		frame.states = append(frame.states, 1<<2)
+	}
+	if setup != nil {
+		setup(root, frame)
 	}
 	for _, item := range []struct {
 		path dbus.ObjectPath
