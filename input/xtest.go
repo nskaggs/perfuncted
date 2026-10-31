@@ -710,7 +710,7 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune, scratch []xpro
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
 		if upErr := b.keyUpKC(kc); upErr != nil {
-			return releaseApplied(upErr)
+			return releaseApplied(errors.Join(err, upErr))
 		}
 		return releaseApplied(err)
 	}

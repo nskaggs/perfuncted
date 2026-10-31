@@ -45,6 +45,18 @@ func TestXTestCanceledPressPreservesCancellationWhenReleaseFails(t *testing.T) {
 				{eventType: xproto.KeyRelease, detail: 8},
 			},
 		},
+		{
+			name: "literal text",
+			call: func(b *XTestBackend, ctx context.Context) error {
+				return b.TypeLiteral(ctx, "a")
+			},
+			press: xtestEvent{eventType: xproto.KeyPress, detail: 8},
+			up:    xtestEvent{eventType: xproto.KeyRelease, detail: 8},
+			want: []xtestEvent{
+				{eventType: xproto.KeyPress, detail: 8},
+				{eventType: xproto.KeyRelease, detail: 8},
+			},
+		},
 	}
 
 	for _, test := range tests {
