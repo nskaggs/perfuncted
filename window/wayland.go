@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -282,11 +283,15 @@ func (m *WaylandWindowManager) handleExtToplevelEvent(
 	case 0: // closed
 		delete(m.toplevels, handleID)
 	case 2: // title
-		info.Title = decodeWaylandString(data)
+		if title, ok := parseWaylandString(data); ok {
+			info.Title = title
+		}
 	case 3: // app_id
-		info.AppID = decodeWaylandString(data)
+		if appID, ok := parseWaylandString(data); ok {
+			info.AppID = appID
+		}
 	case 4: // stable protocol identifier
-		if identifier := decodeWaylandString(data); identifier != "" {
+		if identifier, ok := parseWaylandString(data); ok && identifier != "" {
 			info.NativeID = identifier
 		}
 	}
@@ -309,7 +314,11 @@ func parseWaylandString(data []byte) (string, bool) {
 	if data[end-1] != 0 {
 		return "", false
 	}
-	return strings.TrimRight(string(data[4:end]), "\x00"), true
+	value := string(data[4 : end-1])
+	if strings.IndexByte(value, 0) >= 0 || !utf8.ValidString(value) {
+		return "", false
+	}
+	return value, true
 }
 
 func (m *WaylandWindowManager) notifyWindowChange() {
