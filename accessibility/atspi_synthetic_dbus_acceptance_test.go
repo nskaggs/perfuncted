@@ -20,6 +20,7 @@ type syntheticATSPINode struct {
 	attrs               map[string]string
 	interfaces          []string
 	children            []objectRef
+	childrenHook        func()
 	childrenFailure     string
 	application         objectRef
 	pointResult         objectRef
@@ -35,7 +36,11 @@ func (n *syntheticATSPINode) GetChildren() ([]objectRef, *dbus.Error) {
 	if n.childrenFailure != "" {
 		return nil, dbus.MakeFailedError(errors.New(n.childrenFailure))
 	}
-	return n.children, nil
+	children := append([]objectRef(nil), n.children...)
+	if n.childrenHook != nil {
+		n.childrenHook()
+	}
+	return children, nil
 }
 func (n *syntheticATSPINode) GetApplication() (objectRef, *dbus.Error) { return n.application, nil }
 func (n *syntheticATSPINode) GetAccessibleAtPoint(_, _ int32, _ uint32) (objectRef, *dbus.Error) {
