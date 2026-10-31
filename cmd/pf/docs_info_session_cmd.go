@@ -297,6 +297,12 @@ func writeWaylandCheck(out io.Writer, display, runtimeDir string) error {
 }
 
 func sessionStartCmd() *cobra.Command {
+	return sessionStartCmdWithOpener(perfuncted.Open)
+}
+
+// sessionStartCmdWithOpener shares the real command transaction with an
+// isolated test session, without starting an actual desktop compositor.
+func sessionStartCmdWithOpener(open func(context.Context, ...perfuncted.Option) (*perfuncted.Session, error)) *cobra.Command {
 	var startResX, startResY int
 	var startSwayConf string
 	cmd := &cobra.Command{
@@ -319,7 +325,7 @@ Use the printed env vars in another terminal to connect:
 			}
 			cfg.SwayConfigPath = startSwayConf
 
-			session, err := perfuncted.Open(cmd.Context(), perfuncted.WithHeadless(cfg))
+			session, err := open(cmd.Context(), perfuncted.WithHeadless(cfg))
 			if err != nil {
 				return err
 			}
