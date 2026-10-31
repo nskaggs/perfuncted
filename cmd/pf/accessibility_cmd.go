@@ -482,26 +482,39 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var rawText, rawRangeText, rawSelectionsJSON string
 	var rawStart, rawEnd, rawOffset, rawSelection, rawPosition, rawIndex int32
 	raw := &cobra.Command{Use: "raw", Short: "Invoke one typed AT-SPI primitive with an explicit handle", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		// Invalid syntax must not open AT-SPI connections or prompt users for
+		// desktop accessibility authorization. Reopen alone needs no handle.
+		op := strings.ToLower(strings.TrimSpace(rawOp))
+		if op == "" {
+			return fmt.Errorf("raw requires --op")
+		}
+		var node accessibility.NodeID
+		if op != "reopen" {
+			var err error
+			node, err = rawOpts.node()
+			if err != nil {
+				return err
+			}
+		}
+		// Pure request validation precedes any D-Bus connection or portal
+		// authorization, including typed values and operation names.
+		inv := rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex}
+		if op != "reopen" {
+			if err := validateRawInvocation(inv); err != nil {
+				return err
+			}
+		}
 		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
 		}
 		defer pf.Close()
-		op := strings.ToLower(strings.TrimSpace(rawOp))
-		if op == "" {
-			return fmt.Errorf("raw requires --op")
-		}
 		if op == "reopen" {
 			if reopenErr := pf.Accessibility.Reopen(c.Context()); reopenErr != nil {
 				return reopenErr
 			}
 			return accessibilityOutput(c.OutOrStdout(), rawOpts.json, "ok")
 		}
-		node, err := rawOpts.node()
-		if err != nil {
-			return err
-		}
-		inv := rawInvocation{op: op, actionName: rawActionName, actionIndex: rawActionIndex, alignment: rawAlignment, coord: rawCoord, x: rawX, y: rawY, width: rawWidth, height: rawHeight, value: rawValue, text: rawText, rangeText: rawRangeText, selectionsJSON: rawSelectionsJSON, start: rawStart, end: rawEnd, offset: rawOffset, selection: rawSelection, position: rawPosition, index: rawIndex}
 		value, err := invokeRawOp(c.Context(), pf.Accessibility, node, inv)
 		if err != nil {
 			return err
@@ -555,6 +568,30 @@ type rawInvocation struct {
 	selection       int32
 	position        int32
 	index           int32
+}
+
+// validateRawInvocation rejects malformed local syntax before backend access.
+// Backend-dependent authorization, node generations and bounds remain the
+// responsibility of the typed accessibility operations themselves.
+func validateRawInvocation(in rawInvocation) error {
+	switch in.op {
+	case "action", "focus", "set-size", "set-value", "set-text-contents", "insert-text", "delete-text", "copy-text", "cut-text", "paste-text", "set-caret", "set-text-selection", "add-text-selection", "remove-text-selection", "select-child", "deselect-child", "select-all", "clear-selection", "deselect-selected-child", "select-row", "deselect-row", "select-column", "deselect-column":
+		return nil
+	case "scroll":
+		_, err := parseAccessibilityScrollType(in.alignment)
+		return err
+	case "scroll-to-point", "set-position", "set-extents":
+		_, err := parseAccessibilityCoordType(in.coord)
+		return err
+	case "set-document-text-selections":
+		var selections []accessibility.DocumentTextSelection
+		if err := json.Unmarshal([]byte(in.selectionsJSON), &selections); err != nil {
+			return fmt.Errorf("invalid --selections JSON: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown raw op %q", in.op)
+	}
 }
 
 func invokeRawOp(ctx context.Context, bundle *perfuncted.AccessibilityBundle, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
