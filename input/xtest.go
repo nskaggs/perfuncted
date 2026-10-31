@@ -509,7 +509,7 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 		}
 		if err := sleepContext(ctx, b.delay); err != nil {
 			if upErr := b.keyUpKC(kc); upErr != nil {
-				return upErr
+				return errors.Join(err, upErr)
 			}
 			return err
 		}
@@ -766,7 +766,7 @@ func (b *XTestBackend) mouseClick(ctx context.Context, x, y, button int) error {
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
 		if upErr := b.mouseButton(context.Background(), xproto.ButtonRelease, button); upErr != nil { //nolint:contextcheck // intentional: release button even if context cancelled
-			return upErr
+			return errors.Join(err, upErr)
 		}
 		return err
 	}
