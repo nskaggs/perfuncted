@@ -234,6 +234,14 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		stopWaylandOwner(cmd, done)
 		return fmt.Errorf("clipboard set: %w", err)
 	}
+	// The compositor may already be serving the requested bytes from an old
+	// selection. A matching paste alone must not authorize success when the
+	// foreground wl-copy process failed before acquiring this selection.
+	select {
+	case <-done:
+		return fmt.Errorf("clipboard set: foreground owner exited before selection readiness")
+	default:
+	}
 
 	// The owner must remain alive long enough for readers to consume the
 	// selection, but its lifetime is bounded independently from the caller's

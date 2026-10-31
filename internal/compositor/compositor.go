@@ -57,20 +57,33 @@ func DetectRuntime(rt env.Runtime) Session {
 	}
 	desktop := strings.ToUpper(rt.Get("XDG_CURRENT_DESKTOP"))
 	switch {
-	case strings.Contains(desktop, "KDE"):
+	case desktopHasID(desktop, "KDE"):
 		return KDE
-	case strings.Contains(desktop, "GNOME"):
+	case desktopHasID(desktop, "GNOME"):
 		return GNOME
-	case strings.Contains(desktop, "SWAY"),
-		strings.Contains(desktop, "HYPRLAND"),
-		strings.Contains(desktop, "RIVER"),
-		strings.Contains(desktop, "WAYFIRE"):
+	case desktopHasID(desktop, "SWAY"),
+		desktopHasID(desktop, "HYPRLAND"),
+		desktopHasID(desktop, "RIVER"),
+		desktopHasID(desktop, "WAYFIRE"):
 		return Wlroots
 	}
 	if kwinOnBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")) {
 		return KDE
 	}
 	return Unknown
+}
+
+// XDG_CURRENT_DESKTOP is a colon-separated list of desktop IDs, not a
+// free-text description. Accept a genuine ID or its named variant (e.g.
+// GNOME-Classic), but not vendor names that merely contain that string.
+func desktopHasID(desktops, name string) bool {
+	for _, desktop := range strings.Split(desktops, ":") {
+		desktop = strings.TrimSpace(desktop)
+		if desktop == name || strings.HasPrefix(desktop, name+"-") {
+			return true
+		}
+	}
+	return false
 }
 
 // probeGlobals connects to WAYLAND_DISPLAY and inspects the advertised
@@ -133,7 +146,10 @@ func kwinOnBus(addr string) bool {
 		return false
 	}
 	for _, n := range names {
-		if strings.HasPrefix(n, "org.kde.KWin") {
+		// KWin's well-known bus name is exact. A different application may
+		// legitimately own org.kde.KWinTools or KWinSpoof, neither of which
+		// establishes KWin compositor support.
+		if n == "org.kde.KWin" {
 			return true
 		}
 	}
