@@ -117,6 +117,9 @@ func (b *dbusBackend) actionMetadata(ctx context.Context, id NodeID) ([]Action, 
 			return nil, err
 		}
 		result, err := b.callOverride(ctx, id, actionIface+".GetActions", nil)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if normalizedErr := normalizeMutationError(actionIface, "GetActions", err); normalizedErr != nil {
 			return nil, normalizedErr
 		}
@@ -154,6 +157,9 @@ func (b *dbusBackend) actionName(ctx context.Context, id NodeID, index int32) (s
 			return "", err
 		}
 		result, err := b.callOverride(ctx, id, actionIface+".GetName", []any{index})
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
 		if normalizedErr := normalizeMutationError(actionIface, "GetName", err); normalizedErr != nil {
 			return "", normalizedErr
 		}
@@ -350,16 +356,20 @@ func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) er
 			return err
 		}
 		_, err := b.callOverride(ctx, id, propertiesIface+".Set", []any{valueIface, "CurrentValue", dbus.MakeVariant(value)})
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return normalizeMutationError(valueIface, "CurrentValue", err)
 	}
 	obj, err := b.object(id)
 	if err != nil {
 		return err
 	}
-	if err := obj.CallWithContext(ctx, propertiesIface+".Set", 0, valueIface, "CurrentValue", dbus.MakeVariant(value)).Err; err != nil {
-		return normalizeMutationError(valueIface, "CurrentValue", err)
+	call := obj.CallWithContext(ctx, propertiesIface+".Set", 0, valueIface, "CurrentValue", dbus.MakeVariant(value))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
-	return nil
+	return normalizeMutationError(valueIface, "CurrentValue", call.Err)
 }
 
 func (b *dbusBackend) SetTextContents(ctx context.Context, id NodeID, text string) error {

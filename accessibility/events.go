@@ -519,20 +519,16 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 		case <-ctx.Done():
 			return
 		case <-access.Context().Done():
-			b.mu.Lock()
-			if !b.disconnected {
-				b.disconnected = true
-				b.generation++
-				b.observationRevision++
-				b.cacheRevision++
-				b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
-				b.cacheChildrenIndex = nil
-				b.toolkits = nil
-			}
-			b.mu.Unlock()
+			b.invalidateDisconnectedEventConnection()
 			return
 		case sig, ok := <-signals:
 			if !ok {
+				// The connection can close the signal channel before the
+				// dispatcher selects its context cancellation. In either
+				// ordering, stale object handles must be invalidated.
+				if access.Context().Err() != nil {
+					b.invalidateDisconnectedEventConnection()
+				}
 				return
 			}
 			event := signalEvent(sig)
@@ -556,6 +552,23 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 			b.deliverEvent(event)
 		}
 	}
+}
+
+// invalidateDisconnectedEventConnection marks the old handle generation as
+// unusable without waiting on this dispatcher's own cleanup signal.
+func (b *dbusBackend) invalidateDisconnectedEventConnection() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.disconnected {
+		return
+	}
+	b.disconnected = true
+	b.generation++
+	b.observationRevision++
+	b.cacheRevision++
+	b.cache, b.cacheItems, b.cacheApps = nil, nil, nil
+	b.cacheChildrenIndex = nil
+	b.toolkits = nil
 }
 
 // prepareEvent applies the state transition associated with one physical

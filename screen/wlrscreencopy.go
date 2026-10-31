@@ -166,6 +166,9 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 		if err != nil {
 			return fmt.Errorf("screen/wlr: connect: %w", err)
 		}
+		if ctx == nil {
+			return fmt.Errorf("screen/wlr: connector returned nil connection")
+		}
 		b.ctx = ctx
 		b.shm = nil
 		b.output = nil
@@ -229,7 +232,7 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 	}
 
 	var mgrName, mgrVer uint32
-	var outID uint32
+	var outID, outVer uint32
 
 	registry.SetGlobalHandler(func(ev wl.GlobalEvent) {
 		switch ev.Interface {
@@ -239,6 +242,7 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 		case "wl_output":
 			if outID == 0 {
 				outID = ev.Name
+				outVer = ev.Version
 			}
 		case "wl_shm":
 			s := &wl.Shm{}
@@ -271,7 +275,7 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 
 	b.output = &wlRawProxy{}
 	ctx.Register(b.output)
-	if err := registry.BindContext(operationCtx, outID, "wl_output", 4, b.output.ID()); err != nil {
+	if err := registry.BindContext(operationCtx, outID, "wl_output", min(outVer, 4), b.output.ID()); err != nil {
 		return fmt.Errorf("screen/wlr: bind output: %w", err)
 	}
 
@@ -506,6 +510,9 @@ func (b *WlrScreencopyBackend) ResolutionWithContext(ctx context.Context) (int, 
 	}
 	if b == nil {
 		return 0, 0, fmt.Errorf("screen/wlr: backend is nil")
+	}
+	if b.closed.Load() {
+		return 0, 0, fmt.Errorf("screen/wlr: backend is closed")
 	}
 	b.ctxMu.Lock()
 	pW, pH := b.pW, b.pH
