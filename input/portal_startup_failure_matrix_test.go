@@ -3,6 +3,7 @@ package input
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -168,5 +169,57 @@ func TestSyntheticPortalStartupFailuresCloseAcquiredSession(t *testing.T) {
 				t.Fatalf("failed startup closed %d portal sessions, want exactly one", closedSessions-beforeClose)
 			}
 		})
+	}
+}
+
+func TestOpenRemoteDesktopRejectsAuthorizedNonUnixEISDescriptor(t *testing.T) {
+	_, portal := startSyntheticPortalBus(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	client, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	server, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	tcp, ok := client.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("local synthetic connection has type %T", client)
+	}
+	file, err := tcp.File()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	portal.mu.Lock()
+	portal.deviceMask = portalDeviceKeyboard | portalDevicePointer
+	portal.eisFD = dbus.UnixFD(file.Fd())
+	portal.mu.Unlock()
+	rt := env.FromEnviron([]string{
+		"WAYLAND_DISPLAY=/tmp/synthetic-wayland.sock",
+		"DBUS_SESSION_BUS_ADDRESS=" + portal.busAddress,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	inputter, err := OpenRemoteDesktopContext(ctx, rt, RemoteDesktopOptions{})
+	if inputter != nil {
+		t.Fatalf("non-Unix EIS descriptor returned inputter %T", inputter)
+	}
+	if !errors.Is(err, ErrRemoteDesktopUnavailable) || err == nil || !strings.Contains(err.Error(), "EIS descriptor is not a Unix socket") {
+		t.Fatalf("non-Unix EIS descriptor error = %v", err)
+	}
+	portal.mu.Lock()
+	closed := portal.closedSessions
+	portal.mu.Unlock()
+	if closed != 1 {
+		t.Fatalf("invalid EIS transport left %d portal sessions closed, want one", closed)
 	}
 }
