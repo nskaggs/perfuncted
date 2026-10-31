@@ -30,9 +30,18 @@ type accessibilityCLIOptions struct {
 	allowSensitive bool
 }
 
-func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Session) (accessibility.NodeID, error) {
+// requireScope enforces the local semantic selector before any AT-SPI session
+// authorization. An incomplete query must never prompt for desktop access.
+func (o accessibilityCLIOptions) requireScope() error {
 	if strings.TrimSpace(o.appName) == "" && o.pid == 0 && strings.TrimSpace(o.window) == "" && strings.TrimSpace(o.windowID) == "" {
-		return accessibility.NodeID{}, fmt.Errorf("accessibility: an explicit --app, --pid, --window, or --window-id scope is required")
+		return fmt.Errorf("accessibility: an explicit --app, --pid, --window, or --window-id scope is required")
+	}
+	return nil
+}
+
+func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Session) (accessibility.NodeID, error) {
+	if err := o.requireScope(); err != nil {
+		return accessibility.NodeID{}, err
 	}
 	if strings.TrimSpace(o.window) != "" || strings.TrimSpace(o.windowID) != "" {
 		return o.windowRoot(ctx, pf)
@@ -257,6 +266,9 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 
 	var treeOpts accessibilityCLIOptions
 	tree := &cobra.Command{Use: "tree", Short: "Capture a bounded tree for one application or managed window", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		if err := treeOpts.requireScope(); err != nil {
+			return err
+		}
 		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, treeOpts)
 		if err != nil {
 			return err
@@ -288,6 +300,9 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		Long:  "Query a fresh, structurally complete AT-SPI snapshot. The command fails when provider behavior or snapshot bounds prevent a complete traversal.",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
+			if err := findOpts.requireScope(); err != nil {
+				return err
+			}
 			pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, findOpts)
 			if err != nil {
 				return err
@@ -391,6 +406,9 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var actionAttributes []string
 	var actionName string
 	action := &cobra.Command{Use: "action", Short: "Invoke one uniquely resolved semantic AT-SPI action", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		if err := actionOpts.requireScope(); err != nil {
+			return err
+		}
 		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, actionOpts)
 		if err != nil {
 			return err
@@ -417,6 +435,9 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var focusQuery accessibility.Query
 	var focusAttributes []string
 	focus := &cobra.Command{Use: "focus", Short: "Resolve one semantic node and request AT-SPI focus", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		if err := focusOpts.requireScope(); err != nil {
+			return err
+		}
 		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, focusOpts)
 		if err != nil {
 			return err
@@ -446,6 +467,9 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var textAttributes []string
 	var textValue string
 	text := &cobra.Command{Use: "text", Short: "Resolve one editable semantic node and replace its text", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		if err := textOpts.requireScope(); err != nil {
+			return err
+		}
 		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, textOpts)
 		if err != nil {
 			return err
