@@ -13,6 +13,7 @@ import (
 
 type eventSubscriber struct {
 	out     chan Event
+	done    chan struct{}
 	dropped uint64
 }
 
@@ -80,7 +81,7 @@ func (b *dbusBackend) Events(ctx context.Context, opts EventOptions) (<-chan Eve
 			b.eventsMu.Lock()
 			if subscriber, ok := b.subscribers[id]; ok {
 				delete(b.subscribers, id)
-				close(subscriber.out)
+				closeEventSubscriber(subscriber)
 			}
 			b.eventsMu.Unlock()
 			return nil, err
@@ -118,7 +119,7 @@ func (b *dbusBackend) reserveEventSubscriber(out chan Event) (id uint64, start b
 	}
 	b.nextSubscriber++
 	id = b.nextSubscriber
-	b.subscribers[id] = &eventSubscriber{out: out}
+	b.subscribers[id] = &eventSubscriber{out: out, done: make(chan struct{})}
 	return id, b.eventCancel == nil, nil, nil
 }
 
@@ -135,11 +136,18 @@ func (b *dbusBackend) beginEventDispatcherCleanup(done chan struct{}) {
 	b.eventsMu.Lock()
 	if b.eventDone == done {
 		for id, subscriber := range b.subscribers {
-			close(subscriber.out)
+			closeEventSubscriber(subscriber)
 			delete(b.subscribers, id)
 		}
 	}
 	b.eventsMu.Unlock()
+}
+
+func closeEventSubscriber(subscriber *eventSubscriber) {
+	if subscriber.done != nil {
+		close(subscriber.done)
+	}
+	close(subscriber.out)
 }
 
 func (b *dbusBackend) finishEventDispatcher(done chan struct{}) {
@@ -492,12 +500,24 @@ func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
 		// strand a goroutine waiting forever on context.Background().
 		return
 	}
-	<-ctx.Done()
+	b.eventsMu.Lock()
+	subscriber, ok := b.subscribers[id]
+	if !ok {
+		b.eventsMu.Unlock()
+		return
+	}
+	done := subscriber.done
+	b.eventsMu.Unlock()
+	select {
+	case <-ctx.Done():
+	case <-done:
+		return
+	}
 	b.eventsMu.Lock()
 	removed := false
 	if subscriber, ok := b.subscribers[id]; ok {
 		delete(b.subscribers, id)
-		close(subscriber.out)
+		closeEventSubscriber(subscriber)
 		removed = true
 	}
 	last := removed && len(b.subscribers) == 0
