@@ -342,16 +342,9 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 // is installed. AT-SPI is commonly activated on demand, so absence of the
 // helper is deliberately non-fatal for optional capability users.
 func (i *sessionInfra) launchAccessibility() error {
-	launcher, err := exec.LookPath(atspiBusLauncherName)
+	launcher, err := findAccessibilityLauncher(filepath.Join("/usr/libexec", atspiBusLauncherName))
 	if err != nil {
-		// Debian/Ubuntu install the helper in /usr/libexec without adding that
-		// directory to PATH. Keep the normal PATH lookup first for portable
-		// installations, then use the distro-standard location.
-		const libexecLauncher = "/usr/libexec/at-spi-bus-launcher"
-		if _, statErr := os.Stat(libexecLauncher); statErr != nil {
-			return err
-		}
-		launcher = libexecLauncher
+		return err
 	}
 	cmd := executil.CommandContext(i.ctx, launcher, "--launch-immediately") //nolint:contextcheck // process lifetime follows managed session
 	cmd.Env = env.Current().WithSession(i.xdgDir, i.wlDisplay, i.dbusAddr).EnvList()
@@ -362,6 +355,20 @@ func (i *sessionInfra) launchAccessibility() error {
 	i.atspiCmd = newManagedSessionProcess(cmd)
 	i.writeChildPID("at-spi.pid", cmd.Process.Pid)
 	return nil
+}
+
+func findAccessibilityLauncher(fallback string) (string, error) {
+	launcher, err := exec.LookPath(atspiBusLauncherName)
+	if err == nil {
+		return launcher, nil
+	}
+	// Debian/Ubuntu install the helper in /usr/libexec without adding that
+	// directory to PATH. Keep the normal PATH lookup first for portable
+	// installations, then use the distro-standard location.
+	if _, statErr := os.Stat(fallback); statErr != nil {
+		return "", err
+	}
+	return fallback, nil
 }
 
 func (i *sessionInfra) accessibilityBusAddress(ctx context.Context) (string, error) {
