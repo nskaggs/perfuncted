@@ -9,7 +9,6 @@ import (
 	"image"
 	"image/png"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -141,24 +140,20 @@ Otherwise, it is saved to the specified file.`,
 				return err
 			}
 			defer pf.Close()
+			if grabRegionOut != "" && grabRegionOut != "-" {
+				// The bundle publishes PNGs atomically after successful encoding.
+				// os.Create would truncate an existing screenshot before an
+				// untrusted capture's encoding failure is even known.
+				if err := pf.Screen.CaptureRegion(cmd.Context(), r, grabRegionOut); err != nil {
+					return err
+				}
+				return writeCLIMessage(cmd.ErrOrStderr(), grabRegionOut)
+			}
 			img, err := pf.Screen.GrabRegion(cmd.Context(), r)
 			if err != nil {
 				return err
 			}
-			if grabRegionOut == "" || grabRegionOut == "-" {
-				return png.Encode(cmd.OutOrStdout(), img)
-			}
-			f, err := os.Create(grabRegionOut)
-			if err != nil {
-				return err
-			}
-			if err := png.Encode(f, img); err != nil {
-				return errors.Join(err, f.Close())
-			}
-			if err := f.Close(); err != nil {
-				return fmt.Errorf("close output: %w", err)
-			}
-			return writeCLIMessage(cmd.ErrOrStderr(), grabRegionOut)
+			return png.Encode(cmd.OutOrStdout(), img)
 		},
 	}
 	grabRegion.Flags().StringVar(&grabRegionRect, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
