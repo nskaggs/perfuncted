@@ -556,7 +556,16 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 	if err := writeSwayMessage(conn, swayMsgSubscribe, `["window"]`); err != nil {
 		return
 	}
-	if _, err := readSwayResponse(conn, swayMsgSubscribe); err != nil {
+	ack, err := readSwayResponse(conn, swayMsgSubscribe)
+	if err != nil {
+		return
+	}
+	var subscribed struct {
+		Success bool `json:"success"`
+	}
+	// The response type alone does not grant a subscription: a denied or
+	// malformed acknowledgment must retire this unusable event stream.
+	if err := json.Unmarshal(ack, &subscribed); err != nil || !subscribed.Success {
 		return
 	}
 	if err := conn.SetDeadline(time.Time{}); err != nil {
@@ -564,8 +573,14 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 	}
 
 	for {
-		if _, _, err := readSwayMessage(conn); err != nil {
+		messageType, _, err := readSwayMessage(conn)
+		if err != nil {
 			return
+		}
+		// Sway IPC events share the subscription socket. Workspace, output,
+		// and other notification types are not window-state changes.
+		if messageType != (1<<31 | 3) {
+			continue
 		}
 		select {
 		case m.eventCh <- struct{}{}:
