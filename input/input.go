@@ -42,6 +42,10 @@ var newXTestBackend = func(display string) (Inputter, error) {
 	return NewXTestBackend(display)
 }
 
+var newGnomeNativeBackend = func(ctx context.Context, rt env.Runtime) (Inputter, error) {
+	return NewGnomeNativeBackendForRuntimeContext(ctx, rt)
+}
+
 var statUinput = func() error {
 	_, err := os.Stat("/dev/uinput")
 	return err
@@ -231,9 +235,6 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 	if os.Getenv("PF_FORCE_INPUT") == "uinput" {
 		if statErr := statUinput(); statErr == nil {
 			b, err := newResolvedUinputBackend(ctx, rt, maxX, maxY)
-			if err == nil && !usableInputter(b) {
-				err = fmt.Errorf("constructor returned nil backend")
-			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				if b != nil {
 					_ = b.Close()
@@ -253,8 +254,13 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 	// GNOME's Shell extension has compositor authority and therefore avoids
 	// both wlroots-only virtual protocols and host-level uinput permissions.
 	if compositor.DetectRuntime(rt) == compositor.GNOME {
-		b, err := NewGnomeNativeBackendForRuntimeContext(ctx, rt)
+		b, err := newGnomeNativeBackend(ctx, rt)
 		switch {
+		case ctx.Err() != nil:
+			if usableInputter(b) {
+				_ = b.Close()
+			}
+			return nil, ctx.Err()
 		case err == nil && usableInputter(b):
 			return b, nil
 		case err == nil:
@@ -263,11 +269,6 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 			// A restart is the one bridge failure with no alternative: the
 			// extension is installed but will not serve this session.
 			return nil, err
-		case ctx.Err() != nil:
-			if b != nil {
-				_ = b.Close()
-			}
-			return nil, ctx.Err()
 		default:
 			attempts.add("GNOME Shell bridge input", err)
 		}
@@ -330,11 +331,8 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 			}
 			return nil, ctxErr
 		}
-		if err == nil && usableInputter(b) {
-			return b, nil
-		}
 		if err == nil {
-			err = fmt.Errorf("uinput constructor returned nil backend")
+			return b, nil
 		}
 		// The uinput error carries the permission hint, so it is reported last
 		// after the earlier causes.
