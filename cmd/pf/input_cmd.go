@@ -71,6 +71,12 @@ func inputCmd(
 		Short: "Click a mouse button at coordinates",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Reject invalid timings before opening a potentially
+			// authorization-prompting desktop input session.
+			delay, err := parseDuration(clickDelayFlag, 0)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
@@ -79,10 +85,6 @@ func inputCmd(
 			repeat := clickRepeat
 			if repeat <= 0 {
 				repeat = 1
-			}
-			delay, err := parseDuration(clickDelayFlag, 0)
-			if err != nil {
-				return err
 			}
 			var timer *time.Timer
 			if delay > 0 && repeat > 1 {
@@ -169,15 +171,15 @@ func inputCmd(
 		Short: "Click the center of a rectangle",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := parseRect(crRect)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(crRect)
-			if err != nil {
-				return err
-			}
 			if err := pf.Input.ClickCenter(cmd.Context(), r); err != nil {
 				return err
 			}
@@ -194,11 +196,8 @@ func inputCmd(
 		Short: "Type a string or send keys (e.g. {enter}, {ctrl+s})",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
+			// Missing text cannot require desktop access. Validate first;
+			// stdin reads also precede session opening.
 			text := ""
 			switch {
 			case typeStdin:
@@ -212,6 +211,11 @@ func inputCmd(
 			default:
 				return fmt.Errorf("type requires text or --stdin")
 			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			if err := pf.Input.Type(cmd.Context(), text); err != nil {
 				return err
 			}

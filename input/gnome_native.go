@@ -111,7 +111,11 @@ func (b *GnomeNativeBackend) operation(ctx context.Context, fn func(context.Cont
 	if b.bridge == nil {
 		return fmt.Errorf("input/gnome-native: backend is not initialised")
 	}
-	return fn(ctx)
+	// GNOME may complete a D-Bus call after the caller has canceled. Never
+	// advertise its late acknowledgment as success or erase the provider's
+	// own error when cancellation races with a reply.
+	err := fn(ctx)
+	return errors.Join(err, ctx.Err())
 }
 
 func gnomeKeyval(key string) (uint32, error) {
