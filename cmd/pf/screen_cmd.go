@@ -31,15 +31,15 @@ func screenCmd(
 		Short: "Capture a screen region and save as PNG",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := parseRect(grabRectFlag)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(grabRectFlag)
-			if err != nil {
-				return err
-			}
 			out := grabOutFlag
 			if out == "" {
 				out = "/tmp/pf-grab.png"
@@ -59,15 +59,15 @@ func screenCmd(
 		Short: "Print the CRC32 pixel hash of a screen region",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := parseRect(checksumRectFlag)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(checksumRectFlag)
-			if err != nil {
-				return err
-			}
 			h, err := pf.Screen.GrabRegionHash(cmd.Context(), r)
 			if err != nil {
 				return err
@@ -133,15 +133,15 @@ directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`
 If --out is not provided or is '-', the PNG data is written to stdout.
 Otherwise, it is saved to the specified file.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := parseRect(grabRegionRect)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			r, err := parseRect(grabRegionRect)
-			if err != nil {
-				return err
-			}
 			img, err := pf.Screen.GrabRegion(cmd.Context(), r)
 			if err != nil {
 				return err
@@ -186,11 +186,6 @@ Runs until --duration expires or Ctrl+C.`,
 			if err != nil {
 				return err
 			}
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
 			r, err := parseRect(watchRectFlag)
 			if err != nil {
 				return err
@@ -206,6 +201,11 @@ Runs until --duration expires or Ctrl+C.`,
 			if err != nil {
 				return err
 			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			ctx := cmd.Context()
 			var cancel context.CancelFunc
 			if dur > 0 {
@@ -310,11 +310,6 @@ Runs until --duration expires or Ctrl+C.`,
 predicates. This is useful when the caller wants a higher-level readiness
 check than a raw hash comparison.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
 			r, err := parseRect(waitFnRectFlag)
 			if err != nil {
 				return err
@@ -331,6 +326,11 @@ check than a raw hash comparison.`,
 			if err != nil {
 				return err
 			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			img, err := pf.Screen.WaitForFn(ctx, r, pred, poll)
@@ -354,11 +354,6 @@ check than a raw hash comparison.`,
 then waits for the region to change and become stable again. The CLI version
 uses a no-op action so it still works as a pure readiness probe.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
 			r, err := parseRect(settleRectFlag)
 			if err != nil {
 				return err
@@ -375,6 +370,11 @@ uses a no-op action so it still works as a pure readiness probe.`,
 			if err != nil {
 				return err
 			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			h, err := pf.Screen.WaitForSettle(ctx, r, func() error { return nil }, stable, poll)
@@ -398,11 +398,6 @@ uses a no-op action so it still works as a pure readiness probe.`,
 colour of each point in order. Use --output json for machine parsing, or the
 plain format for quick interactive checks.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
 			points, err := parsePoints(multiPointsFlag)
 			if err != nil {
 				return err
@@ -410,6 +405,15 @@ plain format for quick interactive checks.`,
 			if len(points) == 0 {
 				return fmt.Errorf("--points must contain at least one x,y pair")
 			}
+			format := strings.ToLower(strings.TrimSpace(multiOutputFlag))
+			if format != "" && format != "plain" && format != "json" {
+				return fmt.Errorf("invalid --output %q: want plain or json", multiOutputFlag)
+			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			cols, err := pf.Screen.GetMultiplePixels(cmd.Context(), points)
 			if err != nil {
 				return err
@@ -427,7 +431,7 @@ plain format for quick interactive checks.`,
 				c := cols[i]
 				out[i] = sample{X: p.X, Y: p.Y, R: c.R, G: c.G, B: c.B, A: c.A}
 			}
-			switch strings.ToLower(strings.TrimSpace(multiOutputFlag)) {
+			switch format {
 			case "", "plain":
 				for _, s := range out {
 					if err := writeCLIOutput(cmd.OutOrStdout(), "%d,%d R=%d G=%d B=%d A=%d\n", s.X, s.Y, s.R, s.G, s.B, s.A); err != nil {
