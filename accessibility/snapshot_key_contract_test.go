@@ -2,7 +2,6 @@ package accessibility
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -22,10 +21,13 @@ func TestSnapshotKeyEncodingMatchesCacheContract(t *testing.T) {
 	}
 	for _, root := range roots {
 		for _, opts := range options {
-			want := fmt.Sprintf("%s\x00%s\x00%d\x00%d\x00%d\x00%d\x00%d\x00%d\x00%t\x00%t\x00%t\x00%s",
+			want := fmt.Sprintf("%s\x00%s\x00%d\x00%d\x00%d\x00%d\x00%d\x00%d\x00%t\x00%t\x00%t\x00",
 				root.BusName, root.ObjectPath, root.Generation, effectiveIncarnation(root),
 				opts.MaxDepth, opts.MaxNodes, opts.MaxTextBytes, opts.MaxTotalBytes,
-				opts.VisibleOnly, opts.AllowSensitive, opts.AllowDesktopRoot, strings.Join(opts.SkipRoles, ","))
+				opts.VisibleOnly, opts.AllowSensitive, opts.AllowDesktopRoot)
+			for _, role := range opts.SkipRoles {
+				want += fmt.Sprintf("%d:%s\x00", len(role), role)
+			}
 			if got := snapshotKey(root, opts); got != want {
 				t.Fatalf("snapshotKey(%+v, %+v) = %q; want %q", root, opts, got, want)
 			}

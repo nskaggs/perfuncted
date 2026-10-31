@@ -419,8 +419,16 @@ func eventSetupContext(ctx context.Context) (context.Context, context.CancelFunc
 // other subscribers. A healthy waiter may retry one canceled attempt, while a
 // real provider failure is returned unchanged and retries stay bounded.
 func waitForEventStart(ctx context.Context, state *eventStart, connectedErr error, retries int) (retry bool, err error) {
+	// A canceled subscriber cannot inherit another subscriber's completed
+	// dispatcher setup. Both channels can become ready in the same select.
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	select {
 	case <-state.done:
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 		if state.err == nil {
 			return false, nil
 		}

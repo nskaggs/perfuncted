@@ -37,6 +37,7 @@ const (
 )
 
 type portalSession struct {
+	owner         string // unique D-Bus owner of authorization service at subscription
 	conn          *dbus.Conn
 	path          dbus.ObjectPath
 	signals       chan *dbus.Signal
@@ -347,6 +348,16 @@ func portalUniqueName(names []string) (string, error) {
 }
 
 func (p *portalSession) subscribeClosed(ctx context.Context) error {
+	// The caller can also subscribe to unrelated signals on this godbus
+	// connection; every channel receives a union of matching rules. The
+	// claimed sender of a lifecycle notification must match the live portal
+	// bus owner's unique name, not merely its object path and signal member.
+	if err := p.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.GetNameOwner", 0, remoteDesktopBus).Store(&p.owner); err != nil {
+		return fmt.Errorf("input/remote-desktop: resolve session signal owner: %w: %w", ErrRemoteDesktopUnavailable, err)
+	}
+	if p.owner == "" {
+		return fmt.Errorf("input/remote-desktop: session signal owner is empty: %w", ErrRemoteDesktopUnavailable)
+	}
 	p.signals = make(chan *dbus.Signal, 8)
 	p.conn.Signal(p.signals)
 	p.match = []dbus.MatchOption{
@@ -598,7 +609,7 @@ func (b *RemoteDesktopBackend) watchLifecycle() {
 				_ = b.revoke(errors.New("portal session signal stream ended"))
 				return
 			}
-			if signal != nil && signal.Name == portalSessionInterface+".Closed" && signal.Path == b.portal.path {
+			if signal != nil && signal.Name == portalSessionInterface+".Closed" && signal.Path == b.portal.path && (b.portal.owner == "" || signal.Sender == b.portal.owner) {
 				_ = b.revoke(errors.New("portal session closed"))
 				return
 			}

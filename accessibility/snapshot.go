@@ -135,11 +135,13 @@ func snapshotKey(root NodeID, opts SnapshotOptions) string {
 		key = strconv.AppendBool(key, value)
 	}
 	key = append(key, 0)
-	for i, role := range opts.SkipRoles {
-		if i != 0 {
-			key = append(key, ',')
-		}
+	// Roles may contain commas (or other separators). Length-prefix every
+	// element to prevent distinct traversal policies sharing cached snapshots.
+	for _, role := range opts.SkipRoles {
+		key = strconv.AppendInt(key, int64(len(role)), 10)
+		key = append(key, ':')
 		key = append(key, role...)
+		key = append(key, 0)
 	}
 	return string(key)
 }
