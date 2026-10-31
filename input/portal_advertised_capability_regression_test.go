@@ -109,7 +109,7 @@ func TestRemoteDesktopDiagnosticsDoNotAdvertiseClosedOrRevokedPortal(t *testing.
 	}{
 		{"closed", func(b *RemoteDesktopBackend, _ *portalSession) error { return b.Close() }},
 		{"revoked", func(b *RemoteDesktopBackend, p *portalSession) error {
-			p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: p.path}
+			p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: p.path, Sender: p.owner}
 			select {
 			case <-b.revoked:
 				return nil

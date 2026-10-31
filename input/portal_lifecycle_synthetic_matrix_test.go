@@ -16,7 +16,7 @@ func newSyntheticRevocableRemoteDesktop(t *testing.T) (*RemoteDesktopBackend, *p
 	connection, peer := unixConnectionPair(t)
 	t.Cleanup(func() { _ = peer.Close() })
 	client := &eiClient{conn: connection, messages: make(chan eiMessage, 8), done: make(chan struct{}), stop: make(chan struct{})}
-	portal := &portalSession{path: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/fixture"), signals: make(chan *dbus.Signal, 8)}
+	portal := &portalSession{owner: ":1.44", path: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/fixture"), signals: make(chan *dbus.Signal, 8)}
 	sender := &eiSender{client: client, connection: 0xff00000000000010, seat: 0xff00000000000011, keyboard: 101, button: 102, scroll: 103, text: 104, keyboardDev: 0xff00000000000012, buttonDev: 0xff00000000000012, scrollDev: 0xff00000000000012, textDev: 0xff00000000000012}
 	b := newRemoteDesktopBackend(sender, portal)
 	t.Cleanup(func() { _ = b.Close() })
@@ -30,7 +30,7 @@ func TestRemoteDesktopSyntheticSessionAndEISLifecycleFailuresRevokeAuthorization
 		contains string
 	}{
 		{"portal closed", func(p *portalSession, _ *eiClient) {
-			p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: p.path}
+			p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: p.path, Sender: p.owner}
 		}, "portal session closed"},
 		{"portal stream closed", func(p *portalSession, _ *eiClient) { close(p.signals) }, "portal session signal stream ended"},
 		{"EIS connection disconnect", func(_ *portalSession, c *eiClient) { c.messages <- eiMessage{object: 0xff00000000000010, opcode: 0} }, "EIS session ended"},
@@ -70,7 +70,7 @@ func TestRemoteDesktopSyntheticSessionAndEISLifecycleFailuresRevokeAuthorization
 
 func TestRemoteDesktopSyntheticUnrelatedSessionSignalsDoNotRevokeAccess(t *testing.T) {
 	b, p, c := newSyntheticRevocableRemoteDesktop(t)
-	p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/other")}
+	p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/other"), Sender: p.owner}
 	p.signals <- &dbus.Signal{Name: "org.example.Other.Event", Path: p.path}
 	c.messages <- eiMessage{object: 1, opcode: 32}
 	deadline := time.After(20 * time.Millisecond)
@@ -82,7 +82,7 @@ func TestRemoteDesktopSyntheticUnrelatedSessionSignalsDoNotRevokeAccess(t *testi
 	if err := b.stateError(); err != nil {
 		t.Fatalf("unrelated signals invalidated session: %v", err)
 	}
-	p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: p.path}
+	p.signals <- &dbus.Signal{Name: portalSessionInterface + ".Closed", Path: p.path, Sender: p.owner}
 	select {
 	case <-b.revoked:
 	case <-time.After(time.Second):

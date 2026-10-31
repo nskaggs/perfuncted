@@ -648,7 +648,7 @@ func (b *RemoteDesktopBackend) revoke(cause error) error {
 // isAuthorizedPortalSessionClose rejects unrelated paths, signal members,
 // and forged senders without revoking the user-authorized input session.
 func (b *RemoteDesktopBackend) isAuthorizedPortalSessionClose(signal *dbus.Signal) bool {
-	return signal != nil && signal.Name == portalSessionInterface+".Closed" && signal.Path == b.portal.path && (b.portal.owner == "" || signal.Sender == b.portal.owner)
+	return b != nil && b.portal != nil && b.portal.owner != "" && signal != nil && signal.Name == portalSessionInterface+".Closed" && signal.Path == b.portal.path && signal.Sender == b.portal.owner
 }
 
 func (b *RemoteDesktopBackend) watchLifecycle() {

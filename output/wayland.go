@@ -348,10 +348,18 @@ func gcd(a, b int) int {
 
 func outputGlobals(globals []wl.GlobalEvent) []wl.GlobalEvent {
 	outputGlobals := make([]wl.GlobalEvent, 0, len(globals))
+	seen := make(map[uint32]struct{}, len(globals))
 	for _, ev := range globals {
-		if ev.Interface == "wl_output" {
-			outputGlobals = append(outputGlobals, ev)
+		if ev.Interface != "wl_output" {
+			continue
 		}
+		// A registry global names one output. Duplicate announcements must not
+		// bind multiple proxies or expose duplicate screens to callers.
+		if _, duplicate := seen[ev.Name]; duplicate {
+			continue
+		}
+		seen[ev.Name] = struct{}{}
+		outputGlobals = append(outputGlobals, ev)
 	}
 	return outputGlobals
 }
@@ -460,7 +468,9 @@ func (l *WaylandLister) reconcileTopology(ctx context.Context) error {
 func (l *WaylandLister) topologyChanges(globals []wl.GlobalEvent) (map[uint32]wl.GlobalEvent, []*waylandOutput, []*waylandOutput) {
 	desired := make(map[uint32]wl.GlobalEvent, len(globals))
 	for _, ev := range globals {
-		desired[ev.Name] = ev
+		if _, duplicate := desired[ev.Name]; !duplicate {
+			desired[ev.Name] = ev
+		}
 	}
 
 	l.outputsMu.Lock()
@@ -472,10 +482,16 @@ func (l *WaylandLister) topologyChanges(globals []wl.GlobalEvent) (map[uint32]wl
 		}
 	}
 	added := make([]*waylandOutput, 0, len(globals))
+	addedIDs := make(map[uint32]struct{}, len(globals))
 	for _, ev := range globals {
-		if _, ok := current[ev.Name]; !ok {
-			added = append(added, newWaylandOutput(ev))
+		if _, alreadyPresent := current[ev.Name]; alreadyPresent {
+			continue
 		}
+		if _, duplicate := addedIDs[ev.Name]; duplicate {
+			continue
+		}
+		addedIDs[ev.Name] = struct{}{}
+		added = append(added, newWaylandOutput(ev))
 	}
 	removed := make([]*waylandOutput, 0)
 	remaining := l.outputs[:0]
