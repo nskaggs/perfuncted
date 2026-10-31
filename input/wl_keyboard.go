@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -276,6 +277,27 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			}
 		}
 	}
+	// A key held by an earlier call must remain mapped to its original
+	// scancode until release. Include it even if this command only types
+	// unrelated characters; replacing the keymap must not orphan that key.
+	heldNames := make([]string, 0, len(k.held))
+	for key := range k.held {
+		heldNames = append(heldNames, key)
+	}
+	sort.Strings(heldNames)
+	for _, key := range heldNames {
+		if _, _, named := namedKey(key); named {
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(key)
+		if size != len(key) || r == utf8.RuneError && size == 1 {
+			return fmt.Errorf("keyboard: invalid held character %q", key)
+		}
+		if !seenRunes[r] {
+			seenRunes[r] = true
+			allRunes = append(allRunes, r)
+		}
+	}
 	// Keep common accelerator keys at stable XKB keycodes across calls.
 	// Remapping the same keycode from e.g. 'a' to 'v' between Type("abc")
 	// and Type("{ctrl+v}") makes GTK3 miss its own keyboard bindings.
@@ -293,62 +315,101 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			seenStable[r] = true
 		}
 	}
-	namedCount := 0
+	// Name order is stable even if the held map is traversed by Go in a
+	// different order. All held named keys must be defined in the new map.
+	var namedOrder []string
 	seenNamed := make(map[string]bool)
 	for _, ka := range keys {
 		if _, _, named := namedKey(ka.key); named && modBit(ka.key) == 0 && !seenNamed[ka.key] {
+			namedOrder = append(namedOrder, ka.key)
 			seenNamed[ka.key] = true
-			namedCount++
 		}
 	}
-	if len(stableRunes)+namedCount <= int(maxDynamicKeySlots) {
+	for _, key := range heldNames {
+		if _, _, named := namedKey(key); named && modBit(key) == 0 && !seenNamed[key] {
+			namedOrder = append(namedOrder, key)
+			seenNamed[key] = true
+		}
+	}
+	if len(stableRunes)+len(namedOrder) <= int(maxDynamicKeySlots) {
 		allRunes = stableRunes
 	}
 	if len(allRunes) > int(maxDynamicKeySlots) {
 		return fmt.Errorf("keyboard: key sequence has %d unique characters, max %d dynamic slots", len(allRunes), maxDynamicKeySlots)
 	}
 
-	// Build a keymap that includes all needed runes and named keys.
-	// Start with modifier keycodes (always present).
+	// Reserve the original slots before assigning any new characters. In
+	// particular a named held key previously at K099 must not be overwritten
+	// by the first non-ASCII character in a later batch.
+	heldSlots := make(map[uint32]string, len(k.held))
+	runeSlots := make(map[rune]uint32, len(allRunes))
+	namedSlots := make(map[string]uint32, len(namedOrder))
+	for _, key := range heldNames {
+		slot := k.held[key]
+		if slot < 8 || slot > kcDynMax {
+			return fmt.Errorf("keyboard: invalid held slot %d for %q", slot, key)
+		}
+		if other, occupied := heldSlots[slot]; occupied && other != key {
+			return fmt.Errorf("keyboard: held keys %q and %q share slot %d", other, key, slot)
+		}
+		heldSlots[slot] = key
+		if _, _, named := namedKey(key); named {
+			namedSlots[key] = slot
+		} else {
+			r, _ := utf8.DecodeRuneInString(key)
+			runeSlots[r] = slot
+		}
+	}
+	nextSlot := kcDynBase
+	maxSlot := kcSuper
+	takeSlot := func() (uint32, error) {
+		for nextSlot <= kcDynMax {
+			slot := nextSlot
+			nextSlot++
+			if _, reserved := heldSlots[slot]; reserved {
+				continue
+			}
+			return slot, nil
+		}
+		return 0, fmt.Errorf("keyboard: key sequence exceeds %d dynamic slots", maxDynamicKeySlots)
+	}
+	// Generate XKB definitions only after all allocation succeeds, before
+	// touching the compositor or changing persistent held-key bookkeeping.
 	var kc, sym strings.Builder
 	kc.WriteString(xkbModKeycodes())
 	sym.WriteString(xkbModSymbols())
-
-	// Add named non-modifier keys.
-	namedSlots := make(map[string]uint32)
-	nextSlot := kcDynBase + uint32(len(allRunes))
-	for _, ka := range keys {
-		if _, _, ok := namedKey(ka.key); ok {
-			if modBit(ka.key) != 0 {
-				continue // modifier key — already in keymap
+	for _, r := range allRunes {
+		slot, ok := runeSlots[r]
+		if !ok {
+			var err error
+			slot, err = takeSlot()
+			if err != nil {
+				return err
 			}
-			if _, done := namedSlots[ka.key]; !done {
-				if nextSlot > kcDynMax {
-					used := nextSlot - kcDynBase + 1
-					return fmt.Errorf("keyboard: key sequence needs %d dynamic slots, max %d", used, maxDynamicKeySlots)
-				}
-				slot := nextSlot
-				nextSlot++
-				namedSlots[ka.key] = slot
-				_, s, _ := namedKey(ka.key)
-				fmt.Fprintf(&kc, "    <K%03d> = %d;\n", slot, slot)
-				fmt.Fprintf(&sym, "    key <K%03d> { [ %s ] };\n", slot, s)
-			}
+			runeSlots[r] = slot
 		}
-	}
-
-	// Add rune slots.
-	runeSlots := make(map[rune]uint32)
-	for i, r := range allRunes {
-		slot := kcDynBase + uint32(i)
-		runeSlots[r] = slot
+		if slot > maxSlot {
+			maxSlot = slot
+		}
 		fmt.Fprintf(&kc, "    <K%03d> = %d;\n", slot, slot)
 		fmt.Fprintf(&sym, "    key <K%03d> { [ %s ] };\n", slot, xkbKeysym(r))
 	}
-
-	maxSlot := nextSlot - 1
-	if maxSlot < kcSuper {
-		maxSlot = kcSuper
+	for _, key := range namedOrder {
+		slot, ok := namedSlots[key]
+		if !ok {
+			var err error
+			slot, err = takeSlot()
+			if err != nil {
+				return err
+			}
+			namedSlots[key] = slot
+		}
+		if slot > maxSlot {
+			maxSlot = slot
+		}
+		_, symbol, _ := namedKey(key)
+		fmt.Fprintf(&kc, "    <K%03d> = %d;\n", slot, slot)
+		fmt.Fprintf(&sym, "    key <K%03d> { [ %s ] };\n", slot, symbol)
 	}
 
 	keymapText := xkbBuild(maxSlot, kc.String(), sym.String())
@@ -556,6 +617,12 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 // state is updated via the modifiers request. For other keys the keycode is
 // stored for later release via releaseKey.
 func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
+	// KeyDown is also a logical sequence. An existing held key reserves its
+	// physical XKB slot; uploading a standalone one-key map can silently
+	// reinterpret that pressed key as the new one.
+	if len(k.held) > 0 {
+		return k.sendkeys(ctx, []keySend{{key: key, down: true}})
+	}
 	if kc, sym, ok := namedKey(key); ok {
 		if err := k.uploadKeymapAndRestoreMods(ctx, xkbWithNamed(kc, sym)); err != nil {
 			return err
@@ -594,6 +661,14 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 // is not currently held, catching bugs where callers release keys they never
 // pressed.
 func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
+	// KeyUp must use the slot active during KeyDown, not a fresh standalone
+	// map that assigns a different code. Restore held modifiers as well.
+	if slot, held := k.held[key]; held {
+		kc, _, named := namedKey(key)
+		if len(k.held) > 1 || k.mods != 0 || (named && slot != kc) || (!named && slot != kcDynBase) {
+			return k.sendkeys(ctx, []keySend{{key: key, up: true}})
+		}
+	}
 	if kc, sym, ok := namedKey(key); ok {
 		// Ensure the keymap still defines this keycode (another upload may have
 		// replaced it). Modifier keycodes (8–11) are always in every keymap.
