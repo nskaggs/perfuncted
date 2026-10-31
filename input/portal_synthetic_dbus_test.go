@@ -22,6 +22,8 @@ type syntheticPortal struct {
 	code          uint32
 	result        map[string]dbus.Variant
 	skip          bool
+	emitUnrelated bool                 // deliver a different portal signal before Response
+	requestPaths  chan dbus.ObjectPath // optional test observation of method-return path
 	getVersion    any
 	busAddress    string
 	deviceMask    uint32
@@ -38,11 +40,25 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 	path := dbus.ObjectPath("/org/freedesktop/portal/desktop/request/fixture/" + token)
 	p.mu.Lock()
 	code, result, skip := p.code, p.result, p.skip
+	unrelated := p.emitUnrelated
+	paths := p.requestPaths
 	p.called++
 	p.mu.Unlock()
+	if paths != nil {
+		select {
+		case paths <- path:
+		default:
+		}
+	}
 	if !skip {
 		go func() {
 			time.Sleep(10 * time.Millisecond)
+			if unrelated {
+				// Different signal, same trusted service and request path.
+				// A session with another listener can receive both messages.
+				_ = p.conn.Emit(path, portalRequestInterface+".Unexpected", uint32(1), map[string]dbus.Variant{})
+				time.Sleep(25 * time.Millisecond)
+			}
 			_ = p.conn.Emit(path, portalRequestInterface+".Response", code, result)
 		}()
 	}

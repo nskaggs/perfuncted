@@ -262,6 +262,16 @@ func portalRequest(ctx context.Context, conn *dbus.Conn, uniqueName, method stri
 	expectedPath := portalRequestPath(uniqueName, token)
 	requestCtx, cancel := context.WithTimeout(ctx, portalRequestTimeout)
 	defer cancel()
+	// Match rules on a godbus connection are additive, not isolated by
+	// channel. Authenticate the actual unique owner of the portal name so
+	// another bus peer cannot forge a matching Response via another rule.
+	var portalOwner string
+	if err := conn.BusObject().CallWithContext(requestCtx, "org.freedesktop.DBus.GetNameOwner", 0, remoteDesktopBus).Store(&portalOwner); err != nil {
+		return nil, fmt.Errorf("input/remote-desktop: resolve portal signal owner: %w: %w", ErrRemoteDesktopUnavailable, err)
+	}
+	if portalOwner == "" {
+		return nil, fmt.Errorf("input/remote-desktop: portal has no signal owner: %w", ErrRemoteDesktopUnavailable)
+	}
 	signals := make(chan *dbus.Signal, 8)
 	conn.Signal(signals)
 	defer conn.RemoveSignal(signals)
@@ -300,7 +310,10 @@ func portalRequest(ctx context.Context, conn *dbus.Conn, uniqueName, method stri
 			if !ok {
 				return nil, fmt.Errorf("input/remote-desktop: portal response stream closed: %w", ErrRemoteDesktopUnavailable)
 			}
-			if signal == nil || (signal.Path != returnedPath && signal.Path != expectedPath) || len(signal.Body) < 2 {
+			// D-Bus sends a union of signal matches to each subscribed channel.
+			// Even on the correct request path, unrelated portal messages
+			// cannot grant or deny permission for this transaction.
+			if signal == nil || signal.Name != portalRequestInterface+".Response" || signal.Sender != portalOwner || (signal.Path != returnedPath && signal.Path != expectedPath) || len(signal.Body) < 2 {
 				continue
 			}
 			response, ok := signal.Body[0].(uint32)

@@ -189,7 +189,10 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 				o.info.Model = model
 			}
 		case 1: // mode: flags, width, height, refresh
-			if mode, ok := wl.DecodeOutputMode(data); ok && mode.Flags&wl.OutputModeCurrent != 0 {
+			// wl_output.mode width and height are signed protocol int32s.
+			// Reject bogus zero/negative values before they replace the last
+			// confirmed physical resolution or propagate into capture bounds.
+			if mode, ok := wl.DecodeOutputMode(data); ok && mode.Flags&wl.OutputModeCurrent != 0 && int32(mode.Width) > 0 && int32(mode.Height) > 0 {
 				o.info.ResolutionW = int(mode.Width)
 				o.info.ResolutionH = int(mode.Height)
 				o.recomputeGeometryLocked()

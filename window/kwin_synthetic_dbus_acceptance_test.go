@@ -17,6 +17,7 @@ import (
 )
 
 type syntheticKWinScriptService struct {
+	busAddress  string // private D-Bus used by synthetic runtime acceptance tests
 	conn        *dbus.Conn
 	mu          sync.Mutex
 	svc         string
@@ -106,7 +107,7 @@ func newSyntheticKWinManager(t *testing.T) (*KWinScriptManager, *syntheticKWinSc
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		t.Fatalf("own fake KWin service: %v %v", reply, err)
 	}
-	provider := &syntheticKWinScriptService{conn: service}
+	provider := &syntheticKWinScriptService{conn: service, busAddress: addr}
 	if err := service.ExportWithMap(provider, map[string]string{
 		"LoadScript":   "loadScript",
 		"Start":        "start",
