@@ -17,6 +17,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/keymap"
 	oplife "github.com/nskaggs/perfuncted/internal/operation"
+	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 var _ Inputter = (*UinputBackend)(nil)
@@ -64,6 +65,13 @@ var errUinputBackendClosed = errors.New("input/uinput: backend is closed")
 
 var createUinputMouse = uinput.CreateMouse
 
+// Device construction is behind narrow, swappable seams so the real lifetime,
+// rollback, and keyboard layout fallback can be exercised without /dev/uinput.
+var statUinputDevice = os.Stat
+var createUinputKeyboard = uinput.CreateKeyboard
+var createUinputTouchpad = uinput.CreateTouchPad
+var readUinputKernelMap = buildKernelRuneMap
+
 // kernelChar maps a rune to its evdev keycode and shift requirement
 // using the active kernel keymap.
 type kernelChar struct {
@@ -83,27 +91,50 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	if err := validateUinputDimensions(maxX, maxY); err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat("/dev/uinput"); errors.Is(err, os.ErrNotExist) {
+	if _, err := statUinputDevice("/dev/uinput"); errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("input/uinput: /dev/uinput not found; kernel module uinput may not be loaded")
 	}
 
-	kb, err := uinput.CreateKeyboard("/dev/uinput", []byte("perfuncted-keyboard"))
+	kb, err := createUinputKeyboard("/dev/uinput", []byte("perfuncted-keyboard"))
 	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return nil, fmt.Errorf("input/uinput: permission denied opening /dev/uinput; " +
-				"add yourself to the 'input' group or create a udev rule: " +
-				"KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\"")
+		var rollbackErr error
+		if !util.IsNil(kb) {
+			if closeErr := kb.Close(); closeErr != nil {
+				rollbackErr = fmt.Errorf("input/uinput: close partially created keyboard: %w", closeErr)
+			}
 		}
-		return nil, fmt.Errorf("input/uinput: create keyboard: %w", err)
+		if errors.Is(err, os.ErrPermission) {
+			return nil, errors.Join(fmt.Errorf("input/uinput: permission denied opening /dev/uinput; "+
+				"add yourself to the 'input' group or create a udev rule: "+
+				"KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\""), err, rollbackErr)
+		}
+		return nil, errors.Join(fmt.Errorf("input/uinput: create keyboard: %w", err), rollbackErr)
+	}
+	if util.IsNil(kb) {
+		return nil, errors.New("input/uinput: create keyboard: factory returned nil device")
 	}
 
-	tp, err := uinput.CreateTouchPad("/dev/uinput", []byte("perfuncted-touchpad"), 0, maxX, 0, maxY)
+	tp, err := createUinputTouchpad("/dev/uinput", []byte("perfuncted-touchpad"), 0, maxX, 0, maxY)
+	if err == nil && util.IsNil(tp) {
+		err = errors.New("factory returned nil device")
+	}
 	if err != nil {
-		_ = kb.Close()
-		return nil, fmt.Errorf("input/uinput: create touchpad: %w", err)
+		// Partially-created devices are still owned by this constructor, even
+		// when a factory returns a device together with an error. Attempt
+		// every rollback and retain all failures for the caller.
+		createErr := fmt.Errorf("input/uinput: create touchpad: %w", err)
+		if !util.IsNil(tp) {
+			if closeErr := tp.Close(); closeErr != nil {
+				createErr = errors.Join(createErr, fmt.Errorf("input/uinput: close partially created touchpad: %w", closeErr))
+			}
+		}
+		if closeErr := kb.Close(); closeErr != nil {
+			createErr = errors.Join(createErr, fmt.Errorf("input/uinput: close keyboard after failed touchpad: %w", closeErr))
+		}
+		return nil, createErr
 	}
 
-	charToRune, err := buildKernelRuneMap()
+	charToRune, err := readUinputKernelMap()
 	if err != nil {
 		charToRune = qwertyRuneMap()
 	}
