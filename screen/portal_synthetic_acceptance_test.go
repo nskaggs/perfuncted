@@ -20,6 +20,7 @@ import (
 
 type syntheticScreenshotPortal struct {
 	conn          *dbus.Conn
+	busAddress    string
 	mu            sync.Mutex
 	code          uint32
 	malformedCode any
@@ -78,7 +79,7 @@ func newSyntheticScreenshotPortal(t *testing.T) (*PortalDBusBackend, *syntheticS
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		t.Fatalf("register screenshot service: %v, %v", reply, err)
 	}
-	portal := &syntheticScreenshotPortal{conn: service}
+	portal := &syntheticScreenshotPortal{conn: service, busAddress: addr}
 	if exportErr := service.Export(portal, portalPath, portalSsIf); exportErr != nil {
 		t.Fatal(exportErr)
 	}

@@ -537,12 +537,11 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 			return
 		case sig, ok := <-signals:
 			if !ok {
-				// The connection can close the signal channel before the
-				// dispatcher selects its context cancellation. In either
-				// ordering, stale object handles must be invalidated.
-				if !access.Connected() || access.Context().Err() != nil {
-					b.invalidateDisconnectedEventConnection()
-				}
+				// godbus terminates the signal channel before canceling the
+				// connection context. During that interval Connected() can still
+				// report true. A closed event source can no longer prove handle
+				// freshness, so invalidate unconditionally before retiring it.
+				b.invalidateDisconnectedEventConnection()
 				return
 			}
 			event := signalEvent(sig)

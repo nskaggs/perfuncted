@@ -910,16 +910,29 @@ func startTestDBus(t *testing.T) string {
 
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
+	// Creating the socket pathname does not mean dbus-daemon is listening
+	// or has finished authentication setup. In a parallel race-test run
+	// connecting at that point intermittently fails with ECONNREFUSED.
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	var lastErr error
 	for {
-		if _, err := os.Stat(path); err == nil {
-			return address
+		if _, statErr := os.Stat(path); statErr == nil {
+			probeCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			probe, connectErr := dbusutil.ConnectContext(probeCtx, address)
+			cancel()
+			if connectErr == nil {
+				if closeErr := probe.Close(); closeErr != nil {
+					t.Fatalf("close readiness probe: %v", closeErr)
+				}
+				return address
+			}
+			lastErr = connectErr
 		}
 		select {
 		case <-ticker.C:
-		case <-timer.C:
-			t.Fatalf("dbus-daemon did not create %s: %s", path, strings.TrimSpace(stderr.String()))
+		case <-deadline.C:
+			t.Fatalf("dbus-daemon not ready at %s: %v: %s", path, lastErr, strings.TrimSpace(stderr.String()))
 		}
 	}
 }

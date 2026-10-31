@@ -229,6 +229,9 @@ Runs until --duration expires or Ctrl+C.`,
 				}
 				h, err := pf.Screen.GrabRegionHash(ctx, r)
 				if err != nil {
+					if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+						return nil
+					}
 					return err
 				}
 				ts := time.Now().Format("15:04:05.000")

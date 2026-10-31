@@ -173,14 +173,12 @@ func (b *GnomeShellScreenshotBackend) grab(ctx context.Context, rect image.Recta
 		used = path
 	}
 
+	// Accept only the transport path we created. The service's returned path
+	// must never authorize reading or deleting an unrelated local file.
 	if used != path {
-		defer func() {
-			if removeErr := os.Remove(used); removeErr != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-shell: remove compositor transport: %w", removeErr))
-			}
-		}()
+		return nil, fmt.Errorf("screen/gnome-shell: compositor returned an unexpected screenshot path")
 	}
-	return decodeScreenshot(used)
+	return decodeScreenshot(path)
 }
 
 func (b *GnomeShellScreenshotBackend) captureToPath(ctx context.Context, rect image.Rectangle, path string) (bool, string, error) {
