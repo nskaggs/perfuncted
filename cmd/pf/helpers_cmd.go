@@ -123,6 +123,12 @@ func parseRect(s string) (image.Rectangle, error) {
 		}
 		vals[i] = v
 	}
+	// An empty Rectangle is the screenshot backend's full-screen sentinel.
+	// Reject explicit zero-area and reversed --rect bounds rather than
+	// silently granting a larger capture than the user requested.
+	if vals[2] <= vals[0] || vals[3] <= vals[1] {
+		return image.Rectangle{}, fmt.Errorf("--rect requires x1 > x0 and y1 > y0; got %q", s)
+	}
 	return image.Rect(vals[0], vals[1], vals[2], vals[3]), nil
 }
 
