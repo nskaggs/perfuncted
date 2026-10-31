@@ -165,3 +165,198 @@ func TestVirtualKeyboardCanceledAfterPressStillReleasesKey(t *testing.T) {
 		t.Fatalf("canceled key was left pressed: %+v", events)
 	}
 }
+
+type cancelAfterKeyboardRelease struct {
+	recordingCtx
+	cancel context.CancelFunc
+}
+
+func (c *cancelAfterKeyboardRelease) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := c.WriteMsg(data, oob); err != nil {
+		return err
+	}
+	if len(data) == 20 && wl.Uint32(data[4:8])&0xffff == 1 && wl.Uint32(data[16:20]) == 0 {
+		c.cancel()
+	}
+	return nil
+}
+
+func TestVirtualKeyboardCancellationAfterKeyReleaseStillReleasesTemporaryModifiers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	keyboard, _ := newTestKeyboard()
+	wire := &cancelAfterKeyboardRelease{cancel: cancel}
+	keyboard.ctx = wire
+
+	err := keyboard.sendkeys(ctx, []keySend{{key: "enter", modifiers: modifiers{ctrl: true}}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled key sequence returned %v, want context.Canceled", err)
+	}
+	events := keyboardEventsFromMessages(t, wire.msgs)
+	var modifierStates []uint32
+	for _, event := range events {
+		if event.opcode == 2 {
+			modifierStates = append(modifierStates, event.state)
+		}
+	}
+	if len(modifierStates) != 2 || modifierStates[0] != modControl || modifierStates[1] != 0 {
+		t.Fatalf("temporary modifier remained pressed after cancellation: %+v", events)
+	}
+	if keyboard.mods != 0 || len(keyboard.held) != 0 {
+		t.Fatalf("canceled sequence retained key state: mods=%d held=%v", keyboard.mods, keyboard.held)
+	}
+}
+
+type failOnceKeyboardWrite struct {
+	recordingCtx
+	failAt int
+	failed bool
+}
+
+func (c *failOnceKeyboardWrite) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if c.writes == c.failAt && !c.failed {
+		c.failed = true
+		return errors.New("injected one-time keyboard write failure")
+	}
+	return c.recordingCtx.WriteMsg(data, oob)
+}
+
+func TestVirtualKeyboardModifierPressFailureReleasesModifierKey(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		action keySend
+		failAt int
+	}{
+		{name: "hold state publication", action: keySend{key: "ctrl", down: true}, failAt: 2},
+		{name: "tap state publication", action: keySend{key: "ctrl"}, failAt: 2},
+		{name: "tap key release", action: keySend{key: "ctrl"}, failAt: 3},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			keyboard, _ := newTestKeyboard()
+			wire := &failOnceKeyboardWrite{failAt: testCase.failAt}
+			keyboard.ctx = wire
+
+			err := keyboard.sendkeys(context.Background(), []keySend{testCase.action})
+			if err == nil || !strings.Contains(err.Error(), "injected one-time keyboard write failure") {
+				t.Fatalf("modifier sequence error = %v, want injected modifier-state failure", err)
+			}
+			events := keyboardEventsFromMessages(t, wire.msgs)
+			var keys []keyboardWireEvent
+			var modifierStates []uint32
+			for _, event := range events {
+				if event.opcode == 1 {
+					keys = append(keys, event)
+				} else if event.opcode == 2 {
+					modifierStates = append(modifierStates, event.state)
+				}
+			}
+			if len(keys) != 2 || keys[0].keycode != kcCtrl || keys[0].state != 1 || keys[1].keycode != kcCtrl || keys[1].state != 0 {
+				t.Fatalf("failed modifier operation left the key pressed: %+v", events)
+			}
+			if len(modifierStates) == 0 || modifierStates[len(modifierStates)-1] != 0 {
+				t.Fatalf("modifier state not cleared after failed operation: %+v", events)
+			}
+			if keyboard.mods != 0 || len(keyboard.held) != 0 {
+				t.Fatalf("failed modifier press retained logical state: mods=%d held=%v", keyboard.mods, keyboard.held)
+			}
+		})
+	}
+}
+
+func TestVirtualKeyboardCombinedTemporaryModifierMaskIsBalanced(t *testing.T) {
+	keyboard, wire := newTestKeyboard()
+	allModifiers := modifiers{ctrl: true, alt: true, shift: true, super: true}
+	if err := keyboard.sendkeys(context.Background(), []keySend{{key: "enter", modifiers: allModifiers}}); err != nil {
+		t.Fatalf("send key with all temporary modifiers: %v", err)
+	}
+	events := keyboardEventsFromMessages(t, wire.msgs)
+	var modifierStates []uint32
+	var keys []keyboardWireEvent
+	for _, event := range events {
+		if event.opcode == 2 {
+			modifierStates = append(modifierStates, event.state)
+		} else if event.opcode == 1 {
+			keys = append(keys, event)
+		}
+	}
+	wantMask := modControl | modMod1 | modShift | modMod4
+	if len(modifierStates) != 2 || modifierStates[0] != wantMask || modifierStates[1] != 0 {
+		t.Fatalf("combined temporary modifier states = %v, want [%d 0]", modifierStates, wantMask)
+	}
+	if len(keys) != 2 || keys[0].state != 1 || keys[1].state != 0 || keys[0].keycode != keys[1].keycode {
+		t.Fatalf("modified key events are not balanced: %+v", keys)
+	}
+}
+
+func TestVirtualKeyboardFailedTemporaryModifierSetupNeverDispatchesKey(t *testing.T) {
+	keyboard, _ := newTestKeyboard()
+	wire := &failOnceKeyboardWrite{failAt: 1}
+	keyboard.ctx = wire
+	err := keyboard.sendkeys(context.Background(), []keySend{{key: "enter", modifiers: modifiers{shift: true}}})
+	if err == nil || !strings.Contains(err.Error(), "injected one-time keyboard write failure") {
+		t.Fatalf("failed temporary modifier setup returned %v, want the injected failure", err)
+	}
+	for _, event := range keyboardEventsFromMessages(t, wire.msgs) {
+		if event.opcode == 1 {
+			t.Fatalf("key dispatched after temporary modifier setup failed: %+v", event)
+		}
+	}
+	if keyboard.mods != 0 || len(keyboard.held) != 0 {
+		t.Fatalf("failed temporary modifier setup retained key state: mods=%d held=%v", keyboard.mods, keyboard.held)
+	}
+}
+
+func TestVirtualKeyboardRetainsModifierStateWhenCleanupTransportFails(t *testing.T) {
+	keyboard, wire := newFailingKeyboard(3)
+	err := keyboard.sendkeys(context.Background(), []keySend{{key: "ctrl"}})
+	if err == nil || !strings.Contains(err.Error(), "injected write failure") {
+		t.Fatalf("modifier cleanup failure returned %v, want the injected transport error", err)
+	}
+	events := keyboardEventsFromMessages(t, wire.msgs)
+	if len(events) != 2 || events[0].opcode != 1 || events[0].keycode != kcCtrl || events[0].state != 1 || events[1].opcode != 2 || events[1].state != modControl {
+		t.Fatalf("unexpected wire state after cleanup transport failure: %+v", events)
+	}
+	if keyboard.mods != modControl {
+		t.Fatalf("last known modifier state = %d, want %d", keyboard.mods, modControl)
+	}
+}
+
+type failSelectedKeyboardWrites struct {
+	recordingCtx
+	failAt map[int]struct{}
+}
+
+func (c *failSelectedKeyboardWrites) WriteMsgContext(ctx context.Context, data, oob []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, fail := c.failAt[c.writes]; fail {
+		delete(c.failAt, c.writes)
+		return errors.New("injected selected keyboard write failure")
+	}
+	return c.recordingCtx.WriteMsg(data, oob)
+}
+
+func TestVirtualKeyboardRetainsModifierStateWhenModifierCleanupPublicationFails(t *testing.T) {
+	keyboard, _ := newTestKeyboard()
+	wire := &failSelectedKeyboardWrites{failAt: map[int]struct{}{4: {}, 5: {}}}
+	keyboard.ctx = wire
+
+	err := keyboard.sendkeys(context.Background(), []keySend{{key: "ctrl"}})
+	if err == nil || !strings.Contains(err.Error(), "injected selected keyboard write failure") {
+		t.Fatalf("modifier cleanup error = %v, want the injected state publication failure", err)
+	}
+	events := keyboardEventsFromMessages(t, wire.msgs)
+	if len(events) != 4 || events[0].opcode != 1 || events[0].keycode != kcCtrl || events[0].state != 1 || events[1].opcode != 2 || events[1].state != modControl || events[2].opcode != 1 || events[2].keycode != kcCtrl || events[2].state != 0 || events[3].opcode != 1 || events[3].keycode != kcCtrl || events[3].state != 0 {
+		t.Fatalf("unexpected wire state after modifier cleanup publication failure: %+v", events)
+	}
+	if keyboard.mods != modControl {
+		t.Fatalf("last published modifier state = %d, want %d", keyboard.mods, modControl)
+	}
+}

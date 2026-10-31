@@ -477,15 +477,17 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 						return fmt.Errorf("keyboard: key %q not held", ka.key)
 					}
 					if err := k.sendKey(ctx, kc, 0); err != nil {
+						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, keyCleanupErr)
 					}
 					k.mods &^= bit
 					if err := k.sendModifiers(ctx); err != nil {
 						// The modifier is still down on the compositor, so the bookkeeping has to keep saying so.
 						k.mods |= bit
+						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, keyCleanupErr)
 					}
 				case ka.down:
 					if err := k.sendKey(ctx, kc, 1); err != nil {
@@ -494,10 +496,11 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 					k.mods |= bit
 					if err := k.sendModifiers(ctx); err != nil {
-						// The modifier never reached the compositor, so it must not stay recorded as held.
+						// The key-down may have reached the compositor before its modifier state update failed.
 						k.mods &^= bit
+						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, keyCleanupErr)
 					}
 				default:
 					if err := k.sendKey(ctx, kc, 1); err != nil {
@@ -506,21 +509,24 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 					k.mods |= bit
 					if err := k.sendModifiers(ctx); err != nil {
-						// The modifier never reached the compositor, so it must not stay recorded as held.
+						// The key-down may have reached the compositor before its modifier state update failed.
 						k.mods &^= bit
+						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, keyCleanupErr)
 					}
 					if err := k.sendKey(ctx, kc, 0); err != nil {
+						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, keyCleanupErr)
 					}
 					k.mods &^= bit
 					if err := k.sendModifiers(ctx); err != nil {
 						// The modifier is still down on the compositor, so the bookkeeping has to keep saying so.
 						k.mods |= bit
+						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, keyCleanupErr)
 					}
 				}
 			} else {
@@ -606,6 +612,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 
 		// Release temporary modifiers.
 		if err := k.clearTempMods(ctx, tempMods); err != nil {
+			k.clearTempModsBestEffort(ctx, tempMods)
 			return err
 		}
 	}
@@ -811,6 +818,21 @@ func (k *wlKeyboard) cleanupSendKey(ctx context.Context, keycode uint32) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
 	defer cancel()
 	return k.sendKey(cleanupCtx, keycode, 0)
+}
+
+func (k *wlKeyboard) cleanupModifierKey(ctx context.Context, keycode, bit uint32) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+	defer cancel()
+	if err := k.sendKey(cleanupCtx, keycode, 0); err != nil {
+		return err
+	}
+	previousMods := k.mods
+	k.mods &^= bit
+	if err := k.sendModifiers(cleanupCtx); err != nil {
+		k.mods = previousMods
+		return err
+	}
+	return nil
 }
 
 // ── XKB keymap generation ─────────────────────────────────────────────────────
