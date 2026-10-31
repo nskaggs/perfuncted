@@ -181,6 +181,12 @@ func (c *eiClient) next(ctx context.Context) (eiMessage, error) {
 	if ctx == nil {
 		return eiMessage{}, errors.New("input/eis: nil context")
 	}
+	// A ready inbound event must not win a random select over a cancellation
+	// that was already requested. Treat caller cancellation as authoritative
+	// before dequeuing protocol state or advancing its serial.
+	if err := ctx.Err(); err != nil {
+		return eiMessage{}, err
+	}
 	select {
 	case message := <-c.messages:
 		c.updateSerial(message)

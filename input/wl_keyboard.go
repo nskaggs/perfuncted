@@ -436,16 +436,16 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 						return err
 					}
 					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
-						if upErr := k.sendKey(ctx, slot, 0); upErr != nil {
-							k.clearTempModsBestEffort(ctx, tempMods)
-							return upErr
-						}
+						// The key-down may already have reached the compositor;
+						// cleanup cannot depend on the canceled operation context.
+						upErr := k.cleanupSendKey(ctx, slot)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, upErr)
 					}
 					if err := k.sendKey(ctx, slot, 0); err != nil {
+						upErr := k.cleanupSendKey(ctx, slot)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, upErr)
 					}
 				}
 			}

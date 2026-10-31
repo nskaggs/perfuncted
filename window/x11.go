@@ -499,6 +499,12 @@ func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: resize canceled: %w", err)
 	}
+	// X11 window sizes are positive CARD16 geometry values. Validate before
+	// issuing ConfigureWindow: converting a negative int to uint32 can turn
+	// an invalid request into a very large on-wire mutation.
+	if w <= 0 || h <= 0 || w > 65535 || h > 65535 {
+		return fmt.Errorf("window/x11: invalid resize dimensions %dx%d", w, h)
+	}
 	finish, err := b.beginOperation()
 	if err != nil {
 		return err
