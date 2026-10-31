@@ -258,6 +258,11 @@ func pixelHashImage(img image.Image, rect image.Rectangle, newHash Hasher) uint3
 		return sum
 	}
 
+	// The generic draw path calls At on native NRGBA images. An incomplete
+	// capture must fail closed rather than panic while inspecting its pixels.
+	if !validPackedImageLayout(img) {
+		return 0
+	}
 	// Convert non-RGBA images to RGBA once and then use the fast contiguous Pix path.
 	rgba := image.NewRGBA(b)
 	draw.Draw(rgba, b, img, b.Min, draw.Src)
@@ -309,6 +314,9 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 	}
 	if err := checkImage(img, "first pixel grab"); err != nil {
 		return color.RGBA{}, err
+	}
+	if !validPackedImageLayout(img) {
+		return color.RGBA{}, fmt.Errorf("find: first pixel grab: malformed image layout: %w", ErrInvalidFrame)
 	}
 	if err := contextErr(ctx); err != nil {
 		return color.RGBA{}, err
@@ -589,6 +597,9 @@ func grabHashProbe(
 		if err := checkImage(img, "wait-for-no-change grab"); err != nil {
 			return false, 0, err
 		}
+		if !validPackedImageLayout(img) {
+			return false, 0, fmt.Errorf("find: wait-for-no-change grab: malformed image layout: %w", ErrInvalidFrame)
+		}
 		b := img.Bounds()
 		if b.Empty() {
 			return false, 0, fmt.Errorf("find: wait-for-no-change grab returned empty image")
@@ -802,6 +813,13 @@ func LocateExactInImage(src image.Image, searchArea image.Rectangle, reference i
 	sb := src.Bounds()
 	rb := reference.Bounds()
 
+	// Image.At panics when an *image.RGBA or *image.NRGBA carries an
+	// incomplete or inconsistent Pix buffer. Untrusted capture providers can
+	// return such images; reject their layout before inspecting anchor pixels.
+	if !validPackedImageLayout(src) || !validPackedImageLayout(reference) {
+		return image.Rectangle{}, fmt.Errorf("%w: malformed packed image layout", ErrNotFound)
+	}
+
 	if rb.Dx() > sb.Dx() || rb.Dy() > sb.Dy() {
 		return image.Rectangle{}, fmt.Errorf("find: reference image larger than search area")
 	}
@@ -948,6 +966,21 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 		return image.Rectangle{}, err
 	}
 	return LocateExactInImage(src, searchArea, reference)
+}
+
+// validPackedImageLayout prevents image.Image.At from panicking on truncated
+// RGBA/NRGBA captures. Generic images retain their own At implementation.
+func validPackedImageLayout(img image.Image) bool {
+	switch packed := img.(type) {
+	case *image.RGBA:
+		size, ok := packedBufferSize(packed.Rect, packed.Stride)
+		return ok && len(packed.Pix) >= size
+	case *image.NRGBA:
+		size, ok := packedBufferSize(packed.Rect, packed.Stride)
+		return ok && len(packed.Pix) >= size
+	default:
+		return true
+	}
 }
 
 func matchAt(src, ref image.Image, ox, oy int) bool {
