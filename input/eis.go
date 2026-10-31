@@ -119,8 +119,13 @@ func (c *eiClient) captureConnection(message eiMessage) error {
 	if err != nil || connection == 0 || version != 1 {
 		return fmt.Errorf("input/eis: unsupported handshake connection object %d version %d", connection, version)
 	}
+	// The server assigns exactly one connection object during handshake.
+	// A second announcement cannot replace the identity used to authorize
+	// pings and device lifecycle events after setup has begun.
+	if !c.connection.CompareAndSwap(0, connection) {
+		return errors.New("input/eis: duplicate handshake connection event")
+	}
 	// Publish the connection before its event so this reader can answer a following ping.
-	c.connection.Store(connection)
 	return nil
 }
 
@@ -484,6 +489,9 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		version, err := eiReadU32(message.body, 8)
 		if err != nil {
 			return err
+		}
+		if _, exists := s.devices[id]; exists {
+			return fmt.Errorf("input/eis: duplicate device announcement for object %d", id)
 		}
 		s.devices[id] = &eiDevice{id: id, version: version, interfaces: make(map[string]uint64)}
 		return nil
