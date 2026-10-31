@@ -66,10 +66,16 @@ func (p *syntheticPortal) reply(method string, results map[string]dbus.Variant) 
 	if method == "Start" {
 		code = p.startCode
 	}
+	customBody := p.responseBody != nil
+	responseBody := append([]any(nil), p.responseBody...)
 	p.mu.Unlock()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		_ = p.conn.Emit(path, portalRequestInterface+".Response", code, results)
+		if customBody {
+			_ = p.conn.Emit(path, portalRequestInterface+".Response", responseBody...)
+		} else {
+			_ = p.conn.Emit(path, portalRequestInterface+".Response", code, results)
+		}
 	}()
 	return path
 }

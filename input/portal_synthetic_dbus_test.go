@@ -21,12 +21,15 @@ type syntheticPortal struct {
 	mu             sync.Mutex
 	code           uint32
 	result         map[string]dbus.Variant
+	responseBody   []any
+	createFailure  string
 	startResponse  map[string]dbus.Variant
 	connectErr     *dbus.Error
 	skip           bool
 	emitUnrelated  bool                 // deliver a different portal signal before Response
 	requestPaths   chan dbus.ObjectPath // optional test observation of method-return path
 	getVersion     any
+	versionFailure string
 	busAddress     string
 	deviceMask     uint32
 	selectCode     uint32
@@ -43,10 +46,15 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 	path := dbus.ObjectPath("/org/freedesktop/portal/desktop/request/fixture/" + token)
 	p.mu.Lock()
 	code, result, skip := p.code, p.result, p.skip
+	failure, customBody := p.createFailure, p.responseBody != nil
+	responseBody := append([]any(nil), p.responseBody...)
 	unrelated := p.emitUnrelated
 	paths := p.requestPaths
 	p.called++
 	p.mu.Unlock()
+	if failure != "" {
+		return "", dbus.MakeFailedError(errors.New(failure))
+	}
 	if paths != nil {
 		select {
 		case paths <- path:
@@ -62,7 +70,11 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 				_ = p.conn.Emit(path, portalRequestInterface+".Unexpected", uint32(1), map[string]dbus.Variant{})
 				time.Sleep(25 * time.Millisecond)
 			}
-			_ = p.conn.Emit(path, portalRequestInterface+".Response", code, result)
+			if customBody {
+				_ = p.conn.Emit(path, portalRequestInterface+".Response", responseBody...)
+			} else {
+				_ = p.conn.Emit(path, portalRequestInterface+".Response", code, result)
+			}
 		}()
 	}
 	return path, nil
@@ -74,6 +86,9 @@ func (p *syntheticPortal) Get(iface, key string) (dbus.Variant, *dbus.Error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.versionFailure != "" {
+		return dbus.Variant{}, dbus.MakeFailedError(errors.New(p.versionFailure))
+	}
 	return dbus.MakeVariant(p.getVersion), nil
 }
 
