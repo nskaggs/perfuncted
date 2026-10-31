@@ -1703,6 +1703,12 @@ func (b *dbusBackend) Focused(ctx context.Context, opts SnapshotOptions) (Node, 
 	if err != nil {
 		return Node{}, err
 	}
+	// A truncated or inconsistent traversal cannot establish the true focused
+	// node. Returning ErrNotFound from partial evidence misrepresents a
+	// potentially hidden focus target as definitively absent.
+	if err := ValidateSemanticSnapshot(snapshot, Selector{States: []string{"focused"}}); err != nil {
+		return Node{}, err
+	}
 	for _, node := range snapshot.Nodes {
 		if node.Focused {
 			return node, nil
