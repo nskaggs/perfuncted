@@ -41,6 +41,7 @@ type ownerLifecycleBackend struct {
 	retireEntered    chan struct{}
 	retireOnce       sync.Once
 	retireGate       <-chan struct{}
+	retireErr        error
 	retireCalls      atomic.Int32
 	reopen           func(context.Context) (accessibility.Backend, error)
 }
@@ -198,7 +199,7 @@ func (b *ownerLifecycleBackend) RetireEventsForReopen(ctx context.Context) error
 			return ctx.Err()
 		}
 	}
-	return ctx.Err()
+	return errors.Join(b.retireErr, ctx.Err())
 }
 
 func awaitOwnerSignal[T any](t *testing.T, ch <-chan T, description string) T {
