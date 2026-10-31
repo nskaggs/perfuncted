@@ -156,7 +156,10 @@ func (b *UinputBackend) withOperation(ctx context.Context, fn func(context.Conte
 	if err := opCtx.Err(); err != nil {
 		return err
 	}
-	return fn(opCtx)
+	// A device can finish its write while the owning request is canceled.
+	// Preserve both the device error and the late cancellation; success
+	// must not be reported after an operation has lost its lifetime.
+	return errors.Join(fn(opCtx), contextOutcome(opCtx))
 }
 
 // keyCode maps generic Key identifiers to uinput codes.

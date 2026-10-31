@@ -728,8 +728,11 @@ func TestUinputCloseWaitsForActiveMouseUse(t *testing.T) { //nolint:gocyclo // e
 	close(mouse.release)
 	select {
 	case err := <-scrollDone:
-		if err != nil {
-			t.Fatalf("ScrollRight: %v", err)
+		// Close cancels admitted work even when the last device write
+		// finishes successfully during shutdown. This must not be
+		// misreported as an uncanceled successful scroll.
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ScrollRight after concurrent Close: got %v, want cancellation", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("ScrollRight did not finish after release")
