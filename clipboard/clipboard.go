@@ -230,6 +230,10 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		}
 		return fmt.Errorf("clipboard set: owner readiness: %w", readyErr)
 	}
+	if err := ctx.Err(); err != nil {
+		stopWaylandOwner(cmd, done)
+		return fmt.Errorf("clipboard set: %w", err)
+	}
 
 	// The owner must remain alive long enough for readers to consume the
 	// selection, but its lifetime is bounded independently from the caller's
@@ -356,7 +360,9 @@ func (c *extCmdClipboard) waitWaylandContent(ctx context.Context, want string) e
 			return err
 		}
 		if c.waylandContentMatches(ctx, want) {
-			return nil
+			// A subprocess can finish with a matching value as the caller
+			// cancels. Completion does not override the canceled request.
+			return ctx.Err()
 		}
 		timer := time.NewTimer(pollpkg.AdaptivePoll(attempt, waylandPollMinInterval, waylandPollMaxInterval))
 		select {
