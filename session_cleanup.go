@@ -337,10 +337,14 @@ func newProcessGroupOwner(pid int, dir string) (*processGroupOwner, bool) {
 }
 
 func (o *processGroupOwner) refresh() bool {
+	return o.refreshAt("/proc")
+}
+
+func (o *processGroupOwner) refreshAt(procRoot string) bool {
 	if o == nil || o.pgid <= 0 || o.dir == "" {
 		return false
 	}
-	processes := processGroupMembersAt("/proc", o.pgid)
+	processes := processGroupMembersAt(procRoot, o.pgid)
 	leaderPresent := false
 	leaderOwned := false
 	ownedMember := false
@@ -350,11 +354,11 @@ func (o *processGroupOwner) refresh() bool {
 				return false
 			}
 			leaderPresent = true
-			leaderOwned = processUsesRuntimeDirAt("/proc", process.pid, o.dir)
+			leaderOwned = processUsesRuntimeDirAt(procRoot, process.pid, o.dir)
 			continue
 		}
 		if _, tracked := o.members[process]; tracked &&
-			processUsesRuntimeDirAt("/proc", process.pid, o.dir) {
+			processUsesRuntimeDirAt(procRoot, process.pid, o.dir) {
 			ownedMember = true
 		}
 	}
@@ -364,7 +368,7 @@ func (o *processGroupOwner) refresh() bool {
 			if process.pid == o.leader.pid {
 				continue
 			}
-			if processUsesRuntimeDirAt("/proc", process.pid, o.dir) {
+			if processUsesRuntimeDirAt(procRoot, process.pid, o.dir) {
 				o.members[process] = struct{}{}
 			}
 		}
