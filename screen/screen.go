@@ -56,6 +56,9 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
 		}
+		if width <= 0 || height <= 0 {
+			return 0, 0, fmt.Errorf("screen: resolver reported invalid resolution %dx%d", width, height)
+		}
 		return width, height, nil
 	}
 	if r, ok := sc.(Resolver); ok {
@@ -65,6 +68,9 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 		}
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
+		}
+		if width <= 0 || height <= 0 {
+			return 0, 0, fmt.Errorf("screen: resolver reported invalid resolution %dx%d", width, height)
 		}
 		return width, height, nil
 	}

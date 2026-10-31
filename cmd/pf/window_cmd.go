@@ -155,6 +155,11 @@ func windowCmd(
 		Short: "List windows",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Reject unsupported output formats before session authorization.
+			format := strings.ToLower(listOutputFlag)
+			if format != string(windowOutputPlain) && format != string(windowOutputJSON) {
+				return fmt.Errorf("unknown output format %q", listOutputFlag)
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
@@ -248,6 +253,14 @@ func windowCmd(
 		Short: "Move a window to absolute screen coordinates",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			x, keepX, err := parseOptionalIntToken(mvX)
+			if err != nil {
+				return err
+			}
+			y, keepY, err := parseOptionalIntToken(mvY)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
@@ -261,18 +274,10 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			x, unchanged, err := parseOptionalIntToken(mvX)
-			if err != nil {
-				return err
-			}
-			if unchanged {
+			if keepX {
 				x = info.X
 			}
-			y, unchanged, err := parseOptionalIntToken(mvY)
-			if err != nil {
-				return err
-			}
-			if unchanged {
+			if keepY {
 				y = info.Y
 			}
 			if err := target.Move(cmd.Context(), x, y); err != nil {
@@ -387,15 +392,15 @@ func windowCmd(
 		Short: "Find matching windows and print them",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			match, err := parseWindowMatchArgs(args)
+			if err != nil {
+				return err
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			match, err := parseWindowMatchArgs(args)
-			if err != nil {
-				return err
-			}
 			wins, err := collectWindowMatches(
 				cmd.Context(),
 				pf.Windows,
@@ -416,11 +421,6 @@ func windowCmd(
 		Short: "Wait until a matching window appears",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
 			match, err := parseWindowMatchArgs(args)
 			if err != nil {
 				return err
@@ -433,6 +433,11 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			w, err := waitForWindowMatch(ctx, pf.Windows, match, poll)
@@ -451,11 +456,6 @@ func windowCmd(
 		Short: "Wait until matching windows disappear",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
 			match, err := parseWindowMatchArgs(args)
 			if err != nil {
 				return err
@@ -468,6 +468,11 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
+			pf, err := openPF(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			if err := waitForWindowCloseMatch(ctx, pf, match, poll); err != nil {

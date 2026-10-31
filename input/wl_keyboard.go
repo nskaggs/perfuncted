@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/keymap"
@@ -177,6 +178,52 @@ func (k *wlKeyboard) clearTempModsBestEffort(ctx context.Context, modBitmask uin
 	_ = k.sendModifiers(cleanupCtx)
 }
 
+// validateSendkeysSequence simulates held-key transitions without changing
+// compositor state or allocating a keymap. Actual transport failures remain
+// handled at dispatch time with the existing best-effort key cleanup.
+func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
+	held := make(map[string]bool, len(k.held))
+	for key := range k.held {
+		held[key] = true
+	}
+	mods := k.mods
+	for _, action := range actions {
+		if action.text != "" {
+			continue
+		}
+		_, _, named := namedKey(action.key)
+		bit := uint32(0)
+		if named {
+			bit = modBit(action.key)
+		}
+		if action.up {
+			if bit != 0 {
+				if mods&bit == 0 {
+					return fmt.Errorf("keyboard: key %q not held", action.key)
+				}
+				mods &^= bit
+			} else {
+				if !held[action.key] {
+					return fmt.Errorf("keyboard: key %q not held", action.key)
+				}
+				delete(held, action.key)
+			}
+			continue
+		}
+		if action.down {
+			if !named && utf8.RuneCountInString(action.key) != 1 {
+				return fmt.Errorf("keyboard: cannot hold multi-character key %q", action.key)
+			}
+			if bit != 0 {
+				mods |= bit
+			} else {
+				held[action.key] = true
+			}
+		}
+	}
+	return nil
+}
+
 // sendkeys processes a sequence of parsed keySend actions with a single
 // keymap upload. This avoids the modifier-state-reset problem that occurs
 // when pressing multiple keys via separate pressKey calls (each uploads a
@@ -188,6 +235,12 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	ctx = contextutil.Default(ctx)
 	if len(actions) == 0 {
 		return nil
+	}
+	// Treat a single typed sequence as one validated command. Without this
+	// preflight, an unheld key release or invalid hold at the end of a
+	// sequence could inject its earlier valid prefix into the compositor.
+	if err := k.validateSendkeysSequence(actions); err != nil {
+		return err
 	}
 
 	// First pass: collect all unique runes from text actions and all named
