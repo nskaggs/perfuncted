@@ -211,11 +211,19 @@ func validateSemanticEventCoverage(registered []string) error {
 // registerEventFamilies tolerates providers that do not expose every AT-SPI
 // event family for general notifications. Semantic observation applies an
 // additional coverage check before accepting the stream. The returned slice
-// is the exact ownership record needed for cleanup.
+// contains successful registrations and canceled attempts with an ambiguous
+// remote result so setup cleanup can compensate for both.
 func registerEventFamilies(ctx context.Context, registry eventRegistrar, unique string, eventTypes []string) ([]string, error) {
 	registered := make([]string, 0, len(eventTypes))
 	for _, eventType := range eventTypes {
 		if err := registry.CallWithContext(ctx, registryName+".RegisterEvent", 0, eventType, []string{}, unique).Err; err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// The provider may finish registration after the caller stops waiting
+				// for its reply. Include this family so setup cleanup compensates for
+				// that ambiguous remote outcome.
+				registered = append(registered, eventType)
+				return registered, ctxErr
+			}
 			continue
 		}
 		registered = append(registered, eventType)
