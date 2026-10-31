@@ -462,7 +462,13 @@ seatComplete:
 			return nil, ErrRemoteDesktopRevoked
 		}
 	}
-	if err := sender.selectDevices(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := sender.selectDevices(ctx); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	failed = false
@@ -579,7 +585,7 @@ func (s *eiSender) devicesReady() bool { //nolint:gocyclo // readiness requires 
 	return s.keyboardDev != 0 && len(s.pointers) > 0 && s.buttonDev != 0 && len(s.regions) > 0
 }
 
-func (s *eiSender) selectDevices() error {
+func (s *eiSender) selectDevices(ctx context.Context) error {
 	devices := make([]uint64, 0, 4+len(s.pointers))
 	devices = append(devices, s.keyboardDev, s.buttonDev, s.scrollDev, s.textDev)
 	for _, pointer := range s.pointers {
@@ -592,6 +598,9 @@ func (s *eiSender) selectDevices() error {
 		}
 		if _, ok := started[id]; ok {
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		started[id] = struct{}{}
 		sequence := uint32(1)
