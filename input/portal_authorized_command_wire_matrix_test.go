@@ -23,44 +23,44 @@ func TestRemoteDesktopAuthorizedSyntheticEISCommandsAndHeldState(t *testing.T) {
 	if !b.heldKeys[ctrl] {
 		t.Fatal("acknowledged ctrl down did not record held key")
 	}
-	if err := b.Type(ctx, "{ctrl+a}"); err != nil {
-		t.Fatalf("held modifier must survive combination: %v", err)
+	if lintShadow26 := b.Type(ctx, "{ctrl+a}"); lintShadow26 != nil {
+		t.Fatalf("held modifier must survive combination: %v", lintShadow26)
 	}
 	if !b.heldKeys[ctrl] {
 		t.Fatal("combination released caller-held ctrl")
 	}
-	if err := b.KeyUp(ctx, "ctrl"); err != nil {
-		t.Fatal(err)
+	if lintShadow32 := b.KeyUp(ctx, "ctrl"); lintShadow32 != nil {
+		t.Fatal(lintShadow32)
 	}
 	if b.heldKeys[ctrl] {
 		t.Fatal("ctrl keyup left held key behind")
 	}
-	if err := b.Type(ctx, "plain text {enter}"); err != nil {
-		t.Fatalf("EIS text and key combination: %v", err)
+	if lintShadow38 := b.Type(ctx, "plain text {enter}"); lintShadow38 != nil {
+		t.Fatalf("EIS text and key combination: %v", lintShadow38)
 	}
-	if err := b.TypeLiteral(ctx, "literal{ctrl+x} café"); err != nil {
-		t.Fatalf("literal Unicode text must not interpret syntax: %v", err)
+	if lintShadow41 := b.TypeLiteral(ctx, "literal{ctrl+x} café"); lintShadow41 != nil {
+		t.Fatalf("literal Unicode text must not interpret syntax: %v", lintShadow41)
 	}
-	if err := b.MouseMove(ctx, 44, 65); err != nil {
-		t.Fatal(err)
+	if lintShadow44 := b.MouseMove(ctx, 44, 65); lintShadow44 != nil {
+		t.Fatal(lintShadow44)
 	}
 	if !b.hasPointer || b.pointerX != 44 || b.pointerY != 65 {
 		t.Fatalf("pointer location state not recorded: %d,%d has=%v", b.pointerX, b.pointerY, b.hasPointer)
 	}
-	if err := b.MouseDown(ctx, 1); err != nil {
-		t.Fatal(err)
+	if lintShadow50 := b.MouseDown(ctx, 1); lintShadow50 != nil {
+		t.Fatal(lintShadow50)
 	}
 	if !b.buttons[0x110] {
 		t.Fatal("left mouse button not recorded as held")
 	}
-	if err := b.MouseUp(ctx, 1); err != nil {
-		t.Fatal(err)
+	if lintShadow56 := b.MouseUp(ctx, 1); lintShadow56 != nil {
+		t.Fatal(lintShadow56)
 	}
 	if b.buttons[0x110] {
 		t.Fatal("button release not recorded")
 	}
-	if err := b.MouseClick(ctx, 60, 70, 3); err != nil {
-		t.Fatal(err)
+	if lintShadow62 := b.MouseClick(ctx, 60, 70, 3); lintShadow62 != nil {
+		t.Fatal(lintShadow62)
 	}
 	if b.buttons[0x111] || b.pointerX != 60 || b.pointerY != 70 {
 		t.Fatalf("click left held input or lost location %+v", b.buttons)
@@ -73,8 +73,8 @@ func TestRemoteDesktopAuthorizedSyntheticEISCommandsAndHeldState(t *testing.T) {
 		{"scroll left", func() error { return b.ScrollLeft(ctx, 1) }}, {"scroll right", func() error { return b.ScrollRight(ctx, 5) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := tc.run(); err != nil {
-				t.Fatal(err)
+			if lintShadow76 := tc.run(); lintShadow76 != nil {
+				t.Fatal(lintShadow76)
 			}
 		})
 	}

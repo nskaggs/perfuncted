@@ -230,17 +230,17 @@ func unmountSubdirsWith(
 	// retire nested mountpoints before their parents.
 	sort.Slice(mounts, func(i, j int) bool { return len(mounts[i]) > len(mounts[j]) })
 	for _, mount := range mounts {
-		if err := ctx.Err(); err != nil {
+		if ctx.Err() != nil {
 			return contextErrorWithCause(ctx)
 		}
-		if err := unmount(ctx, mount); err != nil {
+		if unmountErr := unmount(ctx, mount); unmountErr != nil {
 			if ctx.Err() != nil {
 				return contextErrorWithCause(ctx)
 			}
-			slog.Debug("session: unmount helper failed", "error", err)
+			slog.Debug("session: unmount helper failed", "error", unmountErr)
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	if ctx.Err() != nil {
 		return contextErrorWithCause(ctx)
 	}
 	remaining, err := readMounts(dir)

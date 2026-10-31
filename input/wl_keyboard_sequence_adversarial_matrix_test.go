@@ -143,7 +143,7 @@ func (c *cancelOnKeyboardPress) WriteMsgContext(ctx context.Context, data, oob [
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	err := c.recordingCtx.WriteMsg(data, oob)
+	err := c.WriteMsg(data, oob)
 	if err == nil && !c.pressed && len(data) == 20 && wl.Uint32(data[4:8])&0xffff == 1 && wl.Uint32(data[16:20]) == 1 {
 		c.pressed = true
 		c.cancel()

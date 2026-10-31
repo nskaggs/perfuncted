@@ -95,7 +95,7 @@ func (s *syntheticGNOMEClipboard) SetText(value string) *dbus.Error {
 	s.text = value
 	return nil
 }
-func publishSyntheticGNOME(t *testing.T, address string, protocol uint32) *dbus.Conn {
+func publishSyntheticGNOME(t *testing.T, address string, protocol uint32) {
 	t.Helper()
 	conn, err := dbusutil.ConnectContext(context.Background(), address)
 	if err != nil {
@@ -119,7 +119,6 @@ func publishSyntheticGNOME(t *testing.T, address string, protocol uint32) *dbus.
 			t.Fatalf("export GNOME %s: %v", tc.iface, err)
 		}
 	}
-	return conn
 }
 func TestGNOMEBridgePrivateDBusNegotiationWindowsClipboardAndTypedErrors(t *testing.T) {
 	address := startPrivateBridgeBus(t)
@@ -136,8 +135,8 @@ func TestGNOMEBridgePrivateDBusNegotiationWindowsClipboardAndTypedErrors(t *test
 	if !client.HasCapability(CapabilityClipboard) || client.HasCapability(CapabilityScreen) {
 		t.Fatalf("incorrect private capabilities %v", client.Capabilities())
 	}
-	if err := client.Ping(ctx); err != nil {
-		t.Fatal(err)
+	if lintShadow139 := client.Ping(ctx); lintShadow139 != nil {
+		t.Fatal(lintShadow139)
 	}
 	windows, err := client.ListWindows(ctx)
 	if err != nil || len(windows) != 1 || windows[0].ID != "7" || windows[0].PID != 117 || windows[0].Title != "Synthetic Editor" {

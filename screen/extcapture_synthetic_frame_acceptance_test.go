@@ -58,8 +58,8 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 				defer conn.Close()
 				_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
 				request := make([]byte, 12)
-				if _, err := io.ReadFull(conn, request); err != nil {
-					serverDone <- err
+				if _, lintShadow61 := io.ReadFull(conn, request); lintShadow61 != nil {
+					serverDone <- lintShadow61
 					return
 				}
 				callbackID := wl.Uint32(request[8:12])
@@ -71,16 +71,16 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 				}{
 					{3, 0, wlUint32Payload(2, 2)}, {3, 1, wlUint32Payload(0)}, {callbackID, 0, nil},
 				} {
-					if err := writeExtTestEvent(conn, event.sender, event.op, event.body); err != nil {
-						serverDone <- err
+					if lintShadow74 := writeExtTestEvent(conn, event.sender, event.op, event.body); lintShadow74 != nil {
+						serverDone <- lintShadow74
 						return
 					}
 				}
 				var frameID uint32
 				for {
 					var header [8]byte
-					if _, err := io.ReadFull(conn, header[:]); err != nil {
-						serverDone <- err
+					if _, lintShadow82 := io.ReadFull(conn, header[:]); lintShadow82 != nil {
+						serverDone <- lintShadow82
 						return
 					}
 					size := int(wl.Uint32(header[4:8])>>16) - 8
@@ -89,8 +89,8 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 						return
 					}
 					body := make([]byte, size)
-					if _, err := io.ReadFull(conn, body); err != nil {
-						serverDone <- err
+					if _, lintShadow92 := io.ReadFull(conn, body); lintShadow92 != nil {
+						serverDone <- lintShadow92
 						return
 					}
 					sender := wl.Uint32(header[:4])
@@ -100,8 +100,8 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 						frameID = wl.Uint32(body[:4])
 					}
 					if frameID != 0 && sender == frameID && opcode == 3 {
-						err := writeExtTestEvent(conn, frameID, 3, nil)
-						serverDone <- err
+						lintShadow103 := writeExtTestEvent(conn, frameID, 3, nil)
+						serverDone <- lintShadow103
 						<-releaseServer
 						return
 					}

@@ -12,13 +12,13 @@ import (
 )
 
 func TestDBusPublicContextBoundaries(t *testing.T) {
-	if c, err := SessionBusAddressContext(nil, "unix:path=/nonexistent"); c != nil || err == nil || !strings.Contains(err.Error(), "nil context") {
+	if c, err := SessionBusAddressContext(absentDBusContext, "unix:path=/nonexistent"); c != nil || err == nil || !strings.Contains(err.Error(), "nil context") {
 		t.Fatalf("session nil = %v %v", c, err)
 	}
-	if c, err := ConnectContext(nil, "unix:path=/nonexistent"); c != nil || err == nil || !strings.Contains(err.Error(), "nil context") {
+	if c, err := ConnectContext(absentDBusContext, "unix:path=/nonexistent"); c != nil || err == nil || !strings.Contains(err.Error(), "nil context") {
 		t.Fatalf("connect nil = %v %v", c, err)
 	}
-	if present, err := HasServiceContext(nil, nil, "service"); present || err == nil || !strings.Contains(err.Error(), "nil context") {
+	if present, err := HasServiceContext(absentDBusContext, nil, "service"); present || err == nil || !strings.Contains(err.Error(), "nil context") {
 		t.Fatalf("service nil = %v %v", present, err)
 	}
 	if present, err := HasServiceContext(context.Background(), nil, "service"); present || err != nil {
@@ -42,7 +42,7 @@ func TestDBusHandshakeFailureAndCancellationCleanup(t *testing.T) {
 	if err := runHandshakeContext(context.Background(), func() error { return sentinel }, func() error { t.Error("closed successful handshake"); return nil }); !errors.Is(err, sentinel) {
 		t.Fatalf("handshake error = %v", err)
 	}
-	if err := runHandshakeContext(nil, func() error { t.Error("executed with nil context"); return nil }, func() error { return nil }); err == nil {
+	if err := runHandshakeContext(absentDBusContext, func() error { t.Error("executed with nil context"); return nil }, func() error { return nil }); err == nil {
 		t.Fatal("nil context accepted")
 	}
 	started := make(chan struct{})
@@ -67,3 +67,6 @@ func TestDBusHandshakeFailureAndCancellationCleanup(t *testing.T) {
 		t.Fatalf("transport closed %d times", closed.Load())
 	}
 }
+
+// An intentionally absent context exercises the public nil-context boundary.
+var absentDBusContext context.Context

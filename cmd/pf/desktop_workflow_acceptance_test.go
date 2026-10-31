@@ -17,11 +17,12 @@ import (
 
 type coordinateTestInput struct {
 	*pftest.Inputter
-	space input.CoordinateSpaceInfo
+	space   input.CoordinateSpaceInfo
+	failure error
 }
 
 func (i *coordinateTestInput) PointerCoordinateSpace(context.Context) (input.CoordinateSpaceInfo, error) {
-	return i.space, nil
+	return i.space, i.failure
 }
 
 type outputTestLister struct{ outs []output.Info }

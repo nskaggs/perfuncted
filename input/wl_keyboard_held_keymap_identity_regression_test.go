@@ -42,16 +42,16 @@ func (r *keyboardKeymapWire) WriteMsgContext(ctx context.Context, data, oob []by
 		f := os.NewFile(uintptr(dup), "keymap test duplicate")
 		// Ancillary FDs refer to a shared memory file whose writer is at EOF;
 		// the compositor maps it from zero rather than reading that offset.
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
+		if _, lintShadow45 := f.Seek(0, io.SeekStart); lintShadow45 != nil {
 			_ = f.Close()
-			return err
+			return lintShadow45
 		}
-		data, err := io.ReadAll(f)
+		lintShadow49, err := io.ReadAll(f)
 		_ = f.Close()
 		if err != nil {
 			return err
 		}
-		r.maps = append(r.maps, string(data))
+		r.maps = append(r.maps, string(lintShadow49))
 	}
 	return r.recordingCtx.WriteMsgContext(ctx, data, oob)
 }

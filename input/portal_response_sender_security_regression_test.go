@@ -30,8 +30,8 @@ func TestPortalRequestRejectsSamePathResponseFromUntrustedBusSender(t *testing.T
 	wideRule := []dbus.MatchOption{
 		dbus.WithMatchInterface(portalRequestInterface), dbus.WithMatchMember("Response"),
 	}
-	if err := client.AddMatchSignalContext(ctx, wideRule...); err != nil {
-		t.Fatal(err)
+	if lintShadow33 := client.AddMatchSignalContext(ctx, wideRule...); lintShadow33 != nil {
+		t.Fatal(lintShadow33)
 	}
 	defer func() { _ = client.RemoveMatchSignalContext(context.Background(), wideRule...) }()
 	name, err := portalUniqueName(client.Names())

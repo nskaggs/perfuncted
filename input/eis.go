@@ -187,7 +187,7 @@ func (c *eiClient) next(ctx context.Context) (eiMessage, error) {
 	if err := ctx.Err(); err != nil {
 		return eiMessage{}, err
 	}
-	if err, ended := c.terminalError(); ended {
+	if ended, err := c.terminalError(); ended {
 		return eiMessage{}, err
 	}
 	select {
@@ -197,28 +197,28 @@ func (c *eiClient) next(ctx context.Context) (eiMessage, error) {
 		}
 		// A socket failure can race with a queued event. Do not advance the
 		// negotiated serial using an event from a revoked connection.
-		if err, ended := c.terminalError(); ended {
+		if ended, err := c.terminalError(); ended {
 			return eiMessage{}, err
 		}
 		c.updateSerial(message)
 		return message, nil
 	case <-c.done:
-		err, _ := c.terminalError()
+		_, err := c.terminalError()
 		return eiMessage{}, err
 	case <-ctx.Done():
 		return eiMessage{}, ctx.Err()
 	}
 }
 
-func (c *eiClient) terminalError() (error, bool) {
+func (c *eiClient) terminalError() (bool, error) {
 	select {
 	case <-c.done:
 		if err := c.readError(); err != nil {
-			return err, true
+			return true, err
 		}
-		return errors.New("input/eis: EIS stream closed"), true
+		return true, errors.New("input/eis: EIS stream closed")
 	default:
-		return nil, false
+		return false, nil
 	}
 }
 

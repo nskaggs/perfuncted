@@ -13,7 +13,6 @@ func TestGnomeManagerSyntheticWindowLifecycleAndActionIsolation(t *testing.T) {
 	const list = `[{"id":17,"title":"Editor","class":"org.example.Editor","pid":153,"x":12,"y":18,"w":900,"h":650},{"id":18,"title":"Other","pid":19,"x":1,"y":2,"w":400,"h":300}]`
 	type result struct {
 		script string
-		err    error
 	}
 	captures := []result{}
 	manager := &GnomeManager{evalJS: func(_ context.Context, script string) (string, error) {

@@ -110,13 +110,16 @@ func TestRemoteDesktopSubmitCancellationAfterAdmissionDoesNotAcknowledgeOperatio
 }
 func TestRemoteDesktopSubmitRejectsNilContextAndPartialState(t *testing.T) {
 	b := syntheticQueuedPortal()
-	if err := b.submit(nil, func() error { return nil }); err == nil {
+	if err := b.submit(absentPortalCommandContext, func() error { return nil }); err == nil {
 		t.Fatal("nil context accepted")
 	}
 	if err := (&RemoteDesktopBackend{}).submit(context.Background(), func() error { return nil }); !errors.Is(err, ErrRemoteDesktopUnavailable) {
 		t.Fatalf("partial portal queued input: %v", err)
 	}
-	if _, err := b.PointerCoordinateSpace(nil); err == nil {
+	if _, err := b.PointerCoordinateSpace(absentPortalCommandContext); err == nil {
 		t.Fatal("nil query context accepted")
 	}
 }
+
+// An intentionally absent context exercises the public nil-context boundary.
+var absentPortalCommandContext context.Context

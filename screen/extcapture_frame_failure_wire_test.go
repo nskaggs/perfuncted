@@ -51,16 +51,16 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 			defer listener.Close()
 			serverDone := make(chan error, 1)
 			go func() {
-				conn, err := listener.AcceptUnix()
-				if err != nil {
-					serverDone <- err
+				conn, lintShadow54 := listener.AcceptUnix()
+				if lintShadow54 != nil {
+					serverDone <- lintShadow54
 					return
 				}
 				defer conn.Close()
 				_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 				first := make([]byte, 12)
-				if _, err := io.ReadFull(conn, first); err != nil {
-					serverDone <- err
+				if _, lintShadow62 := io.ReadFull(conn, first); lintShadow62 != nil {
+					serverDone <- lintShadow62
 					return
 				}
 				callback := wl.Uint32(first[8:])
@@ -70,8 +70,8 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 				}{
 					{3, 0, wlUint32Payload(2, 2)}, {3, 1, wlUint32Payload(0)}, {callback, 0, nil},
 				} {
-					if err := writeExtTestEvent(conn, event.sender, event.opcode, event.body); err != nil {
-						serverDone <- err
+					if lintShadow73 := writeExtTestEvent(conn, event.sender, event.opcode, event.body); lintShadow73 != nil {
+						serverDone <- lintShadow73
 						return
 					}
 				}
@@ -79,11 +79,11 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 				sawCapture := false
 				for {
 					var h [8]byte
-					if _, err := io.ReadFull(conn, h[:]); err != nil {
-						if errors.Is(err, io.EOF) && sawCapture {
+					if _, lintShadow82 := io.ReadFull(conn, h[:]); lintShadow82 != nil {
+						if errors.Is(lintShadow82, io.EOF) && sawCapture {
 							serverDone <- nil
 						} else {
-							serverDone <- fmt.Errorf("post-capture EOF=%v captured=%v", err, sawCapture)
+							serverDone <- fmt.Errorf("post-capture EOF=%w captured=%v", lintShadow82, sawCapture)
 						}
 						return
 					}
@@ -93,8 +93,8 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 						return
 					}
 					body := make([]byte, size-8)
-					if _, err := io.ReadFull(conn, body); err != nil {
-						serverDone <- err
+					if _, lintShadow96 := io.ReadFull(conn, body); lintShadow96 != nil {
+						serverDone <- lintShadow96
 						return
 					}
 					sender, opcode := wl.Uint32(h[:4]), wl.Uint32(h[4:])&0xffff
@@ -103,8 +103,8 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 					}
 					if frameID != 0 && sender == frameID && opcode == 3 {
 						sawCapture = true
-						if err := writeExtTestEvent(conn, frameID, 4, nil); err != nil {
-							serverDone <- err
+						if lintShadow106 := writeExtTestEvent(conn, frameID, 4, nil); lintShadow106 != nil {
+							serverDone <- lintShadow106
 							return
 						}
 					}

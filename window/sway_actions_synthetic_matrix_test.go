@@ -183,15 +183,15 @@ func TestSwayRuntimeDiscoversPrivateSocketAndFallsBackFromUnreachableExplicitSoc
 			defer listener.Close()
 			serverDone := make(chan error, 1)
 			go func() {
-				conn, err := listener.AcceptUnix()
-				if err != nil {
-					serverDone <- err
+				conn, lintShadow186 := listener.AcceptUnix()
+				if lintShadow186 != nil {
+					serverDone <- lintShadow186
 					return
 				}
 				defer conn.Close()
-				kind, _, err := readSwayMessage(conn)
-				if err != nil {
-					serverDone <- err
+				kind, _, lintShadow186 := readSwayMessage(conn)
+				if lintShadow186 != nil {
+					serverDone <- lintShadow186
 					return
 				}
 				if kind != swayMsgGetTree {

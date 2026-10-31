@@ -136,6 +136,41 @@ func findWindowByStableID(ctx context.Context, bundle *perfuncted.WindowBundle, 
 	return nil, fmt.Errorf("window id %q: %w", id, window.ErrWindowNotFound)
 }
 
+// activateSelectedWindow shares the exact activation, synchronization, and
+// optional focus-verification transaction for title and stable-ID selectors.
+func activateSelectedWindow(
+	cmd *cobra.Command,
+	selection string,
+	openPF sessionOpener,
+	syncIf func(context.Context, *perfuncted.Session) error,
+	find func(context.Context, *perfuncted.WindowBundle, string) (*perfuncted.Window, error),
+	verify bool,
+	verifyTimeout, verifyPoll time.Duration,
+) error {
+	session, err := openPF(cmd.Context())
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	target, err := find(cmd.Context(), session.Windows, selection)
+	if err != nil {
+		return err
+	}
+	if err := target.Activate(cmd.Context()); err != nil {
+		return err
+	}
+	if err := syncIf(cmd.Context(), session); err != nil {
+		return err
+	}
+	if verify {
+		if err := waitWindowActive(cmd.Context(), target, verifyTimeout, verifyPoll); err != nil {
+			return err
+		}
+		return writeCLIOutput(cmd.OutOrStdout(), "activation verified: %s\n", selection)
+	}
+	return writeCLIOutput(cmd.OutOrStdout(), "activation requested: %s\n", selection)
+}
+
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func windowCmd(
 	openPF sessionOpener,
@@ -195,32 +230,7 @@ func windowCmd(
 		Short: "Bring a window to the foreground by title substring (case-insensitive)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				args[0],
-			)
-			if err != nil {
-				return err
-			}
-			if err := target.Activate(cmd.Context()); err != nil {
-				return err
-			}
-			if err := syncIf(cmd.Context(), pf); err != nil {
-				return err
-			}
-			if verifyTitle {
-				if err := waitWindowActive(cmd.Context(), target, verifyTitleTimeout, verifyTitlePoll); err != nil {
-					return err
-				}
-				return writeCLIOutput(cmd.OutOrStdout(), "activation verified: %s\n", args[0])
-			}
-			return writeCLIOutput(cmd.OutOrStdout(), "activation requested: %s\n", args[0])
+			return activateSelectedWindow(cmd, args[0], openPF, syncIf, findWindowByTitle, verifyTitle, verifyTitleTimeout, verifyTitlePoll)
 		},
 	}
 
@@ -651,28 +661,7 @@ func windowCmd(
 	var verifyActivation bool
 	var activationVerifyTimeout, activationVerifyPoll time.Duration
 	activateID := &cobra.Command{Use: "activate-id <stable-id>", Short: "Activate a specific window even when titles are duplicated", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		pf, err := openPF(cmd.Context())
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		target, err := findWindowByStableID(cmd.Context(), pf.Windows, args[0])
-		if err != nil {
-			return err
-		}
-		if err := target.Activate(cmd.Context()); err != nil {
-			return err
-		}
-		if err := syncIf(cmd.Context(), pf); err != nil {
-			return err
-		}
-		if verifyActivation {
-			if err := waitWindowActive(cmd.Context(), target, activationVerifyTimeout, activationVerifyPoll); err != nil {
-				return err
-			}
-			return writeCLIOutput(cmd.OutOrStdout(), "activation verified: %s\n", args[0])
-		}
-		return writeCLIOutput(cmd.OutOrStdout(), "activation requested: %s\n", args[0])
+		return activateSelectedWindow(cmd, args[0], openPF, syncIf, findWindowByStableID, verifyActivation, activationVerifyTimeout, activationVerifyPoll)
 	}}
 	var verifyClose bool
 	var verifyCloseTimeout, verifyClosePoll time.Duration

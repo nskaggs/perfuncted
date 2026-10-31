@@ -168,7 +168,7 @@ func TestSyntheticScreenAndFindRejectInvalidInputsBeforeAnyCapture(t *testing.T)
 			}
 			// Some invalid output-mode configurations are checked after collecting a
 			// valid sample; all other rejected forms must not reach the transport.
-			if calls != 0 && !(len(args) > 1 && args[1] == "get-multiple-pixels" && strings.Contains(strings.Join(args, " "), "garbage")) {
+			if calls != 0 && (len(args) <= 1 || args[1] != "get-multiple-pixels" || !strings.Contains(strings.Join(args, " "), "garbage")) {
 				t.Fatalf("invalid argument reached screenshot transport %v: %d grabs", args, calls)
 			}
 		})

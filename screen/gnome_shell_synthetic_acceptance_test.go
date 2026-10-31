@@ -72,8 +72,8 @@ func newSyntheticGnomeScreenshotBackend(t *testing.T) (*GnomeShellScreenshotBack
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		t.Fatalf("register GNOME screenshot service: %v, %v", reply, err)
 	}
-	if err := portal.conn.Export(fake, gnomeShellShotPath, gnomeShellShotIface); err != nil {
-		t.Fatal(err)
+	if lintShadow75 := portal.conn.Export(fake, gnomeShellShotPath, gnomeShellShotIface); lintShadow75 != nil {
+		t.Fatal(lintShadow75)
 	}
 	backend, err := NewGnomeShellScreenshotBackendForBusContext(context.Background(), portal.busAddress)
 	if err != nil {
@@ -141,11 +141,11 @@ func TestSyntheticGnomeScreenshotCannotDeleteUnrequestedPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := png.Encode(file, image.NewRGBA(image.Rect(0, 0, 3, 3))); err != nil {
-		t.Fatal(err)
+	if lintShadow144 := png.Encode(file, image.NewRGBA(image.Rect(0, 0, 3, 3))); lintShadow144 != nil {
+		t.Fatal(lintShadow144)
 	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
+	if lintShadow147 := file.Close(); lintShadow147 != nil {
+		t.Fatal(lintShadow147)
 	}
 	provider.mu.Lock()
 	provider.alternate = victim

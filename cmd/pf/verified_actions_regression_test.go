@@ -33,8 +33,8 @@ func TestVerifiedActivationObservesTargetWindowNotJustInputDelivery(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := waitWindowActive(context.Background(), w, 75*time.Millisecond, 5*time.Millisecond); err != nil {
-		t.Fatal(err)
+	if lintShadow36 := waitWindowActive(context.Background(), w, 75*time.Millisecond, 5*time.Millisecond); lintShadow36 != nil {
+		t.Fatal(lintShadow36)
 	}
 	m = &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}}}
 	pf2 := pftest.New(nil, nil, m, nil)

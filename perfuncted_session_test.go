@@ -458,7 +458,9 @@ func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
 	infra := &sessionInfra{xdgDir: xdgDir}
 	infra.unregister = infra.CleanupOnSignal(context.Background())
 
-	infra.stop()
+	if err := infra.stop(); err != nil {
+		t.Fatalf("session cleanup: %v", err)
+	}
 
 	if infra.unregister != nil {
 		t.Fatal("signal handler unregister function was not cleared")
@@ -472,7 +474,9 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 	}
 
 	infra := &sessionInfra{xdgDir: xdgDir}
-	infra.stop()
+	if err := infra.stop(); err != nil {
+		t.Fatalf("session cleanup: %v", err)
+	}
 
 	infra.mu.Lock()
 	stopped := infra.stopped
@@ -487,7 +491,9 @@ func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
 
 func TestSessionStopNil(t *testing.T) {
 	var infra *sessionInfra
-	infra.stop()
+	if err := infra.stop(); err != nil {
+		t.Fatalf("nil session cleanup: %v", err)
+	}
 }
 
 func TestProcessUsesRuntimeDirAt(t *testing.T) {

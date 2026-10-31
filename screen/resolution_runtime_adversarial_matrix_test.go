@@ -110,13 +110,13 @@ func TestScreenResolutionWithContextHonorsFastPathsAndCancellation(t *testing.T)
 			if (tc.wantErr == nil && err != nil) || (tc.wantErr != nil && err == nil) {
 				t.Fatalf("resolution err=%v want %v", err, tc.wantErr)
 			}
-			if tc.wantErr == context.Canceled && !errors.Is(err, context.Canceled) {
+			if errors.Is(tc.wantErr, context.Canceled) && !errors.Is(err, context.Canceled) {
 				t.Fatalf("lost cancellation: %v", err)
 			}
-			if tc.wantErr == wantErr && !errors.Is(err, wantErr) {
+			if errors.Is(tc.wantErr, wantErr) && !errors.Is(err, wantErr) {
 				t.Fatalf("lost backend error: %v", err)
 			}
-			if tc.wantErr == errInvalidResolution && !strings.Contains(err.Error(), "resolution probe returned") {
+			if errors.Is(tc.wantErr, errInvalidResolution) && !strings.Contains(err.Error(), "resolution probe returned") {
 				t.Fatalf("missing probe error: %v", err)
 			}
 			if w != tc.wantW || h != tc.wantH {
@@ -156,8 +156,8 @@ func TestScreenOpenRuntimeRealPrivateX11DisplayAndContextBoundaries(t *testing.T
 	}
 	t.Cleanup(stop)
 	auth := filepath.Join(t.TempDir(), "private-auth")
-	if err := os.WriteFile(auth, nil, 0600); err != nil {
-		t.Fatal(err)
+	if lintShadow159 := os.WriteFile(auth, nil, 0600); lintShadow159 != nil {
+		t.Fatal(lintShadow159)
 	}
 	t.Setenv("XAUTHORITY", auth)
 	runtime := env.FromEnviron([]string{"DISPLAY=" + display, "XDG_SESSION_TYPE=x11"})

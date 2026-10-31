@@ -32,7 +32,10 @@ func TestUinputReportsLogicalCoordinatesOnlyAfterSingleOutputDiscovery(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			b := backend.(*UinputBackend)
+			b, ok := backend.(*UinputBackend)
+			if !ok {
+				t.Fatalf("unexpected Uinput backend %T", backend)
+			}
 			coordinates, err := b.PointerCoordinateSpace(context.Background())
 			if tc.advertised {
 				if err != nil || coordinates.Kind != CoordinateSpaceLogical || coordinates.ScaleX != 1 || coordinates.ScaleY != 1 {

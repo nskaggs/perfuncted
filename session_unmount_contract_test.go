@@ -124,11 +124,11 @@ func TestReapSessionDirReportsRemovalFailure(t *testing.T) {
 		_ = os.Chmod(dir, 0700)
 		_ = os.RemoveAll(dir)
 	}()
-	if err := os.WriteFile(filepath.Join(dir, "sentinel"), []byte("keep"), 0600); err != nil {
-		t.Fatal(err)
+	if lintShadow127 := os.WriteFile(filepath.Join(dir, "sentinel"), []byte("keep"), 0600); lintShadow127 != nil {
+		t.Fatal(lintShadow127)
 	}
-	if err := os.Chmod(dir, 0500); err != nil {
-		t.Fatal(err)
+	if lintShadow130 := os.Chmod(dir, 0500); lintShadow130 != nil {
+		t.Fatal(lintShadow130)
 	}
 	err = reapSessionDir(context.Background(), dir)
 	if err == nil {

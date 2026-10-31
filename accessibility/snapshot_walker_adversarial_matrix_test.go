@@ -92,7 +92,10 @@ func TestSnapshotWalkerDetectsDuplicateLinksAndPreservesParentHandles(t *testing
 	if w.snapshot.Truncated || w.providerErrors != 0 {
 		t.Fatalf("duplicate links caused false warning %+v", w.snapshot)
 	}
-	reader := w.backend.(*syntheticTreeReader)
+	reader, ok := w.backend.(*syntheticTreeReader)
+	if !ok {
+		t.Fatalf("unexpected synthetic tree backend %T", w.backend)
+	}
 	if len(reader.reads) != 4 || reader.parents["/visible"].ObjectPath != "/folder" {
 		t.Fatalf("node re-read or parent changed: reads=%v parents=%v", reader.reads, reader.parents)
 	}
@@ -108,7 +111,10 @@ func TestSnapshotWalkerRedactsHiddenSubtreeAndRespectsFreshReads(t *testing.T) {
 	if err != nil || len(w.snapshot.Nodes) != 3 || len(root.Children) != 1 {
 		t.Fatalf("hidden node leaked into bounded visible traversal: root=%+v nodes=%+v err=%v", root, w.snapshot.Nodes, err)
 	}
-	reader := w.backend.(*syntheticTreeReader)
+	reader, ok := w.backend.(*syntheticTreeReader)
+	if !ok {
+		t.Fatalf("unexpected synthetic tree backend %T", w.backend)
+	}
 	if reader.freshReads != 4 || reader.freshChildren != 2 {
 		t.Fatalf("fresh option skipped true fresh provider: read=%d children=%d", reader.freshReads, reader.freshChildren)
 	}
@@ -136,7 +142,10 @@ func TestSnapshotWalkerBoundedDepthNodesRolesAndMismatch(t *testing.T) {
 		})
 	}
 	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
-	reader := w.backend.(*syntheticTreeReader)
+	reader, ok := w.backend.(*syntheticTreeReader)
+	if !ok {
+		t.Fatalf("unexpected synthetic tree backend %T", w.backend)
+	}
 	reader.nodes["/root"] = Node{Name: "App", Role: "application", ChildCount: 4}
 	_, err := runSyntheticWalk(w)
 	if err != nil || !w.snapshot.Truncated || !strings.Contains(strings.Join(w.snapshot.TruncationReasons, " "), "child count mismatch") {
@@ -156,7 +165,10 @@ func TestSnapshotWalkerRecoversPartialErrorsButNeverStaleGeneration(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
-			reader := w.backend.(*syntheticTreeReader)
+			reader, ok := w.backend.(*syntheticTreeReader)
+			if !ok {
+				t.Fatalf("unexpected synthetic tree backend %T", w.backend)
+			}
 			failure := errors.New("AT-SPI synthetic provider disconnected")
 			if tc.stale {
 				failure = ErrStaleGeneration
@@ -185,7 +197,11 @@ func TestSnapshotWalkerRejectsCanceledReadsBeforeAnyBackendWork(t *testing.T) {
 	if _, err := w.walk(ctx, id, NodeID{}, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled snapshot walked: %v", err)
 	}
-	if len(w.backend.(*syntheticTreeReader).reads) != 0 {
+	reader, ok := w.backend.(*syntheticTreeReader)
+	if !ok {
+		t.Fatalf("unexpected synthetic tree backend %T", w.backend)
+	}
+	if len(reader.reads) != 0 {
 		t.Fatal("canceled request reached backend")
 	}
 }

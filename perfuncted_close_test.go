@@ -1,6 +1,7 @@
 package perfuncted
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func TestSessionCloseReportsUnsafeRuntimeCleanup(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unsafe") {
 		t.Fatalf("Close error=%v, want unsafe runtime cleanup failure", err)
 	}
-	if again := session.Close(); again != err {
+	if again := session.Close(); !errors.Is(again, err) {
 		t.Fatalf("Close replay error=%v, want original error=%v", again, err)
 	}
 }

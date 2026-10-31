@@ -62,8 +62,8 @@ func TestWaylandClipboardInputIsPrivateAndComplete(t *testing.T) {
 			}
 			defer os.Remove(path)
 			defer file.Close()
-			if info, err := os.Stat(path); err != nil || info.Mode().Perm()&0077 != 0 {
-				t.Fatalf("clipboard input is not private: %v %v", info, err)
+			if info, lintShadow65 := os.Stat(path); lintShadow65 != nil || info.Mode().Perm()&0077 != 0 {
+				t.Fatalf("clipboard input is not private: %v %v", info, lintShadow65)
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {

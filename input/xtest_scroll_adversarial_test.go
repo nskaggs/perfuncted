@@ -77,7 +77,10 @@ func TestXTestScrollStopsImmediatelyOnTransportFailure(t *testing.T) {
 
 func TestXTestPointerQueryAndSyncUseSameConnection(t *testing.T) {
 	b, _ := newTestXTestBackend(t, 1, []xproto.Keysym{0x61}, nil)
-	conn := b.conn.(*x11.MockConnection)
+	conn, ok := b.conn.(*x11.MockConnection)
+	if !ok {
+		t.Fatalf("unexpected X11 connection %T", b.conn)
+	}
 	queries := 0
 	conn.QueryPointerFunc = func(window xproto.Window) x11.QueryPointerCookie {
 		queries++

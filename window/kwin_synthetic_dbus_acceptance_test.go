@@ -108,15 +108,15 @@ func newSyntheticKWinManager(t *testing.T) (*KWinScriptManager, *syntheticKWinSc
 		t.Fatalf("own fake KWin service: %v %v", reply, err)
 	}
 	provider := &syntheticKWinScriptService{conn: service, busAddress: addr}
-	if err := service.ExportWithMap(provider, map[string]string{
+	if lintShadow111 := service.ExportWithMap(provider, map[string]string{
 		"LoadScript":   "loadScript",
 		"Start":        "start",
 		"UnloadScript": "unloadScript",
-	}, kwinScriptPath, kwinScriptIface); err != nil {
-		t.Fatal(err)
+	}, kwinScriptPath, kwinScriptIface); lintShadow111 != nil {
+		t.Fatal(lintShadow111)
 	}
-	if err := service.Export(provider, kwinScriptPath, "org.freedesktop.DBus.Introspectable"); err != nil {
-		t.Fatal(err)
+	if lintShadow118 := service.Export(provider, kwinScriptPath, "org.freedesktop.DBus.Introspectable"); lintShadow118 != nil {
+		t.Fatal(lintShadow118)
 	}
 	manager, err := NewKWinScriptManagerForBusContext(context.Background(), addr)
 	if err != nil {

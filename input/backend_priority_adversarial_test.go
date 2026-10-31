@@ -35,7 +35,11 @@ func TestWaylandFallbackPrefersNativeUinputOverXTest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	if got := b.(backendName).name; got != "uinput" {
+	named, ok := b.(backendName)
+	if !ok {
+		t.Fatalf("unexpected input backend %T", b)
+	}
+	if got := named.name; got != "uinput" {
 		t.Fatalf("selected %s, want Wayland-capable uinput before XWayland-only xtest; calls=%v", got, calls)
 	}
 }
@@ -98,7 +102,11 @@ func TestRuntimeBackendSelectionMatrix(t *testing.T) {
 				t.Fatalf("unexpected %v", err)
 			}
 			defer b.Close()
-			if got := b.(backendName).name; got != tc.expected {
+			named, ok := b.(backendName)
+			if !ok {
+				t.Fatalf("unexpected input backend %T", b)
+			}
+			if got := named.name; got != tc.expected {
 				t.Fatalf("got %q want %q", got, tc.expected)
 			}
 		})

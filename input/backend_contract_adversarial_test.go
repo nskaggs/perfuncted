@@ -25,7 +25,11 @@ func TestBackendConstructorReturningNilNilMustNotBeAccepted(t *testing.T) {
 	if b == nil {
 		t.Fatal("successful open returned nil Inputter")
 	}
-	if got := b.(backendName).name; got != "uinput" {
+	named, ok := b.(backendName)
+	if !ok {
+		t.Fatalf("unexpected input backend %T", b)
+	}
+	if got := named.name; got != "uinput" {
 		t.Fatalf("expected fallback after nil backend, got %s", got)
 	}
 }

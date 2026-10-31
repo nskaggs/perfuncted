@@ -223,8 +223,8 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	defer lease.release()
 	callCtx, cancel := lease.context(ctx)
 	defer cancel()
-	if err := callCtx.Err(); err != nil {
-		return err
+	if ctxErr := callCtx.Err(); ctxErr != nil {
+		return ctxErr
 	}
 	err = call(lease.gen.backend, callCtx)
 	// A provider may acknowledge a call after its *caller* has canceled.

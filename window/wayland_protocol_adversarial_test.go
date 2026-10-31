@@ -57,7 +57,10 @@ func TestWaylandProtocolSyntheticLifecycle(t *testing.T) {
 			if err != nil || len(wins) != 1 || wins[0].Title != "Editor" || wins[0].ID != 77 {
 				t.Fatalf("window lifecycle: %+v err=%v", wins, err)
 			}
-			p := wire.objects[77].(*wl.RawProxy)
+			p, ok := wire.objects[77].(*wl.RawProxy)
+			if !ok {
+				t.Fatalf("unexpected Wayland proxy %T", wire.objects[77])
+			}
 			p.Dispatch(tc.closeOp, -1, nil)
 			wins, err = wm.List(context.Background())
 			if err != nil || len(wins) != 0 {

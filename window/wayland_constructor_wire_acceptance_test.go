@@ -163,9 +163,9 @@ func TestWaylandWindowManagerRealSyntheticConstructorAndToplevelDiscovery(t *tes
 			defer listener.Close()
 			done := make(chan error, 1)
 			go func() {
-				conn, err := listener.AcceptUnix()
-				if err != nil {
-					done <- err
+				conn, lintShadow166 := listener.AcceptUnix()
+				if lintShadow166 != nil {
+					done <- lintShadow166
 					return
 				}
 				done <- serveWindowCompositor(conn, proto)

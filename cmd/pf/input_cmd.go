@@ -492,11 +492,11 @@ func inputCmd(
 		if err != nil {
 			return err
 		}
-		if err := target.Activate(cmd.Context()); err != nil {
-			return err
+		if activateErr := target.Activate(cmd.Context()); activateErr != nil {
+			return activateErr
 		}
-		if err := waitWindowActive(cmd.Context(), target, 2*time.Second, 50*time.Millisecond); err != nil {
-			return err
+		if waitErr := waitWindowActive(cmd.Context(), target, 2*time.Second, 50*time.Millisecond); waitErr != nil {
+			return waitErr
 		}
 		prev, err := pf.Clipboard.Get(cmd.Context())
 		if err != nil {

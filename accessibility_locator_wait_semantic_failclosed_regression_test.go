@@ -9,7 +9,7 @@ import (
 	"github.com/nskaggs/perfuncted/accessibility"
 )
 
-func newLocatorWaitFixture(t *testing.T, targets int, truncated bool) (*Session, *AccessibilityLocator, *snapshotAccessibilityAutomationFake) {
+func newLocatorWaitFixture(t *testing.T, targets int, truncated bool) (*AccessibilityLocator, *snapshotAccessibilityAutomationFake) {
 	t.Helper()
 	root := accessibility.NodeID{BusName: "org.synthetic.Editor", ObjectPath: "/application", Generation: 11}
 	app := accessibility.Application{Node: accessibility.Node{ID: root, Name: "Editor", Role: "application"}}
@@ -24,17 +24,17 @@ func newLocatorWaitFixture(t *testing.T, targets int, truncated bool) (*Session,
 	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
 	t.Cleanup(func() { _ = session.Close() })
 	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
-	return session, locator, fake
+	return locator, fake
 }
 func TestAccessibilityLocatorWaitResolvesSingleAuthoritativeTargetAndPreservesEvidence(t *testing.T) {
-	_, locator, fake := newLocatorWaitFixture(t, 1, false)
+	locator, fake := newLocatorWaitFixture(t, 1, false)
 	node, evidence, err := locator.Wait(context.Background(), WaitEvery(time.Millisecond))
 	if err != nil || node.Name != "Save" || node.ID.ObjectPath != "/save" || evidence.Evaluations != 1 || fake.snapshotCalls != 1 || !fake.snapshotOptions.Fresh {
 		t.Fatalf("one verified locator wait: node=%+v evidence=%+v calls=%d fresh=%v err=%v", node, evidence, fake.snapshotCalls, fake.snapshotOptions.Fresh, err)
 	}
 }
 func TestAccessibilityLocatorWaitNotFoundPollsUntilCallerCancellation(t *testing.T) {
-	_, locator, fake := newLocatorWaitFixture(t, 0, false)
+	locator, fake := newLocatorWaitFixture(t, 0, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
 	node, evidence, err := locator.Wait(ctx, WaitEvery(time.Millisecond))
@@ -53,7 +53,7 @@ func TestAccessibilityLocatorWaitFailsClosedOnAmbiguousOrIncompleteSemanticSnaps
 		{"truncated", 1, true, accessibility.ErrIncompleteSnapshot},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, locator, fake := newLocatorWaitFixture(t, tc.targets, tc.truncated)
+			locator, fake := newLocatorWaitFixture(t, tc.targets, tc.truncated)
 			ctx, cancel := context.WithTimeout(context.Background(), 75*time.Millisecond)
 			defer cancel()
 			node, evidence, err := locator.Wait(ctx, WaitEvery(time.Millisecond))
@@ -64,20 +64,20 @@ func TestAccessibilityLocatorWaitFailsClosedOnAmbiguousOrIncompleteSemanticSnaps
 	}
 }
 func TestAccessibilityLocatorWaitRejectsInvalidCallersWithoutQueryingDesktop(t *testing.T) {
-	_, locator, fake := newLocatorWaitFixture(t, 1, false)
+	locator, fake := newLocatorWaitFixture(t, 1, false)
 	for _, tc := range []struct {
-		name   string
-		loc    *AccessibilityLocator
-		ctx    context.Context
-		option []WaitOption
-		want   error
+		name       string
+		loc        *AccessibilityLocator
+		newContext func() context.Context
+		option     []WaitOption
+		want       error
 	}{
-		{"nil locator", nil, context.Background(), nil, ErrUnavailable},
-		{"nil context", locator, nil, nil, ErrInvalidArgument},
-		{"invalid wait interval", locator, context.Background(), []WaitOption{WaitEvery(-time.Millisecond)}, ErrInvalidArgument},
+		{"nil locator", nil, context.Background, nil, ErrUnavailable},
+		{"nil context", locator, func() context.Context { return nil }, nil, ErrInvalidArgument},
+		{"invalid wait interval", locator, context.Background, []WaitOption{WaitEvery(-time.Millisecond)}, ErrInvalidArgument},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := tc.loc.Wait(tc.ctx, tc.option...)
+			_, _, err := tc.loc.Wait(tc.newContext(), tc.option...)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("invalid wait input %v: %v", tc.want, err)
 			}

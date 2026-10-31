@@ -46,8 +46,8 @@ func startSyntheticEventBus(t *testing.T, reject map[string]bool) (*dbus.Conn, *
 		t.Fatalf("request test registry name: %v %v", reply, err)
 	}
 	reg := &syntheticEventRegistry{reject: reject}
-	if err := service.Export(reg, registryPath, registryName); err != nil {
-		t.Fatal(err)
+	if lintShadow49 := service.Export(reg, registryPath, registryName); lintShadow49 != nil {
+		t.Fatal(lintShadow49)
 	}
 	client, err := dbusutil.ConnectContext(context.Background(), addr)
 	if err != nil {

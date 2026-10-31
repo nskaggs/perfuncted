@@ -197,8 +197,8 @@ func newOptionalATSPINode(t *testing.T) (*dbusBackend, NodeID, *optionalATSPINod
 	}, fail: make(map[string]bool)}
 	path := dbus.ObjectPath("/org/a11y/atspi/accessible/optional")
 	for _, iface := range []string{accessibleIface, propertiesIface, actionIface, selectionIface, editableTextIface} {
-		if err := server.Export(provider, path, iface); err != nil {
-			t.Fatalf("export %s: %v", iface, err)
+		if lintShadow200 := server.Export(provider, path, iface); lintShadow200 != nil {
+			t.Fatalf("export %s: %v", iface, lintShadow200)
 		}
 	}
 	client, err := dbusutil.ConnectContext(context.Background(), address)
@@ -211,9 +211,13 @@ func newOptionalATSPINode(t *testing.T) (*dbusBackend, NodeID, *optionalATSPINod
 }
 func TestPrivateATSPIOptionalMetadataNumericConversionAndRelations(t *testing.T) {
 	b, id, _ := newOptionalATSPINode(t)
-	node, err := b.readNodeFresh(context.Background(), id, NodeID{}, 40, false)
+	parent := NodeID{BusName: id.BusName, ObjectPath: "/synthetic/parent", Generation: id.Generation}
+	node, err := b.readNodeFresh(context.Background(), id, parent, 40, false)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if node.Parent != parent {
+		t.Fatalf("fresh accessibility child lost its authoritative parent: got=%+v want=%+v", node.Parent, parent)
 	}
 	if node.Value == nil || node.Value.Current != 27.5 || node.Value.Minimum != 1.5 || node.Value.Maximum != 100 || node.Value.MinimumIncrement != 2 {
 		t.Fatalf("typed value conversion lost provider measurements: %+v", node.Value)
@@ -334,7 +338,7 @@ func TestPrivateATSPIPropertyFloatAcceptsOnlyNumericDBusVariants(t *testing.T) {
 			provider.mu.Lock()
 			provider.values[valueIface+".CurrentValue"] = tc.value
 			provider.mu.Unlock()
-			var got float64 = math.NaN()
+			got := math.NaN()
 			err := b.propertyFloat(context.Background(), id, valueIface, "CurrentValue", &got)
 			if tc.allowed {
 				if err != nil || got != tc.want {

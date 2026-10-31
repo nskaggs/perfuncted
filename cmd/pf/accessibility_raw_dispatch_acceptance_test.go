@@ -14,60 +14,61 @@ import (
 
 type recordingATSPIMutations struct {
 	cliAutomationFake
-	calls []string
+	calls   []string
+	failure error
 }
 
 func (b *recordingATSPIMutations) ScrollToPoint(_ context.Context, _ accessibility.NodeID, coord accessibility.CoordType, x, y int) error {
 	b.calls = append(b.calls, fmt.Sprintf("scroll-point:%d:%d:%d", coord, x, y))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) SetPosition(_ context.Context, _ accessibility.NodeID, x, y int, coord accessibility.CoordType) error {
 	b.calls = append(b.calls, fmt.Sprintf("position:%d:%d:%d", coord, x, y))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) SetSize(_ context.Context, _ accessibility.NodeID, w, h int) error {
 	b.calls = append(b.calls, fmt.Sprintf("size:%d:%d", w, h))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) SetExtents(_ context.Context, _ accessibility.NodeID, x, y, w, h int, coord accessibility.CoordType) error {
 	b.calls = append(b.calls, fmt.Sprintf("extents:%d:%d:%d:%d:%d", coord, x, y, w, h))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) InsertText(_ context.Context, _ accessibility.NodeID, offset int32, value string) error {
 	b.calls = append(b.calls, fmt.Sprintf("insert:%d:%s", offset, value))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) DeleteText(_ context.Context, _ accessibility.NodeID, start, end int32) error {
 	b.calls = append(b.calls, fmt.Sprintf("delete:%d:%d", start, end))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) CopyText(_ context.Context, _ accessibility.NodeID, start, end int32) error {
 	b.calls = append(b.calls, fmt.Sprintf("copy:%d:%d", start, end))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) CutText(_ context.Context, _ accessibility.NodeID, start, end int32) error {
 	b.calls = append(b.calls, fmt.Sprintf("cut:%d:%d", start, end))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) PasteText(_ context.Context, _ accessibility.NodeID, position int32) error {
 	b.calls = append(b.calls, fmt.Sprintf("paste:%d", position))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) SetCaretOffset(_ context.Context, _ accessibility.NodeID, offset int32) error {
 	b.calls = append(b.calls, fmt.Sprintf("caret:%d", offset))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) SetTextSelections(_ context.Context, _ accessibility.NodeID, selections []accessibility.DocumentTextSelection) error {
 	b.calls = append(b.calls, fmt.Sprintf("selection-count:%d", len(selections)))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) DeselectChild(_ context.Context, _ accessibility.NodeID, index int32) error {
 	b.calls = append(b.calls, fmt.Sprintf("deselect-child:%d", index))
-	return nil
+	return b.failure
 }
 func (b *recordingATSPIMutations) DeselectSelectedChild(_ context.Context, _ accessibility.NodeID) error {
 	b.calls = append(b.calls, "deselect-selected-child")
-	return nil
+	return b.failure
 }
 
 func TestAccessibilityRawCLIRoutesEveryRemainingMutationToCorrectBackendMethod(t *testing.T) {

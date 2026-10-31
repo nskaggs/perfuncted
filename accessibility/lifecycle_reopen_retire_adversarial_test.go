@@ -89,7 +89,7 @@ func TestATSPIRetireEventsForReopenRespectsLifetimeCancellationAndPartialSetup(t
 	if err := (*dbusBackend)(nil).RetireEventsForReopen(context.Background()); err != nil {
 		t.Fatalf("nil owner retirement: %v", err)
 	}
-	if err := (&dbusBackend{}).RetireEventsForReopen(nil); err == nil {
+	if err := (&dbusBackend{}).RetireEventsForReopen(absentLifecycleContext); err == nil {
 		t.Fatal("nil retirement context accepted")
 	}
 	b := &dbusBackend{}
@@ -99,7 +99,7 @@ func TestATSPIRetireEventsForReopenRespectsLifetimeCancellationAndPartialSetup(t
 }
 func TestATSPIReopenRejectsInvalidContextAndUnavailablePrivateTarget(t *testing.T) {
 	b := &dbusBackend{generation: 10, runtime: env.FromEnviron([]string{})}
-	if _, err := b.Reopen(nil); err == nil || b.Generation() != 10 {
+	if _, err := b.Reopen(absentLifecycleContext); err == nil || b.Generation() != 10 {
 		t.Fatalf("nil reopen context mutated generation: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,3 +114,6 @@ func TestATSPIReopenRejectsInvalidContextAndUnavailablePrivateTarget(t *testing.
 		t.Fatalf("missing address failed to retire prior epoch: err=%v generation=%d", err, b.Generation())
 	}
 }
+
+// An intentionally absent context exercises the public nil-context boundary.
+var absentLifecycleContext context.Context

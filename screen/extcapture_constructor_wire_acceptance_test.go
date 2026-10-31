@@ -120,9 +120,9 @@ func TestExtCaptureRealSyntheticConstructorBindsOnlyAdvertisedProtocols(t *testi
 			defer listener.Close()
 			server := make(chan error, 1)
 			go func() {
-				conn, err := listener.AcceptUnix()
-				if err != nil {
-					server <- err
+				conn, lintShadow123 := listener.AcceptUnix()
+				if lintShadow123 != nil {
+					server <- lintShadow123
 					return
 				}
 				server <- serveExtConstructorPeer(conn, tc.skip)

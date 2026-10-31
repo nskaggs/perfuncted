@@ -44,8 +44,8 @@ func newPrivateCacheBackend(t *testing.T, items []cacheItem) (*dbusBackend, *syn
 		t.Fatalf("private cache name %v %v", reply, err)
 	}
 	provider := &syntheticCacheProvider{items: items}
-	if err := service.Export(provider, cachePath, cacheIface); err != nil {
-		t.Fatal(err)
+	if lintShadow47 := service.Export(provider, cachePath, cacheIface); lintShadow47 != nil {
+		t.Fatal(lintShadow47)
 	}
 	client, err := dbusutil.ConnectContext(context.Background(), addr)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestATSPIPrivateBusCacheGetItemsFailureNeverPublishesPartialCache(t *testin
 }
 func TestATSPIPrivateBusCacheLoadRejectsInvalidTargetsAndConnectionLifetime(t *testing.T) {
 	b, _ := newPrivateCacheBackend(t, syntheticCacheItems())
-	if err := b.loadCache(nil, syntheticCacheService); err == nil {
+	if err := b.loadCache(absentCacheContext, syntheticCacheService); err == nil {
 		t.Fatal("nil context accepted")
 	}
 	for _, name := range []string{"", registryName, "   "} {
@@ -150,3 +150,6 @@ func TestATSPIPrivateBusCacheLoadRejectsInvalidTargetsAndConnectionLifetime(t *t
 		t.Fatal("closed D-Bus cache accepted")
 	}
 }
+
+// An intentionally absent context exercises the public nil-context boundary.
+var absentCacheContext context.Context

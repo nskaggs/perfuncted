@@ -148,9 +148,9 @@ func TestWlVirtualConstructorRejectsMissingAdvertisedProtocols(t *testing.T) {
 			defer listener.Close()
 			serverDone := make(chan error, 1)
 			go func() {
-				conn, err := listener.AcceptUnix()
-				if err != nil {
-					serverDone <- err
+				conn, lintShadow151 := listener.AcceptUnix()
+				if lintShadow151 != nil {
+					serverDone <- lintShadow151
 					return
 				}
 				serverDone <- virtualManagerCompositor(conn, globals, false)
@@ -183,9 +183,9 @@ func TestWlVirtualConstructorUsesRealAdvertisedGlobalsAndInputWire(t *testing.T)
 	defer listener.Close()
 	serverDone := make(chan error, 1)
 	go func() {
-		conn, err := listener.AcceptUnix()
-		if err != nil {
-			serverDone <- err
+		conn, lintShadow186 := listener.AcceptUnix()
+		if lintShadow186 != nil {
+			serverDone <- lintShadow186
 			return
 		}
 		serverDone <- virtualManagerCompositor(conn, globals, true)

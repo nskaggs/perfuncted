@@ -53,36 +53,36 @@ func TestExtCaptureRejectsUntrustedWaylandConstraintsBeforeSharedMemoryAllocatio
 			defer listener.Close()
 			done := make(chan error, 1)
 			go func() {
-				conn, err := listener.AcceptUnix()
-				if err != nil {
-					done <- err
+				conn, lintShadow56 := listener.AcceptUnix()
+				if lintShadow56 != nil {
+					done <- lintShadow56
 					return
 				}
 				defer conn.Close()
 				_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
 				first := make([]byte, 12)
-				if _, err := io.ReadFull(conn, first); err != nil {
-					done <- err
+				if _, lintShadow64 := io.ReadFull(conn, first); lintShadow64 != nil {
+					done <- lintShadow64
 					return
 				}
 				callback := wl.Uint32(first[8:])
 				for _, event := range tc.sessionEvents {
-					if err := writeExtTestEvent(conn, 3, event.opcode, event.data); err != nil {
-						done <- err
+					if lintShadow70 := writeExtTestEvent(conn, 3, event.opcode, event.data); lintShadow70 != nil {
+						done <- lintShadow70
 						return
 					}
 				}
-				if err := writeExtTestEvent(conn, callback, 0, nil); err != nil {
-					done <- err
+				if lintShadow75 := writeExtTestEvent(conn, callback, 0, nil); lintShadow75 != nil {
+					done <- lintShadow75
 					return
 				}
 				for {
 					var h [8]byte
-					if _, err := io.ReadFull(conn, h[:]); err != nil {
-						if errors.Is(err, io.EOF) {
+					if _, lintShadow81 := io.ReadFull(conn, h[:]); lintShadow81 != nil {
+						if errors.Is(lintShadow81, io.EOF) {
 							done <- nil
 						} else {
-							done <- err
+							done <- lintShadow81
 						}
 						return
 					}
@@ -92,8 +92,8 @@ func TestExtCaptureRejectsUntrustedWaylandConstraintsBeforeSharedMemoryAllocatio
 						return
 					}
 					body := make([]byte, size-8)
-					if _, err := io.ReadFull(conn, body); err != nil {
-						done <- err
+					if _, lintShadow95 := io.ReadFull(conn, body); lintShadow95 != nil {
+						done <- lintShadow95
 						return
 					}
 					// A malformed or impossible constraint must never create a buffer.

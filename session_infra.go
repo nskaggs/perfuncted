@@ -514,9 +514,13 @@ func (i *sessionInfra) CleanupOnSignal(ctx context.Context) func() {
 		defer signal.Stop(sigs)
 		select {
 		case <-done:
-			i.stop()
+			if err := i.stop(); err != nil {
+				slog.Warn("session: canceled session cleanup failed", "error", err)
+			}
 		case <-sigs:
-			i.stop()
+			if err := i.stop(); err != nil {
+				slog.Warn("session: signal-triggered cleanup failed", "error", err)
+			}
 		case <-stopCh:
 		}
 	}()

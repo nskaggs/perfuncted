@@ -21,7 +21,6 @@ type syntheticKWinPipeServer struct {
 	mu       sync.Mutex
 	captures []string
 	fail     bool
-	raw      []byte
 }
 
 func (p *syntheticKWinPipeServer) CaptureArea(x, y int32, w, h uint32, _ map[string]dbus.Variant, fd dbus.UnixFD) (map[string]dbus.Variant, *dbus.Error) {

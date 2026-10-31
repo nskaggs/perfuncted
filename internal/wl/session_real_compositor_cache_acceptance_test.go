@@ -51,7 +51,8 @@ func privateSessionWaylandPeer(conn *net.UnixConn) error {
 		case sender == 1 && encoded&0xffff == 0:
 			cb := Uint32(body)
 			syncCount++
-			if syncCount == 1 {
+			switch syncCount {
+			case 1:
 				for _, ev := range []struct {
 					name    uint32
 					iface   string
@@ -63,7 +64,7 @@ func privateSessionWaylandPeer(conn *net.UnixConn) error {
 						return err
 					}
 				}
-			} else if syncCount == 2 {
+			case 2:
 				payload := make([]byte, 4)
 				PutUint32(payload, 32)
 				if err := writeSessionEvent(conn, registryID, 1, payload); err != nil {
@@ -88,9 +89,9 @@ func TestRealSyntheticWaylandSessionCacheRefcountsGlobalChangesAndContextCancell
 	defer listener.Close()
 	serverDone := make(chan error, 1)
 	go func() {
-		conn, err := listener.AcceptUnix()
-		if err != nil {
-			serverDone <- err
+		conn, lintShadow91 := listener.AcceptUnix()
+		if lintShadow91 != nil {
+			serverDone <- lintShadow91
 			return
 		}
 		serverDone <- privateSessionWaylandPeer(conn)

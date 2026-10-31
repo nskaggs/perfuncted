@@ -85,51 +85,51 @@ func TestXgbRealHeadlessDisplayReadAndMutationProtocol(t *testing.T) {
 		t.Fatalf("invalid Xvfb root geometry %+v", screen)
 	}
 	c.Sync()
-	if _, err := c.GetGeometry(xproto.Drawable(screen.Root)).Reply(); err != nil {
-		t.Fatalf("root geometry: %v", err)
+	if _, lintShadow88 := c.GetGeometry(xproto.Drawable(screen.Root)).Reply(); lintShadow88 != nil {
+		t.Fatalf("root geometry: %v", lintShadow88)
 	}
-	if pointer, err := c.QueryPointer(screen.Root).Reply(); err != nil || pointer == nil {
-		t.Fatalf("root pointer: %v %v", pointer, err)
+	if pointer, lintShadow91 := c.QueryPointer(screen.Root).Reply(); lintShadow91 != nil || pointer == nil {
+		t.Fatalf("root pointer: %v %v", pointer, lintShadow91)
 	}
-	if translated, err := c.TranslateCoordinates(screen.Root, screen.Root, 15, 23).Reply(); err != nil || translated.DstX != 15 || translated.DstY != 23 {
-		t.Fatalf("coordinate translation: %+v %v", translated, err)
+	if translated, lintShadow94 := c.TranslateCoordinates(screen.Root, screen.Root, 15, 23).Reply(); lintShadow94 != nil || translated.DstX != 15 || translated.DstY != 23 {
+		t.Fatalf("coordinate translation: %+v %v", translated, lintShadow94)
 	}
 	atom, err := c.InternAtom(false, uint16(len("PF_TEST_PROPERTY")), "PF_TEST_PROPERTY").Reply()
 	if err != nil || atom.Atom == 0 {
 		t.Fatalf("intern property atom: %+v %v", atom, err)
 	}
-	if _, err := c.GetProperty(false, screen.Root, atom.Atom, xproto.AtomAny, 0, 32).Reply(); err != nil {
-		t.Fatalf("property read: %v", err)
+	if _, lintShadow101 := c.GetProperty(false, screen.Root, atom.Atom, xproto.AtomAny, 0, 32).Reply(); lintShadow101 != nil {
+		t.Fatalf("property read: %v", lintShadow101)
 	}
 	winID, err := c.NewID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xproto.CreateWindowChecked(c.conn, screen.RootDepth, xproto.Window(winID), screen.Root, 10, 10, 100, 75, 0, xproto.WindowClassInputOutput, screen.RootVisual, 0, nil).Check(); err != nil {
-		t.Fatalf("create private test window: %v", err)
+	if lintShadow108 := xproto.CreateWindowChecked(c.conn, screen.RootDepth, xproto.Window(winID), screen.Root, 10, 10, 100, 75, 0, xproto.WindowClassInputOutput, screen.RootVisual, 0, nil).Check(); lintShadow108 != nil {
+		t.Fatalf("create private test window: %v", lintShadow108)
 	}
-	if err := c.MapWindowChecked(xproto.Window(winID)).Check(); err != nil {
-		t.Fatalf("map test window: %v", err)
+	if lintShadow111 := c.MapWindowChecked(xproto.Window(winID)).Check(); lintShadow111 != nil {
+		t.Fatalf("map test window: %v", lintShadow111)
 	}
-	if err := c.ConfigureWindowChecked(xproto.Window(winID), xproto.ConfigWindowX|xproto.ConfigWindowY|xproto.ConfigWindowWidth, []uint32{23, 34, 125}).Check(); err != nil {
-		t.Fatalf("configure test window: %v", err)
+	if lintShadow114 := c.ConfigureWindowChecked(xproto.Window(winID), xproto.ConfigWindowX|xproto.ConfigWindowY|xproto.ConfigWindowWidth, []uint32{23, 34, 125}).Check(); lintShadow114 != nil {
+		t.Fatalf("configure test window: %v", lintShadow114)
 	}
 	geom, err := c.GetGeometry(xproto.Drawable(winID)).Reply()
 	if err != nil || geom.Width != 125 || geom.X != 23 || geom.Y != 34 {
 		t.Fatalf("applied window geometry %+v %v", geom, err)
 	}
-	if img, err := c.GetImage(xproto.ImageFormatZPixmap, xproto.Drawable(screen.Root), 0, 0, 2, 2, 0xffffffff).Reply(); err != nil || img == nil {
-		t.Fatalf("read back synthetic display framebuffer: %+v %v", img, err)
+	if img, lintShadow121 := c.GetImage(xproto.ImageFormatZPixmap, xproto.Drawable(screen.Root), 0, 0, 2, 2, 0xffffffff).Reply(); lintShadow121 != nil || img == nil {
+		t.Fatalf("read back synthetic display framebuffer: %+v %v", img, lintShadow121)
 	}
 	pixID, err := c.NewID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xproto.CreatePixmapChecked(c.conn, screen.RootDepth, xproto.Pixmap(pixID), xproto.Drawable(screen.Root), 4, 4).Check(); err != nil {
-		t.Fatalf("create synthetic pixmap: %v", err)
+	if lintShadow128 := xproto.CreatePixmapChecked(c.conn, screen.RootDepth, xproto.Pixmap(pixID), xproto.Drawable(screen.Root), 4, 4).Check(); lintShadow128 != nil {
+		t.Fatalf("create synthetic pixmap: %v", lintShadow128)
 	}
-	if err := c.FreePixmap(xproto.Pixmap(pixID)).Check(); err != nil {
-		t.Fatalf("free owned pixmap: %v", err)
+	if lintShadow131 := c.FreePixmap(xproto.Pixmap(pixID)).Check(); lintShadow131 != nil {
+		t.Fatalf("free owned pixmap: %v", lintShadow131)
 	}
 	mapping, err := c.GetKeyboardMapping(setup.MinKeycode, 1).Reply()
 	if err != nil || mapping == nil {
@@ -137,19 +137,19 @@ func TestXgbRealHeadlessDisplayReadAndMutationProtocol(t *testing.T) {
 	}
 	if err := c.InitXTest(); err == nil {
 		key := byte(setup.MinKeycode)
-		if err := c.FakeInputChecked(xproto.KeyPress, key, 0, screen.Root, 0, 0, 0).Check(); err != nil {
-			t.Fatalf("XTEST key press: %v", err)
+		if lintShadow140 := c.FakeInputChecked(xproto.KeyPress, key, 0, screen.Root, 0, 0, 0).Check(); lintShadow140 != nil {
+			t.Fatalf("XTEST key press: %v", lintShadow140)
 		}
-		if err := c.FakeInputChecked(xproto.KeyRelease, key, 0, screen.Root, 0, 0, 0).Check(); err != nil {
-			t.Fatalf("XTEST key release: %v", err)
+		if lintShadow143 := c.FakeInputChecked(xproto.KeyRelease, key, 0, screen.Root, 0, 0, 0).Check(); lintShadow143 != nil {
+			t.Fatalf("XTEST key release: %v", lintShadow143)
 		}
 	} else {
 		t.Logf("Xvfb did not advertise XTEST: %v", err)
 	}
 	if err := c.InitComposite(); err == nil {
-		missing, err := c.NewID()
-		if err != nil {
-			t.Fatal(err)
+		missing, lintShadow150 := c.NewID()
+		if lintShadow150 != nil {
+			t.Fatal(lintShadow150)
 		}
 		// An unredirected window is not a valid named pixmap. The checked
 		// request must surface a protocol error rather than falsely succeed.
@@ -170,33 +170,33 @@ func TestXgbRealHeadlessDisplayReadAndMutationProtocol(t *testing.T) {
 		t.Fatalf("headless client event: %v", err)
 	}
 	if err := c.InitRandR(); err == nil {
-		resources, err := c.GetScreenResourcesCurrent(screen.Root).Reply()
-		if err != nil {
-			t.Fatalf("RandR resources: %v", err)
+		resources, lintShadow173 := c.GetScreenResourcesCurrent(screen.Root).Reply()
+		if lintShadow173 != nil {
+			t.Fatalf("RandR resources: %v", lintShadow173)
 		}
 		if resources != nil {
-			if _, err := c.GetOutputPrimary(screen.Root).Reply(); err != nil {
-				t.Fatalf("Xvfb RandR primary lookup: %v", err)
+			if _, lintShadow178 := c.GetOutputPrimary(screen.Root).Reply(); lintShadow178 != nil {
+				t.Fatalf("Xvfb RandR primary lookup: %v", lintShadow178)
 			}
-			if _, err := c.GetOutputInfo(0, resources.ConfigTimestamp).Reply(); err == nil {
+			if _, lintShadow181 := c.GetOutputInfo(0, resources.ConfigTimestamp).Reply(); lintShadow181 == nil {
 				t.Fatal("unknown RandR output returned valid information")
 			}
-			if _, err := c.GetCrtcInfo(0, resources.ConfigTimestamp).Reply(); err == nil {
+			if _, lintShadow184 := c.GetCrtcInfo(0, resources.ConfigTimestamp).Reply(); lintShadow184 == nil {
 				t.Fatal("unknown RandR CRTC returned valid information")
 			}
 			if len(resources.Outputs) > 0 {
-				primary, err := c.GetOutputPrimary(screen.Root).Reply()
-				if err != nil {
-					t.Fatalf("RandR primary output: %v", err)
+				primary, lintShadow188 := c.GetOutputPrimary(screen.Root).Reply()
+				if lintShadow188 != nil {
+					t.Fatalf("RandR primary output: %v", lintShadow188)
 				}
 				_ = primary
-				info, err := c.GetOutputInfo(resources.Outputs[0], resources.ConfigTimestamp).Reply()
-				if err != nil {
-					t.Fatalf("RandR output info: %v", err)
+				info, lintShadow188 := c.GetOutputInfo(resources.Outputs[0], resources.ConfigTimestamp).Reply()
+				if lintShadow188 != nil {
+					t.Fatalf("RandR output info: %v", lintShadow188)
 				}
 				if info != nil && info.Crtc != 0 {
-					if _, err := c.GetCrtcInfo(info.Crtc, resources.ConfigTimestamp).Reply(); err != nil {
-						t.Fatalf("RandR CRTC info: %v", err)
+					if _, crtcErr := c.GetCrtcInfo(info.Crtc, resources.ConfigTimestamp).Reply(); crtcErr != nil {
+						t.Fatalf("RandR CRTC info: %v", crtcErr)
 					}
 				}
 			}

@@ -42,12 +42,12 @@ func TestX11ManagerHeadlessEWMHDiscoveryGeometryAndActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	win := xproto.Window(winID)
-	if err := xproto.CreateWindowChecked(raw, screen.RootDepth, win, screen.Root, 11, 17, 130, 90, 0, xproto.WindowClassInputOutput, screen.RootVisual, 0, nil).Check(); err != nil {
-		t.Fatal(err)
+	if lintShadow45 := xproto.CreateWindowChecked(raw, screen.RootDepth, win, screen.Root, 11, 17, 130, 90, 0, xproto.WindowClassInputOutput, screen.RootVisual, 0, nil).Check(); lintShadow45 != nil {
+		t.Fatal(lintShadow45)
 	}
 	defer xproto.DestroyWindow(raw, win)
-	if err := xproto.MapWindowChecked(raw, win).Check(); err != nil {
-		t.Fatal(err)
+	if lintShadow49 := xproto.MapWindowChecked(raw, win).Check(); lintShadow49 != nil {
+		t.Fatal(lintShadow49)
 	}
 	backend, err := NewX11Backend(display)
 	if err != nil {
@@ -56,8 +56,8 @@ func TestX11ManagerHeadlessEWMHDiscoveryGeometryAndActions(t *testing.T) {
 	defer backend.Close()
 	setProperty := func(w xproto.Window, p, k xproto.Atom, format byte, items uint32, data []byte) {
 		t.Helper()
-		if err := xproto.ChangePropertyChecked(raw, xproto.PropModeReplace, w, p, k, format, items, data).Check(); err != nil {
-			t.Fatalf("set X11 root/window property %d: %v", p, err)
+		if lintShadow59 := xproto.ChangePropertyChecked(raw, xproto.PropModeReplace, w, p, k, format, items, data).Check(); lintShadow59 != nil {
+			t.Fatalf("set X11 root/window property %d: %v", p, lintShadow59)
 		}
 	}
 	atomBytes := func(ids ...uint32) []byte {
@@ -91,14 +91,14 @@ func TestX11ManagerHeadlessEWMHDiscoveryGeometryAndActions(t *testing.T) {
 	if err != nil || fresh.ID != uint64(winID) {
 		t.Fatalf("InfoByID %s: %+v %v", key, fresh, err)
 	}
-	if _, err := backend.InfoByID(ctx, "999999"); !errors.Is(err, ErrWindowNotFound) {
-		t.Fatalf("unknown window accepted: %v", err)
+	if _, lintShadow94 := backend.InfoByID(ctx, "999999"); !errors.Is(lintShadow94, ErrWindowNotFound) {
+		t.Fatalf("unknown window accepted: %v", lintShadow94)
 	}
-	if err := backend.MoveByID(ctx, key, 71, 53); err != nil {
-		t.Fatalf("real X11 move failed: %v", err)
+	if lintShadow97 := backend.MoveByID(ctx, key, 71, 53); lintShadow97 != nil {
+		t.Fatalf("real X11 move failed: %v", lintShadow97)
 	}
-	if err := backend.ResizeByID(ctx, key, 215, 145); err != nil {
-		t.Fatalf("real X11 resize failed: %v", err)
+	if lintShadow100 := backend.ResizeByID(ctx, key, 215, 145); lintShadow100 != nil {
+		t.Fatalf("real X11 resize failed: %v", lintShadow100)
 	}
 	geom, err := xproto.GetGeometry(raw, xproto.Drawable(win)).Reply()
 	if err != nil || geom.X != 71 || geom.Y != 53 || geom.Width != 215 || geom.Height != 145 {

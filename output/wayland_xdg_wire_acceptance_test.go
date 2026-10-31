@@ -22,9 +22,9 @@ func TestWaylandXDGOutputBindSendsActualRequestAndTracksLogicalGeometry(t *testi
 	accepted := make(chan *net.UnixConn, 1)
 	acceptErr := make(chan error, 1)
 	go func() {
-		conn, err := listener.AcceptUnix()
-		if err != nil {
-			acceptErr <- err
+		conn, lintShadow25 := listener.AcceptUnix()
+		if lintShadow25 != nil {
+			acceptErr <- lintShadow25
 			return
 		}
 		accepted <- conn
@@ -96,8 +96,8 @@ func TestWaylandXDGOutputBindFailsClosedWhenCanceled(t *testing.T) {
 	defer listener.Close()
 	accept := make(chan *net.UnixConn, 1)
 	go func() {
-		conn, err := listener.AcceptUnix()
-		if err == nil {
+		conn, lintShadow99 := listener.AcceptUnix()
+		if lintShadow99 == nil {
 			accept <- conn
 		}
 	}()

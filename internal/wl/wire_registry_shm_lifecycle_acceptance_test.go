@@ -21,8 +21,8 @@ func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
 	defer listener.Close()
 	connected := make(chan *net.UnixConn, 1)
 	go func() {
-		peer, err := listener.AcceptUnix()
-		if err == nil {
+		peer, lintShadow24 := listener.AcceptUnix()
+		if lintShadow24 == nil {
 			connected <- peer
 		}
 	}()
@@ -40,14 +40,14 @@ func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
 	}
 	readMessage := func() ([]byte, []byte) {
 		t.Helper()
-		if err := peer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-			t.Fatal(err)
+		if lintShadow43 := peer.SetReadDeadline(time.Now().Add(time.Second)); lintShadow43 != nil {
+			t.Fatal(lintShadow43)
 		}
 		raw := make([]byte, 4096)
 		oob := make([]byte, 256)
-		n, oobn, _, _, err := peer.ReadMsgUnix(raw, oob)
-		if err != nil {
-			t.Fatal(err)
+		n, oobn, _, _, lintShadow48 := peer.ReadMsgUnix(raw, oob)
+		if lintShadow48 != nil {
+			t.Fatal(lintShadow48)
 		}
 		if n < 8 || int(Uint32(raw[4:8])>>16) != n {
 			t.Fatalf("bad Wayland wire length: %x", raw[:n])
@@ -60,11 +60,11 @@ func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
 	ctx.Register(target)
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := reg.BindContext(canceled, 7, "wl_output", 3, target.ID()); !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled registry bind wrote protocol: %v", err)
+	if lintShadow63 := reg.BindContext(canceled, 7, "wl_output", 3, target.ID()); !errors.Is(lintShadow63, context.Canceled) {
+		t.Fatalf("canceled registry bind wrote protocol: %v", lintShadow63)
 	}
-	if err := reg.Bind(7, "wl_output", 3, target.ID()); err != nil {
-		t.Fatal(err)
+	if lintShadow66 := reg.Bind(7, "wl_output", 3, target.ID()); lintShadow66 != nil {
+		t.Fatal(lintShadow66)
 	}
 	msg, oob := readMessage()
 	if Uint32(msg[:4]) != reg.ID() || Uint32(msg[4:8])&0xffff != 0 || Uint32(msg[8:12]) != 7 || Uint32(msg[12:16]) != 10 || string(msg[16:25]) != "wl_output" || msg[25] != 0 || Uint32(msg[28:32]) != 3 || Uint32(msg[32:36]) != target.ID() || len(oob) != 0 {
@@ -78,12 +78,12 @@ func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
 	}
 	defer input.Close()
 	content := []byte("pixels for synthetic compositor")
-	if _, err := input.Write(content); err != nil {
-		t.Fatal(err)
+	if _, lintShadow81 := input.Write(content); lintShadow81 != nil {
+		t.Fatal(lintShadow81)
 	}
 	before := len(ctx.objects)
-	if pool, err := shm.CreatePoolContext(canceled, int(input.Fd()), 4096); !errors.Is(err, context.Canceled) || pool != nil || len(ctx.objects) != before {
-		t.Fatalf("canceled shared memory bind mutated registry: %v, %p", err, pool)
+	if pool, lintShadow85 := shm.CreatePoolContext(canceled, int(input.Fd()), 4096); !errors.Is(lintShadow85, context.Canceled) || pool != nil || len(ctx.objects) != before {
+		t.Fatalf("canceled shared memory bind mutated registry: %v, %p", lintShadow85, pool)
 	}
 	pool, err := shm.CreatePool(int(input.Fd()), 4096)
 	if err != nil {
@@ -111,13 +111,13 @@ func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
 		fd := os.NewFile(uintptr(fds[0]), "synthetic compositor mapped memory")
 		defer fd.Close()
 		got := make([]byte, len(content))
-		if _, err := fd.ReadAt(got, 0); err != nil || !bytes.Equal(got, content) {
-			t.Fatalf("passed FD does not own source pixel bytes: %q %v", got, err)
+		if _, lintShadow114 := fd.ReadAt(got, 0); lintShadow114 != nil || !bytes.Equal(got, content) {
+			t.Fatalf("passed FD does not own source pixel bytes: %q %v", got, lintShadow114)
 		}
 	}()
 	before = len(ctx.objects)
-	if buf, err := pool.CreateBufferContext(canceled, 8, 64, 32, 256, 875713112); !errors.Is(err, context.Canceled) || buf != nil || len(ctx.objects) != before {
-		t.Fatalf("canceled SHM buffer bind mutated registry: %v, %p", err, buf)
+	if buf, lintShadow119 := pool.CreateBufferContext(canceled, 8, 64, 32, 256, 875713112); !errors.Is(lintShadow119, context.Canceled) || buf != nil || len(ctx.objects) != before {
+		t.Fatalf("canceled SHM buffer bind mutated registry: %v, %p", lintShadow119, buf)
 	}
 	buffer, err := pool.CreateBuffer(8, 64, 32, 256, 875713112)
 	if err != nil {

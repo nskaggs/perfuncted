@@ -13,15 +13,15 @@ func TestATSPIFocusedTraversesPrivateBusAndRejectsIncompleteScope(t *testing.T) 
 	if err != nil || node.ID != id || node.Name != "Editor — document" || !node.Focused {
 		t.Fatalf("private AT-SPI focused node=%+v err=%v", node, err)
 	}
-	if _, err := backend.Focused(context.Background(), SnapshotOptions{Fresh: true, MaxNodes: 1, MaxDepth: 5}); !errors.Is(err, ErrIncompleteSnapshot) {
-		t.Fatalf("truncated focus observation must report incomplete snapshot: %v", err)
+	if _, lintShadow16 := backend.Focused(context.Background(), SnapshotOptions{Fresh: true, MaxNodes: 1, MaxDepth: 5}); !errors.Is(lintShadow16, ErrIncompleteSnapshot) {
+		t.Fatalf("truncated focus observation must report incomplete snapshot: %v", lintShadow16)
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := backend.Focused(canceled, SnapshotOptions{}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled Focused=%v", err)
+	if _, lintShadow21 := backend.Focused(canceled, SnapshotOptions{}); !errors.Is(lintShadow21, context.Canceled) {
+		t.Fatalf("canceled Focused=%v", lintShadow21)
 	}
-	if _, err := backend.Focused(nil, SnapshotOptions{}); err == nil {
+	if _, lintShadow24 := backend.Focused(absentFocusedContext, SnapshotOptions{}); lintShadow24 == nil {
 		t.Fatal("nil Focused context accepted")
 	}
 	backend.Invalidate(id)
@@ -33,7 +33,7 @@ func TestATSPIFocusedTraversesPrivateBusAndRejectsIncompleteScope(t *testing.T) 
 
 func TestATSPIAtPointValidatesCoordinatesAndPrivateProviderFailure(t *testing.T) {
 	backend, _, _ := newSyntheticATSPIBackend(t, false)
-	if _, err := backend.AtPoint(nil, 0, 0); err == nil {
+	if _, err := backend.AtPoint(absentFocusedContext, 0, 0); err == nil {
 		t.Fatal("nil context accepted")
 	}
 	for _, tc := range []struct {
@@ -61,3 +61,6 @@ func TestATSPIAtPointValidatesCoordinatesAndPrivateProviderFailure(t *testing.T)
 		t.Fatalf("unsupported private bus hit test returned %+v err=%v", node, err)
 	}
 }
+
+// An intentionally absent context exercises the public nil-context boundary.
+var absentFocusedContext context.Context

@@ -106,12 +106,12 @@ func newPrivateGnomeNativeCapture(t *testing.T) (*GnomeNativeScreenBackend, *pri
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		t.Fatalf("register service: reply=%v err=%v", reply, err)
 	}
-	if err := service.Export(privateGnomeCore{}, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.CoreInterface); err != nil {
-		t.Fatal(err)
+	if lintShadow109 := service.Export(privateGnomeCore{}, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.CoreInterface); lintShadow109 != nil {
+		t.Fatal(lintShadow109)
 	}
 	capture := &privateGnomeCapture{}
-	if err := service.Export(capture, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.ScreenInterface); err != nil {
-		t.Fatal(err)
+	if lintShadow113 := service.Export(capture, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.ScreenInterface); lintShadow113 != nil {
+		t.Fatal(lintShadow113)
 	}
 	client, err := gnomebridge.NewClientForBus(context.Background(), address)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestGnomeNativePrivateBusCaptureIsPixelCorrectAndReleasesOwnedFiles(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.Bounds() != image.Rect(0, 0, 2, 2) || full.At(0, 0).(color.RGBA).R != 255 || full.At(1, 1).(color.RGBA).G != 255 {
+	if full.Bounds() != image.Rect(0, 0, 2, 2) || !isSyntheticPixelColor(full.At(0, 0), 255, 0) || !isSyntheticPixelColor(full.At(1, 1), 0, 255) {
 		t.Fatalf("wrong GNOME logical full image: bounds=%v", full.Bounds())
 	}
 	region, err := b.Grab(ctx, image.Rect(5, 7, 7, 9))
@@ -256,4 +256,9 @@ func TestGnomeNativeUninitializedBackendAndCanceledHashOperationsFailClosed(t *t
 	if invocations != 0 {
 		t.Fatal("canceled operations reached screenshot service")
 	}
+}
+
+func isSyntheticPixelColor(pixel color.Color, red, green uint8) bool {
+	rgba, ok := pixel.(color.RGBA)
+	return ok && rgba.R == red && rgba.G == green
 }
