@@ -518,6 +518,12 @@ func (b *dbusBackend) SetTextSelections(ctx context.Context, id NodeID, selectio
 		if selection.StartOffset < 0 || selection.EndOffset < 0 {
 			return fmt.Errorf("accessibility: document selection %d has negative offset", i)
 		}
+		// Offsets are local to a Text object. Within the same object a
+		// selection's end must not precede its start; across distinct
+		// objects their numeric offsets cannot be ordered locally.
+		if selection.StartObject == selection.EndObject && selection.EndOffset < selection.StartOffset {
+			return fmt.Errorf("accessibility: document selection %d end offset before start", i)
+		}
 		wire[i] = documentTextSelectionWire{
 			StartObject:   objectRef{BusName: selection.StartObject.BusName, ObjectPath: dbus.ObjectPath(selection.StartObject.ObjectPath)},
 			StartOffset:   selection.StartOffset,
