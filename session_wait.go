@@ -78,7 +78,9 @@ func (f *waitEvaluateFailures) reset() {
 // isPermanentWaitError reports whether an evaluation error means the wait can
 // never be satisfied and must abort immediately instead of being retried.
 func isPermanentWaitError(err error) bool {
-	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrApplicationExited)
+	// Locator identity/semantic failures are terminal. Generic existence
+	// predicates may intentionally tolerate transient incomplete snapshots.
+	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrApplicationExited) || errors.Is(err, errLocatorUnverifiable)
 }
 
 // Condition is an authoritative state check used by Session.Wait.

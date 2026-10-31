@@ -164,6 +164,9 @@ func extensionVersionNeedsUpdate(running, bundled string) bool {
 // adds its UUID to GNOME's enabled-extensions setting without disturbing
 // other extensions.
 func (i Installer) Install(ctx context.Context, rt env.Runtime) (string, error) {
+	if ctx == nil {
+		return "", errors.New("gnome bridge: nil context")
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

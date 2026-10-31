@@ -13,6 +13,10 @@ import (
 
 const locatorResolutionAttempts = 2
 
+// errLocatorUnverifiable distinguishes a safety-critical locator target from
+// generic existence queries, which may retry transient incomplete snapshots.
+var errLocatorUnverifiable = errors.New("perfuncted: locator cannot prove a unique semantic target")
+
 type locatorScopeKind uint8
 
 const (
@@ -243,6 +247,9 @@ func (l *AccessibilityLocator) Wait(ctx context.Context, options ...WaitOption) 
 			return false, nil
 		}
 		if err != nil {
+			if errors.Is(err, accessibility.ErrAmbiguous) || errors.Is(err, accessibility.ErrIncompleteSnapshot) || errors.Is(err, accessibility.ErrScope) || errors.Is(err, ErrManagedScopeChanged) {
+				return false, errors.Join(errLocatorUnverifiable, err)
+			}
 			return false, err
 		}
 		matched = node
