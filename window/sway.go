@@ -618,6 +618,12 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 
 // ResizeByID resizes the window identified by id.
 func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height int) error {
+	// Sway resize commands require positive, representable dimensions. Reject
+	// them before the tree lookup or floating-mode mutation so an invalid
+	// request can never partially change the target window.
+	if width <= 0 || height <= 0 || width > 2147483647 || height > 2147483647 {
+		return fmt.Errorf("window/sway: invalid resize dimensions %dx%d", width, height)
+	}
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
 		return err

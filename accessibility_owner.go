@@ -223,7 +223,20 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	defer lease.release()
 	callCtx, cancel := lease.context(ctx)
 	defer cancel()
-	return call(lease.gen.backend, callCtx)
+	if err := callCtx.Err(); err != nil {
+		return err
+	}
+	err = call(lease.gen.backend, callCtx)
+	// A provider may acknowledge a call after its *caller* has canceled.
+	// Retirement of a backend generation, however, does not invalidate a
+	// result from an already-admitted in-flight call: its lease pins that
+	// generation until the operation completes.
+	if ctx != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+	}
+	return err
 }
 
 func (o *accessibilityBackendOwner) retireLocked(gen *accessibilityBackendGeneration) bool {
