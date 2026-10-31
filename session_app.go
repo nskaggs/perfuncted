@@ -160,10 +160,18 @@ func (a *Application) Wait(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("perfuncted: application wait: %w: nil context", ErrInvalidArgument)
 	}
+	// When both the process exit and cancellation are ready, select alone
+	// chooses nondeterministically. A canceled wait must not report success.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-a.done:
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.mu.RLock()
 		defer a.mu.RUnlock()
 		return a.err
@@ -293,8 +301,16 @@ func (s *Session) SwaySocket() string {
 	matches, err := filepath.Glob(
 		filepath.Join(s.infra.xdgDir, "sway-ipc.*.sock"),
 	)
-	if err != nil || len(matches) == 0 {
+	if err != nil {
 		return ""
 	}
-	return matches[0]
+	for _, path := range matches {
+		// Never follow a symlink into another desktop or select a regular
+		// file that merely resembles a managed Sway IPC socket.
+		info, statErr := os.Lstat(path)
+		if statErr == nil && info.Mode()&os.ModeSocket != 0 {
+			return path
+		}
+	}
+	return ""
 }
