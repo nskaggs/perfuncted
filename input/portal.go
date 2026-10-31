@@ -444,21 +444,62 @@ func newRemoteDesktopBackend(sender *eiSender, portal *portalSession) *RemoteDes
 
 // SupportedOperations reports operations executable by the authorized EIS backend.
 func (b *RemoteDesktopBackend) SupportedOperations() []string {
-	return supportedOperations(false, true, "sync")
+	if err := b.stateError(); err != nil {
+		return nil
+	}
+	sender := b.sender
+	pointer := sender.hasAuthorizedPointer()
+	button := sender.button != 0 && sender.buttonDev != 0
+	keyboard := sender.keyboard != 0 && sender.keyboardDev != 0
+	scroll := sender.scroll != 0 && sender.scrollDev != 0
+	excluded := []string{"sync"}
+	if !keyboard {
+		excluded = append(excluded, "keyboard")
+	}
+	if !pointer {
+		excluded = append(excluded, "pointer")
+	}
+	if !pointer || !button {
+		excluded = append(excluded, "click", "drag")
+	}
+	if !scroll {
+		excluded = append(excluded, "scroll")
+	}
+	return supportedOperations(false, pointer, excluded...)
 }
 
 // Diagnostics reports bounded authorization and pointer-region details.
 func (b *RemoteDesktopBackend) Diagnostics() []string {
-	if b == nil {
+	if err := b.stateError(); err != nil {
 		return []string{"portal EIS input unavailable"}
 	}
-	if b.sender == nil {
-		return []string{"portal EIS input unavailable"}
+	sender := b.sender
+	availability := func(enabled bool) string {
+		if enabled {
+			return "available"
+		}
+		return "unavailable"
+	}
+	regions := 0
+	for _, pointer := range sender.pointers {
+		if pointer.device == 0 || pointer.pointer == 0 {
+			continue
+		}
+		for _, region := range pointer.regions {
+			if region.width > 0 && region.height > 0 {
+				regions++
+			}
+		}
 	}
 	return []string{
 		"backend: XDG RemoteDesktop portal with EIS sender",
-		"authorization: portal granted keyboard and pointer for this session",
-		fmt.Sprintf("absolute pointer regions: %d", len(b.sender.regions)),
+		"authorization: portal session established; individual EIS devices may be unavailable",
+		fmt.Sprintf("keyboard: %s", availability(sender.keyboard != 0 && sender.keyboardDev != 0)),
+		fmt.Sprintf("pointer: %s", availability(sender.hasAuthorizedPointer())),
+		fmt.Sprintf("button: %s", availability(sender.button != 0 && sender.buttonDev != 0)),
+		fmt.Sprintf("scroll: %s", availability(sender.scroll != 0 && sender.scrollDev != 0)),
+		fmt.Sprintf("text: %s", availability(sender.text != 0 && sender.textDev != 0)),
+		fmt.Sprintf("absolute pointer regions: %d", regions),
 		"coordinate mapping: EIS logical screen coordinates, validated against advertised device regions",
 	}
 }
@@ -473,6 +514,9 @@ func (b *RemoteDesktopBackend) PointerCoordinateSpace(ctx context.Context) (Coor
 	}
 	if err := b.stateError(); err != nil {
 		return CoordinateSpaceInfo{}, err
+	}
+	if !b.sender.hasAuthorizedPointer() {
+		return CoordinateSpaceInfo{}, unsupportedError("remote-desktop", "absolute pointer input")
 	}
 	return CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
 }
@@ -834,6 +878,9 @@ func (b *RemoteDesktopBackend) validatedTypeKeycodes(actions []keySend) ([]uint3
 			}
 			continue
 		}
+		if b.sender.keyboard == 0 || b.sender.keyboardDev == 0 {
+			return nil, unsupportedError("remote-desktop", "keyboard input")
+		}
 		code, err := remoteKeyCode(action.key)
 		if err != nil {
 			return nil, err
@@ -1010,6 +1057,11 @@ func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int)
 	if err != nil {
 		return err
 	}
+	// A click is a compound operation: refuse it before emitting pointer
+	// motion if the session cannot send the required button frame.
+	if b.sender.button == 0 || b.sender.buttonDev == 0 {
+		return unsupportedError("remote-desktop", "button input")
+	}
 	if !b.sender.validatePoint(x, y) {
 		return fmt.Errorf("input/remote-desktop: (%d,%d) is outside the authorized EIS regions", x, y)
 	}
@@ -1113,7 +1165,7 @@ func (b *RemoteDesktopBackend) scroll(ctx context.Context, x, y, clicks int) err
 	if clicks == 0 {
 		return nil
 	}
-	if b.sender.scroll == 0 {
+	if b.sender.scroll == 0 || b.sender.scrollDev == 0 {
 		return unsupportedError("remote-desktop", "scroll")
 	}
 	if x > math.MaxInt32/120 || x < math.MinInt32/120 || y > math.MaxInt32/120 || y < math.MinInt32/120 {

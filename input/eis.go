@@ -615,6 +615,26 @@ func isEISDisconnected(message eiMessage, connection uint64) bool {
 	return message.object == connection && message.opcode == 0
 }
 
+// hasAuthorizedPointer reports whether at least one absolute pointer device
+// and region were actually bound by the compositor. A placeholder object ID
+// cannot authorize pointer injection or the corresponding coordinate space.
+func (s *eiSender) hasAuthorizedPointer() bool {
+	if s == nil {
+		return false
+	}
+	for _, pointer := range s.pointers {
+		if pointer.pointer == 0 || pointer.device == 0 {
+			continue
+		}
+		for _, region := range pointer.regions {
+			if region.width > 0 && region.height > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *eiSender) validatePoint(x, y int) bool {
 	_, ok := s.pointerForPoint(x, y)
 	return ok
@@ -777,6 +797,9 @@ func splitUTF8(value string, maximum int) []string {
 }
 
 func eiKeyFrame(sender *eiSender, key uint32, pressed bool) ([]byte, error) {
+	if sender == nil || sender.client == nil || sender.keyboard == 0 || sender.keyboardDev == 0 {
+		return nil, unsupportedError("remote-desktop", "keyboard input")
+	}
 	state := uint32(0)
 	if pressed {
 		state = 1
@@ -790,6 +813,9 @@ func eiKeyFrame(sender *eiSender, key uint32, pressed bool) ([]byte, error) {
 }
 
 func eiButtonFrame(sender *eiSender, button uint32, pressed bool) ([]byte, error) {
+	if sender == nil || sender.client == nil || sender.button == 0 || sender.buttonDev == 0 {
+		return nil, unsupportedError("remote-desktop", "button input")
+	}
 	state := uint32(0)
 	if pressed {
 		state = 1
@@ -806,6 +832,9 @@ func eiPointerFrame(sender *eiSender, x, y int) ([]byte, error) {
 	pointer, ok := sender.pointerForPoint(x, y)
 	if !ok {
 		return nil, fmt.Errorf("input/eis: (%d,%d) is outside the available absolute pointer regions", x, y)
+	}
+	if sender.client == nil || pointer.pointer == 0 || pointer.device == 0 {
+		return nil, unsupportedError("remote-desktop", "absolute pointer input")
 	}
 	floatX, floatY := float32(x), float32(y)
 	if float64(floatX) != float64(x) || float64(floatY) != float64(y) {
