@@ -217,6 +217,9 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 // KeyDown presses and holds key through uinput.
 func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 	return b.withOperation(ctx, func(context.Context) error {
+		if b.kb == nil {
+			return unsupportedError("input/uinput", "keyboard device unavailable")
+		}
 		code, err := b.resolveKey(key)
 		if err != nil {
 			return err
@@ -232,9 +235,15 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 // KeyUp releases key through uinput.
 func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 	return b.withOperation(ctx, func(context.Context) error {
+		if b.kb == nil {
+			return unsupportedError("input/uinput", "keyboard device unavailable")
+		}
 		code, err := b.resolveKey(key)
 		if err != nil {
 			return err
+		}
+		if modifierBit(code) != 0 && !b.modifierHeld(code) {
+			return fmt.Errorf("input/uinput: modifier keycode %d not held", code)
 		}
 		if err := b.kb.KeyUp(code); err != nil {
 			return err
@@ -263,6 +272,9 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if b.kb == nil {
+		return unsupportedError("input/uinput", "keyboard device unavailable")
+	}
 	actions, err := parseKeySend(s)
 	if err != nil {
 		return err
@@ -281,6 +293,12 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 				return err
 			}
 		}
+	}
+	// Validate caller-owned modifier transitions for the entire batch before
+	// typing anything. Chords have temporary holds and do not change this
+	// state; explicit down/up actions do.
+	if err := b.validateHeldModifierSequence(actions); err != nil {
+		return err
 	}
 	for _, a := range actions {
 		if err := ctx.Err(); err != nil {
@@ -301,6 +319,38 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 		}
 		if err := b.typeKeyWithMods(ctx, code, a.down, a.up, a.modifiers); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateHeldModifierSequence checks the complete batch against the
+// modifier holds currently owned by this backend. A stray release at the
+// tail must not cause the preceding valid characters to be typed.
+func (b *UinputBackend) validateHeldModifierSequence(actions []keySend) error {
+	b.heldMu.Lock()
+	held := b.heldMods
+	b.heldMu.Unlock()
+	for _, action := range actions {
+		if action.key == "" {
+			continue
+		}
+		code, err := b.resolveKey(action.key)
+		if err != nil {
+			return err
+		}
+		bit := modifierBit(code)
+		if bit == 0 {
+			continue
+		}
+		switch {
+		case action.up:
+			if held&bit == 0 {
+				return fmt.Errorf("input/uinput: modifier keycode %d not held", code)
+			}
+			held &^= bit
+		case action.down:
+			held |= bit
 		}
 	}
 	return nil
@@ -480,6 +530,9 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if b.kb == nil {
+		return unsupportedError("input/uinput", "keyboard device unavailable")
+	}
 	if err := b.validateTextRunes(s); err != nil {
 		return err
 	}
@@ -525,6 +578,9 @@ func (b *UinputBackend) mouseMove(ctx context.Context, x, y int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if b.touchpad == nil {
+		return unsupportedError("input/uinput", "touchpad device unavailable")
+	}
 	if x < -1<<31 || x > 1<<31-1 || y < -1<<31 || y > 1<<31-1 {
 		return fmt.Errorf("input/uinput: coordinates (%d,%d) exceed int32 range", x, y)
 	}
@@ -537,6 +593,14 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 		return err
 	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
+		// A middle click needs the lazily-created mouse device, unlike
+		// the primary and secondary buttons on the touchpad. Acquire it
+		// before moving to avoid a partial click if acquisition fails.
+		if button == 2 {
+			if err := b.withMouse(func(uinput.Mouse) error { return nil }); err != nil {
+				return err
+			}
+		}
 		if err := b.mouseMove(ctx, x, y); err != nil {
 			return err
 		}
@@ -574,6 +638,9 @@ func (b *UinputBackend) mouseDown(ctx context.Context, button int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if button != 2 && b.touchpad == nil {
+		return unsupportedError("input/uinput", "touchpad device unavailable")
+	}
 	switch button {
 	case 1:
 		return b.touchpad.LeftPress()
@@ -604,6 +671,9 @@ func (b *UinputBackend) mouseUp(ctx context.Context, button int) error {
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if button != 2 && b.touchpad == nil {
+		return unsupportedError("input/uinput", "touchpad device unavailable")
 	}
 	switch button {
 	case 1:
