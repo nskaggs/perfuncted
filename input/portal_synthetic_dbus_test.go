@@ -17,22 +17,25 @@ import (
 )
 
 type syntheticPortal struct {
-	conn          *dbus.Conn
-	mu            sync.Mutex
-	code          uint32
-	result        map[string]dbus.Variant
-	skip          bool
-	emitUnrelated bool                 // deliver a different portal signal before Response
-	requestPaths  chan dbus.ObjectPath // optional test observation of method-return path
-	getVersion    any
-	busAddress    string
-	deviceMask    uint32
-	selectCode    uint32
-	startCode     uint32
-	persistToken  string
-	eisFD         dbus.UnixFD
-	selectOptions map[string]dbus.Variant
-	called        int
+	conn           *dbus.Conn
+	mu             sync.Mutex
+	code           uint32
+	result         map[string]dbus.Variant
+	startResponse  map[string]dbus.Variant
+	connectErr     *dbus.Error
+	skip           bool
+	emitUnrelated  bool                 // deliver a different portal signal before Response
+	requestPaths   chan dbus.ObjectPath // optional test observation of method-return path
+	getVersion     any
+	busAddress     string
+	deviceMask     uint32
+	selectCode     uint32
+	startCode      uint32
+	persistToken   string
+	eisFD          dbus.UnixFD
+	selectOptions  map[string]dbus.Variant
+	called         int
+	closedSessions int
 }
 
 func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.ObjectPath, *dbus.Error) {
@@ -114,7 +117,7 @@ func startSyntheticPortalBus(t *testing.T) (*dbus.Conn, *syntheticPortal) {
 	if exportErr := service.Export(mock, remoteDesktopPath, "org.freedesktop.DBus.Properties"); exportErr != nil {
 		t.Fatal(exportErr)
 	}
-	if exportErr := service.Export(&syntheticPortalSession{}, dbus.ObjectPath(syntheticSessionPath), portalSessionInterface); exportErr != nil {
+	if exportErr := service.Export(&syntheticPortalSession{portal: mock}, dbus.ObjectPath(syntheticSessionPath), portalSessionInterface); exportErr != nil {
 		t.Fatal(exportErr)
 	}
 	client, err := dbusutil.SessionBusAddressContext(context.Background(), address)

@@ -17,9 +17,16 @@ import (
 
 const syntheticSessionPath = "/org/freedesktop/portal/desktop/session/fixture"
 
-type syntheticPortalSession struct{}
+type syntheticPortalSession struct {
+	portal *syntheticPortal
+}
 
-func (*syntheticPortalSession) Close() *dbus.Error { return nil }
+func (s *syntheticPortalSession) Close() *dbus.Error {
+	s.portal.mu.Lock()
+	s.portal.closedSessions++
+	s.portal.mu.Unlock()
+	return nil
+}
 
 func (p *syntheticPortal) SelectDevices(_ dbus.ObjectPath, options map[string]dbus.Variant) (dbus.ObjectPath, *dbus.Error) {
 	p.mu.Lock()
@@ -29,19 +36,25 @@ func (p *syntheticPortal) SelectDevices(_ dbus.ObjectPath, options map[string]db
 }
 func (p *syntheticPortal) Start(_ dbus.ObjectPath, _ string, _ map[string]dbus.Variant) (dbus.ObjectPath, *dbus.Error) {
 	p.mu.Lock()
-	mask, token := p.deviceMask, p.persistToken
-	p.mu.Unlock()
-	response := map[string]dbus.Variant{"devices": dbus.MakeVariant(mask)}
-	if token != "" {
-		response["restore_token"] = dbus.MakeVariant(token)
+	response := make(map[string]dbus.Variant)
+	if p.startResponse != nil {
+		for key, value := range p.startResponse {
+			response[key] = value
+		}
+	} else {
+		response["devices"] = dbus.MakeVariant(p.deviceMask)
+		if p.persistToken != "" {
+			response["restore_token"] = dbus.MakeVariant(p.persistToken)
+		}
 	}
+	p.mu.Unlock()
 	return p.reply("Start", response), nil
 }
 func (p *syntheticPortal) ConnectToEIS(_ dbus.ObjectPath, _ map[string]dbus.Variant) (dbus.UnixFD, *dbus.Error) {
 	p.mu.Lock()
-	fd := p.eisFD
+	fd, err := p.eisFD, p.connectErr
 	p.mu.Unlock()
-	return fd, nil
+	return fd, err
 }
 func (p *syntheticPortal) reply(method string, results map[string]dbus.Variant) dbus.ObjectPath {
 	path := dbus.ObjectPath("/org/freedesktop/portal/desktop/request/fixture/" + method)
