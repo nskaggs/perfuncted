@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -124,13 +123,20 @@ func findWindowByStableID(ctx context.Context, bundle *perfuncted.WindowBundle, 
 	if err != nil {
 		return nil, err
 	}
-	number, numberErr := strconv.ParseUint(id, 0, 64)
-	if numberErr != nil {
-		number, numberErr = strconv.ParseUint(id, 10, 64)
-	}
+	// Exact native IDs take priority across the entire snapshot. An opaque
+	// native ID such as "010" must not be shadowed by a numeric alias for 10
+	// that happens to appear earlier in the listing.
 	for _, win := range wins {
-		if win.ID().String() == id || (numberErr == nil && win.CachedInfo().ID == number && number != 0) {
+		if win.ID().String() == id {
 			return win, nil
+		}
+	}
+	number, numberErr := parseDecimalOrPrefixedID(id, 64)
+	if numberErr == nil && number != 0 {
+		for _, win := range wins {
+			if win.CachedInfo().ID == number {
+				return win, nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("window id %q: %w", id, window.ErrWindowNotFound)

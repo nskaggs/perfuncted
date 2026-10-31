@@ -291,7 +291,7 @@ func parseKWinWindowList(data string) ([]Info, error) {
 			H:        height,
 			Active:   row.Active,
 		}
-		if id, err := strconv.ParseUint(info.NativeID, 0, 64); err == nil {
+		if id, err := numericID(info.NativeID); err == nil {
 			info.ID = id
 		}
 		infos = append(infos, info)

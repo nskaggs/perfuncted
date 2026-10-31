@@ -142,7 +142,14 @@ func (info Info) StableID() string {
 }
 
 func numericID(id string) (uint64, error) {
-	value, err := strconv.ParseUint(id, 0, 64)
+	// StableID formats numeric handles in decimal. In particular, an ID such
+	// as "010" must not silently select window 8. Preserve explicitly prefixed
+	// numeric notation (notably X11's 0x handles) for callers that use it.
+	base := 10
+	if len(id) >= 2 && id[0] == '0' && strings.ContainsRune("xXoObB", rune(id[1])) {
+		base = 0
+	}
+	value, err := strconv.ParseUint(id, base, 64)
 	if err != nil {
 		return 0, fmt.Errorf("window: invalid numeric id %q: %w", id, err)
 	}

@@ -80,25 +80,54 @@ func CompileMatch(m Match) Matcher {
 	compiledMatchCacheMu.RLock()
 	if cached, ok := compiledMatchCache[key]; ok {
 		compiledMatchCacheMu.RUnlock()
-		return cached
+		return cloneMatcher(cached)
 	}
 	compiledMatchCacheMu.RUnlock()
 
 	compiled := Matcher{
-		Match:              m,
+		Match:              cloneMatch(m),
 		titleContainsLower: strings.ToLower(m.TitleContains),
 	}
 
 	compiledMatchCacheMu.Lock()
 	if cached, ok := compiledMatchCache[key]; ok {
 		compiledMatchCacheMu.Unlock()
-		return cached
+		return cloneMatcher(cached)
 	}
 	if len(compiledMatchCache) < compiledMatchCacheLimit {
 		compiledMatchCache[key] = compiled
 	}
 	compiledMatchCacheMu.Unlock()
-	return compiled
+	return cloneMatcher(compiled)
+}
+
+// A cached matcher must not retain caller-owned pointer fields, and callers
+// must not be able to mutate the global cache through returned matchers.
+func cloneMatcher(m Matcher) Matcher {
+	m.Match = cloneMatch(m.Match)
+	return m
+}
+
+func cloneMatch(m Match) Match {
+	if m.PID != nil {
+		m.PID = new(*m.PID)
+	}
+	if m.ID != nil {
+		m.ID = new(*m.ID)
+	}
+	if m.Active != nil {
+		m.Active = new(*m.Active)
+	}
+	if m.Minimized != nil {
+		m.Minimized = new(*m.Minimized)
+	}
+	if m.Maximized != nil {
+		m.Maximized = new(*m.Maximized)
+	}
+	if m.Fullscreen != nil {
+		m.Fullscreen = new(*m.Fullscreen)
+	}
+	return m
 }
 
 // Matches reports whether info satisfies m.

@@ -40,8 +40,18 @@ func parseOutputMode(raw string) (outputMode, error) {
 	}
 }
 
+// parseDecimalOrPrefixedID treats bare numeric strings as decimal, even if
+// padded with zeroes. Explicit base prefixes remain supported for X11 handles.
+func parseDecimalOrPrefixedID(s string, bits int) (uint64, error) {
+	base := 10
+	if len(s) >= 2 && s[0] == '0' && strings.ContainsRune("xXoObB", rune(s[1])) {
+		base = 0
+	}
+	return strconv.ParseUint(s, base, bits)
+}
+
 func parseHash(s string) (uint32, error) {
-	v, err := strconv.ParseUint(s, 0, 32) // handles 0x prefix + decimal
+	v, err := parseDecimalOrPrefixedID(s, 32) // handles 0x prefix + decimal
 	if err == nil {
 		return uint32(v), nil
 	}
