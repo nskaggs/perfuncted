@@ -81,6 +81,9 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return window.Info{}, err
+	}
 	info, err := backend.InfoByID(ctx, w.id.native)
 	if err != nil {
 		return window.Info{}, w.id.session.Windows.operationError("info", err)
@@ -120,6 +123,9 @@ func (w *Window) Activate(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("activate", backend.ActivateByID(ctx, w.id.native))
 }
 
@@ -136,6 +142,9 @@ func (w *Window) Move(ctx context.Context, x int, y int) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("move", backend.MoveByID(ctx, w.id.native, x, y))
 }
 
@@ -157,6 +166,9 @@ func (w *Window) Resize(
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("resize", backend.ResizeByID(ctx, w.id.native, width, height))
 }
 
@@ -168,6 +180,9 @@ func (w *Window) Close(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("close", backend.CloseWindowByID(ctx, w.id.native))
 }
 
@@ -179,6 +194,9 @@ func (w *Window) Minimize(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("minimize", backend.MinimizeByID(ctx, w.id.native))
 }
 
@@ -190,6 +208,9 @@ func (w *Window) Maximize(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("maximize", backend.MaximizeByID(ctx, w.id.native))
 }
 
@@ -201,6 +222,9 @@ func (w *Window) Fullscreen(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("fullscreen", backend.FullscreenByID(ctx, w.id.native))
 }
 
@@ -212,6 +236,9 @@ func (w *Window) Unfullscreen(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("fullscreen", backend.UnfullscreenByID(ctx, w.id.native))
 }
 
@@ -223,6 +250,9 @@ func (w *Window) Restore(ctx context.Context) error {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return w.id.session.Windows.operationError("restore", backend.RestoreByID(ctx, w.id.native))
 }
 
