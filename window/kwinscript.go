@@ -211,6 +211,12 @@ func requestKWinName(ctx context.Context, conn *dbus.Conn, svc string) error {
 }
 
 func waitForKWinResult(ctx context.Context, recv *pfReceiver, scriptID int) (string, error) {
+	ctx = contextutil.Default(ctx)
+	// A callback ready at the same time as cancellation must never win a
+	// select race and be reported as an authoritative desktop observation.
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	waitCtx, cancel := kwinResultContext(ctx)
 	defer cancel()
 	select {
@@ -220,6 +226,9 @@ func waitForKWinResult(ctx context.Context, recv *pfReceiver, scriptID int) (str
 		}
 		return "", fmt.Errorf("window/kwinscript: timeout — script %d did not call back (is KWin scripting enabled?)", scriptID)
 	case data := <-recv.ch:
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		return data, nil
 	}
 }

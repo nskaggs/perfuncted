@@ -76,12 +76,23 @@ func handshakeContext(ctx context.Context, conn *dbus.Conn) error {
 }
 
 func runHandshakeContext(ctx context.Context, handshake func() error, closeConn func() error) error {
+	if ctx == nil {
+		return errors.New("dbusutil: nil context")
+	}
+	// A canceled attempt must never start authentication nor return a late
+	// success when the handshake and cancellation become ready together.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	done := make(chan error, 1)
 	go func() {
 		done <- handshake()
 	}()
 	select {
 	case err := <-done:
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
 	case <-ctx.Done():
 		_ = closeConn()

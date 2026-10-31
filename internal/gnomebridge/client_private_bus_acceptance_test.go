@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -28,16 +27,21 @@ func startPrivateBridgeBus(t *testing.T) string {
 		t.Skipf("private dbus daemon unavailable: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	deadline := time.After(2 * time.Second)
+	// Socket creation can precede listen(2); readiness requires completing
+	// a private D-Bus authentication handshake, not just stat(2).
+	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if _, err := os.Stat(path); err == nil {
+		attemptCtx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		conn, err := dbusutil.ConnectContext(attemptCtx, address)
+		cancel()
+		if err == nil {
+			_ = conn.Close()
 			return address
 		}
-		select {
-		case <-time.After(5 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("private D-Bus startup: %s", stderr.String())
+		if !time.Now().Before(deadline) {
+			t.Fatalf("private D-Bus startup did not become ready: %v (%s)", err, stderr.String())
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

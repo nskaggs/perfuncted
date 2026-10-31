@@ -1,6 +1,7 @@
 package x11
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/jezek/xgb/randr"
@@ -288,7 +289,10 @@ func (m *MockConnection) GetImage(Format byte, Drawable xproto.Drawable, X, Y in
 	if m.GetImageFunc != nil {
 		return m.GetImageFunc(Format, Drawable, X, Y, Width, Height, PlaneMask)
 	}
-	return &XProtoGetImageCookie{cookie: xproto.GetImageCookie{}}
+	// An unconfigured synthetic screen has no X server reply. Returning a
+	// zero-valued xgb cookie panics on Reply and hides the real transport
+	// failure from screen capture tests.
+	return NewMockGetImageCookie(nil, errors.New("x11: mock image reply unavailable"))
 }
 func (m *MockConnection) FreePixmap(Pixmap xproto.Pixmap) FreePixmapCookie {
 	if m.FreePixmapFunc != nil {
