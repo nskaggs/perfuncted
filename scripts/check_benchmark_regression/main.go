@@ -144,12 +144,20 @@ func bestSample(samples []sample) sample {
 
 func parseSample(fields []string) (sample, bool) {
 	s := sample{name: benchmarkSuffix.ReplaceAllString(fields[0], "")}
+	seen := make(map[string]bool, 3)
 	for i := 1; i+1 < len(fields); i++ {
 		value, err := strconv.ParseFloat(fields[i], 64)
 		if err != nil {
 			continue
 		}
-		switch fields[i+1] {
+		metric := fields[i+1]
+		if metric == "ns/op" || metric == "B/op" || metric == "allocs/op" {
+			if seen[metric] {
+				return sample{}, false
+			}
+			seen[metric] = true
+		}
+		switch metric {
 		case "ns/op":
 			s.nsPerOp = value
 		case "B/op":
