@@ -273,6 +273,16 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 		return nil, fmt.Errorf("screen/portal: %w", err)
 	}
 	expectedHandlePath := portalRequestPath(uniqueName, token)
+	// Signal matching on a shared godbus connection is additive: another
+	// subscriber can cause a forged or unrelated signal to reach this channel.
+	// Resolve the current unique portal owner for this screenshot transaction.
+	var portalOwner string
+	if err := b.conn.BusObject().CallWithContext(requestCtx, "org.freedesktop.DBus.GetNameOwner", 0, portalDest).Store(&portalOwner); err != nil {
+		return nil, fmt.Errorf("screen/portal: resolve screenshot signal owner: %w", err)
+	}
+	if portalOwner == "" {
+		return nil, fmt.Errorf("screen/portal: screenshot signal owner is empty")
+	}
 
 	ch := make(chan *dbus.Signal, 4)
 	b.conn.Signal(ch)
@@ -319,7 +329,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			if !ok {
 				return nil, fmt.Errorf("screen/portal: D-Bus signal channel closed")
 			}
-			if !portalSignalMatches(sig, gotHandle, expectedHandlePath) || len(sig.Body) < 2 {
+			if sig == nil || sig.Name != portalReqIf+".Response" || sig.Sender != portalOwner || !portalSignalMatches(sig, gotHandle, expectedHandlePath) || len(sig.Body) < 2 {
 				continue
 			}
 			code, ok := sig.Body[0].(uint32)

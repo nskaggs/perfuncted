@@ -365,6 +365,26 @@ func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //noli
 	if err != nil {
 		return err
 	}
+	// Validate the entire logical command before producing its first XTEST
+	// event. A missing keysym at the tail must not partially type the prefix.
+	for _, a := range actions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if a.text != "" {
+			if err := b.validateTextKeysyms(ctx, a.text); err != nil {
+				return err
+			}
+		}
+		if a.key != "" {
+			if _, err := b.keycodeFor(a.key); err != nil {
+				return err
+			}
+			if _, err := b.temporaryModifierKeycodes(a.modifiers); err != nil {
+				return err
+			}
+		}
+	}
 	for _, a := range actions {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -549,8 +569,27 @@ func (b *XTestBackend) temporaryModifierKeycodes(mod modifiers) ([]xproto.Keycod
 // GetKeyboardMapping reply, and the modifiers that keysym's level requires are
 // applied around it. This is layout-independent: the X server tells us which
 // keysyms need which modifiers.
+func (b *XTestBackend) validateTextKeysyms(ctx context.Context, s string) error {
+	for _, ch := range s {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, level, err := b.keycodeAndLevel(xproto.Keysym(ch))
+		if err != nil {
+			return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
+		}
+		if _, err := b.levelModifiers(level); err != nil {
+			return fmt.Errorf("input/xtest: typeText character %q: %w", string(ch), err)
+		}
+	}
+	return nil
+}
+
 func (b *XTestBackend) typeText(ctx context.Context, s string) error {
 	ctx = contextutil.Default(ctx)
+	if err := b.validateTextKeysyms(ctx, s); err != nil {
+		return err
+	}
 	// One buffer for the whole string, so a long literal does not allocate a
 	// modifier slice per character.
 	scratch := make([]xproto.Keycode, 0, levelModifierCapacity)
