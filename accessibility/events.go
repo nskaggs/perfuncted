@@ -318,7 +318,7 @@ func signalEvent(sig *dbus.Signal) Event {
 
 func sensitiveEventProperty(property string) bool {
 	lower := strings.ToLower(strings.TrimSpace(property))
-	return lower == "value" || strings.Contains(lower, "text") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "protected")
+	return strings.Contains(lower, "value") || strings.Contains(lower, "text") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "protected")
 }
 
 func (b *dbusBackend) startEvents(ctx context.Context, requireSemanticCoverage bool) error { //nolint:contextcheck,gocyclo // setup owns a bounded context derived from the caller.
