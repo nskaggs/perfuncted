@@ -750,7 +750,14 @@ func (b *XTestBackend) scroll(ctx context.Context, button, clicks int) error {
 			return err
 		}
 		if err := b.mouseButton(ctx, xproto.ButtonRelease, button); err != nil {
-			return err
+			// The press may already have reached the server. A failed release
+			// must not silently strand a held wheel button, even when the
+			// caller's context was canceled during the operation. Retry cleanup
+			// with a separate short deadline and preserve both errors.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+			cleanupErr := b.mouseButton(cleanupCtx, xproto.ButtonRelease, button)
+			cancel()
+			return errors.Join(err, cleanupErr)
 		}
 	}
 	return nil
