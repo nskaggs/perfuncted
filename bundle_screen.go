@@ -78,7 +78,13 @@ func (s *ScreenBundle) grab(
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := s.backend.Grab(ctx, rect)
-	return img, s.operationError("capture", err)
+	if err != nil {
+		return nil, s.operationError("capture", err)
+	}
+	if err := validateCaptureImageLayout(img); err != nil {
+		return nil, s.operationError("capture", err)
+	}
+	return img, nil
 }
 
 // Grab captures rect, or the full screen when rect is empty.

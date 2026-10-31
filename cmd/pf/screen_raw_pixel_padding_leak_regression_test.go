@@ -56,7 +56,7 @@ func TestRawScreenshotRejectsMalformedProviderBuffersBeforeWriting(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := rawScreenshotCommand(t, tc.frame)
-			if err == nil || !strings.Contains(err.Error(), "invalid RGBA") {
+			if err == nil || !strings.Contains(err.Error(), "invalid") {
 				t.Fatalf("malformed provider buffer accepted: %v", err)
 			}
 			if len(got) > 0 {
