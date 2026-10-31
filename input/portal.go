@@ -477,6 +477,11 @@ func (b *RemoteDesktopBackend) submit(ctx context.Context, run func() error) err
 	if ctx == nil {
 		return errors.New("input/remote-desktop: nil operation context")
 	}
+	// A canceled operation must never be dispatched just because the
+	// unbuffered writer also happens to be ready in a select.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.stateError(); err != nil {
 		return err
 	}
@@ -492,6 +497,9 @@ func (b *RemoteDesktopBackend) submit(ctx context.Context, run func() error) err
 	}
 	select {
 	case err := <-command.done:
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
