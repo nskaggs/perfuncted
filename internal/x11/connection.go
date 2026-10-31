@@ -140,7 +140,10 @@ func (c *XgbConnection) GetImage(Format byte, Drawable xproto.Drawable, X, Y int
 }
 
 func (c *XgbConnection) FreePixmap(Pixmap xproto.Pixmap) FreePixmapCookie {
-	cookie := xproto.FreePixmap(c.conn, Pixmap)
+	// Callers expose Check() as part of the FreePixmapCookie contract.
+	// An unchecked XGB cookie always fails Check, even after a successful
+	// server-side free; use the checked request so cleanup errors are real.
+	cookie := xproto.FreePixmapChecked(c.conn, Pixmap)
 	return NewXProtoFreePixmapCookie(cookie)
 }
 
@@ -149,7 +152,9 @@ func (c *XgbConnection) InitComposite() error {
 }
 
 func (c *XgbConnection) NameWindowPixmap(Window xproto.Window, Pixmap xproto.Pixmap) NameWindowPixmapCookie {
-	cookie := composite.NameWindowPixmap(c.conn, Window, Pixmap)
+	// The public cookie contract requires Check to report server errors.
+	// Unchecked Composite cookies fail Check irrespective of wire success.
+	cookie := composite.NameWindowPixmapChecked(c.conn, Window, Pixmap)
 	return NewXProtoNameWindowPixmapCookie(cookie)
 }
 

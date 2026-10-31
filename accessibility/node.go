@@ -85,6 +85,12 @@ func (b *dbusBackend) readNodeWithCache(ctx context.Context, id, parent NodeID, 
 		node.Warnings = append(node.Warnings, fmt.Sprintf("%s.GetAttributes: %v", accessibleIface, err))
 	}
 	b.readNodeOptional(ctx, id, node.Interfaces, &node)
+	// Best-effort provider reads intentionally collect warnings, but caller
+	// cancellation is not a recoverable missing property: publishing a
+	// partially observed node would misrepresent it as a fresh observation.
+	if err := ctx.Err(); err != nil {
+		return Node{}, err
+	}
 	if !allowSensitive && hasSensitiveState(node.States) {
 		redactSensitiveNode(&node)
 	}

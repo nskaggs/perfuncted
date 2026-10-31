@@ -479,6 +479,12 @@ func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("window/x11: move canceled: %w", err)
 	}
+	// ConfigureWindow serializes coordinates as signed 16-bit X11 positions.
+	// Conversion to uint32 without bounds checks silently wraps oversized
+	// host integers and can move windows somewhere the caller did not ask.
+	if x < -32768 || x > 32767 || y < -32768 || y > 32767 {
+		return fmt.Errorf("window/x11: position %d,%d exceeds signed X11 coordinate range", x, y)
+	}
 	finish, err := b.beginOperation()
 	if err != nil {
 		return err
