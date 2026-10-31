@@ -328,6 +328,12 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 	if err := captureCtx.Err(); err != nil {
 		return fmt.Errorf("screen/ext: capture canceled: %w", err)
 	}
+	// The constructor publishes all protocol objects together. A partial or
+	// disconnected backend must fail closed instead of dereferencing an absent
+	// session, shared-memory manager, or capture session proxy.
+	if b.session == nil || b.session.Display == nil || b.shm == nil || b.sessProxy == nil {
+		return fmt.Errorf("screen/ext: backend is not initialised")
+	}
 
 	wlctx := b.session.Display.Context()
 	return wl.WithOperationContext(captureCtx, wlctx, func() error { //nolint:contextcheck // this helper serializes an existing operation context.

@@ -115,7 +115,14 @@ func skipMethodForCLISync(name string) bool {
 	}
 }
 
-func main() { //nolint:gocyclo
+func main() {
+	os.Exit(verifyCLISync(".", "docs-cli"))
+}
+
+// verifyCLISync checks the actual exported bundle API against generated CLI
+// documentation. It returns the command exit status, enabling end-to-end
+// verification without terminating the test runner.
+func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 	// map CLI group -> perfuncted bundle type
 	bundleTypes := map[string]string{
 		"screen":    "ScreenBundle",
@@ -124,11 +131,11 @@ func main() { //nolint:gocyclo
 		"clipboard": "ClipboardBundle",
 	}
 
-	cfg := &packages.Config{Mode: packages.NeedName | packages.NeedTypes, Dir: "."}
+	cfg := &packages.Config{Mode: packages.NeedName | packages.NeedTypes, Dir: moduleDir}
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "loading packages:", err)
-		os.Exit(2)
+		return 2
 	}
 
 	var perfPkg *packages.Package
@@ -140,7 +147,7 @@ func main() { //nolint:gocyclo
 	}
 	if perfPkg == nil {
 		fmt.Fprintln(os.Stderr, "could not find perfuncted package in module")
-		os.Exit(2)
+		return 2
 	}
 
 	methods := map[string][]string{}
@@ -156,10 +163,10 @@ func main() { //nolint:gocyclo
 	}
 
 	// collect docs-cli commands
-	docsFiles, err := filepath.Glob("docs-cli/pf_*.md")
+	docsFiles, err := filepath.Glob(filepath.Join(docsDir, "pf_*.md"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "globbing docs-cli:", err)
-		os.Exit(2)
+		return 2
 	}
 	docs := map[string]map[string]bool{}
 	re := regexp.MustCompile(`^pf_([a-z0-9-]+)_(.+)\.md$`)
@@ -294,7 +301,7 @@ func main() { //nolint:gocyclo
 
 	if len(missingInAPI) == 0 && len(missingInCLI) == 0 {
 		fmt.Println("Basic CLI/API sync check: OK")
-		os.Exit(0)
+		return 0
 	}
 
 	fmt.Println("CLI/API sync issues detected:")
@@ -315,7 +322,7 @@ func main() { //nolint:gocyclo
 	fmt.Println("If these warnings are expected, whitelist them or improve mapping rules in scripts/verify_cli_api.go")
 
 	if len(missingInAPI) > 0 || len(missingInCLI) > 0 {
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(0)
+	return 0
 }
