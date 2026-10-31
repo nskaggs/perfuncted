@@ -256,6 +256,12 @@ func (b *XTestBackend) ensureKeymap() (map[xproto.Keysym]keycodeLevel, error) {
 		return b.keymap, nil
 	}
 	setup := b.conn.Setup()
+	if setup == nil {
+		return nil, errors.New("input/xtest: missing X11 keyboard setup")
+	}
+	if setup.MaxKeycode < setup.MinKeycode {
+		return nil, fmt.Errorf("input/xtest: invalid keyboard keycode range %d..%d", setup.MinKeycode, setup.MaxKeycode)
+	}
 	first := setup.MinKeycode
 	count := byte(setup.MaxKeycode - setup.MinKeycode + 1)
 	km, err := b.conn.GetKeyboardMapping(first, count).Reply()
@@ -264,6 +270,9 @@ func (b *XTestBackend) ensureKeymap() (map[xproto.Keysym]keycodeLevel, error) {
 		// transient failure clears itself instead of leaving the backend unable to
 		// name a single keycode for the rest of the process.
 		return nil, fmt.Errorf("input/xtest: GetKeyboardMapping: %w", err)
+	}
+	if km == nil {
+		return nil, errors.New("input/xtest: empty keyboard mapping reply")
 	}
 	kpk := int(km.KeysymsPerKeycode)
 	if kpk <= 0 {
@@ -334,6 +343,9 @@ func (b *XTestBackend) KeyUp(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
+		if err := b.rejectUnheldModifier(kc); err != nil {
+			return err
+		}
 		if err := b.conn.FakeInputChecked(xproto.KeyRelease, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
 			return err
 		}
@@ -385,12 +397,52 @@ func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //noli
 			}
 		}
 	}
+	// Validate held-state transitions for the entire batch before emitting
+	// events. Otherwise an unheld release at the tail can partially type a
+	// valid prefix before failure.
+	if err := b.validateHeldModifierSequence(actions); err != nil {
+		return err
+	}
 	for _, a := range actions {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if err := b.typeAction(ctx, a); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateHeldModifierSequence simulates only caller-owned modifier holds.
+// Temporary modifiers for accelerators do not change the caller's held state.
+func (b *XTestBackend) validateHeldModifierSequence(actions []keySend) error {
+	b.heldMu.Lock()
+	held := make(map[xproto.Keycode]bool, len(b.heldMods))
+	for code, down := range b.heldMods {
+		held[code] = down
+	}
+	b.heldMu.Unlock()
+	modCodes := b.modifierCodeSet()
+	for _, action := range actions {
+		if action.key == "" {
+			continue
+		}
+		code, err := b.keycodeFor(action.key)
+		if err != nil {
+			return err
+		}
+		if !modCodes[code] {
+			continue
+		}
+		switch {
+		case action.up:
+			if !held[code] {
+				return fmt.Errorf("input/xtest: modifier keycode %d not held", code)
+			}
+			delete(held, code)
+		case action.down:
+			held[code] = true
 		}
 	}
 	return nil
@@ -439,6 +491,9 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 	// recognising it was already down.
 	switch {
 	case a.up:
+		if err := b.rejectUnheldModifier(kc); err != nil {
+			return err
+		}
 		if err := b.keyUpKC(kc); err != nil {
 			return err
 		}
@@ -530,6 +585,15 @@ func (b *XTestBackend) markModifierHeld(kc xproto.Keycode) {
 		b.heldMods = make(map[xproto.Keycode]bool, len(b.modCodes))
 	}
 	b.heldMods[kc] = true
+}
+
+// rejectUnheldModifier protects the caller-owned key state. A release of an
+// unheld modifier must never inject an event into the shared X11 desktop.
+func (b *XTestBackend) rejectUnheldModifier(kc xproto.Keycode) error {
+	if b.modifierCodeSet()[kc] && !b.modifierHeld(kc) {
+		return fmt.Errorf("input/xtest: modifier keycode %d not held", kc)
+	}
+	return nil
 }
 
 func (b *XTestBackend) markModifierReleased(kc xproto.Keycode) {
@@ -809,6 +873,9 @@ func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
 		rep, err := b.conn.QueryPointer(b.root).Reply()
 		if err != nil {
 			return fmt.Errorf("input/xtest: query pointer: %w", err)
+		}
+		if rep == nil {
+			return errors.New("input/xtest: empty pointer query reply")
 		}
 		x, y = int(rep.RootX), int(rep.RootY)
 		return nil
