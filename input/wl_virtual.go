@@ -84,6 +84,12 @@ func wlOutputBindVersion(advertised uint32) uint32 {
 // applyOutputMode and applyOutputScale are called from the wl_output event
 // handler and recompute the logical extent from the physical size and scale.
 func (b *WlVirtualBackend) applyOutputMode(physW, physH uint32) {
+	// wl_output.mode encodes width and height as signed 32-bit values.
+	// Invalid or unreported dimensions must not replace a previously
+	// verified extent or authorize pointer motion outside the display.
+	if int32(physW) <= 0 || int32(physH) <= 0 {
+		return
+	}
 	b.extentMu.Lock()
 	defer b.extentMu.Unlock()
 	b.outPhysW = physW
@@ -96,6 +102,11 @@ func (b *WlVirtualBackend) applyOutputMode(physW, physH uint32) {
 }
 
 func (b *WlVirtualBackend) applyOutputScale(scale uint32) {
+	// wl_output.scale is a signed int32. Negative protocol values are
+	// invalid and must not collapse the last confirmed logical extent.
+	if int32(scale) < 0 {
+		return
+	}
 	b.extentMu.Lock()
 	defer b.extentMu.Unlock()
 	b.outScale = scale
@@ -281,6 +292,9 @@ func (b *WlVirtualBackend) withOperation(ctx context.Context, fn func(wl.Ctx, co
 }
 
 func (b *WlVirtualBackend) ptrFrame(cancel context.Context, ctx wl.Ctx) error {
+	if b.ptr == nil || b.ptr.ID() == 0 {
+		return unsupportedError("input/wl-virtual", "virtual pointer device unavailable")
+	}
 	var buf [8]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 8<<16|4) // size=8, opcode=4 (frame)
@@ -288,6 +302,9 @@ func (b *WlVirtualBackend) ptrFrame(cancel context.Context, ctx wl.Ctx) error {
 }
 
 func (b *WlVirtualBackend) mouseMoveEvent(cancel context.Context, ctx wl.Ctx, x, y int) error {
+	if b.ptr == nil || b.ptr.ID() == 0 {
+		return unsupportedError("input/wl-virtual", "virtual pointer device unavailable")
+	}
 	if x < 0 || y < 0 {
 		return fmt.Errorf("input/wl-virtual: absolute coordinates must be non-negative, got (%d,%d)", x, y)
 	}
@@ -319,6 +336,9 @@ func (b *WlVirtualBackend) mouseMoveEvent(cancel context.Context, ctx wl.Ctx, x,
 }
 
 func (b *WlVirtualBackend) buttonEvent(cancel context.Context, ctx wl.Ctx, code, state uint32) error {
+	if b.ptr == nil || b.ptr.ID() == 0 {
+		return unsupportedError("input/wl-virtual", "virtual pointer device unavailable")
+	}
 	var buf [20]byte
 	wl.PutUint32(buf[0:], b.ptr.ID())
 	wl.PutUint32(buf[4:], 20<<16|2) // size=20, opcode=2 (button)
@@ -467,6 +487,9 @@ func (b *WlVirtualBackend) TypeLiteral(ctx context.Context, s string) error {
 		return err
 	}
 	return b.withOperation(ctx, func(_ wl.Ctx, opCtx context.Context) error {
+		if b.kbd == nil {
+			return unsupportedError("input/wl-virtual", "virtual keyboard device unavailable")
+		}
 		return b.kbd.sendkeys(opCtx, []keySend{{text: s}})
 	})
 }
@@ -481,6 +504,9 @@ func (b *WlVirtualBackend) typeContext(ctx context.Context, s string) error {
 		if err != nil {
 			return err
 		}
+		if b.kbd == nil {
+			return unsupportedError("input/wl-virtual", "virtual keyboard device unavailable")
+		}
 		return b.kbd.sendkeys(opCtx, actions)
 	})
 }
@@ -493,6 +519,9 @@ func (b *WlVirtualBackend) KeyDown(ctx context.Context, key string) error {
 		return err
 	}
 	return b.withOperation(ctx, func(_ wl.Ctx, opCtx context.Context) error {
+		if b.kbd == nil {
+			return unsupportedError("input/wl-virtual", "virtual keyboard device unavailable")
+		}
 		return b.kbd.pressKey(opCtx, key)
 	})
 }
@@ -504,6 +533,9 @@ func (b *WlVirtualBackend) KeyUp(ctx context.Context, key string) error {
 		return err
 	}
 	return b.withOperation(ctx, func(_ wl.Ctx, opCtx context.Context) error {
+		if b.kbd == nil {
+			return unsupportedError("input/wl-virtual", "virtual keyboard device unavailable")
+		}
 		return b.kbd.releaseKey(opCtx, key)
 	})
 }
@@ -520,6 +552,9 @@ func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) 
 		return fmt.Errorf("input: scroll clicks must be at most %d in magnitude, got %d", maxScrollClicks, clicks)
 	}
 	return b.withOperation(ctx, func(wlctx wl.Ctx, opCtx context.Context) error {
+		if b.ptr == nil || b.ptr.ID() == 0 {
+			return unsupportedError("input/wl-virtual", "virtual pointer device unavailable")
+		}
 		// wl_pointer.axis: value in wl_fixed_t (24.8 fixed-point).
 		// Convention: ~15 pixels per discrete scroll notch.
 		value := int32(clicks * 15 * 256) // wl_fixed_t
