@@ -91,8 +91,8 @@ func resolutionFromGrab(ctx context.Context, sc Screenshotter) (int, int, error)
 		return 0, 0, fmt.Errorf("screen: resolution probe returned nil image")
 	}
 	bounds := img.Bounds()
-	if bounds.Dx() == 0 || bounds.Dy() == 0 {
-		return 0, 0, fmt.Errorf("screen: resolution probe returned zero-size image")
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return 0, 0, fmt.Errorf("screen: resolution probe returned invalid image bounds %v", bounds)
 	}
 	return bounds.Dx(), bounds.Dy(), nil
 }

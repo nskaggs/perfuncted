@@ -117,8 +117,7 @@ directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`
 				return err
 			}
 			if rgba, ok := img.(*image.RGBA); ok {
-				_, err = io.Copy(cmd.OutOrStdout(), bytes.NewReader(rgba.Pix))
-				return err
+				return writePackedRGBAPixels(cmd.OutOrStdout(), rgba)
 			}
 			return fmt.Errorf("unexpected image type %T", img)
 		},
@@ -464,6 +463,31 @@ plain format for quick interactive checks.`,
 	}
 
 	return cmd
+}
+
+// writePackedRGBAPixels emits exactly one tight RGBA row per image row.
+// Captures may use padded strides and sub-images; copying Pix directly would
+// expose padding bytes that are not pixels and may contain stale user data.
+// Validate the entire layout before emitting any potentially partial output.
+func writePackedRGBAPixels(dst io.Writer, img *image.RGBA) error {
+	if img == nil {
+		return fmt.Errorf("screen: invalid RGBA frame: nil capture")
+	}
+	width, height := img.Bounds().Dx(), img.Bounds().Dy()
+	if width <= 0 || height <= 0 || width > int(^uint(0)>>1)/4 {
+		return fmt.Errorf("screen: invalid RGBA frame bounds %v", img.Bounds())
+	}
+	rowSize := width * 4
+	if img.Stride < rowSize || len(img.Pix) < rowSize || (height-1) > (len(img.Pix)-rowSize)/img.Stride {
+		return fmt.Errorf("screen: invalid RGBA frame stride=%d length=%d bounds=%v", img.Stride, len(img.Pix), img.Bounds())
+	}
+	for row := 0; row < height; row++ {
+		offset := row * img.Stride
+		if _, err := io.Copy(dst, bytes.NewReader(img.Pix[offset:offset+rowSize])); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func stopAndDrainTimer(timer *time.Timer) {

@@ -130,7 +130,10 @@ func reapSessionDirIfStale(
 		return reapSessionDirWhenOlderThan(ctx, dir, now, noPIDFileReapGrace)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
+	if err != nil || pid <= 0 {
+		// A nonpositive PID is invalid ownership metadata, not proof that
+		// an active newly-created session's owner has exited. Preserve the
+		// minimum grace instead of immediately reaping its directory.
 		return reapSessionDirWhenOlderThan(ctx, dir, now, staleMalformedPIDThreshold(maxAge))
 	}
 	if !pidAlive(pid) {
