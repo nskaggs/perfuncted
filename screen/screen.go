@@ -50,30 +50,33 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 		ResolutionWithContext(context.Context) (width, height int, err error)
 	}); ok {
 		width, height, err := r.ResolutionWithContext(ctx)
-		if err != nil {
-			return 0, 0, err
-		}
-		if err := ctx.Err(); err != nil {
-			return 0, 0, err
-		}
-		if width <= 0 || height <= 0 {
-			return 0, 0, fmt.Errorf("screen: resolver reported invalid resolution %dx%d", width, height)
-		}
-		return width, height, nil
+		return validatedResolution(ctx, width, height, err)
 	}
 	if r, ok := sc.(Resolver); ok {
 		width, height, err := r.Resolution()
-		if err != nil {
-			return 0, 0, err
-		}
-		if err := ctx.Err(); err != nil {
-			return 0, 0, err
-		}
-		if width <= 0 || height <= 0 {
-			return 0, 0, fmt.Errorf("screen: resolver reported invalid resolution %dx%d", width, height)
-		}
-		return width, height, nil
+		return validatedResolution(ctx, width, height, err)
 	}
+	return resolutionFromGrab(ctx, sc)
+}
+
+// validatedResolution preserves resolver errors, caller cancellation, and
+// geometry validation equally for context-aware and legacy resolution APIs.
+func validatedResolution(ctx context.Context, width, height int, err error) (int, int, error) {
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, fmt.Errorf("screen: resolver reported invalid resolution %dx%d", width, height)
+	}
+	return width, height, nil
+}
+
+// resolutionFromGrab is the conservative fallback when no authoritative
+// output geometry interface is implemented by the screenshot backend.
+func resolutionFromGrab(ctx context.Context, sc Screenshotter) (int, int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
@@ -87,11 +90,11 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 	if util.IsNil(img) {
 		return 0, 0, fmt.Errorf("screen: resolution probe returned nil image")
 	}
-	b := img.Bounds()
-	if b.Dx() == 0 || b.Dy() == 0 {
+	bounds := img.Bounds()
+	if bounds.Dx() == 0 || bounds.Dy() == 0 {
 		return 0, 0, fmt.Errorf("screen: resolution probe returned zero-size image")
 	}
-	return b.Dx(), b.Dy(), nil
+	return bounds.Dx(), bounds.Dy(), nil
 }
 
 // Resolver reports the output resolution. Backends that track output geometry

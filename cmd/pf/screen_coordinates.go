@@ -6,6 +6,13 @@ import (
 	"math/big"
 )
 
+// validScreenshotPoint requires geometry from one authoritative output and
+// rejects negative and out-of-bounds positions before coordinate arithmetic.
+func validScreenshotPoint(info output.Info, x, y int) bool {
+	g := info.Geometry
+	return g.W > 0 && g.H > 0 && info.ResolutionW > 0 && info.ResolutionH > 0 && x >= 0 && y >= 0 && x < info.ResolutionW && y < info.ResolutionH
+}
+
 // screenshotPointToLogical maps physical pixels from a full-screen screenshot
 // into compositor-logical coordinates. The global physical layout of multiple
 // fractional-scale outputs cannot be inferred safely from per-output metadata;
@@ -22,7 +29,7 @@ func screenshotPointToLogical(outputs []output.Info, x, y int) (int, int, error)
 	}
 	o := active[0]
 	g := o.Geometry
-	if g.W <= 0 || g.H <= 0 || o.ResolutionW <= 0 || o.ResolutionH <= 0 || x < 0 || y < 0 || x >= o.ResolutionW || y >= o.ResolutionH {
+	if !validScreenshotPoint(o, x, y) {
 		return 0, 0, fmt.Errorf("invalid screenshot point or missing authoritative output geometry")
 	}
 	// Round local output-pixel ratios before translating to global logical

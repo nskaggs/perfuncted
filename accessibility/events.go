@@ -508,6 +508,12 @@ func (b *dbusBackend) watchSubscriber(ctx context.Context, id uint64) {
 
 func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn, signals chan *dbus.Signal, matches [][]dbus.MatchOption, registry dbus.BusObject, registered []string, done chan struct{}) {
 	defer func() { //nolint:contextcheck // dispatcher cleanup deliberately uses a bounded shutdown context.
+		// When both the dispatcher cancellation and D-Bus connection close,
+		// select can choose the caller cancellation branch first. Never close
+		// subscriber streams while leaving handles from a dead bus valid.
+		if !access.Connected() || access.Context().Err() != nil {
+			b.invalidateDisconnectedEventConnection()
+		}
 		// Close admission before cleanup can block on remote deregistration. A
 		// zero-subscriber run remains identifiable by its non-nil cancel/done
 		// pair, so newcomers wait until the old physical stream is fully retired.
@@ -534,7 +540,7 @@ func (b *dbusBackend) runEventDispatcher(ctx context.Context, access *dbus.Conn,
 				// The connection can close the signal channel before the
 				// dispatcher selects its context cancellation. In either
 				// ordering, stale object handles must be invalidated.
-				if access.Context().Err() != nil {
+				if !access.Connected() || access.Context().Err() != nil {
 					b.invalidateDisconnectedEventConnection()
 				}
 				return

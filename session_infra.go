@@ -93,6 +93,8 @@ func (s *Session) startSession(
 			return
 		}
 		if infra != nil {
+			// Startup cancellation must not interrupt teardown of managed
+			// processes, sockets, or mounts; stop owns bounded cleanup deadlines.
 			if cleanupErr := infra.stop(); cleanupErr != nil {
 				startupErr = errors.Join(startupErr, cleanupErr)
 			}
@@ -103,16 +105,7 @@ func (s *Session) startSession(
 		}
 	}()
 	err := s.runStartupPhase(startupCtx, StartupPhaseRuntimeDirectoryPreparation, func() error {
-		var prepareErr error
-		xdgDir, prepareErr = createManagedSessionRuntimeDir()
-		if prepareErr != nil {
-			return fmt.Errorf("session: managed runtime: %w", prepareErr)
-		}
-		logDir, prepareErr = createSessionLogDir(config.LogDir)
-		if prepareErr != nil {
-			return fmt.Errorf("session: create logs: %w", prepareErr)
-		}
-		return nil
+		return prepareSessionRuntimeDirs(&xdgDir, &logDir, config.LogDir)
 	})
 	if err != nil {
 		return nil, err
@@ -150,41 +143,12 @@ func (s *Session) startSession(
 		return nil, fmt.Errorf("session: dbus: %w", launchErr)
 	}
 	if wantAccessibility {
-		// The launcher is optional on minimal CI images. OpenRuntime still
-		// reports a typed unavailable capability when no AT-SPI service exists.
-		if launchErr := s.runStartupPhase(startupCtx, StartupPhaseAccessibilityLauncher, infra.launchAccessibility); launchErr == nil {
-			// The launcher registers org.a11y.Bus asynchronously. Resolve its
-			// address under a bounded startup wait before publishing the
-			// managed runtime to child applications, so they and OpenRuntime use
-			// the same AT-SPI bus. Use Medium rather than Short so a loaded CI
-			// host does not leave the managed bus unpublished while still
-			// bounded by the overall startup deadline.
-			addressCtx, addressCancel := context.WithTimeout(startupCtx, config.Timeouts.Medium)
-			var address string
-			addressErr := s.runStartupPhase(addressCtx, StartupPhaseAccessibilityBusAddress, func() error {
-				var addressErr error
-				address, addressErr = infra.accessibilityBusAddress(addressCtx)
-				return addressErr
-			})
-			addressCancel()
-			if addressErr == nil {
-				infra.atspiAddr = address
-			} else {
-				slog.Debug("session: accessibility bus address not ready", "error", addressErr)
-			}
-		}
+		s.tryStartAccessibility(startupCtx, infra, config.Timeouts.Medium)
 	}
-
-	var swayConf string
-	err = s.runStartupPhase(startupCtx, StartupPhaseSwayConfiguration, func() error {
-		swayConf = config.SwayConfigPath
-		if swayConf == "" {
-			swayConf, err = infra.resolveSwayConfig(mode, config.Resolution)
-		}
-		return err
-	})
+	// Sway's config path is selected under the same bounded startup phase.
+	swayConf, err := s.resolveSessionSwayConfig(startupCtx, infra, mode, config)
 	if err != nil {
-		return nil, fmt.Errorf("session: sway config: %w", err)
+		return nil, err
 	}
 
 	if err := s.runStartupPhase(startupCtx, StartupPhaseSwayStartup, func() error {
@@ -199,6 +163,61 @@ func (s *Session) startSession(
 	_ = s.runStartupPhase(startupCtx, StartupPhaseClipboardHelper, infra.launchWlPaste)
 
 	return infra, nil
+}
+
+// tryStartAccessibility keeps optional AT-SPI launch and address lookup
+// isolated from mandatory managed-desktop startup. Neither failure may
+// publish an untrusted address or prevent the selected desktop from starting.
+// prepareSessionRuntimeDirs publishes the runtime path immediately after
+// creation so startup's deferred cleanup can remove it if log setup fails.
+func prepareSessionRuntimeDirs(xdgDir, logDir *string, logPath string) error {
+	var err error
+	*xdgDir, err = createManagedSessionRuntimeDir()
+	if err != nil {
+		return fmt.Errorf("session: managed runtime: %w", err)
+	}
+	*logDir, err = createSessionLogDir(logPath)
+	if err != nil {
+		return fmt.Errorf("session: create logs: %w", err)
+	}
+	return nil
+}
+
+func (s *Session) tryStartAccessibility(startupCtx context.Context, infra *sessionInfra, wait time.Duration) {
+	if launchErr := s.runStartupPhase(startupCtx, StartupPhaseAccessibilityLauncher, infra.launchAccessibility); launchErr != nil {
+		return
+	}
+	// The launcher registers org.a11y.Bus asynchronously; resolve under a
+	// bounded wait before advertising the address to managed applications.
+	addressCtx, cancel := context.WithTimeout(startupCtx, wait)
+	defer cancel()
+	var address string
+	err := s.runStartupPhase(addressCtx, StartupPhaseAccessibilityBusAddress, func() error {
+		var readErr error
+		address, readErr = infra.accessibilityBusAddress(addressCtx)
+		return readErr
+	})
+	if err != nil {
+		slog.Debug("session: accessibility bus address not ready", "error", err)
+		return
+	}
+	infra.atspiAddr = address
+}
+
+func (s *Session) resolveSessionSwayConfig(ctx context.Context, infra *sessionInfra, mode sessionMode, config SessionConfig) (string, error) {
+	swayConf := config.SwayConfigPath
+	err := s.runStartupPhase(ctx, StartupPhaseSwayConfiguration, func() error {
+		if swayConf != "" {
+			return nil
+		}
+		var resolveErr error
+		swayConf, resolveErr = infra.resolveSwayConfig(mode, config.Resolution)
+		return resolveErr
+	})
+	if err != nil {
+		return "", fmt.Errorf("session: sway config: %w", err)
+	}
+	return swayConf, nil
 }
 
 func (i *sessionInfra) resolveSwayConfig(mode sessionMode, res image.Point) (string, error) {
@@ -514,6 +533,8 @@ func (i *sessionInfra) CleanupOnSignal(ctx context.Context) func() {
 		defer signal.Stop(sigs)
 		select {
 		case <-done:
+			// The observed context is already canceled; cleanup must use
+			// independent timeouts instead of inheriting that cancellation.
 			if err := i.stop(); err != nil {
 				slog.Warn("session: canceled session cleanup failed", "error", err)
 			}

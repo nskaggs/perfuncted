@@ -53,27 +53,36 @@ func uinputBoundsFromOutputs(outputs []output.Info) (int32, int32, error) {
 
 var openUinputOutputLister = output.OpenRuntimeContext
 
+// discoverUinputLogicalBounds closes the lister even if enumeration fails
+// and only grants the single-output guarantee when metadata is authoritative.
+func discoverUinputLogicalBounds(ctx context.Context, rt env.Runtime) (int32, int32, bool, error) {
+	lister, err := openUinputOutputLister(ctx, rt)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("input/uinput: determine logical desktop dimensions: %w", err)
+	}
+	outputs, listErr := lister.List(ctx)
+	closeErr := lister.Close()
+	if listErr != nil {
+		return 0, 0, false, fmt.Errorf("input/uinput: list outputs: %w", listErr)
+	}
+	if closeErr != nil {
+		return 0, 0, false, fmt.Errorf("input/uinput: close output discovery: %w", closeErr)
+	}
+	width, height, err := uinputBoundsFromOutputs(outputs)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	provenSingleOutput := len(outputs) == 1 && outputs[0].Available && outputs[0].Geometry.X == 0 && outputs[0].Geometry.Y == 0 && outputs[0].Geometry.W == int(width) && outputs[0].Geometry.H == int(height)
+	return width, height, provenSingleOutput, nil
+}
+
 func newResolvedUinputBackend(ctx context.Context, rt env.Runtime, width, height int32) (Inputter, error) {
 	provenSingleOutput := false
 	if width == 0 && height == 0 {
-		lister, err := openUinputOutputLister(ctx, rt)
-		if err != nil {
-			return nil, fmt.Errorf("input/uinput: determine logical desktop dimensions: %w", err)
-		}
-		outputs, listErr := lister.List(ctx)
-		closeErr := lister.Close()
-		if listErr != nil {
-			return nil, fmt.Errorf("input/uinput: list outputs: %w", listErr)
-		}
-		if closeErr != nil {
-			return nil, fmt.Errorf("input/uinput: close output discovery: %w", closeErr)
-		}
-		width, height, err = uinputBoundsFromOutputs(outputs)
+		var err error
+		width, height, provenSingleOutput, err = discoverUinputLogicalBounds(ctx, rt)
 		if err != nil {
 			return nil, err
-		}
-		if len(outputs) == 1 && outputs[0].Available && outputs[0].Geometry.X == 0 && outputs[0].Geometry.Y == 0 && outputs[0].Geometry.W == int(width) && outputs[0].Geometry.H == int(height) {
-			provenSingleOutput = true
 		}
 	}
 	if err := validateUinputDimensions(width, height); err != nil {

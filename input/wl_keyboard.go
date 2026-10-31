@@ -661,6 +661,11 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 // is not currently held, catching bugs where callers release keys they never
 // pressed.
 func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
+	// Modifiers are tracked as a bitset rather than entries in held. Refuse
+	// an unmatched release before emitting anything to the compositor.
+	if bit := modBit(key); bit != 0 && k.mods&bit == 0 {
+		return fmt.Errorf("keyboard: key %q not held", key)
+	}
 	// KeyUp must use the slot active during KeyDown, not a fresh standalone
 	// map that assigns a different code. Restore held modifiers as well.
 	if slot, held := k.held[key]; held {
@@ -670,30 +675,7 @@ func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 		}
 	}
 	if kc, sym, ok := namedKey(key); ok {
-		// Ensure the keymap still defines this keycode (another upload may have
-		// replaced it). Modifier keycodes (8–11) are always in every keymap.
-		if kc > kcSuper {
-			if _, held := k.held[key]; !held {
-				return fmt.Errorf("keyboard: key %q not held", key)
-			}
-			if err := k.uploadKeymap(ctx, xkbWithNamed(kc, sym)); err != nil {
-				return err
-			}
-		}
-		if err := k.sendKey(ctx, kc, 0); err != nil {
-			return err
-		}
-		if bit := modBit(key); bit != 0 {
-			previousMods := k.mods
-			k.mods &^= bit
-			if err := k.sendModifiers(ctx); err != nil {
-				k.mods = previousMods
-				return err
-			}
-			return nil
-		}
-		delete(k.held, key)
-		return nil
+		return k.releaseNamedKey(ctx, key, kc, sym)
 	}
 	// Single-character held key.
 	runes := []rune(key)
@@ -706,8 +688,40 @@ func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 	if err := k.uploadKeymap(ctx, xkbWithRunes(runes)); err != nil {
 		return err
 	}
+	if err := k.sendKey(ctx, kcDynBase, 0); err != nil {
+		return err
+	}
 	delete(k.held, key)
-	return k.sendKey(ctx, kcDynBase, 0)
+	return nil
+}
+
+// releaseNamedKey keeps the wire key-up, modifier mask rollback, and held
+// key bookkeeping together for a previously validated named key.
+func (k *wlKeyboard) releaseNamedKey(ctx context.Context, key string, kc uint32, sym string) error {
+	// Ensure the keymap still defines this keycode (another upload may have
+	// replaced it). Modifier keycodes (8–11) are always in every keymap.
+	if kc > kcSuper {
+		if _, held := k.held[key]; !held {
+			return fmt.Errorf("keyboard: key %q not held", key)
+		}
+		if err := k.uploadKeymap(ctx, xkbWithNamed(kc, sym)); err != nil {
+			return err
+		}
+	}
+	if err := k.sendKey(ctx, kc, 0); err != nil {
+		return err
+	}
+	if bit := modBit(key); bit != 0 {
+		previousMods := k.mods
+		k.mods &^= bit
+		if err := k.sendModifiers(ctx); err != nil {
+			k.mods = previousMods
+			return err
+		}
+		return nil
+	}
+	delete(k.held, key)
+	return nil
 }
 
 // ── Protocol messages ─────────────────────────────────────────────────────────

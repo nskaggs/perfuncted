@@ -601,6 +601,12 @@ func (b *RemoteDesktopBackend) revoke(cause error) error {
 	return ErrRemoteDesktopRevoked
 }
 
+// isAuthorizedPortalSessionClose rejects unrelated paths, signal members,
+// and forged senders without revoking the user-authorized input session.
+func (b *RemoteDesktopBackend) isAuthorizedPortalSessionClose(signal *dbus.Signal) bool {
+	return signal != nil && signal.Name == portalSessionInterface+".Closed" && signal.Path == b.portal.path && (b.portal.owner == "" || signal.Sender == b.portal.owner)
+}
+
 func (b *RemoteDesktopBackend) watchLifecycle() {
 	for {
 		select {
@@ -609,7 +615,7 @@ func (b *RemoteDesktopBackend) watchLifecycle() {
 				_ = b.revoke(errors.New("portal session signal stream ended"))
 				return
 			}
-			if signal != nil && signal.Name == portalSessionInterface+".Closed" && signal.Path == b.portal.path && (b.portal.owner == "" || signal.Sender == b.portal.owner) {
+			if b.isAuthorizedPortalSessionClose(signal) {
 				_ = b.revoke(errors.New("portal session closed"))
 				return
 			}
@@ -787,26 +793,9 @@ func (b *RemoteDesktopBackend) Type(ctx context.Context, value string) error {
 	if err != nil {
 		return err
 	}
-	keycodes := make([]uint32, len(actions))
-	for i, action := range actions {
-		if action.text != "" {
-			if !utf8.ValidString(action.text) {
-				return errors.New("input: text must be valid UTF-8")
-			}
-			if b.sender.text == 0 {
-				return unsupportedError("remote-desktop", "text input")
-			}
-			continue
-		}
-		keycodes[i], err = remoteKeyCode(action.key)
-		if err != nil {
-			return err
-		}
-		for _, modifier := range modifierNames(action.modifiers) {
-			if _, err := remoteKeyCode(modifier); err != nil {
-				return err
-			}
-		}
+	keycodes, err := b.validatedTypeKeycodes(actions)
+	if err != nil {
+		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // command cancellation interrupts EIS writes; revocation owns independent teardown.
 		for i, action := range actions {
@@ -829,6 +818,34 @@ func (b *RemoteDesktopBackend) Type(ctx context.Context, value string) error {
 		}
 		return nil
 	})
+}
+
+// validatedTypeKeycodes fully checks a batch before the first EIS frame;
+// unsupported text and unknown modifiers must never partially type data.
+func (b *RemoteDesktopBackend) validatedTypeKeycodes(actions []keySend) ([]uint32, error) {
+	keycodes := make([]uint32, len(actions))
+	for i, action := range actions {
+		if action.text != "" {
+			if !utf8.ValidString(action.text) {
+				return nil, errors.New("input: text must be valid UTF-8")
+			}
+			if b.sender.text == 0 {
+				return nil, unsupportedError("remote-desktop", "text input")
+			}
+			continue
+		}
+		code, err := remoteKeyCode(action.key)
+		if err != nil {
+			return nil, err
+		}
+		keycodes[i] = code
+		for _, modifier := range modifierNames(action.modifiers) {
+			if _, err := remoteKeyCode(modifier); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return keycodes, nil
 }
 
 func modifierNames(mod modifiers) []string {

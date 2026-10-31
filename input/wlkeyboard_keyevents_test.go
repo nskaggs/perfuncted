@@ -374,14 +374,13 @@ func TestReleaseKey_NamedNotHeld(t *testing.T) {
 
 func TestReleaseKey_ModifierNotHeld(t *testing.T) {
 	k, rc := newTestKeyboard()
-	// Release shift without pressing — should still work (sends key up + modifiers)
-	if err := k.releaseKey(context.Background(), "shift"); err != nil {
-		t.Fatalf("releaseKey: %v", err)
+	// Direct KeyUp must obey the same held-state contract as the preflighted
+	// sendkeys path: unheld modifiers must not inject stray key-up events.
+	if err := k.releaseKey(context.Background(), "shift"); err == nil {
+		t.Fatal("unheld Shift release unexpectedly succeeded")
 	}
-	// Modifier keycodes (8-11) don't need keymap re-upload, so:
-	// 1 key release + 1 modifiers = 2 writes
-	if rc.writes != 2 {
-		t.Fatalf("expected 2 writes, got %d", rc.writes)
+	if rc.writes != 0 || k.mods != 0 {
+		t.Fatalf("unheld release changed compositor or logical state: writes=%d mods=%d", rc.writes, k.mods)
 	}
 }
 
