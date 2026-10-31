@@ -23,24 +23,52 @@ func (s syntheticMalformedScreenshotter) GrabRegionHash(context.Context, image.R
 func (s syntheticMalformedScreenshotter) Close() error { return nil }
 
 func TestScreenBundleNeverPublishesMalformedCaptureOrOverwritesExistingPNG(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
 	for _, tc := range []struct {
 		name string
 		img  image.Image
 	}{
+		{"nil image", nil},
+		{"typed nil image", (*image.RGBA)(nil)},
 		{"RGBA truncated", &image.RGBA{Rect: image.Rect(0, 0, 2, 2), Stride: 8, Pix: make([]byte, 11)}},
 		{"NRGBA truncated", &image.NRGBA{Rect: image.Rect(0, 0, 2, 2), Stride: 8, Pix: make([]byte, 11)}},
 		{"Gray truncated", &image.Gray{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
 		{"Paletted truncated", &image.Paletted{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
 		{"RGBA64 truncated", &image.RGBA64{Rect: image.Rect(0, 0, 2, 2), Stride: 16, Pix: make([]byte, 25)}},
-		{"YCbCr truncated", &image.YCbCr{
+		{"NRGBA64 truncated", &image.NRGBA64{Rect: image.Rect(0, 0, 2, 2), Stride: 16, Pix: make([]byte, 31)}},
+		{"Gray16 truncated", &image.Gray16{Rect: image.Rect(0, 0, 2, 2), Stride: 4, Pix: make([]byte, 7)}},
+		{"Alpha truncated", &image.Alpha{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
+		{"Alpha16 truncated", &image.Alpha16{Rect: image.Rect(0, 0, 2, 2), Stride: 4, Pix: make([]byte, 7)}},
+		{"CMYK truncated", &image.CMYK{Rect: image.Rect(0, 0, 2, 2), Stride: 8, Pix: make([]byte, 15)}},
+		{"inverted bounds", &image.RGBA{Rect: image.Rectangle{Min: image.Pt(2, 0), Max: image.Pt(1, 2)}, Stride: 8, Pix: make([]byte, 16)}},
+		{"width overflow", &image.RGBA{Rect: image.Rect(0, 0, maxInt, 1), Stride: maxInt}},
+		{"YCbCr Y plane truncated", &image.YCbCr{
 			Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
 			Y: make([]byte, 3), Cb: make([]byte, 1), Cr: make([]byte, 1),
 			SubsampleRatio: image.YCbCrSubsampleRatio420,
 		}},
-		{"NYCbCrA truncated", &image.NYCbCrA{
+		{"YCbCr Cb plane truncated", &image.YCbCr{
+			Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+			Y: make([]byte, 4), Cr: make([]byte, 1),
+			SubsampleRatio: image.YCbCrSubsampleRatio420,
+		}},
+		{"YCbCr Cr plane truncated", &image.YCbCr{
+			Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+			Y: make([]byte, 4), Cb: make([]byte, 1),
+			SubsampleRatio: image.YCbCrSubsampleRatio420,
+		}},
+		{"NYCbCrA alpha plane truncated", &image.NYCbCrA{
 			YCbCr: image.YCbCr{
 				Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
-				Y: make([]byte, 3), Cb: make([]byte, 1), Cr: make([]byte, 1),
+				Y: make([]byte, 4), Cb: make([]byte, 1), Cr: make([]byte, 1),
+				SubsampleRatio: image.YCbCrSubsampleRatio420,
+			},
+			A: make([]byte, 3), AStride: 2,
+		}},
+		{"NYCbCrA chroma plane truncated", &image.NYCbCrA{
+			YCbCr: image.YCbCr{
+				Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+				Y: make([]byte, 4), Cr: make([]byte, 1),
 				SubsampleRatio: image.YCbCrSubsampleRatio420,
 			},
 			A: make([]byte, 4), AStride: 2,
@@ -72,38 +100,62 @@ func TestScreenBundleNeverPublishesMalformedCaptureOrOverwritesExistingPNG(t *te
 	}
 }
 
-func TestScreenBundlePreservesValidOddOriginYCbCrSubimage(t *testing.T) {
-	parent := image.NewYCbCr(image.Rect(10, 20, 13, 23), image.YCbCrSubsampleRatio420)
-	for i := range parent.Y {
-		parent.Y[i] = byte(60 + i)
-	}
-	for i := range parent.Cb {
-		parent.Cb[i] = byte(110 + i)
-		parent.Cr[i] = byte(140 + i)
-	}
-	frame := parent.SubImage(image.Rect(11, 21, 13, 23))
+func TestScreenBundleAcceptsZeroWidthYCbCrBoundsWithoutPixelPlanes(t *testing.T) {
+	frame := &image.YCbCr{Rect: image.Rect(4, 4, 4, 6), SubsampleRatio: image.YCbCrSubsampleRatio420}
 	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	defer session.Close()
-	ctx := context.Background()
-	if got, err := session.Screen.Grab(ctx, frame.Bounds()); err != nil || got != frame {
-		t.Fatalf("valid odd-origin YCbCr subimage rejected or rewritten: %v %T", err, got)
+	got, err := session.Screen.Grab(context.Background(), frame.Bounds())
+	if err != nil || got != frame {
+		t.Fatalf("valid zero-width YCbCr capture rejected or rewritten: %v %T", err, got)
 	}
-	expected := color.RGBAModel.Convert(frame.At(12, 22)).(color.RGBA)
-	target := filepath.Join(t.TempDir(), "capture.png")
-	if err := session.Screen.CaptureRegion(ctx, frame.Bounds(), target); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Open(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	decoded, err := png.Decode(file)
-	if err != nil {
-		t.Fatalf("valid YCbCr PNG capture undecodable: %v", err)
-	}
-	if got := color.RGBAModel.Convert(decoded.At(1, 1)).(color.RGBA); got != expected {
-		t.Fatalf("odd-origin YCbCr pixel changed: got %+v want %+v", got, expected)
+}
+
+func TestScreenBundlePreservesValidOddOriginYCbCrSubimage(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ratio image.YCbCrSubsampleRatio
+	}{
+		{"444", image.YCbCrSubsampleRatio444},
+		{"422", image.YCbCrSubsampleRatio422},
+		{"420", image.YCbCrSubsampleRatio420},
+		{"440", image.YCbCrSubsampleRatio440},
+		{"411", image.YCbCrSubsampleRatio411},
+		{"410", image.YCbCrSubsampleRatio410},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := image.NewYCbCr(image.Rect(10, 20, 15, 25), tc.ratio)
+			for i := range parent.Y {
+				parent.Y[i] = byte(60 + i)
+			}
+			for i := range parent.Cb {
+				parent.Cb[i] = byte(110 + i)
+				parent.Cr[i] = byte(140 + i)
+			}
+			frame := parent.SubImage(image.Rect(11, 21, 15, 25))
+			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+			defer session.Close()
+			ctx := context.Background()
+			if got, err := session.Screen.Grab(ctx, frame.Bounds()); err != nil || got != frame {
+				t.Fatalf("valid odd-origin YCbCr subimage rejected or rewritten: %v %T", err, got)
+			}
+			expected := color.RGBAModel.Convert(frame.At(14, 24)).(color.RGBA)
+			target := filepath.Join(t.TempDir(), "capture.png")
+			if err := session.Screen.CaptureRegion(ctx, frame.Bounds(), target); err != nil {
+				t.Fatal(err)
+			}
+			file, err := os.Open(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			decoded, err := png.Decode(file)
+			if err != nil {
+				t.Fatalf("valid YCbCr PNG capture undecodable: %v", err)
+			}
+			if got := color.RGBAModel.Convert(decoded.At(3, 3)).(color.RGBA); got != expected {
+				t.Fatalf("odd-origin YCbCr pixel changed: got %+v want %+v", got, expected)
+			}
+		})
 	}
 }
 
