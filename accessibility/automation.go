@@ -3,8 +3,10 @@ package accessibility
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -351,6 +353,9 @@ func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) er
 	if err := mutationContext(ctx, "SetValue"); err != nil {
 		return err
 	}
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("accessibility: value must be finite")
+	}
 	if b != nil && b.callOverride != nil {
 		if err := b.validateHandle(id); err != nil {
 			return err
@@ -373,12 +378,25 @@ func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) er
 }
 
 func (b *dbusBackend) SetTextContents(ctx context.Context, id NodeID, text string) error {
+	if err := validateATSPIMutationText(text); err != nil {
+		return err
+	}
 	return b.mutationBool(ctx, id, editableTextIface, "SetTextContents", text)
+}
+
+func validateATSPIMutationText(text string) error {
+	if !utf8.ValidString(text) || strings.IndexByte(text, 0) >= 0 {
+		return fmt.Errorf("accessibility: text must be valid UTF-8 without NUL bytes")
+	}
+	return nil
 }
 
 func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, text string) error {
 	if offset < 0 {
 		return fmt.Errorf("accessibility: invalid text offset %d", offset)
+	}
+	if err := validateATSPIMutationText(text); err != nil {
+		return err
 	}
 	byteLen := len(text)
 	if byteLen > 2147483647 {
