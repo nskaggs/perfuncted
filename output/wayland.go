@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -182,8 +184,11 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 				o.info.Geometry.X = o.baseX
 				o.info.Geometry.Y = o.baseY
 			}
-			o.info.PhysicalW = int(int32(wl.Uint32(data[8:12])))
-			o.info.PhysicalH = int(int32(wl.Uint32(data[12:16])))
+			// Negative physical dimensions are explicitly unspecified by the
+			// protocol. Our public API represents unknown measurements as
+			// zero, not as an impossible negative panel size.
+			o.info.PhysicalW = maxInt(0, int(int32(wl.Uint32(data[8:12]))))
+			o.info.PhysicalH = maxInt(0, int(int32(wl.Uint32(data[12:16]))))
 			if make, model, ok := readWlStrings(data, 20); ok {
 				o.info.Make = make
 				o.info.Model = model
@@ -199,8 +204,15 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 			}
 		case 3: // scale
 			if len(data) >= 4 {
-				scale := int(wl.Uint32(data[0:4]))
-				if scale <= 0 {
+				// wl_output.scale is a signed 32-bit integer. Treat a
+				// negative value as invalid rather than a huge scale that
+				// collapses logical geometry to 1x1. Keep the last
+				// confirmed scale when an event is malformed.
+				scale := int(int32(wl.Uint32(data[0:4])))
+				if scale < 0 {
+					return
+				}
+				if scale == 0 {
 					scale = 1
 				}
 				o.info.Scale = scale
@@ -371,6 +383,9 @@ func readWlString(data []byte, off int) (string, int, bool) {
 		return "", off, false
 	}
 	raw := string(data[off:end])
+	if strings.IndexByte(raw, 0) >= 0 || !utf8.ValidString(raw) {
+		return "", off, false
+	}
 	extra := (4 - n%4) % 4
 	if extra > remaining-n {
 		return "", off, false
