@@ -283,11 +283,29 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 	}
 	if newHash == nil {
 		if fast, ok := sc.(CanonicalHashScreenshotter); ok && fast.CanonicalHashing() {
+			var value uint32
+			var err error
 			if rect.Empty() {
-				return fast.GrabFullHash(ctx)
+				value, err = fast.GrabFullHash(ctx)
+			} else {
+				value, err = fast.GrabRegionHash(ctx, rect)
 			}
-			return fast.GrabRegionHash(ctx, rect)
+			if ctxErr := contextErr(ctx); ctxErr != nil {
+				return 0, ctxErr
+			}
+			return value, err
 		}
+	}
+	return grabImageHash(ctx, sc, rect, newHash, false)
+}
+
+// grabImageHash shares frame validation between direct observations and wait
+// loops. Wait loops intentionally preserve their last observed hash alongside
+// cancellation for their documented timeout diagnostics; the direct GrabHash
+// API does not publish hashes from canceled observations.
+func grabImageHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHash Hasher, preserveLastOnCancel bool) (uint32, error) {
+	if err := contextErr(ctx); err != nil {
+		return 0, err
 	}
 	img, err := sc.Grab(ctx, rect)
 	if err != nil {
@@ -296,7 +314,20 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 	if err := checkImage(img, "grab"); err != nil {
 		return 0, err
 	}
-	return PixelHash(img, newHash), nil
+	if img.Bounds().Empty() || !validPackedImageLayout(img) {
+		return 0, fmt.Errorf("find: hash grab returned malformed image: %w", ErrInvalidFrame)
+	}
+	if !rect.Empty() && (img.Bounds().Dx() != rect.Dx() || img.Bounds().Dy() != rect.Dy()) {
+		return 0, fmt.Errorf("find: hash grab returned partial region %v for requested %v: %w", img.Bounds(), rect, ErrInvalidFrame)
+	}
+	value := PixelHash(img, newHash)
+	if err := contextErr(ctx); err != nil {
+		if preserveLastOnCancel {
+			return value, err
+		}
+		return 0, err
+	}
+	return value, nil
 }
 
 // FirstPixel returns the colour of the top-left pixel of rect captured from sc.
@@ -434,7 +465,7 @@ func readWaitHash(ctx context.Context, sc Screenshotter, fast CanonicalHashScree
 		}
 		return fast.GrabRegionHash(ctx, rect)
 	}
-	return GrabHash(ctx, sc, rect, newHash)
+	return grabImageHash(ctx, sc, rect, newHash, true)
 }
 
 // WaitFor polls rect every poll interval until its pixel hash equals want, or ctx expires.
@@ -449,7 +480,7 @@ func WaitFor(ctx context.Context, sc Screenshotter, rect image.Rectangle, want u
 	h, err := poll(ctx, pollDur, 0, func(attempt int) (bool, uint32, error) {
 		h, err := readWaitHash(ctx, sc, fast, rect, newHash)
 		if err != nil {
-			return false, 0, err
+			return false, h, err
 		}
 		if h == want {
 			return true, h, nil
@@ -477,7 +508,7 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 	h, err := poll(ctx, pollDur, initial, func(attempt int) (bool, uint32, error) {
 		h, err := readWaitHash(ctx, sc, fast, rect, newHash)
 		if err != nil {
-			return false, 0, err
+			return false, h, err
 		}
 		if h != initial {
 			return true, h, nil
@@ -725,6 +756,12 @@ func ScanFor(ctx context.Context, sc Screenshotter, rects []image.Rectangle, wan
 			}
 			if err := checkImage(img, "scan grab"); err != nil {
 				return Result{}, err
+			}
+			if img.Bounds().Empty() || !validPackedImageLayout(img) {
+				return Result{}, fmt.Errorf("find: scan grab returned malformed image: %w", ErrInvalidFrame)
+			}
+			if img.Bounds().Dx() != bbox.Dx() || img.Bounds().Dy() != bbox.Dy() {
+				return Result{}, fmt.Errorf("find: scan grab returned partial region %v for requested %v: %w", img.Bounds(), bbox, ErrInvalidFrame)
 			}
 			if err := contextErr(ctx); err != nil {
 				return Result{}, err
@@ -1083,14 +1120,14 @@ func PixelFound(img image.Image, rect image.Rectangle, target color.RGBA, tolera
 	// Fast path: read directly from Pix for *image.RGBA, avoiding per-pixel
 	// At() calls and colour model conversion.
 	if rgba, ok := img.(*image.RGBA); ok {
-		return scanPackedPixels(rgba.Pix, rgba.Rect, scanBounds, rgba.Stride, pointOrigin, target, tolerance)
+		return scanPackedPixels(rgba.Pix, rgba.Rect, scanBounds, rgba.Stride, pointOrigin, target, tolerance, false)
 	}
 
 	// NRGBA is the native layout returned by several screenshot backends.
 	// Scan its Pix buffer directly; calling At and converting through
 	// color.RGBAModel allocates for every pixel.
 	if nrgba, ok := img.(*image.NRGBA); ok {
-		return scanPackedPixels(nrgba.Pix, nrgba.Rect, scanBounds, nrgba.Stride, pointOrigin, target, tolerance)
+		return scanPackedPixels(nrgba.Pix, nrgba.Rect, scanBounds, nrgba.Stride, pointOrigin, target, tolerance, true)
 	}
 
 	// Slow path: generic image via At() + colour model conversion.
@@ -1113,6 +1150,7 @@ func scanPackedPixels(
 	pointOrigin image.Point,
 	target color.RGBA,
 	tolerance int,
+	straightAlpha bool,
 ) (image.Point, bool) {
 	if _, ok := packedBufferSize(imageBounds, stride); !ok {
 		return image.Point{}, false
@@ -1124,15 +1162,20 @@ func scanPackedPixels(
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		off := (y-imageBounds.Min.Y)*stride + (bounds.Min.X-imageBounds.Min.X)*4
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			_ = pix[off+3] // eliminate bounds check
+			alpha := pix[off+3] // eliminate bounds check
+			r, g, b := pix[off], pix[off+1], pix[off+2]
+			if straightAlpha && alpha != 255 {
+				// NRGBA stores straight-alpha bytes, while the public target
+				// and generic image path compare premultiplied color.RGBA.
+				r16, g16, b16, _ := (color.NRGBA{R: r, G: g, B: b, A: alpha}).RGBA()
+				r, g, b = uint8(r16>>8), uint8(g16>>8), uint8(b16>>8)
+			}
 			if (tolerance == 0 &&
-				pix[off] == target.R &&
-				pix[off+1] == target.G &&
-				pix[off+2] == target.B) ||
+				r == target.R && g == target.G && b == target.B) ||
 				(tolerance != 0 &&
-					abs(int(pix[off])-int(target.R)) <= tolerance &&
-					abs(int(pix[off+1])-int(target.G)) <= tolerance &&
-					abs(int(pix[off+2])-int(target.B)) <= tolerance) {
+					abs(int(r)-int(target.R)) <= tolerance &&
+					abs(int(g)-int(target.G)) <= tolerance &&
+					abs(int(b)-int(target.B)) <= tolerance) {
 				return image.Pt(pointOrigin.X+x-imageBounds.Min.X, pointOrigin.Y+y-imageBounds.Min.Y), true
 			}
 			off += 4
