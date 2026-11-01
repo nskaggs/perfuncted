@@ -633,6 +633,12 @@ func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 		if err := b.generationError(expected); err != nil {
 			continue
 		}
+		// Best-effort PID and toolkit reads may fail after caller cancellation.
+		// Do not acknowledge the enumeration or release the collected private
+		// application identities unless the caller is still active.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return apps, nil
 	}
 	return nil, fmt.Errorf("%w: bounded retry exhausted", ErrStaleGeneration)
