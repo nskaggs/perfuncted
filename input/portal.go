@@ -1127,6 +1127,11 @@ func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int)
 		return fmt.Errorf("input/remote-desktop: (%d,%d) is outside the authorized EIS regions", x, y)
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // click cancellation or EIS failure retires the session with independent teardown.
+		// A click ends with button-up. Do not release a button that the
+		// caller previously held for a drag; validation precedes movement.
+		if b.buttons[buttonCode] {
+			return fmt.Errorf("input/remote-desktop: button %d is already held", button)
+		}
 		move, err := eiPointerFrame(b.sender, x, y)
 		if err != nil {
 			return err
