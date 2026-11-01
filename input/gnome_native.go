@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -119,6 +120,9 @@ func (b *GnomeNativeBackend) operation(ctx context.Context, fn func(context.Cont
 }
 
 func gnomeKeyval(key string) (uint32, error) {
+	if !utf8.ValidString(key) {
+		return 0, fmt.Errorf("input/gnome-native: key must be valid UTF-8")
+	}
 	if k, ok := keymap.FromString(key); ok {
 		if keyval, ok := gnomeNamedKeyval(k); ok {
 			return keyval, nil
@@ -169,9 +173,33 @@ func (b *GnomeNativeBackend) KeyUp(ctx context.Context, key string) error {
 // Type sends key syntax through GNOME Shell virtual input.
 func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 	return b.operation(ctx, func(ctx context.Context) (err error) {
+		if !utf8.ValidString(text) {
+			return fmt.Errorf("input/gnome-native: input must be valid UTF-8")
+		}
 		actions, err := parseKeySend(text)
 		if err != nil {
 			return err
+		}
+		// Validate the entire sequence before dispatching any bridge command.
+		// A late unknown key or unheld release must not partially type the
+		// earlier literal or accelerator into the target desktop.
+		futureHeld := b.held
+		for _, action := range actions {
+			if action.text != "" {
+				if !gnomeDirectText(action.text) && futureHeld.any() {
+					return fmt.Errorf("input/gnome-native: Unicode text with held modifiers is unavailable: %w", ErrNotSupported)
+				}
+				continue
+			}
+			if _, err := gnomeKeyval(action.key); err != nil {
+				return err
+			}
+			if action.up && len(gnomeModifierBits(action.key)) != 0 && !modifierIsHeld(futureHeld, action.key) {
+				return fmt.Errorf("input/gnome-native: modifier %q is not held", action.key)
+			}
+			if action.up || action.down {
+				updateHeldModifier(&futureHeld, action.key, action.down)
+			}
 		}
 		// pressedByCall tracks only the modifiers this call brought down, so an
 		// error releases those and never a modifier the caller already held.
@@ -203,7 +231,10 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 // consequently updates the clipboard contents.
 func (b *GnomeNativeBackend) TypeLiteral(ctx context.Context, text string) error {
 	return b.operation(ctx, func(ctx context.Context) error {
-		return b.typeText(ctx, text, modifiers{})
+		if !utf8.ValidString(text) {
+			return fmt.Errorf("input/gnome-native: text must be valid UTF-8")
+		}
+		return b.typeText(ctx, text, b.held)
 	})
 }
 
@@ -262,6 +293,14 @@ func (b *GnomeNativeBackend) typeAction(
 	default:
 		if actionErr = b.bridge.Key(ctx, keyval, true); actionErr == nil {
 			actionErr = b.bridge.Key(ctx, keyval, false)
+			if actionErr != nil {
+				// A failed release may strand the key after its successful press.
+				// Retry once under a bounded cleanup context even after cancellation,
+				// but still report the original failed release to the caller.
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+				actionErr = errors.Join(actionErr, b.bridge.Key(cleanupCtx, keyval, false))
+				cancel()
+			}
 		}
 	}
 	err = errors.Join(actionErr, b.releaseModifierKeys(ctx, pressed))
@@ -536,10 +575,10 @@ func (b *GnomeNativeBackend) scroll(ctx context.Context, axis string, clicks int
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
-	if clicks == 0 {
-		return nil
-	}
 	return b.operation(ctx, func(ctx context.Context) error {
+		if clicks == 0 {
+			return nil
+		}
 		return b.bridge.Scroll(ctx, axis, sign*float64(clicks))
 	})
 }
@@ -572,7 +611,10 @@ func (b *GnomeNativeBackend) PointerLocation(ctx context.Context) (int, int, err
 		x, y, err = b.bridge.PointerLocation(ctx)
 		return err
 	})
-	return x, y, err
+	if err != nil {
+		return 0, 0, err
+	}
+	return x, y, nil
 }
 
 // Close releases the GNOME bridge connection.
