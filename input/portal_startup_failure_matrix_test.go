@@ -49,7 +49,7 @@ func TestSyntheticPortalStartupFailuresCloseAcquiredSession(t *testing.T) {
 		return env.FromEnviron([]string{
 			"WAYLAND_DISPLAY=/tmp/synthetic-wayland.sock",
 			"DBUS_SESSION_BUS_ADDRESS=" + portal.busAddress,
-			"XDG_STATE_HOME=" + t.TempDir(),
+			"XDG_STATE_HOME=" + privatePortalTokenFixtureDir(t),
 		})
 	}
 	testCases := []struct {

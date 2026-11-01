@@ -93,12 +93,40 @@ func TestPortalTokenStoreRequiresAbsoluteStatePath(t *testing.T) {
 	}
 }
 
-func portalTokenTestRuntime(t *testing.T) env.Runtime {
+// privatePortalTokenFixtureDir provides the same ancestor privacy required
+// for real persistence. testing.T.TempDir may have group-writable leaf
+// permissions under a permissive process umask; relying on it would make
+// successful authorization tests fail before exercising portal behavior.
+func privatePortalTokenFixtureDir(t *testing.T) string {
 	t.Helper()
 	root, err := os.MkdirTemp(os.TempDir(), "perfuncted-portal-token-test-")
 	if err != nil {
 		t.Fatalf("create private temporary directory: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	return env.FromEnviron([]string{"XDG_STATE_HOME=" + filepath.Join(root, "state")})
+	return root
+}
+
+func portalTokenTestRuntime(t *testing.T) env.Runtime {
+	t.Helper()
+	return env.FromEnviron([]string{"XDG_STATE_HOME=" + filepath.Join(privatePortalTokenFixtureDir(t), "state")})
+}
+
+func TestPrivatePortalTokenFixtureHasSecureAncestorsAndSupportsRealPersistence(t *testing.T) {
+	root := privatePortalTokenFixtureDir(t)
+	info, err := os.Stat(root)
+	if err != nil || info.Mode().Perm() != 0700 {
+		t.Fatalf("fixture root is not private: stat=%v err=%v", info, err)
+	}
+	lock, err := lockPortalTokenStore(env.FromEnviron([]string{"XDG_STATE_HOME=" + root}))
+	if err != nil {
+		t.Fatalf("private fixture rejected by real store: %v", err)
+	}
+	defer lock.Close()
+	if err := lock.store("synthetic-authorized-grant"); err != nil {
+		t.Fatalf("private token store could not save grant: %v", err)
+	}
+	if token, err := lock.consume(); err != nil || token != "synthetic-authorized-grant" {
+		t.Fatalf("private token store did not recover the grant: token=%q err=%v", token, err)
+	}
 }

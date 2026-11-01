@@ -14,7 +14,7 @@ import (
 
 func TestSyntheticPortalPersistentGrantConsumesAndRotatesRestoreToken(t *testing.T) {
 	_, portal := startSyntheticPortalBus(t)
-	stateDir := t.TempDir()
+	stateDir := privatePortalTokenFixtureDir(t)
 	rt := env.FromEnviron([]string{
 		"WAYLAND_DISPLAY=/tmp/fixture-wayland",
 		"DBUS_SESSION_BUS_ADDRESS=" + portal.busAddress,

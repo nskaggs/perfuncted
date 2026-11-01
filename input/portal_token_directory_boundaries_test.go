@@ -12,7 +12,7 @@ import (
 )
 
 func TestPortalTokenStoreHomeFallbackAndMissingRootFailClosed(t *testing.T) {
-	home := t.TempDir()
+	home := privatePortalTokenFixtureDir(t)
 	rt := env.FromEnviron([]string{"XDG_STATE_HOME=", "HOME=" + home})
 	lock, err := lockPortalTokenStore(rt)
 	if err != nil {

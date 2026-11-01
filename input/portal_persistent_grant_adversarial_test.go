@@ -28,7 +28,7 @@ func TestSyntheticPortalPersistentGrantRequiresValidRestoreToken(t *testing.T) {
 			p.deviceMask = portalDeviceKeyboard | portalDevicePointer
 			p.persistToken = tc.token
 			p.mu.Unlock()
-			stateDir := t.TempDir()
+			stateDir := privatePortalTokenFixtureDir(t)
 			rt := env.FromEnviron([]string{
 				"WAYLAND_DISPLAY=/tmp/fixture-wayland",
 				"DBUS_SESSION_BUS_ADDRESS=" + p.busAddress,
