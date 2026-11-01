@@ -234,6 +234,9 @@ func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
 // so "Hello{enter}" types "Hello" before pressing Enter.
 func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //nolint:gocyclo
 	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(actions) == 0 {
 		return nil
 	}

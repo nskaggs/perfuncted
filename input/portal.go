@@ -1171,6 +1171,12 @@ func (b *RemoteDesktopBackend) ScrollRight(ctx context.Context, clicks int) erro
 }
 
 func (b *RemoteDesktopBackend) scroll(ctx context.Context, x, y, clicks int) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.stateError(); err != nil {
 		return err
 	}
