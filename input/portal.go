@@ -753,6 +753,14 @@ func (b *RemoteDesktopBackend) KeyUp(ctx context.Context, key string) error {
 		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // revocation closes the session with independent bounded teardown.
+		// Only the serialized writer can safely inspect caller-held keys.
+		// A stray modifier release must never affect another key gesture.
+		switch keycode {
+		case uinput.KeyLeftctrl, uinput.KeyLeftshift, uinput.KeyLeftalt, uinput.KeyLeftmeta:
+			if !b.heldKeys[keycode] {
+				return fmt.Errorf("input/remote-desktop: modifier %q is not held", key)
+			}
+		}
 		frame, err := eiKeyFrame(b.sender, keycode, false)
 		if err != nil {
 			return err
@@ -851,6 +859,9 @@ func (b *RemoteDesktopBackend) Type(ctx context.Context, value string) error {
 		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // command cancellation interrupts EIS writes; revocation owns independent teardown.
+		if err := b.validateTypeHeldSequence(actions, keycodes); err != nil {
+			return err
+		}
 		for i, action := range actions {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -902,6 +913,41 @@ func (b *RemoteDesktopBackend) validatedTypeKeycodes(actions []keySend) ([]uint3
 		}
 	}
 	return keycodes, nil
+}
+
+// validateTypeHeldSequence simulates modifier ownership for the whole batch
+// on the EIS writer goroutine. A late stray release must not partially send
+// the earlier text or shortcuts. Reading heldKeys outside the writer would
+// race with other authorized operations and can accept stale ownership.
+func (b *RemoteDesktopBackend) validateTypeHeldSequence(actions []keySend, keycodes []uint32) error {
+	held := make(map[uint32]bool, len(b.heldKeys))
+	for key, down := range b.heldKeys {
+		held[key] = down
+	}
+	modifiers := []string{"shift", "ctrl", "alt", "super"}
+	modifierCodes := make(map[uint32]bool, len(modifiers))
+	for _, name := range modifiers {
+		code, err := remoteKeyCode(name)
+		if err != nil {
+			return err
+		}
+		modifierCodes[code] = true
+	}
+	for i, action := range actions {
+		if action.key == "" || !modifierCodes[keycodes[i]] {
+			continue
+		}
+		switch {
+		case action.up:
+			if !held[keycodes[i]] {
+				return fmt.Errorf("input/remote-desktop: modifier %q is not held", action.key)
+			}
+			delete(held, keycodes[i])
+		case action.down:
+			held[keycodes[i]] = true
+		}
+	}
+	return nil
 }
 
 func modifierNames(mod modifiers) []string {
