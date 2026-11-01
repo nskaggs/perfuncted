@@ -190,7 +190,13 @@ func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
 	mods := k.mods
 	for _, action := range actions {
 		if action.text != "" {
+			if !utf8.ValidString(action.text) {
+				return fmt.Errorf("keyboard: text must be valid UTF-8")
+			}
 			continue
+		}
+		if !utf8.ValidString(action.key) {
+			return fmt.Errorf("keyboard: key must be valid UTF-8")
 		}
 		_, _, named := namedKey(action.key)
 		bit := uint32(0)
