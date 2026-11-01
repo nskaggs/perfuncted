@@ -193,6 +193,14 @@ func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
 			if !utf8.ValidString(action.text) {
 				return fmt.Errorf("keyboard: text must be valid UTF-8")
 			}
+			// Literal text is injected through the same Wayland keycodes as
+			// explicitly held characters. Tapping one would release the
+			// caller's held key even though this action is only text.
+			for _, r := range action.text {
+				if held[string(r)] {
+					return fmt.Errorf("keyboard: key %q is already held", string(r))
+				}
+			}
 			continue
 		}
 		if !utf8.ValidString(action.key) {
@@ -221,11 +229,20 @@ func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
 			if !named && utf8.RuneCountInString(action.key) != 1 {
 				return fmt.Errorf("keyboard: cannot hold multi-character key %q", action.key)
 			}
+			if (bit != 0 && mods&bit != 0) || (bit == 0 && held[action.key]) {
+				return fmt.Errorf("keyboard: key %q is already held", action.key)
+			}
 			if bit != 0 {
 				mods |= bit
 			} else {
 				held[action.key] = true
 			}
+			continue
+		}
+		// An ordinary tap sends key-down followed by key-up. Preserve both
+		// previously held and earlier-in-batch holds before any keymap upload.
+		if (bit != 0 && mods&bit != 0) || (bit == 0 && held[action.key]) {
+			return fmt.Errorf("keyboard: key %q is already held", action.key)
 		}
 	}
 	return nil
@@ -246,13 +263,6 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	if len(actions) == 0 {
 		return nil
 	}
-	// Treat a single typed sequence as one validated command. Without this
-	// preflight, an unheld key release or invalid hold at the end of a
-	// sequence could inject its earlier valid prefix into the compositor.
-	if err := k.validateSendkeysSequence(actions); err != nil {
-		return err
-	}
-
 	// First pass: collect all unique runes from text actions and all named
 	// keycodes so we can build a single keymap that covers everything.
 	var allRunes []rune
@@ -368,6 +378,13 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			r, _ := utf8.DecodeRuneInString(key)
 			runeSlots[r] = slot
 		}
+	}
+	// Validate stale held slot ownership first, before validating whether
+	// an action would tap an already-held key. An invalid cached keymap must
+	// be reported as corruption rather than masked by an ownership error.
+	// Both validations precede keymap uploads and compositor messages.
+	if err := k.validateSendkeysSequence(actions); err != nil {
+		return err
 	}
 	nextSlot := kcDynBase
 	maxSlot := kcSuper
