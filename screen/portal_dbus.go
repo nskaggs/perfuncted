@@ -370,6 +370,11 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			if err != nil {
 				return nil, fmt.Errorf("screen/portal: decode PNG: %w", err)
 			}
+			// PNG decoding can outlive the portal consent reply. Never publish
+			// private pixels after the caller has canceled the capture.
+			if ctxErr := requestCtx.Err(); ctxErr != nil {
+				return nil, fmt.Errorf("screen/portal: screenshot canceled during decode: %w", ctxErr)
+			}
 			if rect.Empty() {
 				return img, nil
 			}
