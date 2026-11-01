@@ -278,6 +278,9 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 	if err := checkAvailable(sc); err != nil {
 		return 0, err
 	}
+	if err := contextErr(ctx); err != nil {
+		return 0, err
+	}
 	if newHash == nil {
 		if fast, ok := sc.(CanonicalHashScreenshotter); ok && fast.CanonicalHashing() {
 			if rect.Empty() {
@@ -300,6 +303,9 @@ func GrabHash(ctx context.Context, sc Screenshotter, rect image.Rectangle, newHa
 func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (color.RGBA, error) {
 	ctx = contextutil.Default(ctx)
 	if err := checkAvailable(sc); err != nil {
+		return color.RGBA{}, err
+	}
+	if err := contextErr(ctx); err != nil {
 		return color.RGBA{}, err
 	}
 	if rect.Empty() {
@@ -325,7 +331,11 @@ func FirstPixel(ctx context.Context, sc Screenshotter, rect image.Rectangle) (co
 	if b.Empty() {
 		return color.RGBA{}, fmt.Errorf("find: first pixel grab returned empty image")
 	}
-	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA), nil //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
+	pixel := color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA) //nolint:errcheck // color.RGBAModel.Convert always returns color.RGBA
+	if err := contextErr(ctx); err != nil {
+		return color.RGBA{}, err
+	}
+	return pixel, nil
 }
 
 // Result pairs a hash with the rectangle it was captured from.
@@ -958,6 +968,9 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 	if err := checkAvailable(sc); err != nil {
 		return image.Rectangle{}, err
 	}
+	if err := contextErr(ctx); err != nil {
+		return image.Rectangle{}, err
+	}
 	src, err := sc.Grab(ctx, searchArea)
 	if err != nil {
 		return image.Rectangle{}, fmt.Errorf("find: locate grab: %w", err)
@@ -965,7 +978,11 @@ func LocateExact(ctx context.Context, sc Screenshotter, searchArea image.Rectang
 	if err := contextErr(ctx); err != nil {
 		return image.Rectangle{}, err
 	}
-	return LocateExactInImage(src, searchArea, reference)
+	match, matchErr := LocateExactInImage(src, searchArea, reference)
+	if err := contextErr(ctx); err != nil {
+		return image.Rectangle{}, err
+	}
+	return match, matchErr
 }
 
 // validPackedImageLayout prevents image.Image.At from panicking on truncated
@@ -1154,6 +1171,9 @@ func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, targ
 	if err := checkAvailable(sc); err != nil {
 		return image.Point{}, err
 	}
+	if err := contextErr(ctx); err != nil {
+		return image.Point{}, err
+	}
 	if tolerance < 0 || tolerance > 255 {
 		return image.Point{}, fmt.Errorf("find: invalid tolerance %d (want 0..255)", tolerance)
 	}
@@ -1167,7 +1187,11 @@ func FindColor(ctx context.Context, sc Screenshotter, rect image.Rectangle, targ
 	if err := contextErr(ctx); err != nil {
 		return image.Point{}, err
 	}
-	if p, ok := PixelFound(img, rect, target, tolerance); ok {
+	p, ok := PixelFound(img, rect, target, tolerance)
+	if err := contextErr(ctx); err != nil {
+		return image.Point{}, err
+	}
+	if ok {
 		return p, nil
 	}
 	return image.Point{}, fmt.Errorf("%w: colour #%02x%02x%02x (tolerance=%d)", ErrNotFound, target.R, target.G, target.B, tolerance)
