@@ -58,6 +58,11 @@ func (b *dbusBackend) childrenWithCache(ctx context.Context, id NodeID, allowCac
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
 	}
+	// Cached children contain private object handles just like live AT-SPI
+	// observations; cancellation must win even when the cache is warm.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if allowCache {
 		if cached := b.cachedChildren(id); cached != nil {
 			return cached, nil
@@ -175,6 +180,9 @@ func (b *dbusBackend) buildCacheChildrenIndexLocked(generation uint64) map[objec
 func (b *dbusBackend) loadCache(ctx context.Context, busName string) error { //nolint:gocyclo // cache loading has explicit protocol, generation, and publication guards.
 	if ctx == nil {
 		return errors.New("accessibility: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if b == nil || strings.TrimSpace(busName) == "" || busName == registryName {
 		return ErrUnsupported
