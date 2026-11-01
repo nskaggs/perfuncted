@@ -1181,6 +1181,14 @@ func (b *RemoteDesktopBackend) MouseDown(ctx context.Context, button int) error 
 		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // command cancellation interrupts EIS writes; revocation owns independent teardown.
+		if b.sender.button == 0 || b.sender.buttonDev == 0 {
+			return unsupportedError("remote-desktop", "button input")
+		}
+		// A caller-held drag owns this button until its matching MouseUp.
+		// Reject a second down before publishing duplicate EIS input.
+		if b.buttons[buttonCode] {
+			return fmt.Errorf("input/remote-desktop: button %d is already held", button)
+		}
 		frame, err := eiButtonFrame(b.sender, buttonCode, true)
 		if err != nil {
 			return err
