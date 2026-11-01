@@ -937,17 +937,25 @@ func (b *RemoteDesktopBackend) validateTypeHeldSequence(actions []keySend, keyco
 		modifierCodes[code] = true
 	}
 	for i, action := range actions {
-		if action.key == "" || !modifierCodes[keycodes[i]] {
+		if action.key == "" {
 			continue
 		}
+		code := keycodes[i]
 		switch {
 		case action.up:
-			if !held[keycodes[i]] {
+			if modifierCodes[code] && !held[code] {
 				return fmt.Errorf("input/remote-desktop: modifier %q is not held", action.key)
 			}
-			delete(held, keycodes[i])
+			delete(held, code)
 		case action.down:
-			held[keycodes[i]] = true
+			held[code] = true
+		default:
+			// A tap ends in key-up and would release a key held by an
+			// earlier operation (including a preceding action in this batch).
+			// Refuse the batch before dispatching any text or EIS frames.
+			if held[code] {
+				return fmt.Errorf("input/remote-desktop: key %q is already held", action.key)
+			}
 		}
 	}
 	return nil
