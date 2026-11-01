@@ -20,6 +20,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 	if err := b.connected(); err != nil {
 		return Snapshot{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
 	opts = opts.normalized()
 	requestedRoot := root
 	for attempt := 0; attempt < 2; attempt++ {
@@ -53,6 +56,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		if entry, ok := b.cache[key]; !opts.Fresh && ok && now.Sub(entry.at) < cacheTTL && entry.snapshot.Generation == expectedGeneration {
 			snapshot := cloneSnapshot(entry.snapshot)
 			b.mu.RUnlock()
+			if err := ctx.Err(); err != nil {
+				return Snapshot{}, err
+			}
 			return snapshot, nil
 		}
 		b.mu.RUnlock()
@@ -99,6 +105,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 			return Snapshot{}, err
 		}
 		walker.snapshot = bounded
+		if err := ctx.Err(); err != nil {
+			return Snapshot{}, err
+		}
 		if err := b.publishSnapshot(key, expectedGeneration, expectedObservation, root, opts.Fresh, walker.snapshot); err != nil {
 			if requestedRoot == (NodeID{}) && errors.Is(err, ErrStaleGeneration) {
 				continue
@@ -106,6 +115,9 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 			if requestedRoot == (NodeID{}) && errors.Is(err, ErrObservationChanged) {
 				continue
 			}
+			return Snapshot{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return Snapshot{}, err
 		}
 		return walker.snapshot, nil
