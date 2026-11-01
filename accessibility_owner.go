@@ -216,6 +216,9 @@ func (o *accessibilityBackendOwner) withBackend(call func(accessibility.Backend)
 }
 
 func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call func(accessibility.Backend, context.Context) error) error {
+	if ctx == nil {
+		return errors.New("accessibility: nil context")
+	}
 	lease, err := o.acquire()
 	if err != nil {
 		return err
@@ -477,6 +480,10 @@ func (o *accessibilityBackendOwner) Events(ctx context.Context, opts accessibili
 	}
 	streamCtx, cancel := lease.streamContext(ctx)
 	stream, err := source.Events(streamCtx, opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cancel()
+		return nil, ctxErr
+	}
 	if err != nil {
 		cancel()
 		return nil, err
@@ -491,6 +498,9 @@ func (o *accessibilityBackendOwner) Events(ctx context.Context, opts accessibili
 func (o *accessibilityBackendOwner) eventsAcrossReopens(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if opts.Buffer <= 0 {
 		opts.Buffer = 64
@@ -508,6 +518,10 @@ func (o *accessibilityBackendOwner) eventsAcrossReopens(ctx context.Context, opt
 		return nil, accessibility.ErrDisconnected
 	}
 	o.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		o.mu.Unlock()
+		return nil, err
+	}
 	if o.closed || o.current == nil {
 		o.mu.Unlock()
 		return nil, accessibility.ErrDisconnected
