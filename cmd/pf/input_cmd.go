@@ -71,6 +71,9 @@ func inputCmd(
 		Short: "Click a mouse button at coordinates",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if clickRepeat < 0 {
+				return fmt.Errorf("click repeat count must not be negative")
+			}
 			// Reject invalid timings before opening a potentially
 			// authorization-prompting desktop input session.
 			delay, err := parseDuration(clickDelayFlag, 0)
@@ -270,6 +273,9 @@ func inputCmd(
 		Short: "Press a mouse button (optional coords)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if (mdx == -1) != (mdy == -1) {
+				return fmt.Errorf("mousedown requires both --x and --y, or neither")
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
@@ -299,6 +305,9 @@ func inputCmd(
 		Short: "Release a mouse button (optional coords)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if (mux == -1) != (muy == -1) {
+				return fmt.Errorf("mouseup requires both --x and --y, or neither")
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
