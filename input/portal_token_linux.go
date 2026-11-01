@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/env"
 	"golang.org/x/sys/unix"
@@ -165,9 +166,15 @@ func (l *portalTokenLock) consume() (string, error) { //nolint:gocyclo // token 
 		return "", err
 	}
 	data = data[:read]
-	data = []byte(strings.TrimSuffix(string(data), "\n"))
-	if len(data) == 0 || strings.ContainsAny(string(data), "\x00\r\n") {
+	if read != int(stat.Size) || len(data) < 2 || data[len(data)-1] != '\n' {
+		return "", errors.New("restore-token file is incomplete or missing its record terminator")
+	}
+	data = data[:len(data)-1]
+	if len(data) > 4096 || strings.ContainsAny(string(data), "\x00\r\n") {
 		return "", errors.New("restore-token file is malformed")
+	}
+	if !utf8.Valid(data) {
+		return "", errors.New("restore-token file contains invalid UTF-8")
 	}
 	return string(data), nil
 }
@@ -178,6 +185,9 @@ func (l *portalTokenLock) store(token string) error { //nolint:gocyclo // privat
 	}
 	if token == "" || len(token) > 4096 || strings.ContainsAny(token, "\x00\r\n") {
 		return errors.New("portal returned a malformed restore token")
+	}
+	if !utf8.ValidString(token) {
+		return errors.New("portal returned a restore token containing invalid UTF-8")
 	}
 	var random [12]byte
 	if _, err := unix.Getrandom(random[:], 0); err != nil {
