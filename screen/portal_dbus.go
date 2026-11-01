@@ -134,8 +134,31 @@ func (b *PortalDBusBackend) recordFailure(err error) {
 	if b == nil || err == nil {
 		return
 	}
+	// Capture URIs are supplied by the portal and may include private file
+	// names or access tokens. Diagnostics are retained independently of the
+	// immediate operation, so never publish those paths or unbounded text.
+	message := err.Error()
+	switch {
+	case strings.HasPrefix(message, "screen/portal: parse URI "):
+		message = "screen/portal: invalid screenshot URI"
+	case strings.HasPrefix(message, "screen/portal: open "):
+		message = "screen/portal: unable to open screenshot file"
+	case strings.HasPrefix(message, "screen/portal: close root for "):
+		message = "screen/portal: unable to close screenshot directory"
+	case strings.HasPrefix(message, "screen/portal: close "):
+		message = "screen/portal: unable to close screenshot file"
+	case strings.Contains(message, "file://"):
+		message = "screen/portal: screenshot URI failure"
+	}
+	const maximumDiagnosticBytes = 256
+	if len(message) > maximumDiagnosticBytes {
+		message = message[:maximumDiagnosticBytes]
+		for len(message) > 0 && !utf8.ValidString(message) {
+			message = message[:len(message)-1]
+		}
+	}
 	b.healthMu.Lock()
-	b.lastFailure = err.Error()
+	b.lastFailure = message
 	b.healthMu.Unlock()
 }
 
