@@ -893,7 +893,10 @@ func (b *RemoteDesktopBackend) validatedTypeKeycodes(actions []keySend) ([]uint3
 			if !utf8.ValidString(action.text) {
 				return nil, errors.New("input: text must be valid UTF-8")
 			}
-			if b.sender.text == 0 {
+			// A negotiated text object without an active device cannot
+			// authorize a batch. Check both before any earlier key frame
+			// is dispatched, otherwise Type can partially inject input.
+			if b.sender.text == 0 || b.sender.textDev == 0 {
 				return nil, unsupportedError("remote-desktop", "text input")
 			}
 			continue
@@ -1189,6 +1192,16 @@ func (b *RemoteDesktopBackend) MouseUp(ctx context.Context, button int) error {
 		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // command cancellation interrupts EIS writes; revocation owns independent teardown.
+		// Missing EIS authority is a capability failure regardless of the
+		// caller's held state, and must never emit an object-zero frame.
+		if b.sender.button == 0 || b.sender.buttonDev == 0 {
+			return unsupportedError("remote-desktop", "button input")
+		}
+		// Like modifier releases, a button release belongs to this caller only
+		// when a prior successful down is recorded on the serialized writer.
+		if !b.buttons[buttonCode] {
+			return fmt.Errorf("input/remote-desktop: button %d is not held", button)
+		}
 		frame, err := eiButtonFrame(b.sender, buttonCode, false)
 		if err != nil {
 			return err
