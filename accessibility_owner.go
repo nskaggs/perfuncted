@@ -484,6 +484,13 @@ func (o *accessibilityBackendOwner) Events(ctx context.Context, opts accessibili
 		cancel()
 		return nil, ctxErr
 	}
+	// A retired backend generation can cancel its stream while the caller
+	// remains live. A provider ignoring that cancellation must not hand an
+	// obsolete channel containing private events to the new generation.
+	if streamCtx.Err() != nil {
+		cancel()
+		return nil, accessibility.ErrDisconnected
+	}
 	if err != nil {
 		cancel()
 		return nil, err
@@ -643,6 +650,13 @@ func (s *accessibilityEventSubscription) forwardGeneration(ctx context.Context, 
 			if !s.owner.isCurrent(gen) {
 				continue
 			}
+			// A provider event can be ready before caller cancellation, but
+			// ownership validation may block until after cancellation.
+			// Never publish that private buffered event to a retired caller.
+			if err := ctx.Err(); err != nil {
+				cancel()
+				return nil, err
+			}
 			event.Dropped += *dropped
 			select {
 			case s.out <- event:
@@ -672,6 +686,21 @@ func (s *accessibilityEventSubscription) openBinding(ctx context.Context, bindin
 	streamCtx, cancel := lease.context(ctx)
 	events, err := source.Events(streamCtx, s.opts)
 	lease.release()
+	// An event provider may return a buffered stream after ignoring caller
+	// cancellation. Never acknowledge that stream to persistent binding
+	// waiters or expose it to the forwarding loop.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cancel()
+		s.owner.setEventLimit(s, ctxErr)
+		binding.complete(ctxErr)
+		return nil, nil, ctxErr
+	}
+	if streamCtx.Err() != nil {
+		cancel()
+		s.owner.setEventLimit(s, accessibility.ErrDisconnected)
+		binding.complete(accessibility.ErrDisconnected)
+		return nil, nil, accessibility.ErrDisconnected
+	}
 	if err == nil && events == nil {
 		err = accessibility.ErrDisconnected
 	}
