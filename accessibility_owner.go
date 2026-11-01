@@ -319,6 +319,16 @@ func (o *accessibilityBackendOwner) SupportedOperations() []string {
 	return operations
 }
 
+// A late provider success cannot publish an accessibility snapshot or node
+// after the caller canceled the operation. Return only the cancellation error.
+func discardCanceledAccessibilityResult[T any](value T, err error) (T, error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		var zero T
+		return zero, err
+	}
+	return value, err
+}
+
 func (o *accessibilityBackendOwner) Applications(ctx context.Context) ([]accessibility.Application, error) {
 	var result []accessibility.Application
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
@@ -326,7 +336,7 @@ func (o *accessibilityBackendOwner) Applications(ctx context.Context) ([]accessi
 		result, err = backend.Applications(callCtx)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
@@ -336,7 +346,7 @@ func (o *accessibilityBackendOwner) Snapshot(ctx context.Context, root accessibi
 		result, err = backend.Snapshot(callCtx, root, opts)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
@@ -346,7 +356,7 @@ func (o *accessibilityBackendOwner) Find(ctx context.Context, root accessibility
 		result, err = backend.Find(callCtx, root, query, opts)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) Focused(ctx context.Context, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
@@ -356,7 +366,7 @@ func (o *accessibilityBackendOwner) Focused(ctx context.Context, opts accessibil
 		result, err = backend.Focused(callCtx, opts)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) AtPoint(ctx context.Context, x, y int) (accessibility.Node, error) {
@@ -366,7 +376,7 @@ func (o *accessibilityBackendOwner) AtPoint(ctx context.Context, x, y int) (acce
 		result, err = backend.AtPoint(callCtx, x, y)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
@@ -380,7 +390,7 @@ func (o *accessibilityBackendOwner) FindApplication(ctx context.Context, filter 
 		result, err = finder.FindApplication(callCtx, filter)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
@@ -394,7 +404,7 @@ func (o *accessibilityBackendOwner) FindApplicationFresh(ctx context.Context, fi
 		result, err = finder.FindApplicationFresh(callCtx, filter)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) ResolveWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
@@ -408,7 +418,7 @@ func (o *accessibilityBackendOwner) ResolveWindow(ctx context.Context, target ac
 		result, err = resolver.ResolveWindow(callCtx, target)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) ResolveWindowFresh(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
@@ -422,7 +432,7 @@ func (o *accessibilityBackendOwner) ResolveWindowFresh(ctx context.Context, targ
 		result, err = resolver.ResolveWindowFresh(callCtx, target)
 		return err
 	})
-	return result, err
+	return discardCanceledAccessibilityResult(result, err)
 }
 
 func (o *accessibilityBackendOwner) Generation() uint64 {
