@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
@@ -169,7 +170,11 @@ func fileURIPath(fileURI string) (string, error) {
 		b.WriteByte(byte(v))
 		i += 2
 	}
-	return b.String(), nil
+	decoded := b.String()
+	if strings.IndexByte(decoded, 0) >= 0 || !utf8.ValidString(decoded) {
+		return "", fmt.Errorf("screenshot URI path contains invalid UTF-8 or NUL")
+	}
+	return decoded, nil
 }
 
 func portalUniqueName(names []string) (string, error) {
