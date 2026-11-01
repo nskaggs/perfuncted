@@ -334,6 +334,9 @@ func (b *dbusBackend) startEvents(ctx context.Context, requireSemanticCoverage b
 	if ctx == nil {
 		return errors.New("accessibility: nil context")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.connected(); err != nil {
 		return err
 	}
@@ -344,6 +347,12 @@ func (b *dbusBackend) startEvents(ctx context.Context, requireSemanticCoverage b
 	retries := 0
 	for {
 		b.eventsMu.Lock()
+		// A caller may cancel while connected() waits on the backend lock.
+		// Never reuse a live dispatcher on behalf of that canceled caller.
+		if err := ctx.Err(); err != nil {
+			b.eventsMu.Unlock()
+			return err
+		}
 		if b.eventsRetired {
 			b.eventsMu.Unlock()
 			return ErrDisconnected
