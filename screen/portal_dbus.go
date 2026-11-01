@@ -358,9 +358,24 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			if err != nil {
 				return nil, fmt.Errorf("screen/portal: open %s: %w", path, err)
 			}
+			// A portal-provided file can be a FIFO with a writer that never
+			// supplies PNG bytes. Interrupt the blocking decoder when the
+			// operation ends; an after-the-fact cancellation check alone
+			// leaves the caller indefinitely blocked in Read.
+			interruptDone := make(chan struct{})
+			stopInterrupt := context.AfterFunc(requestCtx, func() {
+				defer close(interruptDone)
+				_ = f.Close()
+			})
 			img, err := png.Decode(f)
+			if !stopInterrupt() {
+				<-interruptDone
+			}
 			closeErr := f.Close()
 			rootCloseErr := root.Close()
+			if ctxErr := requestCtx.Err(); ctxErr != nil {
+				return nil, fmt.Errorf("screen/portal: screenshot canceled during decode: %w", ctxErr)
+			}
 			if err == nil && closeErr != nil {
 				return nil, fmt.Errorf("screen/portal: close %s: %w", path, closeErr)
 			}

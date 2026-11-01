@@ -59,9 +59,11 @@ func TestScreenshotPortalNeverPublishesImageAfterCancellationDuringDecode(t *tes
 	cancel()
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	img.SetRGBA(1, 1, color.RGBA{R: 255, A: 255})
-	if err := png.Encode(f, img); err != nil {
-		f.Close()
-		t.Fatal(err)
+	// Cancellation may close the FIFO reader before the writer finishes.
+	// EPIPE is expected in that case; the capture must still return no pixels.
+	if err := png.Encode(f, img); err != nil && !errors.Is(err, unix.EPIPE) {
+		_ = f.Close()
+		t.Fatalf("unexpected PNG transport failure after cancellation: %v", err)
 	}
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
