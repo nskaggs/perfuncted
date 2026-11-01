@@ -258,6 +258,9 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
+		if modifierBit(code) != 0 && b.modifierHeld(code) {
+			return fmt.Errorf("input/uinput: modifier keycode %d is already held", code)
+		}
 		if err := b.kb.KeyDown(code); err != nil {
 			return err
 		}
@@ -384,7 +387,16 @@ func (b *UinputBackend) validateHeldModifierSequence(actions []keySend) error {
 			}
 			held &^= bit
 		case action.down:
+			if held&bit != 0 {
+				return fmt.Errorf("input/uinput: modifier keycode %d is already held", code)
+			}
 			held |= bit
+		default:
+			// A tap includes a release and must not consume an explicit
+			// modifier hold from an earlier operation in this batch.
+			if held&bit != 0 {
+				return fmt.Errorf("input/uinput: modifier keycode %d is already held", code)
+			}
 		}
 	}
 	return nil
