@@ -224,6 +224,9 @@ func validateSemanticEventCoverage(registered []string) error {
 func registerEventFamilies(ctx context.Context, registry eventRegistrar, unique string, eventTypes []string) ([]string, error) {
 	registered := make([]string, 0, len(eventTypes))
 	for _, eventType := range eventTypes {
+		if err := ctx.Err(); err != nil {
+			return registered, err
+		}
 		if err := registry.CallWithContext(ctx, registryName+".RegisterEvent", 0, eventType, []string{}, unique).Err; err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				// The provider may finish registration after the caller stops waiting
@@ -235,6 +238,15 @@ func registerEventFamilies(ctx context.Context, registry eventRegistrar, unique 
 			continue
 		}
 		registered = append(registered, eventType)
+		// The provider may acknowledge a successful registration after the
+		// caller cancels. Track that family for compensation but never
+		// proceed to register additional families or publish success.
+		if err := ctx.Err(); err != nil {
+			return registered, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return registered, err
 	}
 	if len(registered) == 0 {
 		return nil, fmt.Errorf("accessibility: no AT-SPI event family registered: %w", ErrUnsupported)
