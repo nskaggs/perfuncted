@@ -66,6 +66,10 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Clipboard, error) 
 	}
 	if compositorKind == compositor.GNOME {
 		if clipboard, err := NewGnomeNativeClipboardForRuntimeContext(ctx, rt); err == nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				_ = clipboard.Close()
+				return nil, ctxErr
+			}
 			return clipboard, nil
 		} else if errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
 			return nil, err
@@ -77,6 +81,9 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Clipboard, error) 
 	if sock != "" && wl.SocketReachable(sock) {
 		if _, err := executil.LookPath("wl-copy"); err == nil {
 			if _, err := executil.LookPath("wl-paste"); err == nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, ctxErr
+				}
 				return &extCmdClipboard{
 					getCmd: []string{"wl-paste", "--no-newline"},
 					// Keep the owner in the foreground. Set starts it asynchronously
@@ -91,6 +98,9 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Clipboard, error) 
 
 	if display != "" {
 		if _, err := executil.LookPath("xclip"); err == nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			return &extCmdClipboard{
 				getCmd: []string{"xclip", "-selection", "clipboard", "-o"},
 				setCmd: []string{"xclip", "-selection", "clipboard"},
@@ -215,6 +225,13 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		return err
 	}
 	defer os.Remove(inputPath)
+	// The owner intentionally outlives the setup context. Before detaching
+	// it, recheck cancellation after input staging to avoid spawning an
+	// unauthorized clipboard owner for a request that already ended.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = input.Close()
+		return fmt.Errorf("clipboard set: %w", ctxErr)
+	}
 	cmd, done, err := c.startWaylandOwner(ctx, input)
 	if err != nil {
 		_ = input.Close()
