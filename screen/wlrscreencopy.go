@@ -188,6 +188,12 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	fnErr := b.ctx.WithOperationContext(operationCtx, func() error {
 		return fn(b.ctx, operationCtx)
 	})
+	// The caller may revoke a capture while its final pixel-processing
+	// callback runs. A successful callback is not permission to publish
+	// pixels after the operation context has been canceled.
+	if fnErr == nil {
+		fnErr = operationCtx.Err()
+	}
 	if fnErr != nil {
 		_ = b.ctx.Close()
 		b.ctx = nil
@@ -358,9 +364,15 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		frameCreated = true
 
 		var bi bufInfo
-		var ready, failed, bufDone bool
+		var ready, failed, bufDone, copyIssued bool
 
 		frameProxy.dispatchFn = func(opcode uint32, _ int, data []byte) {
+			if opcode == 2 && !copyIssued {
+				// No pixels can be ready before the copy request. Fail closed
+				// rather than interpreting an early event as captured data.
+				failed = true
+				return
+			}
 			applyWlrFrameEvent(&bi, &ready, &failed, &bufDone, opcode, data)
 		}
 
@@ -374,6 +386,15 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		}
 		if failed {
 			return fmt.Errorf("screen/wlr: compositor signalled frame failed")
+		}
+		// A compositor can queue a forged frame.ready directly after its
+		// frame.buffer event. Drain all pre-copy events with a display sync
+		// before permitting ready to authorize the screenshot's pixels.
+		if err := wl.NewDisplay(wlctx).RoundTripContext(operationCtx); err != nil {
+			return fmt.Errorf("screen/wlr: pre-copy round-trip: %w", err)
+		}
+		if failed || ready {
+			return fmt.Errorf("screen/wlr: compositor sent frame.ready before copy")
 		}
 
 		size, err := captureBufferSize(bi.width, bi.height, bi.stride)
@@ -419,6 +440,7 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			return fmt.Errorf("screen/wlr: create_buffer: %w", createBufferErr)
 		}
 
+		copyIssued = true
 		if err := wlSendFrameCopy(operationCtx, wlctx, frameProxy.ID(), buf.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: frame copy: %w", err)
 		}

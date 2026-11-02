@@ -9,6 +9,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -37,7 +38,10 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 	for {
 		var header [8]byte
 		if _, err := io.ReadFull(conn, header[:]); err != nil {
-			if errors.Is(err, io.EOF) && sawCapture {
+			// A failed capture can close the transport with unread server
+			// events, which surfaces as ECONNRESET rather than EOF. Frame
+			// destruction remains mandatory in both cases.
+			if (errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET)) && sawCapture {
 				if frameID != 0 {
 					return fmt.Errorf("client closed with screencopy frame %d still alive", frameID)
 				}
@@ -121,8 +125,18 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 				}
 				continue
 			}
+			if frameOutcome == "ready before buffer" {
+				if err := writeExtTestEvent(conn, frameID, 2, wlUint32Payload(0, 0, 0)); err != nil {
+					return err
+				}
+			}
 			if err := writeExtTestEvent(conn, frameID, 0, wlUint32Payload(0, 2, 2, 8)); err != nil {
 				return err
+			}
+			if frameOutcome == "premature ready" {
+				if err := writeExtTestEvent(conn, frameID, 2, wlUint32Payload(0, 0, 0)); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -132,6 +146,9 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 		}
 		if frameID != 0 && sender == frameID && opcode == 0 { // copy
 			sawCopy = true
+			if frameOutcome == "premature ready" || frameOutcome == "ready before buffer" {
+				continue // no valid post-copy frame is ever made available
+			}
 			if frameOutcome == "failed after copy" {
 				if err := writeExtTestEvent(conn, frameID, 3, nil); err != nil {
 					return err
