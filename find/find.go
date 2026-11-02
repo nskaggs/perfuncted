@@ -508,6 +508,12 @@ func WaitForChange(ctx context.Context, sc Screenshotter, rect image.Rectangle, 
 	h, err := poll(ctx, pollDur, initial, func(attempt int) (bool, uint32, error) {
 		h, err := readWaitHash(ctx, sc, fast, rect, newHash)
 		if err != nil {
+			// An interrupted backend can return the zero value without ever
+			// observing a frame. Keep the caller's last known hash instead
+			// of interpreting that failed read as a real zero-hash sample.
+			if ctx.Err() != nil && h == 0 {
+				return false, initial, err
+			}
 			return false, h, err
 		}
 		if h != initial {
