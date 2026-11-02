@@ -744,6 +744,14 @@ func (b *RemoteDesktopBackend) KeyDown(ctx context.Context, key string) error {
 		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // revocation closes the session with independent bounded teardown.
+		if b.sender.keyboard == 0 || b.sender.keyboardDev == 0 {
+			return unsupportedError("remote-desktop", "keyboard input")
+		}
+		// Ownership is serialized through the EIS writer. Repeated key-down
+		// requests must not inject presses or reset a caller-held key.
+		if b.heldKeys[keycode] {
+			return fmt.Errorf("input/remote-desktop: key %q is already held", key)
+		}
 		frame, err := eiKeyFrame(b.sender, keycode, true)
 		if err != nil {
 			return err
