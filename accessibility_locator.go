@@ -154,6 +154,9 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 	if ctx == nil {
 		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, fmt.Errorf("perfuncted: locator: %w: nil context", ErrInvalidArgument)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, err
+	}
 	if err := l.bundle.checkAvailable("find"); err != nil {
 		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, err
 	}
@@ -166,7 +169,15 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			stopObservation()
 			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", fmt.Errorf("%w: locator event observation is unavailable: %w", accessibility.ErrObservationChanged, err))
 		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			stopObservation()
+			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, ctxErr
+		}
 		root, identity, err := l.scopeRoot(ctx)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			stopObservation()
+			return nil, identity, accessibility.NodeID{}, nil, ctxErr
+		}
 		if err == nil {
 			if locatorIdentityChanged(haveInitialIdentity, initialIdentity, initialRoot, identity, root) {
 				stopObservation()
@@ -182,6 +193,12 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			ctxForRead, cancel := l.bundle.operationContext(ctx)
 			snapshot, readErr := l.bundle.backend.Snapshot(ctxForRead, root, opts)
 			cancel()
+			// A provider may return a complete snapshot concurrently with caller
+			// cancellation. Never publish the now-unverifiable target identity.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				stopObservation()
+				return nil, identity, accessibility.NodeID{}, nil, ctxErr
+			}
 			if readErr == nil {
 				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, l.selector); incomplete != nil {
 					stopObservation()
