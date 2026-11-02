@@ -106,10 +106,10 @@ func (b *dbusBackend) resolveWindow(ctx context.Context, target WindowTarget, fr
 	if target.Title != "" {
 		evidence = append(evidence, "window title")
 	}
-	if target.Bounds.Width > 0 && target.Bounds.Height > 0 {
+	if target.Bounds.Width > 0 && target.Bounds.Height > 0 && selected.HasBounds && rectOverlap(selected.Bounds, target.Bounds) > 0 {
 		evidence = append(evidence, "screen geometry")
 	}
-	if target.Active {
+	if (target.Active || target.Focused) && selected.Focused {
 		evidence = append(evidence, "active state")
 	}
 	var selectedApp Application
@@ -182,6 +182,12 @@ func (b *dbusBackend) windowApplicationsFresh(ctx context.Context, target Window
 }
 
 func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTarget, apps []Application) ([]windowCandidate, []Node, error) {
+	if ctx == nil {
+		return nil, nil, errors.New("accessibility: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	expected := b.Generation()
 	var candidates []windowCandidate
 	var observed []Node
@@ -221,6 +227,9 @@ func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTa
 				candidates = append(candidates, windowCandidate{node: node, app: app, score: score})
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
 	}
 	if err := b.generationError(expected); err != nil {
 		return nil, nil, err
@@ -421,14 +430,30 @@ func windowCandidateScore(node Node, target WindowTarget) int {
 		}
 		score += titleScore
 	}
-	if target.Bounds.Width > 0 && target.Bounds.Height > 0 && node.HasBounds {
-		if rectOverlap(node.Bounds, target.Bounds) == 0 {
+	if target.Bounds.Width > 0 && target.Bounds.Height > 0 {
+		if node.HasBounds {
+			if rectOverlap(node.Bounds, target.Bounds) == 0 {
+				return 0
+			}
+			score += 30
+		} else if target.PID == 0 && target.PIDHint == 0 && title == "" && !target.Active && !target.Focused {
+			// When geometry is the only authoritative evidence, a node
+			// without verified bounds cannot be correlated by app name
+			// or by merely being the sole window in its application.
 			return 0
 		}
-		score += 30
 	}
-	if (target.Active || target.Focused) && (node.Focused || node.Showing) {
-		score += 15
+	if target.Active || target.Focused {
+		// AppID is only an application filter, not proof that one of its
+		// windows is active. With no PID, title, or verified geometry, a
+		// showing (but unfocused) frame cannot authorize correlation.
+		verifiedGeometry := target.Bounds.Width > 0 && target.Bounds.Height > 0 && node.HasBounds
+		if target.PID == 0 && target.PIDHint == 0 && title == "" && !verifiedGeometry && !node.Focused {
+			return 0
+		}
+		if node.Focused || node.Showing {
+			score += 15
+		}
 	}
 	if node.Visible || node.Showing {
 		score += 5
