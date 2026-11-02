@@ -292,9 +292,14 @@ func (m *SwayManager) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all visible windows in the sway tree.
 func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
+		ctx = contextutil.Default(ctx)
 		raw, err := m.query(ctx, swayMsgGetTree, "")
 		if err != nil {
 			yield(Info{}, fmt.Errorf("window/sway: get_tree: %w", err))
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			yield(Info{}, fmt.Errorf("window/sway: iterate canceled: %w", err))
 			return
 		}
 		var root swayNode
@@ -304,6 +309,10 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 		}
 
 		_ = walkTree(&root, func(n *swayNode) bool {
+			if err := ctx.Err(); err != nil {
+				yield(Info{}, fmt.Errorf("window/sway: iterate canceled: %w", err))
+				return false
+			}
 			if n.ID < 0 {
 				return true
 			}

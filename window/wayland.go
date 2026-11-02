@@ -401,6 +401,11 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			if err := m.display.RoundTripContext(ctx); err != nil {
 				return fmt.Errorf("window/wayland: round-trip: %w", err)
 			}
+			// A transport may complete concurrently with cancellation. Do not
+			// publish its snapshot after the caller has revoked the request.
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("window/wayland: iterate canceled: %w", err)
+			}
 			m.toplevelsMu.Lock()
 			defer m.toplevelsMu.Unlock()
 			windows = make([]Info, 0, len(m.toplevels))
@@ -414,6 +419,10 @@ func (m *WaylandWindowManager) IterateWindows(ctx context.Context) iter.Seq2[Inf
 			return
 		}
 		for _, v := range windows {
+			if err := ctx.Err(); err != nil {
+				yield(Info{}, fmt.Errorf("window/wayland: iterate canceled: %w", err))
+				return
+			}
 			if !yield(v, nil) {
 				return
 			}
