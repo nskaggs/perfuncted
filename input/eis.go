@@ -196,7 +196,7 @@ func (c *eiClient) next(ctx context.Context) (eiMessage, error) {
 		return eiMessage{}, err
 	}
 	select {
-	case message := <-c.messages:
+	case message, ok := <-c.messages:
 		if err := ctx.Err(); err != nil {
 			return eiMessage{}, err
 		}
@@ -204,6 +204,9 @@ func (c *eiClient) next(ctx context.Context) (eiMessage, error) {
 		// negotiated serial using an event from a revoked connection.
 		if ended, err := c.terminalError(); ended {
 			return eiMessage{}, err
+		}
+		if !ok {
+			return eiMessage{}, errors.New("input/eis: EIS event stream closed")
 		}
 		c.updateSerial(message)
 		return message, nil

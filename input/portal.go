@@ -669,7 +669,11 @@ func (b *RemoteDesktopBackend) watchLifecycle() {
 				_ = b.revoke(errors.New("portal session closed"))
 				return
 			}
-		case message := <-b.sender.client.messages:
+		case message, ok := <-b.sender.client.messages:
+			if !ok {
+				_ = b.revoke(errors.New("EIS event stream closed"))
+				return
+			}
 			if b.isEISLifecycleFailure(message) {
 				_ = b.revoke(errors.New("EIS session ended"))
 				return
