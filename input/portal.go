@@ -763,13 +763,16 @@ func (b *RemoteDesktopBackend) KeyUp(ctx context.Context, key string) error {
 		return err
 	}
 	return b.submit(ctx, func() error { //nolint:contextcheck // revocation closes the session with independent bounded teardown.
+		// Missing authority is a capability failure, even if this key was
+		// not held by the caller. Never disguise the missing EIS device.
+		if b.sender.keyboard == 0 || b.sender.keyboardDev == 0 {
+			return unsupportedError("remote-desktop", "keyboard input")
+		}
 		// Only the serialized writer can safely inspect caller-held keys.
-		// A stray modifier release must never affect another key gesture.
-		switch keycode {
-		case uinput.KeyLeftctrl, uinput.KeyLeftshift, uinput.KeyLeftalt, uinput.KeyLeftmeta:
-			if !b.heldKeys[keycode] {
-				return fmt.Errorf("input/remote-desktop: modifier %q is not held", key)
-			}
+		// Unowned releases, whether modifiers or ordinary keys, must never
+		// disrupt input held by another operation or client.
+		if !b.heldKeys[keycode] {
+			return fmt.Errorf("input/remote-desktop: key %q is not held", key)
 		}
 		frame, err := eiKeyFrame(b.sender, keycode, false)
 		if err != nil {
