@@ -964,8 +964,14 @@ func (b *RemoteDesktopBackend) validateTypeHeldSequence(actions []keySend, keyco
 		code := keycodes[i]
 		switch {
 		case action.up:
-			if modifierCodes[code] && !held[code] {
-				return fmt.Errorf("input/remote-desktop: modifier %q is not held", action.key)
+			// Explicit releases belong to the EIS caller for every key,
+			// not just modifiers. Otherwise a batch can release a key
+			// owned by another process or operation.
+			if !held[code] {
+				if modifierCodes[code] {
+					return fmt.Errorf("input/remote-desktop: modifier %q is not held", action.key)
+				}
+				return fmt.Errorf("input/remote-desktop: key %q is not held", action.key)
 			}
 			delete(held, code)
 		case action.down:

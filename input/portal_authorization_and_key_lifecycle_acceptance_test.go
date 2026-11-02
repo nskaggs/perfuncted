@@ -107,8 +107,18 @@ func TestPortalTypeHonorsExplicitModifiedKeyHoldAndRelease(t *testing.T) {
 	if len(backend.heldKeys) != 0 {
 		t.Fatalf("completed explicit key sequence left keys held: %v", backend.heldKeys)
 	}
+	// An explicit release must be owned, even when temporary modifiers
+	// accompany it. Hold left first, then verify shift wraps its release.
+	if err := backend.KeyDown(ctx, "left"); err != nil {
+		t.Fatalf("establish owned left key: %v", err)
+	}
+	for range 2 {
+		if _, err := readSyntheticEISFrame(server); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := backend.Type(ctx, "{shift+left up}"); err != nil {
-		t.Fatalf("temporary modifier around explicit release: %v", err)
+		t.Fatalf("temporary modifier around owned explicit release: %v", err)
 	}
 	for _, want := range []struct {
 		key   uint32
