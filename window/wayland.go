@@ -52,7 +52,7 @@ type WaylandWindowManager struct {
 	toplevels map[uint32]*Info
 	// toplevelsMu protects toplevels map.
 	toplevelsMu sync.Mutex
-	changesOnce sync.Once
+	changesMu   sync.Mutex // serializes notification delivery and channel shutdown
 	changes     chan struct{}
 	closed      atomic.Bool
 }
@@ -322,26 +322,37 @@ func parseWaylandString(data []byte) (string, bool) {
 }
 
 func (m *WaylandWindowManager) notifyWindowChange() {
-	if m == nil || m.closed.Load() {
+	if m == nil {
 		return
 	}
-	m.changesOnce.Do(func() {
+	m.changesMu.Lock()
+	defer m.changesMu.Unlock()
+	if m.closed.Load() {
+		return
+	}
+	if m.changes == nil {
 		m.changes = make(chan struct{}, 1)
-	})
+	}
 	select {
 	case m.changes <- struct{}{}:
 	default:
 	}
 }
 
-// WindowChanges exposes coalesced foreign-toplevel protocol hints.
+// WindowChanges exposes coalesced foreign-toplevel protocol hints. Closing
+// the backend terminates this stream, including late subscriptions.
 func (m *WaylandWindowManager) WindowChanges() <-chan struct{} {
 	if m == nil {
 		return nil
 	}
-	m.changesOnce.Do(func() {
+	m.changesMu.Lock()
+	defer m.changesMu.Unlock()
+	if m.changes == nil {
 		m.changes = make(chan struct{}, 1)
-	})
+		if m.closed.Load() {
+			close(m.changes)
+		}
+	}
 	return m.changes
 }
 
@@ -518,7 +529,17 @@ func (m *WaylandWindowManager) Close() error {
 	if m == nil {
 		return nil
 	}
-	m.closed.Store(true)
+	m.changesMu.Lock()
+	if !m.closed.Swap(true) && m.changes != nil {
+		// A pending hint is not authoritative after shutdown. Drain it
+		// before closing so a late subscriber cannot receive stale data.
+		select {
+		case <-m.changes:
+		default:
+		}
+		close(m.changes)
+	}
+	m.changesMu.Unlock()
 	if m.session != nil {
 		return m.session.Close()
 	}

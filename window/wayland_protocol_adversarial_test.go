@@ -184,9 +184,12 @@ func TestWaylandForeignToplevelStateAndMalformedEventBoundaries(t *testing.T) {
 	}
 	wm.notifyWindowChange()
 	select {
-	case <-changes:
-		t.Fatal("closed backend delivered spurious change")
+	case _, open := <-changes:
+		if open {
+			t.Fatal("closed backend delivered spurious change")
+		}
 	default:
+		t.Fatal("closed backend left a live change stream")
 	}
 }
 
