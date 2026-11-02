@@ -231,7 +231,7 @@ func openAccessibilitySession(ctx context.Context, openPF sessionOpener) (*perfu
 	if err != nil {
 		return nil, err
 	}
-	if pf == nil || pf.Accessibility == nil {
+	if pf == nil || pf.Accessibility == nil || !pf.Has(perfuncted.CapabilityAccessibility) {
 		if pf != nil {
 			_ = pf.Close() //nolint:contextcheck // close is the bounded cleanup for a rejected session.
 		}
