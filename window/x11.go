@@ -257,6 +257,10 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 		defer finish()
 		rep, err := b.conn.GetProperty(false, b.root, b.atomNetClientList,
 			xproto.AtomWindow, 0, 1024).Reply()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", ctxErr))
+			return
+		}
 		if err != nil {
 			yield(Info{}, fmt.Errorf("window/x11: get _NET_CLIENT_LIST: %w", err))
 			return
@@ -306,6 +310,12 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 				Maximized:  maximized,
 				Fullscreen: fullscreen,
 				Active:     id == activeWindow,
+			}
+			// Window metadata involves several X11 round trips, any of which
+			// can complete at the same time as caller cancellation.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", ctxErr))
+				return
 			}
 			if !yield(info, nil) {
 				return

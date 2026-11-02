@@ -568,6 +568,12 @@ func (b *RemoteDesktopBackend) submit(ctx context.Context, run func() error) err
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
+		// Authorization may be revoked between the writer's receipt and
+		// the caller observing it. Never acknowledge a command from a
+		// session whose authorization has already been retired.
+		if stateErr := b.stateError(); stateErr != nil {
+			return errors.Join(err, stateErr)
+		}
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
