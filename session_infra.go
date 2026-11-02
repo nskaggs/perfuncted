@@ -407,12 +407,6 @@ func (i *sessionInfra) launchSway(
 	confPath string,
 	mode sessionMode,
 ) error {
-	logPath := filepath.Join(i.logDir, "sway-session.log")
-	logFile, err := openPrivateSessionLog(logPath)
-	if err != nil {
-		return fmt.Errorf("create log: %w", err)
-	}
-
 	cmd := executil.CommandContext(i.ctx, "sway", "--unsupported-gpu", "-c", confPath) //nolint:contextcheck // process lifetime outlives startup context
 	runtime := env.Current().WithSession(i.xdgDir, "", i.dbusAddr)
 	switch mode {
@@ -425,7 +419,6 @@ func (i *sessionInfra) launchSway(
 	case sessionModeNested:
 		hostSocket := env.Current().SocketPath()
 		if hostSocket == "" {
-			logFileClose(logFile)
 			return fmt.Errorf("nested session requires a host Wayland socket")
 		}
 		runtime = runtime.With("WAYLAND_DISPLAY", hostSocket)
@@ -434,8 +427,14 @@ func (i *sessionInfra) launchSway(
 			"WLR_RENDERER=pixman",
 		)
 	default:
-		logFileClose(logFile)
 		return fmt.Errorf("unknown session mode %d", mode)
+	}
+	// A rejected startup must not create a log file that prevents a later
+	// attempt in this session from using the same fresh log directory.
+	logPath := filepath.Join(i.logDir, "sway-session.log")
+	logFile, err := openPrivateSessionLog(logPath)
+	if err != nil {
+		return fmt.Errorf("create log: %w", err)
 	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile

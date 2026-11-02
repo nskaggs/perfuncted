@@ -41,7 +41,9 @@ func createSessionLogDir(configuredRoot string) (string, error) {
 }
 
 func openPrivateSessionLog(path string) (*os.File, error) {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// A session log is created exactly once in its fresh private directory.
+	// Never follow or truncate a path that appeared there before this call.
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
 	}
