@@ -71,6 +71,9 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 	if ctx == nil {
 		return "", fmt.Errorf("perfuncted: capture failure bundle: %w: nil context", ErrInvalidArgument)
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 
 	directory := options.Directory
 	if directory == "" {
@@ -164,7 +167,13 @@ func (s *Session) captureScreenshot(ctx context.Context, directory string) error
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	img, err := s.Screen.backend.Grab(ctx, image.Rectangle{})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil {
 		return err
 	}
@@ -180,7 +189,13 @@ func (s *Session) captureWindows(ctx context.Context, directory string) error {
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	windows, err := s.Windows.backend.List(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil {
 		return err
 	}
@@ -193,7 +208,13 @@ func (s *Session) captureActiveWindow(ctx context.Context, directory string) err
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	title, err := s.Windows.backend.ActiveTitle(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil {
 		return err
 	}
@@ -208,7 +229,13 @@ func (s *Session) captureOutputs(ctx context.Context, directory string) error {
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	outputs, err := s.Outputs.backend.List(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil {
 		return err
 	}
