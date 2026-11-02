@@ -1,6 +1,7 @@
 package perfuncted
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -52,7 +53,13 @@ func TestApplicationPathTracksResolvedSyntheticExecutable(t *testing.T) {
 	session := NewSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	executable := os.Args[0]
-	app, err := session.Launch(context.Background(), Command{Name: executable, Args: []string{"-test.run=^TestSyntheticApplicationChildExit$"}})
+	var childStderr bytes.Buffer
+	// The nested test binary is independently instrumented when the parent
+	// uses -coverprofile. Give it its own writable coverage directory rather
+	// than reusing the Go command's quota-limited shared /tmp coverage path.
+	coverageDir := t.TempDir()
+	childEnv := append(os.Environ(), "GOCOVERDIR="+coverageDir, "TMPDIR="+coverageDir)
+	app, err := session.Launch(context.Background(), Command{Name: executable, Args: []string{"-test.run=^TestSyntheticApplicationChildExit$"}, Env: childEnv, Stderr: &childStderr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +67,7 @@ func TestApplicationPathTracksResolvedSyntheticExecutable(t *testing.T) {
 		t.Fatalf("application did not record actual executable: %q", got)
 	}
 	if err := app.Wait(context.Background()); err != nil {
-		t.Fatalf("synthetic child process failed: %v", err)
+		t.Fatalf("synthetic child process failed: %v; stderr=%q", err, childStderr.String())
 	}
 }
 
