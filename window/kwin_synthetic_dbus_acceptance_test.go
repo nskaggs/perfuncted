@@ -17,17 +17,18 @@ import (
 )
 
 type syntheticKWinScriptService struct {
-	busAddress  string // private D-Bus used by synthetic runtime acceptance tests
-	conn        *dbus.Conn
-	mu          sync.Mutex
-	svc         string
-	plugin      string
-	response    string
-	loadCount   int
-	startCount  int
-	unloadCount int
-	loadedPath  string
-	noCallback  bool
+	busAddress   string // private D-Bus used by synthetic runtime acceptance tests
+	conn         *dbus.Conn
+	mu           sync.Mutex
+	svc          string
+	plugin       string
+	response     string
+	listOverride string // test-only synthetic provider reply for multi-window iteration
+	loadCount    int
+	startCount   int
+	unloadCount  int
+	loadedPath   string
+	noCallback   bool
 }
 
 var syntheticKWinServiceName = regexp.MustCompile(`org\.kde\.pflist[0-9]+_[0-9]+`)
@@ -48,6 +49,9 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 	switch {
 	case strings.Contains(string(data), "JSON.stringify(rows)"):
 		response = `[{"id":"7","title":"Editor","app_id":"editor","class":"Editor","pid":33,"x":-100,"y":20,"width":700,"height":480,"active":true}]`
+		if s.listOverride != "" {
+			response = s.listOverride
+		}
 	case strings.Contains(string(data), "w ? w.caption"):
 		response = "Editor"
 	default:
