@@ -83,7 +83,7 @@ func TestXTestBackendAgainstPrivateXvfb(t *testing.T) {
 	if x, y, err := backend.PointerLocation(ctx); err != nil || x != 113 || y != 57 {
 		t.Fatalf("pointer after XTEST motion = (%d,%d), %v; want (113,57)", x, y, err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.MotionNotify, 0)
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.MotionNotify, 0)
 	keycode, err := backend.keycodeFor("a")
 	if err != nil {
 		t.Fatalf("resolve XTEST keycode: %v", err)
@@ -91,24 +91,24 @@ func TestXTestBackendAgainstPrivateXvfb(t *testing.T) {
 	if err := backend.KeyDown(ctx, "a"); err != nil {
 		t.Fatalf("press key on private Xvfb: %v", err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.KeyPress, byte(keycode))
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.KeyPress, byte(keycode))
 	if err := backend.KeyUp(ctx, "a"); err != nil {
 		t.Fatalf("release key on private Xvfb: %v", err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.KeyRelease, byte(keycode))
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.KeyRelease, byte(keycode))
 	if err := backend.MouseClick(ctx, 113, 57, 1); err != nil {
 		t.Fatalf("click on private Xvfb: %v", err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.ButtonPress, 1)
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.ButtonRelease, 1)
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.ButtonPress, 1)
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.ButtonRelease, 1)
 	if err := backend.MouseDown(ctx, 1); err != nil {
 		t.Fatalf("press button on private Xvfb: %v", err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.ButtonPress, 1)
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.ButtonPress, 1)
 	if err := backend.MouseUp(ctx, 1); err != nil {
 		t.Fatalf("release button on private Xvfb: %v", err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.ButtonRelease, 1)
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.ButtonRelease, 1)
 	for _, scroll := range []struct {
 		name string
 		call func(context.Context, int) error
@@ -122,20 +122,20 @@ func TestXTestBackendAgainstPrivateXvfb(t *testing.T) {
 		if err := scroll.call(ctx, 1); err != nil {
 			t.Fatalf("scroll %s on private Xvfb: %v", scroll.name, err)
 		}
-		awaitPrivateXvfbEvent(t, ctx, events, window, xproto.ButtonPress, scroll.btn)
-		awaitPrivateXvfbEvent(t, ctx, events, window, xproto.ButtonRelease, scroll.btn)
+		awaitPrivateXvfbEvent(ctx, t, events, window, xproto.ButtonPress, scroll.btn)
+		awaitPrivateXvfbEvent(ctx, t, events, window, xproto.ButtonRelease, scroll.btn)
 	}
 	if err := backend.TypeLiteral(ctx, "a"); err != nil {
 		t.Fatalf("type literal on private Xvfb: %v", err)
 	}
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.KeyPress, byte(keycode))
-	awaitPrivateXvfbEvent(t, ctx, events, window, xproto.KeyRelease, byte(keycode))
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.KeyPress, byte(keycode))
+	awaitPrivateXvfbEvent(ctx, t, events, window, xproto.KeyRelease, byte(keycode))
 	if err := backend.Sync(ctx); err != nil {
 		t.Fatalf("synchronize private Xvfb input: %v", err)
 	}
 }
 
-func awaitPrivateXvfbEvent(t *testing.T, ctx context.Context, events <-chan privateXvfbEventResult, window xproto.Window, eventType, detail byte) {
+func awaitPrivateXvfbEvent(ctx context.Context, t *testing.T, events <-chan privateXvfbEventResult, window xproto.Window, eventType, detail byte) {
 	t.Helper()
 	for {
 		select {
