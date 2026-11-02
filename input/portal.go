@@ -961,6 +961,9 @@ func (b *RemoteDesktopBackend) validateTypeHeldSequence(actions []keySend, keyco
 			}
 			delete(held, code)
 		case action.down:
+			if held[code] {
+				return fmt.Errorf("input/remote-desktop: key %q is already held", action.key)
+			}
 			held[code] = true
 		default:
 			// A tap ends in key-up and would release a key held by an
