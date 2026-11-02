@@ -38,6 +38,9 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 		var header [8]byte
 		if _, err := io.ReadFull(conn, header[:]); err != nil {
 			if errors.Is(err, io.EOF) && sawCapture {
+				if frameID != 0 {
+					return fmt.Errorf("client closed with screencopy frame %d still alive", frameID)
+				}
 				return nil
 			}
 			return fmt.Errorf("read Wayland request: %w", err)
@@ -101,28 +104,43 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 			continue
 		}
 		if sender == managerID && opcode == 0 {
+			if frameID != 0 {
+				return fmt.Errorf("new capture started before frame %d was destroyed", frameID)
+			}
 			frameID = wl.Uint32(body[:4])
 			sawCapture = true
 			if frameOutcome == "failed before buffer" {
-				return writeExtTestEvent(conn, frameID, 3, nil)
+				if err := writeExtTestEvent(conn, frameID, 3, nil); err != nil {
+					return err
+				}
+				continue
 			}
 			if frameOutcome == "invalid buffer" {
-				return writeExtTestEvent(conn, frameID, 0, []byte{0, 0, 0, 0})
+				if err := writeExtTestEvent(conn, frameID, 0, []byte{0, 0, 0, 0}); err != nil {
+					return err
+				}
+				continue
 			}
 			if err := writeExtTestEvent(conn, frameID, 0, wlUint32Payload(0, 2, 2, 8)); err != nil {
 				return err
 			}
 			continue
 		}
+		if frameID != 0 && sender == frameID && opcode == 1 { // destroy frame
+			frameID = 0
+			continue
+		}
 		if frameID != 0 && sender == frameID && opcode == 0 { // copy
 			sawCopy = true
 			if frameOutcome == "failed after copy" {
-				return writeExtTestEvent(conn, frameID, 3, nil)
+				if err := writeExtTestEvent(conn, frameID, 3, nil); err != nil {
+					return err
+				}
+				continue
 			}
 			if err := writeExtTestEvent(conn, frameID, 2, wlUint32Payload(0, 0, 0)); err != nil {
 				return err
 			}
-			frameID = 0
 			continue
 		}
 		_ = sawCopy

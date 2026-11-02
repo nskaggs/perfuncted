@@ -1,6 +1,7 @@
 package screen
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func TestWlrResolutionIgnoresScaleOneAndZero(t *testing.T) {
 
 func TestWlrFrameDestroyRequest(t *testing.T) {
 	ctx := &extCaptureTestCtx{}
-	if err := wlSendFrameDestroy(ctx, 42); err != nil {
+	if err := wlSendFrameDestroy(context.Background(), ctx, 42); err != nil {
 		t.Fatalf("wlSendFrameDestroy: %v", err)
 	}
 	if len(ctx.msgs) != 1 {
@@ -53,8 +54,8 @@ func TestWlrFrameDestroyRequest(t *testing.T) {
 	if got := wl.Uint32(ctx.msgs[0][0:4]); got != 42 {
 		t.Fatalf("sender = %d, want 42", got)
 	}
-	if got := wl.Uint32(ctx.msgs[0][4:8]); got != 8<<16 {
-		t.Fatalf("destroy request header = %#x, want %#x", got, uint32(8<<16))
+	if got := wl.Uint32(ctx.msgs[0][4:8]); got != 8<<16|1 {
+		t.Fatalf("destroy request header = %#x, want %#x", got, uint32(8<<16|1))
 	}
 }
 

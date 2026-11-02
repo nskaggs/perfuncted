@@ -334,13 +334,28 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 		}
 		frameProxy := &wlRawProxy{}
 		wlctx.Register(frameProxy)
-		defer func() {
+		var frameCreated bool
+		var pool *wl.ShmPool
+		var buf *wl.Buffer
+		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
+			if frameCreated {
+				_ = wlSendFrameDestroy(cleanupContext(), wlctx, frameProxy.ID())
+			}
+			if buf != nil {
+				_ = buf.DestroyContext(cleanupContext())
+				wl.Unregister(wlctx, buf)
+			}
+			if pool != nil {
+				_ = pool.DestroyContext(cleanupContext())
+				wl.Unregister(wlctx, pool)
+			}
 			wl.Unregister(wlctx, frameProxy)
 		}()
 
 		if err := wlSendCaptureOutput(operationCtx, wlctx, b.mgrProxy.ID(), 1, b.output.ID(), frameProxy.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: capture_output: %w", err)
 		}
+		frameCreated = true
 
 		var bi bufInfo
 		var ready, failed, bufDone bool
@@ -394,23 +409,15 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 			pixels = b.cachedBuf[:size]
 		}
 
-		pool, err := b.shm.CreatePoolContext(operationCtx, int(b.cachedFd.Fd()), int32(size))
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_pool: %w", err)
+		pool, createPoolErr := b.shm.CreatePoolContext(operationCtx, int(b.cachedFd.Fd()), int32(size))
+		if createPoolErr != nil {
+			return fmt.Errorf("screen/wlr: create_pool: %w", createPoolErr)
 		}
-		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
-			_ = pool.DestroyContext(cleanupContext())
-			wl.Unregister(wlctx, pool)
-		}()
 
-		buf, err := pool.CreateBufferContext(operationCtx, 0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
-		if err != nil {
-			return fmt.Errorf("screen/wlr: create_buffer: %w", err)
+		buf, createBufferErr := pool.CreateBufferContext(operationCtx, 0, int32(bi.width), int32(bi.height), int32(bi.stride), bi.format)
+		if createBufferErr != nil {
+			return fmt.Errorf("screen/wlr: create_buffer: %w", createBufferErr)
 		}
-		defer func() { //nolint:contextcheck // cleanup intentionally uses an independent bounded context.
-			_ = buf.DestroyContext(cleanupContext())
-			wl.Unregister(wlctx, buf)
-		}()
 
 		if err := wlSendFrameCopy(operationCtx, wlctx, frameProxy.ID(), buf.ID()); err != nil {
 			return fmt.Errorf("screen/wlr: frame copy: %w", err)
@@ -654,10 +661,10 @@ func wlSendFrameCopy(cancel context.Context, ctx *wl.Context, frameID, bufID uin
 	return ctx.WriteMsgContext(cancel, buf[:], nil)
 }
 
-func wlSendFrameDestroy(ctx wl.Ctx, frameID uint32) error {
+func wlSendFrameDestroy(cancel context.Context, ctx wl.Ctx, frameID uint32) error {
 	const msgSize = 8
 	var buf [msgSize]byte
 	wl.PutUint32(buf[0:], frameID)
-	wl.PutUint32(buf[4:], uint32(msgSize<<16))
-	return wl.WriteMsg(ctx, buf[:], nil)
+	wl.PutUint32(buf[4:], uint32(msgSize<<16|1))
+	return ctx.WriteMsgContext(cancel, buf[:], nil)
 }
