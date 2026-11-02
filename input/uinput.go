@@ -48,6 +48,7 @@ type UinputBackend struct {
 	// released, or the caller's gesture ends partway through.
 	heldMu   sync.Mutex
 	heldMods uint32
+	heldKeys map[int]bool // caller-owned non-modifier holds, serialized with heldMu
 
 	// operations owns admission, active cancellation, and close results.
 	operations oplife.Tracker
@@ -258,13 +259,13 @@ func (b *UinputBackend) KeyDown(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
-		if modifierBit(code) != 0 && b.modifierHeld(code) {
-			return fmt.Errorf("input/uinput: modifier keycode %d is already held", code)
+		if b.keyHeld(code) {
+			return fmt.Errorf("input/uinput: keycode %d is already held", code)
 		}
 		if err := b.kb.KeyDown(code); err != nil {
 			return err
 		}
-		b.markModifierHeld(code)
+		b.markKeyHeld(code)
 		return nil
 	})
 }
@@ -279,13 +280,13 @@ func (b *UinputBackend) KeyUp(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
-		if modifierBit(code) != 0 && !b.modifierHeld(code) {
-			return fmt.Errorf("input/uinput: modifier keycode %d not held", code)
+		if !b.keyHeld(code) {
+			return fmt.Errorf("input/uinput: keycode %d not held", code)
 		}
 		if err := b.kb.KeyUp(code); err != nil {
 			return err
 		}
-		b.markModifierReleased(code)
+		b.markKeyReleased(code)
 		return nil
 	})
 }
@@ -367,8 +368,19 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 func (b *UinputBackend) validateHeldModifierSequence(actions []keySend) error {
 	b.heldMu.Lock()
 	held := b.heldMods
+	heldKeys := make(map[int]bool, len(b.heldKeys))
+	for code, down := range b.heldKeys {
+		heldKeys[code] = down
+	}
 	b.heldMu.Unlock()
 	for _, action := range actions {
+		// Text uses KeyPress, which includes a release. A held ordinary
+		// key must not be tapped by a later text action in the same batch.
+		for _, ch := range action.text {
+			if kc, ok := b.charToRune[ch]; ok && heldKeys[kc.keycode] {
+				return fmt.Errorf("input/uinput: text keycode %d is already held", kc.keycode)
+			}
+		}
 		if action.key == "" {
 			continue
 		}
@@ -378,6 +390,22 @@ func (b *UinputBackend) validateHeldModifierSequence(actions []keySend) error {
 		}
 		bit := modifierBit(code)
 		if bit == 0 {
+			switch {
+			case action.up:
+				if !heldKeys[code] {
+					return fmt.Errorf("input/uinput: keycode %d not held", code)
+				}
+				delete(heldKeys, code)
+			case action.down:
+				if heldKeys[code] {
+					return fmt.Errorf("input/uinput: keycode %d is already held", code)
+				}
+				heldKeys[code] = true
+			default:
+				if heldKeys[code] {
+					return fmt.Errorf("input/uinput: keycode %d is already held", code)
+				}
+			}
 			continue
 		}
 		switch {
@@ -445,6 +473,39 @@ func (b *UinputBackend) markModifierReleased(code int) {
 	}
 	b.heldMu.Lock()
 	b.heldMods &^= bit
+	b.heldMu.Unlock()
+}
+
+// keyHeld is the common ownership check for direct and typed key sequences.
+func (b *UinputBackend) keyHeld(code int) bool {
+	if modifierBit(code) != 0 {
+		return b.modifierHeld(code)
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	return b.heldKeys[code]
+}
+
+func (b *UinputBackend) markKeyHeld(code int) {
+	if modifierBit(code) != 0 {
+		b.markModifierHeld(code)
+		return
+	}
+	b.heldMu.Lock()
+	if b.heldKeys == nil {
+		b.heldKeys = make(map[int]bool)
+	}
+	b.heldKeys[code] = true
+	b.heldMu.Unlock()
+}
+
+func (b *UinputBackend) markKeyReleased(code int) {
+	if modifierBit(code) != 0 {
+		b.markModifierReleased(code)
+		return
+	}
+	b.heldMu.Lock()
+	delete(b.heldKeys, code)
 	b.heldMu.Unlock()
 }
 
@@ -523,12 +584,12 @@ func (b *UinputBackend) typeKeyWithMods(ctx context.Context, code int, down, up 
 		if err := b.kb.KeyUp(code); err != nil {
 			return fail(err)
 		}
-		b.markModifierReleased(code)
+		b.markKeyReleased(code)
 	case down:
 		if err := b.kb.KeyDown(code); err != nil {
 			return fail(err)
 		}
-		b.markModifierHeld(code)
+		b.markKeyHeld(code)
 	default:
 		if err := b.kb.KeyPress(code); err != nil {
 			return fail(err)
@@ -581,6 +642,13 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 	}
 	if err := b.validateTextRunes(s); err != nil {
 		return err
+	}
+	// TypeLiteral bypasses the parsed-command preflight. Validate the
+	// entire literal sequence before injecting any text into the desktop.
+	for _, ch := range s {
+		if kc := b.charToRune[ch]; b.keyHeld(kc.keycode) {
+			return fmt.Errorf("input/uinput: text keycode %d is already held", kc.keycode)
+		}
 	}
 	for _, ch := range s {
 		if err := ctx.Err(); err != nil {
