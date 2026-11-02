@@ -104,23 +104,50 @@ func newClient(ctx context.Context, conn *dbus.Conn) (*Client, error) {
 }
 
 func negotiate(ctx context.Context, c *Client) error {
-	var protocol uint32
-	if err := c.call(ctx, CoreInterface, "GetProtocolVersion", &protocol); err != nil {
+	// Decode into untyped D-Bus values first. godbus Store converts some
+	// mismatched wire types (including numeric values to strings), which
+	// would otherwise allow a malformed service reply to publish authority.
+	read := func(method string) (any, error) {
+		var value any
+		if err := c.call(ctx, CoreInterface, method, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	}
+	protocolReply, err := read("GetProtocolVersion")
+	if err != nil {
 		return fmt.Errorf("gnome bridge: negotiate protocol: %w", err)
+	}
+	protocol, ok := protocolReply.(uint32)
+	if !ok {
+		return fmt.Errorf("gnome bridge: protocol version has wire type %T, want uint32", protocolReply)
 	}
 	if protocol != ProtocolVersion {
 		return &ProtocolError{Expected: ProtocolVersion, Actual: protocol}
 	}
-	var extensionVersion, shellVersion string
-	if err := c.call(ctx, CoreInterface, "GetExtensionVersion", &extensionVersion); err != nil {
+	extensionReply, err := read("GetExtensionVersion")
+	if err != nil {
 		return fmt.Errorf("gnome bridge: get extension version: %w", err)
 	}
-	if err := c.call(ctx, CoreInterface, "GetShellVersion", &shellVersion); err != nil {
+	extensionVersion, ok := extensionReply.(string)
+	if !ok {
+		return fmt.Errorf("gnome bridge: extension version has wire type %T, want string", extensionReply)
+	}
+	shellReply, err := read("GetShellVersion")
+	if err != nil {
 		return fmt.Errorf("gnome bridge: get Shell version: %w", err)
 	}
-	var caps []string
-	if err := c.call(ctx, CoreInterface, "GetCapabilities", &caps); err != nil {
+	shellVersion, ok := shellReply.(string)
+	if !ok {
+		return fmt.Errorf("gnome bridge: Shell version has wire type %T, want string", shellReply)
+	}
+	capabilitiesReply, err := read("GetCapabilities")
+	if err != nil {
 		return fmt.Errorf("gnome bridge: get capabilities: %w", err)
+	}
+	caps, ok := capabilitiesReply.([]string)
+	if !ok {
+		return fmt.Errorf("gnome bridge: capabilities have wire type %T, want []string", capabilitiesReply)
 	}
 	c.protocol = protocol
 	c.extensionVer = extensionVersion
@@ -270,9 +297,17 @@ func (c *Client) ListWindows(ctx context.Context) ([]WindowInfo, error) {
 }
 
 func (c *Client) GetWindow(ctx context.Context, id string) (WindowInfo, error) {
+	if strings.TrimSpace(id) == "" {
+		return WindowInfo{}, fmt.Errorf("gnome bridge: get window: %w: missing window ID", ErrObjectNotFound)
+	}
 	var window WindowInfo
 	if err := c.callWithArgsOut(ctx, WindowsInterface, "GetWindow", []any{id}, &window); err != nil {
 		return WindowInfo{}, fmt.Errorf("gnome bridge: get window %q: %w", id, err)
+	}
+	// A stale or misrouted response must never disclose a different
+	// window's title, process or geometry to the caller.
+	if window.ID != id {
+		return WindowInfo{}, fmt.Errorf("gnome bridge: get window %q: %w: mismatched response identity", id, ErrObjectNotFound)
 	}
 	return window, nil
 }
@@ -416,13 +451,19 @@ func decodeWindowEvent(signal *dbus.Signal) (WindowEvent, bool) {
 			return WindowEvent{}, false
 		}
 		id, ok := signal.Body[0].(string)
-		return WindowEvent{Kind: WindowRemovedEvent, ID: id}, ok
+		if !ok || strings.TrimSpace(id) == "" {
+			return WindowEvent{}, false
+		}
+		return WindowEvent{Kind: WindowRemovedEvent, ID: id}, true
 	case WindowsInterface + ".FocusChanged":
 		if len(signal.Body) != 1 {
 			return WindowEvent{}, false
 		}
 		id, ok := signal.Body[0].(string)
-		return WindowEvent{Kind: FocusChangedEvent, ID: id}, ok
+		if !ok || strings.TrimSpace(id) == "" {
+			return WindowEvent{}, false
+		}
+		return WindowEvent{Kind: FocusChangedEvent, ID: id}, true
 	default:
 		return WindowEvent{}, false
 	}
@@ -434,6 +475,9 @@ func decodeWindowInfoEvent(signal *dbus.Signal, kind WindowEventKind) (WindowEve
 	}
 	var window WindowInfo
 	if err := dbus.Store(signal.Body, &window); err != nil {
+		return WindowEvent{}, false
+	}
+	if strings.TrimSpace(window.ID) == "" {
 		return WindowEvent{}, false
 	}
 	return WindowEvent{Kind: kind, Window: window, ID: window.ID}, true
