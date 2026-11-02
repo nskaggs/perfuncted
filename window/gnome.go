@@ -110,6 +110,11 @@ func (g *GnomeManager) List(ctx context.Context) ([]Info, error) {
 // IterateWindows returns an iterator over all visible top-level windows.
 func (g *GnomeManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
+		ctx = contextutil.Default(ctx)
+		if err := ctx.Err(); err != nil {
+			yield(Info{}, fmt.Errorf("window/gnome: iterate canceled: %w", err))
+			return
+		}
 		const js = `
 JSON.stringify(
   global.get_window_actors()
@@ -130,6 +135,10 @@ JSON.stringify(
     })
 )`
 		raw, err := g.eval(ctx, js)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			yield(Info{}, fmt.Errorf("window/gnome: iterate canceled: %w", ctxErr))
+			return
+		}
 		if err != nil {
 			yield(Info{}, err)
 			return
@@ -149,6 +158,10 @@ JSON.stringify(
 			return
 		}
 		for _, e := range entries {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				yield(Info{}, fmt.Errorf("window/gnome: iterate canceled: %w", ctxErr))
+				return
+			}
 			if !yield(Info{
 				ID:       e.ID,
 				NativeID: strconv.FormatUint(e.ID, 10),
@@ -168,8 +181,16 @@ JSON.stringify(
 
 // ActiveTitle returns the title of the focused window.
 func (g *GnomeManager) ActiveTitle(ctx context.Context) (string, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("window/gnome: active title canceled: %w", err)
+	}
 	js := `(function(){ let f=global.display.get_focus_window(); return f ? f.get_title() : ""; })()`
-	return g.eval(ctx, js)
+	title, err := g.eval(ctx, js)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", fmt.Errorf("window/gnome: active title canceled: %w", ctxErr)
+	}
+	return title, err
 }
 
 // Close releases the GNOME Shell D-Bus connection.
@@ -212,6 +233,10 @@ func (g *GnomeManager) findWindowByID(id uint64) string {
 }
 
 func (g *GnomeManager) actOnWindowByID(ctx context.Context, id string, action string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("window/gnome: action canceled: %w", err)
+	}
 	numeric, err := numericID(id)
 	if err != nil {
 		return err
@@ -225,6 +250,9 @@ func (g *GnomeManager) actOnWindowByID(ctx context.Context, id string, action st
 	js := "(function(){ let w=" + g.findWindowByID(numeric) +
 		"; if(!w) return " + strconv.Quote(gnomeWindowMissing) + "; " + action + "; return \"ok\"; })()"
 	result, err := g.eval(ctx, js)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/gnome: action canceled: %w", ctxErr)
+	}
 	if err != nil {
 		return err
 	}
