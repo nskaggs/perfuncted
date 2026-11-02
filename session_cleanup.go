@@ -223,6 +223,9 @@ func unmountSubdirsWith(
 		return nil
 	}
 	mounts, err := readMounts(dir)
+	if ctx.Err() != nil {
+		return contextErrorWithCause(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("session: inspect mounts before cleanup: %w", err)
 	}
@@ -247,6 +250,9 @@ func unmountSubdirsWith(
 		return contextErrorWithCause(ctx)
 	}
 	remaining, err := readMounts(dir)
+	if ctx.Err() != nil {
+		return contextErrorWithCause(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("session: verify mounts after cleanup: %w", err)
 	}
