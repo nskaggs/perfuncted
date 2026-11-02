@@ -429,13 +429,23 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	if err := l.session.SyncContext(ctx); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
+	}
 	if err := l.reconcileTopology(ctx); err != nil {
 		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
 	}
 	if l.closed.Load() {
 		return nil, fmt.Errorf("output/wayland: lister is closed: %w", net.ErrClosed)
 	}
-	return l.snapshotOutputs(), nil
+	outputs := l.snapshotOutputs()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
+	}
+	return outputs, nil
 }
 
 func (l *WaylandLister) reconcileTopology(ctx context.Context) error {

@@ -43,6 +43,9 @@ func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
 		return nil, fmt.Errorf("output/x11: lister is closed: %w", net.ErrClosed)
 	}
 	screen := l.conn.DefaultScreen()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/x11: list canceled: %w", err)
+	}
 	if screen == nil {
 		return nil, fmt.Errorf("output/x11: no default screen")
 	}
@@ -50,12 +53,18 @@ func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
 		return []Info{rootOutput(screen)}, nil
 	}
 	resources, ok := l.randrResources(screen.Root)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/x11: list canceled: %w", err)
+	}
 	if !ok {
 		return []Info{rootOutput(screen)}, nil
 	}
-	outputs, err := l.listRandROutputs(screen.Root, resources)
+	outputs, err := l.listRandROutputs(ctx, screen.Root, resources)
 	if err != nil {
 		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("output/x11: list canceled: %w", err)
 	}
 	if len(outputs) == 0 {
 		return []Info{rootOutput(screen)}, nil
@@ -72,7 +81,7 @@ func (l *X11Lister) randrResources(root xproto.Window) (*randr.GetScreenResource
 	return resources, err == nil && resources != nil
 }
 
-func (l *X11Lister) listRandROutputs(root xproto.Window, resources *randr.GetScreenResourcesCurrentReply) ([]Info, error) {
+func (l *X11Lister) listRandROutputs(ctx context.Context, root xproto.Window, resources *randr.GetScreenResourcesCurrentReply) ([]Info, error) {
 
 	primary := randr.Output(0)
 	if primaryCookie := l.conn.GetOutputPrimary(root); primaryCookie != nil {
@@ -83,7 +92,13 @@ func (l *X11Lister) listRandROutputs(root xproto.Window, resources *randr.GetScr
 
 	outputs := make([]Info, 0, len(resources.Outputs))
 	for _, id := range resources.Outputs {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("output/x11: list canceled: %w", err)
+		}
 		info, active, err := l.randrOutput(id, resources.ConfigTimestamp, primary)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("output/x11: list canceled: %w", ctxErr)
+		}
 		if err != nil {
 			return nil, err
 		}
