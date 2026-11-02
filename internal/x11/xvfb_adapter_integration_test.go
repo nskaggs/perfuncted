@@ -4,7 +4,6 @@ package x11
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"os"
 	"os/exec"
@@ -26,8 +25,18 @@ func startAdapterXvfb(t *testing.T) string {
 		t.Skip("Xvfb is unavailable")
 	}
 	cmd := exec.Command("Xvfb", "-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp", "-ac")
-	var errLog bytes.Buffer
-	cmd.Stderr = &errLog
+	// A writable *os.File lets Xvfb emit diagnostics without an os/exec
+	// copy goroutine mutating a bytes.Buffer while the test inspects it.
+	stderrFile, err := os.CreateTemp(t.TempDir(), "xvfb-stderr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stderrFile.Close() })
+	cmd.Stderr = stderrFile
+	stderrText := func() string {
+		data, _ := os.ReadFile(stderrFile.Name())
+		return string(data)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -46,11 +55,11 @@ func startAdapterXvfb(t *testing.T) string {
 	select {
 	case result := <-ready:
 		if result.err != nil {
-			t.Fatalf("headless server failed: %v / %s", result.err, errLog.String())
+			t.Fatalf("headless server failed: %v / %s", result.err, stderrText())
 		}
 		num = strings.TrimSpace(result.line)
 	case <-time.After(5 * time.Second):
-		t.Fatalf("Xvfb failed to allocate private display: %s", errLog.String())
+		t.Fatalf("Xvfb failed to allocate private display: %s", stderrText())
 	}
 	if _, err := strconv.Atoi(num); err != nil {
 		t.Fatalf("Xvfb returned invalid display number %q", num)
