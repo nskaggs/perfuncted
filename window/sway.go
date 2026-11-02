@@ -743,8 +743,23 @@ func swayQueryOnceContext(ctx context.Context, sock string, msgType uint32, payl
 		return err
 	}
 	defer conn.Close()
-	_, err = swayQueryConnContext(ctx, conn, msgType, payload)
-	return err
+	body, err := swayQueryConnContext(ctx, conn, msgType, payload)
+	if err != nil {
+		return err
+	}
+	if msgType == swayMsgGetTree {
+		// An IPC peer that echoes the expected message type is not proof
+		// of a running Sway compositor. Require a recognizable root tree
+		// before accepting a runtime socket for later window operations.
+		var tree swayNode
+		if err := json.Unmarshal(body, &tree); err != nil {
+			return fmt.Errorf("window/sway: invalid compositor tree: %w", err)
+		}
+		if tree.ID <= 0 || tree.Type != "root" {
+			return fmt.Errorf("window/sway: compositor tree has no valid root")
+		}
+	}
+	return ctx.Err()
 }
 
 func swayQueryConnContext(ctx context.Context, conn net.Conn, msgType uint32, payload string) ([]byte, error) {
