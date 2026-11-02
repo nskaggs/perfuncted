@@ -385,6 +385,9 @@ func setupEISender(ctx context.Context, conn *net.UnixConn) (*eiSender, error) {
 			if err != nil {
 				return nil, err
 			}
+			if seat == 0 {
+				return nil, errors.New("input/eis: invalid seat identity zero")
+			}
 			sender.seat = seat
 			break
 		}
@@ -493,6 +496,9 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if err != nil {
 			return err
 		}
+		if id == 0 || version == 0 {
+			return fmt.Errorf("input/eis: invalid device object %d version %d", id, version)
+		}
 		if _, exists := s.devices[id]; exists {
 			return fmt.Errorf("input/eis: duplicate device announcement for object %d", id)
 		}
@@ -538,6 +544,12 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		name, err := eiReadString(message.body, 8)
 		if err != nil {
 			return err
+		}
+		if object == 0 {
+			return fmt.Errorf("input/eis: invalid interface object for %q", name)
+		}
+		if _, exists := device.interfaces[name]; exists {
+			return fmt.Errorf("input/eis: duplicate interface announcement for %q", name)
 		}
 		device.interfaces[name] = object
 	case 6:
