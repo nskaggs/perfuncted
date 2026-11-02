@@ -507,6 +507,9 @@ func (m *WaylandWindowManager) ActiveTitle(ctx context.Context) (string, error) 
 		}
 		return ErrNotSupported
 	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", fmt.Errorf("window/wayland: active title canceled: %w", ctxErr)
+	}
 	return title, err
 }
 
@@ -537,7 +540,12 @@ func (m *WaylandWindowManager) Sync(ctx context.Context) error {
 		}
 		return nil
 	}
-	return m.withOperation(ctx, func() error { return m.display.RoundTripContext(ctx) })
+	return m.withOperation(ctx, func() error {
+		if err := m.display.RoundTripContext(ctx); err != nil {
+			return err
+		}
+		return ctx.Err()
+	})
 }
 
 // SupportedOperations returns operations exposed by the foreign-toplevel protocol.
@@ -794,5 +802,8 @@ func (m *WaylandWindowManager) InfoByID(ctx context.Context, id string) (Info, e
 		info = found
 		return nil
 	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return Info{}, fmt.Errorf("window/wayland: info canceled: %w", ctxErr)
+	}
 	return info, err
 }
