@@ -28,3 +28,13 @@ func TestParseWindowMatchArgsRejectsInvalidPIDWithoutMatchingEverything(t *testi
 		t.Fatalf("error returned partial match: %+v", got)
 	}
 }
+
+func TestParseWindowMatchArgsPreservesQuotedPositionalTitle(t *testing.T) {
+	got, err := parseWindowMatchArgs([]string{"Quarterly Planning", "active"})
+	if err != nil {
+		t.Fatalf("quoted positional title should be one token: %v", err)
+	}
+	if got.TitleContains != "Quarterly Planning" || got.Active == nil || !*got.Active {
+		t.Fatalf("quoted title match altered: %+v", got)
+	}
+}

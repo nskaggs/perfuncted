@@ -26,10 +26,10 @@ func parseWindowMatchArgs(args []string) (window.Match, error) {
 		return window.Match{}, nil
 	}
 	// Shell quoting is removed before Cobra receives arguments. Preserve each
-	// key=value argument containing whitespace as a single match token.
+	// shell argument as a single match token, including positional titles.
 	parts := append([]string(nil), args...)
 	for i, arg := range parts {
-		if strings.ContainsAny(arg, " \t\n\r,") && strings.ContainsAny(arg, "=:") {
+		if strings.ContainsAny(arg, " \t\n\r,") {
 			parts[i] = `"` + strings.ReplaceAll(strings.ReplaceAll(arg, `\`, `\\`), `"`, `\"`) + `"`
 		}
 	}
