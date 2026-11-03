@@ -715,9 +715,11 @@ func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
 		}
 		ev.Interface = strings.TrimRight(string(data[stringStart:stringStart+slen]), "\x00")
 		padded := slen + extra
-		if off := stringStart + padded; off+4 <= len(data) {
-			ev.Version = Uint32(data[off : off+4])
+		off := stringStart + padded
+		if off+4 > len(data) {
+			return
 		}
+		ev.Version = Uint32(data[off : off+4])
 		r.globalHandler(ev)
 	case 1:
 		if r.globalRemoveHandler != nil && len(data) >= 4 {
