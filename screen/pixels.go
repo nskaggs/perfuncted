@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
+
+	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 // requireCapturedImage rejects a decode that produced no pixels.
@@ -15,7 +17,7 @@ import (
 // read as a transparent black frame, so the emptiness is turned into an error
 // here, at the seam that returns an image.
 func requireCapturedImage(backend string, img image.Image) (image.Image, error) {
-	if img == nil {
+	if util.IsNil(img) {
 		return nil, fmt.Errorf("screen/%s: capture produced no image", backend)
 	}
 	if img.Bounds().Empty() {
