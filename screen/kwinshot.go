@@ -105,6 +105,10 @@ func NewKWinShotBackendForBusContext(ctx context.Context, addr string) (*KWinSho
 // synchronous call returns (KWin has already written + closed its dup'd copy
 // by then), then drain the read end.
 func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if b == nil || b.transport == nil {
 		return nil, fmt.Errorf("screen/kwin: backend not initialised")
 	}
@@ -116,6 +120,9 @@ func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image
 		img, err = b.transport.CaptureArea(ctx, rect)
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return requireCapturedImage("screen/kwin", img)
