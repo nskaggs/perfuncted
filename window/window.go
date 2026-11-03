@@ -180,7 +180,7 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Manager, error) { 
 		return nil, err
 	}
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
-		return NewX11Backend(display)
+		return openX11Runtime(display)
 	}
 	compositorKind, detectErr := compositor.DetectRuntimeContext(ctx, rt)
 	if detectErr != nil {
@@ -222,7 +222,7 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Manager, error) { 
 			return nil, ctxErr
 		}
 		if display := rt.Display(); display != "" {
-			return NewX11Backend(display)
+			return openX11Runtime(display)
 		}
 		return nil, fmt.Errorf("window: unsupported Wayland compositor")
 
@@ -231,7 +231,7 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Manager, error) { 
 		if d == "" {
 			return nil, fmt.Errorf("window: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
-		return NewX11Backend(d)
+		return openX11Runtime(d)
 	}
 }
 
@@ -251,6 +251,16 @@ func openGNOMERuntimeContext(ctx context.Context, rt env.Runtime) (Manager, erro
 		return nil, fmt.Errorf("window: GNOME Shell Eval unavailable (unsafe mode required): %w", err)
 	}
 	return m, nil
+}
+
+// openX11Runtime does not expose a typed-nil backend when the X11
+// connection cannot be established.
+func openX11Runtime(display string) (Manager, error) {
+	backend, err := NewX11Backend(display)
+	if err != nil {
+		return nil, err
+	}
+	return backend, nil
 }
 
 // ProbeRuntime returns availability details for rt in backend priority order.

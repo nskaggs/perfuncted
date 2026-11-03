@@ -117,7 +117,7 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Screenshotter, err
 		return nil, err
 	}
 	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
-		return NewX11Backend(display)
+		return openX11Runtime(display)
 	}
 	compositorKind, detectErr := compositor.DetectRuntimeContext(ctx, rt)
 	if detectErr != nil {
@@ -191,7 +191,7 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Screenshotter, err
 		if display == "" {
 			return nil, fmt.Errorf("screen: no display (set WAYLAND_DISPLAY or DISPLAY)")
 		}
-		return NewX11Backend(display)
+		return openX11Runtime(display)
 
 	default: // Unknown Wayland compositor — try protocols then portal
 		if b, err := NewWlrScreencopyBackendForSocketContext(ctx, rt.SocketPath()); err == nil {
@@ -213,10 +213,20 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Screenshotter, err
 			return nil, err
 		}
 		if display := rt.Display(); display != "" {
-			return NewX11Backend(display)
+			return openX11Runtime(display)
 		}
 		return nil, fmt.Errorf("screen: unsupported Wayland compositor")
 	}
+}
+
+// openX11Runtime does not expose a typed-nil backend when the X11
+// connection cannot be established.
+func openX11Runtime(display string) (Screenshotter, error) {
+	backend, err := NewX11Backend(display)
+	if err != nil {
+		return nil, err
+	}
+	return backend, nil
 }
 
 // ProbeRuntime returns availability details for rt in backend priority order.
