@@ -85,7 +85,7 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Lister, error) {
 	display := rt.Display()
 	sock := rt.SocketPath()
 	if display != "" && sock == "" {
-		return NewX11Lister(display)
+		return openX11Lister(display)
 	}
 	if sock != "" {
 		if err := ctx.Err(); err != nil {
@@ -98,11 +98,21 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Lister, error) {
 			return nil, err
 		}
 		if display != "" {
-			return NewX11Lister(display)
+			return openX11Lister(display)
 		}
 		return nil, fmt.Errorf("output: WAYLAND_DISPLAY=%q socket unreachable", sock)
 	}
 	return nil, fmt.Errorf("output: no display or Wayland socket available")
+}
+
+// openX11Lister avoids returning a typed-nil *X11Lister through the Lister
+// interface when the X11 connection cannot be established.
+func openX11Lister(display string) (Lister, error) {
+	lister, err := NewX11Lister(display)
+	if err != nil {
+		return nil, err
+	}
+	return lister, nil
 }
 
 // ProbeRuntime reports how the output lister would be selected.
