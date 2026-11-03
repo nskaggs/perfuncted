@@ -126,6 +126,9 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("clipboard get: %w", err)
 	}
+	if c == nil || len(c.getCmd) == 0 || c.getCmd[0] == "" {
+		return "", fmt.Errorf("clipboard get: command is not configured")
+	}
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
@@ -149,6 +152,9 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("clipboard set: %w", err)
+	}
+	if c == nil || len(c.setCmd) == 0 || c.setCmd[0] == "" {
+		return fmt.Errorf("clipboard set: command is not configured")
 	}
 	if filepath.Base(c.setCmd[0]) == "wl-copy" {
 		return c.setWayland(ctx, text)
