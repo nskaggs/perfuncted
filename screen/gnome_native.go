@@ -16,6 +16,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/internal/util"
 )
 
 var _ Screenshotter = (*GnomeNativeScreenBackend)(nil)
@@ -107,7 +108,7 @@ func validateGnomeCaptureRect(rect image.Rectangle) error {
 }
 
 func normalizeGnomeCapture(img image.Image, capture gnomebridge.ScreenCapture) (image.Image, error) {
-	if img == nil {
+	if util.IsNil(img) {
 		return nil, fmt.Errorf("screen/gnome-native: capture returned a nil image")
 	}
 	if capture.Width <= 0 || capture.Height <= 0 ||
