@@ -108,10 +108,17 @@ func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image
 	if b == nil || b.transport == nil {
 		return nil, fmt.Errorf("screen/kwin: backend not initialised")
 	}
+	var img image.Image
+	var err error
 	if rect.Empty() {
-		return b.transport.CaptureActiveScreen(ctx)
+		img, err = b.transport.CaptureActiveScreen(ctx)
+	} else {
+		img, err = b.transport.CaptureArea(ctx, rect)
 	}
-	return b.transport.CaptureArea(ctx, rect)
+	if err != nil {
+		return nil, err
+	}
+	return requireCapturedImage("screen/kwin", img)
 }
 
 // GrabFullHash returns a fast pixel hash of the active screen.
