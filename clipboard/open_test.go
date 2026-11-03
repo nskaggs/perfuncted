@@ -139,7 +139,10 @@ func TestExtCmdClipboardSetDoesNotWaitForClipboardDaemon(t *testing.T) {
 		return exec.CommandContext(ctx, "sh", "-c", "sleep 2 >&2 & exit 0")
 	}
 
-	for _, tool := range []string{"wl-copy", "xclip"} {
+	// wl-copy uses a foreground owner plus an independently verified paste
+	// readiness path, exercised by TestWaylandSetDoesNotWaitForPasteConsumer.
+	// The daemonized stderr-handoff path applies to xclip.
+	for _, tool := range []string{"xclip"} {
 		t.Run(tool, func(t *testing.T) {
 			cb := &extCmdClipboard{setCmd: []string{tool}}
 			ctx := context.Background()

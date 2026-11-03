@@ -51,6 +51,13 @@ func TestWaylandSetDoesNotWaitForPasteConsumer(t *testing.T) {
 	output := filepath.Join(dir, "clipboard.txt")
 	holding := filepath.Join(dir, "holding")
 	tool := filepath.Join(dir, "wl-copy")
+	paste := filepath.Join(dir, "wl-paste")
+	// Readiness must be observed from a separate paste command, not inferred
+	// merely because the foreground clipboard owner has started.
+	pasteScript := "#!/bin/sh\n[ -e \"$PF_TEST_CLIPBOARD_HOLDING\" ] || exit 1\ncat \"$PF_TEST_CLIPBOARD_OUTPUT\"\n"
+	if err := os.WriteFile(paste, []byte(pasteScript), 0o700); err != nil {
+		t.Fatalf("write fake wl-paste: %v", err)
+	}
 	// The owner consumes the clipboard content, announces that it is holding
 	// the selection, and then stays alive well past any bound this test uses.
 	script := "#!/bin/sh\ncat > \"$PF_TEST_CLIPBOARD_OUTPUT\"\n: > \"$PF_TEST_CLIPBOARD_HOLDING\"\nsleep 30\n"
@@ -60,6 +67,7 @@ func TestWaylandSetDoesNotWaitForPasteConsumer(t *testing.T) {
 
 	cb := &extCmdClipboard{
 		setCmd: []string{tool, "--foreground"},
+		getCmd: []string{paste, "--no-newline"},
 		env:    append(os.Environ(), "PF_TEST_CLIPBOARD_OUTPUT="+output, "PF_TEST_CLIPBOARD_HOLDING="+holding),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -238,6 +238,12 @@ func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 		_ = input.Close()
 		return fmt.Errorf("clipboard set: %w", ctxErr)
 	}
+	// A live foreground owner alone does not prove that the compositor is
+	// serving our selection. Never spawn it without a way to observe readiness.
+	if len(c.getCmd) == 0 || c.getCmd[0] == "" {
+		_ = input.Close()
+		return fmt.Errorf("clipboard set: Wayland readiness command is not configured")
+	}
 	cmd, done, err := c.startWaylandOwner(ctx, input)
 	if err != nil {
 		_ = input.Close()
