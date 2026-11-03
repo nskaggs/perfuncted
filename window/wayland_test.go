@@ -15,6 +15,7 @@ import (
 
 // Mock Wayland Context and Display for testing.
 type mockWaylandContext struct {
+	closeCount int
 	objects    map[uint32]wl.Proxy
 	nextID     uint32
 	sentMsgs   [][]byte
@@ -73,7 +74,7 @@ func (m *mockWaylandContext) WithOperationContext(ctx context.Context, fn func()
 	return fn()
 }
 
-func (m *mockWaylandContext) Close() error { return nil }
+func (m *mockWaylandContext) Close() error { m.closeCount++; return nil }
 func (m *mockWaylandContext) ID() uint32   { return 1 } // Mock display ID
 
 type mockWaylandDisplay struct{ ctx *mockWaylandContext }

@@ -530,7 +530,8 @@ func (m *WaylandWindowManager) Close() error {
 		return nil
 	}
 	m.changesMu.Lock()
-	if !m.closed.Swap(true) && m.changes != nil {
+	alreadyClosed := m.closed.Swap(true)
+	if !alreadyClosed && m.changes != nil {
 		// A pending hint is not authoritative after shutdown. Drain it
 		// before closing so a late subscriber cannot receive stale data.
 		select {
@@ -540,6 +541,9 @@ func (m *WaylandWindowManager) Close() error {
 		close(m.changes)
 	}
 	m.changesMu.Unlock()
+	if alreadyClosed {
+		return nil
+	}
 	if m.session != nil {
 		return m.session.Close()
 	}
