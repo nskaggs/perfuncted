@@ -25,7 +25,15 @@ func parseWindowMatchArgs(args []string) (window.Match, error) {
 	if len(args) == 0 {
 		return window.Match{}, nil
 	}
-	return window.ParseMatchSpec(strings.Join(args, " "))
+	// Shell quoting is removed before Cobra receives arguments. Preserve each
+	// key=value argument containing whitespace as a single match token.
+	parts := append([]string(nil), args...)
+	for i, arg := range parts {
+		if strings.ContainsAny(arg, " \t\n\r,") && strings.ContainsAny(arg, "=:") {
+			parts[i] = `"` + strings.ReplaceAll(strings.ReplaceAll(arg, `\`, `\\`), `"`, `\"`) + `"`
+		}
+	}
+	return window.ParseMatchSpec(strings.Join(parts, " "))
 }
 
 func collectWindowMatches(
