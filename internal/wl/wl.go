@@ -720,6 +720,9 @@ func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
 			return
 		}
 		ev.Version = Uint32(data[off : off+4])
+		if ev.Version == 0 {
+			return
+		}
 		r.globalHandler(ev)
 	case 1:
 		if r.globalRemoveHandler != nil && len(data) >= 4 {
