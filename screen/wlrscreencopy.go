@@ -286,22 +286,27 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 	}
 
 	b.output.dispatchFn = func(opcode uint32, _ int, data []byte) {
-		switch opcode {
-		case 1: // mode: flags, width, height, refresh
-			if mode, ok := wl.DecodeOutputMode(data); ok {
-				b.pW = int(mode.Width)
-				b.pH = int(mode.Height)
-			}
-		case 3: // scale
-			if len(data) >= 4 {
-				b.scale = wl.Uint32(data[0:4])
-				if b.scale == 0 {
-					b.scale = 1
-				}
+		b.applyOutputEvent(opcode, data)
+	}
+	return display.RoundTripContext(operationCtx)
+}
+
+// applyOutputEvent updates the observed screencopy output geometry.
+func (b *WlrScreencopyBackend) applyOutputEvent(opcode uint32, data []byte) {
+	switch opcode {
+	case 1: // mode: flags, width, height, refresh
+		if mode, ok := wl.DecodeOutputMode(data); ok {
+			b.pW = int(mode.Width)
+			b.pH = int(mode.Height)
+		}
+	case 3: // scale
+		if len(data) >= 4 {
+			scale := int32(wl.Uint32(data[0:4]))
+			if scale > 0 {
+				b.scale = uint32(scale)
 			}
 		}
 	}
-	return display.RoundTripContext(operationCtx)
 }
 
 // captureFrame handles the shared frame capture lifecycle: create frame proxy,
