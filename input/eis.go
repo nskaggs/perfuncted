@@ -34,6 +34,7 @@ type eiClient struct {
 	done      chan struct{}
 	stop      chan struct{}
 	closeOnce sync.Once
+	closeErr  error
 	// A whole EI request batch must remain contiguous on the byte stream.
 	writeMu    sync.Mutex
 	errorMu    sync.RWMutex
@@ -271,12 +272,11 @@ func (c *eiClient) writeMessages(messages ...[]byte) error {
 }
 
 func (c *eiClient) close() error {
-	var err error
 	c.closeOnce.Do(func() {
 		close(c.stop)
-		err = c.conn.Close()
+		c.closeErr = c.conn.Close()
 	})
-	return err
+	return c.closeErr
 }
 
 type eiRegion struct {
