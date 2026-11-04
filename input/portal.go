@@ -518,6 +518,9 @@ func (b *RemoteDesktopBackend) PointerCoordinateSpace(ctx context.Context) (Coor
 	if !b.sender.hasAuthorizedPointer() {
 		return CoordinateSpaceInfo{}, unsupportedError("remote-desktop", "absolute pointer input")
 	}
+	if err := ctx.Err(); err != nil {
+		return CoordinateSpaceInfo{}, err
+	}
 	return CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
 }
 
@@ -1294,7 +1297,7 @@ func (b *RemoteDesktopBackend) scroll(ctx context.Context, x, y, clicks int) err
 		return err
 	}
 	if clicks == 0 {
-		return nil
+		return ctx.Err()
 	}
 	if b.sender.scroll == 0 || b.sender.scrollDev == 0 {
 		return unsupportedError("remote-desktop", "scroll")
