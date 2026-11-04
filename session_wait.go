@@ -80,7 +80,9 @@ func (f *waitEvaluateFailures) reset() {
 func isPermanentWaitError(err error) bool {
 	// Locator identity/semantic failures are terminal. Generic existence
 	// predicates may intentionally tolerate transient incomplete snapshots.
-	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrApplicationExited) || errors.Is(err, errLocatorUnverifiable) || errors.Is(err, ErrInvalidArgument)
+	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrNilSession) ||
+		errors.Is(err, ErrApplicationExited) || errors.Is(err, errLocatorUnverifiable) ||
+		errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrUnsupported)
 }
 
 // Condition is an authoritative state check used by Session.Wait.
