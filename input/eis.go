@@ -532,7 +532,7 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 			return err
 		}
 		scale := math.Float32frombits(scaleBits)
-		if width == 0 || height == 0 || math.IsNaN(float64(scale)) || math.IsInf(float64(scale), 0) || scale <= 0 {
+		if width == 0 || height == 0 || uint64(x)+uint64(width) > uint64(math.MaxUint32)+1 || uint64(y)+uint64(height) > uint64(math.MaxUint32)+1 || math.IsNaN(float64(scale)) || math.IsInf(float64(scale), 0) || scale <= 0 {
 			return errors.New("input/eis: EIS advertised invalid absolute region geometry or scale")
 		}
 		device.regions = append(device.regions, eiRegion{x: x, y: y, width: width, height: height, scale: scale})
