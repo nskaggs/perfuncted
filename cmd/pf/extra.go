@@ -171,7 +171,11 @@ func splitShell(s string) ([]string, error) {
 		switch ch {
 		case '\\':
 			tokenStarted = true
-			escaped = true
+			if inQuote == '\'' {
+				cur.WriteByte(ch)
+			} else {
+				escaped = true
+			}
 		case '\'', '"':
 			tokenStarted = true
 			if inQuote == 0 {
