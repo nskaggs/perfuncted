@@ -1631,11 +1631,17 @@ func matchesLabel(byID map[NodeID]Node, labelsFor map[NodeID][]NodeID, node Node
 		return true
 	}
 	for _, id := range node.Relations["labelled-by"] {
+		if id == node.ID {
+			continue
+		}
 		if label, ok := byID[id]; ok && labelMatches(label, want) {
 			return true
 		}
 	}
 	for _, labelID := range labelsFor[node.ID] {
+		if labelID == node.ID {
+			continue
+		}
 		if label, ok := byID[labelID]; ok && labelMatches(label, want) {
 			return true
 		}
