@@ -231,6 +231,11 @@ func (m *WaylandWindowManager) handleWLRToplevelEvent(
 ) {
 	m.toplevelsMu.Lock()
 	defer m.toplevelsMu.Unlock()
+	// A late event from a retired proxy must never mutate or remove a
+	// replacement that reused the same protocol object ID.
+	if m.toplevels[handleID] != info {
+		return
+	}
 	defer m.notifyWindowChange()
 
 	// title and app_id are strings (arg[0] = byte-length, arg[1..] = string)
@@ -277,6 +282,9 @@ func (m *WaylandWindowManager) handleExtToplevelEvent(
 ) {
 	m.toplevelsMu.Lock()
 	defer m.toplevelsMu.Unlock()
+	if m.toplevels[handleID] != info {
+		return
+	}
 	defer m.notifyWindowChange()
 
 	switch op {
