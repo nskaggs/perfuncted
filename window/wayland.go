@@ -165,14 +165,20 @@ func NewWaylandWindowManagerForSocketContext(ctx context.Context, sock string) (
 }
 
 func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
-	wlctx := m.display.Context()
-	mgrProxy := &wl.RawProxy{}
-	wlctx.Register(mgrProxy)
-
 	iface, regName, ver := m.foreignToplevelProtocol()
 	if regName == 0 {
 		return fmt.Errorf("window/wayland: no foreign-toplevel protocol available")
 	}
+	wlctx := m.display.Context()
+	mgrProxy := &wl.RawProxy{}
+	wlctx.Register(mgrProxy)
+	// Failed binding or discovery must not retain an unusable protocol proxy.
+	bound := false
+	defer func() {
+		if !bound {
+			wl.Unregister(wlctx, mgrProxy)
+		}
+	}()
 	isWLR := iface == "zwlr_foreign_toplevel_manager_v1"
 	if err := m.registry.BindContext(ctx, regName, iface, ver, mgrProxy.ID()); err != nil {
 		return fmt.Errorf("window/wayland: bind %s: %w", iface, err)
@@ -206,7 +212,11 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 			}
 		}
 	}
-	return m.display.RoundTripContext(ctx)
+	if err := m.display.RoundTripContext(ctx); err != nil {
+		return err
+	}
+	bound = true
+	return nil
 }
 
 // foreignToplevelProtocol chooses the control-capable protocol when both the
