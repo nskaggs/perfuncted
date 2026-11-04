@@ -172,11 +172,27 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 	wlctx := m.display.Context()
 	mgrProxy := &wl.RawProxy{}
 	wlctx.Register(mgrProxy)
-	// Failed binding or discovery must not retain an unusable protocol proxy.
+	// A failed round trip can already have created toplevel proxies. Those
+	// belong to the rejected subscription and must be released alongside it.
+	type provisionalHandle struct {
+		id    uint32
+		info  *Info
+		proxy *wl.RawProxy
+	}
+	var provisional []provisionalHandle
 	bound := false
 	defer func() {
-		if !bound {
-			wl.Unregister(wlctx, mgrProxy)
+		if bound {
+			return
+		}
+		wl.Unregister(wlctx, mgrProxy)
+		m.toplevelsMu.Lock()
+		defer m.toplevelsMu.Unlock()
+		for _, handle := range provisional {
+			wl.Unregister(wlctx, handle.proxy)
+			if m.toplevels[handle.id] == handle.info {
+				delete(m.toplevels, handle.id)
+			}
 		}
 	}()
 	isWLR := iface == "zwlr_foreign_toplevel_manager_v1"
@@ -205,6 +221,7 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 		m.notifyWindowChange()
 		handle := &wl.RawProxy{}
 		wlctx.SetProxy(handleID, handle)
+		provisional = append(provisional, provisionalHandle{id: handleID, info: info, proxy: handle})
 		// Each handle emits title/app_id/state/output_enter/leave/closed events.
 		handle.OnEvent = func(op uint32, _ int, d []byte) {
 			if !isWLR {
