@@ -92,8 +92,11 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	if err := validateUinputDimensions(maxX, maxY); err != nil {
 		return nil, err
 	}
-	if _, err := statUinputDevice("/dev/uinput"); errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("input/uinput: /dev/uinput not found; kernel module uinput may not be loaded")
+	if _, err := statUinputDevice("/dev/uinput"); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("input/uinput: /dev/uinput not found; kernel module uinput may not be loaded: %w", err)
+		}
+		return nil, fmt.Errorf("input/uinput: inspect /dev/uinput: %w", err)
 	}
 
 	kb, err := createUinputKeyboard("/dev/uinput", []byte("perfuncted-keyboard"))
