@@ -209,11 +209,8 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 				// collapses logical geometry to 1x1. Keep the last
 				// confirmed scale when an event is malformed.
 				scale := int(int32(wl.Uint32(data[0:4])))
-				if scale < 0 {
+				if scale <= 0 {
 					return
-				}
-				if scale == 0 {
-					scale = 1
 				}
 				o.info.Scale = scale
 				o.info.ScaleNumerator = scale
