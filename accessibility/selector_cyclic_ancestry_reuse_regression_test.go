@@ -54,3 +54,26 @@ func TestFilterSnapshotSelectorDoesNotPublishCyclicAncestorMatch(t *testing.T) {
 		t.Fatalf("finite, distinct ancestor chain could not select target: %+v", got)
 	}
 }
+
+// The selected object can never be its own ancestor, even when a broken AT-SPI
+// provider supplies a self-parent pointer or a cycle back through a container.
+func TestFilterSnapshotSelectorDoesNotTreatTargetAsItsOwnAncestor(t *testing.T) {
+	targetID := NodeID{BusName: "org.synthetic.App", ObjectPath: "/target", Generation: 8}
+	parentID := NodeID{BusName: targetID.BusName, ObjectPath: "/parent", Generation: 8}
+	target := Node{ID: targetID, Role: "entry", Name: "Name", Parent: targetID}
+	selector := Selector{Role: "entry", Name: "Name", Ancestors: []AncestorSelector{{Role: "entry", Name: "Name"}}}
+	if got := FilterSnapshotSelector(Snapshot{Nodes: []Node{target}}, selector); len(got) != 0 {
+		t.Fatalf("self-parenting target satisfied its own ancestor constraint: %+v", got)
+	}
+	target.Parent = parentID
+	parent := Node{ID: parentID, Role: "group", Name: "Form", Parent: targetID}
+	if got := FilterSnapshotSelector(Snapshot{Nodes: []Node{target, parent}}, selector); len(got) != 0 {
+		t.Fatalf("target reappeared as ancestor after a parent cycle: %+v", got)
+	}
+	// Non-cyclic parent chains must still resolve ordinary semantic selectors.
+	parent.Parent = NodeID{}
+	selector.Ancestors = []AncestorSelector{{Role: "group", Name: "Form"}}
+	if got := FilterSnapshotSelector(Snapshot{Nodes: []Node{target, parent}}, selector); len(got) != 1 || got[0].ID != targetID {
+		t.Fatalf("valid parent chain unexpectedly rejected: %+v", got)
+	}
+}
