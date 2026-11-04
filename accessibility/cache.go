@@ -65,6 +65,9 @@ func (b *dbusBackend) childrenWithCache(ctx context.Context, id NodeID, allowCac
 	}
 	if allowCache {
 		if cached := b.cachedChildren(id); cached != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			return cached, nil
 		}
 	}
