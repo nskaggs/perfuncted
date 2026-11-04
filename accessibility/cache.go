@@ -118,7 +118,7 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 		if len(children) == 0 {
 			return nil
 		}
-		return children
+		return append([]objectRef(nil), children...)
 	}
 	b.mu.RUnlock()
 
@@ -135,9 +135,10 @@ func (b *dbusBackend) cachedChildren(id NodeID) []objectRef {
 	if len(children) == 0 {
 		return nil
 	}
-	// The slice is the index's own storage and must be treated as read-only by the
-	// caller; it is shared by every lookup for this generation.
-	return children
+	// Never expose the mutable index storage to a caller. Another observation
+	// must retain authoritative child identities even if the caller edits its
+	// own result after this lock has been released.
+	return append([]objectRef(nil), children...)
 }
 
 func (b *dbusBackend) cachedChildrenAvailableLocked(id NodeID) bool {
