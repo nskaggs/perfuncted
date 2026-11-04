@@ -1652,9 +1652,16 @@ func matchesAncestors(byID map[NodeID]Node, node Node, requested []AncestorSelec
 		return true
 	}
 	parent := node.Parent
+	// A malformed provider can advertise a parent cycle. Never allow the
+	// same ancestor to satisfy a later ordered constraint after looping back.
+	visited := make(map[NodeID]struct{}, len(byID))
 	for _, constraint := range requested {
 		found := false
 		for steps := 0; parent.valid() && steps < len(byID); steps++ {
+			if _, seen := visited[parent]; seen {
+				return false
+			}
+			visited[parent] = struct{}{}
 			ancestor, ok := byID[parent]
 			if !ok {
 				return false
