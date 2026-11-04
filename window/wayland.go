@@ -190,6 +190,11 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 			return
 		}
 		handleID := wl.Uint32(data[0:4])
+		// Object ID zero is reserved by Wayland. Never publish a window
+		// or register a server-created proxy under the null object ID.
+		if handleID == 0 {
+			return
+		}
 		info := &Info{
 			ID:       uint64(handleID),
 			NativeID: strconv.FormatUint(uint64(handleID), 10),
