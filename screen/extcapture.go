@@ -48,10 +48,14 @@ func (b *ExtCaptureBackend) applyOutputEvent(opcode uint32, data []byte) {
 	if opcode != wlOutputScaleOpcode || len(data) < 4 {
 		return
 	}
-	b.outputScale = wl.Uint32(data[0:4])
-	if b.outputScale == 0 {
-		b.outputScale = 1
+	scale := int32(wl.Uint32(data[0:4]))
+	if scale <= 0 {
+		if b.outputScale == 0 {
+			b.outputScale = 1
+		}
+		return
 	}
+	b.outputScale = uint32(scale)
 }
 
 // ExtCaptureBackend captures screen regions through an external capture process
