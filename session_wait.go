@@ -80,7 +80,7 @@ func (f *waitEvaluateFailures) reset() {
 func isPermanentWaitError(err error) bool {
 	// Locator identity/semantic failures are terminal. Generic existence
 	// predicates may intentionally tolerate transient incomplete snapshots.
-	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrApplicationExited) || errors.Is(err, errLocatorUnverifiable)
+	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrApplicationExited) || errors.Is(err, errLocatorUnverifiable) || errors.Is(err, ErrInvalidArgument)
 }
 
 // Condition is an authoritative state check used by Session.Wait.
@@ -120,7 +120,7 @@ func Predicate(
 		name: name,
 		check: func(ctx context.Context, _ *Session) (bool, error) {
 			if check == nil {
-				return false, errors.New("perfuncted: nil wait predicate")
+				return false, fmt.Errorf("perfuncted: %w: nil wait predicate", ErrInvalidArgument)
 			}
 			return check(ctx)
 		},
@@ -168,7 +168,7 @@ func (c compositeCondition) evaluate(
 	case "all":
 		for _, child := range c.conditions {
 			if child == nil {
-				return false, errors.New("perfuncted: nil child condition")
+				return false, fmt.Errorf("perfuncted: %w: nil child condition", ErrInvalidArgument)
 			}
 			ok, err := child.evaluate(ctx, session)
 			if err != nil || !ok {
@@ -180,7 +180,7 @@ func (c compositeCondition) evaluate(
 		var evaluationErrors []error
 		for _, child := range c.conditions {
 			if child == nil {
-				return false, errors.New("perfuncted: nil child condition")
+				return false, fmt.Errorf("perfuncted: %w: nil child condition", ErrInvalidArgument)
 			}
 			ok, err := child.evaluate(ctx, session)
 			if err != nil {
@@ -240,7 +240,7 @@ func (c notCondition) evaluate(
 	session *Session,
 ) (bool, error) {
 	if c.child == nil {
-		return false, errors.New("perfuncted: nil child condition")
+		return false, fmt.Errorf("perfuncted: %w: nil child condition", ErrInvalidArgument)
 	}
 	ok, err := c.child.evaluate(ctx, session)
 	return !ok, err
