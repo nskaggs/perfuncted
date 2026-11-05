@@ -825,7 +825,7 @@ func (b *UinputBackend) ensureMouseLocked() error {
 		}
 		return createErr
 	}
-	if m == nil {
+	if util.IsNil(m) {
 		return errors.New("input/uinput: create mouse for scroll: factory returned nil device")
 	}
 	if b.closedForMouse() {
