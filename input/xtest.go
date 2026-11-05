@@ -112,7 +112,9 @@ func (b *XTestBackend) withOperation(ctx context.Context, fn func(context.Contex
 	if err := opCtx.Err(); err != nil {
 		return err
 	}
-	return fn(opCtx)
+	// X11 may complete a transport write as its owner cancels. Preserve
+	// cancellation and any device error instead of acknowledging success.
+	return errors.Join(fn(opCtx), contextOutcome(opCtx))
 }
 
 // keysymForName maps a key name to an X11 keysym value.
