@@ -244,6 +244,11 @@ const maxManagedSessionSocketPathBytes = 80
 func managedSessionTempRoots() []string {
 	preferred := filepath.Clean(os.TempDir())
 	const shortRoot = "/tmp"
+	// A relative TMPDIR would produce relative managed runtime and socket
+	// paths, which D-Bus cannot reliably bind and cleanup cannot own safely.
+	if !filepath.IsAbs(preferred) {
+		return []string{shortRoot}
+	}
 	if preferred == shortRoot {
 		return []string{preferred}
 	}
