@@ -296,6 +296,11 @@ func createManagedSessionRuntimeDir() (string, error) {
 var ErrSessionSocketPathTooLong = errors.New("session: socket pathname exceeds UNIX limit")
 
 func validateSessionUnixSocketPath(path string) error {
+	// Linux pathname sockets cannot represent embedded NUL bytes. Reject
+	// them before launching a managed session or validating length alone.
+	if strings.IndexByte(path, 0) >= 0 {
+		return errors.New("session: socket pathname contains NUL byte")
+	}
 	maxBytes := len(syscall.RawSockaddrUnix{}.Path) - 1
 	size := len([]byte(path))
 	if size > maxBytes {
