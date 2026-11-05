@@ -177,7 +177,7 @@ func (s *Session) captureScreenshot(ctx context.Context, directory string) error
 	if err != nil {
 		return err
 	}
-	if img == nil {
+	if util.IsNil(img) {
 		return errors.New("screen backend returned a nil image")
 	}
 	return writePNG(filepath.Join(directory, "screenshot.png"), img)
