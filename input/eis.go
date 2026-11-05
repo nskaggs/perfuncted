@@ -513,6 +513,11 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 	if !ok {
 		return nil
 	}
+	// Device enumeration is sealed by ei_device.done. A late region or
+	// interface cannot silently expand authority after selection.
+	if device.done && (message.opcode == 4 || message.opcode == 5) {
+		return fmt.Errorf("input/eis: completed device %d cannot add capabilities", device.id)
+	}
 	switch message.opcode {
 	case 4:
 		x, err := eiReadU32(message.body, 0)
