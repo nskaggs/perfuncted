@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unicode/utf8"
@@ -788,6 +789,9 @@ func eiFrame(device uint64, serial uint32) ([]byte, error) {
 func eiTextFrames(sender *eiSender, text string) ([][]byte, error) {
 	if !utf8.ValidString(text) {
 		return nil, errors.New("input: text must be valid UTF-8")
+	}
+	if strings.IndexByte(text, 0) >= 0 {
+		return nil, errors.New("input/eis: text contains embedded NUL byte")
 	}
 	if text == "" {
 		return nil, nil
