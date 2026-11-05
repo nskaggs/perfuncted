@@ -215,9 +215,10 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 		handleID := wl.Uint32(data[0:4])
 		// Object ID zero is reserved by Wayland. Never publish a window
 		// or register a server-created proxy under the null object ID.
-		if handleID == 0 || handleID == mgrProxy.ID() {
-			// Reusing our manager object ID would overwrite its dispatch
-			// proxy and corrupt the active foreign-toplevel subscription.
+		if handleID == 0 || handleID == mgrProxy.ID() || handleID == m.registry.ID() ||
+			(m.seat != nil && handleID == m.seat.ID()) {
+			// A compositor-supplied handle must not overwrite a live
+			// protocol object used by the connection or window manager.
 			return
 		}
 		info := &Info{
