@@ -503,6 +503,9 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if _, exists := s.devices[id]; exists {
 			return fmt.Errorf("input/eis: duplicate device announcement for object %d", id)
 		}
+		if s.isReservedEISObject(id) {
+			return fmt.Errorf("input/eis: invalid device object %d collides with existing protocol identity", id)
+		}
 		s.devices[id] = &eiDevice{id: id, version: version, interfaces: make(map[string]uint64)}
 		return nil
 	}
@@ -559,6 +562,9 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 				}
 			}
 		}
+		if s.isReservedEISObject(object) {
+			return fmt.Errorf("input/eis: invalid interface object for %q", name)
+		}
 		device.interfaces[name] = object
 	case 6:
 		device.done = true
@@ -568,6 +574,25 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		device.resumed = false
 	}
 	return nil
+}
+
+// EIS protocol object identities are connection-wide, not scoped to devices.
+// A collision could route an input request to an unrelated protocol object.
+func (s *eiSender) isReservedEISObject(id uint64) bool {
+	if id != 0 && (id == s.connection || id == s.seat) {
+		return true
+	}
+	for deviceID, device := range s.devices {
+		if id == deviceID {
+			return true
+		}
+		for _, existingObject := range device.interfaces {
+			if id == existingObject {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *eiSender) devicesReady() bool { //nolint:gocyclo // readiness requires deterministic device selection across all advertised capabilities.
