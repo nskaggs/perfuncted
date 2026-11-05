@@ -234,11 +234,16 @@ func (b *dbusBackend) publishLoadedCache(busName string, items []cacheItem, expe
 }
 
 func validateLoadedCacheItems(busName string, items []cacheItem) error {
+	seen := make(map[cacheObjectRef]struct{}, len(items))
 	for _, item := range items {
 		if !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheParentRef(item.Parent) ||
 			item.Object.BusName != busName || item.Application.BusName != busName {
 			return fmt.Errorf("accessibility: cache get items for %s returned foreign or malformed identity", busName)
 		}
+		if _, duplicate := seen[item.Object]; duplicate {
+			return fmt.Errorf("accessibility: cache get items for %s returned duplicate object identity %s", busName, item.Object.ObjectPath)
+		}
+		seen[item.Object] = struct{}{}
 	}
 	return nil
 }
