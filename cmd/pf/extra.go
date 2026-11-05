@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -68,12 +69,13 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 }
 
 type scriptRunner struct {
-	ctx            context.Context //nolint:containedctx // runner owns command context
-	in             io.Reader
-	out            io.Writer
-	pf             *perfuncted.Session
-	selectedWindow *perfuncted.Window
-	sync           bool
+	ctx             context.Context //nolint:containedctx // runner owns command context
+	in              io.Reader
+	out             io.Writer
+	pf              *perfuncted.Session
+	selectedWindow  *perfuncted.Window
+	sync            bool
+	scriptFromStdin bool
 }
 
 func runCmd(
@@ -109,11 +111,12 @@ func runCmd(
 			}
 			defer pf.Close()
 			sr := &scriptRunner{
-				ctx:  cmd.Context(),
-				in:   cmd.InOrStdin(),
-				out:  cmd.OutOrStdout(),
-				pf:   pf,
-				sync: cfg != nil && cfg.sync,
+				ctx:             cmd.Context(),
+				in:              cmd.InOrStdin(),
+				out:             cmd.OutOrStdout(),
+				pf:              pf,
+				sync:            cfg != nil && cfg.sync,
+				scriptFromStdin: path == "-",
 			}
 			return sr.run(r)
 		},
@@ -122,14 +125,30 @@ func runCmd(
 }
 
 func (s *scriptRunner) run(r io.Reader) error {
-	scanner := bufio.NewScanner(r)
-	for lineNo := 1; scanner.Scan(); lineNo++ {
+	// Use a single buffered reader for script lines and any subsequent
+	// input type --stdin payload. A Scanner can prefetch the remaining stdin
+	// into its private buffer, leaving io.ReadAll(s.in) with no bytes.
+	reader := bufio.NewReaderSize(r, bufio.MaxScanTokenSize)
+	if s.scriptFromStdin {
+		s.in = reader
+	}
+	for lineNo := 1; ; lineNo++ {
+		lineBytes, readErr := reader.ReadSlice('\n')
+		if errors.Is(readErr, io.EOF) && len(lineBytes) == 0 {
+			return nil
+		}
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			return fmt.Errorf("script line %d: token too long", lineNo)
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return readErr
+		}
 		if s.ctx != nil {
 			if err := s.ctx.Err(); err != nil {
 				return err
 			}
 		}
-		line := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(string(lineBytes))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -144,7 +163,6 @@ func (s *scriptRunner) run(r io.Reader) error {
 			return err
 		}
 	}
-	return scanner.Err()
 }
 
 func splitShell(s string) ([]string, error) {
