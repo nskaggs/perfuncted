@@ -216,6 +216,12 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 			NativeID: strconv.FormatUint(uint64(handleID), 10),
 		}
 		m.toplevelsMu.Lock()
+		if _, exists := m.toplevels[handleID]; exists {
+			// A duplicate compositor ID cannot replace a live window or
+			// its protocol proxy. Ignore the malformed new_id event.
+			m.toplevelsMu.Unlock()
+			return
+		}
 		m.toplevels[handleID] = info
 		m.toplevelsMu.Unlock()
 		m.notifyWindowChange()
