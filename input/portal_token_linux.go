@@ -22,9 +22,11 @@ type portalTokenLock struct {
 }
 
 func lockPortalTokenStore(rt env.Runtime) (*portalTokenLock, error) {
-	stateHome := strings.TrimSpace(rt.Get("XDG_STATE_HOME"))
+	// These are filesystem paths, not human-entered text. Trimming valid
+	// leading or trailing spaces redirects private restore-token storage.
+	stateHome := rt.Get("XDG_STATE_HOME")
 	if stateHome == "" {
-		home := strings.TrimSpace(rt.Get("HOME"))
+		home := rt.Get("HOME")
 		if home == "" {
 			return nil, errors.New("XDG_STATE_HOME or HOME is required")
 		}
