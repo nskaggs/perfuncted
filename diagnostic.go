@@ -180,6 +180,11 @@ func (s *Session) captureScreenshot(ctx context.Context, directory string) error
 	if util.IsNil(img) {
 		return errors.New("screen backend returned a nil image")
 	}
+	// Unlike the public ScreenBundle path, diagnostics read the capture
+	// backend directly. Reject truncated planes before PNG accesses them.
+	if err := validateCaptureImageLayout(img); err != nil {
+		return err
+	}
 	return writePNG(filepath.Join(directory, "screenshot.png"), img)
 }
 
