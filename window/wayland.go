@@ -201,6 +201,10 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 	}
 
 	mgrProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
+		// Buffered events must not recreate handles after shutdown.
+		if m.closed.Load() {
+			return
+		}
 		// toplevel event provides a new object id for the handle.
 		if opcode != 0 || len(data) < 4 {
 			return
@@ -216,6 +220,10 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 			NativeID: strconv.FormatUint(uint64(handleID), 10),
 		}
 		m.toplevelsMu.Lock()
+		if m.closed.Load() {
+			m.toplevelsMu.Unlock()
+			return
+		}
 		if _, exists := m.toplevels[handleID]; exists {
 			// A duplicate compositor ID cannot replace a live window or
 			// its protocol proxy. Ignore the malformed new_id event.
@@ -269,6 +277,9 @@ func (m *WaylandWindowManager) handleWLRToplevelEvent(
 ) {
 	m.toplevelsMu.Lock()
 	defer m.toplevelsMu.Unlock()
+	if m.closed.Load() {
+		return
+	}
 	// A late event from a retired proxy must never mutate or remove a
 	// replacement that reused the same protocol object ID.
 	if m.toplevels[handleID] != info {
@@ -320,7 +331,7 @@ func (m *WaylandWindowManager) handleExtToplevelEvent(
 ) {
 	m.toplevelsMu.Lock()
 	defer m.toplevelsMu.Unlock()
-	if m.toplevels[handleID] != info {
+	if m.closed.Load() || m.toplevels[handleID] != info {
 		return
 	}
 	defer m.notifyWindowChange()
