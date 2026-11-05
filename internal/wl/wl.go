@@ -164,7 +164,17 @@ func (ctx *Context) Register(p Proxy) {
 	if ctx.objects == nil {
 		ctx.objects = make(map[uint32]Proxy)
 	}
-	ctx.nextID++
+	// A malformed compositor new_id may occupy an ID in the client-side
+	// allocation sequence. Never overwrite an existing live protocol proxy.
+	for {
+		ctx.nextID++
+		if ctx.nextID == 0 {
+			continue
+		}
+		if _, occupied := ctx.objects[ctx.nextID]; !occupied {
+			break
+		}
+	}
 	p.SetID(ctx.nextID)
 	p.SetCtx(ctx)
 	ctx.objects[ctx.nextID] = p
@@ -175,6 +185,13 @@ func (ctx *Context) Register(p Proxy) {
 func (ctx *Context) SetProxy(id uint32, p Proxy) {
 	ctx.objectsMu.Lock()
 	defer ctx.objectsMu.Unlock()
+	if id == 0 {
+		return
+	}
+	if _, occupied := ctx.objects[id]; occupied {
+		// Server-created objects cannot revoke existing connection objects.
+		return
+	}
 	if ctx.objects == nil {
 		ctx.objects = make(map[uint32]Proxy)
 	}
