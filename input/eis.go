@@ -554,7 +554,7 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if err != nil {
 			return err
 		}
-		if object == 0 {
+		if object == 0 || name == "" {
 			return fmt.Errorf("input/eis: invalid interface object for %q", name)
 		}
 		if _, exists := device.interfaces[name]; exists {
