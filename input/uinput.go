@@ -815,7 +815,15 @@ func (b *UinputBackend) ensureMouseLocked() error {
 	}
 	m, err := createUinputMouse("/dev/uinput", []byte("perfuncted-mouse"))
 	if err != nil {
-		return fmt.Errorf("input/uinput: create mouse for scroll: %w", err)
+		createErr := fmt.Errorf("input/uinput: create mouse for scroll: %w", err)
+		// A factory may return an acquired device together with an error.
+		// Roll it back even though it was never published to this backend.
+		if !util.IsNil(m) {
+			if closeErr := m.Close(); closeErr != nil {
+				createErr = errors.Join(createErr, fmt.Errorf("input/uinput: close partially created mouse: %w", closeErr))
+			}
+		}
+		return createErr
 	}
 	if m == nil {
 		return errors.New("input/uinput: create mouse for scroll: factory returned nil device")
