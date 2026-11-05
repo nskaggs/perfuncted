@@ -424,9 +424,10 @@ func (s *scriptRunner) parseWindowMoveArgs(args []string) (title string, x, y in
 				return "", 0, 0, err
 			}
 		default:
-			if title == "" {
-				title = args[i]
+			if strings.HasPrefix(args[i], "--") || title != "" {
+				return "", 0, 0, fmt.Errorf("unknown window option %q", args[i])
 			}
+			title = args[i]
 		}
 	}
 	return
@@ -461,9 +462,10 @@ func (s *scriptRunner) parseWindowResizeArgs(args []string) (title string, w, h 
 				return "", 0, 0, err
 			}
 		default:
-			if title == "" {
-				title = args[i]
+			if strings.HasPrefix(args[i], "--") || title != "" {
+				return "", 0, 0, fmt.Errorf("unknown window option %q", args[i])
 			}
+			title = args[i]
 		}
 	}
 	return
@@ -555,6 +557,8 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 					return fmt.Errorf("--out requires a value")
 				}
 				out = toks[i]
+			default:
+				return fmt.Errorf("unknown screen grab option %q", toks[i])
 			}
 		}
 		r, err := parseRect(rect)
@@ -565,13 +569,14 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 	case "hash":
 		rect := "0,0,1920,1080"
 		for i := 1; i < len(toks); i++ {
-			if toks[i] == "--rect" {
-				i++
-				if i >= len(toks) {
-					return fmt.Errorf("--rect requires a value")
-				}
-				rect = toks[i]
+			if toks[i] != "--rect" {
+				return fmt.Errorf("unknown screen hash option %q", toks[i])
 			}
+			i++
+			if i >= len(toks) {
+				return fmt.Errorf("--rect requires a value")
+			}
+			rect = toks[i]
 		}
 		r, err := parseRect(rect)
 		if err != nil {
