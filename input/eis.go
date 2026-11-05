@@ -386,8 +386,8 @@ func setupEISender(ctx context.Context, conn *net.UnixConn) (*eiSender, error) {
 			if err != nil {
 				return nil, err
 			}
-			if seat == 0 {
-				return nil, errors.New("input/eis: invalid seat identity zero")
+			if seat == 0 || seat == sender.connection {
+				return nil, errors.New("input/eis: invalid seat identity collides with connection or null object")
 			}
 			sender.seat = seat
 			break
