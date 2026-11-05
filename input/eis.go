@@ -552,9 +552,11 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if _, exists := device.interfaces[name]; exists {
 			return fmt.Errorf("input/eis: duplicate interface announcement for %q", name)
 		}
-		for existingName, existingObject := range device.interfaces {
-			if existingObject == object {
-				return fmt.Errorf("input/eis: duplicate interface object %d for %q and %q", object, existingName, name)
+		for _, existingDevice := range s.devices {
+			for existingName, existingObject := range existingDevice.interfaces {
+				if existingObject == object {
+					return fmt.Errorf("input/eis: duplicate interface object %d for %q and %q", object, existingName, name)
+				}
 			}
 		}
 		device.interfaces[name] = object
