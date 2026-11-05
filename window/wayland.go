@@ -181,10 +181,13 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 	}
 	var provisional []provisionalHandle
 	bound := false
+	var aborted atomic.Bool
 	defer func() {
 		if bound {
 			return
 		}
+		// Invalidate any retained callbacks before releasing their proxies.
+		aborted.Store(true)
 		wl.Unregister(wlctx, mgrProxy)
 		m.toplevelsMu.Lock()
 		defer m.toplevelsMu.Unlock()
@@ -202,7 +205,7 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 
 	mgrProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 		// Buffered events must not recreate handles after shutdown.
-		if m.closed.Load() {
+		if m.closed.Load() || aborted.Load() {
 			return
 		}
 		// toplevel event provides a new object id for the handle.
@@ -220,7 +223,7 @@ func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 			NativeID: strconv.FormatUint(uint64(handleID), 10),
 		}
 		m.toplevelsMu.Lock()
-		if m.closed.Load() {
+		if m.closed.Load() || aborted.Load() {
 			m.toplevelsMu.Unlock()
 			return
 		}
