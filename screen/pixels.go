@@ -132,6 +132,14 @@ func cropRGBA(src *image.RGBA, rect image.Rectangle) *image.RGBA {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
 	}
 	if src.Bounds() == rect && rect.Min == (image.Point{0, 0}) {
+		// The identity fast path must not hand callers malformed pixel storage:
+		// RGBAAt would otherwise panic rather than fail closed on an incomplete
+		// compositor frame. Other crop paths validate backing storage per row.
+		rowBytes, ok := safePixelRowBytes(rect.Dx())
+		if !ok || src.Stride < rowBytes || rect.Dy() <= 0 ||
+			uint64(src.Stride)*uint64(rect.Dy()-1)+uint64(rowBytes) > uint64(len(src.Pix)) {
+			return image.NewRGBA(image.Rectangle{})
+		}
 		return src
 	}
 	width, height, ok := safePixelRectDimensions(rect)
