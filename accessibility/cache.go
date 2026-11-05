@@ -234,16 +234,40 @@ func (b *dbusBackend) publishLoadedCache(busName string, items []cacheItem, expe
 }
 
 func validateLoadedCacheItems(busName string, items []cacheItem) error {
-	seen := make(map[cacheObjectRef]struct{}, len(items))
+	parents := make(map[cacheObjectRef]cacheObjectRef, len(items))
 	for _, item := range items {
 		if !validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheParentRef(item.Parent) ||
 			item.Object.BusName != busName || item.Application.BusName != busName {
 			return fmt.Errorf("accessibility: cache get items for %s returned foreign or malformed identity", busName)
 		}
-		if _, duplicate := seen[item.Object]; duplicate {
+		if _, duplicate := parents[item.Object]; duplicate {
 			return fmt.Errorf("accessibility: cache get items for %s returned duplicate object identity %s", busName, item.Object.ObjectPath)
 		}
-		seen[item.Object] = struct{}{}
+		parents[item.Object] = item.Parent
+	}
+	// A malformed provider snapshot may claim its own object (or an
+	// ancestor) as a parent. Detect cycles before publishing any cached
+	// ancestry. Parent identities outside this app are terminal edges.
+	visited := make(map[cacheObjectRef]bool, len(parents))
+	for start := range parents {
+		if visited[start] {
+			continue
+		}
+		path := make(map[cacheObjectRef]struct{})
+		for node := start; ; {
+			if _, cycle := path[node]; cycle {
+				return fmt.Errorf("accessibility: cache get items for %s returned cyclic parent identity %s", busName, node.ObjectPath)
+			}
+			parent, exists := parents[node]
+			if !exists || visited[node] {
+				break
+			}
+			path[node] = struct{}{}
+			node = parent
+		}
+		for node := range path {
+			visited[node] = true
+		}
 	}
 	return nil
 }
