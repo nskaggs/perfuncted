@@ -400,6 +400,7 @@ func boolPtr(v bool) *bool {
 func tokenizeMatchSpec(spec string) ([]string, error) {
 	var tokens []string
 	var buf strings.Builder
+	var quoted strings.Builder
 	var quote rune
 	escaped := false
 	flush := func() {
@@ -411,17 +412,43 @@ func tokenizeMatchSpec(spec string) ([]string, error) {
 	}
 	for _, r := range spec {
 		switch {
-		case escaped:
-			buf.WriteRune(r)
-			escaped = false
 		case quote != 0:
-			switch r {
-			case '\\':
+			switch {
+			case escaped:
+				quoted.WriteRune(r)
+				escaped = false
+			case r == '\\':
+				quoted.WriteRune(r)
 				escaped = true
-			case quote:
+			case r == quote:
+				// Match.String uses strconv.Quote, including escapes for control
+				// bytes. Decode quoted strings as Go string literals; retain
+				// the prior permissive backslash handling for legacy specs.
+				content := quoted.String()
+				decoded, err := strconv.Unquote(string(quote) + content + string(quote))
+				if err != nil {
+					var legacy strings.Builder
+					escape := false
+					for _, ch := range content {
+						if escape {
+							legacy.WriteRune(ch)
+							escape = false
+						} else if ch == '\\' {
+							escape = true
+						} else {
+							legacy.WriteRune(ch)
+						}
+					}
+					if escape {
+						legacy.WriteRune('\\')
+					}
+					decoded = legacy.String()
+				}
+				buf.WriteString(decoded)
+				quoted.Reset()
 				quote = 0
 			default:
-				buf.WriteRune(r)
+				quoted.WriteRune(r)
 			}
 		default:
 			switch r {
@@ -433,9 +460,6 @@ func tokenizeMatchSpec(spec string) ([]string, error) {
 				buf.WriteRune(r)
 			}
 		}
-	}
-	if escaped {
-		buf.WriteRune('\\')
 	}
 	if quote != 0 {
 		return nil, fmt.Errorf("window: unterminated quote in match spec %q", spec)
