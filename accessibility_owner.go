@@ -229,6 +229,11 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	if ctxErr := callCtx.Err(); ctxErr != nil {
 		return ctxErr
 	}
+	if o.session != nil && o.session.ctx != nil {
+		if sessionErr := o.session.ctx.Err(); sessionErr != nil {
+			return sessionErr
+		}
+	}
 	err = call(lease.gen.backend, callCtx)
 	// A provider may acknowledge a call after its *caller* has canceled.
 	// Retirement of a backend generation, however, does not invalidate a
@@ -237,6 +242,14 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	if ctx != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
+		}
+	}
+	// Closing the owning session ends permission to receive private data,
+	// even if a provider ignores cancellation and the original caller lives.
+	// Generation retirement alone still permits admitted calls to finish.
+	if o.session != nil && o.session.ctx != nil {
+		if sessionErr := o.session.ctx.Err(); sessionErr != nil {
+			return sessionErr
 		}
 	}
 	return err
