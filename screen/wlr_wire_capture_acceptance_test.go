@@ -130,7 +130,16 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 					return err
 				}
 			}
-			if err := writeExtTestEvent(conn, frameID, 0, wlUint32Payload(0, 2, 2, 8)); err != nil {
+			buffer := wlUint32Payload(0, 2, 2, 8)
+			switch frameOutcome {
+			case "undersized stride":
+				buffer = wlUint32Payload(0, 2, 2, 4)
+			case "zero-height buffer":
+				buffer = wlUint32Payload(0, 2, 0, 8)
+			case "oversized framebuffer":
+				buffer = wlUint32Payload(0, 2, 2, ^uint32(0))
+			}
+			if err := writeExtTestEvent(conn, frameID, 0, buffer); err != nil {
 				return err
 			}
 			if frameOutcome == "premature ready" {
