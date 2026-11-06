@@ -29,6 +29,8 @@ type syntheticKWinScriptService struct {
 	unloadCount  int
 	loadedPath   string
 	noCallback   bool
+	failLoad     bool
+	failStart    bool
 }
 
 var syntheticKWinServiceName = regexp.MustCompile(`org\.kde\.pflist[0-9]+_[0-9]+`)
@@ -37,6 +39,12 @@ func (s *syntheticKWinScriptService) Introspect() (string, *dbus.Error) {
 	return "<node><interface name=\"" + kwinScriptIface + "\" /></node>", nil
 }
 func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *dbus.Error) {
+	s.mu.Lock()
+	failLoad := s.failLoad
+	s.mu.Unlock()
+	if failLoad {
+		return 0, dbus.MakeFailedError(errors.New("synthetic script registration denied"))
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, dbus.MakeFailedError(err)
@@ -68,9 +76,12 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 }
 func (s *syntheticKWinScriptService) Start() *dbus.Error {
 	s.mu.Lock()
-	svc, response, skip := s.svc, s.response, s.noCallback
+	svc, response, skip, failStart := s.svc, s.response, s.noCallback, s.failStart
 	s.startCount++
 	s.mu.Unlock()
+	if failStart {
+		return dbus.MakeFailedError(errors.New("synthetic script execution denied"))
+	}
 	if !skip {
 		go func() { _ = s.conn.Object(svc, "/").Call(svc+".ReportWindows", 0, response).Err }()
 	}
