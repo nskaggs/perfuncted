@@ -412,6 +412,12 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 		return nil, fmt.Errorf("output/wayland: lister is closed: %w", net.ErrClosed)
 	}
 	if l.stopCtx != nil {
+		// An already-stopped lifecycle must reject its old snapshot before
+		// scheduling an asynchronous cancellation callback. AfterFunc does
+		// not guarantee its callback has run when the next check executes.
+		if err := l.stopCtx.Err(); err != nil {
+			return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
+		}
 		operationCtx, cancel := context.WithCancel(ctx)
 		stop := context.AfterFunc(l.stopCtx, cancel) //nolint:contextcheck // derived context is canceled by lister lifecycle.
 		defer func() {
@@ -439,6 +445,11 @@ func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 		return nil, fmt.Errorf("output/wayland: lister is closed: %w", net.ErrClosed)
 	}
 	outputs := l.snapshotOutputs()
+	if l.stopCtx != nil {
+		if err := l.stopCtx.Err(); err != nil {
+			return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("output/wayland: list canceled: %w", err)
 	}
