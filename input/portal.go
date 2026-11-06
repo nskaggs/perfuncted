@@ -615,9 +615,9 @@ func (b *RemoteDesktopBackend) writeLoop() {
 			if !stopCancellation() {
 				<-cancelDone
 			}
-			if err == nil && command.ctx.Err() != nil {
-				err = command.ctx.Err()
-			}
+			// Preserve a transport failure and a concurrent cancellation;
+			// neither event should mask the other in the writer receipt.
+			err = errors.Join(err, command.ctx.Err())
 			_ = conn.SetWriteDeadline(time.Time{})
 			command.done <- err
 			if errors.Is(err, ErrRemoteDesktopRevoked) {
