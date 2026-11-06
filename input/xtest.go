@@ -330,6 +330,9 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
+		if b.modifierHeld(kc) {
+			return fmt.Errorf("input/xtest: modifier keycode %d is already held", kc)
+		}
 		if err := b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
 			return err
 		}
@@ -444,7 +447,14 @@ func (b *XTestBackend) validateHeldModifierSequence(actions []keySend) error {
 			}
 			delete(held, code)
 		case action.down:
+			if held[code] {
+				return fmt.Errorf("input/xtest: modifier keycode %d is already held", code)
+			}
 			held[code] = true
+		default:
+			if held[code] {
+				return fmt.Errorf("input/xtest: modifier keycode %d is already held", code)
+			}
 		}
 	}
 	return nil
