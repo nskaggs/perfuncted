@@ -2,6 +2,7 @@ package accessibility
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -225,6 +226,12 @@ func (b *dbusBackend) InvokeActionByName(ctx context.Context, id NodeID, name st
 	// Invoke the index selected from this metadata read. Re-reading actions
 	// could select a different operation if the provider changes between calls.
 	if err := b.dispatchAction(ctx, id, chosen); err != nil {
+		// Canceled actions cannot publish selected provider metadata. For
+		// ordinary dispatch failures, preserve the chosen action so callers
+		// can diagnose which operation was attempted.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Action{}, err
+		}
 		return chosen, err
 	}
 	return chosen, nil
@@ -244,6 +251,12 @@ func (b *dbusBackend) InvokeDefaultAction(ctx context.Context, id NodeID) (Actio
 		return Action{}, fmt.Errorf("accessibility: retrieve machine-readable action name at index %d: %w", chosen.Index, err)
 	}
 	if err := b.dispatchAction(ctx, id, chosen); err != nil {
+		// Canceled actions cannot publish selected provider metadata. For
+		// ordinary dispatch failures, preserve the chosen action so callers
+		// can diagnose which operation was attempted.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Action{}, err
+		}
 		return chosen, err
 	}
 	return chosen, nil
