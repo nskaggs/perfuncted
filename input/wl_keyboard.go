@@ -650,6 +650,10 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 // state is updated via the modifiers request. For other keys the keycode is
 // stored for later release via releaseKey.
 func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// KeyDown is also a logical sequence. An existing held key reserves its
 	// physical XKB slot; uploading a standalone one-key map can silently
 	// reinterpret that pressed key as the new one.
@@ -694,6 +698,10 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 // is not currently held, catching bugs where callers release keys they never
 // pressed.
 func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Modifiers are tracked as a bitset rather than entries in held. Refuse
 	// an unmatched release before emitting anything to the compositor.
 	if bit := modBit(key); bit != 0 && k.mods&bit == 0 {
