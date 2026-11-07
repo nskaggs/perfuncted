@@ -217,8 +217,8 @@ func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 
 	// decorated windows shall be translated again by the size of the decorations
 	reply, err := b.conn.GetProperty(false, win, b.atomNetFrameExtent,
-		b.atomNetFrameExtent, 0, 4).Reply()
-	if err == nil && len(reply.Value) == 16 {
+		xproto.AtomCardinal, 0, 4).Reply()
+	if err == nil && reply != nil && reply.Format == 32 && len(reply.Value) == 16 {
 		left := int(uint32(reply.Value[0]) | uint32(reply.Value[1])<<8 | uint32(reply.Value[2])<<16 | uint32(reply.Value[3])<<24)
 		right := int(uint32(reply.Value[4]) | uint32(reply.Value[5])<<8 | uint32(reply.Value[6])<<16 | uint32(reply.Value[7])<<24)
 		top := int(uint32(reply.Value[8]) | uint32(reply.Value[9])<<8 | uint32(reply.Value[10])<<16 | uint32(reply.Value[11])<<24)
