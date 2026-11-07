@@ -421,13 +421,20 @@ func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
 	}
 	defer finish()
 	id, err := b.activeWindow()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", fmt.Errorf("window/x11: active title canceled: %w", ctxErr)
+	}
 	if err != nil {
 		return "", fmt.Errorf("window/x11: get _NET_ACTIVE_WINDOW: %w", err)
 	}
 	if id == 0 {
 		return "", nil
 	}
-	return b.windowTitle(id), nil
+	title := b.windowTitle(id)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", fmt.Errorf("window/x11: active title canceled: %w", ctxErr)
+	}
+	return title, nil
 }
 
 // Close closes the X11 connection.
