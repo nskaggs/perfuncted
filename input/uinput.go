@@ -709,6 +709,12 @@ func (b *UinputBackend) mouseMove(ctx context.Context, x, y int) error {
 
 // MouseClick moves to x and y and clicks button.
 func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateMouseButton("input/uinput", button); err != nil {
 		return err
 	}
@@ -743,6 +749,12 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 
 // MouseDown presses button.
 func (b *UinputBackend) MouseDown(ctx context.Context, button int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateMouseButton("input/uinput", button); err != nil {
 		return err
 	}
@@ -777,6 +789,12 @@ func (b *UinputBackend) mouseDown(ctx context.Context, button int) error {
 
 // MouseUp releases button.
 func (b *UinputBackend) MouseUp(ctx context.Context, button int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateMouseButton("input/uinput", button); err != nil {
 		return err
 	}
@@ -859,6 +877,12 @@ func (b *UinputBackend) withMouse(fn func(uinput.Mouse) error) error {
 
 // ScrollUp scrolls upward by clicks.
 func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -869,6 +893,12 @@ func (b *UinputBackend) ScrollUp(ctx context.Context, clicks int) error {
 
 // ScrollDown scrolls downward by clicks.
 func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -879,6 +909,12 @@ func (b *UinputBackend) ScrollDown(ctx context.Context, clicks int) error {
 
 // ScrollLeft scrolls left by clicks.
 func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -889,6 +925,12 @@ func (b *UinputBackend) ScrollLeft(ctx context.Context, clicks int) error {
 
 // ScrollRight scrolls right by clicks.
 func (b *UinputBackend) ScrollRight(ctx context.Context, clicks int) error {
+	// Cancellation takes precedence over payload validation.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
