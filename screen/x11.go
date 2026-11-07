@@ -44,6 +44,9 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 
 	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap,
 		drawable, x, y, w, h, planeMask).Reply()
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
 	}
@@ -84,6 +87,9 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 
 	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap,
 		drawable, x, y, w, h, planeMask).Reply()
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
 	}
@@ -176,6 +182,9 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 
 	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap,
 		drawable, x, y, w, h, planeMask).Reply()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("screen/x11: XGetImage: %w", err)
 	}
