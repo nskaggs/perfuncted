@@ -3,6 +3,7 @@
 package window
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"iter"
@@ -165,19 +166,21 @@ func (b *X11Backend) windowPID(win xproto.Window) int32 {
 func (b *X11Backend) windowClass(win xproto.Window) (string, string) {
 	rep, err := b.conn.GetProperty(false, win, xproto.AtomWmClass,
 		xproto.AtomString, 0, 1024).Reply()
-	if err != nil || len(rep.Value) == 0 {
+	if err != nil || rep == nil || rep.Format != 8 || len(rep.Value) < 2 ||
+		rep.Value[len(rep.Value)-1] != 0 || bytes.Count(rep.Value, []byte{0}) != 2 {
 		return "", ""
 	}
-	parts := strings.Split(string(rep.Value), "\x00")
-	if len(parts) == 0 {
-		return "", ""
+	// ICCCM WM_CLASS is precisely two NUL-terminated Latin-1 strings:
+	// res_name and res_class. Decode each byte before exposing UTF-8 text.
+	separator := bytes.IndexByte(rep.Value, 0)
+	decodeLatin1 := func(data []byte) string {
+		runes := make([]rune, len(data))
+		for i, value := range data {
+			runes[i] = rune(value)
+		}
+		return strings.TrimSpace(string(runes))
 	}
-	appID := strings.TrimSpace(parts[0])
-	class := appID
-	if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
-		class = strings.TrimSpace(parts[1])
-	}
-	return appID, class
+	return decodeLatin1(rep.Value[:separator]), decodeLatin1(rep.Value[separator+1 : len(rep.Value)-1])
 }
 
 // windowHasDecoration checks if the window declared it has decoration at the WM level. Some windows are still
