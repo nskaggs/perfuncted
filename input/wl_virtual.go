@@ -102,9 +102,9 @@ func (b *WlVirtualBackend) applyOutputMode(physW, physH uint32) {
 }
 
 func (b *WlVirtualBackend) applyOutputScale(scale uint32) {
-	// wl_output.scale is a signed int32. Negative protocol values are
-	// invalid and must not collapse the last confirmed logical extent.
-	if int32(scale) < 0 {
+	// wl_output.scale is a positive signed int32. Zero and negative
+	// protocol values must not replace the last confirmed logical extent.
+	if int32(scale) <= 0 {
 		return
 	}
 	b.extentMu.Lock()
