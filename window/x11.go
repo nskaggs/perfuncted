@@ -285,6 +285,7 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 		// before returning a complete snapshot to callers.
 		var ids []xproto.Window
 		var offset uint32
+		var priorBytesAfter uint32
 		for {
 			if err := ctx.Err(); err != nil {
 				yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", err))
@@ -325,6 +326,14 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 				yield(Info{}, fmt.Errorf("window/x11: non-progressing _NET_CLIENT_LIST reply"))
 				return
 			}
+			// Each successive chunk consumes bytes that the previous reply
+			// counted as remaining. If the count does not decrease by the
+			// consumed length, the property changed or the server is broken.
+			if offset != 0 && (uint64(len(rep.Value))+uint64(rep.BytesAfter) != uint64(priorBytesAfter)) {
+				yield(Info{}, fmt.Errorf("window/x11: inconsistent _NET_CLIENT_LIST remaining bytes"))
+				return
+			}
+			priorBytesAfter = rep.BytesAfter
 			for i := 0; i < len(rep.Value); i += 4 {
 				ids = append(ids, xproto.Window(
 					uint32(rep.Value[i])|uint32(rep.Value[i+1])<<8|
