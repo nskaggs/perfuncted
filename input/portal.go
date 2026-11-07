@@ -871,6 +871,12 @@ func remoteKeyCode(key string) (uint32, error) { //nolint:gocyclo // explicit ke
 
 // Type sends key syntax and literal text through the authorized EIS devices.
 func (b *RemoteDesktopBackend) Type(ctx context.Context, value string) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.stateError(); err != nil {
 		return err
 	}
