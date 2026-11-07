@@ -329,6 +329,9 @@ func (b *dbusBackend) ScrollTo(ctx context.Context, id NodeID, scrollType Scroll
 }
 
 func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, coordType CoordType, x, y int) error {
+	if err := mutationContext(ctx, "ScrollToPoint"); err != nil {
+		return err
+	}
 	if coordType > CoordTypeParent {
 		return fmt.Errorf("accessibility: invalid coordinate type %d", coordType)
 	}
@@ -339,6 +342,9 @@ func (b *dbusBackend) ScrollToPoint(ctx context.Context, id NodeID, coordType Co
 }
 
 func (b *dbusBackend) SetPosition(ctx context.Context, id NodeID, x, y int, coordType CoordType) error {
+	if err := mutationContext(ctx, "SetPosition"); err != nil {
+		return err
+	}
 	if coordType > CoordTypeParent {
 		return fmt.Errorf("accessibility: invalid coordinate type %d", coordType)
 	}
@@ -359,6 +365,9 @@ func (b *dbusBackend) SetSize(ctx context.Context, id NodeID, width, height int)
 }
 
 func (b *dbusBackend) SetExtents(ctx context.Context, id NodeID, x, y, width, height int, coordType CoordType) error {
+	if err := mutationContext(ctx, "SetExtents"); err != nil {
+		return err
+	}
 	if coordType > CoordTypeParent {
 		return fmt.Errorf("accessibility: invalid coordinate type %d", coordType)
 	}
@@ -445,6 +454,9 @@ func insertTextWireLength(text, toolkit string) int {
 }
 
 func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int32) error {
+	if err := mutationContext(ctx, "DeleteText"); err != nil {
+		return err
+	}
 	if err := validTextRange(start, end); err != nil {
 		return err
 	}
@@ -452,6 +464,9 @@ func (b *dbusBackend) DeleteText(ctx context.Context, id NodeID, start, end int3
 }
 
 func (b *dbusBackend) CopyText(ctx context.Context, id NodeID, start, end int32) error {
+	if err := mutationContext(ctx, "CopyText"); err != nil {
+		return err
+	}
 	if err := validTextRange(start, end); err != nil {
 		return err
 	}
@@ -459,6 +474,9 @@ func (b *dbusBackend) CopyText(ctx context.Context, id NodeID, start, end int32)
 }
 
 func (b *dbusBackend) CutText(ctx context.Context, id NodeID, start, end int32) error {
+	if err := mutationContext(ctx, "CutText"); err != nil {
+		return err
+	}
 	if err := validTextRange(start, end); err != nil {
 		return err
 	}
@@ -473,6 +491,9 @@ func validTextRange(start, end int32) error {
 }
 
 func (b *dbusBackend) PasteText(ctx context.Context, id NodeID, position int32) error {
+	if err := mutationContext(ctx, "PasteText"); err != nil {
+		return err
+	}
 	if position < 0 {
 		return fmt.Errorf("accessibility: invalid paste position %d", position)
 	}
@@ -480,6 +501,9 @@ func (b *dbusBackend) PasteText(ctx context.Context, id NodeID, position int32) 
 }
 
 func (b *dbusBackend) SetCaretOffset(ctx context.Context, id NodeID, offset int32) error {
+	if err := mutationContext(ctx, "SetCaretOffset"); err != nil {
+		return err
+	}
 	if offset < 0 {
 		return fmt.Errorf("accessibility: invalid caret offset %d", offset)
 	}
@@ -487,6 +511,9 @@ func (b *dbusBackend) SetCaretOffset(ctx context.Context, id NodeID, offset int3
 }
 
 func (b *dbusBackend) SetTextSelection(ctx context.Context, id NodeID, selection, start, end int32) error {
+	if err := mutationContext(ctx, "SetTextSelection"); err != nil {
+		return err
+	}
 	if selection < 0 || start < 0 || end < 0 {
 		return fmt.Errorf("accessibility: invalid text selection indices (selection=%d, start=%d, end=%d)", selection, start, end)
 	}
@@ -497,6 +524,9 @@ func (b *dbusBackend) SetTextSelection(ctx context.Context, id NodeID, selection
 }
 
 func (b *dbusBackend) AddTextSelection(ctx context.Context, id NodeID, start, end int32) error {
+	if err := mutationContext(ctx, "AddTextSelection"); err != nil {
+		return err
+	}
 	if start < 0 || end < 0 {
 		return fmt.Errorf("accessibility: invalid text selection range (start=%d, end=%d)", start, end)
 	}
@@ -507,6 +537,9 @@ func (b *dbusBackend) AddTextSelection(ctx context.Context, id NodeID, start, en
 }
 
 func (b *dbusBackend) RemoveTextSelection(ctx context.Context, id NodeID, selection int32) error {
+	if err := mutationContext(ctx, "RemoveTextSelection"); err != nil {
+		return err
+	}
 	if selection < 0 {
 		return fmt.Errorf("accessibility: invalid selection index %d", selection)
 	}
@@ -526,6 +559,9 @@ type documentTextSelectionWire struct {
 // of the document; this layer rejects malformed or stale endpoint handles
 // before their raw D-Bus references are encoded.
 func (b *dbusBackend) SetTextSelections(ctx context.Context, id NodeID, selections []DocumentTextSelection) error {
+	if err := mutationContext(ctx, "SetTextSelections"); err != nil {
+		return err
+	}
 	if err := b.validateHandle(id); err != nil {
 		return err
 	}
