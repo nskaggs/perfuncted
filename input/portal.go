@@ -742,6 +742,12 @@ func (b *RemoteDesktopBackend) isEISLifecycleFailure(message eiMessage) bool {
 
 // KeyDown presses and holds a key through the authorized EIS device.
 func (b *RemoteDesktopBackend) KeyDown(ctx context.Context, key string) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	keycode, err := remoteKeyCode(key)
 	if err != nil {
 		return err
@@ -769,6 +775,12 @@ func (b *RemoteDesktopBackend) KeyDown(ctx context.Context, key string) error {
 
 // KeyUp releases a key through the authorized EIS device.
 func (b *RemoteDesktopBackend) KeyUp(ctx context.Context, key string) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	keycode, err := remoteKeyCode(key)
 	if err != nil {
 		return err
