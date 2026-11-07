@@ -597,6 +597,9 @@ func (b *dbusBackend) SetTextSelections(ctx context.Context, id NodeID, selectio
 }
 
 func (b *dbusBackend) SelectChild(ctx context.Context, id NodeID, index int32) error {
+	if err := mutationContext(ctx, "SelectChild"); err != nil {
+		return err
+	}
 	if index < 0 {
 		return fmt.Errorf("accessibility: invalid child index %d", index)
 	}
@@ -604,6 +607,9 @@ func (b *dbusBackend) SelectChild(ctx context.Context, id NodeID, index int32) e
 }
 
 func (b *dbusBackend) DeselectChild(ctx context.Context, id NodeID, index int32) error {
+	if err := mutationContext(ctx, "DeselectChild"); err != nil {
+		return err
+	}
 	if index < 0 {
 		return fmt.Errorf("accessibility: invalid child index %d", index)
 	}
@@ -623,6 +629,9 @@ func (b *dbusBackend) DeselectSelectedChild(ctx context.Context, id NodeID) erro
 }
 
 func (b *dbusBackend) SelectRow(ctx context.Context, id NodeID, row int32) error {
+	if err := mutationContext(ctx, "SelectRow"); err != nil {
+		return err
+	}
 	if row < 0 {
 		return fmt.Errorf("accessibility: invalid row index %d", row)
 	}
@@ -630,6 +639,9 @@ func (b *dbusBackend) SelectRow(ctx context.Context, id NodeID, row int32) error
 }
 
 func (b *dbusBackend) DeselectRow(ctx context.Context, id NodeID, row int32) error {
+	if err := mutationContext(ctx, "DeselectRow"); err != nil {
+		return err
+	}
 	if row < 0 {
 		return fmt.Errorf("accessibility: invalid row index %d", row)
 	}
@@ -637,6 +649,9 @@ func (b *dbusBackend) DeselectRow(ctx context.Context, id NodeID, row int32) err
 }
 
 func (b *dbusBackend) SelectColumn(ctx context.Context, id NodeID, column int32) error {
+	if err := mutationContext(ctx, "SelectColumn"); err != nil {
+		return err
+	}
 	if column < 0 {
 		return fmt.Errorf("accessibility: invalid column index %d", column)
 	}
@@ -644,6 +659,9 @@ func (b *dbusBackend) SelectColumn(ctx context.Context, id NodeID, column int32)
 }
 
 func (b *dbusBackend) DeselectColumn(ctx context.Context, id NodeID, column int32) error {
+	if err := mutationContext(ctx, "DeselectColumn"); err != nil {
+		return err
+	}
 	if column < 0 {
 		return fmt.Errorf("accessibility: invalid column index %d", column)
 	}
