@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
@@ -124,14 +125,23 @@ func (b *X11Backend) windowTitle(win xproto.Window) string {
 	// Try _NET_WM_NAME (UTF-8) first.
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMName,
 		b.atomUTF8String, 0, 1024).Reply()
-	if err == nil && len(rep.Value) > 0 {
+	if err == nil && rep != nil && rep.Format == 8 && len(rep.Value) > 0 &&
+		utf8.Valid(rep.Value) && !strings.ContainsRune(string(rep.Value), 0) {
 		return string(rep.Value)
 	}
-	// Fallback: WM_NAME (Latin-1).
+	// Fallback: WM_NAME is an X11 STRING (ISO-8859-1), not UTF-8.
 	rep, err = b.conn.GetProperty(false, win, xproto.AtomWmName,
 		xproto.AtomString, 0, 1024).Reply()
-	if err == nil && len(rep.Value) > 0 {
-		return string(rep.Value)
+	if err == nil && rep != nil && rep.Format == 8 && len(rep.Value) > 0 {
+		// Reject ambiguous NUL-separated metadata; each byte otherwise
+		// represents one Latin-1 Unicode code point.
+		if !strings.ContainsRune(string(rep.Value), 0) {
+			runes := make([]rune, len(rep.Value))
+			for i, value := range rep.Value {
+				runes[i] = rune(value)
+			}
+			return string(runes)
+		}
 	}
 	return ""
 }
