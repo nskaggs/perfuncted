@@ -157,6 +157,9 @@ func (b *UinputBackend) PointerCoordinateSpace(ctx context.Context) (CoordinateS
 	if b == nil || !b.verifiedSingleLogicalOutput {
 		return CoordinateSpaceInfo{}, unsupportedError("input/uinput", "pointer coordinate space")
 	}
+	if b.operations.Closed() {
+		return CoordinateSpaceInfo{}, errUinputBackendClosed
+	}
 	return CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
 }
 
