@@ -319,6 +319,9 @@ func (b *dbusBackend) GrabFocus(ctx context.Context, id NodeID) error {
 }
 
 func (b *dbusBackend) ScrollTo(ctx context.Context, id NodeID, scrollType ScrollType) error {
+	if err := mutationContext(ctx, "ScrollTo"); err != nil {
+		return err
+	}
 	if scrollType > ScrollAnyWhere {
 		return fmt.Errorf("accessibility: invalid scroll type %d", scrollType)
 	}
@@ -346,6 +349,9 @@ func (b *dbusBackend) SetPosition(ctx context.Context, id NodeID, x, y int, coor
 }
 
 func (b *dbusBackend) SetSize(ctx context.Context, id NodeID, width, height int) error {
+	if err := mutationContext(ctx, "SetSize"); err != nil {
+		return err
+	}
 	if width < 0 || width > 2147483647 || height < 0 || height > 2147483647 {
 		return fmt.Errorf("accessibility: size out of range")
 	}
@@ -391,6 +397,9 @@ func (b *dbusBackend) SetValue(ctx context.Context, id NodeID, value float64) er
 }
 
 func (b *dbusBackend) SetTextContents(ctx context.Context, id NodeID, text string) error {
+	if err := mutationContext(ctx, "SetTextContents"); err != nil {
+		return err
+	}
 	if err := validateATSPIMutationText(text); err != nil {
 		return err
 	}
@@ -405,6 +414,9 @@ func validateATSPIMutationText(text string) error {
 }
 
 func (b *dbusBackend) InsertText(ctx context.Context, id NodeID, offset int32, text string) error {
+	if err := mutationContext(ctx, "InsertText"); err != nil {
+		return err
+	}
 	if offset < 0 {
 		return fmt.Errorf("accessibility: invalid text offset %d", offset)
 	}
