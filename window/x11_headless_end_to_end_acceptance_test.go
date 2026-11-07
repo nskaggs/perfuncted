@@ -71,7 +71,7 @@ func TestX11ManagerHeadlessEWMHDiscoveryGeometryAndActions(t *testing.T) {
 	setProperty(screen.Root, backend.atomNetActiveWindow, xproto.AtomWindow, 32, 1, atomBytes(winID))
 	setProperty(win, backend.atomNetWMName, backend.atomUTF8String, 8, 11, []byte("Test Editor"))
 	setProperty(win, xproto.AtomWmClass, xproto.AtomString, 8, uint32(len("pf-test\x00PFTest\x00")), []byte("pf-test\x00PFTest\x00"))
-	setProperty(win, backend.atomNetWMPID, backend.atomNetWMPID, 32, 1, atomBytes(1234))
+	setProperty(win, backend.atomNetWMPID, xproto.AtomCardinal, 32, 1, atomBytes(1234))
 	setProperty(win, backend.atomNetWMState, xproto.AtomAtom, 32, 3, atomBytes(uint32(backend.atomNetWMStateMaximizedVert), uint32(backend.atomNetWMStateMaximizedHorz), uint32(backend.atomNetWMStateFullscreen)))
 	ctx := context.Background()
 	windows, err := backend.List(ctx)

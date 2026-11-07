@@ -139,7 +139,7 @@ func (b *X11Backend) windowTitle(win xproto.Window) string {
 // windowPID returns the PID stored in _NET_WM_PID, or 0 if unavailable.
 func (b *X11Backend) windowPID(win xproto.Window) int32 {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMPID,
-		b.atomNetWMPID, 0, 1).Reply()
+		xproto.AtomCardinal, 0, 1).Reply()
 	if err != nil || len(rep.Value) < 4 {
 		return 0
 	}
