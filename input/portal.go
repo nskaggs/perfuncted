@@ -1363,7 +1363,16 @@ func (b *RemoteDesktopBackend) scroll(ctx context.Context, x, y, clicks int) err
 }
 
 // PointerLocation is unsupported because EIS does not expose the current pointer.
-func (*RemoteDesktopBackend) PointerLocation(context.Context) (int, int, error) {
+func (b *RemoteDesktopBackend) PointerLocation(ctx context.Context) (int, int, error) {
+	if ctx == nil {
+		return 0, 0, errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	if err := b.stateError(); err != nil {
+		return 0, 0, err
+	}
 	return 0, 0, unsupportedError("remote-desktop", "pointer location")
 }
 
