@@ -347,7 +347,10 @@ func outputGlobals(globals []wl.GlobalEvent) []wl.GlobalEvent {
 	outputGlobals := make([]wl.GlobalEvent, 0, len(globals))
 	seen := make(map[uint32]struct{}, len(globals))
 	for _, ev := range globals {
-		if ev.Interface != "wl_output" {
+		// Registry global names and advertised interface versions must both
+		// be nonzero. Binding ID zero or version zero cannot create a valid
+		// wl_output; ignore malformed announcements before discovery.
+		if ev.Interface != "wl_output" || ev.Name == 0 || ev.Version == 0 {
 			continue
 		}
 		// A registry global names one output. Duplicate announcements must not
