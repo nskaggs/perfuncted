@@ -87,7 +87,9 @@ func (b *X11Backend) activeWindow() (xproto.Window, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(rep.Value) < 4 {
+	// _NET_ACTIVE_WINDOW is one WINDOW-typed 32-bit ID. Do not infer
+	// focus from malformed, truncated or incorrectly typed replies.
+	if rep == nil || rep.Format != 32 || len(rep.Value) != 4 {
 		return 0, nil
 	}
 	id := xproto.Window(
