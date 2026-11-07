@@ -140,11 +140,15 @@ func (b *X11Backend) windowTitle(win xproto.Window) string {
 func (b *X11Backend) windowPID(win xproto.Window) int32 {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMPID,
 		xproto.AtomCardinal, 0, 1).Reply()
-	if err != nil || len(rep.Value) < 4 {
+	if err != nil || rep == nil || rep.Format != 32 || len(rep.Value) != 4 {
 		return 0
 	}
-	return int32(uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
+	pid := int32(uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
 		uint32(rep.Value[2])<<16 | uint32(rep.Value[3])<<24)
+	if pid <= 0 {
+		return 0
+	}
+	return pid
 }
 
 // windowClass returns the WM_CLASS instance and class strings, if available.
