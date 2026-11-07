@@ -410,6 +410,10 @@ func btnCode(button int) (uint32, error) {
 
 // MouseDown presses a mouse button.
 func (b *WlVirtualBackend) MouseDown(ctx context.Context, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	code, err := btnCode(button)
 	if err != nil {
 		return err
@@ -419,6 +423,10 @@ func (b *WlVirtualBackend) MouseDown(ctx context.Context, button int) error {
 
 // MouseUp releases a mouse button.
 func (b *WlVirtualBackend) MouseUp(ctx context.Context, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	code, err := btnCode(button)
 	if err != nil {
 		return err
@@ -573,6 +581,10 @@ func (b *WlVirtualBackend) scroll(ctx context.Context, axis uint32, clicks int) 
 
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 func (b *WlVirtualBackend) ScrollUp(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -581,6 +593,10 @@ func (b *WlVirtualBackend) ScrollUp(ctx context.Context, clicks int) error {
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *WlVirtualBackend) ScrollDown(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -589,6 +605,10 @@ func (b *WlVirtualBackend) ScrollDown(ctx context.Context, clicks int) error {
 
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 func (b *WlVirtualBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -597,6 +617,10 @@ func (b *WlVirtualBackend) ScrollLeft(ctx context.Context, clicks int) error {
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *WlVirtualBackend) ScrollRight(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
