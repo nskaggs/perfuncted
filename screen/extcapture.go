@@ -2,6 +2,7 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -482,7 +483,13 @@ func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []b
 			return fmt.Errorf("screen/ext: compositor signalled frame failed")
 		}
 
-		return fn(pixels, int(si.width), int(si.height), int(stride))
+		if err := captureCtx.Err(); err != nil {
+			return err
+		}
+		processErr := fn(pixels, int(si.width), int(si.height), int(stride))
+		// Frame decoding and hashing can outlive a concurrent cancellation.
+		// Never acknowledge or publish a result after its owning request ends.
+		return errors.Join(processErr, captureCtx.Err())
 	})
 }
 
