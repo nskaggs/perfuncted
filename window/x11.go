@@ -239,10 +239,16 @@ func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 		top := int(uint32(reply.Value[8]) | uint32(reply.Value[9])<<8 | uint32(reply.Value[10])<<16 | uint32(reply.Value[11])<<24)
 		bottom := int(uint32(reply.Value[12]) | uint32(reply.Value[13])<<8 | uint32(reply.Value[14])<<16 | uint32(reply.Value[15])<<24)
 
-		x -= left
-		y -= top
-		w += left + right
-		h += top + bottom
+		// X11 window dimensions are 16-bit. Discard impossible decoration
+		// extents rather than exposing arbitrarily large geometry from a
+		// malformed or untrusted client/WM property.
+		if uint64(w)+uint64(left)+uint64(right) <= uint64(^uint16(0)) &&
+			uint64(h)+uint64(top)+uint64(bottom) <= uint64(^uint16(0)) {
+			x -= left
+			y -= top
+			w += left + right
+			h += top + bottom
+		}
 	}
 
 	return x, y, w, h
