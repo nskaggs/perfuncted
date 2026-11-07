@@ -1115,6 +1115,12 @@ func (b *RemoteDesktopBackend) typeAction(action keySend, keycode uint32) error 
 
 // TypeLiteral sends unparsed UTF-8 text through the authorized EIS text interface.
 func (b *RemoteDesktopBackend) TypeLiteral(ctx context.Context, value string) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.stateError(); err != nil {
 		return err
 	}
@@ -1132,6 +1138,12 @@ func (b *RemoteDesktopBackend) TypeLiteral(ctx context.Context, value string) er
 
 // MouseMove places the pointer inside one advertised EIS region.
 func (b *RemoteDesktopBackend) MouseMove(ctx context.Context, x, y int) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.stateError(); err != nil {
 		return err
 	}
@@ -1170,6 +1182,12 @@ func remoteButtonCode(button int) (uint32, error) {
 
 // MouseClick moves to the target point and sends one button press and release.
 func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := b.stateError(); err != nil {
 		return err
 	}
@@ -1227,6 +1245,12 @@ func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int)
 
 // MouseDown presses and holds a supported pointer button.
 func (b *RemoteDesktopBackend) MouseDown(ctx context.Context, button int) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	buttonCode, err := remoteButtonCode(button)
 	if err != nil {
 		return err
@@ -1254,6 +1278,12 @@ func (b *RemoteDesktopBackend) MouseDown(ctx context.Context, button int) error 
 
 // MouseUp releases a supported pointer button.
 func (b *RemoteDesktopBackend) MouseUp(ctx context.Context, button int) error {
+	if ctx == nil {
+		return errors.New("input/remote-desktop: nil operation context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	buttonCode, err := remoteButtonCode(button)
 	if err != nil {
 		return err
