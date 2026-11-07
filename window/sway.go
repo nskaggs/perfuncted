@@ -165,10 +165,10 @@ func swayQueryConn(ctx context.Context, conn net.Conn, msgType uint32, payload s
 		return nil, err
 	}
 	body, err := readSwayResponse(conn, msgType)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
 		return nil, err
 	}
 	return body, nil
