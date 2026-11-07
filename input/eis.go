@@ -833,7 +833,7 @@ func eiTextFrames(sender *eiSender, text string) ([][]byte, error) {
 	if text == "" {
 		return nil, nil
 	}
-	if sender.text == 0 || sender.textDev == 0 {
+	if sender == nil || sender.client == nil || sender.text == 0 || sender.textDev == 0 {
 		return nil, unsupportedError("remote-desktop", "text input")
 	}
 	chunks := splitUTF8(text, 254)
@@ -902,6 +902,9 @@ func eiButtonFrame(sender *eiSender, button uint32, pressed bool) ([]byte, error
 }
 
 func eiPointerFrame(sender *eiSender, x, y int) ([]byte, error) {
+	if sender == nil || sender.client == nil {
+		return nil, unsupportedError("remote-desktop", "absolute pointer input")
+	}
 	pointer, ok := sender.pointerForPoint(x, y)
 	if !ok {
 		return nil, fmt.Errorf("input/eis: (%d,%d) is outside the available absolute pointer regions", x, y)
@@ -922,6 +925,9 @@ func eiPointerFrame(sender *eiSender, x, y int) ([]byte, error) {
 }
 
 func eiScrollFrame(sender *eiSender, x, y int32) ([]byte, error) {
+	if sender == nil || sender.client == nil || sender.scroll == 0 || sender.scrollDev == 0 {
+		return nil, unsupportedError("remote-desktop", "scroll input")
+	}
 	request := eiRequest(sender.scroll, 2, append(eiI32(x), eiI32(y)...))
 	frame, err := eiFrame(sender.scrollDev, sender.client.serial.Load())
 	if err != nil {
