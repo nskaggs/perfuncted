@@ -620,6 +620,10 @@ func (m *SwayManager) findByID(
 
 // ActivateByID focuses the window identified by id.
 func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	numeric, err := signedNumericID(id)
 	if err != nil {
 		return err
@@ -629,6 +633,10 @@ func (m *SwayManager) ActivateByID(ctx context.Context, id string) error {
 
 // MoveByID positions the window identified by id.
 func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Sway's geometry protocol uses signed 32-bit coordinates. Validate before
 	// discovery or the preceding floating-enable operation so an impossible
 	// move cannot leave the target in an unexpectedly floating state.
@@ -648,6 +656,10 @@ func (m *SwayManager) MoveByID(ctx context.Context, id string, x, y int) error {
 
 // ResizeByID resizes the window identified by id.
 func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Sway resize commands require positive, representable dimensions. Reject
 	// them before the tree lookup or floating-mode mutation so an invalid
 	// request can never partially change the target window.
@@ -666,6 +678,10 @@ func (m *SwayManager) ResizeByID(ctx context.Context, id string, width, height i
 
 // CloseWindowByID closes the window identified by id.
 func (m *SwayManager) CloseWindowByID(ctx context.Context, id string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
 		return err
@@ -675,6 +691,10 @@ func (m *SwayManager) CloseWindowByID(ctx context.Context, id string) error {
 
 // MinimizeByID moves the window identified by id to the scratchpad.
 func (m *SwayManager) MinimizeByID(ctx context.Context, id string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
 		return err
@@ -690,6 +710,10 @@ func (m *SwayManager) MaximizeByID(_ context.Context, _ string) error {
 
 // FullscreenByID enables fullscreen mode for the window identified by id.
 func (m *SwayManager) FullscreenByID(ctx context.Context, id string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
 		return err
@@ -699,6 +723,10 @@ func (m *SwayManager) FullscreenByID(ctx context.Context, id string) error {
 
 // UnfullscreenByID disables fullscreen mode for the window identified by id.
 func (m *SwayManager) UnfullscreenByID(ctx context.Context, id string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	numeric, err := m.findByID(ctx, id)
 	if err != nil {
 		return err
