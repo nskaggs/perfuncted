@@ -82,7 +82,12 @@ func virtualManagerCompositor(conn *net.UnixConn, advertised map[string]uint32, 
 					}
 				}
 			} else if output != 0 {
-				if err := virtualEvent(conn, output, 1, virtualWords(0, 800, 600, 60000)); err != nil {
+				// A real wl_output advertises alternative modes after the active mode.
+				// The alternate cannot replace the pointer's active coordinate space.
+				if err := virtualEvent(conn, output, 1, virtualWords(wl.OutputModeCurrent, 800, 600, 60000)); err != nil {
+					return err
+				}
+				if err := virtualEvent(conn, output, 1, virtualWords(0, 1280, 720, 60000)); err != nil {
 					return err
 				}
 				if err := virtualEvent(conn, output, 3, virtualWords(2)); err != nil {

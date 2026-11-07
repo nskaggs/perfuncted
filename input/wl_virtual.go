@@ -205,7 +205,10 @@ func NewWlVirtualBackendContext(cancel context.Context, sock string) (*WlVirtual
 				outProxy.OnEvent = func(opcode uint32, _ int, data []byte) {
 					switch opcode {
 					case 1: // mode: flags, width, height, refresh
-						if mode, ok := wl.DecodeOutputMode(data); ok {
+						// Compositors announce available modes as well as the
+						// active mode. Only the current mode authorizes the
+						// absolute-pointer coordinate extent.
+						if mode, ok := wl.DecodeOutputMode(data); ok && mode.Flags&wl.OutputModeCurrent != 0 {
 							b.applyOutputMode(mode.Width, mode.Height)
 						}
 					case wlOutputScaleOpcode: // scale
