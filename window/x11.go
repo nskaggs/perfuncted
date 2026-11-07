@@ -192,7 +192,7 @@ func (b *X11Backend) windowClass(win xproto.Window) (string, string) {
 func (b *X11Backend) windowHasDecoration(win xproto.Window) bool {
 	rep, err := b.conn.GetProperty(false, win, b.atomMotifWMHints,
 		b.atomMotifWMHints, 0, 5).Reply()
-	if err != nil || len(rep.Value) < 20 {
+	if err != nil || rep == nil || rep.Format != 32 || len(rep.Value) != 20 {
 		return true
 	}
 
