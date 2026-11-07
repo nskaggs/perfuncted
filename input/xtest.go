@@ -761,6 +761,10 @@ func (b *XTestBackend) mouseMove(ctx context.Context, x, y int) error {
 
 // MouseClick moves to x and y and clicks button.
 func (b *XTestBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
@@ -787,6 +791,10 @@ func (b *XTestBackend) mouseClick(ctx context.Context, x, y, button int) error {
 
 // MouseDown presses button.
 func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
@@ -806,6 +814,10 @@ func (b *XTestBackend) mouseButton(ctx context.Context, eventType byte, button i
 
 // MouseUp releases button.
 func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateMouseButton("input/xtest", button); err != nil {
 		return err
 	}
@@ -817,6 +829,10 @@ func (b *XTestBackend) MouseUp(ctx context.Context, button int) error {
 // ScrollUp scrolls the mouse wheel up by the given number of notches.
 // X11 scroll is button 4 (up) / 5 (down).
 func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -827,6 +843,10 @@ func (b *XTestBackend) ScrollUp(ctx context.Context, clicks int) error {
 
 // ScrollDown scrolls the mouse wheel down by the given number of notches.
 func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -838,6 +858,10 @@ func (b *XTestBackend) ScrollDown(ctx context.Context, clicks int) error {
 // ScrollLeft scrolls the mouse wheel left by the given number of notches.
 // X11 scroll is button 6 (left) / 7 (right).
 func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
@@ -848,6 +872,10 @@ func (b *XTestBackend) ScrollLeft(ctx context.Context, clicks int) error {
 
 // ScrollRight scrolls the mouse wheel right by the given number of notches.
 func (b *XTestBackend) ScrollRight(ctx context.Context, clicks int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
