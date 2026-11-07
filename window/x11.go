@@ -274,33 +274,63 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			return
 		}
 		defer finish()
-		rep, err := b.conn.GetProperty(false, b.root, b.atomNetClientList,
-			xproto.AtomWindow, 0, 1024).Reply()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", ctxErr))
-			return
-		}
-		if err != nil {
-			yield(Info{}, fmt.Errorf("window/x11: get _NET_CLIENT_LIST: %w", err))
-			return
-		}
-		// Format 0 means the property is not set (no WM or no windows yet) — treat as empty.
-		if rep.Format == 0 {
-			return
-		}
-		if rep.Format != 32 {
-			yield(Info{}, fmt.Errorf("window/x11: unexpected _NET_CLIENT_LIST format %d", rep.Format))
-			return
-		}
-		if len(rep.Value)%4 != 0 {
-			yield(Info{}, fmt.Errorf("window/x11: malformed _NET_CLIENT_LIST payload length %d", len(rep.Value)))
-			return
-		}
-		ids := make([]xproto.Window, len(rep.Value)/4)
-		for i := range ids {
-			ids[i] = xproto.Window(
-				uint32(rep.Value[i*4]) | uint32(rep.Value[i*4+1])<<8 |
-					uint32(rep.Value[i*4+2])<<16 | uint32(rep.Value[i*4+3])<<24)
+		// GetProperty length and offset are 4-byte units. A window manager
+		// may expose more than the initial chunk; BytesAfter must be consumed
+		// before returning a complete snapshot to callers.
+		var ids []xproto.Window
+		var offset uint32
+		for {
+			if err := ctx.Err(); err != nil {
+				yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", err))
+				return
+			}
+			rep, err := b.conn.GetProperty(false, b.root, b.atomNetClientList,
+				xproto.AtomWindow, offset, 1024).Reply()
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				yield(Info{}, fmt.Errorf("window/x11: iterate canceled: %w", ctxErr))
+				return
+			}
+			if err != nil {
+				yield(Info{}, fmt.Errorf("window/x11: get _NET_CLIENT_LIST: %w", err))
+				return
+			}
+			if rep == nil {
+				yield(Info{}, fmt.Errorf("window/x11: nil _NET_CLIENT_LIST reply"))
+				return
+			}
+			// Format 0 means the property is unset. A subsequent missing
+			// chunk is an error, not an empty complete snapshot.
+			if rep.Format == 0 && offset == 0 {
+				return
+			}
+			if rep.Format != 32 {
+				yield(Info{}, fmt.Errorf("window/x11: unexpected _NET_CLIENT_LIST format %d", rep.Format))
+				return
+			}
+			if len(rep.Value)%4 != 0 {
+				yield(Info{}, fmt.Errorf("window/x11: malformed _NET_CLIENT_LIST payload length %d", len(rep.Value)))
+				return
+			}
+			if rep.BytesAfter != 0 && len(rep.Value) == 0 {
+				yield(Info{}, fmt.Errorf("window/x11: non-progressing _NET_CLIENT_LIST reply"))
+				return
+			}
+			for i := 0; i < len(rep.Value); i += 4 {
+				ids = append(ids, xproto.Window(
+					uint32(rep.Value[i])|uint32(rep.Value[i+1])<<8|
+						uint32(rep.Value[i+2])<<16|uint32(rep.Value[i+3])<<24))
+			}
+			if rep.BytesAfter == 0 {
+				break
+			}
+			// Reject unreasonable sizes and offset wraparound rather than
+			// allocating indefinitely for a broken or adversarial server.
+			const maxClientWindows = 1 << 20
+			if len(ids) > maxClientWindows || uint64(offset)+uint64(len(rep.Value)/4) > uint64(^uint32(0)) {
+				yield(Info{}, fmt.Errorf("window/x11: _NET_CLIENT_LIST exceeds supported size"))
+				return
+			}
+			offset += uint32(len(rep.Value) / 4)
 		}
 
 		// in case of error, activeWindow is not likely to match any id value
