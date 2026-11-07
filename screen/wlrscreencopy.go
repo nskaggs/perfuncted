@@ -295,7 +295,10 @@ func (b *WlrScreencopyBackend) setupProxies(operationCtx context.Context, ctx *w
 func (b *WlrScreencopyBackend) applyOutputEvent(opcode uint32, data []byte) {
 	switch opcode {
 	case 1: // mode: flags, width, height, refresh
-		if mode, ok := wl.DecodeOutputMode(data); ok {
+		// Mode advertisements include inactive resolutions. Only a current
+		// mode with positive signed protocol dimensions can update the
+		// authoritative capture geometry.
+		if mode, ok := wl.DecodeOutputMode(data); ok && mode.Flags&wl.OutputModeCurrent != 0 && int32(mode.Width) > 0 && int32(mode.Height) > 0 {
 			b.pW = int(mode.Width)
 			b.pH = int(mode.Height)
 		}
