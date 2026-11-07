@@ -306,7 +306,11 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			}
 			// Format 0 means the property is unset. A subsequent missing
 			// chunk is an error, not an empty complete snapshot.
-			if rep.Format == 0 && offset == 0 {
+			if rep.Format == 0 && offset == 0 && rep.BytesAfter == 0 {
+				return
+			}
+			if rep.BytesAfter%4 != 0 {
+				yield(Info{}, fmt.Errorf("window/x11: malformed _NET_CLIENT_LIST trailing byte count %d", rep.BytesAfter))
 				return
 			}
 			if rep.Format != 32 {
