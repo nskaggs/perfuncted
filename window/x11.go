@@ -101,7 +101,7 @@ func (b *X11Backend) activeWindow() (xproto.Window, error) {
 func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized, fullscreen bool) {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMState,
 		xproto.AtomAtom, 0, 64).Reply()
-	if err != nil || rep.Format != 32 {
+	if err != nil || rep == nil || rep.Format != 32 || len(rep.Value)%4 != 0 {
 		return
 	}
 	var maximizedVert, maximizedHorz bool
