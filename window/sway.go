@@ -741,6 +741,10 @@ func (m *SwayManager) RestoreByID(_ context.Context, _ string) error {
 
 // InfoByID returns fresh information for the window identified by id.
 func (m *SwayManager) InfoByID(ctx context.Context, id string) (Info, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return Info{}, err
+	}
 	numeric, err := signedNumericID(id)
 	if err != nil {
 		return Info{}, err
