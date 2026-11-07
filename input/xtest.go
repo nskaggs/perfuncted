@@ -920,7 +920,12 @@ func (b *XTestBackend) PointerLocation(ctx context.Context) (int, int, error) {
 		x, y = int(rep.RootX), int(rep.RootY)
 		return nil
 	})
-	return x, y, err
+	if err != nil {
+		// Coordinates captured by a completed X11 reply must not escape an
+		// operation whose caller has since canceled or otherwise failed.
+		return 0, 0, err
+	}
+	return x, y, nil
 }
 
 // Sync flushes pending XTEST events.
