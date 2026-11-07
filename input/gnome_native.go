@@ -142,6 +142,10 @@ func gnomeKeyval(key string) (uint32, error) {
 
 // KeyDown presses a named key through GNOME Shell.
 func (b *GnomeNativeBackend) KeyDown(ctx context.Context, key string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	keyval, err := gnomeKeyval(key)
 	if err != nil {
 		return err
@@ -157,6 +161,10 @@ func (b *GnomeNativeBackend) KeyDown(ctx context.Context, key string) error {
 
 // KeyUp releases a named key through GNOME Shell.
 func (b *GnomeNativeBackend) KeyUp(ctx context.Context, key string) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	keyval, err := gnomeKeyval(key)
 	if err != nil {
 		return err
@@ -517,6 +525,10 @@ func gnomeButton(button int) (uint32, error) {
 
 // MouseDown presses a mouse button.
 func (b *GnomeNativeBackend) MouseDown(ctx context.Context, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	buttonCode, err := gnomeButton(button)
 	if err != nil {
 		return err
@@ -526,6 +538,10 @@ func (b *GnomeNativeBackend) MouseDown(ctx context.Context, button int) error {
 
 // MouseUp releases a mouse button.
 func (b *GnomeNativeBackend) MouseUp(ctx context.Context, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	buttonCode, err := gnomeButton(button)
 	if err != nil {
 		return err
@@ -535,6 +551,10 @@ func (b *GnomeNativeBackend) MouseUp(ctx context.Context, button int) error {
 
 // MouseClick moves to a location and clicks a mouse button.
 func (b *GnomeNativeBackend) MouseClick(ctx context.Context, x, y, button int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	buttonCode, err := gnomeButton(button)
 	if err != nil {
 		return err
@@ -572,6 +592,10 @@ func releaseMouseButton(ctx context.Context, release func(context.Context) error
 }
 
 func (b *GnomeNativeBackend) scroll(ctx context.Context, axis string, clicks int, sign float64) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateScrollClicks(clicks); err != nil {
 		return err
 	}
