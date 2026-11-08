@@ -89,7 +89,7 @@ func (b *X11Backend) activeWindow() (xproto.Window, error) {
 	}
 	// _NET_ACTIVE_WINDOW is one WINDOW-typed 32-bit ID. Do not infer
 	// focus from malformed, truncated or incorrectly typed replies.
-	if rep == nil || rep.Format != 32 || len(rep.Value) != 4 {
+	if rep == nil || rep.Format != 32 || rep.BytesAfter != 0 || len(rep.Value) != 4 {
 		return 0, nil
 	}
 	id := xproto.Window(
@@ -153,7 +153,7 @@ func (b *X11Backend) windowTitle(win xproto.Window) string {
 func (b *X11Backend) windowPID(win xproto.Window) int32 {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMPID,
 		xproto.AtomCardinal, 0, 1).Reply()
-	if err != nil || rep == nil || rep.Format != 32 || len(rep.Value) != 4 {
+	if err != nil || rep == nil || rep.Format != 32 || rep.BytesAfter != 0 || len(rep.Value) != 4 {
 		return 0
 	}
 	pid := int32(uint32(rep.Value[0]) | uint32(rep.Value[1])<<8 |
@@ -192,7 +192,7 @@ func (b *X11Backend) windowClass(win xproto.Window) (string, string) {
 func (b *X11Backend) windowHasDecoration(win xproto.Window) bool {
 	rep, err := b.conn.GetProperty(false, win, b.atomMotifWMHints,
 		b.atomMotifWMHints, 0, 5).Reply()
-	if err != nil || rep == nil || rep.Format != 32 || len(rep.Value) != 20 {
+	if err != nil || rep == nil || rep.Format != 32 || rep.BytesAfter != 0 || len(rep.Value) != 20 {
 		return true
 	}
 
@@ -233,7 +233,7 @@ func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 	// decorated windows shall be translated again by the size of the decorations
 	reply, err := b.conn.GetProperty(false, win, b.atomNetFrameExtent,
 		xproto.AtomCardinal, 0, 4).Reply()
-	if err == nil && reply != nil && reply.Format == 32 && len(reply.Value) == 16 {
+	if err == nil && reply != nil && reply.Format == 32 && reply.BytesAfter == 0 && len(reply.Value) == 16 {
 		left := int(uint32(reply.Value[0]) | uint32(reply.Value[1])<<8 | uint32(reply.Value[2])<<16 | uint32(reply.Value[3])<<24)
 		right := int(uint32(reply.Value[4]) | uint32(reply.Value[5])<<8 | uint32(reply.Value[6])<<16 | uint32(reply.Value[7])<<24)
 		top := int(uint32(reply.Value[8]) | uint32(reply.Value[9])<<8 | uint32(reply.Value[10])<<16 | uint32(reply.Value[11])<<24)
