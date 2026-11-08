@@ -268,6 +268,11 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("screen/portal: grab canceled: %w", ctxErr)
 	}
+	// Only the zero rectangle requests a full-workspace capture. Other
+	// empty or inverted rectangles must never silently request full pixels.
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return nil, fmt.Errorf("screen/portal: invalid empty capture region %v", rect)
+	}
 	if b == nil || b.conn == nil {
 		return nil, fmt.Errorf("screen/portal: backend not initialised")
 	}
