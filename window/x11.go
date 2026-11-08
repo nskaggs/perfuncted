@@ -757,6 +757,11 @@ func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
 	if err := b.setWMState(win, 0, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz); err != nil {
 		return err
 	}
+	// Restore involves two mutations. Do not send the second one when the
+	// request was canceled while the first state-change event completed.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/x11: restore canceled: %w", ctxErr)
+	}
 	return b.conn.MapWindowChecked(win).Check()
 }
 
