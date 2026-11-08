@@ -284,6 +284,7 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 		// may expose more than the initial chunk; BytesAfter must be consumed
 		// before returning a complete snapshot to callers.
 		var ids []xproto.Window
+		seen := make(map[xproto.Window]struct{})
 		var offset uint32
 		var priorBytesAfter uint32
 		for {
@@ -339,9 +340,14 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 					uint32(rep.Value[i+2])<<16 | uint32(rep.Value[i+3])<<24)
 				// X11 None is not a client window. Including it in a malformed
 				// list can also falsely mark it active when no window has focus.
-				if id != xproto.WindowNone {
-					ids = append(ids, id)
+				if id == xproto.WindowNone {
+					continue
 				}
+				if _, exists := seen[id]; exists {
+					continue
+				}
+				seen[id] = struct{}{}
+				ids = append(ids, id)
 			}
 			if rep.BytesAfter == 0 {
 				break
