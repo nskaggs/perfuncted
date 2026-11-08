@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,24 @@ import (
 const (
 	startupTimeout = 15 * time.Second
 )
+
+// synchronizedBuffer keeps diagnostic reads safe while os/exec drains stderr.
+type synchronizedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *synchronizedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *synchronizedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // StartXvfb starts a standalone Xvfb server on a free display.
 func StartXvfb() (display string, stop func(), err error) {
@@ -35,11 +54,15 @@ func StartXephyr(hostDisplay string) (display string, stop func(), err error) {
 }
 
 func startServer(name, hostDisplay string, argsFn func() []string) (display string, stop func(), err error) {
+	return startServerWithTimeout(name, hostDisplay, argsFn, startupTimeout)
+}
+
+func startServerWithTimeout(name, hostDisplay string, argsFn func() []string, timeout time.Duration) (display string, stop func(), err error) {
 	if _, lookErr := executil.LookPath(name); lookErr != nil {
 		return "", nil, fmt.Errorf("x11test: %s not found: %w", name, lookErr)
 	}
 
-	var stderr bytes.Buffer
+	var stderr synchronizedBuffer
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return "", nil, fmt.Errorf("x11test: create displayfd pipe: %w", err)
@@ -85,10 +108,9 @@ func startServer(name, hostDisplay string, argsFn func() []string) (display stri
 			stopDisplay(cmd)
 		}
 		return display, stop, nil
-	case <-time.After(startupTimeout):
-		_ = cmd.Wait()
+	case <-time.After(timeout):
 		stopDisplay(cmd)
-		return "", nil, fmt.Errorf("x11test: %s did not become ready within %s; stderr: %s", name, startupTimeout, strings.TrimSpace(stderr.String()))
+		return "", nil, fmt.Errorf("x11test: %s did not become ready within %s; stderr: %s", name, timeout, strings.TrimSpace(stderr.String()))
 	}
 }
 
