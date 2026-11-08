@@ -425,6 +425,15 @@ func (b *X11Backend) setWMState(win xproto.Window, action uint32, atoms ...xprot
 		}.Bytes())).Check()
 }
 
+// x11MutationResult reports late cancellation even when a checked X11
+// request succeeded on the transport after its caller withdrew authority.
+func x11MutationResult(ctx context.Context, operation string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/x11: %s canceled: %w", operation, ctxErr)
+	}
+	return err
+}
+
 // ActiveTitle returns the title of the currently focused window.
 func (b *X11Backend) ActiveTitle(ctx context.Context) (string, error) {
 	ctx = contextutil.Default(ctx)
@@ -572,14 +581,14 @@ func (b *X11Backend) ActivateByID(ctx context.Context, id string) error {
 		return err
 	}
 	data := []uint32{1, uint32(xproto.TimeCurrentTime), 0, 0, 0}
-	return b.conn.SendEventChecked(false, b.root,
+	return x11MutationResult(ctx, "activate", b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
 		string(xproto.ClientMessageEvent{
 			Format: 32,
 			Window: win,
 			Type:   b.atomNetActiveWindow,
 			Data:   xproto.ClientMessageDataUnionData32New(data),
-		}.Bytes())).Check()
+		}.Bytes())).Check())
 }
 
 // MoveByID positions the window identified by id.
@@ -603,9 +612,9 @@ func (b *X11Backend) MoveByID(ctx context.Context, id string, x, y int) error {
 	if err != nil {
 		return err
 	}
-	return b.conn.ConfigureWindowChecked(win,
+	return x11MutationResult(ctx, "move", b.conn.ConfigureWindowChecked(win,
 		xproto.ConfigWindowX|xproto.ConfigWindowY,
-		[]uint32{uint32(x), uint32(y)}).Check()
+		[]uint32{uint32(x), uint32(y)}).Check())
 }
 
 // ResizeByID resizes the window identified by id.
@@ -629,9 +638,9 @@ func (b *X11Backend) ResizeByID(ctx context.Context, id string, w, h int) error 
 	if err != nil {
 		return err
 	}
-	return b.conn.ConfigureWindowChecked(win,
+	return x11MutationResult(ctx, "resize", b.conn.ConfigureWindowChecked(win,
 		xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
-		[]uint32{uint32(w), uint32(h)}).Check()
+		[]uint32{uint32(w), uint32(h)}).Check())
 }
 
 // CloseWindowByID closes the window identified by id.
@@ -678,13 +687,13 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: invalid zero atom")
 	}
 	data := [5]uint32{uint32(delAtom.Atom), uint32(xproto.TimeCurrentTime), 0, 0, 0}
-	return b.conn.SendEventChecked(false, win, 0,
+	return x11MutationResult(ctx, "close", b.conn.SendEventChecked(false, win, 0,
 		string(xproto.ClientMessageEvent{
 			Format: 32,
 			Window: win,
 			Type:   protoAtom.Atom,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
-		}.Bytes())).Check()
+		}.Bytes())).Check())
 }
 
 // MinimizeByID minimizes the window identified by id.
@@ -717,14 +726,14 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: invalid zero atom")
 	}
 	data := [5]uint32{3, 0, 0, 0, 0}
-	return b.conn.SendEventChecked(false, b.root,
+	return x11MutationResult(ctx, "minimize", b.conn.SendEventChecked(false, b.root,
 		xproto.EventMaskSubstructureRedirect|xproto.EventMaskSubstructureNotify,
 		string(xproto.ClientMessageEvent{
 			Format: 32,
 			Window: win,
 			Type:   csAtom.Atom,
 			Data:   xproto.ClientMessageDataUnionData32New(data[:]),
-		}.Bytes())).Check()
+		}.Bytes())).Check())
 }
 
 // MaximizeByID maximizes the window identified by id.
@@ -742,7 +751,7 @@ func (b *X11Backend) MaximizeByID(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
+	return x11MutationResult(ctx, "maximize", b.setWMState(win, 1, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz))
 }
 
 // FullscreenByID enables fullscreen mode for the window identified by id.
@@ -760,7 +769,7 @@ func (b *X11Backend) FullscreenByID(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return b.setWMState(win, 1, b.atomNetWMStateFullscreen)
+	return x11MutationResult(ctx, "fullscreen", b.setWMState(win, 1, b.atomNetWMStateFullscreen))
 }
 
 // UnfullscreenByID disables fullscreen mode for the window identified by id.
@@ -778,7 +787,7 @@ func (b *X11Backend) UnfullscreenByID(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return b.setWMState(win, 0, b.atomNetWMStateFullscreen)
+	return x11MutationResult(ctx, "unfullscreen", b.setWMState(win, 0, b.atomNetWMStateFullscreen))
 }
 
 // RestoreByID restores the window identified by id.
