@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-func TestExternalClipboardGetReportsStderrAndExitFailure(t *testing.T) {
+func TestExternalClipboardGetReportsExitFailureWithoutExposingStderr(t *testing.T) {
 	c := &extCmdClipboard{getCmd: []string{"sh", "-c", "printf 'selection refused' >&2; exit 17"}}
 	text, err := c.Get(context.Background())
-	if text != "" || err == nil || !strings.Contains(err.Error(), "selection refused") || !strings.Contains(err.Error(), "exit status 17") {
+	if text != "" || err == nil || strings.Contains(err.Error(), "selection refused") || !strings.Contains(err.Error(), "exit status 17") {
 		t.Fatalf("Get = %q, %v", text, err)
 	}
 }

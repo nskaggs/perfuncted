@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -133,14 +134,17 @@ func (c *extCmdClipboard) Get(ctx context.Context) (string, error) {
 	// Ensure the external tool runs with the session env captured at Open().
 	cmd.Env = c.env
 
-	var out, stderr bytes.Buffer
+	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &stderr
+	// A failing clipboard reader can echo the current selection to stderr.
+	// Unlike Set, Get does not know the selection and cannot redact it.
+	// Preserve the subprocess exit error without capturing private output.
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return "", fmt.Errorf("clipboard get: %w", ctx.Err())
 		}
-		return "", fmt.Errorf("clipboard get: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("clipboard get: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("clipboard get: %w", err)
