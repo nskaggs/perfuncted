@@ -628,10 +628,16 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 	const wmDeleteWindow = "WM_DELETE_WINDOW"
 	const wmProtocols = "WM_PROTOCOLS"
 	delAtom, err := b.conn.InternAtom(false, uint16(len(wmDeleteWindow)), wmDeleteWindow).Reply()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/x11: close canceled: %w", ctxErr)
+	}
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: %w", err)
 	}
 	protoAtom, err := b.conn.InternAtom(false, uint16(len(wmProtocols)), wmProtocols).Reply()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/x11: close canceled: %w", ctxErr)
+	}
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: %w", err)
 	}
