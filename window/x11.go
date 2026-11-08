@@ -101,7 +101,7 @@ func (b *X11Backend) activeWindow() (xproto.Window, error) {
 func (b *X11Backend) windowState(win xproto.Window) (minimized, maximized, fullscreen bool) {
 	rep, err := b.conn.GetProperty(false, win, b.atomNetWMState,
 		xproto.AtomAtom, 0, 64).Reply()
-	if err != nil || rep == nil || rep.Format != 32 || len(rep.Value)%4 != 0 {
+	if err != nil || rep == nil || rep.Format != 32 || rep.BytesAfter != 0 || len(rep.Value)%4 != 0 {
 		return
 	}
 	var maximizedVert, maximizedHorz bool
@@ -168,7 +168,7 @@ func (b *X11Backend) windowPID(win xproto.Window) int32 {
 func (b *X11Backend) windowClass(win xproto.Window) (string, string) {
 	rep, err := b.conn.GetProperty(false, win, xproto.AtomWmClass,
 		xproto.AtomString, 0, 1024).Reply()
-	if err != nil || rep == nil || rep.Format != 8 || len(rep.Value) < 2 ||
+	if err != nil || rep == nil || rep.Format != 8 || rep.BytesAfter != 0 || len(rep.Value) < 2 ||
 		rep.Value[len(rep.Value)-1] != 0 || bytes.Count(rep.Value, []byte{0}) != 2 {
 		return "", ""
 	}
