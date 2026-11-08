@@ -14,7 +14,7 @@ func TestExternalClipboardFailureDiagnosticMatrix(t *testing.T) {
 	const secret = "private-selection-payload"
 	for _, tc := range []struct{ name, script, suffix string }{
 		{"silent failure", "exit 29", "exit status 29"},
-		{"diagnostic failure", "printf 'backend unavailable\\n' >&2; exit 30", "backend unavailable"},
+		{"diagnostic failure", "printf 'backend unavailable\\n' >&2; exit 30", "exit status 30"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &extCmdClipboard{setCmd: []string{"sh", "-c", tc.script}}
@@ -46,7 +46,7 @@ func TestXclipCaptureTemporaryFileIsRemovedOnSuccessAndFailure(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("Set error = %v, want error %v", err, tc.wantErr)
 			}
-			if tc.wantErr && (!strings.Contains(err.Error(), "backend rejected request") || strings.Contains(err.Error(), "confidential-text")) {
+			if tc.wantErr && (!strings.Contains(err.Error(), "exit status 31") || strings.Contains(err.Error(), "backend rejected request") || strings.Contains(err.Error(), "confidential-text")) {
 				t.Fatalf("unsafe diagnostics: %v", err)
 			}
 			entries, err := os.ReadDir(temp)

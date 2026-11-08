@@ -210,11 +210,11 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 			return fmt.Errorf("clipboard set: %w", ctx.Err())
 		}
 		message := strings.TrimSpace(stderr.String())
-		// External clipboard tools may echo stdin on failure. Preserve
-		// useful diagnostics without returning the requested selection in
-		// an error that callers might log or display.
+		// A failed owner can echo arbitrary *fragments* of its stdin. Exact
+		// substitution cannot sanitize those fragments, so never expose
+		// untrusted stderr when the attempted selection was nonempty.
 		if text != "" {
-			message = strings.ReplaceAll(message, text, "[redacted clipboard content]")
+			message = ""
 		}
 		if message == "" {
 			return fmt.Errorf("clipboard set: %w", runErr)

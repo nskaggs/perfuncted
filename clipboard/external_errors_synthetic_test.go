@@ -25,7 +25,7 @@ func TestExternalClipboardSetReportsXclipErrorAndCleansTemporaryCapture(t *testi
 	}
 	c := &extCmdClipboard{setCmd: []string{script}}
 	err := c.Set(context.Background(), "payload")
-	if err == nil || !strings.Contains(err.Error(), "selection denied") || !strings.Contains(err.Error(), "exit status 23") {
+	if err == nil || strings.Contains(err.Error(), "selection denied") || !strings.Contains(err.Error(), "exit status 23") {
 		t.Fatalf("Set error = %v", err)
 	}
 }

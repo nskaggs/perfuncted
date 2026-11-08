@@ -25,7 +25,7 @@ func TestClipboardSetRedactsEchoedSelectionFromToolDiagnostics(t *testing.T) {
 			}
 			backend := &extCmdClipboard{setCmd: []string{path}}
 			err := backend.Set(context.Background(), secret)
-			if err == nil || !strings.Contains(err.Error(), "exit status 43") || !strings.Contains(err.Error(), "retry later") {
+			if err == nil || !strings.Contains(err.Error(), "exit status 43") || strings.Contains(err.Error(), "retry later") {
 				t.Fatalf("command failure diagnostics lost: %v", err)
 			}
 			if strings.Contains(err.Error(), secret) {
