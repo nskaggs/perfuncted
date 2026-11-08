@@ -1,11 +1,13 @@
 package x11test
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -88,12 +90,34 @@ func startServerWithTimeout(name, hostDisplay string, argsFn func() []string, ti
 		err error
 	}, 1)
 	go func() {
+		// The server must send one complete line containing only the
+		// allocated display number. Limit the read so an untrusted child
+		// cannot grow memory indefinitely before publishing its identity.
+		line, readErr := bufio.NewReader(io.LimitReader(pr, 64)).ReadString('\n')
 		var num int
-		_, err := fmt.Fscan(pr, &num)
+		if readErr == nil {
+			response := strings.TrimSuffix(line, "\n")
+			if response == "" {
+				readErr = fmt.Errorf("empty display identity")
+			} else {
+				for _, char := range response {
+					if char < '0' || char > '9' {
+						readErr = fmt.Errorf("invalid display identity %q", response)
+						break
+					}
+				}
+			}
+			if readErr == nil {
+				num, readErr = strconv.Atoi(response)
+				if readErr == nil && num > 65535 {
+					readErr = fmt.Errorf("display identity out of range")
+				}
+			}
+		}
 		displayCh <- struct {
 			num int
 			err error
-		}{num: num, err: err}
+		}{num: num, err: readErr}
 	}()
 
 	select {
