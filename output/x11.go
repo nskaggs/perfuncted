@@ -51,6 +51,11 @@ func (l *X11Lister) List(ctx context.Context) ([]Info, error) {
 	if screen == nil {
 		return nil, fmt.Errorf("output/x11: no default screen")
 	}
+	// A zero-sized root is not a drawable screen. Do not claim an
+	// available root fallback with impossible display geometry.
+	if screen.WidthInPixels == 0 || screen.HeightInPixels == 0 {
+		return nil, fmt.Errorf("output/x11: invalid root screen dimensions %dx%d", screen.WidthInPixels, screen.HeightInPixels)
+	}
 	if !l.randrAvailable {
 		return []Info{rootOutput(screen)}, nil
 	}
