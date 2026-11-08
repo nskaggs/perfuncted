@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
@@ -726,11 +727,17 @@ func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
 		if data[stringStart+slen-1] != 0 {
 			return
 		}
+		// The trailing NUL is the only terminator. An empty, embedded-NUL,
+		// or invalid UTF-8 name is not a bindable interface identity.
+		name := data[stringStart : stringStart+slen-1]
+		if len(name) == 0 || strings.IndexByte(string(name), 0) >= 0 || !utf8.Valid(name) {
+			return
+		}
 		extra := (4 - slen%4) % 4
 		if extra > remaining-slen {
 			return
 		}
-		ev.Interface = strings.TrimRight(string(data[stringStart:stringStart+slen]), "\x00")
+		ev.Interface = string(name)
 		padded := slen + extra
 		off := stringStart + padded
 		if off+4 > len(data) {
@@ -759,7 +766,7 @@ func (r *Registry) BindContext(cancel context.Context, name uint32, iface string
 	// Interface names are nonempty NUL-terminated Wayland strings. Binding
 	// version zero or object ID zero is invalid on the wire; reject these
 	// before sending a request that can disconnect the compositor client.
-	if iface == "" || strings.IndexByte(iface, 0) >= 0 || ver == 0 || newID == 0 {
+	if iface == "" || strings.IndexByte(iface, 0) >= 0 || !utf8.ValidString(iface) || ver == 0 || newID == 0 {
 		return fmt.Errorf("wl: invalid registry bind interface=%q version=%d new_id=%d", iface, ver, newID)
 	}
 	var buf []byte

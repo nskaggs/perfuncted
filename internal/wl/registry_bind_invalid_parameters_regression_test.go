@@ -15,6 +15,7 @@ func TestRegistryBindRejectsInvalidMetadataBeforeTransmission(t *testing.T) {
 	}{
 		{"empty interface", "", 1, 21},
 		{"embedded NUL", "wl_output\x00fake", 1, 21},
+		{"invalid UTF-8", "wl_output\xff", 1, 21},
 		{"zero version", "wl_output", 0, 21},
 		{"zero object ID", "wl_output", 1, 0},
 	} {
