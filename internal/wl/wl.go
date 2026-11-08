@@ -801,6 +801,11 @@ func (s *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 
 // CreatePoolContext sends wl_shm.create_pool with cancellation-aware I/O.
 func (s *Shm) CreatePoolContext(cancel context.Context, fd int, size int32) (*ShmPool, error) {
+	// wl_shm.create_pool requires a real descriptor and positive byte count.
+	// Reject malformed requests before allocating a client object ID.
+	if fd < 0 || size <= 0 {
+		return nil, fmt.Errorf("wl: invalid shared-memory pool fd=%d size=%d", fd, size)
+	}
 	pool := &ShmPool{}
 	s.ctx.Register(pool)
 	var buf [16]byte
@@ -828,6 +833,11 @@ func (p *ShmPool) CreateBuffer(offset, width, height, stride int32, format uint3
 
 // CreateBufferContext sends wl_shm_pool.create_buffer with cancellation-aware I/O.
 func (p *ShmPool) CreateBufferContext(cancel context.Context, offset, width, height, stride int32, format uint32) (*Buffer, error) {
+	// A compositor cannot map a buffer with negative offset or nonpositive
+	// dimensions/stride. Keep invalid requests out of the object registry.
+	if offset < 0 || width <= 0 || height <= 0 || stride <= 0 {
+		return nil, fmt.Errorf("wl: invalid shared-memory buffer offset=%d dimensions=%dx%d stride=%d", offset, width, height, stride)
+	}
 	b := &Buffer{}
 	p.ctx.Register(b)
 	var buf [32]byte
