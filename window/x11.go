@@ -668,6 +668,9 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 	}
 	const wmChangeState = "WM_CHANGE_STATE"
 	csAtom, err := b.conn.InternAtom(false, uint16(len(wmChangeState)), wmChangeState).Reply()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/x11: minimize canceled: %w", ctxErr)
+	}
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: %w", err)
 	}
