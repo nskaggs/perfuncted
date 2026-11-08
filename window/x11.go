@@ -813,7 +813,7 @@ func (b *X11Backend) RestoreByID(ctx context.Context, id string) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("window/x11: restore canceled: %w", ctxErr)
 	}
-	return b.conn.MapWindowChecked(win).Check()
+	return x11MutationResult(ctx, "restore", b.conn.MapWindowChecked(win).Check())
 }
 
 // InfoByID returns fresh information for the window identified by id.
@@ -838,6 +838,11 @@ func (b *X11Backend) InfoByID(ctx context.Context, id string) (Info, error) {
 		if info.ID == uint64(win) {
 			return info, nil
 		}
+	}
+	// An empty snapshot may finish as the caller cancels its final X11
+	// metadata round trip. Cancellation takes precedence over not-found.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return Info{}, fmt.Errorf("window/x11: info canceled: %w", ctxErr)
 	}
 	return Info{}, ErrWindowNotFound
 }
