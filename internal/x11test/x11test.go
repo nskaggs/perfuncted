@@ -99,7 +99,6 @@ func startServerWithTimeout(name, hostDisplay string, argsFn func() []string, ti
 	select {
 	case res := <-displayCh:
 		if res.err != nil {
-			_ = cmd.Wait()
 			stopDisplay(cmd)
 			return "", nil, fmt.Errorf("x11test: %s did not report a display: %w; stderr: %s", name, res.err, strings.TrimSpace(stderr.String()))
 		}
