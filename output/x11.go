@@ -98,6 +98,11 @@ func (l *X11Lister) listRandROutputs(ctx context.Context, root xproto.Window, re
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("output/x11: list canceled: %w", err)
 		}
+		// RandR None (zero) is not an output object; malformed resource
+		// lists must not trigger a request for this invalid identifier.
+		if id == 0 {
+			continue
+		}
 		// RandR output IDs identify physical output objects. A repeated ID
 		// must not duplicate a monitor or trigger redundant round trips.
 		if _, exists := seen[id]; exists {
