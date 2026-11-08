@@ -418,28 +418,34 @@ func checkWlVirtualWithGlobs(sock string, globs map[string]bool) probe.Result {
 	return r
 }
 
-func checkUinput() probe.Result {
+func checkUinput() probe.Result { return checkUinputPath("/dev/uinput") }
+
+func checkUinputPath(path string) probe.Result {
 	r := probe.Result{Name: "uinput"}
-	info, err := os.Stat("/dev/uinput")
+	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		r.Reason = "/dev/uinput not found — load the uinput kernel module"
+		r.Reason = fmt.Sprintf("%s not found — load the uinput kernel module", path)
 		return r
 	}
 	if err != nil {
-		r.Reason = fmt.Sprintf("/dev/uinput: %v", err)
+		r.Reason = fmt.Sprintf("%s: %v", path, err)
 		return r
 	}
-	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY, 0)
+	if info.Mode()&os.ModeDevice == 0 || info.Mode()&os.ModeCharDevice == 0 {
+		r.Reason = fmt.Sprintf("%s is not a character device (mode %v)", path, info.Mode())
+		return r
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		if os.IsPermission(err) {
-			r.Reason = fmt.Sprintf("/dev/uinput exists (mode %v) but permission denied", info.Mode())
+			r.Reason = fmt.Sprintf("%s exists (mode %v) but permission denied", path, info.Mode())
 		} else {
-			r.Reason = fmt.Sprintf("/dev/uinput open: %v", err)
+			r.Reason = fmt.Sprintf("%s open: %v", path, err)
 		}
 		return r
 	}
 	f.Close()
 	r.Available = true
-	r.Reason = fmt.Sprintf("/dev/uinput accessible (mode %v)", info.Mode())
+	r.Reason = fmt.Sprintf("%s accessible (mode %v)", path, info.Mode())
 	return r
 }
