@@ -756,6 +756,12 @@ func (r *Registry) Bind(name uint32, iface string, ver, newID uint32) error {
 
 // BindContext sends wl_registry.bind with cancellation-aware I/O.
 func (r *Registry) BindContext(cancel context.Context, name uint32, iface string, ver, newID uint32) error {
+	// Interface names are nonempty NUL-terminated Wayland strings. Binding
+	// version zero or object ID zero is invalid on the wire; reject these
+	// before sending a request that can disconnect the compositor client.
+	if iface == "" || strings.IndexByte(iface, 0) >= 0 || ver == 0 || newID == 0 {
+		return fmt.Errorf("wl: invalid registry bind interface=%q version=%d new_id=%d", iface, ver, newID)
+	}
 	var buf []byte
 	buf = put32(buf, r.ID())
 	buf = put32(buf, 0) // placeholder: filled in below with size|opcode
