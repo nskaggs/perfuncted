@@ -634,12 +634,18 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: %w", err)
 	}
+	if delAtom == nil {
+		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: nil atom reply")
+	}
 	protoAtom, err := b.conn.InternAtom(false, uint16(len(wmProtocols)), wmProtocols).Reply()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("window/x11: close canceled: %w", ctxErr)
 	}
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: %w", err)
+	}
+	if protoAtom == nil {
+		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: nil atom reply")
 	}
 	data := [5]uint32{uint32(delAtom.Atom), uint32(xproto.TimeCurrentTime), 0, 0, 0}
 	return b.conn.SendEventChecked(false, win, 0,
@@ -673,6 +679,9 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: %w", err)
+	}
+	if csAtom == nil {
+		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: nil atom reply")
 	}
 	data := [5]uint32{3, 0, 0, 0, 0}
 	return b.conn.SendEventChecked(false, b.root,
