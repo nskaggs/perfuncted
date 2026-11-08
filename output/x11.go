@@ -91,10 +91,17 @@ func (l *X11Lister) listRandROutputs(ctx context.Context, root xproto.Window, re
 	}
 
 	outputs := make([]Info, 0, len(resources.Outputs))
+	seen := make(map[randr.Output]struct{}, len(resources.Outputs))
 	for _, id := range resources.Outputs {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("output/x11: list canceled: %w", err)
 		}
+		// RandR output IDs identify physical output objects. A repeated ID
+		// must not duplicate a monitor or trigger redundant round trips.
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
 		info, active, err := l.randrOutput(id, resources.ConfigTimestamp, primary)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("output/x11: list canceled: %w", ctxErr)
