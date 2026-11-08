@@ -547,6 +547,9 @@ func x11WindowID(id string) (xproto.Window, error) {
 	if err != nil {
 		return 0, err
 	}
+	if numeric == 0 {
+		return 0, fmt.Errorf("window/x11: window id %q is X11 None", id)
+	}
 	if numeric > uint64(^uint32(0)) {
 		return 0, fmt.Errorf("window/x11: numeric id %q exceeds X11 window id range", id)
 	}
