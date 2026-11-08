@@ -422,7 +422,7 @@ func checkUinput() probe.Result { return checkUinputPath("/dev/uinput") }
 
 func checkUinputPath(path string) probe.Result {
 	r := probe.Result{Name: "uinput"}
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		r.Reason = fmt.Sprintf("%s not found — load the uinput kernel module", path)
 		return r
