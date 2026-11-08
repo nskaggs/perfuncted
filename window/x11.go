@@ -283,6 +283,7 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 		// GetProperty length and offset are 4-byte units. A window manager
 		// may expose more than the initial chunk; BytesAfter must be consumed
 		// before returning a complete snapshot to callers.
+		const maxClientWindows = 1 << 20
 		var ids []xproto.Window
 		seen := make(map[xproto.Window]struct{})
 		var offset uint32
@@ -323,6 +324,12 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 				yield(Info{}, fmt.Errorf("window/x11: malformed _NET_CLIENT_LIST payload length %d", len(rep.Value)))
 				return
 			}
+			// Count raw property words, not unique IDs: duplicate identifiers
+			// cannot bypass the budget on X11 round trips and input size.
+			if uint64(offset)+uint64(len(rep.Value)/4)+uint64(rep.BytesAfter/4) > maxClientWindows {
+				yield(Info{}, fmt.Errorf("window/x11: _NET_CLIENT_LIST exceeds supported size"))
+				return
+			}
 			if rep.BytesAfter != 0 && len(rep.Value) == 0 {
 				yield(Info{}, fmt.Errorf("window/x11: non-progressing _NET_CLIENT_LIST reply"))
 				return
@@ -354,8 +361,7 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			}
 			// Reject unreasonable sizes and offset wraparound rather than
 			// allocating indefinitely for a broken or adversarial server.
-			const maxClientWindows = 1 << 20
-			if len(ids) > maxClientWindows || uint64(offset)+uint64(len(rep.Value)/4) > uint64(^uint32(0)) {
+			if uint64(offset)+uint64(len(rep.Value)/4) > uint64(^uint32(0)) {
 				yield(Info{}, fmt.Errorf("window/x11: _NET_CLIENT_LIST exceeds supported size"))
 				return
 			}
