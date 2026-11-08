@@ -416,6 +416,12 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			if rect.Empty() {
 				return img, nil
 			}
+			// A requested region entirely outside the captured workspace is
+			// not a successful image capture. Other backends fail closed here;
+			// returning an empty image would let callers hash blank pixels.
+			if rect.Intersect(img.Bounds()).Empty() {
+				return nil, fmt.Errorf("screen/portal: requested region is outside captured image")
+			}
 			return cropImage(img, rect), nil
 		case <-timer.C:
 			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (policy/protocol %s/%s, effective %s)", requestPolicy, portalProtocolTimeout, requestTimeout)
