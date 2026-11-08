@@ -499,6 +499,11 @@ func (b *X11Backend) Sync(ctx context.Context) error {
 	}
 	defer finish()
 	b.conn.Sync()
+	// A transport round trip can complete after the caller withdrew the
+	// request. Do not acknowledge a canceled synchronization as success.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("window/x11: sync canceled: %w", ctxErr)
+	}
 	return nil
 }
 
