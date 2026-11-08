@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/compositor"
@@ -168,58 +167,28 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 	cmd.Env = c.env
 
 	cmd.Stdin = bytes.NewBufferString(text)
-	var stderr bytes.Buffer
-	var stderrFile *os.File
-	var stderrPath string
-	tool := filepath.Base(c.setCmd[0])
-	if tool == "wl-copy" || tool == "xclip" {
-		// Both clipboard owners can leave a child process holding stderr open
-		// after the command that populated the selection exits. A regular file
-		// preserves diagnostics without making os/exec wait on that child.
-		var err error
-		stderrFile, err = os.CreateTemp("", "perfuncted-clipboard-stderr-*")
+	// Even an empty write may cause a failed owner to echo the *previous*
+	// selection to stderr. Never read or publish clipboard-owner stderr.
+	// xclip can daemonize and inherit stderr: a private regular file rather
+	// than a pipe avoids making cmd.Run wait for the daemon to exit.
+	if filepath.Base(c.setCmd[0]) == "xclip" {
+		stderrFile, err := os.CreateTemp("", "perfuncted-clipboard-stderr-*")
 		if err != nil {
 			return fmt.Errorf("clipboard set: create stderr capture: %w", err)
 		}
-		stderrPath = stderrFile.Name()
 		defer func() {
 			_ = stderrFile.Close()
-			_ = os.Remove(stderrPath)
+			_ = os.Remove(stderrFile.Name())
 		}()
 		cmd.Stderr = stderrFile
 	} else {
-		cmd.Stderr = &stderr
+		cmd.Stderr = io.Discard
 	}
-
-	runErr := cmd.Run()
-	if stderrFile != nil {
-		closeErr := stderrFile.Close()
-		if closeErr == nil {
-			if data, readErr := os.ReadFile(stderrPath); readErr == nil {
-				_, _ = stderr.Write(data)
-			} else if runErr == nil {
-				return fmt.Errorf("clipboard set: read stderr capture: %w", readErr)
-			}
-		} else if runErr == nil {
-			return fmt.Errorf("clipboard set: close stderr capture: %w", closeErr)
-		}
-	}
-
-	if runErr != nil {
+	if runErr := cmd.Run(); runErr != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("clipboard set: %w", ctx.Err())
 		}
-		message := strings.TrimSpace(stderr.String())
-		// A failed owner can echo arbitrary *fragments* of its stdin. Exact
-		// substitution cannot sanitize those fragments, so never expose
-		// untrusted stderr when the attempted selection was nonempty.
-		if text != "" {
-			message = ""
-		}
-		if message == "" {
-			return fmt.Errorf("clipboard set: %w", runErr)
-		}
-		return fmt.Errorf("clipboard set: %w: %s", runErr, message)
+		return fmt.Errorf("clipboard set: %w", runErr)
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("clipboard set: %w", err)
