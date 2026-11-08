@@ -212,12 +212,12 @@ func (b *X11Backend) windowHasDecoration(win xproto.Window) bool {
 // windowGeometry returns the geometry of a window, including its decoration
 func (b *X11Backend) windowGeometry(win xproto.Window) (int, int, int, int) {
 	geo, err := b.conn.GetGeometry(xproto.Drawable(win)).Reply()
-	if err != nil {
+	if err != nil || geo == nil {
 		return 0, 0, 0, 0
 	}
 
 	trans, err := b.conn.TranslateCoordinates(win, b.root, 0, 0).Reply()
-	if err != nil {
+	if err != nil || trans == nil {
 		return int(geo.X), int(geo.Y), int(geo.Width), int(geo.Height)
 	}
 
