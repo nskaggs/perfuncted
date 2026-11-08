@@ -24,6 +24,11 @@ import (
 func newStubX11Backend(t *testing.T, withWindow bool, title string) (*X11Backend, *x11.MockConnection) {
 	t.Helper()
 	conn := &x11.MockConnection{}
+	// InternAtom(false) creates a named atom and must return a nonzero ID.
+	// Preserve that wire contract for successful action tests.
+	conn.InternAtomFunc = func(bool, uint16, string) x11.InternAtomCookie {
+		return cancelAwareAtomReply{}
+	}
 	b := &X11Backend{
 		conn:                        conn,
 		root:                        1,

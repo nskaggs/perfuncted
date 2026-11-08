@@ -637,6 +637,9 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 	if delAtom == nil {
 		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: nil atom reply")
 	}
+	if delAtom.Atom == xproto.AtomNone {
+		return fmt.Errorf("window/x11: intern WM_DELETE_WINDOW: invalid zero atom")
+	}
 	protoAtom, err := b.conn.InternAtom(false, uint16(len(wmProtocols)), wmProtocols).Reply()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("window/x11: close canceled: %w", ctxErr)
@@ -646,6 +649,9 @@ func (b *X11Backend) CloseWindowByID(ctx context.Context, id string) error {
 	}
 	if protoAtom == nil {
 		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: nil atom reply")
+	}
+	if protoAtom.Atom == xproto.AtomNone {
+		return fmt.Errorf("window/x11: intern WM_PROTOCOLS: invalid zero atom")
 	}
 	data := [5]uint32{uint32(delAtom.Atom), uint32(xproto.TimeCurrentTime), 0, 0, 0}
 	return b.conn.SendEventChecked(false, win, 0,
@@ -682,6 +688,9 @@ func (b *X11Backend) MinimizeByID(ctx context.Context, id string) error {
 	}
 	if csAtom == nil {
 		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: nil atom reply")
+	}
+	if csAtom.Atom == xproto.AtomNone {
+		return fmt.Errorf("window/x11: intern WM_CHANGE_STATE: invalid zero atom")
 	}
 	data := [5]uint32{3, 0, 0, 0, 0}
 	return b.conn.SendEventChecked(false, b.root,
