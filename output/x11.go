@@ -1,12 +1,14 @@
 package output
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
 	"net"
 	"slices"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/jezek/xgb/randr"
 	"github.com/jezek/xgb/xproto"
@@ -194,6 +196,11 @@ func rootOutput(screen *xproto.ScreenInfo) Info {
 func trimX11Name(raw []byte) string {
 	for len(raw) > 0 && raw[len(raw)-1] == 0 {
 		raw = raw[:len(raw)-1]
+	}
+	// A RandR name is an external identifier. Embedded NUL and invalid
+	// UTF-8 must not become ambiguous or lossy public output metadata.
+	if bytes.IndexByte(raw, 0) >= 0 || !utf8.Valid(raw) {
+		return ""
 	}
 	return string(raw)
 }
