@@ -335,9 +335,13 @@ func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] 
 			}
 			priorBytesAfter = rep.BytesAfter
 			for i := 0; i < len(rep.Value); i += 4 {
-				ids = append(ids, xproto.Window(
-					uint32(rep.Value[i])|uint32(rep.Value[i+1])<<8|
-						uint32(rep.Value[i+2])<<16|uint32(rep.Value[i+3])<<24))
+				id := xproto.Window(uint32(rep.Value[i]) | uint32(rep.Value[i+1])<<8 |
+					uint32(rep.Value[i+2])<<16 | uint32(rep.Value[i+3])<<24)
+				// X11 None is not a client window. Including it in a malformed
+				// list can also falsely mark it active when no window has focus.
+				if id != xproto.WindowNone {
+					ids = append(ids, id)
+				}
 			}
 			if rep.BytesAfter == 0 {
 				break
