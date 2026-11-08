@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -125,7 +128,7 @@ func reapSessionDirIfStale(
 	maxAge time.Duration,
 	now time.Time,
 ) error {
-	data, err := os.ReadFile(filepath.Join(dir, sessionOwnerPIDFile))
+	data, err := readSessionPIDMetadata(filepath.Join(dir, sessionOwnerPIDFile))
 	if err != nil {
 		return reapSessionDirWhenOlderThan(ctx, dir, now, noPIDFileReapGrace)
 	}
@@ -300,8 +303,36 @@ func parseSessionSubdirMounts(dir string, data []byte) []string {
 	return mounts
 }
 
+// readSessionPIDMetadata treats runtime PID files as untrusted: a replaced
+// FIFO must not block cleanup, and links/devices must not be read as ownership
+// claims. A PID is short, so never read an unbounded file into memory.
+func readSessionPIDMetadata(path string) ([]byte, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer file.Close()
+	var stat unix.Stat_t
+	if statErr := unix.Fstat(fd, &stat); statErr != nil {
+		return nil, statErr
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return nil, fmt.Errorf("session: PID metadata %q is not a regular file", path)
+	}
+	const maxPIDBytes = 64
+	bytes, err := io.ReadAll(io.LimitReader(file, maxPIDBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes) > maxPIDBytes {
+		return nil, fmt.Errorf("session: PID metadata %q is oversized", path)
+	}
+	return bytes, nil
+}
+
 func readPIDFile(path string) (int, error) {
-	data, err := os.ReadFile(path)
+	data, err := readSessionPIDMetadata(path)
 	if err != nil {
 		return 0, err
 	}
