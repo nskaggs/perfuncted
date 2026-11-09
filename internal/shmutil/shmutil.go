@@ -16,8 +16,16 @@ import (
 // is responsible for closing the FD. Using memfd avoids leaving names in /dev/shm
 // if the process crashes before cleanup.
 func CreateFile(size int64) (*os.File, error) {
+	return createFileWithMemfd(size, func() (int, error) {
+		return unix.MemfdCreate("perfuncted-shm", unix.MFD_CLOEXEC|unix.MFD_ALLOW_SEALING)
+	})
+}
+
+// createFileWithMemfd keeps the kernel memfd failure path testable without
+// changing the exported allocation policy or relying on host capabilities.
+func createFileWithMemfd(size int64, memfd func() (int, error)) (*os.File, error) {
 	// Try memfd_create first (preferred)
-	if fd, err := unix.MemfdCreate("perfuncted-shm", unix.MFD_CLOEXEC|unix.MFD_ALLOW_SEALING); err == nil {
+	if fd, err := memfd(); err == nil {
 		if err := unix.Ftruncate(fd, size); err == nil {
 			// Wrap the FD in an *os.File and return. Name is empty (anonymous).
 			f := os.NewFile(uintptr(fd), "")
