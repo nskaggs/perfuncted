@@ -468,8 +468,9 @@ seatComplete:
 			return nil, fmt.Errorf("input/eis: enumerate input devices: %w", err)
 		}
 		if message.object == callbackID && message.opcode == 0 {
-			data, err := eiReadU64(message.body, 0)
-			if err != nil || data != 0 {
+			// ei_callback.done has exactly one uint64 argument. A peer
+			// must not complete setup using an extended callback frame.
+			if len(message.body) != 8 || binary.NativeEndian.Uint64(message.body) != 0 {
 				return nil, errors.New("input/eis: invalid device setup callback")
 			}
 			break
