@@ -237,6 +237,11 @@ func (c *eiClient) terminalError() (bool, error) {
 }
 
 func (c *eiClient) updateSerial(message eiMessage) {
+	// ei_connection.disconnect carries a reason, not a serial. Avoid
+	// interpreting that reason as authorization for subsequent operations.
+	if message.object != 0 && message.object == c.connection.Load() && message.opcode == 0 {
+		return
+	}
 	if len(message.body) < 4 {
 		return
 	}
