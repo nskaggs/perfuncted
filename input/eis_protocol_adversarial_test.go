@@ -457,7 +457,7 @@ func TestEIAnswerPingPropagatesClosedTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &eiClient{conn: clientConn}
-	message := eiMessage{body: append(eiU64(17), eiU32(1)...)}
+	message := eiMessage{body: append(eiU64(eiServerIDFloor+17), eiU32(1)...)}
 	if err := client.answerPing(message); err == nil || !strings.Contains(err.Error(), "answer connection ping") {
 		t.Fatalf("ping response on a closed transport = %v", err)
 	}

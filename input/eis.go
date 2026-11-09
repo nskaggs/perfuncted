@@ -145,7 +145,9 @@ func (c *eiClient) answerPing(message eiMessage) error {
 	if err != nil {
 		return fmt.Errorf("input/eis: invalid connection ping version: %w", err)
 	}
-	if ping == 0 || version != 1 {
+	if ping < eiServerIDFloor || version != 1 {
+		// Pingpong objects are server-owned; replying to a client-owned
+		// ID could target an unrelated callback or request object.
 		return fmt.Errorf("input/eis: unsupported connection ping object %d version %d", ping, version)
 	}
 	if err := c.writeMessages(eiRequest(ping, 0, eiU64(0))); err != nil {
