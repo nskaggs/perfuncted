@@ -567,7 +567,12 @@ func (b *GnomeNativeBackend) MouseClick(ctx context.Context, x, y, button int) e
 			return err
 		}
 		if err := b.bridge.PointerButton(ctx, buttonCode, true); err != nil {
-			return err
+			// The bridge may deliver the press before reporting an error.
+			// Release with an independently bounded context even when the
+			// failed write also canceled the calling operation.
+			return errors.Join(err, releaseMouseButton(ctx, func(cleanupCtx context.Context) error {
+				return b.bridge.PointerButton(cleanupCtx, buttonCode, false)
+			}))
 		}
 		if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
 			return errors.Join(err, releaseMouseButton(ctx, func(cleanupCtx context.Context) error {
