@@ -144,6 +144,11 @@ func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn fun
 	if b.closed.Load() {
 		return fmt.Errorf("screen/wlr: backend is closed")
 	}
+	// Only constructors install the connector and janitor lifecycle. A
+	// zero-value or partially constructed backend cannot safely capture.
+	if b.connect == nil || b.initJanitor == nil {
+		return fmt.Errorf("screen/wlr: backend is uninitialized")
+	}
 	b.initJanitor()
 
 	b.ctxMu.Lock()
