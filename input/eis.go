@@ -451,6 +451,9 @@ seatComplete:
 		return nil, fmt.Errorf("input/eis: bind seat: %w", err)
 	}
 	callbackID := client.nextClientObjectID()
+	if callbackID == 0 {
+		return nil, errors.New("input/eis: client callback object namespace exhausted")
+	}
 	if err := client.writeMessages(eiRequest(sender.connection, 0, append(eiU64(callbackID), eiU32(1)...))); err != nil {
 		return nil, fmt.Errorf("input/eis: synchronize device setup: %w", err)
 	}
@@ -820,7 +823,17 @@ func eiReadString(body []byte, offset int) (string, error) {
 	return string(value), nil
 }
 
-func (c *eiClient) nextClientObjectID() uint64 { return c.clientID.Add(1) - 1 }
+func (c *eiClient) nextClientObjectID() uint64 {
+	for {
+		id := c.clientID.Load()
+		if id == 0 || id >= eiServerIDFloor {
+			return 0 // Exhaustion must never allocate in the server namespace.
+		}
+		if c.clientID.CompareAndSwap(id, id+1) {
+			return id
+		}
+	}
+}
 
 func monotonicMicroseconds() (uint64, error) {
 	var ts unix.Timespec
