@@ -517,13 +517,14 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if err != nil {
 			return err
 		}
-		if id < eiServerIDFloor || version == 0 {
-			// Device objects are server-owned and must not alias the
-			// client callback and request object namespace.
-			return fmt.Errorf("input/eis: invalid device object %d version %d", id, version)
-		}
 		if _, exists := s.devices[id]; exists {
 			return fmt.Errorf("input/eis: duplicate device announcement for object %d", id)
+		}
+		if id < eiServerIDFloor || version != 1 {
+			// Device objects are server-owned and must not alias the
+			// client callback and request object namespace. The client
+			// announces support only for ei_device protocol version 1.
+			return fmt.Errorf("input/eis: invalid device object %d version %d", id, version)
 		}
 		if s.isReservedEISObject(id) {
 			return fmt.Errorf("input/eis: invalid device object %d collides with existing protocol identity", id)
