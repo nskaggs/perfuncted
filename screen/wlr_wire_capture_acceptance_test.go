@@ -129,6 +129,9 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 				if err := writeExtTestEvent(conn, frameID, 2, wlUint32Payload(0, 0, 0)); err != nil {
 					return err
 				}
+				// The protocol is already invalid. Await frame destruction
+				// rather than racing a second event against client shutdown.
+				continue
 			}
 			buffer := wlUint32Payload(0, 2, 2, 8)
 			switch frameOutcome {

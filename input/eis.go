@@ -118,7 +118,9 @@ func (c *eiClient) captureConnection(message eiMessage) error {
 		return fmt.Errorf("input/eis: invalid handshake connection event: %w", err)
 	}
 	version, err := eiReadU32(message.body, 12)
-	if err != nil || connection == 0 || version != 1 {
+	if err != nil || connection < eiServerIDFloor || version != 1 {
+		// Server-owned protocol objects must not alias the client-owned
+		// object IDs used for callbacks and outgoing requests.
 		return fmt.Errorf("input/eis: unsupported handshake connection object %d version %d", connection, version)
 	}
 	// The server assigns exactly one connection object during handshake.

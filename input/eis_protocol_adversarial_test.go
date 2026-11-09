@@ -45,8 +45,8 @@ func TestEIReadLoopRejectsMalformedConnectionAndPing(t *testing.T) {
 		{"short connection", [][]byte{eiRequest(0, 2, eiU64(12))}, "invalid handshake connection"},
 		{"zero connection", [][]byte{eiRequest(0, 2, append(append(eiU32(7), eiU64(0)...), eiU32(1)...))}, "unsupported handshake"},
 		{"wrong version", [][]byte{eiRequest(0, 2, append(append(eiU32(7), eiU64(11)...), eiU32(2)...))}, "unsupported handshake"},
-		{"short ping", [][]byte{eiRequest(0, 2, append(append(eiU32(7), eiU64(11)...), eiU32(1)...)), eiRequest(11, 3, eiU64(3))}, "invalid connection ping"},
-		{"wrong ping version", [][]byte{eiRequest(0, 2, append(append(eiU32(7), eiU64(11)...), eiU32(1)...)), eiRequest(11, 3, append(eiU64(3), eiU32(2)...))}, "unsupported connection ping"},
+		{"short ping", [][]byte{eiRequest(0, 2, append(append(eiU32(7), eiU64(eiServerIDFloor+11)...), eiU32(1)...)), eiRequest(eiServerIDFloor+11, 3, eiU64(3))}, "invalid connection ping"},
+		{"wrong ping version", [][]byte{eiRequest(0, 2, append(append(eiU32(7), eiU64(eiServerIDFloor+11)...), eiU32(1)...)), eiRequest(eiServerIDFloor+11, 3, append(eiU64(3), eiU32(2)...))}, "unsupported connection ping"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clientConn, serverConn := unixConnectionPair(t)
