@@ -436,6 +436,11 @@ func setupEISender(ctx context.Context, conn *net.UnixConn) (*eiSender, error) {
 			}
 			capabilityMasks[name] |= mask
 		case 3:
+			// ei_seat.done has no arguments. Do not treat a malformed
+			// completion event as authority to bind input capabilities.
+			if len(message.body) != 0 {
+				return nil, errors.New("input/eis: invalid seat capability completion")
+			}
 			goto seatComplete
 		}
 	}
