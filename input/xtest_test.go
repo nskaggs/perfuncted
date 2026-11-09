@@ -248,6 +248,7 @@ func TestXTestTypeReleasesEarlierModifiersWhenModifierSetupFails(t *testing.T) {
 	want := []xtestEvent{
 		{eventType: xproto.KeyPress, detail: shift},
 		{eventType: xproto.KeyPress, detail: ctrl},
+		{eventType: xproto.KeyRelease, detail: ctrl},
 		{eventType: xproto.KeyRelease, detail: shift},
 	}
 	if !sameXTestEvents(*events, want) {

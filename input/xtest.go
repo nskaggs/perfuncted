@@ -492,7 +492,10 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 
 	for _, modKey := range modKeys {
 		if err := b.keyDownKC(modKey); err != nil {
-			return err
+			// The server may have delivered this temporary modifier
+			// even if its acknowledgement failed. Release it before
+			// unwinding previously applied modifiers.
+			return errors.Join(err, ctx.Err(), b.keyUpKC(modKey))
 		}
 		pressedMods = append(pressedMods, modKey)
 	}
@@ -709,7 +712,7 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune, scratch []xpro
 			continue
 		}
 		if keyErr := b.keyDownKC(mod); keyErr != nil {
-			return releaseApplied(keyErr)
+			return releaseApplied(errors.Join(keyErr, ctx.Err(), b.keyUpKC(mod)))
 		}
 		pressed = append(pressed, mod)
 	}
