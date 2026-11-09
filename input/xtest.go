@@ -909,7 +909,13 @@ func (b *XTestBackend) scroll(ctx context.Context, button, clicks int) error {
 			return err
 		}
 		if err := b.mouseButton(ctx, xproto.ButtonPress, button); err != nil {
-			return err
+			// A checked XTEST wheel press may have been processed before
+			// an error was returned. Compensate without emitting further
+			// scroll ticks, even if the original context is now canceled.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+			cleanupErr := b.mouseButton(cleanupCtx, xproto.ButtonRelease, button)
+			cancel()
+			return errors.Join(err, ctx.Err(), cleanupErr)
 		}
 		if err := b.mouseButton(ctx, xproto.ButtonRelease, button); err != nil {
 			// The press may already have reached the server. A failed release
