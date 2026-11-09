@@ -419,6 +419,11 @@ func setupEISender(ctx context.Context, conn *net.UnixConn) (*eiSender, error) {
 			}
 			continue
 		}
+		// A destroyed seat is no longer an authority source. Do not wait
+		// for capabilities from, or bind input to, a removed seat.
+		if message.opcode == 0 {
+			return nil, ErrRemoteDesktopRevoked
+		}
 		switch message.opcode {
 		case 2:
 			mask, err := eiReadU64(message.body, 0)
