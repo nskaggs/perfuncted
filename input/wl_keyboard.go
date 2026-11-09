@@ -151,8 +151,13 @@ func (k *wlKeyboard) applyTempMods(ctx context.Context, modBitmask uint32) (uint
 	}
 	k.mods |= added
 	if err := k.sendModifiers(ctx); err != nil {
+		// A failed write may already have reached the compositor. Restore
+		// the previously held mask on the wire, independent of cancellation.
 		k.mods &^= added
-		return 0, err
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)
+		cleanupErr := k.sendModifiers(cleanupCtx)
+		cancel()
+		return 0, errors.Join(err, ctx.Err(), cleanupErr)
 	}
 	return added, nil
 }
