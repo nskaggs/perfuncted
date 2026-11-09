@@ -731,7 +731,10 @@ func (b *UinputBackend) MouseClick(ctx context.Context, x, y, button int) error 
 			return err
 		}
 		if err := b.mouseDown(ctx, button); err != nil {
-			return err
+			// Device writes can fail after the press reached the kernel.
+			// Best-effort release prevents an uncertain partial press from
+			// leaving the physical button held. Retain both failures.
+			return errors.Join(err, b.mouseUp(context.WithoutCancel(ctx), button))
 		}
 		var clickErr error
 		if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
