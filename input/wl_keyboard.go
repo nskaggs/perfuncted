@@ -113,7 +113,9 @@ func (k *wlKeyboard) warmupContext(ctx context.Context) error {
 		return err
 	}
 	if err := k.sendKey(ctx, kcShift, 1); err != nil {
-		return err
+		// The compositor might have accepted the press before reporting
+		// failure. Never leave warmup's synthetic Shift depressed.
+		return errors.Join(err, ctx.Err(), k.cleanupSendKey(ctx, kcShift))
 	}
 	// The compositor protocol requires a short modifier settling interval;
 	// ctx remains authoritative for cancellation.
@@ -121,10 +123,14 @@ func (k *wlKeyboard) warmupContext(ctx context.Context) error {
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return errors.Join(ctx.Err(), k.cleanupSendKey(ctx, kcShift))
 	case <-timer.C:
 	}
-	return k.sendKey(ctx, kcShift, 0)
+	if err := k.sendKey(ctx, kcShift, 0); err != nil {
+		// A failed release might not have reached the compositor.
+		return errors.Join(err, ctx.Err(), k.cleanupSendKey(ctx, kcShift))
+	}
+	return nil
 }
 
 // uploadKeymapAndRestoreMods uploads a keymap and re-sends the current modifier
