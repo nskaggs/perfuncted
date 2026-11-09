@@ -460,7 +460,10 @@ func (b *WlVirtualBackend) mouseClickEvents(ctx context.Context, wlctx wl.Ctx, x
 		return err
 	}
 	if err := b.buttonEvent(ctx, wlctx, code, 1); err != nil {
-		return err
+		// The compositor may have received the button-down event even
+		// when writing it (or its frame) reports a transport failure.
+		// Attempt bounded cleanup independently of caller cancellation.
+		return errors.Join(err, ctx.Err(), b.cleanupButtonEvent(ctx, wlctx, code, 0))
 	}
 	if err := sleepContext(ctx, mouseClickHoldDuration); err != nil {
 		return errors.Join(err, b.cleanupButtonEvent(ctx, wlctx, code, 0))
