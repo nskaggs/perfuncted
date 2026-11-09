@@ -517,7 +517,9 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 		b.markModifierHeld(kc)
 	default:
 		if err := b.keyDownKC(kc); err != nil {
-			return err
+			// A failed XTEST request can still reach the server. Release
+			// the possibly pressed key and retain cleanup and cancellation.
+			return errors.Join(err, ctx.Err(), b.keyUpKC(kc))
 		}
 		if err := sleepContext(ctx, b.delay); err != nil {
 			if upErr := b.keyUpKC(kc); upErr != nil {
@@ -718,7 +720,9 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune, scratch []xpro
 		}
 	}()
 	if err := b.keyDownKC(kc); err != nil {
-		return releaseApplied(err)
+		// The server may have accepted the key-down before reporting
+		// failure. Release the key before unwinding temporary modifiers.
+		return releaseApplied(errors.Join(err, ctx.Err(), b.keyUpKC(kc)))
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
 		if upErr := b.keyUpKC(kc); upErr != nil {

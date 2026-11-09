@@ -154,6 +154,7 @@ func TestXTestTypeReleasesTemporaryModifiersAfterKeyFailure(t *testing.T) {
 		{eventType: xproto.KeyPress, detail: shift},
 		{eventType: xproto.KeyPress, detail: ctrl},
 		{eventType: xproto.KeyPress, detail: key},
+		{eventType: xproto.KeyRelease, detail: key},
 		{eventType: xproto.KeyRelease, detail: ctrl},
 		{eventType: xproto.KeyRelease, detail: shift},
 	}
@@ -215,8 +216,8 @@ func TestXTestTypeJoinsTemporaryModifierCleanupFailure(t *testing.T) {
 	if !errors.Is(err, cleanupErr) {
 		t.Fatalf("typeContext error = %v, want cleanup error %v joined", err, cleanupErr)
 	}
-	if got := *events; len(got) != 5 || got[3] != (xtestEvent{eventType: xproto.KeyRelease, detail: ctrl}) {
-		t.Fatalf("events = %#v, want initial modifier cleanup attempt", got)
+	if got := *events; len(got) != 6 || got[3] != (xtestEvent{eventType: xproto.KeyRelease, detail: key}) || got[4] != (xtestEvent{eventType: xproto.KeyRelease, detail: ctrl}) {
+		t.Fatalf("events = %#v, want uncertain key release before modifier cleanup", got)
 	}
 }
 
@@ -278,6 +279,7 @@ func TestXTestTypeTextReleasesShiftAfterKeyFailure(t *testing.T) {
 	want := []xtestEvent{
 		{eventType: xproto.KeyPress, detail: shift},
 		{eventType: xproto.KeyPress, detail: key},
+		{eventType: xproto.KeyRelease, detail: key},
 		{eventType: xproto.KeyRelease, detail: shift},
 	}
 	if !sameXTestEvents(*events, want) {

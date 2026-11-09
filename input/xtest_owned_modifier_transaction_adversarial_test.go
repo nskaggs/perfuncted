@@ -49,7 +49,7 @@ func TestXTestModifierTransactionFailsClosedAtEveryProtocolBoundary(t *testing.T
 		want   []xtestEvent
 	}{
 		{"mod down fails", 1, []xtestEvent{{xproto.KeyPress, 8}}},
-		{"key down fails", 2, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 8}}},
+		{"key down fails", 2, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 8}}},
 		{"key up fails", 3, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 8}}},
 		{"mod up fails", 4, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 8}, {xproto.KeyRelease, 8}}},
 	} {
