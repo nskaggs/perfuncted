@@ -528,8 +528,9 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 				case ka.down:
 					if err := k.sendKey(ctx, kc, 1); err != nil {
+						cleanupErr := k.cleanupSendKey(ctx, kc)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, ctx.Err(), cleanupErr)
 					}
 					k.mods |= bit
 					if err := k.sendModifiers(ctx); err != nil {
@@ -583,8 +584,9 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					delete(k.held, ka.key)
 				case ka.down:
 					if err := k.sendKey(ctx, slot, 1); err != nil {
+						cleanupErr := k.cleanupSendKey(ctx, slot)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, ctx.Err(), cleanupErr)
 					}
 					k.held[ka.key] = slot
 				default:
@@ -628,8 +630,9 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				}
 				slot := runeSlots[runes[0]]
 				if err := k.sendKey(ctx, slot, 1); err != nil {
+					cleanupErr := k.cleanupSendKey(ctx, slot)
 					k.clearTempModsBestEffort(ctx, tempMods)
-					return err
+					return errors.Join(err, ctx.Err(), cleanupErr)
 				}
 				k.held[ka.key] = slot
 			default:
