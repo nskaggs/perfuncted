@@ -474,11 +474,11 @@ seatComplete:
 			}
 			break
 		}
+		if isEISDisconnected(message, sender.connection) || (message.object == sender.seat && message.opcode == 0) {
+			return nil, ErrRemoteDesktopRevoked
+		}
 		if err := sender.consumeSetupEvent(message); err != nil {
 			return nil, err
-		}
-		if isEISDisconnected(message, sender.connection) {
-			return nil, ErrRemoteDesktopRevoked
 		}
 	}
 	for !sender.devicesReady() {
@@ -486,11 +486,11 @@ seatComplete:
 		if err != nil {
 			return nil, fmt.Errorf("input/eis: await resumed input devices: %w", err)
 		}
+		if isEISDisconnected(message, sender.connection) || (message.object == sender.seat && message.opcode == 0) {
+			return nil, ErrRemoteDesktopRevoked
+		}
 		if err := sender.consumeSetupEvent(message); err != nil {
 			return nil, err
-		}
-		if isEISDisconnected(message, sender.connection) {
-			return nil, ErrRemoteDesktopRevoked
 		}
 	}
 	if err := ctx.Err(); err != nil {
