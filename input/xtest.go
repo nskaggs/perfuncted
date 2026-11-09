@@ -535,7 +535,9 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 			return err
 		}
 		if err := b.keyUpKC(kc); err != nil {
-			return err
+			// A failed acknowledgement may mean the server never saw
+			// the release. Retry once before unwinding modifiers.
+			return errors.Join(err, b.keyUpKC(kc))
 		}
 	}
 
@@ -738,7 +740,7 @@ func (b *XTestBackend) typeTextRune(ctx context.Context, ch rune, scratch []xpro
 		return releaseApplied(err)
 	}
 	if err := b.keyUpKC(kc); err != nil {
-		return releaseApplied(err)
+		return releaseApplied(errors.Join(err, b.keyUpKC(kc)))
 	}
 	return nil
 }
