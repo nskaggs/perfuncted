@@ -778,7 +778,10 @@ func (b *XTestBackend) mouseClick(ctx context.Context, x, y, button int) error {
 		return err
 	}
 	if err := b.mouseButton(ctx, xproto.ButtonPress, button); err != nil {
-		return err
+		// A failed X11 request may still have delivered button-down.
+		// Compensate independently of the operation context and preserve
+		// both the transport error and any cleanup failure.
+		return errors.Join(err, ctx.Err(), b.mouseButton(context.Background(), xproto.ButtonRelease, button)) //nolint:contextcheck // button cleanup survives caller cancellation
 	}
 	if err := sleepContext(ctx, b.delay); err != nil {
 		if upErr := b.mouseButton(context.Background(), xproto.ButtonRelease, button); upErr != nil { //nolint:contextcheck // intentional: release button even if context cancelled
