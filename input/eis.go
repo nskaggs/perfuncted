@@ -388,8 +388,10 @@ func setupEISender(ctx context.Context, conn *net.UnixConn) (*eiSender, error) {
 			if err != nil {
 				return nil, err
 			}
-			if seat == 0 || seat == sender.connection {
-				return nil, errors.New("input/eis: invalid seat identity collides with connection or null object")
+			if seat < eiServerIDFloor || seat == sender.connection {
+				// A server-owned seat must not alias client callbacks or the
+				// already authoritative connection object.
+				return nil, errors.New("input/eis: invalid seat identity collides with client namespace or connection")
 			}
 			sender.seat = seat
 			break
