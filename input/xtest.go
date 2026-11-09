@@ -325,7 +325,7 @@ func (b *XTestBackend) keycodeFor(key string) (xproto.Keycode, error) {
 
 // KeyDown presses and holds key through XTEST.
 func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
-	return b.withOperation(ctx, func(context.Context) error {
+	return b.withOperation(ctx, func(ctx context.Context) error {
 		kc, err := b.keycodeFor(key)
 		if err != nil {
 			return err
@@ -334,7 +334,9 @@ func (b *XTestBackend) KeyDown(ctx context.Context, key string) error {
 			return fmt.Errorf("input/xtest: modifier keycode %d is already held", kc)
 		}
 		if err := b.conn.FakeInputChecked(xproto.KeyPress, byte(kc), xproto.TimeCurrentTime, b.root, 0, 0, 0).Check(); err != nil {
-			return err
+			// The X server may have applied the press despite a failed
+			// acknowledgement. Do not retain ownership of a failed hold.
+			return errors.Join(err, ctx.Err(), b.keyUpKC(kc))
 		}
 		b.markModifierHeld(kc)
 		return nil
@@ -515,7 +517,9 @@ func (b *XTestBackend) typeAction(ctx context.Context, a keySend) (err error) { 
 		b.markModifierReleased(kc)
 	case a.down:
 		if err := b.keyDownKC(kc); err != nil {
-			return err
+			// Compensate for a possibly delivered explicit hold before
+			// cleaning up this operation's temporary modifiers.
+			return errors.Join(err, ctx.Err(), b.keyUpKC(kc))
 		}
 		b.markModifierHeld(kc)
 	default:
