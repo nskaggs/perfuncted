@@ -501,7 +501,9 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if err != nil {
 			return err
 		}
-		if id == 0 || version == 0 {
+		if id < eiServerIDFloor || version == 0 {
+			// Device objects are server-owned and must not alias the
+			// client callback and request object namespace.
 			return fmt.Errorf("input/eis: invalid device object %d version %d", id, version)
 		}
 		if _, exists := s.devices[id]; exists {
