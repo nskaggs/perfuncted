@@ -542,8 +542,10 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					}
 				default:
 					if err := k.sendKey(ctx, kc, 1); err != nil {
+						// The failed modifier tap may already be depressed.
+						cleanupErr := k.cleanupSendKey(ctx, kc)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, ctx.Err(), cleanupErr)
 					}
 					k.mods |= bit
 					if err := k.sendModifiers(ctx); err != nil {
@@ -591,8 +593,9 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 					k.held[ka.key] = slot
 				default:
 					if err := k.sendKey(ctx, slot, 1); err != nil {
+						cleanupErr := k.cleanupSendKey(ctx, slot)
 						k.clearTempModsBestEffort(ctx, tempMods)
-						return err
+						return errors.Join(err, ctx.Err(), cleanupErr)
 					}
 					if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
 						// The key-down may already have reached the compositor;
@@ -847,7 +850,9 @@ func (k *wlKeyboard) tap(ctx context.Context, keycode uint32) error {
 		return err
 	}
 	if err := k.sendKey(ctx, keycode, 1); err != nil {
-		return err
+		// The compositor may have applied the press before reporting a
+		// transport failure. Release on an independent bounded context.
+		return errors.Join(err, ctx.Err(), k.cleanupSendKey(ctx, keycode))
 	}
 	if err := sleepContext(ctx, 10*time.Millisecond); err != nil {
 		return errors.Join(err, k.cleanupSendKey(ctx, keycode))
