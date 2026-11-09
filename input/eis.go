@@ -467,10 +467,10 @@ seatComplete:
 		if err != nil {
 			return nil, fmt.Errorf("input/eis: enumerate input devices: %w", err)
 		}
-		if message.object == callbackID && message.opcode == 0 {
-			// ei_callback.done has exactly one uint64 argument. A peer
-			// must not complete setup using an extended callback frame.
-			if len(message.body) != 8 || binary.NativeEndian.Uint64(message.body) != 0 {
+		if message.object == callbackID {
+			// ei_callback.done is the only event on the client-owned
+			// callback. Reject unexpected opcodes and extended frames.
+			if message.opcode != 0 || len(message.body) != 8 || binary.NativeEndian.Uint64(message.body) != 0 {
 				return nil, errors.New("input/eis: invalid device setup callback")
 			}
 			break
