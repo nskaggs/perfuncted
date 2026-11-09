@@ -676,7 +676,9 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 			return err
 		}
 		if err := k.sendKey(ctx, kc, 1); err != nil {
-			return err
+			// The compositor may have accepted key-down despite the
+			// transport error. Compensate before recording a held key.
+			return errors.Join(err, ctx.Err(), k.cleanupSendKey(ctx, kc))
 		}
 		if bit := modBit(key); bit != 0 {
 			previousMods := k.mods
@@ -699,7 +701,7 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 		return err
 	}
 	if err := k.sendKey(ctx, kcDynBase, 1); err != nil {
-		return err
+		return errors.Join(err, ctx.Err(), k.cleanupSendKey(ctx, kcDynBase))
 	}
 	k.held[key] = kcDynBase
 	return nil
