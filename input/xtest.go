@@ -813,7 +813,12 @@ func (b *XTestBackend) MouseDown(ctx context.Context, button int) error {
 		return err
 	}
 	return b.withOperation(ctx, func(ctx context.Context) error {
-		return b.mouseButton(ctx, xproto.ButtonPress, button)
+		if err := b.mouseButton(ctx, xproto.ButtonPress, button); err != nil {
+			// The server may have acted on the press before reporting a
+			// request failure. Release independently of caller cancellation.
+			return errors.Join(err, ctx.Err(), b.mouseButton(context.Background(), xproto.ButtonRelease, button)) //nolint:contextcheck // compensating release survives cancellation
+		}
+		return nil
 	})
 }
 
