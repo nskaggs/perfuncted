@@ -155,7 +155,7 @@ func TestSyntheticPortalFullAuthorizedEISLifecycle(t *testing.T) { //nolint:gocy
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key.object != 103 || key.opcode != 1 || frame.object != 0xff00000000000012 || frame.opcode != 3 {
+	if key.object != eiServerIDFloor+103 || key.opcode != 1 || frame.object != 0xff00000000000012 || frame.opcode != 3 {
 		t.Fatalf("authorized key not delivered: %+v %+v", key, frame)
 	}
 	if err := backend.KeyUp(ctx, "a"); err != nil {
@@ -241,7 +241,7 @@ func serveSyntheticAuthorizedEISPeer(conn *net.UnixConn) error { //nolint:gocycl
 
 	stream = eiRequest(seatID, 4, append(eiU64(devID), eiU32(1)...))
 	for i, name := range []string{"ei_pointer_absolute", "ei_button", "ei_keyboard", "ei_scroll", "ei_text"} {
-		stream = append(stream, eiRequest(devID, 5, append(eiU64(101+uint64(i)), eiString(name)...))...)
+		stream = append(stream, eiRequest(devID, 5, append(eiU64(eiServerIDFloor+101+uint64(i)), eiString(name)...))...)
 	}
 	region := append(append(append(append(eiU32(0), eiU32(0)...), eiU32(1920)...), eiU32(1080)...), eiF32(1)...)
 	stream = append(stream, eiRequest(devID, 4, region)...)

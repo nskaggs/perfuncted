@@ -61,49 +61,49 @@ func TestEISAuthorizedInputExercisesTextMouseAndScroll(t *testing.T) { //nolint:
 	if err := backend.TypeLiteral(ctx, "é hello"); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 105, 2)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+105, 2)
 	if err := backend.MouseMove(ctx, 300, 400); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 101, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+101, 1)
 	if err := backend.MouseClick(ctx, 300, 400, 1); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 101, 1)
-	assertSyntheticEISOperation(t, server, 102, 1)
-	assertSyntheticEISOperation(t, server, 102, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+101, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+102, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+102, 1)
 	if err := backend.ScrollUp(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 104, 2)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+104, 2)
 	if err := backend.ScrollDown(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 104, 2)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+104, 2)
 	if err := backend.ScrollLeft(ctx, 3); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 104, 2)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+104, 2)
 	if err := backend.ScrollRight(ctx, 4); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 104, 2)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+104, 2)
 	if err := backend.MouseDown(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 102, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+102, 1)
 	if err := backend.MouseUp(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 102, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+102, 1)
 	if err := backend.KeyDown(ctx, "a"); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 103, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+103, 1)
 	if err := backend.KeyUp(ctx, "a"); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 103, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+103, 1)
 	_, _, err := backend.PointerLocation(ctx)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("pointer query should declare unsupported: %v", err)
@@ -123,11 +123,11 @@ func TestEISAuthorizedCloseReleasesHeldInput(t *testing.T) { //nolint:gocyclo //
 	if err := backend.KeyDown(ctx, "a"); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 103, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+103, 1)
 	if err := backend.MouseDown(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 102, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+102, 1)
 	if err := backend.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestEISAuthorizedCloseReleasesHeldInput(t *testing.T) { //nolint:gocyclo //
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key.object != 103 || key.opcode != 1 || binary.NativeEndian.Uint32(key.body[4:8]) != 0 {
+	if key.object != eiServerIDFloor+103 || key.opcode != 1 || binary.NativeEndian.Uint32(key.body[4:8]) != 0 {
 		t.Fatalf("held key not released during close: %+v", key)
 	}
 	frame, err := readSyntheticEISFrame(server)
@@ -146,7 +146,7 @@ func TestEISAuthorizedCloseReleasesHeldInput(t *testing.T) { //nolint:gocyclo //
 	if err != nil {
 		t.Fatal(err)
 	}
-	if button.object != 102 || button.opcode != 1 || binary.NativeEndian.Uint32(button.body[4:8]) != 0 {
+	if button.object != eiServerIDFloor+102 || button.opcode != 1 || binary.NativeEndian.Uint32(button.body[4:8]) != 0 {
 		t.Fatalf("held button not released during close: %+v", button)
 	}
 	frame, err = readSyntheticEISFrame(server)
@@ -165,7 +165,7 @@ func TestEISAuthorizedTypeValidatesFullSequenceBeforeSending(t *testing.T) { //n
 	if err := backend.Type(ctx, "hello"); err != nil {
 		t.Fatalf("literal text: %v", err)
 	}
-	assertSyntheticEISOperation(t, server, 105, 2)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+105, 2)
 
 	if err := backend.Type(ctx, "{ctrl+a}"); err != nil {
 		t.Fatalf("chord: %v", err)
@@ -179,7 +179,7 @@ func TestEISAuthorizedTypeValidatesFullSequenceBeforeSending(t *testing.T) { //n
 		if err != nil {
 			t.Fatal(err)
 		}
-		if request.object != 103 || request.opcode != 1 || len(request.body) != 8 {
+		if request.object != eiServerIDFloor+103 || request.opcode != 1 || len(request.body) != 8 {
 			t.Fatalf("chord transition %d incorrect EIS event: %+v", i, request)
 		}
 		gotKey := binary.NativeEndian.Uint32(request.body[:4])
@@ -211,7 +211,7 @@ func TestEISAuthorizedTypePreservesExplicitlyHeldModifier(t *testing.T) {
 	if err := backend.KeyDown(ctx, "shift"); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 103, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+103, 1)
 	if err := backend.Type(ctx, "{shift+a}"); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestEISAuthorizedTypePreservesExplicitlyHeldModifier(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if request.object != 103 || binary.NativeEndian.Uint32(request.body[:4]) != 30 || binary.NativeEndian.Uint32(request.body[4:8]) != wantState {
+		if request.object != eiServerIDFloor+103 || binary.NativeEndian.Uint32(request.body[:4]) != 30 || binary.NativeEndian.Uint32(request.body[4:8]) != wantState {
 			t.Fatalf("held shift produced unexpected key transition: %+v", request)
 		}
 		frame, err := readSyntheticEISFrame(server)
@@ -234,5 +234,5 @@ func TestEISAuthorizedTypePreservesExplicitlyHeldModifier(t *testing.T) {
 	if err := backend.KeyUp(ctx, "shift"); err != nil {
 		t.Fatal(err)
 	}
-	assertSyntheticEISOperation(t, server, 103, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+103, 1)
 }

@@ -100,7 +100,7 @@ func TestPortalTypeHonorsExplicitModifiedKeyHoldAndRelease(t *testing.T) {
 			t.Fatal(err)
 		}
 		frame, frameErr := readSyntheticEISFrame(server)
-		if frameErr != nil || request.object != 103 || request.opcode != 1 || binary.NativeEndian.Uint32(request.body[:4]) != want.key || binary.NativeEndian.Uint32(request.body[4:8]) != want.state || frame.object != 0xff00000000000012 || frame.opcode != 3 {
+		if frameErr != nil || request.object != eiServerIDFloor+103 || request.opcode != 1 || binary.NativeEndian.Uint32(request.body[:4]) != want.key || binary.NativeEndian.Uint32(request.body[4:8]) != want.state || frame.object != 0xff00000000000012 || frame.opcode != 3 {
 			t.Fatalf("transition %d = %+v frame=%+v err=%v want key/state %+v", i, request, frame, frameErr, want)
 		}
 	}
@@ -129,7 +129,7 @@ func TestPortalTypeHonorsExplicitModifiedKeyHoldAndRelease(t *testing.T) {
 			t.Fatal(err)
 		}
 		frame, frameErr := readSyntheticEISFrame(server)
-		if frameErr != nil || request.object != 103 || request.opcode != 1 || binary.NativeEndian.Uint32(request.body[:4]) != want.key || binary.NativeEndian.Uint32(request.body[4:8]) != want.state || frame.object != 0xff00000000000012 || frame.opcode != 3 {
+		if frameErr != nil || request.object != eiServerIDFloor+103 || request.opcode != 1 || binary.NativeEndian.Uint32(request.body[:4]) != want.key || binary.NativeEndian.Uint32(request.body[4:8]) != want.state || frame.object != 0xff00000000000012 || frame.opcode != 3 {
 			t.Fatalf("modified release = %+v frame=%+v err=%v want key/state %+v", request, frame, frameErr, want)
 		}
 	}

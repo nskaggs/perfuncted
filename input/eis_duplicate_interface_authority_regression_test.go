@@ -13,13 +13,13 @@ func TestEISDeviceInterfaceCannotBeReboundByRepeatedAdvertisement(t *testing.T) 
 		name        string
 		replacement uint64
 	}{
-		{"different interface object", 102},
-		{"replayed interface object", 101},
+		{"different interface object", eiServerIDFloor + 102},
+		{"replayed interface object", eiServerIDFloor + 101},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sender := &eiSender{devices: map[uint64]*eiDevice{eiServerIDFloor + 12: {id: eiServerIDFloor + 12, version: 1, interfaces: map[string]uint64{}}}}
 			device := sender.devices[eiServerIDFloor+12]
-			first := eiMessage{object: device.id, opcode: 5, body: append(eiU64(101), eiString("ei_keyboard")...)}
+			first := eiMessage{object: device.id, opcode: 5, body: append(eiU64(eiServerIDFloor+101), eiString("ei_keyboard")...)}
 			if err := sender.consumeSetupEvent(first); err != nil {
 				t.Fatalf("initial keyboard authorization rejected: %v", err)
 			}
@@ -28,7 +28,7 @@ func TestEISDeviceInterfaceCannotBeReboundByRepeatedAdvertisement(t *testing.T) 
 			if err == nil || !strings.Contains(err.Error(), "duplicate") {
 				t.Fatalf("repeated interface announcement accepted: %v", err)
 			}
-			if device.interfaces["ei_keyboard"] != 101 || len(device.interfaces) != 1 {
+			if device.interfaces["ei_keyboard"] != eiServerIDFloor+101 || len(device.interfaces) != 1 {
 				t.Fatalf("replayed interface changed keyboard authority: %+v", device.interfaces)
 			}
 		})

@@ -17,8 +17,8 @@ func TestEISHandshakeRejectsReboundOrZeroIdentityInterfacesOverRealUnixSocket(t 
 		additional []byte
 		want       string
 	}{
-		{"different keyboard object", eiRequest(eiServerIDFloor+0x12, 5, append(eiU64(102), eiString("ei_keyboard")...)), "duplicate interface"},
-		{"replayed keyboard object", eiRequest(eiServerIDFloor+0x12, 5, append(eiU64(101), eiString("ei_keyboard")...)), "duplicate interface"},
+		{"different keyboard object", eiRequest(eiServerIDFloor+0x12, 5, append(eiU64(eiServerIDFloor+102), eiString("ei_keyboard")...)), "duplicate interface"},
+		{"replayed keyboard object", eiRequest(eiServerIDFloor+0x12, 5, append(eiU64(eiServerIDFloor+101), eiString("ei_keyboard")...)), "duplicate interface"},
 		{"zero interface object", eiRequest(eiServerIDFloor+0x12, 5, append(eiU64(0), eiString("ei_button")...)), "invalid interface"},
 		{"zero device version", eiRequest(eiServerIDFloor+0x11, 4, append(eiU64(eiServerIDFloor+0x12), eiU32(0)...)), "invalid device"},
 		{"zero device object", eiRequest(eiServerIDFloor+0x11, 4, append(eiU64(0), eiU32(1)...)), "invalid device"},
@@ -38,7 +38,7 @@ func assertEISWireRejectsInvalidAuthorization(t *testing.T, additional []byte, w
 		if _, err := server.Write(eiRequest(seat, 4, append(eiU64(device), eiU32(1)...))); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := server.Write(eiRequest(device, 5, append(eiU64(101), eiString("ei_keyboard")...))); err != nil {
+		if _, err := server.Write(eiRequest(device, 5, append(eiU64(eiServerIDFloor+101), eiString("ei_keyboard")...))); err != nil {
 			t.Fatal(err)
 		}
 	}

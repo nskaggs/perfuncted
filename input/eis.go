@@ -562,7 +562,9 @@ func (s *eiSender) consumeSetupEvent(message eiMessage) error { //nolint:gocyclo
 		if err != nil {
 			return err
 		}
-		if object == 0 || name == "" {
+		if object < eiServerIDFloor || name == "" {
+			// Interfaces are server-owned and cannot alias client callback
+			// objects used during setup and subsequent requests.
 			return fmt.Errorf("input/eis: invalid interface object for %q", name)
 		}
 		if _, exists := device.interfaces[name]; exists {

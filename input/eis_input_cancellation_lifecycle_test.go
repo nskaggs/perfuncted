@@ -15,8 +15,8 @@ func TestRemoteDesktopMouseClickCancellationRevokesHeldButton(t *testing.T) {
 
 	// Observe the authorized move and button press before canceling, so the
 	// test proves teardown after the button has become an external side effect.
-	assertSyntheticEISOperation(t, server, 101, 1)
-	assertSyntheticEISOperation(t, server, 102, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+101, 1)
+	assertSyntheticEISOperation(t, server, eiServerIDFloor+102, 1)
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled click error = %v, want caller cancellation", err)

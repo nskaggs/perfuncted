@@ -45,7 +45,7 @@ func TestEICompleteAuthorizedSession(t *testing.T) { //nolint:gocyclo // Full pr
 
 	stream = eiRequest(seatID, 4, append(eiU64(devID), eiU32(1)...))
 	for i, name := range []string{"ei_pointer_absolute", "ei_button", "ei_keyboard", "ei_scroll", "ei_text"} {
-		stream = append(stream, eiRequest(devID, 5, append(eiU64(101+uint64(i)), eiString(name)...))...)
+		stream = append(stream, eiRequest(devID, 5, append(eiU64(eiServerIDFloor+101+uint64(i)), eiString(name)...))...)
 	}
 	region := append(append(append(append(eiU32(0), eiU32(0)...), eiU32(1920)...), eiU32(1080)...), eiF32(1)...)
 	stream = append(stream, eiRequest(devID, 4, region)...)
@@ -82,7 +82,7 @@ func TestEICompleteAuthorizedSession(t *testing.T) { //nolint:gocyclo // Full pr
 	}
 	key := readEIRequest(t, server)
 	frame := readEIRequest(t, server)
-	if key.object != 103 || key.opcode != 1 || frame.object != devID || frame.opcode != 3 {
+	if key.object != eiServerIDFloor+103 || key.opcode != 1 || frame.object != devID || frame.opcode != 3 {
 		t.Fatalf("key press not routed through granted interface: %+v, %+v", key, frame)
 	}
 	if err := backend.MouseMove(ctx, 100, 200); err != nil {
@@ -90,7 +90,7 @@ func TestEICompleteAuthorizedSession(t *testing.T) { //nolint:gocyclo // Full pr
 	}
 	pointer := readEIRequest(t, server)
 	frame = readEIRequest(t, server)
-	if pointer.object != 101 || pointer.opcode != 1 || frame.object != devID {
+	if pointer.object != eiServerIDFloor+101 || pointer.opcode != 1 || frame.object != devID {
 		t.Fatalf("pointer event: %+v, %+v", pointer, frame)
 	}
 	if err := backend.MouseMove(ctx, 1920, 1080); err == nil {
@@ -101,7 +101,7 @@ func TestEICompleteAuthorizedSession(t *testing.T) { //nolint:gocyclo // Full pr
 	}
 	button := readEIRequest(t, server)
 	frame = readEIRequest(t, server)
-	if button.object != 102 || button.opcode != 1 || frame.object != devID {
+	if button.object != eiServerIDFloor+102 || button.opcode != 1 || frame.object != devID {
 		t.Fatalf("button event: %+v, %+v", button, frame)
 	}
 	// A paused authorized device revokes all subsequent input operations.
