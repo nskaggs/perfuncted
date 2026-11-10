@@ -302,8 +302,17 @@ func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
 		}
 		// An ordinary tap sends key-down followed by key-up. Preserve both
 		// previously held and earlier-in-batch holds before any keymap upload.
-		if (bit != 0 && mods&bit != 0) || (bit == 0 && held[action.key]) {
+		if bit != 0 && mods&bit != 0 || bit == 0 && held[action.key] {
 			return fmt.Errorf("keyboard: key %q is already held", action.key)
+		}
+		// Unknown multi-character key tokens are typed rune by rune. Check
+		// their component keycodes too; otherwise {ba} can release a held 'a'.
+		if !named {
+			for _, r := range action.key {
+				if held[string(r)] {
+					return fmt.Errorf("keyboard: key %q is already held", string(r))
+				}
+			}
 		}
 	}
 	return nil
