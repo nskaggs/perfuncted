@@ -2,6 +2,10 @@
 # Go 1.27.0, linux/amd64, Intel Core i7-10510U, headless Wayland, GOWORK=off,
 # benchtime=3x. The checker allows a documented 50% increase because
 # compositor-backed measurements are noisy on shared CI.
+# InputClickType recaptured 2026-11-09 with Go 1.27.3 on the SAME i7-10510U
+# after security/authorization, cancellation and keymap boundary hardening.
+# Latency stayed ~61ms while bounded allocation rose ~7.6 to 24.4 kB/op.
+# This accepts the measured new floor, but retains the 50% regression budget.
 goos: linux
 goarch: amd64
 pkg: github.com/nskaggs/perfuncted
@@ -12,9 +16,9 @@ BenchmarkDesktopOpenClose-8               3 313094099 ns/op 596328 B/op 5251 all
 BenchmarkDesktopRegionHash-8              3 16285786 ns/op 280554 B/op 213 allocs/op
 BenchmarkDesktopRegionHash-8              3 16398726 ns/op 277546 B/op 212 allocs/op
 BenchmarkDesktopRegionHash-8              3 16298767 ns/op 277546 B/op 212 allocs/op
-BenchmarkDesktopInputClickType-8          3 61242927 ns/op 7746 B/op 85 allocs/op
-BenchmarkDesktopInputClickType-8          3 61089010 ns/op 7933 B/op 86 allocs/op
-BenchmarkDesktopInputClickType-8          3 60910624 ns/op 7570 B/op 85 allocs/op
+BenchmarkDesktopInputClickType-8          3 63539405 ns/op 24514 B/op 221 allocs/op
+BenchmarkDesktopInputClickType-8          3 62459841 ns/op 24829 B/op 223 allocs/op
+BenchmarkDesktopInputClickType-8          3 61361843 ns/op 24429 B/op 220 allocs/op
 BenchmarkDesktopWindowListActivate-8      3 369760 ns/op 11357 B/op 77 allocs/op
 BenchmarkDesktopWindowListActivate-8      3 408644 ns/op 13162 B/op 82 allocs/op
 BenchmarkDesktopWindowListActivate-8      3 376893 ns/op 11216 B/op 75 allocs/op

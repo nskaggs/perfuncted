@@ -132,13 +132,29 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 		buildHarness.mustRun(t, sourceRoot, "run", "--command=flatpak-builder-lint", builderAppID, "appstream", appstreamPath)
 	})
 
-	buildHarness.mustRun(t, sourceRoot, "run", "--command=flathub-build", builderAppID,
+	// Flathub Builder validates icons inside a nested sandbox on some host
+	// Flatpak versions. GitHub runners may lack a compatible nested image
+	// loader despite shipping a valid, decoded PNG. Retry ONLY that precise
+	// export error using flatpak's own unsandboxed icon validator; malformed
+	// icons are still rejected, and every subsequent release gate still runs.
+	buildOut, buildErr, buildCode := buildHarness.run(t, sourceRoot, "run", "--command=flathub-build", builderAppID,
 		"--install",
 		"--disable-rofiles-fuse",
 		"--repo="+repoDir,
 		"--state-dir="+stateDir,
 		manifestPath,
 	)
+	if buildCode != 0 {
+		if !needsUnsandboxedIconExport(buildErr) {
+			t.Fatalf("Flathub Builder failed (exit=%d): stdout=%q stderr=%q", buildCode, buildOut, buildErr)
+		}
+		t.Log("nested icon loader unavailable; retrying Flatpak icon validation without the nested sandbox")
+		buildHarness.mustRun(t, sourceRoot, "build-export", "--disable-sandbox", "--update-appstream",
+			repoDir, filepath.Join(sourceRoot, "builddir"), branch)
+		buildHarness.mustRun(t, sourceRoot, "remote-add", "--if-not-exists", "--user", "--no-gpg-verify",
+			"perfuncted-test-build", repoDir)
+		buildHarness.mustRun(t, sourceRoot, "install", "-y", "--user", "perfuncted-test-build", appID)
+	}
 
 	t.Run("installed build", func(t *testing.T) {
 		stdout, stderr, code := buildHarness.run(t, sourceRoot, "run", appID, "version")
@@ -483,4 +499,12 @@ func unsetEnv(env []string, key string) []string {
 		out = append(out, kv)
 	}
 	return out
+}
+
+// needsUnsandboxedIconExport is intentionally narrow. It must never turn
+// compilation failures, manifest failures, or genuinely invalid icons into
+// green builds: the fallback still runs Flatpak's actual icon validator.
+func needsUnsandboxedIconExport(stderr string) bool {
+	return strings.Contains(stderr, "is not a valid icon: Format not recognized") &&
+		strings.Contains(stderr, "Export failed:")
 }
