@@ -367,10 +367,22 @@ func (b *dbusBackend) applyCacheRemoveLocked(body []any) {
 		b.cacheItems, b.cacheApps = nil, nil
 		return
 	}
-	for id := range b.cacheItems {
+	var parent cacheObjectRef
+	removedCurrent := false
+	for id, item := range b.cacheItems {
 		if id.BusName == ref.BusName && id.ObjectPath == string(ref.ObjectPath) {
+			// Cache entries can retain obsolete generations or incarnations.
+			// Retire every matching entry, but count one removal only for
+			// the current child identity, never once per historical entry.
+			if b.handleCurrentLocked(id) && !removedCurrent {
+				parent = item.Parent
+				removedCurrent = true
+			}
 			delete(b.cacheItems, id)
 		}
+	}
+	if removedCurrent {
+		b.adjustCachedChildCountLocked(parent, -1)
 	}
 }
 
