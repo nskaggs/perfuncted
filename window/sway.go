@@ -321,14 +321,16 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 			isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
 			if isLeaf && (n.Type == "con" || n.Type == "floating_con") && n.Name != "" {
 				info := Info{
-					ID:         uint64(n.ID),
-					NativeID:   strconv.FormatInt(n.ID, 10),
-					Title:      n.Name,
-					AppID:      n.AppID,
-					X:          n.Rect.X,
-					Y:          n.Rect.Y,
-					W:          n.Rect.W,
-					H:          n.Rect.H,
+					ID:       uint64(n.ID),
+					NativeID: strconv.FormatInt(n.ID, 10),
+					Title:    n.Name,
+					AppID:    n.AppID,
+					X:        n.Rect.X,
+					Y:        n.Rect.Y,
+					// A malformed Sway tree can report negative dimensions.
+					// Zero means geometry is unknown to public callers.
+					W:          max(0, n.Rect.W),
+					H:          max(0, n.Rect.H),
 					Active:     n.Focused,
 					Fullscreen: n.Fullscreen != 0,
 				}
