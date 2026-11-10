@@ -93,8 +93,11 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 }
 
 func validateGnomeCaptureRect(rect image.Rectangle) error {
-	if rect.Empty() {
+	if rect == (image.Rectangle{}) {
 		return nil
+	}
+	if rect.Empty() {
+		return fmt.Errorf("screen/gnome: invalid empty capture region %v", rect)
 	}
 	if rect.Min.X < -1<<31 || rect.Min.X > 1<<31-1 || rect.Min.Y < -1<<31 || rect.Min.Y > 1<<31-1 {
 		return fmt.Errorf("screen/gnome: capture origin %v exceeds int32 range", rect.Min)
