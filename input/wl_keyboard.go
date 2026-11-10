@@ -322,9 +322,18 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	if len(actions) == 0 {
 		return nil
 	}
+	// Space is represented by a literal rune, not five typed letters.
+	// Keep it in the same held-key ownership domain as literal spaces.
+	normalized := make([]keySend, len(actions))
+	copy(normalized, actions)
+	for i := range normalized {
+		if normalized[i].text == "" && strings.EqualFold(normalized[i].key, "space") {
+			normalized[i].key = " "
+		}
+	}
 	// Align aliases before ownership preflight, preserving the key spelling
 	// and keycode slot recorded by the original hold.
-	actions = k.alignNamedAliases(actions)
+	actions = k.alignNamedAliases(normalized)
 	// First pass: collect all unique runes from text actions and all named
 	// keycodes so we can build a single keymap that covers everything.
 	var allRunes []rune
@@ -722,6 +731,9 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if strings.EqualFold(key, "space") {
+		key = " "
+	}
 	if !utf8.ValidString(key) {
 		return fmt.Errorf("keyboard: key must be valid UTF-8")
 	}
@@ -781,6 +793,9 @@ func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if strings.EqualFold(key, "space") {
+		key = " "
 	}
 	key = k.heldNamedAlias(key)
 	// Modifiers are tracked as a bitset rather than entries in held. Refuse
