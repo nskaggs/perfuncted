@@ -402,6 +402,10 @@ func writePNG(path string, img image.Image) error {
 	}
 	tempPath := file.Name()
 	defer os.Remove(tempPath)
+	if util.IsNil(img) {
+		_ = file.Close()
+		return fmt.Errorf("diagnostic: no screenshot image to encode")
+	}
 	if err := png.Encode(file, img); err != nil {
 		_ = file.Close()
 		return err
