@@ -105,23 +105,40 @@ using the Flatpak. The bundled extension declares GNOME Shell 46 through 51.
 
 ## Install
 
-**Flatpak bundle:**
+### Flatpak CLI (downloadable bundle)
 
-The Flatpak workflow builds `dist/flatpak/perfuncted.flatpak` for tagged
-releases and manual workflow dispatches. For a tagged release, download the
-Flatpak asset from the GitHub release; for a manual run, download the
-`perfuncted-flatpak` artifact from the workflow run.
+Download **both** `perfuncted.flatpak` and `pf-flatpak` from a
+[GitHub release](https://github.com/nskaggs/perfuncted/releases).
+The Flatpak workflow also publishes the bundle as a GitHub Actions artifact.
+Run these commands from the downloads directory; **no source checkout or Go
+installation is required**.
 
-```bash
-flatpak install --user -y ./dist/flatpak/perfuncted.flatpak
-install -Dm755 scripts/pf-flatpak "$HOME/.local/bin/pf"
-# Ensure ~/.local/bin is in PATH; then:
-pf --help
+```sh
+flatpak install --user -y ./perfuncted.flatpak
+install -Dm755 ./pf-flatpak "$HOME/.local/bin/pf"
+export PATH="$HOME/.local/bin:$PATH"  # persist in your shell profile
+pf version
 pf session check
 pf info
 ```
 
-See [Flatpak setup, file permissions, and desktop support](FLATPAK.md)\nfor a first automated screenshot and CLI troubleshooting.\n\n**CLI:**
+**First screenshot** (PNG is saved on the host, not inside Flatpak):
+
+```sh
+pf screen grab --rect 0,0,640,480 > screenshot.png
+```
+
+Use `pf --host-dir-ro "$PWD" run "$PWD/task.pf"` for a host script or
+`pf --host-dir "$PWD" screen grab --out "$PWD/capture.png"` for a host
+output path. The `--host-dir` flags are provided by the downloadable
+launcher and grant only the specified directory.
+
+[Flatpak setup, supported desktops, permissions, and troubleshooting](FLATPAK.md)
+also documents the unattended CI tests and the separate attended Wayland
+permission checks.
+
+### Native Go CLI
+
 
 ```bash
 go install github.com/nskaggs/perfuncted/cmd/pf@latest

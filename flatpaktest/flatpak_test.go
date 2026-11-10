@@ -185,6 +185,12 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 		}
 		assertVersionOutput(t, stdout)
 	})
+	t.Run("fresh download-only installation and launcher", func(t *testing.T) {
+		testReleaseDownloadQuickstart(t, bundleHarness, session.address, sourceRoot, testRoot, bundlePath)
+	})
+	t.Run("upgrade from official v1.2.3 Flatpak", func(t *testing.T) {
+		testRealFlatpakReleaseUpgrade(t, session.address, sourceRoot, testRoot, bundlePath)
+	})
 	t.Run("installed CLI and sandbox acceptance", func(t *testing.T) {
 		testInstalledFlatpakCLI(t, bundleHarness, sourceRoot, testRoot)
 	})

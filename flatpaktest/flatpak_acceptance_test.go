@@ -131,6 +131,9 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		}
 		run(t, "--socket=x11", appID, "input", "click", "--x=14", "--y=25")
 		run(t, "--socket=x11", appID, "output", "list")
+		t.Run("real GUI window, click, type and screenshot", func(t *testing.T) {
+			testInstalledFlatpakRealX11Application(t, h, sourceRoot, testRoot)
+		})
 		t.Run("stdin scripts work without host file grants", func(t *testing.T) {
 			stdout, stderr, code := h.runWithInput(t, sourceRoot, "run", "# packaged stdin demo\ninfo\n", "--socket=x11", appID, "run", "-")
 			if code != 0 {

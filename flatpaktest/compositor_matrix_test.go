@@ -3,6 +3,7 @@
 package flatpaktest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -150,6 +151,31 @@ func runInstalledFlatpakWaylandCompositor(t *testing.T, h *harness, sourceRoot, 
 			t.Errorf("%s Wayland test incorrectly detected only X11 compositor: %s", desktop, report.Compositor)
 		}
 		t.Logf("%s installed Flatpak capabilities: %s", desktop, stdout)
+	})
+	t.Run("RemoteDesktop portal fails closed without attended authorization", func(t *testing.T) {
+		// A headless compositor cannot display an authorization dialogue.
+		// Successful synthetic input (e.g. via XTEST) would be a security
+		// regression when the user explicitly requested RemoteDesktop/EIS.
+		probeCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stop()
+		cmd := exec.CommandContext(probeCtx, flatpakBinaryName, "run", appID,
+			"--input-backend", "remote-desktop", "input", "click", "--x=9", "--y=11")
+		cmd.Env = h.env
+		cmd.Dir = sourceRoot
+		var out, diagnostics bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &diagnostics
+		err := cmd.Run()
+		if probeCtx.Err() != nil {
+			t.Fatalf("%s headless portal input was left waiting for authorization without a user", desktop)
+		}
+		if err == nil {
+			t.Fatalf("%s headless portal input succeeded without user authorization: %q", desktop, out.String())
+		}
+		if diagnostics.Len() == 0 {
+			t.Fatalf("%s denied RemoteDesktop input without an actionable error", desktop)
+		}
+		t.Logf("%s portal input denied as expected: %s", desktop, diagnostics.String())
 	})
 	t.Run("capability-aware operation errors", func(t *testing.T) {
 		// A compositor may deny window enumeration, capture or input. The

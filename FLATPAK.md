@@ -5,11 +5,12 @@ provide an unrestricted host shell or automatically install a nested compositor.
 
 ## Install
 
-From the repository root, with a downloaded release's `perfuncted.flatpak`:
+Download `perfuncted.flatpak` **and** `pf-flatpak` from the same GitHub
+release into one directory. A repository checkout is not required.
 
 ```sh
 flatpak install --user -y ./perfuncted.flatpak
-install -Dm755 scripts/pf-flatpak "$HOME/.local/bin/pf"
+install -Dm755 ./pf-flatpak "$HOME/.local/bin/pf"
 export PATH="$HOME/.local/bin:$PATH"  # add to your shell profile
 pf --help
 pf version
@@ -27,12 +28,17 @@ followed by normal `pf` arguments. Flatpak itself does **not** create a host
 pf info
 pf window list
 pf screen resolution
-pf screen grab-region --rect 0,0,640,480 --out - > screenshot.png
+pf screen grab --rect 0,0,640,480 > screenshot.png
 ```
 
-The PNG is written to the **host** via standard output, not to the Flatpak's
-private temporary directory. Look at `pf info` first: capabilities depend
-on compositor support and user permissions.
+The PNG is written to the **host** via standard output, not to Flatpak's
+private temporary directory. When the installed Flatpak's `pf screen grab`
+has no `--out`, it streams a PNG if stdout is redirected; it rejects
+interactive terminal output rather than dumping binary bytes into your shell.
+`--out -` always streams. For a file path, use an explicitly shared directory.
+
+Look at `pf info` first: capabilities depend on compositor support and user
+permissions.
 
 ## Host files: explicit and narrow
 
@@ -94,3 +100,21 @@ Permission restoration is always opt-in, using `--remember-input-permission`.
 The Flatpak intentionally omits broad `--device=all` access. Direct
 `/dev/uinput` is not automatically accessible: this is a sandbox
 restriction, not a failed permission restoration.
+
+## Real-desktop acceptance (attended)
+
+Automated CI starts Xvfb and headless GNOME/KWin compositors and verifies the
+installed bundle's behavior. A headless session cannot respond to a
+RemoteDesktop consent dialog or automatically provision a GNOME Shell
+extension on the user's account.
+
+To validate **native Wayland input**, use a disposable local desktop with an
+ordinary visible GUI application, run `pf info`, then invoke
+`pf --input-backend remote-desktop input click --x ... --y ...` and
+`pf --input-backend remote-desktop input type ...`, explicitly approve the
+desktop portal, and confirm the application actually receives both events.
+Repeat after denying permission, canceling a pending request, revoking
+permission, restarting the application, and (only if explicitly enabled)
+restoring a saved permission. No unattended CI result is equivalent to this
+consent-and-control test. GNOME additionally needs the native host bridge
+installed to validate its bridge-specific window operations.

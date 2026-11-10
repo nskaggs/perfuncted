@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -34,23 +35,39 @@ func screenCmd(
 			if err != nil {
 				return err
 			}
+			inFlatpak := insideFlatpakSandbox()
+			out := grabDestination(grabOutFlag, inFlatpak)
+			if out == "-" {
+				if outputErr := refuseBinaryTerminal(cmd.OutOrStdout()); outputErr != nil {
+					return outputErr
+				}
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			out := grabOutFlag
-			if out == "" {
-				out = "/tmp/pf-grab.png"
+			if out == "-" {
+				img, err := pf.Screen.GrabRegion(cmd.Context(), r)
+				if err != nil {
+					return err
+				}
+				return png.Encode(cmd.OutOrStdout(), img)
 			}
 			if err := pf.Screen.CaptureRegion(cmd.Context(), r, out); err != nil {
 				return err
+			}
+			if inFlatpak {
+				if err := writeCLIOutput(cmd.ErrOrStderr(),
+					"Flatpak: %s may be sandbox-private unless its directory was explicitly shared; use --out - > screenshot.png for a host file.\n", out); err != nil {
+					return err
+				}
 			}
 			return writeCLIMessage(cmd.OutOrStdout(), out)
 		},
 	}
 	grab.Flags().StringVar(&grabRectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
-	grab.Flags().StringVar(&grabOutFlag, "out", "", "output path (default /tmp/pf-grab.png)")
+	grab.Flags().StringVar(&grabOutFlag, "out", "", "PNG output path or '-' for stdout (Flatpak defaults to stdout when redirected; native defaults to /tmp/pf-grab.png)")
 
 	var checksumRectFlag string
 	checksum := &cobra.Command{
@@ -495,3 +512,35 @@ func stopAndDrainTimer(timer *time.Timer) {
 }
 
 // ── input ────────────────────────────────────────────────────────────────────────────
+
+// grabDestination never silently writes the Flatpak default into its private
+// /tmp. Piping stdout to a host file works without widening sandbox grants.
+func grabDestination(requested string, flatpak bool) string {
+	if requested != "" {
+		return requested
+	}
+	if flatpak {
+		return "-"
+	}
+	return "/tmp/pf-grab.png"
+}
+
+func insideFlatpakSandbox() bool {
+	_, err := os.Stat("/.flatpak-info")
+	return err == nil
+}
+
+// Raw PNG on an interactive terminal can corrupt its state. Shell redirects
+// and ordinary Go io.Writer buffers are safe destinations.
+func refuseBinaryTerminal(w io.Writer) error {
+	if f, ok := w.(*os.File); ok {
+		info, err := f.Stat()
+		if err != nil {
+			return fmt.Errorf("inspect screenshot output: %w", err)
+		}
+		if info.Mode()&os.ModeCharDevice != 0 {
+			return fmt.Errorf("PNG output is binary; redirect to a host file (pf screen grab > screenshot.png) or specify --out in a shared directory")
+		}
+	}
+	return nil
+}

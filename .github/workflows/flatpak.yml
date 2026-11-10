@@ -31,7 +31,7 @@ jobs:
       - name: Install Flatpak tooling
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell x11-utils xdotool
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -39,9 +39,19 @@ jobs:
           go-version: '1.27.3'
           cache: true
 
+      - name: Fetch pinned previous release for upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pf-previous"
+          gh release download v1.2.3 --repo nskaggs/perfuncted --pattern perfuncted.flatpak --dir "$RUNNER_TEMP/pf-previous"
+          echo "5607b377e502c968db1458260d37afb6dd50afc30b6ad5a784c3f7741f844f87  $RUNNER_TEMP/pf-previous/perfuncted.flatpak" | sha256sum -c -
+          echo "PF_FLATPAK_PREVIOUS_BUNDLE=$RUNNER_TEMP/pf-previous/perfuncted.flatpak" >> "$GITHUB_ENV"
+
       - name: Run Flatpak integration tests
         env:
           PF_FLATPAK_DESKTOP_TARGET: kde,gnome
+          PF_FLATPAK_REQUIRE_UPGRADE: "1"
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
       - name: Upload bundle artifact

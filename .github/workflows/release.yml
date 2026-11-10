@@ -69,13 +69,24 @@ jobs:
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell x11-utils xdotool
+
+      - name: Fetch pinned previous release for upgrade test
+        if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pf-previous"
+          gh release download v1.2.3 --repo nskaggs/perfuncted --pattern perfuncted.flatpak --dir "$RUNNER_TEMP/pf-previous"
+          echo "5607b377e502c968db1458260d37afb6dd50afc30b6ad5a784c3f7741f844f87  $RUNNER_TEMP/pf-previous/perfuncted.flatpak" | sha256sum -c -
+          echo "PF_FLATPAK_PREVIOUS_BUNDLE=$RUNNER_TEMP/pf-previous/perfuncted.flatpak" >> "$GITHUB_ENV"
 
       - name: Build Flatpak bundle
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         env:
           CGO_ENABLED: "0"
           PF_FLATPAK_DESKTOP_TARGET: kde,gnome
+          PF_FLATPAK_REQUIRE_UPGRADE: "1"
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
       - name: Record completed environment gate
