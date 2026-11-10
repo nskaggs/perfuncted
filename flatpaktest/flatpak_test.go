@@ -112,7 +112,12 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	bundleHarness := newHarness(t, sourceRoot, session.address, bundleHome, tmpRoot, runRoot)
 
 	buildHarness.mustRun(t, sourceRoot, "remote-add", "--if-not-exists", "--user", "flathub", flathubRemoteURL)
-	buildHarness.mustRun(t, sourceRoot, "install", "-y", "--user", "flathub", builderAppID)
+	// Use an already installed Builder when available (including system installs).
+	// Otherwise install the Builder in this test's isolated user Flatpak home.
+	_, _, builderAvailable := buildHarness.run(t, sourceRoot, "info", builderAppID)
+	if builderAvailable != 0 {
+		buildHarness.mustRun(t, sourceRoot, "install", "-y", "--user", "flathub", builderAppID)
+	}
 
 	t.Run("manifest lint", func(t *testing.T) {
 		buildHarness.mustRunLint(t, sourceRoot, "manifest", manifestPath)
@@ -225,6 +230,17 @@ func (h *harness) run(t *testing.T, dir, subcommand string, args ...string) (std
 	defer cancel()
 
 	fullArgs := append([]string{subcommand}, args...)
+	// The Builder Flatpak has its own sandbox: passing a source checkout path
+	// without granting that path produces an ENOENT before lint/build starts.
+	// Expose only this test's private root to Builder, not to the resulting app.
+	if subcommand == "run" {
+		for _, arg := range args {
+			if arg == builderAppID {
+				fullArgs = append([]string{"run", "--filesystem=" + filepath.Dir(h.repoRoot)}, args...)
+				break
+			}
+		}
+	}
 	t.Logf("$ flatpak %s", strings.Join(fullArgs, " "))
 
 	cmd := exec.CommandContext(ctx, flatpakBinaryName, fullArgs...)
