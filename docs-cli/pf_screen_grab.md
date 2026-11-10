@@ -10,7 +10,7 @@ pf screen grab [flags]
 
 ```
   -h, --help          help for grab
-      --out string    output path (default /tmp/pf-grab.png)
+      --out string    PNG output path or '-' for stdout (Flatpak defaults to stdout when redirected; native defaults to /tmp/pf-grab.png)
       --rect string   x0,y0,x1,y1 (default "0,0,1920,1080")
 ```
 
