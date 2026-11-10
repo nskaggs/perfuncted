@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -50,6 +51,12 @@ func openCapabilityBackend[T any](
 		}
 	}
 	closeFailedBackend(backend, err)
+	// Cancellation closes the partially acquired resource above. Do not
+	// return a now-closed backend handle to callers as a usable result.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		var zero T
+		return zero, err
+	}
 	return backend, err
 }
 

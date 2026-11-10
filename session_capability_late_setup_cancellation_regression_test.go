@@ -26,7 +26,7 @@ func TestCapabilityOpenRejectsBackendReturnedAfterCancellation(t *testing.T) {
 			}
 			backend := &trackedCapabilityBackend{}
 			opened, configured, installed := 0, 0, 0
-			_, err := openCapabilityBackend(ctx, time.Second, CapabilityScreen,
+			got, err := openCapabilityBackend(ctx, time.Second, CapabilityScreen,
 				func(context.Context) (*trackedCapabilityBackend, error) {
 					opened++
 					tc.action(cancel)
@@ -35,8 +35,8 @@ func TestCapabilityOpenRejectsBackendReturnedAfterCancellation(t *testing.T) {
 				func(*trackedCapabilityBackend) { configured++ },
 				func(*trackedCapabilityBackend) { installed++ },
 			)
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("late backend success reported err=%v, want canceled", err)
+			if !errors.Is(err, context.Canceled) || got != nil {
+				t.Fatalf("late backend returned handle=%v err=%v, want nil and canceled", got, err)
 			}
 			if configured != 0 || installed != 0 {
 				t.Fatalf("canceled backend configured=%d installed=%d", configured, installed)
@@ -58,13 +58,13 @@ func TestCapabilityOpenRejectsCancellationDuringConfiguration(t *testing.T) {
 	defer cancel()
 	backend := &trackedCapabilityBackend{}
 	installed := 0
-	_, err := openCapabilityBackend(ctx, time.Second, CapabilityOutputs,
+	got, err := openCapabilityBackend(ctx, time.Second, CapabilityOutputs,
 		func(context.Context) (*trackedCapabilityBackend, error) { return backend, nil },
 		func(*trackedCapabilityBackend) { cancel() },
 		func(*trackedCapabilityBackend) { installed++ },
 	)
-	if !errors.Is(err, context.Canceled) || installed != 0 || backend.closes != 1 {
-		t.Fatalf("canceled configuration err=%v installed=%d closes=%d", err, installed, backend.closes)
+	if !errors.Is(err, context.Canceled) || got != nil || installed != 0 || backend.closes != 1 {
+		t.Fatalf("canceled configuration handle=%v err=%v installed=%d closes=%d", got, err, installed, backend.closes)
 	}
 }
 
@@ -73,14 +73,14 @@ func TestCapabilityOpenRejectsCancellationDuringConfiguration(t *testing.T) {
 func TestCapabilityOpenRejectsLateSuccessAfterStartupDeadline(t *testing.T) {
 	backend := &trackedCapabilityBackend{}
 	installed := 0
-	_, err := openCapabilityBackend(context.Background(), 3*time.Millisecond, CapabilityClipboard,
+	got, err := openCapabilityBackend(context.Background(), 3*time.Millisecond, CapabilityClipboard,
 		func(ctx context.Context) (*trackedCapabilityBackend, error) {
 			<-ctx.Done()
 			return backend, nil
 		}, nil,
 		func(*trackedCapabilityBackend) { installed++ },
 	)
-	if !errors.Is(err, context.DeadlineExceeded) || installed != 0 || backend.closes != 1 {
-		t.Fatalf("expired setup err=%v installed=%d closes=%d", err, installed, backend.closes)
+	if !errors.Is(err, context.DeadlineExceeded) || got != nil || installed != 0 || backend.closes != 1 {
+		t.Fatalf("expired setup handle=%v err=%v installed=%d closes=%d", got, err, installed, backend.closes)
 	}
 }
