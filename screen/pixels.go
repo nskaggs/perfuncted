@@ -223,18 +223,21 @@ func cropImage(img image.Image, rect image.Rectangle) image.Image {
 		return cropRGBA(rgba, rect)
 	}
 	r := rect.Intersect(img.Bounds())
-	if si, ok := img.(interface {
+	si, hasSubImage := img.(interface {
 		SubImage(image.Rectangle) image.Image
-	}); ok && r == rect {
+	})
+	if hasSubImage && r == rect {
 		return si.SubImage(r)
 	}
-	if r.Empty() {
-		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	if r.Empty() && !hasSubImage {
+		// A generic image with no accessible pixels cannot establish a
+		// trustworthy crop. Preserve the existing empty-result contract.
+		return image.NewRGBA(image.Rectangle{})
 	}
 	if r != rect {
-		// A partly off-screen crop must retain its requested size and
-		// transparent padding even when the decoder returned NRGBA or a
-		// generic image. Match the RGBA crop's coordinate contract.
+		// Standard images with SubImage support retain requested geometry
+		// and transparent padding even for completely disjoint regions.
+		// Partially clipped generic images also preserve their geometry.
 		width, height, ok := safePixelRectDimensions(rect)
 		if !ok {
 			return image.NewRGBA(image.Rectangle{})
