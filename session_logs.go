@@ -82,6 +82,13 @@ func cleanupSessionLogRoot(root string, maxAge time.Duration) {
 	if root == "" || maxAge <= 0 {
 		return
 	}
+	// The public cleanup entry point can be called without session startup's
+	// directory validation. Never follow a log-root alias into an unrelated
+	// filesystem tree when deciding what to delete.
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
