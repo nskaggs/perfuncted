@@ -313,7 +313,9 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 				yield(Info{}, fmt.Errorf("window/sway: iterate canceled: %w", err))
 				return false
 			}
-			if n.ID < 0 {
+			// Sway container IDs are positive. ID zero is not a usable
+			// handle and must not be published for later window actions.
+			if n.ID <= 0 {
 				return true
 			}
 			isLeaf := len(n.Nodes) == 0 && len(n.FloatingNodes) == 0
