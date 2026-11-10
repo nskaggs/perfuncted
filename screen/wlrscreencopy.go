@@ -477,6 +477,9 @@ func (b *WlrScreencopyBackend) captureFrame(ctx context.Context, fn func(pixels 
 
 // Grab captures rect, or the full output when rect is empty.
 func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return nil, fmt.Errorf("screen/wlr: invalid empty capture region %v", rect)
+	}
 	var outImg image.Image
 	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
 		if rect.Dx() <= 0 || rect.Dy() <= 0 {
@@ -514,6 +517,9 @@ func (b *WlrScreencopyBackend) GrabFullHash(ctx context.Context) (uint32, error)
 // GrabRegionHash returns a pixel hash of rect in the canonical
 // find.PixelHash representation.
 func (b *WlrScreencopyBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return 0, fmt.Errorf("screen/wlr: invalid empty capture region %v", rect)
+	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
