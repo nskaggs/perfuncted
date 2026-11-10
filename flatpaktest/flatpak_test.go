@@ -172,6 +172,9 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	t.Run("installed CLI and sandbox acceptance", func(t *testing.T) {
 		testInstalledFlatpakCLI(t, bundleHarness, sourceRoot, testRoot)
 	})
+	t.Run("real GNOME and KDE Wayland compositor checks", func(t *testing.T) {
+		testFlatpakWaylandMatrix(t, bundleHarness, sourceRoot, testRoot)
+	})
 }
 
 func newHarness(t *testing.T, repoRoot, dbusAddress, home, tmpRoot, runRoot string) *harness {

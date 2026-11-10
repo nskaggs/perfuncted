@@ -40,6 +40,8 @@ jobs:
           cache: true
 
       - name: Run Flatpak integration tests
+        env:
+          PF_FLATPAK_DESKTOP_TARGET: kde,gnome
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
       - name: Upload bundle artifact

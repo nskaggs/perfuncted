@@ -29,4 +29,11 @@
     <keyword>wayland</keyword>
     <keyword>x11</keyword>
   </keywords>
+  <releases>
+    <release version="1.3.0" date="2026-11-09">
+      <description>
+        <p>Wayland RemoteDesktop portal input, verified accessibility locators, safer targeting, and improved desktop reliability.</p>
+      </description>
+    </release>
+  </releases>
 </component>

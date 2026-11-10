@@ -75,6 +75,8 @@ jobs:
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         env:
           CGO_ENABLED: "0"
+        env:
+          PF_FLATPAK_DESKTOP_TARGET: kde,gnome
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
       - name: Record completed environment gate
