@@ -319,6 +319,14 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 			return
 		}
 
+		if duplicateID := duplicateSwayWindowID(&root); duplicateID != 0 {
+			yield(Info{}, fmt.Errorf("window/sway: duplicate window identity %d", duplicateID))
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			yield(Info{}, fmt.Errorf("window/sway: iterate canceled: %w", err))
+			return
+		}
 		_ = walkTree(&root, func(n *swayNode) bool {
 			if err := ctx.Err(); err != nil {
 				yield(Info{}, fmt.Errorf("window/sway: iterate canceled: %w", err))
@@ -352,6 +360,27 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 			return true
 		})
 	}
+}
+
+// duplicateSwayWindowID validates all actionable handles before the iterator
+// emits anything. Compositor tree corruption must not create ambiguous IDs.
+func duplicateSwayWindowID(root *swayNode) int64 {
+	seen := make(map[int64]struct{})
+	var duplicateID int64
+	walkTree(root, func(n *swayNode) bool {
+		if n.ID <= 0 || n.Name == "" ||
+			(n.Type != "con" && n.Type != "floating_con") ||
+			len(n.Nodes) != 0 || len(n.FloatingNodes) != 0 {
+			return true
+		}
+		if _, exists := seen[n.ID]; exists {
+			duplicateID = n.ID
+			return false
+		}
+		seen[n.ID] = struct{}{}
+		return true
+	})
+	return duplicateID
 }
 
 // walkTree performs a pre-order traversal of the sway tree and calls fn for each node.
