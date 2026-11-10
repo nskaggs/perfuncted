@@ -218,7 +218,7 @@ func (o *waylandOutput) updateProxy(proxy *wl.RawProxy) { //nolint:gocyclo
 				o.recomputeGeometryLocked()
 			}
 		case 4: // name
-			if name, _, ok := readWlString(data, 0); ok {
+			if name, _, ok := readWlString(data, 0); ok && name != "" {
 				o.info.Name = name
 			}
 		case 5: // description
@@ -257,7 +257,7 @@ func (o *waylandOutput) updateXDGProxy(proxy *wl.RawProxy) {
 			o.hasLogicalSize = true
 			o.recomputeGeometryLocked()
 		case 3: // name
-			if name, _, ok := readWlString(data, 0); ok {
+			if name, _, ok := readWlString(data, 0); ok && name != "" {
 				o.info.Name = name
 			}
 		case 4: // description
