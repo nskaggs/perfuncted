@@ -83,10 +83,9 @@ func cleanupSessionLogRoot(root string, maxAge time.Duration) {
 		return
 	}
 	// The public cleanup entry point can be called without session startup's
-	// directory validation. Never follow a log-root alias into an unrelated
-	// filesystem tree when deciding what to delete.
-	rootInfo, err := os.Lstat(root)
-	if err != nil || !rootInfo.IsDir() {
+	// directory validation. Never follow a root or ancestor alias into an
+	// unrelated filesystem tree when deciding what to delete.
+	if !sessionLogRootHasLiteralDirectories(root) {
 		return
 	}
 	entries, err := os.ReadDir(root)
@@ -105,6 +104,26 @@ func cleanupSessionLogRoot(root string, maxAge time.Duration) {
 		}
 		if err := os.RemoveAll(path); err != nil {
 			slog.Debug("session: remove expired log directory", "path", path, "error", err)
+		}
+	}
+}
+
+// sessionLogRootHasLiteralDirectories rejects symlinks in every path
+// component, not just the final root. Lstat(root) alone follows a symlink in
+// a parent directory, which could redirect retention into unrelated data.
+func sessionLogRootHasLiteralDirectories(root string) bool {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	for dir := filepath.Clean(absolute); ; dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return true
 		}
 	}
 }
