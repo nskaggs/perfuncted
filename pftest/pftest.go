@@ -466,8 +466,14 @@ type Clipboard struct {
 // Get returns Text and GetErr.
 func (c *Clipboard) Get(ctx context.Context) (string, error) { return c.Text, c.GetErr }
 
-// Set updates Text and returns SetErr.
-func (c *Clipboard) Set(ctx context.Context, text string) error { c.Text = text; return c.SetErr }
+// Set updates Text only when the configured write succeeds.
+func (c *Clipboard) Set(ctx context.Context, text string) error {
+	if c.SetErr != nil {
+		return c.SetErr
+	}
+	c.Text = text
+	return nil
+}
 
 // Close implements clipboard.Clipboard and releases no resources.
 func (c *Clipboard) Close() error { return nil }
