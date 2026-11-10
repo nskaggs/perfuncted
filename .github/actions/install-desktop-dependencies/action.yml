@@ -13,7 +13,6 @@ inputs:
       dbus-x11
       libwayland-client0
       libwayland-server0
-      libwlroots-dev
       libatk-bridge2.0-0t64
       libx11-dev
       libxtst-dev
