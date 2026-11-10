@@ -362,7 +362,7 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("screen/portal: screenshot canceled: %w", ctx.Err())
 			}
-			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (policy/protocol %s/%s, effective %s)", requestPolicy, portalProtocolTimeout, requestTimeout)
+			return nil, portalScreenshotTimeoutError(requestPolicy, portalProtocolTimeout, requestTimeout)
 		case sig, ok := <-ch:
 			if !ok {
 				return nil, fmt.Errorf("screen/portal: D-Bus signal channel closed")
@@ -434,9 +434,16 @@ func (b *PortalDBusBackend) Grab(ctx context.Context, rect image.Rectangle) (img
 			}
 			return cropImage(img, rect), nil
 		case <-timer.C:
-			return nil, fmt.Errorf("screen/portal: timed out waiting for screenshot (policy/protocol %s/%s, effective %s)", requestPolicy, portalProtocolTimeout, requestTimeout)
+			return nil, portalScreenshotTimeoutError(requestPolicy, portalProtocolTimeout, requestTimeout)
 		}
 	}
+}
+
+// portalScreenshotTimeoutError explains a common consent-related stall without
+// claiming that a pending permission dialog is necessarily the cause. Output
+// discovery does not require access to private screen pixels.
+func portalScreenshotTimeoutError(policy, protocol, effective time.Duration) error {
+	return fmt.Errorf("screen/portal: timed out waiting for screenshot (policy/protocol %s/%s, effective %s); the desktop may be awaiting screenshot permission or the portal may be unresponsive. Check for a screenshot consent dialog; use `pf output list` to inspect display geometry without capturing pixels", policy, protocol, effective)
 }
 
 // Close releases the portal D-Bus connection.
