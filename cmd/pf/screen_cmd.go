@@ -14,13 +14,34 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/spf13/cobra"
 )
 
+// singleOutputPhysicalResolution uses already-authoritative output metadata
+// instead of requesting permission to capture private screen pixels. Multiple
+// displays are intentionally left to the established screen backend because
+// their physical sizes cannot be safely combined from logical coordinates.
+func singleOutputPhysicalResolution(ctx context.Context, outputs *perfuncted.OutputBundle) (int, int, bool) {
+	if outputs == nil {
+		return 0, 0, false
+	}
+	items, err := outputs.List(ctx)
+	if err != nil || ctx.Err() != nil || len(items) != 1 {
+		return 0, 0, false
+	}
+	item := items[0]
+	if !item.Available || item.ResolutionW <= 0 || item.ResolutionH <= 0 {
+		return 0, 0, false
+	}
+	return item.ResolutionW, item.ResolutionH, true
+}
+
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func screenCmd(
 	openPF sessionOpener,
+	resolutionOpen ...sessionOpener,
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
@@ -292,16 +313,23 @@ Runs until --duration expires or Ctrl+C.`,
 	watch.Flags().StringVar(&watchOutputFlag, "output", "plain", "plain|json")
 	cmd.AddCommand(watch)
 
+	openResolution := openPF
+	if len(resolutionOpen) != 0 {
+		openResolution = resolutionOpen[0]
+	}
 	resolution := &cobra.Command{
 		Use:   "resolution",
 		Short: "Print the screen resolution",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pf, err := openPF(cmd.Context())
+			pf, err := openResolution(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
+			if w, h, ok := singleOutputPhysicalResolution(cmd.Context(), pf.Outputs); ok {
+				return writeCLIOutput(cmd.OutOrStdout(), "%dx%d\n", w, h)
+			}
 			w, h, err := pf.Screen.Resolution(cmd.Context())
 			if err != nil {
 				return err

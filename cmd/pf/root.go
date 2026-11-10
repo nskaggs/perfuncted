@@ -97,6 +97,22 @@ func openRequired(
 	}
 }
 
+// openRequiredOptional keeps the primary capability mandatory while probing
+// a secondary read-only capability without making it a prerequisite.
+func openRequiredOptional(
+	factory cliOpenFactory,
+	cfg *cliConfig,
+	required perfuncted.Capability,
+	optional perfuncted.Capability,
+) sessionOpener {
+	return func(ctx context.Context) (*perfuncted.Session, error) {
+		scoped := *cfg
+		scoped.required = []perfuncted.Capability{required}
+		scoped.optional = []perfuncted.Capability{optional}
+		return factory(&scoped)(ctx)
+	}
+}
+
 func openOptional(
 	factory cliOpenFactory,
 	cfg *cliConfig,
@@ -187,7 +203,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 	infoOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	runOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	root.AddCommand(
-		screenCmd(screenOpen),
+		screenCmd(screenOpen, openRequiredOptional(openPFFactory, cfg, perfuncted.CapabilityScreen, perfuncted.CapabilityOutputs)),
 		inputCmd(inputOpen, cfg, inputWindowOpen, inputOutputOpen, inputDialogOpen),
 		windowCmd(windowOpen, cfg),
 		outputCmd(outputOpen),

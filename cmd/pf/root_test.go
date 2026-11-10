@@ -449,6 +449,9 @@ func TestCLIRequestsOnlyItsCapability(t *testing.T) {
 			required: []perfuncted.Capability{
 				perfuncted.CapabilityScreen,
 			},
+			optional: []perfuncted.Capability{
+				perfuncted.CapabilityOutputs,
+			},
 		},
 		{
 			name: "input",
