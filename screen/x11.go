@@ -64,6 +64,9 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return 0, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return 0, fmt.Errorf("screen/x11: invalid empty capture region %v", rect)
+	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
@@ -159,6 +162,9 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	ctx = contextutil.Default(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
+	}
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return nil, fmt.Errorf("screen/x11: invalid empty capture region %v", rect)
 	}
 	finish, err := b.beginOperation()
 	if err != nil {
