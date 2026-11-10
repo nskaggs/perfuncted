@@ -90,8 +90,8 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return window.Info{}, ctxErr
 	}
-	if err := w.id.session.ensureOpen(); err != nil {
-		return window.Info{}, err
+	if sessionErr := w.id.session.ensureOpen(); sessionErr != nil {
+		return window.Info{}, sessionErr
 	}
 	if err != nil {
 		return window.Info{}, w.id.session.Windows.operationError("info", err)
@@ -286,8 +286,8 @@ func (b *WindowBundle) List(
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	if err := b.session.ensureOpen(); err != nil {
-		return nil, err
+	if sessionErr := b.session.ensureOpen(); sessionErr != nil {
+		return nil, sessionErr
 	}
 	if err != nil {
 		return nil, b.operationError("discover", err)
