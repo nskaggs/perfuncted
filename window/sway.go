@@ -404,6 +404,7 @@ func walkTree(n *swayNode, fn func(*swayNode) bool) bool {
 
 // ActiveTitle returns the title of the currently focused window.
 func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
+	ctx = contextutil.Default(ctx)
 	raw, err := m.query(ctx, swayMsgGetTree, "")
 	if err != nil {
 		return "", fmt.Errorf("window/sway: get_tree: %w", err)
