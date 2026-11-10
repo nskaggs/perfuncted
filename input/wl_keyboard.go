@@ -722,6 +722,11 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Modifier holds are tracked in mods, not held. They must be checked
+	// even when no ordinary key is held (the direct one-key fast path).
+	if bit := modBit(key); bit != 0 && k.mods&bit != 0 {
+		return fmt.Errorf("keyboard: key %q is already held", key)
+	}
 	// KeyDown is also a logical sequence. An existing held key reserves its
 	// physical XKB slot; uploading a standalone one-key map can silently
 	// reinterpret that pressed key as the new one.
