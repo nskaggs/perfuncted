@@ -413,13 +413,21 @@ func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("window/sway: parse tree: %w", err)
 	}
 	var title string
+	focused := 0
 	walkTree(&root, func(n *swayNode) bool {
 		if n.Focused && (n.Type == "con" || n.Type == "floating_con") {
+			focused++
 			title = n.Name
-			return false
+			return focused < 2
 		}
 		return true
 	})
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if focused > 1 {
+		return "", fmt.Errorf("window/sway: multiple focused windows in compositor tree")
+	}
 	if title == "" {
 		return "", fmt.Errorf("window/sway: no focused window")
 	}
