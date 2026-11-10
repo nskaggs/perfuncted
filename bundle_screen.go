@@ -64,6 +64,12 @@ func (s *ScreenBundle) grabHash(
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	hash, err := find.GrabHash(ctx, s.backend, rect, nil)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, ctxErr
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return 0, openErr
+	}
 	return hash, s.operationError("hash", err)
 }
 
@@ -78,11 +84,20 @@ func (s *ScreenBundle) grab(
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := s.backend.Grab(ctx, rect)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return nil, openErr
+	}
 	if err != nil {
 		return nil, s.operationError("capture", err)
 	}
 	if err := validateCaptureImageLayout(img); err != nil {
 		return nil, s.operationError("capture", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	return img, nil
 }

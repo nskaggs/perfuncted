@@ -67,6 +67,12 @@ func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
 	title, err := b.backend.ActiveTitle(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", ctxErr
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return "", openErr
+	}
 	return title, b.operationError("active-title", err)
 }
 

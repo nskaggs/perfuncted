@@ -31,6 +31,12 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	defer cancel()
 	b.traceAction("output", "list")
 	items, err := b.backend.List(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return nil, openErr
+	}
 	return items, b.operationError("list", err)
 }
 

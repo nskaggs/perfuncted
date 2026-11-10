@@ -31,6 +31,12 @@ func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	defer cancel()
 	b.traceAction("clipboard", "get")
 	text, err := b.backend.Get(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", ctxErr
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return "", openErr
+	}
 	return text, b.operationError("get", err)
 }
 

@@ -85,6 +85,14 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 		return window.Info{}, err
 	}
 	info, err := backend.InfoByID(ctx, w.id.native)
+	// A backend may acknowledge a read after caller cancellation. Do not
+	// expose private window data or mutate the cached handle in that case.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return window.Info{}, ctxErr
+	}
+	if err := w.id.session.ensureOpen(); err != nil {
+		return window.Info{}, err
+	}
 	if err != nil {
 		return window.Info{}, w.id.session.Windows.operationError("info", err)
 	}
@@ -275,6 +283,12 @@ func (b *WindowBundle) List(
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
 	infos, err := b.backend.List(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		return nil, b.operationError("discover", err)
 	}
@@ -284,6 +298,12 @@ func (b *WindowBundle) List(
 			continue
 		}
 		windows = append(windows, b.window(info))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return nil, err
 	}
 	return windows, nil
 }
