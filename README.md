@@ -3,8 +3,9 @@
 [![CI](https://github.com/nskaggs/perfuncted/actions/workflows/ci.yml/badge.svg)](https://github.com/nskaggs/perfuncted/actions/workflows/ci.yml)
 
 **perfuncted** is a Go library and CLI for automating Linux desktop applications.
-It detects your session type at runtime and selects the right backend automatically -
-no configuration needed.
+It inspects the active desktop and selects supported backends, reporting
+unavailable capabilities explicitly. Native Wayland input may require portal
+authorization or compositor-specific host integration.
 
 ```go
 package main
@@ -135,7 +136,10 @@ launcher and grant only the specified directory.
 
 [Flatpak setup, supported desktops, permissions, and troubleshooting](FLATPAK.md)
 also documents the unattended CI tests and the separate attended Wayland
-permission checks.
+permission checks. An optional third release asset,
+`pf-flatpak-attended-check`, runs explicit, **interactive** GNOME/KDE Wayland
+consent tests when a person is present. It is intentionally not an unattended
+CI test.
 
 ### Native Go CLI
 

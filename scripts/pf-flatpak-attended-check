@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Opt-in verification of the INSTALLED Flatpak in a real visible Wayland session.
+# Portal consent is deliberately not faked or bypassed.
+set -euo pipefail
+usage() {
+  cat <<'USAGE'
+Usage: pf-flatpak-attended-check MODE
+
+MODE:
+  allow    Approve RemoteDesktop input; type and save a marker
+  deny     Deny a fresh request; ensure no input is injected
+  cancel   Cancel a portal request; ensure no input is injected
+  restore  Opt in to restoring permission; type and save twice
+  revoke   Revoke authorization in settings, then deny a new request
+  bridge   With GNOME host bridge installed, verify native window control
+
+Requires a visible GNOME or KDE Wayland session and an interactive terminal.
+Uses a new, disposable text document; never modifies an existing document.
+USAGE
+}
+if [[ "$#" -ne 1 || "$1" == "--help" || "$1" == "-h" ]]; then
+  usage
+  [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]
+  exit $?
+fi
+mode="$1"
+case "$mode" in allow|deny|restore|revoke|cancel|bridge) ;; *) usage >&2; exit 2;; esac
+if [[ ! -t 0 || "${XDG_SESSION_TYPE:-}" != "wayland" || -z "${WAYLAND_DISPLAY:-}" ]]; then
+  echo "An attended, visible Wayland desktop and interactive terminal are required." >&2
+  exit 2
+fi
+if ! command -v pf >/dev/null || ! flatpak info io.github.nskaggs.perfuncted >/dev/null 2>&1; then
+  echo "Install both release assets and put the pf-flatpak launcher on PATH first." >&2
+  exit 2
+fi
+desktop="${XDG_CURRENT_DESKTOP:-}"
+case "${desktop,,}" in
+  *kde*|*plasma*) editor=kwrite ;;
+  *gnome*) editor=gnome-text-editor ;;
+  *) echo "Use a visible KDE Plasma or GNOME Wayland session." >&2; exit 2 ;;
+esac
+if ! command -v "$editor" >/dev/null; then
+  echo "Install $editor to supply a native Wayland document target." >&2
+  exit 2
+fi
+tmpdir="$(mktemp -d "${XDG_RUNTIME_DIR:-/var/tmp}/pf-flatpak-attended.XXXXXXXX")"
+trap 'rm -rf -- "$tmpdir"' EXIT
+document="$tmpdir/portal-document.txt"
+: > "$document"
+case "$editor" in
+  kwrite) QT_QPA_PLATFORM=wayland kwrite "$document" >/dev/null 2>&1 & ;;
+  gnome-text-editor) GDK_BACKEND=wayland gnome-text-editor "$document" >/dev/null 2>&1 & ;;
+esac
+echo "Session: $desktop / Wayland"
+echo "Target: a NEW, EMPTY temporary $editor document ($document)"
+pf version
+pf info --output=json > "$tmpdir/capabilities.json"
+manual_focus() {
+  echo "After Enter, focus the blank editor window within three seconds."
+  read -r -p "Press Enter when ready to focus the editor: " _
+  sleep 3
+}
+send_portal() {
+  local flags=(--input-backend remote-desktop)
+  if [[ "$mode" == "restore" ]]; then flags+=(--remember-input-permission); fi
+  pf "${flags[@]}" input type "$1"
+}
+marker="perfuncted-portal-$(date -u +%Y%m%d%H%M%S)-$$"
+case "$mode" in
+  allow|restore)
+    echo "Approve the compositor's RemoteDesktop request when it appears."
+    echo "Select a coordinate within the editor's blank TEXT AREA, not its titlebar."
+    read -r -p "Desktop pixel coordinates (X Y): " click_x click_y
+    if [[ ! "$click_x" =~ ^[0-9]+$ || ! "$click_y" =~ ^[0-9]+$ ]]; then
+      echo "Coordinates must be nonnegative integers." >&2
+      exit 2
+    fi
+    manual_focus
+    flags=(--input-backend remote-desktop)
+    if [[ "$mode" == "restore" ]]; then flags+=(--remember-input-permission); fi
+    pf "${flags[@]}" input click --x "$click_x" --y "$click_y"
+    send_portal "$marker"
+    send_portal '{ctrl+s}'
+    if [[ "$mode" == "restore" ]]; then
+      send_portal 'restored'
+      send_portal '{ctrl+s}'
+      marker="${marker}restored"
+    fi
+    if ! grep -Fxq -- "$marker" "$document"; then
+      echo "FAIL: input was reported but the native editor did not save expected text." >&2
+      printf 'Saved content: '; cat "$document" >&2
+      exit 1
+    fi
+    echo "PASS: native Wayland editor received authorized input and saved the exact marker."
+    ;;
+  deny|revoke|cancel)
+    if [[ "$mode" == "revoke" ]]; then
+      echo "Revoke Perfuncted RemoteDesktop authorization in desktop settings first."
+      read -r -p "Press Enter after revocation: " _
+    fi
+    if [[ "$mode" == "cancel" ]]; then
+      echo "Cancel/dismiss the RemoteDesktop request when prompted."
+    else
+      echo "Deny the RemoteDesktop request when the compositor prompts."
+    fi
+    manual_focus
+    if send_portal "$marker"; then
+      echo "FAIL: denied/revoked RemoteDesktop input unexpectedly succeeded." >&2
+      exit 1
+    fi
+    if [[ -s "$document" ]]; then
+      echo "FAIL: document changed after denied input." >&2
+      exit 1
+    fi
+    echo "PASS: rejected/canceled/revoked permission failed closed without modifying the document."
+    ;;
+  bridge)
+    if [[ "${desktop,,}" != *gnome* ]]; then
+      echo "GNOME host bridge verification requires an attended GNOME Wayland desktop." >&2
+      exit 2
+    fi
+    echo "The GNOME native host extension must already be installed and loaded."
+    manual_focus
+    if ! pf window list | grep -F 'portal-document.txt'; then
+      echo "FAIL: GNOME native bridge did not discover the editor's visible window." >&2
+      exit 1
+    fi
+    pf window activate 'portal-document.txt' --verify
+    echo "PASS: GNOME host bridge enumerated and activated the native editor window."
+    ;;
+esac
+echo "Tested installed Flatpak on $desktop Wayland, mode=$mode."

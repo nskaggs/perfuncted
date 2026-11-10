@@ -62,6 +62,21 @@ The `--host-dir` and `--host-dir-ro` flags are **not** native `pf` flags.
 You can also invoke Flatpak directly with `flatpak run --filesystem="$PWD"`
 (or `--filesystem="$PWD":ro` for read-only access).
 
+## Upgrade from a previous Flatpak release
+
+To replace a previously downloaded Flatpak with a newer downloaded bundle:
+
+```sh
+flatpak install --user -y --reinstall ./perfuncted.flatpak
+pf version
+```
+
+This preserves application data and user-specific Flatpak overrides. CI now
+tests this path against the actual published v1.2.3 bundle (with a pinned
+SHA-256 hash), including a read-only directory grant and a separate directory
+that must remain inaccessible. The old v1.2.3 bundle did not stamp its
+version metadata, so identification comes from its pinned release checksum.
+
 ## Session support matrix
 
 | Session | Flatpak expectation | Test coverage |
@@ -118,3 +133,29 @@ permission, restarting the application, and (only if explicitly enabled)
 restoring a saved permission. No unattended CI result is equivalent to this
 consent-and-control test. GNOME additionally needs the native host bridge
 installed to validate its bridge-specific window operations.
+
+For an actual attended verification, download the optional
+`pf-flatpak-attended-check` asset from the same release and run:
+
+```sh
+chmod +x ./pf-flatpak-attended-check
+./pf-flatpak-attended-check allow
+./pf-flatpak-attended-check deny
+./pf-flatpak-attended-check cancel
+./pf-flatpak-attended-check restore
+./pf-flatpak-attended-check revoke
+./pf-flatpak-attended-check bridge  # GNOME only, requires installed host bridge
+```
+
+The helper opens only a disposable editor document. In the positive cases it
+asks for a visible editor text-area coordinate, sends a **portal-authorized
+mouse click**, then types and saves a unique marker and verifies the saved
+content. It waits for explicit human consent/denial; negative cases verify
+input rejection without modifying that document. It will refuse
+unattended execution. The `restore` case opts into persistent permission and
+checks a second CLI process; the `revoke` case requires changing permissions
+in the desktop settings. The `cancel` case rejects an abandoned permission
+prompt. The GNOME-only `bridge` case requires the host extension already
+installed, then checks window discovery and verified activation. These tests
+use the **actual** installed Flatpak and native Wayland editor; run the portal
+modes separately on GNOME and KDE.

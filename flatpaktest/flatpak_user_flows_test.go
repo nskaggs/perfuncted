@@ -163,10 +163,15 @@ func testRealFlatpakReleaseUpgrade(t *testing.T, sessionAddress, sourceRoot, tes
 	if code != 0 {
 		t.Fatalf("legacy v1.2.3 install unusable: %s; %s", oldVersion, oldStderr)
 	}
-	if !strings.Contains(oldVersion, "1.2.3") {
-		t.Fatalf("legacy release version not identified: %q", oldVersion)
+	// The official v1.2.3 bundle predates working version stamping and
+	// prints "pf " with no version. The pinned release SHA-256 above is
+	// authoritative; requiring a version it never contained would make
+	// genuine historical upgrade testing impossible.
+	if !strings.Contains(oldVersion, "builtBy: flatpak") {
+		t.Fatalf("legacy release does not contain the expected Flatpak CLI: %q", oldVersion)
 	}
-	t.Logf("upgrading actual v1.2.3 CLI: %s", strings.TrimSpace(oldVersion))
+	t.Logf("upgrading official v1.2.3 SHA-256 %s (legacy CLI: %s)",
+		previousReleaseSHA256, strings.TrimSpace(oldVersion))
 	// Store a stable per-application marker, not a host filesystem path.
 	persistent := "$XDG_DATA_HOME/pf-flatpak-upgrade-preserved"
 	_, stderr, code := h.run(t, sourceRoot, "run", "--command=sh", appID, "-c",
@@ -174,6 +179,33 @@ func testRealFlatpakReleaseUpgrade(t *testing.T, sessionAddress, sourceRoot, tes
 	if code != 0 {
 		t.Fatalf("legacy Flatpak could not save application state: %s", stderr)
 	}
+	grantDir := filepath.Join(testRoot, "upgrade-read-only-grant")
+	privateDir := filepath.Join(testRoot, "upgrade-ungrouped-private")
+	if err := os.MkdirAll(grantDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	grantedFile := filepath.Join(grantDir, "preserved.txt")
+	privateFile := filepath.Join(privateDir, "not-granted.txt")
+	if err := os.WriteFile(grantedFile, []byte("grant-survived"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privateFile, []byte("not-exposed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h.mustRun(t, sourceRoot, "override", "--user", "--filesystem="+grantDir+":ro", appID)
+	verifyGrants := func(t *testing.T) {
+		t.Helper()
+		_, stderr, rc := h.run(t, sourceRoot, "run", "--command=sh", appID, "-c",
+			fmt.Sprintf("test -r %s && test ! -w %s && test ! -e %s",
+				grantedFile, grantedFile, privateFile))
+		if rc != 0 {
+			t.Fatalf("upgrade changed scoped host read-only grant, or exposed ungranted file: %s", stderr)
+		}
+	}
+	verifyGrants(t)
 	h.mustRun(t, sourceRoot, "install", "--user", "-y", "--reinstall", currentBundle)
 	version, stderr, code := h.run(t, sourceRoot, "run", appID, "version")
 	if code != 0 {
@@ -187,5 +219,6 @@ func testRealFlatpakReleaseUpgrade(t *testing.T, sessionAddress, sourceRoot, tes
 	if code != 0 {
 		t.Fatalf("Flatpak upgrade lost application data: %q", stderr)
 	}
+	verifyGrants(t)
 	t.Logf("v1.2.3 to current release candidate: %s", strings.TrimSpace(version))
 }

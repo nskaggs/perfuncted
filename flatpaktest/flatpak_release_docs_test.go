@@ -3,7 +3,9 @@
 package flatpaktest
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,5 +55,25 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 	if !strings.Contains(guide, "RemoteDesktop") ||
 		!strings.Contains(guide, "attended") {
 		t.Fatal("guide must distinguish actual Wayland consent testing from unattended capability probes")
+	}
+	if !strings.Contains(release, "scripts/pf-flatpak scripts/pf-flatpak-attended-check --clobber") {
+		t.Fatal("the release must also publish the optional attended native Wayland validator")
+	}
+}
+
+func TestFlatpakAttendedValidatorRejectsUnattendedExecution(t *testing.T) {
+	script := filepath.Join(mustRepoRoot(t), "scripts", "pf-flatpak-attended-check")
+	help := exec.Command("bash", script, "--help")
+	out, err := help.CombinedOutput()
+	if err != nil || !bytes.Contains(out, []byte("allow")) || !bytes.Contains(out, []byte("revoke")) {
+		t.Fatalf("attended validator lacks usable help: %v %s", err, out)
+	}
+	// No TTY is provided here, regardless of the developer's own login.
+	cmd := exec.Command("bash", script, "allow")
+	cmd.Stdin = bytes.NewBuffer(nil)
+	cmd.Env = append(os.Environ(), "XDG_SESSION_TYPE=wayland", "WAYLAND_DISPLAY=wayland-test")
+	out, err = cmd.CombinedOutput()
+	if err == nil || !bytes.Contains(out, []byte("attended")) {
+		t.Fatalf("interactive-only portal validator ran without consent: %v %s", err, out)
 	}
 }
