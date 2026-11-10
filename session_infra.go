@@ -464,7 +464,6 @@ func (i *sessionInfra) launchSway(
 	observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, StartupPhaseSucceeded)
 
 	socketPath := filepath.Join(i.xdgDir, i.wlDisplay)
-	ipcGlob := filepath.Join(i.xdgDir, "sway-ipc.*.sock")
 	observeStartupPhase(i.startupObserver, StartupPhaseSwaySocketsReady, StartupPhaseStarted)
 	g := new(errgroup.Group)
 	g.Go(func() error {
@@ -474,7 +473,7 @@ func (i *sessionInfra) launchSway(
 		return nil
 	})
 	g.Go(func() error {
-		if readinessErr := waitForGlob(ctx, ipcGlob, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
+		if readinessErr := waitForSwayIPCSocket(ctx, i.xdgDir, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
 			return fmt.Errorf("sway IPC socket in %s did not appear within %s: %w", i.xdgDir, i.timeouts.Startup, readinessErr)
 		}
 		return nil

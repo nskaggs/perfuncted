@@ -305,7 +305,10 @@ func prepareHeadlessHelpers(t *testing.T, ready bool) string {
 	swayBody := "exec /bin/sleep 30"
 	if ready {
 		dbusBody = ": > \"$XDG_RUNTIME_DIR/bus\"\n" + dbusBody
-		swayBody = ": > \"$XDG_RUNTIME_DIR/wayland-1\"\n: > \"$XDG_RUNTIME_DIR/sway-ipc.synthetic.sock\"\n" + swayBody
+		// Use an actual listening Unix socket rather than a same-name file:
+		// production readiness now verifies the compositor IPC socket type.
+		swayBody = ": > \"$XDG_RUNTIME_DIR/wayland-1\"\n" +
+			"exec python3 -c 'import os,socket,time; s=socket.socket(socket.AF_UNIX); s.bind(os.environ[\"XDG_RUNTIME_DIR\"] + \"/sway-ipc.synthetic.sock\"); s.listen(1); time.sleep(30)'"
 	}
 	for name, body := range map[string]string{
 		"dbus-daemon": dbusBody,

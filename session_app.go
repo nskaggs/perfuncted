@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -298,18 +299,21 @@ func (s *Session) SwaySocket() string {
 	if s == nil || s.infra == nil {
 		return ""
 	}
-	matches, err := filepath.Glob(
-		filepath.Join(s.infra.xdgDir, "sway-ipc.*.sock"),
-	)
+	// xdgDir is a literal managed path. A glob would interpret brackets and
+	// wildcards in its ancestors and could select another session's socket.
+	entries, err := os.ReadDir(s.infra.xdgDir)
 	if err != nil {
 		return ""
 	}
-	for _, path := range matches {
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "sway-ipc.") || !strings.HasSuffix(name, ".sock") || len(name) <= len("sway-ipc..sock") {
+			continue
+		}
 		// Never follow a symlink into another desktop or select a regular
 		// file that merely resembles a managed Sway IPC socket.
-		info, statErr := os.Lstat(path)
-		if statErr == nil && info.Mode()&os.ModeSocket != 0 {
-			return path
+		if entry.Type()&os.ModeSocket != 0 {
+			return filepath.Join(s.infra.xdgDir, name)
 		}
 	}
 	return ""

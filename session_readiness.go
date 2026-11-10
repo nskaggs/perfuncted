@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -93,4 +94,28 @@ func pollCondition(ctx context.Context, attempts int, interval time.Duration, do
 		return err
 	}
 	return errPollTimeout
+}
+
+// waitForSwayIPCSocket checks the exact managed runtime directory rather
+// than globbing across its path components. File lookalikes and symlinks do
+// not demonstrate that the compositor created an IPC socket.
+func waitForSwayIPCSocket(ctx context.Context, dir string, attempts int, interval time.Duration) error {
+	err := pollCondition(ctx, attempts, interval, func() bool {
+		entries, readErr := os.ReadDir(dir)
+		if readErr != nil {
+			return false
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if strings.HasPrefix(name, "sway-ipc.") && strings.HasSuffix(name, ".sock") &&
+				len(name) > len("sway-ipc..sock") && entry.Type()&os.ModeSocket != 0 {
+				return true
+			}
+		}
+		return false
+	})
+	if errors.Is(err, errPollTimeout) {
+		return fmt.Errorf("sway IPC socket in %s did not appear within %s", dir, time.Duration(attempts)*interval)
+	}
+	return err
 }

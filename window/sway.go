@@ -8,8 +8,10 @@ import (
 	"io"
 	"iter"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -122,11 +124,20 @@ func NewSwayManagerRuntimeContext(ctx context.Context, rt env.Runtime) (*SwayMan
 	if rdir == "" {
 		return nil, fmt.Errorf("window/sway: SWAYSOCK not set and XDG_RUNTIME_DIR empty")
 	}
-	matches, err := filepath.Glob(filepath.Join(rdir, "sway-ipc.*.sock"))
+	// The runtime directory is a literal path, not part of a glob pattern.
+	// Only inspect direct socket entries; never probe a different runtime
+	// reached through metacharacters or a same-name symlink.
+	entries, err := os.ReadDir(rdir)
 	if err != nil {
-		return nil, fmt.Errorf("window/sway: glob sway sockets: %w", err)
+		return nil, fmt.Errorf("window/sway: inspect runtime sockets: %w", err)
 	}
-	for _, m := range matches {
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "sway-ipc.") || !strings.HasSuffix(name, ".sock") ||
+			len(name) <= len("sway-ipc..sock") || entry.Type()&os.ModeSocket == 0 {
+			continue
+		}
+		m := filepath.Join(rdir, name)
 		if err := swayQueryOnceContext(ctx, m, swayMsgGetTree, ""); err == nil {
 			return &SwayManager{sock: m}, nil
 		} else if ctxErr := ctx.Err(); ctxErr != nil {
