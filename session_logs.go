@@ -58,11 +58,17 @@ func ensureSessionLogRoot(root string, private bool) error {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
+	// An explicit, caller-selected log root must not redirect into another
+	// tree through a symlinked ancestor. The default internally generated
+	// log root may live beneath a short TMPDIR symlink used for Unix sockets.
+	if !private && !sessionLogRootHasLiteralDirectories(root) {
+		return fmt.Errorf("session log root contains a non-directory or symlink component: %s", root)
+	}
 	info, err := os.Lstat(root)
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+	if !info.IsDir() {
 		return fmt.Errorf("session log root is not a directory: %s", root)
 	}
 	if private {
