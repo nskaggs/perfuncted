@@ -24,14 +24,30 @@ func openCapabilityBackend[T any](
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	// An expired startup must never open an unnecessary desktop connection.
+	if err := ctx.Err(); err != nil {
+		var zero T
+		return zero, err
+	}
 
 	backend, err := open(ctx)
+	// Providers may ignore cancellation and return a successful backend after
+	// permission to start has expired. Preserve the caller's authority and
+	// close any partially acquired resource rather than installing it.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
+	}
 	backend, err = validateBackend(capability, backend, err)
 	if err == nil {
 		if configure != nil {
 			configure(backend)
 		}
-		install(backend)
+		// Configuration may finish at the same time startup is canceled.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = ctxErr
+		} else {
+			install(backend)
+		}
 	}
 	closeFailedBackend(backend, err)
 	return backend, err
