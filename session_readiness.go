@@ -43,11 +43,17 @@ func waitForGlob(
 	attempts int,
 	interval time.Duration,
 ) error {
+	var globErr error
 	err := pollCondition(ctx, attempts, interval, func() bool {
-		matches, globErr := filepath.Glob(pattern)
-		return globErr == nil && len(matches) > 0
+		var matches []string
+		matches, globErr = filepath.Glob(pattern)
+		// An invalid pattern cannot become valid on a later poll.
+		return globErr != nil || len(matches) > 0
 	})
 	if err == nil {
+		if globErr != nil {
+			return fmt.Errorf("invalid readiness glob %q: %w", pattern, globErr)
+		}
 		return nil
 	}
 	if errors.Is(err, errPollTimeout) {
@@ -65,7 +71,13 @@ func pollCondition(ctx context.Context, attempts int, interval time.Duration, do
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if done() {
+		ready := done()
+		// A readiness probe may finish just as the owner cancels startup.
+		// Never accept a successful predicate after authorization has ended.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if ready {
 			return nil
 		}
 		if i == attempts-1 {
