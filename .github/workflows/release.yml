@@ -50,7 +50,7 @@ jobs:
           echo "Release commit: ${commit}"
           {
             echo "### Release gates"
-            echo "- Commit: `${commit}`"
+            printf -- '- Commit: `%s`\n' "$commit"
             echo "- Deterministic quality: passed"
             echo "- Environment-dependent Flatpak smoke: pending"
           } >> "$GITHUB_STEP_SUMMARY"
