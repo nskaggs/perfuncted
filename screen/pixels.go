@@ -222,14 +222,27 @@ func cropImage(img image.Image, rect image.Rectangle) image.Image {
 	if rgba, ok := img.(*image.RGBA); ok {
 		return cropRGBA(rgba, rect)
 	}
+	r := rect.Intersect(img.Bounds())
 	if si, ok := img.(interface {
 		SubImage(image.Rectangle) image.Image
-	}); ok {
-		return si.SubImage(rect.Intersect(img.Bounds()))
+	}); ok && r == rect {
+		return si.SubImage(r)
 	}
-	r := rect.Intersect(img.Bounds())
 	if r.Empty() {
 		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+	if r != rect {
+		// A partly off-screen crop must retain its requested size and
+		// transparent padding even when the decoder returned NRGBA or a
+		// generic image. Match the RGBA crop's coordinate contract.
+		width, height, ok := safePixelRectDimensions(rect)
+		if !ok {
+			return image.NewRGBA(image.Rectangle{})
+		}
+		out := image.NewRGBA(image.Rect(0, 0, width, height))
+		position := r.Min.Sub(rect.Min)
+		draw.Draw(out, image.Rectangle{Min: position, Max: position.Add(r.Size())}, img, r.Min, draw.Src)
+		return out
 	}
 	out := image.NewRGBA(r)
 	draw.Draw(out, out.Bounds(), img, r.Min, draw.Src)
