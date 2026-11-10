@@ -72,5 +72,12 @@ func (b *ClipboardBundle) pasteWithInputContext(
 	if err := b.Set(ctx, text); err != nil {
 		return err
 	}
+	// Clipboard ownership can finish after the caller has canceled. Do not
+	// dispatch the paste shortcut after authorization has ended.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	return input.typeContext(ctx, "{ctrl+v}")
 }

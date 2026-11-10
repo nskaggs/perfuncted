@@ -491,7 +491,7 @@ func (s *Session) Env() []string {
 
 // Paste writes text through the clipboard when available and otherwise types
 // it directly.
-func (s *Session) Paste(ctx context.Context, text string) error {
+func (s *Session) Paste(ctx context.Context, text string) (result error) {
 	if s == nil {
 		return ErrNilSession
 	}
@@ -501,6 +501,18 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 	if err := s.ensureOpen(); err != nil {
 		return err
 	}
+	// A canceled paste must never dispatch desktop input to a backend that
+	// may not independently enforce the caller's cancellation.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// A backend can acknowledge dispatch after cancellation. Never publish
+	// that late acknowledgement as a successful paste.
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result = err
+		}
+	}()
 	if s.Has(CapabilityClipboard) {
 		return s.Clipboard.pasteWithInputContext(ctx, text, s.Input)
 	}
