@@ -109,6 +109,9 @@ func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return nil, fmt.Errorf("screen/kwin: invalid empty capture region %v", rect)
+	}
 	if b == nil || b.transport == nil {
 		return nil, fmt.Errorf("screen/kwin: backend not initialised")
 	}
@@ -140,6 +143,9 @@ func (b *KWinShotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 // GrabRegionHash computes a CRC32 pixel fingerprint for rect. For KWin this
 // falls back to Grab + PixelHash so the hash stays consistent with GrabFullHash.
 func (b *KWinShotBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return 0, fmt.Errorf("screen/kwin: invalid empty capture region %v", rect)
+	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
