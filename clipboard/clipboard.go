@@ -376,8 +376,8 @@ func (c *extCmdClipboard) waylandContentMatches(ctx context.Context, want string
 // often it is asked, so a fixed short interval converts a slow compositor into
 // thousands of process creations inside one readiness budget.
 func (c *extCmdClipboard) waitWaylandContent(ctx context.Context, want string) error {
-	if len(c.getCmd) == 0 {
-		return nil
+	if c == nil || len(c.getCmd) == 0 || c.getCmd[0] == "" {
+		return fmt.Errorf("clipboard set: Wayland readiness command is not configured")
 	}
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
