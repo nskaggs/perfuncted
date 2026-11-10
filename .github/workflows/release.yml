@@ -30,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Detect prerelease tag
         id: prerelease
@@ -69,7 +69,7 @@ jobs:
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak xvfb xterm openbox kwin-wayland gnome-shell
 
       - name: Build Flatpak bundle
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
@@ -86,7 +86,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" dist/flatpak/perfuncted.flatpak --clobber
+          gh release upload "${{ github.ref_name }}" dist/flatpak/perfuncted.flatpak scripts/pf-flatpak --clobber
 
       - name: Generate GitHub release notes
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}

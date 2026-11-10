@@ -114,10 +114,14 @@ Flatpak asset from the GitHub release; for a manual run, download the
 
 ```bash
 flatpak install --user -y ./dist/flatpak/perfuncted.flatpak
-flatpak run io.github.nskaggs.perfuncted --help
+install -Dm755 scripts/pf-flatpak "$HOME/.local/bin/pf"
+# Ensure ~/.local/bin is in PATH; then:
+pf --help
+pf session check
+pf info
 ```
 
-**CLI:**
+See [Flatpak setup, file permissions, and desktop support](FLATPAK.md)\nfor a first automated screenshot and CLI troubleshooting.\n\n**CLI:**
 
 ```bash
 go install github.com/nskaggs/perfuncted/cmd/pf@latest
@@ -256,7 +260,7 @@ and `xclip` for X11 clipboard round-trip verification.
 
 ## Development
 
-Requires Go 1.27.0, [`just`](https://github.com/casey/just), and the tools
+Requires Go 1.27.3, [`just`](https://github.com/casey/just), and the tools
 installed by `just install-dev-tools`.
 
 ```bash

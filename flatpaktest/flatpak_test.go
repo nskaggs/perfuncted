@@ -50,7 +50,14 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve user cache directory: %v", err)
 	}
-	testRoot := filepath.Join(cacheRoot, "perfuncted-flatpak-test")
+	// Each run owns a unique private root; never delete another active test's files.
+	if err := os.MkdirAll(cacheRoot, 0o700); err != nil {
+		t.Fatalf("create cache root: %v", err)
+	}
+	testRoot, err := os.MkdirTemp(cacheRoot, "perfuncted-flatpak-test-")
+	if err != nil {
+		t.Fatalf("create isolated test root: %v", err)
+	}
 	sourceRoot := filepath.Join(testRoot, "source")
 	manifestPath := filepath.Join(sourceRoot, "io.github.nskaggs.perfuncted.yml")
 	appstreamPath := filepath.Join(sourceRoot, "flatpak", "io.github.nskaggs.perfuncted.metainfo.xml")
@@ -69,15 +76,13 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	_ = os.RemoveAll(bundlePath)
 	_ = os.RemoveAll(buildDir)
 	_ = os.RemoveAll(defaultRepoDir)
-	_ = os.RemoveAll(testRoot)
 	_ = os.RemoveAll(filepath.Join(repoRoot, ".flatpak-builder"))
-	_ = os.RemoveAll(sourceRoot)
 	t.Cleanup(func() {
+		_ = mustRemoveWorktree(repoRoot, sourceRoot)
 		_ = os.RemoveAll(buildDir)
 		_ = os.RemoveAll(defaultRepoDir)
 		_ = os.RemoveAll(testRoot)
 		_ = os.RemoveAll(filepath.Join(repoRoot, ".flatpak-builder"))
-		_ = mustRemoveWorktree(repoRoot, sourceRoot)
 	})
 
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
@@ -88,6 +93,9 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	}
 	if err := mustAddWorktree(repoRoot, sourceRoot); err != nil {
 		t.Fatalf("create flatpak source worktree: %v", err)
+	}
+	if err := writeFlatpakBuildInfo(sourceRoot); err != nil {
+		t.Fatalf("write stamped Flatpak build metadata: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(bundlePath), 0o755); err != nil {
 		t.Fatalf("create bundle directory: %v", err)
@@ -160,6 +168,9 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 			t.Fatalf("flatpak run %s version exit code = %d, want 0\nstdout=%q\nstderr=%q", appID, code, stdout, stderr)
 		}
 		assertVersionOutput(t, stdout)
+	})
+	t.Run("installed CLI and sandbox acceptance", func(t *testing.T) {
+		testInstalledFlatpakCLI(t, bundleHarness, sourceRoot, testRoot)
 	})
 }
 
@@ -335,6 +346,12 @@ func allowKnownManifestException(stdout string) bool {
 
 func assertVersionOutput(t *testing.T, stdout string) {
 	t.Helper()
+	if strings.HasPrefix(stdout, "pf \n") || strings.HasPrefix(stdout, "pf dev\n") {
+		t.Fatalf("Flatpak version was not stamped from Git: %q", stdout)
+	}
+	if strings.Contains(stdout, "commit:  none") || strings.Contains(stdout, "date:    unknown") {
+		t.Fatalf("Flatpak revision was not stamped from Git: %q", stdout)
+	}
 
 	if !strings.Contains(stdout, "builtBy: flatpak") {
 		t.Fatalf("version output missing builtBy stamp: %q", stdout)

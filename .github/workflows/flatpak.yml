@@ -1,7 +1,10 @@
 name: Flatpak
 
 on:
+  pull_request:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
       - '!v*-rc*'
@@ -28,12 +31,12 @@ jobs:
       - name: Install Flatpak tooling
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak xvfb xterm openbox kwin-wayland gnome-shell
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
           cache: true
 
       - name: Run Flatpak integration tests

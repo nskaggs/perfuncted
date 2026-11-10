@@ -29,11 +29,4 @@
     <keyword>wayland</keyword>
     <keyword>x11</keyword>
   </keywords>
-  <releases>
-    <release version="0.3.1" date="2026-05-08">
-      <description>
-        <p>Current upstream release.</p>
-      </description>
-    </release>
-  </releases>
 </component>

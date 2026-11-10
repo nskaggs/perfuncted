@@ -1,6 +1,6 @@
 app-id: io.github.nskaggs.perfuncted
 runtime: org.freedesktop.Platform
-runtime-version: '25.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.golang
@@ -10,8 +10,6 @@ finish-args:
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
-  - --device=all
-  - --talk-name=io.github.nskaggs.perfuncted.Gnome1
   - --talk-name=org.gnome.Shell
   - --talk-name=org.kde.KWin
 modules:
@@ -23,7 +21,7 @@ modules:
         GOROOT: /usr/lib/sdk/golang
         GOTOOLCHAIN: 'local'
     build-commands:
-      - ${GOROOT}/bin/go build -mod=vendor -trimpath -buildvcs=false -ldflags "-s -w -X main.builtBy=flatpak" -o "${FLATPAK_DEST}/bin/pf" ./cmd/pf
+      - sh scripts/flatpak-build.sh
       - install -Dm0644 LICENSE "${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/perfuncted/LICENSE"
       - install -Dm0644 flatpak/io.github.nskaggs.perfuncted.metainfo.xml "${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml"
       - install -Dm0644 flatpak/io.github.nskaggs.perfuncted.svg "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg"

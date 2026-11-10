@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Flatpak host launcher: no default host filesystem grants.
+set -euo pipefail
+permissions=()
+while (($#)); do
+  case "$1" in
+    --host-dir|--host-dir-ro)
+      option="$1"
+      if (($# < 2)) || [[ ! -d "$2" ]]; then
+        printf 'pf: %s requires an existing host directory\n' "$option" >&2
+        exit 2
+      fi
+      dir=$(realpath -- "$2")
+      if [[ "$option" == --host-dir-ro ]]; then
+        permissions+=("--filesystem=${dir}:ro")
+      else
+        permissions+=("--filesystem=${dir}")
+      fi
+      shift 2
+      ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+exec flatpak run "${permissions[@]}" io.github.nskaggs.perfuncted "$@"
