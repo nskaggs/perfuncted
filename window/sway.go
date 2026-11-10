@@ -415,7 +415,8 @@ func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
 	var title string
 	focused := 0
 	walkTree(&root, func(n *swayNode) bool {
-		if n.Focused && (n.Type == "con" || n.Type == "floating_con") {
+		if n.Focused && n.ID > 0 && n.Name != "" && len(n.Nodes) == 0 && len(n.FloatingNodes) == 0 &&
+			(n.Type == "con" || n.Type == "floating_con") {
 			focused++
 			title = n.Name
 			return focused < 2
