@@ -31,7 +31,7 @@ jobs:
       - name: Install Flatpak tooling
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak xvfb xterm openbox kwin-wayland gnome-shell
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell
 
       - name: Set up Go
         uses: actions/setup-go@v5

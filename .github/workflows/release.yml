@@ -69,13 +69,12 @@ jobs:
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak xvfb xterm openbox kwin-wayland gnome-shell
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell
 
       - name: Build Flatpak bundle
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         env:
           CGO_ENABLED: "0"
-        env:
           PF_FLATPAK_DESKTOP_TARGET: kde,gnome
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
