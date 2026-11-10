@@ -168,6 +168,11 @@ func fileURIPath(fileURI string) (string, error) {
 		return "", fmt.Errorf("unsupported URI scheme")
 	}
 	path := strings.TrimPrefix(fileURI, prefix)
+	// A file URI can encode literal question marks and hashes as %3F/%23,
+	// but unescaped delimiters begin URI query or fragment components.
+	if strings.ContainsAny(path, "?#") {
+		return "", fmt.Errorf("screenshot file URI contains query or fragment")
+	}
 	switch {
 	case strings.HasPrefix(path, "/"):
 	case strings.HasPrefix(path, "localhost/"):
