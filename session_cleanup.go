@@ -112,12 +112,25 @@ func staleSessionDirectories(ctx context.Context) ([]string, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, contextErrorWithCause(ctx)
 		}
-		found, err := filepath.Glob(filepath.Join(root, "perfuncted-xdg-*"))
-		if err != nil {
-			slog.Warn("unable to glob nested sessions", "error", err)
+		// TMPDIR is an ordinary path, not a glob. Glob interprets brackets,
+		// question marks and asterisks in the root, which can skip owned
+		// sessions or scan unrelated directories. Only direct directories
+		// qualify as managed runtimes; files and symlinks are not sessions.
+		entries, err := os.ReadDir(root)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		matches = append(matches, found...)
+		if err != nil {
+			return nil, fmt.Errorf("session: inspect managed runtime root %q: %w", root, err)
+		}
+		for _, entry := range entries {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, contextErrorWithCause(ctx)
+			}
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), "perfuncted-xdg-") && len(entry.Name()) > len("perfuncted-xdg-") {
+				matches = append(matches, filepath.Join(root, entry.Name()))
+			}
+		}
 	}
 	return matches, nil
 }
@@ -167,6 +180,18 @@ func reapSessionDir(ctx context.Context, dir string) error {
 	}
 	if !isManagedSessionDir(dir) {
 		slog.Debug("session: skip stale directory with unexpected path", "path", dir)
+		return nil
+	}
+	// Discovery is not ownership proof: a path can be replaced between
+	// enumeration and reaping. Never remove a same-prefix file or symlink.
+	info, err := os.Lstat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("session: inspect stale runtime %q: %w", dir, err)
+	}
+	if !info.IsDir() {
 		return nil
 	}
 	for _, name := range sessionChildPIDFiles {
