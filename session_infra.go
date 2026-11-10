@@ -502,13 +502,44 @@ func (i *sessionInfra) writeChildPID(name string, pid int) {
 	if i == nil || i.xdgDir == "" || pid <= 0 {
 		return
 	}
+	// Child PID names are fixed basenames, never caller-controlled paths.
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.IndexByte(name, 0) >= 0 {
+		slog.Warn("session: reject unsafe child pid filename", "name", name)
+		return
+	}
 	if !isSafeToRemoveDir(i.xdgDir) {
 		slog.Warn("session: skip writing pidfile to non-managed directory", "path", i.xdgDir, "name", name)
 		return
 	}
-	if err := os.WriteFile(filepath.Join(i.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600); err != nil {
+	if err := writeManagedSessionFile(filepath.Join(i.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		slog.Warn("failed to write child pidfile", "name", name, "pid", pid, "error", err)
 	}
+}
+
+// writeManagedSessionFile replaces only the directory entry inside the private
+// runtime. os.WriteFile would follow a preplaced symlink or overwrite the inode
+// behind a hard link, potentially corrupting a file outside this runtime.
+// Rename preserves the existing contract that Sway configs and child PID files
+// can be updated while keeping partial writes invisible to readers.
+func writeManagedSessionFile(path string, data []byte, mode os.FileMode) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-managed-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+	}()
+	if err := file.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
 }
 
 func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string, error) {
@@ -527,7 +558,7 @@ func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string
 		return "", fmt.Errorf("session: refuse to write config to non-managed directory %q", i.xdgDir)
 	}
 	confPath := filepath.Join(i.xdgDir, "sway.conf")
-	if err := os.WriteFile(confPath, []byte(conf), 0644); err != nil {
+	if err := writeManagedSessionFile(confPath, []byte(conf), 0o644); err != nil {
 		return "", fmt.Errorf("write config: %w", err)
 	}
 	return confPath, nil
