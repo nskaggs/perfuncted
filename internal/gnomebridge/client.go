@@ -588,6 +588,14 @@ func (c *Client) CaptureRegion(ctx context.Context, fd int, rect image.Rectangle
 	if rect.Empty() {
 		return ScreenCapture{}, fmt.Errorf("gnome bridge: empty capture region")
 	}
+	// The D-Bus screenshot protocol carries signed 32-bit coordinates and
+	// dimensions. Do not allow native int conversion to wrap into a different
+	// compositor region, including rectangles that span the signed boundary.
+	const min32, max32 = -1 << 31, 1<<31 - 1
+	if rect.Min.X < min32 || rect.Min.Y < min32 || rect.Max.X > max32 || rect.Max.Y > max32 ||
+		int64(rect.Max.X)-int64(rect.Min.X) > max32 || int64(rect.Max.Y)-int64(rect.Min.Y) > max32 {
+		return ScreenCapture{}, fmt.Errorf("gnome bridge: capture region out of signed 32-bit range")
+	}
 	var capture ScreenCapture
 	err := c.capture(
 		ctx,
