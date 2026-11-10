@@ -722,6 +722,9 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if !utf8.ValidString(key) {
+		return fmt.Errorf("keyboard: key must be valid UTF-8")
+	}
 	// Modifier holds are tracked in mods, not held. They must be checked
 	// even when no ordinary key is held (the direct one-key fast path).
 	if bit := modBit(key); bit != 0 && k.mods&bit != 0 {
