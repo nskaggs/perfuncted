@@ -14,9 +14,9 @@ import (
 // writeFlatpakBuildInfo stamps the packaged executable from the exact Git
 // revision being packaged, not from a potentially stale AppStream version.
 // A local manifest build without this optional file still produces a dev CLI.
-func writeFlatpakBuildInfo(sourceRoot string) error {
+func writeFlatpakBuildInfo(repoRoot, sourceRoot string) error {
 	runGit := func(args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"-C", sourceRoot}, args...)...)
+		cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return "", fmt.Errorf("git %v: %w: %s", args, err, out)

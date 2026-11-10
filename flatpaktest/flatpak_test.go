@@ -61,9 +61,7 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	sourceRoot := filepath.Join(testRoot, "source")
 	manifestPath := filepath.Join(sourceRoot, "io.github.nskaggs.perfuncted.yml")
 	appstreamPath := filepath.Join(sourceRoot, "flatpak", "io.github.nskaggs.perfuncted.metainfo.xml")
-	bundlePath := filepath.Join(repoRoot, "dist", "flatpak", "perfuncted.flatpak")
-	buildDir := filepath.Join(repoRoot, "builddir")
-	defaultRepoDir := filepath.Join(repoRoot, "repo")
+	bundlePath := filepath.Join(testRoot, "bundle", "perfuncted.flatpak")
 	stateDir := filepath.Join(testRoot, "flatpak-state")
 	repoDir := filepath.Join(testRoot, "repo")
 	buildHome := filepath.Join(testRoot, "build-home")
@@ -72,18 +70,9 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	tmpRoot := filepath.Join(testRoot, "tmp")
 	runRoot := filepath.Join(testRoot, "run")
 
-	// Keep the workspace clean if the test is interrupted or fails part-way through.
-	_ = os.RemoveAll(bundlePath)
-	_ = os.RemoveAll(buildDir)
-	_ = os.RemoveAll(defaultRepoDir)
-	_ = os.RemoveAll(filepath.Join(repoRoot, ".flatpak-builder"))
-	t.Cleanup(func() {
-		_ = mustRemoveWorktree(repoRoot, sourceRoot)
-		_ = os.RemoveAll(buildDir)
-		_ = os.RemoveAll(defaultRepoDir)
-		_ = os.RemoveAll(testRoot)
-		_ = os.RemoveAll(filepath.Join(repoRoot, ".flatpak-builder"))
-	})
+	// The harness owns only testRoot. Never delete another build, release
+	// bundle, worktree, or cache belonging to the source checkout.
+	t.Cleanup(func() { _ = os.RemoveAll(testRoot) })
 
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
 		t.Fatalf("create flatpak test root: %v", err)
@@ -91,10 +80,10 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	if err := mustWriteFlatpakServiceFile(dbusHome); err != nil {
 		t.Fatalf("write flatpak D-Bus service file: %v", err)
 	}
-	if err := mustAddWorktree(repoRoot, sourceRoot); err != nil {
-		t.Fatalf("create flatpak source worktree: %v", err)
+	if err := snapshotFlatpakSource(repoRoot, sourceRoot); err != nil {
+		t.Fatalf("create Flatpak source snapshot: %v", err)
 	}
-	if err := writeFlatpakBuildInfo(sourceRoot); err != nil {
+	if err := writeFlatpakBuildInfo(repoRoot, sourceRoot); err != nil {
 		t.Fatalf("write stamped Flatpak build metadata: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(bundlePath), 0o755); err != nil {
@@ -395,30 +384,32 @@ func assertVersionOutput(t *testing.T, stdout string) {
 	}
 }
 
-func mustAddWorktree(repoRoot, sourceRoot string) error {
-	if _, err := os.Stat(sourceRoot); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
+// snapshotFlatpakSource extracts the committed tree without registering a Git
+// worktree or reading in-flight edits. Build outputs remain confined to the
+// caller-owned test root and may be safely cleaned up after the test.
+func snapshotFlatpakSource(repoRoot, sourceRoot string) error {
+	if err := os.Mkdir(sourceRoot, 0o700); err != nil {
+		return fmt.Errorf("create snapshot directory: %w", err)
 	}
-
-	cmd := exec.Command("git", "-c", "safe.directory="+repoRoot, "-C", repoRoot, "worktree", "add", "--detach", sourceRoot, "HEAD")
-	out, err := cmd.CombinedOutput()
+	archive := exec.Command("git", "-C", repoRoot, "archive", "--format=tar", "HEAD")
+	pipe, err := archive.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("git worktree add: %w: %s", err, out)
+		return fmt.Errorf("open Git archive pipe: %w", err)
 	}
-	return nil
-}
-
-func mustRemoveWorktree(repoRoot, sourceRoot string) error {
-	cmd := exec.Command("git", "-c", "safe.directory="+repoRoot, "-C", repoRoot, "worktree", "remove", "--force", sourceRoot)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// If the worktree is already gone, keep cleanup best-effort.
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("git worktree remove: %w: %s", err, out)
+	var gitStderr bytes.Buffer
+	archive.Stderr = &gitStderr
+	if err := archive.Start(); err != nil {
+		return fmt.Errorf("start Git archive: %w", err)
+	}
+	extract := exec.Command("tar", "-xf", "-", "-C", sourceRoot)
+	extract.Stdin = pipe
+	extractOut, extractErr := extract.CombinedOutput()
+	gitErr := archive.Wait()
+	if extractErr != nil {
+		return fmt.Errorf("extract Git archive: %w: %s", extractErr, extractOut)
+	}
+	if gitErr != nil {
+		return fmt.Errorf("Git archive failed: %w: %s", gitErr, gitStderr.String())
 	}
 	return nil
 }
