@@ -190,6 +190,52 @@ func (k *wlKeyboard) clearTempModsBestEffort(ctx context.Context, modBitmask uin
 	_ = k.sendModifiers(cleanupCtx)
 }
 
+// alignNamedAliases preserves the original spelling of a held key while
+// resolving later aliases to the same physical key. It also covers holds
+// established earlier in this batch, before any compositor writes occur.
+func (k *wlKeyboard) alignNamedAliases(actions []keySend) []keySend {
+	owners := make(map[uint32]string)
+	for key := range k.held {
+		if code, _, named := namedKey(key); named && code > kcSuper {
+			owners[code] = key
+		}
+	}
+	aligned := make([]keySend, len(actions))
+	copy(aligned, actions)
+	for i := range aligned {
+		a := &aligned[i]
+		if a.text != "" {
+			continue
+		}
+		code, _, named := namedKey(a.key)
+		if !named || code <= kcSuper {
+			continue
+		}
+		if original, held := owners[code]; held {
+			a.key = original
+		}
+		if a.up {
+			delete(owners, code)
+		} else if a.down {
+			owners[code] = a.key
+		}
+	}
+	return aligned
+}
+
+func (k *wlKeyboard) heldNamedAlias(key string) string {
+	code, _, named := namedKey(key)
+	if !named || code <= kcSuper {
+		return key
+	}
+	for original := range k.held {
+		if heldCode, _, heldNamed := namedKey(original); heldNamed && heldCode == code {
+			return original
+		}
+	}
+	return key
+}
+
 // validateSendkeysSequence simulates held-key transitions without changing
 // compositor state or allocating a keymap. Actual transport failures remain
 // handled at dispatch time with the existing best-effort key cleanup.
@@ -276,6 +322,9 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	if len(actions) == 0 {
 		return nil
 	}
+	// Align aliases before ownership preflight, preserving the key spelling
+	// and keycode slot recorded by the original hold.
+	actions = k.alignNamedAliases(actions)
 	// First pass: collect all unique runes from text actions and all named
 	// keycodes so we can build a single keymap that covers everything.
 	var allRunes []rune
@@ -725,6 +774,7 @@ func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	key = k.heldNamedAlias(key)
 	// Modifiers are tracked as a bitset rather than entries in held. Refuse
 	// an unmatched release before emitting anything to the compositor.
 	if bit := modBit(key); bit != 0 && k.mods&bit == 0 {
