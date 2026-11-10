@@ -318,6 +318,10 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 			yield(Info{}, fmt.Errorf("window/sway: parse tree: %w", err))
 			return
 		}
+		if err := validateSwayTreeRoot(root); err != nil {
+			yield(Info{}, err)
+			return
+		}
 
 		if duplicateID := duplicateSwayWindowID(&root); duplicateID != 0 {
 			yield(Info{}, fmt.Errorf("window/sway: duplicate window identity %d", duplicateID))
@@ -360,6 +364,15 @@ func (m *SwayManager) IterateWindows(ctx context.Context) iter.Seq2[Info, error]
 			return true
 		})
 	}
+}
+
+// validateSwayTreeRoot distinguishes a valid empty compositor desktop from
+// a malformed yet JSON-decodable reply. Never publish false disappearance.
+func validateSwayTreeRoot(root swayNode) error {
+	if root.ID <= 0 || root.Type != "root" {
+		return fmt.Errorf("window/sway: invalid tree root (type=%q id=%d)", root.Type, root.ID)
+	}
+	return nil
 }
 
 // duplicateSwayWindowID validates all actionable handles before the iterator
@@ -412,6 +425,9 @@ func (m *SwayManager) ActiveTitle(ctx context.Context) (string, error) {
 	var root swayNode
 	if err := json.Unmarshal(raw, &root); err != nil {
 		return "", fmt.Errorf("window/sway: parse tree: %w", err)
+	}
+	if err := validateSwayTreeRoot(root); err != nil {
+		return "", err
 	}
 	var title string
 	focused := 0
