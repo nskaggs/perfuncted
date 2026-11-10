@@ -30,6 +30,11 @@ func docsCmd(root *cobra.Command) *cobra.Command {
 			if err := doc.GenMarkdownTree(root, dirFlag); err != nil {
 				return err
 			}
+			if _, err := os.Stat("/.flatpak-info"); err == nil {
+				if err := writeCLIOutput(cmd.ErrOrStderr(), "Flatpak sandbox: generated files are private unless the destination directory was explicitly shared.\n"); err != nil {
+					return err
+				}
+			}
 			return writeCLIOutput(cmd.OutOrStdout(), "Documentation generated in %s\n", dirFlag)
 		},
 	}
@@ -249,7 +254,31 @@ func writeSessionCheck(out io.Writer) error {
 	if err := writeCLIMessage(out, "\n── System Resource Checks ────────────────────────"); err != nil {
 		return err
 	}
-	return writeUinputCheck(out)
+	if err := writeUinputCheck(out); err != nil {
+		return err
+	}
+	// A Flatpak sandbox has a separate /tmp and cannot read arbitrary host
+	// files. Diagnose that distinction before users lose screenshots/scripts.
+	if _, err := os.Stat("/.flatpak-info"); err == nil {
+		return writeFlatpakSessionHints(out)
+	}
+	return nil
+}
+
+func writeFlatpakSessionHints(out io.Writer) error {
+	for _, line := range []string{
+		"\n── Flatpak CLI Notes ──────────────────────────────",
+		"  Flatpak's /tmp is private; use: pf screen grab-region --out - > screenshot.png",
+		"  To read a script: cat task.pf | pf run -",
+		"  For host paths use the pf-flatpak launcher with --host-dir or --host-dir-ro",
+		"  For capability details run: pf info --output=json",
+		"  Wayland input authorization: --input-backend remote-desktop (user consent)",
+	} {
+		if err := writeCLIMessage(out, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeRuntimeDirCheck(out io.Writer, runtimeDir string) error {

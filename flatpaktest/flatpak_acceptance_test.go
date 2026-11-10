@@ -61,6 +61,11 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		if !strings.Contains(out, "XDG_RUNTIME_DIR") {
 			t.Fatalf("session check missing environment diagnosis: %q", out)
 		}
+		for _, want := range []string{"Flatpak CLI Notes", "grab-region --out -", "pf run -", "--host-dir-ro"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("packaged first-run diagnostics missing %q: %q", want, out)
+			}
+		}
 	})
 	fixture := filepath.Join(testRoot, "host-fixture")
 	if err := os.MkdirAll(fixture, 0o700); err != nil {
@@ -87,11 +92,13 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 	t.Run("host file output requires deliberate grant", func(t *testing.T) {
 		docs := filepath.Join(fixture, "docs")
 		_, stderr, code := h.run(t, sourceRoot, "run", appID, "docs", "--dir="+docs)
-		if code == 0 {
-			t.Fatalf("sandbox unexpectedly wrote host docs without file grant")
-		}
 		if _, err := os.Stat(docs); !os.IsNotExist(err) {
-			t.Fatalf("ungranted docs directory was written: err=%v; stderr=%q", err, stderr)
+			t.Fatalf("ungranted host docs directory was written: code=%d err=%v stderr=%q", code, err, stderr)
+		}
+		// A Flatpak can successfully write to its *private* view of a path
+		// even when the host cannot see it. The CLI must explain this.
+		if code == 0 && !strings.Contains(stderr, "Flatpak sandbox") {
+			t.Fatalf("sandbox-only output was reported without a host visibility hint: %q", stderr)
 		}
 		run(t, "--filesystem="+fixture, appID, "docs", "--dir="+docs)
 		p, err := os.ReadFile(filepath.Join(docs, "pf.md"))
@@ -124,6 +131,25 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		}
 		run(t, "--socket=x11", appID, "input", "click", "--x=14", "--y=25")
 		run(t, "--socket=x11", appID, "output", "list")
+		t.Run("stdin scripts work without host file grants", func(t *testing.T) {
+			stdout, stderr, code := h.runWithInput(t, sourceRoot, "run", "# packaged stdin demo\ninfo\n", "--socket=x11", appID, "run", "-")
+			if code != 0 {
+				t.Fatalf("packaged script through stdin failed: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			if strings.TrimSpace(stdout) == "" {
+				t.Fatalf("packaged stdin script produced no information")
+			}
+		})
+		t.Run("explicit read-only script input", func(t *testing.T) {
+			script := filepath.Join(fixture, "task.pf")
+			if err := os.WriteFile(script, []byte("info\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			stdout, stderr, code := h.run(t, sourceRoot, "run", "--socket=x11", "--filesystem="+fixture+":ro", appID, "run", script)
+			if code != 0 || strings.TrimSpace(stdout) == "" {
+				t.Fatalf("scoped script failed: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+		})
 	})
 }
 

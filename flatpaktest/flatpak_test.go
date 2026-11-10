@@ -235,6 +235,11 @@ func (h *harness) mustRunLint(t *testing.T, dir, lintMode string, args ...string
 
 func (h *harness) run(t *testing.T, dir, subcommand string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
+	return h.runWithInput(t, dir, subcommand, "", args...)
+}
+
+func (h *harness) runWithInput(t *testing.T, dir, subcommand, stdin string, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
 
 	if _, err := exec.LookPath(flatpakBinaryName); err != nil {
 		t.Fatalf("required command %q not found in PATH: %v", flatpakBinaryName, err)
@@ -262,6 +267,7 @@ func (h *harness) run(t *testing.T, dir, subcommand string, args ...string) (std
 	cmd.Env = h.env
 
 	var outBuf, errBuf bytes.Buffer
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 
