@@ -270,6 +270,9 @@ func croppedHashRegion(rect image.Rectangle, scale, w, h int) (image.Rectangle, 
 // GrabRegionHash hashes the capture of rect, so callers that only compare regions
 // do not have to retain the pixels.
 func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return 0, fmt.Errorf("screen/ext: invalid empty capture region %v", rect)
+	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
 	}
@@ -297,6 +300,9 @@ func (b *ExtCaptureBackend) GrabRegionHash(ctx context.Context, rect image.Recta
 
 // Grab captures the full output then returns the cropped rect.
 func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	if rect != (image.Rectangle{}) && rect.Empty() {
+		return nil, fmt.Errorf("screen/ext: invalid empty capture region %v", rect)
+	}
 	var outImg image.Image
 	if err := b.grabInternal(ctx, func(pixels []byte, w, h, stride int) error {
 		// Crop to requested rect. Convert logical rect -> physical using outputScale.
