@@ -21,6 +21,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/probe"
 	"github.com/nskaggs/perfuncted/internal/wl"
+	"golang.org/x/sys/unix"
 )
 
 // RemoteDesktopOptions controls explicit XDG RemoteDesktop/EIS input. The
@@ -444,8 +445,16 @@ func checkUinputPath(path string) probe.Result {
 		}
 		return r
 	}
-	f.Close()
+	// A writable character device is not necessarily the uinput endpoint.
+	// Query the kernel uinput protocol before advertising virtual input.
+	// UI_GET_VERSION is _IOR('U', 45, unsigned int) on Linux.
+	version, protocolErr := unix.IoctlGetInt(int(f.Fd()), 0x8004552d)
+	_ = f.Close()
+	if protocolErr != nil || version <= 0 {
+		r.Reason = fmt.Sprintf("%s does not provide the uinput protocol: version=%d error=%v", path, version, protocolErr)
+		return r
+	}
 	r.Available = true
-	r.Reason = fmt.Sprintf("%s accessible (mode %v)", path, info.Mode())
+	r.Reason = fmt.Sprintf("%s accessible (mode %v, uinput protocol version %d)", path, info.Mode(), version)
 	return r
 }
