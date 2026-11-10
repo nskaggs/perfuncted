@@ -193,6 +193,8 @@ func (k *wlKeyboard) clearTempModsBestEffort(ctx context.Context, modBitmask uin
 // validateSendkeysSequence simulates held-key transitions without changing
 // compositor state or allocating a keymap. Actual transport failures remain
 // handled at dispatch time with the existing best-effort key cleanup.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (k *wlKeyboard) validateSendkeysSequence(actions []keySend) error {
 	held := make(map[string]bool, len(k.held))
 	for key := range k.held {
@@ -716,6 +718,8 @@ func (k *wlKeyboard) pressKey(ctx context.Context, key string) error {
 // releaseKey releases a previously pressed key. Returns an error if the key
 // is not currently held, catching bugs where callers release keys they never
 // pressed.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (k *wlKeyboard) releaseKey(ctx context.Context, key string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

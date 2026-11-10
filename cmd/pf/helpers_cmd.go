@@ -148,6 +148,7 @@ func parsePoint(s string) (image.Point, error) {
 	return image.Pt(x, y), nil
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func screenPredicate(name string) (func(context.Context, image.Image) bool, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "non-empty", "non-zero":

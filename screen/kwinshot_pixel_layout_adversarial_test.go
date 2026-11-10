@@ -40,7 +40,7 @@ func TestKWinRawCaptureDecodesRowsWithPaddedStrides(t *testing.T) {
 				t.Fatalf("bounds %v", img.Bounds())
 			}
 			for y, want := range []color.NRGBA{{10, 20, 30, 255}, {40, 50, 60, 255}} {
-				if got := color.NRGBAModel.Convert(img.At(0, y)).(color.NRGBA); got != want {
+				if got := color.NRGBAModel.Convert(img.At(0, y)).(color.NRGBA); got != want { //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 					t.Fatalf("row %d pixel = %+v, want %+v", y, got, want)
 				}
 			}
@@ -72,7 +72,7 @@ func TestKWinPNGPixelCaptureIgnoresUntrustedRawFormatMetadata(t *testing.T) {
 		t.Fatalf("decoded bounds = %v, want %v", got.Bounds(), source.Bounds())
 	}
 	for x := 0; x < 2; x++ {
-		if color.NRGBAModel.Convert(got.At(x, 0)).(color.NRGBA) != color.NRGBAModel.Convert(source.At(x, 0)).(color.NRGBA) {
+		if color.NRGBAModel.Convert(got.At(x, 0)).(color.NRGBA) != color.NRGBAModel.Convert(source.At(x, 0)).(color.NRGBA) { //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 			t.Fatalf("pixel %d differs: %v != %v", x, got.At(x, 0), source.At(x, 0))
 		}
 	}

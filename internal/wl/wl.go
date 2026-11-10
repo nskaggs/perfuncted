@@ -711,6 +711,8 @@ func (r *Registry) SetGlobalHandler(f func(GlobalEvent)) { r.globalHandler = f }
 func (r *Registry) SetGlobalRemoveHandler(f func(uint32)) { r.globalRemoveHandler = f }
 
 // Dispatch implements Proxy for incoming wl_registry events.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (r *Registry) Dispatch(opcode uint32, _ int, data []byte) {
 	switch opcode {
 	case 0:

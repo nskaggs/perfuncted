@@ -17,7 +17,9 @@ type failingSwayConn struct {
 }
 
 func (c *failingSwayConn) SetDeadline(deadline time.Time) error {
-	c.stubSwayConn.SetDeadline(deadline)
+	if err := c.stubSwayConn.SetDeadline(deadline); err != nil {
+		return err
+	}
 	return c.deadlineErr
 }
 func (c *failingSwayConn) Write(p []byte) (int, error) {

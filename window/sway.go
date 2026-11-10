@@ -522,6 +522,7 @@ func (m *SwayManager) WindowChanges() <-chan struct{} {
 	return m.eventCh
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 	defer close(m.eventDone)
 	defer close(m.eventCh)
@@ -559,10 +560,10 @@ func (m *SwayManager) runWindowSubscription(stop <-chan struct{}) {
 
 	// Subscription setup is a protocol handshake for a caller-owned long-lived
 	// stream. Bound only this handshake; the stream itself has no expiry.
-	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if deadlineErr := conn.SetDeadline(time.Now().Add(5 * time.Second)); deadlineErr != nil {
 		return
 	}
-	if err := writeSwayMessage(conn, swayMsgSubscribe, `["window"]`); err != nil {
+	if writeErr := writeSwayMessage(conn, swayMsgSubscribe, `["window"]`); writeErr != nil {
 		return
 	}
 	ack, err := readSwayResponse(conn, swayMsgSubscribe)

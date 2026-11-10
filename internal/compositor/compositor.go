@@ -84,7 +84,7 @@ func DetectRuntimeContext(ctx context.Context, rt env.Runtime) (Session, error) 
 		desktopHasID(desktop, "WAYFIRE"):
 		return Wlroots, nil
 	}
-	if kwinOnBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")) {
+	if kwinOnBus(rt.Get("DBUS_SESSION_BUS_ADDRESS")) { //nolint:contextcheck // The DBus probe has its own deadline and checks cancellation afterward.
 		return KDE, nil
 	}
 	if err := ctx.Err(); err != nil {

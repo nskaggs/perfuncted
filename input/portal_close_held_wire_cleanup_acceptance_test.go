@@ -24,7 +24,7 @@ func TestRemoteDesktopCloseReleasesHeldKeysAndButtonsAndStopsSharedDeviceOnce(t 
 		t.Fatal(err)
 	}
 	client := &eiClient{conn: conn, messages: make(chan eiMessage, 8), done: make(chan struct{}), stop: make(chan struct{})}
-	dev := uint64(eiServerIDFloor + 0x32)
+	dev := eiServerIDFloor + 0x32
 	sender := &eiSender{client: client, connection: eiServerIDFloor + 0x30, seat: eiServerIDFloor + 0x31, keyboard: 101, button: 102, scroll: 103, text: 104, keyboardDev: dev, buttonDev: dev, scrollDev: dev, textDev: dev}
 	portal := &portalSession{owner: ":1.44", path: dbus.ObjectPath("/org/freedesktop/portal/desktop/session/fixture"), signals: make(chan *dbus.Signal, 8)}
 	b := newRemoteDesktopBackend(sender, portal)

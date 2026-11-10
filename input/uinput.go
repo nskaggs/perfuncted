@@ -88,6 +88,8 @@ type kernelChar struct {
 // Text typing is layout-independent: the kernel keymap is queried at init to
 // determine which evdev keycode + shift state produces each character.
 // Falls back to a static US QWERTY map if the kernel keymap is inaccessible.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 	if err := validateUinputDimensions(maxX, maxY); err != nil {
 		return nil, err
@@ -311,6 +313,7 @@ func (b *UinputBackend) TypeLiteral(ctx context.Context, s string) error {
 	})
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -371,6 +374,8 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 // validateHeldModifierSequence checks the complete batch against the
 // modifier holds currently owned by this backend. A stray release at the
 // tail must not cause the preceding valid characters to be typed.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *UinputBackend) validateHeldModifierSequence(actions []keySend) error {
 	b.heldMu.Lock()
 	held := b.heldMods
@@ -638,6 +643,7 @@ func (b *UinputBackend) validateTextRunes(s string) error {
 	return nil
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

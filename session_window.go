@@ -81,8 +81,8 @@ func (w *Window) Info(ctx context.Context) (window.Info, error) {
 	}
 	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
 	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return window.Info{}, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return window.Info{}, ctxErr
 	}
 	info, err := backend.InfoByID(ctx, w.id.native)
 	// A backend may acknowledge a read after caller cancellation. Do not

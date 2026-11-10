@@ -21,8 +21,8 @@ var _ Screenshotter = (*X11Backend)(nil)
 // GrabFullHash returns a CRC32 checksum of the entire screen.
 func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
 	finish, err := b.beginOperation()
 	if err != nil {
@@ -44,8 +44,8 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 
 	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap,
 		drawable, x, y, w, h, planeMask).Reply()
-	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
@@ -61,8 +61,8 @@ func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
 // XGetImage on the requested rectangle to avoid an intermediate image decode.
 func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (uint32, error) {
 	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
 	if rect.Empty() {
 		return b.GrabFullHash(ctx)
@@ -87,8 +87,8 @@ func (b *X11Backend) GrabRegionHash(ctx context.Context, rect image.Rectangle) (
 
 	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap,
 		drawable, x, y, w, h, planeMask).Reply()
-	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
 	if err != nil {
 		return 0, fmt.Errorf("screen/x11: XGetImage: %w", err)
@@ -157,8 +157,8 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 // the actual composited framebuffer is captured rather than the bare root pixmap.
 func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
 	ctx = contextutil.Default(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
 	finish, err := b.beginOperation()
 	if err != nil {
@@ -182,8 +182,8 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 
 	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap,
 		drawable, x, y, w, h, planeMask).Reply()
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("screen/x11: capture canceled: %w", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("screen/x11: capture canceled: %w", ctxErr)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("screen/x11: XGetImage: %w", err)

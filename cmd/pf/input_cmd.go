@@ -268,6 +268,7 @@ func inputCmd(
 	}
 
 	var mdx, mdy, mdButton int
+	//nolint:dupl // Symmetric press/release commands preserve the same validation and output UX.
 	mousedown := &cobra.Command{
 		Use:   "mousedown",
 		Short: "Press a mouse button (optional coords)",
@@ -300,6 +301,7 @@ func inputCmd(
 	mousedown.Flags().IntVar(&mdButton, "button", 1, "button number")
 
 	var mux, muy, muButton int
+	//nolint:dupl // Symmetric press/release commands preserve the same validation and output UX.
 	mouseup := &cobra.Command{
 		Use:   "mouseup",
 		Short: "Release a mouse button (optional coords)",

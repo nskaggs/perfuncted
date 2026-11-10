@@ -55,7 +55,7 @@ func TestWaylandSessionConcurrentFirstAcquisitionSharesOneCachedTransport(t *tes
 		go func() { <-start; sess, err := NewSessionContext(ctx, sock); results <- result{sess, err} }()
 	}
 	close(start)
-	var handles []*Session
+	handles := make([]*Session, 0, n)
 	for range n {
 		res := <-results
 		if res.err != nil || res.sess == nil {

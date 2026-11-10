@@ -234,6 +234,7 @@ func TestNilAndZeroManagedProcessLifecyclesAreSafe(t *testing.T) {
 	}
 }
 
+//nolint:unparam // Synthetic fixture preserves the interface/argument contract.
 func writeSyntheticProcProcess(t *testing.T, root string, pid int, comm string, pgid int, startTime uint64, runtime string) {
 	t.Helper()
 	processDir := filepath.Join(root, strconv.Itoa(pid))

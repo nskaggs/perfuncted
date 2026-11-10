@@ -48,6 +48,8 @@ func OpenRuntime(rt env.Runtime) (Clipboard, error) {
 
 // OpenRuntimeContext opens the clipboard backend for rt while honoring ctx
 // during context-aware GNOME bridge setup.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Clipboard, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -201,6 +203,8 @@ func (c *extCmdClipboard) Set(ctx context.Context, text string) error {
 // is replaced or the process is stopped, while the caller cannot send the
 // request until Set returns. The owner is bounded and reaped in the background
 // so a failed paste cannot leave an unbounded child.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (c *extCmdClipboard) setWayland(ctx context.Context, text string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("clipboard set: %w", err)

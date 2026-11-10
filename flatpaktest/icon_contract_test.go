@@ -20,7 +20,7 @@ func TestFlatpakExportIconsArePortablePNG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, size := range []int{128, 256} {
+	for _, size := range []int{128} {
 		name := "io.github.nskaggs.perfuncted-" + fmt.Sprint(size) + ".png"
 		data, err := os.Open(filepath.Join(repo, "flatpak", name))
 		if err != nil {
@@ -39,7 +39,7 @@ func TestFlatpakExportIconsArePortablePNG(t *testing.T) {
 			t.Errorf("manifest missing portable %s icon installation", expected)
 		}
 	}
-	if strings.Contains(string(manifest), "scalable/apps/") {
-		t.Fatal("manifest must not export an SVG-only icon")
+	if strings.Contains(string(manifest), "scalable/apps/") || strings.Contains(string(manifest), "256x256/apps/") {
+		t.Fatal("Flatpak icon export must use portable 128x128 PNG; larger icons fail older runner validators")
 	}
 }

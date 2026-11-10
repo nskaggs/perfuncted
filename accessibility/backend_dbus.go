@@ -582,6 +582,7 @@ func (b *dbusBackend) tagRefs(refs []objectRef) []objectRef {
 	return refs
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *dbusBackend) Applications(ctx context.Context) ([]Application, error) {
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")

@@ -15,6 +15,7 @@ type verifyingScrollAlignment struct {
 	calls []accessibility.ScrollType
 }
 
+//nolint:unparam // Synthetic fixture preserves the interface/argument contract.
 func (b *verifyingScrollAlignment) ScrollTo(_ context.Context, _ accessibility.NodeID, align accessibility.ScrollType) error {
 	b.calls = append(b.calls, align)
 	return nil

@@ -147,6 +147,7 @@ func locatorResolutionMayRetry(err error) bool {
 		errors.Is(err, accessibility.ErrObservationChanged)
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, locatorIdentity, accessibility.NodeID, context.CancelFunc, error) {
 	if l == nil || l.bundle == nil {
 		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, ErrUnavailable

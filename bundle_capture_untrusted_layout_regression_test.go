@@ -138,7 +138,7 @@ func TestScreenBundlePreservesValidOddOriginYCbCrSubimage(t *testing.T) {
 			if got, err := session.Screen.Grab(ctx, frame.Bounds()); err != nil || got != frame {
 				t.Fatalf("valid odd-origin YCbCr subimage rejected or rewritten: %v %T", err, got)
 			}
-			expected := color.RGBAModel.Convert(frame.At(14, 24)).(color.RGBA)
+			expected := color.RGBAModel.Convert(frame.At(14, 24)).(color.RGBA) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 			target := filepath.Join(t.TempDir(), "capture.png")
 			if err := session.Screen.CaptureRegion(ctx, frame.Bounds(), target); err != nil {
 				t.Fatal(err)
@@ -152,7 +152,7 @@ func TestScreenBundlePreservesValidOddOriginYCbCrSubimage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("valid YCbCr PNG capture undecodable: %v", err)
 			}
-			if got := color.RGBAModel.Convert(decoded.At(3, 3)).(color.RGBA); got != expected {
+			if got := color.RGBAModel.Convert(decoded.At(3, 3)).(color.RGBA); got != expected { //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 				t.Fatalf("odd-origin YCbCr pixel changed: got %+v want %+v", got, expected)
 			}
 		})
@@ -189,7 +189,7 @@ func TestScreenBundlePreservesValidPaddedSubimageAndEncodesExpectedPixels(t *tes
 	if b := decoded.Bounds(); b.Dx() != 2 || b.Dy() != 2 {
 		t.Fatalf("invalid encoded dimensions %v", b)
 	}
-	if got := color.RGBAModel.Convert(decoded.At(1, 1)).(color.RGBA); got != (color.RGBA{R: 13, G: 14, B: 15, A: 255}) {
+	if got := color.RGBAModel.Convert(decoded.At(1, 1)).(color.RGBA); got != (color.RGBA{R: 13, G: 14, B: 15, A: 255}) { //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 		t.Fatalf("last visible pixel mutated: %+v", got)
 	}
 }

@@ -239,10 +239,8 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	// Retirement of a backend generation, however, does not invalidate a
 	// result from an already-admitted in-flight call: its lease pins that
 	// generation until the operation completes.
-	if ctx != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
 	// Closing the owning session ends permission to receive private data,
 	// even if a provider ignores cancellation and the original caller lives.

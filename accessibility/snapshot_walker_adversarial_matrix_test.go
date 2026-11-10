@@ -104,7 +104,7 @@ func (r snapshotReaderWithoutFreshMethods) refID(ref objectRef) NodeID { return 
 
 func TestSnapshotWalkerFreshFallsBackWhenReaderHasNoFreshAPI(t *testing.T) {
 	w := newSyntheticTreeWalker(SnapshotOptions{Fresh: true, MaxNodes: 8, MaxDepth: 8})
-	reader := w.backend.(*syntheticTreeReader)
+	reader := w.backend.(*syntheticTreeReader) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 	w.backend = snapshotReaderWithoutFreshMethods{reader: reader}
 	root, err := runSyntheticWalk(w)
 	if err != nil || root.ID.ObjectPath != "/root" || len(w.snapshot.Nodes) != 4 {
@@ -126,7 +126,7 @@ func TestSnapshotWalkerRejectsEntryAtNodeLimit(t *testing.T) {
 
 func TestSnapshotWalkerPropagatesCancellationAfterProviderRead(t *testing.T) {
 	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
-	reader := w.backend.(*syntheticTreeReader)
+	reader := w.backend.(*syntheticTreeReader) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reader.afterRead = cancel
@@ -141,7 +141,7 @@ func TestSnapshotWalkerPropagatesCancellationAfterProviderRead(t *testing.T) {
 
 func TestSnapshotWalkerPropagatesCancellationAtChildBoundary(t *testing.T) {
 	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
-	reader := w.backend.(*syntheticTreeReader)
+	reader := w.backend.(*syntheticTreeReader) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reader.beforeRef = cancel
@@ -156,7 +156,7 @@ func TestSnapshotWalkerPropagatesCancellationAtChildBoundary(t *testing.T) {
 
 func TestSnapshotWalkerPromotesNodeWarningsToProviderErrors(t *testing.T) {
 	w := newSyntheticTreeWalker(SnapshotOptions{MaxNodes: 8, MaxDepth: 8})
-	reader := w.backend.(*syntheticTreeReader)
+	reader := w.backend.(*syntheticTreeReader) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 	reader.nodes["/root"] = Node{
 		Name: "App", Role: "application", ChildCount: 3,
 		Warnings: []string{"AT-SPI omitted one optional root property"},

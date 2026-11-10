@@ -30,7 +30,9 @@ func TestRemoteDesktopPointerLocationHonorsCancellationAndAuthorization(t *testi
 	if _, _, err := b.PointerLocation(nil); err == nil {
 		t.Fatal("nil context accepted")
 	}
-	b.revoke(errors.New("synthetic authorization retired"))
+	if err := b.revoke(errors.New("synthetic authorization retired")); !errors.Is(err, ErrRemoteDesktopRevoked) {
+		t.Fatalf("revocation should report lost authorization, got %v", err)
+	}
 	if x, y, err := b.PointerLocation(context.Background()); x != 0 || y != 0 || !errors.Is(err, ErrRemoteDesktopRevoked) {
 		t.Fatalf("revoked pointer query (%d,%d): %v", x, y, err)
 	}

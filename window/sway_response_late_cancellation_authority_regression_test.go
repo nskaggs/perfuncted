@@ -3,6 +3,7 @@ package window
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"testing"
 )
@@ -47,7 +48,7 @@ func TestSwayQueryNeverPublishesResponseCanceledDuringFinalRead(t *testing.T) {
 		done <- err
 	}()
 	body, err := swayQueryConn(ctx, &swayCancelAfterBodyConn{Conn: client, cancel: cancel}, swayMsgGetTree, "")
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("response %q published with error %v after final read canceled", body, err)
 	}
 	if serverErr := <-done; serverErr != nil {

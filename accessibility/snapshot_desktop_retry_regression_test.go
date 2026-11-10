@@ -81,10 +81,8 @@ func TestDesktopSnapshotRetriesObservedChangesAndRefusesRepeatedChange(t *testin
 					if cacheEntries != 0 {
 						t.Fatalf("unstable desktop snapshot published cache entries: %d", cacheEntries)
 					}
-				} else {
-					if got.err != nil || got.snapshot.Root.Name != tc.wantRootName {
-						t.Fatalf("desktop retry returned root %q, err %v; want %q", got.snapshot.Root.Name, got.err, tc.wantRootName)
-					}
+				} else if got.err != nil || got.snapshot.Root.Name != tc.wantRootName {
+					t.Fatalf("desktop retry returned root %q, err %v; want %q", got.snapshot.Root.Name, got.err, tc.wantRootName)
 				}
 				wantReads := tc.changeCount + 1
 				if wantReads > 2 {

@@ -267,6 +267,8 @@ func (b *X11Backend) List(ctx context.Context) ([]Info, error) {
 }
 
 // IterateWindows returns an iterator over all top-level windows.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *X11Backend) IterateWindows(ctx context.Context) iter.Seq2[Info, error] {
 	return func(yield func(Info, error) bool) {
 		ctx = contextutil.Default(ctx)

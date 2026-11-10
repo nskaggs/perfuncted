@@ -124,6 +124,7 @@ func (b *WlrScreencopyBackend) withWlrContext(fn func(ctx *wl.Context) error) er
 	})
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *WlrScreencopyBackend) withWlrContextContext(ctx context.Context, fn func(*wl.Context, context.Context) error) (err error) {
 	ctx = contextutil.Default(ctx)
 	if b != nil {

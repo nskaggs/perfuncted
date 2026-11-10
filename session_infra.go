@@ -88,6 +88,7 @@ func (s *Session) startSession(
 	// Startup owns every created runtime until it returns success. One deferred
 	// cleanup handles failures at all stages and reports teardown errors instead
 	// of silently leaking an incompletely initialized session.
+	//nolint:contextcheck // Startup failure teardown must survive cancellation and owns independent deadlines.
 	defer func() {
 		if startupErr == nil {
 			return
@@ -95,7 +96,7 @@ func (s *Session) startSession(
 		if infra != nil {
 			// Startup cancellation must not interrupt teardown of managed
 			// processes, sockets, or mounts; stop owns bounded cleanup deadlines.
-			if cleanupErr := infra.stop(); cleanupErr != nil {
+			if cleanupErr := infra.stop(); cleanupErr != nil { //nolint:contextcheck // Cleanup must outlive the canceled startup context.
 				startupErr = errors.Join(startupErr, cleanupErr)
 			}
 		} else if xdgDir != "" {
@@ -545,13 +546,14 @@ func (i *sessionInfra) CleanupOnSignal(ctx context.Context) func() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	stopCh := make(chan struct{})
+	//nolint:contextcheck // Signal cleanup cannot inherit an already-canceled caller's context.
 	go func() {
 		defer signal.Stop(sigs)
 		select {
 		case <-done:
 			// The observed context is already canceled; cleanup must use
 			// independent timeouts instead of inheriting that cancellation.
-			if err := i.stop(); err != nil {
+			if err := i.stop(); err != nil { //nolint:contextcheck // Signal teardown has independent cleanup deadlines.
 				slog.Warn("session: canceled session cleanup failed", "error", err)
 			}
 		case <-sigs:

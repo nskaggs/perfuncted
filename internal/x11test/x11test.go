@@ -59,6 +59,7 @@ func startServer(name, hostDisplay string, argsFn func() []string) (display stri
 	return startServerWithTimeout(name, hostDisplay, argsFn, startupTimeout)
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func startServerWithTimeout(name, hostDisplay string, argsFn func() []string, timeout time.Duration) (display string, stop func(), err error) {
 	if _, lookErr := executil.LookPath(name); lookErr != nil {
 		return "", nil, fmt.Errorf("x11test: %s not found: %w", name, lookErr)
@@ -144,7 +145,9 @@ func stopDisplay(cmd *exec.Cmd) {
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() {
-		_, _ = cmd.Process.Wait()
+		// exec.Cmd.Wait also joins the goroutine draining stderr into the
+		// synchronized diagnostic buffer; Process.Wait alone races it.
+		_ = cmd.Wait()
 		close(done)
 	}()
 	timer := time.NewTimer(2 * time.Second)

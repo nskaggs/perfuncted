@@ -480,6 +480,8 @@ func (b *WlVirtualBackend) mouseClickEvents(ctx context.Context, wlctx wl.Ctx, x
 // cleanupButtonEvent releases a button with a bounded independent context.
 // Cleanup must still be attempted when the operation context was canceled
 // after the press was sent.
+//
+//nolint:unparam // Release state is explicit for protocol readability and future shared cleanup.
 func (b *WlVirtualBackend) cleanupButtonEvent(ctx context.Context, wlctx wl.Ctx, code, state uint32) error {
 	// Virtual-input release is best-effort cleanup after cancellation.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 100*time.Millisecond)

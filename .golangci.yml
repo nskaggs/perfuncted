@@ -70,6 +70,26 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # Synthetic test fixtures deliberately create complex protocol/cancellation
+      # cases. Keep production checks strict; tests still run go vet, race and
+      # static analysis, but do not enforce maintainability heuristics on fixtures.
+      - path: '_test[.]go$'
+        linters: [gocyclo, dupl, containedctx]
+      # Nil-context tests must pass nil to validate our fail-closed API behavior.
+      # The other listed checks are style suggestions in adversarial fixtures.
+      - path: '_test[.]go$'
+        linters: [staticcheck]
+        text: 'SA1012|SA1029|SA4016|QF100'
+      # Short-lived callbacks in test fixtures intentionally capture synthetic
+      # contexts; cancellation inheritance is what these tests exercise.
+      - path: '_test[.]go$'
+        linters: [contextcheck]
+        text: 'Non-inherited new context'
+      # Test fixtures use scoped shadow variables to check independent error
+      # branches; the standard go vet checks remain enabled for all Go code.
+      - path: '_test[.]go$'
+        linters: [govet]
+        text: 'shadow:'
       - linters:
           - revive
         text: TODO

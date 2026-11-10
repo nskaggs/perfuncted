@@ -236,6 +236,7 @@ func (c *eiClient) terminalError() (bool, error) {
 	}
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (c *eiClient) updateSerial(message eiMessage) {
 	// ei_connection.disconnect carries a reason, not a serial. Avoid
 	// interpreting that reason as authorization for subsequent operations.

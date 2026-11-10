@@ -403,6 +403,8 @@ func readWlString(data []byte, off int) (string, int, bool) {
 }
 
 // List returns the outputs discovered from the Wayland compositor.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (l *WaylandLister) List(ctx context.Context) ([]Info, error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

@@ -430,12 +430,13 @@ func tokenizeMatchSpec(spec string) ([]string, error) {
 					var legacy strings.Builder
 					escape := false
 					for _, ch := range content {
-						if escape {
+						switch {
+						case escape:
 							legacy.WriteRune(ch)
 							escape = false
-						} else if ch == '\\' {
+						case ch == '\\':
 							escape = true
-						} else {
+						default:
 							legacy.WriteRune(ch)
 						}
 					}

@@ -83,7 +83,7 @@ func TestPNGGrabRegionPublishesCompleteImageAfterSuccessfulEncoding(t *testing.T
 	if err != nil {
 		t.Fatalf("published invalid PNG: %v", err)
 	}
-	got := color.RGBAModel.Convert(decoded.At(1, 1)).(color.RGBA)
+	got := color.RGBAModel.Convert(decoded.At(1, 1)).(color.RGBA) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 	if got != (color.RGBA{R: 17, G: 28, B: 39, A: 255}) {
 		t.Fatalf("published image pixel changed: %+v", got)
 	}

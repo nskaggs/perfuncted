@@ -393,6 +393,7 @@ func (s *scriptRunner) runWindowAction(
 	return s.syncWindows()
 }
 
+//nolint:dupl // Move and resize deliberately share the same CLI grammar and error contract.
 func (s *scriptRunner) parseWindowMoveArgs(args []string) (title string, x, y int, err error) {
 	title = ""
 	x = 0
@@ -433,6 +434,7 @@ func (s *scriptRunner) parseWindowMoveArgs(args []string) (title string, x, y in
 	return
 }
 
+//nolint:dupl // Move and resize deliberately share the same CLI grammar and error contract.
 func (s *scriptRunner) parseWindowResizeArgs(args []string) (title string, w, h int, err error) {
 	w, h = 0, 0
 	for i := 0; i < len(args); i++ {

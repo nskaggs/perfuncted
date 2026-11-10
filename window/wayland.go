@@ -164,6 +164,7 @@ func NewWaylandWindowManagerForSocketContext(ctx context.Context, sock string) (
 	return m, nil
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (m *WaylandWindowManager) fetchToplevels(ctx context.Context) error {
 	iface, regName, ver := m.foreignToplevelProtocol()
 	if regName == 0 {

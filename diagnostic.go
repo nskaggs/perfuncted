@@ -91,7 +91,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 		CapturedAt:        time.Now().UTC(),
 		Operation:         options.Operation,
 		Target:            string(s.Target().Kind()),
-		Compositor:        compositor.DetectRuntime(s.env).String(),
+		Compositor:        compositor.DetectRuntime(s.env).String(), //nolint:contextcheck // Runtime detection has no contextual API; bundle records a best-effort snapshot.
 		Environment:       diagnostic.Environment(s.env.EnvList()),
 		Build:             currentBuildInfo(),
 		LogDirectory:      s.LogPath(),
@@ -415,6 +415,7 @@ func writePNG(path string, img image.Image) error {
 	return os.Rename(tempPath, path)
 }
 
+//nolint:unparam // Explicit file mode is part of the safe atomic write helper contract.
 func writeAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	file, err := os.CreateTemp(dir, ".perfuncted-atomic-*")

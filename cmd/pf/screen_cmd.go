@@ -144,8 +144,8 @@ Otherwise, it is saved to the specified file.`,
 				// The bundle publishes PNGs atomically after successful encoding.
 				// os.Create would truncate an existing screenshot before an
 				// untrusted capture's encoding failure is even known.
-				if err := pf.Screen.CaptureRegion(cmd.Context(), r, grabRegionOut); err != nil {
-					return err
+				if captureErr := pf.Screen.CaptureRegion(cmd.Context(), r, grabRegionOut); captureErr != nil {
+					return captureErr
 				}
 				return writeCLIMessage(cmd.ErrOrStderr(), grabRegionOut)
 			}

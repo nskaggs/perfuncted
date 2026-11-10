@@ -1181,6 +1181,8 @@ func remoteButtonCode(button int) (uint32, error) {
 }
 
 // MouseClick moves to the target point and sends one button press and release.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *RemoteDesktopBackend) MouseClick(ctx context.Context, x, y, button int) error {
 	if ctx == nil {
 		return errors.New("input/remote-desktop: nil operation context")

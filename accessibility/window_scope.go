@@ -181,6 +181,7 @@ func (b *dbusBackend) windowApplicationsFresh(ctx context.Context, target Window
 	return apps, nil
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *dbusBackend) windowCandidatesFresh(ctx context.Context, target WindowTarget, apps []Application) ([]windowCandidate, []Node, error) {
 	if ctx == nil {
 		return nil, nil, errors.New("accessibility: nil context")
@@ -419,6 +420,7 @@ func isWindowRole(role string) bool {
 	}
 }
 
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func windowCandidateScore(node Node, target WindowTarget) int {
 	score := 1
 	name := strings.ToLower(strings.TrimSpace(node.Name))

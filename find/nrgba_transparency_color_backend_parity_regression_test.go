@@ -14,7 +14,7 @@ import (
 func TestPixelFoundNRGBAAlphaUsesCanonicalRGBAColorAcrossBackends(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 3, 3))
 	source.SetNRGBA(2, 1, color.NRGBA{R: 255, G: 75, B: 15, A: 64})
-	target := color.RGBAModel.Convert(source.NRGBAAt(2, 1)).(color.RGBA)
+	target := color.RGBAModel.Convert(source.NRGBAAt(2, 1)).(color.RGBA) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 	wrong := color.RGBA{R: 255, G: 75, B: 15, A: 255}
 	for _, tc := range []struct {
 		name  string

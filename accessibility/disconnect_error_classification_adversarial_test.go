@@ -52,7 +52,7 @@ func TestMatchErrorFormattingUnwrapAndNilCases(t *testing.T) {
 			if got := tc.value.Error(); got != tc.want {
 				t.Fatalf("Error() = %q, want %q", got, tc.want)
 			}
-			if got := tc.value.Unwrap(); got != tc.wantCause {
+			if got := tc.value.Unwrap(); got != tc.wantCause { //nolint:errorlint // Unwrap must preserve the exact cause object.
 				t.Fatalf("Unwrap() = %v, want %v", got, tc.wantCause)
 			}
 			if tc.wantCause != nil && !errors.Is(tc.value, tc.wantCause) {

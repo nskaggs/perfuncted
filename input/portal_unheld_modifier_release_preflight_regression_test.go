@@ -19,7 +19,7 @@ func newWireObservedRemoteDesktop(t *testing.T) (*RemoteDesktopBackend, *net.Uni
 	connection, peer := unixConnectionPair(t)
 	t.Cleanup(func() { _ = peer.Close() })
 	client := &eiClient{conn: connection, messages: make(chan eiMessage, 8), done: make(chan struct{}), stop: make(chan struct{})}
-	device := uint64(eiServerIDFloor + 0x21)
+	device := eiServerIDFloor + 0x21
 	sender := &eiSender{client: client, connection: eiServerIDFloor + 0x10, seat: eiServerIDFloor + 0x11,
 		keyboard: 101, button: 102, scroll: 103, text: 104, keyboardDev: device, buttonDev: device, scrollDev: device, textDev: device}
 	b := newRemoteDesktopBackend(sender, &portalSession{})

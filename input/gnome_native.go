@@ -179,6 +179,8 @@ func (b *GnomeNativeBackend) KeyUp(ctx context.Context, key string) error {
 }
 
 // Type sends key syntax through GNOME Shell virtual input.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 	return b.operation(ctx, func(ctx context.Context) (err error) {
 		if !utf8.ValidString(text) {
@@ -199,8 +201,8 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 				}
 				continue
 			}
-			if _, err := gnomeKeyval(action.key); err != nil {
-				return err
+			if _, keyErr := gnomeKeyval(action.key); keyErr != nil {
+				return keyErr
 			}
 			if action.up && len(gnomeModifierBits(action.key)) != 0 && !modifierIsHeld(futureHeld, action.key) {
 				return fmt.Errorf("input/gnome-native: modifier %q is not held", action.key)

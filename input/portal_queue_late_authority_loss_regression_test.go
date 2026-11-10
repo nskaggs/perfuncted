@@ -3,23 +3,9 @@ package input
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 )
-
-// observingQueueContext marks the moment submit reaches its first queue select,
-// after both caller cancellation and backend authorization preflights.
-type observingQueueContext struct {
-	context.Context
-	observed chan struct{}
-	once     sync.Once
-}
-
-func (c *observingQueueContext) Done() <-chan struct{} {
-	c.once.Do(func() { close(c.observed) })
-	return c.Context.Done()
-}
 
 // Authorization can disappear after the caller's preflight but before the
 // unbuffered writer queue accepts its command. The waiting submit must

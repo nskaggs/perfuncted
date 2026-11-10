@@ -25,7 +25,6 @@ modules:
       - install -Dm0644 LICENSE "${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/perfuncted/LICENSE"
       - install -Dm0644 flatpak/io.github.nskaggs.perfuncted.metainfo.xml "${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml"
       - install -Dm0644 flatpak/io.github.nskaggs.perfuncted-128.png "${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/${FLATPAK_ID}.png"
-      - install -Dm0644 flatpak/io.github.nskaggs.perfuncted-256.png "${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/${FLATPAK_ID}.png"
     sources:
       - type: dir
         path: .
