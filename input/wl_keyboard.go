@@ -24,6 +24,7 @@ import (
 
 // Fixed keycode assignments. XKB keycodes start at 8 (X11 convention).
 // Modifier keys occupy 8–11; named keys 12–36; dynamic Unicode starts at 37.
+// Insert reserves the final XKB slot to keep existing Unicode keycodes stable.
 const (
 	kcShift   uint32 = 8
 	kcCtrl    uint32 = 9
@@ -43,11 +44,12 @@ const (
 	kcUp      uint32 = 23
 	kcDown    uint32 = 24
 	kcF1      uint32 = 25 // F1–F12: keycodes 25–36
+	kcInsert  uint32 = 255
 	kcDynBase uint32 = 37 // first dynamic Unicode slot
 	kcDynMax  uint32 = 255
 )
 
-const maxDynamicKeySlots = kcDynMax - kcDynBase + 1
+const maxDynamicKeySlots = kcInsert - kcDynBase
 
 // XKB modifier bitmask values (standard X11 modifier indices).
 const (
@@ -460,7 +462,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	nextSlot := kcDynBase
 	maxSlot := kcSuper
 	takeSlot := func() (uint32, error) {
-		for nextSlot <= kcDynMax {
+		for nextSlot < kcInsert {
 			slot := nextSlot
 			nextSlot++
 			if _, reserved := heldSlots[slot]; reserved {
@@ -1053,6 +1055,8 @@ func namedKey(key string) (kc uint32, sym string, ok bool) { //nolint:gocyclo
 			return kcBksp, "BackSpace", true
 		case keymap.KeyDelete:
 			return kcDelete, "Delete", true
+		case keymap.KeyInsert:
+			return kcInsert, "Insert", true
 		case keymap.KeyHome:
 			return kcHome, "Home", true
 		case keymap.KeyEnd:
