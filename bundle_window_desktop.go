@@ -24,7 +24,11 @@ func (b *WindowBundle) ListDesktops(ctx context.Context) ([]window.DesktopInfo, 
 	defer cancel()
 	desktops, err := backend.ListDesktops(ctx)
 	if err != nil {
-		return nil, b.operationError("list-desktops", err)
+		wrapped := b.operationError("list-desktops", err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, errors.Join(ctxErr, wrapped)
+		}
+		return nil, wrapped
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -115,7 +119,11 @@ func (b *WindowBundle) CursorPosition(ctx context.Context) (int, int, error) {
 	defer cancel()
 	x, y, err := backend.CursorPosition(ctx)
 	if err != nil {
-		return 0, 0, b.operationError("cursor-position", err)
+		wrapped := b.operationError("cursor-position", err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, 0, errors.Join(ctxErr, wrapped)
+		}
+		return 0, 0, wrapped
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
