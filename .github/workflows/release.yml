@@ -112,7 +112,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" "$RUNNER_TEMP/perfuncted.flatpak" scripts/pf-flatpak --clobber
+          gh release upload "${{ github.ref_name }}" "$RUNNER_TEMP/perfuncted.flatpak" --clobber
 
       - name: Generate GitHub release notes
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}

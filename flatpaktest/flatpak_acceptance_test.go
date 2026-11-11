@@ -84,7 +84,7 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		if !strings.Contains(out, "XDG_RUNTIME_DIR") {
 			t.Fatalf("session check missing environment diagnosis: %q", out)
 		}
-		for _, want := range []string{"Flatpak CLI Notes", "grab-region --out -", "pf run -", "--host-dir-ro"} {
+		for _, want := range []string{"Flatpak CLI Notes", "screen grab --rect", "flatpak run io.github.nskaggs.perfuncted run -", "--filesystem=DIR:ro"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("packaged first-run diagnostics missing %q: %q", want, out)
 			}

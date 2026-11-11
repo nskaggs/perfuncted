@@ -26,8 +26,7 @@ func TestAttendedScreenshotValidationAcceptsValidPNGAndRejectsInvalidData(t *tes
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"flatpak": "#!/bin/sh\nexit 0\n",
-		"pf":      "#!/bin/sh\ncat \"$PF_CAPTURE_FIXTURE\"\nexit \"${PF_CAPTURE_EXIT:-0}\"\n",
+		"flatpak": "#!/bin/sh\nif [ \"$1\" = info ]; then exit 0; fi\nif [ \"$1\" = run ] && [ \"$2\" = io.github.nskaggs.perfuncted ]; then\n  shift 2\n  if [ \"$1\" = screen ] && [ \"$2\" = grab ]; then\n    cat \"$PF_CAPTURE_FIXTURE\"\n    exit \"$PF_CAPTURE_EXIT\"\n  fi\nfi\nexit 2\n",
 	} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0700); err != nil {
 			t.Fatal(err)

@@ -273,10 +273,12 @@ func writeSessionCheck(out io.Writer) error {
 func writeFlatpakSessionHints(out io.Writer) error {
 	for _, line := range []string{
 		"\n── Flatpak CLI Notes ──────────────────────────────",
-		"  Flatpak's /tmp is private; use: pf screen grab-region --out - > screenshot.png",
-		"  To read a script: cat task.pf | pf run -",
-		"  For host paths use the pf-flatpak launcher with --host-dir or --host-dir-ro",
-		"  For capability details run: pf info --output=json",
+		"  Flatpak's /tmp is private. Redirect screenshots to host stdout:",
+		"    flatpak run io.github.nskaggs.perfuncted screen grab --rect 0,0,640,480 > screenshot.png",
+		"  Pipe scripts: cat task.pf | flatpak run io.github.nskaggs.perfuncted run -",
+		"  Read-only host path: flatpak run --filesystem=DIR:ro io.github.nskaggs.perfuncted run SCRIPT",
+		"  Writable host path: flatpak run --filesystem=DIR io.github.nskaggs.perfuncted screen grab --out FILE",
+		"  Capabilities: flatpak run io.github.nskaggs.perfuncted info --output=json",
 		"  Wayland input authorization: --input-backend remote-desktop (user consent)",
 	} {
 		if err := writeCLIMessage(out, line); err != nil {

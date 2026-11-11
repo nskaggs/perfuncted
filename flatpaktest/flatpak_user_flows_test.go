@@ -4,136 +4,147 @@ package flatpaktest
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/nskaggs/perfuncted/internal/x11test"
 )
 
 const previousReleaseSHA256 = "5607b377e502c968db1458260d37afb6dd50afc30b6ad5a784c3f7741f844f87"
 
-// A developer should need only the two assets from a GitHub release, not
-// the source checkout. This fresh isolated Flatpak user home starts empty.
-func testReleaseDownloadQuickstart(t *testing.T, base *harness, sessionAddress, sourceRoot, testRoot, bundlePath string) {
+// A fresh user installs one standalone Flatpak bundle without a checkout,
+// launcher script, Go toolchain or any default broad filesystem grant.
+func testSingleBundleQuickstart(t *testing.T, sessionAddress, sourceRoot, testRoot, bundlePath string) {
 	t.Helper()
 	download := filepath.Join(testRoot, "fresh-downloads")
-	if err := os.MkdirAll(download, 0o700); err != nil {
+	if err := os.MkdirAll(download, 0700); err != nil {
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(download, "perfuncted.flatpak")
-	launcher := filepath.Join(download, "pf-flatpak")
-	for _, pair := range [][3]string{
-		{bundlePath, bundle, "0600"},
-		{filepath.Join(sourceRoot, "scripts", "pf-flatpak"), launcher, "0755"},
-	} {
-		if err := copyStandaloneAsset(pair[0], pair[1], pair[2]); err != nil {
-			t.Fatal(err)
-		}
+	raw, err := os.ReadFile(bundlePath)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(bundle, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+
 	home := filepath.Join(testRoot, "clean-user-home")
-	fresh := newHarness(t, sourceRoot, sessionAddress, home, filepath.Join(testRoot, "tmp"), filepath.Join(testRoot, "run"))
+	fresh := newHarness(t, sourceRoot, sessionAddress, home,
+		filepath.Join(testRoot, "tmp"), filepath.Join(testRoot, "run"))
 	if _, _, code := fresh.run(t, download, "info", appID); code == 0 {
 		t.Fatal("fresh user already has Perfuncted installed")
 	}
 	fresh.mustRun(t, download, "remote-add", "--if-not-exists", "--user", "flathub", flathubRemoteURL)
 	fresh.mustRun(t, download, "install", "--user", "-y", bundle)
 
-	run := func(t *testing.T, args ...string) ([]byte, string, int) {
-		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, launcher, args...)
-		cmd.Dir = download
-		cmd.Env = fresh.env
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		err := cmd.Run()
-		if ctx.Err() != nil {
-			t.Fatalf("real released launcher timed out: args=%q error=%v", args, ctx.Err())
-		}
-		if err == nil {
-			return stdout.Bytes(), stderr.String(), 0
-		}
-		if exit, ok := err.(*exec.ExitError); ok {
-			return stdout.Bytes(), stderr.String(), exit.ExitCode()
-		}
-		t.Fatalf("could not execute release launcher without source checkout: %v", err)
-		return nil, "", 1
-	}
-	t.Run("launcher version without checkout", func(t *testing.T) {
-		stdout, stderr, code := run(t, "version")
+	t.Run("installed single bundle version and first-run diagnostics", func(t *testing.T) {
+		stdout, stderr, code := fresh.run(t, download, "run", appID, "version")
 		if code != 0 {
-			t.Fatalf("released pf launcher version exit=%d stderr=%q", code, stderr)
+			t.Fatalf("flatpak run ... version exit=%d err=%q", code, stderr)
 		}
-		assertVersionOutput(t, string(stdout))
-	})
-	t.Run("launcher actionable first-run diagnostics", func(t *testing.T) {
-		stdout, stderr, code := run(t, "session", "check")
-		if code != 0 || !bytes.Contains(stdout, []byte("Flatpak CLI Notes")) {
-			t.Fatalf("packaged first-run check exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+		assertVersionOutput(t, stdout)
+		info, stderr, code := fresh.run(t, download, "run", appID, "info", "--output=json")
+		if code != 0 || !bytes.Contains([]byte(info), []byte(`"capabilities"`)) {
+			t.Fatalf("flatpak run ... info exit=%d out=%q err=%q", code, info, stderr)
+		}
+		check, stderr, code := fresh.run(t, download, "run", appID, "session", "check")
+		if code != 0 || !strings.Contains(check, "Flatpak CLI Notes") {
+			t.Fatalf("flatpak session check exit=%d out=%q err=%q", code, check, stderr)
 		}
 	})
-	t.Run("launcher host file and PNG work end to end", func(t *testing.T) {
+	t.Run("real X11 screenshots and explicit Flatpak filesystem grants", func(t *testing.T) {
 		display, stop, err := x11test.StartXvfb()
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer stop()
-		previous := fresh.env
+		original := fresh.env
 		fresh.env = setEnv(fresh.env, "DISPLAY", display)
 		fresh.env = setEnv(fresh.env, "XDG_SESSION_TYPE", "x11")
-		defer func() { fresh.env = previous }()
-		stdout, stderr, code := run(t, "screen", "grab", "--rect", "0,0,64,48")
+		defer func() { fresh.env = original }()
+
+		stdout, stderr, code := fresh.run(t, download, "run", appID, "screen", "grab", "--rect", "0,0,64,48")
 		if code != 0 {
-			t.Fatalf("default screenshot failed exit=%d stderr=%q", code, stderr)
+			t.Fatalf("Flatpak stdout screenshot exit=%d err=%q", code, stderr)
 		}
-		image, err := png.DecodeConfig(bytes.NewReader(stdout))
-		if err != nil || image.Width != 64 || image.Height != 48 {
-			t.Fatalf("default screenshot is not a 64x48 PNG: image=%+v err=%v", image, err)
+		img, err := png.DecodeConfig(bytes.NewReader([]byte(stdout)))
+		if err != nil || img.Width != 64 || img.Height != 48 {
+			t.Fatalf("Flatpak stdout screenshot not a 64x48 PNG: %+v err=%v", img, err)
 		}
-		script := filepath.Join(download, "task.pf")
-		if err := os.WriteFile(script, []byte("info\n"), 0o600); err != nil {
+
+		scriptPath := filepath.Join(download, "task.pf")
+		if err := os.WriteFile(scriptPath, []byte("info\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		stdout, stderr, code = run(t, "--host-dir-ro", download, "run", script)
+		unshared := filepath.Join(testRoot, "never-granted")
+		if err := os.MkdirAll(unshared, 0700); err != nil {
+			t.Fatal(err)
+		}
+		privateScript := filepath.Join(unshared, "private.pf")
+		if err := os.WriteFile(privateScript, []byte("info\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Neither the bundle nor its manifest grants access to host folders.
+		_, _, code = fresh.run(t, download, "run", appID, "run", scriptPath)
+		if code == 0 {
+			t.Fatal("Flatpak accessed ungranted host script")
+		}
+		_, _, code = fresh.run(t, download, "run", appID, "run", privateScript)
+		if code == 0 {
+			t.Fatal("Flatpak accessed private host script")
+		}
+
+		// --filesystem=PATH:ro is Flatpak's documented per-run permission,
+		// rather than a homegrown launcher option or persistent broad grant.
+		stdout, stderr, code = fresh.run(t, download, "run", "--filesystem="+download+":ro", appID, "run", scriptPath)
 		if code != 0 || len(stdout) == 0 {
-			t.Fatalf("released launcher cannot read granted host script: code=%d out=%q err=%q", code, stdout, stderr)
+			t.Fatalf("Flatpak read-only host script exit=%d out=%q err=%q", code, stdout, stderr)
 		}
-		target := filepath.Join(download, "visible.png")
-		_, stderr, code = run(t, "--host-dir", download, "screen", "grab", "--rect", "0,0,64,48", "--out", target)
+		_, stderr, code = fresh.run(t, download, "run", "--filesystem="+download+":ro",
+			"--command=sh", appID, "-c", "test -r \""+scriptPath+"\" && test ! -w \""+scriptPath+"\"")
 		if code != 0 {
-			t.Fatalf("released launcher cannot write granted host PNG: code=%d err=%q", code, stderr)
+			t.Fatalf("Flatpak read-only grant accidentally writable: %q", stderr)
 		}
-		raw, err := os.ReadFile(target)
+
+		// The read-only grant doesn't allow writing back to the source dir.
+		target := filepath.Join(download, "visible.png")
+		_, _, code = fresh.run(t, download, "run", "--filesystem="+download+":ro", appID,
+			"screen", "grab", "--rect", "0,0,64,48", "--out", target)
+		if code == 0 {
+			t.Fatal("Flatpak wrote PNG into read-only host filesystem")
+		}
+		// Explicit read/write grant applies to one invocation and one folder.
+		_, stderr, code = fresh.run(t, download, "run", "--filesystem="+download,
+			appID, "screen", "grab", "--rect", "0,0,64,48", "--out", target)
+		if code != 0 {
+			t.Fatalf("Flatpak per-run writable PNG failed: %s", stderr)
+		}
+		contents, err := os.ReadFile(target)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := png.DecodeConfig(bytes.NewReader(raw)); err != nil {
-			t.Fatalf("host PNG invalid: %v", err)
+		decoded, err := png.DecodeConfig(bytes.NewReader(contents))
+		if err != nil || decoded.Width != 64 || decoded.Height != 48 {
+			t.Fatalf("host screenshot malformed: %+v %v", decoded, err)
+		}
+		// Grants are temporary; a later invocation must not inherit them.
+		_, _, code = fresh.run(t, download, "run", appID, "run", scriptPath)
+		if code == 0 {
+			t.Fatal("temporary Flatpak grant persisted into later invocation")
+		}
+		_, _, code = fresh.run(t, download, "run", "--filesystem="+download+":ro", appID, "run", privateScript)
+		if code == 0 {
+			t.Fatal("scoped permission exposed another host directory")
 		}
 	})
-}
-
-func copyStandaloneAsset(src, dst, mode string) error {
-	raw, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	perm := os.FileMode(0600)
-	if mode == "0755" {
-		perm = 0755
-	}
-	return os.WriteFile(dst, raw, perm)
 }
 
 // The v1.2.3 release contains an actual Flatpak bundle. Testing that exact

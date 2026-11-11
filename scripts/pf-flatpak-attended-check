@@ -32,8 +32,8 @@ if [[ ! -t 0 || "${XDG_SESSION_TYPE:-}" != "wayland" || -z "${WAYLAND_DISPLAY:-}
   echo "An attended, visible Wayland desktop and interactive terminal are required." >&2
   exit 2
 fi
-if ! command -v pf >/dev/null || ! flatpak info io.github.nskaggs.perfuncted >/dev/null 2>&1; then
-  echo "Install both release assets and put the pf-flatpak launcher on PATH first." >&2
+if ! command -v flatpak >/dev/null || ! flatpak info io.github.nskaggs.perfuncted >/dev/null 2>&1; then
+  echo "Install the single perfuncted.flatpak bundle before running attended checks." >&2
   exit 2
 fi
 desktop="${XDG_CURRENT_DESKTOP:-}"
@@ -62,7 +62,7 @@ if [[ "$mode" == "capture" || "$mode" == "capture-deny" || "$mode" == "capture-c
     # A denial is a failure only if the program returns nonzero AND no pixels
     # escape to stdout. The human tester must confirm the actual dialog was
     # denied/canceled rather than merely absent or broken.
-    if pf screen grab --rect=0,0,64,48 --out - > "$capture"; then
+    if flatpak run io.github.nskaggs.perfuncted screen grab --rect=0,0,64,48 --out - > "$capture"; then
       echo "FAIL: screenshot capture succeeded despite expected denial/cancellation." >&2
       exit 1
     fi
@@ -73,7 +73,7 @@ if [[ "$mode" == "capture" || "$mode" == "capture-deny" || "$mode" == "capture-c
     echo "PASS: screenshot command failed closed without returning pixels; confirm the portal request was denied or canceled as instructed."
     exit 0
   fi
-  if ! pf screen grab --rect=0,0,64,48 --out - > "$capture"; then
+  if ! flatpak run io.github.nskaggs.perfuncted screen grab --rect=0,0,64,48 --out - > "$capture"; then
     echo "FAIL: screenshot capture was denied or unavailable." >&2
     exit 1
   fi
@@ -184,8 +184,8 @@ case "$editor" in
 esac
 echo "Session: $desktop / Wayland"
 echo "Target: a NEW, EMPTY temporary $editor document ($document)"
-pf version
-pf info --output=json > "$tmpdir/capabilities.json"
+flatpak run io.github.nskaggs.perfuncted version
+flatpak run io.github.nskaggs.perfuncted info --output=json > "$tmpdir/capabilities.json"
 manual_focus() {
   echo "After Enter, focus the blank editor window within three seconds."
   read -r -p "Press Enter when ready to focus the editor: " _
@@ -194,7 +194,7 @@ manual_focus() {
 send_portal() {
   local flags=(--input-backend remote-desktop)
   if [[ "$mode" == "restore" ]]; then flags+=(--remember-input-permission); fi
-  pf "${flags[@]}" input type "$1"
+  flatpak run io.github.nskaggs.perfuncted "${flags[@]}" input type "$1"
 }
 marker="perfuncted-portal-$(date -u +%Y%m%d%H%M%S)-$$"
 case "$mode" in
@@ -209,7 +209,7 @@ case "$mode" in
     manual_focus
     flags=(--input-backend remote-desktop)
     if [[ "$mode" == "restore" ]]; then flags+=(--remember-input-permission); fi
-    pf "${flags[@]}" input click --x "$click_x" --y "$click_y"
+    flatpak run io.github.nskaggs.perfuncted "${flags[@]}" input click --x "$click_x" --y "$click_y"
     send_portal "$marker"
     send_portal '{ctrl+s}'
     if [[ "$mode" == "restore" ]]; then
@@ -252,11 +252,11 @@ case "$mode" in
     fi
     echo "The GNOME native host extension must already be installed and loaded."
     manual_focus
-    if ! pf window list | grep -F 'portal-document.txt'; then
+    if ! flatpak run io.github.nskaggs.perfuncted window list | grep -F 'portal-document.txt'; then
       echo "FAIL: GNOME native bridge did not discover the editor's visible window." >&2
       exit 1
     fi
-    pf window activate 'portal-document.txt' --verify
+    flatpak run io.github.nskaggs.perfuncted window activate 'portal-document.txt' --verify
     echo "PASS: GNOME host bridge enumerated and activated the native editor window."
     ;;
 esac

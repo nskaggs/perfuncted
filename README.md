@@ -106,37 +106,36 @@ using the Flatpak. The bundled extension declares GNOME Shell 46 through 51.
 
 ## Install
 
-### Flatpak CLI (downloadable bundle)
+### Flatpak CLI (single bundle)
 
-Download **both** `perfuncted.flatpak` and `pf-flatpak` from a
-[GitHub release](https://github.com/nskaggs/perfuncted/releases).
-The Flatpak workflow also publishes the bundle as a GitHub Actions artifact.
-Run these commands from the downloads directory; **no source checkout or Go
-installation is required**.
+Download only [`perfuncted.flatpak`](https://github.com/nskaggs/perfuncted/releases)
+and install it using Flatpak. No second launcher, source checkout or Go
+installation is required.
 
 ```sh
 flatpak install --user -y ./perfuncted.flatpak
-install -Dm755 ./pf-flatpak "$HOME/.local/bin/pf"
-export PATH="$HOME/.local/bin:$PATH"  # persist in your shell profile
-pf version
-pf session check
-pf info
+flatpak run io.github.nskaggs.perfuncted info
+flatpak run io.github.nskaggs.perfuncted session check
 ```
 
-**First screenshot** (PNG is saved on the host, not inside Flatpak):
+Flatpak's own `run` and `override` permissions control access to host
+files. Prefer streaming screenshots directly to the host:
 
 ```sh
-pf screen grab --rect 0,0,640,480 > screenshot.png
+flatpak run io.github.nskaggs.perfuncted screen grab --rect 0,0,640,480 > screenshot.png
+cat task.pf | flatpak run io.github.nskaggs.perfuncted run -
 ```
 
-Use `pf --host-dir-ro "$PWD" run "$PWD/task.pf"` for a host script or
-`pf --host-dir "$PWD" screen grab --out "$PWD/capture.png"` for a host
-output path. The `--host-dir` flags are provided by the downloadable
-launcher and grant only the specified directory.
+For direct file paths, explicitly grant only the necessary directory for one
+invocation (read-only for input, writable for output):
 
-[Flatpak setup, supported desktops, permissions, and troubleshooting](FLATPAK.md)
-also documents the supported desktops, permissions, and limits of
-unattended Wayland testing.
+```sh
+flatpak run --filesystem="$PWD":ro io.github.nskaggs.perfuncted run "$PWD/task.pf"
+flatpak run --filesystem="$PWD" io.github.nskaggs.perfuncted screen grab --out "$PWD/screenshot.png"
+```
+
+See [Flatpak setup and permissions](FLATPAK.md) for persistent per-user grants,
+Wayland support and troubleshooting.
 
 ### Native Go CLI
 

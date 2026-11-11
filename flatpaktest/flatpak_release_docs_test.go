@@ -32,9 +32,9 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 	} {
 		for _, required := range []string{
 			"flatpak install --user -y ./perfuncted.flatpak",
-			"install -Dm755 ./pf-flatpak",
-			"pf session check",
-			"pf info",
+			"flatpak run io.github.nskaggs.perfuncted session check",
+			"flatpak run io.github.nskaggs.perfuncted info",
+			"flatpak run --filesystem=",
 		} {
 			if !strings.Contains(target.doc, required) {
 				t.Errorf("%s missing download-only first-run command %q", target.name, required)
@@ -49,8 +49,23 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 		t.Fatal("README contains literal newline escapes instead of rendered paragraphs")
 	}
 	if !strings.Contains(release, "gh release upload") ||
-		!strings.Contains(release, "\"$RUNNER_TEMP/perfuncted.flatpak\" scripts/pf-flatpak") {
-		t.Fatal("release workflow must publish the verified exported bundle and host launcher as separate assets")
+		!strings.Contains(release, "\"$RUNNER_TEMP/perfuncted.flatpak\" --clobber") {
+		t.Fatal("release workflow must publish exactly one verified Flatpak bundle")
+	}
+	for _, document := range []struct{ name, content string }{
+		{"release workflow", release},
+		{"release notes", read(".github/release-notes/v1.3.0.md")},
+		{"README", readme},
+		{"Flatpak guide", guide},
+	} {
+		if strings.Contains(document.content, "scripts/pf-flatpak ") ||
+			strings.Contains(document.content, "install -Dm755 ./pf-flatpak") ||
+			strings.Contains(document.content, "--host-dir-ro") {
+			t.Errorf("%s refers to an obsolete launcher", document.name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "scripts", "pf-flatpak")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete host launcher must not exist: %v", err)
 	}
 	flatpakCI := read(".github/workflows/flatpak.yml")
 	for _, workflow := range []struct{ name, content string }{

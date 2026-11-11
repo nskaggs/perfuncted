@@ -5,64 +5,81 @@ provide an unrestricted host shell or automatically install a nested compositor.
 
 ## Install
 
-Download `perfuncted.flatpak` **and** `pf-flatpak` from the same GitHub
-release into one directory. A repository checkout is not required.
+Download the single `perfuncted.flatpak` bundle from the
+[GitHub releases](https://github.com/nskaggs/perfuncted/releases).
+Install and run it with Flatpak itself—no secondary wrapper or helper required:
 
 ```sh
 flatpak install --user -y ./perfuncted.flatpak
-install -Dm755 ./pf-flatpak "$HOME/.local/bin/pf"
-export PATH="$HOME/.local/bin:$PATH"  # add to your shell profile
-pf --help
-pf version
-pf session check
-pf info --output=json
+flatpak run io.github.nskaggs.perfuncted --help
+flatpak run io.github.nskaggs.perfuncted version
+flatpak run io.github.nskaggs.perfuncted session check
+flatpak run io.github.nskaggs.perfuncted info --output=json
 ```
 
-Without the launcher, use `flatpak run io.github.nskaggs.perfuncted`
-followed by normal `pf` arguments. Flatpak itself does **not** create a host
-`pf` executable, even though the AppStream metadata identifies that binary.
+Flatpak applications do not automatically export a short host-side `pf` command;
+the supported invocation is `flatpak run io.github.nskaggs.perfuncted`. A
+native (non-Flatpak) CLI is also available separately for developers who need
+to run `pf` directly.
 
 ## First automation
 
 ```sh
-pf info
-pf window list
-pf screen resolution
-pf screen grab --rect 0,0,640,480 > screenshot.png
+flatpak run io.github.nskaggs.perfuncted info
+flatpak run io.github.nskaggs.perfuncted window list
+flatpak run io.github.nskaggs.perfuncted screen resolution
+flatpak run io.github.nskaggs.perfuncted screen grab --rect 0,0,640,480 > screenshot.png
 ```
 
-The PNG is written to the **host** via standard output, not to Flatpak's
-private temporary directory. When the installed Flatpak's `pf screen grab`
-has no `--out`, it streams a PNG if stdout is redirected; it rejects
-interactive terminal output rather than dumping binary bytes into your shell.
-`--out -` always streams. For a file path, use an explicitly shared directory.
+The screenshot is streamed into a **host** file through standard output. This
+does not require write access to host folders. Without an explicit `--out`,
+Flatpak streams PNG pixels when stdout is redirected and refuses to dump
+binary pixels into an interactive terminal. A path specified with `--out` must
+be accessible inside the sandbox.
 
-Look at `pf info` first: capabilities depend on
-compositor support and user permissions. An unavailable input backend is an
-honest limitation, not a failed package installation. Use `pf session check`
-for setup diagnostics.
+Use `info` first: capabilities depend on compositor support, desktop portals
+and permissions. Use `session check` for setup diagnostics.
 
-## Host files: explicit and narrow
+## Host files and permissions
 
-By default the Flatpak has no permission to read arbitrary home-directory files
-or to write into arbitrary host paths; its `/tmp` is private. Prefer pipes:
+Flatpak runs inside a sandbox: it cannot ordinarily read arbitrary home files,
+and its `/tmp` is private. For normal CLI workflows, **pipes avoid filesystem
+permissions entirely**:
 
 ```sh
-pf screen grab-region --rect 0,0,640,480 --out - > screenshot.png
-cat task.pf | pf run -
+cat task.pf | flatpak run io.github.nskaggs.perfuncted run -
+flatpak run io.github.nskaggs.perfuncted screen grab --rect 0,0,640,480 > screenshot.png
 ```
 
-For path-based operations, the optional host launcher supports specific
-directories. These launcher flags must come **before** the regular CLI command:
+When a host path is needed, use Flatpak's official **per-invocation**
+`--filesystem` option, placed before the application ID:
 
 ```sh
-pf --host-dir-ro "$PWD" run "$PWD/task.pf"
-pf --host-dir "$PWD" screen grab --out "$PWD/screenshot.png"
+flatpak run --filesystem="$PWD":ro io.github.nskaggs.perfuncted run "$PWD/task.pf"
+flatpak run --filesystem="$PWD" io.github.nskaggs.perfuncted screen grab --out "$PWD/screenshot.png"
 ```
 
-The `--host-dir` and `--host-dir-ro` flags are **not** native `pf` flags.
-You can also invoke Flatpak directly with `flatpak run --filesystem="$PWD"`
-(or `--filesystem="$PWD":ro` for read-only access).
+The first command grants **read-only** access to the working directory. The
+second permits writes to that directory for that invocation. Neither grant is
+persisted, nor does it make any other folder available.
+
+If a particular folder should remain accessible to subsequent invocations,
+use a **user-scoped Flatpak override** instead:
+
+```sh
+flatpak override --user --filesystem="$HOME/Documents/Automation":ro io.github.nskaggs.perfuncted
+flatpak override --user --show io.github.nskaggs.perfuncted
+```
+
+Inspect or revoke overrides using `flatpak override --user --show` or
+`flatpak override --user --reset io.github.nskaggs.perfuncted`. Reset removes
+**all** user overrides for this application, not just one folder. Flatpak
+desktop portals are preferable where available; they request permission for
+individual operations. There is no default `--filesystem=home`, `--device=all`,
+or unrestricted host filesystem access.
+
+See the [official Flatpak sandbox permission guide](https://docs.flatpak.org/en/latest/sandbox-permissions.html)
+and [Flatpak command reference](https://docs.flatpak.org/en/latest/flatpak-command-reference.html).
 
 ## Upgrade from a previous Flatpak release
 
@@ -70,7 +87,7 @@ To replace a previously downloaded Flatpak with a newer downloaded bundle:
 
 ```sh
 flatpak install --user -y --reinstall ./perfuncted.flatpak
-pf version
+flatpak run io.github.nskaggs.perfuncted version
 ```
 
 This preserves application data and user-specific Flatpak overrides. CI now
@@ -92,37 +109,29 @@ version metadata, so identification comes from its pinned release checksum.
 Desktop controls blocked by the compositor must fail with a diagnostic, **not**
 silently fall back to an unauthorized input backend.
 
-If supported, `pf --input-backend remote-desktop input click --x 100 --y 100`
+If supported, `flatpak run io.github.nskaggs.perfuncted --input-backend remote-desktop input click --x 100 --y 100`
 starts an **interactive authorization** through the XDG RemoteDesktop portal.
 Permission restoration is always opt-in, using `--remember-input-permission`.
 
 ## Troubleshooting
 
-- **`pf: command not found`**: install `scripts/pf-flatpak` to
-  `~/.local/bin/pf` and add `~/.local/bin` to your PATH.
-- **No desktop capability**: run `pf session check` and `pf info`; inspect
-  compositor, portal availability and session sockets. A Wayland session may
-  only expose XWayland X11 controls.
-- **Screenshot not on host**: use `grab-region --out - > file.png` or grant
-  the target directory to the Flatpak.
-- **Cannot read script**: use `pf run -` with stdin, or
-  `pf --host-dir-ro "$PWD" run "$PWD/file.pf"`.
-- **GNOME bridge missing**: install the native host bridge first, then
-  logout/login. A Flatpak cannot automatically install GNOME Shell extensions.
-- **Native Sway/wlroots input unavailable in Flatpak**: the Flatpak Wayland
-  socket can filter privileged virtual keyboard/pointer protocols even when
-  the same protocol works from the native host executable. `pf info`
-  must report this as unavailable. Do not add `--device=all` or bypass the
-  compositor's input permissions. Where supported, explicitly request
-  `--input-backend remote-desktop` and authorize it through the desktop portal.
-- **Portal denied input**: request `--input-backend remote-desktop` on a
-  user-visible supported desktop and answer the compositor's consent prompt.
-- **Nested session tools missing**: `sway`, `dbus-daemon`, and `wl-paste`
-  must be installed separately; use the native binary for full headless mode.
-
-The Flatpak intentionally omits broad `--device=all` access. Direct
-`/dev/uinput` is not automatically accessible: this is a sandbox
-restriction, not a failed permission restoration.
+- **Command unavailable:** use `flatpak run io.github.nskaggs.perfuncted`.
+  Flatpak does not install a separate host `pf` executable.
+- **Missing capability:** use `flatpak run io.github.nskaggs.perfuncted info`
+  and `flatpak run io.github.nskaggs.perfuncted session check`; capabilities
+  vary by compositor and its permission model.
+- **Screenshot missing on host:** redirect PNG stdout to a host file, or
+  pass a narrowly scoped `flatpak run --filesystem=DIR` grant with `--out`.
+- **Cannot read a host script:** pipe its contents using `run -` or grant
+  read-only access to its containing directory with `--filesystem=DIR:ro`.
+- **GNOME bridge missing:** install the host-side native bridge first, then
+  log out/in as needed. A Flatpak cannot automatically install Shell extensions.
+- **Wayland input unavailable:** the sandbox may filter native pointer and
+  keyboard injection even when the host executable can use it. Where supported,
+  request `--input-backend remote-desktop` and explicitly authorize the desktop
+  portal. Do not bypass input permissions or use unrestricted device grants.
+- **Nested session tools missing:** use the native CLI for full headless mode;
+  this Flatpak does not package a complete nested compositor.
 
 ## Real-desktop acceptance (attended)
 
@@ -132,9 +141,11 @@ RemoteDesktop consent dialog or automatically provision a GNOME Shell
 extension on the user's account.
 
 To validate **native Wayland input**, use a disposable local desktop with an
-ordinary visible GUI application, run `pf info`, then invoke
-`pf --input-backend remote-desktop input click --x ... --y ...` and
-`pf --input-backend remote-desktop input type ...`, explicitly approve the
+ordinary visible GUI application, run
+`flatpak run io.github.nskaggs.perfuncted info`, then invoke
+`flatpak run io.github.nskaggs.perfuncted --input-backend remote-desktop input click --x ... --y ...`
+and `flatpak run io.github.nskaggs.perfuncted --input-backend remote-desktop input type ...`,
+explicitly approve the
 desktop portal, and confirm the application actually receives both events.
 Repeat after denying permission, canceling a pending request, revoking
 permission, restarting the application, and (only if explicitly enabled)
