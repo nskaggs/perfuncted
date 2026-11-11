@@ -55,16 +55,6 @@ jobs:
             echo "- Environment-dependent Flatpak smoke: pending"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run GoReleaser
-        if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Flatpak tooling
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         run: |
@@ -87,18 +77,35 @@ jobs:
           CGO_ENABLED: "0"
           PF_FLATPAK_DESKTOP_TARGET: kde,gnome
           PF_FLATPAK_REQUIRE_UPGRADE: "1"
+          PF_FLATPAK_EXPORT_BUNDLE: ${{ runner.temp }}/perfuncted.flatpak
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
       - name: Record completed environment gate
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         run: 'echo "- Environment-dependent Flatpak smoke: passed" >> "$GITHUB_STEP_SUMMARY"'
 
+      - name: Confirm verified Flatpak artifact
+        if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
+        run: |
+          test -s "$RUNNER_TEMP/perfuncted.flatpak"
+          sha256sum "$RUNNER_TEMP/perfuncted.flatpak"
+
+      - name: Run GoReleaser
+        if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Attach Flatpak bundle to release
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" dist/flatpak/perfuncted.flatpak scripts/pf-flatpak scripts/pf-flatpak-attended-check --clobber
+          gh release upload "${{ github.ref_name }}" "$RUNNER_TEMP/perfuncted.flatpak" scripts/pf-flatpak scripts/pf-flatpak-attended-check --clobber
 
       - name: Generate GitHub release notes
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}

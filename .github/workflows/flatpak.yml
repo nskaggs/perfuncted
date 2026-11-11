@@ -52,11 +52,12 @@ jobs:
         env:
           PF_FLATPAK_DESKTOP_TARGET: kde,gnome
           PF_FLATPAK_REQUIRE_UPGRADE: "1"
+          PF_FLATPAK_EXPORT_BUNDLE: ${{ runner.temp }}/perfuncted.flatpak
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: perfuncted-flatpak
-          path: dist/flatpak/perfuncted.flatpak
+          path: ${{ runner.temp }}/perfuncted.flatpak
           if-no-files-found: error

@@ -49,8 +49,23 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 		t.Fatal("README contains literal newline escapes instead of rendered paragraphs")
 	}
 	if !strings.Contains(release, "gh release upload") ||
-		!strings.Contains(release, "dist/flatpak/perfuncted.flatpak scripts/pf-flatpak") {
-		t.Fatal("release workflow does not publish the bundle and host launcher as separate assets")
+		!strings.Contains(release, "\"$RUNNER_TEMP/perfuncted.flatpak\" scripts/pf-flatpak") {
+		t.Fatal("release workflow must publish the verified exported bundle and host launcher as separate assets")
+	}
+	flatpakCI := read(".github/workflows/flatpak.yml")
+	for _, workflow := range []struct{ name, content string }{
+		{"Flatpak", flatpakCI},
+		{"Release", release},
+	} {
+		if !strings.Contains(workflow.content, "PF_FLATPAK_EXPORT_BUNDLE: ${{ runner.temp }}/perfuncted.flatpak") {
+			t.Fatalf("%s workflow must export the verified bundle outside isolated test workspace", workflow.name)
+		}
+	}
+	if !strings.Contains(flatpakCI, "path: ${{ runner.temp }}/perfuncted.flatpak") {
+		t.Fatal("Flatpak CI artifact upload references the old unpopulated checkout path")
+	}
+	if strings.Index(release, "      - name: Run GoReleaser") <= strings.Index(release, "      - name: Build Flatpak bundle") {
+		t.Fatal("release must pass installed Flatpak acceptance before publishing via GoReleaser")
 	}
 	if !strings.Contains(guide, "RemoteDesktop") ||
 		!strings.Contains(guide, "attended") {

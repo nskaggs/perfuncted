@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,6 +187,19 @@ func TestFlatpakBundleBuildInstallAndRun(t *testing.T) {
 	t.Run("real GNOME and KDE Wayland compositor checks", func(t *testing.T) {
 		testFlatpakWaylandMatrix(t, bundleHarness, sourceRoot, testRoot)
 	})
+
+	// The build is isolated in testRoot and automatically cleaned up. CI and
+	// release automation may explicitly request an exported artifact only
+	// AFTER every installed-bundle acceptance gate has passed. A failed run
+	// must never publish an unverified bundle.
+	if !t.Failed() {
+		if destination := os.Getenv("PF_FLATPAK_EXPORT_BUNDLE"); destination != "" {
+			if err := exportAcceptedFlatpakBundle(bundlePath, destination); err != nil {
+				t.Fatalf("export verified Flatpak release bundle: %v", err)
+			}
+			t.Logf("exported verified Flatpak bundle to %s", destination)
+		}
+	}
 }
 
 func newHarness(t *testing.T, repoRoot, dbusAddress, home, tmpRoot, runRoot string) *harness {
@@ -504,4 +518,56 @@ func unsetEnv(env []string, key string) []string {
 func needsUnsandboxedIconExport(stderr string) bool {
 	return strings.Contains(stderr, "is not a valid icon: Format not recognized") &&
 		strings.Contains(stderr, "Export failed:")
+}
+
+// exportAcceptedFlatpakBundle moves no build directories into the checkout.
+// The caller opts in to a single immutable-installable artifact, written
+// atomically. No file is exported if any preceding acceptance gate failed.
+func exportAcceptedFlatpakBundle(source, destination string) error {
+	if !filepath.IsAbs(destination) {
+		return fmt.Errorf("Flatpak artifact destination must be an absolute path: %q", destination)
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("inspect tested Flatpak bundle: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("tested Flatpak bundle must be a nonempty regular file")
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+		return fmt.Errorf("create verified artifact directory: %w", err)
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("read verified bundle: %w", err)
+	}
+	defer input.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(destination), ".perfuncted-verified-*.flatpak")
+	if err != nil {
+		return fmt.Errorf("prepare atomic Flatpak artifact: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	count, err := io.Copy(tmp, input)
+	if err != nil {
+		return fmt.Errorf("write verified Flatpak artifact: %w", err)
+	}
+	if count != info.Size() {
+		return fmt.Errorf("Flatpak bundle changed during artifact export: copied %d of %d bytes", count, info.Size())
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		return fmt.Errorf("set published Flatpak permissions: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync published Flatpak bytes: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close verified Flatpak artifact: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), destination); err != nil {
+		return fmt.Errorf("publish verified Flatpak artifact: %w", err)
+	}
+	return nil
 }
