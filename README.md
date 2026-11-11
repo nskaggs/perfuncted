@@ -2,301 +2,113 @@
 
 [![CI](https://github.com/nskaggs/perfuncted/actions/workflows/ci.yml/badge.svg)](https://github.com/nskaggs/perfuncted/actions/workflows/ci.yml)
 
-**perfuncted** is a Go library and CLI for automating Linux desktop applications.
-It inspects the active desktop and selects supported backends, reporting
-unavailable capabilities explicitly. Native Wayland input may require portal
-authorization or compositor-specific host integration.
+**Your Linux desktop, now scriptable.**
 
-```go
-package main
+Perfuncted provides `pf`, a command-line tool for automating Linux desktop
+applications. Capture screenshots, control windows, send keyboard and mouse
+input, inspect application controls, and build repeatable workflows with scripts.
 
-import (
-	"context"
-	"log"
+Works with X11 and supported Wayland desktops, including GNOME and KDE Plasma.
 
-	"github.com/nskaggs/perfuncted"
-)
+## See it in action
 
-func main() {
-	ctx := context.Background()
-	session, err := perfuncted.Open(
-		ctx,
-		perfuncted.Require(
-			perfuncted.CapabilityInput,
-			perfuncted.CapabilityWindows,
-		),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if err := session.Close(); err != nil {
-			log.Print(err)
-		}
-	}()
+### Control windows and applications
 
-	firefox, err := session.Windows.Find(
-		ctx,
-		perfuncted.WindowMatch{TitleContains: "Firefox"},
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := firefox.Activate(ctx); err != nil {
-		log.Fatal(err)
-	}
-	if err := session.Input.Type(ctx, "hello world"); err != nil {
-		log.Fatal(err)
-	}
-	if err := session.Input.Type(ctx, "{ctrl+s}"); err != nil {
-		log.Fatal(err)
-	}
-}
+```bash
+# Find open windows
+pf window list
+
+# Activate Firefox and verify focus
+pf window activate Firefox --verify
+
+# Open a web page in Firefox
+pf input type "{ctrl+l}"
+pf input type "https://example.com{enter}"
 ```
 
-## Backend support
+### Capture and inspect your desktop
 
-| Session/backend | Screen capture | Input | Window discovery | Window control |
-|---|---|---|---|---|
-| X11 | XGetImage | XTEST or uinput | EWMH | activate, move, resize, close, minimize, maximize, fullscreen, restore |
-| Sway | wlr-screencopy | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | dedicated Sway IPC | activate, move, resize, close, minimize, fullscreen |
-| wlr foreign-toplevel | compositor capture protocol | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `zwlr_foreign_toplevel_manager_v1` | activate, close, minimize, maximize, restore |
-| ext foreign-toplevel | compositor capture protocol or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | `ext_foreign_toplevel_list_v1` | list-only |
-| KDE Plasma Wayland | KWin.ScreenShot2, ext capture, or portal | wl-virtual, XTEST (when `DISPLAY` is set), or uinput | KWin D-Bus scripting | activate, move, resize, close, minimize, maximize, restore |
-| GNOME Wayland | bundled GNOME bridge, GNOME Shell screenshot, or portal | bundled GNOME bridge, wl-virtual, XTEST, or uinput | bundled GNOME bridge or GNOME Shell Eval | activate, move, resize, close, minimize, maximize, fullscreen, restore |
+```bash
+# Capture a screenshot
+pf screen grab --out - > screenshot.png
 
-`pf info` reports the backend actually opened, failures for unavailable optional
-capabilities, and the exact operation list. Discovery does not imply that every
-control operation is available.
+# List applications with accessibility support
+pf a11y apps
 
-Wayland portal capture may show a consent dialog. Portal input is an explicit
-choice: `WithRemoteDesktopInput` requests keyboard and pointer authorization
-through the XDG RemoteDesktop portal and sends input only over its EIS
-connection. A denied or unavailable portal fails the required input
-capability; it does not fall back to compositor injection or uinput. EIS
-absolute pointer events are checked against the regions advertised for the
-authorized devices. Persistent portal permission is opt-in and its single-use
-restore token is kept in a private file under `XDG_STATE_HOME`.
-
-```go
-session, err := perfuncted.Open(ctx,
-	perfuncted.WithRemoteDesktopInput(perfuncted.RemoteDesktopInputOptions{
-		ParentWindow: "xdg-parent-handle",
-	}),
-)
+# Check available desktop capabilities
+pf info
 ```
 
-Without this option, Perfuncted keeps its regular backend selection. KDE and
-GNOME sessions without native bridge input may use uinput.
+### Build scripts
 
-**GNOME (Mutter):** perfuncted carries a small, versioned GNOME Shell
-integration and installs it automatically when a GNOME-native capability is
-requested. It uses typed Mutter/Clutter/Shell APIs for windows, input, screen
-capture, and clipboard; no unsafe mode, portal consent, `wl-clipboard`, or
-`/dev/uinput` setup is needed on the native path. GNOME Shell may require one
-logout/login after the first installation so it can load the extension. When
-the bridge is unavailable, GNOME Shell screenshot and Shell.Eval remain
-supported capability paths for the corresponding operations.
-ASCII literal input uses direct key events, preserving held modifiers. Unicode
-input uses clipboard paste when direct key events cannot represent the text;
-this updates clipboard contents.
-Flatpak can use an already-installed bridge; host extension provisioning from
-inside the sandbox is not automatic, so install the native package once when
-using the Flatpak. The bundled extension declares GNOME Shell 46 through 51.
+Combine commands into repeatable workflows. Use `pf run` to execute a script
+file or read commands from standard input.
 
-## Install
+```bash
+pf run task.pf
+```
 
-### Flatpak CLI (single bundle)
+## Installation
 
-Download only [`perfuncted.flatpak`](https://github.com/nskaggs/perfuncted/releases)
-and install it using Flatpak. No second launcher, source checkout or Go
-installation is required.
+### Flatpak
 
-```sh
-flatpak install --user -y ./perfuncted.flatpak
+Download the single `perfuncted.flatpak` bundle from
+[GitHub Releases](https://github.com/nskaggs/perfuncted/releases).
+
+```bash
+flatpak install --user ./perfuncted.flatpak
 flatpak run io.github.nskaggs.perfuncted info
-flatpak run io.github.nskaggs.perfuncted session check
 ```
 
-Flatpak's own `run` and `override` permissions control access to host
-files. Prefer streaming screenshots directly to the host:
+See [Flatpak setup and permissions](FLATPAK.md) for details.
 
-```sh
-flatpak run io.github.nskaggs.perfuncted screen grab --rect 0,0,640,480 > screenshot.png
-cat task.pf | flatpak run io.github.nskaggs.perfuncted run -
-```
+### Native CLI
 
-For direct file paths, explicitly grant only the necessary directory for one
-invocation (read-only for input, writable for output):
-
-```sh
-flatpak run --filesystem="$PWD":ro io.github.nskaggs.perfuncted run "$PWD/task.pf"
-flatpak run --filesystem="$PWD" io.github.nskaggs.perfuncted screen grab --out "$PWD/screenshot.png"
-```
-
-See [Flatpak setup and permissions](FLATPAK.md) for persistent per-user grants,
-Wayland support and troubleshooting.
-
-### Native Go CLI
-
+Install with Go:
 
 ```bash
 go install github.com/nskaggs/perfuncted/cmd/pf@latest
 ```
 
-**Library:**
+Check your desktop:
+
+```bash
+pf session check
+pf info
+```
+
+## Desktop support
+
+Perfuncted supports X11 and several Wayland environments, including GNOME,
+KDE Plasma, and Sway. Available operations depend on the desktop and its
+permissions. Run `pf info` to see which capabilities are available.
+
+**GNOME Shell bridge:** Perfuncted includes a versioned GNOME Shell integration
+for native window control, input, screenshots, and clipboard access. The native
+CLI installs the bridge when a GNOME capability requires it. GNOME Shell may
+require one logout and login to load it. The bundled bridge declares support
+for GNOME Shell 46 through 51. Flatpak can use an existing host installation
+of the bridge, but cannot install the host extension from inside its sandbox.
+
+Wayland desktop portals may request user authorization for capture or input.
+See [Flatpak setup and permissions](FLATPAK.md) for supported paths and
+troubleshooting.
+
+## Documentation
+
+See the [CLI command reference](docs-cli/pf.md) for commands and options.
+See [Contributing](CONTRIBUTING.md) for development and testing.
+
+## Go library
+
+Perfuncted is also available as a Go library for direct desktop automation.
 
 ```bash
 go get github.com/nskaggs/perfuncted
 ```
 
-**Runtime dependencies** (only install what your session needs):
-
-| Dependency | Required for |
-|---|---|
-| `wl-clipboard` | Clipboard access on Wayland when no native compositor clipboard backend is available |
-| `xclip` | Clipboard access on X11 |
-| `at-spi2-core` and toolkit accessibility bridges | AT-SPI accessibility for applications that expose an accessibility tree |
-| `udev` rule or `input` group | `/dev/uinput` access when compositor-scoped or XTEST input is unavailable (see Setup below) |
-
-The selected session also needs its compositor/session services and display
-socket available. The integration suite installs additional headless display,
-Wayland, X11, D-Bus, and test-application packages in CI.
-
-
-## Library API
-
-`perfuncted.Open` creates one explicit desktop session. The host desktop is the
-default; `WithTarget`, `WithHeadless`, and `WithNested` select other mutually
-exclusive targets. Ask only for the capabilities you need with `Require` or
-`Optional`.
-
-Every session has non-nil capability facades:
-
-- `session.Screen` captures regions, computes hashes, locates images, and waits for visual changes.
-- `session.Input` types, presses keys, clicks, drags, and scrolls.
-- `session.Windows` discovers windows, returns stable session-bound handles for control, and exposes bounded, lossy lifecycle and focus notifications through `session.Windows.Events()`.
-- `session.Outputs` lists displays.
-- `session.Clipboard` gets and sets clipboard contents.
-- `session.Accessibility` optionally reads and automates the AT-SPI
-  accessibility tree,
-  including application roots, roles, names, states, text, bounds, focused
-  objects, point queries, bounded semantic searches, optional Value/Action/
-  Selection/Table/Document fields, PID/window-scoped application selection,
-  cache-backed refreshes, a correlated compositor-window subtree, compact
-  outlines, typed actions/focus/scroll/value/editable-text/selection/table
-  mutations, and a lossy invalidation event stream with drop counts.
-  Snapshot/tree and Find require an explicit application/window/root handle;
-  use `AllowDesktopRoot` only for an intentional bounded desktop diagnostic.
-  Sensitive/protected text is redacted by default and mutation does not grant
-  read access. A disconnected bus returns a typed error; call the explicit
-  `Reopen` operation to establish a fresh generation. Request it with
-  `Optional(perfuncted.CapabilityAccessibility)` or `Require(...)`; sessions
-  without an accessibility bus report it as unavailable.
-
-  The normal workflow is `WindowRoot` -> `FindOne` -> `FocusNode`,
-  `InvokeSemanticAction`, or `ReplaceEditableText` -> an independently
-  observable postcondition, usually through `WaitWithEvidence`. Use
-  `AccessibilityWindow` only when an adapter already has an explicit
-  compositor/accessibility correlation target; it is the advanced path.
-  `LocatorForWindow` and `LocatorForApplication` retain selector intent and
-  resolve fresh snapshots for `Matches`, `Resolve`, `Wait`, and
-  `InvokeActionAndWait`. `ClickAndWait` invokes the accessible default action;
-  `FillAndWait` uses one EditableText `SetTextContents` call. Both return a
-  receipt that reports dispatch acknowledgement separately from the
-  independent postcondition result; uncertain dispatches are not repeated.
-  For a verified action, pass the current managed window handle and an
-  independent `Condition` to the locator; the receipt's `Outcome.Status` must
-  be `ActionOutcomeVerified` before treating the action as complete. See the
-  compile-checked `ExampleAccessibilityLocator_ClickAndWait` in
-  `example_test.go` for the golden path.
-  Locator resolution requires an active AT-SPI event stream to detect provider
-  changes during the fresh snapshot and action; it fails closed unless the
-  provider registers the property, state, children, text, visibility, focus,
-  window-create, and window-destroy event families. `Find` always reads a fresh
-  structurally complete snapshot but does not subscribe to events. Its wait
-  conditions treat an incomplete snapshot as a transient evaluation error and
-  return the error after the consecutive-failure limit if completeness does
-  not recover.
-  Typed low-level operations remain available on `AccessibilityBundle`; use
-  `pf a11y raw` when working with explicit protocol-level handles.
-
-Unavailable facade calls return `*perfuncted.CapabilityError`; inspect
-`errors.Is(err, perfuncted.ErrUnavailable)` or
-`errors.Is(err, perfuncted.ErrUnsupported)` rather than parsing messages.
-Supported backend failures are reported as `*perfuncted.OperationError` and
-retain their underlying cause for `errors.Is`/`errors.As`. Use
-`Session.Launch` for session-owned applications and `Session.Wait` with `All`,
-`Any`, `Not`, or `Predicate` for composable waits. `Close` is idempotent and
-invalidates child handles. Root session operations reject nil contexts with
-`ErrInvalidArgument`; contexts provide cancellation and timeouts.
-
-`DetectSession` returns a typed `SessionDetection` snapshot. It only classifies
-the environment; `Open` is the API that establishes and owns a session.
-
-Full API reference: [pkg.go.dev/github.com/nskaggs/perfuncted](https://pkg.go.dev/github.com/nskaggs/perfuncted).
-See the generated [CLI reference](docs-cli/pf.md) for `pf` commands.
-
-## Setup
-
-**uinput permission** (needed when the selected input fallbacks reach uinput):
-
-```bash
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | \
-  sudo tee /etc/udev/rules.d/99-uinput.rules
-sudo udevadm control --reload && sudo udevadm trigger
-sudo usermod -aG input $USER   # log out and back in
-```
-
-## Testing
-
-`just test` runs the fast unit suite. The general integration commands cover
-display, session, and backend behavior; strict KDE/GTK AT-SPI certification is
-the separate mandatory target included by both `just test-all` and `just ci`.
-The integration suite runs in isolated nested Wayland/X11 sessions and never
-touches your real desktop:
-
-```bash
-just test-integration-headless-x11
-just test-integration-headless-wayland
-just test-integration-nested-x11
-just test-integration-nested-wayland
-just test-integration   # general display, session, and backend integration
-just test-accessibility-certification  # mandatory KDE/GTK AT-SPI certification
-just test-flatpak      # build, install, and validate the Flatpak bundle
-```
-
-The certification target is a separate required CI gate. `just ci` runs both
-the general integration coverage and strict AT-SPI certification; the latter
-fails when the required desktop applications or accessibility interfaces are
-unavailable.
-
-The integration recipes need the same system packages listed in the CI
-workflow. Install `wl-clipboard` for Wayland clipboard round-trip verification
-and `xclip` for X11 clipboard round-trip verification.
-
-## Development
-
-Requires Go 1.27.3, [`just`](https://github.com/casey/just), and the tools
-installed by `just install-dev-tools`.
-
-```bash
-just install-dev-tools
-just check       # fmt + vet + lint
-just precommit   # fast generation, docs, formatting, and vet checks
-just quality     # full static quality suite and unit tests
-just docs        # regenerate docs-cli
-just pf info     # probe backend availability on the current session
-just cleanup-nested # safely reap stale managed sessions after a crash
-```
-
-`cleanup-nested` uses the same ownership-aware cleanup as the library. It
-retains live session owners and will not signal a recorded child whose
-`XDG_RUNTIME_DIR` belongs to a different runtime.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checks and
-[RELEASE.md](RELEASE.md) for the current release workflow.
+See the [Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted).
 
 ## License
 
-Apache 2.0 - see [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).
