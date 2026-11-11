@@ -32,6 +32,8 @@ func TestDetectRuntimeRealCompositorGlobalsOverrideMisleadingDesktop(t *testing.
 		{"wlroots virtual pointer", []string{"zwlr_virtual_pointer_manager_v1"}, "GNOME", Wlroots},
 		{"wlroots toplevel", []string{"zwlr_foreign_toplevel_manager_v1"}, "KDE", Wlroots},
 		{"KDE alternate prefix", []string{"kde_plasma_shell"}, "GNOME", KDE},
+		{"shared KDE decoration is not KWin", []string{"org_kde_kwin_server_decoration_manager"}, "KDE", Unknown},
+		{"shared decoration and filtered wlroots globals", []string{"wl_compositor", "org_kde_kwin_server_decoration_manager"}, "SWAY", Wlroots},
 		{"unrecognized protocol", []string{"wl_output", "wl_seat"}, "KDE", Unknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

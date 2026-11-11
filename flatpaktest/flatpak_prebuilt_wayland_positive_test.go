@@ -207,8 +207,8 @@ func TestFlatpakPrebuiltWlrootsCapabilityAndEffects(t *testing.T) {
 	if err := json.Unmarshal([]byte(infoJSON), &infoReport); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.ToLower(infoReport.Compositor), "wayland") {
-		t.Fatalf("installed Flatpak info misidentified actual Wayland compositor: %s", infoJSON)
+	if infoReport.Compositor != "wlroots Wayland" {
+		t.Fatalf("installed Flatpak info misidentified actual isolated Sway compositor as %q: %s", infoReport.Compositor, infoJSON)
 	}
 	if len(infoReport.Capabilities) < 3 {
 		t.Fatalf("installed Flatpak info omitted capability matrix: %s", infoJSON)

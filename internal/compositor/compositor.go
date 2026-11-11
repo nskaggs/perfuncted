@@ -60,9 +60,18 @@ func DetectRuntimeContext(ctx context.Context, rt env.Runtime) (Session, error) 
 		return X11, nil
 	}
 
-	// Probe the real compositor socket first.
+	// Probe the real compositor socket first. Flatpak may filter wlroots-
+	// specific privileged protocol globals while leaving shared decoration
+	// protocols. When no compositor-specific protocol is visible, preserve
+	// an explicit Sway/wlroots session hint rather than mislabeling the socket.
 	if s, ok := probeGlobalsContext(ctx, rt); ok {
-		return s, nil
+		if s != Unknown {
+			return s, nil
+		}
+		if wlrootsSessionHint(rt) {
+			return Wlroots, nil
+		}
+		return Unknown, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return Unknown, err
@@ -91,6 +100,20 @@ func DetectRuntimeContext(ctx context.Context, rt env.Runtime) (Session, error) 
 		return Unknown, err
 	}
 	return Unknown, nil
+}
+
+// wlrootsSessionHint is only used when the compositor registry is
+// inconclusive. A strong KDE/GNOME registry signature still wins, so a
+// nested compositor does not inherit a stale host desktop identity.
+func wlrootsSessionHint(rt env.Runtime) bool {
+	if rt.Get("SWAYSOCK") != "" || rt.Get("HYPRLAND_INSTANCE_SIGNATURE") != "" {
+		return true
+	}
+	desktop := strings.ToUpper(rt.Get("XDG_CURRENT_DESKTOP"))
+	return desktopHasID(desktop, "SWAY") ||
+		desktopHasID(desktop, "HYPRLAND") ||
+		desktopHasID(desktop, "RIVER") ||
+		desktopHasID(desktop, "WAYFIRE")
 }
 
 // XDG_CURRENT_DESKTOP is a colon-separated list of desktop IDs, not a
@@ -126,15 +149,19 @@ func probeGlobalsContext(ctx context.Context, rt env.Runtime) (Session, bool) {
 	var hasWlroots, hasKDE, hasGNOME bool
 	for _, ev := range s.GlobalsSnapshot() {
 		iface := ev.Interface
-		switch {
-		case iface == "zwlr_screencopy_manager_v1" ||
-			iface == "zwlr_foreign_toplevel_manager_v1" ||
-			iface == "zwlr_virtual_keyboard_manager_v1" ||
-			iface == "zwlr_virtual_pointer_manager_v1":
+		switch iface {
+		case "zwlr_screencopy_manager_v1",
+			"zwlr_foreign_toplevel_manager_v1",
+			"zwlr_virtual_keyboard_manager_v1",
+			"zwlr_virtual_pointer_manager_v1":
 			hasWlroots = true
-		case strings.HasPrefix(iface, "org_kde_") || strings.HasPrefix(iface, "kde_"):
+		case "org_kde_plasma_shell", "kde_plasma_shell":
+			// A shared org_kde_* extension is not proof of KWin. Sway
+			// also advertises KDE server-decoration protocols; Flatpak's
+			// Wayland proxy can filter wlroots-specific globals, leaving
+			// the shared decoration extension as a false KDE signal.
 			hasKDE = true
-		case iface == "gtk_shell1" || iface == "gtk_surface1":
+		case "gtk_shell1", "gtk_surface1":
 			hasGNOME = true
 		}
 	}
