@@ -61,6 +61,11 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 		if s.listOverride != "" {
 			response = s.listOverride
 		}
+	case strings.Contains(string(data), "JSON.stringify({x:Number(p.x)"):
+		response = `{"x":0,"y":0}`
+		if s.listOverride != "" {
+			response = s.listOverride
+		}
 	case strings.Contains(string(data), "w ? w.caption"):
 		response = "Editor"
 	default:

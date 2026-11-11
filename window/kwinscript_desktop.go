@@ -148,18 +148,21 @@ callDBus(%q,'/',%q,'ReportWindows',JSON.stringify({x:Number(p.x),y:Number(p.y)})
 	if err != nil {
 		return 0, 0, err
 	}
-	var value struct{ X, Y float64 }
+	var value struct{ X, Y *float64 }
 	if decodeErr := json.Unmarshal([]byte(data), &value); decodeErr != nil {
 		return 0, 0, fmt.Errorf("window/kwinscript: cursor position: %w", decodeErr)
 	}
-	if math.IsNaN(value.X) || math.IsNaN(value.Y) {
+	if value.X == nil || value.Y == nil {
+		return 0, 0, fmt.Errorf("window/kwinscript: cursor position requires numeric x and y")
+	}
+	if math.IsNaN(*value.X) || math.IsNaN(*value.Y) {
 		return 0, 0, fmt.Errorf("window/kwinscript: invalid cursor coordinates")
 	}
-	x, err := kwinGeometryInt(value.X, "cursor x")
+	x, err := kwinGeometryInt(*value.X, "cursor x")
 	if err != nil {
 		return 0, 0, err
 	}
-	y, err := kwinGeometryInt(value.Y, "cursor y")
+	y, err := kwinGeometryInt(*value.Y, "cursor y")
 	if err != nil {
 		return 0, 0, err
 	}
