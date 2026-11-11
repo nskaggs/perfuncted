@@ -145,9 +145,12 @@ chmod +x ./pf-flatpak-attended-check
 ./pf-flatpak-attended-check restore
 ./pf-flatpak-attended-check revoke
 ./pf-flatpak-attended-check bridge  # GNOME only, requires installed host bridge
+./pf-flatpak-attended-check capture # Approve screenshot authorization; verify disposable PNG
 ```
 
-The helper opens only a disposable editor document. In the positive cases it
+The `capture` mode requests a real 64×48 screenshot, allows the user to respond to any desktop consent dialog, checks the resulting PNG header and dimensions, then deletes the captured image. It is intentionally not an unattended CI check.
+
+The input-validation modes open only a disposable editor document. In the positive cases it
 asks for a visible editor text-area coordinate, sends a **portal-authorized
 mouse click**, then types and saves a unique marker and verifies the saved
 content. It waits for explicit human consent/denial; negative cases verify

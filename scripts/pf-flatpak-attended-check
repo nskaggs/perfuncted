@@ -13,9 +13,10 @@ MODE:
   restore  Opt in to restoring permission; type and save twice
   revoke   Revoke authorization in settings, then deny a new request
   bridge   With GNOME host bridge installed, verify native window control
+  capture  Approve an attended screenshot; validate a disposable PNG
 
 Requires a visible GNOME or KDE Wayland session and an interactive terminal.
-Uses a new, disposable text document; never modifies an existing document.
+Uses disposable files only; never modifies an existing document.
 USAGE
 }
 if [[ "$#" -ne 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -24,7 +25,7 @@ if [[ "$#" -ne 1 || "$1" == "--help" || "$1" == "-h" ]]; then
   exit $?
 fi
 mode="$1"
-case "$mode" in allow|deny|restore|revoke|cancel|bridge) ;; *) usage >&2; exit 2;; esac
+case "$mode" in allow|deny|restore|revoke|cancel|bridge|capture) ;; *) usage >&2; exit 2;; esac
 if [[ ! -t 0 || "${XDG_SESSION_TYPE:-}" != "wayland" || -z "${WAYLAND_DISPLAY:-}" ]]; then
   echo "An attended, visible Wayland desktop and interactive terminal are required." >&2
   exit 2
@@ -34,6 +35,47 @@ if ! command -v pf >/dev/null || ! flatpak info io.github.nskaggs.perfuncted >/d
   exit 2
 fi
 desktop="${XDG_CURRENT_DESKTOP:-}"
+if [[ "$mode" == "capture" ]]; then
+  case "${desktop,,}" in
+    *kde*|*plasma*|*gnome*) ;;
+    *) echo "Use a visible KDE Plasma or GNOME Wayland session." >&2; exit 2 ;;
+  esac
+  if ! command -v python3 >/dev/null; then
+    echo "python3 is required to validate captured PNG bytes." >&2
+    exit 2
+  fi
+  tmpdir="$(mktemp -d "${XDG_RUNTIME_DIR:-/var/tmp}/pf-flatpak-attended.XXXXXXXX")"
+  trap 'rm -rf -- "$tmpdir"' EXIT
+  capture="$tmpdir/consented-screenshot.png"
+  echo "Session: $desktop / Wayland"
+  echo "A screenshot portal may request your authorization to capture screen pixels."
+  echo "The 64x48 PNG is stored only in a disposable private directory and deleted on exit."
+  read -r -p "Press Enter to request the screenshot with the installed Flatpak: " _
+  if ! pf screen grab --rect=0,0,64,48 --out - > "$capture"; then
+    echo "FAIL: screenshot capture was denied or unavailable." >&2
+    exit 1
+  fi
+  python3 - "$capture" <<'PYPNG'
+import pathlib
+import struct
+import sys
+import zlib
+
+raw = pathlib.Path(sys.argv[1]).read_bytes()
+valid = len(raw) >= 33 and raw[:8] == b"\x89PNG\r\n\x1a\n"
+if valid:
+    chunk_size = struct.unpack(">I", raw[8:12])[0]
+    valid = chunk_size == 13 and raw[12:16] == b"IHDR"
+if valid:
+    width, height = struct.unpack(">II", raw[16:24])
+    crc = struct.unpack(">I", raw[29:33])[0]
+    valid = (width, height) == (64, 48) and zlib.crc32(raw[12:29]) == crc
+if not valid:
+    sys.exit("FAIL: captured bytes are not a valid 64x48 PNG header")
+PYPNG
+  echo "PASS: installed Flatpak captured a validated 64x48 PNG in an attended $desktop Wayland session."
+  exit 0
+fi
 case "${desktop,,}" in
   *kde*|*plasma*) editor=kwrite ;;
   *gnome*) editor=gnome-text-editor ;;

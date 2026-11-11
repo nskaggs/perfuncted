@@ -76,6 +76,22 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 	}
 }
 
+func TestFlatpakAttendedScreenshotRequiresAttendedSession(t *testing.T) {
+	script := filepath.Join(mustRepoRoot(t), "scripts", "pf-flatpak-attended-check")
+	help := exec.Command("bash", script, "--help")
+	out, err := help.CombinedOutput()
+	if err != nil || !bytes.Contains(out, []byte("capture")) || !bytes.Contains(out, []byte("screenshot")) {
+		t.Fatalf("attended screenshot mode is missing from help: %v %s", err, out)
+	}
+	cmd := exec.Command("bash", script, "capture")
+	cmd.Stdin = bytes.NewBuffer(nil)
+	cmd.Env = append(os.Environ(), "XDG_SESSION_TYPE=wayland", "WAYLAND_DISPLAY=wayland-test")
+	out, err = cmd.CombinedOutput()
+	if err == nil || !bytes.Contains(out, []byte("attended")) {
+		t.Fatalf("screenshot consent check ran unattended: %v %s", err, out)
+	}
+}
+
 func TestFlatpakAttendedValidatorRejectsUnattendedExecution(t *testing.T) {
 	script := filepath.Join(mustRepoRoot(t), "scripts", "pf-flatpak-attended-check")
 	help := exec.Command("bash", script, "--help")
