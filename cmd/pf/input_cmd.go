@@ -521,7 +521,9 @@ func inputCmd(
 			return fmt.Errorf("cannot map screenshot point to input backend: %w (use --input-backend remote-desktop on Wayland)", err)
 		}
 		fx, fy := math.Round(float64(lx)*space.ScaleX), math.Round(float64(ly)*space.ScaleY)
-		if fx > math.MaxInt || fx < math.MinInt || fy > math.MaxInt || fy < math.MinInt {
+		// float64(math.MaxInt) rounds up to 2^63 on 64-bit hosts.
+		// A value at that rounded limit already exceeds the largest int.
+		if fx >= float64(math.MaxInt) || fx < float64(math.MinInt) || fy >= float64(math.MaxInt) || fy < float64(math.MinInt) {
 			return fmt.Errorf("mapped screenshot point outside pointer range")
 		}
 		px, py := int(fx), int(fy)
