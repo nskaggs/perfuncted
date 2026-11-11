@@ -268,6 +268,21 @@ func parseKWinWindowList(data string) ([]Info, error) {
 	if rows == nil {
 		return nil, fmt.Errorf("window/kwinscript: window list response must be a JSON array")
 	}
+	// JSON null decodes into float64 zero, but KWin's JSON.stringify also
+	// emits null for non-finite Number() values. Preserve omitted geometry
+	// (legacy providers) while refusing explicit invalid geometry rather than
+	// reporting a false origin or zero-sized window.
+	var rawRows []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(data), &rawRows); err != nil {
+		return nil, fmt.Errorf("window/kwinscript: parse raw geometry: %w", err)
+	}
+	for i, fields := range rawRows {
+		for _, name := range []string{"x", "y", "width", "height"} {
+			if string(fields[name]) == "null" {
+				return nil, fmt.Errorf("window/kwinscript: window %q has null geometry %s", rows[i].ID, name)
+			}
+		}
+	}
 	infos := make([]Info, 0, len(rows))
 	seenIDs := make(map[string]struct{}, len(rows))
 	activeCount := 0
