@@ -288,53 +288,61 @@ func parseKWinWindowList(data string) ([]Info, error) {
 			return nil, fmt.Errorf("window/kwinscript: duplicate window identity %q", row.ID)
 		}
 		seenIDs[row.ID] = struct{}{}
-		x, err := kwinGeometryInt(row.X, "x")
+		info, err := parseKWinWindowRow(row)
 		if err != nil {
-			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
-		}
-		y, err := kwinGeometryInt(row.Y, "y")
-		if err != nil {
-			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
-		}
-		width, err := kwinGeometryInt(row.Width, "width")
-		if err != nil {
-			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
-		}
-		height, err := kwinGeometryInt(row.Height, "height")
-		if err != nil {
-			return nil, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
-		}
-		if width < 0 || height < 0 {
-			return nil, fmt.Errorf("window/kwinscript: window %q has negative dimensions %dx%d", row.ID, width, height)
-		}
-		info := Info{
-			NativeID:      row.ID,
-			Title:         row.Title,
-			AppID:         row.AppID,
-			Class:         row.Class,
-			PID:           row.PID,
-			X:             x,
-			Y:             y,
-			W:             width,
-			H:             height,
-			Active:        row.Active,
-			Minimized:     row.Minimized,
-			Maximized:     row.Maximized,
-			Fullscreen:    row.Fullscreen,
-			KeepAbove:     row.KeepAbove,
-			KeepBelow:     row.KeepBelow,
-			Shaded:        row.Shaded,
-			Shadeable:     row.Shadeable,
-			OnAllDesktops: row.OnAllDesktops,
-			DesktopIDs:    row.DesktopIDs,
-			Tiled:         row.Tiled,
-		}
-		if id, err := numericID(info.NativeID); err == nil {
-			info.ID = id
+			return nil, err
 		}
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+func parseKWinWindowRow(row kwinWindowRow) (Info, error) {
+	x, err := kwinGeometryInt(row.X, "x")
+	if err != nil {
+		return Info{}, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+	}
+	y, err := kwinGeometryInt(row.Y, "y")
+	if err != nil {
+		return Info{}, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+	}
+	width, err := kwinGeometryInt(row.Width, "width")
+	if err != nil {
+		return Info{}, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+	}
+	height, err := kwinGeometryInt(row.Height, "height")
+	if err != nil {
+		return Info{}, fmt.Errorf("window/kwinscript: window %q: %w", row.ID, err)
+	}
+	if width < 0 || height < 0 {
+		return Info{}, fmt.Errorf("window/kwinscript: window %q has negative dimensions %dx%d", row.ID, width, height)
+	}
+	info := Info{
+		NativeID:      row.ID,
+		Title:         row.Title,
+		AppID:         row.AppID,
+		Class:         row.Class,
+		PID:           row.PID,
+		X:             x,
+		Y:             y,
+		W:             width,
+		H:             height,
+		Active:        row.Active,
+		Minimized:     row.Minimized,
+		Maximized:     row.Maximized,
+		Fullscreen:    row.Fullscreen,
+		KeepAbove:     row.KeepAbove,
+		KeepBelow:     row.KeepBelow,
+		Shaded:        row.Shaded,
+		Shadeable:     row.Shadeable,
+		OnAllDesktops: row.OnAllDesktops,
+		DesktopIDs:    row.DesktopIDs,
+		Tiled:         row.Tiled,
+	}
+	if id, err := numericID(info.NativeID); err == nil {
+		info.ID = id
+	}
+	return info, nil
 }
 
 func kwinGeometryInt(value float64, name string) (int, error) {

@@ -16,11 +16,12 @@ type relativePointerInput struct {
 	*pftest.Inputter
 	x, y        int
 	locationErr error
+	spaceErr    error
 	space       input.CoordinateSpaceInfo
 }
 
 func (i *relativePointerInput) PointerCoordinateSpace(context.Context) (input.CoordinateSpaceInfo, error) {
-	return i.space, nil
+	return i.space, i.spaceErr
 }
 func (i *relativePointerInput) PointerLocation(context.Context) (int, int, error) {
 	return i.x, i.y, i.locationErr
@@ -98,6 +99,9 @@ func TestRelativePointerCLIRejectsUnsafeCoordinatesBeforeInput(t *testing.T) {
 		{"negative-overflow", []string{"input", "move-relative", "--dx=-2", "--verify=false"}, math.MinInt + 1, 0, nil, "overflows"},
 		{"y-overflow", []string{"input", "move-relative", "--dy=2", "--verify=false"}, 0, math.MaxInt - 1, nil, "overflows"},
 		{"untrusted-scale", []string{"input", "move-relative", "--dx=2"}, 0, 0, func(i *relativePointerInput, _ *relativePointerWindow) { i.space.ScaleX = 1.25 }, "logical pointer coordinate scale"},
+		{"coordinate-space-failure", []string{"input", "move-relative", "--dx=2"}, 0, 0, func(i *relativePointerInput, _ *relativePointerWindow) {
+			i.spaceErr = errors.New("synthetic coordinate space failure")
+		}, "synthetic coordinate space failure"},
 		{"location-failure", []string{"input", "move-relative", "--dx=2"}, 0, 0, func(i *relativePointerInput, _ *relativePointerWindow) {
 			i.locationErr = errors.New("synthetic cursor query failed")
 		}, "synthetic cursor query failed"},
