@@ -135,11 +135,8 @@ output path. The `--host-dir` flags are provided by the downloadable
 launcher and grant only the specified directory.
 
 [Flatpak setup, supported desktops, permissions, and troubleshooting](FLATPAK.md)
-also documents the unattended CI tests and the separate attended Wayland
-permission checks. An optional third release asset,
-`pf-flatpak-attended-check`, runs explicit, **interactive** GNOME/KDE Wayland
-consent tests when a person is present. It is intentionally not an unattended
-CI test.
+also documents the supported desktops, permissions, and limits of
+unattended Wayland testing.
 
 ### Native Go CLI
 

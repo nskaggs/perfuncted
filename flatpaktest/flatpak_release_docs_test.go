@@ -75,8 +75,11 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 		!strings.Contains(guide, "attended") {
 		t.Fatal("guide must distinguish actual Wayland consent testing from unattended capability probes")
 	}
-	if !strings.Contains(release, "scripts/pf-flatpak scripts/pf-flatpak-attended-check --clobber") {
-		t.Fatal("the release must also publish the optional attended native Wayland validator")
+	if strings.Contains(release, "pf-flatpak-attended-check") {
+		t.Fatal("attended desktop tests belong in the repository, not release downloads")
+	}
+	if strings.Contains(read(".github/release-notes/v1.3.0.md"), "pf-flatpak-attended-check") {
+		t.Fatal("release notes must describe user features, not a developer-only attended helper")
 	}
 }
 

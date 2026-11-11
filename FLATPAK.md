@@ -142,33 +142,8 @@ restoring a saved permission. No unattended CI result is equivalent to this
 consent-and-control test. GNOME additionally needs the native host bridge
 installed to validate its bridge-specific window operations.
 
-For an actual attended verification, download the optional
-`pf-flatpak-attended-check` asset from the same release and run:
-
-```sh
-chmod +x ./pf-flatpak-attended-check
-./pf-flatpak-attended-check allow
-./pf-flatpak-attended-check deny
-./pf-flatpak-attended-check cancel
-./pf-flatpak-attended-check restore
-./pf-flatpak-attended-check revoke
-./pf-flatpak-attended-check bridge  # GNOME only, requires installed host bridge
-./pf-flatpak-attended-check capture # Approve screenshot authorization; verify disposable PNG
-./pf-flatpak-attended-check capture-deny   # Deny screenshot permission; require no pixels
-./pf-flatpak-attended-check capture-cancel # Dismiss screenshot permission; require no pixels
-```
-
-The `capture` mode requests a real 64×48 screenshot, allows the user to respond to any desktop consent dialog, checks the resulting PNG header and dimensions, then deletes the captured image. It is intentionally not an unattended CI check. The `capture-deny` and `capture-cancel` modes separately require the screenshot command to fail and produce no bytes; a person must also confirm that the intended portal dialog was actually shown and denied or dismissed, rather than merely unavailable.
-
-The input-validation modes open only a disposable editor document. In the positive cases it
-asks for a visible editor text-area coordinate, sends a **portal-authorized
-mouse click**, then types and saves a unique marker and verifies the saved
-content. It waits for explicit human consent/denial; negative cases verify
-input rejection without modifying that document. It will refuse
-unattended execution. The `restore` case opts into persistent permission and
-checks a second CLI process; the `revoke` case requires changing permissions
-in the desktop settings. The `cancel` case rejects an abandoned permission
-prompt. The GNOME-only `bridge` case requires the host extension already
-installed, then checks window discovery and verified activation. These tests
-use the **actual** installed Flatpak and native Wayland editor; run the portal
-modes separately on GNOME and KDE.
+The interactive permission-approval checks are not release downloads.
+Project maintainers can use the repository-only
+`scripts/pf-flatpak-attended-check` helper on a visible GNOME or KDE Wayland
+desktop. It requires an operator to approve or deny desktop permission prompts;
+unattended CI does not substitute for those interactions.
