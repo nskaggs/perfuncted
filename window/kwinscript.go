@@ -265,6 +265,9 @@ func parseKWinWindowList(data string) ([]Info, error) {
 	if err := json.Unmarshal([]byte(data), &rows); err != nil {
 		return nil, fmt.Errorf("window/kwinscript: parse window list: %w", err)
 	}
+	if rows == nil {
+		return nil, fmt.Errorf("window/kwinscript: window list response must be a JSON array")
+	}
 	infos := make([]Info, 0, len(rows))
 	seenIDs := make(map[string]struct{}, len(rows))
 	for _, row := range rows {

@@ -16,6 +16,9 @@ func parseKWinDesktops(data string) ([]DesktopInfo, error) {
 	if err := json.Unmarshal([]byte(data), &desktops); err != nil {
 		return nil, fmt.Errorf("window/kwinscript: parse desktops: %w", err)
 	}
+	if desktops == nil {
+		return nil, fmt.Errorf("window/kwinscript: desktop response must be a JSON array")
+	}
 	seen := map[string]bool{}
 	seenPositions := map[int]bool{}
 	currentCount := 0
