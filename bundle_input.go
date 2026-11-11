@@ -338,6 +338,16 @@ func (b *InputBundle) DragAndDrop(
 	defer cancel()
 	started := time.Now()
 	defer func() { err = b.recordInputReceipt("drag-and-drop", started, err) }()
+	// A rejected destination must not first press the button at a valid origin.
+	// Backends with authoritative bounds can validate both points without input.
+	if validator, ok := b.backend.(input.PointerTargetValidator); ok {
+		if checkErr := validator.ValidatePointerTarget(ctx, x1, y1); checkErr != nil {
+			return b.operationError("pointer", checkErr)
+		}
+		if checkErr := validator.ValidatePointerTarget(ctx, x2, y2); checkErr != nil {
+			return b.operationError("pointer", checkErr)
+		}
+	}
 	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
 		return moveErr
 	}

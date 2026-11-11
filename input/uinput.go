@@ -34,6 +34,10 @@ var _ Inputter = (*UinputBackend)(nil)
 // Mouse movement uses a virtual touchpad with absolute axes spanning the
 // actual logical pixels [0,width-1] and [0,height-1].
 type UinputBackend struct {
+	// Logical dimensions assigned to a constructed absolute-axis device.
+	// Raw synthetic backends without device dimensions retain their existing
+	// test-only behavior; runtime constructors always populate both fields.
+	logicalWidth, logicalHeight int32
 	// Authoritative only for a compositor-reported, single logical output
 	// starting at (0,0). Explicit constructor dimensions are not proof.
 	verifiedSingleLogicalOutput bool
@@ -145,7 +149,7 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 		charToRune = qwertyRuneMap()
 	}
 
-	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune}, nil
+	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune, logicalWidth: maxX, logicalHeight: maxY}, nil
 }
 
 // PointerCoordinateSpace is available only when the runtime established a
@@ -693,6 +697,32 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 	return nil
 }
 
+// ValidatePointerTarget checks whether an absolute point is addressable by the
+// current virtual touchpad, without moving the pointer or pressing a button.
+func (b *UinputBackend) ValidatePointerTarget(ctx context.Context, x, y int) error {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if b == nil {
+		return unsupportedError("input/uinput", "pointer backend unavailable")
+	}
+	if b.operations.Closed() {
+		return errUinputBackendClosed
+	}
+	if x < -1<<31 || x > 1<<31-1 || y < -1<<31 || y > 1<<31-1 {
+		return fmt.Errorf("input/uinput: coordinates (%d,%d) exceed int32 range", x, y)
+	}
+	if b.logicalWidth < 2 || b.logicalHeight < 2 {
+		// Synthetic direct backends cannot assert real screen bounds.
+		return unsupportedError("input/uinput", "pointer coordinate bounds unavailable")
+	}
+	if x < 0 || y < 0 || x >= int(b.logicalWidth) || y >= int(b.logicalHeight) {
+		return fmt.Errorf("input/uinput: coordinates (%d,%d) outside logical desktop bounds %dx%d", x, y, b.logicalWidth, b.logicalHeight)
+	}
+	return nil
+}
+
 // MouseMove moves the pointer to absolute coordinates x and y.
 func (b *UinputBackend) MouseMove(ctx context.Context, x, y int) error {
 	return b.withOperation(ctx, func(ctx context.Context) error {
@@ -707,7 +737,11 @@ func (b *UinputBackend) mouseMove(ctx context.Context, x, y int) error {
 	if b.touchpad == nil {
 		return unsupportedError("input/uinput", "touchpad device unavailable")
 	}
-	if x < -1<<31 || x > 1<<31-1 || y < -1<<31 || y > 1<<31-1 {
+	if b.logicalWidth >= 2 && b.logicalHeight >= 2 {
+		if err := b.ValidatePointerTarget(ctx, x, y); err != nil {
+			return err
+		}
+	} else if x < -1<<31 || x > 1<<31-1 || y < -1<<31 || y > 1<<31-1 {
 		return fmt.Errorf("input/uinput: coordinates (%d,%d) exceed int32 range", x, y)
 	}
 	return b.touchpad.MoveTo(int32(x), int32(y))

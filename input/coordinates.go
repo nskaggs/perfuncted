@@ -51,3 +51,11 @@ func (info CoordinateSpaceInfo) Validate() error {
 type PointerCoordinateSpaceReporter interface {
 	PointerCoordinateSpace(context.Context) (CoordinateSpaceInfo, error)
 }
+
+// PointerTargetValidator optionally checks an absolute pointer destination
+// without injecting any input. Compound gestures use this to validate every
+// endpoint before the first mouse press; backends without proved bounds do
+// not provide this interface.
+type PointerTargetValidator interface {
+	ValidatePointerTarget(context.Context, int, int) error
+}
