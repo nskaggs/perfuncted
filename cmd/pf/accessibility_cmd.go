@@ -401,6 +401,9 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 
 	var eventBuffer int
 	events := &cobra.Command{Use: "events", Short: "Stream bounded AT-SPI invalidation events", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		if eventBuffer < 0 {
+			return fmt.Errorf("accessibility: --buffer must be nonnegative")
+		}
 		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
