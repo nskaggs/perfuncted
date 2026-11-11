@@ -72,9 +72,10 @@ func infoCmd(
 ) *cobra.Command {
 	var outputFlag string
 	cmd := &cobra.Command{
-		Use:   "info",
-		Short: "Display resolved capabilities for this environment",
-		Args:  cobra.NoArgs,
+		Use:     "info",
+		Aliases: []string{"status"},
+		Short:   "Display resolved capabilities for this environment",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mode, err := parseOutputMode(outputFlag)
 			if err != nil {
@@ -102,8 +103,13 @@ func infoCmd(
 // XWayland server for native Wayland desktop control.
 func inputBackendWarning(report infoReport) string {
 	entry := report.Capabilities["input"]
-	if strings.Contains(strings.ToLower(report.Compositor), "wayland") && strings.Contains(entry.Backend, "XTestBackend") {
-		return "XTest controls X11/XWayland windows, NOT native Wayland windows; use --input-backend remote-desktop for authorized compositor-wide input"
+	if strings.Contains(strings.ToLower(report.Compositor), "wayland") {
+		if strings.Contains(entry.Backend, "XTestBackend") {
+			return "XTest controls X11/XWayland windows, NOT native Wayland windows; use --input-backend remote-desktop for authorized compositor-wide input"
+		}
+		if !entry.Supported {
+			return "native Wayland input is unavailable in this session; Flatpak may filter privileged compositor input. Where supported, use --input-backend remote-desktop and grant explicit portal authorization"
+		}
 	}
 	return ""
 }

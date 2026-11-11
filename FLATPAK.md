@@ -16,6 +16,7 @@ pf --help
 pf version
 pf session check
 pf info --output=json
+pf status  # alias for the same resolved capabilities
 ```
 
 Without the launcher, use `flatpak run io.github.nskaggs.perfuncted`
@@ -37,8 +38,10 @@ has no `--out`, it streams a PNG if stdout is redirected; it rejects
 interactive terminal output rather than dumping binary bytes into your shell.
 `--out -` always streams. For a file path, use an explicitly shared directory.
 
-Look at `pf info` first: capabilities depend on compositor support and user
-permissions.
+Look at `pf info` (or its synonym `pf status`) first: capabilities depend on
+compositor support and user permissions. An unavailable input backend is an
+honest limitation, not a failed package installation. Use `pf session check`
+for setup diagnostics.
 
 ## Host files: explicit and narrow
 
@@ -84,7 +87,7 @@ version metadata, so identification comes from its pinned release checksum.
 | X11 / Xvfb | Screen, input, and window operations where X11 permits them | Real installed-bundle desktop smoke |
 | KDE Wayland | Compositor / D-Bus window operations depend on KWin policy; portal input needs explicit user consent | Headless KWin probe and capability/error contract; consent requires attended test |
 | GNOME Wayland | Native bridge must already be installed on the **host**; portal authorization is explicit | Headless Mutter probe and capability/error contract; bridge requires attended host test |
-| Other Wayland (Weston / Sway) | Compositor-dependent; inspect capabilities | Backend-specific tests only |
+| Other Wayland (Weston / Sway) | Sandboxed compositor sockets may filter privileged virtual input; use an authorized portal if supported and do not assume native wlroots input is available inside Flatpak | Real installed Flatpak capability/fail-closed verification plus native unsandboxed backend tests |
 | Isolated `pf session start` | Not bundled as a complete nested desktop in Flatpak | Prefer native CLI |
 
 Desktop controls blocked by the compositor must fail with a diagnostic, **not**
@@ -107,6 +110,12 @@ Permission restoration is always opt-in, using `--remember-input-permission`.
   `pf --host-dir-ro "$PWD" run "$PWD/file.pf"`.
 - **GNOME bridge missing**: install the native host bridge first, then
   logout/login. A Flatpak cannot automatically install GNOME Shell extensions.
+- **Native Sway/wlroots input unavailable in Flatpak**: the Flatpak Wayland
+  socket can filter privileged virtual keyboard/pointer protocols even when
+  the same protocol works from the native host executable. `pf info`/`pf status`
+  must report this as unavailable. Do not add `--device=all` or bypass the
+  compositor's input permissions. Where supported, explicitly request
+  `--input-backend remote-desktop` and authorize it through the desktop portal.
 - **Portal denied input**: request `--input-backend remote-desktop` on a
   user-visible supported desktop and answer the compositor's consent prompt.
 - **Nested session tools missing**: `sway`, `dbus-daemon`, and `wl-paste`

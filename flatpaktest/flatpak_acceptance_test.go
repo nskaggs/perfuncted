@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -54,6 +55,36 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		}
 		if len(report["capabilities"]) == 0 {
 			t.Fatalf("info JSON missing capabilities: %q", out)
+		}
+	})
+	t.Run("info, status alias and session check agree without display", func(t *testing.T) {
+		infoJSON, _ := run(t, appID, "info", "--output=json")
+		statusJSON, _ := run(t, appID, "status", "--output=json")
+		var infoReport, statusReport struct {
+			Compositor   string `json:"compositor"`
+			Capabilities map[string]struct {
+				Supported bool   `json:"supported"`
+				Backend   string `json:"backend"`
+				Reason    string `json:"reason"`
+			} `json:"capabilities"`
+		}
+		if err := json.Unmarshal([]byte(infoJSON), &infoReport); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(statusJSON), &statusReport); err != nil {
+			t.Fatal(err)
+		}
+		if infoReport.Compositor != statusReport.Compositor || !reflect.DeepEqual(infoReport.Capabilities, statusReport.Capabilities) {
+			t.Fatalf("installed Flatpak status disagrees with info: info=%s status=%s", infoJSON, statusJSON)
+		}
+		if len(infoReport.Capabilities) < 3 {
+			t.Fatalf("Flatpak info omitted capability matrix: %s", infoJSON)
+		}
+		plain, _ := run(t, appID, "status")
+		for _, want := range []string{"Environment", "Capabilities", "input", "screen"} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("Flatpak status missing %s: %s", want, plain)
+			}
 		}
 	})
 	t.Run("diagnostics without display", func(t *testing.T) {
@@ -116,6 +147,34 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		h.env = setEnv(h.env, "DISPLAY", display)
 		h.env = setEnv(h.env, "XDG_SESSION_TYPE", "x11")
 		defer func() { h.env = origEnv }()
+		t.Run("actual X11 info and status report working capabilities", func(t *testing.T) {
+			stdout, _ := run(t, "--socket=x11", appID, "info", "--output=json")
+			alias, _ := run(t, "--socket=x11", appID, "status", "--output=json")
+			var report, aliasReport struct {
+				Compositor   string `json:"compositor"`
+				Capabilities map[string]struct {
+					Supported bool   `json:"supported"`
+					Backend   string `json:"backend"`
+				} `json:"capabilities"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(alias), &aliasReport); err != nil {
+				t.Fatal(err)
+			}
+			if report.Compositor != aliasReport.Compositor || !reflect.DeepEqual(report.Capabilities, aliasReport.Capabilities) {
+				t.Fatalf("Flatpak status disagrees with info on X11: info=%s status=%s", stdout, alias)
+			}
+			for _, cap := range []string{"screen", "input", "windows"} {
+				if !report.Capabilities[cap].Supported {
+					t.Errorf("X11 installed Flatpak reports unavailable %s despite real working backend: %s", cap, stdout)
+				}
+			}
+			if strings.Contains(strings.ToLower(report.Compositor), "wayland") {
+				t.Fatalf("Flatpak's actual Xvfb session wrongly identifies as Wayland: %s", stdout)
+			}
+		})
 		out, _ := run(t, "--socket=x11", appID, "screen", "resolution")
 		if !strings.Contains(out, "1024") || !strings.Contains(out, "768") {
 			t.Fatalf("packaged X11 screen resolution incorrect: %q", out)

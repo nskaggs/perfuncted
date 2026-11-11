@@ -78,3 +78,43 @@ func TestInfoRenderersPropagateClosedOutputErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestInfoWarnsWhenWaylandInputIsUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		report  infoReport
+		warning string
+	}{
+		{
+			name: "Wayland sandbox blocked virtual input",
+			report: infoReport{Compositor: "wlroots Wayland", Capabilities: map[string]capabilityEntry{
+				"input": {Supported: false, Reason: "no backend available for Wayland desktop"},
+			}},
+			warning: "--input-backend remote-desktop",
+		},
+		{
+			name: "X11 missing input does not suggest Wayland portal",
+			report: infoReport{Compositor: "X11", Capabilities: map[string]capabilityEntry{
+				"input": {Supported: false},
+			}},
+			warning: "",
+		},
+		{
+			name: "native Wayland backend supported",
+			report: infoReport{Compositor: "wlroots Wayland", Capabilities: map[string]capabilityEntry{
+				"input": {Supported: true, Backend: "*input.WlVirtualBackend"},
+			}},
+			warning: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := inputBackendWarning(tc.report)
+			if tc.warning == "" && got != "" {
+				t.Fatalf("unexpected backend warning %q", got)
+			}
+			if tc.warning != "" && !strings.Contains(got, tc.warning) {
+				t.Fatalf("warning %q missing instruction %q", got, tc.warning)
+			}
+		})
+	}
+}

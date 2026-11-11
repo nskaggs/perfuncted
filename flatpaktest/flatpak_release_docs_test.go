@@ -35,6 +35,7 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 			"install -Dm755 ./pf-flatpak",
 			"pf session check",
 			"pf info",
+			"pf status",
 		} {
 			if !strings.Contains(target.doc, required) {
 				t.Errorf("%s missing download-only first-run command %q", target.name, required)
@@ -60,6 +61,10 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 		if !strings.Contains(workflow.content, "PF_FLATPAK_EXPORT_BUNDLE: ${{ runner.temp }}/perfuncted.flatpak") {
 			t.Fatalf("%s workflow must export the verified bundle outside isolated test workspace", workflow.name)
 		}
+	}
+	if !strings.Contains(flatpakCI, "PF_FLATPAK_WLROOTS_TEST: \"1\"") ||
+		!strings.Contains(release, "PF_FLATPAK_WLROOTS_TEST: \"1\"") {
+		t.Fatal("installed Flatpak native Wayland capability and authority checks must run in CI and before release")
 	}
 	if !strings.Contains(flatpakCI, "path: ${{ runner.temp }}/perfuncted.flatpak") {
 		t.Fatal("Flatpak CI artifact upload references the old unpopulated checkout path")

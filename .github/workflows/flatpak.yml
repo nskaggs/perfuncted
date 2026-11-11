@@ -31,7 +31,7 @@ jobs:
       - name: Install Flatpak tooling
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell x11-utils xdotool
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak libgdk-pixbuf2.0-bin libgdk-pixbuf-2.0-0 librsvg2-common xvfb xterm openbox kwin-wayland gnome-shell x11-utils xdotool sway foot
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -54,6 +54,12 @@ jobs:
           PF_FLATPAK_REQUIRE_UPGRADE: "1"
           PF_FLATPAK_EXPORT_BUNDLE: ${{ runner.temp }}/perfuncted.flatpak
         run: go test -tags=integration ./flatpaktest -count=1 -v -timeout=60m
+
+      - name: Verify installed Flatpak status and native Wayland authority boundaries
+        env:
+          PF_FLATPAK_TEST_BUNDLE: ${{ runner.temp }}/perfuncted.flatpak
+          PF_FLATPAK_WLROOTS_TEST: "1"
+        run: go test -tags=integration ./flatpaktest -run '^TestFlatpakPrebuiltWlrootsCapabilityAndEffects$' -count=1 -v -timeout=15m
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
