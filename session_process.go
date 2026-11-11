@@ -53,12 +53,21 @@ func (p *managedSessionProcess) wait(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("perfuncted: wait session process: %w: nil context", ErrInvalidArgument)
 	}
+	if err := ctx.Err(); err != nil {
+		return contextErrorWithCause(ctx)
+	}
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return contextErrorWithCause(ctx)
 	case <-p.waitDone:
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
 		p.waitMu.RLock()
 		defer p.waitMu.RUnlock()
+		if err := ctx.Err(); err != nil {
+			return contextErrorWithCause(ctx)
+		}
 		return p.waitErr
 	}
 }
