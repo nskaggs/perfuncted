@@ -37,6 +37,19 @@ func (o accessibilityCLIOptions) requireScope() error {
 	if o.pid < 0 {
 		return fmt.Errorf("accessibility: --pid must be a nonnegative process ID")
 	}
+	for _, bound := range []struct {
+		name  string
+		value int
+	}{
+		{"--max-depth", o.maxDepth},
+		{"--max-nodes", o.maxNodes},
+		{"--max-text-bytes", o.maxTextBytes},
+		{"--max-total-bytes", o.maxTotalBytes},
+	} {
+		if bound.value < 0 {
+			return fmt.Errorf("accessibility: %s must be nonnegative", bound.name)
+		}
+	}
 	if strings.TrimSpace(o.appName) == "" && o.pid == 0 && strings.TrimSpace(o.window) == "" && strings.TrimSpace(o.windowID) == "" {
 		return fmt.Errorf("accessibility: an explicit --app, --pid, --window, or --window-id scope is required")
 	}
