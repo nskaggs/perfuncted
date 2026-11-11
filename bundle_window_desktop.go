@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -47,7 +48,7 @@ func (b *WindowBundle) SwitchDesktop(ctx context.Context, id string) error {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("switch-desktop", backend.SwitchDesktop(ctx, id))
+	return b.desktopMutationResult(ctx, "switch-desktop", backend.SwitchDesktop(ctx, id))
 }
 
 // SetWindowDesktopByID moves a window to one existing virtual desktop.
@@ -63,7 +64,7 @@ func (b *WindowBundle) SetWindowDesktopByID(ctx context.Context, id, desktopID s
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("set-window-desktop", backend.SetWindowDesktopByID(ctx, id, desktopID))
+	return b.desktopMutationResult(ctx, "set-window-desktop", backend.SetWindowDesktopByID(ctx, id, desktopID))
 }
 
 // SetKeepAboveByID changes KWin's compositor-owned stacking state.
@@ -79,7 +80,7 @@ func (b *WindowBundle) SetKeepAboveByID(ctx context.Context, id string, on bool)
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("keep-above", backend.SetKeepAboveByID(ctx, id, on))
+	return b.desktopMutationResult(ctx, "keep-above", backend.SetKeepAboveByID(ctx, id, on))
 }
 
 // SetKeepBelowByID changes KWin's compositor-owned stacking state.
@@ -95,7 +96,7 @@ func (b *WindowBundle) SetKeepBelowByID(ctx context.Context, id string, on bool)
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("keep-below", backend.SetKeepBelowByID(ctx, id, on))
+	return b.desktopMutationResult(ctx, "keep-below", backend.SetKeepBelowByID(ctx, id, on))
 }
 
 // CursorPosition reads the compositor's actual pointer position. This is
@@ -139,7 +140,7 @@ func (b *WindowBundle) SetShadeByID(ctx context.Context, id string, on bool) err
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("shade-when-supported", backend.SetShadeByID(ctx, id, on))
+	return b.desktopMutationResult(ctx, "shade-when-supported", backend.SetShadeByID(ctx, id, on))
 }
 
 // TileWindowByID assigns the native KWin custom tile containing an absolute
@@ -156,7 +157,7 @@ func (b *WindowBundle) TileWindowByID(ctx context.Context, id string, x, y int) 
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("tile-window", backend.TileWindowByID(ctx, id, x, y))
+	return b.desktopMutationResult(ctx, "tile-window", backend.TileWindowByID(ctx, id, x, y))
 }
 
 // FloatWindowByID removes a window from its native KWin tile.
@@ -172,5 +173,19 @@ func (b *WindowBundle) FloatWindowByID(ctx context.Context, id string) error {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
-	return b.operationError("float-window", backend.FloatWindowByID(ctx, id))
+	return b.desktopMutationResult(ctx, "float-window", backend.FloatWindowByID(ctx, id))
+}
+
+// desktopMutationResult does not acknowledge a window or desktop mutation after
+// its caller has withdrawn authorization or its owning session has closed.
+// Preserve concurrent backend errors for diagnosis rather than hiding them.
+func (b *WindowBundle) desktopMutationResult(ctx context.Context, operation string, backendErr error) error {
+	result := b.operationError(operation, backendErr)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return errors.Join(ctxErr, result)
+	}
+	if sessionErr := b.session.ensureOpen(); sessionErr != nil {
+		return errors.Join(sessionErr, result)
+	}
+	return result
 }
