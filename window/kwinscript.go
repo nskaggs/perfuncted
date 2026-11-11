@@ -373,7 +373,7 @@ for (var i = 0; i < wins.length; i++) {
         rows.push({id: String(id), title: String(w.caption || ''), app_id: String(w.resourceName || ''),
             class: String(w.resourceClass || ''), pid: Number(w.pid) || 0, active: String(id) === focusID,
             x: Number(g.x), y: Number(g.y), width: Number(g.width), height: Number(g.height),
-            minimized: !!w.minimized, maximized: !!w.maximized, fullscreen: !!w.fullScreen,
+            minimized: !!w.minimized, maximized: Number(w.maximizeMode) === 3, fullscreen: !!w.fullScreen,
             keep_above: !!w.keepAbove, keep_below: !!w.keepBelow, shaded: !!w.shade, shadeable: !!w.shadeable,
             on_all_desktops: !!w.onAllDesktops, desktop_ids: desktops.join(','), tiled: !!w.tile});
     }

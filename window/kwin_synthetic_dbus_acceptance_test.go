@@ -28,6 +28,7 @@ type syntheticKWinScriptService struct {
 	startCount   int
 	unloadCount  int
 	loadedPath   string
+	loadedScript string
 	noCallback   bool
 	failLoad     bool
 	failStart    bool
@@ -71,6 +72,7 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 	s.response = response
 	s.loadCount++
 	s.loadedPath = path
+	s.loadedScript = string(data)
 	s.mu.Unlock()
 	return 12, nil
 }
