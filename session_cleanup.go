@@ -252,7 +252,7 @@ func unmountSubdirsWith(
 	}
 	mounts, err := readMounts(dir)
 	if ctx.Err() != nil {
-		return contextErrorWithCause(ctx)
+		return errors.Join(contextErrorWithCause(ctx), err)
 	}
 	if err != nil {
 		return fmt.Errorf("session: inspect mounts before cleanup: %w", err)
@@ -269,7 +269,7 @@ func unmountSubdirsWith(
 		}
 		if unmountErr := unmount(ctx, mount); unmountErr != nil {
 			if ctx.Err() != nil {
-				return contextErrorWithCause(ctx)
+				return errors.Join(contextErrorWithCause(ctx), unmountErr)
 			}
 			slog.Debug("session: unmount helper failed", "error", unmountErr)
 		}
@@ -279,7 +279,7 @@ func unmountSubdirsWith(
 	}
 	remaining, err := readMounts(dir)
 	if ctx.Err() != nil {
-		return contextErrorWithCause(ctx)
+		return errors.Join(contextErrorWithCause(ctx), err)
 	}
 	if err != nil {
 		return fmt.Errorf("session: verify mounts after cleanup: %w", err)
