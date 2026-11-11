@@ -19,6 +19,18 @@ func parseKWinDesktops(data string) ([]DesktopInfo, error) {
 	if desktops == nil {
 		return nil, fmt.Errorf("window/kwinscript: desktop response must be a JSON array")
 	}
+	// A JSON null current flag decodes into false, possibly fabricating
+	// an unambiguous current desktop when the compositor actually supplied
+	// an invalid state. Missing flags remain compatible with old providers.
+	var rawDesktops []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(data), &rawDesktops); err != nil {
+		return nil, fmt.Errorf("window/kwinscript: parse desktop state: %w", err)
+	}
+	for i, row := range rawDesktops {
+		if string(row["current"]) == "null" {
+			return nil, fmt.Errorf("window/kwinscript: desktop %d has null current state", i)
+		}
+	}
 	seen := map[string]bool{}
 	seenPositions := map[int]bool{}
 	currentCount := 0

@@ -268,18 +268,18 @@ func parseKWinWindowList(data string) ([]Info, error) {
 	if rows == nil {
 		return nil, fmt.Errorf("window/kwinscript: window list response must be a JSON array")
 	}
-	// JSON null decodes into float64 zero, but KWin's JSON.stringify also
-	// emits null for non-finite Number() values. Preserve omitted geometry
-	// (legacy providers) while refusing explicit invalid geometry rather than
-	// reporting a false origin or zero-sized window.
+	// JSON null decodes into scalar zero values, but KWin may emit null
+	// for non-finite coordinates. Preserve omitted fields for legacy providers
+	// while refusing explicit null instead of inventing ownership, focus,
+	// geometry, or other compositor state.
 	var rawRows []map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(data), &rawRows); err != nil {
 		return nil, fmt.Errorf("window/kwinscript: parse raw geometry: %w", err)
 	}
 	for i, fields := range rawRows {
-		for _, name := range []string{"x", "y", "width", "height"} {
+		for _, name := range []string{"x", "y", "width", "height", "pid", "active", "minimized", "maximized", "fullscreen", "keep_above", "keep_below", "shaded", "shadeable", "on_all_desktops", "desktop_ids", "tiled"} {
 			if string(fields[name]) == "null" {
-				return nil, fmt.Errorf("window/kwinscript: window %q has null geometry %s", rows[i].ID, name)
+				return nil, fmt.Errorf("window/kwinscript: window %q has null state %s", rows[i].ID, name)
 			}
 		}
 	}
