@@ -341,7 +341,7 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 
 	busPath := filepath.Join(i.xdgDir, "bus")
 	observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, StartupPhaseStarted)
-	if err := waitForFile(ctx, busPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
+	if err := waitForSocket(ctx, busPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
 		observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, startupPhaseResult(ctx, err))
 		return fmt.Errorf("dbus socket %s did not appear within %s: %w", busPath, i.timeouts.Startup, err)
 	}
@@ -467,7 +467,7 @@ func (i *sessionInfra) launchSway(
 	observeStartupPhase(i.startupObserver, StartupPhaseSwaySocketsReady, StartupPhaseStarted)
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		if readinessErr := waitForFile(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
+		if readinessErr := waitForSocket(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
 			return fmt.Errorf("wayland socket %s did not appear within %s: %w", socketPath, i.timeouts.Startup, readinessErr)
 		}
 		return nil

@@ -304,11 +304,11 @@ func prepareHeadlessHelpers(t *testing.T, ready bool) string {
 	dbusBody := "exec /bin/sleep 30"
 	swayBody := "exec /bin/sleep 30"
 	if ready {
-		dbusBody = ": > \"$XDG_RUNTIME_DIR/bus\"\n" + dbusBody
-		// Use an actual listening Unix socket rather than a same-name file:
-		// production readiness now verifies the compositor IPC socket type.
-		swayBody = ": > \"$XDG_RUNTIME_DIR/wayland-1\"\n" +
-			"exec python3 -c 'import os,socket,time; s=socket.socket(socket.AF_UNIX); s.bind(os.environ[\"XDG_RUNTIME_DIR\"] + \"/sway-ipc.synthetic.sock\"); s.listen(1); time.sleep(30)'"
+		// Synthetic helpers must create real UNIX sockets: production startup
+		// correctly rejects files and symlinks masquerading as IPC readiness.
+		dbusBody = "exec python3 -c 'import os,socket,time; s=socket.socket(socket.AF_UNIX); s.bind(os.environ[\"XDG_RUNTIME_DIR\"] + \"/bus\"); s.listen(1); time.sleep(30)'"
+		swayBody = "exec python3 -c 'import os,socket,time; a=socket.socket(socket.AF_UNIX); b=socket.socket(socket.AF_UNIX); a.bind(os.environ[\"XDG_RUNTIME_DIR\"] + \"/wayland-1\"); a.listen(1); b.bind(os.environ[\"XDG_RUNTIME_DIR\"] + \"/sway-ipc.synthetic.sock\"); b.listen(1); time.sleep(30)'"
+
 	}
 	for name, body := range map[string]string{
 		"dbus-daemon": dbusBody,

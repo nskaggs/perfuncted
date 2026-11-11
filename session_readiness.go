@@ -119,3 +119,17 @@ func waitForSwayIPCSocket(ctx context.Context, dir string, attempts int, interva
 	}
 	return err
 }
+
+// waitForSocket requires an actual Unix socket at the managed runtime path.
+// A regular file, directory, or symlink cannot prove that the child created
+// its IPC endpoint and must never be accepted as startup readiness.
+func waitForSocket(ctx context.Context, path string, attempts int, interval time.Duration) error {
+	err := pollCondition(ctx, attempts, interval, func() bool {
+		info, statErr := os.Lstat(path)
+		return statErr == nil && info.Mode()&os.ModeSocket != 0
+	})
+	if errors.Is(err, errPollTimeout) {
+		return fmt.Errorf("socket %s did not appear within %s", path, time.Duration(attempts)*interval)
+	}
+	return err
+}
