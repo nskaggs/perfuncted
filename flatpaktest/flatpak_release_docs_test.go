@@ -26,20 +26,31 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 	readme := read("README.md")
 	guide := read("FLATPAK.md")
 	release := read(".github/workflows/release.yml")
+	// The README is deliberately concise. The full invocation and filesystem
+	// examples belong in the dedicated Flatpak guide, not on the landing page.
+	for _, required := range []string{
+		"flatpak install --user ./perfuncted.flatpak",
+		"flatpak run io.github.nskaggs.perfuncted info",
+		"(FLATPAK.md)",
+	} {
+		if !strings.Contains(readme, required) {
+			t.Errorf("README missing basic Flatpak entry point %q", required)
+		}
+	}
+	for _, required := range []string{
+		"flatpak install --user -y ./perfuncted.flatpak",
+		"flatpak run io.github.nskaggs.perfuncted session check",
+		"flatpak run io.github.nskaggs.perfuncted info",
+		"flatpak run --filesystem=",
+	} {
+		if !strings.Contains(guide, required) {
+			t.Errorf("Flatpak guide missing detailed first-run command %q", required)
+		}
+	}
 	for _, target := range []struct{ name, doc string }{
 		{"README", readme},
 		{"Flatpak guide", guide},
 	} {
-		for _, required := range []string{
-			"flatpak install --user -y ./perfuncted.flatpak",
-			"flatpak run io.github.nskaggs.perfuncted session check",
-			"flatpak run io.github.nskaggs.perfuncted info",
-			"flatpak run --filesystem=",
-		} {
-			if !strings.Contains(target.doc, required) {
-				t.Errorf("%s missing download-only first-run command %q", target.name, required)
-			}
-		}
 		if strings.Contains(target.doc, "install -Dm755 scripts/pf-flatpak") ||
 			strings.Contains(target.doc, "flatpak install --user -y ./dist/flatpak/perfuncted.flatpak") {
 			t.Errorf("%s still requires an undeclared repository checkout", target.name)
