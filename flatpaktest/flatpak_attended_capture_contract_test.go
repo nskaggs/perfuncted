@@ -44,6 +44,23 @@ func TestAttendedScreenshotValidationAcceptsValidPNGAndRejectsInvalidData(t *tes
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
+	validBytes, err := os.ReadFile(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	truncated := filepath.Join(root, "truncated.png")
+	if err := os.WriteFile(truncated, validBytes[:len(validBytes)-12], 0600); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := append([]byte(nil), validBytes...)
+	if len(corrupt) < 65 {
+		t.Fatal("PNG fixture unexpectedly small")
+	}
+	corrupt[55] ^= 0xff
+	corrupted := filepath.Join(root, "corrupted.png")
+	if err := os.WriteFile(corrupted, corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
 	invalid := filepath.Join(root, "invalid.png")
 	if err := os.WriteFile(invalid, []byte("a fake png"), 0600); err != nil {
 		t.Fatal(err)
@@ -54,6 +71,8 @@ func TestAttendedScreenshotValidationAcceptsValidPNGAndRejectsInvalidData(t *tes
 	}{
 		{"valid PNG", valid, true},
 		{"invalid PNG", invalid, false},
+		{"truncated PNG", truncated, false},
+		{"corrupted PNG", corrupted, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runtime := filepath.Join(root, strings.ReplaceAll(tc.name, " ", "-"))

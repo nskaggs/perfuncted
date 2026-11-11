@@ -61,17 +61,84 @@ import struct
 import sys
 import zlib
 
+
+def reject(message):
+    sys.exit("FAIL: invalid or incomplete 64x48 screenshot PNG: " + message)
+
+
 raw = pathlib.Path(sys.argv[1]).read_bytes()
-valid = len(raw) >= 33 and raw[:8] == b"\x89PNG\r\n\x1a\n"
-if valid:
-    chunk_size = struct.unpack(">I", raw[8:12])[0]
-    valid = chunk_size == 13 and raw[12:16] == b"IHDR"
-if valid:
-    width, height = struct.unpack(">II", raw[16:24])
-    crc = struct.unpack(">I", raw[29:33])[0]
-    valid = (width, height) == (64, 48) and zlib.crc32(raw[12:29]) == crc
-if not valid:
-    sys.exit("FAIL: captured bytes are not a valid 64x48 PNG header")
+if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+    reject("signature")
+pos = 8
+has_header = has_data = has_end = False
+pixels = bytearray()
+while pos + 12 <= len(raw):
+    size = struct.unpack_from(">I", raw, pos)[0]
+    if size > len(raw) - pos - 12:
+        reject("truncated chunk")
+    kind = raw[pos + 4:pos + 8]
+    payload = raw[pos + 8:pos + 8 + size]
+    crc = struct.unpack_from(">I", raw, pos + 8 + size)[0]
+    if zlib.crc32(kind + payload) != crc:
+        reject("chunk CRC")
+    pos += size + 12
+    if not has_header:
+        if kind != b"IHDR" or size != 13:
+            reject("missing IHDR")
+        width, height, depth, color, compression, filtering, interlace = struct.unpack(">IIBBBBB", payload)
+        if (width, height) != (64, 48):
+            reject("unexpected image dimensions")
+        channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color)
+        allowed_depths = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
+        if channels is None or depth not in allowed_depths[color] or compression or filtering or interlace not in (0, 1):
+            reject("unsupported PNG encoding")
+        has_header = True
+    elif kind == b"IHDR":
+        reject("duplicate IHDR")
+    elif kind == b"IDAT":
+        if has_end:
+            reject("IDAT after IEND")
+        has_data = True
+        pixels.extend(payload)
+    elif kind == b"IEND":
+        if size != 0 or not has_data or pos != len(raw):
+            reject("invalid IEND or trailing bytes")
+        has_end = True
+        break
+    elif kind[0] & 0x20 == 0:
+        reject("unsupported critical chunk")
+
+if not (has_header and has_data and has_end):
+    reject("missing image data or IEND")
+try:
+    decoder = zlib.decompressobj()
+    # A 64x48 screenshot has fewer than 40 KiB of unfiltered pixels even
+    # with 16-bit RGBA and Adam7 pass headers. Reject oversized expansion.
+    decoded = decoder.decompress(bytes(pixels), 64 * 1024)
+except zlib.error:
+    reject("corrupt compressed pixels")
+if not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+    reject("incomplete or excess compressed pixels")
+
+# Verify every scanline, including PNG filter bytes. For Adam7-encoded
+# images, compute the seven passes separately.
+passes = ((0, 0, 1, 1),) if interlace == 0 else (
+    (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
+    (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2),
+)
+offset = 0
+for x0, y0, dx, dy in passes:
+    pw = max(0, (width - x0 + dx - 1) // dx)
+    ph = max(0, (height - y0 + dy - 1) // dy)
+    if pw == 0 or ph == 0:
+        continue
+    stride = (pw * channels * depth + 7) // 8
+    for _ in range(ph):
+        if offset + stride + 1 > len(decoded) or decoded[offset] > 4:
+            reject("invalid or truncated scanline")
+        offset += stride + 1
+if offset != len(decoded):
+    reject("unexpected scanline length")
 PYPNG
   echo "PASS: installed Flatpak captured a validated 64x48 PNG in an attended $desktop Wayland session."
   exit 0
