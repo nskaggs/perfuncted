@@ -13,7 +13,9 @@ MODE:
   restore  Opt in to restoring permission; type and save twice
   revoke   Revoke authorization in settings, then deny a new request
   bridge   With GNOME host bridge installed, verify native window control
-  capture  Approve an attended screenshot; validate a disposable PNG
+  capture         Approve an attended screenshot; validate a disposable PNG
+  capture-deny    Deny screenshot permission; ensure no image is returned
+  capture-cancel  Cancel screenshot permission; ensure no image is returned
 
 Requires a visible GNOME or KDE Wayland session and an interactive terminal.
 Uses disposable files only; never modifies an existing document.
@@ -25,7 +27,7 @@ if [[ "$#" -ne 1 || "$1" == "--help" || "$1" == "-h" ]]; then
   exit $?
 fi
 mode="$1"
-case "$mode" in allow|deny|restore|revoke|cancel|bridge|capture) ;; *) usage >&2; exit 2;; esac
+case "$mode" in allow|deny|restore|revoke|cancel|bridge|capture|capture-deny|capture-cancel) ;; *) usage >&2; exit 2;; esac
 if [[ ! -t 0 || "${XDG_SESSION_TYPE:-}" != "wayland" || -z "${WAYLAND_DISPLAY:-}" ]]; then
   echo "An attended, visible Wayland desktop and interactive terminal are required." >&2
   exit 2
@@ -35,7 +37,7 @@ if ! command -v pf >/dev/null || ! flatpak info io.github.nskaggs.perfuncted >/d
   exit 2
 fi
 desktop="${XDG_CURRENT_DESKTOP:-}"
-if [[ "$mode" == "capture" ]]; then
+if [[ "$mode" == "capture" || "$mode" == "capture-deny" || "$mode" == "capture-cancel" ]]; then
   case "${desktop,,}" in
     *kde*|*plasma*|*gnome*) ;;
     *) echo "Use a visible KDE Plasma or GNOME Wayland session." >&2; exit 2 ;;
@@ -50,7 +52,27 @@ if [[ "$mode" == "capture" ]]; then
   echo "Session: $desktop / Wayland"
   echo "A screenshot portal may request your authorization to capture screen pixels."
   echo "The 64x48 PNG is stored only in a disposable private directory and deleted on exit."
+  case "$mode" in
+    capture-deny) echo "Deny the screenshot portal request when prompted." ;;
+    capture-cancel) echo "Cancel or dismiss the screenshot portal request when prompted." ;;
+    *) echo "Approve the screenshot portal request when prompted." ;;
+  esac
   read -r -p "Press Enter to request the screenshot with the installed Flatpak: " _
+  if [[ "$mode" != "capture" ]]; then
+    # A denial is a failure only if the program returns nonzero AND no pixels
+    # escape to stdout. The human tester must confirm the actual dialog was
+    # denied/canceled rather than merely absent or broken.
+    if pf screen grab --rect=0,0,64,48 --out - > "$capture"; then
+      echo "FAIL: screenshot capture succeeded despite expected denial/cancellation." >&2
+      exit 1
+    fi
+    if [[ -s "$capture" ]]; then
+      echo "FAIL: screenshot bytes escaped despite denied/canceled capture." >&2
+      exit 1
+    fi
+    echo "PASS: screenshot command failed closed without returning pixels; confirm the portal request was denied or canceled as instructed."
+    exit 0
+  fi
   if ! pf screen grab --rect=0,0,64,48 --out - > "$capture"; then
     echo "FAIL: screenshot capture was denied or unavailable." >&2
     exit 1

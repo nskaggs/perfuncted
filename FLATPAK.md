@@ -154,9 +154,11 @@ chmod +x ./pf-flatpak-attended-check
 ./pf-flatpak-attended-check revoke
 ./pf-flatpak-attended-check bridge  # GNOME only, requires installed host bridge
 ./pf-flatpak-attended-check capture # Approve screenshot authorization; verify disposable PNG
+./pf-flatpak-attended-check capture-deny   # Deny screenshot permission; require no pixels
+./pf-flatpak-attended-check capture-cancel # Dismiss screenshot permission; require no pixels
 ```
 
-The `capture` mode requests a real 64×48 screenshot, allows the user to respond to any desktop consent dialog, checks the resulting PNG header and dimensions, then deletes the captured image. It is intentionally not an unattended CI check.
+The `capture` mode requests a real 64×48 screenshot, allows the user to respond to any desktop consent dialog, checks the resulting PNG header and dimensions, then deletes the captured image. It is intentionally not an unattended CI check. The `capture-deny` and `capture-cancel` modes separately require the screenshot command to fail and produce no bytes; a person must also confirm that the intended portal dialog was actually shown and denied or dismissed, rather than merely unavailable.
 
 The input-validation modes open only a disposable editor document. In the positive cases it
 asks for a visible editor text-area coordinate, sends a **portal-authorized

@@ -27,7 +27,7 @@ func TestAttendedScreenshotValidationAcceptsValidPNGAndRejectsInvalidData(t *tes
 	}
 	for name, content := range map[string]string{
 		"flatpak": "#!/bin/sh\nexit 0\n",
-		"pf":      "#!/bin/sh\ncat \"$PF_CAPTURE_FIXTURE\"\n",
+		"pf":      "#!/bin/sh\ncat \"$PF_CAPTURE_FIXTURE\"\nexit \"${PF_CAPTURE_EXIT:-0}\"\n",
 	} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0700); err != nil {
 			t.Fatal(err)
@@ -65,14 +65,23 @@ func TestAttendedScreenshotValidationAcceptsValidPNGAndRejectsInvalidData(t *tes
 	if err := os.WriteFile(invalid, []byte("a fake png"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "empty"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
-		name, fixture string
-		wantSuccess   bool
+		name, mode, fixture, exit string
+		wantSuccess               bool
 	}{
-		{"valid PNG", valid, true},
-		{"invalid PNG", invalid, false},
-		{"truncated PNG", truncated, false},
-		{"corrupted PNG", corrupted, false},
+		{"valid PNG", "capture", valid, "0", true},
+		{"invalid PNG", "capture", invalid, "0", false},
+		{"truncated PNG", "capture", truncated, "0", false},
+		{"corrupted PNG", "capture", corrupted, "0", false},
+		{"denied returns nothing", "capture-deny", filepath.Join(root, "empty"), "1", true},
+		{"canceled returns nothing", "capture-cancel", filepath.Join(root, "empty"), "1", true},
+		{"denied leaks partial pixels", "capture-deny", valid, "1", false},
+		{"canceled leaks partial pixels", "capture-cancel", valid, "1", false},
+		{"denied unexpectedly succeeds", "capture-deny", valid, "0", false},
+		{"canceled unexpectedly succeeds", "capture-cancel", valid, "0", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runtime := filepath.Join(root, strings.ReplaceAll(tc.name, " ", "-"))
@@ -82,14 +91,14 @@ func TestAttendedScreenshotValidationAcceptsValidPNGAndRejectsInvalidData(t *tes
 			// A dedicated pseudo-terminal permits the validator to run while all
 			// installed desktop and Flatpak interactions are deterministic fakes.
 			path := filepath.Join(mustRepoRoot(t), "scripts", "pf-flatpak-attended-check")
-			cmd := exec.Command("script", "-q", "-e", "-c", "bash "+path+" capture", "/dev/null")
+			cmd := exec.Command("script", "-q", "-e", "-c", "bash "+path+" "+tc.mode, "/dev/null")
 			cmd.Stdin = strings.NewReader("\n")
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "PF_CAPTURE_FIXTURE="+tc.fixture, "XDG_CURRENT_DESKTOP=KDE", "XDG_SESSION_TYPE=wayland", "WAYLAND_DISPLAY=wayland-fake", "XDG_RUNTIME_DIR="+runtime)
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "PF_CAPTURE_FIXTURE="+tc.fixture, "PF_CAPTURE_EXIT="+tc.exit, "XDG_CURRENT_DESKTOP=KDE", "XDG_SESSION_TYPE=wayland", "WAYLAND_DISPLAY=wayland-fake", "XDG_RUNTIME_DIR="+runtime)
 			out, err := cmd.CombinedOutput()
 			if (err == nil) != tc.wantSuccess {
 				t.Fatalf("validator success=%v expected=%v output=%s", err == nil, tc.wantSuccess, out)
 			}
-			if tc.wantSuccess && !bytes.Contains(out, []byte("PASS: installed Flatpak captured")) {
+			if tc.wantSuccess && !bytes.Contains(out, []byte("PASS:")) {
 				t.Fatalf("missing success proof: %s", out)
 			}
 			entries, err := os.ReadDir(runtime)
