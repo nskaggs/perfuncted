@@ -92,6 +92,11 @@ func waitForKWinState(ctx context.Context, probe func(context.Context) (bool, er
 			return err
 		}
 		if ok {
+			// A positive compositor observation does not authorize success
+			// after the caller has canceled the verification request.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			return nil
 		}
 		select {
