@@ -74,9 +74,37 @@ func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot
 	}) {
 		t.Fatalf("X11 event target never became visible (DISPLAY=%s)", getEnv(h.env, "DISPLAY"))
 	}
-	list, stderr, code := h.run(t, sourceRoot, "run", "--socket=x11", appID, "window", "list")
-	if code != 0 || !strings.Contains(list, title) {
-		t.Fatalf("packaged Flatpak failed real X11 window discovery: code=%d out=%q err=%q", code, list, stderr)
+	// xdotool sees a newly mapped X11 window before Openbox necessarily
+	// publishes it in the EWMH _NET_CLIENT_LIST. The Flatpak uses that
+	// authoritative managed-window list, not xdotool's full X11 tree.
+	// Wait for the window manager first, then the installed Flatpak. An
+	// empty successful list on the first tick is not a product failure.
+	windowID, parseErr := strconv.ParseUint(id, 10, 32)
+	if parseErr != nil {
+		t.Fatalf("invalid real X11 target ID %q: %v", id, parseErr)
+	}
+	var ewmhClients string
+	if !pollX11Program(12*time.Second, func() bool {
+		cmd := exec.Command("xprop", "-root", "_NET_CLIENT_LIST")
+		cmd.Env = h.env
+		out, commandErr := cmd.CombinedOutput()
+		ewmhClients = string(out)
+		return commandErr == nil && x11ClientListContains(ewmhClients, uint32(windowID))
+	}) {
+		wmOutput, _ := os.ReadFile(wmLog.Name())
+		targetOutput, _ := os.ReadFile(logPath)
+		t.Fatalf("X11 target %q (XID=0x%x) mapped but Openbox never registered it in _NET_CLIENT_LIST; clients=%q wm=%q target=%q",
+			title, windowID, ewmhClients, wmOutput, targetOutput)
+	}
+	var list, stderr string
+	var code int
+	if !pollX11Program(12*time.Second, func() bool {
+		list, stderr, code = h.run(t, sourceRoot, "run", "--socket=x11", appID, "window", "list")
+		return code == 0 && strings.Contains(list, title)
+	}) {
+		wmOutput, _ := os.ReadFile(wmLog.Name())
+		t.Fatalf("installed Flatpak could not discover managed X11 window %q (XID=0x%x); EWMH clients=%q; code=%d list=%q stderr=%q wm=%q",
+			title, windowID, ewmhClients, code, list, stderr, wmOutput)
 	}
 	active, stderr, code := h.run(t, sourceRoot, "run", "--socket=x11", appID, "window", "activate", title, "--verify")
 	if code != 0 || !strings.Contains(active, "verified") {
@@ -145,4 +173,20 @@ func getEnv(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+// xprop formats WINDOW IDs as hexadecimal tokens separated by commas. Check
+// exact tokens: substring matching could confuse e.g. 0x32 with 0x320.
+func x11ClientListContains(property string, target uint32) bool {
+	parts := strings.SplitN(property, "#", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	for _, field := range strings.Split(parts[1], ",") {
+		value, err := strconv.ParseUint(strings.TrimSpace(field), 0, 32)
+		if err == nil && uint32(value) == target {
+			return true
+		}
+	}
+	return false
 }
