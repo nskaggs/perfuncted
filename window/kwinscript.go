@@ -270,7 +270,17 @@ func parseKWinWindowList(data string) ([]Info, error) {
 	}
 	infos := make([]Info, 0, len(rows))
 	seenIDs := make(map[string]struct{}, len(rows))
+	activeCount := 0
 	for _, row := range rows {
+		if row.PID < 0 {
+			return nil, fmt.Errorf("window/kwinscript: window %q has negative process ID %d", row.ID, row.PID)
+		}
+		if row.Active {
+			activeCount++
+			if activeCount > 1 {
+				return nil, fmt.Errorf("window/kwinscript: multiple windows reported active")
+			}
+		}
 		if strings.TrimSpace(row.ID) == "" {
 			return nil, fmt.Errorf("window/kwinscript: window list contains empty ID")
 		}
