@@ -63,7 +63,7 @@ func ResolutionWithContext(ctx context.Context, sc Screenshotter) (int, int, err
 // geometry validation equally for context-aware and legacy resolution APIs.
 func validatedResolution(ctx context.Context, width, height int, err error) (int, int, error) {
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, errors.Join(ctx.Err(), err)
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
@@ -82,7 +82,7 @@ func resolutionFromGrab(ctx context.Context, sc Screenshotter) (int, int, error)
 	}
 	img, err := sc.Grab(ctx, image.Rect(0, 0, 0, 0))
 	if err != nil {
-		return 0, 0, fmt.Errorf("screen: resolution probe: %w", err)
+		return 0, 0, errors.Join(ctx.Err(), fmt.Errorf("screen: resolution probe: %w", err))
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
