@@ -238,16 +238,26 @@ func kwinResultContext(ctx context.Context) (context.Context, context.CancelFunc
 }
 
 type kwinWindowRow struct {
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	AppID  string  `json:"app_id"`
-	Class  string  `json:"class"`
-	PID    int32   `json:"pid"`
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	Width  float64 `json:"width"`
-	Height float64 `json:"height"`
-	Active bool    `json:"active"`
+	ID            string  `json:"id"`
+	Title         string  `json:"title"`
+	AppID         string  `json:"app_id"`
+	Class         string  `json:"class"`
+	PID           int32   `json:"pid"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
+	Width         float64 `json:"width"`
+	Height        float64 `json:"height"`
+	Active        bool    `json:"active"`
+	Minimized     bool    `json:"minimized"`
+	Maximized     bool    `json:"maximized"`
+	Fullscreen    bool    `json:"fullscreen"`
+	KeepAbove     bool    `json:"keep_above"`
+	KeepBelow     bool    `json:"keep_below"`
+	Shaded        bool    `json:"shaded"`
+	Shadeable     bool    `json:"shadeable"`
+	OnAllDesktops bool    `json:"on_all_desktops"`
+	DesktopIDs    string  `json:"desktop_ids"`
+	Tiled         bool    `json:"tiled"`
 }
 
 func parseKWinWindowList(data string) ([]Info, error) {
@@ -285,16 +295,26 @@ func parseKWinWindowList(data string) ([]Info, error) {
 			return nil, fmt.Errorf("window/kwinscript: window %q has negative dimensions %dx%d", row.ID, width, height)
 		}
 		info := Info{
-			NativeID: row.ID,
-			Title:    row.Title,
-			AppID:    row.AppID,
-			Class:    row.Class,
-			PID:      row.PID,
-			X:        x,
-			Y:        y,
-			W:        width,
-			H:        height,
-			Active:   row.Active,
+			NativeID:      row.ID,
+			Title:         row.Title,
+			AppID:         row.AppID,
+			Class:         row.Class,
+			PID:           row.PID,
+			X:             x,
+			Y:             y,
+			W:             width,
+			H:             height,
+			Active:        row.Active,
+			Minimized:     row.Minimized,
+			Maximized:     row.Maximized,
+			Fullscreen:    row.Fullscreen,
+			KeepAbove:     row.KeepAbove,
+			KeepBelow:     row.KeepBelow,
+			Shaded:        row.Shaded,
+			Shadeable:     row.Shadeable,
+			OnAllDesktops: row.OnAllDesktops,
+			DesktopIDs:    row.DesktopIDs,
+			Tiled:         row.Tiled,
 		}
 		if id, err := numericID(info.NativeID); err == nil {
 			info.ID = id
@@ -333,7 +353,33 @@ func (k *KWinScriptManager) IterateWindows(ctx context.Context) iter.Seq2[Info, 
 	return func(yield func(Info, error) bool) {
 		ctx = contextutil.Default(ctx)
 		data, err := k.runScript(ctx, func(svc string) string {
-			return "\nvar listFunc = (typeof workspace.windowList === \"function\") ? workspace.windowList : workspace.clientList;\nvar wins = listFunc();\nvar focus = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;\nvar focusID = focus ? String((typeof focus.internalId !== 'undefined') ? focus.internalId : focus.windowId) : null;\nvar rows = [];\nfor (var i = 0; i < wins.length; i++) {\n    var w = wins[i];\n    if (w.normalWindow) {\n        var g = w.frameGeometry;\n        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;\n        rows.push({id: String(id), title: String(w.caption || ''), app_id: String(w.resourceName || ''),\n            class: String(w.resourceClass || ''), pid: Number(w.pid) || 0, active: String(id) === focusID, x: Number(g.x), y: Number(g.y),\n            width: Number(g.width), height: Number(g.height)});\n    }\n}\ncallDBus('" + svc + "', '/', '" + svc + "', 'ReportWindows', JSON.stringify(rows));\n"
+			return fmt.Sprintf(`
+var listFunc = (typeof workspace.windowList === "function") ? workspace.windowList : workspace.clientList;
+var wins = listFunc();
+var focus = (typeof workspace.activeWindow !== 'undefined') ? workspace.activeWindow : workspace.activeClient;
+var focusID = focus ? String((typeof focus.internalId !== 'undefined') ? focus.internalId : focus.windowId) : null;
+var rows = [];
+for (var i = 0; i < wins.length; i++) {
+    var w = wins[i];
+    if (w.normalWindow) {
+        var g = w.frameGeometry;
+        var id = (typeof w.internalId !== 'undefined') ? w.internalId : w.windowId;
+        var desktops = [];
+        if (w.desktops) {
+            for (var di = 0; di < w.desktops.length; di++) {
+                desktops.push(String(w.desktops[di].id));
+            }
+        }
+        rows.push({id: String(id), title: String(w.caption || ''), app_id: String(w.resourceName || ''),
+            class: String(w.resourceClass || ''), pid: Number(w.pid) || 0, active: String(id) === focusID,
+            x: Number(g.x), y: Number(g.y), width: Number(g.width), height: Number(g.height),
+            minimized: !!w.minimized, maximized: !!w.maximized, fullscreen: !!w.fullScreen,
+            keep_above: !!w.keepAbove, keep_below: !!w.keepBelow, shaded: !!w.shade, shadeable: !!w.shadeable,
+            on_all_desktops: !!w.onAllDesktops, desktop_ids: desktops.join(','), tiled: !!w.tile});
+    }
+}
+callDBus(%q, '/', %q, 'ReportWindows', JSON.stringify(rows));
+`, svc, svc)
 		})
 		if err != nil {
 			yield(Info{}, err)
@@ -404,6 +450,17 @@ func (k *KWinScriptManager) SupportedOperations() []string {
 		"minimize",
 		"maximize",
 		"restore",
+		"fullscreen",
+		"unfullscreen",
+		"list-desktops",
+		"switch-desktop",
+		"set-window-desktop",
+		"keep-above",
+		"keep-below",
+		"shade-when-supported",
+		"tile-window",
+		"float-window",
+		"cursor-position",
 	}
 }
 
@@ -453,7 +510,7 @@ func kwinActionResultByID(id, result string) error {
 func (k *KWinScriptManager) ActivateByID(ctx context.Context, id string) error {
 	result, err := k.runScript(ctx, func(svc string) string {
 		return kwinFindByIDScript(id, svc,
-			"w.minimized = false;\n            (typeof workspace.activateWindow === \"function\") ? workspace.activateWindow(w) : workspace.activeClient = w;")
+			"w.minimized = false;\n            (typeof workspace.activateWindow === \"function\") ? workspace.activateWindow(w) : workspace.activeWindow = w;")
 	})
 	if err != nil {
 		return err
@@ -521,14 +578,28 @@ func (k *KWinScriptManager) MaximizeByID(ctx context.Context, id string) error {
 	return kwinActionResultByID(id, result)
 }
 
-// FullscreenByID reports that KWin scripting does not expose this operation.
-func (k *KWinScriptManager) FullscreenByID(_ context.Context, _ string) error {
-	return ErrNotSupported
+// FullscreenByID requests full screen on the exact KWin window ID.
+// KWin may reject windows that are not fullscreenable; callers should
+// re-query window.Info when they need confirmation.
+func (k *KWinScriptManager) FullscreenByID(ctx context.Context, id string) error {
+	result, err := k.runScript(ctx, func(svc string) string {
+		return kwinFindByIDScript(id, svc, "if (!w.fullScreenable) { throw new Error('window cannot be fullscreened'); } w.fullScreen = true;")
+	})
+	if err != nil {
+		return err
+	}
+	return kwinActionResultByID(id, result)
 }
 
-// UnfullscreenByID reports that KWin scripting does not expose this operation.
-func (k *KWinScriptManager) UnfullscreenByID(_ context.Context, _ string) error {
-	return ErrNotSupported
+// UnfullscreenByID clears the full-screen state of the exact KWin window.
+func (k *KWinScriptManager) UnfullscreenByID(ctx context.Context, id string) error {
+	result, err := k.runScript(ctx, func(svc string) string {
+		return kwinFindByIDScript(id, svc, "w.fullScreen = false;")
+	})
+	if err != nil {
+		return err
+	}
+	return kwinActionResultByID(id, result)
 }
 
 // RestoreByID restores the window identified by id.

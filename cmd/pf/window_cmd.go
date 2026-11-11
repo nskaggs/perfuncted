@@ -409,6 +409,7 @@ func windowCmd(
 	}
 
 	cmd.AddCommand(list, activate, active, move, resize, fullscreen, unfullscreen)
+	cmd.AddCommand(kdeWindowExtraCommands(openPF)...)
 
 	var waitForPollFlag, waitForTimeoutFlag string
 	find := &cobra.Command{

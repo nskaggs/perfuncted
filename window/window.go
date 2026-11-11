@@ -32,6 +32,19 @@ var ErrWindowAmbiguous = errors.New("window: ambiguous match")
 // cannot represent, such as a non-positive window edge.
 var ErrInvalidArgument = errors.New("window: invalid argument")
 
+// ErrDesktopNotFound indicates that a compositor-native desktop ID does not exist.
+var ErrDesktopNotFound = errors.New("window: virtual desktop not found")
+
+// DesktopInfo is one compositor-owned virtual desktop, with a stable ID.
+// Position is one-based, convenient for shells; the opaque ID remains the
+// authoritative selector across desktop rearrangements.
+type DesktopInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+	Current  bool   `json:"current"`
+}
+
 // Info describes a managed window.
 // Note: Geometry fields (X,Y,W,H) are best-effort. Wayland's foreign-toplevel
 // protocols do not always provide bounds; backends may leave them zero. Do not
@@ -66,6 +79,20 @@ type Info struct {
 	Maximized bool
 	// Fullscreen reports whether the window is fullscreen.
 	Fullscreen bool
+	// KDE and compatible backends may expose these compositor-owned states.
+	// False/empty on other backends does not prove the property was queried.
+	KeepAbove bool
+	KeepBelow bool
+	Shaded    bool
+	// Shadeable reports whether the compositor permits true titlebar shading.
+	Shadeable     bool
+	OnAllDesktops bool
+	// DesktopIDs is a comma-separated list of opaque compositor desktop IDs.
+	// Keeping Info comparable preserves existing window snapshot semantics.
+	DesktopIDs string
+	// Tiled reports whether KWin associates the window with a tiling area;
+	// third-party tiling scripts may use a different notion of tiled.
+	Tiled bool
 }
 
 // EventKind identifies a window lifecycle or focus notification.

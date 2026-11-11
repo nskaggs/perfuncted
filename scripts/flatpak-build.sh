@@ -1,11 +1,9 @@
 #!/bin/sh
 set -eu
-expected='go1.27.3'
-actual=$("${GOROOT:-/usr/lib/sdk/golang}/bin/go" version | awk '{print $3}')
-if [ "$actual" != "$expected" ]; then
-  echo "Flatpak Go SDK mismatch: expected $expected, got $actual" >&2
-  exit 1
-fi
+# Flatpak's Go SDK extension receives security/patch updates independently.
+# Keep the sandbox's toolchain local: go.mod enforces the minimum supported Go
+# version, and GOTOOLCHAIN=local prevents downloading an unreviewed compiler.
+export GOTOOLCHAIN=local
 version=dev
 commit=unknown
 date=unknown

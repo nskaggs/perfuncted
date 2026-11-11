@@ -35,6 +35,7 @@ Mouse and keyboard injection
 * [pf input mousedown](pf_input_mousedown.md)	 - Press a mouse button (optional coords)
 * [pf input mouseup](pf_input_mouseup.md)	 - Release a mouse button (optional coords)
 * [pf input move](pf_input_move.md)	 - Move mouse to absolute coordinates
+* [pf input move-relative](pf_input_move-relative.md)	 - Move pointer relative to its compositor-reported position
 * [pf input scroll](pf_input_scroll.md)	 - Scroll the mouse wheel
 * [pf input select-file](pf_input_select-file.md)	 - Select a local file in an existing native file picker, preserving clipboard
 * [pf input sync](pf_input_sync.md)	 - Synchronize the input backend with the compositor

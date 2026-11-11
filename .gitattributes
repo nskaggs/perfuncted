@@ -1,0 +1,3 @@
+# Cobra's generated CLI Markdown intentionally ends with a blank line.
+# Preserve byte-for-byte generator parity without suppressing other whitespace checks.
+docs-cli/*.md whitespace=-blank-at-eof

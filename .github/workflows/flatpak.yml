@@ -20,7 +20,7 @@ permissions:
 jobs:
   bundle:
     name: Build and validate bundle
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
       CGO_ENABLED: "0"
@@ -38,6 +38,17 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: true
+
+      - name: Verify real native KDE Wayland migration workflows
+        run: |
+          kwin_major="$(kwin_wayland --version 2>&1 | sed -n 's/^kwin \([0-9][0-9]*\)\..*/\1/p' | head -1)"
+          if [ -z "$kwin_major" ]; then kwin_major=0; fi
+          if [ "$kwin_major" -lt 6 ]; then
+            echo "KWin 6+ is required for the native desktop acceptance gate, got $kwin_major" >&2
+            exit 1
+          fi
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/pf-kde-e2e" ./cmd/pf
+          PF_KDE_CLI_BINARY="$RUNNER_TEMP/pf-kde-e2e" bash scripts/verify-kde-wayland-automation.sh
 
       - name: Fetch pinned previous release for upgrade test
         env:

@@ -25,18 +25,26 @@ Window management
 * [pf window activate](pf_window_activate.md)	 - Bring a window to the foreground by title substring (case-insensitive)
 * [pf window activate-id](pf_window_activate-id.md)	 - Activate a specific window even when titles are duplicated
 * [pf window active](pf_window_active.md)	 - Print the title of the currently focused window
+* [pf window active-info](pf_window_active-info.md)	 - Show compositor state of the active window as JSON
 * [pf window close](pf_window_close.md)	 - Close a window by title
 * [pf window close-id](pf_window_close-id.md)	 - Close a specific window even when titles are duplicated
+* [pf window cursor](pf_window_cursor.md)	 - Query actual compositor cursor coordinates
 * [pf window find](pf_window_find.md)	 - Find matching windows and print them
 * [pf window find-by-title](pf_window_find-by-title.md)	 - Find a window by title and print info
+* [pf window float](pf_window_float.md)	 - Remove a window from native KWin tiling, restoring floating behavior
 * [pf window fullscreen](pf_window_fullscreen.md)	 - Fullscreen a window by title
 * [pf window get-geometry](pf_window_get-geometry.md)	 - Print geometry for a window
 * [pf window is-visible](pf_window_is-visible.md)	 - Return whether a window is visible
+* [pf window keep-above](pf_window_keep-above.md)	 - Change KWin window stacking state
+* [pf window keep-below](pf_window_keep-below.md)	 - Change KWin window stacking state
 * [pf window list](pf_window_list.md)	 - List windows
 * [pf window maximize](pf_window_maximize.md)	 - Maximize a window by title
 * [pf window minimize](pf_window_minimize.md)	 - Minimize a window by title
 * [pf window move](pf_window_move.md)	 - Move a window to absolute screen coordinates
 * [pf window resize](pf_window_resize.md)	 - Resize a window
+* [pf window set-desktop](pf_window_set-desktop.md)	 - Move a window to an existing virtual desktop
+* [pf window shade](pf_window_shade.md)	 - Toggle true KWin titlebar shading where supported
+* [pf window tile](pf_window_tile.md)	 - Place a window in an existing KWin custom tile at a compositor-logical point
 * [pf window unfullscreen](pf_window_unfullscreen.md)	 - Exit fullscreen for a window by title
 * [pf window wait-close](pf_window_wait-close.md)	 - Wait until matching windows disappear
 * [pf window wait-for](pf_window_wait-for.md)	 - Wait until a matching window appears

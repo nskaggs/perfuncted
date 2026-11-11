@@ -116,6 +116,24 @@ window:
     skip: true
   Wait:
     skip: true
+  CursorPosition:
+    skip: true
+  ListDesktops:
+    skip: true
+  SwitchDesktop:
+    skip: true
+  SetWindowDesktopByID:
+    skip: true
+  SetKeepAboveByID:
+    skip: true
+  SetKeepBelowByID:
+    skip: true
+  SetShadeByID:
+    skip: true
+  TileWindowByID:
+    skip: true
+  FloatWindowByID:
+    skip: true
 
 clipboard:
   Get:

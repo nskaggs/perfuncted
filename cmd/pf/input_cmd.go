@@ -64,6 +64,67 @@ func inputCmd(
 	move.Flags().IntVar(&mx, "x", 0, "x coordinate")
 	move.Flags().IntVar(&my, "y", 0, "y coordinate")
 
+	var relX, relY int
+	var verifyRelative bool
+	moveRelative := &cobra.Command{
+		Use:   "move-relative",
+		Short: "Move pointer relative to its compositor-reported position",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if openInputWindow == nil {
+				return fmt.Errorf("relative pointer movement requires window capability")
+			}
+			pf, err := openInputWindow(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			space, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+			if err != nil {
+				return err
+			}
+			// KWin cursorPos is compositor-logical; never add its values to
+			// physical framebuffer or unverified device coordinates.
+			if string(space.Kind) != "global-logical" || space.ScaleX != 1 || space.ScaleY != 1 {
+				return fmt.Errorf("cannot safely move relative to KWin cursor in pointer space %s with scale %g,%g", space.Kind, space.ScaleX, space.ScaleY)
+			}
+			x, y, err := pf.Input.PointerLocation(cmd.Context())
+			if err != nil && errors.Is(err, perfuncted.ErrUnsupported) {
+				x, y, err = pf.Windows.CursorPosition(cmd.Context())
+			}
+			if err != nil {
+				return err
+			}
+			maxInt := int(^uint(0) >> 1)
+			minInt := -maxInt - 1
+			if (relX > 0 && x > maxInt-relX) || (relX < 0 && x < minInt-relX) ||
+				(relY > 0 && y > maxInt-relY) || (relY < 0 && y < minInt-relY) {
+				return fmt.Errorf("relative movement overflows pointer coordinates")
+			}
+			destX, destY := x+relX, y+relY
+			if err := pf.Input.MouseMove(cmd.Context(), destX, destY); err != nil {
+				return err
+			}
+			if err := syncIf(cmd.Context(), pf); err != nil {
+				return err
+			}
+			if verifyRelative {
+				verifiedX, verifiedY, readErr := pf.Windows.CursorPosition(cmd.Context())
+				if readErr != nil {
+					return fmt.Errorf("relative pointer position verification: %w", readErr)
+				}
+				if verifiedX != destX || verifiedY != destY {
+					return fmt.Errorf("relative pointer move unverified: requested %d,%d, observed %d,%d", destX, destY, verifiedX, verifiedY)
+				}
+			}
+			return writeCLIOutput(cmd.OutOrStdout(), "moved relative by %d,%d to %d,%d\n", relX, relY, destX, destY)
+		},
+	}
+	moveRelative.Flags().IntVar(&relX, "dx", 0, "horizontal delta in compositor-logical pixels")
+	moveRelative.Flags().IntVar(&relY, "dy", 0, "vertical delta in compositor-logical pixels")
+	moveRelative.Flags().BoolVar(&verifyRelative, "verify", true, "confirm compositor cursor reached the target")
+	cmd.AddCommand(moveRelative)
+
 	var clickRepeat int
 	var clickDelayFlag string
 	click := &cobra.Command{
@@ -344,6 +405,16 @@ func inputCmd(
 			}
 			defer pf.Close()
 			x, y, err := pf.Input.PointerLocation(cmd.Context())
+			if err != nil && errors.Is(err, perfuncted.ErrUnsupported) && openInputWindow != nil {
+				// uinput and portal-EIS can inject input but cannot read the
+				// composited cursor. KDE's window backend can query KWin
+				// directly, without requiring a privileged injection device.
+				other, openErr := openInputWindow(cmd.Context())
+				if openErr == nil {
+					x, y, err = other.Windows.CursorPosition(cmd.Context())
+					_ = other.Close()
+				}
+			}
 			if err != nil {
 				return err
 			}

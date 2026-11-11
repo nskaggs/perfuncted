@@ -38,17 +38,17 @@ func TestKWinPrivateBusInfoByIDIteratorOperationsAndCleanup(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("iterator produced %d windows", count)
 	}
-	if err := manager.FullscreenByID(ctx, "7"); !errors.Is(err, ErrNotSupported) {
-		t.Fatalf("unimplemented compositor capability falsely succeeded: %v", err)
+	if err := manager.FullscreenByID(ctx, "7"); err != nil {
+		t.Fatalf("fullscreen synthetic compositor script failed: %v", err)
 	}
-	if err := manager.UnfullscreenByID(ctx, "7"); !errors.Is(err, ErrNotSupported) {
-		t.Fatalf("unimplemented unfullscreen falsely succeeded: %v", err)
+	if err := manager.UnfullscreenByID(ctx, "7"); err != nil {
+		t.Fatalf("unfullscreen synthetic compositor script failed: %v", err)
 	}
 	if err := manager.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
 	ops := manager.SupportedOperations()
-	for _, required := range []string{"discover", "info", "active-title", "activate", "move", "resize", "close", "minimize", "maximize", "restore"} {
+	for _, required := range []string{"discover", "info", "active-title", "activate", "move", "resize", "close", "minimize", "maximize", "restore", "fullscreen", "unfullscreen", "list-desktops", "switch-desktop", "set-window-desktop", "keep-above", "keep-below", "cursor-position"} {
 		found := false
 		for _, op := range ops {
 			if op == required {
@@ -59,17 +59,10 @@ func TestKWinPrivateBusInfoByIDIteratorOperationsAndCleanup(t *testing.T) {
 			t.Fatalf("KWin advertised ops missing %q: %v", required, ops)
 		}
 	}
-	for _, unsupported := range []string{"fullscreen", "unfullscreen"} {
-		for _, op := range ops {
-			if op == unsupported {
-				t.Fatalf("KWin advertises unsupported operation %s", op)
-			}
-		}
-	}
 	provider.mu.Lock()
 	loads, starts, unloads, path := provider.loadCount, provider.startCount, provider.unloadCount, provider.loadedPath
 	provider.mu.Unlock()
-	if loads != 3 || starts != 3 || unloads != 3 {
+	if loads != 5 || starts != 5 || unloads != 5 {
 		t.Fatalf("KWin native lookup leaked scripts: loads=%d starts=%d unloads=%d", loads, starts, unloads)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

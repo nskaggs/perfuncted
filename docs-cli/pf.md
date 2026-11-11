@@ -19,6 +19,7 @@ perfuncted — screen automation CLI
 * [pf a11y](pf_a11y.md)	 - Inspect and operate the AT-SPI accessibility tree
 * [pf clipboard](pf_clipboard.md)	 - Clipboard operations
 * [pf completion](pf_completion.md)	 - Generate the autocompletion script for the specified shell
+* [pf desktop](pf_desktop.md)	 - Inspect and change compositor virtual desktops
 * [pf docs](pf_docs.md)	 - Generate markdown documentation for the CLI
 * [pf find](pf_find.md)	 - Pixel scanning and wait utilities
 * [pf info](pf_info.md)	 - Display resolved capabilities for this environment

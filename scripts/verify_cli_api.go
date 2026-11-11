@@ -92,6 +92,36 @@ func methodsForType(pkg *packages.Package, typeName string) ([]string, error) {
 	return out, nil
 }
 
+// manualCLIAPIMethods records intentional, hand-written CLI names that do not
+// follow the generic Go method-to-command convention. Each binding is checked
+// in both directions. The "desktop" CLI is a view of WindowBundle.
+var manualCLIAPIMethods = map[string]map[string]string{
+	"window": {
+		"active-info": "List",
+		"cursor":      "CursorPosition",
+		"set-desktop": "SetWindowDesktopByID",
+		"keep-above":  "SetKeepAboveByID",
+		"keep-below":  "SetKeepBelowByID",
+		"shade":       "SetShadeByID",
+		"tile":        "TileWindowByID",
+		"float":       "FloatWindowByID",
+	},
+	"desktop": {
+		"list":   "ListDesktops",
+		"switch": "SwitchDesktop",
+	},
+	"input": {
+		"move-relative": "MouseMove",
+	},
+}
+
+func mappedBundleGroup(cliGroup string) string {
+	if cliGroup == "desktop" {
+		return "window"
+	}
+	return cliGroup
+}
+
 func skipMethodForCLISync(name string) bool {
 	if strings.HasSuffix(name, "Context") || name == "Close" {
 		return true
@@ -250,12 +280,14 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 
 	// Check docs -> API: every docs command should map to at least one method candidate
 	for grp, cmds := range docs {
-		// only enforce for known bundles
-		if _, ok := bundleTypes[grp]; !ok {
+		// Virtual-desktop subcommands belong to WindowBundle, even though
+		// they have their own CLI command group.
+		apiGrp := mappedBundleGroup(grp)
+		if _, ok := bundleTypes[apiGrp]; !ok {
 			continue
 		}
 		mset := map[string]bool{}
-		for _, mn := range methods[grp] {
+		for _, mn := range methods[apiGrp] {
 			if skipMethodForCLISync(mn) {
 				continue
 			}
@@ -264,6 +296,12 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 			}
 		}
 		for cmd := range cmds {
+			if method := manualCLIAPIMethods[grp][cmd]; method != "" {
+				if !slices.Contains(methods[apiGrp], method) {
+					missingInAPI = append(missingInAPI, fmt.Sprintf("docs-cli: %s %s (missing %s.%s)", grp, cmd, apiGrp, method))
+				}
+				continue
+			}
 			// Skip whitelisted commands that are expected to not match
 			if whitelist[grp] != nil && whitelist[grp][cmd] {
 				continue
@@ -291,6 +329,20 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 				if docs[grp] != nil && docs[grp][c] {
 					ok = true
 					break
+				}
+			}
+			if !ok {
+				// Require the actual command documentation on every manual
+				// binding so removing either the API or CLI breaks this gate.
+				for cliGrp, bindings := range manualCLIAPIMethods {
+					if mappedBundleGroup(cliGrp) != grp {
+						continue
+					}
+					for cmd, method := range bindings {
+						if method == mn && docs[cliGrp][cmd] {
+							ok = true
+						}
+					}
 				}
 			}
 			if !ok {

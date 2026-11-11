@@ -206,6 +206,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		screenCmd(screenOpen, openRequiredOptional(openPFFactory, cfg, perfuncted.CapabilityScreen, perfuncted.CapabilityOutputs)),
 		inputCmd(inputOpen, cfg, inputWindowOpen, inputOutputOpen, inputDialogOpen),
 		windowCmd(windowOpen, cfg),
+		desktopCmd(windowOpen),
 		outputCmd(outputOpen),
 		findCmd(screenOpen),
 		runCmd(runOpen, cfg),
