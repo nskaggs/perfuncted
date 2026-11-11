@@ -13,8 +13,8 @@ import (
 // a device which libinput rejects (min == max), despite the uinput ioctl
 // returning success.
 func validateUinputDimensions(width, height int32) error {
-	if width <= 0 || height <= 0 {
-		return fmt.Errorf("input/uinput: invalid touchpad dimensions %dx%d (both must be positive)", width, height)
+	if width <= 1 || height <= 1 {
+		return fmt.Errorf("input/uinput: invalid touchpad dimensions %dx%d (both must be at least 2)", width, height)
 	}
 	return nil
 }

@@ -60,7 +60,7 @@ func TestUinputConstructorFactoryAndKeymapFailureMatrix(t *testing.T) {
 				},
 				func(path string, name []byte, xmin, xmax, ymin, ymax int32) (uinput.TouchPad, error) {
 					touchpadCalls++
-					if path != "/dev/uinput" || string(name) != "perfuncted-touchpad" || xmin != 0 || xmax != 1440 || ymin != 0 || ymax != 900 {
+					if path != "/dev/uinput" || string(name) != "perfuncted-touchpad" || xmin != 0 || xmax != 1439 || ymin != 0 || ymax != 899 {
 						t.Fatalf("unexpected touchpad dimensions %d,%d,%d,%d", xmin, xmax, ymin, ymax)
 					}
 					if tc.tpErr != nil {

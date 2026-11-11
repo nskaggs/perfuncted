@@ -11,7 +11,7 @@ import (
 // Reproduces the KDE report: perfuncted-touchpad: kernel bug: device has min == max on ABS_X.
 // Validation must happen before opening any host device.
 func TestUinputRejectsInvalidTouchpadDimensionsBeforeDeviceCreation(t *testing.T) {
-	for _, bounds := range [][2]int32{{0, 0}, {0, 900}, {1600, 0}, {-1, 900}, {1600, -1}} {
+	for _, bounds := range [][2]int32{{0, 0}, {0, 900}, {1600, 0}, {-1, 900}, {1600, -1}, {1, 900}, {1600, 1}} {
 		_, err := NewUinputBackend(bounds[0], bounds[1])
 		if err == nil || !strings.Contains(err.Error(), "dimensions") {
 			t.Errorf("bounds %v: wanted dimension error before touching /dev/uinput, got %v", bounds, err)

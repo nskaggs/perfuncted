@@ -31,8 +31,8 @@ var _ Inputter = (*UinputBackend)(nil)
 //
 // Sandboxed environments (Flatpak, Snap) may also block access.
 //
-// Mouse movement uses a virtual touchpad with absolute coordinates in the range
-// [0, maxCoord]. Callers should pass the screen dimensions as maxX/maxY.
+// Mouse movement uses a virtual touchpad with absolute axes spanning the
+// actual logical pixels [0,width-1] and [0,height-1].
 type UinputBackend struct {
 	// Authoritative only for a compositor-reported, single logical output
 	// starting at (0,0). Explicit constructor dimensions are not proof.
@@ -81,8 +81,8 @@ type kernelChar struct {
 }
 
 // NewUinputBackend opens /dev/uinput and creates virtual keyboard and touchpad devices.
-// maxX and maxY should be the screen width and height in pixels so absolute
-// mouse coordinates map correctly.
+// maxX and maxY are the logical screen width and height, not the last pixel
+// indices. Evdev axis maxima are inclusive, so each device uses maxX-1/maxY-1.
 // Returns an error with a hint when the device exists but permission is denied.
 //
 // Text typing is layout-independent: the kernel keymap is queried at init to
@@ -120,7 +120,7 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 		return nil, errors.New("input/uinput: create keyboard: factory returned nil device")
 	}
 
-	tp, err := createUinputTouchpad("/dev/uinput", []byte("perfuncted-touchpad"), 0, maxX, 0, maxY)
+	tp, err := createUinputTouchpad("/dev/uinput", []byte("perfuncted-touchpad"), 0, maxX-1, 0, maxY-1)
 	if err == nil && util.IsNil(tp) {
 		err = errors.New("factory returned nil device")
 	}
