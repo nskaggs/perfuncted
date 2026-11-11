@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -89,7 +90,7 @@ func waitForKWinState(ctx context.Context, probe func(context.Context) (bool, er
 	for {
 		ok, err := probe(ctx)
 		if err != nil {
-			return err
+			return errors.Join(ctx.Err(), err)
 		}
 		if ok {
 			// A positive compositor observation does not authorize success

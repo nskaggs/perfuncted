@@ -33,3 +33,18 @@ func TestKDEStateWaiterPreservesProbeErrorWhenMarkedReady(t *testing.T) {
 		t.Fatalf("lost compositor failure: %v", err)
 	}
 }
+
+// A backend failure and caller revocation are independent causes. The
+// verification API must retain both rather than silently losing cancellation.
+func TestKDEStateWaiterRetainsCancellationWithConcurrentProbeError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	backendErr := errors.New("synthetic compositor query failed")
+	err := waitForKWinState(ctx, func(context.Context) (bool, error) {
+		cancel()
+		return false, backendErr
+	})
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, backendErr) {
+		t.Fatalf("lost cancellation or compositor error: %v", err)
+	}
+}
