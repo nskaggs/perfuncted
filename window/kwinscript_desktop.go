@@ -22,8 +22,8 @@ func parseKWinDesktops(data string) ([]DesktopInfo, error) {
 	seen := map[string]bool{}
 	seenPositions := map[int]bool{}
 	currentCount := 0
-	for _, d := range desktops {
-		if d.ID == "" || seen[d.ID] || d.Position < 1 || seenPositions[d.Position] {
+	for index, d := range desktops {
+		if d.ID == "" || seen[d.ID] || d.Position != index+1 || seenPositions[d.Position] {
 			return nil, fmt.Errorf("window/kwinscript: invalid or repeated desktop id/position")
 		}
 		seen[d.ID] = true
