@@ -24,3 +24,5 @@ jobs:
         run: just install-dev-tools
       - name: Run deterministic quality gates
         run: just quality
+      - name: Test native CLI installer (offline fixtures)
+        run: bash scripts/test_install.sh

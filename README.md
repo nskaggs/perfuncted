@@ -10,6 +10,49 @@ input, inspect application controls, and build repeatable workflows with scripts
 
 Works with X11 and supported Wayland desktops, including GNOME and KDE Plasma.
 
+## Install pf
+
+Install the native Linux CLI (x86-64 or ARM64) with one command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/install.sh | sh
+```
+
+The installer downloads the latest stable binary from GitHub Releases, checks
+its SHA-256 checksum, and installs `pf` to `~/.local/bin` without sudo or a Go
+toolchain. Rerun the same command to upgrade. If `~/.local/bin` is not on your
+`PATH`, add it or run `~/.local/bin/pf` directly.
+
+Pin a version or choose another installation directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/install.sh | PF_VERSION=v1.3.1 sh
+curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/install.sh | PF_INSTALL_DIR="$HOME/bin" sh
+```
+
+The [installer source](scripts/install.sh) is available to inspect before
+running. Alternatively, download the `linux_amd64` or `linux_arm64` tarball
+directly from [GitHub Releases](https://github.com/nskaggs/perfuncted/releases).
+
+Verify the installation with `pf version` and `pf info`.
+
+### Other installation methods
+
+**Go developers:**
+
+```sh
+go install github.com/nskaggs/perfuncted/cmd/pf@latest
+```
+
+**Flatpak:** Download `perfuncted.flatpak` from [GitHub Releases](https://github.com/nskaggs/perfuncted/releases), then run:
+
+```sh
+flatpak install --user ./perfuncted.flatpak
+flatpak run io.github.nskaggs.perfuncted info
+```
+
+See [Flatpak setup and permissions](FLATPAK.md) for more information.
+
 ## See it in action
 
 ### Control windows and applications
@@ -46,35 +89,6 @@ file or read commands from standard input.
 
 ```bash
 pf run task.pf
-```
-
-## Installation
-
-### Flatpak
-
-Download the single `perfuncted.flatpak` bundle from
-[GitHub Releases](https://github.com/nskaggs/perfuncted/releases).
-
-```bash
-flatpak install --user ./perfuncted.flatpak
-flatpak run io.github.nskaggs.perfuncted info
-```
-
-See [Flatpak setup and permissions](FLATPAK.md) for details.
-
-### Native CLI
-
-Install with Go:
-
-```bash
-go install github.com/nskaggs/perfuncted/cmd/pf@latest
-```
-
-Check your desktop:
-
-```bash
-pf session check
-pf info
 ```
 
 ## Desktop support

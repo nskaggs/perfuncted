@@ -213,3 +213,7 @@ jobs:
           BIN=$(find dist/ -name 'pf' -type f | head -1)
           echo "Testing binary: $BIN"
           just test-release-binary "$BIN"
+      - name: Install published native release and verify version
+        env:
+          PF_TEST_REAL_RELEASE: "1"
+        run: bash scripts/test_install.sh
