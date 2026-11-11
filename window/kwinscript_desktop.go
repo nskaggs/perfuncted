@@ -17,12 +17,14 @@ func parseKWinDesktops(data string) ([]DesktopInfo, error) {
 		return nil, fmt.Errorf("window/kwinscript: parse desktops: %w", err)
 	}
 	seen := map[string]bool{}
+	seenPositions := map[int]bool{}
 	currentCount := 0
 	for _, d := range desktops {
-		if d.ID == "" || seen[d.ID] || d.Position < 1 {
+		if d.ID == "" || seen[d.ID] || d.Position < 1 || seenPositions[d.Position] {
 			return nil, fmt.Errorf("window/kwinscript: invalid or repeated desktop id/position")
 		}
 		seen[d.ID] = true
+		seenPositions[d.Position] = true
 		if d.Current {
 			currentCount++
 		}
