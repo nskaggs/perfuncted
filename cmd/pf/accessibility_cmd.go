@@ -379,6 +379,11 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		}
 		return nil
 	}, RunE: func(c *cobra.Command, _ []string) error {
+		// AT-SPI Component.GetAccessibleAtPoint takes signed 32-bit values.
+		// Reject unrepresentable values before requesting desktop access.
+		if int64(pointX) != int64(int32(pointX)) || int64(pointY) != int64(int32(pointY)) {
+			return fmt.Errorf("at-point: screen coordinates exceed signed 32-bit range")
+		}
 		pf, err := openAccessibilitySession(c.Context(), openPF)
 		if err != nil {
 			return err
