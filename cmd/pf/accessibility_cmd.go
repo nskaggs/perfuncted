@@ -34,6 +34,9 @@ type accessibilityCLIOptions struct {
 // requireScope enforces the local semantic selector before any AT-SPI session
 // authorization. An incomplete query must never prompt for desktop access.
 func (o accessibilityCLIOptions) requireScope() error {
+	if o.pid < 0 {
+		return fmt.Errorf("accessibility: --pid must be a nonnegative process ID")
+	}
 	if strings.TrimSpace(o.appName) == "" && o.pid == 0 && strings.TrimSpace(o.window) == "" && strings.TrimSpace(o.windowID) == "" {
 		return fmt.Errorf("accessibility: an explicit --app, --pid, --window, or --window-id scope is required")
 	}
