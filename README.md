@@ -121,7 +121,6 @@ export PATH="$HOME/.local/bin:$PATH"  # persist in your shell profile
 pf version
 pf session check
 pf info
-pf status  # equivalent to pf info
 ```
 
 **First screenshot** (PNG is saved on the host, not inside Flatpak):

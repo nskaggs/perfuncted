@@ -72,10 +72,9 @@ func infoCmd(
 ) *cobra.Command {
 	var outputFlag string
 	cmd := &cobra.Command{
-		Use:     "info",
-		Aliases: []string{"status"},
-		Short:   "Display resolved capabilities for this environment",
-		Args:    cobra.NoArgs,
+		Use:   "info",
+		Short: "Display resolved capabilities for this environment",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mode, err := parseOutputMode(outputFlag)
 			if err != nil {

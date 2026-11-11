@@ -35,7 +35,6 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 			"install -Dm755 ./pf-flatpak",
 			"pf session check",
 			"pf info",
-			"pf status",
 		} {
 			if !strings.Contains(target.doc, required) {
 				t.Errorf("%s missing download-only first-run command %q", target.name, required)

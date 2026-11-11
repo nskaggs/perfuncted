@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -192,17 +191,12 @@ func TestFlatpakPrebuiltWlrootsCapabilityAndEffects(t *testing.T) {
 	env = setEnv(env, "SWAYSOCK", ipc)
 	h.env = env
 
-	// Check the actual installed package and both public status commands
-	// before attempting any desktop effect. No native CLI involved.
+	// Query canonical pf info on the actual installed Flatpak.
 	infoJSON, infoErr, infoCode := h.run(t, repo, "run", appID, "info", "--output=json")
 	if infoCode != 0 {
 		t.Fatalf("installed Flatpak info failed: %d %q", infoCode, infoErr)
 	}
-	statusJSON, statusErr, statusCode := h.run(t, repo, "run", appID, "status", "--output=json")
-	if statusCode != 0 {
-		t.Fatalf("installed Flatpak status failed: %d %q", statusCode, statusErr)
-	}
-	var infoReport, statusReport struct {
+	var infoReport struct {
 		Compositor   string `json:"compositor"`
 		Capabilities map[string]struct {
 			Supported bool   `json:"supported"`
@@ -213,18 +207,11 @@ func TestFlatpakPrebuiltWlrootsCapabilityAndEffects(t *testing.T) {
 	if err := json.Unmarshal([]byte(infoJSON), &infoReport); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal([]byte(statusJSON), &statusReport); err != nil {
-		t.Fatal(err)
-	}
-	if infoReport.Compositor != statusReport.Compositor ||
-		!reflect.DeepEqual(infoReport.Capabilities, statusReport.Capabilities) {
-		t.Fatalf("installed Flatpak status disagrees with info: info=%s status=%s", infoJSON, statusJSON)
-	}
 	if !strings.Contains(strings.ToLower(infoReport.Compositor), "wayland") {
-		t.Fatalf("installed Flatpak status misidentified actual Wayland compositor: %s", infoJSON)
+		t.Fatalf("installed Flatpak info misidentified actual Wayland compositor: %s", infoJSON)
 	}
 	if len(infoReport.Capabilities) < 3 {
-		t.Fatalf("Flatpak status omitted capability matrix: %s", infoJSON)
+		t.Fatalf("installed Flatpak info omitted capability matrix: %s", infoJSON)
 	}
 	diagnostics, diagErr, diagCode := h.run(t, repo, "run", appID, "session", "check")
 	if diagCode != 0 || !strings.Contains(diagnostics, "WAYLAND_DISPLAY") ||

@@ -16,7 +16,6 @@ pf --help
 pf version
 pf session check
 pf info --output=json
-pf status  # alias for the same resolved capabilities
 ```
 
 Without the launcher, use `flatpak run io.github.nskaggs.perfuncted`
@@ -38,7 +37,7 @@ has no `--out`, it streams a PNG if stdout is redirected; it rejects
 interactive terminal output rather than dumping binary bytes into your shell.
 `--out -` always streams. For a file path, use an explicitly shared directory.
 
-Look at `pf info` (or its synonym `pf status`) first: capabilities depend on
+Look at `pf info` first: capabilities depend on
 compositor support and user permissions. An unavailable input backend is an
 honest limitation, not a failed package installation. Use `pf session check`
 for setup diagnostics.
@@ -112,7 +111,7 @@ Permission restoration is always opt-in, using `--remember-input-permission`.
   logout/login. A Flatpak cannot automatically install GNOME Shell extensions.
 - **Native Sway/wlroots input unavailable in Flatpak**: the Flatpak Wayland
   socket can filter privileged virtual keyboard/pointer protocols even when
-  the same protocol works from the native host executable. `pf info`/`pf status`
+  the same protocol works from the native host executable. `pf info`
   must report this as unavailable. Do not add `--device=all` or bypass the
   compositor's input permissions. Where supported, explicitly request
   `--input-backend remote-desktop` and authorize it through the desktop portal.
