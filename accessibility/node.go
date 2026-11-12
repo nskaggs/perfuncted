@@ -215,13 +215,19 @@ func (b *dbusBackend) readNodeText(ctx context.Context, id NodeID, interfaces []
 	if maxText <= 0 {
 		maxText = defaultMaxText
 	}
-	if chars > int32(maxText) {
+	// A bounded GetText reply may be a valid UTF-8 prefix but it is not
+	// complete provider evidence. Preserve that truncation even when the
+	// returned prefix itself fits the byte limit exactly.
+	providerTruncated := chars > int32(maxText)
+	if providerTruncated {
 		chars = int32(maxText)
 	}
 	if err := b.call(ctx, id, textIface+".GetText", []any{int32(0), chars}, &node.Text); err != nil {
 		return err
 	}
-	node.Text, node.TextTruncated = truncateUTF8(node.Text, maxText)
+	var bytesTruncated bool
+	node.Text, bytesTruncated = truncateUTF8(node.Text, maxText)
+	node.TextTruncated = providerTruncated || bytesTruncated
 	return nil
 }
 
