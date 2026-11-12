@@ -814,6 +814,11 @@ func remoteKeyCode(key string) (uint32, error) { //nolint:gocyclo // explicit ke
 	if key == "" {
 		return 0, errors.New("input: key name must not be empty")
 	}
+	// Physical-key identifiers are ASCII. Unicode text is handled by TypeLiteral;
+	// case folding a non-ASCII rune into an ASCII key would inject a different key.
+	if strings.IndexFunc(key, func(r rune) bool { return r >= utf8.RuneSelf }) >= 0 {
+		return 0, fmt.Errorf("input: unknown key %q", key)
+	}
 	if parsed, ok := keymap.FromString(key); ok {
 		switch {
 		case parsed >= keymap.KeyA && parsed <= keymap.KeyZ:

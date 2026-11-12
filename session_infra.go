@@ -404,10 +404,10 @@ func (i *sessionInfra) accessibilityBusAddress(ctx context.Context) (string, err
 		lastErr = err
 		select {
 		case <-ctx.Done():
-			if lastErr != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return "", ctx.Err()
-			}
-			return "", lastErr
+			// A provider error describes the last retry, but the caller's
+			// deadline or cancellation is the terminal reason for stopping.
+			// Preserve both error identities for diagnostics and errors.Is.
+			return "", errors.Join(ctx.Err(), lastErr)
 		case <-ticker.C:
 		}
 	}
