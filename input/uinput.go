@@ -246,6 +246,14 @@ var keyCode = map[keymap.Key]int{
 }
 
 func (b *UinputBackend) resolveKey(key string) (int, error) {
+	// Physical key names are an ASCII protocol namespace. Unicode case
+	// folding aliases characters such as U+0130 (İ) and U+212A (K) to
+	// unrelated ASCII keys, which must not authorize keyboard injection.
+	for i := 0; i < len(key); i++ {
+		if key[i] >= 0x80 {
+			return 0, fmt.Errorf("input/uinput: unknown key %q", key)
+		}
+	}
 	if k, ok := keymap.FromString(key); ok {
 		if code, ok := keyCode[k]; ok {
 			return code, nil
