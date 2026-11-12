@@ -61,6 +61,11 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 		if s.listOverride != "" {
 			response = s.listOverride
 		}
+	case strings.Contains(string(data), "JSON.stringify(items)"):
+		response = `[{"id":"desktop-1","name":"Work","position":1,"current":true},{"id":"desktop-2","name":"Personal","position":2,"current":false}]`
+		if s.listOverride != "" {
+			response = s.listOverride
+		}
 	case strings.Contains(string(data), "JSON.stringify({x:Number(p.x)"):
 		response = `{"x":0,"y":0}`
 		if s.listOverride != "" {
