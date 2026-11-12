@@ -589,9 +589,12 @@ func inputCmd(
 		if err := pf.Clipboard.Set(cmd.Context(), filePath); err != nil {
 			return err
 		}
+		restored := false
 		defer func() {
-			if restoreErr := pf.Clipboard.Set(context.WithoutCancel(cmd.Context()), prev); restoreErr != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("restore clipboard: %w", restoreErr))
+			if !restored {
+				if restoreErr := pf.Clipboard.Set(context.WithoutCancel(cmd.Context()), prev); restoreErr != nil {
+					retErr = errors.Join(retErr, fmt.Errorf("restore clipboard: %w", restoreErr))
+				}
 			}
 		}()
 		if err := pf.Input.Type(cmd.Context(), "{ctrl+l}{ctrl+v}{enter}"); err != nil {
@@ -608,6 +611,14 @@ func inputCmd(
 		// alone does not prove that Ctrl+V has been processed.
 		if err := waitWindowGone(cmd.Context(), pf.Windows, target.ID().String(), 10*time.Second, 75*time.Millisecond); err != nil {
 			return err
+		}
+		// A successful chooser operation also promises that the caller's
+		// clipboard has been restored. Do not print success before verifying
+		// restoration: a deferred failure would otherwise contradict stdout.
+		restoreErr := pf.Clipboard.Set(context.WithoutCancel(cmd.Context()), prev)
+		restored = true
+		if restoreErr != nil {
+			return fmt.Errorf("restore clipboard: %w", restoreErr)
 		}
 		return writeCLIOutput(cmd.OutOrStdout(), "file chooser closed after selection: %s (not proof of cloud upload)\n", target.ID().String())
 	}}
