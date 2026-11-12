@@ -112,6 +112,26 @@ func TestClipboardOpenRuntimeSelectsWaylandOnlyWhenSocketAndBothToolsExist(t *te
 	if err := fallback.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// The other half of the Wayland tool pair is equally mandatory. An
+	// available wl-paste without wl-copy must not produce a read-only backend
+	// that appears capable of setting clipboard content.
+	if err := os.WriteFile(filepath.Join(bin, "wl-paste"), []byte("#!/bin/sh\nexit 77\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(bin, "wl-copy")); err != nil {
+		t.Fatal(err)
+	}
+	fallback, err = OpenRuntimeContext(context.Background(), rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, ok = fallback.(*extCmdClipboard)
+	if !ok || len(selected.setCmd) == 0 || selected.setCmd[0] != "xclip" {
+		t.Fatalf("missing Wayland copy tool selected unsafe backend: %T %+v", fallback, selected)
+	}
+	if err := fallback.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(filepath.Join(bin, "xclip")); err != nil {
 		t.Fatal(err)
 	}
