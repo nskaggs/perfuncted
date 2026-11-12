@@ -18,26 +18,35 @@ import (
 // readiness, while the backend performs the real shm/pool/frame wire sequence.
 func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		operation func(*ExtCaptureBackend) (image.Image, uint32, error)
-		wantImage bool
+		name       string
+		operation  func(*ExtCaptureBackend) (image.Image, uint32, error)
+		wantImage  bool
+		unsetScale bool
 	}{
 		{"full image", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			img, err := b.Grab(context.Background(), image.Rectangle{})
 			return img, 0, err
-		}, true},
+		}, true, false},
 		{"cropped image", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			img, err := b.Grab(context.Background(), image.Rect(1, 1, 2, 2))
 			return img, 0, err
-		}, true},
+		}, true, false},
 		{"full hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabFullHash(context.Background())
 			return nil, h, err
-		}, false},
+		}, false, false},
 		{"region hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1))
 			return nil, h, err
-		}, false},
+		}, false, false},
+		{"region hash before output scale", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
+			h, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1))
+			return nil, h, err
+		}, false, true},
+		{"cropped image before output scale", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
+			img, err := b.Grab(context.Background(), image.Rect(1, 1, 2, 2))
+			return img, 0, err
+		}, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sock := filepath.Join(t.TempDir(), "wayland.sock")
@@ -121,6 +130,9 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 				t.Fatalf("unexpected fixture objects: shm=%d sess=%d", shm.ID(), sess.ID())
 			}
 			backend := &ExtCaptureBackend{session: &wl.Session{Sock: sock, Ctx: ctx, Display: wl.NewDisplay(ctx)}, shm: shm, sessProxy: sess, outputScale: 1}
+			if tc.unsetScale {
+				backend.outputScale = 0 // compositor has not yet announced a scale
+			}
 			done := make(chan struct{})
 			var img image.Image
 			var hash uint32
@@ -151,7 +163,7 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 				if img == nil {
 					t.Fatal("screencopy returned nil")
 				}
-				if tc.name == "cropped image" && img.Bounds().Size() != image.Pt(1, 1) {
+				if (tc.name == "cropped image" || tc.name == "cropped image before output scale") && img.Bounds().Size() != image.Pt(1, 1) {
 					t.Fatalf("cropped image wrong geometry: %v", img.Bounds())
 				}
 				if tc.name == "full image" && img.Bounds().Size() != image.Pt(2, 2) {
@@ -159,7 +171,7 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 				}
 			} else {
 				rect := image.Rectangle{}
-				if tc.name == "region hash" {
+				if tc.name == "region hash" || tc.name == "region hash before output scale" {
 					rect = image.Rect(0, 0, 1, 1)
 				}
 				want, err := find.PixelHashBGRA(make([]byte, 16), 2, 2, 8, rect)
