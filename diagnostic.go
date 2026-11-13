@@ -123,7 +123,9 @@ type failureArtifactCollector struct {
 
 func (c *failureArtifactCollector) capture(name string, fn func() error) {
 	if err := fn(); err != nil {
-		c.manifest.ArtifactErrors[name] = err.Error()
+		// Provider errors can include private desktop content or filesystem
+		// paths. Preserve the full error for the caller, not the disk manifest.
+		c.manifest.ArtifactErrors[name] = "capture failed (details redacted)"
 		c.errors = append(c.errors, fmt.Errorf("%s: %w", name, err))
 		return
 	}
