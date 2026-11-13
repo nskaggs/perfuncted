@@ -172,6 +172,14 @@ func (b *InputBundle) DoubleClick(
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x, y)); err != nil {
 		return err
 	}
+	// Initial positioning never acquires a button hold. Do not inject the
+	// first click or issue a cleanup release if authority ended mid-move.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	released = false
 	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
@@ -211,6 +219,14 @@ func (b *InputBundle) DoubleClick(
 		return err
 	}
 	released = true
+	// A successful final release does not certify a gesture acknowledged
+	// after cancellation or session closure.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	return nil
 }
 
