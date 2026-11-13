@@ -512,7 +512,7 @@ func (i *sessionInfra) writeChildPID(name string, pid int) {
 		slog.Warn("session: reject unsafe child pid filename", "name", name)
 		return
 	}
-	if !isSafeToRemoveDir(i.xdgDir) {
+	if !isManagedSessionDir(i.xdgDir) {
 		slog.Warn("session: skip writing pidfile to non-managed directory", "path", i.xdgDir, "name", name)
 		return
 	}
@@ -559,7 +559,7 @@ func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string
 		conf = strings.ReplaceAll(conf, "1024x768", resStr)
 	}
 
-	if !isSafeToRemoveDir(i.xdgDir) {
+	if !isManagedSessionDir(i.xdgDir) {
 		return "", fmt.Errorf("session: refuse to write config to non-managed directory %q", i.xdgDir)
 	}
 	confPath := filepath.Join(i.xdgDir, "sway.conf")
