@@ -244,6 +244,12 @@ func (s *ScreenBundle) GetMultiplePixels(
 		return nil, s.operationError("pixel", err)
 	}
 	for i, imagePoint := range imagePoints {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := s.session.ensureOpen(); err != nil {
+			return nil, err
+		}
 		if !imagePoint.In(imgBounds) {
 			return nil, s.operationError(
 				"pixel",
@@ -257,6 +263,12 @@ func (s *ScreenBundle) GetMultiplePixels(
 			return nil, s.operationError("pixel", errors.New("screen: RGBA conversion returned unexpected type"))
 		}
 		out[i] = rgba
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.session.ensureOpen(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
