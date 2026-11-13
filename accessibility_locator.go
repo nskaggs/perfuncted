@@ -418,6 +418,12 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 	for attemptNumber := 0; attemptNumber < locatorResolutionAttempts; attemptNumber++ {
 		matches, identity, root, stopObservation, err := l.find(ctx)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return AccessibilityActionReceipt{}, WaitEvidence{}, errors.Join(ctxErr, err)
+			}
+			if openErr := l.bundle.session.ensureOpen(); openErr != nil {
+				return AccessibilityActionReceipt{}, WaitEvidence{}, errors.Join(openErr, err)
+			}
 			return receipt, WaitEvidence{}, err
 		}
 		node, err := uniqueLocatorMatch(matches)
@@ -454,6 +460,12 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 			return receipt, WaitEvidence{}, dispatched.err
 		}
 		refreshedRoot, refreshedIdentity, scopeErr := l.scopeRoot(ctx)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return AccessibilityActionReceipt{}, WaitEvidence{}, errors.Join(ctxErr, scopeErr)
+		}
+		if openErr := l.bundle.session.ensureOpen(); openErr != nil {
+			return AccessibilityActionReceipt{}, WaitEvidence{}, errors.Join(openErr, scopeErr)
+		}
 		if scopeErr != nil {
 			return receipt, WaitEvidence{}, scopeErr
 		}
