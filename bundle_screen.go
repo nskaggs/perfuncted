@@ -149,6 +149,9 @@ func (s *ScreenBundle) CaptureRegion(
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-capture-*")
 	if err != nil {
 		return s.operationError("capture", fmt.Errorf("screen: create %q: %w", path, err))
@@ -168,6 +171,15 @@ func (s *ScreenBundle) CaptureRegion(
 	}
 	if closeErr != nil {
 		return s.operationError("capture", fmt.Errorf("screen: close %q: %w", path, closeErr))
+	}
+	// Encoding may call an image provider after the capture has completed.
+	// Cancellation or Session.Close during that work revokes permission to
+	// publish the resulting screenshot, preserving any existing destination.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.session.ensureOpen(); err != nil {
+		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
 		return s.operationError("capture", fmt.Errorf("screen: publish %q: %w", path, err))
