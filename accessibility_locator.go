@@ -127,6 +127,12 @@ func sameLocatorScope(a, b locatorIdentity) bool {
 	if a.busName != "" && b.busName != "" {
 		return a.busName == b.busName
 	}
+	// A name-only comparison is suitable only when neither observation ever
+	// had authoritative identity. Losing PID/bus/app evidence during a retry
+	// must not silently downgrade a previously verified semantic target.
+	if a.pid != 0 || b.pid != 0 || a.appID != "" || b.appID != "" || a.busName != "" || b.busName != "" {
+		return false
+	}
 	return a.name != "" && strings.EqualFold(strings.TrimSpace(a.name), strings.TrimSpace(b.name))
 }
 
