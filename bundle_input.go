@@ -38,6 +38,23 @@ func (b *InputBundle) operationContext(ctx context.Context) (context.Context, co
 	return b.backendContext(ctx, b.session.Timeouts().Short)
 }
 
+// singleInputAction enforces request and session authority before injecting
+// one input action and again before acknowledging its backend receipt. A
+// backend may ignore cancellation while an event is in flight, so a late
+// success cannot certify authorized completion.
+func (b *InputBundle) singleInputAction(ctx context.Context, operation, capability string, started time.Time, run func() error) error {
+	if err := ctx.Err(); err != nil {
+		return b.recordInputReceipt(operation, started, err)
+	}
+	err := b.operationError(capability, run())
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = errors.Join(ctxErr, err)
+	} else if openErr := b.session.ensureOpen(); openErr != nil {
+		err = errors.Join(openErr, err)
+	}
+	return b.recordInputReceipt(operation, started, err)
+}
+
 // KeyDown presses and holds key.
 func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
@@ -47,8 +64,9 @@ func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 	defer cancel()
 	b.traceAction("input", "key-down %s", key)
 	started := time.Now()
-	err := b.operationError("keyboard", b.backend.KeyDown(ctx, key))
-	return b.recordInputReceipt("key-down", started, err)
+	return b.singleInputAction(ctx, "key-down", "keyboard", started, func() error {
+		return b.backend.KeyDown(ctx, key)
+	})
 }
 
 // KeyUp releases key.
@@ -60,8 +78,9 @@ func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
 	defer cancel()
 	b.traceAction("input", "key-up %s", key)
 	started := time.Now()
-	err := b.operationError("keyboard", b.backend.KeyUp(ctx, key))
-	return b.recordInputReceipt("key-up", started, err)
+	return b.singleInputAction(ctx, "key-up", "keyboard", started, func() error {
+		return b.backend.KeyUp(ctx, key)
+	})
 }
 
 // Type sends text using the input backend's key syntax.
@@ -77,8 +96,9 @@ func (b *InputBundle) typeContext(ctx context.Context, text string) error {
 	defer cancel()
 	b.traceAction("input", "type")
 	started := time.Now()
-	err := b.operationError("keyboard", b.backend.Type(ctx, text))
-	return b.recordInputReceipt("type", started, err)
+	return b.singleInputAction(ctx, "type", "keyboard", started, func() error {
+		return b.backend.Type(ctx, text)
+	})
 }
 
 // TypeLiteral sends text as-is without interpreting key syntax, so arbitrary
@@ -91,8 +111,9 @@ func (b *InputBundle) TypeLiteral(ctx context.Context, text string) error {
 	defer cancel()
 	b.traceAction("input", "type-literal")
 	started := time.Now()
-	err := b.operationError("keyboard", b.backend.TypeLiteral(ctx, text))
-	return b.recordInputReceipt("type-literal", started, err)
+	return b.singleInputAction(ctx, "type-literal", "keyboard", started, func() error {
+		return b.backend.TypeLiteral(ctx, text)
+	})
 }
 
 // MouseMove moves the pointer to screen coordinates x and y.
@@ -108,8 +129,9 @@ func (b *InputBundle) MouseMove(
 	defer cancel()
 	b.traceAction("input", "mouse-move %d,%d", x, y)
 	started := time.Now()
-	err := b.operationError("pointer", b.backend.MouseMove(ctx, x, y))
-	return b.recordInputReceipt("mouse-move", started, err)
+	return b.singleInputAction(ctx, "mouse-move", "pointer", started, func() error {
+		return b.backend.MouseMove(ctx, x, y)
+	})
 }
 
 // MouseClick moves to x and y and clicks button.
@@ -126,8 +148,9 @@ func (b *InputBundle) MouseClick(
 	defer cancel()
 	b.traceAction("input", "mouse-click %d,%d,%d", x, y, button)
 	started := time.Now()
-	err := b.operationError("click", b.backend.MouseClick(ctx, x, y, button))
-	return b.recordInputReceipt("mouse-click", started, err)
+	return b.singleInputAction(ctx, "mouse-click", "click", started, func() error {
+		return b.backend.MouseClick(ctx, x, y, button)
+	})
 }
 
 // ClickCenter clicks the center of rect with the primary button.
@@ -239,8 +262,9 @@ func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
 	defer cancel()
 	b.traceAction("input", "mouse-down %d", button)
 	started := time.Now()
-	err := b.operationError("click", b.backend.MouseDown(ctx, button))
-	return b.recordInputReceipt("mouse-down", started, err)
+	return b.singleInputAction(ctx, "mouse-down", "click", started, func() error {
+		return b.backend.MouseDown(ctx, button)
+	})
 }
 
 // MouseUp releases button.
@@ -252,8 +276,9 @@ func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
 	defer cancel()
 	b.traceAction("input", "mouse-up %d", button)
 	started := time.Now()
-	err := b.operationError("click", b.backend.MouseUp(ctx, button))
-	return b.recordInputReceipt("mouse-up", started, err)
+	return b.singleInputAction(ctx, "mouse-up", "click", started, func() error {
+		return b.backend.MouseUp(ctx, button)
+	})
 }
 
 // ScrollUp scrolls upward by clicks.
@@ -264,8 +289,9 @@ func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	started := time.Now()
-	err := b.operationError("scroll", b.backend.ScrollUp(ctx, clicks))
-	return b.recordInputReceipt("scroll-up", started, err)
+	return b.singleInputAction(ctx, "scroll-up", "scroll", started, func() error {
+		return b.backend.ScrollUp(ctx, clicks)
+	})
 }
 
 // ScrollDown scrolls downward by clicks.
@@ -276,8 +302,9 @@ func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	started := time.Now()
-	err := b.operationError("scroll", b.backend.ScrollDown(ctx, clicks))
-	return b.recordInputReceipt("scroll-down", started, err)
+	return b.singleInputAction(ctx, "scroll-down", "scroll", started, func() error {
+		return b.backend.ScrollDown(ctx, clicks)
+	})
 }
 
 // ScrollLeft scrolls left by clicks.
@@ -288,8 +315,9 @@ func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	started := time.Now()
-	err := b.operationError("scroll", b.backend.ScrollLeft(ctx, clicks))
-	return b.recordInputReceipt("scroll-left", started, err)
+	return b.singleInputAction(ctx, "scroll-left", "scroll", started, func() error {
+		return b.backend.ScrollLeft(ctx, clicks)
+	})
 }
 
 // ScrollRight scrolls right by clicks.
@@ -300,8 +328,9 @@ func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	started := time.Now()
-	err := b.operationError("scroll", b.backend.ScrollRight(ctx, clicks))
-	return b.recordInputReceipt("scroll-right", started, err)
+	return b.singleInputAction(ctx, "scroll-right", "scroll", started, func() error {
+		return b.backend.ScrollRight(ctx, clicks)
+	})
 }
 
 // PointerLocation returns the current pointer coordinates.
