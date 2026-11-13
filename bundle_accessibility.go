@@ -144,6 +144,12 @@ func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target ac
 			return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
 		}
 		scope, err := resolver.ResolveWindowFresh(ctx, target)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return accessibility.WindowScope{}, errors.Join(ctxErr, b.operationError("window-root", err))
+		}
+		if openErr := b.session.ensureOpen(); openErr != nil {
+			return accessibility.WindowScope{}, errors.Join(openErr, b.operationError("window-root", err))
+		}
 		return scope, b.operationError("window-root", err)
 	}
 	resolver, ok := b.backend.(accessibility.WindowResolver)
@@ -151,6 +157,12 @@ func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target ac
 		return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
 	}
 	scope, err := resolver.ResolveWindow(ctx, target)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.WindowScope{}, errors.Join(ctxErr, b.operationError("window-root", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.WindowScope{}, errors.Join(openErr, b.operationError("window-root", err))
+	}
 	return scope, b.operationError("window-root", err)
 }
 
@@ -450,6 +462,12 @@ func (b *AccessibilityBundle) findApplication(ctx context.Context, filter access
 		app, err = freshFinder.FindApplicationFresh(ctx, filter)
 	} else {
 		app, err = finder.FindApplication(ctx, filter)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Application{}, errors.Join(ctxErr, b.operationError("find-application", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Application{}, errors.Join(openErr, b.operationError("find-application", err))
 	}
 	return app, b.operationError("find-application", err)
 }
