@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -50,11 +51,21 @@ func (b *WindowBundle) Sync(ctx context.Context) error {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	type syncer interface {
 		Sync(context.Context) error
 	}
 	if backend, ok := b.backend.(syncer); ok {
-		return b.operationError("sync", backend.Sync(ctx))
+		err := backend.Sync(ctx)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return errors.Join(ctxErr, err)
+		}
+		if openErr := b.session.ensureOpen(); openErr != nil {
+			return openErr
+		}
+		return b.operationError("sync", err)
 	}
 	return b.operationError("sync", ErrUnsupported)
 }
