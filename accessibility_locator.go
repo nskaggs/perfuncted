@@ -204,14 +204,23 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			// cancellation. Never publish the now-unverifiable target identity.
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				stopObservation()
-				return nil, identity, accessibility.NodeID{}, nil, ctxErr
+				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, ctxErr
+			}
+			if openErr := l.bundle.session.ensureOpen(); openErr != nil {
+				stopObservation()
+				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, openErr
 			}
 			if readErr == nil {
 				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, l.selector); incomplete != nil {
 					stopObservation()
 					return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", incomplete)
 				}
-				return accessibility.FilterSnapshotSelector(snapshot, l.selector), identity, root, stopObservation, nil
+				matches := accessibility.FilterSnapshotSelector(snapshot, l.selector)
+				if openErr := l.bundle.session.ensureOpen(); openErr != nil {
+					stopObservation()
+					return nil, locatorIdentity{}, accessibility.NodeID{}, nil, openErr
+				}
+				return matches, identity, root, stopObservation, nil
 			}
 			err = readErr
 		}
