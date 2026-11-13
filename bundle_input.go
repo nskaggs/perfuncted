@@ -281,7 +281,16 @@ func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	x, y, err := b.backend.PointerLocation(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, 0, errors.Join(ctxErr, b.operationError("pointer-location", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return 0, 0, errors.Join(openErr, b.operationError("pointer-location", err))
+	}
 	return x, y, b.operationError("pointer-location", err)
 }
 
@@ -295,11 +304,20 @@ func (b *InputBundle) PointerCoordinateSpace(ctx context.Context) (input.Coordin
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return input.CoordinateSpaceInfo{}, err
+	}
 	reporter, ok := b.backend.(input.PointerCoordinateSpaceReporter)
 	if !ok {
 		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", input.ErrNotSupported)
 	}
 	info, err := reporter.PointerCoordinateSpace(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return input.CoordinateSpaceInfo{}, errors.Join(ctxErr, b.operationError("pointer-coordinate-space", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return input.CoordinateSpaceInfo{}, errors.Join(openErr, b.operationError("pointer-coordinate-space", err))
+	}
 	if err != nil {
 		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", err)
 	}
