@@ -287,7 +287,16 @@ func (s *ScreenBundle) WaitForFn(
 	ctx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
 	defer cancel()
 	img, err := find.WaitForFn(ctx, s.backend, rect, fn, poll)
-	return img, s.operationError("wait", err)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, errors.Join(ctxErr, err)
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return nil, errors.Join(openErr, err)
+	}
+	if err != nil {
+		return nil, s.operationError("wait", err)
+	}
+	return img, nil
 }
 
 // WaitForSettle runs action and waits for the region to stabilize.
