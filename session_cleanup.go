@@ -242,6 +242,16 @@ func isPrivateSessionRuntimeInfo(info os.FileInfo) bool {
 	return ok && stat.Uid == uint32(os.Geteuid()) && info.Mode().Perm()&0o022 == 0
 }
 
+// isPrivateManagedSessionDir checks both the managed-name boundary and the
+// current inode before allowing managed helpers to write session metadata.
+func isPrivateManagedSessionDir(dir string) bool {
+	if !isManagedSessionDir(dir) {
+		return false
+	}
+	info, err := os.Lstat(dir)
+	return err == nil && isPrivateSessionRuntimeInfo(info)
+}
+
 // unmountSubdirsContext must prove all mounts under a managed runtime have
 // disappeared before callers may remove its directory tree. Otherwise RemoveAll
 // could descend into a still-mounted filesystem and delete unrelated data.
