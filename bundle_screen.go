@@ -327,6 +327,14 @@ func (s *ScreenBundle) WaitForSettle(
 			return 0, actionErr
 		}
 	}
+	// An action may close its owning Session without canceling the caller's
+	// context. Do not continue polling a backend after that ownership ends.
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if err := s.session.ensureOpen(); err != nil {
+		return 0, err
+	}
 	changed, err := find.WaitForChange(
 		ctx,
 		s.backend,
@@ -347,6 +355,12 @@ func (s *ScreenBundle) WaitForSettle(
 		poll,
 		nil,
 	)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, errors.Join(ctxErr, err)
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return 0, errors.Join(openErr, err)
+	}
 	return stableHash, s.operationError("wait-stable", err)
 }
 
