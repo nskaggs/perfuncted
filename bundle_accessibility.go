@@ -386,6 +386,16 @@ func (b *AccessibilityBundle) invokeSemanticActionOnNode(ctx context.Context, no
 		chosen, err = b.InvokeActionByName(ctx, node.ID, name)
 	}
 	if err != nil {
+		// The provider error can carry action metadata. Do not publish a
+		// failure receipt once the caller or session has lost authority.
+		if ctx != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return AccessibilityActionReceipt{}, errors.Join(ctxErr, err)
+			}
+		}
+		if openErr := b.session.ensureOpen(); openErr != nil {
+			return AccessibilityActionReceipt{}, errors.Join(openErr, err)
+		}
 		var dispatchErr *accessibility.ActionInvocationError
 		if errors.As(err, &dispatchErr) {
 			return AccessibilityActionReceipt{
