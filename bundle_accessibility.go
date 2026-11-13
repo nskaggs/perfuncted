@@ -189,6 +189,12 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 	defer cancel()
 	opts.Fresh = true
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, errors.Join(ctxErr, b.operationError("find", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return nil, errors.Join(openErr, b.operationError("find", err))
+	}
 	if err != nil {
 		return nil, b.operationError("find", err)
 	}
@@ -226,6 +232,12 @@ func (b *AccessibilityBundle) FindOneSelector(ctx context.Context, root accessib
 	defer cancel()
 	opts.Fresh = true
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("find", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Node{}, errors.Join(openErr, b.operationError("find", err))
+	}
 	if err != nil {
 		return accessibility.Node{}, b.operationError("find", err)
 	}
