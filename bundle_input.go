@@ -391,6 +391,15 @@ func (b *InputBundle) DragAndDrop(
 	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
 		return moveErr
 	}
+	// The initial move is not a button hold. If it completed after
+	// cancellation or session closure, do not begin a drag or issue cleanup
+	// releases for a button this operation never pressed.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	released := false
 	defer func() {
 		if !released {
