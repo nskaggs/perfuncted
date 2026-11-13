@@ -210,6 +210,12 @@ func (s *ScreenBundle) GetPixel(
 	if err != nil {
 		return color.RGBA{}, s.operationError("pixel", err)
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return color.RGBA{}, ctxErr
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return color.RGBA{}, openErr
+	}
 	return pixel, nil
 }
 
