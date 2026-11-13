@@ -153,6 +153,24 @@ func locatorResolutionMayRetry(err error) bool {
 		errors.Is(err, accessibility.ErrObservationChanged)
 }
 
+// locatorObservationReady fails closed if the dedicated invalidation stream
+// disappeared or already reported a change during semantic resolution.
+// Events are only invalidations here, never a source of target identity.
+func locatorObservationReady(stream <-chan accessibility.Event) error {
+	if stream == nil {
+		return fmt.Errorf("%w: nil semantic observation stream", accessibility.ErrObservationChanged)
+	}
+	select {
+	case _, open := <-stream:
+		if !open {
+			return fmt.Errorf("%w: semantic observation stream closed", accessibility.ErrObservationChanged)
+		}
+		return fmt.Errorf("%w: semantic observation invalidated", accessibility.ErrObservationChanged)
+	default:
+		return nil
+	}
+}
+
 //nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, locatorIdentity, accessibility.NodeID, context.CancelFunc, error) {
 	if l == nil || l.bundle == nil {
@@ -172,9 +190,14 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 	haveInitialIdentity := false
 	for attempt := 0; attempt < locatorResolutionAttempts; attempt++ {
 		observationCtx, stopObservation := context.WithCancel(ctx)
-		if _, err := l.bundle.Events(observationCtx, accessibility.EventOptions{Buffer: 1, RequireSemanticCoverage: true}); err != nil {
+		stream, err := l.bundle.Events(observationCtx, accessibility.EventOptions{Buffer: 1, RequireSemanticCoverage: true})
+		if err != nil {
 			stopObservation()
 			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", fmt.Errorf("%w: locator event observation is unavailable: %w", accessibility.ErrObservationChanged, err))
+		}
+		if err := locatorObservationReady(stream); err != nil {
+			stopObservation()
+			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", err)
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			stopObservation()
@@ -215,12 +238,20 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 				stopObservation()
 				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, errors.Join(readContextErr, l.bundle.operationError("find", readErr))
 			}
+			if observationErr := locatorObservationReady(stream); observationErr != nil {
+				stopObservation()
+				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", errors.Join(observationErr, readErr))
+			}
 			if readErr == nil {
 				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, l.selector); incomplete != nil {
 					stopObservation()
 					return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", incomplete)
 				}
 				matches := accessibility.FilterSnapshotSelector(snapshot, l.selector)
+				if observationErr := locatorObservationReady(stream); observationErr != nil {
+					stopObservation()
+					return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", observationErr)
+				}
 				if openErr := l.bundle.session.ensureOpen(); openErr != nil {
 					stopObservation()
 					return nil, locatorIdentity{}, accessibility.NodeID{}, nil, openErr
