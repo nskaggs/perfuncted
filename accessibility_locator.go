@@ -425,8 +425,27 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 			stopObservation()
 			return receipt, WaitEvidence{}, err
 		}
+		// Resolution does not grant a durable mutation capability. Refuse
+		// dispatch after the caller or owning session loses authority.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			stopObservation()
+			return AccessibilityActionReceipt{}, WaitEvidence{}, ctxErr
+		}
+		if openErr := l.bundle.session.ensureOpen(); openErr != nil {
+			stopObservation()
+			return AccessibilityActionReceipt{}, WaitEvidence{}, openErr
+		}
 		dispatched := dispatch(ctx, node)
 		stopObservation()
+		// A failed provider dispatch can carry the resolved private node in
+		// its receipt even after cancellation or session shutdown. Do not
+		// disclose that metadata once the operation loses authority.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return AccessibilityActionReceipt{}, WaitEvidence{}, errors.Join(ctxErr, dispatched.err)
+		}
+		if openErr := l.bundle.session.ensureOpen(); openErr != nil {
+			return AccessibilityActionReceipt{}, WaitEvidence{}, errors.Join(openErr, dispatched.err)
+		}
 		receipt = dispatched.receipt
 		if dispatched.err == nil {
 			return l.waitForOutcome(ctx, receipt, postcondition, options...)
