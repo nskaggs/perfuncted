@@ -64,6 +64,12 @@ func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	apps, err := b.backend.Applications(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, errors.Join(ctxErr, b.operationError("applications", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return nil, errors.Join(openErr, b.operationError("applications", err))
+	}
 	return apps, b.operationError("applications", err)
 }
 
@@ -77,6 +83,12 @@ func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.N
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Snapshot{}, errors.Join(ctxErr, b.operationError("snapshot", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Snapshot{}, errors.Join(openErr, b.operationError("snapshot", err))
+	}
 	return snapshot, b.operationError("snapshot", err)
 }
 
