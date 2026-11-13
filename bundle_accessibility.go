@@ -104,9 +104,21 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 		Outline(context.Context, accessibility.NodeID, accessibility.SnapshotOptions, accessibility.OutlineOptions) (accessibility.Outline, error)
 	}); ok {
 		outline, err := source.Outline(ctx, root, snapshotOptions, outlineOptions)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return accessibility.Outline{}, errors.Join(ctxErr, b.operationError("outline", err))
+		}
+		if openErr := b.session.ensureOpen(); openErr != nil {
+			return accessibility.Outline{}, errors.Join(openErr, b.operationError("outline", err))
+		}
 		return outline, b.operationError("outline", err)
 	}
 	snapshot, err := b.backend.Snapshot(ctx, root, snapshotOptions)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Outline{}, errors.Join(ctxErr, b.operationError("outline", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Outline{}, errors.Join(openErr, b.operationError("outline", err))
+	}
 	if err != nil {
 		return accessibility.Outline{}, b.operationError("outline", err)
 	}
