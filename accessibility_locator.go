@@ -218,6 +218,12 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 				initialRoot = root
 				haveInitialIdentity = true
 			}
+			// Scope resolution can itself trigger a semantic invalidation.
+			// Do not dispatch a snapshot against an already-obsolete scope.
+			if observationErr := locatorObservationReady(stream); observationErr != nil {
+				stopObservation()
+				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", observationErr)
+			}
 			opts := l.options
 			opts.Fresh = true
 			ctxForRead, cancel := l.bundle.operationContext(ctx)
