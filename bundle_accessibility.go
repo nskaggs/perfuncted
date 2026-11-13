@@ -519,6 +519,12 @@ func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessi
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	chosen, callErr := a.InvokeActionByName(ctx, id, name)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Action{}, errors.Join(ctxErr, b.operationError("invoke-action-by-name", callErr))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Action{}, errors.Join(openErr, b.operationError("invoke-action-by-name", callErr))
+	}
 	return chosen, b.operationError("invoke-action-by-name", callErr)
 }
 
@@ -532,6 +538,12 @@ func (b *AccessibilityBundle) InvokeDefaultAction(ctx context.Context, id access
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	chosen, callErr := a.InvokeDefaultAction(ctx, id)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Action{}, errors.Join(ctxErr, b.operationError("invoke-default-action", callErr))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Action{}, errors.Join(openErr, b.operationError("invoke-default-action", callErr))
+	}
 	return chosen, b.operationError("invoke-default-action", callErr)
 }
 
