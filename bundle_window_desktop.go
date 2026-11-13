@@ -22,6 +22,9 @@ func (b *WindowBundle) ListDesktops(ctx context.Context) ([]window.DesktopInfo, 
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	desktops, err := backend.ListDesktops(ctx)
 	if err != nil {
 		wrapped := b.operationError("list-desktops", err)
@@ -52,6 +55,9 @@ func (b *WindowBundle) SwitchDesktop(ctx context.Context, id string) error {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "switch-desktop", backend.SwitchDesktop(ctx, id))
 }
 
@@ -68,6 +74,9 @@ func (b *WindowBundle) SetWindowDesktopByID(ctx context.Context, id, desktopID s
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "set-window-desktop", backend.SetWindowDesktopByID(ctx, id, desktopID))
 }
 
@@ -84,6 +93,9 @@ func (b *WindowBundle) SetKeepAboveByID(ctx context.Context, id string, on bool)
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "keep-above", backend.SetKeepAboveByID(ctx, id, on))
 }
 
@@ -100,6 +112,9 @@ func (b *WindowBundle) SetKeepBelowByID(ctx context.Context, id string, on bool)
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "keep-below", backend.SetKeepBelowByID(ctx, id, on))
 }
 
@@ -117,6 +132,9 @@ func (b *WindowBundle) CursorPosition(ctx context.Context) (int, int, error) {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	x, y, err := backend.CursorPosition(ctx)
 	if err != nil {
 		wrapped := b.operationError("cursor-position", err)
@@ -148,6 +166,9 @@ func (b *WindowBundle) SetShadeByID(ctx context.Context, id string, on bool) err
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "shade-when-supported", backend.SetShadeByID(ctx, id, on))
 }
 
@@ -165,6 +186,9 @@ func (b *WindowBundle) TileWindowByID(ctx context.Context, id string, x, y int) 
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "tile-window", backend.TileWindowByID(ctx, id, x, y))
 }
 
@@ -181,6 +205,9 @@ func (b *WindowBundle) FloatWindowByID(ctx context.Context, id string) error {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return b.desktopMutationResult(ctx, "float-window", backend.FloatWindowByID(ctx, id))
 }
 
