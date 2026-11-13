@@ -353,8 +353,15 @@ func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability 
 
 func currentBuildInfo() diagnosticBuildInfo {
 	workspaceMode := os.Getenv("GOWORK")
-	if workspaceMode == "" {
+	switch workspaceMode {
+	case "":
 		workspaceMode = "default"
+	case "off":
+		// Preserve the diagnostic distinction for disabled workspace mode.
+	default:
+		// GOWORK may contain a private absolute path to go.work. A failure
+		// bundle needs only the workspace mode, not its local filename.
+		workspaceMode = "on"
 	}
 	info := diagnosticBuildInfo{
 		GoVersion:     runtime.Version(),
