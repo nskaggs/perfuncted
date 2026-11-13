@@ -398,11 +398,15 @@ func chooseWindowCandidate(candidates []windowCandidate) (*Node, []Candidate, bo
 			continue
 		}
 		bestCandidates = append(bestCandidates, candidateFromNode(candidate.node))
-		if selected != nil {
-			return nil, bestCandidates, true
+		if selected == nil {
+			node := candidate.node
+			selected = &node
 		}
-		node := candidate.node
-		selected = &node
+	}
+	// Ambiguity is fail-closed, but the caller needs the complete set of
+	// equally strong matches, including those discovered after the second.
+	if len(bestCandidates) > 1 {
+		return nil, bestCandidates, true
 	}
 	return selected, bestCandidates, false
 }
