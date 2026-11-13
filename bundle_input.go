@@ -180,6 +180,14 @@ func (b *InputBundle) DoubleClick(
 		return err
 	}
 	released = true
+	// The first click can finish after Session.Close. Refuse to schedule a
+	// second click after the owning desktop session is gone.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	// Double-click inter-click spacing is an input protocol gesture interval;
 	// cancellation of the caller context still ends it immediately.
 	timer := time.NewTimer(20 * time.Millisecond)
@@ -188,6 +196,12 @@ func (b *InputBundle) DoubleClick(
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
 	}
 	released = false
 	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
