@@ -339,7 +339,10 @@ func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability 
 			Diagnostics: append([]string(nil), status.Diagnostics...),
 		}
 		if status.Failure != nil {
-			item.Failure = status.Failure.Error()
+			// Backend errors may include window titles, filesystem paths, or
+			// other provider-controlled text. Diagnostic manifests record only
+			// failure presence, matching the top-level error privacy contract.
+			item.Failure = "reported (details redacted)"
 		}
 		out = append(out, item)
 	}
