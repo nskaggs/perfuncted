@@ -470,7 +470,9 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 			return receipt, WaitEvidence{}, scopeErr
 		}
 		if !sameLocatorScope(identity, refreshedIdentity) || root.BusName != refreshedRoot.BusName || root.ObjectPath != refreshedRoot.ObjectPath {
-			return receipt, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s scope changed before dispatch: %w", operation, ErrManagedScopeChanged)
+			// The prior not-sent attempt is not a capability for a different
+			// application scope. Suppress its private node metadata.
+			return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s scope changed before dispatch: %w", operation, ErrManagedScopeChanged)
 		}
 	}
 	return receipt, WaitEvidence{}, ErrUnavailable
