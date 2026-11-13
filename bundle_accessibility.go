@@ -566,7 +566,15 @@ func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.Eve
 	if openErr := b.session.ensureOpen(); openErr != nil {
 		return nil, errors.Join(openErr, b.operationError("events", err))
 	}
-	return stream, b.operationError("events", err)
+	// An event subscription has only one valid success form: a live channel
+	// and no setup error. Never hand an ambiguous stream to the caller.
+	if err != nil {
+		return nil, b.operationError("events", err)
+	}
+	if stream == nil {
+		return nil, b.operationError("events", accessibility.ErrUnsupported)
+	}
+	return stream, nil
 }
 
 // dispatchMutation only acknowledges one AT-SPI mutation while its caller
