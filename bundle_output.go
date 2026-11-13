@@ -29,6 +29,9 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	b.traceAction("output", "list")
 	items, err := b.backend.List(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
