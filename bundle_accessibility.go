@@ -978,7 +978,7 @@ func (b *AccessibilityBundle) Reopen(ctx context.Context) error {
 
 // Generation returns the current accessibility invalidation generation.
 func (b *AccessibilityBundle) Generation() uint64 {
-	if b == nil || util.IsNil(b.backend) {
+	if b == nil || util.IsNil(b.backend) || (b.session != nil && b.session.isClosed()) {
 		return 0
 	}
 	if source, ok := b.backend.(accessibility.GenerationSource); ok {
@@ -990,7 +990,7 @@ func (b *AccessibilityBundle) Generation() uint64 {
 // Invalidate drops cached accessibility observations when a caller observes a
 // state change through another channel.
 func (b *AccessibilityBundle) Invalidate(id accessibility.NodeID) {
-	if b == nil || util.IsNil(b.backend) {
+	if b == nil || util.IsNil(b.backend) || (b.session != nil && b.session.isClosed()) {
 		return
 	}
 	if source, ok := b.backend.(accessibility.GenerationSource); ok {
