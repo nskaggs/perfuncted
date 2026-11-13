@@ -130,4 +130,28 @@ func TestGnomeNativeClipboardRealPrivateBusNegotiatesAndRoundTripsUTF8(t *testin
 	if _, err := native.Get(ctx); err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("closed clipboard accepted read: %v", err)
 	}
+
+	// The public runtime selector must choose this authorized GNOME bridge
+	// over subprocess clipboard tools, using only our synthetic private bus.
+	gnomeRuntime := env.FromEnviron([]string{
+		"DBUS_SESSION_BUS_ADDRESS=" + address,
+		"WAYLAND_DISPLAY=nonexistent-private-test-socket",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+		"XDG_CURRENT_DESKTOP=GNOME",
+	})
+	selected, err := OpenRuntimeContext(ctx, gnomeRuntime)
+	if err != nil {
+		t.Fatalf("GNOME runtime selection did not use the private bridge: %v", err)
+	}
+	defer selected.Close()
+	if _, ok := selected.(*GnomeNativeClipboard); !ok {
+		t.Fatalf("GNOME runtime selected %T instead of the native bridge", selected)
+	}
+	const selection = "private runtime-selected clipboard π"
+	if err := selected.Set(ctx, selection); err != nil {
+		t.Fatalf("runtime-selected clipboard set: %v", err)
+	}
+	if got, err := selected.Get(ctx); err != nil || got != selection {
+		t.Fatalf("runtime-selected clipboard round-trip %q: %v", got, err)
+	}
 }
