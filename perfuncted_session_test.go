@@ -151,7 +151,7 @@ func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
 	cmd := exec.Command(
 		"sh",
 		"-c",
-		`(trap '' TERM; sleep 30) & child=$!; printf '%s' "$child" > "$CHILD_PID"; exit 0`,
+		`umask 077; (trap '' TERM; sleep 30) & child=$!; printf '%s' "$child" > "$CHILD_PID"; exit 0`,
 	)
 	cmd.Env = env.Merge(os.Environ(), "CHILD_PID="+childPIDPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
