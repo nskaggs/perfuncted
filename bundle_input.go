@@ -418,9 +418,23 @@ func (b *InputBundle) DragAndDrop(
 	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x2, y2)); err != nil {
 		return err
 	}
+	// Once the button is held, authority loss must trigger the deferred
+	// best-effort release rather than an additional authorized gesture.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
 		return err
 	}
 	released = true
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	return nil
 }
