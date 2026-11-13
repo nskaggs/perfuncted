@@ -194,6 +194,13 @@ func reapSessionDir(ctx context.Context, dir string) error {
 	if !info.IsDir() {
 		return nil
 	}
+	// A recognizable name cannot authorize deleting a replaced, shared
+	// directory. Managed runtimes are created by our UID with mode 0700.
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0o022 != 0 {
+		slog.Debug("session: skip stale runtime without private ownership", "path", dir)
+		return nil
+	}
 	for _, name := range sessionChildPIDFiles {
 		if err := ctx.Err(); err != nil {
 			return contextErrorWithCause(ctx)
