@@ -63,6 +63,12 @@ func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return nil, err
+	}
 	apps, err := b.backend.Applications(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, errors.Join(ctxErr, b.operationError("applications", err))
@@ -82,6 +88,12 @@ func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.N
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Snapshot{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.Snapshot{}, err
+	}
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Snapshot{}, errors.Join(ctxErr, b.operationError("snapshot", err))
@@ -100,6 +112,12 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Outline{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.Outline{}, err
+	}
 	if source, ok := b.backend.(interface {
 		Outline(context.Context, accessibility.NodeID, accessibility.SnapshotOptions, accessibility.OutlineOptions) (accessibility.Outline, error)
 	}); ok {
@@ -138,6 +156,12 @@ func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target ac
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.WindowScope{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.WindowScope{}, err
+	}
 	if fresh {
 		resolver, ok := b.backend.(accessibility.FreshWindowResolver)
 		if !ok {
@@ -199,6 +223,12 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return nil, err
+	}
 	opts.Fresh = true
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -242,6 +272,12 @@ func (b *AccessibilityBundle) FindOneSelector(ctx context.Context, root accessib
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Node{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.Node{}, err
+	}
 	opts.Fresh = true
 	snapshot, err := b.backend.Snapshot(ctx, root, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -379,6 +415,12 @@ func (b *AccessibilityBundle) Focused(ctx context.Context, opts accessibility.Sn
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Node{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.Node{}, err
+	}
 	node, err := b.backend.Focused(ctx, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("focused", err))
@@ -396,6 +438,12 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Node{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.Node{}, err
+	}
 	node, err := b.backend.AtPoint(ctx, x, y)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("at-point", err))
@@ -452,6 +500,12 @@ func (b *AccessibilityBundle) findApplication(ctx context.Context, filter access
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Application{}, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return accessibility.Application{}, err
+	}
 	var app accessibility.Application
 	var err error
 	if fresh {
