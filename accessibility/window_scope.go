@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -512,15 +513,36 @@ func isWordRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
-func rectOverlap(a, b Rect) int {
-	left := max(a.X, b.X)
-	top := max(a.Y, b.Y)
-	right := min(a.X+a.Width, b.X+b.Width)
-	bottom := min(a.Y+a.Height, b.Y+b.Height)
-	if right <= left || bottom <= top {
+// overlapSpan computes intersection length without adding coordinates, which
+// may overflow for malformed or very large AT-SPI rectangles. Unsigned
+// subtraction represents nonnegative distances across the signed range.
+func overlapSpan(a, aWidth, b, bWidth int) int {
+	if aWidth <= 0 || bWidth <= 0 {
 		return 0
 	}
-	return (right - left) * (bottom - top)
+	if a > b {
+		a, b = b, a
+		aWidth, bWidth = bWidth, aWidth
+	}
+	distance := uint(b) - uint(a)
+	if distance >= uint(aWidth) {
+		return 0
+	}
+	return int(min(uint(aWidth)-distance, uint(bWidth)))
+}
+
+func rectOverlap(a, b Rect) int {
+	width := overlapSpan(a.X, a.Width, b.X, b.Width)
+	height := overlapSpan(a.Y, a.Height, b.Y, b.Height)
+	if width == 0 || height == 0 {
+		return 0
+	}
+	// Only positive overlap is relevant to matching, but retain an area
+	// result without allowing multiplication to wrap back to zero.
+	if width > math.MaxInt/height {
+		return math.MaxInt
+	}
+	return width * height
 }
 
 var _ WindowResolver = (*dbusBackend)(nil)
