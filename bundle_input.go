@@ -348,8 +348,18 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if backend, ok := b.backend.(input.Syncer); ok {
-		return b.operationError("sync", backend.Sync(ctx))
+		err := b.operationError("sync", backend.Sync(ctx))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return errors.Join(ctxErr, err)
+		}
+		if openErr := b.session.ensureOpen(); openErr != nil {
+			return errors.Join(openErr, err)
+		}
+		return err
 	}
 	return b.operationError("sync", ErrUnsupported)
 }
