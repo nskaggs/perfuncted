@@ -206,6 +206,9 @@ func (s *Session) tryStartAccessibility(startupCtx context.Context, infra *sessi
 }
 
 func (s *Session) resolveSessionSwayConfig(ctx context.Context, infra *sessionInfra, mode sessionMode, config SessionConfig) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("session: sway config: %w", err)
+	}
 	swayConf := config.SwayConfigPath
 	err := s.runStartupPhase(ctx, StartupPhaseSwayConfiguration, func() error {
 		if swayConf != "" {
@@ -216,6 +219,9 @@ func (s *Session) resolveSessionSwayConfig(ctx context.Context, infra *sessionIn
 		return resolveErr
 	})
 	if err != nil {
+		return "", fmt.Errorf("session: sway config: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("session: sway config: %w", err)
 	}
 	return swayConf, nil
