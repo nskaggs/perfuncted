@@ -199,6 +199,7 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			opts.Fresh = true
 			ctxForRead, cancel := l.bundle.operationContext(ctx)
 			snapshot, readErr := l.bundle.backend.Snapshot(ctxForRead, root, opts)
+			readContextErr := ctxForRead.Err()
 			cancel()
 			// A provider may return a complete snapshot concurrently with caller
 			// cancellation. Never publish the now-unverifiable target identity.
@@ -209,6 +210,10 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			if openErr := l.bundle.session.ensureOpen(); openErr != nil {
 				stopObservation()
 				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, openErr
+			}
+			if readContextErr != nil {
+				stopObservation()
+				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, errors.Join(readContextErr, l.bundle.operationError("find", readErr))
 			}
 			if readErr == nil {
 				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, l.selector); incomplete != nil {
