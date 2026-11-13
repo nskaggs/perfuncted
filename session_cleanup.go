@@ -342,8 +342,8 @@ func readSessionPIDMetadata(path string) ([]byte, error) {
 	if statErr := unix.Fstat(fd, &stat); statErr != nil {
 		return nil, statErr
 	}
-	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
-		return nil, fmt.Errorf("session: PID metadata %q is not a regular file", path)
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 {
+		return nil, fmt.Errorf("session: PID metadata %q must be a single-link regular file", path)
 	}
 	const maxPIDBytes = 64
 	bytes, err := io.ReadAll(io.LimitReader(file, maxPIDBytes+1))
