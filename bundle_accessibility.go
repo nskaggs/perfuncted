@@ -982,7 +982,11 @@ func (b *AccessibilityBundle) Generation() uint64 {
 		return 0
 	}
 	if source, ok := b.backend.(accessibility.GenerationSource); ok {
-		return source.Generation()
+		generation := source.Generation()
+		if b.session != nil && b.session.isClosed() {
+			return 0
+		}
+		return generation
 	}
 	return 0
 }
