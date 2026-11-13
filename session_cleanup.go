@@ -191,13 +191,9 @@ func reapSessionDir(ctx context.Context, dir string) error {
 	if err != nil {
 		return fmt.Errorf("session: inspect stale runtime %q: %w", dir, err)
 	}
-	if !info.IsDir() {
-		return nil
-	}
 	// A recognizable name cannot authorize deleting a replaced, shared
 	// directory. Managed runtimes are created by our UID with mode 0700.
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0o022 != 0 {
+	if !isPrivateSessionRuntimeInfo(info) {
 		slog.Debug("session: skip stale runtime without private ownership", "path", dir)
 		return nil
 	}
@@ -234,6 +230,16 @@ func reapSessionDir(ctx context.Context, dir string) error {
 		return fmt.Errorf("session: remove stale runtime %q: %w", dir, err)
 	}
 	return nil
+}
+
+// isPrivateSessionRuntimeInfo checks the inode resolved by Lstat; neither
+// symlinks nor directories writable by other accounts authorize deletion.
+func isPrivateSessionRuntimeInfo(info os.FileInfo) bool {
+	if info == nil || !info.IsDir() {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == uint32(os.Geteuid()) && info.Mode().Perm()&0o022 == 0
 }
 
 // unmountSubdirsContext must prove all mounts under a managed runtime have

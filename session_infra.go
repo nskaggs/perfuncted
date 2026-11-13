@@ -642,6 +642,11 @@ func (i *sessionInfra) stop() error {
 			if !isSafeToRemoveDir(i.xdgDir) {
 				i.stopErr = fmt.Errorf("session: refuse unsafe managed runtime directory %q", i.xdgDir)
 				slog.Warn("session: skip removal of non-managed directory", "path", i.xdgDir)
+			} else if info, err := os.Lstat(i.xdgDir); errors.Is(err, os.ErrNotExist) {
+				// Another cleanup already removed the directory.
+			} else if err != nil || !isPrivateSessionRuntimeInfo(info) {
+				i.stopErr = fmt.Errorf("session: refuse unsafe managed runtime directory %q: %v", i.xdgDir, err)
+				slog.Warn("session: skip removal of runtime without private ownership", "path", i.xdgDir)
 			} else {
 				unmountCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 				unmountErr := unmountSubdirsContext(unmountCtx, i.xdgDir)
