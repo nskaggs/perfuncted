@@ -487,6 +487,26 @@ func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.Eve
 	return stream, b.operationError("events", err)
 }
 
+// dispatchMutation only acknowledges one AT-SPI mutation while its caller
+// and owning session remain authorized. Backends may ignore cancellation,
+// so check both before dispatch and after the backend returns.
+func (b *AccessibilityBundle) dispatchMutation(ctx context.Context, operation string, run func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
+	backendErr := run()
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, b.operationError(operation, backendErr))
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return errors.Join(err, b.operationError(operation, backendErr))
+	}
+	return b.operationError(operation, backendErr)
+}
+
 func (b *AccessibilityBundle) automation(operation string) (accessibility.Automation, error) {
 	if err := b.checkAvailable(operation); err != nil {
 		return nil, err
@@ -506,7 +526,9 @@ func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("invoke-action", a.InvokeAction(ctx, id, index))
+	return b.dispatchMutation(ctx, "invoke-action", func() error {
+		return a.InvokeAction(ctx, id, index)
+	})
 }
 
 // InvokeActionByName invokes a uniquely named AT-SPI action and returns the
@@ -555,7 +577,9 @@ func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.Nod
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("scroll", a.ScrollTo(ctx, id, kind))
+	return b.dispatchMutation(ctx, "scroll", func() error {
+		return a.ScrollTo(ctx, id, kind)
+	})
 }
 
 // ScrollToPoint scrolls an AT-SPI node to a point in the requested coordinate space.
@@ -566,7 +590,9 @@ func (b *AccessibilityBundle) ScrollToPoint(ctx context.Context, id accessibilit
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("scroll-to-point", a.ScrollToPoint(ctx, id, kind, x, y))
+	return b.dispatchMutation(ctx, "scroll-to-point", func() error {
+		return a.ScrollToPoint(ctx, id, kind, x, y)
+	})
 }
 
 // SetPosition moves an AT-SPI Component in the requested coordinate space.
@@ -577,7 +603,9 @@ func (b *AccessibilityBundle) SetPosition(ctx context.Context, id accessibility.
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-position", a.SetPosition(ctx, id, x, y, kind))
+	return b.dispatchMutation(ctx, "set-position", func() error {
+		return a.SetPosition(ctx, id, x, y, kind)
+	})
 }
 
 // SetSize resizes an AT-SPI Component.
@@ -588,7 +616,9 @@ func (b *AccessibilityBundle) SetSize(ctx context.Context, id accessibility.Node
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-size", a.SetSize(ctx, id, width, height))
+	return b.dispatchMutation(ctx, "set-size", func() error {
+		return a.SetSize(ctx, id, width, height)
+	})
 }
 
 // SetExtents moves and resizes an AT-SPI Component in the requested coordinate space.
@@ -599,7 +629,9 @@ func (b *AccessibilityBundle) SetExtents(ctx context.Context, id accessibility.N
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-extents", a.SetExtents(ctx, id, x, y, width, height, kind))
+	return b.dispatchMutation(ctx, "set-extents", func() error {
+		return a.SetExtents(ctx, id, x, y, width, height, kind)
+	})
 }
 
 // SetValue sets the current value exposed by an AT-SPI Value object.
@@ -610,7 +642,9 @@ func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.Nod
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-value", a.SetValue(ctx, id, value))
+	return b.dispatchMutation(ctx, "set-value", func() error {
+		return a.SetValue(ctx, id, value)
+	})
 }
 
 // InsertText inserts text at a character offset in an AT-SPI editable-text object.
@@ -621,7 +655,9 @@ func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.N
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("insert-text", a.InsertText(ctx, id, offset, value))
+	return b.dispatchMutation(ctx, "insert-text", func() error {
+		return a.InsertText(ctx, id, offset, value)
+	})
 }
 
 // DeleteText deletes a character range from an AT-SPI editable-text object.
@@ -632,7 +668,9 @@ func (b *AccessibilityBundle) DeleteText(ctx context.Context, id accessibility.N
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("delete-text", a.DeleteText(ctx, id, start, end))
+	return b.dispatchMutation(ctx, "delete-text", func() error {
+		return a.DeleteText(ctx, id, start, end)
+	})
 }
 
 // CopyText copies a character range from an AT-SPI editable-text object.
@@ -643,7 +681,9 @@ func (b *AccessibilityBundle) CopyText(ctx context.Context, id accessibility.Nod
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("copy-text", a.CopyText(ctx, id, start, end))
+	return b.dispatchMutation(ctx, "copy-text", func() error {
+		return a.CopyText(ctx, id, start, end)
+	})
 }
 
 // CutText cuts a character range from an AT-SPI editable-text object.
@@ -654,7 +694,9 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("cut-text", a.CutText(ctx, id, start, end))
+	return b.dispatchMutation(ctx, "cut-text", func() error {
+		return a.CutText(ctx, id, start, end)
+	})
 }
 
 // PasteText pastes clipboard text at a character offset in an AT-SPI editable-text object.
@@ -665,7 +707,9 @@ func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.No
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("paste-text", a.PasteText(ctx, id, position))
+	return b.dispatchMutation(ctx, "paste-text", func() error {
+		return a.PasteText(ctx, id, position)
+	})
 }
 
 // SetCaretOffset sets the caret character offset in an AT-SPI text object.
@@ -676,7 +720,9 @@ func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibili
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-caret", a.SetCaretOffset(ctx, id, offset))
+	return b.dispatchMutation(ctx, "set-caret", func() error {
+		return a.SetCaretOffset(ctx, id, offset)
+	})
 }
 
 // SetTextSelections replaces a document's cross-object selections (AT-SPI 2.52).
@@ -687,7 +733,9 @@ func (b *AccessibilityBundle) SetTextSelections(ctx context.Context, id accessib
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-document-text-selections", a.SetTextSelections(ctx, id, selections))
+	return b.dispatchMutation(ctx, "set-document-text-selections", func() error {
+		return a.SetTextSelections(ctx, id, selections)
+	})
 }
 
 // SetTextSelection sets selection N to a character-offset range in an AT-SPI
@@ -700,7 +748,9 @@ func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibi
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-text-selection", a.SetTextSelection(ctx, id, selection, start, end))
+	return b.dispatchMutation(ctx, "set-text-selection", func() error {
+		return a.SetTextSelection(ctx, id, selection, start, end)
+	})
 }
 
 // AddTextSelection adds a character-offset range to an AT-SPI text object.
@@ -711,7 +761,9 @@ func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibi
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("add-text-selection", a.AddTextSelection(ctx, id, start, end))
+	return b.dispatchMutation(ctx, "add-text-selection", func() error {
+		return a.AddTextSelection(ctx, id, start, end)
+	})
 }
 
 // RemoveTextSelection removes a selection from an AT-SPI text object.
@@ -722,7 +774,9 @@ func (b *AccessibilityBundle) RemoveTextSelection(ctx context.Context, id access
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("remove-text-selection", a.RemoveTextSelection(ctx, id, selection))
+	return b.dispatchMutation(ctx, "remove-text-selection", func() error {
+		return a.RemoveTextSelection(ctx, id, selection)
+	})
 }
 
 // SelectChild selects a child in an AT-SPI selection object.
@@ -733,7 +787,9 @@ func (b *AccessibilityBundle) SelectChild(ctx context.Context, id accessibility.
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("select-child", a.SelectChild(ctx, id, index))
+	return b.dispatchMutation(ctx, "select-child", func() error {
+		return a.SelectChild(ctx, id, index)
+	})
 }
 
 // DeselectChild deselects a child in an AT-SPI selection object.
@@ -744,7 +800,9 @@ func (b *AccessibilityBundle) DeselectChild(ctx context.Context, id accessibilit
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("deselect-child", a.DeselectChild(ctx, id, index))
+	return b.dispatchMutation(ctx, "deselect-child", func() error {
+		return a.DeselectChild(ctx, id, index)
+	})
 }
 
 // SelectAll selects all children in an AT-SPI selection object.
@@ -755,7 +813,9 @@ func (b *AccessibilityBundle) SelectAll(ctx context.Context, id accessibility.No
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("select-all", a.SelectAll(ctx, id))
+	return b.dispatchMutation(ctx, "select-all", func() error {
+		return a.SelectAll(ctx, id)
+	})
 }
 
 // ClearSelection clears all children in an AT-SPI selection object.
@@ -766,7 +826,9 @@ func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibili
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("clear-selection", a.ClearSelection(ctx, id))
+	return b.dispatchMutation(ctx, "clear-selection", func() error {
+		return a.ClearSelection(ctx, id)
+	})
 }
 
 // DeselectSelectedChild deselects the currently selected child in an AT-SPI Selection object.
@@ -777,7 +839,9 @@ func (b *AccessibilityBundle) DeselectSelectedChild(ctx context.Context, id acce
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("deselect-selected-child", a.DeselectSelectedChild(ctx, id))
+	return b.dispatchMutation(ctx, "deselect-selected-child", func() error {
+		return a.DeselectSelectedChild(ctx, id)
+	})
 }
 
 // SelectRow selects a row in an AT-SPI table selection object.
@@ -788,7 +852,9 @@ func (b *AccessibilityBundle) SelectRow(ctx context.Context, id accessibility.No
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("select-row", a.SelectRow(ctx, id, row))
+	return b.dispatchMutation(ctx, "select-row", func() error {
+		return a.SelectRow(ctx, id, row)
+	})
 }
 
 // DeselectRow deselects a row in an AT-SPI table selection object.
@@ -799,7 +865,9 @@ func (b *AccessibilityBundle) DeselectRow(ctx context.Context, id accessibility.
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("deselect-row", a.DeselectRow(ctx, id, row))
+	return b.dispatchMutation(ctx, "deselect-row", func() error {
+		return a.DeselectRow(ctx, id, row)
+	})
 }
 
 // SelectColumn selects a column in an AT-SPI table selection object.
@@ -810,7 +878,9 @@ func (b *AccessibilityBundle) SelectColumn(ctx context.Context, id accessibility
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("select-column", a.SelectColumn(ctx, id, column))
+	return b.dispatchMutation(ctx, "select-column", func() error {
+		return a.SelectColumn(ctx, id, column)
+	})
 }
 
 // DeselectColumn deselects a column in an AT-SPI table selection object.
@@ -821,7 +891,9 @@ func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibili
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("deselect-column", a.DeselectColumn(ctx, id, column))
+	return b.dispatchMutation(ctx, "deselect-column", func() error {
+		return a.DeselectColumn(ctx, id, column)
+	})
 }
 
 // FocusNode requests focus for a semantic node.
@@ -832,7 +904,9 @@ func (b *AccessibilityBundle) FocusNode(ctx context.Context, id accessibility.No
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("grab-focus", a.GrabFocus(ctx, id))
+	return b.dispatchMutation(ctx, "grab-focus", func() error {
+		return a.GrabFocus(ctx, id)
+	})
 }
 
 // ScrollNodeIntoView scrolls a node into view with default alignment.
@@ -848,7 +922,9 @@ func (b *AccessibilityBundle) ReplaceEditableText(ctx context.Context, id access
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	return b.operationError("set-text-contents", a.SetTextContents(ctx, id, value))
+	return b.dispatchMutation(ctx, "set-text-contents", func() error {
+		return a.SetTextContents(ctx, id, value)
+	})
 }
 
 // Reopen explicitly reconnects the accessibility bundle to the same target
