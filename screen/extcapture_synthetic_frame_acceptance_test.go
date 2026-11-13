@@ -35,6 +35,10 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 			h, err := b.GrabFullHash(context.Background())
 			return nil, h, err
 		}, false, false},
+		{"zero region means full hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
+			h, err := b.GrabRegionHash(context.Background(), image.Rectangle{})
+			return nil, h, err
+		}, false, false},
 		{"region hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1))
 			return nil, h, err
