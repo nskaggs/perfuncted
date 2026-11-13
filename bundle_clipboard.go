@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 
 	"github.com/nskaggs/perfuncted/clipboard"
 )
@@ -50,8 +51,18 @@ func (b *ClipboardBundle) Set(ctx context.Context, text string) error {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.traceAction("clipboard", "set")
-	return b.operationError("set", b.backend.Set(ctx, text))
+	err := b.backend.Set(ctx, text)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return errors.Join(ctxErr, b.operationError("set", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return errors.Join(openErr, b.operationError("set", err))
+	}
+	return b.operationError("set", err)
 }
 
 func (b *ClipboardBundle) close() error {
