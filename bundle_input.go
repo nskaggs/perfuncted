@@ -348,6 +348,14 @@ func (b *InputBundle) DragAndDrop(
 			return b.operationError("pointer", checkErr)
 		}
 	}
+	// A target validator can finish after cancellation or Session.Close.
+	// Validation is non-mutating: refuse the gesture before its first event.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
 	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
 		return moveErr
 	}
