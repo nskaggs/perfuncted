@@ -356,13 +356,39 @@ const (
 	waylandPollMaxInterval = 250 * time.Millisecond
 )
 
+// clipboardContentMatcher compares a stream without buffering arbitrary
+// previous clipboard data. Once the content diverges, remaining bytes are
+// drained and discarded so the child can finish normally.
+type clipboardContentMatcher struct {
+	want     string
+	offset   int
+	mismatch bool
+}
+
+func (m *clipboardContentMatcher) Write(p []byte) (int, error) {
+	if !m.mismatch {
+		for _, b := range p {
+			if m.offset >= len(m.want) || m.want[m.offset] != b {
+				m.mismatch = true
+				break
+			}
+			m.offset++
+		}
+	}
+	return len(p), nil
+}
+
+func (m *clipboardContentMatcher) matches() bool {
+	return !m.mismatch && m.offset == len(m.want)
+}
+
 // waylandContentMatches reports whether the compositor already serves want.
 func (c *extCmdClipboard) waylandContentMatches(ctx context.Context, want string) bool {
 	cmd := executil.CommandContext(ctx, c.getCmd[0], c.getCmd[1:]...)
 	cmd.Env = c.env
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	return cmd.Run() == nil && out.String() == want
+	matcher := &clipboardContentMatcher{want: want}
+	cmd.Stdout = matcher
+	return cmd.Run() == nil && matcher.matches()
 }
 
 // waitWaylandContent waits until the compositor serves want.
