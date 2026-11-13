@@ -126,11 +126,9 @@ func (s *Session) startSession(
 	}
 
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
-	if writeErr := os.WriteFile(
-		pidPath,
-		[]byte(strconv.Itoa(os.Getpid())),
-		0644,
-	); writeErr != nil {
+	// Publish through a new inode: an existing symlink or hard link must
+	// never redirect the owner metadata write outside this runtime.
+	if writeErr := writeManagedSessionFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); writeErr != nil {
 		return nil, fmt.Errorf("session: write owner pidfile: %w", writeErr)
 	}
 
