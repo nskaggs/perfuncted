@@ -273,8 +273,16 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime, maxX, maxY int32) (
 		case errors.Is(err, gnomebridge.ErrSessionRestartRequired):
 			// A restart is the one bridge failure with no alternative: the
 			// extension is installed but will not serve this session.
+			if usableInputter(b) {
+				_ = b.Close()
+			}
 			return nil, err
 		default:
+			// A constructor can return a partially acquired backend alongside
+			// an error. Release it before trying any fallback backend.
+			if usableInputter(b) {
+				_ = b.Close()
+			}
 			attempts.add("GNOME Shell bridge input", err)
 		}
 	}
