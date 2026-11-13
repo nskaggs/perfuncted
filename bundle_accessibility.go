@@ -483,7 +483,25 @@ func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.Eve
 	if !ok {
 		return nil, b.operationError("events", accessibility.ErrUnsupported)
 	}
+	// Event streams are long-lived, so do not impose the normal operation
+	// timeout. Admission and publication still require caller and session
+	// authority, even when a provider ignores cancellation during setup.
+	if ctx == nil {
+		return nil, b.operationError("events", errors.New("accessibility: nil event context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return nil, err
+	}
 	stream, err := source.Events(ctx, opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, errors.Join(ctxErr, b.operationError("events", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return nil, errors.Join(openErr, b.operationError("events", err))
+	}
 	return stream, b.operationError("events", err)
 }
 
