@@ -77,6 +77,9 @@ func (b *WindowBundle) ActiveTitle(ctx context.Context) (string, error) {
 	}
 	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	title, err := b.backend.ActiveTitle(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", ctxErr
