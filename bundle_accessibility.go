@@ -344,6 +344,12 @@ func (b *AccessibilityBundle) Focused(ctx context.Context, opts accessibility.Sn
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	node, err := b.backend.Focused(ctx, opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("focused", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Node{}, errors.Join(openErr, b.operationError("focused", err))
+	}
 	return node, b.operationError("focused", err)
 }
 
@@ -355,6 +361,12 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	node, err := b.backend.AtPoint(ctx, x, y)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("at-point", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return accessibility.Node{}, errors.Join(openErr, b.operationError("at-point", err))
+	}
 	return node, b.operationError("at-point", err)
 }
 
