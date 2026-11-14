@@ -8,6 +8,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
 )
 
@@ -65,6 +66,9 @@ func discoverUinputLogicalBounds(ctx context.Context, rt env.Runtime) (int32, in
 	lister, err := openUinputOutputLister(ctx, rt)
 	if err != nil {
 		return 0, 0, false, fmt.Errorf("input/uinput: determine logical desktop dimensions: %w", err)
+	}
+	if util.IsNil(lister) {
+		return 0, 0, false, errors.New("input/uinput: output discovery returned nil lister")
 	}
 	outputs, listErr := lister.List(ctx)
 	closeErr := lister.Close()
