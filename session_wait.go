@@ -321,6 +321,13 @@ func WindowClosed(target *Window) Condition {
 				)
 			}
 			if err := session.Windows.checkAvailable("info"); err != nil {
+				// Window capability is fixed for this session. An absent
+				// manager can never establish that this native ID disappeared;
+				// report unsupported observation immediately instead of
+				// retrying an unavailable backend until the caller times out.
+				if errors.Is(err, ErrUnavailable) {
+					return false, errors.Join(ErrUnsupported, err)
+				}
 				return false, err
 			}
 			backend, ok := session.Windows.backend.(interface {
