@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/screen"
 )
 
@@ -144,6 +145,7 @@ func (s *ScreenBundle) CaptureRegion(
 	rect image.Rectangle,
 	path string,
 ) error {
+	ctx = contextutil.Default(ctx)
 	s.traceAction("capture-region rect=%s path=%q", rect, path)
 	img, err := s.grab(ctx, rect)
 	if err != nil {
@@ -224,6 +226,7 @@ func (s *ScreenBundle) GetMultiplePixels(
 	ctx context.Context,
 	points []image.Point,
 ) ([]color.RGBA, error) {
+	ctx = contextutil.Default(ctx)
 	if err := s.checkAvailable("pixel"); err != nil {
 		return nil, err
 	}
