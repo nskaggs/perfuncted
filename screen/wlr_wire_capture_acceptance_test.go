@@ -81,8 +81,13 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 				if err := writeExtTestEvent(conn, outputID, 1, wlUint32Payload(0, 2, 2, 60000)); err != nil {
 					return err
 				}
-				if err := writeExtTestEvent(conn, outputID, 3, wlUint32Payload(1)); err != nil {
-					return err
+				// An output can advertise geometry without ever reporting its
+				// optional scale. Keep this behavior available to synthetic
+				// capture tests of the unknown-scale fallback.
+				if frameOutcome != "omit output scale" {
+					if err := writeExtTestEvent(conn, outputID, 3, wlUint32Payload(1)); err != nil {
+						return err
+					}
 				}
 			}
 			if err := writeExtTestEvent(conn, callback, 0, wlUint32Payload(0)); err != nil {
