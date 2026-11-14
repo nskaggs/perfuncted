@@ -17,28 +17,29 @@ import (
 )
 
 type syntheticPortal struct {
-	conn           *dbus.Conn
-	mu             sync.Mutex
-	code           uint32
-	result         map[string]dbus.Variant
-	responseBody   []any
-	createFailure  string
-	startResponse  map[string]dbus.Variant
-	connectErr     *dbus.Error
-	skip           bool
-	emitUnrelated  bool                 // deliver a different portal signal before Response
-	requestPaths   chan dbus.ObjectPath // optional test observation of method-return path
-	getVersion     any
-	versionFailure string
-	busAddress     string
-	deviceMask     uint32
-	selectCode     uint32
-	startCode      uint32
-	persistToken   string
-	eisFD          dbus.UnixFD
-	selectOptions  map[string]dbus.Variant
-	called         int
-	closedSessions int
+	conn              *dbus.Conn
+	mu                sync.Mutex
+	code              uint32
+	result            map[string]dbus.Variant
+	responseBody      []any
+	createFailure     string
+	startResponse     map[string]dbus.Variant
+	connectErr        *dbus.Error
+	skip              bool
+	emitUnrelated     bool                 // deliver a different portal signal before Response
+	requestPaths      chan dbus.ObjectPath // optional test observation of method-return path
+	createMethodDelay time.Duration        // delay method completion after emitting the Response
+	getVersion        any
+	versionFailure    string
+	busAddress        string
+	deviceMask        uint32
+	selectCode        uint32
+	startCode         uint32
+	persistToken      string
+	eisFD             dbus.UnixFD
+	selectOptions     map[string]dbus.Variant
+	called            int
+	closedSessions    int
 }
 
 func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.ObjectPath, *dbus.Error) {
@@ -50,6 +51,7 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 	responseBody := append([]any(nil), p.responseBody...)
 	unrelated := p.emitUnrelated
 	paths := p.requestPaths
+	methodDelay := p.createMethodDelay
 	p.called++
 	p.mu.Unlock()
 	if failure != "" {
@@ -76,6 +78,9 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 				_ = p.conn.Emit(path, portalRequestInterface+".Response", code, result)
 			}
 		}()
+	}
+	if methodDelay > 0 {
+		time.Sleep(methodDelay)
 	}
 	return path, nil
 }
