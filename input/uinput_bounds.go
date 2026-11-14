@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/output"
 )
@@ -56,12 +57,21 @@ var openUinputOutputLister = output.OpenRuntimeContext
 // discoverUinputLogicalBounds closes the lister even if enumeration fails
 // and only grants the single-output guarantee when metadata is authoritative.
 func discoverUinputLogicalBounds(ctx context.Context, rt env.Runtime) (int32, int32, bool, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, 0, false, err
+	}
 	lister, err := openUinputOutputLister(ctx, rt)
 	if err != nil {
 		return 0, 0, false, fmt.Errorf("input/uinput: determine logical desktop dimensions: %w", err)
 	}
 	outputs, listErr := lister.List(ctx)
 	closeErr := lister.Close()
+	// A successful enumeration is not permission to create an input device
+	// after the caller has revoked the request. Close the lister first.
+	if err := ctx.Err(); err != nil {
+		return 0, 0, false, err
+	}
 	if listErr != nil {
 		return 0, 0, false, fmt.Errorf("input/uinput: list outputs: %w", listErr)
 	}
@@ -77,6 +87,10 @@ func discoverUinputLogicalBounds(ctx context.Context, rt env.Runtime) (int32, in
 }
 
 func newResolvedUinputBackend(ctx context.Context, rt env.Runtime, width, height int32) (Inputter, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	provenSingleOutput := false
 	if width == 0 && height == 0 {
 		var err error
@@ -86,6 +100,9 @@ func newResolvedUinputBackend(ctx context.Context, rt env.Runtime, width, height
 		}
 	}
 	if err := validateUinputDimensions(width, height); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	b, err := newUinputBackend(width, height)
