@@ -17,21 +17,22 @@ import (
 )
 
 type syntheticKWinScriptService struct {
-	busAddress   string // private D-Bus used by synthetic runtime acceptance tests
-	conn         *dbus.Conn
-	mu           sync.Mutex
-	svc          string
-	plugin       string
-	response     string
-	listOverride string // test-only synthetic provider reply for multi-window iteration
-	loadCount    int
-	startCount   int
-	unloadCount  int
-	loadedPath   string
-	loadedScript string
-	noCallback   bool
-	failLoad     bool
-	failStart    bool
+	busAddress     string // private D-Bus used by synthetic runtime acceptance tests
+	conn           *dbus.Conn
+	mu             sync.Mutex
+	svc            string
+	plugin         string
+	response       string
+	listOverride   string // test-only synthetic provider reply for multi-window iteration
+	actionOverride string // test-only script action reply
+	loadCount      int
+	startCount     int
+	unloadCount    int
+	loadedPath     string
+	loadedScript   string
+	noCallback     bool
+	failLoad       bool
+	failStart      bool
 }
 
 var syntheticKWinServiceName = regexp.MustCompile(`org\.kde\.pflist[0-9]+_[0-9]+`)
@@ -75,6 +76,9 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 		response = "Editor"
 	default:
 		response = kwinScriptFoundResult
+		if s.actionOverride != "" {
+			response = s.actionOverride
+		}
 	}
 	s.mu.Lock()
 	s.svc = service
