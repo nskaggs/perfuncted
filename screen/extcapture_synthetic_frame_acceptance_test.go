@@ -2,6 +2,7 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/nskaggs/perfuncted/find"
 	"image"
@@ -18,39 +19,44 @@ import (
 // readiness, while the backend performs the real shm/pool/frame wire sequence.
 func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		operation  func(*ExtCaptureBackend) (image.Image, uint32, error)
-		wantImage  bool
-		unsetScale bool
+		name            string
+		operation       func(*ExtCaptureBackend) (image.Image, uint32, error)
+		wantImage       bool
+		unsetScale      bool
+		wantEmptyRegion bool
 	}{
 		{"full image", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			img, err := b.Grab(context.Background(), image.Rectangle{})
 			return img, 0, err
-		}, true, false},
+		}, true, false, false},
 		{"cropped image", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			img, err := b.Grab(context.Background(), image.Rect(1, 1, 2, 2))
 			return img, 0, err
-		}, true, false},
+		}, true, false, false},
 		{"full hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabFullHash(context.Background())
 			return nil, h, err
-		}, false, false},
+		}, false, false, false},
 		{"zero region means full hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabRegionHash(context.Background(), image.Rectangle{})
 			return nil, h, err
-		}, false, false},
+		}, false, false, false},
 		{"region hash", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1))
 			return nil, h, err
-		}, false, false},
+		}, false, false, false},
+		{"region entirely outside captured output", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
+			h, err := b.GrabRegionHash(context.Background(), image.Rect(400, 500, 402, 503))
+			return nil, h, err
+		}, false, false, true},
 		{"region hash before output scale", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			h, err := b.GrabRegionHash(context.Background(), image.Rect(0, 0, 1, 1))
 			return nil, h, err
-		}, false, true},
+		}, false, true, false},
 		{"cropped image before output scale", func(b *ExtCaptureBackend) (image.Image, uint32, error) {
 			img, err := b.Grab(context.Background(), image.Rect(1, 1, 2, 2))
 			return img, 0, err
-		}, true, true},
+		}, true, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sock := filepath.Join(t.TempDir(), "wayland.sock")
@@ -160,10 +166,16 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 				t.Fatal("compositor never saw frame capture")
 			}
 			close(releaseServer)
-			if captureErr != nil {
+			if tc.wantEmptyRegion {
+				if !errors.Is(captureErr, find.ErrEmptyRegion) || img != nil || hash != 0 {
+					t.Fatalf("out-of-frame region disclosed screenshot/hash: image=%v hash=%08x err=%v", img, hash, captureErr)
+				}
+			} else if captureErr != nil {
 				t.Fatalf("screencopy failed: %v", captureErr)
 			}
-			if tc.wantImage {
+			if tc.wantEmptyRegion {
+				// Error responses must still release the compositor's capture resources.
+			} else if tc.wantImage {
 				if img == nil {
 					t.Fatal("screencopy returned nil")
 				}
