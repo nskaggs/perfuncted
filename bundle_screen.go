@@ -355,6 +355,14 @@ func (s *ScreenBundle) WaitForSettle(
 	if err != nil {
 		return 0, s.operationError("wait-change", err)
 	}
+	// Change detection may close the Session while returning a valid hash.
+	// Never start a new polling phase after its backend authority is revoked.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, ctxErr
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return 0, openErr
+	}
 	stableHash, err := find.WaitForNoChangeFrom(
 		ctx,
 		s.backend,
