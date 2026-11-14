@@ -54,3 +54,21 @@ func TestUinputExplicitDimensionsCanceledBeforeDeviceCreation(t *testing.T) {
 		t.Fatalf("revoked explicit dimensions: backend=%T err=%v created=%d", backend, err, created)
 	}
 }
+
+// The kernel device may have been opened by the time cancellation arrives.
+// It must be closed rather than handed to a caller whose operation has ended.
+func TestUinputCancellationDuringConstructorClosesCreatedDevice(t *testing.T) {
+	oldCreate := newUinputBackend
+	t.Cleanup(func() { newUinputBackend = oldCreate })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	created := &selectorTrackedInputter{}
+	newUinputBackend = func(int32, int32) (Inputter, error) {
+		cancel()
+		return created, nil
+	}
+	backend, err := newResolvedUinputBackend(ctx, env.Runtime{}, 1920, 1080)
+	if !errors.Is(err, context.Canceled) || backend != nil || created.closed != 1 {
+		t.Fatalf("constructor canceled: backend=%T err=%v close count=%d", backend, err, created.closed)
+	}
+}

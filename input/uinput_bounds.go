@@ -2,6 +2,7 @@ package input
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -106,6 +107,14 @@ func newResolvedUinputBackend(ctx context.Context, rt env.Runtime, width, height
 		return nil, err
 	}
 	b, err := newUinputBackend(width, height)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// The constructor may have opened a kernel device before cancellation.
+		// Never publish a device after caller authorization has expired.
+		if usableInputter(b) {
+			_ = b.Close()
+		}
+		return nil, errors.Join(ctxErr, err)
+	}
 	if err != nil {
 		if usableInputter(b) {
 			_ = b.Close()
