@@ -22,15 +22,28 @@ type syntheticATSPINode struct {
 	children            []objectRef
 	childrenHook        func()
 	childrenFailure     string
+	propertyFailure     string
+	roleFailure         string
+	stateFailure        string
 	application         objectRef
 	pointResult         objectRef
 	pointFailure        string
 	x, y, width, height int32
 }
 
-func (n *syntheticATSPINode) GetRole() (uint32, *dbus.Error)                  { return n.role, nil }
-func (n *syntheticATSPINode) GetInterfaces() ([]string, *dbus.Error)          { return n.interfaces, nil }
-func (n *syntheticATSPINode) GetState() ([]uint32, *dbus.Error)               { return n.states, nil }
+func (n *syntheticATSPINode) GetRole() (uint32, *dbus.Error) {
+	if n.roleFailure != "" {
+		return 0, dbus.MakeFailedError(errors.New(n.roleFailure))
+	}
+	return n.role, nil
+}
+func (n *syntheticATSPINode) GetInterfaces() ([]string, *dbus.Error) { return n.interfaces, nil }
+func (n *syntheticATSPINode) GetState() ([]uint32, *dbus.Error) {
+	if n.stateFailure != "" {
+		return nil, dbus.MakeFailedError(errors.New(n.stateFailure))
+	}
+	return n.states, nil
+}
 func (n *syntheticATSPINode) GetAttributes() (map[string]string, *dbus.Error) { return n.attrs, nil }
 func (n *syntheticATSPINode) GetChildren() ([]objectRef, *dbus.Error) {
 	if n.childrenFailure != "" {
@@ -71,6 +84,9 @@ func (n *syntheticATSPINode) GetRelationSet() ([]struct {
 	}{}, nil
 }
 func (n *syntheticATSPINode) Get(iface, key string) (dbus.Variant, *dbus.Error) {
+	if n.propertyFailure == key {
+		return dbus.Variant{}, dbus.MakeFailedError(errors.New("provider refused " + key))
+	}
 	switch key {
 	case "Name":
 		return dbus.MakeVariant(n.name), nil
