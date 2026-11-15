@@ -165,6 +165,12 @@ func closeReceivedFDs(control []byte) {
 		if message.Header.Level != unix.SOL_SOCKET || message.Header.Type != unix.SCM_RIGHTS {
 			continue
 		}
+		// ParseUnixRights assumes a complete native-int payload and panics on
+		// malformed partial SCM_RIGHTS records. Never decode or close an
+		// untrusted truncated descriptor.
+		if len(message.Data) == 0 || len(message.Data)%4 != 0 {
+			continue
+		}
 		fds, err := unix.ParseUnixRights(&message)
 		if err != nil {
 			continue
