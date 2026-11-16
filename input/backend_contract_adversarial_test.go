@@ -47,6 +47,38 @@ func TestCanceledSuccessfulBackendConstructionMustCloseBackend(t *testing.T) {
 	}
 }
 
+type cancelingCloseInputter struct {
+	noopInputter
+	cancel context.CancelFunc
+	closes int
+}
+
+func (b *cancelingCloseInputter) Close() error {
+	b.closes++
+	b.cancel()
+	return nil
+}
+
+func TestOpenInputCandidateCancellationDuringFailedBackendCleanupTakesPrecedence(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	backend := &cancelingCloseInputter{cancel: cancel}
+	attempts := inputAttempts{}
+
+	got, err := openInputCandidate(ctx, &attempts, "partial", func() (Inputter, error) {
+		return backend, errors.New("backend initialization failed after acquiring resources")
+	})
+	if got != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("openInputCandidate returned backend=%v err=%v, want cancellation after cleanup", got, err)
+	}
+	if backend.closes != 1 {
+		t.Fatalf("partial backend closed %d times, want once", backend.closes)
+	}
+	if len(attempts) != 0 {
+		t.Fatalf("canceled constructor failure recorded %d backend attempts: %v", len(attempts), attempts)
+	}
+}
+
 type closeTrackingBackend struct {
 	noopInputter
 	onClose func()
