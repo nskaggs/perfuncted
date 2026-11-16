@@ -24,20 +24,27 @@ func extConstructorGlobal(name uint32, iface string, version uint32) []byte {
 	wl.PutUint32(data[8+pad:], version)
 	return data
 }
+
+type extConstructorAdvertisedGlobal struct {
+	name    uint32
+	iface   string
+	version uint32
+}
+
 func serveExtConstructorPeer(conn *net.UnixConn, skip string) error {
+	return serveExtConstructorPeerWithGlobals(conn, skip, nil)
+}
+
+func serveExtConstructorPeerWithGlobals(conn *net.UnixConn, skip string, additional []extConstructorAdvertisedGlobal) error {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
 	var registryID uint32
 	gotBinds := map[uint32]uint32{}
 	syncs := 0
-	globals := []struct {
-		name    uint32
-		iface   string
-		version uint32
-	}{
+	globals := append([]extConstructorAdvertisedGlobal{
 		{21, "ext_image_copy_capture_manager_v1", 1}, {22, "ext_output_image_capture_source_manager_v1", 1},
 		{23, "wl_output", 4}, {24, "wl_shm", 1},
-	}
+	}, additional...)
 	for {
 		var h [8]byte
 		if _, err := io.ReadFull(conn, h[:]); err != nil {
