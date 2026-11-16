@@ -361,10 +361,12 @@ func TestEISenderCancellationAtEachNegotiationWait(t *testing.T) {
 				if _, err := server.Write(eiRequest(seatID, 2, body)); err != nil {
 					t.Fatal(err)
 				}
+				awaitEISetupWait(t, ctx, uint32(5+i))
 			}
 			if _, err := server.Write(eiRequest(seatID, 3, nil)); err != nil {
 				t.Fatal(err)
 			}
+			awaitEISetupWait(t, ctx, 8)
 			bind := readEIRequest(t, server)
 			if bind.object != seatID || bind.opcode != 1 {
 				t.Fatalf("seat capability bind = %+v", bind)
@@ -374,7 +376,6 @@ func TestEISenderCancellationAtEachNegotiationWait(t *testing.T) {
 				t.Fatalf("device setup synchronization = %+v", synchronize)
 			}
 			callbackID := binary.NativeEndian.Uint64(synchronize.body)
-			awaitEISetupWait(t, ctx, 5)
 			if stage == "device-enumeration" {
 				cancel()
 				assertEISSetupCanceled(t, result)
@@ -384,7 +385,7 @@ func TestEISenderCancellationAtEachNegotiationWait(t *testing.T) {
 			if _, err := server.Write(eiRequest(callbackID, 0, eiU64(0))); err != nil {
 				t.Fatal(err)
 			}
-			awaitEISetupWait(t, ctx, 6)
+			awaitEISetupWait(t, ctx, 10)
 			cancel()
 			assertEISSetupCanceled(t, result)
 		})
