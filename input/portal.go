@@ -940,6 +940,9 @@ func (b *RemoteDesktopBackend) validatedTypeKeycodes(actions []keySend) ([]uint3
 			if !utf8.ValidString(action.text) {
 				return nil, errors.New("input: text must be valid UTF-8")
 			}
+			if strings.IndexByte(action.text, 0) >= 0 {
+				return nil, errors.New("input/eis: text contains embedded NUL byte")
+			}
 			// A negotiated text object without an active device cannot
 			// authorize a batch. Check both before any earlier key frame
 			// is dispatched, otherwise Type can partially inject input.
