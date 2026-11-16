@@ -261,6 +261,16 @@ func atomicReplaceDirectory(tmp, dest string) error {
 	} else if !errors.Is(err, unix.EEXIST) {
 		return fmt.Errorf("gnome bridge: atomically install extension: %w", err)
 	}
+	// RENAME_EXCHANGE can swap a directory with a regular file or symlink.
+	// Reject those destinations rather than deleting the displaced file in
+	// the staging directory after the exchange.
+	info, err := os.Lstat(dest)
+	if err != nil {
+		return fmt.Errorf("gnome bridge: inspect existing extension: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("gnome bridge: existing extension target is not a directory")
+	}
 	if err := unix.Renameat2(unix.AT_FDCWD, tmp, unix.AT_FDCWD, dest, unix.RENAME_EXCHANGE); err != nil {
 		return fmt.Errorf("gnome bridge: atomically replace extension: %w", err)
 	}
