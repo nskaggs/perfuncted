@@ -24,6 +24,7 @@ type syntheticPortal struct {
 	responseBody      []any
 	createFailure     string
 	startResponse     map[string]dbus.Variant
+	startHook         func()
 	connectErr        *dbus.Error
 	skip              bool
 	emitUnrelated     bool                 // deliver a different portal signal before Response

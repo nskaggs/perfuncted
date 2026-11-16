@@ -37,6 +37,7 @@ func (p *syntheticPortal) SelectDevices(_ dbus.ObjectPath, options map[string]db
 func (p *syntheticPortal) Start(_ dbus.ObjectPath, _ string, _ map[string]dbus.Variant) (dbus.ObjectPath, *dbus.Error) {
 	p.mu.Lock()
 	response := make(map[string]dbus.Variant)
+	hook := p.startHook
 	if p.startResponse != nil {
 		for key, value := range p.startResponse {
 			response[key] = value
@@ -48,6 +49,9 @@ func (p *syntheticPortal) Start(_ dbus.ObjectPath, _ string, _ map[string]dbus.V
 		}
 	}
 	p.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	return p.reply("Start", response), nil
 }
 func (p *syntheticPortal) ConnectToEIS(_ dbus.ObjectPath, _ map[string]dbus.Variant) (dbus.UnixFD, *dbus.Error) {
