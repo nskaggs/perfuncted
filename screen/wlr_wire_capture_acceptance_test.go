@@ -34,6 +34,7 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(8 * time.Second))
 	var registryID, managerID, outputID, frameID uint32
+	var frameCount int
 	var sawCapture, sawCopy bool
 	for {
 		var header [8]byte
@@ -116,8 +117,12 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 			if frameID != 0 {
 				return fmt.Errorf("new capture started before frame %d was destroyed", frameID)
 			}
+			frameCount++
 			frameID = wl.Uint32(body[:4])
 			sawCapture = true
+			if frameOutcome == "disconnect after capture request" {
+				return nil
+			}
 			if frameOutcome == "failed before buffer" {
 				if err := writeExtTestEvent(conn, frameID, 3, nil); err != nil {
 					return err
@@ -146,6 +151,9 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 				buffer = wlUint32Payload(0, 2, 0, 8)
 			case "oversized framebuffer":
 				buffer = wlUint32Payload(0, 2, 2, ^uint32(0))
+			}
+			if frameOutcome == "geometry change after first" && frameCount == 2 {
+				buffer = wlUint32Payload(0, 3, 2, 12)
 			}
 			if err := writeExtTestEvent(conn, frameID, 0, buffer); err != nil {
 				return err
