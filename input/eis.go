@@ -320,22 +320,23 @@ type eiDevice struct {
 }
 
 type eiSender struct {
-	client      *eiClient
-	connection  uint64
-	seat        uint64
-	keyboard    uint64
-	text        uint64
-	pointer     uint64
-	button      uint64
-	scroll      uint64
-	scrollDev   uint64
-	pointerDev  uint64
-	buttonDev   uint64
-	keyboardDev uint64
-	textDev     uint64
-	regions     []eiRegion
-	pointers    []eiPointerDevice
-	devices     map[uint64]*eiDevice
+	client       *eiClient
+	clockGettime func(int32, *unix.Timespec) error
+	connection   uint64
+	seat         uint64
+	keyboard     uint64
+	text         uint64
+	pointer      uint64
+	button       uint64
+	scroll       uint64
+	scrollDev    uint64
+	pointerDev   uint64
+	buttonDev    uint64
+	keyboardDev  uint64
+	textDev      uint64
+	regions      []eiRegion
+	pointers     []eiPointerDevice
+	devices      map[uint64]*eiDevice
 }
 
 func setupEISender(ctx context.Context, conn *net.UnixConn) (*eiSender, error) { //nolint:gocyclo // handshake, capability binding, and resumed-device readiness form one bounded protocol state machine.
@@ -859,16 +860,23 @@ func (c *eiClient) nextClientObjectID() uint64 {
 	}
 }
 
-func monotonicMicroseconds() (uint64, error) {
+func monotonicMicroseconds(clockGettime func(int32, *unix.Timespec) error) (uint64, error) {
+	if clockGettime == nil {
+		clockGettime = unix.ClockGettime
+	}
 	var ts unix.Timespec
-	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
+	if err := clockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
 		return 0, err
 	}
 	return uint64(ts.Sec)*1_000_000 + uint64(ts.Nsec)/1_000, nil
 }
 
-func eiFrame(device uint64, serial uint32) ([]byte, error) {
-	timestamp, err := monotonicMicroseconds()
+func eiFrame(sender *eiSender, device uint64, serial uint32) ([]byte, error) {
+	var clockGettime func(int32, *unix.Timespec) error
+	if sender != nil {
+		clockGettime = sender.clockGettime
+	}
+	timestamp, err := monotonicMicroseconds(clockGettime)
 	if err != nil {
 		return nil, fmt.Errorf("input/eis: read monotonic clock: %w", err)
 	}
@@ -892,7 +900,7 @@ func eiTextFrames(sender *eiSender, text string) ([][]byte, error) {
 	frames := make([][]byte, 0, len(chunks))
 	for _, chunk := range chunks {
 		request := eiRequest(sender.text, 2, eiString(chunk))
-		frame, err := eiFrame(sender.textDev, sender.client.serial.Load())
+		frame, err := eiFrame(sender, sender.textDev, sender.client.serial.Load())
 		if err != nil {
 			return nil, err
 		}
@@ -930,7 +938,7 @@ func eiKeyFrame(sender *eiSender, key uint32, pressed bool) ([]byte, error) {
 		state = 1
 	}
 	request := eiRequest(sender.keyboard, 1, append(eiU32(key), eiU32(state)...))
-	frame, err := eiFrame(sender.keyboardDev, sender.client.serial.Load())
+	frame, err := eiFrame(sender, sender.keyboardDev, sender.client.serial.Load())
 	if err != nil {
 		return nil, err
 	}
@@ -946,7 +954,7 @@ func eiButtonFrame(sender *eiSender, button uint32, pressed bool) ([]byte, error
 		state = 1
 	}
 	request := eiRequest(sender.button, 1, append(eiU32(button), eiU32(state)...))
-	frame, err := eiFrame(sender.buttonDev, sender.client.serial.Load())
+	frame, err := eiFrame(sender, sender.buttonDev, sender.client.serial.Load())
 	if err != nil {
 		return nil, err
 	}
@@ -969,7 +977,7 @@ func eiPointerFrame(sender *eiSender, x, y int) ([]byte, error) {
 		return nil, errors.New("input/eis: pointer coordinate cannot be represented exactly by the protocol")
 	}
 	request := eiRequest(pointer.pointer, 1, append(eiF32(floatX), eiF32(floatY)...))
-	frame, err := eiFrame(pointer.device, sender.client.serial.Load())
+	frame, err := eiFrame(sender, pointer.device, sender.client.serial.Load())
 	if err != nil {
 		return nil, err
 	}
@@ -981,7 +989,7 @@ func eiScrollFrame(sender *eiSender, x, y int32) ([]byte, error) {
 		return nil, unsupportedError("remote-desktop", "scroll input")
 	}
 	request := eiRequest(sender.scroll, 2, append(eiI32(x), eiI32(y)...))
-	frame, err := eiFrame(sender.scrollDev, sender.client.serial.Load())
+	frame, err := eiFrame(sender, sender.scrollDev, sender.client.serial.Load())
 	if err != nil {
 		return nil, err
 	}
