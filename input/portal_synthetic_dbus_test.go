@@ -30,6 +30,7 @@ type syntheticPortal struct {
 	emitUnrelated     bool                 // deliver a different portal signal before Response
 	requestPaths      chan dbus.ObjectPath // optional test observation of method-return path
 	createMethodDelay time.Duration        // delay method completion after emitting the Response
+	releaseOwner      bool
 	getVersion        any
 	versionFailure    string
 	busAddress        string
@@ -53,6 +54,7 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 	unrelated := p.emitUnrelated
 	paths := p.requestPaths
 	methodDelay := p.createMethodDelay
+	releaseName := p.releaseOwner
 	p.called++
 	p.mu.Unlock()
 	if failure != "" {
@@ -64,7 +66,21 @@ func (p *syntheticPortal) CreateSession(options map[string]dbus.Variant) (dbus.O
 		default:
 		}
 	}
-	if !skip {
+	if !skip && releaseName {
+		if unrelated {
+			_ = p.conn.Emit(path, portalRequestInterface+".Unexpected", uint32(1), map[string]dbus.Variant{})
+		}
+		if customBody {
+			if err := p.conn.Emit(path, portalRequestInterface+".Response", responseBody...); err != nil {
+				return "", dbus.MakeFailedError(err)
+			}
+		} else if err := p.conn.Emit(path, portalRequestInterface+".Response", code, result); err != nil {
+			return "", dbus.MakeFailedError(err)
+		}
+		if _, err := p.conn.ReleaseName(remoteDesktopBus); err != nil {
+			return "", dbus.MakeFailedError(err)
+		}
+	} else if !skip {
 		go func() {
 			time.Sleep(10 * time.Millisecond)
 			if unrelated {
