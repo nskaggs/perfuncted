@@ -43,7 +43,7 @@ func virtualWords(words ...uint32) []byte {
 	return buf
 }
 
-func virtualManagerCompositor(conn *net.UnixConn, advertised map[string]uint32, wantReady bool) error {
+func virtualManagerCompositor(conn *net.UnixConn, advertised map[string]uint32, wantReady bool, failOutputRoundTrip ...bool) error {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	var registry, output, ptrMgr, kbdMgr uint32
@@ -82,6 +82,9 @@ func virtualManagerCompositor(conn *net.UnixConn, advertised map[string]uint32, 
 					}
 				}
 			} else if output != 0 {
+				if len(failOutputRoundTrip) != 0 && failOutputRoundTrip[0] {
+					return nil
+				}
 				// A real wl_output advertises alternative modes after the active mode.
 				// The alternate cannot replace the pointer's active coordinate space.
 				if err := virtualEvent(conn, output, 1, virtualWords(wl.OutputModeCurrent, 800, 600, 60000)); err != nil {
@@ -222,5 +225,38 @@ func TestWlVirtualConstructorUsesRealAdvertisedGlobalsAndInputWire(t *testing.T)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("compositor did not observe backend cleanup")
+	}
+}
+
+func TestWlVirtualConstructorReportsOutputRoundTripFailure(t *testing.T) {
+	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
+	socket := filepath.Join(t.TempDir(), "wl.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+			return
+		}
+		serverDone <- virtualManagerCompositor(conn, globals, false, true)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	backend, err := NewWlVirtualBackendContext(ctx, socket)
+	if backend != nil || err == nil || !strings.Contains(err.Error(), "output round-trip") {
+		t.Fatalf("failed wl_output round-trip was not reported: backend=%v err=%v", backend, err)
+	}
+	select {
+	case serverErr := <-serverDone:
+		if serverErr != nil {
+			t.Fatalf("synthetic compositor: %v", serverErr)
+		}
+	case <-ctx.Done():
+		t.Fatal("backend did not close failed output connection")
 	}
 }
