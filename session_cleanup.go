@@ -212,6 +212,12 @@ func reapSessionDir(ctx context.Context, dir string) error {
 			return err
 		}
 		if !stopped {
+			if processUsesRuntimeDir(pid, dir) {
+				// A live process may still depend on this directory even when its
+				// process group is outside the cleaner's signaling authority.
+				slog.Debug("session: preserve stale runtime used by unowned child", "pid", pid, "path", dir)
+				return nil
+			}
 			slog.Debug(
 				"session: skip stale child with mismatched runtime directory",
 				"pid", pid,
