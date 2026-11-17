@@ -636,11 +636,13 @@ func TestContextWithOperationContextCancelsQueuedAdmission(t *testing.T) {
 	}()
 	<-started
 
-	cancelCtx, cancel := context.WithCancel(context.Background())
+	baseCtx, cancel := context.WithCancel(context.Background())
+	cancelCtx := &operationAdmissionObservedContext{Context: baseCtx, selectReady: make(chan struct{})}
 	queuedDone := make(chan error, 1)
 	go func() {
 		queuedDone <- ctx.WithOperationContext(cancelCtx, func() error { return nil })
 	}()
+	<-cancelCtx.selectReady
 	cancel()
 	select {
 	case err := <-queuedDone:
@@ -654,6 +656,85 @@ func TestContextWithOperationContextCancelsQueuedAdmission(t *testing.T) {
 	if err := <-firstDone; err != nil {
 		t.Fatalf("first operation: %v", err)
 	}
+}
+
+func TestContextWithOperationContextRejectsQueuedCallbackAfterClose(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix: %v", err)
+	}
+	defer listener.Close()
+	ctx, err := ConnectContext(context.Background(), sock)
+	if err != nil {
+		t.Fatalf("ConnectContext: %v", err)
+	}
+	peer, err := listener.AcceptUnix()
+	if err != nil {
+		_ = ctx.Close()
+		t.Fatalf("AcceptUnix: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ctx.Close()
+		_ = peer.Close()
+	})
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseOwner := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseOwner)
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- ctx.WithOperationContext(context.Background(), func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+
+	queuedCtx := &operationAdmissionObservedContext{Context: context.Background(), selectReady: make(chan struct{})}
+	queuedDone := make(chan error, 1)
+	called := false
+	go func() {
+		queuedDone <- ctx.WithOperationContext(queuedCtx, func() error { called = true; return nil })
+	}()
+	<-queuedCtx.selectReady
+	if err := ctx.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	releaseOwner()
+	select {
+	case err := <-queuedDone:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("queued operation after close = %v, want net.ErrClosed", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued operation did not resume after the current operation released admission")
+	}
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("active operation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active operation did not release admission")
+	}
+	if called {
+		t.Fatal("queued operation callback ran after transport closure")
+	}
+}
+
+type operationAdmissionObservedContext struct {
+	context.Context
+	selectReady chan struct{}
+	once        sync.Once
+}
+
+func (c *operationAdmissionObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.selectReady) })
+	return c.Context.Done()
 }
 
 func TestContextWriteMsgContextCancelsQueuedWrite(t *testing.T) {
