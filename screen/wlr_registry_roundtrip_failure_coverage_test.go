@@ -179,6 +179,73 @@ func TestWlrCaptureRejectsMissingRequiredRegistryGlobals(t *testing.T) {
 }
 
 func TestWlrCaptureReturnsDispatchErrorWhenCompositorDisconnects(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome string
+	}{
+		{name: "before frame setup completes", outcome: "disconnect after capture request"},
+		{name: "after copy is issued", outcome: "disconnect after copy request"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+
+			serverDone := make(chan error, 1)
+			go func() {
+				conn, acceptErr := listener.AcceptUnix()
+				if acceptErr != nil {
+					serverDone <- acceptErr
+					return
+				}
+				serverDone <- wlrFakeCompositor(conn, tc.outcome)
+			}()
+
+			backend := newWlrScreencopyBackendWithContextConnector(socket, wl.ConnectContext, time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			hash, err := backend.GrabFullHash(ctx)
+			if hash != 0 || err == nil || !strings.Contains(err.Error(), "dispatch") {
+				t.Fatalf("compositor disconnect published hash=%08x err=%v, want dispatch error", hash, err)
+			}
+			if backend.ctx != nil {
+				t.Fatal("backend retained the connection after compositor disconnect")
+			}
+			if err := backend.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case serverErr := <-serverDone:
+				if serverErr != nil {
+					t.Fatalf("synthetic compositor: %v", serverErr)
+				}
+			case <-ctx.Done():
+				t.Fatal("synthetic compositor did not observe the capture phase before disconnecting")
+			}
+		})
+	}
+}
+
+type wlrErrCheckGateContext struct {
+	context.Context
+	armed        atomic.Bool
+	checkReached chan struct{}
+	resume       <-chan struct{}
+	once         sync.Once
+}
+
+func (c *wlrErrCheckGateContext) Err() error {
+	if c.armed.Load() {
+		c.once.Do(func() { close(c.checkReached) })
+		<-c.resume
+	}
+	return c.Context.Err()
+}
+
+func TestWlrCaptureCancellationAfterCopyDoesNotPublishHash(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -186,6 +253,11 @@ func TestWlrCaptureReturnsDispatchErrorWhenCompositorDisconnects(t *testing.T) {
 	}
 	defer listener.Close()
 
+	copyObserved := make(chan struct{}, 1)
+	postCopyEventPermit := make(chan struct{})
+	var postCopyEventOnce sync.Once
+	releasePostCopyEvent := func() { postCopyEventOnce.Do(func() { close(postCopyEventPermit) }) }
+	defer releasePostCopyEvent()
 	serverDone := make(chan error, 1)
 	go func() {
 		conn, acceptErr := listener.AcceptUnix()
@@ -193,18 +265,53 @@ func TestWlrCaptureReturnsDispatchErrorWhenCompositorDisconnects(t *testing.T) {
 			serverDone <- acceptErr
 			return
 		}
-		serverDone <- wlrFakeCompositor(conn, "disconnect after capture request")
+		serverDone <- wlrFakeCompositorWithCopySignal(conn, "cancel after copy request", copyObserved, postCopyEventPermit)
 	}()
 
 	backend := newWlrScreencopyBackendWithContextConnector(socket, wl.ConnectContext, time.Minute)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	hash, err := backend.GrabFullHash(ctx)
-	if hash != 0 || err == nil || !strings.Contains(err.Error(), "dispatch") {
-		t.Fatalf("compositor disconnect published hash=%08x err=%v, want dispatch error", hash, err)
+	operationCtx, cancelOperation := context.WithCancel(ctx)
+	defer cancelOperation()
+	resumeErrCheck := make(chan struct{})
+	var resumeErrCheckOnce sync.Once
+	releaseErrCheck := func() { resumeErrCheckOnce.Do(func() { close(resumeErrCheck) }) }
+	defer releaseErrCheck()
+	gateCtx := &wlrErrCheckGateContext{Context: operationCtx, checkReached: make(chan struct{}), resume: resumeErrCheck}
+	type captureResult struct {
+		hash uint32
+		err  error
+	}
+	result := make(chan captureResult, 1)
+	go func() {
+		hash, captureErr := backend.GrabFullHash(gateCtx)
+		result <- captureResult{hash: hash, err: captureErr}
+	}()
+
+	select {
+	case <-copyObserved:
+		gateCtx.armed.Store(true)
+		releasePostCopyEvent()
+	case <-ctx.Done():
+		t.Fatalf("compositor did not observe the capture copy request: %v", ctx.Err())
+	}
+	select {
+	case <-gateCtx.checkReached:
+		cancelOperation()
+		releaseErrCheck()
+	case <-ctx.Done():
+		t.Fatalf("capture did not return to its cancellation check after an output event: %v", ctx.Err())
+	}
+	select {
+	case got := <-result:
+		if got.hash != 0 || !errors.Is(got.err, context.Canceled) {
+			t.Fatalf("canceled capture published hash=%08x err=%v", got.hash, got.err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("capture did not return after caller cancellation: %v", ctx.Err())
 	}
 	if backend.ctx != nil {
-		t.Fatal("backend retained the connection after compositor disconnect")
+		t.Fatal("backend retained the connection after caller cancellation")
 	}
 	if err := backend.Close(); err != nil {
 		t.Fatal(err)
@@ -215,7 +322,7 @@ func TestWlrCaptureReturnsDispatchErrorWhenCompositorDisconnects(t *testing.T) {
 			t.Fatalf("synthetic compositor: %v", serverErr)
 		}
 	case <-ctx.Done():
-		t.Fatal("synthetic compositor did not observe capture request")
+		t.Fatal("synthetic compositor did not observe frame cleanup after cancellation")
 	}
 }
 

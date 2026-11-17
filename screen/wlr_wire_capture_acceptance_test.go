@@ -31,6 +31,10 @@ func wlrGlobalPayload(name uint32, iface string, version uint32) []byte {
 // wlrFakeCompositor exercises the real registry, binder, screencopy frame,
 // shared-memory setup, and ready/error dispatch over a Unix socket.
 func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
+	return wlrFakeCompositorWithCopySignal(conn, frameOutcome, nil, nil)
+}
+
+func wlrFakeCompositorWithCopySignal(conn *net.UnixConn, frameOutcome string, copyObserved chan<- struct{}, postCopyEventPermit <-chan struct{}) error {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(8 * time.Second))
 	var registryID, managerID, outputID, frameID uint32
@@ -178,10 +182,29 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 		}
 		if frameID != 0 && sender == frameID && opcode == 1 { // destroy frame
 			frameID = 0
+			if frameOutcome == "cancel after copy request" && sawCopy {
+				return nil
+			}
 			continue
 		}
 		if frameID != 0 && sender == frameID && opcode == 0 { // copy
 			sawCopy = true
+			if frameOutcome == "cancel after copy request" && (copyObserved == nil || postCopyEventPermit == nil) {
+				return errors.New("post-copy cancellation fixture requires event synchronization channels")
+			}
+			if frameOutcome == "cancel after copy request" {
+				copyObserved <- struct{}{}
+				<-postCopyEventPermit
+				// An output-scale update is valid during an active capture and
+				// wakes dispatch without completing the frame.
+				if err := writeExtTestEvent(conn, outputID, 3, wlUint32Payload(2)); err != nil {
+					return err
+				}
+				continue
+			}
+			if frameOutcome == "disconnect after copy request" {
+				return nil
+			}
 			if frameOutcome == "premature ready" || frameOutcome == "ready before buffer" {
 				continue // no valid post-copy frame is ever made available
 			}
