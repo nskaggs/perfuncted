@@ -766,8 +766,14 @@ func TestContextWriteMsgContextCancelsQueuedWrite(t *testing.T) {
 	gate := ctx.writeGateChannel()
 	<-gate
 	cancelCtx, cancel := context.WithCancel(context.Background())
+	observedCtx := &operationAdmissionObservedContext{Context: cancelCtx, selectReady: make(chan struct{})}
 	writeDone := make(chan error, 1)
-	go func() { writeDone <- ctx.WriteMsgContext(cancelCtx, []byte{1}, nil) }()
+	go func() { writeDone <- ctx.WriteMsgContext(observedCtx, []byte{1}, nil) }()
+	select {
+	case <-observedCtx.selectReady:
+	case <-time.After(time.Second):
+		t.Fatal("queued write did not reach admission wait")
+	}
 	cancel()
 	select {
 	case err := <-writeDone:
@@ -829,8 +835,14 @@ func testContextQueuedAdmissionCancellation(
 	gate := gateFunc(ctx)
 	<-gate
 	cancelCtx, cancel := context.WithCancel(context.Background())
+	observedCtx := &operationAdmissionObservedContext{Context: cancelCtx, selectReady: make(chan struct{})}
 	operationDone := make(chan error, 1)
-	go func() { operationDone <- operation(ctx, cancelCtx) }()
+	go func() { operationDone <- operation(ctx, observedCtx) }()
+	select {
+	case <-observedCtx.selectReady:
+	case <-time.After(time.Second):
+		t.Fatal("queued operation did not reach admission wait")
+	}
 	cancel()
 	select {
 	case err := <-operationDone:
