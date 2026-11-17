@@ -17,6 +17,9 @@ func TestX11WindowOperationsRejectPreCanceledRequestsBeforeTransport(t *testing.
 		name string
 		run  func() error
 	}{
+		{"list", func() error { _, err := backend.List(ctx); return err }},
+		{"active title", func() error { _, err := backend.ActiveTitle(ctx); return err }},
+		{"sync", func() error { return backend.Sync(ctx) }},
 		{"activate", func() error { return backend.ActivateByID(ctx, "17") }},
 		{"move", func() error { return backend.MoveByID(ctx, "17", 20, 30) }},
 		{"resize", func() error { return backend.ResizeByID(ctx, "17", 600, 400) }},
