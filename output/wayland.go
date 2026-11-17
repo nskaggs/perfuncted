@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/internal/capability"
@@ -546,7 +547,13 @@ func (l *WaylandLister) bindAddedOutputsWith(ctx context.Context, added []*wayla
 		if l.xdgManager != nil {
 			if err := bindXDGOutput(ctx, out); err != nil {
 				errs = append(errs, err)
-				if cleanupErr := l.releaseOutput(ctx, out); cleanupErr != nil && !errors.Is(cleanupErr, net.ErrClosed) {
+				// The wl_output bind already reached the compositor. Keep its
+				// destructor independent of the canceled enrichment request so the
+				// compositor does not retain an untracked output object.
+				cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(contextutil.Default(ctx)), time.Second)
+				cleanupErr := l.releaseOutput(cleanupCtx, out)
+				cancelCleanup()
+				if cleanupErr != nil && !errors.Is(cleanupErr, net.ErrClosed) {
 					errs = append(errs, cleanupErr)
 				}
 				continue
