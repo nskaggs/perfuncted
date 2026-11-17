@@ -160,6 +160,9 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 			if err := writeExtTestEvent(conn, frameID, 0, buffer); err != nil {
 				return err
 			}
+			if frameOutcome == "disconnect before pre-copy round-trip" {
+				return nil
+			}
 			if frameOutcome == "premature ready" {
 				if err := writeExtTestEvent(conn, frameID, 2, wlUint32Payload(0, 0, 0)); err != nil {
 					return err
@@ -193,11 +196,12 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 
 func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		outcome string
-		op      func(*WlrScreencopyBackend) (image.Image, uint32, error)
-		wantErr bool
-		rect    image.Rectangle
+		name        string
+		outcome     string
+		op          func(*WlrScreencopyBackend) (image.Image, uint32, error)
+		wantErr     bool
+		wantErrText string
+		rect        image.Rectangle
 	}{
 		{name: "output version one", outcome: "output v1", op: func(b *WlrScreencopyBackend) (image.Image, uint32, error) {
 			img, err := b.Grab(context.Background(), image.Rectangle{})
@@ -242,6 +246,10 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 			img, err := b.Grab(context.Background(), image.Rectangle{})
 			return img, 0, err
 		}, wantErr: true},
+		{name: "disconnect before pre-copy round-trip", outcome: "disconnect before pre-copy round-trip", op: func(b *WlrScreencopyBackend) (image.Image, uint32, error) {
+			img, err := b.Grab(context.Background(), image.Rectangle{})
+			return img, 0, err
+		}, wantErr: true, wantErrText: "pre-copy round-trip"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			socket := filepath.Join(t.TempDir(), "wayland.sock")
@@ -269,7 +277,9 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 					if !errors.Is(captureErr, find.ErrEmptyRegion) {
 						t.Fatalf("invalid region did not expose ErrEmptyRegion: %v", captureErr)
 					}
-				} else if !strings.Contains(captureErr.Error(), "failed") {
+				} else if tc.wantErrText != "" && !strings.Contains(captureErr.Error(), tc.wantErrText) {
+					t.Fatalf("capture error = %v, want %q", captureErr, tc.wantErrText)
+				} else if tc.wantErrText == "" && !strings.Contains(captureErr.Error(), "failed") {
 					t.Fatalf("failure did not surface compositor error: %v", captureErr)
 				}
 			} else {
