@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 )
 
@@ -113,12 +115,13 @@ func newPrivateGnomeNativeCapture(t *testing.T) (*GnomeNativeScreenBackend, *pri
 	if lintShadow113 := service.Export(capture, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.ScreenInterface); lintShadow113 != nil {
 		t.Fatal(lintShadow113)
 	}
-	client, err := gnomebridge.NewClientForBus(context.Background(), address)
+	runtime := env.FromEnviron([]string{"DBUS_SESSION_BUS_ADDRESS=" + address})
+	backend, err := NewGnomeNativeScreenBackendForRuntimeContext(context.Background(), runtime)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = client.Close() })
-	return &GnomeNativeScreenBackend{bridge: client}, capture
+	t.Cleanup(func() { _ = backend.Close() })
+	return backend, capture
 }
 
 func TestGnomeNativePrivateBusCaptureIsPixelCorrectAndReleasesOwnedFiles(t *testing.T) {
@@ -164,6 +167,25 @@ func TestGnomeNativePrivateBusCaptureIsPixelCorrectAndReleasesOwnedFiles(t *test
 	}
 	if img, err := b.Grab(context.Background(), image.Rectangle{}); err == nil || img != nil {
 		t.Fatalf("closed GNOME bridge returned image %v %v", img, err)
+	}
+}
+
+func TestGnomeNativeRejectsEmptyRegionBeforeSideEffects(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	backend, provider := newPrivateGnomeNativeCapture(t)
+	img, err := backend.Grab(context.Background(), image.Rect(5, 7, 5, 9))
+	if img != nil || err == nil || !strings.Contains(err.Error(), "invalid empty capture region") {
+		t.Fatalf("empty GNOME capture region returned image=%v err=%v", img, err)
+	}
+	provider.mu.Lock()
+	captures := len(provider.captures)
+	provider.mu.Unlock()
+	if captures != 0 {
+		t.Fatalf("invalid GNOME region reached the capture service %d times", captures)
+	}
+	files, globErr := filepath.Glob(filepath.Join(os.TempDir(), "perfuncted-gnome-capture-*.png"))
+	if globErr != nil || len(files) != 0 {
+		t.Fatalf("invalid GNOME region created capture files: %v err=%v", files, globErr)
 	}
 }
 
