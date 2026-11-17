@@ -17,6 +17,7 @@ func TestContainsFoldLowerMatchesLowerLowerContains(t *testing.T) {
 		{"Firefox Web Browser", ""},
 		{"", ""},
 		{"", "x"},
+		{"é", "ée"},
 		{"a", "abc"},
 		{"abc", "abcd"},
 		{"CAFÉ", "café"},
@@ -67,8 +68,9 @@ func TestMatcherTitleContainsFoldEquivalent(t *testing.T) {
 		{ID: 3, Title: "İstanbul Airport", AppID: "org.example"},
 		{ID: 4, Title: "STRASSE", AppID: "org.example"},
 		{ID: 5, Title: "Window 5", AppID: "org.example", Minimized: true},
+		{ID: 6, Title: "é", AppID: "org.example"},
 	}
-	substrings := []string{"firefox", "café", "İstanbul", "strasse", "straße", "window", ""}
+	substrings := []string{"firefox", "café", "İstanbul", "strasse", "straße", "window", "ée", ""}
 	for _, title := range infos {
 		for _, sub := range substrings {
 			previous := strings.Contains(strings.ToLower(title.Title), strings.ToLower(sub))

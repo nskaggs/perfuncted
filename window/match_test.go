@@ -45,6 +45,11 @@ func TestParseMatchSpec(t *testing.T) {
 			spec: `visible:false`,
 			want: Match{},
 		},
+		{
+			name: "empty separators are ignored",
+			spec: ",  active,, visible:true, ",
+			want: Match{Active: boolPtr(true), VisibleOnly: true},
+		},
 	}
 
 	for _, tt := range tests {
