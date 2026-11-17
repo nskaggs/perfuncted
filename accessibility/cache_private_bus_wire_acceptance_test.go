@@ -14,21 +14,27 @@ import (
 const syntheticCacheService = "org.example.PerfunctedCache"
 
 type syntheticCacheProvider struct {
-	mu       sync.Mutex
-	items    []cacheItem
-	calls    int
-	rejected bool
+	mu           sync.Mutex
+	items        []cacheItem
+	calls        int
+	rejected     bool
+	beforeReturn func()
 }
 
 func (p *syntheticCacheProvider) GetItems() ([]cacheItem, *dbus.Error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.calls++
 	if p.rejected {
+		p.mu.Unlock()
 		return nil, dbus.MakeFailedError(errors.New("synthetic GetItems temporarily unavailable"))
 	}
 	out := make([]cacheItem, len(p.items))
 	copy(out, p.items)
+	beforeReturn := p.beforeReturn
+	p.mu.Unlock()
+	if beforeReturn != nil {
+		beforeReturn()
+	}
 	return out, nil
 }
 func newPrivateCacheBackend(t *testing.T, items []cacheItem) (*dbusBackend, *syntheticCacheProvider) {
