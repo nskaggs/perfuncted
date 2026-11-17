@@ -33,6 +33,28 @@ func TestAccessibilityLocatorActionRejectsAmbiguousTargetWithoutDispatch(t *test
 	}
 }
 
+func TestAccessibilityLocatorActionAfterSessionCloseDoesNotQueryOrDispatch(t *testing.T) {
+	locator, fake := newLocatorWaitFixture(t, 1, false)
+	if err := locator.bundle.session.Close(); err != nil {
+		t.Fatalf("close owning session: %v", err)
+	}
+	checks := 0
+
+	receipt, evidence, err := locator.ClickAndWait(context.Background(), Predicate("activated", func(context.Context) (bool, error) {
+		checks++
+		return true, nil
+	}))
+	if !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("ClickAndWait after session close = %v, want ErrSessionClosed", err)
+	}
+	if receipt.Node.ID.BusName != "" || evidence.Evaluations != 0 || checks != 0 {
+		t.Fatalf("closed locator disclosed an action result: receipt=%+v evidence=%+v checks=%d", receipt, evidence, checks)
+	}
+	if fake.snapshotCalls != 0 || fake.invokeCount != 0 || len(fake.calls) != 0 {
+		t.Fatalf("closed locator reached provider: snapshots=%d invocations=%d calls=%v", fake.snapshotCalls, fake.invokeCount, fake.calls)
+	}
+}
+
 type locatorFailingScopeRefresh struct {
 	*snapshotAccessibilityAutomationFake
 	refreshCalls int
