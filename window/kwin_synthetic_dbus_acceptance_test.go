@@ -17,22 +17,24 @@ import (
 )
 
 type syntheticKWinScriptService struct {
-	busAddress     string // private D-Bus used by synthetic runtime acceptance tests
-	conn           *dbus.Conn
-	mu             sync.Mutex
-	svc            string
-	plugin         string
-	response       string
-	listOverride   string // test-only synthetic provider reply for multi-window iteration
-	actionOverride string // test-only script action reply
-	loadCount      int
-	startCount     int
-	unloadCount    int
-	loadedPath     string
-	loadedScript   string
-	noCallback     bool
-	failLoad       bool
-	failStart      bool
+	busAddress              string // private D-Bus used by synthetic runtime acceptance tests
+	conn                    *dbus.Conn
+	mu                      sync.Mutex
+	svc                     string
+	plugin                  string
+	response                string
+	listOverride            string // test-only synthetic provider reply for multi-window iteration
+	actionOverride          string // test-only script action reply
+	loadCount               int
+	startCount              int
+	unloadCount             int
+	loadedPath              string
+	loadedScript            string
+	noCallback              bool
+	failLoad                bool
+	failStart               bool
+	replaceLoadedScriptPath bool
+	closeClientConnOnStart  *dbus.Conn
 }
 
 var syntheticKWinServiceName = regexp.MustCompile(`org\.kde\.pflist[0-9]+_[0-9]+`)
@@ -50,6 +52,20 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, dbus.MakeFailedError(err)
+	}
+	s.mu.Lock()
+	replaceLoadedScriptPath := s.replaceLoadedScriptPath
+	s.mu.Unlock()
+	if replaceLoadedScriptPath {
+		if err := os.Remove(path); err != nil {
+			return 0, dbus.MakeFailedError(err)
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			return 0, dbus.MakeFailedError(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "held"), nil, 0o600); err != nil {
+			return 0, dbus.MakeFailedError(err)
+		}
 	}
 	service := syntheticKWinServiceName.FindString(string(data))
 	if service == "" {
@@ -93,10 +109,15 @@ func (s *syntheticKWinScriptService) LoadScript(path, plugin string) (int32, *db
 func (s *syntheticKWinScriptService) Start() *dbus.Error {
 	s.mu.Lock()
 	svc, response, skip, failStart := s.svc, s.response, s.noCallback, s.failStart
+	closeClientConn := s.closeClientConnOnStart
 	s.startCount++
 	s.mu.Unlock()
 	if failStart {
 		return dbus.MakeFailedError(errors.New("synthetic script execution denied"))
+	}
+	if closeClientConn != nil {
+		_ = closeClientConn.Close()
+		return nil
 	}
 	if !skip {
 		go func() { _ = s.conn.Object(svc, "/").Call(svc+".ReportWindows", 0, response).Err }()
