@@ -79,6 +79,12 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 					}
 				}
 			} else if outputID != 0 {
+				if frameOutcome == "disconnect before capture request" {
+					if err := writeExtTestEvent(conn, callback, 0, wlUint32Payload(0)); err != nil {
+						return err
+					}
+					return nil
+				}
 				if frameOutcome != "omit output mode" {
 					if err := writeExtTestEvent(conn, outputID, 1, wlUint32Payload(0, 2, 2, 60000)); err != nil {
 						return err
@@ -201,6 +207,7 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 		op          func(*WlrScreencopyBackend) (image.Image, uint32, error)
 		wantErr     bool
 		wantErrText string
+		wantNoHash  bool
 		rect        image.Rectangle
 	}{
 		{name: "output version one", outcome: "output v1", op: func(b *WlrScreencopyBackend) (image.Image, uint32, error) {
@@ -250,6 +257,10 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 			img, err := b.Grab(context.Background(), image.Rectangle{})
 			return img, 0, err
 		}, wantErr: true, wantErrText: "pre-copy round-trip"},
+		{name: "disconnect before capture request", outcome: "disconnect before capture request", op: func(b *WlrScreencopyBackend) (image.Image, uint32, error) {
+			hash, err := b.GrabFullHash(context.Background())
+			return nil, hash, err
+		}, wantErr: true, wantErrText: "capture_output", wantNoHash: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			socket := filepath.Join(t.TempDir(), "wayland.sock")
@@ -272,6 +283,9 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 			if tc.wantErr {
 				if captureErr == nil || img != nil {
 					t.Fatalf("compositor failure accepted: image=%v err=%v", img, captureErr)
+				}
+				if tc.wantNoHash && hash != 0 {
+					t.Fatalf("failed capture published hash %08x", hash)
 				}
 				if tc.name == "region outside framebuffer" {
 					if !errors.Is(captureErr, find.ErrEmptyRegion) {
