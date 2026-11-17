@@ -22,6 +22,7 @@ type syntheticATSPINode struct {
 	children            []objectRef
 	childrenHook        func()
 	childrenFailure     string
+	interfacesFailure   string
 	propertyFailure     string
 	roleFailure         string
 	stateFailure        string
@@ -37,7 +38,12 @@ func (n *syntheticATSPINode) GetRole() (uint32, *dbus.Error) {
 	}
 	return n.role, nil
 }
-func (n *syntheticATSPINode) GetInterfaces() ([]string, *dbus.Error) { return n.interfaces, nil }
+func (n *syntheticATSPINode) GetInterfaces() ([]string, *dbus.Error) {
+	if n.interfacesFailure != "" {
+		return nil, dbus.MakeFailedError(errors.New(n.interfacesFailure))
+	}
+	return n.interfaces, nil
+}
 func (n *syntheticATSPINode) GetState() ([]uint32, *dbus.Error) {
 	if n.stateFailure != "" {
 		return nil, dbus.MakeFailedError(errors.New(n.stateFailure))
