@@ -36,6 +36,10 @@ func serveExtConstructorPeer(conn *net.UnixConn, skip string) error {
 }
 
 func serveExtConstructorPeerWithGlobals(conn *net.UnixConn, skip string, additional []extConstructorAdvertisedGlobal) error {
+	return serveExtConstructorPeerWithOutputScale(conn, skip, additional, 0)
+}
+
+func serveExtConstructorPeerWithOutputScale(conn *net.UnixConn, skip string, additional []extConstructorAdvertisedGlobal, outputScale uint32) error {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
 	var registryID uint32
@@ -93,6 +97,11 @@ func serveExtConstructorPeerWithGlobals(conn *net.UnixConn, skip string, additio
 				return fmt.Errorf("invalid bound version %d for global %d", version, name)
 			}
 			gotBinds[name] = newID
+			if name == 23 && outputScale > 0 {
+				if err := writeExtTestEvent(conn, newID, 3, wlUint32Payload(outputScale)); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if gotBinds[22] != 0 && sender == gotBinds[22] && opcode == 0 {
