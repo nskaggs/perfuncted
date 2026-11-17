@@ -79,8 +79,10 @@ func wlrFakeCompositor(conn *net.UnixConn, frameOutcome string) error {
 					}
 				}
 			} else if outputID != 0 {
-				if err := writeExtTestEvent(conn, outputID, 1, wlUint32Payload(0, 2, 2, 60000)); err != nil {
-					return err
+				if frameOutcome != "omit output mode" {
+					if err := writeExtTestEvent(conn, outputID, 1, wlUint32Payload(0, 2, 2, 60000)); err != nil {
+						return err
+					}
 				}
 				// An output can advertise geometry without ever reporting its
 				// optional scale. Keep this behavior available to synthetic
