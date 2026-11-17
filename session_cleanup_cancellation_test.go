@@ -116,3 +116,13 @@ func TestStopRecordedProcessHonorsContextDuringGrace(t *testing.T) {
 		t.Fatal("canceled cleanup escalated to SIGKILL")
 	}
 }
+
+func TestStopRecordedProcessHonorsCancellationBeforeOwnershipLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	owned, err := stopRecordedProcess(ctx, 0, "", 0)
+	if owned || !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-canceled stop = (%v, %v), want (false, context.Canceled)", owned, err)
+	}
+}
