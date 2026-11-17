@@ -20,6 +20,8 @@ type optionalATSPINode struct {
 	fail               map[string]bool
 	protected          bool
 	cancelRead         context.CancelFunc
+	cancelAction       context.CancelFunc
+	cancelMutation     context.CancelFunc
 	lastAction         int32
 	actionCount        int
 	lastMutation       string
@@ -117,25 +119,38 @@ func (p *optionalATSPINode) GetSelectedChildCount() (int32, *dbus.Error) {
 // callOverride, so returned success, rejection and side effects cross D-Bus.
 func (p *optionalATSPINode) DoAction(index int32) (bool, *dbus.Error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.lastAction = index
 	p.actionCount++
 	if p.fail["reject-action"] {
+		p.mu.Unlock()
 		return false, nil
 	}
 	if p.fail["error-action"] {
+		p.mu.Unlock()
 		return false, dbus.MakeFailedError(errors.New("synthetic action refused"))
+	}
+	cancel := p.cancelAction
+	p.cancelAction = nil
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	return true, nil
 }
 func (p *optionalATSPINode) Set(iface, key string, v dbus.Variant) *dbus.Error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.fail["set-value"] {
+		p.mu.Unlock()
 		return dbus.MakeFailedError(errors.New("synthetic set refused"))
 	}
 	p.values[iface+"."+key] = v.Value()
 	p.lastMutation = "set-value"
+	cancel := p.cancelMutation
+	p.cancelMutation = nil
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	return nil
 }
 func (p *optionalATSPINode) DeleteText(start, end int32) (bool, *dbus.Error) {
