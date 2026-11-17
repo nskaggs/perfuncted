@@ -16,12 +16,15 @@ import (
 )
 
 type syntheticGnomeScreenshot struct {
-	mu        sync.Mutex
-	success   bool
-	alternate string
-	deny      bool
-	brokenPNG bool
-	observed  []string
+	mu                     sync.Mutex
+	success                bool
+	alternate              string
+	deny                   bool
+	brokenPNG              bool
+	returnEmptyPath        bool
+	replaceWithNonemptyDir bool
+	transportPath          string
+	observed               []string
 }
 
 func (s *syntheticGnomeScreenshot) Screenshot(_ bool, _ bool, path string) (bool, string, *dbus.Error) {
@@ -46,6 +49,19 @@ func (s *syntheticGnomeScreenshot) capture(path, kind string) (bool, string, *db
 		}
 		return true, path, nil
 	}
+	if s.replaceWithNonemptyDir {
+		if err := os.Remove(path); err != nil {
+			return false, "", dbus.MakeFailedError(err)
+		}
+		if err := os.Mkdir(path, 0700); err != nil {
+			return false, "", dbus.MakeFailedError(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "preserve"), []byte("untrusted replacement"), 0600); err != nil {
+			return false, "", dbus.MakeFailedError(err)
+		}
+		s.transportPath = path
+		return true, path, nil
+	}
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	img.Set(1, 1, color.RGBA{R: 255, A: 255})
 	file, err := os.Create(path)
@@ -61,6 +77,9 @@ func (s *syntheticGnomeScreenshot) capture(path, kind string) (bool, string, *db
 	}
 	if s.alternate != "" {
 		return true, s.alternate, nil
+	}
+	if s.returnEmptyPath {
+		return true, "", nil
 	}
 	return true, path, nil
 }
