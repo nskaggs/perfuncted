@@ -15,6 +15,21 @@ import (
 )
 
 func TestOpenRuntimeStopsFallbackWhenWlrootsSetupIsCanceled(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		desktop string
+	}{
+		{name: "explicit wlroots compositor", desktop: "Sway"},
+		{name: "unknown Wayland compositor", desktop: "Other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertRuntimeStopsFallbackWhenPrimaryWaylandSetupIsCanceled(t, tc.desktop)
+		})
+	}
+}
+
+func assertRuntimeStopsFallbackWhenPrimaryWaylandSetupIsCanceled(t *testing.T, desktop string) {
+	t.Helper()
 	socket := filepath.Join(t.TempDir(), "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -60,7 +75,7 @@ func TestOpenRuntimeStopsFallbackWhenWlrootsSetupIsCanceled(t *testing.T) {
 	defer cancel()
 	runtime := env.FromEnviron([]string{
 		"WAYLAND_DISPLAY=" + socket,
-		"XDG_CURRENT_DESKTOP=Sway",
+		"XDG_CURRENT_DESKTOP=" + desktop,
 	})
 	type result struct {
 		backend Screenshotter
