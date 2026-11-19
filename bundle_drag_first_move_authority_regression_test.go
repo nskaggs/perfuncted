@@ -35,7 +35,7 @@ func TestDragDoesNotPressAfterFirstPointerMoveLosesAuthority(t *testing.T) {
 			backend := &revokeAfterDragMoveInput{}
 			session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			wantErr := error(context.Canceled)
+			wantErr := context.Canceled
 			if mode == "cancel" {
 				backend.after = cancel
 			} else {

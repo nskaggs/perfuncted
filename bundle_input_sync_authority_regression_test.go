@@ -34,7 +34,7 @@ func TestInputSyncRejectsPreflightAndLateAuthorityLoss(t *testing.T) {
 			backend := &authorityLossSyncBackend{}
 			session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			wantErr := error(context.Canceled)
+			wantErr := context.Canceled
 			if mode == "pre-cancel" {
 				cancel()
 			} else if mode == "late-cancel" {

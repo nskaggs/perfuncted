@@ -38,7 +38,7 @@ func TestAccessibilityBundleReadsDiscardResultsAfterAuthorizationLoss(t *testing
 				backend := &revokingAccessibilityReads{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
 				session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
 				t.Cleanup(func() { _ = session.Close() })
-				wantErr := error(context.Canceled)
+				wantErr := context.Canceled
 				if mode == "pre-cancel" {
 					cancel()
 				} else if mode == "late-cancel" {

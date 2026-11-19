@@ -72,7 +72,7 @@ func TestAccessibilityMutationsRespectAuthorityAtDispatchAndReceipt(t *testing.T
 				owner := session.Accessibility.backend
 				session.Accessibility.backend = b
 				t.Cleanup(func() { session.Accessibility.backend = owner })
-				expected := error(context.Canceled)
+				expected := context.Canceled
 				switch mode {
 				case "pre-cancel":
 					cancel()

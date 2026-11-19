@@ -70,7 +70,7 @@ func TestSingleInputActionsRejectAuthorizationLoss(t *testing.T) {
 				backend := &singleActionAuthorityBackend{}
 				session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 				t.Cleanup(func() { _ = session.Close() })
-				expected := error(context.Canceled)
+				expected := context.Canceled
 				switch mode {
 				case "pre-canceled":
 					cancel()

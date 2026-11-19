@@ -31,7 +31,7 @@ func TestClipboardSetRejectsAuthorityLoss(t *testing.T) {
 			backend := &authorityLossClipboardBackend{}
 			session := NewSessionForTesting(nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			expected := error(context.Canceled)
+			expected := context.Canceled
 			if mode == "pre-canceled" {
 				cancel()
 			} else if mode == "late-canceled" {

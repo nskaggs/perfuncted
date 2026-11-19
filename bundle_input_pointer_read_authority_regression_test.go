@@ -41,7 +41,7 @@ func TestInputPointerReadsRequireAuthorityAtDispatchAndReturn(t *testing.T) {
 				source := &authorityLossPointerRead{closeCountingInput: &closeCountingInput{}}
 				session := NewSessionForTesting(nil, source, nil, nil, nil)
 				t.Cleanup(func() { _ = session.Close() })
-				expected := error(context.Canceled)
+				expected := context.Canceled
 				if mode == "pre-cancel" {
 					cancel()
 				} else if mode == "late-cancel" {

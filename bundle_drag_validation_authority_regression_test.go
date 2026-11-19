@@ -33,7 +33,7 @@ func TestDragRejectsAuthorizationLossAfterDestinationValidation(t *testing.T) {
 			backend := &revokeDuringDragValidation{}
 			session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			expected := error(context.Canceled)
+			expected := context.Canceled
 			if mode == "cancel" {
 				backend.revoke = cancel
 			} else {

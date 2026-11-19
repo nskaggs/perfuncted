@@ -47,7 +47,7 @@ func TestDragReportsAuthorityLossDuringHeldGesture(t *testing.T) {
 				backend := &revokeLateDragInput{on: phase}
 				session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 				t.Cleanup(func() { _ = session.Close() })
-				expected := error(context.Canceled)
+				expected := context.Canceled
 				if mode == "cancel" {
 					backend.after = cancel
 				} else {

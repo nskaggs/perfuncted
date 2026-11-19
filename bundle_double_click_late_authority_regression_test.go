@@ -45,7 +45,7 @@ func TestDoubleClickRejectsAuthorityLossAtGestureBoundaries(t *testing.T) {
 				backend := &revokeDuringDoubleClickInput{on: phase}
 				session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 				t.Cleanup(func() { _ = session.Close() })
-				wantErr := error(context.Canceled)
+				wantErr := context.Canceled
 				if mode == "cancel" {
 					backend.after = cancel
 				} else {

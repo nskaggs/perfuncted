@@ -40,7 +40,7 @@ func TestGetMultiplePixelsRejectsAuthorityLossDuringPixelInspection(t *testing.T
 				img.after = func() { _ = session.Close() }
 			}
 			colors, err := session.Screen.GetMultiplePixels(ctx, []image.Point{{X: 0, Y: 0}, {X: 1, Y: 1}})
-			expected := error(context.Canceled)
+			expected := context.Canceled
 			if mode == "session-close" {
 				expected = ErrSessionClosed
 			}

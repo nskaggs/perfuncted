@@ -34,7 +34,7 @@ func TestAccessibilityLocatorRetryDoesNotDiscloseReceiptAfterScopeRevocation(t *
 			locator.bundle.backend = backend
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			want := error(context.Canceled)
+			want := context.Canceled
 			if mode == "caller-cancel" {
 				backend.onRefresh = cancel
 			} else {

@@ -36,7 +36,7 @@ func TestAccessibilityLocatorFillSuppressesReceiptAfterRevokedAuthority(t *testi
 			t.Cleanup(func() { locator.bundle.backend = previous })
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			want := error(context.Canceled)
+			want := context.Canceled
 			if mode == "caller-cancel" {
 				backend.after = cancel
 			} else {

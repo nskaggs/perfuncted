@@ -35,7 +35,7 @@ func TestAccessibilityEventsRefuseUnauthorizedSubscriptionResults(t *testing.T) 
 			oldBackend := session.Accessibility.backend
 			session.Accessibility.backend = backend
 			t.Cleanup(func() { session.Accessibility.backend = oldBackend })
-			want := error(context.Canceled)
+			want := context.Canceled
 			switch mode {
 			case "pre-cancel":
 				cancel()
