@@ -314,6 +314,15 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 					if !errors.Is(captureErr, find.ErrEmptyRegion) {
 						t.Fatalf("invalid region did not expose ErrEmptyRegion: %v", captureErr)
 					}
+				} else if tc.outcome == "disconnect before capture request" {
+					// The peer closes immediately after completing the registry
+					// round-trip. Depending on socket scheduling, the next read
+					// may discover the disconnect during dispatch, before the
+					// capture_output request can be attempted. Both are valid
+					// fail-closed transport outcomes; no hash may be published.
+					if !strings.Contains(captureErr.Error(), "capture_output") && !strings.Contains(captureErr.Error(), "dispatch:") {
+						t.Fatalf("unexpected pre-capture disconnect error: %v", captureErr)
+					}
 				} else if tc.wantErrText != "" && !strings.Contains(captureErr.Error(), tc.wantErrText) {
 					t.Fatalf("capture error = %v, want %q", captureErr, tc.wantErrText)
 				} else if tc.wantErrText == "" && !strings.Contains(captureErr.Error(), "failed") {
