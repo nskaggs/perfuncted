@@ -2,11 +2,12 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"path/filepath"
-	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -96,7 +97,12 @@ func TestExtCaptureDoesNotPublishHashWhenSharedMemoryPoolTransportFails(t *testi
 	}
 	select {
 	case got := <-captureDone:
-		if got.hash != 0 || got.err == nil || !strings.Contains(got.err.Error(), "create_pool") {
+		// The compositor closes after sending constraints. Depending on which
+		// queued Wayland request reaches the kernel first, the disconnect can
+		// surface during pool creation or a subsequent frame dispatch. The
+		// invariant is no published hash after a failed transport.
+		transportLost := errors.Is(got.err, io.EOF) || errors.Is(got.err, syscall.EPIPE) || errors.Is(got.err, syscall.ECONNRESET)
+		if got.hash != 0 || !transportLost {
 			t.Fatalf("failed shared-memory setup published hash=%08x err=%v", got.hash, got.err)
 		}
 	case <-ctx.Done():
