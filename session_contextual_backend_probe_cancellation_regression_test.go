@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,7 +20,11 @@ import (
 // device is used: these calls must abort before backend initialization.
 func TestBackendOpenersAbortWedgedCompositorDetectionAtCallerDeadline(t *testing.T) {
 	t.Setenv("PF_FORCE_INPUT", "")
-	dir := t.TempDir()
+	dir, err := os.MkdirTemp("", "pf-sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	listener, err := net.Listen("unix", filepath.Join(dir, "wayland-hung"))
 	if err != nil {
 		t.Fatal(err)

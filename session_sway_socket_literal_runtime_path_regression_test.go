@@ -10,7 +10,11 @@ import (
 // Managed runtime paths are literal. Glob metacharacters in their ancestors
 // must not redirect socket discovery to another session or hide a real socket.
 func TestSwaySocketUsesLiteralRuntimeDirectory(t *testing.T) {
-	root := t.TempDir()
+	root, err := os.MkdirTemp("", "pf-sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	own := filepath.Join(root, "private[ab]")
 	foreign := filepath.Join(root, "privatea")
 	for _, dir := range []string{own, foreign} {

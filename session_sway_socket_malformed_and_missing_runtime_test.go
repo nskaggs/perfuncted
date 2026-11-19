@@ -10,7 +10,11 @@ import (
 // Missing runtime directories must not cause discovery to fall back to the
 // caller's desktop, nor should an invalid lookalike be accepted as Sway IPC.
 func TestSwaySocketRejectsMissingRuntimeAndMalformedSocketNames(t *testing.T) {
-	root := t.TempDir()
+	root, err := os.MkdirTemp("", "pf-sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	missing := &Session{infra: &sessionInfra{xdgDir: filepath.Join(root, "missing")}}
 	if found := missing.SwaySocket(); found != "" {
 		t.Fatalf("missing owned runtime resolved unrelated socket: %q", found)
