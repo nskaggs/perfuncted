@@ -19,7 +19,16 @@ import (
 func TestPortalTokenWriteFailurePreservesExistingGrant(t *testing.T) {
 	const childEnv = "PF_TEST_PORTAL_TOKEN_FILE_SIZE_LIMIT"
 	if os.Getenv(childEnv) == "1" {
-		state := filepath.Join(os.TempDir(), "state")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		secureRoot, err := os.MkdirTemp(home, ".perfuncted-token-test-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(secureRoot)
+		state := filepath.Join(secureRoot, "state")
 		lock, err := lockPortalTokenStore(env.FromEnviron([]string{"XDG_STATE_HOME=" + state}))
 		if err != nil {
 			t.Fatal(err)
