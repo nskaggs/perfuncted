@@ -43,6 +43,25 @@ func TestClipboardOpenRefusesBackendAfterToolLookupCancellation(t *testing.T) {
 	}
 }
 
+func TestClipboardOpenReturnsCancellationAfterFailedToolLookup(t *testing.T) {
+	original := executil.LookPath
+	t.Cleanup(func() { executil.LookPath = original })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executil.LookPath = func(name string) (string, error) {
+		if name != "xclip" {
+			t.Fatalf("unexpected tool lookup: %q", name)
+		}
+		cancel()
+		return "", errors.New("synthetic clipboard tool missing")
+	}
+	rt := env.FromEnviron([]string{"DISPLAY=:synthetic-canceled", "XDG_SESSION_TYPE=x11"})
+	backend, err := OpenRuntimeContext(ctx, rt)
+	if backend != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("failed tool lookup returned backend=%T, err=%v; want cancellation", backend, err)
+	}
+}
+
 type cancelAfterFirstErrContext struct {
 	context.Context //nolint:containedctx // Synthetic context intentionally controls one cancellation boundary.
 	cancel          context.CancelFunc

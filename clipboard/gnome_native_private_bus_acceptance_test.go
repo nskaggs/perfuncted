@@ -5,6 +5,7 @@ package clipboard
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,18 @@ func (clipboardPrivateCore) GetExtensionVersion() (string, *dbus.Error) { return
 func (clipboardPrivateCore) GetShellVersion() (string, *dbus.Error)     { return "51", nil }
 func (clipboardPrivateCore) GetCapabilities() ([]string, *dbus.Error) {
 	return []string{gnomebridge.CapabilityClipboard}, nil
+}
+
+type clipboardPrivateCoreWithoutClipboard struct{ clipboardPrivateCore }
+
+func (clipboardPrivateCoreWithoutClipboard) GetCapabilities() ([]string, *dbus.Error) {
+	return nil, nil
+}
+
+type clipboardPrivateCoreOutdated struct{ clipboardPrivateCore }
+
+func (clipboardPrivateCoreOutdated) GetExtensionVersion() (string, *dbus.Error) {
+	return "0", nil
 }
 
 type clipboardPrivateProvider struct {
@@ -153,5 +166,120 @@ func TestGnomeNativeClipboardRealPrivateBusNegotiatesAndRoundTripsUTF8(t *testin
 	}
 	if got, err := selected.Get(ctx); err != nil || got != selection {
 		t.Fatalf("runtime-selected clipboard round-trip %q: %v", got, err)
+	}
+}
+
+func TestClipboardFallsBackWhenGNOMEBridgeLacksClipboardCapability(t *testing.T) {
+	if _, err := exec.LookPath("dbus-daemon"); err != nil {
+		t.Skip("dbus-daemon unavailable")
+	}
+	dir := t.TempDir()
+	address := "unix:path=" + filepath.Join(dir, "bus")
+	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
+	if err := daemon.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = daemon.Process.Kill(); _ = daemon.Wait() })
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var server *dbus.Conn
+	var err error
+	for ctx.Err() == nil {
+		server, err = dbusutil.ConnectContext(ctx, address)
+		if err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("private bus startup: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	reply, nameErr := server.RequestName(gnomebridge.BusName, dbus.NameFlagDoNotQueue)
+	if nameErr != nil || reply != dbus.RequestNameReplyPrimaryOwner {
+		t.Fatalf("private service name: %v %v", reply, nameErr)
+	}
+	if err := server.Export(clipboardPrivateCoreWithoutClipboard{}, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.CoreInterface); err != nil {
+		t.Fatal(err)
+	}
+
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "xclip"), []byte("#!/bin/sh\nexit 77\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	runtime := env.FromEnviron([]string{
+		"DBUS_SESSION_BUS_ADDRESS=" + address,
+		"WAYLAND_DISPLAY=missing-private-wayland-socket",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+		"XDG_CURRENT_DESKTOP=GNOME",
+		"DISPLAY=:private-test",
+	})
+	selected, err := OpenRuntimeContext(ctx, runtime)
+	if err != nil {
+		t.Fatalf("fallback after missing GNOME clipboard capability: %v", err)
+	}
+	defer selected.Close()
+	command, ok := selected.(*extCmdClipboard)
+	if !ok || len(command.getCmd) == 0 || command.getCmd[0] != "xclip" {
+		t.Fatalf("missing GNOME capability selected %T, want xclip fallback", selected)
+	}
+}
+
+func TestClipboardRequiresGNOMESessionRestartAfterBridgeUpgrade(t *testing.T) {
+	if _, err := exec.LookPath("dbus-daemon"); err != nil {
+		t.Skip("dbus-daemon unavailable")
+	}
+	dir := t.TempDir()
+	address := "unix:path=" + filepath.Join(dir, "bus")
+	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
+	if err := daemon.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = daemon.Process.Kill(); _ = daemon.Wait() })
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var server *dbus.Conn
+	var err error
+	for ctx.Err() == nil {
+		server, err = dbusutil.ConnectContext(ctx, address)
+		if err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("private bus startup: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	reply, nameErr := server.RequestName(gnomebridge.BusName, dbus.NameFlagDoNotQueue)
+	if nameErr != nil || reply != dbus.RequestNameReplyPrimaryOwner {
+		t.Fatalf("private service name: %v %v", reply, nameErr)
+	}
+	if err := server.Export(clipboardPrivateCoreOutdated{}, dbus.ObjectPath(gnomebridge.ObjectPath), gnomebridge.CoreInterface); err != nil {
+		t.Fatal(err)
+	}
+
+	bin := t.TempDir()
+	gsettings := "#!/bin/sh\nif [ \"$1\" = get ]; then\n  case \"$3\" in\n    allow-extension-installation) echo true ;;\n    disable-user-extensions|disabled-extensions|enabled-extensions) echo '[]' ;;\n    *) exit 1 ;;\n  esac\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "gsettings"), []byte(gsettings), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	runtime := env.FromEnviron([]string{
+		"DBUS_SESSION_BUS_ADDRESS=" + address,
+		"WAYLAND_DISPLAY=missing-private-wayland-socket",
+		"XDG_RUNTIME_DIR=" + t.TempDir(),
+		"XDG_CURRENT_DESKTOP=GNOME",
+		"XDG_DATA_HOME=" + t.TempDir(),
+		"DISPLAY=:private-test",
+		"PATH=" + bin,
+	})
+	selected, err := OpenRuntimeContext(ctx, runtime)
+	if selected != nil || !errors.Is(err, gnomebridge.ErrSessionRestartRequired) {
+		if selected != nil {
+			_ = selected.Close()
+		}
+		t.Fatalf("outdated GNOME bridge returned backend=%T err=%v, want session restart", selected, err)
 	}
 }
