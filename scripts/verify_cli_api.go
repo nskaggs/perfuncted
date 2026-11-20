@@ -184,10 +184,10 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 	for grp, tname := range bundleTypes {
 		m, methodErr := methodsForType(perfPkg, tname)
 		if methodErr != nil {
-			// If type not found, continue but warn
-			fmt.Fprintf(os.Stderr, "warning: %v\n", methodErr)
-			methods[grp] = []string{}
-			continue
+			// The verifier must not accept absent API groups as an empty
+			// contract, even when their CLI documentation is also missing.
+			fmt.Fprintln(os.Stderr, "loading bundle API:", methodErr)
+			return 2
 		}
 		methods[grp] = m
 	}
