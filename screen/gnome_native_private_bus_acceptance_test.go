@@ -85,14 +85,22 @@ func newPrivateGnomeNativeCapture(t *testing.T) (*GnomeNativeScreenBackend, *pri
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("private D-Bus server unavailable")
 	}
-	address := "unix:path=" + filepath.Join(t.TempDir(), "private-bus")
+	socketDir, err := os.MkdirTemp("/var/tmp", "pf-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(socketDir); err != nil {
+			t.Errorf("remove private D-Bus directory: %v", err)
+		}
+	})
+	address := "unix:path=" + filepath.Join(socketDir, "bus")
 	proc := exec.Command("dbus-daemon", "--session", "--nofork", "--address="+address)
 	if err := proc.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = proc.Process.Kill(); _ = proc.Wait() })
 	var service *dbus.Conn
-	var err error
 	for i := 0; i < 100; i++ {
 		service, err = dbusutil.SessionBusAddressContext(context.Background(), address)
 		if err == nil {

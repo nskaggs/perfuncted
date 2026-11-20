@@ -108,10 +108,11 @@ func writeKWinScript(buildJS func(svc string) string, svc string) (string, error
 		return "", errors.Join(
 			fmt.Errorf("window/kwinscript: write temp file: %w", err),
 			f.Close(),
+			os.Remove(path),
 		)
 	}
 	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("window/kwinscript: close temp file: %w", err)
+		return "", errors.Join(fmt.Errorf("window/kwinscript: close temp file: %w", err), os.Remove(path))
 	}
 	return path, nil
 }
