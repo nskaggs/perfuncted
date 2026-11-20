@@ -893,7 +893,12 @@ func (p testAccessibilityBusProvider) GetAddress() (string, *dbus.Error) {
 
 func startTestDBus(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "bus")
+	dir, err := os.MkdirTemp("/var/tmp", "pf-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "bus")
 	address := "unix:path=" + path
 	var stderr bytes.Buffer
 	cmd := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
