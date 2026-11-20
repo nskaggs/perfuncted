@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 )
 
 func TestWaylandXDGOutputBindSendsActualRequestAndTracksLogicalGeometry(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "wayland.sock")
+	path := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +87,7 @@ func TestWaylandXDGOutputBindSendsActualRequestAndTracksLogicalGeometry(t *testi
 }
 
 func TestWaylandXDGOutputBindFailsClosedWhenCanceled(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "wayland.sock")
+	path := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

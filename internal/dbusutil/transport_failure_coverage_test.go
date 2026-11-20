@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +14,7 @@ import (
 )
 
 func TestSessionBusWithoutAddressFailsClosedOnUnreachableDefault(t *testing.T) {
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path="+filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path="+shortPrivateSocketPath(t, "missing"))
 	conn, err := SessionBusAddressContext(context.Background(), "")
 	if conn != nil {
 		defer conn.Close()
@@ -26,7 +25,7 @@ func TestSessionBusWithoutAddressFailsClosedOnUnreachableDefault(t *testing.T) {
 }
 
 func TestConnectContextRejectsPeerThatClosesBeforeAuthentication(t *testing.T) {
-	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "fakebus"))
+	listener, err := net.Listen("unix", shortPrivateSocketPath(t, "fakebus"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +98,7 @@ func TestHandshakeCanceledBetweenSuccessfulResponseAndPublication(t *testing.T) 
 }
 
 func TestDefaultBusRejectsConnectionClosedBeforeAuthentication(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "fake-default")
+	socket := shortPrivateSocketPath(t, "fake-default")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

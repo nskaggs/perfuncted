@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 
 func startPrivateBridgeBus(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "bus")
+	path := shortPrivateSocketPath(t, "bus")
 	address := "unix:path=" + path
 	var stderr bytes.Buffer
 	cmd := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")

@@ -7,7 +7,6 @@ import (
 	"image"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -66,7 +65,7 @@ func startSyntheticKWinBus(t *testing.T, export bool) (string, *syntheticKWinPip
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skipf("dbus-daemon not installed: %v", err)
 	}
-	path := filepath.Join(t.TempDir(), "bus")
+	path := shortPrivateSocketPath(t, "bus")
 	address := "unix:path=" + path
 	proc := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := proc.Start(); err != nil {

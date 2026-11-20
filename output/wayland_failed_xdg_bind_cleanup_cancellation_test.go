@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -15,7 +14,7 @@ import (
 
 func newWaylandOutputCleanupFixture(t *testing.T) (*net.UnixConn, *WaylandLister) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

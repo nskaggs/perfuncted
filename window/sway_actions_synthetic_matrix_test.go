@@ -174,7 +174,7 @@ func TestSwayResizeInvalidDimensionsNeverDispatchesIPC(t *testing.T) {
 func TestSwayRuntimeDiscoversPrivateSocketAndFallsBackFromUnreachableExplicitSocket(t *testing.T) {
 	for _, withExplicit := range []bool{true, false} {
 		t.Run(map[bool]string{true: "explicit", false: "runtime_glob_fallback"}[withExplicit], func(t *testing.T) {
-			dir := t.TempDir()
+			dir := shortPrivateSocketDir(t)
 			sock := filepath.Join(dir, "sway-ipc.123.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {

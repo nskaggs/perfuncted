@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -32,7 +31,7 @@ func countJoinedError(err, target error) int {
 // A compositor disconnect during lister shutdown must still release every
 // locally owned protocol proxy and report each failed destructor write.
 func TestWaylandCloseReportsAllDestructorTransportErrorsAndUnregisters(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

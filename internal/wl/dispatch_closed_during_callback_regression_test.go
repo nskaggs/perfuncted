@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -16,7 +15,7 @@ func TestDispatchReportsDeadlineResetFailureAfterCallbackClosesConnection(t *tes
 			name = "closed and canceled"
 		}
 		t.Run(name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t)
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

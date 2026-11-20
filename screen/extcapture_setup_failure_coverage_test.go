@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +24,7 @@ func TestExtCaptureFailsClosedOnSessionRoundTripAndBufferGeometryErrors(t *testi
 		{name: "buffer allocation overflow", width: 1, height: ^uint32(0), want: "invalid buffer geometry"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

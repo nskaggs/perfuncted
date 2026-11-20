@@ -135,7 +135,7 @@ func newSyntheticKWinManager(t *testing.T) (*KWinScriptManager, *syntheticKWinSc
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("dbus-daemon missing")
 	}
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	addr := "unix:path=" + filepath.Join(dir, "bus")
 	daemon := exec.Command("dbus-daemon", "--session", "--nofork", "--address="+addr)
 	if err := daemon.Start(); err != nil {

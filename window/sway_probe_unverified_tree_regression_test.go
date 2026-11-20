@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -27,7 +26,7 @@ func TestSwayDiscoveryRejectsSocketWithInvalidTreeEvidence(t *testing.T) {
 		{"plausible Sway root", `{"id":1,"type":"root","nodes":[]}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "synthetic-ipc.sock")
+			socket := shortPrivateSocketPath(t, "synthetic-ipc.sock")
 			listener, err := net.Listen("unix", socket)
 			if err != nil {
 				t.Fatal(err)

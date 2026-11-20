@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -155,7 +154,7 @@ func serveWindowCompositor(conn *net.UnixConn, protocol string) error {
 func TestWaylandWindowManagerRealSyntheticConstructorAndToplevelDiscovery(t *testing.T) {
 	for _, proto := range []string{"wlr", "ext", "both", "none"} {
 		t.Run(proto, func(t *testing.T) {
-			sock := filepath.Join(t.TempDir(), "wayland.sock")
+			sock := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

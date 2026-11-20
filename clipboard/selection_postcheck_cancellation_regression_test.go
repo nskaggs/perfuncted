@@ -101,7 +101,7 @@ func TestWaylandSetNeverSpawnsForegroundOwnerAfterEarlyCancellation(t *testing.T
 // A synthetic Wayland registry supports only the get_registry and sync calls
 // used during compositor detection. No real desktop or clipboard owner runs.
 func TestClipboardWaylandDiscoveryRefusesCancellationAfterFinalToolLookup(t *testing.T) { //nolint:gocyclo // Synthetic Wayland transport exercises two actual capability boundaries.
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	listener, err := net.Listen("unix", filepath.Join(dir, "wayland-private"))
 	if err != nil {
 		t.Fatal(err)

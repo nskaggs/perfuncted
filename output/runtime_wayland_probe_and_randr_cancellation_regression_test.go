@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 )
 
 func TestOutputRuntimeDoesNotFallBackAfterReachableWaylandRejectsDiscovery(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +44,7 @@ func TestOutputRuntimeDoesNotFallBackAfterReachableWaylandRejectsDiscovery(t *te
 }
 
 func TestOutputRuntimeReturnsUsableWaylandListerAfterDiscovery(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

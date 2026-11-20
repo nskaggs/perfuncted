@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 // injecting events into a manually constructed listener. This private socket
 // impersonates a compositor with one fractional-scale logical output.
 func TestWaylandListerCompletesXDGManagerNegotiationAndReleasesObjects(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)

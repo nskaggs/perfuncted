@@ -26,7 +26,7 @@ func TestResolveWaylandSocketPathRejectsUnresolvedRelativeNames(t *testing.T) {
 // the caller explicitly closes the client and checks peer shutdown.
 func connectSyntheticDefaultDisplay(t *testing.T) (*Context, <-chan error) {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestListGlobalsAndSocketReachabilityUseOnlySyntheticCompositor(t *testing.T
 	if SocketReachable(notSocket) || ListGlobals(notSocket) != nil {
 		t.Fatal("regular file accepted as Wayland socket")
 	}
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

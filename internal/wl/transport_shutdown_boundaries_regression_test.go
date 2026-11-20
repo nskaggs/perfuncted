@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -14,7 +13,7 @@ import (
 
 func newShutdownTestConnection(t *testing.T) (*Context, *net.UnixConn) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 func TestSessionHandshakeRejectsDisconnectedCompositorWithoutCaching(t *testing.T) {
 	for _, phase := range []string{"after-registry-request", "after-sync-request"} {
 		t.Run(phase, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t)
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

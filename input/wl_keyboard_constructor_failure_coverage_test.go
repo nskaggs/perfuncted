@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,7 +16,7 @@ import (
 
 func newKeyboardConstructorTransport(t *testing.T) (*wl.Context, *wl.Registry, *net.UnixConn) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

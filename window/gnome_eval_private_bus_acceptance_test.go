@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -41,7 +40,7 @@ func startSyntheticGNOMEEvalBus(t *testing.T) (context.Context, string, *synthet
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("synthetic D-Bus daemon unavailable")
 	}
-	address := "unix:path=" + filepath.Join(t.TempDir(), "bus")
+	address := "unix:path=" + shortPrivateSocketPath(t, "bus")
 	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := daemon.Start(); err != nil {
 		t.Fatal(err)

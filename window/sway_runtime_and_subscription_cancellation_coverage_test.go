@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewSwayManagerReturnsCancellationFromRuntimeSocketProbe(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := shortPrivateSocketDir(t)
 	socket := filepath.Join(runtimeDir, "sway-ipc.test.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {

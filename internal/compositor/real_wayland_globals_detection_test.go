@@ -37,7 +37,7 @@ func TestDetectRuntimeRealCompositorGlobalsOverrideMisleadingDesktop(t *testing.
 		{"unrecognized protocol", []string{"wl_output", "wl_seat"}, "KDE", Unknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := shortPrivateSocketDir(t)
 			socket := filepath.Join(dir, "display.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {

@@ -18,7 +18,7 @@ import (
 // The socket is a private Unix listener, never a desktop session. The tools
 // are inert stubs: backend selection must not execute either clipboard tool.
 func TestClipboardOpenRuntimeSelectsWaylandOnlyWhenSocketAndBothToolsExist(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	sock := filepath.Join(dir, "wayland-test")
 	listener, err := net.Listen("unix", sock)
 	if err != nil {

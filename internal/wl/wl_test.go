@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -329,7 +328,7 @@ func TestContext_Dispatch_NilConn(t *testing.T) {
 }
 
 func TestContextDispatchRejectsUnalignedMessageSize(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -365,7 +364,7 @@ func TestContextDispatchRejectsUnalignedMessageSize(t *testing.T) {
 }
 
 func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -415,7 +414,7 @@ func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
 }
 
 func TestContextWriteMsgContextCancelsBlockedWrite(t *testing.T) { //nolint:gocyclo // deterministically drives the socket into a blocked-write state.
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -494,7 +493,7 @@ blocked:
 }
 
 func TestContextCloseInterruptsBlockedWrite(t *testing.T) { //nolint:gocyclo // deterministically drives the socket into a blocked-write state.
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -659,7 +658,7 @@ func TestContextWithOperationContextCancelsQueuedAdmission(t *testing.T) {
 }
 
 func TestContextWithOperationContextRejectsQueuedCallbackAfterClose(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -738,7 +737,7 @@ func (c *operationAdmissionObservedContext) Done() <-chan struct{} {
 }
 
 func TestContextWriteMsgContextCancelsQueuedWrite(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -807,7 +806,7 @@ func testContextQueuedAdmissionCancellation(
 	operation func(*Context, context.Context) error,
 ) {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -932,7 +931,7 @@ func TestContextWithOperationSerializesCalls(t *testing.T) {
 }
 
 func TestContextRoundTripUnregistersCallbacks(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

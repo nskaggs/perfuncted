@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -62,7 +61,7 @@ func startSyntheticDefaultBus(t *testing.T) string {
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("synthetic D-Bus daemon unavailable")
 	}
-	address := "unix:path=" + filepath.Join(t.TempDir(), "session-bus")
+	address := "unix:path=" + shortPrivateSocketPath(t, "session-bus")
 	process := exec.Command("dbus-daemon", "--session", "--nofork", "--address="+address)
 	if err := process.Start(); err != nil {
 		t.Fatal(err)

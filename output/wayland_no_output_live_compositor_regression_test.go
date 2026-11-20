@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +31,7 @@ func TestWaylandListerRejectsResponsiveCompositorWithoutUsableOutputs(t *testing
 		{name: "zero output version", globals: []unusableWaylandGlobal{{9, "wl_output", 0}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t)
 			listener, err := net.Listen("unix", socket)
 			if err != nil {
 				t.Fatal(err)

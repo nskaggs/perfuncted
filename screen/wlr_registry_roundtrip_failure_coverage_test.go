@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +16,7 @@ import (
 )
 
 func TestWlrRegistryRoundTripFailureDropsCachedConnection(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +78,7 @@ func TestWlrRegistryRoundTripFailureDropsCachedConnection(t *testing.T) {
 func TestWlrCaptureRejectsMissingRequiredRegistryGlobals(t *testing.T) {
 	for _, missing := range []string{"wl_shm", "wl_output"} {
 		t.Run(missing, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -187,7 +186,7 @@ func TestWlrCaptureReturnsDispatchErrorWhenCompositorDisconnects(t *testing.T) {
 		{name: "after copy is issued", outcome: "disconnect after copy request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -246,7 +245,7 @@ func (c *wlrErrCheckGateContext) Err() error {
 }
 
 func TestWlrCaptureCancellationAfterCopyDoesNotPublishHash(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +326,7 @@ func TestWlrCaptureCancellationAfterCopyDoesNotPublishHash(t *testing.T) {
 }
 
 func TestWlrCaptureReallocatesSharedMemoryWhenGeometryChanges(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

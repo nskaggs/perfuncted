@@ -8,7 +8,6 @@ import (
 	"image"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -59,7 +58,7 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 		}, true, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sock := filepath.Join(t.TempDir(), "wayland.sock")
+			sock := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

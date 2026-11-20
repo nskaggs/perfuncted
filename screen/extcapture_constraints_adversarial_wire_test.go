@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +44,7 @@ func TestExtCaptureRejectsUntrustedWaylandConstraintsBeforeSharedMemoryAllocatio
 		}{{0, wlUint32Payload(0x40000000, 2)}, {1, wlUint32Payload(0)}}, "width is too large"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

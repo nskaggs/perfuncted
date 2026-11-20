@@ -25,7 +25,7 @@ func TestScreenRuntimeStopsFallbackWhenExtCaptureSetupIsCanceled(t *testing.T) {
 		{"wlroots", "Sway", []extConstructorAdvertisedGlobal{{25, "zwlr_screencopy_manager_v1", 1}}, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

@@ -7,7 +7,6 @@ import (
 	"image"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -286,7 +285,7 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 		}, wantErr: true, wantErrText: "capture_output", wantNoHash: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := filepath.Join(t.TempDir(), "wayland.sock")
+			socket := shortPrivateSocketPath(t, "wayland.sock")
 			server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
