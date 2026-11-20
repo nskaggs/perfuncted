@@ -28,6 +28,12 @@ func TestManagedWindowResolverRejectsMissingScopeFailuresAndAmbiguity(t *testing
 		t.Fatalf("ambiguous title selected=%v err=%v; want no target and ErrAmbiguous", selected, err)
 	}
 
+	// A valid native ID must not override contradictory title evidence.
+	selected, err = session.Accessibility.resolveManagedWindow(context.Background(), "one", "Other Person Private Window", "test")
+	if selected != nil || !errors.Is(err, accessibility.ErrNotFound) {
+		t.Fatalf("conflicting managed window title selected=%v err=%v; want no target and ErrNotFound", selected, err)
+	}
+
 	providerFailure := errors.New("synthetic compositor window listing failure")
 	manager.setError(providerFailure)
 	selected, err = session.Accessibility.resolveManagedWindow(context.Background(), "one", "", "test")
