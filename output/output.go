@@ -92,7 +92,11 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Lister, error) {
 			return nil, err
 		}
 		if wl.SocketReachable(sock) {
-			return NewWaylandListerContext(ctx, sock)
+			lister, err := NewWaylandListerContext(ctx, sock)
+			if err != nil {
+				return nil, err
+			}
+			return lister, nil
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
