@@ -244,9 +244,7 @@ func (s *ScreenBundle) GetMultiplePixels(
 	if err != nil {
 		return nil, err
 	}
-	if img == nil {
-		return nil, s.operationError("pixel", errors.New("screen: capture returned nil image"))
-	}
+	// grab has already rejected nil, typed-nil, and malformed capture frames.
 	imgBounds := img.Bounds()
 	imagePoints, err := translatePointsToImage(points, bounds, imgBounds)
 	if err != nil {
