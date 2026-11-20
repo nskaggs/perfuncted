@@ -804,10 +804,8 @@ func boundNodeResponse(node Node, maxBytes int) Node {
 	for estimateNodeJSONSize(node)+60 > maxBytes {
 		switch {
 		case node.Text != "":
+			// Text is nonempty here, so halving its length always shrinks it.
 			limit := len(node.Text) / 2
-			if limit == len(node.Text) {
-				limit--
-			}
 			node.Text, _ = truncateUTF8(node.Text, limit)
 			node.TextTruncated = true
 		case node.Attributes != nil:
