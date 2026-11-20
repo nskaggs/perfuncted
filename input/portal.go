@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"os"
@@ -235,7 +236,7 @@ func portalCreateSession(ctx context.Context, conn *dbus.Conn, uniqueName string
 
 func portalHandleToken() (string, error) {
 	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, random[:]); err != nil {
 		return "", fmt.Errorf("input/remote-desktop: create request token: %w", err)
 	}
 	return "pf" + hex.EncodeToString(random[:]), nil
