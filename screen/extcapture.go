@@ -323,6 +323,40 @@ func (b *ExtCaptureBackend) Grab(ctx context.Context, rect image.Rectangle) (ima
 	return requireCapturedImage("extcapture", outImg)
 }
 
+// GrabVerified rejects captures whose output scale is unknown or whose frame
+// does not fully contain the requested physical pixel rectangle.
+func (b *ExtCaptureBackend) GrabVerified(ctx context.Context, rect image.Rectangle) (find.VerifiedTemplateCapture, error) {
+	if b == nil || rect.Empty() {
+		return find.VerifiedTemplateCapture{}, fmt.Errorf("%w: invalid ExtCapture backend or empty region", find.ErrUnverifiedCaptureGeometry)
+	}
+	var scale uint32
+	var outImg image.Image
+	if err := b.grabInternal(ctx, func(pixels []byte, width, height, stride int) error {
+		// grabInternal serializes protocol state and dispatches output metadata
+		// before invoking this callback, so scale belongs to this frame.
+		scale = b.outputScale
+		if scale == 0 {
+			return fmt.Errorf("%w: ExtCapture output scale is unknown", find.ErrUnverifiedCaptureGeometry)
+		}
+		physical, err := verifiedPhysicalRect(rect, scale, width, height)
+		if err != nil {
+			return err
+		}
+		outImg = decodeBGRARect(pixels, width, height, stride, physical)
+		if outImg.Bounds().Dx() != physical.Dx() || outImg.Bounds().Dy() != physical.Dy() {
+			return fmt.Errorf("%w: ExtCapture pixel crop does not cover %v", find.ErrUnverifiedCaptureGeometry, physical)
+		}
+		return nil
+	}); err != nil {
+		return find.VerifiedTemplateCapture{}, err
+	}
+	img, err := requireCapturedImage("extcapture", outImg)
+	if err != nil {
+		return find.VerifiedTemplateCapture{}, err
+	}
+	return find.VerifiedTemplateCapture{Image: img, DesktopRect: rect, PixelScale: int(scale)}, nil
+}
+
 func (b *ExtCaptureBackend) grabInternal(ctx context.Context, fn func(pixels []byte, w, h, stride int) error) error { //nolint:gocyclo
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {

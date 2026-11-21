@@ -293,6 +293,6 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 	findColor.Flags().IntVar(&colorTolerance, "tolerance", 0, "per-channel tolerance (0-255)")
 	_ = findColor.MarkFlagRequired("color")
 
-	cmd.AddCommand(findColor, waitForVisibleChange)
+	cmd.AddCommand(findColor, waitForVisibleChange, findTemplateCmd(openPF))
 	return cmd
 }

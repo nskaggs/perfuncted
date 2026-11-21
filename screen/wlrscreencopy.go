@@ -499,6 +499,40 @@ func (b *WlrScreencopyBackend) Grab(ctx context.Context, rect image.Rectangle) (
 	return requireCapturedImage("wlr", outImg)
 }
 
+// GrabVerified checks the compositor's reported output scale and refuses any
+// requested pixel rectangle that the captured frame does not fully contain.
+func (b *WlrScreencopyBackend) GrabVerified(ctx context.Context, rect image.Rectangle) (find.VerifiedTemplateCapture, error) {
+	if b == nil || rect.Empty() {
+		return find.VerifiedTemplateCapture{}, fmt.Errorf("%w: empty Wlr capture region", find.ErrUnverifiedCaptureGeometry)
+	}
+	var scale uint32
+	var outImg image.Image
+	if err := b.captureFrame(ctx, func(pixels []byte, bi bufInfo) error {
+		// Read the scale alongside this frame while the backend serializes its
+		// protocol state, so it describes the pixels being decoded.
+		scale = b.scale
+		if scale == 0 {
+			return fmt.Errorf("%w: Wlr output scale is unknown", find.ErrUnverifiedCaptureGeometry)
+		}
+		physical, err := verifiedPhysicalRect(rect, scale, int(bi.width), int(bi.height))
+		if err != nil {
+			return err
+		}
+		outImg = decodeBGRARect(pixels, int(bi.width), int(bi.height), int(bi.stride), physical)
+		if outImg.Bounds().Dx() != physical.Dx() || outImg.Bounds().Dy() != physical.Dy() {
+			return fmt.Errorf("%w: Wlr pixel crop does not cover %v", find.ErrUnverifiedCaptureGeometry, physical)
+		}
+		return nil
+	}); err != nil {
+		return find.VerifiedTemplateCapture{}, err
+	}
+	img, err := requireCapturedImage("wlr", outImg)
+	if err != nil {
+		return find.VerifiedTemplateCapture{}, err
+	}
+	return find.VerifiedTemplateCapture{Image: img, DesktopRect: rect, PixelScale: int(scale)}, nil
+}
+
 // GrabFullHash returns a pixel hash of the full output in the canonical
 // find.PixelHash representation, so values are comparable with hashes taken
 // from Grab images or other backends.

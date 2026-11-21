@@ -128,6 +128,7 @@ func skipMethodForCLISync(name string) bool {
 	}
 	switch name {
 	case "FindColor",
+		"FindTemplate",
 		"GetMultiplePixels",
 		"IterateWindows",
 		"LocateExact",

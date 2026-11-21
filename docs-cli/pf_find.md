@@ -23,6 +23,7 @@ Pixel scanning and wait utilities
 
 * [pf](pf.md)	 - perfuncted — screen automation CLI
 * [pf find color](pf_find_color.md)	 - Find the first pixel matching a colour within tolerance
+* [pf find image](pf_find_image.md)	 - Find the best fuzzy match for a PNG template
 * [pf find scan-for](pf_find_scan-for.md)	 - Scan multiple regions until one matches its expected hash
 * [pf find wait-for](pf_find_wait-for.md)	 - Wait until a region's pixel hash equals the provided hash
 * [pf find wait-for-change](pf_find_wait-for-change.md)	 - Wait until a region's pixel hash changes from an initial value

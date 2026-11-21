@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
@@ -199,6 +200,26 @@ func (b *X11Backend) Grab(ctx context.Context, rect image.Rectangle) (image.Imag
 	}
 
 	return decodeBGRA(reply.Data, int(w), int(h), int(w)*4), nil
+}
+
+// GrabVerified proves that the requested root-window rectangle is contained
+// in the X11 screen and that XGetImage returned its exact pixel dimensions.
+func (b *X11Backend) GrabVerified(ctx context.Context, rect image.Rectangle) (find.VerifiedTemplateCapture, error) {
+	if b == nil || b.screen == nil || rect.Empty() {
+		return find.VerifiedTemplateCapture{}, fmt.Errorf("%w: invalid X11 screen or empty region %v", find.ErrUnverifiedCaptureGeometry, rect)
+	}
+	if !rect.In(image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))) {
+		return find.VerifiedTemplateCapture{}, fmt.Errorf("%w: X11 region %v is outside screen bounds", find.ErrUnverifiedCaptureGeometry, rect)
+	}
+	img, err := b.Grab(ctx, rect)
+	if err != nil {
+		return find.VerifiedTemplateCapture{}, err
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() != rect.Dx() || bounds.Dy() != rect.Dy() {
+		return find.VerifiedTemplateCapture{}, fmt.Errorf("%w: X11 returned %v for requested region %v", find.ErrUnverifiedCaptureGeometry, bounds, rect)
+	}
+	return find.VerifiedTemplateCapture{Image: img, DesktopRect: rect, PixelScale: 1}, nil
 }
 
 // Resolution returns the screen dimensions from the X11 screen info.
