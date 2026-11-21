@@ -68,9 +68,11 @@ func (b *GnomeNativeScreenBackend) Grab(ctx context.Context, rect image.Rectangl
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: close transport: %w", closeErr))
+			img = nil // Never expose pixels after a failed transport teardown.
 		}
 		if removeErr := os.Remove(path); removeErr != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: remove transport: %w", removeErr))
+			img = nil
 		}
 	}()
 	var capture gnomebridge.ScreenCapture

@@ -5,6 +5,7 @@ package screen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -42,12 +43,13 @@ type privateGnomeCapture struct {
 	reject             bool
 	invalidPNG         bool
 	mismatchedGeometry bool
+	removeTransport    bool
 }
 
 func (p *privateGnomeCapture) capture(fd dbus.UnixFD, kind string) (int32, int32, int32, int32, int32, int32, float64, *dbus.Error) {
 	p.mu.Lock()
 	p.captures = append(p.captures, kind)
-	reject, invalid, mismatch := p.reject, p.invalidPNG, p.mismatchedGeometry
+	reject, invalid, mismatch, removeTransport := p.reject, p.invalidPNG, p.mismatchedGeometry, p.removeTransport
 	p.mu.Unlock()
 	if reject {
 		return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(errors.New("capture rejected"))
@@ -63,6 +65,17 @@ func (p *privateGnomeCapture) capture(fd dbus.UnixFD, kind string) (int32, int32
 		img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
 		img.SetRGBA(2, 2, color.RGBA{G: 255, A: 255})
 		if err := png.Encode(f, img); err != nil {
+			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(err)
+		}
+	}
+	if removeTransport {
+		// Simulate a bridge deleting its caller-owned transport before the
+		// caller can finish validating and cleaning up the capture.
+		path, err := os.Readlink(filepath.Join("/proc/self/fd", fmt.Sprint(int(fd))))
+		if err != nil || !strings.HasPrefix(filepath.Base(path), "perfuncted-gnome-capture-") {
+			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(fmt.Errorf("unexpected capture transport %q: %v", path, err))
+		}
+		if err := os.Remove(path); err != nil {
 			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(err)
 		}
 	}
