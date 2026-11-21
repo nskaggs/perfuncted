@@ -113,12 +113,9 @@ func (c *eiClient) captureConnection(message eiMessage) error {
 	if len(message.body) != 16 {
 		return fmt.Errorf("input/eis: invalid handshake connection event size %d", len(message.body))
 	}
-	connection, err := eiReadU64(message.body, 4)
-	if err != nil {
-		return fmt.Errorf("input/eis: invalid handshake connection event: %w", err)
-	}
-	version, err := eiReadU32(message.body, 12)
-	if err != nil || connection < eiServerIDFloor || version != 1 {
+	connection := binary.NativeEndian.Uint64(message.body[4:12])
+	version := binary.NativeEndian.Uint32(message.body[12:16])
+	if connection < eiServerIDFloor || version != 1 {
 		// Server-owned protocol objects must not alias the client-owned
 		// object IDs used for callbacks and outgoing requests.
 		return fmt.Errorf("input/eis: unsupported handshake connection object %d version %d", connection, version)
@@ -137,14 +134,8 @@ func (c *eiClient) answerPing(message eiMessage) error {
 	if len(message.body) != 12 {
 		return fmt.Errorf("input/eis: invalid connection ping size %d", len(message.body))
 	}
-	ping, err := eiReadU64(message.body, 0)
-	if err != nil {
-		return fmt.Errorf("input/eis: invalid connection ping: %w", err)
-	}
-	version, err := eiReadU32(message.body, 8)
-	if err != nil {
-		return fmt.Errorf("input/eis: invalid connection ping version: %w", err)
-	}
+	ping := binary.NativeEndian.Uint64(message.body[:8])
+	version := binary.NativeEndian.Uint32(message.body[8:12])
 	if ping < eiServerIDFloor || ping == c.connection.Load() || version != 1 {
 		// Pingpong objects are server-owned and distinct from the
 		// connection. Otherwise the reply targets an unrelated object.
@@ -261,8 +252,6 @@ func (c *eiClient) updateSerial(message eiMessage) {
 	case message.object >= eiServerIDFloor && message.opcode == 7:
 		hasSerial = true
 	case message.object >= eiServerIDFloor && message.opcode == 8:
-		hasSerial = true
-	case message.object >= eiServerIDFloor && message.opcode == 0 && len(message.body) >= 8:
 		hasSerial = true
 	}
 	if hasSerial {
@@ -968,9 +957,6 @@ func eiPointerFrame(sender *eiSender, x, y int) ([]byte, error) {
 	pointer, ok := sender.pointerForPoint(x, y)
 	if !ok {
 		return nil, fmt.Errorf("input/eis: (%d,%d) is outside the available absolute pointer regions", x, y)
-	}
-	if sender.client == nil || pointer.pointer == 0 || pointer.device == 0 {
-		return nil, unsupportedError("remote-desktop", "absolute pointer input")
 	}
 	floatX, floatY := float32(x), float32(y)
 	if float64(floatX) != float64(x) || float64(floatY) != float64(y) {

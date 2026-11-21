@@ -880,9 +880,6 @@ func remoteKeyCode(key string) (uint32, error) { //nolint:gocyclo // explicit ke
 		if mapping, ok := runes[r]; ok {
 			return uint32(mapping.keycode), nil
 		}
-		if mapping, ok := runes[[]rune(strings.ToLower(key))[0]]; ok {
-			return uint32(mapping.keycode), nil
-		}
 	}
 	return 0, fmt.Errorf("input: unknown key %q", key)
 }

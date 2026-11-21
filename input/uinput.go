@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -257,13 +256,6 @@ func (b *UinputBackend) resolveKey(key string) (int, error) {
 	if k, ok := keymap.FromString(key); ok {
 		if code, ok := keyCode[k]; ok {
 			return code, nil
-		}
-	}
-	if len(key) == 1 {
-		if k, ok := keymap.FromString(strings.ToLower(key)); ok {
-			if code, ok := keyCode[k]; ok {
-				return code, nil
-			}
 		}
 	}
 	return 0, fmt.Errorf("input/uinput: unknown key %q", key)
