@@ -72,6 +72,8 @@ func openPrivatePortalDirectory(path string) (int, error) { //nolint:gocyclo // 
 			_ = unix.Close(fd)
 			return -1, errors.New("state path contains an invalid component")
 		}
+		// O_DIRECTORY rejects non-directories before a descriptor can enter
+		// the ownership and permission validation path below.
 		next, openErr := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 		if errors.Is(openErr, unix.ENOENT) {
 			if mkdirErr := unix.Mkdirat(fd, part, 0700); mkdirErr != nil && !errors.Is(mkdirErr, unix.EEXIST) {
@@ -89,11 +91,6 @@ func openPrivatePortalDirectory(path string) (int, error) { //nolint:gocyclo // 
 			_ = unix.Close(next)
 			_ = unix.Close(fd)
 			return -1, err
-		}
-		if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
-			_ = unix.Close(next)
-			_ = unix.Close(fd)
-			return -1, errors.New("state path component is not a directory")
 		}
 		permissions := stat.Mode & 0777
 		if index == len(parts)-1 {
