@@ -556,7 +556,7 @@ func (b *dbusBackend) validateHandle(id NodeID) error {
 	if disconnected || closed {
 		return ErrDisconnected
 	}
-	if !id.valid() {
+	if !id.valid() || !dbus.ObjectPath(id.ObjectPath).IsValid() {
 		return ErrStaleNode
 	}
 	if !current {
