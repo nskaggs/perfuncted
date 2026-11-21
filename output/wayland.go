@@ -302,21 +302,12 @@ func (o *waylandOutput) updateLogicalScaleLocked() {
 	}
 	if physicalW%o.logicalW != 0 || physicalH%o.logicalH != 0 {
 		numerator, denominator := reducedRatio(physicalW, o.logicalW)
-		if numerator <= 0 || denominator <= 0 {
-			return
-		}
 		o.info.Scale = 0
 		o.info.ScaleNumerator = numerator
 		o.info.ScaleDenominator = denominator
 		return
 	}
-	if physicalW/o.logicalW != physicalH/o.logicalH {
-		return
-	}
 	scale := physicalW / o.logicalW
-	if scale <= 0 {
-		return
-	}
 	o.info.Scale = scale
 	o.info.ScaleNumerator = scale
 	o.info.ScaleDenominator = 1
