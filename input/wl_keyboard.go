@@ -349,14 +349,6 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	// keycodes so we can build a single keymap that covers everything.
 	var allRunes []rune
 	seenRunes := make(map[rune]bool)
-	type keyAction struct {
-		key  string
-		down bool
-		up   bool
-		mod  modifiers
-	}
-	var keys []keyAction
-
 	for _, a := range actions {
 		if a.text != "" {
 			for _, r := range a.text {
@@ -367,7 +359,6 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			}
 			continue
 		}
-		keys = append(keys, keyAction{key: a.key, down: a.down, up: a.up, mod: a.modifiers})
 		if _, _, ok := namedKey(a.key); ok {
 			continue
 		}
@@ -420,10 +411,13 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 	// different order. All held named keys must be defined in the new map.
 	var namedOrder []string
 	seenNamed := make(map[string]bool)
-	for _, ka := range keys {
-		if _, _, named := namedKey(ka.key); named && modBit(ka.key) == 0 && !seenNamed[ka.key] {
-			namedOrder = append(namedOrder, ka.key)
-			seenNamed[ka.key] = true
+	for _, a := range actions {
+		if a.text != "" {
+			continue
+		}
+		if _, _, named := namedKey(a.key); named && modBit(a.key) == 0 && !seenNamed[a.key] {
+			namedOrder = append(namedOrder, a.key)
+			seenNamed[a.key] = true
 		}
 	}
 	for _, key := range heldNames {
@@ -525,8 +519,12 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 		return err
 	}
 
-	// Build a lookup from key name to keyAction for the second pass.
-	keyIndex := 0
+	type keyAction struct {
+		key  string
+		down bool
+		up   bool
+		mod  modifiers
+	}
 
 	// Second pass: execute actions in order — text and keys interleaved.
 	for _, a := range actions {
@@ -548,12 +546,9 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			continue
 		}
 
-		// Key action — look it up from the keys slice.
-		if keyIndex >= len(keys) {
-			continue
-		}
-		ka := keys[keyIndex]
-		keyIndex++
+		// The complete action slice was validated before keymap upload, so the
+		// execution state matches the simulated held-key transitions.
+		ka := keyAction{key: a.key, down: a.down, up: a.up, mod: a.modifiers}
 
 		// Press temporary modifier keys first.
 		modBitmask := uint32(0)
@@ -580,10 +575,6 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				// This key is itself a modifier.
 				switch {
 				case ka.up:
-					if k.mods&bit == 0 {
-						k.clearTempModsBestEffort(ctx, tempMods)
-						return fmt.Errorf("keyboard: key %q not held", ka.key)
-					}
 					if err := k.sendKey(ctx, kc, 0); err != nil {
 						keyCleanupErr := k.cleanupModifierKey(ctx, kc, bit)
 						k.clearTempModsBestEffort(ctx, tempMods)
@@ -645,11 +636,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				slot := namedSlots[ka.key]
 				switch {
 				case ka.up:
-					heldSlot, held := k.held[ka.key]
-					if !held {
-						k.clearTempModsBestEffort(ctx, tempMods)
-						return fmt.Errorf("keyboard: key %q not held", ka.key)
-					}
+					heldSlot := k.held[ka.key]
 					if err := k.sendKey(ctx, heldSlot, 0); err != nil {
 						k.clearTempModsBestEffort(ctx, tempMods)
 						return err
@@ -686,11 +673,7 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 			// Literal character(s) — tap each rune, or hold/release single-rune keys.
 			switch {
 			case ka.up:
-				heldSlot, held := k.held[ka.key]
-				if !held {
-					k.clearTempModsBestEffort(ctx, tempMods)
-					return fmt.Errorf("keyboard: key %q not held", ka.key)
-				}
+				heldSlot := k.held[ka.key]
 				if err := k.sendKey(ctx, heldSlot, 0); err != nil {
 					k.clearTempModsBestEffort(ctx, tempMods)
 					return err
@@ -698,10 +681,6 @@ func (k *wlKeyboard) sendkeys(ctx context.Context, actions []keySend) error { //
 				delete(k.held, ka.key)
 			case ka.down:
 				runes := []rune(ka.key)
-				if len(runes) != 1 {
-					k.clearTempModsBestEffort(ctx, tempMods)
-					return fmt.Errorf("keyboard: cannot hold multi-character key %q", ka.key)
-				}
 				slot := runeSlots[runes[0]]
 				if err := k.sendKey(ctx, slot, 1); err != nil {
 					cleanupErr := k.cleanupSendKey(ctx, slot)
