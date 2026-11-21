@@ -28,7 +28,7 @@ func TestCacheAddInvalidObjectOrApplicationIdentityInvalidatesPrivateState(t *te
 				cacheItems: map[NodeID]cacheItem{existing: {Name: "sensitive cache content"}},
 				cacheApps:  map[string]bool{bus: true},
 			}
-			backend.applyCacheAddLocked([]any{tc.item})
+			backend.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: bus, Body: []any{tc.item}})
 			if backend.cacheItems != nil || backend.cacheApps != nil {
 				t.Fatalf("invalid identity retained cache: items=%+v apps=%v", backend.cacheItems, backend.cacheApps)
 			}

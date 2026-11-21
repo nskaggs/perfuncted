@@ -321,32 +321,19 @@ func (b *dbusBackend) applyCacheSignalLocked(sig *dbus.Signal) {
 			b.cacheItems, b.cacheApps, b.cache = nil, nil, nil
 			return
 		}
-		b.applyCacheAddLocked(sig.Body)
+		b.applyCacheAddLocked(item)
 	case strings.HasSuffix(sig.Name, "Cache:RemoveAccessible"):
 		ref, ok := cacheObjectRefFromSignal(sig.Body)
 		if !ok || ref.BusName != sig.Sender {
 			b.cacheItems, b.cacheApps, b.cache = nil, nil, nil
 			return
 		}
-		b.applyCacheRemoveLocked(sig.Body)
+		b.applyCacheRemoveLocked(ref)
 	}
 	b.cache = nil
 }
 
-func (b *dbusBackend) applyCacheAddLocked(body []any) {
-	item, ok := cacheItemFromSignal(body)
-	if !ok {
-		// An unrecognized cache signal cannot safely update the local item map.
-		// Invalidate it and let the next snapshot reload authoritative state
-		// rather than guessing at the payload shape.
-		b.cacheItems, b.cacheApps = nil, nil
-		return
-	}
-	if item.Object.BusName != item.Application.BusName ||
-		!validCacheObjectRef(item.Object) || !validCacheObjectRef(item.Application) || !validCacheParentRef(item.Parent) {
-		b.cacheItems, b.cacheApps = nil, nil
-		return
-	}
+func (b *dbusBackend) applyCacheAddLocked(item cacheItem) {
 	id := b.nodeIDLocked(objectRef{BusName: item.Object.BusName, ObjectPath: item.Object.ObjectPath})
 	if b.cacheApps[item.Object.BusName] {
 		old, exists := b.cacheItems[id]
@@ -361,12 +348,7 @@ func (b *dbusBackend) applyCacheAddLocked(body []any) {
 	b.recordParentLocked(item.Object, item.Parent)
 }
 
-func (b *dbusBackend) applyCacheRemoveLocked(body []any) {
-	ref, ok := cacheObjectRefFromSignal(body)
-	if !ok {
-		b.cacheItems, b.cacheApps = nil, nil
-		return
-	}
+func (b *dbusBackend) applyCacheRemoveLocked(ref cacheObjectRef) {
 	var parent cacheObjectRef
 	removedCurrent := false
 	for id, item := range b.cacheItems {

@@ -37,7 +37,7 @@ func TestCachePublicationRefusesRetiredBackendGeneration(t *testing.T) {
 
 // Even a correctly shaped signal sender is not permission to store an
 // invalid object identity. Invalidating the entire cache avoids stale data.
-func TestCacheDirectAddRejectsMalformedProviderIdentity(t *testing.T) {
+func TestCacheSignalRejectsMalformedProviderIdentity(t *testing.T) {
 	const bus = "org.example.Editor"
 	app := cacheObjectRef{BusName: bus, ObjectPath: dbus.ObjectPath("/app")}
 	for _, tc := range []struct {
@@ -49,7 +49,7 @@ func TestCacheDirectAddRejectsMalformedProviderIdentity(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &dbusBackend{generation: 9, cacheItems: map[NodeID]cacheItem{{BusName: bus, ObjectPath: "/private", Generation: 9, Incarnation: 1}: {Name: "private"}}, cacheApps: map[string]bool{bus: true}}
-			b.applyCacheAddLocked([]any{tc.item})
+			b.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: bus, Body: []any{tc.item}})
 			if b.cacheItems != nil || b.cacheApps != nil {
 				t.Fatalf("invalid provider item survived: %+v, %+v", b.cacheItems, b.cacheApps)
 			}

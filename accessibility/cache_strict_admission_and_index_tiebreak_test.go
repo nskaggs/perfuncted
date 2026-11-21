@@ -55,16 +55,20 @@ func TestCachedAccessibilityChildIndexTieBreaksByObjectPath(t *testing.T) {
 	}
 }
 
-// A malformed direct signal must invalidate incomplete cache state rather
-// than publish a guessed node or an untrusted ancestry relationship.
-func TestCacheDirectMalformedMutationFailsClosed(t *testing.T) {
+// Malformed cache signals invalidate local state rather than publish a
+// guessed node or untrusted ancestry relationship.
+func TestCacheMalformedSignalsFailClosed(t *testing.T) {
 	const bus = "org.example.Private"
 	for _, tc := range []struct {
 		name   string
 		mutate func(*dbusBackend)
 	}{
-		{"malformed add", func(b *dbusBackend) { b.applyCacheAddLocked([]any{"not a cache item"}) }},
-		{"malformed remove", func(b *dbusBackend) { b.applyCacheRemoveLocked([]any{"not a cache reference"}) }},
+		{"malformed add", func(b *dbusBackend) {
+			b.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":AddAccessible", Sender: bus, Body: []any{"not a cache item"}})
+		}},
+		{"malformed remove", func(b *dbusBackend) {
+			b.applyCacheSignal(&dbus.Signal{Name: cacheIface + ":RemoveAccessible", Sender: bus, Body: []any{"not a cache reference"}})
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &dbusBackend{generation: 9, cacheApps: map[string]bool{bus: true}, cacheItems: map[NodeID]cacheItem{{BusName: bus, ObjectPath: "/existing", Generation: 9, Incarnation: 1}: {Name: "private"}}}
