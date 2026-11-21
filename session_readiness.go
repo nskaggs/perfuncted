@@ -31,9 +31,11 @@ func waitForFile(
 
 func startupWaitAttempts(policy TimeoutPolicy) int {
 	policy = policy.WithDefaults()
-	attempts := int((policy.Startup + policy.Poll - 1) / policy.Poll)
-	if attempts < 1 {
-		return 1
+	// Ceiling division via quotient and remainder avoids overflowing a
+	// valid positive time.Duration when Startup is near its maximum.
+	attempts := int(policy.Startup / policy.Poll)
+	if policy.Startup%policy.Poll != 0 {
+		attempts++
 	}
 	return attempts
 }
