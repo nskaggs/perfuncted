@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// The first four Err checks cover API preflight, submission, writer admission,
-// and the first action in a two-action Type batch.
-const portalTypeSecondActionErrCall = 5
+// The gate follows API and parser preflight, writer admission, and the first
+// action in a two-action Type batch.
+const portalTypeSecondActionErrCall = 11
 
 type portalTypeActionContextGate struct {
 	context.Context
@@ -92,7 +92,7 @@ func TestRemoteDesktopTypeStopsBeforeNextActionAfterCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var unexpected [1]byte
-	if n, err := peer.Read(unexpected[:]); n != 0 || err != io.EOF {
+	if n, err := peer.Read(unexpected[:]); n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("later Type action reached EIS after cancellation: bytes=%x err=%v", unexpected[:n], err)
 	}
 }

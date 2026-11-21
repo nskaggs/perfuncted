@@ -18,6 +18,8 @@
 package input
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -45,23 +47,43 @@ type modifiers struct {
 	super bool
 }
 
+// Named keys have a bounded grammar. Very large braced expressions cannot
+// be valid keys and must not cause unbounded work after scanning a closing brace.
+const maxKeyExpressionBytes = 256
+
 // parseKeySend parses a human-readable key string into a sequence of keySend
 // actions. Each action is either literal text to type or a named key to
 // press/release.
 // Literal text is returned as elements with a .text field. Braced expressions
 // {keyname}, {keyname down/up}, or {mod+key} are returned with the .key field.
 func parseKeySend(input string) ([]keySend, error) {
+	return parseKeySendContext(context.Background(), input)
+}
+
+func parseKeySendContext(ctx context.Context, input string) ([]keySend, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if input == "" {
 		return nil, nil
 	}
 	var sends []keySend
 	for i := 0; i < len(input); {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if input[i] == '{' {
-			end := strings.IndexByte(input[i:], '}')
+			end, err := indexByteContext(ctx, input[i:], '}')
+			if err != nil {
+				return nil, err
+			}
 			if end == -1 {
-				return nil, fmt.Errorf("input: unclosed brace at offset %d in %q", i, input)
+				return nil, fmt.Errorf("input: unclosed brace at offset %d", i)
 			}
 			expr := input[i+1 : i+end]
+			if len(expr) > maxKeyExpressionBytes {
+				return nil, fmt.Errorf("input: key expression exceeds %d bytes", maxKeyExpressionBytes)
+			}
 			ks, err := parseBraced(expr)
 			if err != nil {
 				return nil, err
@@ -69,7 +91,10 @@ func parseKeySend(input string) ([]keySend, error) {
 			sends = append(sends, ks)
 			i += end + 1
 		} else {
-			next := strings.IndexByte(input[i:], '{')
+			next, err := indexByteContext(ctx, input[i:], '{')
+			if err != nil {
+				return nil, err
+			}
 			if next == -1 {
 				sends = append(sends, keySend{text: input[i:]})
 				break
@@ -78,7 +103,21 @@ func parseKeySend(input string) ([]keySend, error) {
 			i += next
 		}
 	}
-	return sends, nil
+	return sends, ctx.Err()
+}
+
+func indexByteContext(ctx context.Context, text string, needle byte) (int, error) {
+	const chunk = 32 * 1024
+	for offset := 0; offset < len(text); offset += chunk {
+		if err := ctx.Err(); err != nil {
+			return -1, err
+		}
+		end := min(offset+chunk, len(text))
+		if i := strings.IndexByte(text[offset:end], needle); i >= 0 {
+			return offset + i, nil
+		}
+	}
+	return -1, ctx.Err()
 }
 
 func parseBraced(expr string) (keySend, error) {
@@ -161,4 +200,19 @@ func isModifierName(s string) bool {
 		return true
 	}
 	return false
+}
+
+// ValidateKeySequence checks the syntax accepted by Type without dispatching
+// input. It honors ctx and does not check backend support for named keys.
+func ValidateKeySequence(ctx context.Context, sequence string) error {
+	if ctx == nil {
+		return errors.New("input: nil context")
+	}
+	if _, err := parseKeySendContext(ctx, sequence); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return errors.New("input: invalid key sequence")
+	}
+	return nil
 }

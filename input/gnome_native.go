@@ -186,7 +186,7 @@ func (b *GnomeNativeBackend) Type(ctx context.Context, text string) error {
 		if !utf8.ValidString(text) {
 			return fmt.Errorf("input/gnome-native: input must be valid UTF-8")
 		}
-		actions, err := parseKeySend(text)
+		actions, err := parseKeySendContext(ctx, text)
 		if err != nil {
 			return err
 		}

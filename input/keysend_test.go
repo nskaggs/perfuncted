@@ -1,6 +1,8 @@
 package input
 
 import (
+	"context"
+	"errors"
 	"testing"
 )
 
@@ -161,5 +163,13 @@ func TestParseKeySend_LiteralBracesInOutput(t *testing.T) {
 	}
 	if sends[2].text != "c" {
 		t.Errorf("sends[2].text = %q, want %q", sends[2].text, "c")
+	}
+}
+
+func TestValidateKeySequenceCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := ValidateKeySequence(ctx, "{enter}"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled validation: %v", err)
 	}
 }

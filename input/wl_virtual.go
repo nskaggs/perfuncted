@@ -516,7 +516,7 @@ func (b *WlVirtualBackend) typeContext(ctx context.Context, s string) error {
 		return err
 	}
 	return b.withOperation(ctx, func(_ wl.Ctx, opCtx context.Context) error {
-		actions, err := parseKeySend(s)
+		actions, err := parseKeySendContext(opCtx, s)
 		if err != nil {
 			return err
 		}

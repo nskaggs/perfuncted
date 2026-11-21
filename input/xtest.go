@@ -136,10 +136,17 @@ var keysymForName = map[string]xproto.Keysym{
 	"5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39,
 	" ": 0x20, "space": 0x20,
 	"return": 0xff0d, "enter": 0xff0d,
-	"tab":    0xff09,
-	"escape": 0xff1b, "esc": 0xff1b,
+	"tab":       0xff09,
+	"backspace": 0xff08,
+	"escape":    0xff1b, "esc": 0xff1b,
 	"up": 0xff52, "down": 0xff54, "left": 0xff51, "right": 0xff53,
+	"home": 0xff50, "end": 0xff57,
+	"page_up": 0xff55, "pageup": 0xff55, "prior": 0xff55,
+	"page_down": 0xff56, "pagedown": 0xff56, "next": 0xff56,
+	"insert": 0xff63, "delete": 0xffff,
 	"ctrl": 0xffe3, "shift": 0xffe1, "alt": 0xffe9, "super": 0xffeb,
+	"control": 0xffe3, "control_l": 0xffe3, "shift_l": 0xffe1,
+	"alt_l": 0xffe9, "meta": 0xffeb, "logo": 0xffeb, "win": 0xffeb, "super_l": 0xffeb,
 	"f1": 0xffbe, "f2": 0xffbf, "f3": 0xffc0, "f4": 0xffc1,
 	"f5": 0xffc2, "f6": 0xffc3, "f7": 0xffc4, "f8": 0xffc5,
 	"f9": 0xffc6, "f10": 0xffc7, "f11": 0xffc8, "f12": 0xffc9,
@@ -380,7 +387,7 @@ func (b *XTestBackend) typeContext(ctx context.Context, s string) error { //noli
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	actions, err := parseKeySend(s)
+	actions, err := parseKeySendContext(ctx, s)
 	if err != nil {
 		return err
 	}

@@ -895,7 +895,7 @@ func (b *RemoteDesktopBackend) Type(ctx context.Context, value string) error {
 	if err := b.stateError(); err != nil {
 		return err
 	}
-	actions, err := parseKeySend(value)
+	actions, err := parseKeySendContext(ctx, value)
 	if err != nil {
 		return err
 	}

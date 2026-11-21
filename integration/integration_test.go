@@ -735,6 +735,15 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if err := s.pf.Input.Type(ctx, "Integration"); err != nil {
 		t.Fatalf("text entry: %v", err)
 	}
+	// XTEST types only symbols in the active X keymap. Test literal shortcut
+	// syntax on both backends and Unicode when Wayland supports it.
+	literalMarker := "{ctrl+s}+A+B"
+	if s.mode == displayHeadlessWayland || s.mode == displayNestedWayland {
+		literalMarker = "{ctrl+s}+é"
+	}
+	if err := s.pf.WithContext(ctx).Do(perfuncted.Type(literalMarker)); err != nil {
+		t.Fatalf("literal batch entry: %v: %v", err, errors.Unwrap(err))
+	}
 
 	// Wait for text input settle
 	ctxType, cancelType := context.WithTimeout(ctx, 5*time.Second)
@@ -793,6 +802,9 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	}
 	if !strings.Contains(savedText, "Integration") {
 		t.Fatalf("saved file %q does not contain typed text", saveFile)
+	}
+	if !strings.Contains(savedText, literalMarker) {
+		t.Fatalf("saved file %q is missing literal batch input", saveFile)
 	}
 	if !strings.Contains(savedText, marker) {
 		t.Fatalf("saved file %q is missing clipboard-pasted marker %q", saveFile, marker)

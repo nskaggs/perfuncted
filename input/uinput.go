@@ -326,7 +326,7 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 	if b.kb == nil {
 		return unsupportedError("input/uinput", "keyboard device unavailable")
 	}
-	actions, err := parseKeySend(s)
+	actions, err := parseKeySendContext(ctx, s)
 	if err != nil {
 		return err
 	}
