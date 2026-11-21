@@ -44,9 +44,6 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		b.mu.RUnlock()
 		if !opts.Fresh && root.BusName != registryName {
 			if err := b.loadCache(ctx, root.BusName); err != nil && errors.Is(err, ErrStaleGeneration) {
-				if requestedRoot == (NodeID{}) {
-					continue
-				}
 				return Snapshot{}, err
 			}
 		}
@@ -74,9 +71,6 @@ func (b *dbusBackend) Snapshot(ctx context.Context, root NodeID, opts SnapshotOp
 		if errors.Is(err, ErrStaleGeneration) || errors.Is(walker.err, ErrStaleGeneration) {
 			if requestedRoot == (NodeID{}) {
 				continue
-			}
-			if err == nil {
-				err = walker.err
 			}
 			return Snapshot{}, err
 		}
