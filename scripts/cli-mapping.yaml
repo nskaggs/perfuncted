@@ -22,6 +22,8 @@ input:
     skip: true
   DragAndDrop:
     skip: true
+  DragAndDropSmooth:
+    skip: true
   KeyDown:
     skip: true
   KeyTap:
@@ -37,6 +39,8 @@ input:
   MouseDown:
     skip: true
   MouseMove:
+    skip: true
+  MouseMoveSmooth:
     skip: true
   MouseUp:
     skip: true

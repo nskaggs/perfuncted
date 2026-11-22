@@ -53,6 +53,52 @@ flatpak run io.github.nskaggs.perfuncted info
 
 See [Flatpak setup and permissions](FLATPAK.md) for more information.
 
+
+### Smooth pointer motion
+
+Immediate pointer moves and drags remain the default. Use `--duration` to
+enable timed interpolation, with `--easing linear|ease-in-out`, optional
+`--curve` (-0.5 to 0.5), `--variation` (0 to 16 backend units), and
+`--seed` for repeatable paths:
+
+```sh
+pf input move --x 800 --y 450
+pf input move --from-x 100 --from-y 100 --x 800 --y 450 --duration 500ms --easing ease-in-out
+pf input drag-and-drop --x1 100 --y1 100 --x2 800 --y2 450 --duration 700ms --curve 0.2
+```
+
+The Go equivalents are `Input.MouseMoveSmooth`, `Input.DragAndDropSmooth`
+and `MotionOptions`. Smooth movement without an explicit origin reads the
+cursor position; backends unable to report it (including portal/EIS and
+wl-virtual) require both `--from-x` and `--from-y` or return unsupported.
+Explicit origins are not verified as the cursor's real location. Coordinates
+are in backend-native absolute units, with no implicit scale conversion.
+Timed moves and drags require an authoritative `PointerCoordinateSpace` report
+(logical or physical with a valid backend scale). The existing XTest backend
+does not advertise this report; smooth input there is unsupported until
+coordinate provenance is implemented. Portal/EIS and wl-virtual report logical
+coordinates, but require an explicit origin for smooth moves when pointer
+position is unavailable. Missing, invalid, or ambiguous coordinate reports
+fail before input dispatch. Immediate input does not require this metadata.
+
+The maximum duration is 10 seconds, with approximately 60 Hz sampling capped
+at 120 intervals; overdue intermediate samples may be dropped. Endpoints are
+exact. The **bounded curved envelope** expands the axis-aligned endpoint
+rectangle by `0.5 × |deltaY| + variation` horizontally and
+`0.5 × |deltaX| + variation` vertically (with integer rounding at the
+boundary). A curve of 0.5 therefore creates a meaningful perpendicular bend
+on a horizontal, vertical, or diagonal path without flattening it. The
+specified `curve` controls signed perpendicular deflection, while variation
+is seeded, deterministic, and limited to 0–16 backend units with zero endpoint
+displacement. Intermediate samples are checked against this envelope, and
+authoritative backend validators check **every** path point before input. Drags hold and release the primary
+button, with best-effort cleanup after errors or cancellation. A
+zero-distance smooth drag performs one start move and one press/release without
+waiting or emitting redundant timed motion. Scheduling is
+best effort and actual UI hover/drag recognition and compositor permissions
+require real desktop checks. These motion profiles do not establish human
+input or promise anti-cheat evasion.
+
 ## See it in action
 
 ### Control windows and applications

@@ -412,88 +412,73 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 }
 
 // DragAndDrop drags the primary button from (x1, y1) to (x2, y2).
-//
-//nolint:gocyclo // Held-button cleanup and cancellation require explicit guards.
-func (b *InputBundle) DragAndDrop(
-	ctx context.Context,
-	x1 int,
-	y1 int,
-	x2 int,
-	y2 int,
-) (err error) {
+func (b *InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
+	return b.dragPoints(ctx, []motionPoint{{x1, y1}, {x2, y2}}, 0)
+}
+
+//nolint:gocyclo // Keep explicit authority and owned-button cleanup checks.
+func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, duration time.Duration) (err error) {
 	ctx = contextutil.Default(ctx)
 	if checkErr := b.checkAvailable("drag"); checkErr != nil {
 		return checkErr
 	}
-	ctx, cancel := b.operationContext(ctx)
+	ctx, cancel := b.motionContext(ctx, duration)
 	defer cancel()
 	started := time.Now()
 	defer func() { err = b.recordInputReceipt("drag-and-drop", started, err) }()
-	// A rejected destination must not first press the button at a valid origin.
-	// Backends with authoritative bounds can validate both points without input.
-	if validator, ok := b.backend.(input.PointerTargetValidator); ok {
-		if checkErr := validator.ValidatePointerTarget(ctx, x1, y1); checkErr != nil {
-			return b.operationError("pointer", checkErr)
-		}
-		if checkErr := validator.ValidatePointerTarget(ctx, x2, y2); checkErr != nil {
-			return b.operationError("pointer", checkErr)
+	if duration > 0 {
+		if checkErr := b.validateMotionSpace(ctx); checkErr != nil {
+			return checkErr
 		}
 	}
-	// A target validator can finish after cancellation or Session.Close.
-	// Validation is non-mutating: refuse the gesture before its first event.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
+	if checkErr := b.validateMotionPoints(ctx, points); checkErr != nil {
+		return checkErr
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return openErr
+	if checkErr := ctx.Err(); checkErr != nil {
+		return checkErr
 	}
-	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
-		return moveErr
+	if checkErr := b.session.ensureOpen(); checkErr != nil {
+		return checkErr
 	}
-	// The initial move is not a button hold. If it completed after
-	// cancellation or session closure, do not begin a drag or issue cleanup
-	// releases for a button this operation never pressed.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
+	if checkErr := b.operationError("pointer", b.backend.MouseMove(ctx, points[0].x, points[0].y)); checkErr != nil {
+		return checkErr
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return openErr
+	if checkErr := ctx.Err(); checkErr != nil {
+		return checkErr
+	}
+	if checkErr := b.session.ensureOpen(); checkErr != nil {
+		return checkErr
 	}
 	released := false
 	defer func() {
 		if !released {
-			cleanupErr := b.operationError(
-				"click",
-				b.backend.MouseUp(context.WithoutCancel(ctx), 1),
-			)
+			cleanupErr := b.operationError("click", b.backend.MouseUp(context.WithoutCancel(ctx), 1))
 			if cleanupErr != nil {
 				err = errors.Join(err, cleanupErr)
 			}
 		}
 	}()
-	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
-		return err
+	if checkErr := b.operationError("click", b.backend.MouseDown(ctx, 1)); checkErr != nil {
+		return checkErr
 	}
-	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x2, y2)); err != nil {
-		return err
+	if checkErr := ctx.Err(); checkErr != nil {
+		return checkErr
 	}
-	// Once the button is held, authority loss must trigger the deferred
-	// best-effort release rather than an additional authorized gesture.
-	if err := ctx.Err(); err != nil {
-		return err
+	if checkErr := b.session.ensureOpen(); checkErr != nil {
+		return checkErr
 	}
-	if err := b.session.ensureOpen(); err != nil {
-		return err
+	if checkErr := b.sendMotion(ctx, points, duration, 1); checkErr != nil {
+		return checkErr
 	}
-	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
-		return err
+	if checkErr := b.operationError("click", b.backend.MouseUp(ctx, 1)); checkErr != nil {
+		return checkErr
 	}
 	released = true
-	if err := ctx.Err(); err != nil {
-		return err
+	if checkErr := ctx.Err(); checkErr != nil {
+		return checkErr
 	}
-	if err := b.session.ensureOpen(); err != nil {
-		return err
+	if checkErr := b.session.ensureOpen(); checkErr != nil {
+		return checkErr
 	}
 	return nil
 }

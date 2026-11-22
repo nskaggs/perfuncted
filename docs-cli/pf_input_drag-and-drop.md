@@ -9,11 +9,16 @@ pf input drag-and-drop [flags]
 ### Options
 
 ```
-  -h, --help     help for drag-and-drop
-      --x1 int   start x
-      --x2 int   end x
-      --y1 int   start y
-      --y2 int   end y
+      --curve float       perpendicular curve fraction (-0.5..0.5)
+      --duration string   motion duration (0 means direct; max 10s) (default "0")
+      --easing string     linear or ease-in-out (default "linear")
+  -h, --help              help for drag-and-drop
+      --seed uint         variation seed
+      --variation int     seeded coordinate variation in units (0..16)
+      --x1 int            start x
+      --x2 int            end x
+      --y1 int            start y
+      --y2 int            end y
 ```
 
 ### Options inherited from parent commands

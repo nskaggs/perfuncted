@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"math"
 	"os"
@@ -41,18 +42,56 @@ func inputCmd(
 
 	var mx, my, button int
 	var typeStdin bool
+	var motionDuration, motionEasing string
+	var motionCurve float64
+	var motionVariation int
+	var motionSeed uint64
+	var fromX, fromY int
+	motionOpts := func() (perfuncted.MotionOptions, error) {
+		duration, err := parseDuration(motionDuration, 0)
+		if err != nil {
+			return perfuncted.MotionOptions{}, err
+		}
+		return perfuncted.MotionOptions{Duration: duration, Easing: motionEasing, Curve: motionCurve, Variation: motionVariation, Seed: motionSeed}, nil
+	}
+	addMotionFlags := func(c *cobra.Command) {
+		c.Flags().StringVar(&motionDuration, "duration", "0", "motion duration (0 means direct; max 10s)")
+		c.Flags().StringVar(&motionEasing, "easing", "linear", "linear or ease-in-out")
+		c.Flags().Float64Var(&motionCurve, "curve", 0, "perpendicular curve fraction (-0.5..0.5)")
+		c.Flags().IntVar(&motionVariation, "variation", 0, "seeded coordinate variation in units (0..16)")
+		c.Flags().Uint64Var(&motionSeed, "seed", 0, "variation seed")
+	}
 
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move mouse to absolute coordinates",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts, err := motionOpts()
+			if err != nil {
+				return err
+			}
+			if validationErr := perfuncted.ValidateMotionOptions(opts); validationErr != nil {
+				return validationErr
+			}
+			if cmd.Flags().Changed("from-x") != cmd.Flags().Changed("from-y") {
+				return fmt.Errorf("from-x and from-y must both be supplied")
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.MouseMove(cmd.Context(), mx, my); err != nil {
+			if opts.Duration == 0 {
+				err = pf.Input.MouseMove(cmd.Context(), mx, my)
+			} else {
+				var origin *image.Point
+				if cmd.Flags().Changed("from-x") {
+					origin = &image.Point{X: fromX, Y: fromY}
+				}
+				err = pf.Input.MouseMoveSmooth(cmd.Context(), origin, image.Point{X: mx, Y: my}, opts)
+			}
+			if err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -63,6 +102,9 @@ func inputCmd(
 	}
 	move.Flags().IntVar(&mx, "x", 0, "x coordinate")
 	move.Flags().IntVar(&my, "y", 0, "y coordinate")
+	addMotionFlags(move)
+	move.Flags().IntVar(&fromX, "from-x", 0, "explicit start x (required with from-y)")
+	move.Flags().IntVar(&fromY, "from-y", 0, "explicit start y (required with from-x)")
 
 	var relX, relY int
 	var verifyRelative bool
@@ -210,12 +252,24 @@ func inputCmd(
 		Short: "Drag from one coordinate to another (press, move, release)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts, err := motionOpts()
+			if err != nil {
+				return err
+			}
+			if validationErr := perfuncted.ValidateMotionOptions(opts); validationErr != nil {
+				return validationErr
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.DragAndDrop(cmd.Context(), x1, y1, x2, y2); err != nil {
+			if opts.Duration == 0 {
+				err = pf.Input.DragAndDrop(cmd.Context(), x1, y1, x2, y2)
+			} else {
+				err = pf.Input.DragAndDropSmooth(cmd.Context(), image.Point{X: x1, Y: y1}, image.Point{X: x2, Y: y2}, opts)
+			}
+			if err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -228,6 +282,7 @@ func inputCmd(
 	drag.Flags().IntVar(&y1, "y1", 0, "start y")
 	drag.Flags().IntVar(&x2, "x2", 0, "end x")
 	drag.Flags().IntVar(&y2, "y2", 0, "end y")
+	addMotionFlags(drag)
 
 	var crRect string
 	clickCenter := &cobra.Command{

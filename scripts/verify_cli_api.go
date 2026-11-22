@@ -267,6 +267,9 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 	}
 	// Whitelist expected API-only methods that intentionally have no direct docs-cli command.
 	apiOnlyWhitelist := map[string]map[string]bool{
+		// Both profiles are selectable flags on existing move/drag-and-drop
+		// commands, not separate CLI subcommands.
+		"input": {"MouseMoveSmooth": true, "DragAndDropSmooth": true},
 		"screen": {
 			"Capture":       true,
 			"CaptureRegion": true,
