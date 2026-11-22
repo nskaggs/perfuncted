@@ -37,12 +37,16 @@ lint:
 
 # Check formatting
 check-fmt:
-    @if gofmt -l . | grep -q .; then \
-        echo "  FAIL: Files not formatted:"; \
-        gofmt -l .; \
-        echo "  Run 'just fmt' and try again."; \
+    # Keep pristine pinned upstream source untouched. Enforce formatting on
+    # local source, all new nested tests, and locally modified XGB files.
+    @files=$(find . -name '*.go' -not -path './third_party/xgb/*'; \
+        printf '%s\n' ./third_party/xgb/xgb.go ./third_party/xgb/conn.go ./third_party/xgb/xproto/xproto.go; \
+        find ./third_party/xgb -name '*_test.go'); \
+      unformatted=$(printf '%s\n' "$files" | xargs -r gofmt -l); \
+      if [ -n "$unformatted" ]; then \
+        echo 'FAIL: Files not formatted:'; printf '%s\n' "$unformatted"; \
         exit 1; \
-    fi
+      fi
 
 # Run all quality checks
 check: check-fmt vet lint
@@ -122,7 +126,7 @@ coverage-convenience:
 precommit: quality-fast
 
 # Run every local CI gate with headless display coverage.
-ci: test-race benchmark desktop-benchmark quality test-integration-headless-x11 test-integration-headless-wayland test-session test-integration-backends test-accessibility-certification test-release
+ci: test-race benchmark desktop-benchmark quality test-integration-headless-x11 test-input-observation-x11 test-integration-headless-wayland test-session test-integration-backends test-accessibility-certification test-release
 
 
 # ── build & install ────────────────────────────────────────────────────────────
@@ -169,6 +173,17 @@ test: test-unit
 test-integration-suite MODE:
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^TestIntegration$' -count=1
 
+# Exercise native X11 keyboard/mouse observation, cancellation and shutdown
+# on a private Xvfb display; generic backend tests do not activate these.
+_test-input-observation-x11 TESTNAME:
+    CGO_ENABLED=0 xvfb-run -a -s '-screen 0 1280x800x24 +extension XTEST +extension XInputExtension' env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET XDG_SESSION_TYPE=x11 PF_X11_OBSERVATION_INTEGRATION=1 go test ./input -run '^TestObservationX11{{TESTNAME}}$' -count=1 -v -timeout=2m
+
+test-input-observation-x11:
+    just _test-input-observation-x11 ControlledIntegration
+    just _test-input-observation-x11 CrossFocusIntegration
+    just _test-input-observation-x11 SessionClose
+    just _test-input-observation-x11 CanceledAfterNativePeerVerification
+
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run '^TestSessionLifecycle$' -count=1
@@ -211,6 +226,7 @@ test-integration-backends:
 # KDE/GTK AT-SPI certification is a separate required CI gate below.
 test-integration:
     just test-integration-suite headless-x11
+    just test-input-observation-x11
     just test-integration-suite nested-x11
     just test-integration-suite headless-wayland
     just test-integration-suite nested-wayland

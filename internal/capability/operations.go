@@ -12,6 +12,7 @@ var operationsBySurface = map[string][]string{
 		"wait-change",
 		"wait-stable",
 	},
+	"input-observation": {"listen-hotkey", "listen-button"},
 	"input": {
 		"keyboard",
 		"pointer",

@@ -42,6 +42,8 @@ const (
 	CapabilityScreen Capability = "screen"
 	// CapabilityInput identifies keyboard and pointer input operations.
 	CapabilityInput Capability = "input"
+	// CapabilityInputObservation is independent of input injection.
+	CapabilityInputObservation Capability = "input-observation"
 	// CapabilityWindows identifies window discovery and control operations.
 	CapabilityWindows Capability = "windows"
 	// CapabilityOutputs identifies display-output listing operations.
@@ -55,6 +57,7 @@ const (
 var allCapabilities = []Capability{
 	CapabilityScreen,
 	CapabilityInput,
+	CapabilityInputObservation,
 	CapabilityWindows,
 	CapabilityOutputs,
 	CapabilityClipboard,

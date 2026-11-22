@@ -25,6 +25,8 @@ type Session struct {
 	Screen *ScreenBundle
 	// Input exposes keyboard and pointer operations for this session.
 	Input *InputBundle
+	// InputObservation observes explicitly requested global shortcuts or buttons.
+	InputObservation *InputObservationBundle
 	// Windows exposes window discovery and control for this session.
 	Windows *WindowBundle
 	// Outputs exposes display-output discovery for this session.
@@ -192,6 +194,7 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) error {
 	s.Screen = &ScreenBundle{bundleBase: s.bundleBase(CapabilityScreen)}
 	s.Input = &InputBundle{bundleBase: s.bundleBase(CapabilityInput)}
+	s.InputObservation = &InputObservationBundle{bundleBase: s.bundleBase(CapabilityInputObservation)}
 	s.Windows = &WindowBundle{
 		bundleBase: s.bundleBase(CapabilityWindows),
 	}
@@ -280,6 +283,10 @@ func (s *Session) cacheResolvedBundleOperations() {
 	} {
 		bundle.cacheOperations(s.capabilities[bundle.capability].Operations)
 	}
+	// The testing constructor predates the optional observation facade.
+	if s.InputObservation != nil {
+		s.InputObservation.cacheOperations(s.capabilities[CapabilityInputObservation].Operations)
+	}
 }
 
 func (s *Session) bundleBase(capability Capability) bundleBase {
@@ -333,6 +340,13 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 			},
 			nil,
 			func(backend input.Inputter) { s.Input.backend = backend },
+		)
+	case CapabilityInputObservation:
+		return openCapabilityBackend(
+			ctx, s.Timeouts().Startup, capability,
+			func(ctx context.Context) (input.Observer, error) { return input.OpenObserver(ctx, s.env) },
+			nil,
+			func(backend input.Observer) { s.InputObservation.backend = backend },
 		)
 	case CapabilityWindows:
 		return openCapabilityBackend(
@@ -405,6 +419,9 @@ func (s *Session) close() error {
 	}
 	if s.Input != nil {
 		errs = append(errs, s.Input.close())
+	}
+	if s.InputObservation != nil {
+		errs = append(errs, s.InputObservation.close())
 	}
 	if s.Windows != nil {
 		errs = append(errs, s.Windows.close())

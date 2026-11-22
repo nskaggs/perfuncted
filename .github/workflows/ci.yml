@@ -97,6 +97,9 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: "1"
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
         run: just test-integration-suite "${{ matrix.display }}"
+      - name: Verify global X11 input observation on isolated native Xvfb
+        if: matrix.display == 'headless-x11'
+        run: just test-input-observation-x11
       - name: Upload integration logs
         if: failure()
         uses: actions/upload-artifact@v4

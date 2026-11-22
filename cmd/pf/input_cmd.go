@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/input"
 	"github.com/spf13/cobra"
 )
 
@@ -25,12 +27,15 @@ func inputCmd(
 	if len(inputWindowOpeners) > 0 {
 		openInputWindow = inputWindowOpeners[0]
 	}
-	var openInputOutput, openInputDialog sessionOpener
+	var openInputOutput, openInputDialog, openInputObserver sessionOpener
 	if len(inputWindowOpeners) > 1 {
 		openInputOutput = inputWindowOpeners[1]
 	}
 	if len(inputWindowOpeners) > 2 {
 		openInputDialog = inputWindowOpeners[2]
+	}
+	if len(inputWindowOpeners) > 3 {
+		openInputObserver = inputWindowOpeners[3]
 	}
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
@@ -701,6 +706,10 @@ func inputCmd(
 	}
 	cmd.AddCommand(sync)
 
+	if openInputObserver != nil {
+		cmd.AddCommand(inputHotkeyCmd(openInputObserver))
+	}
+
 	// append auto-generated input commands (avoid duplicates)
 	existing := map[string]bool{}
 	for _, c := range cmd.Commands() {
@@ -816,4 +825,91 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 
 	cmd.AddCommand(left, right)
 	return cmd
+}
+
+// inputHotkeyCmd observes only explicitly requested global shortcuts or
+// mouse-button transitions; it never opens an input-injection backend.
+//
+//nolint:gocyclo // Cobra command construction and streaming validation are collocated
+func inputHotkeyCmd(openObserver sessionOpener) *cobra.Command {
+	hotkey := &cobra.Command{Use: "hotkey", Short: "Observe authorized global shortcuts and mouse buttons"}
+	var combo, buttonName, event, output string
+	var reportRepeat bool
+	var timeout time.Duration
+	listen := &cobra.Command{
+		Use:   "listen",
+		Short: "Listen for an authorized global shortcut or mouse-button event",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if output != "json" {
+				return fmt.Errorf("unsupported output %q (use json)", output)
+			}
+			button := 0
+			switch buttonName {
+			case "":
+			case "left", "1":
+				button = 1
+			case "middle", "2":
+				button = 2
+			case "right", "3":
+				button = 3
+			default:
+				return fmt.Errorf("invalid mouse button %q", buttonName)
+			}
+			filter := input.ObservationFilter{Combo: combo, Button: button, Transition: event, ReportRepeat: reportRepeat}
+			if err := input.ValidateObservationFilter(filter); err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+			pf, err := openObserver(ctx)
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			sub, err := pf.InputObservation.Listen(ctx, filter)
+			if err != nil {
+				return err
+			}
+			defer sub.Close()
+			return streamInputObservation(ctx, sub, cmd.OutOrStdout())
+		},
+	}
+	listen.Flags().StringVar(&combo, "combo", "", "named shortcut (for example F8 or Ctrl+Shift+P)")
+	listen.Flags().StringVar(&buttonName, "button", "", "mouse button (left, middle, right; native X11 only)")
+	listen.Flags().StringVar(&event, "event", "press", "press, release, or both")
+	listen.Flags().BoolVar(&reportRepeat, "repeat", false, "report backend-attested repeat events when supported")
+	listen.Flags().StringVar(&output, "output", "json", "output format: json")
+	listen.Flags().DurationVar(&timeout, "timeout", 0, "maximum listening duration (0 means until interrupted)")
+	hotkey.AddCommand(listen)
+	return hotkey
+}
+
+// streamInputObservation owns the single consumer of a bounded subscription.
+// It neither registers input hooks nor changes Session/capability ownership.
+func streamInputObservation(ctx context.Context, sub input.ObservationSubscription, out io.Writer) error {
+	encoder := json.NewEncoder(out)
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil
+			}
+			return ctx.Err()
+		case ev, ok := <-sub.Events():
+			if !ok {
+				if err := sub.Err(); err != nil && !errors.Is(err, context.Canceled) {
+					return err
+				}
+				return nil
+			}
+			if err := encoder.Encode(ev); err != nil {
+				return err
+			}
+		}
+	}
 }

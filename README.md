@@ -99,6 +99,37 @@ best effort and actual UI hover/drag recognition and compositor permissions
 require real desktop checks. These motion profiles do not establish human
 input or promise anti-cheat evasion.
 
+### Global hotkey and mouse observation (issue #128)
+
+Global observation is a **separate optional capability** from keyboard/mouse
+injection. Only explicitly requested named shortcuts or mouse-button filters
+are observed; no typed characters are logged.
+
+```sh
+pf input hotkey listen --combo F8 --event press --output json
+pf input hotkey listen --combo Ctrl+Shift+P --event both --timeout 30s
+pf input hotkey listen --button left --event press --output json
+```
+
+Press Ctrl+C to cancel and unregister. JSON reports `kind`, `id`,
+`transition`, `time`, and `source`. The event source does **not**
+attest physical-vs-injected provenance. The Go equivalent is `Session.InputObservation.Listen(ctx,
+input.ObservationFilter{Combo: "F8", Transition: "press"})`, returning a
+subscription with `Events`, `Err`, and `Close`.
+
+The current native-X11 implementation uses non-grabbing XInput2 raw key and
+button events. Controlled Xvfb delivery is tested; real physical-input and
+cross-focus acceptance on a native Xorg desktop remains unverified, so issue
+#128 is not considered complete. KDE, GNOME, Sway/wlroots and all other Wayland compositors, XWayland,
+and unknown sessions return explicit unsupported. Neither persistent
+authorization nor privileged device access is requested.
+
+Subscriptions have a fixed 64-event queue; overflow ends the subscription
+with a terminal `ErrObservationLoss` rather than silently dropping key-up
+history. Cancellation, source disconnection and Session.Close retire
+listeners. Keyboard mapping/hierarchy uncertainty on X11 fails closed.
+Input observation does not guarantee physical-input provenance.
+
 ## See it in action
 
 ### Control windows and applications

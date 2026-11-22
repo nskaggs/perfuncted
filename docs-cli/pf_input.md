@@ -29,6 +29,7 @@ Mouse and keyboard injection
 * [pf input coordinate-space](pf_input_coordinate-space.md)	 - Print the pointer backend coordinate space
 * [pf input double-click](pf_input_double-click.md)	 - Double-click at coordinates
 * [pf input drag-and-drop](pf_input_drag-and-drop.md)	 - Drag from one coordinate to another (press, move, release)
+* [pf input hotkey](pf_input_hotkey.md)	 - Observe authorized global shortcuts and mouse buttons
 * [pf input keydown](pf_input_keydown.md)	 - Press and hold a key
 * [pf input keyup](pf_input_keyup.md)	 - Release a held key
 * [pf input location](pf_input_location.md)	 - Print current pointer location

@@ -23,3 +23,5 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 )
+
+replace github.com/jezek/xgb => ./third_party/xgb

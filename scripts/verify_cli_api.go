@@ -258,6 +258,9 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 			"get-multiple-pixels": true,
 		},
 		"input": {
+			// The group is not an executable; hotkey-listen belongs to the separate
+			// optional InputObservationBundle, checked explicitly above.
+			"hotkey": true,
 			// Coordinate verification and file-selection helpers compose multiple APIs.
 			"click-screen": true,
 			"click-window": true,
@@ -301,6 +304,18 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 			}
 		}
 		for cmd := range cmds {
+			// The single observation API is intentionally nested under the
+			// existing input CLI group, not the injection InputBundle.
+			if grp == "input" && cmd == "hotkey-listen" {
+				// Fixture modules may not define the optional observer.
+				if perfPkg.Types.Scope().Lookup("InputObservationBundle") != nil {
+					m, methodErr := methodsForType(perfPkg, "InputObservationBundle")
+					if methodErr != nil || !slices.Contains(m, "Listen") {
+						missingInAPI = append(missingInAPI, "docs-cli: input hotkey-listen (missing InputObservationBundle.Listen)")
+					}
+				}
+				continue
+			}
 			if method := manualCLIAPIMethods[grp][cmd]; method != "" {
 				if !slices.Contains(methods[apiGrp], method) {
 					missingInAPI = append(missingInAPI, fmt.Sprintf("docs-cli: %s %s (missing %s.%s)", grp, cmd, apiGrp, method))
@@ -329,6 +344,9 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 			if apiOnlyWhitelist[grp] != nil && apiOnlyWhitelist[grp][mn] {
 				continue
 			}
+			// Verify the matching nested CLI path, rather than exempting
+			// the observation method from parity checks.
+
 			ok := false
 			for _, c := range candidatesFromMethod(mn) {
 				if docs[grp] != nil && docs[grp][c] {
@@ -356,6 +374,14 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 		}
 	}
 
+	// Only the real repository provides InputObservationBundle; legacy fixture
+	// modules exercise other mapping rules without needing that capability.
+	if perfPkg.Types.Scope().Lookup("InputObservationBundle") != nil {
+		m, err := methodsForType(perfPkg, "InputObservationBundle")
+		if err != nil || !slices.Contains(m, "Listen") || !docs["input"]["hotkey-listen"] {
+			missingInCLI = append(missingInCLI, "api-only: input-observation.Listen (requires input hotkey listen)")
+		}
+	}
 	if len(missingInAPI) == 0 && len(missingInCLI) == 0 {
 		fmt.Println("Basic CLI/API sync check: OK")
 		return 0
