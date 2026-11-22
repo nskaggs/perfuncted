@@ -45,6 +45,15 @@ func StartXvfb() (display string, stop func(), err error) {
 	})
 }
 
+// StartXvfbNoReset starts a standalone Xvfb server that remains initialized
+// when its last client disconnects. This is useful when a test repeatedly
+// opens and closes independent backend connections to the same server.
+func StartXvfbNoReset() (display string, stop func(), err error) {
+	return startServer("Xvfb", "", func() []string {
+		return []string{"-screen", "0", "1024x768x24", "-ac", "-noreset"}
+	})
+}
+
 // StartXephyr starts a nested Xephyr server on a free display using hostDisplay.
 func StartXephyr(hostDisplay string) (display string, stop func(), err error) {
 	if hostDisplay == "" {

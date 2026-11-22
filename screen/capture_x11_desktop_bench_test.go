@@ -197,7 +197,7 @@ func startCaptureXvfb(b *testing.B) string {
 		b.Fatalf("create private empty X authority file: %v", err)
 	}
 	b.Setenv("XAUTHORITY", privateAuthority)
-	display, stop, err := x11test.StartXvfb()
+	display, stop, err := x11test.StartXvfbNoReset()
 	if err != nil {
 		b.Skipf("private Xvfb unavailable: %v", err)
 	}
