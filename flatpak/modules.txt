@@ -10,7 +10,7 @@ github.com/godbus/dbus/v5
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
 github.com/inconshreveable/mousetrap
-# github.com/jezek/xgb v1.3.0
+# github.com/jezek/xgb v1.3.0 => ./third_party/xgb
 ## explicit; go 1.11
 github.com/jezek/xgb
 github.com/jezek/xgb/composite
@@ -70,3 +70,4 @@ golang.org/x/tools/internal/versions
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
+# github.com/jezek/xgb => ./third_party/xgb

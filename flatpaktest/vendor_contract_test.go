@@ -36,16 +36,32 @@ func TestFlatpakVendorMatchesModuleGraph(t *testing.T) {
 	if len(deps) < 10 {
 		t.Fatalf("too few dependencies: %d", len(deps))
 	}
-	matches := regexp.MustCompile(`(?m)^# ([A-Za-z0-9._/-]+) (v[0-9][^\s]+)$`)
+	matches := regexp.MustCompile(`(?m)^# ([A-Za-z0-9._/-]+) (v[0-9][^\s]+)(?: => [^\n]+)?$`)
 	for _, match := range matches.FindAllStringSubmatch(vendor, -1) {
 		name, version := match[1], match[2]
 		if deps[name] != version {
 			t.Errorf("vendor mismatch: %s at %s but go.mod requires %s", name, version, deps[name])
 		}
 	}
+	if !strings.Contains(vendor, "# github.com/jezek/xgb => ./third_party/xgb\n") {
+		t.Error("vendor missing local xgb replacement metadata")
+	}
 	for name, version := range deps {
-		if !strings.Contains(vendor, "# "+name+" "+version+"\n") {
+		header := "# " + name + " " + version
+		if name == "github.com/jezek/xgb" {
+			header += " => ./third_party/xgb"
+		}
+		if !strings.Contains(vendor, header+"\n") {
 			t.Errorf("vendor missing %s@%s", name, version)
+		}
+		if name == "github.com/jezek/xgb" {
+			if !strings.Contains(manifest, "path: third_party/xgb\n        dest: vendor/github.com/jezek/xgb") {
+				t.Error("Flatpak must vendor the checked-in xgb replacement source")
+			}
+			if strings.Contains(manifest, "https://proxy.golang.org/github.com/jezek/xgb/@v/") {
+				t.Error("Flatpak must not replace the checked-in xgb fork with an upstream archive")
+			}
+			continue
 		}
 		if !strings.Contains(manifest, "https://proxy.golang.org/"+name+"/@v/"+version+".zip") {
 			t.Errorf("Flatpak missing source %s@%s", name, version)

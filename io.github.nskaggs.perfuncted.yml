@@ -41,11 +41,9 @@ modules:
         strip-components: 4
         type: archive
         url: https://proxy.golang.org/github.com/godbus/dbus/v5/@v/v5.2.2.zip
-      - dest: vendor/github.com/jezek/xgb
-        sha256: e8a10b7ebf84cc72435c9c8f33e459fb5872195bc714124af2beb1752c355d9c
-        strip-components: 3
-        type: archive
-        url: https://proxy.golang.org/github.com/jezek/xgb/@v/v1.3.0.zip
+      - type: dir
+        path: third_party/xgb
+        dest: vendor/github.com/jezek/xgb
       - dest: vendor/github.com/spf13/cobra
         sha256: a00aae6fcd631e0fde52c98604452ff70e1b73c3b8a560d68db15aff5e26872d
         strip-components: 3
