@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,7 +16,12 @@ import (
 // A capture canceled while consuming the compositor's completed pixel buffer
 // cannot report success: the caller no longer owns a publishable result.
 func TestExtCaptureFrameProcessingCancellationCannotPublishSuccess(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	runtime, err := os.MkdirTemp(os.TempDir(), "ext-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	sock := filepath.Join(runtime, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
