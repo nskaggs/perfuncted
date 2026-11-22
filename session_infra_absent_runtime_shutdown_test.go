@@ -12,7 +12,7 @@ import (
 // path as an unsafe replacement or trying to remove neighboring files.
 func TestManagedSessionStopToleratesAlreadyRemovedRuntime(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TMPDIR", "/var/tmp/pf26-store")
+	t.Setenv("TMPDIR", shortPrivateRuntimeDir(t))
 	runtimeDir, err := createManagedSessionRuntimeDir()
 	if err != nil {
 		t.Fatal(err)
