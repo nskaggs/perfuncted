@@ -7,11 +7,13 @@ When coordinating the owner's open GitHub issue campaign for this repository:
    GitHub issue, then read and follow that plan in full. Treat issue status,
    plan, source, and tests as separate evidence; update the plan only for
    evidence-backed current behavior.
-2. Hand implementation to an existing, clearly designated ChatGPT thread. If
-   none exists, ask the owner to authorize creation of one before starting it.
-   Give the implementer the exact issue and plan paths, scope, acceptance
-   criteria, delivery policy, and next action. Keep one writer in the shared
-   checkout; the coordinator and reviewer remain read-only while it writes.
+2. Hand implementation to an existing, clearly designated ChatGPT thread when
+   one exists. The owner's issue-campaign request authorizes one new ChatGPT
+   implementation thread per issue when none is designated, plus a distinct
+   ChatGPT thread for review. Give each thread the exact issue and plan paths,
+   scope, acceptance criteria, delivery policy, and next action. Keep one
+   writer in the shared checkout; the coordinator and reviewer remain
+   read-only while it writes.
 3. After implementation, inspect the exact diff and run the plan's required
    checks. Require every applicable test and CI gate to pass, plus 100%
    statement coverage of new and issue-specific modified executable code.
