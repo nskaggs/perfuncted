@@ -11,7 +11,7 @@ import (
 )
 
 func TestOpenCapturesSessionEnv(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := shortPrivateSocketDir(t)
 	socketPath := filepath.Join(runtimeDir, "wayland-77")
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestOpenCapturesSessionEnv(t *testing.T) {
 }
 
 func TestOpenPrefersCapturedWaylandEnv(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := shortPrivateSocketDir(t)
 	socketPath := filepath.Join(runtimeDir, "wayland-88")
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 // entire capture transaction. A protocol-ready frame is not permission to
 // return its private pixels after the caller has revoked the operation.
 func TestWlrScreencopyRejectsCancellationDuringPixelProcessing(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

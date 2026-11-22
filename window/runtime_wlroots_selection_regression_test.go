@@ -15,7 +15,7 @@ import (
 )
 
 func TestWindowRuntimePrefersSwayIPCOnWlroots(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	sock := filepath.Join(dir, "sway.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestWindowRuntimePrefersSwayIPCOnWlroots(t *testing.T) {
 }
 
 func TestWindowRuntimeFallsBackToWaylandWhenSwayIPCUnavailable(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	sock := filepath.Join(dir, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {

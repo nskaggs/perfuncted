@@ -47,7 +47,7 @@ func TestWaylandLister_DoesNotKeepOutputAfterXDGBindFailure(t *testing.T) {
 }
 
 func TestWaylandListerListCancelsBlockedRoundTrip(t *testing.T) {
-	sock := t.TempDir() + "/wayland.sock"
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -131,7 +131,7 @@ func TestWaylandListerRejectsListAfterClose(t *testing.T) {
 }
 
 func TestNewWaylandListerPreservesRepeatedOutputs(t *testing.T) {
-	sock := t.TempDir() + "/wayland.sock"
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -172,7 +172,7 @@ func TestNewWaylandListerPreservesRepeatedOutputs(t *testing.T) {
 }
 
 func TestWaylandListerTracksLiveOutputTopology(t *testing.T) {
-	sock := t.TempDir() + "/wayland.sock"
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -101,7 +100,7 @@ func TestScroll_SignConvention(t *testing.T) {
 
 func newCapturedWlVirtualBackend(t *testing.T) (*WlVirtualBackend, *net.UnixConn) {
 	t.Helper()
-	sock := filepath.Join(os.TempDir(), fmt.Sprintf("pf-wl-%d.sock", time.Now().UnixNano()))
+	sock := shortPrivateSocketPath(t, fmt.Sprintf("pf-wl-%d.sock", time.Now().UnixNano()))
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

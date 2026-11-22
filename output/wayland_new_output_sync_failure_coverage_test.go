@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +14,7 @@ import (
 )
 
 func TestWaylandListReportsFailedSyncAfterBindingNewOutput(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

@@ -13,7 +13,7 @@ import (
 // A reachable Wayland socket takes precedence over an unrelated stale X11
 // DISPLAY. A private compositor provides a genuine registry round-trip.
 func TestProbeRuntimeSelectsLiveWaylandDespiteX11Fallback(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	socket := filepath.Join(dir, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {

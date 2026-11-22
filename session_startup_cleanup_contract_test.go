@@ -15,7 +15,7 @@ func TestStartSessionFailureReportsCleanupError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("requires ordinary filesystem permissions")
 	}
-	root, err := os.MkdirTemp(os.TempDir(), "pft-")
+	root, err := os.MkdirTemp("/var/tmp", "pft-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ import (
 // answer wl_display.get_registry. A caller's deadline must bound detection
 // before the clipboard implementation is chosen or any owner is launched.
 func TestClipboardOpenAbortsBlockedWaylandProbeAtCallerDeadline(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	listener, err := net.Listen("unix", filepath.Join(dir, "wayland-hung"))
 	if err != nil {
 		t.Fatal(err)

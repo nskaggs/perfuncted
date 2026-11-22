@@ -10,7 +10,7 @@ import (
 )
 
 func TestManagedSessionSocketReadinessRejectsFilesDirectoriesAndSymlinks(t *testing.T) {
-	root := t.TempDir()
+	root := shortPrivateSocketDir(t)
 	regular := filepath.Join(root, "regular")
 	if err := os.WriteFile(regular, []byte("not a socket"), 0600); err != nil {
 		t.Fatal(err)

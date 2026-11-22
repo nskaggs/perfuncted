@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -81,7 +80,7 @@ func privateSessionWaylandPeer(conn *net.UnixConn) error {
 	}
 }
 func TestRealSyntheticWaylandSessionCacheRefcountsGlobalChangesAndContextCancellation(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wl.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

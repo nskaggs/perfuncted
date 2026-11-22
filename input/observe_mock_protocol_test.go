@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ type mockX11Options struct {
 
 func startMockXI2Server(t *testing.T, options mockX11Options) string {
 	t.Helper()
-	display := filepath.Join(t.TempDir(), "x11") + ":0"
+	display := shortPrivateSocketPath(t, "x11") + ":0"
 	listener, err := net.Listen("unix", display)
 	if err != nil {
 		t.Fatal(err)

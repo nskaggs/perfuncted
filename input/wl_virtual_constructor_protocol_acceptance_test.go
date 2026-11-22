@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -157,7 +156,7 @@ func TestWlVirtualConstructorRejectsMissingAdvertisedProtocols(t *testing.T) {
 					globals[k] = v
 				}
 			}
-			sock := filepath.Join(t.TempDir(), "wl.sock")
+			sock := shortPrivateSocketPath(t, "wl.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -192,7 +191,7 @@ func TestWlVirtualConstructorRejectsMissingAdvertisedProtocols(t *testing.T) {
 
 func TestWlVirtualConstructorUsesRealAdvertisedGlobalsAndInputWire(t *testing.T) {
 	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
-	socket := filepath.Join(t.TempDir(), "wl.sock")
+	socket := shortPrivateSocketPath(t, "wl.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +238,7 @@ func TestWlVirtualConstructorUsesRealAdvertisedGlobalsAndInputWire(t *testing.T)
 
 func TestWlVirtualConstructorReportsOutputRoundTripFailure(t *testing.T) {
 	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
-	socket := filepath.Join(t.TempDir(), "wl.sock")
+	socket := shortPrivateSocketPath(t, "wl.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +271,7 @@ func TestWlVirtualConstructorReportsOutputRoundTripFailure(t *testing.T) {
 
 func TestWlVirtualConstructorPropagatesCancellationDuringKeyboardWarmup(t *testing.T) {
 	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
-	socket := filepath.Join(t.TempDir(), "wl.sock")
+	socket := shortPrivateSocketPath(t, "wl.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

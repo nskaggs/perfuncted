@@ -88,7 +88,7 @@ func TestSyntheticPortalFullAuthorizedEISLifecycle(t *testing.T) { //nolint:gocy
 	client, portal := startSyntheticPortalBus(t)
 	_ = client
 	// Simulate a Wayland-capable runtime without connecting to a real display.
-	runtimeDir, err := os.MkdirTemp("", "pf-eis-runtime-")
+	runtimeDir, err := os.MkdirTemp("/var/tmp", "pf-eis-runtime-")
 	if err != nil {
 		t.Fatal(err)
 	}

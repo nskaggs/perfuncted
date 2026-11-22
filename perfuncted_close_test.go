@@ -10,7 +10,7 @@ import (
 )
 
 func TestSessionCloseCleansOwnedInfrastructure(t *testing.T) {
-	xdgDir := filepath.Join(t.TempDir(), "xdg")
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}

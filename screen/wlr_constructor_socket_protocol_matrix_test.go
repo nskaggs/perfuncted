@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +23,7 @@ func TestWlrConstructorRealWaylandSocketProtocolDiscovery(t *testing.T) {
 		{"no screencopy advertised", "wl_seat", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "wl.sock"))
+			listener, err := net.Listen("unix", shortPrivateSocketPath(t, "wl.sock"))
 			if err != nil {
 				t.Fatal(err)
 			}

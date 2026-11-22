@@ -24,7 +24,7 @@ func (w *diagnosticFailOnWrite) Write(p []byte) (int, error) {
 }
 
 func TestSessionCheckDiagnosticsRealSocketAndMissingEnvironment(t *testing.T) {
-	runtime, err := os.MkdirTemp(os.TempDir(), "pf-sc-")
+	runtime, err := os.MkdirTemp("/var/tmp", "pf-sc-")
 	if err != nil {
 		t.Fatal(err)
 	}

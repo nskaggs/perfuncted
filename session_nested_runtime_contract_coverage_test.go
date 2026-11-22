@@ -54,7 +54,7 @@ func installNestedStartupHelpers(t *testing.T) string {
 
 func TestOpenNestedRuntimeUsesHostWaylandAndOwnsManagedChildren(t *testing.T) {
 	root := installNestedStartupHelpers(t)
-	hostRuntime := t.TempDir()
+	hostRuntime := shortPrivateSocketDir(t)
 	hostSocket := filepath.Join(hostRuntime, "wayland-host")
 	listener, err := net.Listen("unix", hostSocket)
 	if err != nil {

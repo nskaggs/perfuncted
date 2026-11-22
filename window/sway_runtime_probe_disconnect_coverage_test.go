@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -13,7 +12,7 @@ import (
 // Runtime discovery must reject a Sway socket that accepts a query but closes
 // before returning the compositor tree.
 func TestSwayRuntimeProbePropagatesDisconnectedTreeResponse(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "sway-ipc.sock")
+	socket := shortPrivateSocketPath(t, "sway-ipc.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

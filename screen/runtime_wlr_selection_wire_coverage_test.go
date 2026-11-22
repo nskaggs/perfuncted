@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 )
 
 func TestOpenRuntimeSelectsWlrScreencopyFromAdvertisedManager(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +67,7 @@ func TestOpenRuntimeSelectsWlrScreencopyFromAdvertisedManager(t *testing.T) {
 }
 
 func TestOpenRuntimeUsesWlrProtocolForUnknownCompositor(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

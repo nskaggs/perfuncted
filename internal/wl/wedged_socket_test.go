@@ -13,7 +13,7 @@ import (
 // instead of blocking forever. This pins the round-trip budget that keeps
 // Open responsive to wedged compositors.
 func TestListGlobalsBoundsWedgedSocket(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	sock := filepath.Join(dir, "wedged-wayland-0")
 
 	ln, err := net.Listen("unix", sock)

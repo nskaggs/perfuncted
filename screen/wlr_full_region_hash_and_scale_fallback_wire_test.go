@@ -4,7 +4,6 @@ import (
 	"context"
 	"image"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 // zero checksum. An unknown output scale must not multiply a requested
 // logical crop into a different physical region.
 func TestWlrWireEmptyRegionHashAndUnknownScaleAreConsistent(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wlr.sock")
+	socket := shortPrivateSocketPath(t, "wlr.sock")
 	server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

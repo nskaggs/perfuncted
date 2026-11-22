@@ -16,7 +16,7 @@ import (
 // Cancellation while the real Wayland registry is unresponsive must win over
 // stale desktop authority; the probe must close its socket and return promptly.
 func TestCompositorCancellationDuringRegistryProbeFailsClosed(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortPrivateSocketDir(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(dir, "display.sock"), Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

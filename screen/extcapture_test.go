@@ -6,7 +6,6 @@ import (
 	"image"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -170,7 +169,7 @@ func TestExtCaptureCleanupRequestUsesIndependentContext(t *testing.T) {
 }
 
 func TestExtCaptureCloseCancelsBlockedCapture(t *testing.T) { //nolint:gocyclo // exercises the complete blocked-capture shutdown sequence.
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

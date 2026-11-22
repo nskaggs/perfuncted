@@ -83,7 +83,7 @@ func TestContextOperationsObserveCancellationAfterAdmissionBeforeTransport(t *te
 
 func newWaylandAdmissionTestContext(t *testing.T) (*Context, <-chan []byte) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "wlgate-")
+	dir, err := os.MkdirTemp("/var/tmp", "wlgate-")
 	if err != nil {
 		t.Fatalf("create short Wayland socket directory: %v", err)
 	}

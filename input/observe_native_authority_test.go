@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"os"
-	"path/filepath"
 	"syscall"
 	"testing"
 )
@@ -72,7 +71,7 @@ func TestNativeX11PeerCredentialFailures(t *testing.T) {
 }
 
 func TestNativeX11PeerExecutableAuthority(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "peer.sock")
+	path := shortPrivateSocketPath(t, "peer.sock")
 	server, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

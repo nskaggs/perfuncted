@@ -6,14 +6,13 @@ import (
 	"errors"
 	"net"
 	"os"
-	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
 )
 
 func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "wayland.sock")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

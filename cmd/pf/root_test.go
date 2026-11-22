@@ -1331,7 +1331,7 @@ func TestInfoSessionAndDocsCommands(t *testing.T) { //nolint:gocyclo // subtests
 	})
 
 	t.Run("session check", func(t *testing.T) {
-		runtimeDir := t.TempDir()
+		runtimeDir := shortPrivateSocketDir(t)
 		socketPath := filepath.Join(runtimeDir, "wayland-1")
 		ln, err := net.Listen("unix", socketPath)
 		if err != nil {

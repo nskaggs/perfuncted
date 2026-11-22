@@ -20,7 +20,7 @@ import (
 // device is used: these calls must abort before backend initialization.
 func TestBackendOpenersAbortWedgedCompositorDetectionAtCallerDeadline(t *testing.T) {
 	t.Setenv("PF_FORCE_INPUT", "")
-	dir, err := os.MkdirTemp("", "pf-sock-")
+	dir, err := os.MkdirTemp("/var/tmp", "pf-sock-")
 	if err != nil {
 		t.Fatal(err)
 	}

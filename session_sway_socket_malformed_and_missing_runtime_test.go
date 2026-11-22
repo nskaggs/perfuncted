@@ -10,7 +10,7 @@ import (
 // Missing runtime directories must not cause discovery to fall back to the
 // caller's desktop, nor should an invalid lookalike be accepted as Sway IPC.
 func TestSwaySocketRejectsMissingRuntimeAndMalformedSocketNames(t *testing.T) {
-	root, err := os.MkdirTemp("", "pf-sock-")
+	root, err := os.MkdirTemp("/var/tmp", "pf-sock-")
 	if err != nil {
 		t.Fatal(err)
 	}

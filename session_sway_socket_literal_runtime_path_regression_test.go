@@ -10,7 +10,7 @@ import (
 // Managed runtime paths are literal. Glob metacharacters in their ancestors
 // must not redirect socket discovery to another session or hide a real socket.
 func TestSwaySocketUsesLiteralRuntimeDirectory(t *testing.T) {
-	root, err := os.MkdirTemp("", "pf-sock-")
+	root, err := os.MkdirTemp("/var/tmp", "pf-sock-")
 	if err != nil {
 		t.Fatal(err)
 	}

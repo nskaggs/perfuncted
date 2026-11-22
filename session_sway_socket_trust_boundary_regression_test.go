@@ -11,12 +11,12 @@ import (
 // runtime. A regular file or a symlink to an unrelated desktop's IPC socket
 // is not an authorization to connect to that desktop.
 func TestSwaySocketSkipsUntrustedLookalikesAndSymlinks(t *testing.T) {
-	runtimeDir, err := os.MkdirTemp("", "pf-sway-")
+	runtimeDir, err := os.MkdirTemp("/var/tmp", "pf-sway-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
-	foreignDir, err := os.MkdirTemp("", "pf-foreign-")
+	foreignDir, err := os.MkdirTemp("/var/tmp", "pf-foreign-")
 	if err != nil {
 		t.Fatal(err)
 	}

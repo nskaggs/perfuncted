@@ -423,7 +423,7 @@ func TestHelperProcess(t *testing.T) {
 }
 
 func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
-	xdgDir := filepath.Join(t.TempDir(), "xdg")
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
 }
 
 func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
-	xdgDir := filepath.Join(t.TempDir(), "xdg")
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
 }
 
 func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
-	xdgDir := filepath.Join(t.TempDir(), "xdg")
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}

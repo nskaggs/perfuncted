@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -13,7 +12,7 @@ import (
 // own its socket. Closing that session must immediately terminate the private
 // compositor peer, even though no cache entry or reference exists to release.
 func TestUncachedWaylandSessionClosesItsLiveSocket(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland-private.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

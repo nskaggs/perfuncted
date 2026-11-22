@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"context"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestDispatchGrowsBufferForLargeWaylandEvent(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

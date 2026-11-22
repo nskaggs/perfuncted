@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 )
 
@@ -26,7 +25,7 @@ func TestRegistryRejectsInterfaceNameMissingAlignmentPadding(t *testing.T) {
 }
 
 func TestDispatchRejectsFrameWhosePayloadEndsEarly(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wl.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

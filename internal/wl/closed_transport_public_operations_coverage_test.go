@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"testing"
 )
 
 // A closed Wayland transport cannot accept further writes, dispatches,
 // round-trips or logical operations even though its proxy registry remains.
 func TestWaylandClosedTransportRejectsEveryPublicOperation(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "w")
+	sock := shortPrivateSocketPath(t)
 	listener, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -41,7 +42,12 @@ func (l *signalCleanupLog) text() string {
 // permissions were changed, rather than deleting potentially unowned data.
 func TestSessionSignalCleanupRetainsUnsafeRuntimeDirectory(t *testing.T) {
 	const childEnv = "PF_TEST_SIGNAL_CLEANUP_FAILURE"
+	const dirEnv = "PF_TEST_SIGNAL_CLEANUP_FAILURE_DIR"
 	if os.Getenv(childEnv) != "1" {
+		dir := filepath.Join(shortPrivateRuntimeDir(t), "unsafe-runtime")
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
 		args := []string{"-test.run=^TestSessionSignalCleanupRetainsUnsafeRuntimeDirectory$", "-test.timeout=8s"}
 		if coverageDir := flag.Lookup("test.gocoverdir"); coverageDir != nil && coverageDir.Value.String() != "" {
 			args = append(args, "-test.gocoverdir="+coverageDir.Value.String())
@@ -49,14 +55,17 @@ func TestSessionSignalCleanupRetainsUnsafeRuntimeDirectory(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, os.Args[0], args...)
-		cmd.Env = append(os.Environ(), childEnv+"=1")
+		cmd.Env = append(os.Environ(), childEnv+"=1", dirEnv+"="+dir)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("isolated signal cleanup: %v\n%s", err, output)
 		}
 		return
 	}
 
-	dir := t.TempDir()
+	dir := os.Getenv(dirEnv)
+	if dir == "" {
+		t.Fatal("missing isolated runtime path")
+	}
 	marker := dir + "/preserve"
 	if err := os.WriteFile(marker, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)

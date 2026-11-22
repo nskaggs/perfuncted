@@ -7,7 +7,6 @@ import (
 	"io"
 	"math"
 	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -330,7 +329,7 @@ func readEIRequest(t *testing.T, reader io.Reader) testEIRequest {
 
 func unixConnectionPair(t *testing.T) (*net.UnixConn, *net.UnixConn) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "eis.sock")
+	path := shortPrivateSocketPath(t, "eis.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatalf("listen on local Unix socket: %v", err)

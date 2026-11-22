@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 )
 
 func TestWaylandListerRejectsDisconnectDuringInitialOutputSync(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	socket := shortPrivateSocketPath(t)
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
