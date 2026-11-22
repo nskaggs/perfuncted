@@ -109,6 +109,7 @@ func (l *AccessibilityLocator) scopeRoot(ctx context.Context) (accessibility.Nod
 	}
 }
 
+//nolint:gocyclo // Scope authority fields must be checked explicitly.
 func sameLocatorScope(a, b locatorIdentity) bool {
 	if a.windowID != "" || b.windowID != "" {
 		if a.windowID != b.windowID {
@@ -195,9 +196,9 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 			stopObservation()
 			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", fmt.Errorf("%w: locator event observation is unavailable: %w", accessibility.ErrObservationChanged, err))
 		}
-		if err := locatorObservationReady(stream); err != nil {
+		if observationErr := locatorObservationReady(stream); observationErr != nil {
 			stopObservation()
-			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", err)
+			return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", observationErr)
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			stopObservation()
@@ -404,6 +405,7 @@ func locatorActionMayRetryStale(err error) bool {
 	return errors.Is(err, accessibility.ErrStaleGeneration) || errors.Is(err, accessibility.ErrStaleNode)
 }
 
+//nolint:gocyclo // Dispatch, cancellation and independent observation each fail closed.
 func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation string, postcondition Condition, options []WaitOption, dispatch func(context.Context, accessibility.Node) locatorDispatchAttempt) (AccessibilityActionReceipt, WaitEvidence, error) {
 	if l == nil || l.bundle == nil || l.bundle.session == nil {
 		return AccessibilityActionReceipt{}, WaitEvidence{}, ErrUnavailable

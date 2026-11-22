@@ -23,7 +23,8 @@ func TestSessionLogDefaultRootFailsClosedWhenTempParentIsFile(t *testing.T) {
 	}
 	if !errors.Is(err, os.ErrInvalid) && !errors.Is(err, os.ErrNotExist) {
 		// ENOTDIR is the normal error for a path beneath a regular file.
-		if _, ok := err.(*os.PathError); !ok {
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) {
 			t.Fatalf("unexpected log root failure: %v", err)
 		}
 	}

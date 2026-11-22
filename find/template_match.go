@@ -96,7 +96,7 @@ func validateVerifiedTemplateCapture(capture VerifiedTemplateCapture, requested 
 		return fmt.Errorf("%w: invalid pixel scale %d", ErrUnverifiedCaptureGeometry, capture.PixelScale)
 	}
 	if err := checkImage(capture.Image, "verified template source"); err != nil {
-		return fmt.Errorf("%w: %v", ErrUnverifiedCaptureGeometry, err)
+		return fmt.Errorf("%w: %w", ErrUnverifiedCaptureGeometry, err)
 	}
 	bounds := capture.Image.Bounds()
 	width, okW := validTemplateSpan(requested.Min.X, requested.Max.X)
@@ -186,6 +186,8 @@ func prepareTemplateImages(
 
 // templateGeometryFor verifies that a screenshot represents the requested
 // desktop search area before any coordinates can be returned to a caller.
+//
+//nolint:gocyclo // Independent overflow and geometry checks are fail-closed.
 func templateGeometryFor(sb, rb, area image.Rectangle) (templateGeometry, error) {
 	var empty templateGeometry
 	sw, okSW := validTemplateSpan(sb.Min.X, sb.Max.X)

@@ -143,6 +143,24 @@ dispatch does not prove the application accepted or saved the input.
 On X11, literal Unicode text can fail when the character is absent from the active
 X keymap; this is an input-backend limitation, not a shortcut parse.
 
+For an exact-title, window-targeted sequence, request the window capability:
+
+~~~go
+s, err := perfuncted.OpenDefault(perfuncted.Require(perfuncted.CapabilityWindows))
+if err != nil { return err }
+defer s.Close()
+return s.Window("Editor").Do(perfuncted.Type("Hello"), perfuncted.Key("tab"))
+~~~
+
+Window-targeted batches select exactly one window, activate it once, wait for
+observed focus, and recheck the selected identity and active state before
+each input step. Missing or ambiguous windows, missing identity metadata,
+unsupported focus observation and focus loss fail closed without redirecting
+subsequent input. Window focus is not an atomic lock, and a recycled native
+ID with identical published metadata cannot be distinguished. For stronger
+semantic scoping and independently verified outcomes, use
+AccessibilityLocator.ClickAndWait or FillAndWait with a postcondition.
+
 Use `s.WithContext(ctx).Do(...)` or `s.WithTimeout(duration).Do(...)` for a
 bounded batch. `StepError` identifies the failed step and unwraps its cause.
 For receipts, explicit desktop configuration, accessibility transactions, and

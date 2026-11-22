@@ -75,6 +75,18 @@ linters:
       # static analysis, but do not enforce maintainability heuristics on fixtures.
       - path: '_test[.]go$'
         linters: [gocyclo, dupl, containedctx]
+      # Contextcheck traces fake Close methods with no context parameter.
+      - path: '_test[.]go$'
+        linters: [contextcheck]
+        text: 'should pass the context parameter'
+      # Fixed interface-return values are intentional in protocol fixtures.
+      - path: '_test[.]go$'
+        linters: [unparam]
+        text: 'always nil|always receives'
+      # Adversarial test fixtures prioritize failure semantics over style.
+      - path: '_test[.]go$'
+        linters: [gocritic]
+        text: 'ifElseChain:'
       # Nil-context tests must pass nil to validate our fail-closed API behavior.
       # The other listed checks are style suggestions in adversarial fixtures.
       - path: '_test[.]go$'

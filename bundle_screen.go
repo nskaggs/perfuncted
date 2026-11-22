@@ -151,8 +151,8 @@ func (s *ScreenBundle) CaptureRegion(
 	if err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		return err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-capture-*")
 	if err != nil {
@@ -336,11 +336,11 @@ func (s *ScreenBundle) WaitForSettle(
 	}
 	// An action may close its owning Session without canceling the caller's
 	// context. Do not continue polling a backend after that ownership ends.
-	if err := ctx.Err(); err != nil {
-		return 0, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, ctxErr
 	}
-	if err := s.session.ensureOpen(); err != nil {
-		return 0, err
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return 0, openErr
 	}
 	changed, err := find.WaitForChange(
 		ctx,

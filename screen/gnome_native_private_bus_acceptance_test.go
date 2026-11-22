@@ -72,8 +72,11 @@ func (p *privateGnomeCapture) capture(fd dbus.UnixFD, kind string) (int32, int32
 		// Simulate a bridge deleting its caller-owned transport before the
 		// caller can finish validating and cleaning up the capture.
 		path, err := os.Readlink(filepath.Join("/proc/self/fd", fmt.Sprint(int(fd))))
-		if err != nil || !strings.HasPrefix(filepath.Base(path), "perfuncted-gnome-capture-") {
-			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(fmt.Errorf("unexpected capture transport %q: %v", path, err))
+		if err != nil {
+			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(fmt.Errorf("capture transport path: %w", err))
+		}
+		if !strings.HasPrefix(filepath.Base(path), "perfuncted-gnome-capture-") {
+			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(fmt.Errorf("unexpected capture transport %q", path))
 		}
 		if err := os.Remove(path); err != nil {
 			return 0, 0, 0, 0, 0, 0, 0, dbus.MakeFailedError(err)

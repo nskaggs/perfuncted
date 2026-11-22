@@ -643,7 +643,11 @@ func (i *sessionInfra) stop() error {
 			} else if info, err := os.Lstat(i.xdgDir); errors.Is(err, os.ErrNotExist) {
 				// Another cleanup already removed the directory.
 			} else if err != nil || !isPrivateSessionRuntimeInfo(info) {
-				i.stopErr = fmt.Errorf("session: refuse unsafe managed runtime directory %q: %v", i.xdgDir, err)
+				cause := err
+				if cause == nil {
+					cause = errors.New("runtime directory is not privately owned")
+				}
+				i.stopErr = fmt.Errorf("session: refuse unsafe managed runtime directory %q: %w", i.xdgDir, cause)
 				slog.Warn("session: skip removal of runtime without private ownership", "path", i.xdgDir)
 			} else {
 				unmountCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)

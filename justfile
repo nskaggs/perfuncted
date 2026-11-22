@@ -5,8 +5,13 @@
 # CI reads the supported Go line from go.mod and checks this repository out
 # without the parent workspace. Local recipes pin the validated patch release
 # and disable the workspace overlay for equivalent module resolution.
-export GOTOOLCHAIN := "go1.27.3"
+export GOTOOLCHAIN := "go1.27.4"
 export GOWORK := "off"
+
+# Go-installed quality tools live in GOPATH/bin. Keep the existing agent-nice
+# wrapper ahead of this directory so its limits remain effective, but make
+# its real binary targets discoverable without per-command PATH overrides.
+export PATH := env_var("PATH") + ":" + env_var("HOME") + "/go/bin"
 
 # Keep CI quality-tool installation reproducible.
 golangci_lint_version := "v2.15.0"
@@ -104,7 +109,14 @@ quality-fast: check-generate check-docs check-api-sync check-fmt vet
 
 # Run the full static quality suite (includes linters and unit tests)
 # This matches the 'quality' job in GitHub Actions.
-quality: quality-fast lint deadcode vulncheck test-unit
+quality: quality-fast lint deadcode vulncheck test-unit coverage-convenience
+
+# Require full statement coverage in the new scripting facade, rather than
+# imposing a spurious 100% requirement on unrelated legacy source.
+coverage-convenience:
+    @set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; \
+        CGO_ENABLED=0 go test -short -count=1 -coverprofile="$profile" . ./input; \
+        CGO_ENABLED=0 go test -count=1 -v ./scripts/check_convenience_coverage -args "$profile"
 
 # Pre-commit: runs only the fastest essential checks
 precommit: quality-fast

@@ -20,6 +20,8 @@ import (
 //
 // This intentionally uses CaptureRegion rather than Grab: Grab normalizes
 // images after discarding the compositor's capture geometry metadata.
+//
+//nolint:gocyclo // Compositor capture geometry and cleanup are validated together.
 func (b *GnomeNativeScreenBackend) GrabVerified(ctx context.Context, rect image.Rectangle) (result find.VerifiedTemplateCapture, retErr error) {
 	ctx = contextutil.Default(ctx)
 	if err := ctx.Err(); err != nil {
@@ -40,12 +42,12 @@ func (b *GnomeNativeScreenBackend) GrabVerified(ctx context.Context, rect image.
 	}
 	path := file.Name()
 	defer func() {
-		if err := file.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: close verified transport: %w", err))
+		if closeErr := file.Close(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: close verified transport: %w", closeErr))
 			result = find.VerifiedTemplateCapture{}
 		}
-		if err := os.Remove(path); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: remove verified transport: %w", err))
+		if removeErr := os.Remove(path); removeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("screen/gnome-native: remove verified transport: %w", removeErr))
 			result = find.VerifiedTemplateCapture{}
 		}
 	}()
@@ -53,8 +55,8 @@ func (b *GnomeNativeScreenBackend) GrabVerified(ctx context.Context, rect image.
 	if err != nil {
 		return result, err
 	}
-	if err := ctx.Err(); err != nil {
-		return result, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return result, ctxErr
 	}
 	if captured.X != int32(rect.Min.X) || captured.Y != int32(rect.Min.Y) ||
 		int(captured.Width) != rect.Dx() || int(captured.Height) != rect.Dy() {
@@ -73,8 +75,8 @@ func (b *GnomeNativeScreenBackend) GrabVerified(ctx context.Context, rect image.
 		int(captured.PixelWidth) != rect.Dx()*scale || int(captured.PixelHeight) != rect.Dy()*scale {
 		return result, fmt.Errorf("screen/gnome-native: actual pixel geometry does not cover requested region: %w", find.ErrUnverifiedCaptureGeometry)
 	}
-	if _, err := file.Seek(0, 0); err != nil {
-		return result, fmt.Errorf("screen/gnome-native: rewind verified screenshot transport: %w", err)
+	if _, seekErr := file.Seek(0, 0); seekErr != nil {
+		return result, fmt.Errorf("screen/gnome-native: rewind verified screenshot transport: %w", seekErr)
 	}
 	pixels, err := png.Decode(file)
 	if err != nil {

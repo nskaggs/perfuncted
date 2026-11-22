@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"os/exec"
@@ -25,7 +26,8 @@ func TestCLIMainRejectsUnknownCommandWithFailureExit(t *testing.T) {
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.Env = append(os.Environ(), childEnv+"=1")
 	output, err := cmd.CombinedOutput()
-	exit, ok := err.(*exec.ExitError)
+	var exit *exec.ExitError
+	ok := errors.As(err, &exit)
 	if !ok || exit.ExitCode() != 1 {
 		t.Fatalf("unknown CLI command exit error = %v, output = %q; want exit 1", err, output)
 	}

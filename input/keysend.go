@@ -141,10 +141,6 @@ func parseBraced(expr string) (keySend, error) {
 		up = true
 	}
 
-	if name == "" {
-		return keySend{}, fmt.Errorf("empty key name in braces")
-	}
-
 	// Check for modifier+key syntax: ctrl+s, ctrl+shift+t, alt+f4, etc.
 	if strings.Contains(name, "+") {
 		return parseCombo(name, down, up)

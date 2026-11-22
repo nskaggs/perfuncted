@@ -741,8 +741,14 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if s.mode == displayHeadlessWayland || s.mode == displayNestedWayland {
 		literalMarker = "{ctrl+s}+é"
 	}
-	if err := s.pf.WithContext(ctx).Do(perfuncted.Type(literalMarker)); err != nil {
-		t.Fatalf("literal batch entry: %v: %v", err, errors.Unwrap(err))
+	// The same controlled editor also validates the public window-targeted
+	// batch path against fresh focus/identity observations and saved text.
+	currentWindow, err := findWindowInfo(s.pf, ctx, app.winMatch)
+	if err != nil {
+		t.Fatalf("refresh controlled editor window for scoped entry: %v", err)
+	}
+	if err := s.pf.WithContext(ctx).Window(currentWindow.Title).Do(perfuncted.Type(literalMarker)); err != nil {
+		t.Fatalf("window-scoped literal batch entry: %v: %v", err, errors.Unwrap(err))
 	}
 
 	// Wait for text input settle

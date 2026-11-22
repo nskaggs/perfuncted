@@ -92,8 +92,12 @@ func TestWaylandMutationsStopWhenCallerCancelsAfterRoundTrip(t *testing.T) {
 			t.Cleanup(func() { _ = manager.Close() })
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			display, ok := manager.display.(*mockWaylandDisplay)
+			if !ok {
+				t.Fatalf("unexpected test display %T", manager.display)
+			}
 			manager.display = &cancelAfterRoundTripWaylandDisplay{
-				mockWaylandDisplay: manager.display.(*mockWaylandDisplay),
+				mockWaylandDisplay: display,
 				cancel:             cancel,
 			}
 
@@ -112,7 +116,10 @@ func TestWaylandRestoreStopsBeforeSecondRequestAfterCancellation(t *testing.T) {
 	t.Cleanup(func() { _ = manager.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	display := manager.display.(*mockWaylandDisplay)
+	display, ok := manager.display.(*mockWaylandDisplay)
+	if !ok {
+		t.Fatalf("unexpected test display %T", manager.display)
+	}
 	manager.display = &waylandCancellationContextDisplay{
 		mockWaylandDisplay: display,
 		ctx: &cancelAfterHandleRequestWaylandContext{
@@ -139,7 +146,10 @@ func TestWaylandRestoreStopsAfterFirstRequestTransportFailure(t *testing.T) {
 	manager, wire, handle := newStubWaylandManager("private", true, true)
 	t.Cleanup(func() { _ = manager.Close() })
 	failure := errors.New("synthetic restore transport failure")
-	display := manager.display.(*mockWaylandDisplay)
+	display, ok := manager.display.(*mockWaylandDisplay)
+	if !ok {
+		t.Fatalf("unexpected test display %T", manager.display)
+	}
 	manager.display = &waylandCancellationContextDisplay{
 		mockWaylandDisplay: display,
 		ctx: &failWaylandHandleRequestContext{
@@ -164,8 +174,12 @@ func TestWaylandActivationSeatBindFailureDoesNotLeakProxy(t *testing.T) {
 	t.Cleanup(func() { _ = manager.Close() })
 	manager.seatID = 7
 	failure := errors.New("synthetic seat bind failure")
+	originalRegistry, ok := manager.registry.(*mockRegistry)
+	if !ok {
+		t.Fatalf("unexpected test registry %T", manager.registry)
+	}
 	registry := &rejectingWaylandSeatRegistry{
-		mockRegistry: manager.registry.(*mockRegistry),
+		mockRegistry: originalRegistry,
 		failure:      failure,
 	}
 	manager.registry = registry

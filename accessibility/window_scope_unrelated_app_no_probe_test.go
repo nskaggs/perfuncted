@@ -2,6 +2,7 @@ package accessibility
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -31,7 +32,7 @@ func TestFreshWindowCorrelationRejectsRetiredApplicationBeforeProbing(t *testing
 	app := Application{Node: Node{ID: NodeID{BusName: "org.example.Editor", ObjectPath: "/app", Generation: 8, Incarnation: 1}}, PID: 6002}
 	target := WindowTarget{ID: "selected-window", PID: 6002}
 	candidates, observed, err := b.windowCandidatesFresh(context.Background(), target, []Application{app})
-	if err != ErrStaleGeneration || len(candidates) != 0 || len(observed) != 0 {
+	if !errors.Is(err, ErrStaleGeneration) || len(candidates) != 0 || len(observed) != 0 {
 		t.Fatalf("retired app authorized fresh lookup: candidates=%v observed=%v err=%v", candidates, observed, err)
 	}
 }

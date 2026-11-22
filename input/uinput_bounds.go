@@ -74,8 +74,8 @@ func discoverUinputLogicalBounds(ctx context.Context, rt env.Runtime) (int32, in
 	closeErr := lister.Close()
 	// A successful enumeration is not permission to create an input device
 	// after the caller has revoked the request. Close the lister first.
-	if err := ctx.Err(); err != nil {
-		return 0, 0, false, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return 0, 0, false, ctxErr
 	}
 	if listErr != nil {
 		return 0, 0, false, fmt.Errorf("input/uinput: list outputs: %w", listErr)

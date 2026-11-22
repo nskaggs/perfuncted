@@ -124,6 +124,10 @@ func (e *StepError) Error() string {
 		category = "operation unsupported"
 	case errors.Is(e.Err, ErrSessionClosed):
 		category = "session closed"
+	case errors.Is(e.Err, ErrWindowFocusUnverified):
+		category = "window focus unverified"
+	case errors.Is(e.Err, ErrWindowIdentityChanged):
+		category = "selected window changed"
 	case errors.Is(e.Err, context.Canceled):
 		category = "canceled"
 	case errors.Is(e.Err, context.DeadlineExceeded):
@@ -212,38 +216,42 @@ func (v *SessionView) Type(text string) error { return v.Do(Type(text)) }
 func (v *SessionView) Key(name string) error { return v.Do(Key(name)) }
 
 // Do executes steps under the view's context, timeout and session lifetime.
-func (v *SessionView) Do(steps ...Step) error {
+func (v *SessionView) operationContext() (context.Context, func(), error) {
 	if v == nil || v.session == nil {
-		return ErrNilSession
+		return nil, nil, ErrNilSession
 	}
-	s := v.session
-	if err := s.ensureOpen(); err != nil {
-		return err
+	if err := v.session.ensureOpen(); err != nil {
+		return nil, nil, err
 	}
 	if v.ctx == nil || v.timeout < 0 {
-		return ErrInvalidArgument
+		return nil, nil, ErrInvalidArgument
 	}
 	if err := v.ctx.Err(); err != nil {
-		return err
+		return nil, nil, err
 	}
 	ctx, cancel := context.WithCancel(v.ctx)
-	defer cancel()
-	stop := context.AfterFunc(s.ctx, cancel)
-	defer stop()
+	stop := context.AfterFunc(v.session.ctx, cancel)
+	cleanup := func() { stop(); cancel() }
 	if v.timeout > 0 {
-		var timeoutCancel context.CancelFunc
-		ctx, timeoutCancel = context.WithTimeout(ctx, v.timeout)
-		defer timeoutCancel()
+		bounded, cancelTimeout := context.WithTimeout(ctx, v.timeout)
+		return bounded, func() { cancelTimeout(); cleanup() }, nil
 	}
+	return ctx, cleanup, nil
+}
+
+// Do executes the steps after a single shared capability preflight.
+func (v *SessionView) Do(steps ...Step) error {
+	ctx, cleanup, err := v.operationContext()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	s := v.session
 	if err := s.preflightSteps(ctx, steps); err != nil {
-		if closed := s.ensureOpen(); closed != nil {
-			return errors.Join(closed, err)
-		}
-		return err
+		return errors.Join(s.ensureOpen(), err)
 	}
-	if err := s.ensureOpen(); err != nil {
-		return err
-	}
+	// The execution loop checks authority again before each dispatch. Its
+	// session lifetime check is the same one used by the strict input bundle.
 	return s.runSteps(ctx, steps)
 }
 
@@ -277,12 +285,23 @@ func (s *Session) preflightSteps(ctx context.Context, steps []Step) error {
 }
 
 func (s *Session) runSteps(ctx context.Context, steps []Step) error {
+	return s.runStepsChecked(ctx, steps, nil)
+}
+
+// A guard observes the current target immediately before each input mutation.
+// A failed guard is never an input dispatch and must not trigger a retry.
+func (s *Session) runStepsChecked(ctx context.Context, steps []Step, guard func(context.Context) error) error {
 	for i, step := range steps {
 		if err := s.ensureOpen(); err != nil {
 			return &StepError{Index: i, Operation: step.kind, Err: err}
 		}
 		if err := ctx.Err(); err != nil {
 			return &StepError{Index: i, Operation: step.kind, Err: err}
+		}
+		if guard != nil && step.kind != "delay" {
+			if err := guard(ctx); err != nil {
+				return &StepError{Index: i, Operation: step.kind, Err: err}
+			}
 		}
 		err := s.runStep(ctx, step)
 		if closed := s.ensureOpen(); closed != nil {

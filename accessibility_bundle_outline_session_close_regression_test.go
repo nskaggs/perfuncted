@@ -9,9 +9,8 @@ import (
 
 type closingOutlineReadBackend struct {
 	*bundleAccessibilityFake
-	after  func()
-	direct bool
-	calls  int
+	after func()
+	calls int
 }
 
 func (b *closingOutlineReadBackend) SupportedOperations() []string {

@@ -167,6 +167,8 @@ func (b *InputBundle) ClickCenter(
 }
 
 // DoubleClick performs two primary-button clicks at x and y.
+//
+//nolint:gocyclo // Held-button cleanup and cancellation require explicit guards.
 func (b *InputBundle) DoubleClick(
 	ctx context.Context,
 	x int,
@@ -410,6 +412,8 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 }
 
 // DragAndDrop drags the primary button from (x1, y1) to (x2, y2).
+//
+//nolint:gocyclo // Held-button cleanup and cancellation require explicit guards.
 func (b *InputBundle) DragAndDrop(
 	ctx context.Context,
 	x1 int,
@@ -437,11 +441,11 @@ func (b *InputBundle) DragAndDrop(
 	}
 	// A target validator can finish after cancellation or Session.Close.
 	// Validation is non-mutating: refuse the gesture before its first event.
-	if err := ctx.Err(); err != nil {
-		return err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
-	if err := b.session.ensureOpen(); err != nil {
-		return err
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return openErr
 	}
 	if moveErr := b.operationError("pointer", b.backend.MouseMove(ctx, x1, y1)); moveErr != nil {
 		return moveErr
@@ -449,11 +453,11 @@ func (b *InputBundle) DragAndDrop(
 	// The initial move is not a button hold. If it completed after
 	// cancellation or session closure, do not begin a drag or issue cleanup
 	// releases for a button this operation never pressed.
-	if err := ctx.Err(); err != nil {
-		return err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
-	if err := b.session.ensureOpen(); err != nil {
-		return err
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return openErr
 	}
 	released := false
 	defer func() {
