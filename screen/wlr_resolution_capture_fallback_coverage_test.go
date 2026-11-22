@@ -2,6 +2,7 @@ package screen
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,7 +11,12 @@ import (
 )
 
 func TestWlrResolutionUsesCapturedDimensionsWhenOutputModeIsAbsent(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "wayland.sock")
+	runtime, err := os.MkdirTemp(os.TempDir(), "wlr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	socket := filepath.Join(runtime, "wayland.sock")
 	server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

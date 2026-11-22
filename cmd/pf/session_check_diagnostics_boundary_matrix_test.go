@@ -24,7 +24,11 @@ func (w *diagnosticFailOnWrite) Write(p []byte) (int, error) {
 }
 
 func TestSessionCheckDiagnosticsRealSocketAndMissingEnvironment(t *testing.T) {
-	runtime := t.TempDir()
+	runtime, err := os.MkdirTemp(os.TempDir(), "pf-sc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
 	listener, err := net.Listen("unix", filepath.Join(runtime, "wayland-fixture"))
 	if err != nil {
 		t.Fatal(err)
