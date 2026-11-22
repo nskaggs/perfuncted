@@ -211,6 +211,17 @@ func TestCollectCapturesAndPreservesFailureCounts(t *testing.T) {
 			t.Fatalf("durations=%d error=%v", len(durations), err)
 		}
 	})
+	t.Run("caller canceled after capture", func(t *testing.T) {
+		ctx := &steppingContext{cancelAt: 3}
+		sc := fakeScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+			return image.NewRGBA(image.Rect(0, 0, 2, 2)), nil
+		}}
+		durations, _, err := Collect(ctx, sc, image.Rectangle{}, 1, time.Second)
+		var collectionErr *CollectionError
+		if len(durations) != 0 || !errors.As(err, &collectionErr) || collectionErr.Sample != 1 || collectionErr.Succeeded != 0 || !errors.Is(err, context.Canceled) {
+			t.Fatalf("durations=%v cancellation error=%#v", durations, err)
+		}
+	})
 	t.Run("nil image", func(t *testing.T) {
 		sc := fakeScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) { return nil, nil }}
 		_, _, err := Collect(context.Background(), sc, image.Rectangle{}, 1, time.Second)
