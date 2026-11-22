@@ -115,7 +115,6 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			if variant.rect != (image.Rectangle{}) && (variant.rect.Max.X > first.Bounds().Dx() || variant.rect.Max.Y > first.Bounds().Dy()) {
 				b.Skipf("region %v exceeds output bounds %v", variant.rect, first.Bounds())
 			}
-			b.Logf("source=real-headless mode=%s backend=%T compositor=sway requested=%v output=%v go=%s os=%s/%s cpu=%d", variant.name, session.Screen.backend, variant.rect, first.Bounds(), runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU())
 			ctx := context.Background()
 			if variant.rect != (image.Rectangle{}) {
 				if _, _, err := capturebench.Collect(ctx, session.Screen.backend, variant.rect, 1, desktopBenchmarkTimeout); err != nil {
@@ -129,6 +128,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			if variant.rect == (image.Rectangle{}) && returned != first.Bounds() {
 				b.Fatalf("full-screen geometry changed from %v to %v", first.Bounds(), returned)
 			}
+			b.Logf("source=real-headless mode=%s backend=%T compositor=sway requested=%v returned=%v desktop=%v go=%s os=%s/%s cpu=%d", variant.name, session.Screen.backend, variant.rect, returned, first.Bounds(), runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU())
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
@@ -234,10 +234,6 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			if captureErr == nil && captureContextErr != nil {
 				captureErr = captureContextErr
 			}
-			if !loggedBackend {
-				b.Logf("source=real-headless mode=FirstFull backend=%T compositor=sway", session.Screen.backend)
-				loggedBackend = true
-			}
 			closeErr := session.Close()
 			if captureErr != nil {
 				b.Fatalf("first full screenshot: %v", captureErr)
@@ -247,6 +243,10 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			}
 			if closeErr != nil {
 				b.Fatalf("close session: %v", closeErr)
+			}
+			if !loggedBackend {
+				b.Logf("source=real-headless mode=FirstFull backend=%T compositor=sway requested=%v returned=%v", session.Screen.backend, image.Rectangle{}, img.Bounds())
+				loggedBackend = true
 			}
 			b.StartTimer()
 		}
@@ -275,10 +275,6 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			if captureErr == nil && captureContextErr != nil {
 				captureErr = captureContextErr
 			}
-			if !loggedBackend {
-				b.Logf("source=real-headless mode=OpenAndFirstFull backend=%T compositor=sway", session.Screen.backend)
-				loggedBackend = true
-			}
 			closeErr := session.Close()
 			if captureErr != nil {
 				b.Fatalf("first full screenshot: %v", captureErr)
@@ -288,6 +284,10 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			}
 			if closeErr != nil {
 				b.Fatalf("close session: %v", closeErr)
+			}
+			if !loggedBackend {
+				b.Logf("source=real-headless mode=OpenAndFirstFull backend=%T compositor=sway requested=%v returned=%v", session.Screen.backend, image.Rectangle{}, img.Bounds())
+				loggedBackend = true
 			}
 			b.StartTimer()
 		}
