@@ -11,18 +11,38 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/x11test"
 )
 
 // Controlled test only: injected events establish XI2 transport delivery,
 // not the provenance of real physical keyboard or mouse hardware.
-// Run under xvfb-run with PF_X11_OBSERVATION_INTEGRATION=1.
-func TestObservationX11ControlledIntegration(t *testing.T) {
+// Enable with PF_X11_OBSERVATION_INTEGRATION=1; each test owns a private Xvfb.
+// Each controlled integration owns a fresh Xvfb server with a confirmed
+// display identity. Reusing a server after an unrelated test can reset
+// connections on CI. Its process and display are cleaned up after the test.
+func requireObservationX11TestServer(t *testing.T) string {
+	t.Helper()
 	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
-		t.Skip("requires controlled X11 server")
+		t.Skip("requires controlled native X11 integration")
 	}
-	if os.Getenv("XDG_SESSION_TYPE") != "x11" {
-		t.Fatal("integration requires x11 session")
+	display, stop, err := x11test.StartXvfb()
+	if err != nil {
+		t.Fatalf("start owned Xvfb: %v", err)
 	}
+	t.Cleanup(stop)
+	// Xvfb's displayfd announces the socket before all extensions have
+	// finished initializing. Give the isolated server a bounded settling
+	// interval before the first XI2 version or keyboard-mapping request.
+	time.Sleep(350 * time.Millisecond)
+	t.Setenv("DISPLAY", display)
+	t.Setenv("XDG_SESSION_TYPE", "x11")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("WAYLAND_SOCKET", "")
+	return display
+}
+
+func TestObservationX11ControlledIntegration(t *testing.T) {
+	display := requireObservationX11TestServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	backend, err := OpenObserver(ctx, env.Current())
@@ -32,7 +52,7 @@ func TestObservationX11ControlledIntegration(t *testing.T) {
 	defer backend.Close()
 	// Use a preinitialized XTEST connection on this isolated Xvfb server.
 	// No production input-observation path depends on XTEST.
-	injector, err := xgb.NewConnDisplay(os.Getenv("DISPLAY"))
+	injector, err := xgb.NewConnDisplay(display)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,12 +155,7 @@ func TestObservationX11ControlledIntegration(t *testing.T) {
 // XTEST is used strictly for controlled CI input; it does not attest to
 // physical keyboard provenance or grant broader backend permissions.
 func TestObservationX11CrossFocusIntegration(t *testing.T) {
-	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
-		t.Skip("requires controlled native X11 server")
-	}
-	if os.Getenv("XDG_SESSION_TYPE") != "x11" {
-		t.Fatal("requires native X11 session")
-	}
+	display := requireObservationX11TestServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	backend, err := OpenObserver(ctx, env.Current())
@@ -154,7 +169,7 @@ func TestObservationX11CrossFocusIntegration(t *testing.T) {
 	}
 	defer listening.Close()
 
-	client, err := xgb.NewConnDisplay(os.Getenv("DISPLAY"))
+	client, err := xgb.NewConnDisplay(display)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,9 +243,7 @@ func TestObservationX11CrossFocusIntegration(t *testing.T) {
 }
 
 func TestObservationX11SessionClose(t *testing.T) {
-	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
-		t.Skip("requires controlled X11")
-	}
+	requireObservationX11TestServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	backend, err := OpenObserver(ctx, env.Current())
@@ -260,12 +273,10 @@ func TestObservationX11SessionClose(t *testing.T) {
 // OpenObserver's native-X11 gate must honor caller cancellation after a
 // positively identified local X server, not only on unsupported Wayland.
 func TestObservationX11CanceledAfterNativePeerVerification(t *testing.T) {
-	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
-		t.Skip("requires isolated Xvfb")
-	}
+	display := requireObservationX11TestServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if backend, err := openX11Observer(ctx, os.Getenv("DISPLAY")); backend != nil || !errors.Is(err, context.Canceled) {
+	if backend, err := openX11Observer(ctx, display); backend != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled native backend: %T %v", backend, err)
 	}
 }

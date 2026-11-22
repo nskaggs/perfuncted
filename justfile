@@ -174,9 +174,9 @@ test-integration-suite MODE:
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^TestIntegration$' -count=1
 
 # Exercise native X11 keyboard/mouse observation, cancellation and shutdown
-# on a private Xvfb display; generic backend tests do not activate these.
+# using a fresh private Xvfb per test; generic backend tests skip these.
 _test-input-observation-x11 TESTNAME:
-    CGO_ENABLED=0 xvfb-run -a -s '-screen 0 1280x800x24 +extension XTEST +extension XInputExtension' env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET XDG_SESSION_TYPE=x11 PF_X11_OBSERVATION_INTEGRATION=1 go test ./input -run '^TestObservationX11{{TESTNAME}}$' -count=1 -v -timeout=2m
+    CGO_ENABLED=0 PF_X11_OBSERVATION_INTEGRATION=1 go test ./input -run '^TestObservationX11{{TESTNAME}}$' -count=1 -v -timeout=2m
 
 test-input-observation-x11:
     just _test-input-observation-x11 ControlledIntegration
