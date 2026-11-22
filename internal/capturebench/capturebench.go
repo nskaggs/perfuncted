@@ -75,7 +75,7 @@ func Collect(ctx context.Context, sc Screenshotter, rect image.Rectangle, count 
 		return nil, image.Rectangle{}, fmt.Errorf("capture benchmark: invalid per-capture timeout %s", timeout)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, image.Rectangle{}, &CollectionError{Sample: 1, Err: err}
+		return nil, image.Rectangle{}, &CollectionError{Sample: 1, Err: err, TimedOut: errors.Is(err, context.DeadlineExceeded)}
 	}
 	durations := make([]time.Duration, 0, count)
 	var geometry image.Rectangle
@@ -87,7 +87,11 @@ func Collect(ctx context.Context, sc Screenshotter, rect image.Rectangle, count 
 		started := time.Now()
 		img, err := sc.Grab(captureCtx, rect)
 		elapsed := time.Since(started)
+		captureErr := captureCtx.Err()
 		cancel()
+		if err == nil && captureErr != nil {
+			err = captureErr
+		}
 		if err != nil {
 			return durations, geometry, &CollectionError{Sample: i + 1, Succeeded: len(durations), Err: err, TimedOut: errors.Is(err, context.DeadlineExceeded)}
 		}

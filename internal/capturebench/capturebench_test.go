@@ -55,6 +55,27 @@ func TestSummarize(t *testing.T) {
 	if largeInput[0] != 1 || largeInput[99] != 100 {
 		t.Fatal("Summarize changed caller sample order")
 	}
+	odd, err := Summarize([]time.Duration{3, 1, 2})
+	if err != nil || odd.P50 != 2 {
+		t.Fatalf("odd-N distribution=%+v err=%v", odd, err)
+	}
+	identical, err := Summarize([]time.Duration{5, 5, 5})
+	if err != nil || identical.Min != 5 || identical.P50 != 5 || identical.Max != 5 {
+		t.Fatalf("identical distribution=%+v err=%v", identical, err)
+	}
+	units, err := Summarize([]time.Duration{time.Millisecond, time.Nanosecond, time.Microsecond})
+	if err != nil || units.P50 != time.Microsecond {
+		t.Fatalf("mixed-unit distribution=%+v err=%v", units, err)
+	}
+	outliers := make([]time.Duration, 100)
+	for i := range outliers {
+		outliers[i] = time.Millisecond
+	}
+	outliers[len(outliers)-1] = time.Second
+	withOutlier, err := Summarize(outliers)
+	if err != nil || withOutlier.P95 != time.Millisecond || withOutlier.Max != time.Second {
+		t.Fatalf("outlier distribution=%+v err=%v", withOutlier, err)
+	}
 	if _, err := Summarize(nil); err == nil {
 		t.Fatal("empty samples accepted")
 	}
@@ -139,6 +160,17 @@ func TestCollectCapturesAndPreservesFailureCounts(t *testing.T) {
 			t.Fatalf("timeout error=%#v", err)
 		}
 	})
+	t.Run("backend returns after per-capture deadline", func(t *testing.T) {
+		sc := fakeScreenshotter{grab: func(ctx context.Context, _ image.Rectangle) (image.Image, error) {
+			<-ctx.Done()
+			return image.NewRGBA(image.Rect(0, 0, 2, 2)), nil
+		}}
+		durations, _, err := Collect(context.Background(), sc, image.Rectangle{}, 1, time.Millisecond)
+		var collectionErr *CollectionError
+		if len(durations) != 0 || !errors.As(err, &collectionErr) || !collectionErr.TimedOut || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("durations=%v timeout error=%#v", durations, err)
+		}
+	})
 	t.Run("caller canceled before capture", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -146,6 +178,15 @@ func TestCollectCapturesAndPreservesFailureCounts(t *testing.T) {
 		var collectionErr *CollectionError
 		if !errors.As(err, &collectionErr) || collectionErr.Sample != 1 || !errors.Is(err, context.Canceled) {
 			t.Fatalf("canceled error=%#v", err)
+		}
+	})
+	t.Run("caller deadline before capture", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		_, _, err := Collect(ctx, fakeScreenshotter{}, image.Rectangle{}, 1, time.Second)
+		var collectionErr *CollectionError
+		if !errors.As(err, &collectionErr) || !collectionErr.TimedOut || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("deadline error=%#v", err)
 		}
 	})
 	t.Run("caller canceled after response", func(t *testing.T) {
@@ -175,6 +216,16 @@ func TestCollectCapturesAndPreservesFailureCounts(t *testing.T) {
 		_, _, err := Collect(context.Background(), sc, image.Rectangle{}, 1, time.Second)
 		if err == nil {
 			t.Fatal("nil image accepted")
+		}
+	})
+	t.Run("typed nil image", func(t *testing.T) {
+		sc := fakeScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+			var img *image.RGBA
+			return img, nil
+		}}
+		_, _, err := Collect(context.Background(), sc, image.Rectangle{}, 1, time.Second)
+		if err == nil {
+			t.Fatal("typed nil image accepted")
 		}
 	})
 	t.Run("empty image", func(t *testing.T) {

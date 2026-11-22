@@ -27,50 +27,103 @@ func BenchmarkCaptureX11(b *testing.B) {
 		b.StopTimer()
 		display := startCaptureXvfb(b)
 		b.ReportAllocs()
+		b.ResetTimer()
 		b.StartTimer()
-		started := time.Now()
-		backend, err := NewX11Backend(display)
-		elapsed := time.Since(started)
-		b.StopTimer()
-		if err != nil {
-			b.Fatalf("open private X11 backend: %v", err)
-		}
-		b.ReportMetric(float64(elapsed.Nanoseconds()), "ns/op")
-		b.ReportMetric(float64(elapsed.Nanoseconds()), "open-ns")
-		b.Logf("source=real-headless mode=BackendOpen backend=%T protocol=X11 output=1024x768 environment=%s", backend, captureEnvironment())
-		if err := backend.Close(); err != nil {
-			b.Fatal(err)
+		loggedBackend := false
+		for b.Loop() {
+			backend, err := NewX11Backend(display)
+			b.StopTimer()
+			if err != nil {
+				b.Fatalf("open private X11 backend: %v", err)
+			}
+			if !loggedBackend {
+				b.Logf("source=real-headless mode=BackendOpen backend=%T protocol=X11 output=1024x768 environment=%s", backend, captureEnvironment())
+				loggedBackend = true
+			}
+			if err := backend.Close(); err != nil {
+				b.Fatal(err)
+			}
+			b.StartTimer()
 		}
 	})
 	b.Run("FirstFull", func(b *testing.B) {
 		b.StopTimer()
 		display := startCaptureXvfb(b)
 		b.ReportAllocs()
-		b.StopTimer()
-		backend, err := NewX11Backend(display)
-		if err != nil {
-			b.Fatalf("open private X11 backend: %v", err)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		b.ResetTimer()
 		b.StartTimer()
-		started := time.Now()
-		img, err := backend.Grab(ctx, image.Rectangle{})
-		elapsed := time.Since(started)
+		loggedBackend := false
+		for b.Loop() {
+			b.StopTimer()
+			backend, err := NewX11Backend(display)
+			if err != nil {
+				b.Fatalf("open private X11 backend: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			b.StartTimer()
+			img, err := backend.Grab(ctx, image.Rectangle{})
+			captureErr := ctx.Err()
+			b.StopTimer()
+			cancel()
+			if err == nil && captureErr != nil {
+				err = captureErr
+			}
+			if err == nil {
+				err = validCaptureImage(img)
+			}
+			closeErr := backend.Close()
+			if err != nil {
+				b.Fatalf("first full capture: %v", err)
+			}
+			if closeErr != nil {
+				b.Fatal(closeErr)
+			}
+			if !loggedBackend {
+				b.Logf("source=real-headless mode=FirstFull backend=%T protocol=X11 requested=%v returned=%v output=1024x768 environment=%s", backend, image.Rectangle{}, img.Bounds(), captureEnvironment())
+				loggedBackend = true
+			}
+			b.StartTimer()
+		}
+	})
+	b.Run("OpenAndFirstFull", func(b *testing.B) {
 		b.StopTimer()
-		cancel()
-		if err == nil {
-			err = validCaptureImage(img)
+		display := startCaptureXvfb(b)
+		b.ReportAllocs()
+		b.ResetTimer()
+		b.StartTimer()
+		loggedBackend := false
+		for b.Loop() {
+			backend, err := NewX11Backend(display)
+			if err != nil {
+				b.StopTimer()
+				b.Fatalf("open private X11 backend: %v", err)
+			}
+			b.StopTimer()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			b.StartTimer()
+			img, err := backend.Grab(ctx, image.Rectangle{})
+			captureErr := ctx.Err()
+			b.StopTimer()
+			cancel()
+			if err == nil && captureErr != nil {
+				err = captureErr
+			}
+			if err == nil {
+				err = validCaptureImage(img)
+			}
+			closeErr := backend.Close()
+			if err != nil {
+				b.Fatalf("first full capture: %v", err)
+			}
+			if closeErr != nil {
+				b.Fatal(closeErr)
+			}
+			if !loggedBackend {
+				b.Logf("source=real-headless mode=OpenAndFirstFull backend=%T protocol=X11 requested=%v returned=%v output=1024x768 environment=%s", backend, image.Rectangle{}, img.Bounds(), captureEnvironment())
+				loggedBackend = true
+			}
+			b.StartTimer()
 		}
-		closeErr := backend.Close()
-		if err != nil {
-			b.Fatalf("first full capture: %v", err)
-		}
-		if closeErr != nil {
-			b.Fatal(closeErr)
-		}
-		b.ReportMetric(float64(elapsed.Nanoseconds()), "ns/op")
-		b.ReportMetric(float64(elapsed.Nanoseconds()), "first-ns")
-		b.Logf("source=real-headless mode=FirstFull backend=%T protocol=X11 requested=%v returned=%v output=1024x768", backend, image.Rectangle{}, img.Bounds())
 	})
 	for _, variant := range []struct {
 		name string
@@ -78,6 +131,7 @@ func BenchmarkCaptureX11(b *testing.B) {
 	}{
 		{name: "WarmFull"},
 		{name: "WarmRegion256", rect: image.Rect(0, 0, 256, 256)},
+		{name: "WarmRegionLarge", rect: image.Rect(0, 0, 1024, 720)},
 	} {
 		b.Run(variant.name, func(b *testing.B) {
 			display := startCaptureXvfb(b)
@@ -95,6 +149,12 @@ func BenchmarkCaptureX11(b *testing.B) {
 				b.Fatal(err)
 			}
 			ctx := context.Background()
+			if variant.rect != (image.Rectangle{}) && (variant.rect.Max.X > w || variant.rect.Max.Y > h) {
+				b.Skipf("region %v exceeds output geometry %dx%d", variant.rect, w, h)
+			}
+			if _, _, err := capturebench.Collect(ctx, backend, variant.rect, 1, time.Second); err != nil {
+				b.Fatalf("warmup capture: %v", err)
+			}
 			warmup, bounds, err := capturebench.Collect(ctx, backend, variant.rect, 50, time.Second)
 			if err != nil {
 				b.Fatalf("warmup capture: %v", err)
@@ -111,8 +171,12 @@ func BenchmarkCaptureX11(b *testing.B) {
 				captureCtx, cancel := context.WithTimeout(ctx, time.Second)
 				b.StartTimer()
 				img, err := backend.Grab(captureCtx, variant.rect)
+				captureErr := captureCtx.Err()
 				b.StopTimer()
 				cancel()
+				if err == nil && captureErr != nil {
+					err = captureErr
+				}
 				if err != nil {
 					b.Fatal(err)
 				}
