@@ -144,6 +144,79 @@ func MatchTemplateInImage(
 	return scanTemplate(ctx, source, samples, weightSum, geometry, minConfidence)
 }
 
+// MatchTemplates returns up to maxResults distinct non-overlapping matches,
+// ordered by descending similarity, then top-to-bottom and left-to-right for
+// ties. Suppression is greedy in that order: candidates intersecting an earlier
+// result are excluded. maxResults must be in [1,64]. No match returns an empty
+// slice and nil error. Only complete results are returned.
+// Candidate retention is O(min(placements, maxResults*overlapNeighborhood));
+// a worst-case 16-Mpixel near-uniform capture may require up to 256 MiB of
+// additional retained candidate heap storage (plus allocation-growth overhead).
+func MatchTemplates(ctx context.Context, sc Screenshotter, area image.Rectangle, reference image.Image, minConfidence float64, maxResults int) ([]TemplateMatch, error) {
+	ctx = contextutil.Default(ctx)
+	if err := validateTemplateMatchLimit(maxResults); err != nil {
+		return nil, err
+	}
+	if err := checkAvailable(sc); err != nil {
+		return nil, err
+	}
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	if err := validateTemplateInputs(area, reference, minConfidence); err != nil {
+		return nil, err
+	}
+	verified, ok := sc.(VerifiedTemplateScreenshotter)
+	if !ok {
+		return nil, fmt.Errorf("%w: backend %T does not attest captured desktop bounds", ErrUnverifiedCaptureGeometry, sc)
+	}
+	capture, err := verified.GrabVerified(ctx, area)
+	if err != nil {
+		return nil, fmt.Errorf("find: template grab: %w", err)
+	}
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	if err := validateVerifiedTemplateCapture(capture, area); err != nil {
+		return nil, err
+	}
+	return MatchTemplatesInImage(ctx, capture.Image, area, reference, minConfidence, maxResults)
+}
+
+// MatchTemplatesInImage searches an already-captured image. The caller must
+// attest that src represents area; this API cannot verify capture provenance.
+func MatchTemplatesInImage(ctx context.Context, src image.Image, area image.Rectangle, reference image.Image, minConfidence float64, maxResults int) ([]TemplateMatch, error) {
+	ctx = contextutil.Default(ctx)
+	if err := validateTemplateMatchLimit(maxResults); err != nil {
+		return nil, err
+	}
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	if err := validateTemplateInputs(area, reference, minConfidence); err != nil {
+		return nil, err
+	}
+	source, needle, geometry, err := prepareTemplateImages(ctx, src, reference, area)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return []TemplateMatch{}, nil
+		}
+		return nil, err
+	}
+	samples, weightSum, err := buildTemplateSamples(ctx, source.Stride, needle)
+	if err != nil {
+		return nil, err
+	}
+	return collectTemplateMatches(ctx, source, samples, weightSum, geometry, minConfidence, maxResults)
+}
+
+func validateTemplateMatchLimit(limit int) error {
+	if limit < 1 || limit > 64 {
+		return fmt.Errorf("find: max template matches must be in [1,64]: %w", ErrInvalidFrame)
+	}
+	return nil
+}
+
 type templateGeometry struct {
 	searchArea             image.Rectangle
 	sourceW, sourceH       int
@@ -294,6 +367,11 @@ func scanTemplate(
 	geometry templateGeometry,
 	minConfidence float64,
 ) (TemplateMatch, error) {
+	return scanTemplateExcluding(ctx, source, samples, weightSum, geometry, minConfidence, nil)
+}
+
+//nolint:gocyclo // Scan loop must check cancellation, scoring and non-overlap in one shared scanner.
+func scanTemplateExcluding(ctx context.Context, source *image.NRGBA, samples []templateSample, weightSum uint64, geometry templateGeometry, minConfidence float64, excluded []TemplateMatch) (TemplateMatch, error) {
 	maxDiff := float64(weightSum) * 3 * 255
 	bestConfidence := minConfidence
 	found := false
@@ -307,6 +385,19 @@ func scanTemplate(
 			if x%cancelStride == 0 {
 				if err := contextErr(ctx); err != nil {
 					return TemplateMatch{}, err
+				}
+			}
+			if len(excluded) > 0 {
+				rect := templateScreenRect(x, y, geometry)
+				overlaps := false
+				for _, previous := range excluded {
+					if rect.Overlaps(previous.Rect) {
+						overlaps = true
+						break
+					}
+				}
+				if overlaps {
+					continue
 				}
 			}
 			start := y*source.Stride + x*4

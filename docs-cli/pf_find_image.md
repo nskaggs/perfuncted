@@ -1,6 +1,6 @@
 ## pf find image
 
-Find the best fuzzy match for a PNG template
+Find fuzzy matches for a PNG template
 
 ### Synopsis
 
@@ -12,16 +12,33 @@ pixel. Matching does not compensate for scale or rotation. For exact pixel match
 the Go API provides find.LocateExact. The PNG must be no larger than 32 MiB and 2
 million pixels, with neither dimension above 8192 pixels. The active capture backend
 must verify that it captured the complete requested region.
+With --all, print up to --max-results non-overlapping matches (default 64)
+in descending score order, ties top-to-bottom then left-to-right. Overlapping
+candidates are greedily suppressed by earlier matches. Each match uses the
+same output line format as best-match mode. No matches prints no lines.
+The limit bounds output and candidate retention, but the exact greedy ordering
+may require more than --max-results candidates in memory. In the worst allowed
+16-Mpixel capture, this can require up to 256 MiB of additional retained heap
+storage plus allocation overhead. The full search is scanned once.
 
 ```
 pf find image [flags]
 ```
 
+### Examples
+
+```
+pf find image --template button.png --rect 0,0,1280,720 --confidence 0.9
+pf find image --template button.png --rect 0,0,1280,720 --confidence 0.9 --all --max-results 10
+```
+
 ### Options
 
 ```
+      --all                return non-overlapping matches in score order
       --confidence float   minimum similarity score (0..1) (default 0.95)
   -h, --help               help for image
+      --max-results int    maximum matches with --all (1..64) (default 64)
       --rect string        search region as x0,y0,x1,y1
       --template string    PNG template image to find
       --timeout string     capture and matching timeout (default "5s")

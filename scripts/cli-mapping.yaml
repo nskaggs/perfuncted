@@ -80,6 +80,8 @@ screen:
     skip: true
   FindTemplate:
     skip: true
+  FindTemplates:
+    skip: true
   WaitFor:
     skip: true
   WaitForChange:

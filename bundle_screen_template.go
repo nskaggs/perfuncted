@@ -47,3 +47,30 @@ func (s *ScreenBundle) FindTemplate(
 	}
 	return match, nil
 }
+
+// FindTemplates returns up to maxResults non-overlapping matches in descending
+// similarity order. It uses one verified capture and the same cancellation and
+// Session authority checks as FindTemplate. An empty slice means no matches.
+func (s *ScreenBundle) FindTemplates(ctx context.Context, rect image.Rectangle, reference image.Image, minConfidence float64, maxResults int) ([]find.TemplateMatch, error) {
+	if err := s.checkAvailable("capture"); err != nil {
+		return nil, err
+	}
+	s.traceAction("find-templates rect=%s min-confidence=%.4f max=%d", rect, minConfidence, maxResults)
+	operationCtx, timeoutCancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer timeoutCancel()
+	operationCtx, cancel := context.WithCancel(operationCtx)
+	defer cancel()
+	stopSessionCancel := context.AfterFunc(s.session.ctx, cancel) //nolint:contextcheck // Closure revokes matching independently of the caller.
+	defer stopSessionCancel()
+	matches, err := find.MatchTemplates(operationCtx, s.backend, rect, reference, minConfidence, maxResults)
+	if ctxErr := operationCtx.Err(); ctxErr != nil {
+		return nil, errors.Join(ctxErr, s.operationError("find-templates", err))
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return nil, errors.Join(openErr, s.operationError("find-templates", err))
+	}
+	if err != nil {
+		return nil, s.operationError("find-templates", err)
+	}
+	return matches, nil
+}
