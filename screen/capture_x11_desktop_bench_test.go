@@ -5,9 +5,11 @@ package screen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -16,6 +18,21 @@ import (
 )
 
 const captureBenchmarkReal = "PERFUNCTED_CAPTURE_BENCH_REAL"
+
+func reportCaptureDistribution(b *testing.B, d capturebench.Distribution) {
+	b.Helper()
+	b.ReportMetric(float64(d.Min.Nanoseconds()), "min-ns")
+	b.ReportMetric(float64(d.P50.Nanoseconds()), "p50-ns")
+	if d.HasP95 {
+		b.ReportMetric(float64(d.P95.Nanoseconds()), "p95-ns")
+	}
+	b.ReportMetric(float64(d.Max.Nanoseconds()), "max-ns")
+	b.ReportMetric(float64(d.Count), "samples")
+}
+
+func captureEnvironment() string {
+	return fmt.Sprintf("go=%s os=%s/%s cpu=%d", runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU())
+}
 
 // BenchmarkCaptureX11 measures direct Screenshotter.Grab calls against a
 // private Xvfb server. It never uses the caller's DISPLAY value.

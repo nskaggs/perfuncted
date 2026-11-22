@@ -145,7 +145,7 @@ func TestCollectCapturesAndPreservesFailureCounts(t *testing.T) {
 		if len(durations) != 1 || !errors.As(err, &collectionErr) || collectionErr.Sample != 2 || collectionErr.Succeeded != 1 || collectionErr.TimedOut || !errors.Is(err, want) {
 			t.Fatalf("durations=%d error=%#v", len(durations), err)
 		}
-		if collectionErr.Error() == "" || collectionErr.Unwrap() != want || strings.Contains(collectionErr.Error(), want.Error()) {
+		if collectionErr.Error() == "" || !errors.Is(collectionErr, want) || strings.Contains(collectionErr.Error(), want.Error()) {
 			t.Fatal("collection error did not preserve its cause")
 		}
 	})
