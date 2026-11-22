@@ -61,37 +61,54 @@ do not redirect a denied portal request to a more privileged backend.
 
 ## Recorded controlled results
 
-Measured on 2026-11-22 at `e33963091c6a71a3e864c738c92fb124224e1d78` before
-the benchmark changes, with Go 1.27.4 on Linux/amd64, Intel Core i7-10510U,
-8 CPUs. The working tree contained the uncommitted issue #141 implementation.
-X11 used a private 1024×768 Xvfb server; Wayland used the existing private
-1024×768 Sway session, which selected `*screen.WlrScreencopyBackend`.
+Measured on 2026-11-22 at source commit
+`93707ff2cf01170c7787fc33079446b886fe0d10` on a clean tree, with Go 1.27.4 on
+Linux/amd64, Intel Core i7-2600 at 3.40 GHz, and 8 logical CPUs. X11
+used a private 1024×768 no-reset Xvfb server. Wayland used a private 1024×768
+Sway session and selected `*screen.WlrScreencopyBackend`. The benchmark
+commands ran with desktop/profile environment variables unset.
 
-Each Go benchmark average below used three timed operations. Warm distribution
-metrics used 50 additional direct capture calls; allocations are per timed Go
-benchmark operation. X11 backend-open and first-frame figures are one measured
-operation each and have no percentile claim. Values describe this host and
-these private compositor fixtures only.
+Each benchmark used `-benchtime=3x -count=3`: three operations per trial and
+three independent trials. The mean column is the median of the three Go
+`ns/op` results. For warm modes, each trial collected 50 additional direct
+`Grab` samples outside the Go benchmark timer; p50 and p95 are the medians of
+the three trial percentiles, and min–max is the envelope across all 150
+samples. `B/op` and `allocs/op` are the medians across trials. The cold-mode
+min–max column gives the range of the three trial means; percentile claims are
+omitted because three operations per trial are insufficient.
 
 | Source/mode | Mean ns/op | p50 | p95 | min–max | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Xvfb `BackendOpen` | 243,334 | — | — | one sample | 38,176 | 24 |
-| Xvfb `FirstFull` | 3,346,861 | — | — | one sample | 3,149,101 | 13 |
-| Xvfb `WarmFull` | 2,951,326 | 2.91 ms | 4.29 ms | 2.54–4.87 ms | 9,447,378 | 39 |
-| Xvfb `WarmRegion256` | 304,972 | 0.24 ms | 0.45 ms | 0.21–0.67 ms | 796,664 | 40 |
-| Sway `WarmFull` | 16,203,160 | 16.13 ms | 20.03 ms | 11.09–20.35 ms | 3,152,152 | 92 |
-| Sway `WarmRegion256` | 16,724,261 | 16.14 ms | 17.00 ms | 7.94–18.34 ms | 268,557 | 92 |
-| Sway `SessionFacadeWarmFull` | 16,409,166 | 16.43 ms | 20.88 ms | 9.95–21.11 ms | 3,152,824 | 100 |
-| Sway `FirstFull` | 17,887,491 | — | — | 3 operations | 3,182,466 | 496 |
-| Sway `OpenAndFirstFull` | 327,072,782 | — | — | 3 operations | 3,517,821 | 2,955 |
+| Xvfb `BackendOpen` | 407,129 | — | — | 386–412 µs (trial means) | 102,973 | 78 |
+| Xvfb `FirstFull` | 7,489,791 | — | — | 5.91–9.57 ms (trial means) | 9,447,304 | 39 |
+| Xvfb `OpenAndFirstFull` | 6,913,938 | — | — | 6.90–8.28 ms (trial means) | 9,550,912 | 118 |
+| Xvfb `WarmFull` | 8,236,400 | 7.54 ms | 11.19 ms | 4.28–15.25 ms | 9,447,304 | 39 |
+| Xvfb `WarmRegion256` | 1,207,819 | 1.20 ms | 1.74 ms | 0.41–1.99 ms | 796,552 | 39 |
+| Xvfb `WarmRegionLarge` | 7,541,666 | 8.40 ms | 11.22 ms | 4.60–11.70 ms | 8,857,480 | 39 |
+| Sway `WarmFull` | 15,865,135 | 16.38 ms | 17.19 ms | 12.65–19.70 ms | 3,152,152 | 92 |
+| Sway `WarmRegion256` | 15,810,737 | 16.05 ms | 16.58 ms | 14.76–16.94 ms | 268,557 | 92 |
+| Sway `WarmRegionLarge` | 15,724,487 | 16.32 ms | 16.96 ms | 10.94–20.90 ms | 2,955,544 | 92 |
+| Sway `SessionFacadeWarmFull` | 16,263,828 | 15.91 ms | 18.16 ms | 11.38–19.15 ms | 3,152,829 | 100 |
+| Sway `FirstFull` | 22,723,386 | — | — | 22.22–23.32 ms (trial means) | 3,184,432 | 528 |
+| Sway `OpenAndFirstFull` | 335,166,686 | — | — | 334.33–335.50 ms (trial means) | 3,510,754 | 3,009 |
 
-`BackendOpen` is a single X11 backend constructor sample; `FirstFull` excludes
-backend construction and measures only the first `Grab`. Sway
-`OpenAndFirstFull` includes managed headless session startup and the first
-backend `Grab`, while cleanup is outside the timer. These measurements do not
-include a real attended desktop or portal consent flow. No attended GNOME, KDE,
-or portal measurements were run, so permission-prompt behavior remains
-unknown. Do not treat these numbers as polling recommendations or as a
-cross-machine regression baseline.
+X11 `BackendOpen` times only `NewX11Backend`; Xvfb startup and backend close are
+outside the timer. `FirstFull` opens the backend outside the timed sample, while
+`OpenAndFirstFull` includes construction and the first `Grab`. The X11 full
+output was 1024×768. Region requests of 256×256 and 1024×720 returned bounds of
+(0,0)–(256,256) and (0,0)–(1024,720), respectively. The Sway full output was
+1024×768; its 256×256 and 1024×720 requests returned those same region
+dimensions. Sway `FirstFull` excludes session startup; its `OpenAndFirstFull`
+includes managed headless session startup and the first backend `Grab`, with
+cleanup outside the timer.
+
+No attended GNOME, KDE, or portal measurements were run, so prompt and consent
+behavior remains unknown. The full `just desktop-benchmark` wrapper did not
+complete on this host: its unrelated AT-SPI benchmark could not register an
+event family. The targeted X11 and Sway capture benchmarks above passed; the
+wrapper's baseline regression check therefore remains unverified here. These
+results describe only this host and these private compositor fixtures. Do not
+treat them as polling recommendations or as a cross-machine regression
+baseline.
 
 Never add screenshot files or raw pixel payloads to benchmark artifacts.
