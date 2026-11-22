@@ -18,6 +18,7 @@ import (
 )
 
 const captureBenchmarkReal = "PERFUNCTED_CAPTURE_BENCH_REAL"
+const captureSampleDeadline = 2 * time.Minute
 
 func reportCaptureDistribution(b *testing.B, d capturebench.Distribution) {
 	b.Helper()
@@ -32,6 +33,12 @@ func reportCaptureDistribution(b *testing.B, d capturebench.Distribution) {
 
 func captureEnvironment() string {
 	return fmt.Sprintf("go=%s os=%s/%s cpu=%d", runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU())
+}
+
+func collectX11CaptureSamples(sc capturebench.Screenshotter, rect image.Rectangle, count int) ([]time.Duration, image.Rectangle, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), captureSampleDeadline)
+	defer cancel()
+	return capturebench.Collect(ctx, sc, rect, count, time.Second)
 }
 
 // BenchmarkCaptureX11 measures direct Screenshotter.Grab calls against a
@@ -165,14 +172,13 @@ func BenchmarkCaptureX11(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			ctx := context.Background()
 			if variant.rect != (image.Rectangle{}) && (variant.rect.Max.X > w || variant.rect.Max.Y > h) {
 				b.Skipf("region %v exceeds output geometry %dx%d", variant.rect, w, h)
 			}
-			if _, _, err := capturebench.Collect(ctx, backend, variant.rect, 1, time.Second); err != nil {
+			if _, _, err := collectX11CaptureSamples(backend, variant.rect, 1); err != nil {
 				b.Fatalf("warmup capture: %v", err)
 			}
-			warmup, bounds, err := capturebench.Collect(ctx, backend, variant.rect, 50, time.Second)
+			warmup, bounds, err := collectX11CaptureSamples(backend, variant.rect, 50)
 			if err != nil {
 				b.Fatalf("warmup capture: %v", err)
 			}
@@ -185,7 +191,7 @@ func BenchmarkCaptureX11(b *testing.B) {
 			b.ResetTimer()
 			for b.Loop() {
 				b.StopTimer()
-				captureCtx, cancel := context.WithTimeout(ctx, time.Second)
+				captureCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				b.StartTimer()
 				img, err := backend.Grab(captureCtx, variant.rect)
 				captureErr := captureCtx.Err()
