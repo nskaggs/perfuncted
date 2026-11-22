@@ -46,8 +46,8 @@ jobs:
           } | tee benchmark-environment.txt
       - name: Run real desktop benchmarks
         run: |
-          go test -tags=desktopbench . -run '^$' \
-            -bench '^BenchmarkDesktop(OpenClose|RegionHash|InputClickType|WindowListActivate|AccessibilitySnapshot|AccessibilityAction)$' \
+          PERFUNCTED_CAPTURE_BENCH_REAL=1 go test -tags=desktopbench . -run '^$' \
+            -bench '^BenchmarkDesktop(OpenClose|RegionHash|Capture|InputClickType|WindowListActivate|AccessibilitySnapshot|AccessibilityAction)$' \
             -benchmem -benchtime=3x -count=3 -v | tee desktop-benchmarks.txt
       - name: Compare desktop benchmark distributions
         run: |

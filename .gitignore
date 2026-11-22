@@ -12,6 +12,7 @@ docs/
 !docs-cli/*.md
 !CONTRIBUTING.md
 !RELEASE.md
+!SCREENSHOT_CAPTURE_BENCHMARKS.md
 # Curated release bodies are part of the tagged source tree.
 !.github/release-notes/
 !.github/release-notes/*.md

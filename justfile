@@ -163,7 +163,7 @@ desktop-benchmark:
     @set -euo pipefail; \
       output=$(mktemp); \
       trap 'rm -f "$output"' EXIT; \
-      CGO_ENABLED=0 go test -tags=desktopbench . -run '^$' -bench '^BenchmarkDesktop(OpenClose|RegionHash|InputClickType|WindowListActivate|AccessibilitySnapshot|AccessibilityAction)$' -benchmem -benchtime=3x -count=3 -v | tee "$output"; \
+      PERFUNCTED_CAPTURE_BENCH_REAL=1 CGO_ENABLED=0 go test -tags=desktopbench . -run '^$' -bench '^BenchmarkDesktop(OpenClose|RegionHash|Capture|InputClickType|WindowListActivate|AccessibilitySnapshot|AccessibilityAction)$' -benchmem -benchtime=3x -count=3 -v | tee "$output"; \
       CGO_ENABLED=0 go run ./scripts/check_benchmark_regression -baseline benchmarks/desktop-baseline.txt -current "$output" -max-regression 0.50
 
 # Run unit tests (default alias)
