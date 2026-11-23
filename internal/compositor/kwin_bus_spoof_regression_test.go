@@ -24,19 +24,21 @@ func TestKWinDetectionRequiresExactBusServiceName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = proc.Process.Kill(); _ = proc.Wait() })
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var owner *dbus.Conn
+	var lastErr error
 	for ctx.Err() == nil {
 		var err error
 		owner, err = dbusutil.SessionBusAddressContext(ctx, address)
 		if err == nil {
 			break
 		}
+		lastErr = err
 		time.Sleep(5 * time.Millisecond)
 	}
 	if owner == nil {
-		t.Fatal("private D-Bus session not ready")
+		t.Fatalf("private D-Bus session not ready: %v", lastErr)
 	}
 	defer owner.Close()
 	reply, err := owner.RequestName("org.kde.KWinSpoof", dbus.NameFlagDoNotQueue)
