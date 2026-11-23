@@ -18,7 +18,7 @@ func TestKWinDetectionRequiresExactBusServiceName(t *testing.T) {
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("synthetic dbus-daemon unavailable")
 	}
-	address := "unix:path=" + filepath.Join(t.TempDir(), "bus")
+	address := "unix:path=" + filepath.Join(shortPrivateSocketDir(t), "bus")
 	proc := exec.Command("dbus-daemon", "--session", "--nofork", "--address="+address)
 	if err := proc.Start(); err != nil {
 		t.Fatal(err)
