@@ -159,6 +159,54 @@ pf a11y apps
 pf info
 ```
 
+### Wait for an accessible control
+
+Use a scoped semantic selector and an explicit timeout to wait for a control
+to appear, disappear, receive focus, become visible or enabled, or change its
+accessible value:
+
+```bash
+pf a11y wait --app Editor --role button --name Save --until enabled --timeout 5s
+pf a11y wait --window "Editor" --role status bar --name Status --until value-changed --timeout 10s --json
+```
+
+`--until` accepts `present`, `absent`, `focused`, `unfocused`, `visible`,
+`hidden`, `enabled`, `disabled`, and `value-changed`. Existing `--state` flags
+remain initial selector filters. Once the first unique control is resolved,
+the wait follows that same node identity while its state or value changes.
+Every condition uses fresh complete AT-SPI snapshots. Accessibility
+notifications only wake the wait; a new snapshot must confirm success. A
+timeout returns `context.DeadlineExceeded` in Go and a nonzero CLI result.
+Ambiguous matches, incomplete snapshots, unsupported value properties, and a
+lost application/window scope produce errors. `--visible-only` cannot prove
+absence or a hidden state and is rejected for those conditions.
+
+For `value-changed`, the first complete observation of the uniquely matched
+control is the baseline. The wait compares `AT-SPI Value.CurrentValue` when
+available, otherwise complete non-redacted accessible text. It does not infer
+changes from screenshots. `visible` follows the provider's AT-SPI VISIBLE
+state; it does not claim that a control is unobscured or physically on screen.
+Waits read accessibility data and do not request input or screenshot access.
+Sensitive values remain redacted unless `--allow-sensitive` is selected.
+
+The Go API uses the same bounded wait engine:
+
+```go
+locator := session.Accessibility.LocatorForApplication(
+    accessibility.ApplicationFilter{Name: "Editor"},
+    accessibility.Selector{Role: "button", Name: "Save"},
+    accessibility.SnapshotOptions{},
+)
+node, evidence, err := locator.WaitForState(ctx, perfuncted.AccessibilityWaitEnabled, 5*time.Second)
+```
+
+If two Save buttons match, the wait returns an ambiguity error rather than
+choosing one. If no unique target is available before the deadline, it returns
+a timeout; if the selected application or window changes during the wait, it
+returns `perfuncted.ErrManagedScopeChanged`. If the matched control disappears
+or is replaced before its state is observed, Go returns
+`perfuncted.ErrAccessibilityTargetChanged`.
+
 ### Build scripts
 
 Combine commands into repeatable workflows. Use `pf run` to execute a script

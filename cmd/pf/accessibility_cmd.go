@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted"
@@ -76,16 +77,9 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 }
 
 func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.Session) (accessibility.NodeID, error) {
-	managedWindowID := strings.TrimSpace(o.windowID)
-	if strings.TrimSpace(o.window) != "" {
-		managedWindow, err := pf.Windows.Find(ctx, perfuncted.WindowMatch{TitleExact: strings.TrimSpace(o.window)})
-		if err != nil {
-			return accessibility.NodeID{}, err
-		}
-		if managedWindowID != "" && managedWindow.ID().String() != managedWindowID {
-			return accessibility.NodeID{}, fmt.Errorf("accessibility: --window and --window-id identify different managed windows")
-		}
-		managedWindowID = managedWindow.ID().String()
+	managedWindowID, err := o.managedWindowID(ctx, pf)
+	if err != nil {
+		return accessibility.NodeID{}, err
 	}
 	// Preserve additional app/PID scope constraints even though the returned
 	// root is the selected window rather than its application.
@@ -103,6 +97,44 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 		return accessibility.NodeID{}, err
 	}
 	return scope.Root, nil
+}
+
+func (o accessibilityCLIOptions) managedWindowID(ctx context.Context, pf *perfuncted.Session) (string, error) {
+	managedWindowID := strings.TrimSpace(o.windowID)
+	if strings.TrimSpace(o.window) != "" {
+		managedWindow, err := pf.Windows.Find(ctx, perfuncted.WindowMatch{TitleExact: strings.TrimSpace(o.window)})
+		if err != nil {
+			return "", err
+		}
+		if managedWindowID != "" && managedWindow.ID().String() != managedWindowID {
+			return "", fmt.Errorf("accessibility: --window and --window-id identify different managed windows")
+		}
+		managedWindowID = managedWindow.ID().String()
+	}
+	if managedWindowID == "" {
+		return "", fmt.Errorf("accessibility: a managed window ID is required")
+	}
+	return managedWindowID, nil
+}
+
+func (o accessibilityCLIOptions) locator(ctx context.Context, pf *perfuncted.Session, selector accessibility.Selector) (*perfuncted.AccessibilityLocator, error) {
+	if o.hasWindowScope() {
+		managedWindowID, err := o.managedWindowID(ctx, pf)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
+			if _, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+				Name: strings.TrimSpace(o.appName), PID: o.pid, WindowID: managedWindowID,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		return pf.Accessibility.LocatorForWindow(managedWindowID, selector, o.snapshot()), nil
+	}
+	return pf.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{
+		Name: strings.TrimSpace(o.appName), PID: o.pid,
+	}, selector, o.snapshot()), nil
 }
 
 func (o accessibilityCLIOptions) snapshot() accessibility.SnapshotOptions {
@@ -175,10 +207,25 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		}
 		_, err := fmt.Fprintf(w, "action index=%d name=%q localized=%q mechanism=%s generation=%d\n", typed.Action.Index, typed.Action.Name, typed.Action.LocalizedName, typed.Mechanism, typed.Generation)
 		return err
+	case accessibilityWaitCLIResult:
+		if _, err := fmt.Fprintf(w, "wait state=%s satisfied=%t evaluations=%d wakeups=%d\n", typed.State, typed.Satisfied, typed.Evidence.Evaluations, typed.Evidence.Wakeups); err != nil {
+			return err
+		}
+		if typed.Node != nil {
+			return writeAccessibilityNode(w, *typed.Node, "target ")
+		}
+		return nil
 	default:
 		_, err := fmt.Fprintln(w, value)
 		return err
 	}
+}
+
+type accessibilityWaitCLIResult struct {
+	State     perfuncted.AccessibilityWaitState `json:"state"`
+	Satisfied bool                              `json:"satisfied"`
+	Node      *accessibility.Node               `json:"node,omitempty"`
+	Evidence  perfuncted.WaitEvidence           `json:"evidence"`
 }
 
 // writeAccessibilityOutline preserves incomplete-tree diagnostic evidence.
@@ -240,6 +287,24 @@ func addQueryFlags(cmd *cobra.Command, query *accessibility.Query, attributes *[
 	cmd.Flags().StringVar(&query.Text, "text", "", "accessible text substring")
 	cmd.Flags().StringArrayVar(&query.States, "state", nil, "required accessible state (repeatable)")
 	cmd.Flags().StringArrayVar(attributes, "attribute", nil, "required attribute key=value (repeatable)")
+}
+
+func parseAccessibilityWaitState(value string) (perfuncted.AccessibilityWaitState, error) {
+	state := perfuncted.AccessibilityWaitState(strings.ToLower(strings.TrimSpace(value)))
+	switch state {
+	case perfuncted.AccessibilityWaitPresent,
+		perfuncted.AccessibilityWaitAbsent,
+		perfuncted.AccessibilityWaitFocused,
+		perfuncted.AccessibilityWaitUnfocused,
+		perfuncted.AccessibilityWaitVisible,
+		perfuncted.AccessibilityWaitHidden,
+		perfuncted.AccessibilityWaitEnabled,
+		perfuncted.AccessibilityWaitDisabled,
+		perfuncted.AccessibilityWaitValueChanged:
+		return state, nil
+	default:
+		return "", fmt.Errorf("accessibility: unknown --until state %q", value)
+	}
 }
 
 func openAccessibilitySession(ctx context.Context, openPF sessionOpener) (*perfuncted.Session, error) {
@@ -345,6 +410,70 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	addScopeFlags(find, &findOpts)
 	addSnapshotFlags(find, &findOpts)
 	addQueryFlags(find, &findQuery, &findAttributes)
+
+	var waitOpts accessibilityCLIOptions
+	var waitQuery accessibility.Query
+	var waitAttributes []string
+	var waitUntil string
+	var waitTimeout, waitPoll time.Duration
+	wait := &cobra.Command{
+		Use:   "wait",
+		Short: "Wait for a scoped accessible control state",
+		Long:  "Wait for one uniquely matched accessible control using fresh complete snapshots. Notifications only wake the wait; they do not establish success. --state filters initial target selection, while --until names the state to wait for; after the first match, the wait follows that node identity. --timeout is required. --visible-only cannot be used to prove absence or a hidden state.",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			if err := waitOpts.requireScope(); err != nil {
+				return err
+			}
+			state, err := parseAccessibilityWaitState(waitUntil)
+			if err != nil {
+				return err
+			}
+			if waitTimeout <= 0 {
+				return fmt.Errorf("accessibility: --timeout must be positive")
+			}
+			if waitPoll < 0 {
+				return fmt.Errorf("accessibility: --poll must be nonnegative")
+			}
+			if waitOpts.visibleOnly && (state == perfuncted.AccessibilityWaitAbsent || state == perfuncted.AccessibilityWaitHidden) {
+				return fmt.Errorf("accessibility: --visible-only cannot prove absence or a hidden state")
+			}
+			pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, waitOpts)
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+
+			waitQuery.Attributes = parseAccessibilityAttributes(waitAttributes)
+			locator, err := waitOpts.locator(c.Context(), pf, accessibility.Selector{
+				Name: waitQuery.Name, Role: waitQuery.Role, Text: waitQuery.Text,
+				States: waitQuery.States, Attributes: waitQuery.Attributes,
+			})
+			if err != nil {
+				return err
+			}
+			var options []perfuncted.WaitOption
+			if waitPoll > 0 {
+				options = append(options, perfuncted.WaitEvery(waitPoll))
+			}
+			node, evidence, err := locator.WaitForState(c.Context(), state, waitTimeout, options...)
+			if err != nil {
+				return err
+			}
+			result := accessibilityWaitCLIResult{State: state, Satisfied: true, Evidence: evidence}
+			if state != perfuncted.AccessibilityWaitAbsent {
+				result.Node = &node
+			}
+			return accessibilityOutput(c.OutOrStdout(), waitOpts.json, result)
+		},
+	}
+	addJSONFlag(wait, &waitOpts.json)
+	addScopeFlags(wait, &waitOpts)
+	addSnapshotFlags(wait, &waitOpts)
+	addQueryFlags(wait, &waitQuery, &waitAttributes)
+	wait.Flags().StringVar(&waitUntil, "until", string(perfuncted.AccessibilityWaitPresent), "state to wait for: present, absent, focused, unfocused, visible, hidden, enabled, disabled, value-changed")
+	wait.Flags().DurationVar(&waitTimeout, "timeout", 0, "required maximum wait duration (e.g. 5s)")
+	wait.Flags().DurationVar(&waitPoll, "poll", 0, "fallback polling interval (defaults to the session interval)")
 
 	var focusedJSON bool
 	focused := &cobra.Command{Use: "focused", Short: "Show the currently focused accessible node", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
@@ -601,7 +730,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	raw.Flags().Int32Var(&rawPosition, "position", 0, "paste character position")
 	raw.Flags().Int32Var(&rawIndex, "index", 0, "child/row/column index")
 
-	cmd.AddCommand(apps, tree, find, focused, atPoint, events, action, focus, text, raw)
+	cmd.AddCommand(apps, tree, find, wait, focused, atPoint, events, action, focus, text, raw)
 	return cmd
 }
 

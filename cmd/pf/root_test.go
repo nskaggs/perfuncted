@@ -170,6 +170,7 @@ func TestCLICommandTreeIncludesUniqueFeatures(t *testing.T) {
 		{"a11y", "apps"},
 		{"a11y", "tree"},
 		{"a11y", "find"},
+		{"a11y", "wait"},
 		{"a11y", "focused"},
 		{"a11y", "at-point"},
 		{"a11y", "events"},

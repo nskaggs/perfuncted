@@ -32,4 +32,5 @@ Inspect and operate the AT-SPI accessibility tree
 * [pf a11y raw](pf_a11y_raw.md)	 - Invoke one typed AT-SPI primitive with an explicit handle
 * [pf a11y text](pf_a11y_text.md)	 - Resolve one editable semantic node and replace its text
 * [pf a11y tree](pf_a11y_tree.md)	 - Capture a bounded tree for one application or managed window
+* [pf a11y wait](pf_a11y_wait.md)	 - Wait for a scoped accessible control state
 

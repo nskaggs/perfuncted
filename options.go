@@ -30,8 +30,11 @@ var (
 	// ErrSessionClosed is returned when starting work on a closed Session.
 	ErrSessionClosed = errors.New("session is closed")
 	// ErrManagedScopeChanged means the managed window or application selected
-	// for a locator changed identity before its action could be dispatched.
+	// for a locator changed identity during an operation.
 	ErrManagedScopeChanged = errors.New("managed accessibility scope changed")
+	// ErrAccessibilityTargetChanged means a target pinned by an accessibility
+	// wait disappeared or was replaced before its requested state was observed.
+	ErrAccessibilityTargetChanged = errors.New("accessible target identity changed")
 )
 
 // Capability identifies a category of desktop automation operations.

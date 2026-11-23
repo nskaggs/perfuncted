@@ -172,8 +172,16 @@ func locatorObservationReady(stream <-chan accessibility.Event) error {
 	}
 }
 
-//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
 func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, locatorIdentity, accessibility.NodeID, context.CancelFunc, error) {
+	return l.findTarget(ctx, nil)
+}
+
+// findTarget resolves the locator selector until a wait pins a target. Later
+// reads can then follow the exact node identity even when a waited-on state,
+// accessible value, or other selector property changes.
+//
+//nolint:gocyclo // This protocol boundary explicitly handles distinct safety and error cases.
+func (l *AccessibilityLocator) findTarget(ctx context.Context, targetID *accessibility.NodeID) ([]accessibility.Node, locatorIdentity, accessibility.NodeID, context.CancelFunc, error) {
 	if l == nil || l.bundle == nil {
 		return nil, locatorIdentity{}, accessibility.NodeID{}, nil, ErrUnavailable
 	}
@@ -250,11 +258,27 @@ func (l *AccessibilityLocator) find(ctx context.Context) ([]accessibility.Node, 
 				return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", errors.Join(observationErr, readErr))
 			}
 			if readErr == nil {
-				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, l.selector); incomplete != nil {
+				validationSelector := l.selector
+				if targetID != nil {
+					// The selector established identity on the first match. After
+					// that, validate the complete tree and resolve the same handle
+					// so a requested state/value transition cannot filter it away.
+					validationSelector = accessibility.Selector{}
+				}
+				if incomplete := accessibility.ValidateSemanticSnapshot(snapshot, validationSelector); incomplete != nil {
 					stopObservation()
 					return nil, identity, accessibility.NodeID{}, nil, l.bundle.operationError("find", incomplete)
 				}
-				matches := accessibility.FilterSnapshotSelector(snapshot, l.selector)
+				var matches []accessibility.Node
+				if targetID == nil {
+					matches = accessibility.FilterSnapshotSelector(snapshot, l.selector)
+				} else {
+					for _, node := range snapshot.Nodes {
+						if node.ID == *targetID {
+							matches = append(matches, node)
+						}
+					}
+				}
 				if observationErr := locatorObservationReady(stream); observationErr != nil {
 					stopObservation()
 					return nil, locatorIdentity{}, accessibility.NodeID{}, nil, l.bundle.operationError("find", observationErr)
@@ -313,26 +337,7 @@ func (l *AccessibilityLocator) Resolve(ctx context.Context) (accessibility.Node,
 // Wait resolves this locator after each authoritative wake or bounded poll.
 // Absence is transient; ambiguity and incomplete provider state fail closed.
 func (l *AccessibilityLocator) Wait(ctx context.Context, options ...WaitOption) (accessibility.Node, WaitEvidence, error) {
-	if l == nil || l.bundle == nil || l.bundle.session == nil {
-		return accessibility.Node{}, WaitEvidence{}, ErrUnavailable
-	}
-	var matched accessibility.Node
-	condition := sessionCondition("accessibility locator", func(ctx context.Context, _ *Session) (bool, error) {
-		node, err := l.Resolve(ctx)
-		if errors.Is(err, accessibility.ErrNotFound) {
-			return false, nil
-		}
-		if err != nil {
-			if errors.Is(err, accessibility.ErrAmbiguous) || errors.Is(err, accessibility.ErrIncompleteSnapshot) || errors.Is(err, accessibility.ErrScope) || errors.Is(err, ErrManagedScopeChanged) {
-				return false, errors.Join(errLocatorUnverifiable, err)
-			}
-			return false, err
-		}
-		matched = node
-		return true, nil
-	})
-	evidence, err := l.bundle.session.WaitWithEvidence(ctx, condition, options...)
-	return matched, evidence, err
+	return l.waitForState(ctx, AccessibilityWaitPresent, options...)
 }
 
 // InvokeActionAndWait resolves one current target, dispatches one semantic
