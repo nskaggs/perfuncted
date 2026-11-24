@@ -302,7 +302,7 @@ func TestMockXI2ListenersRejectInvalidAndCanceled(t *testing.T) {
 	if _, err := backend.Listen(context.Background(), ObservationFilter{Button: 1}); !errors.Is(err, ErrObservationRevoked) {
 		t.Fatal(err)
 	}
-	if ops := backend.SupportedOperations(); len(ops) != 2 {
+	if ops := backend.SupportedOperations(); len(ops) != 5 {
 		t.Fatalf("operations %v", ops)
 	}
 }

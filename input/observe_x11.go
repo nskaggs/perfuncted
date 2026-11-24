@@ -18,6 +18,7 @@ type x11Observer struct {
 	mu            sync.Mutex
 	closed        bool
 	subscriptions map[*observationSubscription]struct{}
+	stateConns    map[*xgb.Conn]struct{}
 }
 
 func openX11Observer(ctx context.Context, display string) (*x11Observer, error) {
@@ -30,10 +31,13 @@ func openX11Observer(ctx context.Context, display string) (*x11Observer, error) 
 	}
 	_ = opcode
 	conn.Abort()
-	return &x11Observer{display: display, subscriptions: make(map[*observationSubscription]struct{})}, nil
+	return &x11Observer{
+		display: display, subscriptions: make(map[*observationSubscription]struct{}),
+		stateConns: make(map[*xgb.Conn]struct{}),
+	}, nil
 }
 func (b *x11Observer) SupportedOperations() []string {
-	return []string{"listen-hotkey", "listen-button"}
+	return []string{"listen-hotkey", "listen-button", "query-key-state", "query-lock-state", "query-button-state"}
 }
 func (b *x11Observer) Close() error {
 	b.mu.Lock()
@@ -46,7 +50,14 @@ func (b *x11Observer) Close() error {
 	for s := range b.subscriptions {
 		subs = append(subs, s)
 	}
+	stateConns := make([]*xgb.Conn, 0, len(b.stateConns))
+	for conn := range b.stateConns {
+		stateConns = append(stateConns, conn)
+	}
 	b.mu.Unlock()
+	for _, conn := range stateConns {
+		conn.Abort()
+	}
 	for _, s := range subs {
 		s.finish(ErrObservationRevoked)
 	}

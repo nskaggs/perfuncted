@@ -39,6 +39,7 @@ Mouse and keyboard injection
 * [pf input move-relative](pf_input_move-relative.md)	 - Move pointer relative to its compositor-reported position
 * [pf input scroll](pf_input_scroll.md)	 - Scroll the mouse wheel
 * [pf input select-file](pf_input_select-file.md)	 - Select a local file in an existing native file picker, preserving clipboard
+* [pf input state](pf_input_state.md)	 - Query one current key, lock, or mouse-button state
 * [pf input sync](pf_input_sync.md)	 - Synchronize the input backend with the compositor
 * [pf input type](pf_input_type.md)	 - Type a string or send keys (e.g. {enter}, {ctrl+s})
 * [pf input type-literal](pf_input_type-literal.md)	 - Type text literally without interpreting key syntax

@@ -135,7 +135,7 @@ func (b *bundleBase) operationError(operation string, err error) error {
 	if errors.Is(err, input.ErrObservationUnsupported) || errors.Is(err, input.ErrNotSupported) || errors.Is(err, window.ErrNotSupported) || errors.Is(err, accessibility.ErrUnsupported) || errors.Is(err, accessibility.ErrUnsupportedCorrelation) {
 		err = errors.Join(ErrUnsupported, err)
 	}
-	if errors.Is(err, input.ErrInvalidObservationFilter) || errors.Is(err, window.ErrInvalidArgument) {
+	if errors.Is(err, input.ErrInvalidObservationFilter) || errors.Is(err, input.ErrInvalidStateQuery) || errors.Is(err, window.ErrInvalidArgument) {
 		err = errors.Join(ErrInvalidArgument, err)
 	}
 	var unsupported capability.UnsupportedError

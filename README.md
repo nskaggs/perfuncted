@@ -124,6 +124,32 @@ cross-focus acceptance on a native Xorg desktop remains unverified, so issue
 and unknown sessions return explicit unsupported. Neither persistent
 authorization nor privileged device access is requested.
 
+### On-demand key and mouse state (issue #139)
+
+The optional input-observation capability also supports single, read-only
+state queries. On native X11 with XI2, key and button results are aggregate
+logical server state; XTest or other synthetic input can contribute, so
+`provenance` is `unknown`. The command does not infer state from earlier
+Perfuncted actions, record a key history, or request root/evdev access.
+Wayland and XWayland return unsupported because they do not grant this global
+state query through the current backend.
+
+```sh
+pf input state --key shift
+pf input state --lock capslock
+pf input state --button left
+```
+
+Lock-key held state (for example, `--key capslock`) is distinct from the
+enabled mode (`--lock capslock`). The X11 backend can query Caps Lock, Num Lock
+and Scroll Lock when the current modifier map identifies an unambiguous lock
+bit; unmapped or ambiguous lock states return unsupported.
+The Go equivalent is `Session.InputObservation.KeyState`, `LockState` or
+`MouseButtonState`; check `errors.Is(err, perfuncted.ErrUnsupported)` when the
+selected session cannot observe global state. Successful queries include an
+observation timestamp and provider so callers can distinguish a current X11
+read from state inferred from earlier automation.
+
 Subscriptions have a fixed 64-event queue; overflow ends the subscription
 with a terminal `ErrObservationLoss` rather than silently dropping key-up
 history. Cancellation, source disconnection and Session.Close retire

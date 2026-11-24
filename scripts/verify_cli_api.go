@@ -276,6 +276,9 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 			// The group is not an executable; hotkey-listen belongs to the separate
 			// optional InputObservationBundle, checked explicitly above.
 			"hotkey": true,
+			// State queries use the optional InputObservationBundle rather than
+			// the injection-only InputBundle methods.
+			"state": true,
 			// Coordinate verification and file-selection helpers compose multiple APIs.
 			"click-screen": true,
 			"click-window": true,
@@ -329,6 +332,17 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 					m, methodErr := methodsForType(perfPkg, "InputObservationBundle")
 					if methodErr != nil || !slices.Contains(m, "Listen") {
 						missingInAPI = append(missingInAPI, "docs-cli: input hotkey-listen (missing InputObservationBundle.Listen)")
+					}
+				}
+				continue
+			}
+			if grp == "input" && cmd == "state" {
+				if perfPkg.Types.Scope().Lookup("InputObservationBundle") != nil {
+					m, methodErr := methodsForType(perfPkg, "InputObservationBundle")
+					for _, required := range []string{"KeyState", "LockState", "MouseButtonState"} {
+						if methodErr != nil || !slices.Contains(m, required) {
+							missingInAPI = append(missingInAPI, "docs-cli: input state (missing InputObservationBundle."+required+")")
+						}
 					}
 				}
 				continue
@@ -397,6 +411,11 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 		m, err := methodsForType(perfPkg, "InputObservationBundle")
 		if err != nil || !slices.Contains(m, "Listen") || !docs["input"]["hotkey-listen"] {
 			missingInCLI = append(missingInCLI, "api-only: input-observation.Listen (requires input hotkey listen)")
+		}
+		for _, required := range []string{"KeyState", "LockState", "MouseButtonState"} {
+			if err != nil || !slices.Contains(m, required) || !docs["input"]["state"] {
+				missingInCLI = append(missingInCLI, "api-only: input-observation."+required+" (requires input state)")
+			}
 		}
 	}
 	if len(missingInAPI) == 0 && len(missingInCLI) == 0 {

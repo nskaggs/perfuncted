@@ -720,6 +720,7 @@ func inputCmd(
 	cmd.AddCommand(sync)
 
 	if openInputObserver != nil {
+		cmd.AddCommand(inputStateCmd(openInputObserver))
 		cmd.AddCommand(inputHotkeyCmd(openInputObserver))
 	}
 
