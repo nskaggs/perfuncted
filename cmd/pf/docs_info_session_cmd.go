@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nskaggs/perfuncted"
@@ -202,6 +203,7 @@ func sessionCmdWithCleaner(cleanStaleSessions func(context.Context, time.Duratio
 		sessionStartCmd(),
 		sessionCleanupCmd(cleanStaleSessions),
 	)
+	cmd.AddCommand(namedCommands()...)
 	return cmd
 }
 
@@ -340,7 +342,7 @@ func sessionStartCmd() *cobra.Command {
 // isolated test session, without starting an actual desktop compositor.
 func sessionStartCmdWithOpener(open func(context.Context, ...perfuncted.Option) (*perfuncted.Session, error)) *cobra.Command {
 	var startResX, startResY int
-	var startSwayConf string
+	var startSwayConf, startName string
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a headless sway session and print env vars",
@@ -348,12 +350,14 @@ func sessionStartCmdWithOpener(open func(context.Context, ...perfuncted.Option) 
 		Long: `Start a new isolated headless sway session (dbus, sway, wl-paste)
 and print the environment variables needed to connect to it.
 
-The session runs until this process is interrupted (Ctrl+C) or killed.
-Use the printed env vars in another terminal to connect:
-
-  eval $(pf session start)
-  kwrite /tmp/test.txt &
-  pf screen grab --out /tmp/shot.png`,
+The session remains foreground until interrupted or stopped by name.
+Start in one terminal: pf session start --name example
+In another: eval "$(pf session attach example)"
+Then run desktop commands or pf session stop example.
+Named sessions are same-user only. Use pf session recover NAME for a
+stale reservation after its owner exits, including interrupted publication;
+this removes only validated registry artifacts, not desktop processes.
+Use session cleanup for orphaned runtimes.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := perfuncted.SessionConfig{}
 			if startResX > 0 && startResY > 0 {
@@ -361,12 +365,45 @@ Use the printed env vars in another terminal to connect:
 			}
 			cfg.SwayConfigPath = startSwayConf
 
-			session, err := open(cmd.Context(), perfuncted.WithHeadless(cfg))
+			ctx := cmd.Context()
+			var cancel context.CancelFunc
+			var finished chan error
+			var served chan struct{}
+			var owner *namedOwner
+			if startName != "" {
+				ctx, cancel = context.WithCancel(ctx)
+				defer cancel()
+				var err error
+				owner, err = namedReserve(startName)
+				if err != nil {
+					return err
+				}
+				defer owner.close()
+			}
+			session, err := open(ctx, perfuncted.WithHeadless(cfg))
 			if err != nil {
 				return err
 			}
-			defer session.Close()
+			closeSession := sync.OnceValue(session.Close)
+			defer closeSession()
 			runtime := diagnostic.EnvironmentMap(session.Env())
+			if owner != nil {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if err := owner.publish(); err != nil {
+					return err
+				}
+				finished = make(chan error, 1)
+				served = make(chan struct{})
+				go func() { defer close(served); owner.serve(ctx, namedSafeEnv(runtime), cancel, finished) }()
+				defer func() {
+					cancel()
+					finished <- closeSession()
+					_ = owner.listener.Close()
+					<-served
+				}()
+			}
 			if err := writeCLIOutput(cmd.OutOrStdout(), "export XDG_RUNTIME_DIR=%s\n", runtime["XDG_RUNTIME_DIR"]); err != nil {
 				return err
 			}
@@ -382,16 +419,17 @@ Use the printed env vars in another terminal to connect:
 			if err := writeCLIMessage(cmd.ErrOrStderr(), "session: press Ctrl+C to stop"); err != nil {
 				return err
 			}
-			<-cmd.Context().Done()
+			<-ctx.Done()
 			if err := writeCLIMessage(cmd.ErrOrStderr(), "\nsession: stopping..."); err != nil {
 				return err
 			}
-			if err := session.Close(); err != nil {
+			if err := closeSession(); err != nil {
 				return err
 			}
 			return writeCLIMessage(cmd.ErrOrStderr(), "session: stopped")
 		},
 	}
+	cmd.Flags().StringVar(&startName, "name", "", "reserve a named foreground session for same-user attach and stop")
 	cmd.Flags().IntVar(&startResX, "res-x", 1024, "horizontal resolution")
 	cmd.Flags().IntVar(&startResY, "res-y", 768, "vertical resolution")
 	cmd.Flags().StringVar(&startSwayConf, "sway-config", "", "path to custom sway config (default: embedded)")

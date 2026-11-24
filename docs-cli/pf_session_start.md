@@ -7,12 +7,14 @@ Start a headless sway session and print env vars
 Start a new isolated headless sway session (dbus, sway, wl-paste)
 and print the environment variables needed to connect to it.
 
-The session runs until this process is interrupted (Ctrl+C) or killed.
-Use the printed env vars in another terminal to connect:
-
-  eval $(pf session start)
-  kwrite /tmp/test.txt &
-  pf screen grab --out /tmp/shot.png
+The session remains foreground until interrupted or stopped by name.
+Start in one terminal: pf session start --name example
+In another: eval "$(pf session attach example)"
+Then run desktop commands or pf session stop example.
+Named sessions are same-user only. Use pf session recover NAME for a
+stale reservation after its owner exits, including interrupted publication;
+this removes only validated registry artifacts, not desktop processes.
+Use session cleanup for orphaned runtimes.
 
 ```
 pf session start [flags]
@@ -22,6 +24,7 @@ pf session start [flags]
 
 ```
   -h, --help                 help for start
+      --name string          reserve a named foreground session for same-user attach and stop
       --res-x int            horizontal resolution (default 1024)
       --res-y int            vertical resolution (default 768)
       --sway-config string   path to custom sway config (default: embedded)
