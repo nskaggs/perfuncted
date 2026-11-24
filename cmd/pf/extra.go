@@ -69,6 +69,7 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 }
 
 type scriptRunner struct {
+	lifecycle       *workflowLifecycle
 	ctx             context.Context //nolint:containedctx // runner owns command context
 	in              io.Reader
 	out             io.Writer
@@ -124,7 +125,18 @@ func runCmd(
 	return cmd
 }
 
-func (s *scriptRunner) run(r io.Reader) error {
+func (s *scriptRunner) run(r io.Reader) (runErr error) {
+	originalCtx := s.ctx
+	if s.lifecycle == nil {
+		s.lifecycle = newWorkflowLifecycle(s.ctx)
+	}
+	lifecycle := s.lifecycle
+	s.ctx = lifecycle.ctx
+	defer func() {
+		runErr = lifecycle.finish(runErr)
+		s.ctx = originalCtx
+		s.lifecycle = nil
+	}()
 	// Use a single buffered reader for script lines and any subsequent
 	// input type --stdin payload. A Scanner can prefetch the remaining stdin
 	// into its private buffer, leaving io.ReadAll(s.in) with no bytes.
@@ -158,6 +170,9 @@ func (s *scriptRunner) run(r io.Reader) error {
 		}
 		if len(toks) == 0 {
 			continue
+		}
+		if err := s.lifecycle.checkpoint(); err != nil {
+			return err
 		}
 		if err := s.exec(lineNo, toks); err != nil {
 			return err
