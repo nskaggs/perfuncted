@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"image"
-	"io"
 	"testing"
 
 	"github.com/nskaggs/perfuncted"
@@ -22,12 +21,21 @@ func BenchmarkWatchPixelFrameFullHD(b *testing.B) {
 		crops := []image.Rectangle{image.Rect(100, 100, 132, 132), image.Rect(160, 140, 192, 172), image.Rect(1800, 20, 1864, 36)}
 		frame := watchChangeFrame{GeometryVersion: 1}
 		ctx := context.Background()
+		var wire benchmarkWireCounter
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			if err := writeWatchPixelFrame(ctx, io.Discard, frame, capture, crops, watchPixelFrameLimit); err != nil {
+			if err := writeWatchPixelFrame(ctx, &wire, frame, capture, crops, watchPixelFrameLimit); err != nil {
 				b.Fatal(err)
 			}
 		}
+		b.ReportMetric(float64(wire)/float64(b.N), "wire-B/frame")
 	})
+}
+
+type benchmarkWireCounter int64
+
+func (c *benchmarkWireCounter) Write(p []byte) (int, error) {
+	*c += benchmarkWireCounter(len(p))
+	return len(p), nil
 }
