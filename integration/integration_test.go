@@ -380,6 +380,9 @@ func TestIntegration(t *testing.T) {
 	t.Run(string(s.mode), func(t *testing.T) {
 		t.Run("probe", func(t *testing.T) { runProbe(t, s) })
 		t.Run("screen", func(t *testing.T) { runScreenSmoke(t, s) })
+		if s.mode == displayHeadlessWayland {
+			t.Run("screen-watch", func(t *testing.T) { runScreenWatchSmoke(t, s) })
+		}
 		for _, app := range requiredApps(t) {
 			app := app
 			if app.isBrowser {
