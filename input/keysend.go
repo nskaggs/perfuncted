@@ -60,6 +60,26 @@ func parseKeySend(input string) ([]keySend, error) {
 	return parseKeySendContext(context.Background(), input)
 }
 
+// ValidateWorkflowKeySend rejects explicit key holds in controlled workflows.
+// A sequence can be interrupted after key-down and before key-up, so even a
+// syntactically balanced sequence is unsafe when stop can cancel its operation.
+// Atomic chords remain supported because each backend owns their cleanup.
+func ValidateWorkflowKeySend(ctx context.Context, sequence string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	actions, err := parseKeySendContext(ctx, sequence)
+	if err != nil {
+		return err
+	}
+	for _, action := range actions {
+		if action.down || action.up {
+			return errors.New("input: explicit key holds are not supported in controlled workflows; use an atomic key chord")
+		}
+	}
+	return ctx.Err()
+}
+
 func parseKeySendContext(ctx context.Context, input string) ([]keySend, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

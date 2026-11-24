@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -69,26 +70,48 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 }
 
 type scriptRunner struct {
-	lifecycle       *workflowLifecycle
-	ctx             context.Context //nolint:containedctx // runner owns command context
-	in              io.Reader
-	out             io.Writer
-	pf              *perfuncted.Session
-	selectedWindow  *perfuncted.Window
-	sync            bool
-	scriptFromStdin bool
+	lifecycle         *workflowLifecycle
+	externalLifecycle bool
+	ctx               context.Context //nolint:containedctx // runner owns command context
+	in                io.Reader
+	out               io.Writer
+	pf                *perfuncted.Session
+	selectedWindow    *perfuncted.Window
+	sync              bool
+	scriptFromStdin   bool
 }
 
 func runCmd(
 	openPF sessionOpener,
 	cfg *cliConfig,
 ) *cobra.Command {
+	var workflowID string
 	cmd := &cobra.Command{
 		Use:   "run FILE",
 		Short: "Run CLI commands from a script file or stdin",
-		Args:  cobra.ExactArgs(1),
+		Long: `Run CLI commands from a script file or stdin.
+
+Use --workflow-id to expose same-user pause, resume, stop, and status controls:
+
+  pf run task.pf --workflow-id task-1
+  pf workflow pause task-1
+  pf workflow status task-1 --output json
+  pf workflow resume task-1
+  pf workflow stop task-1
+
+Pause takes effect between script commands; a command already in progress may
+finish before status becomes paused. Stop cancels the run context and closes
+its Session so owned input cleanup can finish. Stop cannot undo application
+changes that already happened. Controlled runs require a script file, reject
+input type --stdin and explicit key-down/key-up syntax; atomic key chords remain
+available. A crash can make the live state unavailable until the stale private
+control record is safely recovered by starting another run with the same ID.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := args[0]
+			if workflowID != "" && path == "-" {
+				return errors.New("workflow controls require a script file; stdin cannot be interrupted while waiting for the next line")
+			}
 			var r io.Reader
 			if path == "-" {
 				r = cmd.InOrStdin()
@@ -106,22 +129,48 @@ func runCmd(
 				defer f.Close()
 				r = f
 			}
-			pf, err := openPF(cmd.Context())
+			var lifecycle *workflowLifecycle
+			var control *workflowControl
+			var err error
+			runCtx := cmd.Context()
+			if workflowID != "" {
+				lifecycle = newWorkflowLifecycle(cmd.Context())
+				lifecycle.id = workflowID
+				control, err = startWorkflowControl(lifecycle)
+				if err != nil {
+					lifecycle.cancel()
+					return err
+				}
+				defer lifecycle.cancel()
+				runCtx = lifecycle.ctx
+			}
+			pf, err := openPF(runCtx)
 			if err != nil {
+				if lifecycle != nil {
+					return errors.Join(lifecycle.finish(err), control.close())
+				}
 				return err
 			}
-			defer pf.Close()
 			sr := &scriptRunner{
-				ctx:             cmd.Context(),
-				in:              cmd.InOrStdin(),
-				out:             cmd.OutOrStdout(),
-				pf:              pf,
-				sync:            cfg != nil && cfg.sync,
-				scriptFromStdin: path == "-",
+				lifecycle:         lifecycle,
+				externalLifecycle: lifecycle != nil,
+				ctx:               runCtx,
+				in:                cmd.InOrStdin(),
+				out:               cmd.OutOrStdout(),
+				pf:                pf,
+				sync:              cfg != nil && cfg.sync,
+				scriptFromStdin:   path == "-",
 			}
-			return sr.run(r)
+			runErr := sr.run(r)
+			closeErr := pf.Close()
+			if lifecycle != nil {
+				finalErr := lifecycle.finish(errors.Join(runErr, closeErr))
+				return errors.Join(finalErr, control.close())
+			}
+			return runErr
 		},
 	}
+	cmd.Flags().StringVar(&workflowID, "workflow-id", "", "explicit ID for same-user workflow control")
 	return cmd
 }
 
@@ -133,7 +182,9 @@ func (s *scriptRunner) run(r io.Reader) (runErr error) {
 	lifecycle := s.lifecycle
 	s.ctx = lifecycle.ctx
 	defer func() {
-		runErr = lifecycle.finish(runErr)
+		if !s.externalLifecycle {
+			runErr = lifecycle.finish(runErr)
+		}
 		s.ctx = originalCtx
 		s.lifecycle = nil
 	}()
@@ -144,6 +195,7 @@ func (s *scriptRunner) run(r io.Reader) (runErr error) {
 	if s.scriptFromStdin {
 		s.in = reader
 	}
+	step := 0
 	for lineNo := 1; ; lineNo++ {
 		lineBytes, readErr := reader.ReadSlice('\n')
 		if errors.Is(readErr, io.EOF) && len(lineBytes) == 0 {
@@ -171,12 +223,17 @@ func (s *scriptRunner) run(r io.Reader) (runErr error) {
 		if len(toks) == 0 {
 			continue
 		}
+		step++
+		s.lifecycle.beginStep(step, "waiting")
 		if err := s.lifecycle.checkpoint(); err != nil {
 			return err
 		}
+		s.lifecycle.beginStep(step, "running")
 		if err := s.exec(lineNo, toks); err != nil {
+			s.lifecycle.beginStep(step, "failed")
 			return err
 		}
+		s.lifecycle.completeStep(step)
 	}
 }
 
@@ -509,11 +566,19 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 			}
 		}
 		if stdin {
+			if s.externalLifecycle {
+				return errors.New("input type --stdin is not available with workflow controls because stream reads cannot be interrupted")
+			}
 			b, err := io.ReadAll(s.in)
 			if err != nil {
 				return err
 			}
 			text = string(b)
+		}
+		if s.externalLifecycle {
+			if err := input.ValidateWorkflowKeySend(s.ctx, text); err != nil {
+				return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
+			}
 		}
 		if err := s.pf.Input.Type(s.ctx, text); err != nil {
 			return err

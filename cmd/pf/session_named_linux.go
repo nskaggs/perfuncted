@@ -333,7 +333,7 @@ func namedRecover(root *os.File, name string) error {
 	for _, entry := range entries {
 		var kind uint32
 		switch entry {
-		case "record", "record.tmp":
+		case "record", "record.tmp", "status", "status.tmp":
 			kind = unix.S_IFREG
 		case "control":
 			kind = unix.S_IFSOCK
@@ -362,10 +362,19 @@ func namedRecover(root *os.File, name string) error {
 		if start, err := strconv.ParseUint(rec.Start, 10, 64); err != nil || start == 0 {
 			return errors.New("invalid owner start identity")
 		}
+		terminalStatus := false
+		if _, hasStatus := artifacts["status"]; hasStatus {
+			if _, hasControl := artifacts["control"]; !hasControl {
+				_, statusErr := workflowReadTerminalStatus(dir, name)
+				terminalStatus = statusErr == nil
+			}
+		}
 		start, err := namedProcStart(rec.PID)
 		if err == nil {
 			if start == rec.Start {
-				return errors.New("session owner still live")
+				if !terminalStatus {
+					return errors.New("session owner still live")
+				}
 			}
 			// A different valid start time proves the recorded owner is gone.
 			// Recovery only unlinks validated registry artifacts, not processes.

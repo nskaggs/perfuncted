@@ -125,6 +125,35 @@ func TestParseKeySend_HoldAndRelease(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowKeySend(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sequence string
+		wantErr  bool
+	}{
+		{name: "literal text", sequence: "hello"},
+		{name: "atomic chord", sequence: "{ctrl+s}"},
+		{name: "explicit balanced hold", sequence: "{ctrl down}v{ctrl up}", wantErr: true},
+		{name: "unreleased key", sequence: "{ctrl down}", wantErr: true},
+		{name: "unowned release", sequence: "{ctrl up}", wantErr: true},
+		{name: "invalid sequence", sequence: "{invalid+}", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateWorkflowKeySend(context.Background(), tc.sequence); (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateWorkflowKeySend(%q) error = %v, want error %v", tc.sequence, err, tc.wantErr)
+			}
+		})
+	}
+	if err := ValidateWorkflowKeySend(nil, "{ctrl+s}"); err != nil {
+		t.Fatalf("nil context: %v", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := ValidateWorkflowKeySend(canceled, "a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled context: got %v, want context canceled", err)
+	}
+}
+
 func TestParseKeySend_Errors(t *testing.T) {
 	cases := []struct {
 		name  string

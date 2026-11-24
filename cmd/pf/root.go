@@ -217,6 +217,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		outputCmd(outputOpen),
 		findCmd(screenOpen),
 		runCmd(runOpen, cfg),
+		workflowCmd(),
 		clipboardCmd(clipboardOpen),
 		accessibilityCmd(accessibilityOpen, accessibilityWindowOpen),
 		infoCmd(infoOpen),

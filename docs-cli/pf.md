@@ -30,4 +30,5 @@ perfuncted — screen automation CLI
 * [pf session](pf_session.md)	 - Session diagnostics and utilities
 * [pf version](pf_version.md)	 - Print version information
 * [pf window](pf_window.md)	 - Window management
+* [pf workflow](pf_workflow.md)	 - Control an active same-user script
 

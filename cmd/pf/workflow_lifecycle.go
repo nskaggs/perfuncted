@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"sync"
 )
 
@@ -22,12 +23,25 @@ const (
 // workflowLifecycle belongs to one runner. The checkpoint is the dispatch
 // linearization point: a command admitted before pause/stop is in flight.
 type workflowLifecycle struct {
-	id      string
-	ctx     context.Context //nolint:containedctx // owns the run cancellation context
-	cancel  context.CancelFunc
-	mu      sync.Mutex
-	state   workflowState
-	changed chan struct{}
+	id                string
+	ctx               context.Context //nolint:containedctx // owns the run cancellation context
+	cancel            context.CancelFunc
+	mu                sync.Mutex
+	state             workflowState
+	changed           chan struct{}
+	lastCompletedStep int
+	currentStep       int
+	currentStepPhase  string
+	terminalError     string
+}
+
+type workflowStatus struct {
+	ID                string        `json:"id"`
+	State             workflowState `json:"state"`
+	LastCompletedStep int           `json:"last_completed_step"`
+	CurrentStep       int           `json:"current_step,omitempty"`
+	CurrentStepPhase  string        `json:"current_step_phase,omitempty"`
+	TerminalError     string        `json:"terminal_error,omitempty"`
 }
 
 func newWorkflowLifecycle(parent context.Context) *workflowLifecycle {
@@ -43,6 +57,52 @@ func (w *workflowLifecycle) snapshot() (string, workflowState, <-chan struct{}) 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.id, w.state, w.changed
+}
+
+func (w *workflowLifecycle) status() workflowStatus {
+	status, _ := w.statusAndChange()
+	return status
+}
+
+func (w *workflowLifecycle) statusAndChange() (workflowStatus, <-chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return workflowStatus{
+		ID:                w.id,
+		State:             w.state,
+		LastCompletedStep: w.lastCompletedStep,
+		CurrentStep:       w.currentStep,
+		CurrentStepPhase:  w.currentStepPhase,
+		TerminalError:     w.terminalError,
+	}, w.changed
+}
+
+func (w *workflowLifecycle) beginStep(step int, phase string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.currentStep = step
+	w.currentStepPhase = phase
+}
+
+func (w *workflowLifecycle) completeStep(step int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastCompletedStep = step
+	w.currentStep = 0
+	w.currentStepPhase = ""
+}
+
+func workflowErrorCategory(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "operation_failed"
+	}
 }
 
 func (w *workflowLifecycle) transition(state workflowState) {
@@ -138,10 +198,20 @@ func (w *workflowLifecycle) finish(err error) error {
 		if err == nil {
 			err = w.ctx.Err()
 		}
+		if errors.Is(err, context.Canceled) && w.currentStep != 0 {
+			w.currentStepPhase = "canceled"
+		}
 	case err != nil:
 		w.transition(workflowFailed)
 	default:
 		w.transition(workflowCompleted)
+	}
+	if w.state != workflowStopped || (err != nil && !errors.Is(err, context.Canceled)) {
+		w.terminalError = workflowErrorCategory(err)
+	}
+	if w.state == workflowCompleted {
+		w.currentStep = 0
+		w.currentStepPhase = ""
 	}
 	return err
 }
