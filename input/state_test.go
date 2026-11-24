@@ -83,3 +83,23 @@ func TestX11LockModifierMaskRequiresUnambiguousMapping(t *testing.T) {
 		t.Fatalf("malformed modifier mapping: %v", err)
 	}
 }
+
+func TestX11LockModifierMaskRejectsUnrelatedKeyInLockModifier(t *testing.T) {
+	mapping := &xproto.GetModifierMappingReply{
+		KeycodesPerModifier: 2,
+		Keycodes:            []xproto.Keycode{0, 0, 10, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+	if _, err := resolveX11LockModifierMask(mapping, map[xproto.Keycode]bool{10: true}, nil); !errors.Is(err, ErrObservationUnsupported) {
+		t.Fatalf("Caps Lock shared with an unrelated mapped key was accepted: %v", err)
+	}
+}
+
+func TestX11LockModifierMaskRejectsKeyMappedToMultipleModifiers(t *testing.T) {
+	mapping := &xproto.GetModifierMappingReply{
+		KeycodesPerModifier: 2,
+		Keycodes:            []xproto.Keycode{10, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+	if _, err := resolveX11LockModifierMask(mapping, map[xproto.Keycode]bool{10: true}, nil); !errors.Is(err, ErrObservationUnsupported) {
+		t.Fatalf("lock key mapped to multiple modifiers was accepted: %v", err)
+	}
+}

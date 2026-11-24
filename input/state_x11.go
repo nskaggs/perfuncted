@@ -252,7 +252,11 @@ func resolveX11LockModifierMask(
 	}
 	start := selectedIndex * int(mapping.KeycodesPerModifier)
 	for _, code := range mapping.Keycodes[start : start+int(mapping.KeycodesPerModifier)] {
-		if code != 0 && otherLocks[code] {
+		// QueryPointer reports only the aggregate modifier bit. If any other
+		// keycode shares that modifier slot, its pressed state is
+		// indistinguishable from the requested lock key and the result would
+		// be a false lock-state claim.
+		if code != 0 && (otherLocks[code] || !requestedSet[code]) {
 			return 0, ErrObservationUnsupported
 		}
 	}
