@@ -84,7 +84,7 @@ func isPermanentWaitError(err error) bool {
 	// predicates may intentionally tolerate transient incomplete snapshots.
 	return errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrNilSession) ||
 		errors.Is(err, ErrApplicationExited) || errors.Is(err, errLocatorUnverifiable) ||
-		errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrUnsupported) ||
+		errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrUnsupported) || errors.Is(err, ErrManagedScopeChanged) ||
 		errors.Is(err, ErrWindowIdentityChanged)
 }
 
@@ -543,7 +543,7 @@ func (c accessibilityNodeChangedCondition) requiredCapabilities() ([]Capability,
 }
 
 func (c accessibilityNodeChangedCondition) preflight() error {
-	if c.root.BusName == "" || c.root.ObjectPath == "" || c.baseline.ID.BusName == "" || c.baseline.ID.ObjectPath == "" || c.baseline.ID.Generation == 0 {
+	if c.root.BusName == "" || c.root.ObjectPath == "" || c.root.Incarnation == 0 || c.baseline.ID.BusName == "" || c.baseline.ID.ObjectPath == "" || c.baseline.ID.Generation == 0 {
 		return fmt.Errorf("perfuncted: %w: accessibility change condition requires a current root and baseline node", ErrInvalidArgument)
 	}
 	if c.root.BusName != c.baseline.ID.BusName || c.baseline.ID.Incarnation == 0 {
@@ -566,6 +566,9 @@ func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session
 	}
 	if snapshot.Truncated || snapshot.ProviderErrors != 0 || len(snapshot.Warnings) != 0 {
 		return false, fmt.Errorf("perfuncted: accessibility change observation is incomplete: %w", ErrUnavailable)
+	}
+	if !sameAccessibilityIdentity(snapshot.Root.ID, c.root) {
+		return false, fmt.Errorf("perfuncted: accessibility root identity changed during verification: %w", ErrManagedScopeChanged)
 	}
 	for _, node := range snapshot.Nodes {
 		if sameAccessibilityIdentity(node.ID, c.baseline.ID) {

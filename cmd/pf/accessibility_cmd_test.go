@@ -106,10 +106,11 @@ func (cliAutomationFake) InvokeDefaultAction(context.Context, accessibility.Node
 
 type cliVerifiedActionFake struct {
 	cliAutomationFake
-	actionCalls          int
-	mutateState          bool
-	changeBeforeDispatch bool
-	snapshotCalls        int
+	actionCalls           int
+	mutateState           bool
+	changeBeforeDispatch  bool
+	changeRootAfterAction bool
+	snapshotCalls         int
 }
 
 func (f *cliVerifiedActionFake) Snapshot(_ context.Context, rootID accessibility.NodeID, _ accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
@@ -118,6 +119,9 @@ func (f *cliVerifiedActionFake) Snapshot(_ context.Context, rootID accessibility
 		rootID = accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1, Incarnation: 1}
 	}
 	rootID.Incarnation = 1
+	if f.changeRootAfterAction && f.actionCalls > 0 {
+		rootID.Incarnation = 2
+	}
 	root := accessibility.Node{ID: rootID, Name: "Test App", Role: "application"}
 	save := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/save", Generation: 1, Incarnation: 1}, Name: "Save", Role: "button", Text: "Save", Actions: []accessibility.Action{{Index: 0, Name: "default"}}}
 	entry := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/status", Generation: 1, Incarnation: 1}, Name: "Status", Role: "label", Text: "Ready"}
@@ -137,6 +141,15 @@ func (f *cliVerifiedActionFake) Find(ctx context.Context, root accessibility.Nod
 		return nil, err
 	}
 	return accessibility.FilterSnapshot(snapshot, query), nil
+}
+
+func (f *cliVerifiedActionFake) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+	app, err := f.cliAutomationFake.FindApplication(ctx, filter)
+	if err != nil {
+		return accessibility.Application{}, err
+	}
+	app.ID.Incarnation = 1
+	return app, nil
 }
 
 func (f *cliVerifiedActionFake) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) {
@@ -403,6 +416,29 @@ func TestAccessibilityCLIChangedBaselineMustStillMatchBeforeDispatch(t *testing.
 	}
 	if result.Status != "preflight-failed" || result.Receipt.Dispatch != "" || backend.actionCalls != 0 {
 		t.Fatalf("result=%+v actionCalls=%d, want no dispatch", result, backend.actionCalls)
+	}
+}
+
+func TestAccessibilityCLIChangedVerificationRejectsRootIdentitySwap(t *testing.T) {
+	backend := &cliVerifiedActionFake{changeRootAfterAction: true}
+	factory := func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, backend), nil
+		}
+	}
+	stdout, stderr, code := captureRunIO(t, []string{
+		"a11y", "action", "--app", "Test", "--role", "button", "--name", "Save",
+		"--expect-state", "changed", "--timeout", "1s", "--json",
+	}, factory)
+	if code == 0 || !strings.Contains(stderr, "root identity changed during verification") {
+		t.Fatalf("code=%d stderr=%q stdout=%q, want scope swap to fail verification", code, stderr, stdout)
+	}
+	var result accessibilityActionCLIResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("scope failure output is not JSON: %q: %v", stdout, err)
+	}
+	if result.Status != "verification-failed" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != perfuncted.ActionOutcomeNotVerified || backend.actionCalls != 1 {
+		t.Fatalf("result=%+v actionCalls=%d, want accepted but unverified one-shot action", result, backend.actionCalls)
 	}
 }
 
