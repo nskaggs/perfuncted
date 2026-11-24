@@ -59,7 +59,8 @@ func newSequencedAccessibilityWaitFixture(t *testing.T, snapshots []accessibilit
 
 func accessibilityWaitFixtureSnapshot(generation uint64, nodes ...accessibility.Node) accessibility.Snapshot {
 	root := accessibility.Node{ID: accessibility.NodeID{BusName: "org.synthetic.Editor", ObjectPath: "/application", Generation: generation}, Name: "Editor", Role: "application"}
-	flat := []accessibility.Node{root}
+	flat := make([]accessibility.Node, 1, 1+len(nodes))
+	flat[0] = root
 	for i := range nodes {
 		if nodes[i].ID.BusName == "" {
 			nodes[i].ID.BusName = root.ID.BusName

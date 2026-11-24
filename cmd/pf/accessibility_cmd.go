@@ -85,12 +85,12 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 	// Preserve additional app/PID scope constraints even though the returned
 	// root is the selected window rather than its application.
 	if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-		if _, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+		if _, scopeErr := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
 			Name:     strings.TrimSpace(o.appName),
 			PID:      o.pid,
 			WindowID: managedWindowID,
-		}); err != nil {
-			return accessibility.NodeID{}, err
+		}); scopeErr != nil {
+			return accessibility.NodeID{}, scopeErr
 		}
 	}
 	scope, err := pf.Accessibility.WindowRoot(ctx, managedWindowID)
@@ -214,17 +214,21 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		}
 		return writeAccessibilityText(w, typed.Receipt)
 	case accessibilityWaitCLIResult:
-		if _, err := fmt.Fprintf(w, "wait state=%s satisfied=%t evaluations=%d wakeups=%d\n", typed.State, typed.Satisfied, typed.Evidence.Evaluations, typed.Evidence.Wakeups); err != nil {
-			return err
-		}
-		if typed.Node != nil {
-			return writeAccessibilityNode(w, *typed.Node, "target ")
-		}
-		return nil
+		return writeAccessibilityWaitResult(w, typed)
 	default:
 		_, err := fmt.Fprintln(w, value)
 		return err
 	}
+}
+
+func writeAccessibilityWaitResult(w io.Writer, result accessibilityWaitCLIResult) error {
+	if _, err := fmt.Fprintf(w, "wait state=%s satisfied=%t evaluations=%d wakeups=%d\n", result.State, result.Satisfied, result.Evidence.Evaluations, result.Evidence.Wakeups); err != nil {
+		return err
+	}
+	if result.Node != nil {
+		return writeAccessibilityNode(w, *result.Node, "target ")
+	}
+	return nil
 }
 
 type accessibilityWaitCLIResult struct {
