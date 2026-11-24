@@ -13,8 +13,57 @@ import (
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
+
+type backgroundCLIScreenshotter struct {
+	*pftest.Screenshotter
+	capture func(context.Context, string) (screen.WindowPixmapCapture, error)
+}
+
+func (s *backgroundCLIScreenshotter) CaptureWindowPixmap(ctx context.Context, id string) (screen.WindowPixmapCapture, error) {
+	return s.capture(ctx, id)
+}
+
+func TestScreenGrabBackgroundUsesTargetPixmapAndReportsOcclusion(t *testing.T) {
+	info := window.Info{NativeID: "42", Title: "Editor", PID: 42, X: 10, Y: 20, W: 20, H: 10}
+	mgr := &pftest.Manager{Lists: [][]window.Info{{info}, {info}, {info}}}
+	backend := &backgroundCLIScreenshotter{
+		Screenshotter: &pftest.Screenshotter{GrabFunc: func(context.Context, image.Rectangle) (image.Image, error) {
+			t.Fatal("background capture must not fall back to a visible screen crop")
+			return nil, nil
+		}},
+		capture: func(_ context.Context, id string) (screen.WindowPixmapCapture, error) {
+			if id != info.NativeID {
+				t.Fatalf("target ID=%q, want %q", id, info.NativeID)
+			}
+			return screen.WindowPixmapCapture{Image: image.NewRGBA(image.Rect(0, 0, 20, 10)),
+				ScreenRect: image.Rect(10, 20, 30, 30), Visibility: screen.WindowPixmapOccluded}, nil
+		},
+	}
+	command := screenCmd(func(context.Context) (*perfuncted.Session, error) {
+		return pftest.New(backend, nil, mgr, nil), nil
+	})
+	command.SilenceErrors = true
+	command.SilenceUsage = true
+	command.SetArgs([]string{"grab", "--window-id", "42", "--background", "--out", "-"})
+	var stdout, stderr bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v (stderr=%q)", err, stderr.String())
+	}
+	if _, err := png.Decode(bytes.NewReader(stdout.Bytes())); err != nil {
+		t.Fatalf("decode target PNG: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "mode=background-window-pixmap") || !strings.Contains(stderr.String(), "state=occluded") {
+		t.Fatalf("background provenance report=%q", stderr.String())
+	}
+	if len(mgr.Activated) != 0 {
+		t.Fatalf("activated windows=%v", mgr.Activated)
+	}
+}
 
 func TestScreenGrabSelectsWindowByStableIDTitleAndPID(t *testing.T) {
 	first := window.Info{NativeID: "editor-one", Title: "Editor", PID: 41, X: -5, Y: 10, W: 30, H: 20}
@@ -142,6 +191,8 @@ func TestScreenGrabWindowRejectsAmbiguityAndSelectorConflictsBeforeCapture(t *te
 		}}},
 		{name: "multiple selectors", args: []string{"grab", "--window-id", "one", "--pid", "42"}},
 		{name: "window and rect", args: []string{"grab", "--window-id", "one", "--rect", "1,2,6,7"}},
+		{name: "background requires window selector", args: []string{"grab", "--background"}},
+		{name: "background selector cannot use rect", args: []string{"grab", "--window-id", "one", "--background", "--rect", "1,2,6,7"}},
 		{name: "metadata without selector", args: []string{"grab", "--metadata", "capture.json"}},
 		{name: "metadata stdout", args: []string{"grab", "--window-id", "one", "--metadata", "-"}},
 	} {

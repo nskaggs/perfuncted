@@ -81,6 +81,10 @@ screen:
     skip: true
   CaptureWindowTo:
     skip: true
+  CaptureWindowBackground:
+    skip: true
+  CaptureWindowBackgroundTo:
+    skip: true
   CaptureRegion:
     skip: true
   GetAllPixels:

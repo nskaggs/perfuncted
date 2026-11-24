@@ -2,6 +2,7 @@ package perfuncted
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"math/bits"
@@ -24,27 +25,53 @@ const (
 	// WindowCaptureVisibleScreenCrop captures the target's reported screen
 	// rectangle from the visible desktop composite.
 	WindowCaptureVisibleScreenCrop WindowCaptureMode = "visible-screen-crop"
+	// WindowCaptureBackgroundPixmap reads the target's own already-redirected
+	// X11 Composite pixmap, independent of overlapping desktop windows.
+	WindowCaptureBackgroundPixmap WindowCaptureMode = "background-window-pixmap"
 )
 
-// WindowCapture describes a screen-rectangle crop selected through a stable
-// window handle. Capture contains the pixels and their desktop mapping; the
-// remaining fields report the selector identity and the limits of this mode.
-// Mode is always "visible-screen-crop": pixels are the desktop composite, so
-// overlapping windows can appear. GeometrySource records that bounds came
-// from window-manager metadata, which may be unavailable on some backends.
+// WindowCaptureState is the state established alongside a capture.
+type WindowCaptureState string
+
+const (
+	// WindowCaptureForeground means the target is focused and no occlusion was established.
+	WindowCaptureForeground WindowCaptureState = "foreground"
+	// WindowCaptureBackgroundVisible means an inactive target has no mapped sibling overlap.
+	WindowCaptureBackgroundVisible WindowCaptureState = "background-visible"
+	// WindowCaptureOccluded means a mapped top-level sibling overlaps the target bounds.
+	WindowCaptureOccluded WindowCaptureState = "occluded"
+	// WindowCaptureStateUnknown means visibility could not be established.
+	WindowCaptureStateUnknown WindowCaptureState = "unknown"
+)
+
+var (
+	// ErrWindowCaptureMinimized identifies a target that is minimized, so its
+	// background buffer may be absent or stale.
+	ErrWindowCaptureMinimized = errors.New("perfuncted: minimized window has no freshness-guaranteed background buffer")
+	// ErrWindowCaptureUnmapped identifies a target that is not currently mapped
+	// and viewable by its screen backend.
+	ErrWindowCaptureUnmapped = errors.New("perfuncted: target window is unmapped or unviewable")
+)
+
+// WindowCapture describes pixels captured for a stable window handle. Mode
+// identifies whether pixels came from the desktop crop or the target's own
+// background buffer. State is authoritative only for background-pixmap mode;
+// visible-screen crops report unknown visibility. GeometrySource records how
+// screen bounds were established.
 type WindowCapture struct {
 	Capture        `json:"-"`
-	WindowID       string            `json:"window_id"`
-	Title          string            `json:"title"`
-	AppID          string            `json:"app_id,omitempty"`
-	PID            int32             `json:"pid,omitempty"`
-	ScreenRect     image.Rectangle   `json:"screen_rect"`
-	PixelBounds    image.Rectangle   `json:"pixel_bounds"`
-	PixelScaleX    float64           `json:"pixel_scale_x"`
-	PixelScaleY    float64           `json:"pixel_scale_y"`
-	Mode           WindowCaptureMode `json:"mode"`
-	GeometrySource string            `json:"geometry_source"`
-	Occlusion      string            `json:"occlusion"`
+	WindowID       string             `json:"window_id"`
+	Title          string             `json:"title"`
+	AppID          string             `json:"app_id,omitempty"`
+	PID            int32              `json:"pid,omitempty"`
+	ScreenRect     image.Rectangle    `json:"screen_rect"`
+	PixelBounds    image.Rectangle    `json:"pixel_bounds"`
+	PixelScaleX    float64            `json:"pixel_scale_x"`
+	PixelScaleY    float64            `json:"pixel_scale_y"`
+	Mode           WindowCaptureMode  `json:"mode"`
+	State          WindowCaptureState `json:"state,omitempty"`
+	GeometrySource string             `json:"geometry_source"`
+	Occlusion      string             `json:"occlusion"`
 }
 
 // ReportsDownscale reports whether the capture is smaller than the region it represents.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 
+	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
 )
 
@@ -86,9 +87,141 @@ func (s *ScreenBundle) CaptureWindow(ctx context.Context, target *Window) (Windo
 		PixelScaleX:    float64(imageBounds.Dx()) / float64(capture.ScreenRect.Dx()),
 		PixelScaleY:    float64(imageBounds.Dy()) / float64(capture.ScreenRect.Dy()),
 		Mode:           WindowCaptureVisibleScreenCrop,
+		State:          WindowCaptureStateUnknown,
 		GeometrySource: "window-manager-reported",
 		Occlusion:      "desktop composite; overlapping windows may appear",
 	}, nil
+}
+
+// CaptureWindowBackground reads a target-only buffer when the selected screen
+// backend exposes that capability. It never activates the target and never
+// falls back to a visible desktop crop.
+func (s *ScreenBundle) CaptureWindowBackground(ctx context.Context, target *Window) (WindowCapture, error) {
+	if ctx == nil {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture: %w: nil context", ErrInvalidArgument)
+	}
+	if s == nil || s.session == nil {
+		return WindowCapture{}, ErrNilSession
+	}
+	if target == nil || target.id.session == nil || target.id.native == "" {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture: %w: missing stable window handle", ErrInvalidArgument)
+	}
+	if target.id.session != s.session {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture: %w: window belongs to another session", ErrInvalidArgument)
+	}
+	if err := s.checkAvailable("capture"); err != nil {
+		return WindowCapture{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return WindowCapture{}, err
+	}
+	selected := target.CachedInfo()
+	before, err := target.Info(ctx)
+	if err != nil {
+		return WindowCapture{}, err
+	}
+	if !sameWindowCaptureIdentity(selected, before) {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture %q: %w", target.id.native, ErrWindowIdentityChanged)
+	}
+	if before.Minimized {
+		return WindowCapture{}, errors.Join(ErrUnsupported,
+			fmt.Errorf("perfuncted: minimized window %q: %w", target.id.native, ErrWindowCaptureMinimized))
+	}
+	capturer, ok := s.backend.(interface {
+		CaptureWindowPixmap(context.Context, string) (screen.WindowPixmapCapture, error)
+	})
+	if !ok {
+		return WindowCapture{}, s.operationError("background-capture", ErrUnsupported)
+	}
+	s.traceAction("background-capture window=%s", target.id.native)
+	backendCtx, cancel := s.backendContext(ctx, s.session.Timeouts().Medium)
+	defer cancel()
+	buffer, captureErr := capturer.CaptureWindowPixmap(backendCtx, target.id.native)
+	if ctxErr := backendCtx.Err(); ctxErr != nil {
+		return WindowCapture{}, ctxErr
+	}
+	if openErr := s.session.ensureOpen(); openErr != nil {
+		return WindowCapture{}, openErr
+	}
+	if captureErr != nil {
+		if errors.Is(captureErr, screen.ErrBackgroundWindowUnmapped) {
+			captureErr = errors.Join(ErrUnsupported, ErrWindowCaptureUnmapped, captureErr)
+		} else if errors.Is(captureErr, screen.ErrBackgroundWindowCaptureUnsupported) {
+			captureErr = errors.Join(ErrUnsupported, captureErr)
+		}
+		return WindowCapture{}, s.operationError("background-capture", captureErr)
+	}
+	if err := validateCaptureImageLayout(buffer.Image); err != nil {
+		return WindowCapture{}, s.operationError("background-capture", err)
+	}
+	if buffer.ScreenRect.Empty() || buffer.Image.Bounds().Dx() != buffer.ScreenRect.Dx() || buffer.Image.Bounds().Dy() != buffer.ScreenRect.Dy() {
+		return WindowCapture{}, s.operationError("background-capture", fmt.Errorf("target pixmap geometry does not match its screen rectangle: %w", ErrUnsupported))
+	}
+	after, err := target.Info(ctx)
+	if err != nil {
+		return WindowCapture{}, err
+	}
+	if !sameWindowCaptureIdentity(before, after) {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture %q: %w", target.id.native, ErrWindowIdentityChanged)
+	}
+	if before.Minimized != after.Minimized || after.Minimized || !sameWindowCaptureGeometry(before, after) {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture %q: %w", target.id.native, ErrWindowGeometryChanged)
+	}
+	if err := ctx.Err(); err != nil {
+		return WindowCapture{}, err
+	}
+	if err := s.session.ensureOpen(); err != nil {
+		return WindowCapture{}, err
+	}
+	state := WindowCaptureStateUnknown
+	switch buffer.Visibility {
+	case screen.WindowPixmapUnobscured:
+		if !buffer.ForegroundKnown {
+			state = WindowCaptureStateUnknown
+		} else if buffer.Foreground {
+			state = WindowCaptureForeground
+		} else {
+			state = WindowCaptureBackgroundVisible
+		}
+	case screen.WindowPixmapOccluded:
+		state = WindowCaptureOccluded
+	default:
+		if buffer.ForegroundKnown && buffer.Foreground {
+			state = WindowCaptureForeground
+		}
+	}
+	imageBounds := buffer.Image.Bounds()
+	return WindowCapture{
+		Capture:        Capture{Image: buffer.Image, ScreenRect: buffer.ScreenRect},
+		WindowID:       after.StableID(),
+		Title:          after.Title,
+		AppID:          after.AppID,
+		PID:            after.PID,
+		ScreenRect:     buffer.ScreenRect,
+		PixelBounds:    imageBounds,
+		PixelScaleX:    1,
+		PixelScaleY:    1,
+		Mode:           WindowCaptureBackgroundPixmap,
+		State:          state,
+		GeometrySource: "x11-window-geometry",
+		Occlusion:      "target-only Composite pixmap; visibility uses conservative top-level bounding-box overlap",
+	}, nil
+}
+
+// CaptureWindowBackgroundTo captures one target-only background buffer and
+// atomically publishes it as PNG at path.
+func (s *ScreenBundle) CaptureWindowBackgroundTo(ctx context.Context, target *Window, path string) (WindowCapture, error) {
+	if path == "" {
+		return WindowCapture{}, fmt.Errorf("perfuncted: background capture: %w: empty output path", ErrInvalidArgument)
+	}
+	capture, err := s.CaptureWindowBackground(ctx, target)
+	if err != nil {
+		return WindowCapture{}, err
+	}
+	if err := s.savePNG(ctx, capture.Capture.Image, path); err != nil {
+		return WindowCapture{}, err
+	}
+	return capture, nil
 }
 
 // CaptureWindowTo captures one stable window's visible screen rectangle and

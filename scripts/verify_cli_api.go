@@ -292,10 +292,12 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 		// commands, not separate CLI subcommands.
 		"input": {"MouseMoveSmooth": true, "DragAndDropSmooth": true},
 		"screen": {
-			"Capture":         true,
-			"CaptureRegion":   true,
-			"CaptureWindow":   true,
-			"CaptureWindowTo": true,
+			"Capture":                   true,
+			"CaptureRegion":             true,
+			"CaptureWindow":             true,
+			"CaptureWindowTo":           true,
+			"CaptureWindowBackground":   true,
+			"CaptureWindowBackgroundTo": true,
 		},
 		"window": {
 			"Events":  true,

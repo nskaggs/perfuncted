@@ -105,6 +105,16 @@ func (c *XgbConnection) GetGeometry(Drawable xproto.Drawable) GetGeometryCookie 
 	return NewXProtoGetGeometryCookie(cookie)
 }
 
+// QueryTree returns the parent and children of Window; children are ordered
+// from bottom to top by the X server.
+func (c *XgbConnection) QueryTree(Window xproto.Window) QueryTreeCookie {
+	return NewXProtoQueryTreeCookie(xproto.QueryTree(c.conn, Window))
+}
+
+func (c *XgbConnection) GetWindowAttributes(Window xproto.Window) GetWindowAttributesCookie {
+	return NewXProtoGetWindowAttributesCookie(xproto.GetWindowAttributes(c.conn, Window))
+}
+
 func (c *XgbConnection) TranslateCoordinates(SrcWindow, DstWindow xproto.Window, SrcX, SrcY int16) TranslateCoordinatesCookie {
 	cookie := xproto.TranslateCoordinates(c.conn, SrcWindow, DstWindow, SrcX, SrcY)
 	return NewXProtoTranslateCoordinatesCookie(cookie)

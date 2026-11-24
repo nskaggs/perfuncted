@@ -11,6 +11,12 @@ cannot be combined with --rect. Window capture uses the window manager's
 reported bounds to crop the visible desktop composite, so overlapping windows
 may appear. Minimized, clipped, or geometry-unknown targets are rejected.
 
+With a window selector, --background requests the target's own X11 Composite
+pixmap. It works only when an X11 compositor has already redirected the
+mapped target; it never activates or redirects a window and never falls back
+to a screen crop. Visibility state is reported separately. Other backends,
+unmapped targets, and minimized targets return an explicit unsupported error.
+
 Use --metadata FILE to write the window ID, screen rectangle, image pixel
 bounds and scale, capture mode, geometry source, and occlusion note as JSON.
 With --out -, PNG bytes stay on stdout and the human-readable bounds report
@@ -23,6 +29,7 @@ pf screen grab [flags]
 ### Options
 
 ```
+      --background            capture the target's own X11 window pixmap without activating it
   -h, --help                  help for grab
       --metadata string       write window-capture provenance as JSON to a separate file
       --out string            PNG output path or '-' for stdout (Flatpak defaults to stdout when redirected; native defaults to /tmp/pf-grab.png)

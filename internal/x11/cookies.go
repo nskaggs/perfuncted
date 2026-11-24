@@ -35,6 +35,16 @@ type GetGeometryCookie interface {
 	Reply() (*xproto.GetGeometryReply, error)
 }
 
+// QueryTreeCookie exposes the parent and stacking order for one X11 window.
+type QueryTreeCookie interface {
+	Reply() (*xproto.QueryTreeReply, error)
+}
+
+// GetWindowAttributesCookie exposes authoritative mapped-state information.
+type GetWindowAttributesCookie interface {
+	Reply() (*xproto.GetWindowAttributesReply, error)
+}
+
 type TranslateCoordinatesCookie interface {
 	Reply() (*xproto.TranslateCoordinatesReply, error)
 }
@@ -113,6 +123,30 @@ func NewXProtoGetGeometryCookie(c xproto.GetGeometryCookie) *XProtoGetGeometryCo
 }
 
 func (c *XProtoGetGeometryCookie) Reply() (*xproto.GetGeometryReply, error) {
+	return c.cookie.Reply()
+}
+
+type XProtoQueryTreeCookie struct {
+	cookie xproto.QueryTreeCookie
+}
+
+func NewXProtoQueryTreeCookie(c xproto.QueryTreeCookie) *XProtoQueryTreeCookie {
+	return &XProtoQueryTreeCookie{cookie: c}
+}
+
+func (c *XProtoQueryTreeCookie) Reply() (*xproto.QueryTreeReply, error) {
+	return c.cookie.Reply()
+}
+
+type XProtoGetWindowAttributesCookie struct {
+	cookie xproto.GetWindowAttributesCookie
+}
+
+func NewXProtoGetWindowAttributesCookie(c xproto.GetWindowAttributesCookie) *XProtoGetWindowAttributesCookie {
+	return &XProtoGetWindowAttributesCookie{cookie: c}
+}
+
+func (c *XProtoGetWindowAttributesCookie) Reply() (*xproto.GetWindowAttributesReply, error) {
 	return c.cookie.Reply()
 }
 

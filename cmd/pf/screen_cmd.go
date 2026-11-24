@@ -163,6 +163,7 @@ func screenCmd(
 	var grabRectFlag, grabOutFlag string
 	var grabWindowIDFlag, grabWindowTitleFlag, grabMetadataFlag string
 	var grabPIDFlag int32
+	var grabBackgroundFlag bool
 
 	grab := &cobra.Command{
 		Use:   "grab",
@@ -174,6 +175,12 @@ cannot be combined with --rect. Window capture uses the window manager's
 reported bounds to crop the visible desktop composite, so overlapping windows
 may appear. Minimized, clipped, or geometry-unknown targets are rejected.
 
+With a window selector, --background requests the target's own X11 Composite
+pixmap. It works only when an X11 compositor has already redirected the
+mapped target; it never activates or redirects a window and never falls back
+to a screen crop. Visibility state is reported separately. Other backends,
+unmapped targets, and minimized targets return an explicit unsupported error.
+
 Use --metadata FILE to write the window ID, screen rectangle, image pixel
 bounds and scale, capture mode, geometry source, and occlusion note as JSON.
 With --out -, PNG bytes stay on stdout and the human-readable bounds report
@@ -183,6 +190,9 @@ goes to stderr.`,
 			selector, hasWindowSelector, err := parseScreenWindowSelector(cmd, grabWindowIDFlag, grabWindowTitleFlag, grabPIDFlag, grabMetadataFlag)
 			if err != nil {
 				return err
+			}
+			if grabBackgroundFlag && !hasWindowSelector {
+				return fmt.Errorf("%w: --background requires a window selector", perfuncted.ErrInvalidArgument)
 			}
 			var r image.Rectangle
 			if !hasWindowSelector {
@@ -217,7 +227,11 @@ goes to stderr.`,
 				}
 				var capture perfuncted.WindowCapture
 				if out == "-" {
-					capture, err = pf.Screen.CaptureWindow(cmd.Context(), target)
+					if grabBackgroundFlag {
+						capture, err = pf.Screen.CaptureWindowBackground(cmd.Context(), target)
+					} else {
+						capture, err = pf.Screen.CaptureWindow(cmd.Context(), target)
+					}
 					if err != nil {
 						return err
 					}
@@ -225,7 +239,11 @@ goes to stderr.`,
 						return err
 					}
 				} else {
-					capture, err = pf.Screen.CaptureWindowTo(cmd.Context(), target, out)
+					if grabBackgroundFlag {
+						capture, err = pf.Screen.CaptureWindowBackgroundTo(cmd.Context(), target, out)
+					} else {
+						capture, err = pf.Screen.CaptureWindowTo(cmd.Context(), target, out)
+					}
 					if err != nil {
 						return err
 					}
@@ -235,10 +253,10 @@ goes to stderr.`,
 						return err
 					}
 				}
-				if err := writeCLIOutput(cmd.ErrOrStderr(), "window=%s screen_rect=%d,%d,%d,%d mode=%s geometry=%s occlusion=%s\n",
+				if err := writeCLIOutput(cmd.ErrOrStderr(), "window=%s screen_rect=%d,%d,%d,%d mode=%s state=%s geometry=%s occlusion=%s\n",
 					capture.WindowID, capture.ScreenRect.Min.X, capture.ScreenRect.Min.Y,
 					capture.ScreenRect.Max.X, capture.ScreenRect.Max.Y, capture.Mode,
-					capture.GeometrySource, capture.Occlusion); err != nil {
+					capture.State, capture.GeometrySource, capture.Occlusion); err != nil {
 					return err
 				}
 				if out == "-" {
@@ -276,6 +294,7 @@ goes to stderr.`,
 	grab.Flags().StringVar(&grabWindowTitleFlag, "window-title", "", "capture the visible screen rectangle of one exact case-insensitive window title")
 	grab.Flags().Int32Var(&grabPIDFlag, "pid", 0, "capture the visible screen rectangle of one unique window owned by this process ID")
 	grab.Flags().StringVar(&grabMetadataFlag, "metadata", "", "write window-capture provenance as JSON to a separate file")
+	grab.Flags().BoolVar(&grabBackgroundFlag, "background", false, "capture the target's own X11 window pixmap without activating it")
 
 	var checksumRectFlag string
 	checksum := &cobra.Command{

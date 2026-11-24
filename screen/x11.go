@@ -5,10 +5,12 @@ package screen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"image"
 	"net"
+	"strconv"
 	"sync"
 
 	"github.com/jezek/xgb/xproto"
@@ -18,6 +20,206 @@ import (
 )
 
 var _ Screenshotter = (*X11Backend)(nil)
+
+// ErrBackgroundWindowCaptureUnsupported indicates that X11 cannot provide an
+// authoritative, already-composited window pixmap for the requested target.
+var ErrBackgroundWindowCaptureUnsupported = errors.New("screen/x11: background window capture unsupported")
+
+// ErrBackgroundWindowUnmapped identifies a target window that is not mapped
+// and viewable on the X11 screen.
+var ErrBackgroundWindowUnmapped = errors.New("screen/x11: target window is unmapped or unviewable")
+
+// WindowPixmapCapture is a target-only X11 window-buffer capture. Visibility
+// is conservative: an overlapping mapped top-level window bounding box is
+// reported as occluded; exact shaped/translucent coverage is not inferred.
+type WindowPixmapCapture struct {
+	Image           image.Image
+	ScreenRect      image.Rectangle
+	Visibility      WindowPixmapVisibility
+	Foreground      bool
+	ForegroundKnown bool
+}
+
+// WindowPixmapVisibility describes what the X11 window tree can establish
+// about the target's screen position at capture time.
+type WindowPixmapVisibility string
+
+const (
+	// WindowPixmapUnobscured means no mapped root-level sibling overlaps the target bounds.
+	WindowPixmapUnobscured WindowPixmapVisibility = "unobscured"
+	// WindowPixmapOccluded means at least one mapped root-level sibling overlaps the target bounds.
+	WindowPixmapOccluded WindowPixmapVisibility = "occluded"
+	// WindowPixmapUnknown means visibility could not be established conservatively.
+	WindowPixmapUnknown WindowPixmapVisibility = "unknown"
+)
+
+type windowTreeConnection interface {
+	QueryTree(xproto.Window) x11.QueryTreeCookie
+	GetWindowAttributes(xproto.Window) x11.GetWindowAttributesCookie
+}
+
+// CaptureWindowPixmap reads the target's own Composite named pixmap. It never
+// redirects a window or falls back to a crop of the visible desktop. A
+// compositor must already have redirected the mapped target.
+func (b *X11Backend) CaptureWindowPixmap(ctx context.Context, stableID string) (WindowPixmapCapture, error) {
+	ctx = contextutil.Default(ctx)
+	if err := ctx.Err(); err != nil {
+		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: background capture canceled: %w", err)
+	}
+	finish, err := b.beginOperation()
+	if err != nil {
+		return WindowPixmapCapture{}, err
+	}
+	defer finish()
+	if !b.hasComposite {
+		return WindowPixmapCapture{}, ErrBackgroundWindowCaptureUnsupported
+	}
+	tree, ok := b.conn.(windowTreeConnection)
+	if !ok {
+		return WindowPixmapCapture{}, ErrBackgroundWindowCaptureUnsupported
+	}
+	parsedID, err := strconv.ParseUint(stableID, 10, 32)
+	if err != nil || parsedID == 0 {
+		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: invalid stable X11 window ID %q: %w", stableID, ErrBackgroundWindowCaptureUnsupported)
+	}
+	windowID := xproto.Window(parsedID)
+
+	attrs, err := tree.GetWindowAttributes(windowID).Reply()
+	if err != nil || attrs == nil || attrs.MapState != xproto.MapStateViewable {
+		return WindowPixmapCapture{}, errors.Join(ErrBackgroundWindowCaptureUnsupported, ErrBackgroundWindowUnmapped,
+			unsupportedPixmap("target window is not mapped and viewable", err))
+	}
+	geometry, err := b.conn.GetGeometry(xproto.Drawable(windowID)).Reply()
+	if err != nil || geometry == nil || geometry.Width == 0 || geometry.Height == 0 || geometry.Depth != b.screen.RootDepth {
+		return WindowPixmapCapture{}, unsupportedPixmap("target window geometry is unavailable or incompatible", err)
+	}
+	translated, err := b.conn.TranslateCoordinates(windowID, b.root, 0, 0).Reply()
+	if err != nil || translated == nil || !translated.SameScreen {
+		return WindowPixmapCapture{}, unsupportedPixmap("target window root coordinates are unavailable", err)
+	}
+	width, height := int(geometry.Width), int(geometry.Height)
+	rootRect := image.Rect(int(translated.DstX), int(translated.DstY), int(translated.DstX)+width, int(translated.DstY)+height)
+	if rootRect.Empty() || rootRect.Dx() > 65535 || rootRect.Dy() > 65535 {
+		return WindowPixmapCapture{}, ErrBackgroundWindowCaptureUnsupported
+	}
+
+	pixmapID, err := b.conn.NewID()
+	if err != nil {
+		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: allocate target pixmap: %w", err)
+	}
+	pixmap := xproto.Pixmap(pixmapID)
+	if err := b.conn.NameWindowPixmap(windowID, pixmap).Check(); err != nil {
+		return WindowPixmapCapture{}, unsupportedPixmap("target has no already-redirected Composite pixmap", err)
+	}
+	defer func() { _ = b.conn.FreePixmap(pixmap).Check() }()
+
+	pixmapGeometry, err := b.conn.GetGeometry(xproto.Drawable(pixmap)).Reply()
+	if err != nil || pixmapGeometry == nil || pixmapGeometry.Width != geometry.Width || pixmapGeometry.Height != geometry.Height || pixmapGeometry.Depth != geometry.Depth {
+		return WindowPixmapCapture{}, unsupportedPixmap("target pixmap geometry changed or is incompatible", err)
+	}
+	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap, xproto.Drawable(pixmap), 0, 0,
+		geometry.Width, geometry.Height, 0xffffffff).Reply()
+	if err != nil || reply == nil || reply.Depth != geometry.Depth {
+		if err == nil {
+			err = fmt.Errorf("unexpected image depth")
+		}
+		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: read target pixmap: %w", err)
+	}
+	if err := validateX11PixelBuffer(reply.Data, width, height); err != nil {
+		return WindowPixmapCapture{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: background capture canceled: %w", err)
+	}
+	visibility := b.windowPixmapVisibility(tree, windowID, rootRect)
+	foreground, foregroundKnown := b.windowIsForeground(windowID)
+	return WindowPixmapCapture{
+		Image:           decodeBGRA(reply.Data, width, height, width*4),
+		ScreenRect:      rootRect,
+		Visibility:      visibility,
+		Foreground:      foreground,
+		ForegroundKnown: foregroundKnown,
+	}, nil
+}
+
+func (b *X11Backend) windowIsForeground(target xproto.Window) (bool, bool) {
+	if b.activeAtom == xproto.AtomNone {
+		return false, false
+	}
+	reply, err := b.conn.GetProperty(false, b.root, b.activeAtom, xproto.AtomWindow, 0, 1).Reply()
+	if err != nil || reply == nil || reply.Format != 32 || reply.BytesAfter != 0 || len(reply.Value) != 4 {
+		return false, false
+	}
+	active := xproto.Window(uint32(reply.Value[0]) | uint32(reply.Value[1])<<8 |
+		uint32(reply.Value[2])<<16 | uint32(reply.Value[3])<<24)
+	return active == target, true
+}
+
+func (b *X11Backend) windowPixmapVisibility(tree windowTreeConnection, target xproto.Window, targetRect image.Rectangle) WindowPixmapVisibility {
+	rootBounds := image.Rect(0, 0, int(b.screen.WidthInPixels), int(b.screen.HeightInPixels))
+	if !targetRect.In(rootBounds) {
+		return WindowPixmapUnknown
+	}
+	rootChild := target
+	for depth := 0; depth < 64; depth++ {
+		reply, err := tree.QueryTree(rootChild).Reply()
+		if err != nil || reply == nil || reply.Parent == xproto.WindowNone {
+			return WindowPixmapUnknown
+		}
+		if reply.Parent == b.root {
+			break
+		}
+		rootChild = reply.Parent
+		if depth == 63 {
+			return WindowPixmapUnknown
+		}
+	}
+	rootTree, err := tree.QueryTree(b.root).Reply()
+	if err != nil || rootTree == nil {
+		return WindowPixmapUnknown
+	}
+	index := -1
+	for i, child := range rootTree.Children {
+		if child == rootChild {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return WindowPixmapUnknown
+	}
+	for _, sibling := range rootTree.Children[index+1:] {
+		attrs, err := tree.GetWindowAttributes(sibling).Reply()
+		if err != nil || attrs == nil {
+			return WindowPixmapUnknown
+		}
+		if attrs.MapState != xproto.MapStateViewable {
+			continue
+		}
+		geometry, err := b.conn.GetGeometry(xproto.Drawable(sibling)).Reply()
+		if err != nil || geometry == nil || geometry.Width == 0 || geometry.Height == 0 {
+			return WindowPixmapUnknown
+		}
+		translated, err := b.conn.TranslateCoordinates(sibling, b.root, 0, 0).Reply()
+		if err != nil || translated == nil || !translated.SameScreen {
+			return WindowPixmapUnknown
+		}
+		siblingRect := image.Rect(int(translated.DstX), int(translated.DstY),
+			int(translated.DstX)+int(geometry.Width), int(translated.DstY)+int(geometry.Height))
+		if !siblingRect.Intersect(targetRect).Empty() {
+			return WindowPixmapOccluded
+		}
+	}
+	return WindowPixmapUnobscured
+}
+
+func unsupportedPixmap(reason string, cause error) error {
+	wrapped := fmt.Errorf("screen/x11: %s", reason)
+	if cause != nil {
+		wrapped = errors.Join(wrapped, cause)
+	}
+	return errors.Join(ErrBackgroundWindowCaptureUnsupported, wrapped)
+}
 
 // GrabFullHash returns a CRC32 checksum of the entire screen.
 func (b *X11Backend) GrabFullHash(ctx context.Context) (uint32, error) {
@@ -133,6 +335,7 @@ type X11Backend struct {
 	root         xproto.Window
 	screen       *xproto.ScreenInfo
 	hasComposite bool
+	activeAtom   xproto.Atom
 
 	lifecycleMu sync.Mutex
 	closed      bool
@@ -152,6 +355,9 @@ func NewX11Backend(displayName string) (*X11Backend, error) {
 	b := &X11Backend{conn: conn, root: sc.Root, screen: sc}
 	if b.conn.InitComposite() == nil {
 		b.hasComposite = true
+	}
+	if active, atomErr := b.conn.InternAtom(true, uint16(len("_NET_ACTIVE_WINDOW")), "_NET_ACTIVE_WINDOW").Reply(); atomErr == nil && active != nil {
+		b.activeAtom = active.Atom
 	}
 	return b, nil
 }

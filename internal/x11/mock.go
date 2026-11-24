@@ -48,6 +48,22 @@ type MockGetGeometryCookie struct {
 
 func (m *MockGetGeometryCookie) Reply() (*xproto.GetGeometryReply, error) { return m.reply, nil }
 
+type MockQueryTreeCookie struct {
+	reply *xproto.QueryTreeReply
+	err   error
+}
+
+func (m *MockQueryTreeCookie) Reply() (*xproto.QueryTreeReply, error) { return m.reply, m.err }
+
+type MockGetWindowAttributesCookie struct {
+	reply *xproto.GetWindowAttributesReply
+	err   error
+}
+
+func (m *MockGetWindowAttributesCookie) Reply() (*xproto.GetWindowAttributesReply, error) {
+	return m.reply, m.err
+}
+
 type MockTranslateCoordinatesCookie struct {
 	reply *xproto.TranslateCoordinatesReply
 }
@@ -163,6 +179,8 @@ type MockConnection struct {
 	InternAtomFunc             func(OnlyIfExists bool, NameLen uint16, Name string) InternAtomCookie
 	GetPropertyFunc            func(Delete bool, Window xproto.Window, Property, Type xproto.Atom, LongOffset, LongLength uint32) GetPropertyCookie
 	GetGeometryFunc            func(Drawable xproto.Drawable) GetGeometryCookie
+	QueryTreeFunc              func(Window xproto.Window) QueryTreeCookie
+	GetWindowAttributesFunc    func(Window xproto.Window) GetWindowAttributesCookie
 	TranslateCoordinatesFunc   func(SrcWindow, DstWindow xproto.Window, SrcX, SrcY int16) TranslateCoordinatesCookie
 	QueryPointerFunc           func(Window xproto.Window) QueryPointerCookie
 	SendEventCheckedFunc       func(Propagate bool, Destination xproto.Window, EventMask uint32, Event string) SendEventCookie
@@ -248,6 +266,18 @@ func (m *MockConnection) GetGeometry(Drawable xproto.Drawable) GetGeometryCookie
 		return m.GetGeometryFunc(Drawable)
 	}
 	return &MockGetGeometryCookie{reply: &xproto.GetGeometryReply{X: 0, Y: 0, Width: 0, Height: 0}}
+}
+func (m *MockConnection) QueryTree(Window xproto.Window) QueryTreeCookie {
+	if m.QueryTreeFunc != nil {
+		return m.QueryTreeFunc(Window)
+	}
+	return &MockQueryTreeCookie{reply: &xproto.QueryTreeReply{Root: xproto.Window(1), Parent: xproto.Window(1)}}
+}
+func (m *MockConnection) GetWindowAttributes(Window xproto.Window) GetWindowAttributesCookie {
+	if m.GetWindowAttributesFunc != nil {
+		return m.GetWindowAttributesFunc(Window)
+	}
+	return &MockGetWindowAttributesCookie{reply: &xproto.GetWindowAttributesReply{MapState: xproto.MapStateViewable}}
 }
 func (m *MockConnection) TranslateCoordinates(SrcWindow, DstWindow xproto.Window, SrcX, SrcY int16) TranslateCoordinatesCookie {
 	if m.TranslateCoordinatesFunc != nil {
