@@ -7,12 +7,17 @@ import (
 	"github.com/nskaggs/perfuncted/internal/util"
 )
 
-// dirtyRects compares packed 8-bit RGBA or NRGBA captures without hashing.
+// DirtyRects compares packed 8-bit RGBA or NRGBA captures without hashing.
 // Runs of changed pixels are merged vertically when their horizontal spans
 // match exactly. Output is in image coordinates, ordered by first occurrence.
-// A resync has no partial rectangles. Different valid geometry or pixel
-// representation requires resync; malformed storage is an error.
-func dirtyRects(before, after image.Image, maxRects int) (rects []image.Rectangle, resync bool, err error) {
+// Unchanged frames return nil, false, nil. A resync returns nil, true, nil
+// when valid bounds or representation differ or the positive maxRects limit
+// would be exceeded. Invalid limits, nil images, unsupported layouts and
+// malformed storage return nil, false, and an error. Comparison is byte-exact
+// (including alpha and hidden color bytes), ignores row padding, and uses
+// auxiliary storage bounded by maxRects. Callers must not mutate either image
+// during comparison.
+func DirtyRects(before, after image.Image, maxRects int) (rects []image.Rectangle, resync bool, err error) {
 	if maxRects <= 0 {
 		return nil, false, fmt.Errorf("screen: invalid dirty rectangle limit")
 	}

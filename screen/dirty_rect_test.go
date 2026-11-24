@@ -1,6 +1,7 @@
-package screen
+package screen_test
 
 import (
+	"github.com/nskaggs/perfuncted/screen"
 	"image"
 	"image/color"
 	"reflect"
@@ -27,7 +28,7 @@ func TestDirtyRects(t *testing.T) {
 			for _, p := range tc.points {
 				b.SetRGBA(p.X, p.Y, color.RGBA{R: 255, A: 255})
 			}
-			got, resync, err := dirtyRects(a, b, tc.limit)
+			got, resync, err := screen.DirtyRects(a, b, tc.limit)
 			if err != nil || resync != tc.resync || !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("got %v, %v, %v; want %v, %v", got, resync, err, tc.want, tc.resync)
 			}
@@ -38,7 +39,7 @@ func TestDirtyRects(t *testing.T) {
 func TestDirtyRectsGeometry(t *testing.T) {
 	a := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	for _, b := range []image.Image{image.NewRGBA(image.Rect(0, 0, 3, 2)), image.NewRGBA(image.Rect(1, 1, 3, 3)), image.NewNRGBA(a.Rect)} {
-		got, resync, err := dirtyRects(a, b, 1)
+		got, resync, err := screen.DirtyRects(a, b, 1)
 		if err != nil || !resync || got != nil {
 			t.Fatalf("got %v, %v, %v", got, resync, err)
 		}
@@ -58,13 +59,13 @@ func TestDirtyRectsMalformed(t *testing.T) {
 		image.NewGray(a.Rect),
 	} {
 		for _, pair := range [][2]image.Image{{a, b}, {b, a}} {
-			got, resync, err := dirtyRects(pair[0], pair[1], 1)
+			got, resync, err := screen.DirtyRects(pair[0], pair[1], 1)
 			if err == nil || resync || got != nil {
 				t.Fatalf("accepted %T: %v, %v, %v", b, got, resync, err)
 			}
 		}
 	}
-	if _, _, err := dirtyRects(a, a, 0); err == nil {
+	if _, _, err := screen.DirtyRects(a, a, 0); err == nil {
 		t.Fatal("accepted zero limit")
 	}
 }
@@ -73,7 +74,7 @@ func TestDirtyRectsPaddedNRGBA(t *testing.T) {
 	a := image.NewNRGBA(image.Rect(-5, -5, 5, 5)).SubImage(image.Rect(-2, -2, 2, 2)).(*image.NRGBA)
 	b := image.NewNRGBA(a.Rect)
 	b.SetNRGBA(-1, 0, color.NRGBA{B: 17})
-	got, resync, err := dirtyRects(a, b, 1)
+	got, resync, err := screen.DirtyRects(a, b, 1)
 	if err != nil || resync || !reflect.DeepEqual(got, []image.Rectangle{image.Rect(-1, 0, 0, 1)}) {
 		t.Fatalf("got %v, %v, %v", got, resync, err)
 	}
