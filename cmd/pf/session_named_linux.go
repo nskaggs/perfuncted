@@ -367,9 +367,9 @@ func namedRecover(root *os.File, name string) error {
 			if start == rec.Start {
 				return errors.New("session owner still live")
 			}
-			return errors.New("session owner identity mismatch")
-		}
-		if !errors.Is(err, os.ErrNotExist) {
+			// A different valid start time proves the recorded owner is gone.
+			// Recovery only unlinks validated registry artifacts, not processes.
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("owner identity uncertain: %w", err)
 		}
 	}
@@ -564,7 +564,7 @@ func namedCommandsWithRegistry(registry func() (*os.File, error)) []*cobra.Comma
 			return writeCLIOutput(cmd.OutOrStdout(), "%s %s %s\n", reply.Name, reply.ID, reply.State)
 		}}
 		if operation == "recover" {
-			cmd.Long = "Remove only known registry artifacts from a stale named reservation after obtaining its exclusive owner lock. Unpublished reservations may contain partial temporary metadata; published records must have a verified absent owner. Unsafe or uncertain identities are refused. No process or desktop runtime is removed."
+			cmd.Long = "Remove only known registry artifacts from a stale named reservation after obtaining its exclusive owner lock. Unpublished reservations may contain partial temporary metadata; published records must have a verified absent owner or a reused PID with a different valid start time. Unsafe or uncertain identities are refused. No process or desktop runtime is removed."
 		}
 		cmd.Flags().StringVar(&output, "output", "plain", "plain|json")
 

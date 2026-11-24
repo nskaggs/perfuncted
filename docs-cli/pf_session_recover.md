@@ -4,7 +4,7 @@ Manage named foreground headless sessions: recover
 
 ### Synopsis
 
-Remove only known registry artifacts from a stale named reservation after obtaining its exclusive owner lock. Unpublished reservations may contain partial temporary metadata; published records must have a verified absent owner. Unsafe or uncertain identities are refused. No process or desktop runtime is removed.
+Remove only known registry artifacts from a stale named reservation after obtaining its exclusive owner lock. Unpublished reservations may contain partial temporary metadata; published records must have a verified absent owner or a reused PID with a different valid start time. Unsafe or uncertain identities are refused. No process or desktop runtime is removed.
 
 ```
 pf session recover NAME [flags]

@@ -208,8 +208,13 @@ func TestNamedRecovery(t *testing.T) {
 				rec.Name = "wrong"
 				writeRecord()
 			case "pid-reuse":
+				// The current test process stands in for the unrelated live
+				// process that inherited the recorded owner's PID.
 				rec = o.record
 				rec.Start = "1"
+				if rec.Start == o.record.Start {
+					rec.Start = "2"
+				}
 				writeRecord()
 			case "malformed":
 				if err := os.WriteFile(path, []byte("{"), 0600); err != nil {
@@ -239,7 +244,7 @@ func TestNamedRecovery(t *testing.T) {
 				}
 			}
 			err := namedRecover(o.root, o.record.Name)
-			wantOK := tc == "empty" || tc == "partial" || tc == "published"
+			wantOK := tc == "empty" || tc == "partial" || tc == "published" || tc == "pid-reuse"
 			if (err == nil) != wantOK {
 				t.Fatalf("recover: %v, want success %v", err, wantOK)
 			}
@@ -247,6 +252,18 @@ func TestNamedRecovery(t *testing.T) {
 			err = unix.Fstatat(int(o.root.Fd()), o.record.Name, &st, unix.AT_SYMLINK_NOFOLLOW)
 			if wantOK && err != unix.ENOENT || !wantOK && err != nil {
 				t.Fatalf("reservation state: %v", err)
+			}
+			if tc == "pid-reuse" {
+				start, err := namedProcStart(rec.PID)
+				if err != nil || start != o.record.Start {
+					t.Fatalf("unrelated process identity changed: %q, %v", start, err)
+				}
+				// The name must be immediately reusable.
+				replacement, err := namedReserve(o.record.Name)
+				if err != nil {
+					t.Fatalf("reserve recovered name: %v", err)
+				}
+				replacement.close()
 			}
 			data, err := os.ReadFile(target)
 			if err != nil || string(data) != "keep" {
