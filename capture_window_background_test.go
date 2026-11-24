@@ -1,9 +1,13 @@
 package perfuncted
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"image"
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/screen"
@@ -162,5 +166,92 @@ func TestCaptureWindowBackgroundPreservesUnmappedState(t *testing.T) {
 	}
 	if _, err := session.Screen.CaptureWindowBackground(context.Background(), target); !errors.Is(err, ErrUnsupported) || !errors.Is(err, ErrWindowCaptureUnmapped) {
 		t.Fatalf("unmapped target error=%v", err)
+	}
+}
+
+func TestCaptureWindowBackgroundToWritesPNGAndReturnsMetadata(t *testing.T) {
+	info := window.Info{NativeID: "editor", Title: "Editor", X: 3, Y: 4, W: 5, H: 2}
+	manager := newHandleWindowManager(info)
+	backend := &windowPixmapScreenshotter{
+		windowCaptureScreenshotter: &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+			return nil, errors.New("visible crop must not be used")
+		}},
+		capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+			return screen.WindowPixmapCapture{
+				Image: image.NewRGBA(image.Rect(0, 0, info.W, info.H)), ScreenRect: image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H),
+				Visibility: screen.WindowPixmapOccluded,
+			}, nil
+		},
+	}
+	session := NewSessionForTesting(backend, nil, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "background.png")
+	capture, err := session.Screen.CaptureWindowBackgroundTo(context.Background(), target, path)
+	if err != nil {
+		t.Fatalf("CaptureWindowBackgroundTo: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output PNG: %v", err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode output PNG: %v", err)
+	}
+	if decoded.Bounds().Dx() != info.W || decoded.Bounds().Dy() != info.H || capture.WindowID != "editor" || capture.Mode != WindowCaptureBackgroundPixmap {
+		t.Fatalf("PNG bounds=%v capture=%+v", decoded.Bounds(), capture)
+	}
+}
+
+func TestCaptureWindowBackgroundToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *testing.T) {
+	captureErr := errors.New("background capture failed")
+	for _, tc := range []struct {
+		name         string
+		path         func(*testing.T) string
+		captureErr   error
+		wantErr      error
+		wantCaptures int
+	}{
+		{name: "empty path", path: func(*testing.T) string { return "" }, wantErr: ErrInvalidArgument},
+		{name: "capture failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "capture.png") }, captureErr: captureErr, wantErr: captureErr, wantCaptures: 1},
+		{name: "publish failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing", "capture.png") }, wantCaptures: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := window.Info{NativeID: "editor", Title: "Editor", X: 1, Y: 2, W: 3, H: 2}
+			manager := newHandleWindowManager(info)
+			captures := 0
+			backend := &windowPixmapScreenshotter{
+				windowCaptureScreenshotter: &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+					return nil, errors.New("visible crop must not be used")
+				}},
+				capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+					captures++
+					if tc.captureErr != nil {
+						return screen.WindowPixmapCapture{}, tc.captureErr
+					}
+					return screen.WindowPixmapCapture{
+						Image: image.NewRGBA(image.Rect(0, 0, info.W, info.H)), ScreenRect: image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H),
+						Visibility: screen.WindowPixmapOccluded,
+					}, nil
+				},
+			}
+			session := NewSessionForTesting(backend, nil, manager, nil, nil)
+			t.Cleanup(func() { _ = session.Close() })
+			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.Screen.CaptureWindowBackgroundTo(context.Background(), target, tc.path(t))
+			if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
+				t.Fatalf("CaptureWindowBackgroundTo error=%v, want error matching %v", err, tc.wantErr)
+			}
+			if captures != tc.wantCaptures {
+				t.Fatalf("background captures=%d, want %d", captures, tc.wantCaptures)
+			}
+		})
 	}
 }

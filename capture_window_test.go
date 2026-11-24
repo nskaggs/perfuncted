@@ -1,9 +1,13 @@
 package perfuncted
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"image"
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nskaggs/perfuncted/screen"
@@ -224,5 +228,70 @@ func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 	}
 	if grabs != 0 {
 		t.Fatalf("screen captures=%d, want zero", grabs)
+	}
+}
+
+func TestCaptureWindowToWritesPNGAndReturnsMetadata(t *testing.T) {
+	info := window.Info{NativeID: "editor", Title: "Editor", X: 3, Y: 4, W: 5, H: 2}
+	session, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "visible.png")
+	capture, err := session.Screen.CaptureWindowTo(context.Background(), target, path)
+	if err != nil {
+		t.Fatalf("CaptureWindowTo: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output PNG: %v", err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode output PNG: %v", err)
+	}
+	if decoded.Bounds().Dx() != info.W || decoded.Bounds().Dy() != info.H || capture.WindowID != "editor" {
+		t.Fatalf("PNG bounds=%v capture=%+v", decoded.Bounds(), capture)
+	}
+}
+
+func TestCaptureWindowToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *testing.T) {
+	captureErr := errors.New("capture failed")
+	for _, tc := range []struct {
+		name      string
+		path      func(*testing.T) string
+		grabErr   error
+		wantErr   error
+		wantGrabs int
+	}{
+		{name: "empty path", path: func(*testing.T) string { return "" }, wantErr: ErrInvalidArgument},
+		{name: "capture failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "capture.png") }, grabErr: captureErr, wantErr: captureErr, wantGrabs: 1},
+		{name: "publish failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing", "capture.png") }, wantGrabs: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := window.Info{NativeID: "editor", Title: "Editor", X: 1, Y: 2, W: 3, H: 2}
+			grabs := 0
+			session, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+				grabs++
+				if tc.grabErr != nil {
+					return nil, tc.grabErr
+				}
+				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+			})
+			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.Screen.CaptureWindowTo(context.Background(), target, tc.path(t))
+			if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
+				t.Fatalf("CaptureWindowTo error=%v, want error matching %v", err, tc.wantErr)
+			}
+			if grabs != tc.wantGrabs {
+				t.Fatalf("screen captures=%d, want %d", grabs, tc.wantGrabs)
+			}
+		})
 	}
 }
