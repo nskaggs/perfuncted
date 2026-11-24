@@ -114,3 +114,98 @@ func TestScreenWatchPixelOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenWatchFullCoverageResync(t *testing.T) {
+	bounds := image.Rect(5, 7, 9, 11)
+	region := image.Rect(10, 20, 12, 22)
+	a := image.NewNRGBA(bounds)
+	b := image.NewNRGBA(bounds)
+	c := image.NewNRGBA(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			a.SetNRGBA(x, y, color.NRGBA{A: 255})
+			b.SetNRGBA(x, y, color.NRGBA{R: 100, A: 255})
+			c.SetNRGBA(x, y, color.NRGBA{R: 100, A: 255})
+		}
+	}
+	c.SetNRGBA(6, 8, color.NRGBA{R: 200, A: 255})
+	for _, mode := range []struct {
+		name   string
+		pixels bool
+	}{{"metadata", false}, {"pixels", true}} {
+		t.Run(mode.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var out bytes.Buffer
+			frames := []*image.NRGBA{a, b, b, c}
+			n := 0
+			err := watchScreenChanges(ctx, &out, region, time.Nanosecond, func(context.Context, image.Rectangle) (perfuncted.Capture, error) {
+				if n == len(frames) {
+					cancel()
+					return perfuncted.Capture{}, ctx.Err()
+				}
+				img := frames[n]
+				n++
+				return perfuncted.Capture{Image: img, ScreenRect: region}, nil
+			}, mode.pixels)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !mode.pixels && strings.Contains(out.String(), "\"pixels\"") {
+				t.Fatal("metadata disclosed pixels")
+			}
+			dec := json.NewDecoder(&out)
+			for i, src := range []*image.NRGBA{a, b, c} {
+				var f watchChangeFrame
+				if err := dec.Decode(&f); err != nil {
+					t.Fatal(err)
+				}
+				if f.FrameID != uint64(i+1) || f.GeometryVersion != 1 || f.ScreenRect != region || f.ImageBounds != bounds {
+					t.Fatalf("provenance %+v", f)
+				}
+				crop, dirty := bounds, region
+				if i < 2 {
+					if !f.FullFrame || f.BaseFrameID != nil {
+						t.Fatalf("expected resync %+v", f)
+					}
+				} else {
+					if f.FullFrame || f.BaseFrameID == nil || *f.BaseFrameID != 2 {
+						t.Fatalf("expected delta from new base %+v", f)
+					}
+					crop = image.Rect(6, 8, 7, 9)
+					dirty = image.Rect(10, 20, 11, 21)
+				}
+				if len(f.DirtyRects) != 1 || f.DirtyRects[0] != dirty {
+					t.Fatalf("dirty rectangles %+v", f)
+				}
+				if !mode.pixels {
+					continue
+				}
+				if len(f.Pixels) != 1 {
+					t.Fatalf("payload count %d", len(f.Pixels))
+				}
+				p := f.Pixels[0]
+				if p.ImageBounds != crop || p.Width != crop.Dx() || p.Height != crop.Dy() || p.GeometryVersion != 1 {
+					t.Fatalf("payload provenance %+v", p)
+				}
+				img, err := png.Decode(bytes.NewReader(p.Data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if img.Bounds().Size() != crop.Size() {
+					t.Fatal("payload size")
+				}
+				for y := 0; y < crop.Dy(); y++ {
+					for x := 0; x < crop.Dx(); x++ {
+						if color.NRGBAModel.Convert(img.At(x, y)) != src.NRGBAAt(crop.Min.X+x, crop.Min.Y+y) {
+							t.Fatal("wrong payload pixel")
+						}
+					}
+				}
+			}
+			if dec.More() {
+				t.Fatal("unexpected extra frame")
+			}
+		})
+	}
+}

@@ -61,7 +61,7 @@ func watchScreenChanges(ctx context.Context, out io.Writer, rect image.Rectangle
 		if geometryChanged {
 			geometryVersion++
 		}
-		full := geometryChanged || resync
+		full := geometryChanged || resync || (len(dirty) == 1 && dirty[0] == bounds)
 		if full || len(dirty) > 0 {
 			frame := watchChangeFrame{FrameID: id + 1, GeometryVersion: geometryVersion, Timestamp: time.Now().UTC(), ScreenRect: current.ScreenRect, ImageBounds: bounds, FullFrame: full}
 			if full {
