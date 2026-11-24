@@ -93,6 +93,8 @@ screen:
     skip: true
   FindTemplates:
     skip: true
+  FindText:
+    skip: true
   WaitFor:
     skip: true
   WaitForChange:
