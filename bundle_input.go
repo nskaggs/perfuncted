@@ -482,3 +482,34 @@ func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, dura
 	}
 	return nil
 }
+
+// ObservePointer returns an authoritative position and its provider-native units.
+// It never falls back to another capability or to remembered injection targets.
+func (b *InputBundle) ObservePointer(ctx context.Context) (input.PointerObservation, error) {
+	if err := b.checkAvailable("pointer-location"); err != nil {
+		return input.PointerObservation{}, err
+	}
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return input.PointerObservation{}, err
+	}
+	observer, ok := b.backend.(input.PointerObserver)
+	if !ok {
+		return input.PointerObservation{}, b.operationError("pointer-location", input.ErrNotSupported)
+	}
+	result, err := observer.ObservePointer(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return input.PointerObservation{}, errors.Join(ctxErr, b.operationError("pointer-location", err))
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return input.PointerObservation{}, errors.Join(openErr, b.operationError("pointer-location", err))
+	}
+	if err != nil {
+		return input.PointerObservation{}, b.operationError("pointer-location", err)
+	}
+	if err := result.Validate(); err != nil {
+		return input.PointerObservation{}, b.operationError("pointer-location", err)
+	}
+	return result, nil
+}

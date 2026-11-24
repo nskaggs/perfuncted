@@ -655,3 +655,12 @@ func (b *GnomeNativeBackend) Close() error {
 	}
 	return b.bridge.Close()
 }
+
+// ObservePointer reports the GNOME compositor's global logical pointer coordinates.
+func (b *GnomeNativeBackend) ObservePointer(ctx context.Context) (PointerObservation, error) {
+	x, y, err := b.PointerLocation(ctx)
+	if err != nil {
+		return PointerObservation{}, err
+	}
+	return PointerObservation{X: x, Y: y, CoordinateSpace: CoordinateSpaceInfo{Kind: CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, Provider: "gnome-native", ObservedAt: time.Now().UTC()}, nil
+}

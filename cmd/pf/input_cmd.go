@@ -454,16 +454,28 @@ func inputCmd(
 	mouseup.Flags().IntVar(&muy, "y", -1, "y coordinate (optional)")
 	mouseup.Flags().IntVar(&muButton, "button", 1, "button number")
 
+	var locationOutput string
 	location := &cobra.Command{
 		Use:   "location",
 		Short: "Print current pointer location",
+		Long:  "Print current pointer location as x,y or JSON. JSON reports fresh GNOME global logical coordinates (1:1) or X11 root framebuffer pixels (native 1:1, not monitor scaling). Signed coordinates and origin zero are valid. observedAt is the local observation receipt time, not an atomic guarantee for subsequent input. Portal/EIS, virtual pointer, uinput and unverified KDE routes return unsupported in JSON; plain output retains its existing fallback.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if locationOutput != "plain" && locationOutput != "json" {
+				return fmt.Errorf("invalid location output %q", locationOutput)
+			}
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
+			if locationOutput == "json" {
+				result, err := pf.Input.ObservePointer(cmd.Context())
+				if err != nil {
+					return err
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+			}
 			x, y, err := pf.Input.PointerLocation(cmd.Context())
 			if err != nil && errors.Is(err, perfuncted.ErrUnsupported) && openInputWindow != nil {
 				// uinput and portal-EIS can inject input but cannot read the
@@ -482,6 +494,7 @@ func inputCmd(
 		},
 	}
 
+	location.Flags().StringVar(&locationOutput, "output", "plain", "Output format: plain or json (authoritative input provider only)")
 	coordinateSpace := &cobra.Command{
 		Use:   "coordinate-space",
 		Short: "Print the pointer backend coordinate space",

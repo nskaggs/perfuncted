@@ -997,3 +997,23 @@ func preferKeycodeLevel(candidate, existing keycodeLevel) bool {
 	}
 	return candidate.level < existing.level
 }
+
+// ObservePointer reports signed X11 root pixels when the pointer is on this root.
+func (b *XTestBackend) ObservePointer(ctx context.Context) (PointerObservation, error) {
+	var result PointerObservation
+	err := b.withOperation(ctx, func(context.Context) error {
+		rep, err := b.conn.QueryPointer(b.root).Reply()
+		if err != nil {
+			return err
+		}
+		if rep == nil || !rep.SameScreen {
+			return unsupportedError("input/xtest", "pointer observation on this root")
+		}
+		result = PointerObservation{X: int(rep.RootX), Y: int(rep.RootY), CoordinateSpace: CoordinateSpaceInfo{Kind: PointerCoordinateSpaceRootPixels, ScaleX: 1, ScaleY: 1}, Provider: "x11-root", ObservedAt: time.Now().UTC()}
+		return nil
+	})
+	if err != nil {
+		return PointerObservation{}, err
+	}
+	return result, nil
+}

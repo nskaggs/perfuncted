@@ -54,6 +54,9 @@ input:
     skip: true
   ScrollUp:
     skip: true
+  ObservePointer:
+    name: location
+    skip: true
   PointerLocation:
     name: location
     skip: true

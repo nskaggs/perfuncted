@@ -112,6 +112,7 @@ var manualCLIAPIMethods = map[string]map[string]string{
 	},
 	"input": {
 		"move-relative": "MouseMove",
+		"location":      "ObservePointer",
 	},
 }
 

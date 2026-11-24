@@ -2,6 +2,10 @@
 
 Print current pointer location
 
+### Synopsis
+
+Print current pointer location as x,y or JSON. JSON reports fresh GNOME global logical coordinates (1:1) or X11 root framebuffer pixels (native 1:1, not monitor scaling). Signed coordinates and origin zero are valid. observedAt is the local observation receipt time, not an atomic guarantee for subsequent input. Portal/EIS, virtual pointer, uinput and unverified KDE routes return unsupported in JSON; plain output retains its existing fallback.
+
 ```
 pf input location [flags]
 ```
@@ -9,7 +13,8 @@ pf input location [flags]
 ### Options
 
 ```
-  -h, --help   help for location
+  -h, --help            help for location
+      --output string   Output format: plain or json (authoritative input provider only) (default "plain")
 ```
 
 ### Options inherited from parent commands

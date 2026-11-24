@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
@@ -61,5 +65,58 @@ func TestInputLocationFallsBackToWindowCursorWhenInjectionBackendCannotReportIt(
 	}
 	if windowManager.closeCalls != 1 {
 		t.Fatalf("fallback window session closed %d times, want once", windowManager.closeCalls)
+	}
+}
+
+func TestInputLocationJSONDoesNotFallback(t *testing.T) {
+	s := pftest.New(nil, unsupportedPointerLocationInputter{Inputter: &pftest.Inputter{}}, nil, nil)
+	var stdout bytes.Buffer
+	cmd := inputCmd(func(context.Context) (*perfuncted.Session, error) { return s, nil }, nil, func(context.Context) (*perfuncted.Session, error) {
+		t.Fatal("unexpected window fallback")
+		return nil, nil
+	})
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"location", "--output", "json"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); !errors.Is(err, perfuncted.ErrUnsupported) || stdout.Len() != 0 {
+		t.Fatalf("got %q, %v", stdout.String(), err)
+	}
+}
+
+type observedPointerInputter struct {
+	*pftest.Inputter
+	result input.PointerObservation
+}
+
+func (p observedPointerInputter) ObservePointer(context.Context) (input.PointerObservation, error) {
+	return p.result, nil
+}
+
+func TestInputLocationJSONObservation(t *testing.T) {
+	want := input.PointerObservation{
+		X: -42, Y: 0,
+		CoordinateSpace: input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1},
+		Provider:        "gnome-native",
+		ObservedAt:      time.Date(2026, 11, 24, 15, 0, 0, 123, time.UTC),
+	}
+	s := pftest.New(nil, observedPointerInputter{Inputter: &pftest.Inputter{}, result: want}, nil, nil)
+	var stdout bytes.Buffer
+	cmd := inputCmd(func(context.Context) (*perfuncted.Session, error) { return s, nil }, nil, func(context.Context) (*perfuncted.Session, error) { t.Fatal("unexpected fallback"); return nil, nil })
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"location", "--output", "json"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var got input.PointerObservation
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
