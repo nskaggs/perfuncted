@@ -11,6 +11,13 @@ understanding which parts of the screen change during an action.
 Output format:
   <timestamp>  <hash>  <label>
 
+With --changes --output json, emit metadata-only NDJSON from full-frame polling.
+The initial frame and resyncs have no base frame; unchanged samples are silent.
+Dirty rectangles are desktop bounds, capped at 256 before full-frame resync.
+Geometry version starts at 1 and advances only when screen or image bounds change.
+Format and rectangle-overflow resyncs retain the geometry version.
+Negative poll intervals are rejected in changes mode.
+
 Runs until --duration expires or Ctrl+C.
 
 ```
@@ -20,6 +27,7 @@ pf screen watch [flags]
 ### Options
 
 ```
+      --changes           emit metadata-only dirty rectangles (requires --output json)
       --duration string   stop after this duration (e.g. 10s); default runs until Ctrl+C
   -h, --help              help for watch
       --output string     plain|json (default "plain")

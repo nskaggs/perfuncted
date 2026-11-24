@@ -388,6 +388,7 @@ Otherwise, it is saved to the specified file.`,
 
 	var watchRectFlag, watchPollFlag, watchDurFlag string
 	var watchOutputFlag string
+	var watchChanges bool
 	watch := &cobra.Command{
 		Use:   "watch",
 		Short: "Continuously print hash changes in a screen region",
@@ -399,11 +400,21 @@ understanding which parts of the screen change during an action.
 Output format:
   <timestamp>  <hash>  <label>
 
+With --changes --output json, emit metadata-only NDJSON from full-frame polling.
+The initial frame and resyncs have no base frame; unchanged samples are silent.
+Dirty rectangles are desktop bounds, capped at 256 before full-frame resync.
+Geometry version starts at 1 and advances only when screen or image bounds change.
+Format and rectangle-overflow resyncs retain the geometry version.
+Negative poll intervals are rejected in changes mode.
+
 Runs until --duration expires or Ctrl+C.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			mode, err := parseOutputMode(watchOutputFlag)
 			if err != nil {
 				return err
+			}
+			if watchChanges && mode != outputModeJSON {
+				return fmt.Errorf("--changes requires --output json")
 			}
 			r, err := parseRect(watchRectFlag)
 			if err != nil {
@@ -412,6 +423,9 @@ Runs until --duration expires or Ctrl+C.`,
 			poll, err := parseDuration(watchPollFlag, 100*time.Millisecond)
 			if err != nil {
 				return err
+			}
+			if watchChanges && poll < 0 {
+				return fmt.Errorf("--changes requires a non-negative --poll")
 			}
 			if poll <= 0 {
 				poll = 100 * time.Millisecond
@@ -432,6 +446,9 @@ Runs until --duration expires or Ctrl+C.`,
 				defer cancel()
 			}
 
+			if watchChanges {
+				return watchScreenChanges(ctx, cmd.OutOrStdout(), r, poll, pf.Screen.Capture)
+			}
 			var last uint32
 			first := true
 			start := time.Now()
@@ -498,6 +515,7 @@ Runs until --duration expires or Ctrl+C.`,
 	watch.Flags().StringVar(&watchPollFlag, "poll", "100ms", "poll interval")
 	watch.Flags().StringVar(&watchDurFlag, "duration", "", "stop after this duration (e.g. 10s); default runs until Ctrl+C")
 	watch.Flags().StringVar(&watchOutputFlag, "output", "plain", "plain|json")
+	watch.Flags().BoolVar(&watchChanges, "changes", false, "emit metadata-only dirty rectangles (requires --output json)")
 	cmd.AddCommand(watch)
 
 	openResolution := openPF
