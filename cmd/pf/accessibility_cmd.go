@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -207,6 +208,11 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		}
 		_, err := fmt.Fprintf(w, "action index=%d name=%q localized=%q mechanism=%s generation=%d\n", typed.Action.Index, typed.Action.Name, typed.Action.LocalizedName, typed.Mechanism, typed.Generation)
 		return err
+	case accessibilityActionCLIResult:
+		if _, err := fmt.Fprintf(w, "action status=%s dispatch=%s outcome=%s evaluations=%d wakeups=%d error=%s\n", typed.Status, typed.Receipt.Dispatch, typed.Receipt.Outcome.Status, typed.Evidence.Evaluations, typed.Evidence.Wakeups, typed.ErrorCode); err != nil {
+			return err
+		}
+		return writeAccessibilityText(w, typed.Receipt)
 	case accessibilityWaitCLIResult:
 		if _, err := fmt.Fprintf(w, "wait state=%s satisfied=%t evaluations=%d wakeups=%d\n", typed.State, typed.Satisfied, typed.Evidence.Evaluations, typed.Evidence.Wakeups); err != nil {
 			return err
@@ -226,6 +232,13 @@ type accessibilityWaitCLIResult struct {
 	Satisfied bool                              `json:"satisfied"`
 	Node      *accessibility.Node               `json:"node,omitempty"`
 	Evidence  perfuncted.WaitEvidence           `json:"evidence"`
+}
+
+type accessibilityActionCLIResult struct {
+	Status    string                                `json:"status"`
+	Receipt   perfuncted.AccessibilityActionReceipt `json:"receipt"`
+	Evidence  perfuncted.WaitEvidence               `json:"evidence"`
+	ErrorCode string                                `json:"errorCode,omitempty"`
 }
 
 // writeAccessibilityOutline preserves incomplete-tree diagnostic evidence.
@@ -563,31 +576,117 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 	var actionQuery accessibility.Query
 	var actionAttributes []string
 	var actionName string
-	action := &cobra.Command{Use: "action", Short: "Invoke one uniquely resolved semantic AT-SPI action", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
-		if err := actionOpts.requireScope(); err != nil {
-			return err
-		}
-		pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, actionOpts)
-		if err != nil {
-			return err
-		}
-		defer pf.Close()
-		root, err := actionOpts.root(c.Context(), pf)
-		if err != nil {
-			return err
-		}
-		actionQuery.Attributes = parseAccessibilityAttributes(actionAttributes)
-		receipt, err := pf.Accessibility.InvokeSemanticAction(c.Context(), root, actionQuery, actionName, actionOpts.snapshot())
-		if err != nil {
-			return err
-		}
-		return accessibilityOutput(c.OutOrStdout(), actionOpts.json, receipt)
-	}}
+	var actionExpectText string
+	var actionExpectState string
+	var actionTimeout time.Duration
+	action := &cobra.Command{
+		Use:   "action",
+		Short: "Invoke one semantic AT-SPI action and optionally verify its result",
+		Long: `Invoke one uniquely resolved semantic AT-SPI action.
+
+Optional --expect-text or --expect-state changed waits for fresh accessible
+state with a bounded timeout. A verified result means the condition was
+observed; it does not prove the action caused it. A timeout never retries the
+action. Without an expectation, the existing one-shot receipt is returned.
+
+Examples:
+  pf a11y action --app Editor --role button --name Save --expect-text Saved --timeout 5s
+  pf a11y action --app Editor --role button --name Save --expect-state changed --timeout 5s`,
+		Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+			if err := actionOpts.requireScope(); err != nil {
+				return err
+			}
+			verificationRequested := c.Flags().Changed("expect-text") || c.Flags().Changed("expect-state")
+			if c.Flags().Changed("timeout") && !verificationRequested {
+				return fmt.Errorf("accessibility: --timeout requires --expect-text or --expect-state")
+			}
+			if verificationRequested && actionTimeout <= 0 {
+				return fmt.Errorf("accessibility: --timeout must be positive")
+			}
+			if c.Flags().Changed("expect-text") && strings.TrimSpace(actionExpectText) == "" {
+				return fmt.Errorf("accessibility: --expect-text must not be empty")
+			}
+			if c.Flags().Changed("expect-state") && actionExpectState != "changed" {
+				return fmt.Errorf("accessibility: --expect-state supports only changed")
+			}
+			if c.Flags().Changed("expect-text") && c.Flags().Changed("expect-state") {
+				return fmt.Errorf("accessibility: choose only one of --expect-text or --expect-state")
+			}
+			pf, err := openAccessibilityScopeSession(c.Context(), openPF, openWindowPF, actionOpts)
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			root, err := actionOpts.root(c.Context(), pf)
+			if err != nil {
+				if verificationRequested {
+					result := accessibilityActionCLIResult{Status: "preflight-failed", ErrorCode: "preflight-failed"}
+					if outputErr := accessibilityOutput(c.OutOrStdout(), actionOpts.json, result); outputErr != nil {
+						return outputErr
+					}
+				}
+				return err
+			}
+			actionQuery.Attributes = parseAccessibilityAttributes(actionAttributes)
+			if !verificationRequested {
+				receipt, err := pf.Accessibility.InvokeSemanticAction(c.Context(), root, actionQuery, actionName, actionOpts.snapshot())
+				if err != nil {
+					return err
+				}
+				return accessibilityOutput(c.OutOrStdout(), actionOpts.json, receipt)
+			}
+
+			var postcondition perfuncted.Condition
+			if c.Flags().Changed("expect-text") {
+				postcondition = perfuncted.AccessibilityTextContains(root, actionExpectText, actionOpts.snapshot())
+			} else {
+				baseline, findErr := pf.Accessibility.FindOne(c.Context(), root, actionQuery, actionOpts.snapshot())
+				if findErr != nil {
+					result := accessibilityActionCLIResult{Status: "preflight-failed", ErrorCode: "preflight-failed"}
+					if outputErr := accessibilityOutput(c.OutOrStdout(), actionOpts.json, result); outputErr != nil {
+						return outputErr
+					}
+					return findErr
+				}
+				postcondition = perfuncted.AccessibilityNodeChanged(root, baseline, actionOpts.snapshot())
+			}
+
+			verifyCtx, cancel := context.WithTimeout(c.Context(), actionTimeout)
+			defer cancel()
+			receipt, evidence, actionErr := pf.InvokeAccessibilityActionAndWait(
+				verifyCtx, root, actionQuery, actionName, actionOpts.snapshot(), postcondition,
+			)
+			result := accessibilityActionCLIResult{Status: "verified", Receipt: receipt, Evidence: evidence}
+			if actionErr != nil {
+				result.Status = "action-failed"
+				result.ErrorCode = "action-failed"
+				if receipt.Dispatch == "" {
+					result.Status = "preflight-failed"
+					result.ErrorCode = "preflight-failed"
+				}
+				var verificationErr *perfuncted.ActionVerificationError
+				if errors.As(actionErr, &verificationErr) {
+					result.Status = "verification-failed"
+					result.ErrorCode = "verification-failed"
+					if errors.Is(actionErr, context.DeadlineExceeded) {
+						result.Status = "verification-timeout"
+						result.ErrorCode = "deadline-exceeded"
+					}
+				}
+			}
+			if outputErr := accessibilityOutput(c.OutOrStdout(), actionOpts.json, result); outputErr != nil {
+				return outputErr
+			}
+			return actionErr
+		}}
 	addJSONFlag(action, &actionOpts.json)
 	addScopeFlags(action, &actionOpts)
 	addSnapshotFlags(action, &actionOpts)
 	addQueryFlags(action, &actionQuery, &actionAttributes)
 	action.Flags().StringVar(&actionName, "action", "", "exact action name; empty selects the provider's first action")
+	action.Flags().StringVar(&actionExpectText, "expect-text", "", "verify that accessible state exposes this text after the action")
+	action.Flags().StringVar(&actionExpectState, "expect-state", "", "verify an observable state transition; supported value: changed")
+	action.Flags().DurationVar(&actionTimeout, "timeout", 5*time.Second, "maximum time for a verified action (must be positive)")
 
 	var focusOpts accessibilityCLIOptions
 	var focusQuery accessibility.Query

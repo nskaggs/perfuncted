@@ -421,6 +421,10 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 	if postcondition == nil {
 		return AccessibilityActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s: %w: nil postcondition", operation, ErrInvalidArgument)
 	}
+	waitConfig, err := l.bundle.session.prepareWait(ctx, postcondition, options, "accessibility-locator-"+operation+"-verification")
+	if err != nil {
+		return AccessibilityActionReceipt{}, WaitEvidence{}, err
+	}
 	var receipt AccessibilityActionReceipt
 	for attemptNumber := 0; attemptNumber < locatorResolutionAttempts; attemptNumber++ {
 		matches, identity, root, stopObservation, err := l.find(ctx)
@@ -461,7 +465,7 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 		}
 		receipt = dispatched.receipt
 		if dispatched.err == nil {
-			return l.waitForOutcome(ctx, receipt, postcondition, options...)
+			return l.waitForOutcome(ctx, receipt, postcondition, waitConfig)
 		}
 		if !locatorRetryAllowed(dispatched, attemptNumber) {
 			return receipt, WaitEvidence{}, dispatched.err
@@ -500,12 +504,14 @@ func textDispatchOutcome(err error) accessibility.DispatchOutcome {
 	}
 }
 
-func (l *AccessibilityLocator) waitForOutcome(ctx context.Context, receipt AccessibilityActionReceipt, postcondition Condition, options ...WaitOption) (AccessibilityActionReceipt, WaitEvidence, error) {
+func (l *AccessibilityLocator) waitForOutcome(ctx context.Context, receipt AccessibilityActionReceipt, postcondition Condition, config waitConfig) (AccessibilityActionReceipt, WaitEvidence, error) {
 	receipt.Outcome = ActionOutcomeProof{Status: ActionOutcomeNotVerified, Condition: postcondition.describe()}
-	evidence, err := l.bundle.session.WaitWithEvidence(ctx, postcondition, options...)
+	evidence, err := l.bundle.session.waitWithEvidence(ctx, postcondition, config)
 	if err == nil {
 		receipt.Outcome.Status = ActionOutcomeVerified
 		receipt.Outcome.ObservedAt = time.Now().UTC()
+	} else {
+		err = &ActionVerificationError{Dispatch: receipt.Dispatch, Condition: postcondition.describe(), Err: err}
 	}
 	return receipt, evidence, err
 }

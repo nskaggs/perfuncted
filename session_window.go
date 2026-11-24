@@ -372,6 +372,7 @@ func (b *WindowBundle) Wait(
 				return false, err
 			}
 		},
+		CapabilityWindows,
 	)
 	if err := b.session.Wait(ctx, condition, options...); err != nil {
 		return nil, err
@@ -435,6 +436,7 @@ func (a *Application) WaitForWindow(
 				)
 			}
 		},
+		CapabilityWindows,
 	)
 	if err := a.session.Wait(ctx, condition); err != nil {
 		return nil, err

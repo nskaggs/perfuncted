@@ -103,6 +103,47 @@ func (cliAutomationFake) InvokeActionByName(context.Context, accessibility.NodeI
 func (cliAutomationFake) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) { //nolint:unparam // the CLI fixture intentionally models a successful action.
 	return accessibility.Action{Index: 0, Name: "default"}, nil
 }
+
+type cliVerifiedActionFake struct {
+	cliAutomationFake
+	actionCalls          int
+	mutateState          bool
+	changeBeforeDispatch bool
+	snapshotCalls        int
+}
+
+func (f *cliVerifiedActionFake) Snapshot(_ context.Context, rootID accessibility.NodeID, _ accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
+	f.snapshotCalls++
+	if rootID == (accessibility.NodeID{}) {
+		rootID = accessibility.NodeID{BusName: "org.test.App", ObjectPath: "/app", Generation: 1, Incarnation: 1}
+	}
+	rootID.Incarnation = 1
+	root := accessibility.Node{ID: rootID, Name: "Test App", Role: "application"}
+	save := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/save", Generation: 1, Incarnation: 1}, Name: "Save", Role: "button", Text: "Save", Actions: []accessibility.Action{{Index: 0, Name: "default"}}}
+	entry := accessibility.Node{ID: accessibility.NodeID{BusName: rootID.BusName, ObjectPath: "/status", Generation: 1, Incarnation: 1}, Name: "Status", Role: "label", Text: "Ready"}
+	if f.actionCalls > 0 && f.mutateState {
+		save.Name = "Saved"
+		entry.Text = "Saved"
+	}
+	if f.changeBeforeDispatch && f.actionCalls == 0 && f.snapshotCalls > 1 {
+		save.Text = "Changed externally"
+	}
+	return accessibility.Snapshot{Root: root, Nodes: []accessibility.Node{root, save, entry}, Generation: 1}, nil
+}
+
+func (f *cliVerifiedActionFake) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+	snapshot, err := f.Snapshot(ctx, root, opts)
+	if err != nil {
+		return nil, err
+	}
+	return accessibility.FilterSnapshot(snapshot, query), nil
+}
+
+func (f *cliVerifiedActionFake) InvokeDefaultAction(context.Context, accessibility.NodeID) (accessibility.Action, error) {
+	f.actionCalls++
+	return accessibility.Action{Index: 0, Name: "default"}, nil
+}
+
 func (cliAutomationFake) GrabFocus(context.Context, accessibility.NodeID) error { return nil }
 func (cliAutomationFake) ScrollTo(context.Context, accessibility.NodeID, accessibility.ScrollType) error {
 	return nil
@@ -276,6 +317,108 @@ func TestAccessibilityCLIWorkflowCommandsUseSemanticScopeAndHelpers(t *testing.T
 		if code != 0 || stderr != "" {
 			t.Fatalf("args=%v code=%d stderr=%q stdout=%q", args, code, stderr, stdout)
 		}
+	}
+}
+
+func TestAccessibilityCLIVerifiedActionTextAndChangedState(t *testing.T) {
+	for _, expectation := range [][]string{
+		{"--expect-text", "Saved"},
+		{"--expect-state", "changed"},
+	} {
+		t.Run(strings.Join(expectation, "-"), func(t *testing.T) {
+			backend := &cliVerifiedActionFake{mutateState: true}
+			factory := func(*cliConfig) sessionOpener {
+				return func(context.Context) (*perfuncted.Session, error) {
+					return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, backend), nil
+				}
+			}
+			args := append([]string{"a11y", "action", "--app", "Test", "--role", "button", "--name", "Save"}, expectation...)
+			args = append(args, "--timeout", "1s", "--json")
+			stdout, stderr, code := captureRunIO(t, args, factory)
+			if code != 0 || stderr != "" {
+				t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+			}
+			var result accessibilityActionCLIResult
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatalf("verified action output is not JSON: %q: %v", stdout, err)
+			}
+			if result.Status != "verified" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != perfuncted.ActionOutcomeVerified {
+				t.Fatalf("verified action result = %+v", result)
+			}
+			if result.Evidence.Evaluations == 0 || backend.actionCalls != 1 {
+				t.Fatalf("evidence=%+v actionCalls=%d, want observed state after one dispatch", result.Evidence, backend.actionCalls)
+			}
+		})
+	}
+}
+
+func TestAccessibilityCLIVerificationTimeoutPreservesDispatchAndDoesNotLeakExpectedText(t *testing.T) {
+	backend := &cliVerifiedActionFake{}
+	factory := func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, backend), nil
+		}
+	}
+	// This backend deliberately performs the action without exposing the
+	// requested sentinel in its fresh state.
+	stdout, stderr, code := captureRunIO(t, []string{
+		"a11y", "action", "--app", "Test", "--role", "button", "--name", "Save",
+		"--expect-text", "private-sentinel", "--timeout", "10ms", "--json",
+	}, factory)
+	if code == 0 || !strings.Contains(stderr, "deadline exceeded") {
+		t.Fatalf("code=%d stderr=%q stdout=%q, want verification timeout", code, stderr, stdout)
+	}
+	var result accessibilityActionCLIResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("verification failure output is not JSON: %q: %v", stdout, err)
+	}
+	if result.Status != "verification-timeout" || result.ErrorCode != "deadline-exceeded" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != perfuncted.ActionOutcomeNotVerified {
+		t.Fatalf("timeout result = %+v", result)
+	}
+	if backend.actionCalls != 1 {
+		t.Fatalf("action calls=%d, want exactly one after timeout", backend.actionCalls)
+	}
+	if strings.Contains(stdout+stderr, "private-sentinel") {
+		t.Fatalf("expected text leaked in result/error: stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestAccessibilityCLIChangedBaselineMustStillMatchBeforeDispatch(t *testing.T) {
+	backend := &cliVerifiedActionFake{changeBeforeDispatch: true}
+	factory := func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, backend), nil
+		}
+	}
+	stdout, stderr, code := captureRunIO(t, []string{
+		"a11y", "action", "--app", "Test", "--role", "button", "--name", "Save",
+		"--expect-state", "changed", "--timeout", "1s", "--json",
+	}, factory)
+	if code == 0 || !strings.Contains(stderr, "baseline target changed before dispatch") {
+		t.Fatalf("code=%d stderr=%q stdout=%q, want pre-dispatch baseline rejection", code, stderr, stdout)
+	}
+	var result accessibilityActionCLIResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("preflight failure output is not JSON: %q: %v", stdout, err)
+	}
+	if result.Status != "preflight-failed" || result.Receipt.Dispatch != "" || backend.actionCalls != 0 {
+		t.Fatalf("result=%+v actionCalls=%d, want no dispatch", result, backend.actionCalls)
+	}
+}
+
+func TestAccessibilityCLIVerificationFlagsValidateBeforeOpeningSession(t *testing.T) {
+	opened := 0
+	factory := func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) {
+			opened++
+			return perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil, cliAutomationFake{}), nil
+		}
+	}
+	_, stderr, code := captureRunIO(t, []string{
+		"a11y", "action", "--app", "Test", "--role", "button", "--expect-text", "Saved", "--timeout", "0s",
+	}, factory)
+	if code == 0 || !strings.Contains(stderr, "--timeout must be positive") || opened != 0 {
+		t.Fatalf("code=%d stderr=%q sessionsOpened=%d, want invalid request rejected before session", code, stderr, opened)
 	}
 }
 

@@ -22,7 +22,7 @@ Inspect and operate the AT-SPI accessibility tree
 ### SEE ALSO
 
 * [pf](pf.md)	 - perfuncted — screen automation CLI
-* [pf a11y action](pf_a11y_action.md)	 - Invoke one uniquely resolved semantic AT-SPI action
+* [pf a11y action](pf_a11y_action.md)	 - Invoke one semantic AT-SPI action and optionally verify its result
 * [pf a11y apps](pf_a11y_apps.md)	 - List registered accessible applications
 * [pf a11y at-point](pf_a11y_at-point.md)	 - Show the accessible object at screen coordinates
 * [pf a11y events](pf_a11y_events.md)	 - Stream bounded AT-SPI invalidation events

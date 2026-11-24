@@ -184,7 +184,7 @@ func (l *AccessibilityLocator) waitForState(
 			matched = node
 		}
 		return satisfied, nil
-	})
+	}, CapabilityAccessibility)
 
 	evidence, err := l.bundle.session.WaitWithEvidence(ctx, condition, options...)
 	return matched, evidence, err

@@ -189,6 +189,50 @@ state; it does not claim that a control is unobscured or physically on screen.
 Waits read accessibility data and do not request input or screenshot access.
 Sensitive values remain redacted unless `--allow-sensitive` is selected.
 
+### Invoke an action and verify its outcome
+
+`pf a11y action` remains a one-shot operation when no expectation is supplied.
+To wait for accessible confirmation, use `--expect-text` or
+`--expect-state changed` with a positive timeout:
+
+```bash
+pf a11y action --app Editor --role button --name Save --expect-text Saved --timeout 5s --json
+pf a11y action --app Editor --role button --name Save --expect-state changed --timeout 5s --json
+```
+
+Verified JSON includes the dispatch receipt, outcome proof, and wait evidence.
+On a verification timeout it reports `verification-timeout`, keeps the
+accepted dispatch receipt, and exits nonzero. A timeout never retries the
+action. `changed` captures a complete baseline before dispatch and compares
+the same accessible object identity afterward. Verification means the
+condition was observed; it does not prove that the action caused the change.
+
+The Go action-and-wait API accepts the existing window and accessibility
+conditions. For a caller-defined screen condition, capture its baseline before
+the action and declare the required screen capability so unavailable screen
+observation fails before dispatch:
+
+```go
+baseline, err := session.Screen.GrabRegionHash(ctx, region)
+if err != nil {
+    return err
+}
+screenChanged := perfuncted.WithConditionCapabilities(
+    perfuncted.Predicate("screen region changed", func(ctx context.Context) (bool, error) {
+        current, err := session.Screen.GrabRegionHash(ctx, region)
+        return current != baseline, err
+    }),
+    perfuncted.CapabilityScreen,
+)
+receipt, evidence, err := session.InvokeAccessibilityActionAndWait(
+    ctx, root, query, "", accessibility.SnapshotOptions{}, screenChanged,
+)
+```
+
+`WindowExists`, `WindowClosed`, and accessibility condition builders declare
+their own observation capabilities. Caller-defined conditions should use
+`WithConditionCapabilities` when they read session bundles.
+
 The Go API uses the same bounded wait engine:
 
 ```go

@@ -502,6 +502,108 @@ func TestSessionAccessibilityActionWaitUsesIndependentPostcondition(t *testing.T
 	}
 }
 
+func TestAccessibilityActionWaitPreflightsConditionCapabilitiesAndOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		condition Condition
+		options   []WaitOption
+		wantCap   Capability
+		wantErr   error
+	}{
+		{
+			name: "missing window capability",
+			condition: WithConditionCapabilities(Predicate("window state", func(context.Context) (bool, error) {
+				return true, nil
+			}), CapabilityWindows),
+			wantCap: CapabilityWindows,
+		},
+		{
+			name: "missing screen capability",
+			condition: WithConditionCapabilities(Predicate("screen state", func(context.Context) (bool, error) {
+				return true, nil
+			}), CapabilityScreen),
+			wantCap: CapabilityScreen,
+		},
+		{
+			name:      "invalid wait interval",
+			condition: Predicate("ready", func(context.Context) (bool, error) { return true, nil }),
+			options:   []WaitOption{WaitEvery(0)},
+		},
+		{
+			name:      "nil window postcondition target",
+			condition: WindowClosed(nil),
+			wantErr:   ErrNilSession,
+		},
+		{
+			name:      "nil predicate",
+			condition: Predicate("invalid", nil),
+			wantErr:   ErrInvalidArgument,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spy := &accessibilityAutomationSpy{}
+			fake := &accessibilityAutomationFake{
+				bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
+				accessibilityAutomationSpy: spy,
+			}
+			session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+			defer session.Close()
+			_, _, err := session.InvokeAccessibilityActionAndWait(
+				context.Background(),
+				accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
+				accessibility.Query{Name: "Save"}, "press", accessibility.SnapshotOptions{}, tc.condition, tc.options...,
+			)
+			if err == nil {
+				t.Fatal("expected preflight error")
+			}
+			if tc.wantCap != "" {
+				var capabilityErr *CapabilityError
+				if !errors.As(err, &capabilityErr) || capabilityErr.Capability != tc.wantCap {
+					t.Fatalf("error = %v, want unavailable %s capability", err, tc.wantCap)
+				}
+			} else if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tc.wantErr)
+				}
+			} else if !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("error = %v, want ErrInvalidArgument", err)
+			}
+			if len(spy.calls) != 0 {
+				t.Fatalf("preflight failure dispatched action: %v", spy.calls)
+			}
+		})
+	}
+}
+
+func TestAccessibilityActionWaitTimeoutPreservesAcceptedReceiptWithoutReplay(t *testing.T) {
+	spy := &accessibilityAutomationSpy{}
+	fake := &accessibilityAutomationFake{
+		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
+		accessibilityAutomationSpy: spy,
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	defer session.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	receipt, evidence, err := session.InvokeAccessibilityActionAndWait(
+		ctx,
+		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
+		accessibility.Query{Name: "Save"}, "press", accessibility.SnapshotOptions{},
+		Predicate("never satisfied", func(context.Context) (bool, error) { return false, nil }),
+		WaitEvery(time.Millisecond),
+	)
+	var verificationErr *ActionVerificationError
+	if !errors.As(err, &verificationErr) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want ActionVerificationError wrapping deadline", err)
+	}
+	if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeNotVerified {
+		t.Fatalf("receipt = %+v, want accepted and not verified", receipt)
+	}
+	if len(spy.calls) != 1 || spy.calls[0] != "action-name" || evidence.Evaluations == 0 {
+		t.Fatalf("calls=%v evidence=%+v, want one dispatch and fresh evaluations", spy.calls, evidence)
+	}
+}
+
 func TestInvokeSemanticActionRejectsTruncatedUniqueSnapshot(t *testing.T) {
 	spy := &accessibilityAutomationSpy{}
 	node := accessibility.Node{ID: accessibility.NodeID{BusName: "org.test", ObjectPath: "/save", Generation: 3}, Name: "Save"}
