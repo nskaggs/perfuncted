@@ -15,6 +15,10 @@ import (
 	"github.com/nskaggs/perfuncted/internal/x11test"
 )
 
+type inputStateFailingWriter struct{ err error }
+
+func (w inputStateFailingWriter) Write([]byte) (int, error) { return 0, w.err }
+
 func TestInputStateCLIValidatesBeforeOpeningSession(t *testing.T) {
 	cases := []struct {
 		name string
@@ -50,6 +54,24 @@ func TestInputStateCLIValidatesBeforeOpeningSession(t *testing.T) {
 	}
 }
 
+func TestInputStateCLIPropagatesObserverOpenError(t *testing.T) {
+	want := errors.New("observer open failed")
+	opened := 0
+	cmd := inputStateCmd(func(context.Context) (*perfuncted.Session, error) {
+		opened++
+		return nil, want
+	})
+	cmd.SetArgs([]string{"--key", "shift"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.ExecuteContext(context.Background()); !errors.Is(err, want) {
+		t.Fatalf("input state open error=%v, want %v", err, want)
+	}
+	if opened != 1 {
+		t.Fatalf("observer opens=%d, want one", opened)
+	}
+}
+
 func TestParseInputStateButton(t *testing.T) {
 	for _, tc := range []struct {
 		value string
@@ -82,20 +104,63 @@ func TestInputStateCLIControlledX11(t *testing.T) {
 	t.Setenv("WAYLAND_DISPLAY", "")
 	t.Setenv("WAYLAND_SOCKET", "")
 
-	var out bytes.Buffer
-	cmd := newRootCmd(defaultOpenPFFactory)
-	cmd.SetArgs([]string{"input", "state", "--key", "capslock"})
-	cmd.SetOut(&out)
-	cmd.SilenceErrors = true
-	cmd.SilenceUsage = true
-	if err := cmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("query Caps Lock state: %v", err)
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		kind     string
+		wantName string
+	}{
+		{name: "key", args: []string{"--key", "capslock"}, kind: "key", wantName: "capslock"},
+		{name: "lock", args: []string{"--lock", "capslock"}, kind: "lock", wantName: "capslock"},
+		{name: "button", args: []string{"--button", "left"}, kind: "button", wantName: "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			cmd := newRootCmd(defaultOpenPFFactory)
+			cmd.SetArgs(append([]string{"input", "state"}, tc.args...))
+			cmd.SetOut(&out)
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("query %s state: %v", tc.name, err)
+			}
+			var got input.StateObservation
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatalf("decode JSON state %q: %v", out.String(), err)
+			}
+			if got.Kind != tc.kind || got.Name != tc.wantName || got.State == "" || got.Provider != "x11-core" || got.Provenance != "unknown" || got.ObservedAt.IsZero() {
+				t.Fatalf("unexpected state JSON: %+v", got)
+			}
+		})
 	}
-	var got input.StateObservation
-	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatalf("decode JSON state %q: %v", out.String(), err)
-	}
-	if got.Kind != "key" || got.Name != "capslock" || got.State == "" || got.Provider != "x11-core" || got.Provenance != "unknown" || got.ObservedAt.IsZero() {
-		t.Fatalf("unexpected state JSON: %+v", got)
-	}
+
+	t.Run("observer query error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		open := defaultOpenPFFactory(&cliConfig{required: []perfuncted.Capability{perfuncted.CapabilityInputObservation}})
+		cmd := inputStateCmd(func(ctx context.Context) (*perfuncted.Session, error) {
+			session, err := open(ctx)
+			if err == nil {
+				cancel()
+			}
+			return session, err
+		})
+		cmd.SetArgs([]string{"--key", "capslock"})
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("query error=%v, want context.Canceled", err)
+		}
+	})
+
+	t.Run("output writer error", func(t *testing.T) {
+		want := errors.New("output writer failed")
+		cmd := inputStateCmd(defaultOpenPFFactory(&cliConfig{required: []perfuncted.Capability{perfuncted.CapabilityInputObservation}}))
+		cmd.SetArgs([]string{"--key", "capslock"})
+		cmd.SetOut(inputStateFailingWriter{err: want})
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		if err := cmd.ExecuteContext(context.Background()); !errors.Is(err, want) {
+			t.Fatalf("encode error=%v, want %v", err, want)
+		}
+	})
 }
