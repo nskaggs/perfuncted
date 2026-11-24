@@ -158,3 +158,49 @@ func TestBoundContextAbortsExistingConnection(t *testing.T) {
 	c.bindAbortContext(context.Background()) // late bind to closed connection
 	c.Abort()
 }
+
+func TestCloseDetachesBoundAbortContext(t *testing.T) {
+	left, right := net.Pipe()
+	defer right.Close()
+	c, err := postNewConn(&Conn{conn: left, setupResourceIdMask: 0x3ffff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.bindAbortContext(ctx)
+
+	serverDone := make(chan error, 1)
+	go func() {
+		request := make([]byte, 4)
+		if _, err := io.ReadFull(right, request); err != nil {
+			serverDone <- err
+			return
+		}
+		reply := make([]byte, 32)
+		reply[0] = 1
+		Put16(reply[2:4], 1)
+		_, err := right.Write(reply)
+		serverDone <- err
+	}()
+
+	c.Close()
+	cancel()
+	select {
+	case <-c.doneRead:
+	case <-time.After(time.Second):
+		t.Fatal("graceful close did not stop response reader")
+	}
+	select {
+	case err := <-serverDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fake X server did not complete close handshake")
+	}
+	select {
+	case <-c.aborted:
+		t.Fatal("context cancellation aborted a gracefully closing connection")
+	default:
+	}
+}

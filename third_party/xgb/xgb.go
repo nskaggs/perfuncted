@@ -235,6 +235,17 @@ func postNewConn(c *Conn) (*Conn, error) {
 // Close gracefully closes the connection to the X server.
 // When everything is cleaned up, the WaitForEvent method will return (nil, nil)
 func (c *Conn) Close() {
+	// A graceful close owns connection shutdown from this point onward. Stop
+	// the lifetime callback so a later context cancellation cannot abort an
+	// already-closing connection and report an expected socket EOF as an error.
+	c.abortMu.Lock()
+	stopAbort := c.stopAbort
+	c.stopAbort = nil
+	c.abortMu.Unlock()
+	if stopAbort != nil && !stopAbort() {
+		c.Abort()
+		return
+	}
 	select {
 	case c.reqChan <- nil:
 	case <-c.doneSend:
