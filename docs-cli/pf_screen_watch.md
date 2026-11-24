@@ -17,6 +17,12 @@ Dirty rectangles are desktop bounds, capped at 256 before full-frame resync.
 Geometry version starts at 1 and advances only when screen or image bounds change.
 Format and rectangle-overflow resyncs retain the geometry version.
 Negative poll intervals are rejected in changes mode.
+With --include-pixels (requires --changes --output json), pixels contains PNG
+payloads in base64, with image-space bounds, dimensions and capture scale.
+Full frames contain the entire capture; deltas contain exact changed crops.
+Pixel records are limited to 16 MiB serialized (including newline), and PNG
+working dimensions to 16 Mi pixels and 16384 pixels per axis. Oversized
+records fail before output. No pixels are encoded without explicit opt-in.
 
 Runs until --duration expires or Ctrl+C.
 
@@ -30,6 +36,7 @@ pf screen watch [flags]
       --changes           emit metadata-only dirty rectangles (requires --output json)
       --duration string   stop after this duration (e.g. 10s); default runs until Ctrl+C
   -h, --help              help for watch
+      --include-pixels    include exact PNG crops (requires --changes --output json)
       --output string     plain|json (default "plain")
       --poll string       poll interval (default "100ms")
       --rect string       x0,y0,x1,y1 region to monitor (default "0,0,1920,1080")

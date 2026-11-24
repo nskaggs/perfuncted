@@ -15,17 +15,18 @@ import (
 const watchMaxDirtyRects = 256
 
 type watchChangeFrame struct {
-	FrameID         uint64            `json:"frame_id"`
-	GeometryVersion uint64            `json:"geometry_version"`
-	BaseFrameID     *uint64           `json:"base_frame_id"`
-	Timestamp       time.Time         `json:"timestamp"`
-	ScreenRect      image.Rectangle   `json:"screen_rect"`
-	ImageBounds     image.Rectangle   `json:"image_bounds"`
-	DirtyRects      []image.Rectangle `json:"dirty_rects"`
-	FullFrame       bool              `json:"full_frame"`
+	FrameID         uint64              `json:"frame_id"`
+	GeometryVersion uint64              `json:"geometry_version"`
+	BaseFrameID     *uint64             `json:"base_frame_id"`
+	Timestamp       time.Time           `json:"timestamp"`
+	ScreenRect      image.Rectangle     `json:"screen_rect"`
+	ImageBounds     image.Rectangle     `json:"image_bounds"`
+	DirtyRects      []image.Rectangle   `json:"dirty_rects"`
+	Pixels          []watchPixelPayload `json:"pixels,omitempty"`
+	FullFrame       bool                `json:"full_frame"`
 }
 
-func watchScreenChanges(ctx context.Context, out io.Writer, rect image.Rectangle, poll time.Duration, capture func(context.Context, image.Rectangle) (perfuncted.Capture, error)) error {
+func watchScreenChanges(ctx context.Context, out io.Writer, rect image.Rectangle, poll time.Duration, capture func(context.Context, image.Rectangle) (perfuncted.Capture, error), includePixels bool) error {
 	enc := json.NewEncoder(out)
 	var previous perfuncted.Capture
 	var id, geometryVersion uint64
@@ -84,7 +85,18 @@ func watchScreenChanges(ctx context.Context, out io.Writer, rect image.Rectangle
 			if ctx.Err() != nil {
 				return nil
 			}
-			if err := enc.Encode(frame); err != nil {
+			if includePixels {
+				crops := dirty
+				if full {
+					crops = []image.Rectangle{bounds}
+				}
+				if err := writeWatchPixelFrame(ctx, out, frame, current, crops, watchPixelFrameLimit); err != nil {
+					if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+						return nil
+					}
+					return err
+				}
+			} else if err := enc.Encode(frame); err != nil {
 				return err
 			}
 			id++
