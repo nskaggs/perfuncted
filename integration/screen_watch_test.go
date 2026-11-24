@@ -17,8 +17,17 @@ import (
 
 func runScreenWatchSmoke(t *testing.T, s *suite) {
 	t.Helper()
-	if s.mode != displayHeadlessWayland || s.rt.SocketPath() == "" {
-		t.Fatal("screen watch requires the managed headless Wayland session")
+	switch s.mode {
+	case displayHeadlessWayland:
+		if s.rt.SocketPath() == "" {
+			t.Fatal("screen watch requires the managed headless Wayland socket")
+		}
+	case displayHeadlessX11:
+		if s.rt.Get("DISPLAY") == "" || s.rt.Get("WAYLAND_DISPLAY") != "" {
+			t.Fatal("screen watch requires the managed headless X11 display")
+		}
+	default:
+		t.Fatal("screen watch requires a managed headless session")
 	}
 	binary := filepath.Join(t.TempDir(), "pf")
 	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -30,6 +39,10 @@ func runScreenWatchSmoke(t *testing.T, s *suite) {
 	}
 	wantScreen := image.Rect(10, 20, 42, 44)
 	wantImage := wantScreen
+	// X11 captures are region-local; Wayland preserves the requested origin.
+	if s.mode == displayHeadlessX11 {
+		wantImage = image.Rect(0, 0, wantScreen.Dx(), wantScreen.Dy())
+	}
 	for _, includePixels := range []bool{false, true} {
 		name := "metadata"
 		if includePixels {
