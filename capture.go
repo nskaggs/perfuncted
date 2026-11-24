@@ -17,6 +17,36 @@ type Capture struct {
 	ScreenRect image.Rectangle
 }
 
+// WindowCaptureMode identifies how a window capture obtains its pixels.
+type WindowCaptureMode string
+
+const (
+	// WindowCaptureVisibleScreenCrop captures the target's reported screen
+	// rectangle from the visible desktop composite.
+	WindowCaptureVisibleScreenCrop WindowCaptureMode = "visible-screen-crop"
+)
+
+// WindowCapture describes a screen-rectangle crop selected through a stable
+// window handle. Capture contains the pixels and their desktop mapping; the
+// remaining fields report the selector identity and the limits of this mode.
+// Mode is always "visible-screen-crop": pixels are the desktop composite, so
+// overlapping windows can appear. GeometrySource records that bounds came
+// from window-manager metadata, which may be unavailable on some backends.
+type WindowCapture struct {
+	Capture        `json:"-"`
+	WindowID       string            `json:"window_id"`
+	Title          string            `json:"title"`
+	AppID          string            `json:"app_id,omitempty"`
+	PID            int32             `json:"pid,omitempty"`
+	ScreenRect     image.Rectangle   `json:"screen_rect"`
+	PixelBounds    image.Rectangle   `json:"pixel_bounds"`
+	PixelScaleX    float64           `json:"pixel_scale_x"`
+	PixelScaleY    float64           `json:"pixel_scale_y"`
+	Mode           WindowCaptureMode `json:"mode"`
+	GeometrySource string            `json:"geometry_source"`
+	Occlusion      string            `json:"occlusion"`
+}
+
 // ReportsDownscale reports whether the capture is smaller than the region it represents.
 //
 // It is always false, and that is the point. A capture smaller than its region is either

@@ -15,6 +15,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/screen"
 )
 
@@ -151,8 +152,15 @@ func (s *ScreenBundle) CaptureRegion(
 	if err != nil {
 		return err
 	}
+	return s.savePNG(ctx, img, path)
+}
+
+func (s *ScreenBundle) savePNG(ctx context.Context, img image.Image, path string) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
+	}
+	if util.IsNil(img) {
+		return s.operationError("capture", fmt.Errorf("screen: capture returned nil image"))
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-capture-*")
 	if err != nil {

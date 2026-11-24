@@ -74,6 +74,10 @@ input:
 screen:
   Capture:
     skip: true
+  CaptureWindow:
+    skip: true
+  CaptureWindowTo:
+    skip: true
   CaptureRegion:
     skip: true
   GetAllPixels:

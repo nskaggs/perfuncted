@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -38,36 +39,218 @@ func singleOutputPhysicalResolution(ctx context.Context, outputs *perfuncted.Out
 	return item.ResolutionW, item.ResolutionH, true
 }
 
+type screenWindowSelector struct {
+	kind  string
+	id    string
+	title string
+	pid   int32
+}
+
+func parseScreenWindowSelector(cmd *cobra.Command, id, title string, pid int32, metadata string) (screenWindowSelector, bool, error) {
+	changed := []string{"window-id", "window-title", "pid"}
+	selected := make([]string, 0, len(changed))
+	for _, flag := range changed {
+		if cmd.Flags().Changed(flag) {
+			selected = append(selected, flag)
+		}
+	}
+	if len(selected) == 0 {
+		if cmd.Flags().Changed("metadata") || metadata != "" {
+			return screenWindowSelector{}, false, fmt.Errorf("%w: --metadata requires a window selector", perfuncted.ErrInvalidArgument)
+		}
+		return screenWindowSelector{}, false, nil
+	}
+	if len(selected) != 1 {
+		return screenWindowSelector{}, false, fmt.Errorf("%w: choose exactly one of --window-id, --window-title, or --pid", perfuncted.ErrInvalidArgument)
+	}
+	if cmd.Flags().Changed("rect") {
+		return screenWindowSelector{}, false, fmt.Errorf("%w: --rect cannot be combined with a window selector", perfuncted.ErrInvalidArgument)
+	}
+	if cmd.Flags().Changed("metadata") && (metadata == "" || metadata == "-") {
+		return screenWindowSelector{}, false, fmt.Errorf("%w: --metadata requires a file path separate from stdout", perfuncted.ErrInvalidArgument)
+	}
+	selector := screenWindowSelector{kind: selected[0]}
+	switch selector.kind {
+	case "window-id":
+		if id == "" {
+			return screenWindowSelector{}, false, fmt.Errorf("%w: --window-id must be non-empty", perfuncted.ErrInvalidArgument)
+		}
+		selector.id = id
+	case "window-title":
+		if title == "" {
+			return screenWindowSelector{}, false, fmt.Errorf("%w: --window-title must be non-empty", perfuncted.ErrInvalidArgument)
+		}
+		selector.title = title
+	case "pid":
+		if pid <= 0 {
+			return screenWindowSelector{}, false, fmt.Errorf("%w: --pid must be positive", perfuncted.ErrInvalidArgument)
+		}
+		selector.pid = pid
+	}
+	return selector, true, nil
+}
+
+func resolveScreenWindow(ctx context.Context, bundle *perfuncted.WindowBundle, selector screenWindowSelector) (*perfuncted.Window, error) {
+	switch selector.kind {
+	case "window-id":
+		return findWindowByStableID(ctx, bundle, selector.id)
+	case "window-title":
+		return bundle.Find(ctx, perfuncted.WindowMatch{TitleExact: selector.title})
+	case "pid":
+		pid := selector.pid
+		return bundle.Find(ctx, perfuncted.WindowMatch{PID: &pid})
+	default:
+		return nil, fmt.Errorf("%w: unknown screen window selector", perfuncted.ErrInvalidArgument)
+	}
+}
+
+func sameOutputPath(left, right string) bool {
+	if left == "" || right == "" || left == "-" || right == "-" {
+		return false
+	}
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	if leftErr == nil && rightErr == nil && filepath.Clean(leftAbs) == filepath.Clean(rightAbs) {
+		return true
+	}
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
+}
+
+func writeWindowCaptureMetadata(ctx context.Context, capture perfuncted.WindowCapture, path string) error {
+	if path == "" || path == "-" {
+		return fmt.Errorf("%w: metadata output must be a file path", perfuncted.ErrInvalidArgument)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-window-capture-*.json")
+	if err != nil {
+		return fmt.Errorf("create metadata %q: %w", path, err)
+	}
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	encodeErr := encoder.Encode(capture)
+	closeErr := file.Close()
+	if encodeErr != nil && closeErr != nil {
+		return errors.Join(encodeErr, fmt.Errorf("close metadata %q: %w", path, closeErr))
+	}
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close metadata %q: %w", path, closeErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("publish metadata %q: %w", path, err)
+	}
+	return nil
+}
+
 //nolint:gocyclo // Cobra command assembly is intentionally centralized
 func screenCmd(
 	openPF sessionOpener,
-	resolutionOpen ...sessionOpener,
+	optionalOpeners ...sessionOpener,
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: "screen", Short: "Screen capture operations"}
 
 	var grabRectFlag, grabOutFlag string
+	var grabWindowIDFlag, grabWindowTitleFlag, grabMetadataFlag string
+	var grabPIDFlag int32
 
 	grab := &cobra.Command{
 		Use:   "grab",
-		Short: "Capture a screen region and save as PNG",
-		Args:  cobra.NoArgs,
+		Short: "Capture a screen region or selected window as PNG",
+		Long: `Capture a screen region, or select one window with exactly one of --window-id,
+--window-title, or --pid. Window title matching is exact and case-insensitive;
+PID selection fails if that process owns multiple windows. Window selectors
+cannot be combined with --rect. Window capture uses the window manager's
+reported bounds to crop the visible desktop composite, so overlapping windows
+may appear. Minimized, clipped, or geometry-unknown targets are rejected.
+
+Use --metadata FILE to write the window ID, screen rectangle, image pixel
+bounds and scale, capture mode, geometry source, and occlusion note as JSON.
+With --out -, PNG bytes stay on stdout and the human-readable bounds report
+goes to stderr.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			r, err := parseRect(grabRectFlag)
+			selector, hasWindowSelector, err := parseScreenWindowSelector(cmd, grabWindowIDFlag, grabWindowTitleFlag, grabPIDFlag, grabMetadataFlag)
 			if err != nil {
 				return err
 			}
+			var r image.Rectangle
+			if !hasWindowSelector {
+				r, err = parseRect(grabRectFlag)
+				if err != nil {
+					return err
+				}
+			}
 			inFlatpak := insideFlatpakSandbox()
 			out := grabDestination(grabOutFlag, inFlatpak)
+			if hasWindowSelector && sameOutputPath(out, grabMetadataFlag) {
+				return fmt.Errorf("%w: PNG output and metadata output must use different paths", perfuncted.ErrInvalidArgument)
+			}
 			if out == "-" {
 				if outputErr := refuseBinaryTerminal(cmd.OutOrStdout()); outputErr != nil {
 					return outputErr
 				}
 			}
-			pf, err := openPF(cmd.Context())
+			captureOpen := openPF
+			if hasWindowSelector && len(optionalOpeners) > 1 {
+				captureOpen = optionalOpeners[1]
+			}
+			pf, err := captureOpen(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
+			if hasWindowSelector {
+				target, err := resolveScreenWindow(cmd.Context(), pf.Windows, selector)
+				if err != nil {
+					return err
+				}
+				var capture perfuncted.WindowCapture
+				if out == "-" {
+					capture, err = pf.Screen.CaptureWindow(cmd.Context(), target)
+					if err != nil {
+						return err
+					}
+					if err := png.Encode(cmd.OutOrStdout(), capture.Capture.Image); err != nil {
+						return err
+					}
+				} else {
+					capture, err = pf.Screen.CaptureWindowTo(cmd.Context(), target, out)
+					if err != nil {
+						return err
+					}
+				}
+				if grabMetadataFlag != "" {
+					if err := writeWindowCaptureMetadata(cmd.Context(), capture, grabMetadataFlag); err != nil {
+						return err
+					}
+				}
+				if err := writeCLIOutput(cmd.ErrOrStderr(), "window=%s screen_rect=%d,%d,%d,%d mode=%s geometry=%s occlusion=%s\n",
+					capture.WindowID, capture.ScreenRect.Min.X, capture.ScreenRect.Min.Y,
+					capture.ScreenRect.Max.X, capture.ScreenRect.Max.Y, capture.Mode,
+					capture.GeometrySource, capture.Occlusion); err != nil {
+					return err
+				}
+				if out == "-" {
+					return nil
+				}
+				if inFlatpak {
+					if err := writeCLIOutput(cmd.ErrOrStderr(), "Flatpak: %s may be sandbox-private unless its directory was explicitly shared; use --out - > screenshot.png for a host file.\n", out); err != nil {
+						return err
+					}
+				}
+				return writeCLIMessage(cmd.OutOrStdout(), out)
+			}
 			if out == "-" {
 				img, err := pf.Screen.GrabRegion(cmd.Context(), r)
 				if err != nil {
@@ -89,6 +272,10 @@ func screenCmd(
 	}
 	grab.Flags().StringVar(&grabRectFlag, "rect", "0,0,1920,1080", "x0,y0,x1,y1")
 	grab.Flags().StringVar(&grabOutFlag, "out", "", "PNG output path or '-' for stdout (Flatpak defaults to stdout when redirected; native defaults to /tmp/pf-grab.png)")
+	grab.Flags().StringVar(&grabWindowIDFlag, "window-id", "", "capture the visible screen rectangle of one stable window ID")
+	grab.Flags().StringVar(&grabWindowTitleFlag, "window-title", "", "capture the visible screen rectangle of one exact case-insensitive window title")
+	grab.Flags().Int32Var(&grabPIDFlag, "pid", 0, "capture the visible screen rectangle of one unique window owned by this process ID")
+	grab.Flags().StringVar(&grabMetadataFlag, "metadata", "", "write window-capture provenance as JSON to a separate file")
 
 	var checksumRectFlag string
 	checksum := &cobra.Command{
@@ -314,8 +501,8 @@ Runs until --duration expires or Ctrl+C.`,
 	cmd.AddCommand(watch)
 
 	openResolution := openPF
-	if len(resolutionOpen) != 0 {
-		openResolution = resolutionOpen[0]
+	if len(optionalOpeners) != 0 {
+		openResolution = optionalOpeners[0]
 	}
 	resolution := &cobra.Command{
 		Use:   "resolution",

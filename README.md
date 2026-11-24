@@ -152,12 +152,25 @@ pf input type "https://example.com{enter}"
 # Capture a screenshot
 pf screen grab --out - > screenshot.png
 
+# Capture a selected window's visible screen rectangle by stable ID, exact title, or unique PID
+pf screen grab --window-id 123 --out window.png --metadata window.json
+
 # List applications with accessibility support
 pf a11y apps
 
 # Check available desktop capabilities
 pf info
 ```
+
+Window-targeted capture uses window-manager-reported bounds and returns the
+visible desktop composite for that rectangle. Overlapping windows may appear;
+minimized or clipped targets and backends without usable geometry are rejected.
+The optional JSON sidecar records the stable window ID, desktop rectangle,
+image pixel bounds and scale, capture mode, geometry source, and occlusion
+semantics. The `--window-title` selector matches the complete title
+case-insensitively; `--pid` fails if the process owns more than one window.
+With `--out -`, PNG bytes remain alone on stdout and the bounds report is
+written to stderr.
 
 ### Wait for an accessible control
 

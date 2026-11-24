@@ -158,6 +158,12 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 		cfg,
 		perfuncted.CapabilityScreen,
 	)
+	screenWindowOpen := openRequired(
+		openPFFactory,
+		cfg,
+		perfuncted.CapabilityScreen,
+		perfuncted.CapabilityWindows,
+	)
 	inputWindowOpen := openRequired(openPFFactory, cfg, perfuncted.CapabilityInput, perfuncted.CapabilityWindows)
 	inputOutputOpen := openRequired(openPFFactory, cfg, perfuncted.CapabilityInput, perfuncted.CapabilityOutputs)
 	inputDialogOpen := openRequired(openPFFactory, cfg, perfuncted.CapabilityInput, perfuncted.CapabilityWindows, perfuncted.CapabilityClipboard)
@@ -204,7 +210,7 @@ func newRootCmd(openPFFactory cliOpenFactory) *cobra.Command {
 	infoOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	runOpen := openOptional(openPFFactory, cfg, allCapabilities...)
 	root.AddCommand(
-		screenCmd(screenOpen, openRequiredOptional(openPFFactory, cfg, perfuncted.CapabilityScreen, perfuncted.CapabilityOutputs)),
+		screenCmd(screenOpen, openRequiredOptional(openPFFactory, cfg, perfuncted.CapabilityScreen, perfuncted.CapabilityOutputs), screenWindowOpen),
 		inputCmd(inputOpen, cfg, inputWindowOpen, inputOutputOpen, inputDialogOpen, inputObserverOpen),
 		windowCmd(windowOpen, cfg),
 		desktopCmd(windowOpen),
