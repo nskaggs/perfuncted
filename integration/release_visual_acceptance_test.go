@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
 )
@@ -26,8 +28,8 @@ import (
 // establishes expected pixels rather than deriving expectations from pf.
 func TestReleaseVisualAcceptanceX11(t *testing.T) {
 	s := mustSuite(t)
-	if s.mode != displayHeadlessX11 {
-		t.Fatal("release visual acceptance requires isolated native X11")
+	if s.mode != displayHeadlessX11 && s.mode != displayNestedX11 {
+		t.Fatal("release visual acceptance requires isolated headless or nested X11")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -138,6 +140,23 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 		if err != nil || got.X != int(want.RootX) || got.Y != int(want.RootY) || got.X != 150 || got.Y != 150 ||
 			got.CoordinateSpace.Kind != input.PointerCoordinateSpaceRootPixels || got.Provider != "x11-root" || got.ObservedAt.IsZero() {
 			t.Fatalf("pointer = %+v, %v; native readback = %+v", got, err, want)
+		}
+	})
+	t.Run("unsupported-timed-motion-fails-before-dispatch", func(t *testing.T) {
+		if err := s.pf.Input.MouseMove(ctx, 150, 150); err != nil {
+			t.Fatal(err)
+		}
+		start, end := image.Pt(150, 150), image.Pt(280, 230)
+		opts := perfuncted.MotionOptions{Duration: 300 * time.Millisecond}
+		if err := s.pf.Input.MouseMoveSmooth(ctx, &start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
+			t.Fatalf("timed X11 move must reject unproved coordinate metadata: %v", err)
+		}
+		if err := s.pf.Input.DragAndDropSmooth(ctx, start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
+			t.Fatalf("timed X11 drag must reject unproved coordinate metadata: %v", err)
+		}
+		got, err := xproto.QueryPointer(conn, root.Root).Reply()
+		if err != nil || int(got.RootX) != start.X || int(got.RootY) != start.Y || got.Mask&xproto.KeyButMaskButton1 != 0 {
+			t.Fatalf("rejected motion dispatched pointer input: %+v, %v", got, err)
 		}
 	})
 	t.Run("real-screen-delta", func(t *testing.T) {

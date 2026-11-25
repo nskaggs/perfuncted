@@ -173,6 +173,14 @@ test: test-unit
 test-integration-suite MODE:
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^Test(Integration|WindowCaptureIntegration|RetryChangedSnapshot)$' -count=1
 
+# Real public API, release CLI, native desktop clients, and scripted side effects.
+# Select only the capability-appropriate visual lane; unsupported operations
+# are asserted rather than silently skipped. One suite owns the display.
+test-release-matrix MODE:
+    @set -eu; case "{{MODE}}" in headless-x11|nested-x11) visual=TestReleaseVisualAcceptanceX11;; headless-wayland|nested-wayland) visual=TestReleaseVisualAcceptanceWayland;; *) echo "unknown release display {{MODE}}" >&2; exit 2;; esac; \
+      CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run "^$visual$" -count=1 -v -timeout=5m; \
+      CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run "^(TestReleaseCLIWorkflowMatrix|TestClipboardRoundTrip_(Unicode|Whitespace|Newlines|ASCII)|TestClipboard_NoContamination|TestOutputList_ReportsGeometry|TestScreenResolution_Sane)$" -count=1 -v -timeout=5m
+
 # Strict real framebuffer, OCR, pointer and incremental screen stream tests.
 test-release-visual-x11:
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-x11 go test -tags=integration ./integration -run '^TestReleaseVisualAcceptanceX11$' -count=1 -v
@@ -195,11 +203,12 @@ test-session:
 
 # Run the shared integration suite against headless X11.
 test-integration-headless-x11:
-    just test-release-visual-x11
+    just test-release-matrix headless-x11
     just test-integration-suite headless-x11
 
 # Run the shared integration suite against nested X11.
 test-integration-nested-x11:
+    just test-release-matrix nested-x11
     just test-integration-suite nested-x11
 
 # Integration suite against nested X11 with tracing and slower execution
@@ -208,6 +217,7 @@ test-integration-nested-x11-debug:
 
 # Run the shared integration suite against headless Wayland.
 test-integration-headless-wayland:
+    just test-release-matrix headless-wayland
     just test-release-named-sessions
     just test-integration-suite headless-wayland
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
@@ -224,6 +234,7 @@ test-accessibility-certification:
 
 # Run the shared integration suite against nested Wayland.
 test-integration-nested-wayland:
+    just test-release-matrix nested-wayland
     just test-integration-suite nested-wayland
 
 # Integration suite against nested Wayland with tracing and slower execution
@@ -237,14 +248,17 @@ test-integration-backends:
 # Run the general display, session, and backend integration coverage. Strict
 # KDE/GTK AT-SPI certification is a separate required CI gate below.
 test-integration:
-    just test-release-visual-x11
+    just test-release-matrix headless-x11
     just test-release-named-sessions
     just test-integration-suite headless-x11
     just test-input-observation-x11
     just test-integration-suite nested-x11
+    just test-release-matrix nested-x11
     just test-integration-suite headless-wayland
+    just test-release-matrix headless-wayland
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
     just test-integration-suite nested-wayland
+    just test-release-matrix nested-wayland
     just test-session
     just test-integration-backends
 

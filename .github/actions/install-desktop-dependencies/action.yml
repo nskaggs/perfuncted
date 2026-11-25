@@ -28,6 +28,10 @@ inputs:
       featherpad
       gnome-text-editor
       pluma
+      tesseract-ocr
+      tesseract-ocr-eng
+      swaybg
+      wev
 
 runs:
   using: composite

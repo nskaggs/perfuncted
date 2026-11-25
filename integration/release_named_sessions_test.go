@@ -25,7 +25,7 @@ func TestReleaseNamedSessions(t *testing.T) {
 		t.Fatal("named-session acceptance requires headless Wayland")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 	binary := filepath.Join(t.TempDir(), "pf")
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../cmd/pf")
 	build.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
