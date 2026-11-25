@@ -25,7 +25,7 @@ func requireObservationX11TestServer(t *testing.T) string {
 	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
 		t.Skip("requires controlled native X11 integration")
 	}
-	display, stop, err := x11test.StartXvfb()
+	display, stop, err := x11test.StartXvfbNoReset()
 	if err != nil {
 		t.Fatalf("start owned Xvfb: %v", err)
 	}
