@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/input"
@@ -122,11 +123,24 @@ control record is safely recovered by starting another run with the same ID.`,
 					return err
 				}
 				defer root.Close()
-				f, err := root.Open(filepath.Base(cleanPath))
+				flags := os.O_RDONLY
+				if workflowID != "" {
+					flags |= unix.O_NONBLOCK
+				}
+				f, err := root.OpenFile(filepath.Base(cleanPath), flags, 0)
 				if err != nil {
 					return err
 				}
 				defer f.Close()
+				if workflowID != "" {
+					info, err := f.Stat()
+					if err != nil {
+						return err
+					}
+					if !info.Mode().IsRegular() {
+						return errors.New("workflow controls require a regular script file")
+					}
+				}
 				r = f
 			}
 			var lifecycle *workflowLifecycle
