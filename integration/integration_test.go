@@ -879,7 +879,9 @@ func exerciseEditorAccessibility(t *testing.T, s *suite, info window.Info, app a
 		}
 		t.Fatalf("AT-SPI %s editable mutation: %v", app.name, err)
 	}
-	updated, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
+	updated, err := retryChangedSnapshot(ctx, func() (accessibility.Snapshot, error) {
+		return s.pf.Accessibility.Snapshot(ctx, scope.Root, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024, Fresh: true})
+	})
 	if err != nil {
 		if errors.Is(err, accessibility.ErrStaleGeneration) || errors.Is(err, accessibility.ErrStaleNode) || errors.Is(err, accessibility.ErrDisconnected) || isAccessibilityTemporarilyUnavailable(err) || strings.Contains(strings.ToLower(err.Error()), "generation") {
 			t.Logf("AT-SPI %s post-mutation snapshot unavailable: %v", app.name, err)
@@ -897,6 +899,68 @@ func exerciseEditorAccessibility(t *testing.T, s *suite, info window.Info, app a
 	if !foundMarker {
 		t.Logf("AT-SPI %s mutation completed but protected/provider text did not echo; physical and file verification remain authoritative", app.name)
 	}
+}
+
+// Retry only the observation, never the editor mutation. Concurrent provider
+// updates invalidate a snapshot but do not invalidate a completed dispatch.
+func retryChangedSnapshot(ctx context.Context, read func() (accessibility.Snapshot, error)) (accessibility.Snapshot, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return accessibility.Snapshot{}, err
+		}
+		snapshot, err := read()
+		if !errors.Is(err, accessibility.ErrObservationChanged) {
+			return snapshot, err
+		}
+		select {
+		case <-ctx.Done():
+			return accessibility.Snapshot{}, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func TestRetryChangedSnapshot(t *testing.T) {
+	t.Run("transient observation", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		calls := 0
+		snapshot, err := retryChangedSnapshot(ctx, func() (accessibility.Snapshot, error) {
+			calls++
+			if calls == 1 {
+				return accessibility.Snapshot{}, accessibility.ErrObservationChanged
+			}
+			return accessibility.Snapshot{Generation: 7}, nil
+		})
+		if err != nil || calls != 2 || snapshot.Generation != 7 {
+			t.Fatalf("calls=%d snapshot=%+v err=%v", calls, snapshot, err)
+		}
+	})
+	t.Run("permanent error", func(t *testing.T) {
+		calls := 0
+		_, err := retryChangedSnapshot(context.Background(), func() (accessibility.Snapshot, error) {
+			calls++
+			return accessibility.Snapshot{}, accessibility.ErrStaleNode
+		})
+		if !errors.Is(err, accessibility.ErrStaleNode) || calls != 1 {
+			t.Fatalf("calls=%d err=%v", calls, err)
+		}
+	})
+	t.Run("cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		calls := 0
+		_, err := retryChangedSnapshot(ctx, func() (accessibility.Snapshot, error) {
+			calls++
+			cancel()
+			return accessibility.Snapshot{}, accessibility.ErrObservationChanged
+		})
+		if !errors.Is(err, context.Canceled) || calls != 1 {
+			t.Fatalf("calls=%d err=%v", calls, err)
+		}
+	})
 }
 
 func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
