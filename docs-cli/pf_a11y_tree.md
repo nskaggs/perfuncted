@@ -9,29 +9,29 @@ pf a11y tree [flags]
 ### Options
 
 ```
-      --allow-sensitive       include protected text and values
-      --app string            accessible application name substring
-  -h, --help                  help for tree
-      --json                  write machine-readable JSON
-      --max-depth int         maximum tree depth
-      --max-nodes int         maximum nodes
-      --max-text-bytes int    maximum UTF-8 text bytes per node
-      --max-total-bytes int   hard maximum serialized snapshot bytes
-      --pid int32             exact application process ID
-      --visible-only          exclude invisible/off-screen nodes
-      --window string         exact managed window title
-      --window-id string      managed window ID
+      --allow-sensitive[=true|false]   include protected text and values
+      --app string                     accessible application name substring
+  -h, --help[=true|false]              help for tree
+      --json[=true|false]              write machine-readable JSON
+      --max-depth int                  maximum tree depth
+      --max-nodes int                  maximum nodes
+      --max-text-bytes int             maximum UTF-8 text bytes per node
+      --max-total-bytes int            hard maximum serialized snapshot bytes
+      --pid int32                      exact application process ID
+      --visible-only[=true|false]      exclude invisible/off-screen nodes
+      --window string                  exact managed window title
+      --window-id string               managed window ID
 ```
 
 ### Options inherited from parent commands
 
 ```
-      --input-backend string        input backend: auto or remote-desktop (authorized Wayland portal/EIS) (default "auto")
-      --nested                      start and target a new nested Wayland session
-      --remember-input-permission   request persistent authorization for remote-desktop input
-      --sync                        sync after observable mutating commands when supported
-      --trace-actions               print each API action to stderr as it runs
-      --trace-delay duration        sleep after each traced action
+      --input-backend string                     input backend: auto or remote-desktop (authorized Wayland portal/EIS) (default "auto")
+      --nested[=true|false]                      start and target a new nested Wayland session
+      --remember-input-permission[=true|false]   request persistent authorization for remote-desktop input
+      --sync[=true|false]                        sync after observable mutating commands when supported
+      --trace-actions[=true|false]               print each API action to stderr as it runs
+      --trace-delay duration                     sleep after each traced action
 ```
 
 ### SEE ALSO

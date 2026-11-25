@@ -1,8 +1,8 @@
 {
   "path": "github.com/jezek/xgb",
-  "version": "v1.3.0",
-  "commit": "46ea16ee069c67b0af1a84010b4c981b504d4d62",
-  "sum": "h1:Wa1pn4GVtcmNVAVB6/pnQVJ7xPFZVZ/W1Tc27msDhgI=",
+  "version": "v1.3.1",
+  "commit": "a225c310b6db5bd387e0c7b7a555711767d5ffa6",
+  "sum": "h1:NQCAEfQyzN+3RjWUSHBuVIxQcy2YfG3/mNvKfs/0rEg=",
   "goModSum": "h1:nrhwO0FX/enq75I7Y7G8iN1ubpSGZEiA3v9e9GyRFlk=",
   "patches": [
     "001-transport-and-regressions.patch",

@@ -35,24 +35,24 @@ pf find image --template button.png --rect 0,0,1280,720 --confidence 0.9 --all -
 ### Options
 
 ```
-      --all                return non-overlapping matches in score order
-      --confidence float   minimum similarity score (0..1) (default 0.95)
-  -h, --help               help for image
-      --max-results int    maximum matches with --all (1..64) (default 64)
-      --rect string        search region as x0,y0,x1,y1
-      --template string    PNG template image to find
-      --timeout string     capture and matching timeout (default "5s")
+      --all[=true|false]    return non-overlapping matches in score order
+      --confidence float    minimum similarity score (0..1) (default 0.95)
+  -h, --help[=true|false]   help for image
+      --max-results int     maximum matches with --all (1..64) (default 64)
+      --rect string         search region as x0,y0,x1,y1
+      --template string     PNG template image to find
+      --timeout string      capture and matching timeout (default "5s")
 ```
 
 ### Options inherited from parent commands
 
 ```
-      --input-backend string        input backend: auto or remote-desktop (authorized Wayland portal/EIS) (default "auto")
-      --nested                      start and target a new nested Wayland session
-      --remember-input-permission   request persistent authorization for remote-desktop input
-      --sync                        sync after observable mutating commands when supported
-      --trace-actions               print each API action to stderr as it runs
-      --trace-delay duration        sleep after each traced action
+      --input-backend string                     input backend: auto or remote-desktop (authorized Wayland portal/EIS) (default "auto")
+      --nested[=true|false]                      start and target a new nested Wayland session
+      --remember-input-permission[=true|false]   request persistent authorization for remote-desktop input
+      --sync[=true|false]                        sync after observable mutating commands when supported
+      --trace-actions[=true|false]               print each API action to stderr as it runs
+      --trace-delay duration                     sleep after each traced action
 ```
 
 ### SEE ALSO

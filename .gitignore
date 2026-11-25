@@ -14,6 +14,8 @@
 !/docs/accessibility.md
 !/docs/go-api.md
 !/docs/flatpak.md
+!/third_party/xgb/README.md
+!/internal/third_party/xgb/LOCAL_CHANGES.md
 !docs-cli/*.md
 /notes/
 /localsource/
