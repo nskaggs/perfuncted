@@ -51,8 +51,7 @@ flatpak install --user ./perfuncted.flatpak
 flatpak run io.github.nskaggs.perfuncted info
 ```
 
-See [Flatpak setup and permissions](FLATPAK.md) for more information.
-
+See [Flatpak setup and permissions](docs/flatpak.md) for more information.
 
 ## Quickstart
 
@@ -91,8 +90,8 @@ observed postconditions.
 Perfuncted supports X11 and supported Wayland environments, including GNOME,
 KDE Plasma and Sway. Run `pf info` to inspect available capabilities.
 Wayland portals may require explicit consent; the GNOME native bridge may
-require a logout and login. See [desktop support](docs/desktop-support.md)
-and [Flatpak permissions](FLATPAK.md).
+require a logout and login. See [desktop support](docs/desktop.md)
+and [Flatpak permissions](docs/flatpak.md).
 
 ## Go library
 
@@ -117,13 +116,9 @@ See the [Go library guide](docs/go-api.md) and
 ## Documentation
 
 - [CLI command reference](docs-cli/pf.md)
-- [Desktop support and permissions](docs/desktop-support.md)
-- [Input automation](docs/input.md)
-- [Screen capture and visual search](docs/screen-capture.md)
+- [Desktop automation and permissions](docs/desktop.md)
 - [Accessibility automation](docs/accessibility.md)
-- [Flatpak installation](FLATPAK.md)
-- [Testing and acceptance](docs/testing.md)
-- [Benchmarks](docs/benchmarks.md)
+- [Flatpak installation](docs/flatpak.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## License

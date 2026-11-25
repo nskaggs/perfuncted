@@ -6,17 +6,15 @@
 /dist
 
 # Documentation allowlist
-!docs/
 *.md
-!README.md
-!FLATPAK.md
-!DESKTOP_INPUT_ACCEPTANCE.md
-!SCREENSHOT_CAPTURE_BENCHMARKS.md
+!/README.md
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/docs/desktop.md
+!/docs/accessibility.md
+!/docs/go-api.md
+!/docs/flatpak.md
 !docs-cli/*.md
-!CONTRIBUTING.md
-!RELEASE.md
-!docs/*.md
-!SECURITY.md
 # Curated release bodies are part of the tagged source tree.
 !.github/release-notes/
 !.github/release-notes/*.md

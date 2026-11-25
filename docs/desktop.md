@@ -1,4 +1,25 @@
-# Input automation
+# Desktop automation
+
+Perfuncted supports X11 and several Wayland environments, including GNOME,
+KDE Plasma, and Sway. Available operations depend on the desktop and its
+permissions. Run `pf info` to see which capabilities are available.
+
+**GNOME Shell bridge:** Perfuncted includes a versioned GNOME Shell integration
+for native window control, input, screenshots, and clipboard access. The native
+CLI installs the bridge when a GNOME capability requires it. GNOME Shell may
+require one logout and login to load it. The bundled bridge declares support
+for GNOME Shell 46 through 51. Flatpak can use an existing host installation
+of the bridge, but cannot install the host extension from inside its sandbox.
+
+Wayland desktop portals may request user authorization for capture or input.
+See [Flatpak setup and permissions](flatpak.md) for supported paths and
+troubleshooting.
+
+## Selection and permissions
+
+`pf info` reports its selected backend. On KDE Wayland, Perfuncted tries compositor virtual input, then `/dev/uinput` configured from validated logical output geometry, and finally XTest when the compositor-wide options are unavailable. **XTest is limited to X11/XWayland windows**, and `pf info` warns about it; successful XTest initialization is not evidence that native Wayland windows can be controlled. Pure X11 still prefers XTest. Forced uinput (`PF_FORCE_INPUT=uinput`) never silently switches backends.
+
+For full Wayland desktop input, opt in to a portal-authorized session using `pf --input-backend remote-desktop ...`. This requests normal user consent; `--remember-input-permission` explicitly requests persistent permission. There is no implicit portal consent or hidden credential extraction. The remote-desktop flag must be permitted on `pf info` as well as commands that require input.
 
 ## Smooth pointer motion
 
@@ -113,3 +134,53 @@ Input observation does not guarantee physical-input provenance.
 `pf window list` prints a stable ID (UUID on Wayland, hexadecimal X11 identifier). `pf window activate-id <id> --verify` confirms focus using fresh window state; `pf window close-id <id> --verify` confirms disappearance. Unverified commands say an operation was *requested*, not accomplished. The title-based `pf window activate <title> --verify` provides focus verification for existing automation. Duplicate titles must use a stable ID.
 
 `pf input select-file --id <file-chooser-id> --path /absolute/file.ext` checks that the file is present, activates and verifies the chooser, temporarily uses the clipboard for the absolute filename, and waits for the chooser to disappear before restoring the prior clipboard text. The helper does **not** create an upload dialog or claim a cloud upload occurred; confirm success in the target app. File chooser keyboard protocols differ; this helper uses the Ctrl+L / Ctrl+V / Enter sequence common to KDE/GTK choosers. It can be adjusted by targeted adapters later.
+
+## Capture and inspect your desktop
+
+```bash
+# Capture a screenshot
+pf screen grab --out - > screenshot.png
+
+# Capture a selected window's visible screen rectangle by stable ID, exact title, or unique PID
+pf screen grab --window-id 123 --out window.png --metadata window.json
+
+# Capture that X11 window's own Composite pixmap without activating it
+pf screen grab --window-id 123 --background --out window.png --metadata window.json
+
+# List applications with accessibility support
+pf a11y apps
+
+# Check available desktop capabilities
+pf info
+```
+
+Window-targeted capture uses window-manager-reported bounds and returns the
+visible desktop composite for that rectangle. Overlapping windows may appear;
+minimized or clipped targets and backends without usable geometry are rejected.
+The optional JSON sidecar records the stable window ID, desktop rectangle,
+image pixel bounds and scale, capture mode, geometry source, and occlusion
+semantics. The `--window-title` selector matches the complete title
+case-insensitively; `--pid` fails if the process owns more than one window.
+With `--out -`, PNG bytes remain alone on stdout and the bounds report is
+written to stderr.
+
+`--background` requests a target-only buffer from an already redirected,
+mapped X11 window. It never activates or redirects a window and never falls
+back to the visible screen crop. The metadata state is `foreground`,
+`background-visible`, `occluded`, or `unknown`; occlusion is conservatively
+estimated from mapped top-level window bounding boxes, so shaped or
+translucent windows can be reported as occluding. Minimized or unmapped
+targets, X11 windows without an existing Composite pixmap, and non-X11 screen
+backends return unsupported. The captured window buffer may be stale; its
+freshness is not guaranteed. Current XTest/EIS input remains global and is not
+treated as background-targeted input. The in-process API is
+`ScreenBundle.CaptureWindowBackground`. Accessible controls can still be
+invoked through the separately scoped `pf a11y action` operation when the
+accessibility provider exposes the control; semantic actions are not raw
+keyboard or mouse delivery.
+
+See the [visual search commands](../docs-cli/pf_find.md) for pixel, template and OCR search.
+
+## Workflows and sessions
+
+Run a script with `pf run task.pf` and inspect active workflows with `pf workflow status`. For managed desktops, see [session commands](../docs-cli/pf_session.md). For scoped semantic controls, see [accessibility automation](accessibility.md).
