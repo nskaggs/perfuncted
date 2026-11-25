@@ -22,7 +22,8 @@ func certifyReleaseAccessibilityCLI(t *testing.T, s *suite) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	binary := filepath.Join(t.TempDir(), "pf")
-	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../cmd/pf")
+	build := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", binary, "../cmd/pf")
+	build.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v: %s", err, out)
 	}

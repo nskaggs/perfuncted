@@ -188,11 +188,9 @@ The release workflow is defined in
 
 ### Release notes
 
-For a curated release body, add `.github/release-notes/vX.Y.Z.md` before creating the
-tag. The release workflow uses that file when it exists. If no curated file is
-present, it generates notes from the commit history via the GitHub
-generate-notes API. Keep the history thematic so the generated fallback notes
-read well:
+The release workflow generates notes from the commit history via GitHub. Edit
+curated release notes directly on the GitHub release when needed. Keep the
+history thematic so the generated notes read well:
 
 - Open significant changes with a one- or two-sentence summary.
 - Group related work in focused commits under short headings.

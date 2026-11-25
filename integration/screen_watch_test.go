@@ -32,7 +32,7 @@ func runScreenWatchSmoke(t *testing.T, s *suite) {
 	binary := filepath.Join(t.TempDir(), "pf")
 	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancelBuild()
-	build := exec.CommandContext(buildCtx, "go", "build", "-o", binary, "../cmd/pf")
+	build := exec.CommandContext(buildCtx, "go", "build", "-buildvcs=false", "-o", binary, "../cmd/pf")
 	build.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build pf: %v: %s", err, output)
