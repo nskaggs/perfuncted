@@ -384,6 +384,20 @@ func workflowCall(ctx context.Context, root *os.File, id, operation string) (wor
 	decoder := json.NewDecoder(io.LimitReader(client, workflowControlFrameLimit+1))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&reply); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return workflowReply{}, ctxErr
+		}
+		// A read-only status request can recover authoritative terminal
+		// evidence if the authenticated owner exits before replying.
+		if operation == "status" && (errors.Is(err, io.EOF) || errors.Is(err, unix.ECONNRESET)) {
+			status, statusErr := workflowReadTerminalStatus(dir, id)
+			if statusErr == nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return workflowReply{}, ctxErr
+				}
+				return workflowReplyFor(status, true), nil
+			}
+		}
 		return reply, err
 	}
 	if reply.ID != id {
