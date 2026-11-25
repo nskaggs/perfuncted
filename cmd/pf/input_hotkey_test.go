@@ -15,6 +15,7 @@ import (
 
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/x11test"
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
@@ -114,7 +115,15 @@ func TestInputHotkeyCLIControlledX11(t *testing.T) {
 	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
 		t.Skip("requires isolated Xvfb")
 	}
-	sender, err := xgb.NewConnDisplay(os.Getenv("DISPLAY"))
+	display, stop, err := x11test.StartXvfbNoReset()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stop)
+	t.Setenv("DISPLAY", display)
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("XDG_SESSION_TYPE", "x11")
+	sender, err := xgb.NewConnDisplay(display)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -64,3 +64,21 @@ close. Native X11 checks separate-process key/button state and exact click and
 scroll transitions. The AT-SPI certification retries invalidated read-only
 observations without replaying mutations, requiring the original identity
 and exact content.
+
+### Mandatory command acceptance gate
+
+The command inventory now rejects unmapped entries, unknown evidence tiers,
+and stale test references. Run \`just test-release-command-contracts\` (also
+part of \`just quality\` and the reusable GitHub quality workflow). It executes
+every ledger-listed deterministic contract test and requires explicit pass
+events, including absence of skipped subtests. The strict display matrix,
+named session and AT-SPI lanes likewise require their named tests to pass,
+not merely a zero exit status with no matching tests.
+
+The native KDE acceptance script is mandatory in Flatpak and tagged release
+workflows. Command contracts supplement actual desktop scenarios when the
+available fixture cannot exercise the supported operation. In particular
+shell completion, file-dialog selection, some coordinate/window mutations,
+and accessibility point/event commands have deterministic contract evidence;
+this is not a claim that every command has a successful live run on every
+desktop or that every flag/backend combination has been certified.

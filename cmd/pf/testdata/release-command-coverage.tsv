@@ -1,22 +1,22 @@
-a11y action	unmapped
-a11y apps	unmapped
-a11y at-point	unmapped
-a11y events	unmapped
-a11y find	unmapped
-a11y focus	unmapped
-a11y focused	unmapped
-a11y raw	unmapped
-a11y text	unmapped
-a11y tree	unmapped
-a11y wait	unmapped
+a11y action	native-atspi:TestAccessibilityCertification
+a11y apps	native-atspi:TestAccessibilityCertification
+a11y at-point	contract:TestAccessibilityCLICommandsJSON
+a11y events	contract:TestAccessibilityCLICommandsJSON
+a11y find	native-atspi:TestAccessibilityCertification
+a11y focus	native-atspi:TestAccessibilityCertification
+a11y focused	native-atspi:TestAccessibilityCertification
+a11y raw	native-atspi:TestAccessibilityCertification
+a11y text	native-atspi:TestAccessibilityCertification
+a11y tree	native-atspi:TestAccessibilityCertification
+a11y wait	native-atspi:TestAccessibilityCertification
 clipboard get	matrix:TestReleaseCLIWorkflowMatrix
 clipboard set	matrix:TestReleaseCLIWorkflowMatrix
-completion bash	unmapped
-completion fish	unmapped
-completion powershell	unmapped
-completion zsh	unmapped
-desktop list	unmapped
-desktop switch	unmapped
+completion bash	contract:TestReleaseShellCompletionContracts
+completion fish	contract:TestReleaseShellCompletionContracts
+completion powershell	contract:TestReleaseShellCompletionContracts
+completion zsh	contract:TestReleaseShellCompletionContracts
+desktop list	native-kde:verify-kde-wayland-automation.sh
+desktop switch	native-kde:verify-kde-wayland-automation.sh
 docs	packaged-live:TestFlatpakBundleBuildInstallAndRun
 find color	matrix:TestReleaseVisualAcceptanceX11/TestReleaseVisualAcceptanceWayland
 find image	matrix:TestReleaseVisualAcceptanceX11/TestReleaseVisualAcceptanceWayland
@@ -29,9 +29,9 @@ find wait-for-visible-change	matrix:TestReleaseVisualAcceptanceX11/TestReleaseVi
 info	packaged-live:TestFlatpakBundleBuildInstallAndRun
 input click	x11:TestReleaseVisualAcceptanceX11
 input click-center	x11:TestReleaseVisualAcceptanceX11
-input click-screen	unmapped
-input click-window	unmapped
-input coordinate-space	unmapped
+input click-screen	contract:TestScreenPixelsClickActualMappedCoordinates
+input click-window	contract:TestWindowRelativeClickTargetsStableIDOnly
+input coordinate-space	contract:TestInputCoordinateSpaceReportsBackendContract
 input double-click	x11:TestReleaseVisualAcceptanceX11
 input drag-and-drop	wayland-motion-and-x11-rejection:TestReleaseVisualAcceptanceWayland/TestReleaseVisualAcceptanceX11
 input hotkey listen	headless-x11:TestInputHotkeyCLIControlledX11
@@ -41,12 +41,12 @@ input location	x11-live-wayland-rejection:TestReleaseVisualAcceptanceX11/TestRel
 input mousedown	x11:TestReleaseVisualAcceptanceX11
 input mouseup	x11:TestReleaseVisualAcceptanceX11
 input move	wayland-motion-and-x11-rejection:TestReleaseVisualAcceptanceWayland/TestReleaseVisualAcceptanceX11
-input move-relative	unmapped
+input move-relative	contract:TestRelativePointerCLISuccessAndFallbackToCompositor
 input scroll down	x11:TestReleaseVisualAcceptanceX11
 input scroll left	x11:TestReleaseVisualAcceptanceX11
 input scroll right	x11:TestReleaseVisualAcceptanceX11
 input scroll up	x11:TestReleaseVisualAcceptanceX11
-input select-file	unmapped
+input select-file	contract:TestFileChooserRestoresClipboardAfterSuccessAndInputFailure
 input state	x11-live-wayland-rejection:TestReleaseVisualAcceptanceX11/TestReleaseVisualAcceptanceWayland
 input sync	x11:TestReleaseVisualAcceptanceX11
 input type	matrix:TestReleaseCLIWorkflowMatrix
@@ -68,38 +68,38 @@ screen wait-for-settle	matrix:TestReleaseVisualAcceptanceX11/TestReleaseVisualAc
 screen watch	matrix:TestReleaseVisualAcceptanceX11/TestReleaseVisualAcceptanceWayland
 session attach	headless-wayland:TestReleaseNamedSessions
 session check	packaged-live:TestFlatpakBundleBuildInstallAndRun
-session cleanup	unmapped
+session cleanup	contract:TestInfoSessionAndDocsCommands
 session inspect	headless-wayland:TestReleaseNamedSessions
 session list	headless-wayland:TestReleaseNamedSessions
 session recover	headless-wayland:TestReleaseNamedSessions
 session start	headless-wayland:TestReleaseNamedSessions
 session stop	headless-wayland:TestReleaseNamedSessions
-session type	unmapped
-version	unmapped
+session type	contract:TestInfoSessionAndDocsCommands
+version	contract:TestVersionCmd
 window activate	packaged-live:TestFlatpakBundleBuildInstallAndRun
 window activate-id	matrix:TestReleaseCLIWorkflowMatrix
 window active	matrix:TestReleaseCLIWorkflowMatrix
 window active-info	matrix:TestReleaseCLIWorkflowMatrix
-window close	unmapped
+window close	contract:TestSyntheticWindowCommandsAcrossLifecycle
 window close-id	matrix:TestReleaseCLIWorkflowMatrix
-window cursor	unmapped
+window cursor	native-kde:verify-kde-wayland-automation.sh
 window find	matrix:TestReleaseCLIWorkflowMatrix
 window find-by-title	matrix:TestReleaseCLIWorkflowMatrix
-window float	unmapped
-window fullscreen	unmapped
+window float	native-kde:verify-kde-wayland-automation.sh
+window fullscreen	native-kde:verify-kde-wayland-automation.sh
 window get-geometry	matrix:TestReleaseCLIWorkflowMatrix
 window is-visible	matrix:TestReleaseCLIWorkflowMatrix
-window keep-above	unmapped
-window keep-below	unmapped
+window keep-above	native-kde:verify-kde-wayland-automation.sh
+window keep-below	native-kde:verify-kde-wayland-automation.sh
 window list	matrix:TestReleaseCLIWorkflowMatrix
-window maximize	unmapped
-window minimize	unmapped
-window move	unmapped
-window resize	unmapped
-window set-desktop	unmapped
-window shade	unmapped
-window tile	unmapped
-window unfullscreen	unmapped
+window maximize	contract:TestSyntheticWindowCommandsAcrossLifecycle
+window minimize	native-kde:verify-kde-wayland-automation.sh
+window move	contract:TestSyntheticWindowCommandsAcrossLifecycle
+window resize	contract:TestSyntheticWindowCommandsAcrossLifecycle
+window set-desktop	native-kde:verify-kde-wayland-automation.sh
+window shade	native-kde:verify-kde-wayland-automation.sh
+window tile	native-kde:verify-kde-wayland-automation.sh
+window unfullscreen	native-kde:verify-kde-wayland-automation.sh
 window wait-close	matrix:TestReleaseCLIWorkflowMatrix
 window wait-for	matrix:TestReleaseCLIWorkflowMatrix
 window watch	matrix:TestReleaseCLIWorkflowMatrix

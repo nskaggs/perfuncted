@@ -113,7 +113,7 @@ quality-fast: check-generate check-docs check-api-sync check-fmt vet
 
 # Run the full static quality suite (includes linters and unit tests)
 # This matches the 'quality' job in GitHub Actions.
-quality: quality-fast lint deadcode vulncheck test-unit coverage-convenience
+quality: quality-fast lint deadcode vulncheck test-unit coverage-convenience test-release-command-contracts
 
 # Require full statement coverage in the new scripting facade, rather than
 # imposing a spurious 100% requirement on unrelated legacy source.
@@ -121,6 +121,11 @@ coverage-convenience:
     @set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; \
         CGO_ENABLED=0 go test -short -count=1 -coverprofile="$profile" . ./input; \
         CGO_ENABLED=0 go test -count=1 -v ./scripts/check_convenience_coverage -args "$profile"
+
+# Every ledger-listed deterministic command scenario must execute and pass.
+test-release-command-contracts:
+    CGO_ENABLED=0 go test ./cmd/pf -run '^TestReleaseCommandCoverageInventory$' -count=1 -v
+    CGO_ENABLED=0 go run ./scripts/check_release_command_contracts
 
 # Pre-commit: runs only the fastest essential checks
 precommit: quality-fast
@@ -178,8 +183,8 @@ test-integration-suite MODE:
 # are asserted rather than silently skipped. One suite owns the display.
 test-release-matrix MODE:
     @set -eu; case "{{MODE}}" in headless-x11|nested-x11) visual=TestReleaseVisualAcceptanceX11;; headless-wayland|nested-wayland) visual=TestReleaseVisualAcceptanceWayland;; *) echo "unknown release display {{MODE}}" >&2; exit 2;; esac; \
-      CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run "^$visual$" -count=1 -v -timeout=5m; \
-      CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run "^(TestReleaseCLIWorkflowMatrix|TestClipboardRoundTrip_(Unicode|Whitespace|Newlines|ASCII)|TestClipboard_NoContamination|TestOutputList_ReportsGeometry|TestScreenResolution_Sane)$" -count=1 -v -timeout=5m
+      CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go run ./scripts/check_release_command_contracts --live ./integration "$visual"; \
+      CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go run ./scripts/check_release_command_contracts --live ./integration TestReleaseCLIWorkflowMatrix TestClipboardRoundTrip_Unicode TestClipboardRoundTrip_Whitespace TestClipboardRoundTrip_Newlines TestClipboardRoundTrip_ASCII TestClipboard_NoContamination TestOutputList_ReportsGeometry TestScreenResolution_Sane
 
 # Strict real framebuffer, OCR, pointer and incremental screen stream tests.
 test-release-visual-x11:
@@ -196,6 +201,7 @@ test-input-observation-x11:
     just _test-input-observation-x11 SessionClose
     just _test-input-observation-x11 CanceledAfterNativePeerVerification
     CGO_ENABLED=0 PF_X11_OBSERVATION_INTEGRATION=1 go test ./input -run '^TestInputStateX11ControlledIntegration$' -count=1 -v -timeout=2m
+    CGO_ENABLED=0 PF_X11_OBSERVATION_INTEGRATION=1 go run ./scripts/check_release_command_contracts --live ./cmd/pf TestInputHotkeyCLIControlledX11
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
@@ -220,17 +226,17 @@ test-integration-headless-wayland:
     just test-release-matrix headless-wayland
     just test-release-named-sessions
     just test-integration-suite headless-wayland
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go run ./scripts/check_release_command_contracts --live ./cmd/pf TestWorkflowControlHeadlessWayland
 
 # Verify named session lifecycle with real CLI processes and independent Sway sessions.
 test-release-named-sessions:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run '^TestReleaseNamedSessions$' -count=1 -v
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go run ./scripts/check_release_command_contracts --live ./integration TestReleaseNamedSessions
 
 # Strict KDE/Qt + GNOME/GTK AT-SPI certification in headless Wayland.
 # Unlike the general integration suite, missing accessibility or application
 # support is a certification failure, not an optional capability.
 test-accessibility-certification:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland PF_REQUIRE_ACCESSIBILITY=1 go test -tags=integration ./integration -run '^(TestAccessibilityCertification|TestCertificationEditableReadRetryDoesNotAcceptWrongIdentity)$' -count=1 -v -timeout=10m
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland PF_REQUIRE_ACCESSIBILITY=1 go run ./scripts/check_release_command_contracts --live ./integration TestAccessibilityCertification TestCertificationEditableReadRetryDoesNotAcceptWrongIdentity
 
 # Run the shared integration suite against nested Wayland.
 test-integration-nested-wayland:
@@ -256,7 +262,7 @@ test-integration:
     just test-release-matrix nested-x11
     just test-integration-suite headless-wayland
     just test-release-matrix headless-wayland
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go run ./scripts/check_release_command_contracts --live ./cmd/pf TestWorkflowControlHeadlessWayland
     just test-integration-suite nested-wayland
     just test-release-matrix nested-wayland
     just test-session

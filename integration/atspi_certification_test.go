@@ -122,6 +122,7 @@ func TestAccessibilityCertification(t *testing.T) {
 	t.Run("gtk-text-entry-parity", func(t *testing.T) {
 		certifyGTKTextEntryParity(t, s)
 	})
+	t.Run("release-cli-semantic-workflow", func(t *testing.T) { certifyReleaseAccessibilityCLI(t, s) })
 	t.Run("kwrite-save-action-parity", func(t *testing.T) {
 		certifyKWriteSaveActionParity(t, s)
 	})

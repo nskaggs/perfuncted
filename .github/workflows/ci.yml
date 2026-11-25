@@ -113,7 +113,7 @@ jobs:
         run: just test-release-named-sessions
       - name: Verify controlled workflow on isolated headless Wayland
         if: matrix.display == 'headless-wayland'
-        run: CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
+        run: CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go run ./scripts/check_release_command_contracts --live ./cmd/pf TestWorkflowControlHeadlessWayland
       - name: Upload integration logs
         if: failure()
         uses: actions/upload-artifact@v4
