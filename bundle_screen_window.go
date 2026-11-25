@@ -185,10 +185,6 @@ func (s *ScreenBundle) CaptureWindowBackground(ctx context.Context, target *Wind
 		}
 	case screen.WindowPixmapOccluded:
 		state = WindowCaptureOccluded
-	default:
-		if buffer.ForegroundKnown && buffer.Foreground {
-			state = WindowCaptureForeground
-		}
 	}
 	imageBounds := buffer.Image.Bounds()
 	return WindowCapture{
