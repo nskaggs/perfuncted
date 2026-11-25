@@ -183,6 +183,7 @@ test-input-observation-x11:
     just _test-input-observation-x11 CrossFocusIntegration
     just _test-input-observation-x11 SessionClose
     just _test-input-observation-x11 CanceledAfterNativePeerVerification
+    CGO_ENABLED=0 PF_X11_OBSERVATION_INTEGRATION=1 go test ./input -run '^TestInputStateX11ControlledIntegration$' -count=1 -v -timeout=2m
 
 # Test the session package lifecycle: creates its own headless session from scratch.
 test-session:
