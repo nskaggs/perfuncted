@@ -82,6 +82,17 @@ type scriptRunner struct {
 	scriptFromStdin   bool
 }
 
+func validateControlledScriptFile(f *os.File) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("workflow controls require a regular script file")
+	}
+	return nil
+}
+
 func runCmd(
 	openPF sessionOpener,
 	cfg *cliConfig,
@@ -133,12 +144,8 @@ control record is safely recovered by starting another run with the same ID.`,
 				}
 				defer f.Close()
 				if workflowID != "" {
-					info, err := f.Stat()
-					if err != nil {
+					if err := validateControlledScriptFile(f); err != nil {
 						return err
-					}
-					if !info.Mode().IsRegular() {
-						return errors.New("workflow controls require a regular script file")
 					}
 				}
 				r = f

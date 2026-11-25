@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,5 +48,18 @@ func TestReviewControlledWorkflowRejectsNonregularScript(t *testing.T) {
 				t.Fatalf("opened session=%v; error=%v", called, err)
 			}
 		})
+	}
+}
+
+func TestReviewControlledWorkflowScriptStatFailure(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "script-*.pf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateControlledScriptFile(file); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("closed script stat error=%v", err)
 	}
 }
