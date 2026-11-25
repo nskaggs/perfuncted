@@ -8,9 +8,7 @@
 export GOTOOLCHAIN := "go1.27.4"
 export GOWORK := "off"
 
-# Go-installed quality tools live in GOPATH/bin. Keep the existing agent-nice
-# wrapper ahead of this directory so its limits remain effective, but make
-# its real binary targets discoverable without per-command PATH overrides.
+# Append Go-installed quality tools without overriding existing PATH entries.
 export PATH := env_var("PATH") + ":" + env_var("HOME") + "/go/bin"
 
 # Keep CI quality-tool installation reproducible.

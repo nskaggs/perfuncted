@@ -36,6 +36,7 @@ perfuncted-menu-*.png
 
 # Scratch / dev-session artifacts (do not commit)
 .codex
+/.agents/
 ff.log
 sway.log
 primary.txt
