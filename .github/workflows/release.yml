@@ -126,13 +126,19 @@ jobs:
         run: |
           gh release upload "${{ github.ref_name }}" "$RUNNER_TEMP/perfuncted.flatpak" --clobber
 
-      - name: Generate GitHub release notes
+      - name: Set GitHub release notes
         if: ${{ steps.prerelease.outputs.prerelease != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES=$(gh api -X POST \
-            "/repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" \
-            -q .body)
+          NOTES=""
+          if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag ]; then
+            NOTES=$(git for-each-ref --format='%(contents)' "refs/tags/$GITHUB_REF_NAME")
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES=$(gh api -X POST \
+              "/repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" \
+              -q .body)
+          fi
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes "$NOTES"

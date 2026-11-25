@@ -188,9 +188,10 @@ The release workflow is defined in
 
 ### Release notes
 
-The release workflow generates notes from the commit history via GitHub. Edit
-curated release notes directly on the GitHub release when needed. Keep the
-history thematic so the generated notes read well:
+The release workflow uses the annotated tag message as the curated release
+body when present. Lightweight tags fall back to GitHub-generated notes.
+For curated releases, put the approved Markdown in the tag annotation. Keep
+history thematic so fallback notes read well:
 
 - Open significant changes with a one- or two-sentence summary.
 - Group related work in focused commits under short headings.
