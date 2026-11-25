@@ -3,12 +3,10 @@ package find
 import (
 	"bytes"
 	"context"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"image"
 	"image/png"
-	"io"
 	"math"
 	"os/exec"
 	"regexp"
@@ -185,21 +183,19 @@ func parseTesseractTSV(data []byte, width, height int) ([]OCRWord, error) {
 	if len(data) == 0 || len(data) > maxOCRTSVBytes || !utf8.Valid(data) {
 		return nil, fmt.Errorf("find: malformed or oversized Tesseract TSV: %w", ErrOCRRecognition)
 	}
-	reader := csv.NewReader(bytes.NewReader(data))
-	reader.Comma = '\t'
-	reader.FieldsPerRecord = 12
-	reader.ReuseRecord = true
-	header, err := reader.Read()
-	if err != nil || strings.Join(header, "\t") != "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext" {
+	lines := strings.Split(string(data), "\n")
+	header := strings.TrimSuffix(lines[0], "\r")
+	if header != "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext" {
 		return nil, fmt.Errorf("find: malformed Tesseract TSV header: %w", ErrOCRRecognition)
 	}
 	words := make([]OCRWord, 0, 64)
-	for {
-		row, readErr := reader.Read()
-		if readErr == io.EOF {
-			break
+	for _, line := range lines[1:] {
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" {
+			continue
 		}
-		if readErr != nil {
+		row := strings.Split(line, "\t")
+		if len(row) != 12 {
 			return nil, fmt.Errorf("find: malformed Tesseract TSV row: %w", ErrOCRRecognition)
 		}
 		if len(words) >= maxOCRWords {

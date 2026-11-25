@@ -212,7 +212,10 @@ func ValidateTextOptions(query string, options TextOptions) error {
 	if options.MaxResults < 0 || options.MaxResults > maxOCRMatches {
 		return fmt.Errorf("find: OCR result limit must be in [0,%d]: %w", maxOCRMatches, ErrInvalidFrame)
 	}
-	queryWords := strings.Fields(query)
+	queryWords, err := ocrQueryTokens(query, mode)
+	if err != nil {
+		return fmt.Errorf("find: invalid OCR query whitespace: %w", ErrInvalidFrame)
+	}
 	if len(queryWords) > 128 {
 		return fmt.Errorf("find: OCR query may contain at most 128 words: %w", ErrInvalidFrame)
 	}
