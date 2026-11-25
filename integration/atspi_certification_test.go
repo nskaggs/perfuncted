@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -528,11 +529,12 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	selector := accessibility.Selector{Role: editable.Role, Name: editable.Name}
 	locator := s.pf.Accessibility.LocatorForWindow(info.NativeID, selector, locatorOptions)
 	failureEvidence.Locator = locator
-	for _, state := range []perfuncted.AccessibilityWaitState{perfuncted.AccessibilityWaitPresent, perfuncted.AccessibilityWaitFocused, perfuncted.AccessibilityWaitEnabled} {
-		node, evidence, waitErr := locator.WaitForState(ctx, state, 5*time.Second)
-		if waitErr != nil || evidence.Evaluations == 0 || node.ID.BusName != editable.ID.BusName || node.ID.ObjectPath != editable.ID.ObjectPath {
-			t.Fatalf("real %s semantic wait %s: node=%+v evidence=%+v err=%v", representative.name, state, node, evidence, waitErr)
-		}
+	certifyEditorSemanticWaits(t, ctx, locator, editable.ID)
+	absenceOptions := locatorOptions
+	absenceOptions.VisibleOnly = false
+	absent := s.pf.Accessibility.LocatorForWindow(info.NativeID, accessibility.Selector{Name: "perfuncted-nonexistent-certification-control-" + representative.name}, absenceOptions)
+	if _, evidence, waitErr := absent.WaitForState(ctx, perfuncted.AccessibilityWaitAbsent, 5*time.Second); waitErr != nil || evidence.Evaluations == 0 {
+		t.Fatalf("real %s scoped absence: evidence=%+v err=%v", representative.name, evidence, waitErr)
 	}
 
 	marker := "Perfuncted AT-SPI certification " + representative.name
@@ -633,6 +635,34 @@ func readProcessEnvironment(t *testing.T, pid int) map[string]string {
 		}
 	}
 	return env
+}
+
+// Check the raw AT-SPI ENABLED bit rather than assuming all editable
+// controls publish it. GTK4 Text Editor reports SENSITIVE without ENABLED;
+// Qt publishes ENABLED. The public wait contract is the raw bit, not a
+// prediction of whether an action will succeed. Both opposite waits must
+// fail closed, and the subsequent independently verified edit proves actionability.
+func certifyEditorSemanticWaits(t *testing.T, ctx context.Context, locator *perfuncted.AccessibilityLocator, id accessibility.NodeID) {
+	t.Helper()
+	observed, err := locator.Resolve(ctx)
+	if err != nil || observed.ID != id {
+		t.Fatalf("fresh semantic-state oracle: node=%+v err=%v", observed, err)
+	}
+	enabled := slices.Contains(observed.States, "enabled")
+	state, opposite := perfuncted.AccessibilityWaitEnabled, perfuncted.AccessibilityWaitDisabled
+	if !enabled {
+		state, opposite = opposite, state
+	}
+	t.Logf("raw AT-SPI enabled=%t, states=%v; certify %s and reject %s", enabled, observed.States, state, opposite)
+	for _, waitState := range []perfuncted.AccessibilityWaitState{perfuncted.AccessibilityWaitPresent, perfuncted.AccessibilityWaitFocused, perfuncted.AccessibilityWaitVisible, state} {
+		node, evidence, waitErr := locator.WaitForState(ctx, waitState, 5*time.Second)
+		if waitErr != nil || evidence.Evaluations == 0 || node.ID != id {
+			t.Fatalf("real semantic wait %s: node=%+v evidence=%+v err=%v", waitState, node, evidence, waitErr)
+		}
+	}
+	if _, evidence, waitErr := locator.WaitForState(ctx, opposite, time.Second); !errors.Is(waitErr, context.DeadlineExceeded) || evidence.Evaluations == 0 {
+		t.Fatalf("opposite semantic state %s was not rejected: evidence=%+v err=%v", opposite, evidence, waitErr)
+	}
 }
 
 func findUniqueEditableTarget(snapshot accessibility.Snapshot) (accessibility.Node, error) {
