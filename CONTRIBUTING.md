@@ -46,3 +46,14 @@ just check-api-sync
 
 Keep generated files formatted, preserve the public API contract, and include
 tests for behavior changes.
+
+## Documentation and examples
+
+Keep committed content suitable for public distribution. Use synthetic examples,
+generic paths and reproducible fixtures. Keep local investigation notes,
+implementation plans, diagnostic logs, credentials and machine-specific
+identifiers outside the repository. Explain behavior and observable outcomes,
+not the circumstances in which a defect was discovered.
+
+Regenerate CLI documentation from its command sources rather than editing
+generated reference pages directly.

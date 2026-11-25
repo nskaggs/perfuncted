@@ -5,14 +5,18 @@
 *.test
 /dist
 
-# Documentation (local only)
-docs/
+# Documentation allowlist
+!docs/
 *.md
 !README.md
+!FLATPAK.md
+!DESKTOP_INPUT_ACCEPTANCE.md
+!SCREENSHOT_CAPTURE_BENCHMARKS.md
 !docs-cli/*.md
 !CONTRIBUTING.md
 !RELEASE.md
-!SCREENSHOT_CAPTURE_BENCHMARKS.md
+!docs/*.md
+!SECURITY.md
 # Curated release bodies are part of the tagged source tree.
 !.github/release-notes/
 !.github/release-notes/*.md
@@ -44,3 +48,4 @@ coverage*.out
 
 # Private improvement audits and implementation plans
 /plans/
+/evidence/
