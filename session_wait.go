@@ -796,6 +796,12 @@ func (s *Session) WaitWithEvidence(
 			return WaitEvidence{}, err
 		}
 	}
+	if err := s.waitState(ctx); err != nil {
+		return WaitEvidence{}, err
+	}
+	if err := validateConditionPreflight(condition); err != nil {
+		return WaitEvidence{}, err
+	}
 	return s.waitWithEvidence(ctx, condition, config)
 }
 

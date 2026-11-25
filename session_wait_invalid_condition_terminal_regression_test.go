@@ -29,8 +29,8 @@ func TestWaitRejectsMalformedConditionWithoutPollingUntilDeadline(t *testing.T) 
 			if !errors.Is(err, ErrInvalidArgument) || errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("invalid condition waited instead of failing with ErrInvalidArgument: evidence=%+v err=%v", evidence, err)
 			}
-			if evidence.Evaluations != 1 || evidence.PollWakeups != 0 {
-				t.Fatalf("invalid condition was polled repeatedly: %+v", evidence)
+			if evidence.Evaluations != 0 || evidence.PollWakeups != 0 {
+				t.Fatalf("invalid condition reached observation: %+v", evidence)
 			}
 		})
 	}
