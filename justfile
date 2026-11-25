@@ -171,7 +171,7 @@ test: test-unit
 
 # Run the shared integration suite in one display mode.
 test-integration-suite MODE:
-    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^TestIntegration$' -count=1
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^Test(Integration|WindowCaptureIntegration)$' -count=1
 
 # Exercise native X11 keyboard/mouse observation, cancellation and shutdown
 # using a fresh private Xvfb per test; generic backend tests skip these.
@@ -199,11 +199,12 @@ test-integration-nested-x11:
 
 # Integration suite against nested X11 with tracing and slower execution
 test-integration-nested-x11-debug:
-    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -run '^TestIntegration$' -count=1 -v
+    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-x11 go test -tags=integration ./integration -run '^Test(Integration|WindowCaptureIntegration)$' -count=1 -v
 
 # Run the shared integration suite against headless Wayland.
 test-integration-headless-wayland:
     just test-integration-suite headless-wayland
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
 
 # Strict KDE/Qt + GNOME/GTK AT-SPI certification in headless Wayland.
 # Unlike the general integration suite, missing accessibility or application
@@ -217,7 +218,7 @@ test-integration-nested-wayland:
 
 # Integration suite against nested Wayland with tracing and slower execution
 test-integration-nested-wayland-debug:
-    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -run '^TestIntegration$' -count=1 -v
+    CGO_ENABLED=0 PF_TRACE_ACTIONS=1 PF_TRACE_DELAY=1000ms PF_TEST_DISPLAY_SERVER=nested-wayland go test -tags=integration ./integration -run '^Test(Integration|WindowCaptureIntegration)$' -count=1 -v
 
 # Run the package-level backend integration tests.
 test-integration-backends:
@@ -230,6 +231,7 @@ test-integration:
     just test-input-observation-x11
     just test-integration-suite nested-x11
     just test-integration-suite headless-wayland
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
     just test-integration-suite nested-wayland
     just test-session
     just test-integration-backends
