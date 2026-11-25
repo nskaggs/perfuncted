@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"io"
 	"math"
 	"net"
@@ -71,7 +72,7 @@ func TestDispatchReportsDeadlineResetFailureAfterCallbackClosesConnection(t *tes
 			name = "closed and canceled"
 		}
 		t.Run(name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t)
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -117,7 +118,7 @@ func TestDispatchReportsDeadlineResetFailureAfterCallbackClosesConnection(t *tes
 }
 
 func TestDispatchGrowsBufferForLargeWaylandEvent(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -333,7 +334,7 @@ func TestShmCreateBufferRejectsInvalidGeometryBeforeRegistration(t *testing.T) {
 
 func newShutdownTestConnection(t *testing.T) (*Context, *net.UnixConn) {
 	t.Helper()
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -422,7 +423,7 @@ func TestRegistryRejectsInterfaceNameMissingAlignmentPadding(t *testing.T) {
 }
 
 func TestDispatchRejectsFrameWhosePayloadEndsEarly(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -457,7 +458,7 @@ func TestDispatchRejectsFrameWhosePayloadEndsEarly(t *testing.T) {
 }
 
 func TestWaylandRegistryAndSHMExchangeRealWireAndFileDescriptors(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -995,7 +996,7 @@ func TestContext_Dispatch_NilConn(t *testing.T) {
 }
 
 func TestContextDispatchRejectsUnalignedMessageSize(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1031,7 +1032,7 @@ func TestContextDispatchRejectsUnalignedMessageSize(t *testing.T) {
 }
 
 func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1081,7 +1082,7 @@ func TestContextDispatchContextCancelsBlockedRead(t *testing.T) {
 }
 
 func TestContextWriteMsgContextCancelsBlockedWrite(t *testing.T) { //nolint:gocyclo // deterministically drives the socket into a blocked-write state.
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1160,7 +1161,7 @@ blocked:
 }
 
 func TestContextCloseInterruptsBlockedWrite(t *testing.T) { //nolint:gocyclo // deterministically drives the socket into a blocked-write state.
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1325,7 +1326,7 @@ func TestContextWithOperationContextCancelsQueuedAdmission(t *testing.T) {
 }
 
 func TestContextWithOperationContextRejectsQueuedCallbackAfterClose(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1404,7 +1405,7 @@ func (c *operationAdmissionObservedContext) Done() <-chan struct{} {
 }
 
 func TestContextWriteMsgContextCancelsQueuedWrite(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1473,7 +1474,7 @@ func testContextQueuedAdmissionCancellation(
 	operation func(*Context, context.Context) error,
 ) {
 	t.Helper()
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1598,7 +1599,7 @@ func TestContextWithOperationSerializesCalls(t *testing.T) {
 }
 
 func TestContextRoundTripUnregistersCallbacks(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

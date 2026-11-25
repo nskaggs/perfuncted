@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"image"
 	"os/exec"
 	"reflect"
@@ -378,7 +379,7 @@ func TestBridgeTypedWindowReadErrorsDoNotReturnPartialWindowMetadata(t *testing.
 
 func startPrivateBridgeBus(t *testing.T) string {
 	t.Helper()
-	path := shortPrivateSocketPath(t, "bus")
+	path := testutil.ShortSocketPath(t, "bus")
 	address := "unix:path=" + path
 	var stderr bytes.Buffer
 	cmd := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")

@@ -9,6 +9,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"os/exec"
 	"strings"
 	"sync"
@@ -41,7 +42,7 @@ func startSyntheticGNOMEEvalBus(t *testing.T) (context.Context, string, *synthet
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("synthetic D-Bus daemon unavailable")
 	}
-	address := "unix:path=" + shortPrivateSocketPath(t, "bus")
+	address := "unix:path=" + testutil.ShortSocketPath(t, "bus")
 	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := daemon.Start(); err != nil {
 		t.Fatal(err)

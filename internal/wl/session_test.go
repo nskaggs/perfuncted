@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"io"
 	"net"
 	"os"
@@ -19,7 +20,7 @@ import (
 // A closed Wayland transport cannot accept further writes, dispatches,
 // round-trips or logical operations even though its proxy registry remains.
 func TestWaylandClosedTransportRejectsEveryPublicOperation(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +86,7 @@ func TestResolveWaylandSocketPathRejectsUnresolvedRelativeNames(t *testing.T) {
 // the caller explicitly closes the client and checks peer shutdown.
 func connectSyntheticDefaultDisplay(t *testing.T) (*Context, <-chan error) {
 	t.Helper()
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +180,7 @@ func TestListGlobalsAndSocketReachabilityUseOnlySyntheticCompositor(t *testing.T
 	if SocketReachable(notSocket) || ListGlobals(notSocket) != nil {
 		t.Fatal("regular file accepted as Wayland socket")
 	}
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -578,7 +579,7 @@ func TestRegistryGlobalRemoveIgnoresTruncatedEventsAndAcceptsValidRemoval(t *tes
 }
 
 func TestContextRoundTripHandlesImmediateCallback(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -634,7 +635,7 @@ func TestContextRoundTripHandlesImmediateCallback(t *testing.T) {
 }
 
 func TestNewSessionContextCancelsRegistryRoundTrip(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -904,7 +905,7 @@ func TestCanceledCallerDoesNotAcquireCachedWaylandSession(t *testing.T) {
 // handshake before any of them enters the session cache. Only one transport
 // may remain owned, while each caller receives a distinct close handle.
 func TestWaylandSessionConcurrentFirstAcquisitionSharesOneCachedTransport(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1024,7 +1025,7 @@ func TestWaylandSessionConcurrentFirstAcquisitionSharesOneCachedTransport(t *tes
 func TestSessionHandshakeRejectsDisconnectedCompositorWithoutCaching(t *testing.T) {
 	for _, phase := range []string{"after-registry-request", "after-sync-request"} {
 		t.Run(phase, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t)
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -1120,7 +1121,7 @@ func TestWaylandCancelWhileFinalSessionCacheAdmissionBlocked(t *testing.T) {
 			name = "replacement"
 		}
 		t.Run(name, func(t *testing.T) {
-			sock := shortPrivateSocketPath(t)
+			sock := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -1305,7 +1306,7 @@ func privateSessionWaylandPeer(conn *net.UnixConn) error {
 	}
 }
 func TestRealSyntheticWaylandSessionCacheRefcountsGlobalChangesAndContextCancellation(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1876,7 +1877,7 @@ func TestNewSession_CacheMissCreatesNew(t *testing.T) {
 // own its socket. Closing that session must immediately terminate the private
 // compositor peer, even though no cache entry or reference exists to release.
 func TestUncachedWaylandSessionClosesItsLiveSocket(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1924,7 +1925,7 @@ func TestUncachedWaylandSessionClosesItsLiveSocket(t *testing.T) {
 // instead of blocking forever. This pins the round-trip budget that keeps
 // Open responsive to wedged compositors.
 func TestListGlobalsBoundsWedgedSocket(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	sock := filepath.Join(dir, "wedged-wayland-0")
 
 	ln, err := net.Listen("unix", sock)

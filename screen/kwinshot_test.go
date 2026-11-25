@@ -7,6 +7,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"image"
 	"image/color"
 	"os"
@@ -92,7 +93,7 @@ func startSyntheticKWinBus(t *testing.T, export bool) (string, *syntheticKWinPip
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skipf("dbus-daemon not installed: %v", err)
 	}
-	path := shortPrivateSocketPath(t, "bus")
+	path := testutil.ShortSocketPath(t, "bus")
 	address := "unix:path=" + path
 	proc := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := proc.Start(); err != nil {

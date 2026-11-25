@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"io"
 	"math"
 	"net"
@@ -182,7 +183,7 @@ func TestSwayResizeInvalidDimensionsNeverDispatchesIPC(t *testing.T) {
 func TestSwayRuntimeDiscoversPrivateSocketAndFallsBackFromUnreachableExplicitSocket(t *testing.T) {
 	for _, withExplicit := range []bool{true, false} {
 		t.Run(map[bool]string{true: "explicit", false: "runtime_glob_fallback"}[withExplicit], func(t *testing.T) {
-			dir := shortPrivateSocketDir(t)
+			dir := testutil.ShortSocketDir(t)
 			sock := filepath.Join(dir, "sway-ipc.123.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
@@ -1861,7 +1862,7 @@ func TestSwayDiscoveryRejectsSocketWithInvalidTreeEvidence(t *testing.T) {
 		{"plausible Sway root", `{"id":1,"type":"root","nodes":[]}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "synthetic-ipc.sock")
+			socket := testutil.ShortSocketPath(t, "synthetic-ipc.sock")
 			listener, err := net.Listen("unix", socket)
 			if err != nil {
 				t.Fatal(err)
@@ -1951,7 +1952,7 @@ func TestSwayQueryNeverPublishesResponseCanceledDuringFinalRead(t *testing.T) {
 }
 
 func TestNewSwayManagerReturnsCancellationFromRuntimeSocketProbe(t *testing.T) {
-	runtimeDir := shortPrivateSocketDir(t)
+	runtimeDir := testutil.ShortSocketDir(t)
 	socket := filepath.Join(runtimeDir, "sway-ipc.test.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -2141,7 +2142,7 @@ func TestSwayRuntimeDiscoveryTreatsRuntimeDirectoryAsLiteral(t *testing.T) {
 // Runtime discovery must reject a Sway socket that accepts a query but closes
 // before returning the compositor tree.
 func TestSwayRuntimeProbePropagatesDisconnectedTreeResponse(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "sway-ipc.sock")
+	socket := testutil.ShortSocketPath(t, "sway-ipc.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

@@ -2,7 +2,6 @@ package sessionregistry
 
 import (
 	"github.com/nskaggs/perfuncted/internal/workflow"
-	"os"
 	"testing"
 	"time"
 )
@@ -33,18 +32,4 @@ func workflowAwaitState(t *testing.T, w *workflow.Lifecycle, want workflow.State
 			t.Fatalf("state %s, want %s", state, want)
 		}
 	}
-}
-
-func shortPrivateSocketDir(t testing.TB) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("/var/tmp", "pf-")
-	if err != nil {
-		t.Fatalf("create short socket directory: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Errorf("remove short socket directory: %v", err)
-		}
-	})
-	return dir
 }

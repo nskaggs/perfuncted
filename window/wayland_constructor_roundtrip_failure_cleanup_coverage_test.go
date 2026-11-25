@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"io"
 	"net"
 	"strings"
@@ -81,7 +82,7 @@ func serveWindowCompositorWithMalformedManagerRoundTrip(conn *net.UnixConn) erro
 }
 
 func TestWaylandConstructorClosesSessionAfterManagerRoundTripFailure(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

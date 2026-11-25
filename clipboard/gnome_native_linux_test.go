@@ -9,6 +9,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,7 +64,7 @@ func TestGnomeNativeClipboardRealPrivateBusNegotiatesAndRoundTripsUTF8(t *testin
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("dbus-daemon unavailable")
 	}
-	address := "unix:path=" + shortPrivateSocketPath(t, "bus")
+	address := "unix:path=" + testutil.ShortSocketPath(t, "bus")
 	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := daemon.Start(); err != nil {
 		t.Fatal(err)
@@ -149,7 +150,7 @@ func TestGnomeNativeClipboardRealPrivateBusNegotiatesAndRoundTripsUTF8(t *testin
 	gnomeRuntime := env.FromEnviron([]string{
 		"DBUS_SESSION_BUS_ADDRESS=" + address,
 		"WAYLAND_DISPLAY=nonexistent-private-test-socket",
-		"XDG_RUNTIME_DIR=" + shortPrivateSocketDir(t),
+		"XDG_RUNTIME_DIR=" + testutil.ShortSocketDir(t),
 		"XDG_CURRENT_DESKTOP=GNOME",
 	})
 	selected, err := OpenRuntimeContext(ctx, gnomeRuntime)
@@ -173,7 +174,7 @@ func TestClipboardFallsBackWhenGNOMEBridgeLacksClipboardCapability(t *testing.T)
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("dbus-daemon unavailable")
 	}
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	address := "unix:path=" + filepath.Join(dir, "bus")
 	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := daemon.Start(); err != nil {
@@ -211,7 +212,7 @@ func TestClipboardFallsBackWhenGNOMEBridgeLacksClipboardCapability(t *testing.T)
 	runtime := env.FromEnviron([]string{
 		"DBUS_SESSION_BUS_ADDRESS=" + address,
 		"WAYLAND_DISPLAY=missing-private-wayland-socket",
-		"XDG_RUNTIME_DIR=" + shortPrivateSocketDir(t),
+		"XDG_RUNTIME_DIR=" + testutil.ShortSocketDir(t),
 		"XDG_CURRENT_DESKTOP=GNOME",
 		"DISPLAY=:private-test",
 	})
@@ -230,7 +231,7 @@ func TestClipboardRequiresGNOMESessionRestartAfterBridgeUpgrade(t *testing.T) {
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("dbus-daemon unavailable")
 	}
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	address := "unix:path=" + filepath.Join(dir, "bus")
 	daemon := exec.Command("dbus-daemon", "--session", "--address="+address, "--nofork", "--nopidfile")
 	if err := daemon.Start(); err != nil {
@@ -269,7 +270,7 @@ func TestClipboardRequiresGNOMESessionRestartAfterBridgeUpgrade(t *testing.T) {
 	runtime := env.FromEnviron([]string{
 		"DBUS_SESSION_BUS_ADDRESS=" + address,
 		"WAYLAND_DISPLAY=missing-private-wayland-socket",
-		"XDG_RUNTIME_DIR=" + shortPrivateSocketDir(t),
+		"XDG_RUNTIME_DIR=" + testutil.ShortSocketDir(t),
 		"XDG_CURRENT_DESKTOP=GNOME",
 		"XDG_DATA_HOME=" + t.TempDir(),
 		"DISPLAY=:private-test",

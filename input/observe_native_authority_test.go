@@ -2,6 +2,7 @@ package input
 
 import (
 	"errors"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"net"
 	"os"
 	"syscall"
@@ -71,7 +72,7 @@ func TestNativeX11PeerCredentialFailures(t *testing.T) {
 }
 
 func TestNativeX11PeerExecutableAuthority(t *testing.T) {
-	path := shortPrivateSocketPath(t, "peer.sock")
+	path := testutil.ShortSocketPath(t, "peer.sock")
 	server, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

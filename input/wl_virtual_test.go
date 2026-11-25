@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -262,7 +263,7 @@ func TestWlVirtualConstructorRejectsMissingAdvertisedProtocols(t *testing.T) {
 					globals[k] = v
 				}
 			}
-			sock := shortPrivateSocketPath(t, "wl.sock")
+			sock := testutil.ShortSocketPath(t, "wl.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -297,7 +298,7 @@ func TestWlVirtualConstructorRejectsMissingAdvertisedProtocols(t *testing.T) {
 
 func TestWlVirtualConstructorUsesRealAdvertisedGlobalsAndInputWire(t *testing.T) {
 	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
-	socket := shortPrivateSocketPath(t, "wl.sock")
+	socket := testutil.ShortSocketPath(t, "wl.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +345,7 @@ func TestWlVirtualConstructorUsesRealAdvertisedGlobalsAndInputWire(t *testing.T)
 
 func TestWlVirtualConstructorReportsOutputRoundTripFailure(t *testing.T) {
 	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
-	socket := shortPrivateSocketPath(t, "wl.sock")
+	socket := testutil.ShortSocketPath(t, "wl.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -377,7 +378,7 @@ func TestWlVirtualConstructorReportsOutputRoundTripFailure(t *testing.T) {
 
 func TestWlVirtualConstructorPropagatesCancellationDuringKeyboardWarmup(t *testing.T) {
 	globals := map[string]uint32{"zwlr_virtual_pointer_manager_v1": 2, "zwp_virtual_keyboard_manager_v1": 1, "wl_seat": 7, "wl_output": 2}
-	socket := shortPrivateSocketPath(t, "wl.sock")
+	socket := testutil.ShortSocketPath(t, "wl.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

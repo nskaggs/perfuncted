@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/wl"
@@ -237,7 +238,7 @@ func TestOutputSelectionHonorsCancellationBeforeWaylandProbeAndX11Fallback(t *te
 }
 
 func TestOutputRuntimeDoesNotFallBackAfterReachableWaylandRejectsDiscovery(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +267,7 @@ func TestOutputRuntimeDoesNotFallBackAfterReachableWaylandRejectsDiscovery(t *te
 }
 
 func TestOutputRuntimeReturnsUsableWaylandListerAfterDiscovery(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -325,7 +326,7 @@ func TestX11OutputListRejectsCancellationAfterEmptyRandRQuery(t *testing.T) {
 // A reachable Wayland socket takes precedence over an unrelated stale X11
 // DISPLAY. A private compositor provides a genuine registry round-trip.
 func TestProbeRuntimeSelectsLiveWaylandDespiteX11Fallback(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	socket := filepath.Join(dir, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {

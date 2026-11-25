@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"image"
 	"io"
@@ -22,7 +23,7 @@ import (
 // entire capture transaction. A protocol-ready frame is not permission to
 // return its private pixels after the caller has revoked the operation.
 func TestWlrScreencopyRejectsCancellationDuringPixelProcessing(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +80,7 @@ func TestWlrConstructorRealWaylandSocketProtocolDiscovery(t *testing.T) {
 		{"no screencopy advertised", "wl_seat", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			listener, err := net.Listen("unix", shortPrivateSocketPath(t, "wl.sock"))
+			listener, err := net.Listen("unix", testutil.ShortSocketPath(t, "wl.sock"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -297,7 +298,7 @@ func assertWlrCloseAndNoReuse(t *testing.T, b *WlrScreencopyBackend) {
 // zero checksum. An unknown output scale must not multiply a requested
 // logical crop into a different physical region.
 func TestWlrWireEmptyRegionHashAndUnknownScaleAreConsistent(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wlr.sock")
+	socket := testutil.ShortSocketPath(t, "wlr.sock")
 	server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -508,7 +509,7 @@ func TestWlrScreencopyRejectsReadyBeforeCopyProtocolViolation(t *testing.T) {
 
 func testWlrReadyBeforeCopyFailsClosed(t *testing.T, outcome string) {
 	t.Helper()
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -636,7 +637,7 @@ func TestWlrCloseDuringQueuedConnectionPreventsNewTransport(t *testing.T) {
 }
 
 func TestWlrCaptureCancellationAfterConnectSendsNoRegistryRequest(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -700,7 +701,7 @@ func TestWlrCaptureCancellationAfterConnectSendsNoRegistryRequest(t *testing.T) 
 }
 
 func TestWlrRegistryRoundTripFailureDropsCachedConnection(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -762,7 +763,7 @@ func TestWlrRegistryRoundTripFailureDropsCachedConnection(t *testing.T) {
 func TestWlrCaptureRejectsMissingRequiredRegistryGlobals(t *testing.T) {
 	for _, missing := range []string{"wl_shm", "wl_output"} {
 		t.Run(missing, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -870,7 +871,7 @@ func TestWlrCaptureReturnsDispatchErrorWhenCompositorDisconnects(t *testing.T) {
 		{name: "after copy is issued", outcome: "disconnect after copy request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -929,7 +930,7 @@ func (c *wlrErrCheckGateContext) Err() error {
 }
 
 func TestWlrCaptureCancellationAfterCopyDoesNotPublishHash(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1010,7 +1011,7 @@ func TestWlrCaptureCancellationAfterCopyDoesNotPublishHash(t *testing.T) {
 }
 
 func TestWlrCaptureReallocatesSharedMemoryWhenGeometryChanges(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1099,7 +1100,7 @@ func (ctx *wlrCancelAtCaptureCheckContext) Err() error {
 }
 
 func TestWlrResolutionUsesCapturedDimensionsWhenOutputModeIsAbsent(t *testing.T) {
-	runtime := shortPrivateSocketDir(t)
+	runtime := testutil.ShortSocketDir(t)
 	socket := filepath.Join(runtime, "wayland.sock")
 	server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -1209,7 +1210,7 @@ func TestWlrCaptureRejectsUntrustedBufferGeometryOnWire(t *testing.T) { //nolint
 				}},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					socket := shortPrivateSocketPath(t, "wayland.sock")
+					socket := testutil.ShortSocketPath(t, "wayland.sock")
 					listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 					if err != nil {
 						t.Fatal(err)
@@ -1520,7 +1521,7 @@ func TestWlrScreencopySyntheticProtocolCaptureAndErrors(t *testing.T) {
 		}, wantErr: true, wantErrText: "capture_output", wantNoHash: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			server, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xtest"
@@ -38,7 +39,7 @@ type mockX11Options struct {
 
 func startMockXI2Server(t *testing.T, options mockX11Options) string {
 	t.Helper()
-	display := shortPrivateSocketPath(t, "x11") + ":0"
+	display := testutil.ShortSocketPath(t, "x11") + ":0"
 	listener, err := net.Listen("unix", display)
 	if err != nil {
 		t.Fatal(err)

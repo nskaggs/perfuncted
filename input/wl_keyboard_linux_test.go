@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -60,7 +61,7 @@ func TestVirtualKeyboardRejectsStaleOrCollidingHeldSlotsBeforeCompositorMutation
 
 func newKeyboardConstructorTransport(t *testing.T) (*wl.Context, *wl.Registry, *net.UnixConn) {
 	t.Helper()
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

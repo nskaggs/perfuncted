@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"net"
 	"os/exec"
 	"strings"
@@ -187,7 +188,7 @@ func startSyntheticDefaultBus(t *testing.T) string {
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("synthetic D-Bus daemon unavailable")
 	}
-	address := "unix:path=" + shortPrivateSocketPath(t, "session-bus")
+	address := "unix:path=" + testutil.ShortSocketPath(t, "session-bus")
 	process := exec.Command("dbus-daemon", "--session", "--nofork", "--address="+address)
 	if err := process.Start(); err != nil {
 		t.Fatal(err)
@@ -218,7 +219,7 @@ func TestHandshakeWithPreCanceledCallerDoesNotAttemptAuthentication(t *testing.T
 }
 
 func TestSessionBusWithoutAddressFailsClosedOnUnreachableDefault(t *testing.T) {
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path="+shortPrivateSocketPath(t, "missing"))
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path="+testutil.ShortSocketPath(t, "missing"))
 	conn, err := SessionBusAddressContext(context.Background(), "")
 	if conn != nil {
 		defer conn.Close()
@@ -229,7 +230,7 @@ func TestSessionBusWithoutAddressFailsClosedOnUnreachableDefault(t *testing.T) {
 }
 
 func TestConnectContextRejectsPeerThatClosesBeforeAuthentication(t *testing.T) {
-	listener, err := net.Listen("unix", shortPrivateSocketPath(t, "fakebus"))
+	listener, err := net.Listen("unix", testutil.ShortSocketPath(t, "fakebus"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestHandshakeCanceledBetweenSuccessfulResponseAndPublication(t *testing.T) 
 }
 
 func TestDefaultBusRejectsConnectionClosedBeforeAuthentication(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "fake-default")
+	socket := testutil.ShortSocketPath(t, "fake-default")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -314,7 +315,7 @@ func serveWindowCompositor(conn *net.UnixConn, protocol string) error {
 func TestWaylandWindowManagerRealSyntheticConstructorAndToplevelDiscovery(t *testing.T) {
 	for _, proto := range []string{"wlr", "ext", "both", "none"} {
 		t.Run(proto, func(t *testing.T) {
-			sock := shortPrivateSocketPath(t, "wayland.sock")
+			sock := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)

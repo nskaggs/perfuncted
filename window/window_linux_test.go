@@ -10,6 +10,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/x11test"
 	"net"
 	"os"
@@ -20,7 +21,7 @@ import (
 )
 
 func TestOpenRuntimeUsesToplevelBackendForUnknownExtWayland(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +229,7 @@ func TestOpenRuntimeSelectsGNOMENativeManagerAndIteratorHonorsStop(t *testing.T)
 }
 
 func TestWindowRuntimePrefersSwayIPCOnWlroots(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	sock := filepath.Join(dir, "sway.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
@@ -278,7 +279,7 @@ func TestWindowRuntimePrefersSwayIPCOnWlroots(t *testing.T) {
 }
 
 func TestWindowRuntimeFallsBackToWaylandWhenSwayIPCUnavailable(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	sock := filepath.Join(dir, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {

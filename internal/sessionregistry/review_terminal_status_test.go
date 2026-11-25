@@ -3,6 +3,7 @@ package sessionregistry
 import (
 	"context"
 	"errors"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"os"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestReviewWorkflowStatusHonorsCanceledContext(t *testing.T) {
-	path := shortPrivateSocketDir(t)
+	path := testutil.ShortSocketDir(t)
 	root, err := OpenDir(unix.AT_FDCWD, path)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +46,7 @@ func TestReviewWorkflowStatusHonorsCanceledContext(t *testing.T) {
 // A terminal file is valid even during the brief shutdown interval after
 // the listener closes but before the stale socket inode is removed.
 func TestReviewWorkflowTerminalStatusDuringSocketCleanup(t *testing.T) {
-	path := shortPrivateSocketDir(t)
+	path := testutil.ShortSocketDir(t)
 	root, err := OpenDir(unix.AT_FDCWD, path)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +89,7 @@ func TestReviewWorkflowTerminalStatusDuringSocketCleanup(t *testing.T) {
 func TestReviewWorkflowStatusSurvivesLostTerminalReply(t *testing.T) {
 	for _, operation := range []string{"status", "pause"} {
 		t.Run(operation, func(t *testing.T) {
-			path := shortPrivateSocketDir(t)
+			path := testutil.ShortSocketDir(t)
 			root, err := OpenDir(unix.AT_FDCWD, path)
 			if err != nil {
 				t.Fatal(err)

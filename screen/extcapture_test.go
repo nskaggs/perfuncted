@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"image"
 	"io"
@@ -19,7 +20,7 @@ import (
 )
 
 func TestExtCaptureReusesAndReplacesCachedBufferByGeometry(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +275,7 @@ func TestExtCaptureRejectsUntrustedWaylandConstraintsBeforeSharedMemoryAllocatio
 		}{{0, wlUint32Payload(0x40000000, 2)}, {1, wlUint32Payload(0)}}, "width is too large"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -496,7 +497,7 @@ func TestExtCaptureRealSyntheticConstructorBindsOnlyAdvertisedProtocols(t *testi
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -572,7 +573,7 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 		}},
 	} {
 		t.Run(op.name, func(t *testing.T) {
-			sock := shortPrivateSocketPath(t, "wayland.sock")
+			sock := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -672,7 +673,7 @@ func TestExtCaptureRealWaylandFailedFrameNeverReturnsImageOrHash(t *testing.T) {
 // A capture canceled while consuming the compositor's completed pixel buffer
 // cannot report success: the caller no longer owns a publishable result.
 func TestExtCaptureFrameProcessingCancellationCannotPublishSuccess(t *testing.T) {
-	runtime := shortPrivateSocketDir(t)
+	runtime := testutil.ShortSocketDir(t)
 	sock := filepath.Join(runtime, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
@@ -819,7 +820,7 @@ func TestExtCapturePreservesAuthorizedScaleAfterMalformedOutputEvent(t *testing.
 }
 
 func TestExtCaptureConstructorAppliesAdvertisedOutputScaleEvent(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -876,7 +877,7 @@ func TestExtCaptureFailsClosedOnSessionRoundTripAndBufferGeometryErrors(t *testi
 		{name: "buffer allocation overflow", width: 1, height: ^uint32(0), want: "invalid buffer geometry"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -965,7 +966,7 @@ func TestExtCaptureFailsClosedOnSessionRoundTripAndBufferGeometryErrors(t *testi
 }
 
 func TestExtCaptureDoesNotPublishHashWhenSharedMemoryPoolTransportFails(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1107,7 +1108,7 @@ func TestExtCaptureSyntheticWaylandCaptureLifecycle(t *testing.T) {
 		}, true, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sock := shortPrivateSocketPath(t, "wayland.sock")
+			sock := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -1409,7 +1410,7 @@ func TestExtCaptureCleanupRequestUsesIndependentContext(t *testing.T) {
 }
 
 func TestExtCaptureCloseCancelsBlockedCapture(t *testing.T) { //nolint:gocyclo // exercises the complete blocked-capture shutdown sequence.
-	sock := shortPrivateSocketPath(t, "wayland.sock")
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

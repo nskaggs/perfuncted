@@ -10,6 +10,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"io"
 	"math"
 	"net"
@@ -2983,7 +2984,7 @@ func startPortalUnixFDRejectingProxy(t *testing.T, upstreamAddress string) (stri
 	if !ok || upstreamPath == "" {
 		t.Fatalf("synthetic portal bus address %q is not a Unix path", upstreamAddress)
 	}
-	path := shortPrivateSocketPath(t, "portal-no-fd.sock")
+	path := testutil.ShortSocketPath(t, "portal-no-fd.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

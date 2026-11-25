@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -219,7 +220,7 @@ func TestExtCmdClipboardSetDoesNotWaitForClipboardDaemon(t *testing.T) {
 // The socket is a private Unix listener, never a desktop session. The tools
 // are inert stubs: backend selection must not execute either clipboard tool.
 func TestClipboardOpenRuntimeSelectsWaylandOnlyWhenSocketAndBothToolsExist(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	sock := filepath.Join(dir, "wayland-test")
 	listener, err := net.Listen("unix", sock)
 	if err != nil {
@@ -345,7 +346,7 @@ func TestClipboardOpenRuntimeSelectsWaylandOnlyWhenSocketAndBothToolsExist(t *te
 // answer wl_display.get_registry. A caller's deadline must bound detection
 // before the clipboard implementation is chosen or any owner is launched.
 func TestClipboardOpenAbortsBlockedWaylandProbeAtCallerDeadline(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	listener, err := net.Listen("unix", filepath.Join(dir, "wayland-hung"))
 	if err != nil {
 		t.Fatal(err)
@@ -448,7 +449,7 @@ func TestWaylandSetNeverSpawnsForegroundOwnerAfterEarlyCancellation(t *testing.T
 // A synthetic Wayland registry supports only the get_registry and sync calls
 // used during compositor detection. No real desktop or clipboard owner runs.
 func TestClipboardWaylandDiscoveryRefusesCancellationAfterFinalToolLookup(t *testing.T) { //nolint:gocyclo // Synthetic Wayland transport exercises two actual capability boundaries.
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	listener, err := net.Listen("unix", filepath.Join(dir, "wayland-private"))
 	if err != nil {
 		t.Fatal(err)

@@ -10,6 +10,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	"github.com/nskaggs/perfuncted/internal/probe"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"io"
 	"net"
 	"os"
@@ -222,7 +223,7 @@ func TestInputRuntimeStopsBackendSelectionWhenCompositorProbeIsCanceled(t *testi
 		fallbackCalls++
 		return nil
 	}
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

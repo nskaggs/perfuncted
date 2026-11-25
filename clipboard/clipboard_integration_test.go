@@ -4,6 +4,7 @@
 package clipboard
 
 import (
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestOpenCapturesSessionEnv(t *testing.T) {
-	runtimeDir := shortPrivateSocketDir(t)
+	runtimeDir := testutil.ShortSocketDir(t)
 	socketPath := filepath.Join(runtimeDir, "wayland-77")
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -58,7 +59,7 @@ func TestOpenCapturesSessionEnv(t *testing.T) {
 }
 
 func TestOpenPrefersCapturedWaylandEnv(t *testing.T) {
-	runtimeDir := shortPrivateSocketDir(t)
+	runtimeDir := testutil.ShortSocketDir(t)
 	socketPath := filepath.Join(runtimeDir, "wayland-88")
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {

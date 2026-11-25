@@ -11,6 +11,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
 	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/window"
@@ -435,7 +436,7 @@ func TestClipboardPasteWithoutInputReturnsCapabilityError(t *testing.T) {
 }
 
 func TestSessionCloseCleansOwnedInfrastructure(t *testing.T) {
-	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	xdgDir := filepath.Join(testutil.ShortRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
@@ -1049,7 +1050,7 @@ func TestHelperProcess(t *testing.T) {
 }
 
 func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
-	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	xdgDir := filepath.Join(testutil.ShortRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
@@ -1077,7 +1078,7 @@ func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
 }
 
 func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
-	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	xdgDir := filepath.Join(testutil.ShortRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
@@ -1094,7 +1095,7 @@ func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
 }
 
 func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
-	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	xdgDir := filepath.Join(testutil.ShortRuntimeDir(t), "xdg")
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/workflow"
 	"golang.org/x/sys/unix"
 	"os"
@@ -66,7 +67,7 @@ func TestWorkflowRequestValidation(t *testing.T) {
 }
 
 func TestWorkflowControlRejectsSocketSymlink(t *testing.T) {
-	path := shortPrivateSocketDir(t)
+	path := testutil.ShortSocketDir(t)
 	root, err := OpenDir(unix.AT_FDCWD, path)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +101,7 @@ func TestWorkflowControlRejectsSocketSymlink(t *testing.T) {
 }
 
 func TestWorkflowControlRejectsReusedPIDIdentity(t *testing.T) {
-	path := shortPrivateSocketDir(t)
+	path := testutil.ShortSocketDir(t)
 	root, err := OpenDir(unix.AT_FDCWD, path)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +138,7 @@ func TestWorkflowControlRejectsReusedPIDIdentity(t *testing.T) {
 }
 
 func TestWorkflowControlUsesSeparateCLIProcess(t *testing.T) {
-	path := shortPrivateSocketDir(t)
+	path := testutil.ShortSocketDir(t)
 	root, err := OpenDir(unix.AT_FDCWD, path)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +190,7 @@ func TestWorkflowControlSeparateProcessHelper(t *testing.T) {
 }
 
 func TestWorkflowControlProtocol(t *testing.T) {
-	path := shortPrivateSocketDir(t)
+	path := testutil.ShortSocketDir(t)
 	open := func() *os.File {
 		f, err := OpenDir(unix.AT_FDCWD, path)
 		if err != nil {

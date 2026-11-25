@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -428,4 +429,11 @@ func (c *extCmdClipboard) Close() error { return nil }
 
 func captureRuntimeEnv(rt env.Runtime) []string {
 	return rt.EnvList()
+}
+
+func (c *extCmdClipboard) SupportedOperations() []string { return capability.Operations("clipboard") }
+
+// SupportedOperations reports the operations supported by the GNOME backend.
+func (c *GnomeNativeClipboard) SupportedOperations() []string {
+	return capability.Operations("clipboard")
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -570,7 +571,7 @@ func TestScroll_SignConvention(t *testing.T) {
 
 func newCapturedWlVirtualBackend(t *testing.T) (*WlVirtualBackend, *net.UnixConn) {
 	t.Helper()
-	sock := shortPrivateSocketPath(t, fmt.Sprintf("pf-wl-%d.sock", time.Now().UnixNano()))
+	sock := testutil.ShortSocketPath(t, fmt.Sprintf("pf-wl-%d.sock", time.Now().UnixNano()))
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)

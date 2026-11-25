@@ -9,6 +9,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -21,7 +22,7 @@ import (
 // Cancellation while the real Wayland registry is unresponsive must win over
 // stale desktop authority; the probe must close its socket and return promptly.
 func TestCompositorCancellationDuringRegistryProbeFailsClosed(t *testing.T) {
-	dir := shortPrivateSocketDir(t)
+	dir := testutil.ShortSocketDir(t)
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(dir, "display.sock"), Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +88,7 @@ func TestKWinDetectionRequiresExactBusServiceName(t *testing.T) {
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("synthetic dbus-daemon unavailable")
 	}
-	address := "unix:path=" + filepath.Join(shortPrivateSocketDir(t), "bus")
+	address := "unix:path=" + filepath.Join(testutil.ShortSocketDir(t), "bus")
 	proc := exec.Command("dbus-daemon", "--session", "--nofork", "--address="+address)
 	if err := proc.Start(); err != nil {
 		t.Fatal(err)
@@ -155,7 +156,7 @@ func TestDetectRuntimeRealCompositorGlobalsOverrideMisleadingDesktop(t *testing.
 		{"unrecognized protocol", []string{"wl_output", "wl_seat"}, "KDE", Unknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := shortPrivateSocketDir(t)
+			dir := testutil.ShortSocketDir(t)
 			socket := filepath.Join(dir, "display.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {

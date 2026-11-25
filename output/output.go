@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/nskaggs/perfuncted/internal/capability"
 	"github.com/nskaggs/perfuncted/internal/compositor"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/env"
@@ -137,3 +138,9 @@ func ProbeRuntime(rt env.Runtime) []probe.Result {
 	}
 	return []probe.Result{{Name: "output", Available: false, Reason: "no output source available"}}
 }
+
+// SupportedOperations returns the operations supported by the X11 lister.
+func (l *X11Lister) SupportedOperations() []string { return capability.Operations("outputs") }
+
+// SupportedOperations returns the operations supported by the Wayland lister.
+func (l *WaylandLister) SupportedOperations() []string { return capability.Operations("outputs") }

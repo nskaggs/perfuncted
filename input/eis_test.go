@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"golang.org/x/sys/unix"
 	"io"
 	"math"
@@ -3277,7 +3278,7 @@ func readEIRequest(t *testing.T, reader io.Reader) testEIRequest {
 
 func unixConnectionPair(t *testing.T) (*net.UnixConn, *net.UnixConn) {
 	t.Helper()
-	path := shortPrivateSocketPath(t, "eis.sock")
+	path := testutil.ShortSocketPath(t, "eis.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatalf("listen on local Unix socket: %v", err)

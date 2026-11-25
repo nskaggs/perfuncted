@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/nskaggs/perfuncted/window"
@@ -1557,7 +1558,7 @@ func TestInfoSessionAndDocsCommands(t *testing.T) { //nolint:gocyclo // subtests
 	})
 
 	t.Run("session check", func(t *testing.T) {
-		runtimeDir := shortPrivateSocketDir(t)
+		runtimeDir := testutil.ShortSocketDir(t)
 		socketPath := filepath.Join(runtimeDir, "wayland-1")
 		ln, err := net.Listen("unix", socketPath)
 		if err != nil {

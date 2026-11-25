@@ -14,6 +14,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
@@ -901,7 +902,7 @@ func TestManagedLaunchersRefuseUnavailableStartupInputs(t *testing.T) {
 // path as an unsafe replacement or trying to remove neighboring files.
 func TestManagedSessionStopToleratesAlreadyRemovedRuntime(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TMPDIR", shortPrivateRuntimeDir(t))
+	t.Setenv("TMPDIR", testutil.ShortRuntimeDir(t))
 	runtimeDir, err := createManagedSessionRuntimeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -1511,7 +1512,7 @@ func TestSessionSignalCleanupRetainsUnsafeRuntimeDirectory(t *testing.T) {
 	const childEnv = "PF_TEST_SIGNAL_CLEANUP_FAILURE"
 	const dirEnv = "PF_TEST_SIGNAL_CLEANUP_FAILURE_DIR"
 	if os.Getenv(childEnv) != "1" {
-		dir := filepath.Join(shortPrivateRuntimeDir(t), "unsafe-runtime")
+		dir := filepath.Join(testutil.ShortRuntimeDir(t), "unsafe-runtime")
 		if err := os.Mkdir(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -2639,7 +2640,7 @@ func TestManagedSessionDBusRejectsEmbeddedNULBeforeSpawn(t *testing.T) {
 }
 
 func TestManagedSessionSocketReadinessRejectsFilesDirectoriesAndSymlinks(t *testing.T) {
-	root := shortPrivateSocketDir(t)
+	root := testutil.ShortSocketDir(t)
 	regular := filepath.Join(root, "regular")
 	if err := os.WriteFile(regular, []byte("not a socket"), 0600); err != nil {
 		t.Fatal(err)
@@ -3345,7 +3346,7 @@ func installNestedStartupHelpers(t *testing.T) string {
 
 func TestOpenNestedRuntimeUsesHostWaylandAndOwnsManagedChildren(t *testing.T) {
 	root := installNestedStartupHelpers(t)
-	hostRuntime := shortPrivateSocketDir(t)
+	hostRuntime := testutil.ShortSocketDir(t)
 	hostSocket := filepath.Join(hostRuntime, "wayland-host")
 	listener, err := net.Listen("unix", hostSocket)
 	if err != nil {

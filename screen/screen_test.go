@@ -12,6 +12,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"github.com/nskaggs/perfuncted/internal/x11test"
 	"go.uber.org/goleak"
@@ -694,7 +695,7 @@ func TestScreenResolutionFallbackRejectsCanceledOrMalformedProviderResults(t *te
 }
 
 func TestOpenRuntimePropagatesCancellationDuringCompositorDetection(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -795,7 +796,7 @@ func TestOpenRuntimeSelectsExtCaptureForUnavailablePrimaryBackends(t *testing.T)
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -863,7 +864,7 @@ func TestScreenRuntimeStopsFallbackWhenExtCaptureSetupIsCanceled(t *testing.T) {
 		{"wlroots", "Sway", []extConstructorAdvertisedGlobal{{25, "zwlr_screencopy_manager_v1", 1}}, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t, "wayland.sock")
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 			if err != nil {
 				t.Fatal(err)
@@ -1346,7 +1347,7 @@ func TestScreenRuntimeAbsentPrivateBusFailsClosedAcrossGNOMEAndKDE(t *testing.T)
 }
 
 func TestOpenRuntimeUnknownCompositorReturnsCancellationDuringExtCaptureSetup(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1425,7 +1426,7 @@ func cancelExtCaptureRegistryRoundTrip(conn *net.UnixConn, cancel context.Cancel
 }
 
 func TestOpenRuntimeSelectsWlrScreencopyFromAdvertisedManager(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1481,7 +1482,7 @@ func TestOpenRuntimeSelectsWlrScreencopyFromAdvertisedManager(t *testing.T) {
 }
 
 func TestOpenRuntimeUsesWlrProtocolForUnknownCompositor(t *testing.T) {
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -1555,7 +1556,7 @@ func TestOpenRuntimeStopsFallbackWhenWlrootsSetupIsCanceled(t *testing.T) {
 
 func assertRuntimeStopsFallbackWhenPrimaryWaylandSetupIsCanceled(t *testing.T, desktop string) {
 	t.Helper()
-	socket := shortPrivateSocketPath(t, "wayland.sock")
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/testutil"
 	"github.com/nskaggs/perfuncted/internal/wl"
 	"io"
 	"net"
@@ -35,7 +36,7 @@ func countJoinedError(err, target error) int {
 // A compositor disconnect during lister shutdown must still release every
 // locally owned protocol proxy and report each failed destructor write.
 func TestWaylandCloseReportsAllDestructorTransportErrorsAndUnregisters(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +229,7 @@ func TestWaylandBindAddedOutputsRejectsCanceledRegistryBindWithoutPublishing(t *
 
 func newWaylandOutputCleanupFixture(t *testing.T) (*net.UnixConn, *WaylandLister) {
 	t.Helper()
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -400,7 +401,7 @@ func TestWaylandUnavailableListerRejectsObservationAndClosesSafely(t *testing.T)
 }
 
 func TestWaylandListerRejectsDisconnectDuringInitialOutputSync(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -584,7 +585,7 @@ func TestWaylandOutputIgnoresInvalidCurrentModeDimensions(t *testing.T) {
 }
 
 func TestWaylandListReportsFailedSyncAfterBindingNewOutput(t *testing.T) {
-	socket := shortPrivateSocketPath(t)
+	socket := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -716,7 +717,7 @@ func TestWaylandListerRejectsResponsiveCompositorWithoutUsableOutputs(t *testing
 		{name: "zero output version", globals: []unusableWaylandGlobal{{9, "wl_output", 0}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socket := shortPrivateSocketPath(t)
+			socket := testutil.ShortSocketPath(t, "wayland.sock")
 			listener, err := net.Listen("unix", socket)
 			if err != nil {
 				t.Fatal(err)
@@ -1165,7 +1166,7 @@ func TestWaylandLister_DoesNotKeepOutputAfterXDGBindFailure(t *testing.T) {
 }
 
 func TestWaylandListerListCancelsBlockedRoundTrip(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1249,7 +1250,7 @@ func TestWaylandListerRejectsListAfterClose(t *testing.T) {
 }
 
 func TestNewWaylandListerPreservesRepeatedOutputs(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -1290,7 +1291,7 @@ func TestNewWaylandListerPreservesRepeatedOutputs(t *testing.T) {
 }
 
 func TestWaylandListerTracksLiveOutputTopology(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
@@ -2136,7 +2137,7 @@ func TestWaylandOutputRejectsInvalidUTF8NameWithoutLosingLastGoodValue(t *testin
 // injecting events into a manually constructed listener. This private socket
 // impersonates a compositor with one fractional-scale logical output.
 func TestWaylandListerCompletesXDGManagerNegotiationAndReleasesObjects(t *testing.T) {
-	sock := shortPrivateSocketPath(t)
+	sock := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -2294,7 +2295,7 @@ func TestWaylandListerCompletesXDGManagerNegotiationAndReleasesObjects(t *testin
 }
 
 func TestWaylandXDGOutputBindSendsActualRequestAndTracksLogicalGeometry(t *testing.T) {
-	path := shortPrivateSocketPath(t)
+	path := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -2369,7 +2370,7 @@ func TestWaylandXDGOutputBindSendsActualRequestAndTracksLogicalGeometry(t *testi
 }
 
 func TestWaylandXDGOutputBindFailsClosedWhenCanceled(t *testing.T) {
-	path := shortPrivateSocketPath(t)
+	path := testutil.ShortSocketPath(t, "wayland.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
