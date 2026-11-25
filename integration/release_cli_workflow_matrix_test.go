@@ -107,6 +107,9 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 		if err := s.pf.WithContext(ctx).Window(info.Title).Do(perfuncted.Type("GoPrefix")); err != nil {
 			t.Fatal(err)
 		}
+		// Exercise standalone literal typing before the editor's save-time
+		// newline normalization can move the caret to a new line.
+		run("", "input", "type-literal", "{enter}")
 		outPath := filepath.Join(t.TempDir(), "captured.png")
 		script := filepath.Join(t.TempDir(), "workflow.pf")
 		lines := []string{"window select " + app.winMatch, "window activate", "input type-literal ScriptSuffix", "input type {ctrl+s}", "screen grab --rect 10,20,42,44 --out " + outPath}
@@ -130,10 +133,11 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 		if err := json.Unmarshal(run("", "workflow", "status", id, "--output", "json"), &status); err != nil || status.ID != id || status.State != "completed" || status.LastCompletedStep != len(lines) {
 			t.Fatalf("terminal workflow receipt: %+v, %v", status, err)
 		}
-		want := "GoPrefixScriptSuffix"
+		want := "GoPrefix{enter}ScriptSuffix"
 		got, err := waitForFileContains(ctx, doc, want, 10*time.Second)
 		if err != nil || strings.TrimSuffix(got, "\n") != want {
-			t.Fatalf("independent document contents %q: %v", got, err)
+			actual, _ := os.ReadFile(doc)
+			t.Fatalf("independent document contents %q (raw=%q): %v", got, actual, err)
 		}
 		data, err := os.ReadFile(outPath)
 		if err != nil {
@@ -179,5 +183,6 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 		if err != nil || strings.TrimSuffix(string(data), "\n") != want {
 			t.Fatalf("document unexpectedly changed: %q, %v", data, err)
 		}
+		t.Run("window-cli-lifecycle", func(t *testing.T) { certifyReleaseWindowLifecycle(t, ctx, s, binary, target) })
 	})
 }

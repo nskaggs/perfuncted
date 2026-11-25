@@ -43,3 +43,24 @@ a preceding interpolation sample. A bounded Wayland protocol acknowledgement
 now precedes release and successful return; it is not application-level
 delivery verification. Dedicated wire and ordering tests cover acknowledgement
 failure and cancellation.
+
+## Command inventory
+
+The tracked ledger is at
+[cmd/pf/testdata/release-command-coverage.tsv](cmd/pf/testdata/release-command-coverage.tsv).
+The unit gate enumerates the actual runnable Cobra command tree and rejects
+missing or stale entries. Entries marked unmapped have not been traced to a
+named acceptance scenario; this does not assert that they lack unit tests.
+Mapped entries identify a scenario and its applicable environment, rather than
+claiming success on every backend. The ledger is a reviewed inventory, not
+automatically measured per-command execution coverage.
+
+The visual lane additionally checks independently calculated CRC32 hashes,
+raw RGBA byte counts and colors, ordered and repeated pixel queries, PNG
+contents, color tolerance, stable waits, scan results, and bounded unchanged
+frame timeouts. The editor lane checks literal brace text on disk, window
+discovery, active identity, geometry, and JSON watch removal after a verified
+close. Native X11 checks separate-process key/button state and exact click and
+scroll transitions. The AT-SPI certification retries invalidated read-only
+observations without replaying mutations, requiring the original identity
+and exact content.

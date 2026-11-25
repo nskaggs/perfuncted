@@ -130,6 +130,7 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 		}
 	})
 	t.Run("cross-api-visual-find", func(t *testing.T) { certifyReleaseFindCLIAndGoOCR(t, ctx, s, binary) })
+	t.Run("screen-and-find-command-contracts", func(t *testing.T) { certifyReleaseScreenCommands(t, ctx, s, binary) })
 	t.Run("real-pointer-observation", func(t *testing.T) {
 		if err := s.pf.Input.MouseMove(ctx, 150, 150); err != nil {
 			t.Fatal(err)
@@ -182,6 +183,7 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 			t.Fatalf("CLI pointer: %+v, %v", got, err)
 		}
 	})
+	t.Run("native-input-command-events", func(t *testing.T) { certifyReleaseX11InputCommands(t, ctx, s, binary, conn, win, root.Root) })
 	t.Run("unsupported-timed-motion-fails-before-dispatch", func(t *testing.T) {
 		if err := s.pf.Input.MouseMove(ctx, 150, 150); err != nil {
 			t.Fatal(err)

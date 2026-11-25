@@ -88,6 +88,7 @@ func TestReleaseVisualAcceptanceWayland(t *testing.T) {
 		}
 	})
 	t.Run("cross-api-visual-find", func(t *testing.T) { certifyReleaseFindCLIAndGoOCR(t, ctx, s, binary) })
+	t.Run("screen-and-find-command-contracts", func(t *testing.T) { certifyReleaseScreenCommands(t, ctx, s, binary) })
 	t.Run("real-screen-stream", func(t *testing.T) {
 		certifyWaylandStream(t, ctx, s, binary, base)
 	})

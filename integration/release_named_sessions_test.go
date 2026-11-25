@@ -128,6 +128,13 @@ func TestReleaseNamedSessions(t *testing.T) {
 	}
 	probe(a)
 	probe(b)
+	for _, o := range []owner{a, b} {
+		out, err := call("inspect", o.name, "--output", "json")
+		var observed reply
+		if err != nil || json.Unmarshal(out, &observed) != nil || observed.ID != o.attach.ID || observed.Name != o.name || observed.State != "ready" {
+			t.Fatalf("inspect %s: %s %v", o.name, out, err)
+		}
+	}
 	// Distinct real clipboard owners prove that attaching is not just
 	// returning different runtime names for the same desktop.
 	clipboardSet := func(o owner, value string) {

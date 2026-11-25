@@ -106,12 +106,9 @@ func TestWorkflowControlHeadlessWayland(t *testing.T) {
 
 func workflowIntegrationCall(t *testing.T, id, operation string) (workflowReply, error) {
 	t.Helper()
-	root, err := workflowRegistry()
-	if err != nil {
-		return workflowReply{}, err
-	}
-	defer root.Close()
-	return workflowCall(context.Background(), root, id, operation)
+	// Invoke the public Cobra command against the live owner rather than
+	// calling the underlying socket transport directly.
+	return executeWorkflowCommand(t, operation, id)
 }
 
 func workflowReadIntegrationStatus(id string) (workflowStatus, error) {

@@ -563,7 +563,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if receipt.Node.ID.BusName != editable.ID.BusName || receipt.Node.ID.ObjectPath != editable.ID.ObjectPath {
 		t.Fatalf("real %s Locator acted on a different semantic target: locator=%+v snapshot=%+v", representative.name, receipt.Node.ID, editable.ID)
 	}
-	editable, err = locator.Resolve(ctx)
+	editable, err = resolveCertificationEditable(ctx, locator, editable.ID, marker)
 	if err != nil {
 		t.Fatalf("re-resolve real %s editable target after verified fill: %v", representative.name, err)
 	}
@@ -571,7 +571,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err := s.pf.Accessibility.InsertText(ctx, editable.ID, int32(len([]rune(marker))), unicodeSuffix); err != nil {
 		t.Fatalf("AT-SPI UTF-8 InsertText %s: %v", representative.name, err)
 	}
-	editable, err = locator.Resolve(ctx)
+	editable, err = resolveCertificationEditable(ctx, locator, editable.ID, marker+unicodeSuffix)
 	if err != nil {
 		t.Fatalf("re-resolve real %s editable target after Unicode insert: %v", representative.name, err)
 	}
@@ -599,6 +599,41 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	}
 	if err := waitForWindowClose(s.pf, app.winMatch, 30*time.Second); err != nil {
 		t.Fatalf("wait for certified %s window close: %v", representative.name, err)
+	}
+}
+
+// A completed mutation is never replayed. The provider can invalidate a
+// concurrent read while it publishes text changes; require a fresh observation
+// of the original target and exact new content before proceeding.
+func resolveCertificationEditable(ctx context.Context, locator *perfuncted.AccessibilityLocator, id accessibility.NodeID, expected string) (accessibility.Node, error) {
+	return retryCertificationEditable(ctx, id, expected, locator.Resolve)
+}
+
+func retryCertificationEditable(ctx context.Context, id accessibility.NodeID, expected string, read func(context.Context) (accessibility.Node, error)) (accessibility.Node, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return accessibility.Node{}, err
+		}
+		node, err := read(ctx)
+		if err == nil {
+			if node.ID != id {
+				return accessibility.Node{}, fmt.Errorf("semantic target changed: got %+v, want %+v", node.ID, id)
+			}
+			if node.Text == expected {
+				return node, nil
+			}
+		} else if !errors.Is(err, accessibility.ErrObservationChanged) {
+			return accessibility.Node{}, err
+		}
+		select {
+		case <-ctx.Done():
+			return accessibility.Node{}, ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -939,5 +974,42 @@ func waitForFocusedAccessibilityNode(
 			return ctx.Err()
 		case <-ticker.C:
 		}
+	}
+}
+
+func TestCertificationEditableReadRetryDoesNotAcceptWrongIdentity(t *testing.T) {
+	id := accessibility.NodeID{BusName: ":1.5", ObjectPath: "/org/a11y/atspi/accessible/1", Generation: 1}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	calls := 0
+	node, err := retryCertificationEditable(ctx, id, "new", func(context.Context) (accessibility.Node, error) {
+		calls++
+		switch calls {
+		case 1:
+			return accessibility.Node{}, accessibility.ErrObservationChanged
+		case 2:
+			return accessibility.Node{ID: id, Text: "old"}, nil
+		default:
+			return accessibility.Node{ID: id, Text: "new"}, nil
+		}
+	})
+	if err != nil || calls != 3 || node.Text != "new" {
+		t.Fatalf("retry: %+v %v, calls=%d", node, err, calls)
+	}
+	wrong := id
+	wrong.ObjectPath = "/org/a11y/atspi/accessible/2"
+	calls = 0
+	_, err = retryCertificationEditable(ctx, id, "new", func(context.Context) (accessibility.Node, error) {
+		calls++
+		return accessibility.Node{ID: wrong, Text: "new"}, nil
+	})
+	if err == nil || calls != 1 {
+		t.Fatalf("wrong identity accepted or retried: %v calls=%d", err, calls)
+	}
+	_, err = retryCertificationEditable(ctx, id, "new", func(context.Context) (accessibility.Node, error) {
+		return accessibility.Node{}, accessibility.ErrNotFound
+	})
+	if !errors.Is(err, accessibility.ErrNotFound) {
+		t.Fatalf("non-transient failure: %v", err)
 	}
 }
