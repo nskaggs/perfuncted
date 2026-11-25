@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -137,6 +138,7 @@ func TestAccessibilityBusAddressPropagatesCancellationAndDeadline(t *testing.T) 
 }
 
 func TestLaunchAccessibilityOwnsAndStopsSyntheticLauncher(t *testing.T) {
+	t.Setenv("ATSPI_DBUS_IMPLEMENTATION", "dbus-broker")
 	bin := t.TempDir()
 	launcher := filepath.Join(bin, atspiBusLauncherName)
 	if err := os.WriteFile(launcher, []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0700); err != nil {
@@ -157,6 +159,9 @@ func TestLaunchAccessibilityOwnsAndStopsSyntheticLauncher(t *testing.T) {
 	if err := infra.launchAccessibility(); err != nil {
 		_ = os.RemoveAll(runtimeDir)
 		t.Fatalf("launch synthetic AT-SPI helper: %v", err)
+	}
+	if infra.atspiCmd != nil && !slices.Contains(infra.atspiCmd.proc.cmd.Env, "ATSPI_DBUS_IMPLEMENTATION=dbus-daemon") {
+		t.Error("private accessibility bus must use direct daemon activation, not host broker activation")
 	}
 	if infra.atspiCmd == nil {
 		t.Fatal("successful launch did not publish process ownership")

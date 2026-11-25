@@ -362,7 +362,9 @@ func (i *sessionInfra) launchAccessibility() error {
 		return err
 	}
 	cmd := executil.CommandContext(i.ctx, launcher, "--launch-immediately") //nolint:contextcheck // process lifetime follows managed session
-	cmd.Env = env.Current().WithSession(i.xdgDir, i.wlDisplay, i.dbusAddr).EnvList()
+	// The managed session owns a private bus; broker activation through the
+	// host user manager cannot start services on that bus.
+	cmd.Env = env.Current().WithSession(i.xdgDir, i.wlDisplay, i.dbusAddr).With("ATSPI_DBUS_IMPLEMENTATION", "dbus-daemon").EnvList()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return err
