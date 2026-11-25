@@ -165,3 +165,16 @@ func TestRecognizeTextDiscardsProviderOutputAfterCancellation(t *testing.T) {
 		t.Fatalf("result=%+v error=%v", got, err)
 	}
 }
+
+func TestReviewOCRLimitPreservesGlobalReadingOrder(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 100, 100))
+	recognizer := &textTestRecognizer{words: []OCRWord{
+		{Text: "Other", PixelRect: image.Rect(1, 1, 10, 11), Line: 1, Word: 1},
+		{Text: "Go", PixelRect: image.Rect(20, 30, 30, 40), Line: 1, Word: 2},
+		{Text: "Go", PixelRect: image.Rect(2, 10, 12, 20), Line: 2, Word: 1},
+	}}
+	got, err := RecognizeTextInImage(context.Background(), img, "Go", TextOptions{Recognizer: recognizer, MaxResults: 1})
+	if err != nil || len(got.Matches) != 1 || !got.Truncated || got.Matches[0].PixelRect != image.Rect(2, 10, 12, 20) {
+		t.Fatalf("result=%+v err=%v", got, err)
+	}
+}

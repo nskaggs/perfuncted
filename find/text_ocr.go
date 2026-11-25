@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -185,7 +186,7 @@ func recognizeText(ctx context.Context, capture VerifiedTemplateCapture, query s
 	if len(words) > maxOCRWords {
 		return TextResult{}, fmt.Errorf("find: OCR provider returned %d words (limit %d): %w", len(words), maxOCRWords, ErrOCRRecognition)
 	}
-	return matchOCRWords(words, capture, options.Recognizer, query, options, coordinateSpace)
+	return matchOCRWords(ctx, words, capture, options.Recognizer, query, options, coordinateSpace)
 }
 
 // ValidateTextOptions performs side-effect-free OCR request validation. It is
@@ -224,26 +225,75 @@ func ValidateTextOptions(query string, options TextOptions) error {
 
 type ocrLineKey struct{ page, block, paragraph, line int }
 
-func matchOCRWords(words []OCRWord, capture VerifiedTemplateCapture, recognizer OCRRecognizer, query string, options TextOptions, coordinateSpace string) (TextResult, error) {
+func matchOCRWords(ctx context.Context, words []OCRWord, capture VerifiedTemplateCapture, recognizer OCRRecognizer, query string, options TextOptions, coordinateSpace string) (TextResult, error) {
 	bounds := capture.Image.Bounds()
+	lines, err := groupOCRWords(ctx, words, image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	if err != nil {
+		return TextResult{}, err
+	}
+	queryTokens, err := ocrQueryTokens(query, options.MatchMode)
+	if err != nil || len(queryTokens) == 0 {
+		return TextResult{}, fmt.Errorf("find: OCR query is empty after normalization: %w", ErrInvalidFrame)
+	}
+	result := TextResult{Provider: recognizer.Name(), Language: recognizer.Language(), CoordinateSpace: coordinateSpace, SourceRect: capture.DesktopRect, Matches: []TextMatch{}}
+	limit := options.MaxResults
+	if limit == 0 {
+		limit = defaultOCRMatches
+	}
+	for _, key := range sortedOCRLineKeys(lines) {
+		matches, err := matchOCRLine(ctx, lines[key], capture, queryTokens, options.MatchMode)
+		if err != nil {
+			return TextResult{}, err
+		}
+		result.Matches = append(result.Matches, matches...)
+	}
+	sort.SliceStable(result.Matches, func(i, j int) bool {
+		return ocrMatchLess(result.Matches[i], result.Matches[j])
+	})
+	if err := contextErr(ctx); err != nil {
+		return TextResult{}, err
+	}
+	if len(result.Matches) > limit {
+		result.Matches = slices.Clone(result.Matches[:limit])
+		result.Truncated = true
+	}
+	return result, nil
+}
+
+func validOCRWord(word OCRWord, bounds image.Rectangle) bool {
+	return utf8.ValidString(word.Text) && len(word.Text) <= maxOCRWordBytes &&
+		strings.TrimSpace(word.Text) == word.Text && len(strings.Fields(word.Text)) == 1 &&
+		!strings.ContainsRune(word.Text, '\x00') && word.Page >= 0 && word.Block >= 0 &&
+		word.Paragraph >= 0 && word.Line >= 0 && word.Word >= 0 &&
+		!word.PixelRect.Empty() && word.PixelRect.In(bounds)
+}
+
+func groupOCRWords(ctx context.Context, words []OCRWord, bounds image.Rectangle) (map[ocrLineKey][]OCRWord, error) {
 	lines := make(map[ocrLineKey][]OCRWord)
 	for _, word := range words {
-		if !utf8.ValidString(word.Text) || len(word.Text) > maxOCRWordBytes || strings.TrimSpace(word.Text) != word.Text || len(strings.Fields(word.Text)) != 1 || strings.ContainsRune(word.Text, '\x00') || word.Page < 0 || word.Block < 0 || word.Paragraph < 0 || word.Line < 0 || word.Word < 0 || word.PixelRect.Empty() || !word.PixelRect.In(image.Rect(0, 0, bounds.Dx(), bounds.Dy())) {
-			return TextResult{}, fmt.Errorf("%w: provider returned invalid text or pixel bounds", ErrOCRRecognition)
+		if err := contextErr(ctx); err != nil {
+			return nil, err
+		}
+		if !validOCRWord(word, bounds) {
+			return nil, fmt.Errorf("%w: provider returned invalid text or pixel bounds", ErrOCRRecognition)
 		}
 		if word.Confidence != nil && (math.IsNaN(*word.Confidence) || math.IsInf(*word.Confidence, 0) || *word.Confidence < 0 || *word.Confidence > 100) {
-			return TextResult{}, fmt.Errorf("%w: provider returned invalid confidence", ErrOCRRecognition)
+			return nil, fmt.Errorf("%w: provider returned invalid confidence", ErrOCRRecognition)
 		}
-		lines[ocrLineKey{word.Page, word.Block, word.Paragraph, word.Line}] = append(lines[ocrLineKey{word.Page, word.Block, word.Paragraph, word.Line}], word)
+		key := ocrLineKey{word.Page, word.Block, word.Paragraph, word.Line}
+		lines[key] = append(lines[key], word)
 	}
+	return lines, nil
+}
+
+func sortedOCRLineKeys(lines map[ocrLineKey][]OCRWord) []ocrLineKey {
 	keys := make([]ocrLineKey, 0, len(lines))
 	for key := range lines {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
-		li, lj := lines[keys[i]], lines[keys[j]]
-		liX, liY := lineTopLeft(li)
-		ljX, ljY := lineTopLeft(lj)
+		liX, liY := lineTopLeft(lines[keys[i]])
+		ljX, ljY := lineTopLeft(lines[keys[j]])
 		if liY != ljY {
 			return liY < ljY
 		}
@@ -261,87 +311,83 @@ func matchOCRWords(words []OCRWord, capture VerifiedTemplateCapture, recognizer 
 		}
 		return keys[i].line < keys[j].line
 	})
-	queryTokens, err := ocrQueryTokens(query, options.MatchMode)
-	if err != nil || len(queryTokens) == 0 {
-		return TextResult{}, fmt.Errorf("find: OCR query is empty after normalization: %w", ErrInvalidFrame)
-	}
-	result := TextResult{Provider: recognizer.Name(), Language: recognizer.Language(), CoordinateSpace: coordinateSpace, SourceRect: capture.DesktopRect, Matches: []TextMatch{}}
-	limit := options.MaxResults
-	if limit == 0 {
-		limit = defaultOCRMatches
-	}
-	for _, key := range keys {
-		line := lines[key]
-		sort.SliceStable(line, func(i, j int) bool {
-			if line[i].Word != line[j].Word {
-				return line[i].Word < line[j].Word
-			}
-			if line[i].PixelRect.Min.X != line[j].PixelRect.Min.X {
-				return line[i].PixelRect.Min.X < line[j].PixelRect.Min.X
-			}
-			return line[i].PixelRect.Min.Y < line[j].PixelRect.Min.Y
-		})
-		for start := range line {
-			if len(line)-start < len(queryTokens) {
-				continue
-			}
-			matched := true
-			textParts := make([]string, len(queryTokens))
-			pixelRect := image.Rectangle{}
-			confidence := 0.0
-			confidenceKnown := true
-			for offset, token := range queryTokens {
-				word := line[start+offset]
-				if normalizeOCRWord(word.Text, options.MatchMode) != token {
-					matched = false
-					break
-				}
-				textParts[offset] = word.Text
-				if offset == 0 {
-					pixelRect = word.PixelRect
-				} else {
-					pixelRect = pixelRect.Union(word.PixelRect)
-				}
-				if word.Confidence == nil {
-					confidenceKnown = false
-				} else {
-					confidence += *word.Confidence
-				}
-			}
-			if !matched {
-				continue
-			}
-			mapped, err := mapOCRRect(pixelRect, capture)
-			if err != nil {
-				return TextResult{}, err
-			}
-			match := TextMatch{Text: strings.Join(textParts, " "), Rect: mapped, PixelRect: pixelRect}
-			if confidenceKnown {
-				mean := confidence / float64(len(queryTokens))
-				match.Confidence = &mean
-			}
-			result.Matches = append(result.Matches, match)
-			if len(result.Matches) > limit {
-				result.Matches = result.Matches[:limit]
-				result.Truncated = true
-				goto matchesComplete
-			}
+	return keys
+}
+
+func matchOCRLine(ctx context.Context, line []OCRWord, capture VerifiedTemplateCapture, tokens []string, mode TextMatchMode) ([]TextMatch, error) {
+	sort.SliceStable(line, func(i, j int) bool {
+		if line[i].Word != line[j].Word {
+			return line[i].Word < line[j].Word
 		}
-	}
-matchesComplete:
-	sort.SliceStable(result.Matches, func(i, j int) bool {
-		if result.Matches[i].Rect.Min.Y != result.Matches[j].Rect.Min.Y {
-			return result.Matches[i].Rect.Min.Y < result.Matches[j].Rect.Min.Y
+		if line[i].PixelRect.Min.X != line[j].PixelRect.Min.X {
+			return line[i].PixelRect.Min.X < line[j].PixelRect.Min.X
 		}
-		if result.Matches[i].Rect.Min.X != result.Matches[j].Rect.Min.X {
-			return result.Matches[i].Rect.Min.X < result.Matches[j].Rect.Min.X
-		}
-		if result.Matches[i].Rect.Max.Y != result.Matches[j].Rect.Max.Y {
-			return result.Matches[i].Rect.Max.Y < result.Matches[j].Rect.Max.Y
-		}
-		return result.Matches[i].Text < result.Matches[j].Text
+		return line[i].PixelRect.Min.Y < line[j].PixelRect.Min.Y
 	})
-	return result, nil
+	var matches []TextMatch
+	for start := range line {
+		if err := contextErr(ctx); err != nil {
+			return nil, err
+		}
+		if len(line)-start < len(tokens) {
+			continue
+		}
+		match, ok, err := matchOCRSpan(line[start:start+len(tokens)], capture, tokens, mode)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			matches = append(matches, match)
+		}
+	}
+	return matches, nil
+}
+
+func matchOCRSpan(words []OCRWord, capture VerifiedTemplateCapture, tokens []string, mode TextMatchMode) (TextMatch, bool, error) {
+	textParts := make([]string, len(tokens))
+	var pixelRect image.Rectangle
+	var confidence float64
+	confidenceKnown := true
+	for offset, token := range tokens {
+		word := words[offset]
+		if normalizeOCRWord(word.Text, mode) != token {
+			return TextMatch{}, false, nil
+		}
+		textParts[offset] = word.Text
+		if offset == 0 {
+			pixelRect = word.PixelRect
+		} else {
+			pixelRect = pixelRect.Union(word.PixelRect)
+		}
+		if word.Confidence == nil {
+			confidenceKnown = false
+		} else {
+			confidence += *word.Confidence
+		}
+	}
+	mapped, err := mapOCRRect(pixelRect, capture)
+	if err != nil {
+		return TextMatch{}, false, err
+	}
+	match := TextMatch{Text: strings.Join(textParts, " "), Rect: mapped, PixelRect: pixelRect}
+	if confidenceKnown {
+		mean := confidence / float64(len(tokens))
+		match.Confidence = &mean
+	}
+	return match, true, nil
+}
+
+func ocrMatchLess(a, b TextMatch) bool {
+	if a.Rect.Min.Y != b.Rect.Min.Y {
+		return a.Rect.Min.Y < b.Rect.Min.Y
+	}
+	if a.Rect.Min.X != b.Rect.Min.X {
+		return a.Rect.Min.X < b.Rect.Min.X
+	}
+	if a.Rect.Max.Y != b.Rect.Max.Y {
+		return a.Rect.Max.Y < b.Rect.Max.Y
+	}
+	return a.Text < b.Text
 }
 
 func lineTopLeft(words []OCRWord) (x, y int) {

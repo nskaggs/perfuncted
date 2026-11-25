@@ -143,3 +143,42 @@ func TestReviewChangedConditionProvesFreshChangeAndDisappearance(t *testing.T) {
 		t.Fatalf("absent: ok=%v err=%v", ok, err)
 	}
 }
+
+func TestReviewChangedConditionOwnsBaseline(t *testing.T) {
+	loc, fake, root, baseline := reviewChangeFixture(t)
+	baseline.Attributes = map[string]string{"state": "before"}
+	baseline.Value = &accessibility.ValueInfo{Current: 1}
+	baseline.States = []string{"enabled"}
+	fake.snapshot.Nodes[1] = baseline
+	condition := AccessibilityNodeChanged(root, baseline, accessibility.SnapshotOptions{})
+	// A provider or caller can reuse the original node's mutable storage.
+	baseline.Attributes["state"] = "after"
+	baseline.Value.Current = 2
+	baseline.States[0] = "focused"
+	ok, err := condition.evaluate(context.Background(), loc.bundle.session)
+	if !ok || err != nil {
+		t.Fatalf("mutated baseline erased change: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestReviewWrappedNilConditionFailsWithoutPanic(t *testing.T) {
+	loc, _, _, _ := reviewChangeFixture(t)
+	err := loc.bundle.session.Wait(context.Background(), WithConditionCapabilities(nil, CapabilityAccessibility))
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestReviewCompositeOwnsChildSlice(t *testing.T) {
+	ready := Predicate("ready", func(context.Context) (bool, error) { return true, nil })
+	pending := Predicate("pending", func(context.Context) (bool, error) { return false, nil })
+	parts := []Condition{ready}
+	all, any := All(parts...), Any(parts...)
+	parts[0] = pending
+	for _, condition := range []Condition{all, any} {
+		ok, err := condition.evaluate(context.Background(), nil)
+		if !ok || err != nil {
+			t.Fatalf("caller mutation changed %s: %v %v", condition.describe(), ok, err)
+		}
+	}
+}

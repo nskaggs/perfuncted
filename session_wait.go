@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sync"
@@ -206,15 +207,21 @@ type capabilityCondition struct {
 }
 
 func (c capabilityCondition) evaluate(ctx context.Context, session *Session) (bool, error) {
+	if c.condition == nil {
+		return false, fmt.Errorf("perfuncted: %w: nil wait condition", ErrInvalidArgument)
+	}
 	return c.condition.evaluate(ctx, session)
 }
 
 func (c capabilityCondition) describe() string {
+	if c.condition == nil {
+		return "invalid wait condition"
+	}
 	return c.condition.describe()
 }
 
 func (c capabilityCondition) pollingOnly() bool {
-	return c.condition.pollingOnly()
+	return c.condition == nil || c.condition.pollingOnly()
 }
 
 func (c capabilityCondition) requiredCapabilities() ([]Capability, error) {
@@ -434,7 +441,7 @@ func (c compositeCondition) evaluate(
 func All(conditions ...Condition) Condition {
 	return compositeCondition{
 		name:       "all",
-		conditions: conditions,
+		conditions: slices.Clone(conditions),
 		mode:       "all",
 	}
 }
@@ -445,7 +452,7 @@ func All(conditions ...Condition) Condition {
 func Any(conditions ...Condition) Condition {
 	return compositeCondition{
 		name:       "any",
-		conditions: conditions,
+		conditions: slices.Clone(conditions),
 		mode:       "any",
 	}
 }
@@ -620,7 +627,26 @@ func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session
 // action's verification; errors never authorize replaying the action.
 // When used as an action postcondition, the root must match the action scope.
 func AccessibilityNodeChanged(root accessibility.NodeID, baseline accessibility.Node, opts accessibility.SnapshotOptions) Condition {
+	// Own all mutable fields used by the comparison and preflight.
+	baseline.Attributes = maps.Clone(baseline.Attributes)
+	baseline.States = slices.Clone(baseline.States)
+	baseline.Interfaces = slices.Clone(baseline.Interfaces)
+	baseline.Actions = slices.Clone(baseline.Actions)
+	baseline.Warnings = slices.Clone(baseline.Warnings)
+	baseline.Value = cloneConditionValue(baseline.Value)
+	baseline.Selection = cloneConditionValue(baseline.Selection)
+	baseline.Table = cloneConditionValue(baseline.Table)
+	baseline.Document = cloneConditionValue(baseline.Document)
+	opts.SkipRoles = slices.Clone(opts.SkipRoles)
 	return accessibilityNodeChangedCondition{root: root, baseline: baseline, opts: opts}
+}
+
+func cloneConditionValue[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
 }
 
 func sameAccessibilityIdentity(current, baseline accessibility.NodeID) bool {
