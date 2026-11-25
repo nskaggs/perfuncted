@@ -66,7 +66,9 @@ pf screen grab --out screenshot.png
 ```
 
 Replace `Editor` with a matching window title. For duplicate titles, use
-`pf window activate-id` with a stable ID from `pf window list`. Input affects
+`pf window activate-id` with a stable ID from `pf window list`. Move, resize,
+minimize, maximize, fullscreen, unfullscreen and get-geometry also accept
+`--id` instead of a title. Input affects
 the focused application; successful dispatch does not prove the application
 accepted or saved the input.
 

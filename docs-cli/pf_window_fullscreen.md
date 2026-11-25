@@ -1,15 +1,16 @@
 ## pf window fullscreen
 
-Fullscreen a window by title
+Fullscreen a window by title or stable ID
 
 ```
-pf window fullscreen <title> [flags]
+pf window fullscreen [title] [flags]
 ```
 
 ### Options
 
 ```
   -h, --help[=true|false]   help for fullscreen
+      --id string           stable window ID from window list (instead of positional title)
 ```
 
 ### Options inherited from parent commands

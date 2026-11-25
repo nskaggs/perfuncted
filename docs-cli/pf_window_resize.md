@@ -11,7 +11,8 @@ pf window resize [flags]
 ```
       --h int               height in pixels (default 600)
   -h, --help[=true|false]   help for resize
-      --title string        window title substring (required)
+      --id string           stable window ID from window list (instead of --title)
+      --title string        unique case-insensitive title substring (required unless --id)
       --w int               width in pixels (default 800)
 ```
 

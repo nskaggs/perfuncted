@@ -2,6 +2,10 @@
 
 Type a string or send keys (e.g. {enter}, {ctrl+s})
 
+### Synopsis
+
+Interpret brace-delimited key sequences in text, including text read with --stdin. Use input type-literal for data that must not be interpreted as keys. Successful dispatch is not proof that the focused application accepted the input.
+
 ```
 pf input type <text> [flags]
 ```

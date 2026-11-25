@@ -1216,3 +1216,154 @@ func TestWindowWatchPropagatesBackendAndStreamFailures(t *testing.T) {
 		})
 	}
 }
+
+type selectorRecordingManager struct {
+	*pftest.Manager
+	actions []string
+	failure error
+}
+
+func (m *selectorRecordingManager) record(action, id string) error {
+	m.actions = append(m.actions, action+":"+id)
+	return m.failure
+}
+func (m *selectorRecordingManager) MoveByID(_ context.Context, id string, _, _ int) error {
+	return m.record("move", id)
+}
+func (m *selectorRecordingManager) ResizeByID(_ context.Context, id string, _, _ int) error {
+	return m.record("resize", id)
+}
+func (m *selectorRecordingManager) MinimizeByID(_ context.Context, id string) error {
+	return m.record("minimize", id)
+}
+func (m *selectorRecordingManager) MaximizeByID(_ context.Context, id string) error {
+	return m.record("maximize", id)
+}
+func (m *selectorRecordingManager) FullscreenByID(_ context.Context, id string) error {
+	return m.record("fullscreen", id)
+}
+func (m *selectorRecordingManager) UnfullscreenByID(_ context.Context, id string) error {
+	return m.record("unfullscreen", id)
+}
+
+func TestWindowOptionalStableIDSelectors(t *testing.T) {
+	for _, name := range []string{"move", "resize", "minimize", "maximize", "fullscreen", "unfullscreen", "get-geometry"} {
+		t.Run(name, func(t *testing.T) {
+			for _, tc := range []struct {
+				label, id string
+				windows   []window.Info
+				wantErr   error
+			}{
+				{"duplicate titles", "target", []window.Info{{NativeID: "other", Title: "Editor"}, {NativeID: "target", Title: "Editor", X: 10, Y: 20, W: 300, H: 200}}, nil},
+				{"opaque priority", "010", []window.Info{{NativeID: "other", ID: 10, Title: "Editor"}, {NativeID: "010", Title: "Editor", X: 10, Y: 20, W: 300, H: 200}}, nil},
+				{"hex", "0x2a", []window.Info{{ID: 42, Title: "Editor", X: 10, Y: 20, W: 300, H: 200}}, nil},
+				{"missing", "missing", []window.Info{{NativeID: "other", Title: "missing"}}, window.ErrWindowNotFound},
+				{"duplicate native IDs", "target", []window.Info{{NativeID: "target", Title: "One"}, {NativeID: "target", Title: "Two"}}, window.ErrWindowAmbiguous},
+				{"ambiguous numeric alias", "42", []window.Info{{NativeID: "one", ID: 42, Title: "One"}, {NativeID: "two", ID: 42, Title: "Two"}}, window.ErrWindowAmbiguous},
+			} {
+				t.Run(tc.label, func(t *testing.T) {
+					m := &selectorRecordingManager{Manager: &pftest.Manager{Lists: [][]window.Info{tc.windows}}}
+					cmd := windowCmd(func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, nil, m, nil), nil }, nil)
+					cmd.SilenceUsage = true
+					cmd.SilenceErrors = true
+					var out bytes.Buffer
+					cmd.SetOut(&out)
+					cmd.SetErr(io.Discard)
+					cmd.SetArgs([]string{name, "--id", tc.id})
+					err := cmd.ExecuteContext(context.Background())
+					if tc.wantErr != nil {
+						if !errors.Is(err, tc.wantErr) || len(m.actions) != 0 || out.Len() != 0 {
+							t.Fatalf("expected %v, got err=%v actions=%v out=%q", tc.wantErr, err, m.actions, out.String())
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					if name == "get-geometry" {
+						if len(m.actions) != 0 || out.String() != "10,20,310,220\n" {
+							t.Fatalf("geometry out=%q actions=%v", out.String(), m.actions)
+						}
+					} else {
+						want := name + ":" + tc.windows[len(tc.windows)-1].StableID()
+						if len(m.actions) != 1 || m.actions[0] != want || out.Len() == 0 {
+							t.Fatalf("want %q, actions=%v out=%q", want, m.actions, out.String())
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestWindowOptionalIDRejectsConflictsBeforeOpening(t *testing.T) {
+	for _, name := range []string{"move", "resize", "minimize", "maximize", "fullscreen", "unfullscreen", "get-geometry"} {
+		title := []string{"Editor"}
+		if name == "move" || name == "resize" {
+			title = []string{"--title", "Editor"}
+		}
+		for _, args := range [][]string{{name}, {name, "--id", ""}, append([]string{name, "--id", "target"}, title...)} {
+			t.Run(strings.Join(args, "/"), func(t *testing.T) {
+				opens := 0
+				cmd := windowCmd(func(context.Context) (*perfuncted.Session, error) {
+					opens++
+					return nil, errors.New("unexpected session")
+				}, nil)
+				cmd.SetArgs(args)
+				cmd.SilenceUsage = true
+				cmd.SilenceErrors = true
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				if err := cmd.ExecuteContext(context.Background()); err == nil || opens != 0 {
+					t.Fatalf("invalid selector %v opened %d sessions: %v", args, opens, err)
+				}
+			})
+		}
+	}
+}
+
+func TestWindowOptionalIDDispatchFailureAndCancellation(t *testing.T) {
+	for _, name := range []string{"move", "resize", "minimize", "maximize", "fullscreen", "unfullscreen"} {
+		t.Run(name, func(t *testing.T) {
+			for _, canceled := range []bool{false, true} {
+				failure := errors.New("provider denied")
+				m := &selectorRecordingManager{Manager: &pftest.Manager{Lists: [][]window.Info{{{NativeID: "target", Title: "Editor", W: 300, H: 200}}}}, failure: failure}
+				cmd := windowCmd(func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, nil, m, nil), nil }, nil)
+				cmd.SetArgs([]string{name, "--id", "target"})
+				cmd.SilenceUsage = true
+				cmd.SilenceErrors = true
+				var out bytes.Buffer
+				cmd.SetOut(&out)
+				cmd.SetErr(io.Discard)
+				ctx, cancel := context.WithCancel(context.Background())
+				if canceled {
+					cancel()
+				}
+				err := cmd.ExecuteContext(ctx)
+				cancel()
+				if canceled {
+					if !errors.Is(err, context.Canceled) || len(m.actions) != 0 {
+						t.Fatalf("cancellation err=%v actions=%v", err, m.actions)
+					}
+				} else {
+					if !errors.Is(err, failure) || len(m.actions) != 1 || m.actions[0] != name+":target" {
+						t.Fatalf("rejection err=%v actions=%v", err, m.actions)
+					}
+				}
+				if out.Len() != 0 {
+					t.Fatalf("failed action reported success: %q", out.String())
+				}
+			}
+		})
+	}
+}
+
+func TestWindowOptionalIDGeometryJSONUsesReportedTitle(t *testing.T) {
+	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "target", Title: "Reported title", X: 10, Y: 20, W: 300, H: 200}}}}
+	out, stderr, code := captureRunIO(t, []string{"window", "get-geometry", "--id", "target", "--output", "json"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, nil, m, nil), nil }
+	})
+	if code != 0 || !strings.Contains(out, `"title":"Reported title"`) || !strings.Contains(out, `"w":300`) {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out, stderr)
+	}
+}

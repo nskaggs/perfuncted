@@ -1,15 +1,16 @@
 ## pf window maximize
 
-Maximize a window by title
+Maximize a window by title or stable ID
 
 ```
-pf window maximize <title> [flags]
+pf window maximize [title] [flags]
 ```
 
 ### Options
 
 ```
   -h, --help[=true|false]   help for maximize
+      --id string           stable window ID from window list (instead of positional title)
 ```
 
 ### Options inherited from parent commands

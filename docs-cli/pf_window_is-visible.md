@@ -1,6 +1,10 @@
 ## pf window is-visible
 
-Return whether a window is visible
+Return whether a title identifies one discoverable window
+
+### Synopsis
+
+Checks window discovery, not whether pixels are unobstructed, on screen, or unminimized. Multiple matching windows return an ambiguity error.
 
 ```
 pf window is-visible <title> [flags]

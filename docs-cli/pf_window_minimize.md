@@ -1,15 +1,16 @@
 ## pf window minimize
 
-Minimize a window by title
+Minimize a window by title or stable ID
 
 ```
-pf window minimize <title> [flags]
+pf window minimize [title] [flags]
 ```
 
 ### Options
 
 ```
   -h, --help[=true|false]   help for minimize
+      --id string           stable window ID from window list (instead of positional title)
 ```
 
 ### Options inherited from parent commands

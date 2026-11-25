@@ -10,7 +10,8 @@ pf window move [flags]
 
 ```
   -h, --help[=true|false]   help for move
-      --title string        window title substring (required)
+      --id string           stable window ID from window list (instead of --title)
+      --title string        unique case-insensitive title substring (required unless --id)
       --x string            x coordinate or keep (default "keep")
       --y string            y coordinate or keep (default "keep")
 ```

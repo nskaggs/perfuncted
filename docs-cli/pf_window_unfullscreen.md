@@ -1,15 +1,16 @@
 ## pf window unfullscreen
 
-Exit fullscreen for a window by title
+Exit fullscreen for a window by title or stable ID
 
 ```
-pf window unfullscreen <title> [flags]
+pf window unfullscreen [title] [flags]
 ```
 
 ### Options
 
 ```
   -h, --help[=true|false]   help for unfullscreen
+      --id string           stable window ID from window list (instead of positional title)
 ```
 
 ### Options inherited from parent commands

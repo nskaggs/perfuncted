@@ -124,6 +124,10 @@ func findWindowByTitle(
 // findWindowByStableID resolves a concrete native ID rather than a title. The
 // ID is displayed by `window list`; UUIDs and numeric X11 identifiers both work.
 func findWindowByStableID(ctx context.Context, bundle *perfuncted.WindowBundle, id string) (*perfuncted.Window, error) {
+	return resolveWindowID(ctx, bundle, id, false)
+}
+
+func resolveWindowID(ctx context.Context, bundle *perfuncted.WindowBundle, id string, unique bool) (*perfuncted.Window, error) {
 	if id == "" {
 		return nil, fmt.Errorf("window ID must be non-empty: %w", window.ErrInvalidArgument)
 	}
@@ -134,20 +138,91 @@ func findWindowByStableID(ctx context.Context, bundle *perfuncted.WindowBundle, 
 	// Exact native IDs take priority across the entire snapshot. An opaque
 	// native ID such as "010" must not be shadowed by a numeric alias for 10
 	// that happens to appear earlier in the listing.
+	var found *perfuncted.Window
 	for _, win := range wins {
 		if win.ID().String() == id {
-			return win, nil
+			if !unique {
+				return win, nil
+			}
+			if found != nil {
+				return nil, fmt.Errorf("window id %q: %w", id, window.ErrWindowAmbiguous)
+			}
+			found = win
 		}
+	}
+	if found != nil {
+		return found, nil
 	}
 	number, numberErr := parseDecimalOrPrefixedID(id, 64)
 	if numberErr == nil && number != 0 {
 		for _, win := range wins {
 			if win.CachedInfo().ID == number {
-				return win, nil
+				if !unique {
+					return win, nil
+				}
+				if found != nil {
+					return nil, fmt.Errorf("window id %q: %w", id, window.ErrWindowAmbiguous)
+				}
+				found = win
 			}
 		}
 	}
+	if found != nil {
+		return found, nil
+	}
 	return nil, fmt.Errorf("window id %q: %w", id, window.ErrWindowNotFound)
+}
+
+// windowSelectorArgs preserves the existing title syntax unless --id is
+// explicitly supplied. Conflicts and empty IDs fail before opening a session.
+func windowSelectorArgs(flagTitle bool) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if flagTitle {
+			if err := cobra.NoArgs(cmd, args); err != nil {
+				return err
+			}
+		} else if !cmd.Flags().Changed("id") {
+			return cobra.ExactArgs(1)(cmd, args)
+		}
+		if !cmd.Flags().Changed("id") {
+			if !cmd.Flags().Changed("title") {
+				return fmt.Errorf("required flag(s) %q not set", "title")
+			}
+			return nil
+		}
+		if len(args) != 0 || (flagTitle && cmd.Flags().Changed("title")) {
+			return fmt.Errorf("%w: choose either a title or --id", window.ErrInvalidArgument)
+		}
+		id, err := cmd.Flags().GetString("id")
+		if err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("%w: --id must be non-empty", window.ErrInvalidArgument)
+		}
+		return nil
+	}
+}
+
+func windowSelectionTitle(cmd *cobra.Command, args []string) string {
+	if cmd.Flags().Changed("id") {
+		return ""
+	}
+	return args[0]
+}
+
+func resolveWindowSelection(ctx context.Context, bundle *perfuncted.WindowBundle, title, id string) (*perfuncted.Window, error) {
+	if id != "" {
+		return resolveWindowID(ctx, bundle, id, true)
+	}
+	return findWindowByTitle(ctx, bundle, title)
+}
+
+func windowSelectionLabel(title, id string) string {
+	if id != "" {
+		return id
+	}
+	return title
 }
 
 // activateSelectedWindow shares the exact activation, synchronization, and
@@ -270,12 +345,12 @@ func windowCmd(
 		},
 	}
 
-	var mvTitle string
+	var mvTitle, mvID string
 	var mvX, mvY string
 	move := &cobra.Command{
 		Use:   "move",
 		Short: "Move a window to absolute screen coordinates",
-		Args:  cobra.NoArgs,
+		Args:  windowSelectorArgs(true),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			x, keepX, err := parseOptionalIntToken(mvX)
 			if err != nil {
@@ -290,7 +365,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(cmd.Context(), pf.Windows, mvTitle)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, mvTitle, mvID)
 			if err != nil {
 				return err
 			}
@@ -310,31 +385,27 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "moved %q to %d,%d\n", mvTitle, x, y)
+			return writeCLIOutput(cmd.OutOrStdout(), "moved %q to %d,%d\n", windowSelectionLabel(mvTitle, mvID), x, y)
 		},
 	}
-	move.Flags().StringVar(&mvTitle, "title", "", "window title substring (required)")
+	move.Flags().StringVar(&mvTitle, "title", "", "unique case-insensitive title substring (required unless --id)")
 	move.Flags().StringVar(&mvX, "x", "keep", "x coordinate or keep")
 	move.Flags().StringVar(&mvY, "y", "keep", "y coordinate or keep")
-	_ = move.MarkFlagRequired("title")
+	move.Flags().StringVar(&mvID, "id", "", "stable window ID from window list (instead of --title)")
 
-	var rsTitle string
+	var rsTitle, rsID string
 	var rsW, rsH int
 	resize := &cobra.Command{
 		Use:   "resize",
 		Short: "Resize a window",
-		Args:  cobra.NoArgs,
+		Args:  windowSelectorArgs(true),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				rsTitle,
-			)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, rsTitle, rsID)
 			if err != nil {
 				return err
 			}
@@ -344,29 +415,26 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "resized %q to %dx%d\n", rsTitle, rsW, rsH)
+			return writeCLIOutput(cmd.OutOrStdout(), "resized %q to %dx%d\n", windowSelectionLabel(rsTitle, rsID), rsW, rsH)
 		},
 	}
-	resize.Flags().StringVar(&rsTitle, "title", "", "window title substring (required)")
+	resize.Flags().StringVar(&rsTitle, "title", "", "unique case-insensitive title substring (required unless --id)")
 	resize.Flags().IntVar(&rsW, "w", 800, "width in pixels")
 	resize.Flags().IntVar(&rsH, "h", 600, "height in pixels")
-	_ = resize.MarkFlagRequired("title")
+	resize.Flags().StringVar(&rsID, "id", "", "stable window ID from window list (instead of --title)")
 
+	var fullscreenID string
 	fullscreen := &cobra.Command{
-		Use:   "fullscreen <title>",
-		Short: "Fullscreen a window by title",
-		Args:  cobra.ExactArgs(1),
+		Use:   "fullscreen [title]",
+		Short: "Fullscreen a window by title or stable ID",
+		Args:  windowSelectorArgs(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				args[0],
-			)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), fullscreenID)
 			if err != nil {
 				return err
 			}
@@ -376,25 +444,23 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "fullscreen: %s\n", args[0])
+			return writeCLIOutput(cmd.OutOrStdout(), "fullscreen: %s\n", windowSelectionLabel(windowSelectionTitle(cmd, args), fullscreenID))
 		},
 	}
+	fullscreen.Flags().StringVar(&fullscreenID, "id", "", "stable window ID from window list (instead of positional title)")
 
+	var unfullscreenID string
 	unfullscreen := &cobra.Command{
-		Use:   "unfullscreen <title>",
-		Short: "Exit fullscreen for a window by title",
-		Args:  cobra.ExactArgs(1),
+		Use:   "unfullscreen [title]",
+		Short: "Exit fullscreen for a window by title or stable ID",
+		Args:  windowSelectorArgs(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				args[0],
-			)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), unfullscreenID)
 			if err != nil {
 				return err
 			}
@@ -404,9 +470,10 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "unfullscreen: %s\n", args[0])
+			return writeCLIOutput(cmd.OutOrStdout(), "unfullscreen: %s\n", windowSelectionLabel(windowSelectionTitle(cmd, args), unfullscreenID))
 		},
 	}
+	unfullscreen.Flags().StringVar(&unfullscreenID, "id", "", "stable window ID from window list (instead of positional title)")
 
 	cmd.AddCommand(list, activate, active, move, resize, fullscreen, unfullscreen)
 	cmd.AddCommand(kdeWindowExtraCommands(openPF)...)
@@ -510,10 +577,12 @@ func windowCmd(
 	waitClose.Flags().StringVar(&waitCloseTimeoutFlag, "timeout", "5s", "timeout duration")
 
 	var geomOutputFlag string
+	var getGeomID string
 	getGeom := &cobra.Command{
-		Use:   "get-geometry <title>",
-		Short: "Print geometry for a window",
-		Args:  cobra.ExactArgs(1),
+		Use:   "get-geometry [title]",
+		Short: "Print reported window geometry",
+		Long:  "Select one window by unique case-insensitive title substring or --id. Plain output is x0,y0,x1,y1; JSON uses x,y,w,h in compositor-reported coordinates. For --id, JSON title is the reported window title.",
+		Args:  windowSelectorArgs(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode, err := parseOutputMode(geomOutputFlag)
 			if err != nil {
@@ -524,11 +593,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				args[0],
-			)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), getGeomID)
 			if err != nil {
 				return err
 			}
@@ -536,10 +601,14 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
+			title := info.Title
+			if getGeomID == "" {
+				title = args[0]
+			}
 			switch mode {
 			case outputModeJSON:
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
-					"title": args[0],
+					"title": title,
 					"geometry": map[string]int{
 						"x": info.X,
 						"y": info.Y,
@@ -553,6 +622,7 @@ func windowCmd(
 		},
 	}
 	getGeom.Flags().StringVar(&geomOutputFlag, "output", "plain", "plain|json")
+	getGeom.Flags().StringVar(&getGeomID, "id", "", "stable window ID from window list (instead of positional title)")
 
 	// Manual wrappers for additional WindowBundle APIs
 	findByTitle := &cobra.Command{
@@ -589,7 +659,8 @@ func windowCmd(
 
 	isVisible := &cobra.Command{
 		Use:   "is-visible <title>",
-		Short: "Return whether a window is visible",
+		Short: "Return whether a title identifies one discoverable window",
+		Long:  "Checks window discovery, not whether pixels are unobstructed, on screen, or unminimized. Multiple matching windows return an ambiguity error.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
@@ -742,21 +813,18 @@ func windowCmd(
 		},
 	}
 
+	var minimizeID string
 	minimize := &cobra.Command{
-		Use:   "minimize <title>",
-		Short: "Minimize a window by title",
-		Args:  cobra.ExactArgs(1),
+		Use:   "minimize [title]",
+		Short: "Minimize a window by title or stable ID",
+		Args:  windowSelectorArgs(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				args[0],
-			)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), minimizeID)
 			if err != nil {
 				return err
 			}
@@ -766,25 +834,23 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "minimized: %s\n", args[0])
+			return writeCLIOutput(cmd.OutOrStdout(), "minimized: %s\n", windowSelectionLabel(windowSelectionTitle(cmd, args), minimizeID))
 		},
 	}
+	minimize.Flags().StringVar(&minimizeID, "id", "", "stable window ID from window list (instead of positional title)")
 
+	var maximizeID string
 	maximize := &cobra.Command{
-		Use:   "maximize <title>",
-		Short: "Maximize a window by title",
-		Args:  cobra.ExactArgs(1),
+		Use:   "maximize [title]",
+		Short: "Maximize a window by title or stable ID",
+		Args:  windowSelectorArgs(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pf, err := openPF(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(
-				cmd.Context(),
-				pf.Windows,
-				args[0],
-			)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), maximizeID)
 			if err != nil {
 				return err
 			}
@@ -794,9 +860,10 @@ func windowCmd(
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
-			return writeCLIOutput(cmd.OutOrStdout(), "maximized: %s\n", args[0])
+			return writeCLIOutput(cmd.OutOrStdout(), "maximized: %s\n", windowSelectionLabel(windowSelectionTitle(cmd, args), maximizeID))
 		},
 	}
+	maximize.Flags().StringVar(&maximizeID, "id", "", "stable window ID from window list (instead of positional title)")
 
 	cmd.AddCommand(closeWin, minimize, maximize)
 

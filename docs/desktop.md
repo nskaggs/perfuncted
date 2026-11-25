@@ -184,3 +184,55 @@ See the [visual search commands](../docs-cli/pf_find.md) for pixel, template and
 ## Workflows and sessions
 
 Run a script with `pf run task.pf` and inspect active workflows with `pf workflow status`. For managed desktops, see [session commands](../docs-cli/pf_session.md). For scoped semantic controls, see [accessibility automation](accessibility.md).
+
+## Window selection and command results
+
+Use `pf window list` to discover stable IDs. Titles used by window management
+commands are case-insensitive substrings and must identify exactly one window.
+For direct CLI commands, prefer explicit IDs when titles change or are duplicated:
+
+```sh
+pf window move --id 0x2a --x 100 --y 200
+pf window resize --id 0x2a --w 1280 --h 720
+pf window maximize --id 0x2a
+pf window get-geometry --id 0x2a --output json
+```
+
+The same `--id` alternative is available for minimize, fullscreen and
+unfullscreen. Existing title arguments and `--title` flags remain valid.
+Do not combine title and ID selectors. Use activate-id and close-id for the
+existing stable-ID activation and close commands. IDs are scoped to the live
+desktop/backend; rediscover them after a window closes or the session changes.
+A stable ID is not an atomic lock against focus or identity changes.
+The `pf run` workflow grammar remains unchanged.
+
+`window is-visible` tests whether one matching window is discoverable, not
+whether it is unminimized, unobstructed or actually displaying visible pixels.
+Window geometry is compositor-reported; plain geometry output uses corner
+coordinates, JSON uses origin and dimensions.
+
+Mutation success normally acknowledges dispatch, not the eventual compositor
+state. Activation and close-id have optional verification; verification
+failure does not prove that dispatch failed. Do not automatically repeat a
+mutation when its completion is uncertain, including after cancellation,
+a failed synchronization, or an output-write failure. Observe the intended
+postcondition independently before deciding whether to retry.
+
+## Typing and capture semantics
+
+Use `pf input type-literal` for literal text, including braces and key-like
+strings. `pf input type` interprets brace-delimited key sequences; this
+also applies to text read through `--stdin`. The Go convenience Type is
+literal, whereas InputBundle.Type interprets key sequences. Input goes to
+the relevant focused application; successful dispatch is not acceptance or
+proof of a saved result.
+
+Screen grab by window ID, exact case-insensitive title or PID captures the
+visible screen rectangle of a unique window unless `--background` is
+explicitly requested. A visible screen crop may include other windows.
+Background capture uses the target's own X11 pixmap when supported; it is
+not a foreground fallback or guarantee of freshness. Region hashes are
+unchanged and refer to the specified screen rectangle. Use reported logical
+window geometry, physical screenshot pixels and backend-native input
+coordinates only with the corresponding operations; do not assume that
+these spaces coincide on scaled or multi-output desktops.
