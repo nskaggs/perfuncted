@@ -132,10 +132,10 @@ func namedReserveIn(root *os.File, name string) (*namedOwner, error) {
 		root.Close()
 		return nil, err
 	}
-	if err := unix.Flock(int(dir.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if lockErr := unix.Flock(int(dir.Fd()), unix.LOCK_EX|unix.LOCK_NB); lockErr != nil {
 		dir.Close()
 		root.Close()
-		return nil, err
+		return nil, lockErr
 	}
 	if err = unix.Flock(int(root.Fd()), unix.LOCK_UN); err != nil {
 		dir.Close()
@@ -168,13 +168,13 @@ func (o *namedOwner) close() {
 	if o.listener != nil {
 		o.listener.Close()
 	}
-	unix.Unlinkat(int(o.dir.Fd()), "control", 0)
-	unix.Unlinkat(int(o.dir.Fd()), "record", 0)
+	_ = unix.Unlinkat(int(o.dir.Fd()), "control", 0)
+	_ = unix.Unlinkat(int(o.dir.Fd()), "record", 0)
 	var owned, current unix.Stat_t
 	if unix.Fstat(int(o.dir.Fd()), &owned) == nil &&
 		unix.Fstatat(int(o.root.Fd()), o.record.Name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil &&
 		owned.Ino == current.Ino && owned.Dev == current.Dev {
-		unix.Unlinkat(int(o.root.Fd()), o.record.Name, unix.AT_REMOVEDIR)
+		_ = unix.Unlinkat(int(o.root.Fd()), o.record.Name, unix.AT_REMOVEDIR)
 	}
 	o.dir.Close()
 	o.root.Close()
@@ -205,8 +205,8 @@ func (o *namedOwner) publish() error {
 	}
 	listener.SetUnlinkOnClose(false)
 	o.listener = listener
-	if err = os.Chmod(path, 0600); err != nil {
-		return err
+	if chmodErr := os.Chmod(path, 0600); chmodErr != nil {
+		return chmodErr
 	}
 	// Publish metadata only after binding. An exclusive regular file in the
 	// private reservation cannot overwrite a symlink or preexisting inode.
@@ -215,7 +215,7 @@ func (o *namedOwner) publish() error {
 		return err
 	}
 	f := os.NewFile(uintptr(fd), "record")
-	defer unix.Unlinkat(int(o.dir.Fd()), "record.tmp", 0)
+	defer func() { _ = unix.Unlinkat(int(o.dir.Fd()), "record.tmp", 0) }()
 	err = json.NewEncoder(f).Encode(o.record)
 	err = errors.Join(err, f.Close())
 	if err != nil {
@@ -232,8 +232,8 @@ func namedRead(dir *os.File) (namedRecord, error) {
 	}
 	f := os.NewFile(uintptr(fd), "record")
 	defer f.Close()
-	if err = namedCheck(fd, unix.S_IFREG, 0600, true); err != nil {
-		return rec, err
+	if checkErr := namedCheck(fd, unix.S_IFREG, 0600, true); checkErr != nil {
+		return rec, checkErr
 	}
 	data, err := io.ReadAll(io.LimitReader(f, 4097))
 	if err != nil {
@@ -242,8 +242,8 @@ func namedRead(dir *os.File) (namedRecord, error) {
 	if len(data) > 4096 {
 		return rec, errors.New("oversized session record")
 	}
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return rec, err
+	if decodeErr := json.Unmarshal(data, &rec); decodeErr != nil {
+		return rec, decodeErr
 	}
 	id, err := hex.DecodeString(rec.ID)
 	if err != nil || len(id) != 16 || !sessionNamePattern.MatchString(rec.Name) {
@@ -259,7 +259,7 @@ func (o *namedOwner) serve(ctx context.Context, env map[string]string, stop cont
 		if err != nil {
 			return
 		}
-		halt := o.handle(c, ctx, env, stop, finished)
+		halt := o.handle(ctx, c, env, stop, finished)
 		c.Close()
 		if halt {
 			return
@@ -267,8 +267,10 @@ func (o *namedOwner) serve(ctx context.Context, env map[string]string, stop cont
 	}
 }
 
-func (o *namedOwner) handle(c *net.UnixConn, ctx context.Context, env map[string]string, stop context.CancelFunc, finished <-chan error) bool {
-	c.SetDeadline(time.Now().Add(time.Second))
+func (o *namedOwner) handle(ctx context.Context, c *net.UnixConn, env map[string]string, stop context.CancelFunc, finished <-chan error) bool {
+	if c.SetDeadline(time.Now().Add(time.Second)) != nil {
+		return false
+	}
 	peer, err := namedPeer(c)
 	if err != nil || peer.Uid != uint32(os.Geteuid()) || ctx.Err() != nil {
 		return false
@@ -316,90 +318,28 @@ func namedRecover(root *os.File, name string) error {
 	if err := unix.Flock(int(root.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		return fmt.Errorf("registry busy: %w", err)
 	}
-	defer unix.Flock(int(root.Fd()), unix.LOCK_UN)
+	defer func() { _ = unix.Flock(int(root.Fd()), unix.LOCK_UN) }()
 	dir, err := namedOpenDir(int(root.Fd()), name)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
-	if err := unix.Flock(int(dir.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		return fmt.Errorf("session reservation is active: %w", err)
+	if lockErr := unix.Flock(int(dir.Fd()), unix.LOCK_EX|unix.LOCK_NB); lockErr != nil {
+		return fmt.Errorf("session reservation is active: %w", lockErr)
 	}
 	entries, err := dir.Readdirnames(-1)
 	if err != nil {
 		return err
 	}
-	artifacts := make(map[string]unix.Stat_t)
-	for _, entry := range entries {
-		var kind uint32
-		switch entry {
-		case "record", "record.tmp", "status", "status.tmp":
-			kind = unix.S_IFREG
-		case "control":
-			kind = unix.S_IFSOCK
-		default:
-			return errors.New("unknown registry artifact")
-		}
-		var st unix.Stat_t
-		if err := unix.Fstatat(int(dir.Fd()), entry, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-			return err
-		}
-		if st.Mode != kind|0600 || st.Uid != uint32(os.Geteuid()) || st.Nlink != 1 {
-			return errors.New("unsafe registry artifact")
-		}
-		artifacts[entry] = st
-	}
-	// A published record must authenticate. An interrupted publication may
-	// leave only a partial temporary record or a socket.
-	if _, exists := artifacts["record"]; exists {
-		rec, err := namedRead(dir)
-		if err != nil {
-			return fmt.Errorf("cannot authenticate stale record: %w", err)
-		}
-		if rec.Name != name || rec.PID <= 0 {
-			return errors.New("session identity mismatch")
-		}
-		if start, err := strconv.ParseUint(rec.Start, 10, 64); err != nil || start == 0 {
-			return errors.New("invalid owner start identity")
-		}
-		terminalStatus := false
-		if _, hasStatus := artifacts["status"]; hasStatus {
-			if _, hasControl := artifacts["control"]; !hasControl {
-				_, statusErr := workflowReadTerminalStatus(dir, name)
-				terminalStatus = statusErr == nil
-			}
-		}
-		start, err := namedProcStart(rec.PID)
-		if err == nil {
-			if start == rec.Start {
-				if !terminalStatus {
-					return errors.New("session owner still live")
-				}
-			}
-			// A different valid start time proves the recorded owner is gone.
-			// Recovery only unlinks validated registry artifacts, not processes.
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("owner identity uncertain: %w", err)
-		}
-	}
-	var own, current unix.Stat_t
-	if err := unix.Fstat(int(dir.Fd()), &own); err != nil {
+	artifacts, err := inspectNamedArtifacts(dir, entries)
+	if err != nil {
 		return err
 	}
-	if err := unix.Fstatat(int(root.Fd()), name, &current, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+	if err := authenticateNamedRecovery(dir, name, artifacts); err != nil {
 		return err
 	}
-	if own.Ino != current.Ino || own.Dev != current.Dev || own.Mode != current.Mode || own.Uid != current.Uid {
-		return errors.New("reservation changed")
-	}
-	for entry, previous := range artifacts {
-		var st unix.Stat_t
-		if err := unix.Fstatat(int(dir.Fd()), entry, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-			return err
-		}
-		if st.Dev != previous.Dev || st.Ino != previous.Ino || st.Mode != previous.Mode || st.Uid != previous.Uid || st.Nlink != previous.Nlink || st.Size != previous.Size || st.Ctim != previous.Ctim || st.Mtim != previous.Mtim {
-			return errors.New("registry artifact changed")
-		}
+	if err := recheckNamedArtifacts(root, dir, name, artifacts); err != nil {
+		return err
 	}
 	for _, entry := range entries {
 		if err := unix.Unlinkat(int(dir.Fd()), entry, 0); err != nil {
@@ -428,8 +368,8 @@ func namedCall(ctx context.Context, root *os.File, name, operation string) (name
 		return reply, errNamedStale
 	}
 	var st unix.Stat_t
-	if err = unix.Fstatat(int(dir.Fd()), "control", &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		return reply, err
+	if statErr := unix.Fstatat(int(dir.Fd()), "control", &st, unix.AT_SYMLINK_NOFOLLOW); statErr != nil {
+		return reply, statErr
 	}
 	if st.Mode != unix.S_IFSOCK|0600 || st.Uid != uint32(os.Geteuid()) {
 		return reply, errors.New("unsafe session socket")
@@ -440,41 +380,19 @@ func namedCall(ctx context.Context, root *os.File, name, operation string) (name
 		return reply, err
 	}
 	defer conn.Close()
-	c := conn.(*net.UnixConn)
-	deadline := time.Now().Add(2 * time.Second)
-	if operation == "stop" {
-		deadline = time.Now().Add(30 * time.Second)
+	c, ok := conn.(*net.UnixConn)
+	if !ok {
+		return reply, errors.New("unexpected session connection type")
 	}
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
+	if deadlineErr := c.SetDeadline(namedRequestDeadline(ctx, operation)); deadlineErr != nil {
+		return reply, deadlineErr
 	}
-	_ = c.SetDeadline(deadline)
 	cancelWatch := context.AfterFunc(ctx, func() { _ = c.Close() })
 	defer cancelWatch()
-	peer, err := namedPeer(c)
-	if err != nil || peer.Uid != uint32(os.Geteuid()) || int(peer.Pid) != rec.PID {
-		return reply, errors.New("session owner authentication failed")
-	}
-	start, err = namedProcStart(rec.PID)
-	if err != nil || start != rec.Start {
-		return reply, errors.New("session owner identity changed")
-	}
-	if err = ctx.Err(); err != nil {
+	if err := authenticateNamedPeer(c, rec); err != nil {
 		return reply, err
 	}
-	if err = json.NewEncoder(c).Encode(namedRequest{rec.ID, operation}); err != nil {
-		return reply, err
-	}
-	if err = json.NewDecoder(io.LimitReader(c, 8192)).Decode(&reply); err != nil {
-		return reply, err
-	}
-	if reply.ID != rec.ID || reply.Name != name {
-		return namedReply{}, errors.New("session reply identity mismatch")
-	}
-	if operation == "stop" && reply.State != "stopped" {
-		return namedReply{}, errors.New("session stop not confirmed")
-	}
-	return reply, ctx.Err()
+	return exchangeNamedRequest(ctx, c, rec, name, operation)
 }
 
 func namedSafeEnv(runtime map[string]string) map[string]string {
@@ -488,7 +406,7 @@ func namedCommands() []*cobra.Command {
 }
 
 func namedCommandsWithRegistry(registry func() (*os.File, error)) []*cobra.Command {
-	var commands []*cobra.Command
+	commands := make([]*cobra.Command, 0, 5)
 	for _, op := range []string{"list", "inspect", "attach", "stop", "recover"} {
 		operation := op
 		var output string
@@ -511,66 +429,9 @@ func namedCommandsWithRegistry(registry func() (*os.File, error)) []*cobra.Comma
 			}
 			defer root.Close()
 			if operation == "list" {
-				names, err := root.Readdirnames(-1)
-				if err != nil {
-					return err
-				}
-				replies := []namedReply{}
-				for _, name := range names {
-					if !sessionNamePattern.MatchString(name) {
-						continue
-					}
-					reply, err := namedCall(cmd.Context(), root, name, "inspect")
-					if err != nil {
-						state := "unavailable"
-						if errors.Is(err, errNamedStale) {
-							state = "stale"
-						}
-						reply = namedReply{Name: name, State: state}
-					}
-					replies = append(replies, reply)
-				}
-				if mode == outputModeJSON {
-					return json.NewEncoder(cmd.OutOrStdout()).Encode(replies)
-				}
-				for _, r := range replies {
-					if err = writeCLIOutput(cmd.OutOrStdout(), "%s %s %s\n", r.Name, r.ID, r.State); err != nil {
-						return err
-					}
-				}
-				return nil
+				return listNamedSessions(cmd, root, mode)
 			}
-			if !sessionNamePattern.MatchString(args[0]) {
-				return errors.New("invalid session name")
-			}
-			if printEnv && mode == outputModeJSON {
-				return errors.New("--print-env conflicts with JSON output")
-			}
-			if operation == "recover" {
-				if err := namedRecover(root, args[0]); err != nil {
-					return err
-				}
-				if mode == outputModeJSON {
-					return json.NewEncoder(cmd.OutOrStdout()).Encode(namedReply{Name: args[0], State: "recovered"})
-				}
-				return writeCLIOutput(cmd.OutOrStdout(), "%s recovered\n", args[0])
-			}
-			reply, err := namedCall(cmd.Context(), root, args[0], operation)
-			if err != nil {
-				return err
-			}
-			if mode == outputModeJSON {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(reply)
-			}
-			if operation == "attach" {
-				for _, key := range []string{"XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"} {
-					if err = writeCLIOutput(cmd.OutOrStdout(), "export %s=%s\n", key, namedShellQuote(reply.Environment[key])); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
-			return writeCLIOutput(cmd.OutOrStdout(), "%s %s %s\n", reply.Name, reply.ID, reply.State)
+			return runNamedSessionCommand(cmd, root, mode, operation, args[0], printEnv)
 		}}
 		if operation == "recover" {
 			cmd.Long = "Remove only known registry artifacts from a stale named reservation after obtaining its exclusive owner lock. Unpublished reservations may contain partial temporary metadata; published records must have a verified absent owner or a reused PID with a different valid start time. Unsafe or uncertain identities are refused. No process or desktop runtime is removed."
@@ -583,4 +444,202 @@ func namedCommandsWithRegistry(registry func() (*os.File, error)) []*cobra.Comma
 		commands = append(commands, cmd)
 	}
 	return commands
+}
+
+func inspectNamedArtifacts(dir *os.File, entries []string) (map[string]unix.Stat_t, error) {
+	var artifacts = make(map[string]unix.Stat_t)
+	for _, entry := range entries {
+		var kind uint32
+		switch entry {
+		case "record", "record.tmp", "status", "status.tmp":
+			kind = unix.S_IFREG
+		case "control":
+			kind = unix.S_IFSOCK
+		default:
+			return nil, errors.New("unknown registry artifact")
+		}
+		var st unix.Stat_t
+		if err := unix.Fstatat(int(dir.Fd()), entry, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return nil, err
+		}
+		if st.Mode != kind|0600 || st.Uid != uint32(os.Geteuid()) || st.Nlink != 1 {
+			return nil, errors.New("unsafe registry artifact")
+		}
+		artifacts[entry] = st
+	}
+	return artifacts, nil
+}
+
+func authenticateNamedRecovery(dir *os.File, name string, artifacts map[string]unix.Stat_t) error {
+	// A published record must authenticate. An interrupted publication may
+	// leave only a partial temporary record or a socket.
+	if _, exists := artifacts["record"]; exists {
+		rec, err := namedRead(dir)
+		if err != nil {
+			return fmt.Errorf("cannot authenticate stale record: %w", err)
+		}
+		if rec.Name != name || rec.PID <= 0 {
+			return errors.New("session identity mismatch")
+		}
+		if start, parseErr := strconv.ParseUint(rec.Start, 10, 64); parseErr != nil || start == 0 {
+			return errors.New("invalid owner start identity")
+		}
+		terminalStatus := false
+		if _, hasStatus := artifacts["status"]; hasStatus {
+			if _, hasControl := artifacts["control"]; !hasControl {
+				_, statusErr := workflowReadTerminalStatus(dir, name)
+				terminalStatus = statusErr == nil
+			}
+		}
+		start, err := namedProcStart(rec.PID)
+		if err == nil {
+			if start == rec.Start {
+				if !terminalStatus {
+					return errors.New("session owner still live")
+				}
+			}
+			// A different valid start time proves the recorded owner is gone.
+			// Recovery only unlinks validated registry artifacts, not processes.
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("owner identity uncertain: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func recheckNamedArtifacts(root, dir *os.File, name string, artifacts map[string]unix.Stat_t) error {
+	var own, current unix.Stat_t
+	if err := unix.Fstat(int(dir.Fd()), &own); err != nil {
+		return err
+	}
+	if err := unix.Fstatat(int(root.Fd()), name, &current, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return err
+	}
+	if own.Ino != current.Ino || own.Dev != current.Dev || own.Mode != current.Mode || own.Uid != current.Uid {
+		return errors.New("reservation changed")
+	}
+	for entry, previous := range artifacts {
+		var st unix.Stat_t
+		if err := unix.Fstatat(int(dir.Fd()), entry, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return err
+		}
+		if !sameNamedArtifact(st, previous) {
+			return errors.New("registry artifact changed")
+		}
+	}
+
+	return nil
+}
+
+func authenticateNamedPeer(c *net.UnixConn, rec namedRecord) error {
+	peer, err := namedPeer(c)
+	if err != nil || peer.Uid != uint32(os.Geteuid()) || int(peer.Pid) != rec.PID {
+		return errors.New("session owner authentication failed")
+	}
+	start, err := namedProcStart(rec.PID)
+	if err != nil || start != rec.Start {
+		return errors.New("session owner identity changed")
+	}
+	return nil
+}
+
+func exchangeNamedRequest(ctx context.Context, c *net.UnixConn, rec namedRecord, name, operation string) (namedReply, error) {
+	var reply namedReply
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return reply, ctxErr
+	}
+	if encodeErr := json.NewEncoder(c).Encode(namedRequest{rec.ID, operation}); encodeErr != nil {
+		return reply, encodeErr
+	}
+	if decodeErr := json.NewDecoder(io.LimitReader(c, 8192)).Decode(&reply); decodeErr != nil {
+		return reply, decodeErr
+	}
+	if reply.ID != rec.ID || reply.Name != name {
+		return namedReply{}, errors.New("session reply identity mismatch")
+	}
+	if operation == "stop" && reply.State != "stopped" {
+		return namedReply{}, errors.New("session stop not confirmed")
+	}
+	return reply, ctx.Err()
+}
+
+func listNamedSessions(cmd *cobra.Command, root *os.File, mode outputMode) error {
+	names, err := root.Readdirnames(-1)
+	if err != nil {
+		return err
+	}
+	replies := []namedReply{}
+	for _, name := range names {
+		if !sessionNamePattern.MatchString(name) {
+			continue
+		}
+		reply, callErr := namedCall(cmd.Context(), root, name, "inspect")
+		if callErr != nil {
+			state := "unavailable"
+			if errors.Is(callErr, errNamedStale) {
+				state = "stale"
+			}
+			reply = namedReply{Name: name, State: state}
+		}
+		replies = append(replies, reply)
+	}
+	if mode == outputModeJSON {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(replies)
+	}
+	for _, r := range replies {
+		if writeErr := writeCLIOutput(cmd.OutOrStdout(), "%s %s %s\n", r.Name, r.ID, r.State); writeErr != nil {
+			return writeErr
+		}
+	}
+	return nil
+}
+
+func runNamedSessionCommand(cmd *cobra.Command, root *os.File, mode outputMode, operation, name string, printEnv bool) error {
+	if !sessionNamePattern.MatchString(name) {
+		return errors.New("invalid session name")
+	}
+	if printEnv && mode == outputModeJSON {
+		return errors.New("--print-env conflicts with JSON output")
+	}
+	if operation == "recover" {
+		if err := namedRecover(root, name); err != nil {
+			return err
+		}
+		if mode == outputModeJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(namedReply{Name: name, State: "recovered"})
+		}
+		return writeCLIOutput(cmd.OutOrStdout(), "%s recovered\n", name)
+	}
+	reply, err := namedCall(cmd.Context(), root, name, operation)
+	if err != nil {
+		return err
+	}
+	if mode == outputModeJSON {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(reply)
+	}
+	if operation == "attach" {
+		for _, key := range []string{"XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"} {
+			if writeErr := writeCLIOutput(cmd.OutOrStdout(), "export %s=%s\n", key, namedShellQuote(reply.Environment[key])); writeErr != nil {
+				return writeErr
+			}
+		}
+		return nil
+	}
+	return writeCLIOutput(cmd.OutOrStdout(), "%s %s %s\n", reply.Name, reply.ID, reply.State)
+}
+
+func sameNamedArtifact(a, b unix.Stat_t) bool {
+	return a.Dev == b.Dev && a.Ino == b.Ino && a.Mode == b.Mode && a.Uid == b.Uid && a.Nlink == b.Nlink && a.Size == b.Size && a.Ctim == b.Ctim && a.Mtim == b.Mtim
+}
+
+func namedRequestDeadline(ctx context.Context, operation string) time.Time {
+	deadline := time.Now().Add(2 * time.Second)
+	if operation == "stop" {
+		deadline = time.Now().Add(30 * time.Second)
+	}
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	return deadline
 }

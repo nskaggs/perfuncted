@@ -84,57 +84,24 @@ func (b *X11Backend) CaptureWindowPixmap(ctx context.Context, stableID string) (
 	}
 	windowID := xproto.Window(parsedID)
 
-	attrs, err := tree.GetWindowAttributes(windowID).Reply()
-	if err != nil || attrs == nil || attrs.MapState != xproto.MapStateViewable {
-		return WindowPixmapCapture{}, errors.Join(ErrBackgroundWindowCaptureUnsupported, ErrBackgroundWindowUnmapped,
-			unsupportedPixmap("target window is not mapped and viewable", err))
-	}
-	geometry, err := b.conn.GetGeometry(xproto.Drawable(windowID)).Reply()
-	if err != nil || geometry == nil || geometry.Width == 0 || geometry.Height == 0 || geometry.Depth != b.screen.RootDepth {
-		return WindowPixmapCapture{}, unsupportedPixmap("target window geometry is unavailable or incompatible", err)
-	}
-	translated, err := b.conn.TranslateCoordinates(windowID, b.root, 0, 0).Reply()
-	if err != nil || translated == nil || !translated.SameScreen {
-		return WindowPixmapCapture{}, unsupportedPixmap("target window root coordinates are unavailable", err)
-	}
-	width, height := int(geometry.Width), int(geometry.Height)
-	rootRect := image.Rect(int(translated.DstX), int(translated.DstY), int(translated.DstX)+width, int(translated.DstY)+height)
-	if rootRect.Empty() || rootRect.Dx() > 65535 || rootRect.Dy() > 65535 {
-		return WindowPixmapCapture{}, ErrBackgroundWindowCaptureUnsupported
-	}
-
-	pixmapID, err := b.conn.NewID()
+	geometry, rootRect, err := b.targetPixmapGeometry(tree, windowID)
 	if err != nil {
-		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: allocate target pixmap: %w", err)
-	}
-	pixmap := xproto.Pixmap(pixmapID)
-	if err := b.conn.NameWindowPixmap(windowID, pixmap).Check(); err != nil {
-		return WindowPixmapCapture{}, unsupportedPixmap("target has no already-redirected Composite pixmap", err)
-	}
-	defer func() { _ = b.conn.FreePixmap(pixmap).Check() }()
-
-	pixmapGeometry, err := b.conn.GetGeometry(xproto.Drawable(pixmap)).Reply()
-	if err != nil || pixmapGeometry == nil || pixmapGeometry.Width != geometry.Width || pixmapGeometry.Height != geometry.Height || pixmapGeometry.Depth != geometry.Depth {
-		return WindowPixmapCapture{}, unsupportedPixmap("target pixmap geometry changed or is incompatible", err)
-	}
-	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap, xproto.Drawable(pixmap), 0, 0,
-		geometry.Width, geometry.Height, 0xffffffff).Reply()
-	if err != nil || reply == nil || reply.Depth != geometry.Depth {
-		if err == nil {
-			err = fmt.Errorf("unexpected image depth")
-		}
-		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: read target pixmap: %w", err)
-	}
-	if err := validateX11PixelBuffer(reply.Data, width, height); err != nil {
 		return WindowPixmapCapture{}, err
 	}
+	width, height := int(geometry.Width), int(geometry.Height)
+
+	data, err := b.readTargetPixmap(windowID, geometry)
+	if err != nil {
+		return WindowPixmapCapture{}, err
+	}
+
 	if err := ctx.Err(); err != nil {
 		return WindowPixmapCapture{}, fmt.Errorf("screen/x11: background capture canceled: %w", err)
 	}
 	visibility := b.windowPixmapVisibility(tree, windowID, rootRect)
 	foreground, foregroundKnown := b.windowIsForeground(windowID)
 	return WindowPixmapCapture{
-		Image:           decodeBGRA(reply.Data, width, height, width*4),
+		Image:           decodeBGRA(data, width, height, width*4),
 		ScreenRect:      rootRect,
 		Visibility:      visibility,
 		Foreground:      foreground,
@@ -160,19 +127,9 @@ func (b *X11Backend) windowPixmapVisibility(tree windowTreeConnection, target xp
 	if !targetRect.In(rootBounds) {
 		return WindowPixmapUnknown
 	}
-	rootChild := target
-	for depth := 0; depth < 64; depth++ {
-		reply, err := tree.QueryTree(rootChild).Reply()
-		if err != nil || reply == nil || reply.Parent == xproto.WindowNone {
-			return WindowPixmapUnknown
-		}
-		if reply.Parent == b.root {
-			break
-		}
-		rootChild = reply.Parent
-		if depth == 63 {
-			return WindowPixmapUnknown
-		}
+	rootChild, ok := b.rootChildForPixmap(tree, target)
+	if !ok {
+		return WindowPixmapUnknown
 	}
 	rootTree, err := tree.QueryTree(b.root).Reply()
 	if err != nil || rootTree == nil {
@@ -188,29 +145,7 @@ func (b *X11Backend) windowPixmapVisibility(tree windowTreeConnection, target xp
 	if index < 0 {
 		return WindowPixmapUnknown
 	}
-	for _, sibling := range rootTree.Children[index+1:] {
-		attrs, err := tree.GetWindowAttributes(sibling).Reply()
-		if err != nil || attrs == nil {
-			return WindowPixmapUnknown
-		}
-		if attrs.MapState != xproto.MapStateViewable {
-			continue
-		}
-		geometry, err := b.conn.GetGeometry(xproto.Drawable(sibling)).Reply()
-		if err != nil || geometry == nil || geometry.Width == 0 || geometry.Height == 0 {
-			return WindowPixmapUnknown
-		}
-		translated, err := b.conn.TranslateCoordinates(sibling, b.root, 0, 0).Reply()
-		if err != nil || translated == nil || !translated.SameScreen {
-			return WindowPixmapUnknown
-		}
-		siblingRect := image.Rect(int(translated.DstX), int(translated.DstY),
-			int(translated.DstX)+int(geometry.Width), int(translated.DstY)+int(geometry.Height))
-		if !siblingRect.Intersect(targetRect).Empty() {
-			return WindowPixmapOccluded
-		}
-	}
-	return WindowPixmapUnobscured
+	return b.siblingPixmapVisibility(tree, rootTree.Children[index+1:], targetRect)
 }
 
 func unsupportedPixmap(reason string, cause error) error {
@@ -511,4 +446,92 @@ func validateX11Rect(rect image.Rectangle) error {
 		return fmt.Errorf("screen/x11: rectangle dimensions exceed X11 limits: %v", rect)
 	}
 	return nil
+}
+
+func (b *X11Backend) targetPixmapGeometry(tree windowTreeConnection, windowID xproto.Window) (*xproto.GetGeometryReply, image.Rectangle, error) {
+	attrs, err := tree.GetWindowAttributes(windowID).Reply()
+	if err != nil || attrs == nil || attrs.MapState != xproto.MapStateViewable {
+		return nil, image.Rectangle{}, errors.Join(ErrBackgroundWindowCaptureUnsupported, ErrBackgroundWindowUnmapped, unsupportedPixmap("target window is not mapped and viewable", err))
+	}
+	geometry, err := b.conn.GetGeometry(xproto.Drawable(windowID)).Reply()
+	if err != nil || geometry == nil || geometry.Width == 0 || geometry.Height == 0 || geometry.Depth != b.screen.RootDepth {
+		return nil, image.Rectangle{}, unsupportedPixmap("target window geometry is unavailable or incompatible", err)
+	}
+	translated, err := b.conn.TranslateCoordinates(windowID, b.root, 0, 0).Reply()
+	if err != nil || translated == nil || !translated.SameScreen {
+		return nil, image.Rectangle{}, unsupportedPixmap("target window root coordinates are unavailable", err)
+	}
+	width, height := int(geometry.Width), int(geometry.Height)
+	rootRect := image.Rect(int(translated.DstX), int(translated.DstY), int(translated.DstX)+width, int(translated.DstY)+height)
+	if rootRect.Empty() || rootRect.Dx() > 65535 || rootRect.Dy() > 65535 {
+		return nil, image.Rectangle{}, ErrBackgroundWindowCaptureUnsupported
+	}
+	return geometry, rootRect, nil
+}
+
+func (b *X11Backend) readTargetPixmap(windowID xproto.Window, geometry *xproto.GetGeometryReply) ([]byte, error) {
+	pixmapID, err := b.conn.NewID()
+	if err != nil {
+		return nil, fmt.Errorf("screen/x11: allocate target pixmap: %w", err)
+	}
+	pixmap := xproto.Pixmap(pixmapID)
+	if nameErr := b.conn.NameWindowPixmap(windowID, pixmap).Check(); nameErr != nil {
+		return nil, unsupportedPixmap("target has no already-redirected Composite pixmap", nameErr)
+	}
+	defer func() { _ = b.conn.FreePixmap(pixmap).Check() }()
+	pixmapGeometry, err := b.conn.GetGeometry(xproto.Drawable(pixmap)).Reply()
+	if err != nil || pixmapGeometry == nil || pixmapGeometry.Width != geometry.Width || pixmapGeometry.Height != geometry.Height || pixmapGeometry.Depth != geometry.Depth {
+		return nil, unsupportedPixmap("target pixmap geometry changed or is incompatible", err)
+	}
+	reply, err := b.conn.GetImage(xproto.ImageFormatZPixmap, xproto.Drawable(pixmap), 0, 0, geometry.Width, geometry.Height, 0xffffffff).Reply()
+	if err != nil || reply == nil || reply.Depth != geometry.Depth {
+		if err == nil {
+			err = fmt.Errorf("unexpected image depth")
+		}
+		return nil, fmt.Errorf("screen/x11: read target pixmap: %w", err)
+	}
+	if err := validateX11PixelBuffer(reply.Data, int(geometry.Width), int(geometry.Height)); err != nil {
+		return nil, err
+	}
+	return reply.Data, nil
+}
+
+func (b *X11Backend) rootChildForPixmap(tree windowTreeConnection, target xproto.Window) (xproto.Window, bool) {
+	rootChild := target
+	for depth := 0; depth < 64; depth++ {
+		reply, err := tree.QueryTree(rootChild).Reply()
+		if err != nil || reply == nil || reply.Parent == xproto.WindowNone {
+			return 0, false
+		}
+		if reply.Parent == b.root {
+			return rootChild, true
+		}
+		rootChild = reply.Parent
+	}
+	return 0, false
+}
+
+func (b *X11Backend) siblingPixmapVisibility(tree windowTreeConnection, siblings []xproto.Window, targetRect image.Rectangle) WindowPixmapVisibility {
+	for _, sibling := range siblings {
+		attrs, err := tree.GetWindowAttributes(sibling).Reply()
+		if err != nil || attrs == nil {
+			return WindowPixmapUnknown
+		}
+		if attrs.MapState != xproto.MapStateViewable {
+			continue
+		}
+		geometry, err := b.conn.GetGeometry(xproto.Drawable(sibling)).Reply()
+		if err != nil || geometry == nil || geometry.Width == 0 || geometry.Height == 0 {
+			return WindowPixmapUnknown
+		}
+		translated, err := b.conn.TranslateCoordinates(sibling, b.root, 0, 0).Reply()
+		if err != nil || translated == nil || !translated.SameScreen {
+			return WindowPixmapUnknown
+		}
+		siblingRect := image.Rect(int(translated.DstX), int(translated.DstY), int(translated.DstX)+int(geometry.Width), int(translated.DstY)+int(geometry.Height))
+		if !siblingRect.Intersect(targetRect).Empty() {
+			return WindowPixmapOccluded
+		}
+	}
+	return WindowPixmapUnobscured
 }

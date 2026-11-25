@@ -528,6 +528,12 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	selector := accessibility.Selector{Role: editable.Role, Name: editable.Name}
 	locator := s.pf.Accessibility.LocatorForWindow(info.NativeID, selector, locatorOptions)
 	failureEvidence.Locator = locator
+	for _, state := range []perfuncted.AccessibilityWaitState{perfuncted.AccessibilityWaitPresent, perfuncted.AccessibilityWaitFocused, perfuncted.AccessibilityWaitEnabled} {
+		node, evidence, waitErr := locator.WaitForState(ctx, state, 5*time.Second)
+		if waitErr != nil || evidence.Evaluations == 0 || node.ID.BusName != editable.ID.BusName || node.ID.ObjectPath != editable.ID.ObjectPath {
+			t.Fatalf("real %s semantic wait %s: node=%+v evidence=%+v err=%v", representative.name, state, node, evidence, waitErr)
+		}
+	}
 
 	marker := "Perfuncted AT-SPI certification " + representative.name
 	postcondition := perfuncted.Predicate("editable content equals certification marker", func(checkCtx context.Context) (bool, error) {

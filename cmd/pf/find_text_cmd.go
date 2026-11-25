@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/nskaggs/perfuncted/find"
@@ -67,8 +68,8 @@ truncated the result. Tesseract confidence is on its 0–100 provider scale.`,
 				return err
 			}
 			options.Recognizer = recognizer
-			if err := find.ValidateTextOptions(query, options); err != nil {
-				return err
+			if validationErr := find.ValidateTextOptions(query, options); validationErr != nil {
+				return validationErr
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
@@ -81,25 +82,7 @@ truncated the result. Tesseract confidence is on its 0–100 provider scale.`,
 			if err != nil {
 				return err
 			}
-			if output == "json" {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
-			}
-			if len(result.Matches) == 0 {
-				return writeCLIOutput(cmd.OutOrStdout(), "no match\n")
-			}
-			for _, match := range result.Matches {
-				if match.Confidence == nil {
-					if err := writeCLIOutput(cmd.OutOrStdout(), "match text=%q x=%d y=%d width=%d height=%d\n", match.Text, match.Rect.Min.X, match.Rect.Min.Y, match.Rect.Dx(), match.Rect.Dy()); err != nil {
-						return err
-					}
-				} else if err := writeCLIOutput(cmd.OutOrStdout(), "match text=%q x=%d y=%d width=%d height=%d confidence=%.3f\n", match.Text, match.Rect.Min.X, match.Rect.Min.Y, match.Rect.Dx(), match.Rect.Dy(), *match.Confidence); err != nil {
-					return err
-				}
-			}
-			if result.Truncated {
-				return writeCLIOutput(cmd.OutOrStdout(), "warning: result limit reached; use --max-results to raise it\n")
-			}
-			return nil
+			return writeTextMatches(cmd.OutOrStdout(), output, result)
 		},
 	}
 	cmd.Flags().StringVar(&query, "query", "", "text phrase to find")
@@ -114,6 +97,28 @@ truncated the result. Tesseract confidence is on its 0–100 provider scale.`,
 	_ = cmd.MarkFlagRequired("rect")
 	_ = cmd.MarkFlagRequired("provider")
 	return cmd
+}
+
+func writeTextMatches(w io.Writer, output string, result find.TextResult) error {
+	if output == "json" {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if len(result.Matches) == 0 {
+		return writeCLIOutput(w, "no match\n")
+	}
+	for _, match := range result.Matches {
+		if match.Confidence == nil {
+			if err := writeCLIOutput(w, "match text=%q x=%d y=%d width=%d height=%d\n", match.Text, match.Rect.Min.X, match.Rect.Min.Y, match.Rect.Dx(), match.Rect.Dy()); err != nil {
+				return err
+			}
+		} else if err := writeCLIOutput(w, "match text=%q x=%d y=%d width=%d height=%d confidence=%.3f\n", match.Text, match.Rect.Min.X, match.Rect.Min.Y, match.Rect.Dx(), match.Rect.Dy(), *match.Confidence); err != nil {
+			return err
+		}
+	}
+	if result.Truncated {
+		return writeCLIOutput(w, "warning: result limit reached; use --max-results to raise it\n")
+	}
+	return nil
 }
 
 func defaultTextRecognizer(executable, language string) (find.OCRRecognizer, error) {

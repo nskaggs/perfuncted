@@ -133,7 +133,7 @@ func (c conditionFunc) pollingOnly() bool {
 }
 
 func (c conditionFunc) requiredCapabilities() ([]Capability, error) {
-	return slices.Clone(c.capabilities), nil
+	return slices.Clone(c.capabilities), c.preflightErr
 }
 
 func (c conditionFunc) validateSession(session *Session) error {
@@ -654,14 +654,18 @@ func sameAccessibilityIdentity(current, baseline accessibility.NodeID) bool {
 }
 
 func sameAccessibilityNodeState(left, right accessibility.Node) bool {
-	return left.Name == right.Name && left.Description == right.Description && left.Role == right.Role && left.RoleID == right.RoleID &&
-		left.Text == right.Text && left.TextTruncated == right.TextTruncated && left.Bounds == right.Bounds && left.HasBounds == right.HasBounds &&
-		left.ChildCount == right.ChildCount && left.Focused == right.Focused && left.Visible == right.Visible && left.Showing == right.Showing &&
-		left.Enabled == right.Enabled && left.Redacted == right.Redacted && reflect.DeepEqual(left.Attributes, right.Attributes) &&
+	return sameAccessibilityNodeScalarState(left, right) && reflect.DeepEqual(left.Attributes, right.Attributes) &&
 		slices.Equal(sortedStateCopy(left.States), sortedStateCopy(right.States)) &&
 		slices.Equal(sortedStateCopy(left.Interfaces), sortedStateCopy(right.Interfaces)) &&
 		reflect.DeepEqual(left.Value, right.Value) && reflect.DeepEqual(left.Selection, right.Selection) &&
 		reflect.DeepEqual(left.Table, right.Table) && reflect.DeepEqual(left.Document, right.Document) && slices.Equal(left.Actions, right.Actions)
+}
+
+func sameAccessibilityNodeScalarState(left, right accessibility.Node) bool {
+	return left.Name == right.Name && left.Description == right.Description && left.Role == right.Role && left.RoleID == right.RoleID &&
+		left.Text == right.Text && left.TextTruncated == right.TextTruncated && left.Bounds == right.Bounds && left.HasBounds == right.HasBounds &&
+		left.ChildCount == right.ChildCount && left.Focused == right.Focused && left.Visible == right.Visible && left.Showing == right.Showing &&
+		left.Enabled == right.Enabled && left.Redacted == right.Redacted
 }
 
 func sortedStateCopy(states []string) []string {

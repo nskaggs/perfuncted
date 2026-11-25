@@ -385,7 +385,7 @@ Use session cleanup for orphaned runtimes.`,
 				return err
 			}
 			closeSession := sync.OnceValue(session.Close)
-			defer closeSession()
+			defer func() { _ = closeSession() }()
 			runtime := diagnostic.EnvironmentMap(session.Env())
 			if owner != nil {
 				if err := ctx.Err(); err != nil {
@@ -404,19 +404,7 @@ Use session cleanup for orphaned runtimes.`,
 					<-served
 				}()
 			}
-			if err := writeCLIOutput(cmd.OutOrStdout(), "export XDG_RUNTIME_DIR=%s\n", runtime["XDG_RUNTIME_DIR"]); err != nil {
-				return err
-			}
-			if err := writeCLIOutput(cmd.OutOrStdout(), "export WAYLAND_DISPLAY=%s\n", runtime["WAYLAND_DISPLAY"]); err != nil {
-				return err
-			}
-			if err := writeCLIOutput(cmd.OutOrStdout(), "export DBUS_SESSION_BUS_ADDRESS=%s\n", runtime["DBUS_SESSION_BUS_ADDRESS"]); err != nil {
-				return err
-			}
-			if err := writeCLIOutput(cmd.ErrOrStderr(), "session: running (XDG=%s)\n", runtime["XDG_RUNTIME_DIR"]); err != nil {
-				return err
-			}
-			if err := writeCLIMessage(cmd.ErrOrStderr(), "session: press Ctrl+C to stop"); err != nil {
+			if err := writeSessionStartup(cmd.OutOrStdout(), cmd.ErrOrStderr(), runtime); err != nil {
 				return err
 			}
 			<-ctx.Done()
@@ -434,6 +422,18 @@ Use session cleanup for orphaned runtimes.`,
 	cmd.Flags().IntVar(&startResY, "res-y", 768, "vertical resolution")
 	cmd.Flags().StringVar(&startSwayConf, "sway-config", "", "path to custom sway config (default: embedded)")
 	return cmd
+}
+
+func writeSessionStartup(out, diagnosticOut io.Writer, runtime map[string]string) error {
+	for _, key := range []string{"XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"} {
+		if err := writeCLIOutput(out, "export %s=%s\n", key, runtime[key]); err != nil {
+			return err
+		}
+	}
+	if err := writeCLIOutput(diagnosticOut, "session: running (XDG=%s)\n", runtime["XDG_RUNTIME_DIR"]); err != nil {
+		return err
+	}
+	return writeCLIMessage(diagnosticOut, "session: press Ctrl+C to stop")
 }
 
 func sessionCleanupCmd(cleanStaleSessions func(context.Context, time.Duration) error) *cobra.Command {

@@ -97,9 +97,18 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: "1"
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
         run: just test-integration-suite "${{ matrix.display }}"
+      - name: Verify release visual automation on real native X11
+        if: matrix.display == 'headless-x11'
+        run: |
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
+          just test-release-visual-x11
+          PF_STRICT_BACKGROUND_CAPTURE=1 go test ./screen -run '^TestX11BackgroundWindowCaptureReadsTargetPixmapUnderOccluder$' -count=1 -v
       - name: Verify global X11 input observation on isolated native Xvfb
         if: matrix.display == 'headless-x11'
         run: just test-input-observation-x11
+      - name: Verify real named session owners and attached desktop isolation
+        if: matrix.display == 'headless-wayland'
+        run: just test-release-named-sessions
       - name: Verify controlled workflow on isolated headless Wayland
         if: matrix.display == 'headless-wayland'
         run: CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1

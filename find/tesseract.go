@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 	"github.com/nskaggs/perfuncted/internal/util"
 )
 
@@ -49,7 +50,7 @@ func NewTesseractProvider(executable, language string) (*TesseractProvider, erro
 	}
 	path, err := exec.LookPath(executable)
 	if err != nil {
-		return nil, fmt.Errorf("find: resolve Tesseract executable: %w: %v", ErrOCRProviderUnavailable, err)
+		return nil, fmt.Errorf("find: resolve Tesseract executable: %w: %w", ErrOCRProviderUnavailable, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -87,30 +88,16 @@ func (p *TesseractProvider) Recognize(ctx context.Context, img image.Image) ([]O
 	if p == nil || p.executable == "" || p.language == "" {
 		return nil, fmt.Errorf("%w: Tesseract provider was not constructed", ErrOCRProviderUnavailable)
 	}
-	if ctx == nil {
-		ctx = context.Background()
+	ctx = contextutil.Default(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
-	if err := ctx.Err(); err != nil {
+	input, width, height, err := encodeTesseractInput(img)
+	if err != nil {
 		return nil, err
 	}
-	if util.IsNil(img) || img.Bounds().Empty() {
-		return nil, fmt.Errorf("find: Tesseract input image is empty: %w", ErrInvalidFrame)
-	}
-	bounds := img.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
-	if width <= 0 || height <= 0 || width > 8192 || height > 8192 || width > maxOCRImagePixels/height {
-		return nil, fmt.Errorf("find: Tesseract input dimensions %dx%d exceed limits: %w", width, height, ErrInvalidFrame)
-	}
-	var input limitedBuffer
-	input.limit = maxOCRPNGBytes
-	if err := png.Encode(&input, img); err != nil {
-		if input.overflow {
-			return nil, fmt.Errorf("find: Tesseract input PNG exceeded %d bytes: %w", maxOCRPNGBytes, ErrInvalidFrame)
-		}
-		return nil, fmt.Errorf("find: encode Tesseract input PNG: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	stdout, stderr, overflow, runErr := runBoundedOCRCommand(ctx, p.executable, []string{"stdin", "stdout", "--psm", "6", "-l", p.language, "tsv"}, input.Bytes())
 	if runErr != nil {
@@ -132,18 +119,16 @@ func (p *TesseractProvider) Recognize(ctx context.Context, img image.Image) ([]O
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	return words, nil
 }
 
 func runBoundedOCRCommand(ctx context.Context, executable string, args []string, input []byte) (stdout, stderr []byte, overflow bool, err error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, nil, false, err
+	ctx = contextutil.Default(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, false, ctxErr
 	}
 	stdoutBuffer := limitedBuffer{limit: maxOCRTSVBytes}
 	stderrBuffer := limitedBuffer{limit: maxOCRStderr}
@@ -208,39 +193,74 @@ func parseTesseractTSV(data []byte, width, height int) ([]OCRWord, error) {
 		if level != 5 {
 			continue
 		}
-		text := row[11]
-		if strings.TrimSpace(text) == "" {
-			continue
+		word, ok, err := parseTesseractWord(row, width, height)
+		if err != nil {
+			return nil, err
 		}
-		if len(text) > maxOCRWordBytes || !utf8.ValidString(text) || strings.ContainsRune(text, '\x00') || len(strings.Fields(text)) != 1 {
-			return nil, fmt.Errorf("find: invalid Tesseract word text: %w", ErrOCRRecognition)
+		if ok {
+			words = append(words, word)
 		}
-		ids := [5]int{}
-		for i := range ids {
-			ids[i], parseErr = strconv.Atoi(row[i+1])
-			if parseErr != nil || ids[i] < 0 {
-				return nil, fmt.Errorf("find: invalid Tesseract TSV identity: %w", ErrOCRRecognition)
-			}
-		}
-		coords := [4]int{}
-		for i := range coords {
-			coords[i], parseErr = strconv.Atoi(row[i+6])
-			if parseErr != nil || coords[i] < 0 {
-				return nil, fmt.Errorf("find: invalid Tesseract TSV bounds: %w", ErrOCRRecognition)
-			}
-		}
-		if coords[2] <= 0 || coords[3] <= 0 || coords[0] > width-coords[2] || coords[1] > height-coords[3] {
-			return nil, fmt.Errorf("find: Tesseract word box exceeds input image: %w", ErrOCRRecognition)
-		}
-		confidenceValue, parseErr := strconv.ParseFloat(row[10], 64)
-		if parseErr != nil || math.IsNaN(confidenceValue) || math.IsInf(confidenceValue, 0) || confidenceValue < 0 || confidenceValue > 100 {
-			return nil, fmt.Errorf("find: invalid Tesseract confidence: %w", ErrOCRRecognition)
-		}
-		confidence := confidenceValue
-		words = append(words, OCRWord{
-			Text: text, PixelRect: image.Rect(coords[0], coords[1], coords[0]+coords[2], coords[1]+coords[3]), Confidence: &confidence,
-			Page: ids[0], Block: ids[1], Paragraph: ids[2], Line: ids[3], Word: ids[4],
-		})
 	}
 	return words, nil
+}
+
+func encodeTesseractInput(img image.Image) (limitedBuffer, int, int, error) {
+	var input limitedBuffer
+	if util.IsNil(img) || img.Bounds().Empty() {
+		return input, 0, 0, fmt.Errorf("find: Tesseract input image is empty: %w", ErrInvalidFrame)
+	}
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= 0 || height <= 0 || width > 8192 || height > 8192 || width > maxOCRImagePixels/height {
+		return input, 0, 0, fmt.Errorf("find: Tesseract input dimensions %dx%d exceed limits: %w", width, height, ErrInvalidFrame)
+	}
+	input.limit = maxOCRPNGBytes
+	if err := png.Encode(&input, img); err != nil {
+		if input.overflow {
+			return input, 0, 0, fmt.Errorf("find: Tesseract input PNG exceeded %d bytes: %w", maxOCRPNGBytes, ErrInvalidFrame)
+		}
+		return input, 0, 0, fmt.Errorf("find: encode Tesseract input PNG: %w", err)
+	}
+	return input, width, height, nil
+}
+
+func parseTesseractWord(row []string, width, height int) (OCRWord, bool, error) {
+	text := row[11]
+	if strings.TrimSpace(text) == "" {
+		return OCRWord{}, false, nil
+	}
+	if len(text) > maxOCRWordBytes || !utf8.ValidString(text) || strings.ContainsRune(text, '\x00') || len(strings.Fields(text)) != 1 {
+		return OCRWord{}, false, fmt.Errorf("find: invalid Tesseract word text: %w", ErrOCRRecognition)
+	}
+	ids, coords, err := parseTesseractWordGeometry(row, width, height)
+	if err != nil {
+		return OCRWord{}, false, err
+	}
+	confidence, err := strconv.ParseFloat(row[10], 64)
+	if err != nil || math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 100 {
+		return OCRWord{}, false, fmt.Errorf("find: invalid Tesseract confidence: %w", ErrOCRRecognition)
+	}
+	return OCRWord{Text: text, PixelRect: image.Rect(coords[0], coords[1], coords[0]+coords[2], coords[1]+coords[3]), Confidence: &confidence, Page: ids[0], Block: ids[1], Paragraph: ids[2], Line: ids[3], Word: ids[4]}, true, nil
+}
+func parseTesseractWordGeometry(row []string, width, height int) ([5]int, [4]int, error) {
+	var ids [5]int
+	var coords [4]int
+	for i := range ids {
+		n, err := strconv.Atoi(row[i+1])
+		if err != nil || n < 0 {
+			return ids, coords, fmt.Errorf("find: invalid Tesseract TSV identity: %w", ErrOCRRecognition)
+		}
+		ids[i] = n
+	}
+	for i := range coords {
+		n, err := strconv.Atoi(row[i+6])
+		if err != nil || n < 0 {
+			return ids, coords, fmt.Errorf("find: invalid Tesseract TSV bounds: %w", ErrOCRRecognition)
+		}
+		coords[i] = n
+	}
+	if coords[2] <= 0 || coords[3] <= 0 || coords[0] > width-coords[2] || coords[1] > height-coords[3] {
+		return ids, coords, fmt.Errorf("find: Tesseract word box exceeds input image: %w", ErrOCRRecognition)
+	}
+	return ids, coords, nil
 }

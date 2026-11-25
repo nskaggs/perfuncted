@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -66,7 +67,7 @@ func TestWorkflowControlProtocol(t *testing.T) {
 	call("pause", workflowPausing)
 	go func() { done <- w.checkpoint() }()
 	workflowAwaitState(t, w, workflowPaused)
-	go func() { w.finish(<-done) }()
+	go func() { _ = w.finish(<-done) }()
 	r = call("stop", workflowStopped)
 	if r.State != workflowStopped {
 		t.Fatalf("stop did not wait for terminal cleanup: %+v", r)
@@ -91,7 +92,9 @@ func TestWorkflowControlProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replacement.finish(nil)
+	if finishErr := replacement.finish(nil); finishErr != nil {
+		t.Fatal(finishErr)
+	}
 	if err := reused.close(); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +148,9 @@ func TestWorkflowControlUsesSeparateCLIProcess(t *testing.T) {
 	if reply.ID != w.id || reply.State != workflowRunning || !reply.Accepted {
 		t.Fatalf("unexpected separate process response: %+v", reply)
 	}
-	w.finish(nil)
+	if finishErr := w.finish(nil); finishErr != nil {
+		t.Fatal(finishErr)
+	}
 }
 
 func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {
@@ -172,7 +177,7 @@ func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {
 		select {
 		case <-runFinished:
 		default:
-			_, _, _ = executeWorkflowCommand(t, "stop", id)
+			_, _ = executeWorkflowCommand(t, "stop", id)
 			select {
 			case <-runFinished:
 			case <-time.After(5 * time.Second):
@@ -183,11 +188,11 @@ func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {
 	if got := workflowReceive(t, in.entered); got != "first" {
 		t.Fatalf("first input = %q", got)
 	}
-	status, _, err := executeWorkflowCommand(t, "status", id)
+	status, err := executeWorkflowCommand(t, "status", id)
 	if err != nil || status.State != workflowRunning || status.CurrentStep != 1 || status.CurrentStepPhase != "running" {
 		t.Fatalf("running status = %+v, err = %v", status, err)
 	}
-	stopped, _, err := executeWorkflowCommand(t, "stop", id)
+	stopped, err := executeWorkflowCommand(t, "stop", id)
 	if err != nil || stopped.State != workflowStopped || stopped.CurrentStep != 1 || stopped.CurrentStepPhase != "canceled" {
 		t.Fatalf("stop result = %+v, err = %v", stopped, err)
 	}
@@ -195,7 +200,7 @@ func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {
 	if err := workflowReceive(t, runDone); !errors.Is(err, context.Canceled) {
 		t.Fatalf("controlled run error = %v, want context canceled", err)
 	}
-	terminal, _, err := executeWorkflowCommand(t, "status", id)
+	terminal, err := executeWorkflowCommand(t, "status", id)
 	if err != nil || terminal.State != workflowStopped || terminal.CurrentStep != 1 || terminal.CurrentStepPhase != "canceled" {
 		t.Fatalf("persisted status = %+v, err = %v", terminal, err)
 	}
@@ -210,7 +215,7 @@ func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {
 	root.Close()
 }
 
-func executeWorkflowCommand(t *testing.T, operation, id string) (workflowReply, string, error) {
+func executeWorkflowCommand(t *testing.T, operation, id string) (workflowReply, error) {
 	t.Helper()
 	cmd := workflowCmd()
 	var output bytes.Buffer
@@ -220,9 +225,9 @@ func executeWorkflowCommand(t *testing.T, operation, id string) (workflowReply, 
 	err := cmd.Execute()
 	var reply workflowReply
 	if decodeErr := json.Unmarshal(output.Bytes(), &reply); decodeErr != nil {
-		return reply, output.String(), errors.Join(err, decodeErr)
+		return reply, errors.Join(err, fmt.Errorf("decode workflow response %q: %w", output.String(), decodeErr))
 	}
-	return reply, output.String(), err
+	return reply, err
 }
 
 func TestWorkflowControlRejectsReusedPIDIdentity(t *testing.T) {
@@ -258,7 +263,9 @@ func TestWorkflowControlRejectsReusedPIDIdentity(t *testing.T) {
 	if _, err := workflowCall(context.Background(), clientRoot, w.id, "status"); !errors.Is(err, errNamedStale) {
 		t.Fatalf("got %v, want stale owner identity", err)
 	}
-	w.finish(nil)
+	if finishErr := w.finish(nil); finishErr != nil {
+		t.Fatal(finishErr)
+	}
 }
 
 func TestWorkflowControlRejectsSocketSymlink(t *testing.T) {
@@ -291,7 +298,9 @@ func TestWorkflowControlRejectsSocketSymlink(t *testing.T) {
 	if _, err := os.Stat("/etc/passwd"); err != nil {
 		t.Fatalf("symlink target unexpectedly unavailable: %v", err)
 	}
-	w.finish(nil)
+	if finishErr := w.finish(nil); finishErr != nil {
+		t.Fatal(finishErr)
+	}
 }
 
 func TestWorkflowRequestValidation(t *testing.T) {
@@ -404,6 +413,8 @@ func TestWorkflowWaitTerminalDoesNotPoll(t *testing.T) {
 		workflowWaitTerminal(w, time.Second)
 		close(done)
 	}()
-	w.finish(nil)
+	if finishErr := w.finish(nil); finishErr != nil {
+		t.Fatal(finishErr)
+	}
 	workflowReceive(t, done)
 }

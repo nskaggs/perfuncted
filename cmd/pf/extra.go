@@ -233,29 +233,36 @@ func (s *scriptRunner) run(r io.Reader) (runErr error) {
 				return err
 			}
 		}
-		line := strings.TrimSpace(string(lineBytes))
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		toks, err := splitShell(line)
-		if err != nil {
-			return fmt.Errorf("script line %d: %w", lineNo, err)
-		}
-		if len(toks) == 0 {
-			continue
-		}
-		step++
-		s.lifecycle.beginStep(step, "waiting")
-		if err := s.lifecycle.checkpoint(); err != nil {
+		if err := s.runLine(lineNo, string(lineBytes), &step); err != nil {
 			return err
 		}
-		s.lifecycle.beginStep(step, "running")
-		if err := s.exec(lineNo, toks); err != nil {
-			s.lifecycle.beginStep(step, "failed")
-			return err
-		}
-		s.lifecycle.completeStep(step)
 	}
+}
+
+func (s *scriptRunner) runLine(lineNo int, raw string, step *int) error {
+	line := strings.TrimSpace(raw)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return nil
+	}
+	toks, err := splitShell(line)
+	if err != nil {
+		return fmt.Errorf("script line %d: %w", lineNo, err)
+	}
+	if len(toks) == 0 {
+		return nil
+	}
+	*step++
+	s.lifecycle.beginStep(*step, "waiting")
+	if err := s.lifecycle.checkpoint(); err != nil {
+		return err
+	}
+	s.lifecycle.beginStep(*step, "running")
+	if err := s.exec(lineNo, toks); err != nil {
+		s.lifecycle.beginStep(*step, "failed")
+		return err
+	}
+	s.lifecycle.completeStep(*step)
+	return nil
 }
 
 func splitShell(s string) ([]string, error) {
@@ -572,39 +579,7 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 	}
 	switch toks[0] {
 	case "type":
-		var stdin bool
-		var text string
-		for i := 1; i < len(toks); i++ {
-			switch toks[i] {
-			case "--stdin":
-				stdin = true
-			default:
-				if text == "" {
-					text = toks[i]
-				} else {
-					text += " " + toks[i]
-				}
-			}
-		}
-		if stdin {
-			if s.externalLifecycle {
-				return errors.New("input type --stdin is not available with workflow controls because stream reads cannot be interrupted")
-			}
-			b, err := io.ReadAll(s.in)
-			if err != nil {
-				return err
-			}
-			text = string(b)
-		}
-		if s.externalLifecycle {
-			if err := input.ValidateWorkflowKeySend(s.ctx, text); err != nil {
-				return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
-			}
-		}
-		if err := s.pf.Input.Type(s.ctx, text); err != nil {
-			return err
-		}
-		return s.syncInput()
+		return s.execInputType(lineNo, toks)
 	case "type-literal":
 		if len(toks) != 2 {
 			return fmt.Errorf("script line %d: input type-literal requires exactly one text argument", lineNo)
@@ -622,6 +597,42 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 	default:
 		return fmt.Errorf("script line %d: unsupported input subcommand %q", lineNo, toks[0])
 	}
+}
+
+func (s *scriptRunner) execInputType(lineNo int, toks []string) error {
+	var stdin bool
+	var text string
+	for i := 1; i < len(toks); i++ {
+		switch toks[i] {
+		case "--stdin":
+			stdin = true
+		default:
+			if text == "" {
+				text = toks[i]
+			} else {
+				text += " " + toks[i]
+			}
+		}
+	}
+	if stdin {
+		if s.externalLifecycle {
+			return errors.New("input type --stdin is not available with workflow controls because stream reads cannot be interrupted")
+		}
+		b, err := io.ReadAll(s.in)
+		if err != nil {
+			return err
+		}
+		text = string(b)
+	}
+	if s.externalLifecycle {
+		if err := input.ValidateWorkflowKeySend(s.ctx, text); err != nil {
+			return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
+		}
+	}
+	if err := s.pf.Input.Type(s.ctx, text); err != nil {
+		return err
+	}
+	return s.syncInput()
 }
 
 func (s *scriptRunner) syncInput() error {

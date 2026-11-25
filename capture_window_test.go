@@ -36,13 +36,13 @@ func windowCaptureFixture(
 	t *testing.T,
 	info window.Info,
 	grab func(context.Context, image.Rectangle) (image.Image, error),
-) (*Session, *handleWindowManager, *windowCaptureScreenshotter) {
+) (*Session, *handleWindowManager) {
 	t.Helper()
 	manager := newHandleWindowManager(info)
 	screenshot := &windowCaptureScreenshotter{grab: grab}
 	session := NewSessionForTesting(screenshot, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	return session, manager, screenshot
+	return session, manager
 }
 
 func TestCaptureWindowUsesFreshBoundsAndDoesNotActivate(t *testing.T) {
@@ -53,7 +53,7 @@ func TestCaptureWindowUsesFreshBoundsAndDoesNotActivate(t *testing.T) {
 	want := image.Rect(-20, 30, 20, 55)
 	var got image.Rectangle
 	grabs := 0
-	session, manager, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	session, manager := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		got = rect
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
@@ -92,7 +92,7 @@ func TestCaptureWindowUsesFreshBoundsAndDoesNotActivate(t *testing.T) {
 
 func TestCaptureWindowAcceptsUniformHiDPIScale(t *testing.T) {
 	info := window.Info{NativeID: "scaled", Title: "Scaled", X: 5, Y: 10, W: 40, H: 30}
-	session, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx()*2, rect.Dy()*2)), nil
 	})
 	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Scaled"})
@@ -116,7 +116,7 @@ func TestCaptureWindowAcceptsUniformHiDPIScale(t *testing.T) {
 func TestCaptureWindowRejectsClippedCapture(t *testing.T) {
 	info := window.Info{NativeID: "offscreen", Title: "Offscreen", X: -10, Y: 10, W: 30, H: 20}
 	grabs := 0
-	session, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx()-10, rect.Dy())), nil
 	})
@@ -143,7 +143,7 @@ func TestCaptureWindowRejectsMinimizedAndMissingGeometryBeforeCapture(t *testing
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			grabs := 0
-			session, _, _ := windowCaptureFixture(t, tc.info, func(context.Context, image.Rectangle) (image.Image, error) {
+			session, _ := windowCaptureFixture(t, tc.info, func(context.Context, image.Rectangle) (image.Image, error) {
 				grabs++
 				return image.NewRGBA(image.Rect(0, 0, 32, 32)), nil
 			})
@@ -173,7 +173,7 @@ func TestCaptureWindowRejectsIdentityOrGeometryChangesDuringCapture(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			initial := window.Info{NativeID: "same-id", Title: "Editor", AppID: "editor", PID: 41, X: 1, Y: 2, W: 20, H: 10}
 			var manager *handleWindowManager
-			session, m, _ := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+			session, m := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 				manager.setWindows(false, tc.updated)
 				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 			})
@@ -192,7 +192,7 @@ func TestCaptureWindowRejectsIdentityOrGeometryChangesDuringCapture(t *testing.T
 func TestCaptureWindowRejectsReplacementBeforeCapture(t *testing.T) {
 	initial := window.Info{NativeID: "reused-id", Title: "Editor", AppID: "editor", PID: 41, X: 1, Y: 2, W: 20, H: 10}
 	grabs := 0
-	session, manager, _ := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	session, manager := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
@@ -211,7 +211,7 @@ func TestCaptureWindowRejectsReplacementBeforeCapture(t *testing.T) {
 
 func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 	info := window.Info{NativeID: "window", Title: "Editor", X: 1, Y: 2, W: 20, H: 10}
-	first, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	first, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
 	target, err := first.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
@@ -219,7 +219,7 @@ func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	grabs := 0
-	second, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	second, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
@@ -233,7 +233,7 @@ func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 
 func TestCaptureWindowToWritesPNGAndReturnsMetadata(t *testing.T) {
 	info := window.Info{NativeID: "editor", Title: "Editor", X: 3, Y: 4, W: 5, H: 2}
-	session, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
 	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
@@ -274,7 +274,7 @@ func TestCaptureWindowToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *te
 		t.Run(tc.name, func(t *testing.T) {
 			info := window.Info{NativeID: "editor", Title: "Editor", X: 1, Y: 2, W: 3, H: 2}
 			grabs := 0
-			session, _, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+			session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 				grabs++
 				if tc.grabErr != nil {
 					return nil, tc.grabErr

@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"sync"
+
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 type workflowState string
@@ -45,9 +47,7 @@ type workflowStatus struct {
 }
 
 func newWorkflowLifecycle(parent context.Context) *workflowLifecycle {
-	if parent == nil {
-		parent = context.Background()
-	}
+	parent = contextutil.Default(parent)
 	ctx, cancel := context.WithCancel(parent)
 	return &workflowLifecycle{id: rand.Text(), ctx: ctx, cancel: cancel, state: workflowRunning, changed: make(chan struct{})}
 }

@@ -125,6 +125,15 @@ func closeBackend[T interface{ Close() error }](backend T) error {
 	return backend.Close()
 }
 
+func matchesOperationError(err error, targets ...error) bool {
+	for _, target := range targets {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *bundleBase) operationError(operation string, err error) error {
 	if err == nil {
 		return nil
@@ -132,17 +141,17 @@ func (b *bundleBase) operationError(operation string, err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	if errors.Is(err, input.ErrObservationUnsupported) || errors.Is(err, input.ErrNotSupported) || errors.Is(err, window.ErrNotSupported) || errors.Is(err, accessibility.ErrUnsupported) || errors.Is(err, accessibility.ErrUnsupportedCorrelation) {
+	if matchesOperationError(err, input.ErrObservationUnsupported, input.ErrNotSupported, window.ErrNotSupported, accessibility.ErrUnsupported, accessibility.ErrUnsupportedCorrelation) {
 		err = errors.Join(ErrUnsupported, err)
 	}
-	if errors.Is(err, input.ErrInvalidObservationFilter) || errors.Is(err, input.ErrInvalidStateQuery) || errors.Is(err, window.ErrInvalidArgument) {
+	if matchesOperationError(err, input.ErrInvalidObservationFilter, input.ErrInvalidStateQuery, window.ErrInvalidArgument) {
 		err = errors.Join(ErrInvalidArgument, err)
 	}
 	var unsupported capability.UnsupportedError
 	if errors.As(err, &unsupported) {
 		err = errors.Join(ErrUnsupported, err)
 	}
-	if errors.Is(err, gnomebridge.ErrUnavailable) || errors.Is(err, clipboard.ErrNoClipboardTool) || errors.Is(err, util.ErrNotAvailable) {
+	if matchesOperationError(err, gnomebridge.ErrUnavailable, clipboard.ErrNoClipboardTool, util.ErrNotAvailable) {
 		err = errors.Join(ErrUnavailable, err)
 	}
 	return &OperationError{

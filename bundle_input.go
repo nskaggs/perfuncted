@@ -360,32 +360,13 @@ func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 // scale/provenance metadata return ErrUnsupported so callers cannot mistake a
 // browser CSS coordinate for a physical pointer coordinate.
 func (b *InputBundle) PointerCoordinateSpace(ctx context.Context) (input.CoordinateSpaceInfo, error) {
-	if err := b.checkAvailable("pointer-coordinate-space"); err != nil {
-		return input.CoordinateSpaceInfo{}, err
-	}
-	ctx, cancel := b.operationContext(ctx)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return input.CoordinateSpaceInfo{}, err
-	}
-	reporter, ok := b.backend.(input.PointerCoordinateSpaceReporter)
-	if !ok {
-		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", input.ErrNotSupported)
-	}
-	info, err := reporter.PointerCoordinateSpace(ctx)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return input.CoordinateSpaceInfo{}, errors.Join(ctxErr, b.operationError("pointer-coordinate-space", err))
-	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return input.CoordinateSpaceInfo{}, errors.Join(openErr, b.operationError("pointer-coordinate-space", err))
-	}
-	if err != nil {
-		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", err)
-	}
-	if err := info.Validate(); err != nil {
-		return input.CoordinateSpaceInfo{}, b.operationError("pointer-coordinate-space", err)
-	}
-	return info, nil
+	return observeInput(ctx, b, "pointer-coordinate-space", func(ctx context.Context) (input.CoordinateSpaceInfo, error) {
+		reporter, ok := b.backend.(input.PointerCoordinateSpaceReporter)
+		if !ok {
+			return input.CoordinateSpaceInfo{}, input.ErrNotSupported
+		}
+		return reporter.PointerCoordinateSpace(ctx)
+	})
 }
 
 // Sync flushes pending input when the backend supports synchronization.
@@ -483,33 +464,41 @@ func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, dura
 	return nil
 }
 
-// ObservePointer returns an authoritative position and its provider-native units.
-// It never falls back to another capability or to remembered injection targets.
-func (b *InputBundle) ObservePointer(ctx context.Context) (input.PointerObservation, error) {
-	if err := b.checkAvailable("pointer-location"); err != nil {
-		return input.PointerObservation{}, err
+// observeInput preserves cancellation and session authority around native observations.
+func observeInput[T interface{ Validate() error }](ctx context.Context, b *InputBundle, operation string, observe func(context.Context) (T, error)) (T, error) {
+	var zero T
+	if err := b.checkAvailable(operation); err != nil {
+		return zero, err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		return input.PointerObservation{}, err
+		return zero, err
 	}
-	observer, ok := b.backend.(input.PointerObserver)
-	if !ok {
-		return input.PointerObservation{}, b.operationError("pointer-location", input.ErrNotSupported)
-	}
-	result, err := observer.ObservePointer(ctx)
+	result, err := observe(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return input.PointerObservation{}, errors.Join(ctxErr, b.operationError("pointer-location", err))
+		return zero, errors.Join(ctxErr, b.operationError(operation, err))
 	}
 	if openErr := b.session.ensureOpen(); openErr != nil {
-		return input.PointerObservation{}, errors.Join(openErr, b.operationError("pointer-location", err))
+		return zero, errors.Join(openErr, b.operationError(operation, err))
 	}
 	if err != nil {
-		return input.PointerObservation{}, b.operationError("pointer-location", err)
+		return zero, b.operationError(operation, err)
 	}
 	if err := result.Validate(); err != nil {
-		return input.PointerObservation{}, b.operationError("pointer-location", err)
+		return zero, b.operationError(operation, err)
 	}
 	return result, nil
+}
+
+// ObservePointer returns an authoritative position and its provider-native units.
+// It never falls back to another capability or to remembered injection targets.
+func (b *InputBundle) ObservePointer(ctx context.Context) (input.PointerObservation, error) {
+	return observeInput(ctx, b, "pointer-location", func(ctx context.Context) (input.PointerObservation, error) {
+		observer, ok := b.backend.(input.PointerObserver)
+		if !ok {
+			return input.PointerObservation{}, input.ErrNotSupported
+		}
+		return observer.ObservePointer(ctx)
+	})
 }

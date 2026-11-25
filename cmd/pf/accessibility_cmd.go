@@ -180,12 +180,7 @@ func accessibilityOutput(w io.Writer, jsonMode bool, value any) error {
 func writeAccessibilityText(w io.Writer, value any) error {
 	switch typed := value.(type) {
 	case []accessibility.Application:
-		for _, app := range typed {
-			if _, err := fmt.Fprintf(w, "%s\tpid=%d\t%s/%s@%d\n", app.Name, app.PID, app.ID.BusName, app.ID.ObjectPath, app.ID.Generation); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeAccessibilityApplications(w, typed)
 	case accessibility.Node:
 		return writeAccessibilityNode(w, typed, "")
 	case []accessibility.Node:
@@ -219,6 +214,15 @@ func writeAccessibilityText(w io.Writer, value any) error {
 		_, err := fmt.Fprintln(w, value)
 		return err
 	}
+}
+
+func writeAccessibilityApplications(w io.Writer, apps []accessibility.Application) error {
+	for _, app := range apps {
+		if _, err := fmt.Fprintf(w, "%s\tpid=%d\t%s/%s@%d\n", app.Name, app.PID, app.ID.BusName, app.ID.ObjectPath, app.ID.Generation); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeAccessibilityWaitResult(w io.Writer, result accessibilityWaitCLIResult) error {

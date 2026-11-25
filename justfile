@@ -173,6 +173,10 @@ test: test-unit
 test-integration-suite MODE:
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER={{MODE}} go test -tags=integration ./integration -run '^Test(Integration|WindowCaptureIntegration|RetryChangedSnapshot)$' -count=1
 
+# Strict real framebuffer, OCR, pointer and incremental screen stream tests.
+test-release-visual-x11:
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-x11 go test -tags=integration ./integration -run '^TestReleaseVisualAcceptanceX11$' -count=1 -v
+
 # Exercise native X11 keyboard/mouse observation, cancellation and shutdown
 # using a fresh private Xvfb per test; generic backend tests skip these.
 _test-input-observation-x11 TESTNAME:
@@ -191,6 +195,7 @@ test-session:
 
 # Run the shared integration suite against headless X11.
 test-integration-headless-x11:
+    just test-release-visual-x11
     just test-integration-suite headless-x11
 
 # Run the shared integration suite against nested X11.
@@ -203,8 +208,13 @@ test-integration-nested-x11-debug:
 
 # Run the shared integration suite against headless Wayland.
 test-integration-headless-wayland:
+    just test-release-named-sessions
     just test-integration-suite headless-wayland
     CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./cmd/pf -run '^TestWorkflowControlHeadlessWayland$' -count=1
+
+# Verify named session lifecycle with real CLI processes and independent Sway sessions.
+test-release-named-sessions:
+    CGO_ENABLED=0 PF_TEST_DISPLAY_SERVER=headless-wayland go test -tags=integration ./integration -run '^TestReleaseNamedSessions$' -count=1 -v
 
 # Strict KDE/Qt + GNOME/GTK AT-SPI certification in headless Wayland.
 # Unlike the general integration suite, missing accessibility or application
@@ -227,6 +237,8 @@ test-integration-backends:
 # Run the general display, session, and backend integration coverage. Strict
 # KDE/GTK AT-SPI certification is a separate required CI gate below.
 test-integration:
+    just test-release-visual-x11
+    just test-release-named-sessions
     just test-integration-suite headless-x11
     just test-input-observation-x11
     just test-integration-suite nested-x11

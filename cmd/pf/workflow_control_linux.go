@@ -141,7 +141,7 @@ func workflowWriteTerminalStatus(dir *os.File, status workflowStatus) error {
 		return err
 	}
 	f := os.NewFile(uintptr(fd), "status.tmp")
-	defer unix.Unlinkat(int(dir.Fd()), "status.tmp", 0)
+	defer func() { _ = unix.Unlinkat(int(dir.Fd()), "status.tmp", 0) }()
 	if err = json.NewEncoder(f).Encode(status); err != nil {
 		_ = f.Close()
 		return err
@@ -150,8 +150,8 @@ func workflowWriteTerminalStatus(dir *os.File, status workflowStatus) error {
 		_ = f.Close()
 		return err
 	}
-	if err = f.Close(); err != nil {
-		return err
+	if closeErr := f.Close(); closeErr != nil {
+		return closeErr
 	}
 	return unix.Renameat2(int(dir.Fd()), "status.tmp", int(dir.Fd()), "status", unix.RENAME_NOREPLACE)
 }
@@ -164,8 +164,8 @@ func workflowReadTerminalStatus(dir *os.File, id string) (workflowStatus, error)
 	}
 	f := os.NewFile(uintptr(fd), "status")
 	defer f.Close()
-	if err := namedCheck(fd, unix.S_IFREG, 0600, true); err != nil {
-		return status, err
+	if checkErr := namedCheck(fd, unix.S_IFREG, 0600, true); checkErr != nil {
+		return status, checkErr
 	}
 	data, err := io.ReadAll(io.LimitReader(f, 4097))
 	if err != nil {
@@ -183,32 +183,8 @@ func workflowReadTerminalStatus(dir *os.File, id string) (workflowStatus, error)
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return status, errors.New("terminal workflow status must contain one JSON object")
 	}
-	if status.ID != id || status.LastCompletedStep < 0 || status.CurrentStep < 0 {
-		return status, errors.New("invalid terminal workflow status")
-	}
-	if status.CurrentStep == 0 {
-		if status.CurrentStepPhase != "" {
-			return status, errors.New("terminal workflow phase has no current step")
-		}
-	} else if status.CurrentStep != status.LastCompletedStep+1 {
-		return status, errors.New("terminal workflow steps are inconsistent")
-	}
-	switch status.State {
-	case workflowStopped, workflowFailed, workflowCompleted:
-	default:
-		return status, errors.New("workflow status is not terminal")
-	}
-	if status.CurrentStep != 0 {
-		switch status.CurrentStepPhase {
-		case "waiting", "running", "failed", "canceled":
-		default:
-			return status, errors.New("invalid terminal workflow phase")
-		}
-	}
-	switch status.TerminalError {
-	case "", "canceled", "deadline_exceeded", "operation_failed":
-	default:
-		return status, errors.New("invalid workflow error category")
+	if err := validateTerminalWorkflowStatus(status, id); err != nil {
+		return status, err
 	}
 	return status, nil
 }
@@ -317,93 +293,31 @@ func workflowCall(ctx context.Context, root *os.File, id, operation string) (wor
 	if rec.Name != id {
 		return reply, errors.New("workflow name mismatch")
 	}
-	var endpoint unix.Stat_t
-	if err = unix.Fstatat(int(dir.Fd()), "control", &endpoint, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			status, statusErr := workflowReadTerminalStatus(dir, id)
-			if statusErr == nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return workflowReply{}, ctxErr
-				}
-				return workflowReplyFor(status, operation == "status"), nil
-			}
-		}
-		return reply, err
-	}
-	if endpoint.Mode != unix.S_IFSOCK|0600 || endpoint.Uid != uint32(os.Geteuid()) || endpoint.Nlink != 1 {
-		return reply, errors.New("unsafe workflow socket")
-	}
-	start, err := namedProcStart(rec.PID)
-	if err != nil || start != rec.Start {
-		return reply, errNamedStale
-	}
-	dialer := net.Dialer{Timeout: time.Second}
-	conn, err := dialer.DialContext(ctx, "unix", namedFDPath(dir, "control"))
+	conn, endpoint, terminal, err := dialWorkflowEndpoint(ctx, dir, rec, id, operation)
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return reply, ctxErr
-		}
-		if errors.Is(err, unix.ECONNREFUSED) || errors.Is(err, os.ErrNotExist) {
-			status, statusErr := workflowReadTerminalStatus(dir, id)
-			if statusErr == nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return reply, ctxErr
-				}
-				return workflowReplyFor(status, operation == "status"), nil
-			}
-		}
 		return reply, err
+	}
+	if terminal != nil {
+		return *terminal, nil
 	}
 	defer conn.Close()
-	client := conn.(*net.UnixConn)
+	client, ok := conn.(*net.UnixConn)
+	if !ok {
+		return reply, errors.New("unexpected workflow connection type")
+	}
 	deadline := time.Now().Add(6 * time.Second)
 	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
 		deadline = contextDeadline
 	}
-	_ = client.SetDeadline(deadline)
+	if deadlineErr := client.SetDeadline(deadline); deadlineErr != nil {
+		return reply, deadlineErr
+	}
 	cancelWatch := context.AfterFunc(ctx, func() { _ = client.Close() })
 	defer cancelWatch()
-	peer, err := namedPeer(client)
-	if err != nil || peer.Uid != uint32(os.Geteuid()) || int(peer.Pid) != rec.PID {
-		return reply, errors.New("workflow owner authentication failed")
-	}
-	start, err = namedProcStart(rec.PID)
-	if err != nil || start != rec.Start {
-		return reply, errors.New("workflow owner identity changed")
-	}
-	var current unix.Stat_t
-	if err = unix.Fstatat(int(dir.Fd()), "control", &current, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameWorkflowSocket(endpoint, current) {
-		return reply, errors.New("workflow endpoint changed")
-	}
-	if err = ctx.Err(); err != nil {
+	if err := authenticateWorkflowEndpoint(client, dir, rec, endpoint); err != nil {
 		return reply, err
 	}
-	if err = json.NewEncoder(client).Encode(workflowRequest{ID: id, Operation: operation}); err != nil {
-		return reply, err
-	}
-	decoder := json.NewDecoder(io.LimitReader(client, workflowControlFrameLimit+1))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&reply); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return workflowReply{}, ctxErr
-		}
-		// A read-only status request can recover authoritative terminal
-		// evidence if the authenticated owner exits before replying.
-		if operation == "status" && (errors.Is(err, io.EOF) || errors.Is(err, unix.ECONNRESET)) {
-			status, statusErr := workflowReadTerminalStatus(dir, id)
-			if statusErr == nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return workflowReply{}, ctxErr
-				}
-				return workflowReplyFor(status, true), nil
-			}
-		}
-		return reply, err
-	}
-	if reply.ID != id {
-		return workflowReply{}, errors.New("workflow reply ID mismatch")
-	}
-	return reply, ctx.Err()
+	return exchangeWorkflowRequest(ctx, client, dir, id, operation)
 }
 
 func workflowCmd() *cobra.Command {
@@ -463,4 +377,122 @@ do not provide a global hotkey or process supervisor.`,
 		group.AddCommand(cmd)
 	}
 	return group
+}
+
+func validateTerminalWorkflowStatus(status workflowStatus, id string) error {
+	if status.ID != id || status.LastCompletedStep < 0 || status.CurrentStep < 0 {
+		return errors.New("invalid terminal workflow status")
+	}
+	if status.CurrentStep == 0 {
+		if status.CurrentStepPhase != "" {
+			return errors.New("terminal workflow phase has no current step")
+		}
+	} else if status.CurrentStep != status.LastCompletedStep+1 {
+		return errors.New("terminal workflow steps are inconsistent")
+	}
+	switch status.State {
+	case workflowStopped, workflowFailed, workflowCompleted:
+	default:
+		return errors.New("workflow status is not terminal")
+	}
+	if status.CurrentStep != 0 {
+		switch status.CurrentStepPhase {
+		case "waiting", "running", "failed", "canceled":
+		default:
+			return errors.New("invalid terminal workflow phase")
+		}
+	}
+	switch status.TerminalError {
+	case "", "canceled", "deadline_exceeded", "operation_failed":
+	default:
+		return errors.New("invalid workflow error category")
+	}
+	return nil
+}
+
+func dialWorkflowEndpoint(ctx context.Context, dir *os.File, rec namedRecord, id, operation string) (net.Conn, unix.Stat_t, *workflowReply, error) {
+	var endpoint unix.Stat_t
+	if err := unix.Fstatat(int(dir.Fd()), "control", &endpoint, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if reply, ok, terminalErr := recoverWorkflowReply(ctx, dir, id, operation); ok {
+				return nil, endpoint, &reply, terminalErr
+			}
+		}
+		return nil, endpoint, nil, err
+	}
+	if endpoint.Mode != unix.S_IFSOCK|0600 || endpoint.Uid != uint32(os.Geteuid()) || endpoint.Nlink != 1 {
+		return nil, endpoint, nil, errors.New("unsafe workflow socket")
+	}
+	start, err := namedProcStart(rec.PID)
+	if err != nil || start != rec.Start {
+		return nil, endpoint, nil, errNamedStale
+	}
+	dialer := net.Dialer{Timeout: time.Second}
+	conn, err := dialer.DialContext(ctx, "unix", namedFDPath(dir, "control"))
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, endpoint, nil, ctxErr
+		}
+		if errors.Is(err, unix.ECONNREFUSED) || errors.Is(err, os.ErrNotExist) {
+			if reply, ok, terminalErr := recoverWorkflowReply(ctx, dir, id, operation); ok {
+				return nil, endpoint, &reply, terminalErr
+			}
+		}
+		return nil, endpoint, nil, err
+	}
+	return conn, endpoint, nil, nil
+}
+
+func recoverWorkflowReply(ctx context.Context, dir *os.File, id, operation string) (workflowReply, bool, error) {
+	status, err := workflowReadTerminalStatus(dir, id)
+	if err != nil {
+		return workflowReply{}, false, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return workflowReply{}, true, ctxErr
+	}
+	return workflowReplyFor(status, operation == "status"), true, nil
+}
+
+func authenticateWorkflowEndpoint(client *net.UnixConn, dir *os.File, rec namedRecord, endpoint unix.Stat_t) error {
+	peer, err := namedPeer(client)
+	if err != nil || peer.Uid != uint32(os.Geteuid()) || int(peer.Pid) != rec.PID {
+		return errors.New("workflow owner authentication failed")
+	}
+	start, err := namedProcStart(rec.PID)
+	if err != nil || start != rec.Start {
+		return errors.New("workflow owner identity changed")
+	}
+	var current unix.Stat_t
+	if err := unix.Fstatat(int(dir.Fd()), "control", &current, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameWorkflowSocket(endpoint, current) {
+		return errors.New("workflow endpoint changed")
+	}
+	return nil
+}
+
+func exchangeWorkflowRequest(ctx context.Context, client *net.UnixConn, dir *os.File, id, operation string) (workflowReply, error) {
+	var reply workflowReply
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return reply, ctxErr
+	}
+	if encodeErr := json.NewEncoder(client).Encode(workflowRequest{ID: id, Operation: operation}); encodeErr != nil {
+		return reply, encodeErr
+	}
+	decoder := json.NewDecoder(io.LimitReader(client, workflowControlFrameLimit+1))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reply); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return workflowReply{}, ctxErr
+		}
+		if operation == "status" && (errors.Is(err, io.EOF) || errors.Is(err, unix.ECONNRESET)) {
+			if recovered, ok, terminalErr := recoverWorkflowReply(ctx, dir, id, operation); ok {
+				return recovered, terminalErr
+			}
+		}
+		return reply, err
+	}
+	if reply.ID != id {
+		return workflowReply{}, errors.New("workflow reply ID mismatch")
+	}
+	return reply, ctx.Err()
 }

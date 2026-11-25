@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 // keySend represents a parsed key-send action produced by parseKeySend.
@@ -65,9 +67,7 @@ func parseKeySend(input string) ([]keySend, error) {
 // syntactically balanced sequence is unsafe when stop can cancel its operation.
 // Atomic chords remain supported because each backend owns their cleanup.
 func ValidateWorkflowKeySend(ctx context.Context, sequence string) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = contextutil.Default(ctx)
 	actions, err := parseKeySendContext(ctx, sequence)
 	if err != nil {
 		return err

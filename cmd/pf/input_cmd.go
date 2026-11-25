@@ -470,9 +470,9 @@ func inputCmd(
 			}
 			defer pf.Close()
 			if locationOutput == "json" {
-				result, err := pf.Input.ObservePointer(cmd.Context())
-				if err != nil {
-					return err
+				result, observeErr := pf.Input.ObservePointer(cmd.Context())
+				if observeErr != nil {
+					return observeErr
 				}
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 			}

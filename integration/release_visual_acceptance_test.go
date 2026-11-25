@@ -1,0 +1,193 @@
+//go:build integration && linux
+
+package integration_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/jezek/xgb"
+	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/input"
+)
+
+// This lane owns a real native X11 framebuffer; the independent X client
+// establishes expected pixels rather than deriving expectations from pf.
+func TestReleaseVisualAcceptanceX11(t *testing.T) {
+	s := mustSuite(t)
+	if s.mode != displayHeadlessX11 {
+		t.Fatal("release visual acceptance requires isolated native X11")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	conn, err := xgb.NewConnDisplay(s.rt.Get("DISPLAY"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	root := xproto.Setup(conn).DefaultScreen(conn)
+	win, err := xproto.NewWindowId(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := xproto.CreateWindowChecked(conn, root.RootDepth, win, root.Root, 40, 40, 420, 200, 0,
+		xproto.WindowClassInputOutput, root.RootVisual, xproto.CwBackPixel|xproto.CwOverrideRedirect,
+		[]uint32{0xffffff, 1}).Check(); err != nil {
+		t.Fatal(err)
+	}
+	if err := xproto.MapWindowChecked(conn, win).Check(); err != nil {
+		t.Fatal(err)
+	}
+	gc, err := xproto.NewGcontextId(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := xproto.CreateGCChecked(conn, gc, xproto.Drawable(win), xproto.GcForeground, []uint32{0}).Check(); err != nil {
+		t.Fatal(err)
+	}
+	paint := func(pixel uint32, rects ...xproto.Rectangle) {
+		t.Helper()
+		if err := xproto.ChangeGCChecked(conn, gc, xproto.GcForeground, []uint32{pixel}).Check(); err != nil {
+			t.Fatal(err)
+		}
+		if err := xproto.PolyFillRectangleChecked(conn, xproto.Drawable(win), gc, rects).Check(); err != nil {
+			t.Fatal(err)
+		}
+		conn.Sync()
+	}
+	t.Run("real-framebuffer-templates", func(t *testing.T) {
+		paint(0xff0000, xproto.Rectangle{X: 12, Y: 150, Width: 10, Height: 10}, xproto.Rectangle{X: 42, Y: 150, Width: 10, Height: 10})
+		template := image.NewRGBA(image.Rect(0, 0, 10, 10))
+		for y := 0; y < 10; y++ {
+			for x := 0; x < 10; x++ {
+				template.SetRGBA(x, y, color.RGBA{R: 255, A: 255})
+			}
+		}
+		area := image.Rect(40, 180, 110, 210)
+		match, err := s.pf.Screen.FindTemplate(ctx, area, template, 1)
+		first, second := image.Rect(52, 190, 62, 200), image.Rect(82, 190, 92, 200)
+		if err != nil || match.Rect != first || match.Confidence != 1 {
+			t.Fatalf("best match = %+v, %v; want %v", match, err, first)
+		}
+		matches, err := s.pf.Screen.FindTemplates(ctx, area, template, 1, 4)
+		if err != nil || len(matches) != 2 || matches[0].Rect != first || matches[1].Rect != second {
+			t.Fatalf("ordered matches = %+v, %v; want %v, %v", matches, err, first, second)
+		}
+	})
+	binary := filepath.Join(t.TempDir(), "pf")
+	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../cmd/pf")
+	build.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build pf: %v: %s", err, out)
+	}
+	t.Run("real-screen-ocr", func(t *testing.T) {
+		glyphs := map[rune][]string{
+			'H': {"10001", "10001", "10001", "11111", "10001", "10001", "10001"},
+			'E': {"11111", "10000", "10000", "11110", "10000", "10000", "11111"},
+			'L': {"10000", "10000", "10000", "10000", "10000", "10000", "11111"},
+			'O': {"01110", "10001", "10001", "10001", "10001", "10001", "01110"},
+		}
+		var rects []xproto.Rectangle
+		for i, letter := range []rune("HELLO") {
+			for y, row := range glyphs[letter] {
+				for x, bit := range row {
+					if bit == '1' {
+						rects = append(rects, xproto.Rectangle{X: int16(12 + i*84 + x*12), Y: int16(24 + y*12), Width: 12, Height: 12})
+					}
+				}
+			}
+		}
+		paint(0, rects...)
+		cmd := exec.CommandContext(ctx, binary, "find", "text", "--query", "HELLO", "--rect", "40,40,460,180", "--provider", "tesseract", "--output", "json")
+		cmd.Env = s.rt.EnvList()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("real OCR CLI: %v: %s", err, stderr.String())
+		}
+		var got find.TextResult
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Matches) != 1 || got.Matches[0].Text != "HELLO" || got.Matches[0].Rect.Empty() ||
+			!got.Matches[0].Rect.In(image.Rect(40, 40, 460, 180)) || got.Matches[0].Confidence == nil {
+			t.Fatalf("unexpected real OCR result %+v", got)
+		}
+	})
+	t.Run("real-pointer-observation", func(t *testing.T) {
+		if err := s.pf.Input.MouseMove(ctx, 150, 150); err != nil {
+			t.Fatal(err)
+		}
+		want, err := xproto.QueryPointer(conn, root.Root).Reply()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.pf.Input.ObservePointer(ctx)
+		if err != nil || got.X != int(want.RootX) || got.Y != int(want.RootY) || got.X != 150 || got.Y != 150 ||
+			got.CoordinateSpace.Kind != input.PointerCoordinateSpaceRootPixels || got.Provider != "x11-root" || got.ObservedAt.IsZero() {
+			t.Fatalf("pointer = %+v, %v; native readback = %+v", got, err, want)
+		}
+	})
+	t.Run("real-screen-delta", func(t *testing.T) {
+		watchCtx, stop := context.WithTimeout(ctx, 12*time.Second)
+		defer stop()
+		cmd := exec.CommandContext(watchCtx, binary, "screen", "watch", "--changes", "--include-pixels", "--output", "json", "--rect", "240,180,320,220", "--poll", "50ms")
+		cmd.Env = s.rt.EnvList()
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { stop(); _ = cmd.Wait() }()
+		type frame struct {
+			ID     uint64            `json:"frame_id"`
+			Base   *uint64           `json:"base_frame_id"`
+			Full   bool              `json:"full_frame"`
+			Dirty  []image.Rectangle `json:"dirty_rects"`
+			Pixels []struct {
+				Data   []byte          `json:"data"`
+				Bounds image.Rectangle `json:"image_bounds"`
+			} `json:"pixels"`
+		}
+		decoder := json.NewDecoder(stdout)
+		var first, delta frame
+		if err := decoder.Decode(&first); err != nil || !first.Full || first.ID != 1 {
+			t.Fatalf("initial frame = %+v, %v", first, err)
+		}
+		paint(0x0000ff, xproto.Rectangle{X: 211, Y: 150, Width: 9, Height: 7})
+		if err := decoder.Decode(&delta); err != nil {
+			t.Fatal(fmt.Errorf("read changed frame: %w", err))
+		}
+		want := image.Rect(251, 190, 260, 197)
+		if delta.Full || delta.ID != 2 || delta.Base == nil || *delta.Base != first.ID || len(delta.Dirty) != 1 ||
+			delta.Dirty[0] != want || len(delta.Pixels) != 1 || delta.Pixels[0].Bounds != image.Rect(11, 10, 20, 17) {
+			t.Fatalf("delta does not describe exact independent paint: %+v; want %v", delta, want)
+		}
+		img, err := png.Decode(bytes.NewReader(delta.Pixels[0].Data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for y := 0; y < 7; y++ {
+			for x := 0; x < 9; x++ {
+				if color.RGBAModel.Convert(img.At(x, y)) != (color.RGBA{B: 255, A: 255}) {
+					t.Fatalf("delta pixel %d,%d is not blue", x, y)
+				}
+			}
+		}
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/pftest"
 	"github.com/spf13/cobra"
@@ -44,7 +45,7 @@ func TestNamedSessionIsolation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	doneA, doneB := make(chan error, 1), make(chan error, 1)
-	start := func(o *namedOwner, suffix string, finished chan error) (context.CancelFunc, chan struct{}) {
+	start := func(o *namedOwner, suffix string, finished chan error) chan struct{} {
 		t.Helper()
 		if err := o.publish(); err != nil {
 			t.Fatal(err)
@@ -56,10 +57,10 @@ func TestNamedSessionIsolation(t *testing.T) {
 			o.serve(c, namedSafeEnv(map[string]string{"XDG_RUNTIME_DIR": "/tmp/" + suffix, "WAYLAND_DISPLAY": "wayland-1", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/" + suffix + "/bus", "SECRET": "never-export"}), stop, finished)
 		}()
 		t.Cleanup(func() { stop(); o.listener.Close(); <-done })
-		return stop, done
+		return done
 	}
-	_, aDone := start(a, "a", doneA)
-	_, _ = start(b, "b", doneB)
+	aDone := start(a, "a", doneA)
+	_ = start(b, "b", doneB)
 	for _, o := range []*namedOwner{a, b} {
 		r, err := namedCall(ctx, o.root, o.record.Name, "attach")
 		if err != nil {
@@ -250,7 +251,7 @@ func TestNamedRecovery(t *testing.T) {
 			}
 			var st unix.Stat_t
 			err = unix.Fstatat(int(o.root.Fd()), o.record.Name, &st, unix.AT_SYMLINK_NOFOLLOW)
-			if wantOK && err != unix.ENOENT || !wantOK && err != nil {
+			if wantOK && !errors.Is(err, unix.ENOENT) || !wantOK && err != nil {
 				t.Fatalf("reservation state: %v", err)
 			}
 			if tc == "pid-reuse" {

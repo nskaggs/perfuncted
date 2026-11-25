@@ -14,7 +14,10 @@ import (
 func TestReviewDirtyRectExhaustivePatterns(t *testing.T) {
 	bounds := image.Rect(-2, 5, 1, 8)
 	for mask := 0; mask < 1<<9; mask++ {
-		a := image.NewNRGBA(image.Rect(-4, 3, 4, 10)).SubImage(bounds).(*image.NRGBA)
+		a, ok := image.NewNRGBA(image.Rect(-4, 3, 4, 10)).SubImage(bounds).(*image.NRGBA)
+		if !ok {
+			t.Fatal("unexpected image type")
+		}
 		b := image.NewNRGBA(bounds)
 		for i := 0; i < 9; i++ {
 			if mask&(1<<i) != 0 {

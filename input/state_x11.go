@@ -14,8 +14,8 @@ func (b *x11Observer) stateConnection(ctx context.Context) (*xgb.Conn, func(), e
 	if ctx == nil {
 		return nil, nil, fmt.Errorf("%w: nil context", ErrInvalidStateQuery)
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
 	}
 	b.mu.Lock()
 	closed := b.closed
@@ -30,9 +30,9 @@ func (b *x11Observer) stateConnection(ctx context.Context) (*xgb.Conn, func(), e
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if ctxErr := ctx.Err(); ctxErr != nil {
 		conn.Close()
-		return nil, nil, err
+		return nil, nil, ctxErr
 	}
 	stopCancel := context.AfterFunc(ctx, conn.Abort)
 	b.mu.Lock()
@@ -110,8 +110,8 @@ func (b *x11Observer) KeyState(ctx context.Context, name string) (StateObservati
 	if err != nil {
 		return StateObservation{}, b.stateQueryError(ctx, err)
 	}
-	if err := ctx.Err(); err != nil {
-		return StateObservation{}, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return StateObservation{}, ctxErr
 	}
 	reply, err := xproto.QueryKeymap(conn).Reply()
 	if err != nil {
@@ -228,17 +228,9 @@ func resolveX11LockModifierMask(
 		xproto.ModMask1, xproto.ModMask2, xproto.ModMask3,
 		xproto.ModMask4, xproto.ModMask5,
 	}
-	var selected uint16
-	for modifier, mask := range modifierMasks {
-		start := modifier * int(mapping.KeycodesPerModifier)
-		for _, code := range mapping.Keycodes[start : start+int(mapping.KeycodesPerModifier)] {
-			if requestedSet[code] {
-				if selected != 0 && selected != mask {
-					return 0, ErrObservationUnsupported
-				}
-				selected = mask
-			}
-		}
+	selected, err := findX11LockModifier(mapping, requestedSet, modifierMasks[:])
+	if err != nil {
+		return 0, err
 	}
 	if selected == 0 {
 		return 0, ErrObservationUnsupported
@@ -335,4 +327,20 @@ func x11KeycodesForSymbols(conn *xgb.Conn, symbols []xproto.Keysym) ([]xproto.Ke
 		return nil, ErrObservationUnsupported
 	}
 	return codes, nil
+}
+
+func findX11LockModifier(mapping *xproto.GetModifierMappingReply, requestedSet map[xproto.Keycode]bool, modifierMasks []uint16) (uint16, error) {
+	var selected uint16
+	for modifier, mask := range modifierMasks {
+		start := modifier * int(mapping.KeycodesPerModifier)
+		for _, code := range mapping.Keycodes[start : start+int(mapping.KeycodesPerModifier)] {
+			if requestedSet[code] {
+				if selected != 0 && selected != mask {
+					return 0, ErrObservationUnsupported
+				}
+				selected = mask
+			}
+		}
+	}
+	return selected, nil
 }

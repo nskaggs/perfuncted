@@ -71,7 +71,10 @@ func TestDirtyRectsMalformed(t *testing.T) {
 }
 
 func TestDirtyRectsPaddedNRGBA(t *testing.T) {
-	a := image.NewNRGBA(image.Rect(-5, -5, 5, 5)).SubImage(image.Rect(-2, -2, 2, 2)).(*image.NRGBA)
+	a, ok := image.NewNRGBA(image.Rect(-5, -5, 5, 5)).SubImage(image.Rect(-2, -2, 2, 2)).(*image.NRGBA)
+	if !ok {
+		t.Fatal("unexpected image type")
+	}
 	b := image.NewNRGBA(a.Rect)
 	b.SetNRGBA(-1, 0, color.NRGBA{B: 17})
 	got, resync, err := screen.DirtyRects(a, b, 1)

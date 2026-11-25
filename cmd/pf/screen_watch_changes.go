@@ -44,61 +44,12 @@ func watchScreenChanges(ctx context.Context, out io.Writer, rect image.Rectangle
 		if ctx.Err() != nil {
 			return nil
 		}
-		// Self-comparison on the first sample validates layout before mapping.
-		before := previous.Image
-		if id == 0 {
-			before = current.Image
-		}
-		dirty, resync, err := screen.DirtyRects(before, current.Image, watchMaxDirtyRects)
+		published, nextVersion, err := publishWatchChange(ctx, out, enc, previous, current, id, geometryVersion, includePixels)
 		if err != nil {
 			return err
 		}
-		bounds := current.Image.Bounds()
-		if _, err = current.ScreenPoint(bounds.Min); err != nil {
-			return err
-		}
-		geometryChanged := id == 0 || current.ScreenRect != previous.ScreenRect || bounds != previous.Image.Bounds()
-		if geometryChanged {
-			geometryVersion++
-		}
-		full := geometryChanged || resync || (len(dirty) == 1 && dirty[0] == bounds)
-		if full || len(dirty) > 0 {
-			frame := watchChangeFrame{FrameID: id + 1, GeometryVersion: geometryVersion, Timestamp: time.Now().UTC(), ScreenRect: current.ScreenRect, ImageBounds: bounds, FullFrame: full}
-			if full {
-				frame.DirtyRects = []image.Rectangle{current.ScreenRect}
-			} else {
-				base := id
-				frame.BaseFrameID = &base
-				frame.DirtyRects = make([]image.Rectangle, 0, len(dirty))
-				for _, r := range dirty {
-					lo, err := current.ScreenPoint(r.Min)
-					if err != nil {
-						return err
-					}
-					hi, err := current.ScreenPoint(r.Max.Sub(image.Pt(1, 1)))
-					if err != nil {
-						return err
-					}
-					frame.DirtyRects = append(frame.DirtyRects, image.Rectangle{Min: lo, Max: hi.Add(image.Pt(1, 1))})
-				}
-			}
-			if ctx.Err() != nil {
-				return nil
-			}
-			if includePixels {
-				crops := dirty
-				if full {
-					crops = []image.Rectangle{bounds}
-				}
-				if err := writeWatchPixelFrame(ctx, out, frame, current, crops, watchPixelFrameLimit); err != nil {
-					if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-						return nil
-					}
-					return err
-				}
-			} else if err := enc.Encode(frame); err != nil {
-				return err
-			}
+		geometryVersion = nextVersion
+		if published {
 			id++
 		}
 		previous = current
@@ -110,4 +61,73 @@ func watchScreenChanges(ctx context.Context, out io.Writer, rect image.Rectangle
 		}
 	}
 	return nil
+}
+
+func publishWatchChange(ctx context.Context, out io.Writer, enc *json.Encoder, previous, current perfuncted.Capture, id, geometryVersion uint64, includePixels bool) (bool, uint64, error) {
+	before := previous.Image
+	if id == 0 {
+		before = current.Image
+	}
+	dirty, resync, err := screen.DirtyRects(before, current.Image, watchMaxDirtyRects)
+	if err != nil {
+		return false, geometryVersion, err
+	}
+	bounds := current.Image.Bounds()
+	if _, mappingErr := current.ScreenPoint(bounds.Min); mappingErr != nil {
+		return false, geometryVersion, mappingErr
+	}
+	geometryChanged := id == 0 || current.ScreenRect != previous.ScreenRect || bounds != previous.Image.Bounds()
+	if geometryChanged {
+		geometryVersion++
+	}
+	full := geometryChanged || resync || (len(dirty) == 1 && dirty[0] == bounds)
+	if !full && len(dirty) == 0 {
+		return false, geometryVersion, nil
+	}
+	frame, err := buildWatchChangeFrame(current, dirty, id, geometryVersion, full)
+	if err != nil {
+		return false, geometryVersion, err
+	}
+	published, err := encodeWatchChange(ctx, out, enc, frame, current, dirty, includePixels)
+	return published, geometryVersion, err
+}
+
+func buildWatchChangeFrame(current perfuncted.Capture, dirty []image.Rectangle, id, geometryVersion uint64, full bool) (watchChangeFrame, error) {
+	frame := watchChangeFrame{FrameID: id + 1, GeometryVersion: geometryVersion, Timestamp: time.Now().UTC(), ScreenRect: current.ScreenRect, ImageBounds: current.Image.Bounds(), FullFrame: full}
+	if full {
+		frame.DirtyRects = []image.Rectangle{current.ScreenRect}
+		return frame, nil
+	}
+	frame.BaseFrameID = &id
+	frame.DirtyRects = make([]image.Rectangle, 0, len(dirty))
+	for _, r := range dirty {
+		lo, err := current.ScreenPoint(r.Min)
+		if err != nil {
+			return frame, err
+		}
+		hi, err := current.ScreenPoint(r.Max.Sub(image.Pt(1, 1)))
+		if err != nil {
+			return frame, err
+		}
+		frame.DirtyRects = append(frame.DirtyRects, image.Rectangle{Min: lo, Max: hi.Add(image.Pt(1, 1))})
+	}
+	return frame, nil
+}
+
+func encodeWatchChange(ctx context.Context, out io.Writer, enc *json.Encoder, frame watchChangeFrame, current perfuncted.Capture, dirty []image.Rectangle, includePixels bool) (bool, error) {
+	if ctx.Err() != nil {
+		return false, nil
+	}
+	if !includePixels {
+		err := enc.Encode(frame)
+		return err == nil, err
+	}
+	if frame.FullFrame {
+		dirty = []image.Rectangle{current.Image.Bounds()}
+	}
+	err := writeWatchPixelFrame(ctx, out, frame, current, dirty, watchPixelFrameLimit)
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		return false, nil
+	}
+	return err == nil, err
 }

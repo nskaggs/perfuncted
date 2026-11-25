@@ -20,6 +20,9 @@ import (
 func TestX11BackgroundWindowCaptureReadsTargetPixmapUnderOccluder(t *testing.T) {
 	display, stop, err := isolatedBackgroundCaptureXvfb(t)
 	if err != nil {
+		if os.Getenv("PF_STRICT_BACKGROUND_CAPTURE") == "1" {
+			t.Fatal(err)
+		}
 		t.Skipf("isolated Xvfb unavailable: %v", err)
 	}
 	defer stop()
@@ -31,10 +34,16 @@ func TestX11BackgroundWindowCaptureReadsTargetPixmapUnderOccluder(t *testing.T) 
 	defer conn.Close()
 	screenInfo := xproto.Setup(conn).DefaultScreen(conn)
 	if err := composite.Init(conn); err != nil {
+		if os.Getenv("PF_STRICT_BACKGROUND_CAPTURE") == "1" {
+			t.Fatal(err)
+		}
 		t.Skipf("Xvfb Composite extension unavailable: %v", err)
 	}
 	target := createBackgroundCaptureWindow(t, conn, screenInfo, 10, 10, 64, 48, 0x00ff0000)
 	if err := composite.RedirectWindowChecked(conn, target, composite.RedirectManual).Check(); err != nil {
+		if os.Getenv("PF_STRICT_BACKGROUND_CAPTURE") == "1" {
+			t.Fatal(err)
+		}
 		t.Skipf("Xvfb cannot redirect a test-owned target window: %v", err)
 	}
 

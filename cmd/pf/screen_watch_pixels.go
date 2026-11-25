@@ -30,13 +30,13 @@ type watchPixelPayload struct {
 // The writer bounds accumulated PNG bytes; bytes.Buffer capacity is bounded by its growth policy.
 // PNG's own row workspace is bounded by the axis limit.
 type watchPNGWriter struct {
-	ctx   context.Context
-	buf   bytes.Buffer
-	limit int
+	checkCanceled func() error
+	buf           bytes.Buffer
+	limit         int
 }
 
 func (w *watchPNGWriter) Write(p []byte) (int, error) {
-	if err := w.ctx.Err(); err != nil {
+	if err := w.checkCanceled(); err != nil {
 		return 0, err
 	}
 	if len(p) > w.limit-w.buf.Len() {
@@ -52,8 +52,8 @@ func writeWatchPixelFrame(ctx context.Context, out io.Writer, frame watchChangeF
 	}
 	remaining := limit
 	for _, r := range crops {
-		if err := ctx.Err(); err != nil {
-			return err
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return cancelErr
 		}
 		var crop image.Image
 		switch img := capture.Image.(type) {
@@ -64,7 +64,7 @@ func writeWatchPixelFrame(ctx context.Context, out io.Writer, frame watchChangeF
 		default:
 			return fmt.Errorf("screen watch: unsupported pixel layout")
 		}
-		w := watchPNGWriter{ctx: ctx, limit: remaining / 4 * 3}
+		w := watchPNGWriter{checkCanceled: ctx.Err, limit: remaining / 4 * 3}
 		if err := png.Encode(&w, crop); err != nil {
 			return err
 		}
@@ -84,8 +84,8 @@ func writeWatchPixelFrame(ctx context.Context, out io.Writer, frame watchChangeF
 	if len(data) >= limit {
 		return fmt.Errorf("screen watch: pixel frame exceeds size limit")
 	}
-	if err := ctx.Err(); err != nil {
-		return err
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return cancelErr
 	}
 	data = append(data, '\n')
 	n, err := out.Write(data)

@@ -69,7 +69,11 @@ func parseScreenWindowSelector(cmd *cobra.Command, id, title string, pid int32, 
 	if cmd.Flags().Changed("metadata") && (metadata == "" || metadata == "-") {
 		return screenWindowSelector{}, false, fmt.Errorf("%w: --metadata requires a file path separate from stdout", perfuncted.ErrInvalidArgument)
 	}
-	selector := screenWindowSelector{kind: selected[0]}
+	return validateScreenWindowSelector(selected[0], id, title, pid)
+}
+
+func validateScreenWindowSelector(kind, id, title string, pid int32) (screenWindowSelector, bool, error) {
+	selector := screenWindowSelector{kind: kind}
 	switch selector.kind {
 	case "window-id":
 		if id == "" {
@@ -235,8 +239,8 @@ goes to stderr.`,
 					if err != nil {
 						return err
 					}
-					if err := png.Encode(cmd.OutOrStdout(), capture.Capture.Image); err != nil {
-						return err
+					if encodeErr := png.Encode(cmd.OutOrStdout(), capture.Image); encodeErr != nil {
+						return encodeErr
 					}
 				} else {
 					if grabBackgroundFlag {
