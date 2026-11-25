@@ -1,0 +1,2 @@
+# Unified diff context prefixes are significant, not source whitespace errors.
+*.patch -whitespace

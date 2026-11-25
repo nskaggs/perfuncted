@@ -1,0 +1,83 @@
+diff --git a/final/LOCAL_CHANGES.md b/final/LOCAL_CHANGES.md
+new file mode 100644
+index 0000000..80f492e
+--- /dev/null
++++ b/final/LOCAL_CHANGES.md
+@@ -0,0 +1,23 @@
++# Pinned local XGB transport correction
++
++Source: github.com/jezek/xgb v1.3.0, Git commit `46ea16ee069c67b0af1a84010b4c981b504d4d62` (module cache origin).
++Unmodified source and BSD-style LICENSE are retained. xgb.go, conn.go and xproto/xproto.go are altered to read the full length-delimited GenericEvent payload (at most 1 MiB), and preserve the complete wire frame in GeGenericEvent.Raw. Non-GenericEvent wire framing and checked/unchecked reply/error matching are unchanged; abort-aware event dispatch and cookie waiting are described below. No upstream contribution is authorized.
++
++
++Issue #128 follow-up: a context-bound connection constructor and idempotent
++force-abort method are defined in xgb.go. conn.go uses the original Xauthority
++and X11 handshake with context-aware dial and a five-second setup deadline;
++abort closes the socket without waiting for a round trip. The shared event
++reader now stops on abort even when dispatch/backpressure or cookie reception
++would otherwise block. Existing graceful Close semantics remain unchanged.
++
++Packaging: the patched source now lives inside Perfuncted's main module at
++internal/third_party/xgb. Go import paths and generator output target that
++internal package; the nested go.mod and root replace directive are removed.
++This retains the original license and transport patches and makes the library
++available in the distributed Go module. The upstream live xproto tests require
++an explicit xgb_upstream_integration build tag and isolated X server.
++
++The main-module vet gate also exposed three unreachable statements and one
++self-assignment in the retained upstream code. Removed these no-op statements;
++no transport behavior changed.
+diff --git a/transport/auth.go b/final/auth.go
+index 40fc7e1..41e2e87 100644
+--- a/transport/auth.go
++++ b/final/auth.go
+@@ -86,7 +86,6 @@ func readAuthority(hostname, display string) (
+ 			return name0, data0, nil
+ 		}
+ 	}
+-	panic("unreachable")
+ }
+ 
+ // readAuthorityFromCookieHex decodes a hexadecimal MIT-MAGIC-COOKIE-1 string.
+diff --git a/transport/testingTools_test.go b/final/testingTools_test.go
+index 518b326..6fc728b 100644
+--- a/transport/testingTools_test.go
++++ b/final/testingTools_test.go
+@@ -69,13 +69,11 @@ func TestDummyNetConn(t *testing.T) {
+ 			writeState, writeSetter := writeState, writeSetters[writeState]
+ 			if writeSetter == nil {
+ 				panic("unknown write state: " + writeState)
+-				continue
+ 			}
+ 			for _, readState := range readStates {
+ 				readState, readSetter := readState, readSetters[readState]
+ 				if readSetter == nil {
+ 					panic("unknown read state: " + readState)
+-					continue
+ 				}
+ 				res = append(res, func() (*dNC, error) {
+ 
+diff --git a/transport/xgbgen/request_reply.go b/final/xgbgen/request_reply.go
+index 5032e31..7754ada 100644
+--- a/transport/xgbgen/request_reply.go
++++ b/final/xgbgen/request_reply.go
+@@ -27,9 +27,6 @@ func (rs Requests) Less(i, j int) bool { return rs[i].xmlName < rs[j].xmlName }
+ // It also initializes the reply if one exists, and all fields in this request.
+ func (r *Request) Initialize(p *Protocol) {
+ 	r.srcName = SrcName(p, r.xmlName)
+-	if p.isExt() {
+-		r.srcName = r.srcName
+-	}
+ 
+ 	if r.Reply != nil {
+ 		r.Reply.Initialize(p)
+diff --git a/transport/xproto/xproto_test.go b/final/xproto/xproto_test.go
+index 6c4c712..1bf4af4 100644
+--- a/transport/xproto/xproto_test.go
++++ b/final/xproto/xproto_test.go
+@@ -1,3 +1,5 @@
++//go:build xgb_upstream_integration
++
+ package xproto
+ 
+ /*

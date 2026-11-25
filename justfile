@@ -111,7 +111,7 @@ quality-fast: check-generate check-docs check-api-sync check-fmt vet
 
 # Run the full static quality suite (includes linters and unit tests)
 # This matches the 'quality' job in GitHub Actions.
-quality: quality-fast lint deadcode vulncheck test-unit coverage-convenience test-release-command-contracts test-module-consumer
+quality: xgb-check quality-fast lint deadcode vulncheck test-unit coverage-convenience test-release-command-contracts test-module-consumer
 
 # Require full statement coverage in the new scripting facade, rather than
 # imposing a spurious 100% requirement on unrelated legacy source.
@@ -350,3 +350,14 @@ nested:
 # Run this manually if a session crashes without cleaning up after itself.
 cleanup-nested:
     CGO_ENABLED=0 go run ./cmd/pf session cleanup --max-age 24h
+
+# Reproduce our pinned third-party XGB tree; never edit generated files directly.
+xgb-check:
+    go run ./scripts/sync_xgb check
+
+xgb-sync:
+    go run ./scripts/sync_xgb sync
+
+# Read-only upgrade preview; conflicts must be reconciled explicitly.
+xgb-update version:
+    go run ./scripts/sync_xgb update {{version}}

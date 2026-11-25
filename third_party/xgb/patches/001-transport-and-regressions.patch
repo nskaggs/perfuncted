@@ -1,0 +1,1268 @@
+diff --git a/base/conn.go b/transport/conn.go
+index 6f79b91..c84c166 100644
+--- a/base/conn.go
++++ b/transport/conn.go
+@@ -8,6 +8,7 @@ This code is largely unmodified from the original XGB package that I forked.
+ */
+ 
+ import (
++	"context"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+@@ -15,6 +16,7 @@ import (
+ 	"os"
+ 	"strconv"
+ 	"strings"
++	"time"
+ )
+ 
+ // connect connects to the X server given in the 'display' string,
+@@ -32,6 +34,45 @@ func (c *Conn) connect(display string) error {
+ 	return c.postConnect("")
+ }
+ 
++// connectContext keeps the original authentication/setup implementation but
++// interrupts the setup socket on cancellation or a fixed deadline.
++func (c *Conn) connectContext(ctx context.Context, display string) error {
++	if err := c.dialContext(ctx, display); err != nil {
++		return err
++	}
++	return c.handshakeContext(ctx)
++}
++
++// handshakeContext runs the bounded setup over an already established socket.
++func (c *Conn) handshakeContext(ctx context.Context) error {
++	stop := context.AfterFunc(ctx, func() { _ = c.conn.Close() })
++	deadline, _ := ctx.Deadline()
++	if err := c.conn.SetDeadline(deadline); err != nil {
++		stop()
++		_ = c.conn.Close()
++		return err
++	}
++	err := c.postConnect("")
++	stop()
++	_ = c.conn.SetDeadline(time.Time{})
++	if err != nil {
++		_ = c.conn.Close()
++		if ctxErr := ctx.Err(); ctxErr != nil {
++			return ctxErr
++		}
++		var timedOut net.Error
++		if errors.As(err, &timedOut) && timedOut.Timeout() {
++			return context.DeadlineExceeded
++		}
++		return err
++	}
++	if ctxErr := ctx.Err(); ctxErr != nil {
++		_ = c.conn.Close()
++		return ctxErr
++	}
++	return nil
++}
++
+ // connect init from to the net.Conn,
+ func (c *Conn) connectNet(netConn net.Conn) error {
+ 	c.conn = netConn
+@@ -132,6 +173,10 @@ func (c *Conn) postConnect(cookieHex string) error {
+ 
+ // dial initializes the actual net connection with X.
+ func (c *Conn) dial(display string) error {
++	return c.dialContext(context.Background(), display)
++}
++
++func (c *Conn) dialContext(ctx context.Context, display string) error {
+ 	if len(display) == 0 {
+ 		display = os.Getenv("DISPLAY")
+ 	}
+@@ -189,16 +234,16 @@ func (c *Conn) dial(display string) error {
+ 
+ 	// Connect to server
+ 	if len(socket) != 0 {
+-		c.conn, err = net.Dial("unix", socket+":"+c.display)
++		c.conn, err = (&net.Dialer{}).DialContext(ctx, "unix", socket+":"+c.display)
+ 	} else if len(c.host) != 0 && c.host != "unix" {
+ 		if protocol == "" {
+ 			protocol = "tcp"
+ 		}
+-		c.conn, err = net.Dial(protocol,
++		c.conn, err = (&net.Dialer{}).DialContext(ctx, protocol,
+ 			c.host+":"+strconv.Itoa(6000+c.DisplayNumber))
+ 	} else {
+ 		c.host = ""
+-		c.conn, err = net.Dial("unix", "/tmp/.X11-unix/X"+c.display)
++		c.conn, err = (&net.Dialer{}).DialContext(ctx, "unix", "/tmp/.X11-unix/X"+c.display)
+ 	}
+ 
+ 	if err != nil {
+diff --git a/transport/context_abort_more_test.go b/transport/context_abort_more_test.go
+new file mode 100644
+index 0000000..8d7f0e9
+--- /dev/null
++++ b/transport/context_abort_more_test.go
+@@ -0,0 +1,162 @@
++package xgb
++
++import (
++	"context"
++	"errors"
++	"io"
++	"net"
++	"os"
++	"strings"
++	"testing"
++	"time"
++)
++
++func fakeXServerSetup(peer net.Conn, status byte, extra []byte) error {
++	header := make([]byte, 12)
++	if _, err := io.ReadFull(peer, header); err != nil {
++		return err
++	}
++	nameSize := Pad(int(Get16(header[6:8])))
++	authSize := Pad(int(Get16(header[8:10])))
++	if _, err := io.CopyN(io.Discard, peer, int64(nameSize+authSize)); err != nil {
++		return err
++	}
++	setup := make([]byte, 32)
++	setup[0] = status
++	Put16(setup[2:4], 11)
++	Put16(setup[4:6], 0)
++	Put16(setup[6:8], 6)
++	Put32(setup[12:16], 0x1000000)
++	Put32(setup[16:20], 0x3ffff)
++	if status == 0 {
++		setup[1] = byte(len(extra))
++		copy(setup[8:], extra)
++	}
++	_, err := peer.Write(setup)
++	return err
++}
++
++func TestHandshakeContextSuccessAndAuthenticationFailure(t *testing.T) {
++	for _, tt := range []struct {
++		name   string
++		status byte
++		want   string
++	}{
++		{"success", 1, ""}, {"auth-denied", 0, "authentication refused"},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			left, right := net.Pipe()
++			defer left.Close()
++			defer right.Close()
++			result := make(chan error, 1)
++			go func() { result <- fakeXServerSetup(right, tt.status, []byte("not authorized")) }()
++			conn := &Conn{conn: left}
++			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++			defer cancel()
++			err := conn.handshakeContext(ctx)
++			if tt.want == "" {
++				if err != nil {
++					t.Fatal(err)
++				}
++				if len(conn.SetupBytes) != 32 {
++					t.Fatal("setup bytes missing")
++				}
++			} else if err == nil || !strings.Contains(err.Error(), tt.want) {
++				t.Fatalf("expected %s, got %v", tt.want, err)
++			}
++			select {
++			case err := <-result:
++				if err != nil {
++					t.Fatal(err)
++				}
++			case <-time.After(time.Second):
++				t.Fatal("fake X server setup blocked")
++			}
++		})
++	}
++}
++
++func TestContextConstructorOnIsolatedX11(t *testing.T) {
++	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
++		t.Skip("requires Xvfb")
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	c, err := NewConnDisplayContext(ctx, os.Getenv("DISPLAY"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(c.SetupBytes) < 24 {
++		t.Fatal("setup missing")
++	}
++	cancel()
++	waitAbortDone(t, c)
++	c.Abort()
++}
++
++func TestContextConstructorInvalidDisplay(t *testing.T) {
++	if _, err := NewConnDisplayContext(context.Background(), "no-display"); err == nil {
++		t.Fatal("accepted invalid display")
++	}
++	if _, err := NewConnDisplayContext(context.Background(), ":not-a-number"); err == nil {
++		t.Fatal("accepted malformed display")
++	}
++}
++
++func TestAbortNilAndUninitializedConnection(t *testing.T) {
++	(*Conn)(nil).Abort()
++	c := &Conn{}
++	c.Abort()
++	c.Abort()
++	if c.stopAbort != nil {
++		t.Fatal("unexpected cancellation registration")
++	}
++}
++
++func TestHandshakeContextCanceledBeforeConnection(t *testing.T) {
++	a, b := net.Pipe()
++	defer a.Close()
++	defer b.Close()
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	c := &Conn{conn: a}
++	if err := c.handshakeContext(ctx); !errors.Is(err, context.Canceled) {
++		t.Fatal(err)
++	}
++}
++
++type cancelAfterSetupRead struct {
++	net.Conn
++	cancel context.CancelFunc
++	reads  int
++}
++
++func (c *cancelAfterSetupRead) Read(p []byte) (int, error) {
++	n, err := c.Conn.Read(p)
++	c.reads++
++	if c.reads == 2 && n > 0 {
++		c.cancel()
++	}
++	return n, err
++}
++func TestHandshakeContextCancelImmediatelyAfterSetup(t *testing.T) {
++	left, right := net.Pipe()
++	defer left.Close()
++	defer right.Close()
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	finished := make(chan error, 1)
++	go func() { finished <- fakeXServerSetup(right, 1, nil) }()
++	wrapped := &cancelAfterSetupRead{Conn: left, cancel: cancel}
++	c := &Conn{conn: wrapped}
++	if err := c.handshakeContext(ctx); !errors.Is(err, context.Canceled) {
++		t.Fatalf("late setup cancellation: %v", err)
++	}
++	select {
++	case err := <-finished:
++		if err != nil {
++			t.Fatal(err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("fake X server blocked")
++	}
++}
+diff --git a/transport/context_abort_paths_test.go b/transport/context_abort_paths_test.go
+new file mode 100644
+index 0000000..91ed81c
+--- /dev/null
++++ b/transport/context_abort_paths_test.go
+@@ -0,0 +1,64 @@
++package xgb
++
++import (
++	"context"
++	"errors"
++	"net"
++	"os"
++	"testing"
++	"time"
++)
++
++type timeoutHandshakeConn struct{ net.Conn }
++
++func (timeoutHandshakeConn) Write([]byte) (int, error) { return 0, os.ErrDeadlineExceeded }
++
++func TestContextConnectionAdditionalFailurePaths(t *testing.T) {
++	t.Run("closed-socket-deadline", func(t *testing.T) {
++		left, right := net.Pipe()
++		_ = left.Close()
++		defer right.Close()
++		c := &Conn{conn: left}
++		if err := c.handshakeContext(context.Background()); err == nil {
++			t.Fatal("closed pipe accepted")
++		}
++	})
++	t.Run("timeout-write-before-canceled-context", func(t *testing.T) {
++		left, right := net.Pipe()
++		defer left.Close()
++		defer right.Close()
++		c := &Conn{conn: timeoutHandshakeConn{Conn: left}}
++		if err := c.handshakeContext(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
++			t.Fatal(err)
++		}
++	})
++	t.Run("dial-original-wrapper", func(t *testing.T) {
++		if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
++			t.Skip("requires isolated Xvfb")
++		}
++		c, err := NewConnDisplay(os.Getenv("DISPLAY"))
++		if err != nil {
++			t.Fatal(err)
++		}
++		c.Close()
++	})
++	t.Run("dial-unix-socket-path", func(t *testing.T) {
++		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++		defer cancel()
++		c := &Conn{}
++		if err := c.dialContext(ctx, "/tmp/i128-nonexistent-socket/:0"); err == nil {
++			t.Fatal("unexpected Unix socket accepted")
++		}
++	})
++	t.Run("dial-tcp-localhost", func(t *testing.T) {
++		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++		defer cancel()
++		c := &Conn{}
++		if err := c.dialContext(ctx, "tcp/127.0.0.1:50999"); err == nil {
++			if c.conn != nil {
++				_ = c.conn.Close()
++			}
++			t.Fatal("unexpected local Xorg TCP socket")
++		}
++	})
++}
+diff --git a/transport/context_abort_read_test.go b/transport/context_abort_read_test.go
+new file mode 100644
+index 0000000..7da96ff
+--- /dev/null
++++ b/transport/context_abort_read_test.go
+@@ -0,0 +1,130 @@
++package xgb
++
++import (
++	"io"
++	"net"
++	"testing"
++	"time"
++)
++
++type abortTestError uint16
++
++func (e abortTestError) Error() string      { return "controlled X11 error" }
++func (e abortTestError) SequenceId() uint16 { return uint16(e) }
++func (e abortTestError) BadId() uint32      { return 0 }
++
++// The error branches below cover failures on the shared readResponses owner,
++// including a partially advertised reply and an asynchronous X11 error.
++func TestAbortReadResponsesTruncatedReplyAndBackpressure(t *testing.T) {
++	for _, full := range []bool{false, true} {
++		t.Run(map[bool]string{false: "truncated", true: "aborted-full-queue"}[full], func(t *testing.T) {
++			left, right := net.Pipe()
++			defer right.Close()
++			c := &Conn{conn: left, eventChan: make(chan eventOrError, 1), cookieChan: make(chan *Cookie, 1), aborted: make(chan struct{}), doneRead: make(chan struct{}), doneSend: make(chan struct{})}
++			if full {
++				c.eventChan <- io.EOF
++			}
++			done := make(chan struct{})
++			go func() { c.readResponses(); close(done) }()
++			frame := make([]byte, 32)
++			frame[0] = 1
++			Put16(frame[2:4], 1)
++			Put32(frame[4:8], 1)
++			go func() {
++				_, _ = right.Write(append(frame, 1))
++				_ = right.Close()
++			}()
++			if full {
++				time.Sleep(10 * time.Millisecond)
++				c.Abort()
++			}
++			select {
++			case <-done:
++			case <-time.After(time.Second):
++				t.Fatal("reader blocked on reply truncation")
++			}
++			if !full {
++				select {
++				case event := <-c.eventChan:
++					if _, ok := event.(error); !ok {
++						t.Fatalf("expected terminal error, got %T", event)
++					}
++				default:
++					t.Fatal("missing truncated reply error")
++				}
++			}
++		})
++	}
++}
++
++func TestAbortReadResponsesTruncatedGenericWithFullQueue(t *testing.T) {
++	left, right := net.Pipe()
++	defer right.Close()
++	c := &Conn{conn: left, eventChan: make(chan eventOrError, 1), cookieChan: make(chan *Cookie), aborted: make(chan struct{}), doneRead: make(chan struct{}), doneSend: make(chan struct{})}
++	c.eventChan <- io.EOF
++	done := make(chan struct{})
++	go func() { c.readResponses(); close(done) }()
++	header := genericHeader(4, false)
++	go func() {
++		_, _ = right.Write(append(header, 1, 2))
++		_ = right.Close()
++	}()
++	time.Sleep(10 * time.Millisecond)
++	c.Abort()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("reader blocked on truncated GenericEvent")
++	}
++}
++
++func TestAbortReadResponsesAsyncErrorBackpressure(t *testing.T) {
++	old, had := NewErrorFuncs[99]
++	NewErrorFuncs[99] = func([]byte) Error { return abortTestError(1) }
++	defer func() {
++		if had {
++			NewErrorFuncs[99] = old
++		} else {
++			delete(NewErrorFuncs, 99)
++		}
++	}()
++	left, right := net.Pipe()
++	defer right.Close()
++	c := &Conn{conn: left, eventChan: make(chan eventOrError, 1), cookieChan: make(chan *Cookie, 1), aborted: make(chan struct{}), doneRead: make(chan struct{}), doneSend: make(chan struct{})}
++	c.eventChan <- io.EOF
++	c.cookieChan <- &Cookie{Sequence: 1, pingChan: make(chan bool, 1)}
++	done := make(chan struct{})
++	go func() { c.readResponses(); close(done) }()
++	errFrame := make([]byte, 32)
++	errFrame[0], errFrame[1] = 0, 99
++	Put16(errFrame[2:4], 1)
++	if _, err := right.Write(errFrame); err != nil {
++		t.Fatal(err)
++	}
++	time.Sleep(10 * time.Millisecond)
++	c.Abort()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("async X11 error blocked full dispatch queue")
++	}
++}
++
++func TestAbortReadResponsesClosedCookieQueue(t *testing.T) {
++	left, right := net.Pipe()
++	defer right.Close()
++	cookies := make(chan *Cookie)
++	close(cookies)
++	c := &Conn{conn: left, eventChan: make(chan eventOrError, 1), cookieChan: cookies, aborted: make(chan struct{}), doneRead: make(chan struct{}), doneSend: make(chan struct{})}
++	done := make(chan struct{})
++	go func() { c.readResponses(); close(done) }()
++	reply := make([]byte, 32)
++	reply[0] = 1
++	Put16(reply[2:4], 1)
++	go func() { _, _ = right.Write(reply); _ = right.Close() }()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("closed cookie channel blocked response reader")
++	}
++}
+diff --git a/transport/context_abort_test.go b/transport/context_abort_test.go
+new file mode 100644
+index 0000000..b81c997
+--- /dev/null
++++ b/transport/context_abort_test.go
+@@ -0,0 +1,206 @@
++package xgb
++
++import (
++	"context"
++	"errors"
++	"io"
++	"net"
++	"testing"
++	"time"
++)
++
++func waitAbortDone(t *testing.T, conn *Conn) {
++	t.Helper()
++	select {
++	case <-conn.doneRead:
++	case <-time.After(time.Second):
++		t.Fatal("XGB reader leaked after abort")
++	}
++	select {
++	case <-conn.doneSend:
++	case <-time.After(time.Second):
++		t.Fatal("XGB sender leaked after abort")
++	}
++}
++
++func TestContextConstructorRejectsNilAndCanceled(t *testing.T) {
++	if _, err := NewConnDisplayContext(nil, ":99"); err == nil {
++		t.Fatal("nil context accepted")
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, err := NewConnDisplayContext(ctx, ":99"); !errors.Is(err, context.Canceled) {
++		t.Fatal(err)
++	}
++}
++
++func TestHandshakeContextInterruptsStalledSocket(t *testing.T) {
++	for _, consumeSetup := range []bool{false, true} {
++		t.Run(map[bool]string{true: "blocked-reply", false: "blocked-write"}[consumeSetup], func(t *testing.T) {
++			left, right := net.Pipe()
++			defer right.Close()
++			ctx, cancel := context.WithTimeout(context.Background(), 70*time.Millisecond)
++			defer cancel()
++			if consumeSetup {
++				go func() { _, _ = io.Copy(io.Discard, right) }()
++			}
++			c := &Conn{conn: left}
++			done := make(chan error, 1)
++			go func() { done <- c.handshakeContext(ctx) }()
++			select {
++			case err := <-done:
++				if !errors.Is(err, context.DeadlineExceeded) {
++					t.Fatalf("context error: %v", err)
++				}
++			case <-time.After(time.Second):
++				t.Fatal("stalled X11 handshake leaked")
++			}
++		})
++	}
++}
++
++func TestAbortUnblocksReplyAndReleasesAllWorkers(t *testing.T) {
++	left, right := net.Pipe()
++	defer right.Close()
++	c, err := postNewConn(&Conn{conn: left, setupResourceIdMask: 0x3ffff})
++	if err != nil {
++		t.Fatal(err)
++	}
++	go func() { _, _ = io.Copy(io.Discard, right) }()
++	cookie := c.NewCookie(true, true)
++	c.NewRequest([]byte{43, 0, 1, 0}, cookie)
++	ready := make(chan error, 1)
++	go func() { _, err := cookie.Reply(); ready <- err }()
++	c.Abort()
++	c.Abort()
++	select {
++	case err := <-ready:
++		if !errors.Is(err, io.EOF) {
++			t.Fatalf("blocked Reply returned %v", err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("checked reply leaked after Abort")
++	}
++	waitAbortDone(t, c)
++}
++
++func TestAbortUnblocksReaderWithFullEventQueue(t *testing.T) {
++	old, had := NewEventFuncs[35]
++	NewEventFuncs[35] = func(data []byte) Event { return testGenericEvent(data) }
++	defer func() {
++		if had {
++			NewEventFuncs[35] = old
++		} else {
++			delete(NewEventFuncs, 35)
++		}
++	}()
++	left, right := net.Pipe()
++	defer right.Close()
++	c := &Conn{conn: left, eventChan: make(chan eventOrError, 1), cookieChan: make(chan *Cookie), aborted: make(chan struct{}), doneRead: make(chan struct{}), doneSend: make(chan struct{})}
++	done := make(chan struct{})
++	go func() { c.readResponses(); close(done) }()
++	payload := genericHeader(0, false)
++	go func() {
++		for i := 0; i < 8; i++ {
++			if _, err := right.Write(payload); err != nil {
++				return
++			}
++		}
++	}()
++	deadline := time.After(time.Second)
++	for len(c.eventChan) != 1 {
++		select {
++		case <-deadline:
++			t.Fatal("event queue never filled")
++		default:
++			time.Sleep(time.Millisecond)
++		}
++	}
++	c.Abort()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("reader blocked in full event queue")
++	}
++}
++
++func TestAbortUnblocksReaderWithMissingCookie(t *testing.T) {
++	left, right := net.Pipe()
++	defer right.Close()
++	c := &Conn{conn: left, eventChan: make(chan eventOrError, 1), cookieChan: make(chan *Cookie), aborted: make(chan struct{}), doneRead: make(chan struct{}), doneSend: make(chan struct{})}
++	done := make(chan struct{})
++	go func() { c.readResponses(); close(done) }()
++	reply := make([]byte, 32)
++	reply[0] = 1
++	Put16(reply[2:4], 1)
++	if _, err := right.Write(reply); err != nil {
++		t.Fatal(err)
++	}
++	c.Abort()
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("reader blocked waiting for cookie after Abort")
++	}
++}
++
++func TestBoundContextAbortsExistingConnection(t *testing.T) {
++	left, right := net.Pipe()
++	defer right.Close()
++	c, err := postNewConn(&Conn{conn: left, setupResourceIdMask: 0x3ffff})
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	c.bindAbortContext(ctx)
++	cancel()
++	waitAbortDone(t, c)
++	c.bindAbortContext(context.Background()) // late bind to closed connection
++	c.Abort()
++}
++
++func TestCloseDetachesBoundAbortContext(t *testing.T) {
++	left, right := net.Pipe()
++	defer right.Close()
++	c, err := postNewConn(&Conn{conn: left, setupResourceIdMask: 0x3ffff})
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	c.bindAbortContext(ctx)
++
++	serverDone := make(chan error, 1)
++	go func() {
++		request := make([]byte, 4)
++		if _, err := io.ReadFull(right, request); err != nil {
++			serverDone <- err
++			return
++		}
++		reply := make([]byte, 32)
++		reply[0] = 1
++		Put16(reply[2:4], 1)
++		_, err := right.Write(reply)
++		serverDone <- err
++	}()
++
++	c.Close()
++	cancel()
++	select {
++	case <-c.doneRead:
++	case <-time.After(time.Second):
++		t.Fatal("graceful close did not stop response reader")
++	}
++	select {
++	case err := <-serverDone:
++		if err != nil {
++			t.Fatal(err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("fake X server did not complete close handshake")
++	}
++	select {
++	case <-c.aborted:
++		t.Fatal("context cancellation aborted a gracefully closing connection")
++	default:
++	}
++}
+diff --git a/transport/generic_event_framing_test.go b/transport/generic_event_framing_test.go
+new file mode 100644
+index 0000000..47c5f5d
+--- /dev/null
++++ b/transport/generic_event_framing_test.go
+@@ -0,0 +1,59 @@
++package xgb
++
++import (
++	"bytes"
++	"errors"
++	"io"
++	"strings"
++	"testing"
++)
++
++func genericHeader(units uint32, sent bool) []byte {
++	b := make([]byte, 32)
++	b[0] = 35
++	if sent {
++		b[0] |= 128
++	}
++	Put32(b[4:8], units)
++	return b
++}
++
++func TestGenericEventFraming(t *testing.T) {
++	for _, tt := range []struct {
++		name  string
++		units uint32
++		sent  bool
++	}{
++		{"zero", 0, false}, {"one", 1, false}, {"large", 100, false}, {"send", 2, true},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			header := genericHeader(tt.units, tt.sent)
++			payload := bytes.Repeat([]byte{0xad}, int(tt.units)*4)
++			stream := bytes.NewBuffer(append(append([]byte{}, payload...), 0xab, 0xcd))
++			got, err := readGenericEvent(stream, header)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if !bytes.Equal(got, append(header, payload...)) {
++				t.Fatalf("frame mismatch: %d", len(got))
++			}
++			rest := stream.Bytes()
++			if !bytes.Equal(rest, []byte{0xab, 0xcd}) {
++				t.Fatalf("next message misaligned %x", rest)
++			}
++		})
++	}
++}
++func TestGenericEventFramingFailures(t *testing.T) {
++	if _, err := readGenericEvent(bytes.NewReader(nil), make([]byte, 31)); err == nil {
++		t.Fatal("short header accepted")
++	}
++	for _, units := range []uint32{maxGenericEventPayload/4 + 1, ^uint32(0)} {
++		if _, err := readGenericEvent(bytes.NewReader(nil), genericHeader(units, false)); err == nil || !strings.Contains(err.Error(), "exceeds") {
++			t.Fatalf("length %d: %v", units, err)
++		}
++	}
++	if _, err := readGenericEvent(bytes.NewReader([]byte{1, 2}), genericHeader(1, false)); !errors.Is(err, io.ErrUnexpectedEOF) {
++		t.Fatalf("truncated frame: %v", err)
++	}
++}
+diff --git a/transport/generic_event_reply_test.go b/transport/generic_event_reply_test.go
+new file mode 100644
+index 0000000..d49f8bd
+--- /dev/null
++++ b/transport/generic_event_reply_test.go
+@@ -0,0 +1,49 @@
++package xgb
++
++import (
++	"net"
++	"testing"
++	"time"
++)
++
++func TestGenericEventThenReplyKeepsCookieAligned(t *testing.T) {
++	old, had := NewEventFuncs[35]
++	NewEventFuncs[35] = func(data []byte) Event { return testGenericEvent(data) }
++	defer func() {
++		if had {
++			NewEventFuncs[35] = old
++		} else {
++			delete(NewEventFuncs, 35)
++		}
++	}()
++	left, right := net.Pipe()
++	cookie := &Cookie{Sequence: 1, replyChan: make(chan []byte, 1), errorChan: make(chan error, 1)}
++	cookies := make(chan *Cookie, 1)
++	cookies <- cookie
++	conn := &Conn{conn: left, eventChan: make(chan eventOrError, 4), cookieChan: cookies, doneSend: make(chan struct{}), doneRead: make(chan struct{})}
++	go conn.readResponses()
++	reply := make([]byte, 32)
++	reply[0] = 1
++	Put16(reply[2:4], 1)
++	header := genericHeader(1, false)
++	go func() {
++		_, _ = right.Write(append(append(header, 1, 2, 3, 4), reply...))
++		_ = right.Close()
++	}()
++	select {
++	case ev := <-conn.eventChan:
++		if _, ok := ev.(testGenericEvent); !ok {
++			t.Fatalf("expected GenericEvent, got %T", ev)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("event timeout")
++	}
++	select {
++	case got := <-cookie.replyChan:
++		if len(got) != 32 || got[0] != 1 || Get16(got[2:4]) != 1 {
++			t.Fatalf("reply misaligned: %x", got)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("reply timeout")
++	}
++}
+diff --git a/transport/generic_event_stream_test.go b/transport/generic_event_stream_test.go
+new file mode 100644
+index 0000000..7011d9a
+--- /dev/null
++++ b/transport/generic_event_stream_test.go
+@@ -0,0 +1,101 @@
++package xgb
++
++import (
++	"bytes"
++	"errors"
++	"io"
++	"net"
++	"testing"
++	"time"
++)
++
++type testGenericEvent []byte
++
++func (e testGenericEvent) Bytes() []byte  { return e }
++func (e testGenericEvent) String() string { return "test-generic" }
++
++func TestGenericEventStreamPreservesNextMessage(t *testing.T) {
++	old, had := NewEventFuncs[35]
++	NewEventFuncs[35] = func(data []byte) Event { return testGenericEvent(append([]byte(nil), data...)) }
++	defer func() {
++		if had {
++			NewEventFuncs[35] = old
++		} else {
++			delete(NewEventFuncs, 35)
++		}
++	}()
++	left, right := net.Pipe()
++	conn := &Conn{
++		conn:       left,
++		eventChan:  make(chan eventOrError, 16),
++		cookieChan: make(chan *Cookie),
++		doneSend:   make(chan struct{}),
++		doneRead:   make(chan struct{}),
++	}
++	done := make(chan struct{})
++	go func() { conn.readResponses(); close(done) }()
++	header := genericHeader(2, true)
++	payload := bytes.Repeat([]byte{0x55}, 8)
++	second := genericHeader(0, false)
++	go func() {
++		_, _ = right.Write(append(append(header, payload...), second...))
++		_ = right.Close()
++	}()
++	select {
++	case ev := <-conn.eventChan:
++		got, ok := ev.(testGenericEvent)
++		if !ok || !bytes.Equal(got.Bytes(), append(header, payload...)) {
++			t.Fatalf("first event corrupt %T", ev)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("first event timed out")
++	}
++	select {
++	case ev := <-conn.eventChan:
++		got, ok := ev.(testGenericEvent)
++		if !ok || !bytes.Equal(got.Bytes(), second) {
++			t.Fatalf("second event corrupt %T", ev)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("second event timed out")
++	}
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("reader failed to stop")
++	}
++}
++
++func TestGenericEventStreamTruncationTerminates(t *testing.T) {
++	old, had := NewEventFuncs[35]
++	NewEventFuncs[35] = func(data []byte) Event { return testGenericEvent(data) }
++	defer func() {
++		if had {
++			NewEventFuncs[35] = old
++		} else {
++			delete(NewEventFuncs, 35)
++		}
++	}()
++	left, right := net.Pipe()
++	conn := &Conn{conn: left, eventChan: make(chan eventOrError, 2), doneSend: make(chan struct{}), doneRead: make(chan struct{})}
++	done := make(chan struct{})
++	go func() { conn.readResponses(); close(done) }()
++	go func() {
++		_, _ = right.Write(append(genericHeader(3, false), 0, 1, 2, 3))
++		_ = right.Close()
++	}()
++	select {
++	case ev := <-conn.eventChan:
++		err, ok := ev.(error)
++		if !ok || !errors.Is(err, io.ErrUnexpectedEOF) {
++			t.Fatalf("expected truncated event, got %T %v", ev, ev)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("reader blocked on truncated event")
++	}
++	select {
++	case <-done:
++	case <-time.After(time.Second):
++		t.Fatal("reader did not end")
++	}
++}
+diff --git a/base/xgb.go b/transport/xgb.go
+index 7999ba1..4819fb8 100644
+--- a/base/xgb.go
++++ b/transport/xgb.go
+@@ -1,12 +1,15 @@
+ package xgb
+ 
+ import (
++	"context"
+ 	"errors"
++	"fmt"
+ 	"io"
+ 	"log"
+ 	"net"
+ 	"os"
+ 	"sync"
++	"time"
+ )
+ 
+ var (
+@@ -40,7 +43,8 @@ const (
+ 	// that can be loaded off the wire and not grabbed with WaitForEvent
+ 	// until reading an event blocks. This value should be big enough to handle
+ 	// bursts of events.
+-	eventBuffer = 5000
++	eventBuffer            = 5000
++	maxGenericEventPayload = 1 << 20
+ )
+ 
+ // A Conn represents a connection to an X server.
+@@ -62,6 +66,12 @@ type Conn struct {
+ 	reqChan    chan *request
+ 	doneSend   chan struct{}
+ 	doneRead   chan struct{}
++	// Only context-created observation connections use force-abort. Graceful
++	// Close and all existing connection users keep their original behavior.
++	abortOnce sync.Once
++	abortMu   sync.Mutex
++	aborted   chan struct{}
++	stopAbort func() bool
+ 
+ 	// ExtLock is a lock used whenever new extensions are initialized.
+ 	// It should not be used. It is exported for use in the extension
+@@ -108,6 +118,66 @@ func NewConnDisplay(display string) (*Conn, error) {
+ 	return postNewConn(c)
+ }
+ 
++// NewConnDisplayContext creates an XGB connection with a cancellable setup
++// handshake, bounded to five seconds, and ties its lifetime to ctx. The
++// existing NewConnDisplay constructor remains unchanged.
++func NewConnDisplayContext(ctx context.Context, display string) (*Conn, error) {
++	if ctx == nil {
++		return nil, errors.New("xgb: nil connection context")
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	c := &Conn{}
++	setupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
++	defer cancel()
++	if err := c.connectContext(setupCtx, display); err != nil {
++		return nil, err
++	}
++	// postNewConn only initializes internal channels and goroutines; its
++	// current implementation cannot fail after successful setup.
++	conn, _ := postNewConn(c)
++	conn.bindAbortContext(ctx)
++	return conn, nil
++}
++
++// bindAbortContext owns the cancellation registration until force-abort.
++// A context already canceled at registration is handled without races.
++func (c *Conn) bindAbortContext(ctx context.Context) {
++	stop := context.AfterFunc(ctx, func() { c.Abort() })
++	c.abortMu.Lock()
++	select {
++	case <-c.aborted:
++		stop()
++	default:
++		c.stopAbort = stop
++	}
++	c.abortMu.Unlock()
++}
++
++// Abort immediately interrupts the underlying socket and any pending
++// requests/events on a context-created connection. It is safe to call more
++// than once. Unlike Close it does not wait for a server reply.
++func (c *Conn) Abort() {
++	if c == nil {
++		return
++	}
++	c.abortOnce.Do(func() {
++		c.abortMu.Lock()
++		stop := c.stopAbort
++		if c.aborted != nil {
++			close(c.aborted)
++		}
++		c.abortMu.Unlock()
++		if stop != nil {
++			stop()
++		}
++		if c.conn != nil {
++			_ = c.conn.Close()
++		}
++	})
++}
++
+ // NewConnNet is just like NewConn (see closing instructions), but allows a specific net.Conn
+ // to be used.
+ func NewConnNet(netConn net.Conn) (*Conn, error) {
+@@ -152,6 +222,7 @@ func postNewConn(c *Conn) (*Conn, error) {
+ 	c.eventChan = make(chan eventOrError, eventBuffer)
+ 	c.doneSend = make(chan struct{})
+ 	c.doneRead = make(chan struct{})
++	c.aborted = make(chan struct{})
+ 
+ 	go c.generateXIds()
+ 	go c.generateSeqIds()
+@@ -164,6 +235,17 @@ func postNewConn(c *Conn) (*Conn, error) {
+ // Close gracefully closes the connection to the X server.
+ // When everything is cleaned up, the WaitForEvent method will return (nil, nil)
+ func (c *Conn) Close() {
++	// A graceful close owns connection shutdown from this point onward. Stop
++	// the lifetime callback so a later context cancellation cannot abort an
++	// already-closing connection and report an expected socket EOF as an error.
++	c.abortMu.Lock()
++	stopAbort := c.stopAbort
++	c.stopAbort = nil
++	c.abortMu.Unlock()
++	if stopAbort != nil && !stopAbort() {
++		c.Abort()
++		return
++	}
+ 	select {
+ 	case c.reqChan <- nil:
+ 	case <-c.doneSend:
+@@ -478,6 +560,17 @@ func (c *Conn) writeBuffer(buf []byte) error {
+ 	return nil
+ }
+ 
++// sendReadEvent prevents an aborted connection from leaking its reader when
++// its public event queue is full (the normal graceful dispatch is unchanged).
++func (c *Conn) sendReadEvent(ev eventOrError) bool {
++	select {
++	case c.eventChan <- ev:
++		return true
++	case <-c.aborted:
++		return false
++	}
++}
++
+ // readResponses is a goroutine that reads events, errors and
+ // replies off the wire.
+ // When an event is read, it is always added to the event channel.
+@@ -509,7 +602,9 @@ func (c *Conn) readResponses() {
+ 			default:
+ 			}
+ 			Logger.Printf("A read error is unrecoverable: %s", err)
+-			c.eventChan <- err
++			if !c.sendReadEvent(err) {
++				return
++			}
+ 			return
+ 		}
+ 		switch buf[0] {
+@@ -538,7 +633,9 @@ func (c *Conn) readResponses() {
+ 				copy(biggerBuf[:32], buf)
+ 				if _, err := io.ReadFull(c.conn, biggerBuf[32:]); err != nil {
+ 					Logger.Printf("A read error is unrecoverable: %s", err)
+-					c.eventChan <- err
++					if !c.sendReadEvent(err) {
++						return
++					}
+ 					return
+ 				}
+ 				replyBytes = biggerBuf
+@@ -548,6 +645,18 @@ func (c *Conn) readResponses() {
+ 
+ 			// This reply is sent to its corresponding cookie below.
+ 		default: // This is an event
++			// A GenericEvent is length-delimited. Consume extension payload
++			// before dispatching any later event, error, or reply.
++			if buf[0]&127 == 35 {
++				var readErr error
++				buf, readErr = readGenericEvent(c.conn, buf)
++				if readErr != nil {
++					if !c.sendReadEvent(readErr) {
++						return
++					}
++					return
++				}
++			}
+ 			// Use the constructor function for this event (like for errors,
+ 			// and is also auto generated) by looking it up by the event number.
+ 			// Note that we AND the event number with 127 so that we ignore
+@@ -560,7 +669,9 @@ func (c *Conn) readResponses() {
+ 					"for event with number %d.", evNum)
+ 				continue
+ 			}
+-			c.eventChan <- newEventFun(buf)
++			if !c.sendReadEvent(newEventFun(buf)) {
++				return
++			}
+ 			continue
+ 		}
+ 
+@@ -572,7 +683,18 @@ func (c *Conn) readResponses() {
+ 		// are marked as successful if they are void and checked.
+ 		// If there's a cookie that requires a reply that is before this
+ 		// reply, then something is wrong.
+-		for cookie := range c.cookieChan {
++	cookieLoop:
++		for {
++			var cookie *Cookie
++			select {
++			case next, ok := <-c.cookieChan:
++				if !ok {
++					break cookieLoop
++				}
++				cookie = next
++			case <-c.aborted:
++				return
++			}
+ 			// This is the cookie we're looking for. Process and break.
+ 			if cookie.Sequence == seq {
+ 				if err != nil { // this is an error to a request
+@@ -580,7 +702,9 @@ func (c *Conn) readResponses() {
+ 					if cookie.errorChan != nil {
+ 						cookie.errorChan <- err
+ 					} else { // asynchronous processing
+-						c.eventChan <- err
++						if !c.sendReadEvent(err) {
++							return
++						}
+ 						// if this is an unchecked reply, ping the cookie too
+ 						if cookie.pingChan != nil {
+ 							cookie.pingChan <- true
+@@ -662,3 +786,25 @@ func (c *Conn) PollForEvent() (Event, Error) {
+ 		return nil, nil
+ 	}
+ }
++
++// readGenericEvent consumes the entire GenericEvent frame. Invalid framing is
++// fatal: the connection cannot safely resynchronize after a partial frame.
++// Get32 follows this XGB connection's existing little-endian wire convention.
++func readGenericEvent(r io.Reader, header []byte) ([]byte, error) {
++	if len(header) != 32 {
++		return nil, fmt.Errorf("xgb: invalid GenericEvent header size %d", len(header))
++	}
++	units := Get32(header[4:8])
++	if units > maxGenericEventPayload/4 {
++		return nil, fmt.Errorf("xgb: GenericEvent payload %d units exceeds %d-byte limit", units, maxGenericEventPayload)
++	}
++	if units == 0 {
++		return header, nil
++	}
++	frame := make([]byte, 32+int(units)*4)
++	copy(frame, header)
++	if _, err := io.ReadFull(r, frame[32:]); err != nil {
++		return nil, fmt.Errorf("xgb: truncated GenericEvent payload: %w", err)
++	}
++	return frame, nil
++}
+diff --git a/transport/xproto/generic_event_payload_test.go b/transport/xproto/generic_event_payload_test.go
+new file mode 100644
+index 0000000..7b16440
+--- /dev/null
++++ b/transport/xproto/generic_event_payload_test.go
+@@ -0,0 +1,43 @@
++package xproto
++
++import (
++	"bytes"
++	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
++	"testing"
++)
++
++func TestGenericEventPreservesPayloadAndSequence(t *testing.T) {
++	src := make([]byte, 40)
++	src[0] = 35
++	xgb.Put16(src[2:4], 0xabc)
++	xgb.Put32(src[4:8], 2)
++	for i := 32; i < 40; i++ {
++		src[i] = byte(i)
++	}
++	value := GeGenericEventNew(src).(GeGenericEvent)
++	if value.Sequence != 0xabc {
++		t.Fatalf("sequence: %d", value.Sequence)
++	}
++	if !bytes.Equal(value.Bytes(), src) {
++		t.Fatal("payload lost")
++	}
++	src[32] = 0
++	if value.Raw[32] != 32 {
++		t.Fatal("source mutation leaked into event")
++	}
++	got := value.Bytes()
++	got[32] = 0
++	if value.Raw[32] != 32 {
++		t.Fatal("caller mutated event via Bytes")
++	}
++}
++func TestGenericEventShortAndEmpty(t *testing.T) {
++	value := GeGenericEventNew([]byte{35}).(GeGenericEvent)
++	if value.Sequence != 0 {
++		t.Fatal("short event sequence")
++	}
++	empty := GeGenericEvent{}.Bytes()
++	if len(empty) != 32 || empty[0] != 35 {
++		t.Fatal("default serialization")
++	}
++}
+diff --git a/base/xproto/xproto.go b/transport/xproto/xproto.go
+index e0bf7d0..c5d0263 100644
+--- a/base/xproto/xproto.go
++++ b/transport/xproto/xproto.go
+@@ -2739,30 +2739,27 @@ const GeGeneric = 35
+ 
+ type GeGenericEvent struct {
+ 	Sequence uint16
+-	// padding: 22 bytes
++	// Raw preserves the full immutable-by-convention wire frame.
++	Raw []byte
+ }
+ 
+ // GeGenericEventNew constructs a GeGenericEvent value that implements xgb.Event from a byte slice.
+ func GeGenericEventNew(buf []byte) xgb.Event {
+-	v := GeGenericEvent{}
+-	b := 1 // don't read event number
+-
+-	b += 22 // padding
+-
++	v := GeGenericEvent{Raw: append([]byte(nil), buf...)}
++	if len(buf) >= 4 {
++		v.Sequence = xgb.Get16(buf[2:4])
++	}
+ 	return v
+ }
+ 
+ // Bytes writes a GeGenericEvent value to a byte slice.
+ func (v GeGenericEvent) Bytes() []byte {
++	if len(v.Raw) >= 32 {
++		return append([]byte(nil), v.Raw...)
++	}
+ 	buf := make([]byte, 32)
+-	b := 0
+-
+-	// write event number
+-	buf[b] = 35
+-	b += 1
+-
+-	b += 22 // padding
+-
++	buf[0] = 35
++	xgb.Put16(buf[2:4], v.Sequence)
+ 	return buf
+ }
+ 

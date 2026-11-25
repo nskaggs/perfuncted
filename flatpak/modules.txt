@@ -35,6 +35,7 @@ golang.org/x/mod/internal/lazyregexp
 golang.org/x/mod/modfile
 golang.org/x/mod/module
 golang.org/x/mod/semver
+golang.org/x/mod/sumdb/dirhash
 golang.org/x/mod/zip
 # golang.org/x/sync v0.23.0
 ## explicit; go 1.26.0
