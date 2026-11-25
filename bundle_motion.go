@@ -181,7 +181,29 @@ func (b *InputBundle) sendMotion(ctx context.Context, points []motionPoint, d ti
 			return err
 		}
 	}
-	return nil
+	return b.flushMotionRequests(ctx)
+}
+
+// flushMotionRequests is a backend-specific protocol delivery barrier. It
+// deliberately does not imply that any target application consumed the input.
+func (b *InputBundle) flushMotionRequests(ctx context.Context) error {
+	flusher, ok := b.backend.(interface{ FlushMotionRequests(context.Context) error })
+	if !ok {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.session.ensureOpen(); err != nil {
+		return err
+	}
+	if err := b.operationError("pointer", flusher.FlushMotionRequests(ctx)); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.session.ensureOpen()
 }
 
 // MouseMoveSmooth moves from an explicit start, or the reported pointer position.

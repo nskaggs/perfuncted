@@ -19,6 +19,7 @@ import (
 
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgb/xtest"
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
@@ -128,6 +129,7 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 			t.Fatalf("unexpected real OCR result %+v", got)
 		}
 	})
+	t.Run("cross-api-visual-find", func(t *testing.T) { certifyReleaseFindCLIAndGoOCR(t, ctx, s, binary) })
 	t.Run("real-pointer-observation", func(t *testing.T) {
 		if err := s.pf.Input.MouseMove(ctx, 150, 150); err != nil {
 			t.Fatal(err)
@@ -140,6 +142,44 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 		if err != nil || got.X != int(want.RootX) || got.Y != int(want.RootY) || got.X != 150 || got.Y != 150 ||
 			got.CoordinateSpace.Kind != input.PointerCoordinateSpaceRootPixels || got.Provider != "x11-root" || got.ObservedAt.IsZero() {
 			t.Fatalf("pointer = %+v, %v; native readback = %+v", got, err, want)
+		}
+	})
+	t.Run("independent-cli-input-state", func(t *testing.T) {
+		if err := xtest.Init(conn); err != nil {
+			t.Fatal(err)
+		}
+		for _, transition := range []struct {
+			kind  byte
+			state input.StateValue
+		}{{xproto.ButtonPress, input.StatePressed}, {xproto.ButtonRelease, input.StateReleased}} {
+			if err := xtest.FakeInputChecked(conn, transition.kind, 1, xproto.TimeCurrentTime, root.Root, 0, 0, 0).Check(); err != nil {
+				t.Fatal(err)
+			}
+			if transition.kind == xproto.ButtonPress {
+				defer func() {
+					_ = xtest.FakeInputChecked(conn, xproto.ButtonRelease, 1, xproto.TimeCurrentTime, root.Root, 0, 0, 0).Check()
+				}()
+			}
+			cmd := exec.CommandContext(ctx, binary, "input", "state", "--button", "left", "--output", "json")
+			cmd.Env = s.rt.EnvList()
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("CLI state: %v", err)
+			}
+			var got input.StateObservation
+			if err := json.Unmarshal(out, &got); err != nil || got.State != transition.state || got.Provider != "x11-core" || got.Provenance != "unknown" || got.ObservedAt.IsZero() {
+				t.Fatalf("independently injected button: %+v, %v", got, err)
+			}
+		}
+		cmd := exec.CommandContext(ctx, binary, "input", "location", "--output", "json")
+		cmd.Env = s.rt.EnvList()
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got input.PointerObservation
+		if err := json.Unmarshal(out, &got); err != nil || got.X != 150 || got.Y != 150 || got.Provider != "x11-root" || got.CoordinateSpace.Kind != input.PointerCoordinateSpaceRootPixels {
+			t.Fatalf("CLI pointer: %+v, %v", got, err)
 		}
 	})
 	t.Run("unsupported-timed-motion-fails-before-dispatch", func(t *testing.T) {

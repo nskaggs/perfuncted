@@ -87,11 +87,24 @@ func TestReleaseVisualAcceptanceWayland(t *testing.T) {
 			t.Fatalf("unexpected OCR: %+v", got)
 		}
 	})
+	t.Run("cross-api-visual-find", func(t *testing.T) { certifyReleaseFindCLIAndGoOCR(t, ctx, s, binary) })
 	t.Run("real-screen-stream", func(t *testing.T) {
 		certifyWaylandStream(t, ctx, s, binary, base)
 	})
 	t.Run("native-timed-motion-and-drag", func(t *testing.T) {
 		certifyWaylandMotion(t, ctx, s, binary)
+	})
+	t.Run("unsupported-global-observation", func(t *testing.T) {
+		for _, args := range [][]string{{"input", "location", "--output", "json"}, {"input", "state", "--button", "left"}, {"input", "hotkey", "listen", "--button", "left", "--timeout", "500ms"}} {
+			cmd := exec.CommandContext(ctx, binary, args...)
+			cmd.Env = s.rt.EnvList()
+			var diagnostic bytes.Buffer
+			cmd.Stderr = &diagnostic
+			out, err := cmd.Output()
+			if err == nil || len(out) != 0 || !strings.Contains(strings.ToLower(diagnostic.String()), "unsupported") {
+				t.Fatalf("unsupported command %v: stdout=%q stderr=%q err=%v", args, out, diagnostic.String(), err)
+			}
+		}
 	})
 }
 

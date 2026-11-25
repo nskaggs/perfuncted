@@ -114,6 +114,13 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := "release-" + rand.Text()[:16]
+		// Register cleanup before the first workflow command, including failures.
+		path := filepath.Join(fmt.Sprintf("/tmp/pf-workflows-%d", os.Geteuid()), id)
+		t.Cleanup(func() {
+			if err := os.RemoveAll(path); err != nil {
+				t.Error(err)
+			}
+		})
 		run("", "run", script, "--workflow-id", id)
 		var status struct {
 			ID                string `json:"id"`
@@ -147,12 +154,30 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 		if err := json.Unmarshal(run("", "workflow", "status", id, "--output", "json"), &status); err != nil || status.State != "completed" || status.LastCompletedStep != 1 {
 			t.Fatalf("reused workflow: %+v, %v", status, err)
 		}
-		// Explicit cleanup of our unique, completed test-only reservation.
-		path := filepath.Join(fmt.Sprintf("/tmp/pf-workflows-%d", os.Geteuid()), id)
-		t.Cleanup(func() {
-			if err := os.RemoveAll(path); err != nil {
-				t.Error(err)
-			}
+		t.Run("window-capture-cli-provenance", func(t *testing.T) {
+			certifyReleaseWindowCapture(t, ctx, s, binary, target)
 		})
+		// The failure must not execute any subsequent command or publish its
+		// output. The terminal receipt must attest the last completed step.
+		forbidden := filepath.Join(t.TempDir(), "must-not-exist.png")
+		lines = []string{"screen hash --rect 10,20,42,44", "invalid-release-command", "screen grab --rect 10,20,42,44 --out " + forbidden}
+		if err := os.WriteFile(script, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cmd = exec.CommandContext(ctx, binary, "run", script, "--workflow-id", id)
+		cmd.Env = s.rt.EnvList()
+		if out, err := cmd.CombinedOutput(); err == nil {
+			t.Fatalf("invalid script succeeded: %s", out)
+		}
+		if err := json.Unmarshal(run("", "workflow", "status", id, "--output", "json"), &status); err != nil || status.State != "failed" || status.LastCompletedStep != 1 {
+			t.Fatalf("failed receipt: %+v, %v", status, err)
+		}
+		if _, err := os.Stat(forbidden); !os.IsNotExist(err) {
+			t.Fatalf("script continued after failure: %v", err)
+		}
+		data, err = os.ReadFile(doc)
+		if err != nil || strings.TrimSuffix(string(data), "\n") != want {
+			t.Fatalf("document unexpectedly changed: %q, %v", data, err)
+		}
 	})
 }

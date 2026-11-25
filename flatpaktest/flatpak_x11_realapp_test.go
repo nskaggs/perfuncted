@@ -47,7 +47,7 @@ func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot
 		cmd := exec.Command("xprop", "-root", "_NET_SUPPORTING_WM_CHECK")
 		cmd.Env = h.env
 		out, err := cmd.CombinedOutput()
-		return err == nil && bytes.Contains(out, []byte("_NET_SUPPORTING_WM_CHECK"))
+		return err == nil && x11WindowManagerReady(string(out))
 	}) {
 		log, _ := os.ReadFile(wmLog.Name())
 		t.Fatalf("X11 WM did not advertise EWMH: %s", log)
@@ -189,4 +189,33 @@ func x11ClientListContains(property string, target uint32) bool {
 		}
 	}
 	return false
+}
+
+// xprop exits successfully even for an absent property. Accept only a
+// nonzero EWMH WINDOW reference, never its diagnostic or the root itself.
+func x11WindowManagerReady(property string) bool {
+	const prefix = "_NET_SUPPORTING_WM_CHECK(WINDOW): window id # "
+	rest, ok := strings.CutPrefix(strings.TrimSpace(property), prefix)
+	if !ok {
+		return false
+	}
+	id, err := strconv.ParseUint(strings.TrimSpace(rest), 0, 32)
+	return err == nil && id != 0
+}
+
+func TestX11WindowManagerReadinessRequiresNonzeroWindow(t *testing.T) {
+	for _, tc := range []struct {
+		property string
+		want     bool
+	}{
+		{"_NET_SUPPORTING_WM_CHECK:  no such atom on any window.\n", false},
+		{"_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x0\n", false},
+		{"_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x200001\n", true},
+		{"_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 2097153\n", true},
+		{"_NET_SUPPORTING_WM_CHECK(WINDOW): window id # junk\n", false},
+	} {
+		if got := x11WindowManagerReady(tc.property); got != tc.want {
+			t.Errorf("%q: readiness=%t want %t", tc.property, got, tc.want)
+		}
+	}
 }

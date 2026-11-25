@@ -130,7 +130,7 @@ func testInstalledFlatpakCLI(t *testing.T, h *harness, sourceRoot, testRoot stri
 		}
 	})
 	t.Run("real X11 screen and input", func(t *testing.T) {
-		display, stop, err := x11test.StartXvfb()
+		display, stop, err := x11test.StartXvfbNoReset()
 		if err != nil {
 			t.Fatalf("Xvfb required for packaged desktop smoke: %v", err)
 		}

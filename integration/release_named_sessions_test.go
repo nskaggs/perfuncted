@@ -95,7 +95,7 @@ func TestReleaseNamedSessions(t *testing.T) {
 		t.Fatalf("named session never became ready: %s", data)
 		return o
 	}
-	probe := func(o owner) {
+	runtimeFor := func(o owner) env.Runtime {
 		t.Helper()
 		rt := env.Current().Without("DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "SWAYSOCK", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "ATSPI_BUS_ADDRESS", "AT_SPI_BUS").With("XDG_SESSION_TYPE", "wayland")
 		for key, value := range o.attach.Environment {
@@ -104,8 +104,12 @@ func TestReleaseNamedSessions(t *testing.T) {
 			}
 			rt = rt.With(key, value)
 		}
+		return rt
+	}
+	probe := func(o owner) {
+		t.Helper()
 		cmd := exec.CommandContext(ctx, binary, "screen", "grab", "--rect", "0,0,64,48", "--out", "-")
-		cmd.Env = rt.EnvList()
+		cmd.Env = runtimeFor(o).EnvList()
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
@@ -124,6 +128,28 @@ func TestReleaseNamedSessions(t *testing.T) {
 	}
 	probe(a)
 	probe(b)
+	// Distinct real clipboard owners prove that attaching is not just
+	// returning different runtime names for the same desktop.
+	clipboardSet := func(o owner, value string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, binary, "clipboard", "set", value)
+		cmd.Env = runtimeFor(o).EnvList()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("set attached clipboard: %v: %s", err, out)
+		}
+	}
+	clipboardCheck := func(o owner, want string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "wl-paste", "--no-newline")
+		cmd.Env = runtimeFor(o).EnvList()
+		if out, err := cmd.Output(); err != nil || string(out) != want {
+			t.Fatalf("native clipboard in %s: %q, %v; want %q", o.name, out, err, want)
+		}
+	}
+	clipboardSet(a, "owner-a-"+a.name)
+	clipboardSet(b, "owner-b-"+b.name)
+	clipboardCheck(a, "owner-a-"+a.name)
+	clipboardCheck(b, "owner-b-"+b.name)
 	listed, err := call("list", "--output", "json")
 	if err != nil {
 		t.Fatalf("session list: %v: %s", err, listed)
@@ -167,4 +193,23 @@ func TestReleaseNamedSessions(t *testing.T) {
 		t.Fatalf("stopped session still attachable: %s", out)
 	}
 	probe(b)
+	clipboardCheck(b, "owner-b-"+b.name)
+	out, err = call("stop", b.name, "--output", "json")
+	if err != nil {
+		t.Fatalf("stop surviving owner: %v: %s", err, out)
+	}
+	if err := json.Unmarshal(out, &stopped); err != nil || stopped.State != "stopped" || stopped.ID != b.attach.ID {
+		t.Fatalf("surviving owner stop receipt: %s, %v", out, err)
+	}
+	select {
+	case err := <-b.done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("surviving owner did not exit")
+	}
+	if out, err := call("attach", b.name); err == nil {
+		t.Fatalf("stopped B still attachable: %s", out)
+	}
 }

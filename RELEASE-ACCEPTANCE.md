@@ -9,16 +9,16 @@ regression. The regular integration suite remains a separate gate.
 | Release surface | Independent evidence | Configuration |
 |---|---|---|
 | Go scripting and window-scoped steps | Real editor document persisted by a separately built CLI workflow | All four |
-| Controlled scripts, completion and ID reuse | Terminal status plus file contents and decoded PNG/hash | All four |
+| Controlled scripts, completion and ID reuse | Terminal success and failure receipts, no post-failure output, file contents, decoded PNG/hash | All four |
 | Clipboard | Native xclip/wl-copy/wl-paste both directions, whitespace, multiline and large Unicode | All four |
-| Fuzzy template matching | Independently rendered template positions and ordering | All four |
-| OCR | Real Tesseract recognition of independently rendered glyphs | All four |
+| Fuzzy template matching | Independent template positions; Go and CLI best/all/limited ordered results | All four |
+| OCR | Real Tesseract Go and CLI recognition, matching desktop and pixel geometry, successful no-match | All four |
 | Screen streaming | X11 independently painted exact dirty crop; Wayland pixel reconstruction across compositor redraw/resync; synthetic geometry/overflow reconstruction | All four plus unit |
 | Timed movement/drag | Native Wayland client event stream, Go and CLI, multiple points, final coordinates, cancellation release; X11 rejects unavailable coordinate provenance without dispatch | All four |
-| Pointer observation | Independent X11 QueryPointer readback | Both X11 modes |
-| Global input observation and state | Strict native Xvfb keyboard/button observation, focus, shutdown and cancellation | Dedicated X11 |
-| Window capture | Real window geometry and identity; separately redirected pixmap under occluder | All four / dedicated X11 |
-| Named sessions | Independent real Sway owners, attachment, duplicate/active recovery rejection, isolation, stop | Dedicated headless Wayland |
+| Pointer observation | Independent X11 QueryPointer readback, CLI provenance; explicit unsupported Wayland JSON | Both X11 modes |
+| Global input observation and state | Strict native Xvfb keyboard/button observation; CLI button state from independent XTest; unsupported Wayland queries | Dedicated X11 |
+| Window capture | Real window geometry and identity; CLI by ID and title with PNG and metadata; no unsupported output; redirected pixmap under occluder | All four / dedicated X11 |
+| Named sessions | Independent real Sway owners, attachment, distinct native clipboard contents, duplicate/active recovery rejection, both owners stopped | Dedicated headless Wayland |
 | Accessibility | Real Qt/GTK editor state waits, scoped absence, opposite-state rejection, verified mutations and disk save | Dedicated strict AT-SPI |
 | Workflow control | Real headless Sway pause/resume/stop; process-protocol and stale-owner tests | Dedicated Wayland and unit |
 | Release packaging | Static executable, GoReleaser live smoke, Flatpak build/install | CI |
@@ -28,3 +28,18 @@ combination, or Linux desktop is exercised live. GNOME/KWin native input,
 portal/EIS permissions, uinput and hardware-specific configurations still
 require their own appropriate environments; deterministic provider contracts
 and explicit unsupported paths supplement, not replace, live certification.
+
+Run repeated acceptance passes as separate test processes (each with
+-count=1), not multiple repetitions in a single TestMain-managed compositor.
+A shared Wayland session exhibited pointer-focus and subsequent wallpaper
+fixture interference; fresh desktops keep independent scenarios strict.
+The behavior of multiple unrelated clients sharing one desktop remains an
+explicit investigation item rather than an asserted passing scenario.
+
+The native Wayland event oracle exposed an intermittent final-motion loss when
+a short-lived CLI closed its virtual-input connection immediately after a drag.
+The regression requires the final destination and release, without accepting
+a preceding interpolation sample. A bounded Wayland protocol acknowledgement
+now precedes release and successful return; it is not application-level
+delivery verification. Dedicated wire and ordering tests cover acknowledgement
+failure and cancellation.

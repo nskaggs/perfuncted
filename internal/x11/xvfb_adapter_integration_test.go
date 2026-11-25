@@ -24,7 +24,7 @@ func startAdapterXvfb(t *testing.T) string {
 	if _, err := exec.LookPath("Xvfb"); err != nil {
 		t.Skip("Xvfb is unavailable")
 	}
-	cmd := exec.Command("Xvfb", "-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp", "-ac")
+	cmd := exec.Command("Xvfb", "-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp", "-ac", "-noreset")
 	// A writable *os.File lets Xvfb emit diagnostics without an os/exec
 	// copy goroutine mutating a bytes.Buffer while the test inspects it.
 	stderrFile, err := os.CreateTemp(t.TempDir(), "xvfb-stderr-*")
@@ -58,7 +58,7 @@ func startAdapterXvfb(t *testing.T) string {
 			t.Fatalf("headless server failed: %v / %s", result.err, stderrText())
 		}
 		num = strings.TrimSpace(result.line)
-	case <-time.After(5 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("Xvfb failed to allocate private display: %s", stderrText())
 	}
 	if _, err := strconv.Atoi(num); err != nil {

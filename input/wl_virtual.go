@@ -647,7 +647,16 @@ func (b *WlVirtualBackend) PointerLocation(ctx context.Context) (int, int, error
 	return 0, 0, unsupportedError("input/wl-virtual", "pointer location")
 }
 
-// Sync flushes pending virtual-input events.
+// FlushMotionRequests waits until the compositor has processed requests
+// queued on the virtual-input connection. This is a protocol delivery barrier,
+// not an attestation that the target application consumed the input, so it
+// does not advertise the public Sync capability.
+func (b *WlVirtualBackend) FlushMotionRequests(ctx context.Context) error {
+	return b.withOperation(ctx, func(_ wl.Ctx, opCtx context.Context) error {
+		return b.session.Display.RoundTripContext(opCtx)
+	})
+}
+
 func (b *WlVirtualBackend) checkOpen() error {
 	if b == nil {
 		return nil

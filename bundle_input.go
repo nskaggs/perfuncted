@@ -455,6 +455,9 @@ func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, dura
 		return checkErr
 	}
 	released = true
+	if checkErr := b.flushMotionRequests(ctx); checkErr != nil {
+		return checkErr
+	}
 	if checkErr := ctx.Err(); checkErr != nil {
 		return checkErr
 	}
