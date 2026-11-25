@@ -1,552 +1,840 @@
-package perfuncted_test
+package perfuncted
 
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/nskaggs/perfuncted/input"
 	"image"
+	"os"
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
 )
 
-type inputPointerSyncSpy struct {
-	pftest.Inputter
-	pointerCalls int
-	syncCalls    int
-}
-
-type dragCleanupInput struct {
-	pftest.Inputter
-	moveCalls       int
-	mouseDownCalls  int
-	mouseUpCalls    int
-	moveErr         error
-	mouseDownErr    error
-	mouseDownFailAt int
-	mouseUpErr      error
-}
-
-func (s *dragCleanupInput) MouseMove(ctx context.Context, x, y int) error {
-	s.moveCalls++
-	if s.moveCalls == 2 {
-		return s.moveErr
+// This is an opt-in controlled Xvfb acceptance test, not proof of native
+// physical input or cross-focus delivery by human-operated devices.
+func TestInputObservationSessionOnControlledX11(t *testing.T) {
+	if os.Getenv("PF_X11_OBSERVATION_INTEGRATION") != "1" {
+		t.Skip("requires isolated Xvfb")
 	}
-	return s.Inputter.MouseMove(ctx, x, y)
-}
-
-func (s *dragCleanupInput) MouseUp(ctx context.Context, button int) error {
-	s.mouseUpCalls++
-	_ = s.Inputter.MouseUp(ctx, button)
-	return s.mouseUpErr
-}
-
-func (s *dragCleanupInput) MouseDown(ctx context.Context, button int) error {
-	s.mouseDownCalls++
-	_ = s.Inputter.MouseDown(ctx, button)
-	if s.mouseDownErr != nil && (s.mouseDownFailAt == 0 || s.mouseDownCalls == s.mouseDownFailAt) {
-		return s.mouseDownErr
-	}
-	return nil
-}
-
-type releaseRetryInput struct {
-	pftest.Inputter
-	mouseUpCalls int
-	failAt       int
-	releaseErr   error
-}
-
-func (s *releaseRetryInput) MouseUp(ctx context.Context, button int) error {
-	s.mouseUpCalls++
-	_ = s.Inputter.MouseUp(ctx, button)
-	if s.mouseUpCalls == s.failAt {
-		return s.releaseErr
-	}
-	return nil
-}
-
-func (s *inputPointerSyncSpy) PointerLocation(context.Context) (int, int, error) {
-	s.pointerCalls++
-	return 42, 24, nil
-}
-
-func (s *inputPointerSyncSpy) Sync(context.Context) error {
-	s.syncCalls++
-	return nil
-}
-
-type windowSpyManager struct {
-	pftest.Manager
-	moveCalls  []string
-	closeCalls []string
-	syncCalls  int
-}
-
-func (m *windowSpyManager) Move(ctx context.Context, title string, x, y int) error {
-	m.moveCalls = append(m.moveCalls, fmt.Sprintf("%s:%d,%d", title, x, y))
-	return nil
-}
-
-func (m *windowSpyManager) MoveByID(
-	ctx context.Context,
-	id string,
-	x int,
-	y int,
-) error {
-	m.moveCalls = append(m.moveCalls, fmt.Sprintf("%s:%d,%d", id, x, y))
-	return nil
-}
-
-func (m *windowSpyManager) CloseWindow(ctx context.Context, title string) error {
-	m.closeCalls = append(m.closeCalls, title)
-	return nil
-}
-
-func (m *windowSpyManager) CloseWindowByID(
-	ctx context.Context,
-	id string,
-) error {
-	m.closeCalls = append(m.closeCalls, id)
-	return nil
-}
-
-func (m *windowSpyManager) Sync(ctx context.Context) error {
-	m.syncCalls++
-	return nil
-}
-
-func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
-	inp := &pftest.Inputter{}
-	cb := &pftest.Clipboard{}
-	pf := pftest.New(nil, inp, nil, cb)
-	ctx := context.Background()
-
-	// Perfuncted.Paste uses clipboard+PasteCombo when a clipboard is available.
-	if err := pf.Paste(ctx, "hello world"); err != nil {
-		t.Fatalf("Paste: %v", err)
-	}
-
-	// Verify clipboard was set.
-	if cb.Text != "hello world" {
-		t.Errorf("clipboard text = %q, want %q", cb.Text, "hello world")
-	}
-
-	// Verify Type was called with "{ctrl+v}" (brace-combo Ctrl+V).
-	if !slices.Contains(inp.Calls, "type:{ctrl+v}") {
-		t.Errorf("expected type:{ctrl+v} in calls: %v", inp.Calls)
-	}
-}
-
-func TestPerfunctedPaste_FallbackToType(t *testing.T) {
-	// When clipboard is nil, Paste should fall back to literal typing.
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Paste(ctx, "abc"); err != nil {
-		t.Fatalf("Paste: %v", err)
-	}
-
-	// Should have invoked the literal-typing path with the full string.
-	if !slices.Contains(inp.Calls, "type-literal:abc") {
-		t.Errorf("expected type-literal:abc in calls: %v", inp.Calls)
-	}
-}
-
-func TestPerfunctedPaste_FallbackTypesArbitraryTextLiterally(t *testing.T) {
-	// Arbitrary text that resembles key syntax (braces, modifiers) must
-	// round-trip unchanged when the clipboard is unavailable. Previously the
-	// fallback routed text through key-syntax parsing, which failed on braces.
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	js := `(function(){const x = a && { b: 1, c: "}" } + "{" ; return x})()`
-	if err := pf.Paste(ctx, js); err != nil {
-		t.Fatalf("Paste with braces: %v", err)
-	}
-
-	if !slices.Contains(inp.Calls, "type-literal:"+js) {
-		t.Errorf("expected literal paste in calls: %v", inp.Calls)
-	}
-}
-
-func TestPerfunctedPaste_ClipboardSetFails(t *testing.T) {
-	// When clipboard.Set fails, Perfuncted.Paste returns the error.
-	inp := &pftest.Inputter{}
-	cb := &pftest.Clipboard{SetErr: context.DeadlineExceeded}
-	pf := pftest.New(nil, inp, nil, cb)
-	ctx := context.Background()
-
-	err := pf.Paste(ctx, "fallback")
-	if err == nil {
-		t.Fatal("expected error when clipboard.Set fails")
-	}
-	t.Logf("got expected error: %v", err)
-}
-
-func TestInputBundleDoubleClick(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.DoubleClick(ctx, 50, 75); err != nil {
-		t.Fatalf("DoubleClick: %v", err)
-	}
-
-	// DoubleClick: MouseMove, MouseDown, MouseUp, MouseDown, MouseUp
-	want := []string{
-		"move:50,75",
-		"mousedown",
-		"mouseup",
-		"mousedown",
-		"mouseup",
-	}
-	if len(inp.Calls) != len(want) {
-		t.Fatalf("unexpected call count: got %v want %v", inp.Calls, want)
-	}
-	for i, call := range want {
-		if inp.Calls[i] != call {
-			t.Fatalf("call %d = %q, want %q (all calls: %v)", i, inp.Calls[i], call, inp.Calls)
-		}
-	}
-}
-
-func TestInputBundleDoubleClickCleansUpAfterSecondMouseDownFailure(t *testing.T) {
-	pressErr := errors.New("second press failed")
-	inp := &dragCleanupInput{
-		mouseDownErr:    pressErr,
-		mouseDownFailAt: 2,
-	}
-	p := pftest.New(nil, inp, nil, nil)
-
-	err := p.Input.DoubleClick(context.Background(), 1, 2)
-	if !errors.Is(err, pressErr) {
-		t.Fatalf("DoubleClick error = %v, want second press error", err)
-	}
-	if inp.mouseDownCalls != 2 {
-		t.Fatalf("MouseDown calls = %d, want 2", inp.mouseDownCalls)
-	}
-	if inp.mouseUpCalls != 2 {
-		t.Fatalf("MouseUp calls = %d, want first release and cleanup release", inp.mouseUpCalls)
-	}
-}
-
-func TestInputBundleDoubleClickRetriesReleaseAfterReleaseFailure(t *testing.T) {
-	releaseErr := errors.New("first release failed")
-	inp := &releaseRetryInput{failAt: 1, releaseErr: releaseErr}
-	p := pftest.New(nil, inp, nil, nil)
-
-	err := p.Input.DoubleClick(context.Background(), 1, 2)
-	if !errors.Is(err, releaseErr) {
-		t.Fatalf("DoubleClick error = %v, want first release error", err)
-	}
-	if inp.mouseUpCalls != 2 {
-		t.Fatalf("MouseUp calls = %d, want failed release plus cleanup retry", inp.mouseUpCalls)
-	}
-}
-
-func TestInputBundleDoubleClickRetriesSecondReleaseAfterReleaseFailure(t *testing.T) {
-	releaseErr := errors.New("second release failed")
-	inp := &releaseRetryInput{failAt: 2, releaseErr: releaseErr}
-	p := pftest.New(nil, inp, nil, nil)
-
-	err := p.Input.DoubleClick(context.Background(), 1, 2)
-	if !errors.Is(err, releaseErr) {
-		t.Fatalf("DoubleClick error = %v, want second release error", err)
-	}
-	if inp.mouseUpCalls != 3 {
-		t.Fatalf("MouseUp calls = %d, want two releases plus cleanup retry", inp.mouseUpCalls)
-	}
-}
-
-func TestInputBundleDragAndDropReportsCleanupFailure(t *testing.T) {
-	moveErr := errors.New("drag move failed")
-	cleanupErr := errors.New("drag cleanup failed")
-	inp := &dragCleanupInput{
-		moveErr:    moveErr,
-		mouseUpErr: cleanupErr,
-	}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	err := pf.Input.DragAndDrop(context.Background(), 1, 2, 3, 4)
-	if !errors.Is(err, moveErr) {
-		t.Fatalf("DragAndDrop error = %v, want move error", err)
-	}
-	if !errors.Is(err, cleanupErr) {
-		t.Fatalf("DragAndDrop error = %v, want cleanup error", err)
-	}
-	if inp.mouseUpCalls != 1 {
-		t.Fatalf("cleanup MouseUp calls = %d, want 1", inp.mouseUpCalls)
-	}
-}
-
-func TestInputBundleDragAndDropCleansUpAfterMouseDownFailure(t *testing.T) {
-	downErr := errors.New("drag press failed")
-	cleanupErr := errors.New("drag cleanup failed")
-	inp := &dragCleanupInput{
-		mouseDownErr: downErr,
-		mouseUpErr:   cleanupErr,
-	}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	err := pf.Input.DragAndDrop(context.Background(), 1, 2, 3, 4)
-	if !errors.Is(err, downErr) || !errors.Is(err, cleanupErr) {
-		t.Fatalf("DragAndDrop error = %v, want press and cleanup errors", err)
-	}
-	if inp.mouseUpCalls != 1 {
-		t.Fatalf("cleanup MouseUp calls = %d, want 1", inp.mouseUpCalls)
-	}
-}
-
-func TestInputBundleDragAndDropRetriesReleaseAfterReleaseFailure(t *testing.T) {
-	releaseErr := errors.New("first release failed")
-	inp := &releaseRetryInput{failAt: 1, releaseErr: releaseErr}
-	p := pftest.New(nil, inp, nil, nil)
-
-	err := p.Input.DragAndDrop(context.Background(), 1, 2, 3, 4)
-	if !errors.Is(err, releaseErr) {
-		t.Fatalf("DragAndDrop error = %v, want first release error", err)
-	}
-	if inp.mouseUpCalls != 2 {
-		t.Fatalf("MouseUp calls = %d, want failed release plus cleanup retry", inp.mouseUpCalls)
-	}
-}
-
-func TestInputBundleScroll_DxPositive(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.ScrollRight(ctx, 3); err != nil {
-		t.Fatalf("ScrollRight: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "scroll-right:3" {
-		t.Errorf("call = %q, want scroll-right:3", inp.Calls[0])
-	}
-}
-
-func TestInputBundleScroll_DxNegative(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.ScrollLeft(ctx, 2); err != nil {
-		t.Fatalf("ScrollLeft: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "scroll-left:2" {
-		t.Errorf("call = %q, want scroll-left:2", inp.Calls[0])
-	}
-}
-
-func TestInputBundleScroll_DyPositive(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.ScrollDown(ctx, 5); err != nil {
-		t.Fatalf("ScrollDown: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "scroll-down:5" {
-		t.Errorf("call = %q, want scroll-down:5", inp.Calls[0])
-	}
-}
-
-func TestInputBundleScroll_DyNegative(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.ScrollUp(ctx, 3); err != nil {
-		t.Fatalf("ScrollUp: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "scroll-up:3" {
-		t.Errorf("call = %q, want scroll-up:3", inp.Calls[0])
-	}
-}
-
-func TestInputBundleClickCenter(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	// Rect from (10,20) to (30,40) → center (20,30)
-	if err := pf.Input.ClickCenter(ctx, image.Rect(10, 20, 30, 40)); err != nil {
-		t.Fatalf("ClickCenter: %v", err)
-	}
-
-	if len(inp.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %v", inp.Calls)
-	}
-	if inp.Calls[0] != "click:20,30" {
-		t.Errorf("call = %q, want click:20,30", inp.Calls[0])
-	}
-}
-
-func TestInputBundleType_NilCheck(t *testing.T) {
-	// Type with nil Inputter should return error.
-	pf := pftest.New(nil, nil, nil, nil)
-	err := pf.Input.Type(context.Background(), "hello")
-	if err == nil {
-		t.Fatal("expected error for nil Inputter")
-	}
-	t.Logf("got expected error: %v", err)
-}
-
-func TestInputBundleDragAndDrop(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.DragAndDrop(ctx, 10, 20, 30, 40); err != nil {
-		t.Fatalf("DragAndDrop: %v", err)
-	}
-
-	// DragAndDrop: MouseMove(start), MouseDown, MouseMove(end), MouseUp
-	want := []string{
-		"move:10,20",
-		"mousedown",
-		"move:30,40",
-		"mouseup",
-	}
-	if len(inp.Calls) != len(want) {
-		t.Fatalf("unexpected call count: got %v want %v", inp.Calls, want)
-	}
-	for i, call := range want {
-		if inp.Calls[i] != call {
-			t.Fatalf("call %d = %q, want %q (all calls: %v)", i, inp.Calls[i], call, inp.Calls)
-		}
-	}
-}
-
-func TestInputBundleDoubleClickNilContext(t *testing.T) {
-	inp := &pftest.Inputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	if err := pf.Input.DoubleClick(context.TODO(), 50, 75); err != nil {
-		t.Fatalf("DoubleClick(nil): %v", err)
-	}
-}
-
-func TestInputBundleDragAndDropNilContext(t *testing.T) {
-	boom := errors.New("drag failed")
-	inp := &pftest.Inputter{Err: boom}
-	pf := pftest.New(nil, inp, nil, nil)
-
-	err := pf.Input.DragAndDrop(context.TODO(), 10, 20, 30, 40)
-	if !errors.Is(err, boom) {
-		t.Fatalf("DragAndDrop(nil) error = %v, want %v", err, boom)
-	}
-}
-
-func TestInputBundleMouseMoveDownUpPointerLocationAndSync(t *testing.T) {
-	spy := &inputPointerSyncSpy{}
-	pf := pftest.New(nil, spy, nil, nil)
-	ctx := context.Background()
-
-	if err := pf.Input.MouseMove(ctx, 10, 20); err != nil {
-		t.Fatalf("MouseMove: %v", err)
-	}
-	if err := pf.Input.MouseDown(ctx, 1); err != nil {
-		t.Fatalf("MouseDown: %v", err)
-	}
-	if err := pf.Input.MouseUp(ctx, 1); err != nil {
-		t.Fatalf("MouseUp: %v", err)
-	}
-	x, y, err := pf.Input.PointerLocation(ctx)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	session, err := Open(ctx, Require(CapabilityInputObservation))
 	if err != nil {
-		t.Fatalf("PointerLocation: %v", err)
+		t.Fatal(err)
 	}
-	if err := pf.Input.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
+	sub, err := session.InputObservation.Listen(ctx, input.ObservationFilter{Combo: "F8", Transition: "both"})
+	if err != nil {
+		_ = session.Close()
+		t.Fatal(err)
 	}
-
-	wantCalls := []string{"move:10,20", "mousedown", "mouseup"}
-	if len(spy.Calls) != len(wantCalls) {
-		t.Fatalf("calls = %v, want %v", spy.Calls, wantCalls)
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
 	}
-	for i, want := range wantCalls {
-		if spy.Calls[i] != want {
-			t.Fatalf("call %d = %q, want %q", i, spy.Calls[i], want)
+	if !errors.Is(sub.Err(), input.ErrObservationRevoked) {
+		t.Fatalf("session did not revoke owned listener: %v", sub.Err())
+	}
+	select {
+	case _, ok := <-sub.Events():
+		if ok {
+			t.Fatal("delivered event after Session.Close")
 		}
-	}
-	if x != 42 || y != 24 {
-		t.Fatalf("PointerLocation = (%d,%d), want (42,24)", x, y)
-	}
-	if spy.pointerCalls != 1 || spy.syncCalls != 1 {
-		t.Fatalf("pointerCalls=%d syncCalls=%d, want 1/1", spy.pointerCalls, spy.syncCalls)
+	case <-time.After(time.Second):
+		t.Fatal("listener channel remained open after Session.Close")
 	}
 }
 
-func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
-	mgr := &windowSpyManager{
-		Manager: pftest.Manager{
-			Titles: []string{"Firefox"},
-			Lists: [][]window.Info{
-				{{ID: 1, Title: "Firefox"}},
-				{},
+type fakeObservationBackend struct {
+	onListen func()
+	listened int
+	closed   int
+	err      error
+	sub      *fakeObservationSub
+}
+
+func (f *fakeObservationBackend) Listen(ctx context.Context, filter input.ObservationFilter) (input.ObservationSubscription, error) {
+	f.listened++
+	if f.onListen != nil {
+		f.onListen()
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.sub = &fakeObservationSub{events: make(chan input.ObservationEvent)}
+	return f.sub, nil
+}
+func (f *fakeObservationBackend) SupportedOperations() []string {
+	return []string{"listen-hotkey", "listen-button"}
+}
+func (f *fakeObservationBackend) Close() error {
+	f.closed++
+	if f.sub != nil {
+		return f.sub.Close()
+	}
+	return nil
+}
+
+type fakeObservationSub struct {
+	events chan input.ObservationEvent
+	closed bool
+}
+
+func (s *fakeObservationSub) Events() <-chan input.ObservationEvent { return s.events }
+func (s *fakeObservationSub) Err() error                            { return nil }
+func (s *fakeObservationSub) Close() error {
+	if !s.closed {
+		close(s.events)
+		s.closed = true
+	}
+	return nil
+}
+func setupObservationTestSession(backend input.Observer) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Session{
+		ctx: ctx, cancel: cancel,
+		capabilities: map[Capability]CapabilityStatus{
+			CapabilityInputObservation: {Capability: CapabilityInputObservation, Available: true, Operations: []string{"listen-hotkey", "listen-button"}},
+		},
+	}
+	s.InputObservation = &InputObservationBundle{bundleBase: s.bundleBase(CapabilityInputObservation), backend: backend}
+	s.cacheResolvedBundleOperationsForTest()
+	return s
+}
+func (s *Session) cacheResolvedBundleOperationsForTest() {
+	s.InputObservation.bundleBase.cacheOperations(s.capabilities[CapabilityInputObservation].Operations)
+}
+
+type fakeStateObservationBackend struct {
+	*fakeObservationBackend
+	keyQuery    func(context.Context, string) (input.StateObservation, error)
+	lockQuery   func(context.Context, string) (input.StateObservation, error)
+	buttonQuery func(context.Context, int) (input.StateObservation, error)
+}
+
+func (f *fakeStateObservationBackend) SupportedOperations() []string {
+	return []string{"query-key-state", "query-lock-state", "query-button-state"}
+}
+
+func (f *fakeStateObservationBackend) KeyState(ctx context.Context, name string) (input.StateObservation, error) {
+	return f.keyQuery(ctx, name)
+}
+
+func (f *fakeStateObservationBackend) LockState(ctx context.Context, name string) (input.StateObservation, error) {
+	return f.lockQuery(ctx, name)
+}
+
+func (f *fakeStateObservationBackend) MouseButtonState(ctx context.Context, button int) (input.StateObservation, error) {
+	return f.buttonQuery(ctx, button)
+}
+
+func setupStateObservationTestSession(backend input.Observer) *Session {
+	session := setupObservationTestSession(backend)
+	ops := []string{"query-key-state", "query-lock-state", "query-button-state"}
+	session.capabilities[CapabilityInputObservation] = CapabilityStatus{
+		Capability: CapabilityInputObservation, Available: true, Operations: ops,
+	}
+	session.InputObservation.bundleBase.cacheOperations(ops)
+	return session
+}
+
+func TestInputObservationSessionLifecycle(t *testing.T) {
+	backend := &fakeObservationBackend{}
+	session := setupObservationTestSession(backend)
+	sub, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"})
+	if err != nil || sub == nil || backend.listened != 1 {
+		t.Fatalf("listen %v %+v", err, backend)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if backend.closed != 1 || !backend.sub.closed {
+		t.Fatalf("Session.Close leaked observer: %+v", backend)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Button: 1}); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("closed session listen: %v", err)
+	}
+}
+func TestInputObservationBundleValidationAndErrors(t *testing.T) {
+	backend := &fakeObservationBackend{}
+	session := setupObservationTestSession(backend)
+	defer session.Close()
+	if _, err := session.InputObservation.Listen(nil, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := session.InputObservation.Listen(canceled, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	backend.err = input.ErrObservationUnsupported
+	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrUnsupported) {
+		t.Fatal(err)
+	}
+	backend.err = nil
+	ctx, stop := context.WithDeadline(context.Background(), time.Now().Add(time.Second))
+	defer stop()
+	sub, err := session.InputObservation.Listen(ctx, input.ObservationFilter{Button: 1})
+	if err != nil || sub == nil {
+		t.Fatal(err)
+	}
+	_ = sub.Close()
+	session.capabilities[CapabilityInputObservation] = CapabilityStatus{Capability: CapabilityInputObservation, Operations: []string{"listen-hotkey"}}
+	session.InputObservation.bundleBase.cacheOperations([]string{"listen-hotkey"})
+	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Button: 1}); !errors.Is(err, ErrUnsupported) {
+		t.Fatal(err)
+	}
+	if err := (*InputObservationBundle)(nil).close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// These cases exercise cancellation and session closure during the backend's
+// registration response, not merely after a listener has been returned.
+func TestInputObservationBundleAdmissionRaces(t *testing.T) {
+	backend := &fakeObservationBackend{}
+	session := setupObservationTestSession(backend)
+	var nilBundle *InputObservationBundle
+	if _, err := nilBundle.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); err == nil {
+		t.Fatal("nil facade was accepted")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	backend.onListen = cancel
+	if _, err := session.InputObservation.Listen(ctx, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if backend.sub == nil || !backend.sub.closed {
+		t.Fatal("canceled registration leaked returned subscription")
+	}
+	backend.onListen = func() { _ = session.Close() }
+	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrSessionClosed) {
+		t.Fatal(err)
+	}
+	if backend.sub == nil || !backend.sub.closed {
+		t.Fatal("session closed during registration leaked subscription")
+	}
+}
+
+func TestInputObservationStateValidationAndResults(t *testing.T) {
+	var calls int
+	backend := &fakeStateObservationBackend{
+		fakeObservationBackend: &fakeObservationBackend{},
+		keyQuery: func(context.Context, string) (input.StateObservation, error) {
+			calls++
+			return input.StateObservation{Kind: "key", Name: "shift", State: input.StatePressed, Provenance: "unknown"}, nil
+		},
+		lockQuery: func(context.Context, string) (input.StateObservation, error) {
+			calls++
+			return input.StateObservation{Kind: "lock", Name: "capslock", State: input.StateEnabled, Provenance: "unknown"}, nil
+		},
+		buttonQuery: func(context.Context, int) (input.StateObservation, error) {
+			calls++
+			return input.StateObservation{Kind: "button", Name: "1", State: input.StateReleased, Provenance: "unknown"}, nil
+		},
+	}
+	session := setupStateObservationTestSession(backend)
+	defer session.Close()
+
+	if _, err := session.InputObservation.KeyState(context.Background(), "invalid"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("invalid key query: %v", err)
+	}
+	if _, err := session.InputObservation.LockState(context.Background(), "compose"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("invalid lock query: %v", err)
+	}
+	if _, err := session.InputObservation.MouseButtonState(context.Background(), 6); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("invalid button query: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("invalid queries reached backend %d times", calls)
+	}
+	if got, err := session.InputObservation.KeyState(context.Background(), "shift"); err != nil || got.State != input.StatePressed || got.Provenance != "unknown" {
+		t.Fatalf("key state = %+v, %v", got, err)
+	}
+	if got, err := session.InputObservation.LockState(context.Background(), "capslock"); err != nil || got.State != input.StateEnabled {
+		t.Fatalf("lock state = %+v, %v", got, err)
+	}
+	if got, err := session.InputObservation.MouseButtonState(context.Background(), 1); err != nil || got.State != input.StateReleased {
+		t.Fatalf("button state = %+v, %v", got, err)
+	}
+	if calls != 3 {
+		t.Fatalf("valid queries reached backend %d times, want 3", calls)
+	}
+}
+
+func TestInputObservationStateUnsupportedAndCancellation(t *testing.T) {
+	plain := &fakeObservationBackend{}
+	session := setupStateObservationTestSession(plain)
+	if _, err := session.InputObservation.KeyState(context.Background(), "shift"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("backend without StateReader: %v", err)
+	}
+	_ = session.Close()
+
+	started := make(chan struct{})
+	backend := &fakeStateObservationBackend{
+		fakeObservationBackend: &fakeObservationBackend{},
+		keyQuery: func(ctx context.Context, _ string) (input.StateObservation, error) {
+			close(started)
+			<-ctx.Done()
+			return input.StateObservation{}, ctx.Err()
+		},
+		lockQuery:   func(context.Context, string) (input.StateObservation, error) { return input.StateObservation{}, nil },
+		buttonQuery: func(context.Context, int) (input.StateObservation, error) { return input.StateObservation{}, nil },
+	}
+	session = setupStateObservationTestSession(backend)
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := session.InputObservation.KeyState(ctx, "shift")
+		result <- err
+	}()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled state query: %v", err)
+	}
+	_ = session.Close()
+}
+
+func TestInputObservationStateLateResultAfterSessionClose(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	backend := &fakeStateObservationBackend{
+		fakeObservationBackend: &fakeObservationBackend{},
+		keyQuery: func(context.Context, string) (input.StateObservation, error) {
+			close(started)
+			<-release
+			return input.StateObservation{Kind: "key", State: input.StatePressed}, nil
+		},
+		lockQuery:   func(context.Context, string) (input.StateObservation, error) { return input.StateObservation{}, nil },
+		buttonQuery: func(context.Context, int) (input.StateObservation, error) { return input.StateObservation{}, nil },
+	}
+	session := setupStateObservationTestSession(backend)
+	result := make(chan error, 1)
+	go func() {
+		_, err := session.InputObservation.KeyState(context.Background(), "shift")
+		result <- err
+	}()
+	<-started
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-result; !errors.Is(err, ErrSessionClosed) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("late state result after close: %v", err)
+	}
+}
+
+type authorityLossPointerRead struct {
+	*closeCountingInput
+	after         func()
+	locationCalls int
+	spaceCalls    int
+}
+
+func (b *authorityLossPointerRead) PointerLocation(context.Context) (int, int, error) {
+	b.locationCalls++
+	if b.after != nil {
+		b.after()
+	}
+	return 314, 159, nil
+}
+func (b *authorityLossPointerRead) PointerCoordinateSpace(context.Context) (input.CoordinateSpaceInfo, error) {
+	b.spaceCalls++
+	if b.after != nil {
+		b.after()
+	}
+	return input.CoordinateSpaceInfo{Kind: input.CoordinateSpacePhysical, ScaleX: 2, ScaleY: 1.5}, nil
+}
+
+// A provider may acknowledge private pointer metadata after authorization ends.
+// The facade must refuse both the late result and pre-canceled dispatch.
+func TestInputPointerReadsRequireAuthorityAtDispatchAndReturn(t *testing.T) {
+	for _, operation := range []string{"position", "coordinate-space"} {
+		for _, mode := range []string{"pre-cancel", "late-cancel", "close"} {
+			t.Run(operation+"/"+mode, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				source := &authorityLossPointerRead{closeCountingInput: &closeCountingInput{}}
+				session := NewSessionForTesting(nil, source, nil, nil, nil)
+				t.Cleanup(func() { _ = session.Close() })
+				expected := context.Canceled
+				if mode == "pre-cancel" {
+					cancel()
+				} else if mode == "late-cancel" {
+					source.after = cancel
+				} else {
+					expected = ErrSessionClosed
+					source.after = func() { _ = session.Close() }
+				}
+				var err error
+				if operation == "position" {
+					x, y, e := session.Input.PointerLocation(ctx)
+					err = e
+					if x != 0 || y != 0 {
+						t.Errorf("leaked position %d,%d", x, y)
+					}
+				} else {
+					info, e := session.Input.PointerCoordinateSpace(ctx)
+					err = e
+					if info != (input.CoordinateSpaceInfo{}) {
+						t.Errorf("leaked coordinate space %+v", info)
+					}
+				}
+				calls := source.locationCalls + source.spaceCalls
+				wantCalls := 1
+				if mode == "pre-cancel" {
+					wantCalls = 0
+				}
+				if !errors.Is(err, expected) || calls != wantCalls {
+					t.Errorf("err=%v, calls=%d want err %v calls %d", err, calls, expected, wantCalls)
+				}
+			})
+		}
+	}
+}
+
+type motionDeliveryBackend struct {
+	input.Inputter
+	events    []string
+	failureAt int
+	flushes   int
+}
+
+func (b *motionDeliveryBackend) MouseMove(context.Context, int, int) error {
+	b.events = append(b.events, "move")
+	return nil
+}
+func (b *motionDeliveryBackend) MouseDown(context.Context, int) error {
+	b.events = append(b.events, "down")
+	return nil
+}
+func (b *motionDeliveryBackend) MouseUp(context.Context, int) error {
+	b.events = append(b.events, "up")
+	return nil
+}
+func (b *motionDeliveryBackend) Close() error { return nil }
+func (b *motionDeliveryBackend) PointerCoordinateSpace(context.Context) (input.CoordinateSpaceInfo, error) {
+	return input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
+}
+func (b *motionDeliveryBackend) FlushMotionRequests(context.Context) error {
+	b.events = append(b.events, "flush")
+	b.flushes++
+	if b.failureAt == b.flushes {
+		return errors.New("delivery acknowledgement failed")
+	}
+	return nil
+}
+
+func TestMotionDeliveryAcknowledgement(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		drag     bool
+		failure  int
+		wantTail []string
+	}{
+		{"move", false, 0, []string{"move", "flush"}},
+		{"move-failed", false, 1, []string{"move", "flush"}},
+		{"drag", true, 0, []string{"move", "flush", "up", "flush"}},
+		{"drag-endpoint-failed", true, 1, []string{"move", "flush", "up"}},
+		{"drag-release-failed", true, 2, []string{"move", "flush", "up", "flush"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &motionDeliveryBackend{failureAt: tc.failure}
+			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			defer s.Close()
+			start, end := image.Pt(10, 20), image.Pt(40, 50)
+			opts := MotionOptions{Duration: 20 * time.Millisecond}
+			var err error
+			if tc.drag {
+				err = s.Input.DragAndDropSmooth(context.Background(), start, end, opts)
+			} else {
+				err = s.Input.MouseMoveSmooth(context.Background(), &start, end, opts)
+			}
+			if (err != nil) != (tc.failure != 0) {
+				t.Fatalf("delivery error: %v", err)
+			}
+			if len(backend.events) < len(tc.wantTail) || !slices.Equal(backend.events[len(backend.events)-len(tc.wantTail):], tc.wantTail) {
+				t.Fatalf("request order %v, want tail %v", backend.events, tc.wantTail)
+			}
+			if tc.drag && slices.Index(backend.events, "down") != 1 {
+				t.Fatalf("drag press order: %v", backend.events)
+			}
+		})
+	}
+}
+
+type motionPrivateBackend struct {
+	input.Inputter
+	delay time.Duration
+	moves int
+}
+
+func (b *motionPrivateBackend) MouseMove(context.Context, int, int) error {
+	b.moves++
+	if b.delay != 0 {
+		time.Sleep(b.delay)
+	}
+	return nil
+}
+func (*motionPrivateBackend) PointerCoordinateSpace(context.Context) (input.CoordinateSpaceInfo, error) {
+	return input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, nil
+}
+func (*motionPrivateBackend) Close() error                                      { return nil }
+func (*motionPrivateBackend) PointerLocation(context.Context) (int, int, error) { return 2, 3, nil }
+
+type motionStepContext struct {
+	context.Context
+	calls     int
+	trigger   int
+	abort     bool
+	onTrigger func()
+}
+
+func (c *motionStepContext) Err() error {
+	c.calls++
+	if c.calls == c.trigger {
+		if c.onTrigger != nil {
+			c.onTrigger()
+		}
+		if c.abort {
+			return context.Canceled
+		}
+	}
+	return nil
+}
+func (c *motionStepContext) Deadline() (time.Time, bool) { return time.Now().Add(time.Second), true }
+func (c *motionStepContext) Done() <-chan struct{}       { return nil }
+
+func TestMotionInternalAuthorityPerFrame(t *testing.T) {
+	points := []motionPoint{{X: 0, Y: 0}, {X: 1, Y: 1}, {X: 2, Y: 2}}
+	for _, tc := range []struct {
+		name     string
+		target   int
+		close    bool
+		duration time.Duration
+	}{
+		{"before-loop-cancel", 1, false, 0},
+		{"before-loop-close", 1, true, 0},
+		{"before-send-cancel", 2, false, 0},
+		{"before-send-close", 2, true, 0},
+		{"after-wait-cancel", 2, false, 80 * time.Millisecond},
+		{"after-wait-close", 2, true, 80 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &motionPrivateBackend{}
+			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			defer s.Close()
+			ctx := &motionStepContext{Context: context.Background(), trigger: tc.target, abort: !tc.close}
+			if tc.close {
+				ctx.onTrigger = func() { _ = s.Close() }
+			}
+			if err := s.Input.sendMotion(ctx, points, tc.duration, 0); err == nil {
+				t.Fatalf("ignored authority loss: %+v", tc)
+			}
+		})
+	}
+	t.Run("skip-overdue", func(t *testing.T) {
+		backend := &motionPrivateBackend{delay: 40 * time.Millisecond}
+		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		defer s.Close()
+		if err := s.Input.sendMotion(context.Background(), points, 20*time.Millisecond, 0); err != nil {
+			t.Fatal(err)
+		}
+		if backend.moves != 2 {
+			t.Fatalf("overdue intermediate should be dropped, moves=%d", backend.moves)
+		}
+	})
+	t.Run("cancel-during-wait", func(t *testing.T) {
+		backend := &motionPrivateBackend{}
+		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		defer s.Close()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() { time.Sleep(5 * time.Millisecond); cancel() }()
+		err := s.Input.sendMotion(ctx, points, 200*time.Millisecond, 1)
+		if !errors.Is(err, context.Canceled) || backend.moves != 0 {
+			t.Fatalf("wait cancellation err=%v moves=%d", err, backend.moves)
+		}
+	})
+}
+
+func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
+	if err := ValidateMotionOptions(MotionOptions{Duration: -1}); err == nil {
+		t.Fatal("invalid options allowed")
+	}
+	if err := ValidateMotionOptions(MotionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		close bool
+	}{
+		{"cancel-before-drag", false}, {"close-before-drag", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &motionPrivateBackend{}
+			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			defer s.Close()
+			ctx := &motionStepContext{Context: context.Background(), trigger: 1, abort: !tc.close}
+			if tc.close {
+				ctx.onTrigger = func() { _ = s.Close() }
+			}
+			err := s.Input.dragPoints(ctx, []motionPoint{{X: 1, Y: 1}, {X: 2, Y: 2}}, 0)
+			if err == nil || backend.moves != 0 {
+				t.Fatalf("admission err=%v moves=%d", err, backend.moves)
+			}
+		})
+	}
+	t.Run("move-closed", func(t *testing.T) {
+		backend := &motionPrivateBackend{}
+		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		_ = s.Close()
+		err := s.Input.MouseMoveSmooth(context.Background(), &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+		if !errors.Is(err, ErrSessionClosed) {
+			t.Fatal(err)
+		}
+	})
+	t.Run("move-canceled", func(t *testing.T) {
+		backend := &motionPrivateBackend{}
+		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		defer s.Close()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		err := s.Input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	})
+	for _, tc := range []struct {
+		name  string
+		close bool
+	}{
+		{"cancel-after-path", false}, {"close-after-path", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &motionPrivateBackend{}
+			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			defer s.Close()
+			ctx := &motionStepContext{Context: context.Background(), trigger: 2, abort: !tc.close}
+			if tc.close {
+				ctx.onTrigger = func() { _ = s.Close() }
+			}
+			err := s.Input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+			if err == nil || backend.moves != 0 {
+				t.Fatalf("authority err=%v moves=%d", err, backend.moves)
+			}
+		})
+	}
+}
+
+func TestMotionLocationCapabilityRevokedBetweenChecks(t *testing.T) {
+	backend := &motionPrivateBackend{}
+	s := NewSessionForTesting(nil, backend, nil, nil, nil)
+	defer s.Close()
+	ctx := &motionStepContext{Context: context.Background(), trigger: 1}
+	ctx.onTrigger = func() { _ = s.Close() }
+	err := s.Input.MouseMoveSmooth(ctx, nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+	if !errors.Is(err, ErrSessionClosed) || backend.moves != 0 {
+		t.Fatalf("location admission err=%v moves=%d", err, backend.moves)
+	}
+}
+
+// Verify the coordinate-space metadata does not silently grant location-read
+// authority when only explicit-start movement is permitted.
+func TestMotionNoPointerLocationPermission(t *testing.T) {
+	backend := &motionPrivateBackend{}
+	session := NewSessionForTesting(nil, backend, nil, nil, nil)
+	defer session.Close()
+	operations := session.Input.resolvedOperations[:0]
+	for _, name := range session.Input.resolvedOperations {
+		if name != "pointer-location" {
+			operations = append(operations, name)
+		}
+	}
+	session.Input.resolvedOperations = operations
+	err := session.Input.MouseMoveSmooth(context.Background(), nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+	if !errors.Is(err, ErrUnsupported) || backend.moves != 0 {
+		t.Fatalf("location authority err=%v moves=%d", err, backend.moves)
+	}
+}
+
+// Context and Session authority can be lost after non-mutating preflight and
+// before the first event. Exercise all context-read boundaries rather than
+// timing cancellation using wall clocks.
+func TestMotionPreflightHandoffAuthority(t *testing.T) {
+	for _, closeSession := range []bool{false, true} {
+		for trigger := 1; trigger <= 35; trigger++ {
+			backend := &motionPrivateBackend{}
+			session := NewSessionForTesting(nil, backend, nil, nil, nil)
+			ctx := &motionStepContext{Context: context.Background(), trigger: trigger, abort: !closeSession}
+			if closeSession {
+				ctx.onTrigger = func() { _ = session.Close() }
+			}
+			_ = session.Input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(5, 5), MotionOptions{Duration: 20 * time.Millisecond})
+			_ = session.Close()
+		}
+	}
+}
+
+type observationFixture struct {
+	*closeCountingInput
+	result input.PointerObservation
+	after  func()
+	err    error
+}
+
+func (f *observationFixture) ObservePointer(context.Context) (input.PointerObservation, error) {
+	if f.after != nil {
+		f.after()
+	}
+	return f.result, f.err
+}
+func TestObservePointerContract(t *testing.T) {
+	for _, mode := range []string{"origin", "negative", "unsupported", "invalid-scale", "cancel", "close"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			f := &observationFixture{closeCountingInput: &closeCountingInput{}, result: input.PointerObservation{Provider: "synthetic", ObservedAt: time.Now(), CoordinateSpace: input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}}}
+			s := NewSessionForTesting(nil, f, nil, nil, nil)
+			defer s.Close()
+			var want error
+			switch mode {
+			case "negative":
+				f.result.X = -17
+			case "unsupported":
+				f.err = input.ErrNotSupported
+				want = ErrUnsupported
+			case "invalid-scale":
+				f.result.CoordinateSpace.ScaleX = 0
+			case "cancel":
+				f.after = cancel
+				want = context.Canceled
+			case "close":
+				f.after = func() { _ = s.Close() }
+				want = ErrSessionClosed
+			}
+			got, err := s.Input.ObservePointer(ctx)
+			if want != nil || mode == "invalid-scale" {
+				if err == nil || (want != nil && !errors.Is(err, want)) || got != (input.PointerObservation{}) {
+					t.Fatalf("got %+v, %v; want %v", got, err, want)
+				}
+			} else if err != nil || got != f.result {
+				t.Fatalf("got %+v, %v; want %+v", got, err, f.result)
+			}
+		})
+	}
+}
+
+func TestInputReceiptClassifiesAdversarialFailureAndDispatch(t *testing.T) {
+	backendErr := errors.New("synthetic backend transport interrupted after dispatch")
+	cases := []struct {
+		name            string
+		failure         error
+		dispatch, class string
+	}{
+		{name: "success", dispatch: "accepted"},
+		{name: "caller canceled", failure: context.Canceled, dispatch: "unknown", class: "canceled"},
+		{name: "deadline exceeded", failure: context.DeadlineExceeded, dispatch: "unknown", class: "deadline-exceeded"},
+		{name: "invalid argument", failure: ErrInvalidArgument, dispatch: "not-sent", class: "rejected-before-dispatch"},
+		{name: "unsupported capability", failure: ErrUnsupported, dispatch: "not-sent", class: "rejected-before-dispatch"},
+		{name: "input backend unsupported", failure: input.ErrNotSupported, dispatch: "not-sent", class: "rejected-before-dispatch"},
+		{name: "transport unknown", failure: backendErr, dispatch: "unknown", class: "operation-failed"},
+		{name: "wrapped cancellation", failure: errors.Join(backendErr, context.Canceled), dispatch: "unknown", class: "canceled"},
+		{name: "wrapped deadline", failure: errors.Join(backendErr, context.DeadlineExceeded), dispatch: "unknown", class: "deadline-exceeded"},
+		{name: "wrapped invalid argument", failure: errors.Join(backendErr, ErrInvalidArgument), dispatch: "not-sent", class: "rejected-before-dispatch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := &InputBundle{}
+			started := time.Now().Add(-time.Second)
+			returned := bundle.recordInputReceipt("key-down", started, tc.failure)
+			if !errors.Is(returned, tc.failure) && !(returned == nil && tc.failure == nil) {
+				t.Fatalf("receipt changed original error: got=%v want=%v", returned, tc.failure)
+			}
+			receipts := bundle.recentInputReceipts()
+			if len(receipts) != 1 {
+				t.Fatalf("receipts=%+v", receipts)
+			}
+			got := receipts[0]
+			if got.Dispatch != tc.dispatch || got.FailureClass != tc.class || got.Operation != "key-down" || got.Sequence != 1 {
+				t.Fatalf("receipt=%+v want dispatch=%q class=%q", got, tc.dispatch, tc.class)
+			}
+			if got.StartedAt.After(got.CompletedAt) || got.StartedAt.IsZero() || got.CompletedAt.IsZero() {
+				t.Fatalf("invalid timestamps: %+v", got)
+			}
+		})
+	}
+}
+
+func benchmarkInputReceiptBundle() *InputBundle {
+	s := &Session{
+		ctx: context.Background(),
+		capabilities: map[Capability]CapabilityStatus{
+			CapabilityInput: {
+				Capability:  CapabilityInput,
+				Available:   true,
+				Backend:     "*input.WlVirtualBackend",
+				Operations:  []string{"keyboard", "click", "pointer", "scroll", "sync", "pointer-location", "pointer-coordinate-space", "drag"},
+				Diagnostics: []string{"wayland", "screen", "keyboard", "pointer"},
 			},
 		},
 	}
-	pf := pftest.New(nil, nil, mgr, nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	return &InputBundle{bundleBase: bundleBase{session: s, capability: CapabilityInput}}
+}
 
-	title, err := pf.Windows.ActiveTitle(ctx)
-	if err != nil {
-		t.Fatalf("ActiveTitle: %v", err)
+func BenchmarkSyntheticInputReceiptRecordingWithSession(b *testing.B) {
+	input := benchmarkInputReceiptBundle()
+	start := time.Now()
+	for i := 0; i < inputReceiptHistoryLimit; i++ {
+		_ = input.recordInputReceipt("type", start, nil)
 	}
-	if title != "Firefox" {
-		t.Fatalf("ActiveTitle = %q, want Firefox", title)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := input.recordInputReceipt("type", start, nil); err != nil {
+			b.Fatal(err)
+		}
 	}
-	target, err := pf.Windows.Find(
-		ctx,
-		perfuncted.WindowMatch{TitleContains: "Firefox"},
-	)
-	if err != nil {
-		t.Fatalf("Find: %v", err)
-	}
-	if err := target.WaitClosed(ctx); err != nil {
-		t.Fatalf("WaitForClose: %v", err)
-	}
-	if err := target.Move(ctx, 10, 20); err != nil {
-		t.Fatalf("Move: %v", err)
-	}
-	if err := target.Close(ctx); err != nil {
-		t.Fatalf("CloseWindow: %v", err)
-	}
-	if err := pf.Windows.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
+}
 
-	if len(mgr.moveCalls) != 1 || mgr.moveCalls[0] != "1:10,20" {
-		t.Fatalf("moveCalls = %v, want [1:10,20]", mgr.moveCalls)
+func BenchmarkSyntheticInputReceiptDiagnosticSnapshot(b *testing.B) {
+	input := benchmarkInputReceiptBundle()
+	start := time.Now()
+	for i := 0; i < inputReceiptHistoryLimit; i++ {
+		_ = input.recordInputReceipt("type", start, nil)
 	}
-	if len(mgr.closeCalls) != 1 || mgr.closeCalls[0] != "1" {
-		t.Fatalf("closeCalls = %v, want [1]", mgr.closeCalls)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		receipts := input.recentInputReceipts()
+		if len(receipts) != inputReceiptHistoryLimit || receipts[0].Mechanism != "*input.WlVirtualBackend" {
+			b.Fatal("receipt snapshot lost backend identity")
+		}
 	}
-	if mgr.syncCalls != 1 {
-		t.Fatalf("syncCalls = %d, want 1", mgr.syncCalls)
+}
+
+// A diagnostic snapshot must preserve order, backend identity and isolation,
+// even though normal input actions should not have to resolve that identity.
+func TestInputReceiptMechanismOnDiagnosticSnapshot(t *testing.T) {
+	input := benchmarkInputReceiptBundle()
+	start := time.Now()
+	for i := 0; i < inputReceiptHistoryLimit+7; i++ {
+		_ = input.recordInputReceipt("type", start, nil)
+	}
+	receipts := input.recentInputReceipts()
+	if len(receipts) != inputReceiptHistoryLimit {
+		t.Fatalf("count=%d", len(receipts))
+	}
+	for i, receipt := range receipts {
+		wantSeq := uint64(i + 8)
+		if receipt.Sequence != wantSeq || receipt.Mechanism != "*input.WlVirtualBackend" {
+			t.Fatalf("receipt[%d]=%+v want seq=%d and backend", i, receipt, wantSeq)
+		}
+	}
+	receipts[0].Mechanism = "mutated"
+	if input.recentInputReceipts()[0].Mechanism == "mutated" {
+		t.Fatal("diagnostic receipt snapshot aliases retained history")
 	}
 }

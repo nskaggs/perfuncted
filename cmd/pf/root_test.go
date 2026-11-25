@@ -6,6 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/output"
+	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/window"
+	"github.com/spf13/cobra"
 	"image"
 	"image/color"
 	"image/png"
@@ -17,14 +23,233 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
-	"github.com/spf13/cobra"
 )
+
+// An empty rectangle is the Screenshotter API sentinel for full-screen grab.
+// Explicit --rect arguments must not silently turn a zero-area crop into a
+// full-screen capture or normalize backwards coordinates into a different crop.
+func TestExplicitCLIRectangleRejectsEmptyAndReversedBounds(t *testing.T) {
+	for _, bad := range []string{
+		"1,1,1,1", "5,7,5,9", "5,7,8,7", "8,7,5,9", "5,9,8,7",
+	} {
+		t.Run(bad, func(t *testing.T) {
+			got, err := parseRect(bad)
+			if err == nil {
+				t.Fatalf("explicit invalid crop %q accepted as %v (empty may request full-screen)", bad, got)
+			}
+		})
+	}
+	got, err := parseRect("1, 2, 3, 4")
+	if err != nil || got != image.Rect(1, 2, 3, 4) {
+		t.Fatalf("valid crop became %v, %v", got, err)
+	}
+}
+
+func TestInvalidExplicitScreenCropRejectedBeforeOpeningSession(t *testing.T) {
+	for _, args := range [][]string{
+		{"screen", "grab", "--rect", "1,1,1,1", "--out", filepath.Join(t.TempDir(), "private.png")},
+		{"screen", "hash", "--rect", "8,7,5,9"},
+		{"screen", "grab-region", "--rect", "1,1,1,1", "--out", "-"},
+	} {
+		opened := false
+		_, stderr, code := captureRunIO(t, args, func(*cliConfig) sessionOpener {
+			return func(context.Context) (*perfuncted.Session, error) {
+				opened = true
+				return nil, errors.New("unwanted capture session")
+			}
+		})
+		if code == 0 || opened || !strings.Contains(stderr, "--rect requires") {
+			t.Fatalf("invalid crop opened session: args=%v code=%d opened=%t stderr=%q", args, code, opened, stderr)
+		}
+	}
+}
+
+func TestGrabDestinationPreservesNativePathButStreamsInFlatpak(t *testing.T) {
+	for _, tc := range []struct {
+		path    string
+		flatpak bool
+		want    string
+	}{
+		{"", false, "/tmp/pf-grab.png"},
+		{"", true, "-"},
+		{"-", false, "-"},
+		{"-", true, "-"},
+		{"/shared/screenshot.png", true, "/shared/screenshot.png"},
+		{"relative.png", false, "relative.png"},
+	} {
+		if got := grabDestination(tc.path, tc.flatpak); got != tc.want {
+			t.Errorf("destination(%q,%t)=%q want %q", tc.path, tc.flatpak, got, tc.want)
+		}
+	}
+}
+
+func TestGrabExplicitStdoutIsOnlyPNGAndUsesCapturedPixels(t *testing.T) {
+	frame := image.NewRGBA(image.Rect(0, 0, 3, 2))
+	frame.SetRGBA(1, 1, color.RGBA{R: 13, G: 27, B: 49, A: 255})
+	screen := &pftest.Screenshotter{GrabFunc: func(context.Context, image.Rectangle) (image.Image, error) { return frame, nil }}
+	cmd := screenCmd(func(context.Context) (*perfuncted.Session, error) { return pftest.New(screen, nil, nil, nil), nil })
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"grab", "--rect", "0,0,3,2", "--out", "-"})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("binary screenshot wrote diagnostic noise: %q", stderr.String())
+	}
+	img, err := png.Decode(bytes.NewReader(stdout.Bytes()))
+	if err != nil {
+		t.Fatalf("invalid stdout PNG: %v", err)
+	}
+	if img.Bounds().Dx() != 3 || img.Bounds().Dy() != 2 {
+		t.Fatalf("screenshot dimensions: %v", img.Bounds())
+	}
+	got := color.RGBAModel.Convert(img.At(1, 1)).(color.RGBA) //nolint:errcheck // Color model guarantees RGBA
+	if got != (color.RGBA{R: 13, G: 27, B: 49, A: 255}) {
+		t.Fatalf("screenshot pixel changed: %+v", got)
+	}
+}
+
+func TestGrabBinaryOutputRejectsCharacterDevicesButAllowsFiles(t *testing.T) {
+	tty, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("no test character device: %v", err)
+	}
+	defer tty.Close()
+	if err := refuseBinaryTerminal(tty); err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("terminal-like device accepted binary screenshot: %v", err)
+	}
+	file, err := os.Create(filepath.Join(t.TempDir(), "capture.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := refuseBinaryTerminal(file); err != nil {
+		t.Fatalf("regular file refused: %v", err)
+	}
+	if err := refuseBinaryTerminal(&bytes.Buffer{}); err != nil {
+		t.Fatalf("capturing stdout refused: %v", err)
+	}
+}
+
+func TestFlatpakSessionHintsDescribeSafeFirstUse(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeFlatpakSessionHints(&buf); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Flatpak", "screen grab --rect", "flatpak run io.github.nskaggs.perfuncted run -", "--filesystem=DIR:ro", "--input-backend remote-desktop"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("sandbox hint does not explain %q: %s", want, buf.String())
+		}
+	}
+}
+
+// CLI parsers must reject malformed coordinates and colors rather than
+// silently accepting an unintended capture or cursor target.
+func TestInvalidCoordinateAndColorTokensAreRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		check func(string) error
+		want  string
+	}{
+		{"rectangle nonnumeric coordinate", "0,2,not-an-int,4", func(s string) error { _, err := parseRect(s); return err }, "invalid number"},
+		{"point nonnumeric y", "10,not-an-int", func(s string) error { _, err := parsePoint(s); return err }, "invalid y"},
+		{"hex color invalid digit", "12X456", func(s string) error { _, err := parseColor(s); return err }, "invalid hex"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check(tc.input)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("input %q: got %v, want error containing %q", tc.input, err, tc.want)
+			}
+		})
+	}
+}
+
+func FuzzParseRect(f *testing.F) {
+	for _, seed := range []string{"0,0,10,10", " 1, 2, 3, 4 ", "", "bad", "1,2,3"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		_, _ = parseRect(s)
+	})
+}
+
+func FuzzParseDuration(f *testing.F) {
+	for _, seed := range []string{"", "1s", "250ms", "bad", "-1s"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		_, _ = parseDuration(s, 0)
+	})
+}
+
+func FuzzParseHash(f *testing.F) {
+	for _, seed := range []string{"0", "0x1234abcd", "1234abcd", "bad", ""} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		_, _ = parseHash(s)
+	})
+}
+
+// The environment flag accepts explicit opt-in tokens only. In particular,
+// whitespace, case and misleading prefixes must not change its meaning.
+func TestEnvBoolExplicitOptInTokens(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  bool
+	}{
+		{"1", true}, {"TRUE", true}, {" Yes ", true}, {"On", true},
+		{"", false}, {"0", false}, {"false", false}, {"off", false},
+		{"2", false}, {"trueish", false}, {"yes please", false},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := envBool(tc.input); got != tc.want {
+				t.Fatalf("envBool(%q) = %t, want %t", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// Environment trace defaults are evaluated when the CLI is constructed.
+// Explicitly disabled trace and invalid/negative delays must never arm a
+// debugging delay or trace actions in a subsequent invocation.
+func TestRootTraceEnvironmentDefaultsRequireAffirmativeValidValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, trace, delay string
+		wantTrace          bool
+		wantDelay          time.Duration
+	}{
+		{name: "enabled with positive delay", trace: "true", delay: "125ms", wantTrace: true, wantDelay: 125 * time.Millisecond},
+		{name: "disabled with negative delay", trace: "false", delay: "-125ms"},
+		{name: "disabled with malformed delay", trace: "false", delay: "not-a-duration"},
+		{name: "delay alone does not set explicit trace flag", trace: "", delay: "25ms", wantDelay: 25 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PF_TRACE_ACTIONS", tc.trace)
+			t.Setenv("PF_TRACE_DELAY", tc.delay)
+			root := newRootCmd(defaultOpenPFFactory)
+			trace, err := root.PersistentFlags().GetBool("trace-actions")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if trace != tc.wantTrace {
+				t.Fatalf("trace-actions default = %v, want %v", trace, tc.wantTrace)
+			}
+			delay, err := root.PersistentFlags().GetDuration("trace-delay")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if delay != tc.wantDelay {
+				t.Fatalf("trace-delay default = %s, want %s", delay, tc.wantDelay)
+			}
+		})
+	}
+}
 
 func TestNewRootCmdConfiguresCobra(t *testing.T) {
 	cmd := newRootCmd(func(*cliConfig) sessionOpener {
@@ -1695,5 +1920,34 @@ func TestRunInputLocationReportsShortOutputWrite(t *testing.T) {
 
 	if err := cmd.Execute(); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("run input location error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+// CLI configuration must construct valid nested and trace options while
+// respecting an already-canceled request, without starting a host session.
+// In particular trace-delay alone must enable tracing, not just tracing with
+// the explicit --trace-actions switch.
+func TestCLIConfiguredNestedAndTraceOptionsRespectCanceledOpen(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  cliConfig
+	}{
+		{name: "nested", cfg: cliConfig{nested: true}},
+		{name: "trace actions", cfg: cliConfig{traceActions: true}},
+		{name: "trace delay implies trace", cfg: cliConfig{traceDelay: 10 * time.Millisecond}},
+		{name: "nested trace delay", cfg: cliConfig{nested: true, traceActions: true, traceDelay: time.Millisecond}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			session, err := defaultOpenPFFactory(&tc.cfg)(ctx)
+			if session != nil {
+				_ = session.Close()
+				t.Fatal("canceled CLI option open returned live session")
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled CLI option open returned %v, want context cancellation", err)
+			}
+		})
 	}
 }

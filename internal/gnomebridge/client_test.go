@@ -1,329 +1,173 @@
-//go:build linux
-// +build linux
-
 package gnomebridge
 
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/godbus/dbus/v5"
 	"image"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/godbus/dbus/v5"
 )
 
-type recordingObject struct {
-	mu                 sync.Mutex
-	protocol           uint32
-	calls              []recordedCall
-	pointerLocationErr error
-}
-
-type blockingObject struct {
-	seen chan context.Context
-}
-
-func (o *blockingObject) CallWithContext(ctx context.Context, _ string, _ dbus.Flags, _ ...any) *dbus.Call {
-	o.seen <- ctx
-	<-ctx.Done()
-	return &dbus.Call{Err: ctx.Err()}
-}
-
-type recordedCall struct {
-	method string
-	args   []any
-}
-
-func (o *recordingObject) CallWithContext(ctx context.Context, method string, _ dbus.Flags, args ...any) *dbus.Call {
-	if err := ctx.Err(); err != nil {
-		return &dbus.Call{Err: err}
-	}
-	o.mu.Lock()
-	o.calls = append(o.calls, recordedCall{method: method, args: args})
-	o.mu.Unlock()
-	call := &dbus.Call{}
-	switch method {
-	case CoreInterface + ".GetProtocolVersion":
-		call.Body = []any{o.protocol}
-	case CoreInterface + ".GetExtensionVersion":
-		call.Body = []any{ExtensionVersion}
-	case CoreInterface + ".GetShellVersion":
-		call.Body = []any{"51.0"}
-	case CoreInterface + ".GetCapabilities":
-		call.Body = []any{[]string{"windows", "screen", "input", "clipboard"}}
-	case WindowsInterface + ".ListWindows":
-		call.Body = []any{[]WindowInfo{{ID: "17", Title: "Terminal", AppID: "org.gnome.Terminal", PID: 42, X: 1, Y: 2, Width: 800, Height: 600, Active: true}}}
-	case WindowsInterface + ".GetWindow":
-		call.Body = []any{WindowInfo{ID: "17", Title: "Terminal", Width: 800, Height: 600}}
-	case WindowsInterface + ".GetActiveWindow":
-		call.Body = []any{WindowInfo{ID: "17", Title: "Terminal", Active: true}}
-	case InputInterface + ".PointerLocation":
-		if o.pointerLocationErr != nil {
-			return &dbus.Call{Err: o.pointerLocationErr}
-		}
-		call.Body = []any{int32(11), int32(22)}
-	case ScreenInterface + ".CaptureFull":
-		call.Body = []any{int32(0), int32(0), int32(1280), int32(720), int32(2560), int32(1440), float64(2)}
-	case ScreenInterface + ".CaptureRegion":
-		call.Body = []any{int32(10), int32(20), int32(100), int32(50), int32(150), int32(75), float64(1.5)}
-	}
-	return call
-}
-
-func newRecordingClient(t *testing.T) (*Client, *recordingObject) {
-	t.Helper()
-	object := &recordingObject{protocol: ProtocolVersion}
-	client, err := newClientWithObject(context.Background(), object)
-	if err != nil {
-		t.Fatalf("newClientWithObject: %v", err)
-	}
-	return client, object
-}
-
-func TestClientNegotiates(t *testing.T) {
-	client, _ := newRecordingClient(t)
-
-	if client.ProtocolVersion() != ProtocolVersion || client.ExtensionVersion() != ExtensionVersion || client.ShellVersion() != "51.0" {
-		t.Fatalf("negotiated metadata = protocol %d, extension %q, shell %q", client.ProtocolVersion(), client.ExtensionVersion(), client.ShellVersion())
-	}
-	caps := client.Capabilities()
-	caps[0] = "changed"
-	if !client.HasCapability(CapabilityScreen) || client.Capabilities()[0] == "changed" {
-		t.Fatalf("Capabilities did not return a defensive copy: %v", client.Capabilities())
-	}
-}
-
-func TestClientCallHonorsCallerDeadlineAndCancellationCause(t *testing.T) {
-	object := &blockingObject{seen: make(chan context.Context, 1)}
-	client := &Client{obj: object, closeDone: make(chan struct{})}
-	parent, cancelCause := context.WithCancelCause(context.Background())
-	ctx, deadlineCancel := context.WithTimeout(parent, time.Second)
-	defer deadlineCancel()
-	result := make(chan error, 1)
-	go func() { result <- client.call(ctx, CoreInterface, "Ping") }()
-	observed := <-object.seen
-	deadline, ok := observed.Deadline()
-	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > time.Second {
-		t.Fatalf("caller deadline = %v, ok=%v; want preserved deadline", deadline, ok)
-	}
-	cause := errors.New("caller stopped DBus operation")
-	cancelCause(cause)
-	if err := <-result; !errors.Is(err, cause) || !errors.Is(err, context.Canceled) {
-		t.Fatalf("call error = %v, want cancellation and caller cause", err)
-	}
-
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-	defer deadlineCancel()
-	result = make(chan error, 1)
-	go func() { result <- client.call(deadlineCtx, CoreInterface, "Ping") }()
-	observed = <-object.seen
-	deadline, ok = observed.Deadline()
-	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Millisecond {
-		t.Fatalf("caller deadline = %v, ok=%v; want preserved deadline", deadline, ok)
-	}
-	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("deadline call error = %v, want context deadline", err)
-	}
-}
-
-func TestClientUsesTypedMethods(t *testing.T) {
-	client, object := newRecordingClient(t)
-
-	windows, err := client.ListWindows(context.Background())
-	if err != nil || len(windows) != 1 || windows[0].ID != "17" {
-		t.Fatalf("ListWindows = %#v, %v", windows, err)
-	}
-	window, err := client.GetWindow(context.Background(), "17")
-	if err != nil || window.ID != "17" {
-		t.Fatalf("GetWindow = %#v, %v", window, err)
-	}
-	if moveErr := client.Move(context.Background(), "17", 4, 5); moveErr != nil {
-		t.Fatalf("Move: %v", moveErr)
-	}
-	x, y, err := client.PointerLocation(context.Background())
-	if err != nil || x != 11 || y != 22 {
-		t.Fatalf("PointerLocation = %d,%d,%v", x, y, err)
-	}
-	if err := client.SetText(context.Background(), "hello"); err != nil {
-		t.Fatalf("SetText: %v", err)
-	}
-	if err := client.Paste(context.Background(), "é"); err != nil {
-		t.Fatalf("Paste: %v", err)
-	}
-
-	assertRecordedMove(t, object)
-}
-
-func TestClientCaptureReturnsLogicalAndPixelGeometry(t *testing.T) {
-	client, _ := newRecordingClient(t)
-
-	full, err := client.CaptureFull(context.Background(), 9)
-	if err != nil {
-		t.Fatalf("CaptureFull: %v", err)
-	}
-	wantFull := ScreenCapture{
-		Width:       1280,
-		Height:      720,
-		PixelWidth:  2560,
-		PixelHeight: 1440,
-		Scale:       2,
-	}
-	if !reflect.DeepEqual(full, wantFull) {
-		t.Fatalf("CaptureFull geometry = %#v, want %#v", full, wantFull)
-	}
-
-	region, err := client.CaptureRegion(context.Background(), 9, image.Rect(10, 20, 110, 70))
-	if err != nil {
-		t.Fatalf("CaptureRegion: %v", err)
-	}
-	wantRegion := ScreenCapture{
-		X:           10,
-		Y:           20,
-		Width:       100,
-		Height:      50,
-		PixelWidth:  150,
-		PixelHeight: 75,
-		Scale:       1.5,
-	}
-	if !reflect.DeepEqual(region, wantRegion) {
-		t.Fatalf("CaptureRegion geometry = %#v, want %#v", region, wantRegion)
-	}
-}
-
-func assertRecordedMove(t *testing.T, object *recordingObject) {
-	t.Helper()
-	object.mu.Lock()
-	defer object.mu.Unlock()
-	for _, call := range object.calls {
-		if call.method == WindowsInterface+".Move" {
-			if !reflect.DeepEqual(call.args, []any{"17", int32(4), int32(5)}) {
-				t.Fatalf("Move call = %#v, want typed args", call)
-			}
-			return
-		}
-	}
-	t.Fatal("Move call was not recorded")
-}
-
-func TestClientRejectsProtocolMismatch(t *testing.T) {
-	object := &recordingObject{protocol: ProtocolVersion + 1}
-	_, err := newClientWithObject(context.Background(), object)
-	if err == nil || !strings.Contains(err.Error(), "incompatible") {
-		t.Fatalf("newClientWithObject error = %v, want protocol mismatch", err)
-	}
-	if !errors.Is(err, ErrProtocolMismatch) {
-		t.Fatalf("error = %v, want ErrProtocolMismatch", err)
-	}
-}
-
-func TestDecodeWindowEvent(t *testing.T) {
-	window := []any{"17", "Terminal", "org.gnome.Terminal", "Terminal", int32(42), int32(1), int32(2), int32(800), int32(600), true, false, true, false}
-	tests := []struct {
+// GNOME's D-Bus capture API expects signed 32-bit coordinates and dimensions.
+// Values outside that domain must be rejected before an integer cast can wrap
+// them to an unrelated screen region or authorize an unexpected capture.
+func TestGnomeCaptureRegionRefusesOverflowedLogicalCoordinates(t *testing.T) {
+	const maxI32 = int64(1<<31 - 1)
+	const minI32 = -maxI32 - 1
+	for _, tc := range []struct {
 		name string
-		sig  *dbus.Signal
-		want WindowEvent
+		rect image.Rectangle
 	}{
-		{
-			name: "added",
-			sig:  &dbus.Signal{Path: dbus.ObjectPath(ObjectPath), Name: WindowsInterface + ".WindowAdded", Body: []any{window}},
-			want: WindowEvent{Kind: WindowAddedEvent, ID: "17", Window: WindowInfo{ID: "17", Title: "Terminal", AppID: "org.gnome.Terminal", Class: "Terminal", PID: 42, X: 1, Y: 2, Width: 800, Height: 600, Active: true, Maximized: true}},
-		},
-		{
-			name: "removed",
-			sig:  &dbus.Signal{Path: dbus.ObjectPath(ObjectPath), Name: WindowsInterface + ".WindowRemoved", Body: []any{"17"}},
-			want: WindowEvent{Kind: WindowRemovedEvent, ID: "17"},
-		},
-		{
-			name: "focus",
-			sig:  &dbus.Signal{Path: dbus.ObjectPath(ObjectPath), Name: WindowsInterface + ".FocusChanged", Body: []any{"17"}},
-			want: WindowEvent{Kind: FocusChangedEvent, ID: "17"},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, ok := decodeWindowEvent(test.sig)
-			if !ok || !reflect.DeepEqual(got, test.want) {
-				t.Fatalf("decodeWindowEvent = %#v, %v; want %#v, true", got, ok, test.want)
+		{"positive X overflow", image.Rect(int(maxI32+1), 0, int(maxI32+2), 1)},
+		{"negative X overflow", image.Rect(int(minI32-1), 0, int(minI32), 1)},
+		{"positive Y overflow", image.Rect(0, int(maxI32+1), 1, int(maxI32+2))},
+		{"negative Y overflow", image.Rect(0, int(minI32-1), 1, int(minI32))},
+		{"width overflow", image.Rect(int(minI32), 0, int(maxI32), 1)},
+		{"height overflow", image.Rect(0, int(minI32), 1, int(maxI32))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &Client{}
+			_, err := client.CaptureRegion(nil, 7, tc.rect)
+			if err == nil || !strings.Contains(err.Error(), "range") {
+				t.Fatalf("oversized region %+v did not fail coordinate range validation: %v", tc.rect, err)
 			}
 		})
 	}
-	if _, ok := decodeWindowEvent(&dbus.Signal{Path: dbus.ObjectPath("/wrong"), Name: WindowsInterface + ".WindowRemoved", Body: []any{"17"}}); ok {
-		t.Fatal("decodeWindowEvent accepted a signal from the wrong path")
-	}
 }
 
-func TestEnqueueWindowEventIsBoundedAndCoalescesChanges(t *testing.T) {
-	queue := []WindowEvent{
-		{Kind: WindowChangedEvent, ID: "17", Window: WindowInfo{ID: "17", Title: "old"}},
-	}
-	queue = enqueueWindowEvent(queue, WindowEvent{Kind: WindowChangedEvent, ID: "17", Window: WindowInfo{ID: "17", Title: "new"}})
-	if len(queue) != 1 || queue[0].Window.Title != "new" {
-		t.Fatalf("coalesced window changes = %#v, want latest single event", queue)
-	}
-	for i := 0; i < maxWindowEventQueue; i++ {
-		queue = enqueueWindowEvent(queue, WindowEvent{Kind: WindowAddedEvent, ID: fmt.Sprint(i)})
-	}
-	if len(queue) != maxWindowEventQueue {
-		t.Fatalf("event queue length = %d, want bound %d", len(queue), maxWindowEventQueue)
-	}
-	queue = enqueueWindowEvent(queue, WindowEvent{Kind: WindowAddedEvent, ID: "overflow"})
-	if len(queue) != maxWindowEventQueue {
-		t.Fatalf("event queue grew to %d past bound %d", len(queue), maxWindowEventQueue)
-	}
-}
-
-func TestTranslateDBusError(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		want error
-	}{
-		{name: "org.freedesktop.DBus.Error.UnknownObject", want: ErrUnavailable},
-		{name: "org.freedesktop.DBus.Error.ServiceUnknown", want: ErrUnavailable},
-		{name: "io.github.nskaggs.perfuncted.Gnome1.Error.NotFound", want: ErrObjectNotFound},
-		{name: "io.github.nskaggs.perfuncted.Gnome1.Error.Unsupported", want: ErrUnavailable},
-	} {
-		err := translateDBusError(dbus.NewError(test.name, []any{"test"}))
-		if !errors.Is(err, test.want) {
-			t.Errorf("translateDBusError(%q) = %v, want %v", test.name, err, test.want)
-		}
-	}
-}
-
-func TestPointerLocationTranslatesTypedUnsupportedError(t *testing.T) {
+// The bridge is a typed boundary. Every public mutator must invoke precisely
+// its advertised bus method with typed, ordered arguments, and must propagate
+// errors rather than reporting a successful desktop action.
+func TestBridgeTypedMutatorProtocolMatrix(t *testing.T) {
 	client, object := newRecordingClient(t)
-	object.pointerLocationErr = dbus.NewError("io.github.nskaggs.perfuncted.Gnome1.Error.Unsupported", []any{"GNOME pointer location is unavailable"})
-	_, _, err := client.PointerLocation(context.Background())
-	if !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("PointerLocation error = %v, want typed bridge unsupported translated to ErrUnavailable", err)
+	for _, tc := range []struct {
+		method string
+		args   []any
+		invoke func() error
+	}{
+		{WindowsInterface + ".Activate", []any{"17"}, func() error { return client.Activate(context.Background(), "17") }},
+		{WindowsInterface + ".Resize", []any{"17", int32(333), int32(200)}, func() error { return client.Resize(context.Background(), "17", 333, 200) }},
+		{WindowsInterface + ".Minimize", []any{"17"}, func() error { return client.Minimize(context.Background(), "17") }},
+		{WindowsInterface + ".Maximize", []any{"17"}, func() error { return client.Maximize(context.Background(), "17") }},
+		{WindowsInterface + ".Restore", []any{"17"}, func() error { return client.Restore(context.Background(), "17") }},
+		{WindowsInterface + ".Fullscreen", []any{"17"}, func() error { return client.Fullscreen(context.Background(), "17") }},
+		{WindowsInterface + ".Unfullscreen", []any{"17"}, func() error { return client.Unfullscreen(context.Background(), "17") }},
+		{WindowsInterface + ".Close", []any{"17"}, func() error { return client.CloseWindow(context.Background(), "17") }},
+		{InputInterface + ".Key", []any{uint32(0xff0d), true}, func() error { return client.Key(context.Background(), 0xff0d, true) }},
+		{InputInterface + ".Text", []any{"ñ"}, func() error { return client.Text(context.Background(), "ñ") }},
+		{InputInterface + ".PointerMove", []any{int32(-10), int32(25)}, func() error { return client.PointerMove(context.Background(), -10, 25) }},
+		{InputInterface + ".PointerButton", []any{uint32(1), false}, func() error { return client.PointerButton(context.Background(), 1, false) }},
+		{InputInterface + ".Scroll", []any{"vertical", 2.5}, func() error { return client.Scroll(context.Background(), "vertical", 2.5) }},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			object.mu.Lock()
+			before := len(object.calls)
+			object.mu.Unlock()
+			if err := tc.invoke(); err != nil {
+				t.Fatalf("valid typed call failed: %v", err)
+			}
+			object.mu.Lock()
+			calls := append([]recordedCall(nil), object.calls[before:]...)
+			object.mu.Unlock()
+			if len(calls) != 1 || calls[0].method != tc.method || !reflect.DeepEqual(calls[0].args, tc.args) {
+				t.Fatalf("unexpected D-Bus calls: %+v want %s %#v", calls, tc.method, tc.args)
+			}
+		})
 	}
-	if !strings.Contains(err.Error(), "GNOME pointer location is unavailable") {
-		t.Fatalf("PointerLocation error = %v, missing bridge diagnostic", err)
+	if win, err := client.GetActiveWindow(context.Background()); err != nil || win.ID != "17" || !win.Active {
+		t.Fatalf("active window=%+v err=%v", win, err)
+	}
+	if err := client.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping: %v", err)
 	}
 }
 
-func TestClientCancellationAndClose(t *testing.T) {
-	object := &recordingObject{protocol: ProtocolVersion}
-	client, err := newClientWithObject(context.Background(), object)
-	if err != nil {
-		t.Fatalf("newClientWithObject: %v", err)
+type bridgeFailingObject struct {
+	errorFor string
+	failure  error
+	calls    int
+}
+
+func (b *bridgeFailingObject) CallWithContext(ctx context.Context, method string, _ dbus.Flags, args ...any) *dbus.Call {
+	b.calls++
+	if err := ctx.Err(); err != nil {
+		return &dbus.Call{Err: err}
 	}
-	canceled, cancel := context.WithCancel(context.Background())
+	if strings.HasSuffix(method, b.errorFor) {
+		return &dbus.Call{Err: b.failure}
+	}
+	switch method {
+	case CoreInterface + ".GetProtocolVersion":
+		return &dbus.Call{Body: []any{ProtocolVersion}}
+	case CoreInterface + ".GetExtensionVersion":
+		return &dbus.Call{Body: []any{ExtensionVersion}}
+	case CoreInterface + ".GetShellVersion":
+		return &dbus.Call{Body: []any{"51.0"}}
+	case CoreInterface + ".GetCapabilities":
+		return &dbus.Call{Body: []any{[]string{"windows", "screen", "input", "clipboard"}}}
+	}
+	return &dbus.Call{}
+}
+func TestBridgeTypedMethodsFailClosedAfterCancellationOrBusLoss(t *testing.T) {
+	failure := errors.New("synthetic D-Bus disconnected")
+	for _, tc := range []struct {
+		name, suffix string
+		call         func(*Client, context.Context) error
+	}{
+		{"window activate", ".Activate", func(c *Client, ctx context.Context) error { return c.Activate(ctx, "17") }},
+		{"window restore", ".Restore", func(c *Client, ctx context.Context) error { return c.Restore(ctx, "17") }},
+		{"key injection", ".Key", func(c *Client, ctx context.Context) error { return c.Key(ctx, 65, true) }},
+		{"pointer movement", ".PointerMove", func(c *Client, ctx context.Context) error { return c.PointerMove(ctx, 25, 30) }},
+		{"scroll", ".Scroll", func(c *Client, ctx context.Context) error { return c.Scroll(ctx, "horizontal", 1) }},
+		{"clipboard set", ".SetText", func(c *Client, ctx context.Context) error { return c.SetText(ctx, "secret") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := &bridgeFailingObject{errorFor: tc.suffix, failure: failure}
+			client, err := newClientWithObject(context.Background(), o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := o.calls
+			if err := tc.call(client, context.Background()); !errors.Is(err, failure) {
+				t.Fatalf("bus failure lost: %v", err)
+			}
+			if o.calls != before+1 {
+				t.Fatalf("unexpected retries after transport failure %d", o.calls-before)
+			}
+			canceled, cancel := context.WithCancel(context.Background())
+			cancel()
+			before = o.calls
+			if err := tc.call(client, canceled); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled request succeeded: %v", err)
+			}
+			if o.calls != before {
+				t.Fatal("canceled mutation reached D-Bus")
+			}
+		})
+	}
+}
+
+func TestBridgeConstructorRequiresExplicitLiveBus(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := client.Ping(canceled); err == nil {
-		t.Fatal("Ping with canceled context succeeded")
+	if client, err := NewClientForBus(ctx, "unix:path=/unreachable"); client != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled constructor: %v, %v", client, err)
 	}
-	if err := client.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	if client, err := NewClientForBus(context.Background(), ""); client != nil || !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("unset bus did not fail closed: %v %v", client, err)
 	}
-	if err := client.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
+}
+
+// A restart condition without an install path still communicates the actionable
+// restart sentinel rather than fabricating a filesystem location.
+func TestSessionRestartWithoutInstallPathPreservesActionableSentinel(t *testing.T) {
+	err := &SessionRestartRequiredError{}
+	if got := err.Error(); got != ErrSessionRestartRequired.Error() {
+		t.Fatalf("restart without path = %q, want %q", got, ErrSessionRestartRequired.Error())
 	}
-	if err := client.Ping(context.Background()); err == nil || !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("Ping after Close = %v, want ErrUnavailable", err)
+	if !errors.Is(err, ErrSessionRestartRequired) || errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("restart without path lost sentinel identity: %v", err)
 	}
 }

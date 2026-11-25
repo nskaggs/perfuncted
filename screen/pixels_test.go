@@ -1,14 +1,443 @@
 package screen
 
 import (
+	"bytes"
 	"errors"
+	"github.com/nskaggs/perfuncted/find"
 	"image"
 	"image/color"
+	"math"
+	"math/rand"
 	"slices"
 	"testing"
-
-	"github.com/nskaggs/perfuncted/find"
 )
+
+// A region read and the same region of a full compositor frame must produce
+// identical pixels, including with row padding and clipped regions. This
+// protects screenshot backends that use the fast region-only decode path.
+func TestBGRARegionDecodeAgreesWithFullFrameAcrossPaddedLayouts(t *testing.T) {
+	rng := rand.New(rand.NewSource(34918))
+	for iteration := 0; iteration < 150; iteration++ {
+		width := 1 + rng.Intn(18)
+		height := 1 + rng.Intn(14)
+		stride := 4*width + 4*rng.Intn(5)
+		frame := make([]byte, height*stride)
+		if _, err := rng.Read(frame); err != nil {
+			t.Fatal(err)
+		}
+		full := decodeBGRA(frame, width, height, stride)
+		rect := image.Rect(rng.Intn(width+9)-4, rng.Intn(height+9)-4, rng.Intn(width+9)-4, rng.Intn(height+9)-4)
+		// Include arbitrary corners rather than requiring the requested region
+		// to fall entirely within the compositor's output.
+		expectedRect := rect.Intersect(full.Bounds())
+		if expectedRect.Empty() {
+			expectedRect = image.Rectangle{}
+		}
+		region := decodeBGRARect(frame, width, height, stride, rect)
+		if region.Bounds() != expectedRect {
+			t.Fatalf("case %d: region bounds %v, want %v", iteration, region.Bounds(), expectedRect)
+		}
+		for y := expectedRect.Min.Y; y < expectedRect.Max.Y; y++ {
+			for x := expectedRect.Min.X; x < expectedRect.Max.X; x++ {
+				if got, want := region.RGBAAt(x, y), full.RGBAAt(x, y); got != want {
+					t.Fatalf("case %d at (%d,%d): region=%v full=%v", iteration, x, y, got, want)
+				}
+				if region.RGBAAt(x, y).A != 255 {
+					t.Fatalf("case %d: decoder did not canonicalize alpha", iteration)
+				}
+			}
+		}
+	}
+}
+
+func TestBGRAIncompleteTransportNeverReusesPreviousPixelData(t *testing.T) {
+	// The compositor can terminate mid-frame. Decoding must only expose bytes
+	// present in the current capture and must not leak bytes from prior frames.
+	const width, height, stride = 3, 2, 16
+	data := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 0, 0, 0, 13, 14, 15, 16}
+	for _, tc := range []struct {
+		name       string
+		decode     func() *image.RGBA
+		bounds     image.Rectangle
+		filled     image.Point
+		incomplete image.Point
+	}{
+		{"full padded frame", func() *image.RGBA { return decodeBGRA(data, width, height, stride) }, image.Rect(0, 0, 3, 2), image.Pt(0, 1), image.Pt(1, 1)},
+		{"cropped padded frame", func() *image.RGBA { return decodeBGRARect(data, width, height, stride, image.Rect(0, 1, 3, 2)) }, image.Rect(0, 1, 3, 2), image.Pt(0, 1), image.Pt(1, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := tc.decode()
+			if img.Bounds() != tc.bounds {
+				t.Fatalf("unexpected image extent %v want %v", img.Bounds(), tc.bounds)
+			}
+			got := img.RGBAAt(tc.filled.X, tc.filled.Y)
+			if got != (color.RGBA{R: 15, G: 14, B: 13, A: 255}) {
+				t.Fatalf("available pixel: %v", got)
+			}
+			if got := img.RGBAAt(tc.incomplete.X, tc.incomplete.Y); got != (color.RGBA{}) {
+				t.Fatalf("incomplete pixel contains stale content: %v", got)
+			}
+		})
+	}
+}
+
+func TestCropRGBADoesNotReadMalformedBackingStorage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  *image.RGBA
+	}{
+		{"missing backing pixels", &image.RGBA{Pix: nil, Stride: 8, Rect: image.Rect(0, 0, 2, 2)}},
+		{"truncated backing pixels", &image.RGBA{Pix: []byte{1, 2, 3, 4}, Stride: 8, Rect: image.Rect(0, 0, 2, 2)}},
+		{"zero stride", &image.RGBA{Pix: make([]byte, 16), Stride: 0, Rect: image.Rect(0, 0, 2, 2)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			crop := cropRGBA(tc.src, image.Rect(0, 0, 2, 2))
+			if !crop.Bounds().Empty() {
+				t.Fatalf("malformed RGBA storage was returned as an image: %v", crop.Bounds())
+			}
+		})
+	}
+}
+
+// ── Edge-case coverage ────────────────────────────────────────────────────────
+
+// TestDecodeBGRARectEmptyRect verifies the early-return branch when the
+// requested rectangle does not intersect the image bounds.
+func TestDecodeBGRARectEmptyRect(t *testing.T) {
+	data := make([]byte, 4*4*4) // 4×4 image, stride=16
+	// Request a rect entirely outside the 4×4 frame.
+	out := decodeBGRARect(data, 4, 4, 16, image.Rect(10, 10, 20, 20))
+	if !out.Bounds().Empty() {
+		t.Fatalf("expected empty output for out-of-bounds rect, got %v", out.Bounds())
+	}
+}
+
+// TestCropRGBA_IdentityReturn verifies the early-return branch where the crop
+// rectangle exactly matches the source image bounds starting at the origin.
+func TestCropRGBA_IdentityReturn(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 5, 5))
+	src.SetRGBA(2, 3, color.RGBA{R: 42, G: 84, B: 126, A: 255})
+
+	result := cropRGBA(src, image.Rect(0, 0, 5, 5))
+	if result != src {
+		t.Fatal("cropRGBA should return src unchanged when rect equals full bounds at origin")
+	}
+}
+
+// ── Benchmarks ────────────────────────────────────────────────────────────────
+
+func BenchmarkDecodeBGRA(b *testing.B) {
+	const w, h = 1920, 1080
+	data := make([]byte, w*h*4)
+	// Fill with non-trivial pattern.
+	for i := range data {
+		data[i] = byte(i)
+	}
+
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = decodeBGRA(data, w, h, w*4)
+	}
+}
+
+func BenchmarkDecodeBGRARect(b *testing.B) {
+	const w, h = 1920, 1080
+	data := make([]byte, w*h*4)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	// Crop a central 400×300 region.
+	rect := image.Rect(760, 390, 1160, 690)
+
+	b.SetBytes(int64(rect.Dx() * rect.Dy() * 4))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = decodeBGRARect(data, w, h, w*4, rect)
+	}
+}
+
+func BenchmarkCropRGBA(b *testing.B) {
+	const w, h = 1920, 1080
+	src := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := range src.Pix {
+		src.Pix[i] = byte(i)
+	}
+	rect := image.Rect(100, 100, 500, 400)
+
+	b.SetBytes(int64(rect.Dx() * rect.Dy() * 4))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = cropRGBA(src, rect)
+	}
+}
+
+// PNG-backed NRGBA and generic images must preserve crop size and transparent
+// padding even when the requested rectangle is completely off-screen.
+func TestCropImageDisjointNonRGBAPreservesRequestedGeometry(t *testing.T) {
+	for _, wanted := range []image.Rectangle{image.Rect(8, 7, 12, 10), image.Rect(-8, -7, -4, -3)} {
+		t.Run(wanted.String(), func(t *testing.T) {
+			bounds := image.Rect(0, 0, 3, 3)
+			rgba := image.NewRGBA(bounds)
+			nrgba := image.NewNRGBA(bounds)
+			rgba.SetRGBA(0, 0, color.RGBA{R: 90, A: 255})
+			nrgba.SetNRGBA(0, 0, color.NRGBA{R: 90, A: 255})
+			reference := cropImage(rgba, wanted)
+			actual := cropImage(nrgba, wanted)
+			if actual.Bounds() != reference.Bounds() {
+				t.Fatalf("disjoint crop size mismatch: RGBA=%v NRGBA=%v", reference.Bounds(), actual.Bounds())
+			}
+			if r, g, b, a := actual.At(0, 0).RGBA(); r != 0 || g != 0 || b != 0 || a != 0 {
+				t.Fatalf("disjoint crop pixel has nontransparent channels: %d %d %d %d", r, g, b, a)
+			}
+		})
+	}
+}
+
+// External screenshot providers can return an ordinary NRGBA image while a
+// caller supplies an enormous crop. Reject dimensions whose row or total
+// byte counts overflow before allocating an output buffer.
+func TestGenericImageCropRejectsUnallocatableRequestedDimensions(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	for _, tc := range []struct {
+		name string
+		rect image.Rectangle
+	}{
+		{"unallocatable width", image.Rect(0, 0, maxInt, 1)},
+		{"unallocatable height", image.Rect(0, 0, 1, maxInt)},
+		{"unallocatable area", image.Rect(0, 0, maxInt/8, maxInt/8)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cropped := cropImage(source, tc.rect)
+			if cropped == nil || !cropped.Bounds().Empty() {
+				t.Fatalf("untrusted huge crop allocated image: %+v", cropped)
+			}
+		})
+	}
+	if got := cropImage(source, image.Rectangle{}); got != source {
+		t.Fatal("empty region changed source image identity")
+	}
+}
+
+// Dimension validation must fail closed independently for the column count,
+// row count and multiplication, rather than overflow and appear plausible.
+func TestPixelRectDimensionValidationRejectsOverflowAndReversedBoundaries(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	if w, h, ok := safePixelRectDimensions(image.Rectangle{}); !ok || w != 0 || h != 0 {
+		t.Fatalf("empty rectangle invalid: %d %d %v", w, h, ok)
+	}
+	if _, _, ok := safePixelRectDimensions(image.Rect(0, 0, maxInt, 1)); ok {
+		t.Fatal("overflowed row width accepted")
+	}
+	if _, _, ok := safePixelRectDimensions(image.Rect(0, 0, 1, maxInt)); ok {
+		t.Fatal("overflowed total image allocation accepted")
+	}
+	if _, ok := safePixelDimension(2, 1); ok {
+		t.Fatal("reversed span accepted")
+	}
+}
+
+// Portal PNG decoders can produce NRGBA rather than RGBA. Cropping the same
+// requested region must preserve its size and pixel mapping in either case,
+// even when the requested region partly extends beyond the captured desktop.
+func TestCropImageNonRGBAClippedRegionMatchesRGBACoordinates(t *testing.T) {
+	bounds := image.Rect(0, 0, 3, 3)
+	rgba := image.NewRGBA(bounds)
+	nrgba := image.NewNRGBA(bounds)
+	pixel := color.RGBA{R: 178, G: 45, B: 21, A: 255}
+	rgba.SetRGBA(0, 0, pixel)
+	nrgba.SetNRGBA(0, 0, color.NRGBA(pixel))
+	wanted := image.Rect(-1, -1, 2, 2)
+	reference := cropImage(rgba, wanted)
+	actual := cropImage(nrgba, wanted)
+	if actual.Bounds().Dx() != reference.Bounds().Dx() || actual.Bounds().Dy() != reference.Bounds().Dy() {
+		t.Fatalf("clipped PNG variant changed crop dimensions: RGBA=%v NRGBA=%v", reference.Bounds(), actual.Bounds())
+	}
+	if got := color.RGBAModel.Convert(actual.At(actual.Bounds().Min.X+1, actual.Bounds().Min.Y+1)); got != pixel {
+		t.Fatalf("clipped NRGBA pixel mapping=%v want %v", got, pixel)
+	}
+}
+
+// Frame dimensions and crop coordinates come from external compositors.
+// Bad metadata must not cause unsafe allocation or turn incomplete data into
+// apparently valid nonzero pixels.
+func TestRawBGRAFrameRejectsOverflowingHeightBeforeAllocation(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	if got := decodeBGRA([]byte{9}, 2, maxInt, 8); !got.Bounds().Empty() {
+		t.Fatalf("overflow height accepted: %v", got.Bounds())
+	}
+}
+
+func TestRawBGRARectRefusesInvalidAndUnreachableRegions(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		w, h, stride int
+		rect         image.Rectangle
+	}{
+		{"empty bytes", 1, 1, 4, image.Rect(0, 0, 1, 1)},
+		{"invalid height", 1, 0, 4, image.Rect(0, 0, 1, 1)},
+		{"invalid stride", 1, 1, 0, image.Rect(0, 0, 1, 1)},
+		{"outside output", 1, 1, 4, image.Rect(5, 5, 6, 6)},
+		{"oversized width", int(^uint(0) >> 1), 1, 4, image.Rect(0, 0, 1, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte{1, 2, 3, 4}
+			if tc.name == "empty bytes" {
+				data = nil
+			}
+			if img := decodeBGRARect(data, tc.w, tc.h, tc.stride, tc.rect); !img.Bounds().Empty() {
+				t.Fatalf("invalid frame produced pixels: %v", img.Bounds())
+			}
+		})
+	}
+}
+
+func TestCropRGBARejectsMalformedStorageAndPreservesTransparentGaps(t *testing.T) {
+	source := &image.RGBA{Pix: []byte{1, 2, 3, 4}, Stride: 0, Rect: image.Rect(0, 0, 2, 2)}
+	cropped := cropRGBA(source, image.Rect(0, 0, 1, 1))
+	if got := cropped.RGBAAt(0, 0); got != (color.RGBA{}) {
+		t.Fatalf("zero-stride frame disclosed pixels: %+v", got)
+	}
+	source.Stride = 8
+	source.Rect = image.Rect(0, 0, 2, 2)
+	cropped = cropRGBA(source, image.Rect(-1, -1, 3, 3))
+	if cropped.Bounds() != image.Rect(0, 0, 4, 4) {
+		t.Fatalf("crop should preserve requested geometry: %v", cropped.Bounds())
+	}
+	for _, p := range []image.Point{{0, 0}, {1, 1}, {2, 2}, {3, 3}} {
+		if got := cropped.RGBAAt(p.X, p.Y); got != (color.RGBA{}) {
+			t.Fatalf("invalid backing pixels became visible at %v: %v", p, got)
+		}
+	}
+}
+
+func TestCropRGBARejectsMalformedSourceRectangleDimensions(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	source := &image.RGBA{Pix: []byte{1, 2, 3, 4}, Stride: 4, Rect: image.Rectangle{Min: image.Pt(-maxInt, 0), Max: image.Pt(maxInt, 1)}}
+	got := cropRGBA(source, image.Rect(0, 0, 1, 1))
+	if c := got.RGBAAt(0, 0); c != (color.RGBA{}) {
+		t.Fatalf("overflowing source exposed pixels: %v", c)
+	}
+}
+
+func TestCropImageOutsideRegionNeverReadsUnderlyingImage(t *testing.T) {
+	source := solidTestImage{rect: image.Rect(0, 0, 1, 1), c: color.RGBA{R: 7, A: 255}}
+	got := cropImage(source, image.Rect(10, 10, 12, 12))
+	if !got.Bounds().Empty() {
+		t.Fatalf("out-of-range non-subimage crop reported data: %v", got.Bounds())
+	}
+}
+
+// The requested area can have valid int coordinates yet exceed the number of
+// addressable pixels. Reject it before allocating or indexing untrusted frame
+// bytes, without requiring the test to allocate a large image.
+func TestDecodeBGRARectRejectsOversizedPixelAreaBeforeAllocating(t *testing.T) {
+	img := decodeBGRARect([]byte{0, 0, 0, 0}, 2, math.MaxInt, 8, image.Rect(0, 0, 2, math.MaxInt))
+	if img == nil || !img.Bounds().Empty() || len(img.Pix) != 0 {
+		t.Fatalf("oversized compositor rectangle accepted: bounds=%v bytes=%d", img.Bounds(), len(img.Pix))
+	}
+}
+
+// Compositor pixel buffers are untrusted. A row with an impossible source
+// address must not copy any bytes into the destination, even if both backing
+// slices happen to contain data.
+func TestRGBARowCopyRejectsInvalidSourceAddressWithoutChangingDestination(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	tests := []struct {
+		name   string
+		src    *image.RGBA
+		region image.Rectangle
+		y      int
+	}{
+		{"negative source row", &image.RGBA{Pix: make([]byte, 16), Stride: 8, Rect: image.Rect(0, 3, 2, 5)}, image.Rect(0, 0, 2, 1), 0},
+		{"negative source column", &image.RGBA{Pix: make([]byte, 16), Stride: 8, Rect: image.Rect(3, 0, 5, 2)}, image.Rect(0, 0, 2, 1), 0},
+		{"source row offset overflow", &image.RGBA{Pix: make([]byte, 16), Stride: 8, Rect: image.Rect(0, 0, 2, 2)}, image.Rect(0, 0, 2, 1), maxInt},
+		{"source column byte offset overflow", &image.RGBA{Pix: make([]byte, 16), Stride: 8, Rect: image.Rect(0, 0, 2, 2)}, image.Rect(maxInt/4+1, 0, maxInt/4+3, 1), 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := image.NewRGBA(image.Rect(0, 0, 2, 2))
+			dst.SetRGBA(0, 0, color.RGBA{R: 33, G: 44, B: 55, A: 255})
+			before := append([]byte(nil), dst.Pix...)
+			copyRGBARow(dst, tc.src, tc.region, 0, 0, tc.y, 8)
+			for i := range before {
+				if before[i] != dst.Pix[i] {
+					t.Fatalf("invalid source addressed destination at offset %d", i)
+				}
+			}
+		})
+	}
+}
+
+func TestPixelRectDimensionsRejectsCoordinateSubtractionOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	if _, _, ok := safePixelRectDimensions(image.Rectangle{Min: image.Pt(0, -maxInt), Max: image.Pt(1, maxInt)}); ok {
+		t.Fatal("overflowing row coordinate span accepted")
+	}
+}
+
+// A decoder must never partially copy a compositor row whose source or
+// destination byte storage cannot hold the complete requested pixel span.
+func TestRGBARowCopyRejectsTruncatedCompositorStorageWithoutPartialWrite(t *testing.T) {
+	valid := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	for i := range valid.Pix {
+		valid.Pix[i] = byte(i + 1)
+	}
+	tests := []struct {
+		name        string
+		destination *image.RGBA
+		source      *image.RGBA
+	}{
+		{name: "source truncated", destination: image.NewRGBA(image.Rect(0, 0, 2, 1)), source: &image.RGBA{Pix: []byte{1, 2, 3, 4}, Stride: 8, Rect: image.Rect(0, 0, 2, 1)}},
+		{name: "destination truncated", destination: &image.RGBA{Pix: []byte{9, 9, 9, 9}, Stride: 8, Rect: image.Rect(0, 0, 2, 1)}, source: valid},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := range tc.destination.Pix {
+				tc.destination.Pix[i] = 0xaa
+			}
+			before := bytes.Clone(tc.destination.Pix)
+			copyRGBARow(tc.destination, tc.source, image.Rect(0, 0, 2, 1), 0, 0, 0, 8)
+			if !bytes.Equal(tc.destination.Pix, before) {
+				t.Fatalf("partial pixel bytes escaped truncated storage: got=%x want=%x", tc.destination.Pix, before)
+			}
+		})
+	}
+}
+
+// A compositor may report a row stride close to MaxInt while providing only
+// the first row of a frame. Decoding later rows must not overflow row offsets
+// or turn absent pixels into fabricated opaque content.
+func TestBGRADecodersRejectOverflowingLaterRowOffsets(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	source := []byte{9, 19, 29, 39}
+	full := decodeBGRA(source, 1, 3, maxInt)
+	if full.Bounds() != image.Rect(0, 0, 1, 3) {
+		t.Fatalf("full frame bounds = %v", full.Bounds())
+	}
+	if got := full.RGBAAt(0, 0); got != (color.RGBA{R: 29, G: 19, B: 9, A: 255}) {
+		t.Fatalf("available first row decoded incorrectly: %+v", got)
+	}
+	for y := 1; y < 3; y++ {
+		if got := full.RGBAAt(0, y); got != (color.RGBA{}) {
+			t.Fatalf("unavailable row %d fabricated pixels: %+v", y, got)
+		}
+	}
+
+	// The second row's offset is (MaxInt + 4), which cannot be expressed in
+	// an int. The rect decoder must stop before multiplying and adding it.
+	region := decodeBGRARect(source, 2, 2, maxInt, image.Rect(1, 1, 2, 2))
+	if region.Bounds() != image.Rect(1, 1, 2, 2) {
+		t.Fatalf("subregion bounds = %v", region.Bounds())
+	}
+	if got := region.RGBAAt(1, 1); got != (color.RGBA{}) {
+		t.Fatalf("overflowing source row yielded pixels: %+v", got)
+	}
+}
 
 func TestPixelHashBGRA_MatchesDecodedFrames(t *testing.T) {
 	const width, height, stride = 4, 3, 20
@@ -478,6 +907,30 @@ func TestCopyBGRAShortDestinationAndPartialPixels(t *testing.T) {
 			copyBGRA(dst, tt.source)
 			if !slices.Equal(dst, tt.want) {
 				t.Fatalf("copyBGRA(%q) = %v; want %v", tt.name, dst, tt.want)
+			}
+		})
+	}
+}
+
+// Empty compositor transfers and absent geometry cannot become valid captures,
+// even when the surrounding transport otherwise reports successful delivery.
+func TestRawPixelDecodersRejectUnavailableFramesBeforeAllocation(t *testing.T) {
+	cases := []struct {
+		name                  string
+		pixels                []byte
+		width, height, stride int
+	}{
+		{"empty transport", nil, 1, 1, 4},
+		{"zero width", []byte{1, 2, 3, 4}, 0, 1, 4},
+		{"zero height", []byte{1, 2, 3, 4}, 1, 0, 4},
+		{"negative stride", []byte{1, 2, 3, 4}, 1, 1, -4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			full := decodeBGRA(tc.pixels, tc.width, tc.height, tc.stride)
+			region := decodeBGRARect(tc.pixels, tc.width, tc.height, tc.stride, image.Rect(0, 0, 1, 1))
+			if !full.Bounds().Empty() || !region.Bounds().Empty() {
+				t.Fatalf("unavailable frame was decoded: full=%v region=%v", full.Bounds(), region.Bounds())
 			}
 		})
 	}

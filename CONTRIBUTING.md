@@ -47,6 +47,16 @@ just check-api-sync
 Keep generated files formatted, preserve the public API contract, and include
 tests for behavior changes.
 
+## Test organization
+
+Keep regression, adversarial, coverage and ordinary unit tests together in the
+existing test file for their logical implementation component. Use separate files
+for distinct components, incompatible build constraints, external test packages,
+independent integration harnesses and genuinely shared fixtures. Preserve each
+test scenario, assertion and build scope when reorganizing; do not create a new
+file for each bug or date. Prefer descriptive component filenames over numbered
+shards or file-per-regression naming.
+
 ## Documentation and examples
 
 Keep committed content suitable for public distribution. Use synthetic examples,

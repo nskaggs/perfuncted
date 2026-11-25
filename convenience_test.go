@@ -3,14 +3,204 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"reflect"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/window"
+	"reflect"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
 )
+
+func BenchmarkConvenienceBatch(b *testing.B) {
+	s := NewSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
+	defer s.Close()
+	steps := make([]Step, 10)
+	for i := range steps {
+		steps[i] = Type("example")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := s.Do(steps...); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkConvenienceDirect(b *testing.B) {
+	s := NewSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
+	defer s.Close()
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j := 0; j < 10; j++ {
+			if err := s.Input.TypeLiteral(ctx, "example"); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestConvenienceCoverageOpenAndViewCopies(t *testing.T) {
+	sentinel := errors.New("reject requested option")
+	if _, err := OpenDefault(func(*openConfig) error { return sentinel }); !errors.Is(err, sentinel) {
+		t.Fatalf("option error: %v", err)
+	}
+	s := convenienceSession(t, &convenienceInput{})
+	var nilView *SessionView
+	if nilView.WithContext(context.Background()).session != nil {
+		t.Fatal("nil receiver acquired a session")
+	}
+	if nilView.WithTimeout(time.Second).session != nil {
+		t.Fatal("nil receiver acquired a session")
+	}
+	parent := s.WithContext(context.Background()).WithTimeout(time.Second)
+	copyWithContext := parent.WithContext(context.Background())
+	copyWithTimeout := parent.WithTimeout(2 * time.Second)
+	if parent.timeout != time.Second || copyWithContext.timeout != time.Second ||
+		copyWithTimeout.timeout != 2*time.Second || parent.session != s || copyWithTimeout.session != s {
+		t.Fatal("immutable views changed parent or lost owner")
+	}
+	for _, err := range []error{s.Type("literal"), s.Key("tab"), parent.Type("view"), parent.Key("enter")} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.WithTimeout(-1).Do(Type("private")); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("negative timeout: %v", err)
+	}
+	if err := s.WithContext(nil).WithTimeout(time.Second).Do(Type("private")); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil derived context: %v", err)
+	}
+}
+
+func TestConvenienceCoverageStepErrors(t *testing.T) {
+	cases := []struct {
+		err  error
+		want string
+	}{
+		{errors.New("private"), "operation failed"},
+		{ErrInvalidArgument, "invalid argument"},
+		{ErrUnavailable, "capability unavailable"},
+		{ErrUnsupported, "operation unsupported"},
+		{ErrSessionClosed, "session closed"},
+		{ErrWindowFocusUnverified, "window focus unverified"},
+		{ErrWindowIdentityChanged, "selected window changed"},
+		{context.Canceled, "canceled"},
+		{context.DeadlineExceeded, "deadline exceeded"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			wrapped := &StepError{Index: 1, Operation: "type-literal", Err: tc.err, MayHaveDispatched: true}
+			msg := wrapped.Error()
+			if !strings.Contains(msg, tc.want) || !strings.Contains(msg, "step 2") ||
+				!strings.Contains(msg, "may have been dispatched") || !errors.Is(wrapped, tc.err) {
+				t.Fatalf("message=%q unwrapped=%v", msg, wrapped.Unwrap())
+			}
+		})
+	}
+}
+
+func TestConvenienceCoverageStepPreflight(t *testing.T) {
+	ctx := context.Background()
+	good := []Step{Type(""), TypeKeys("{enter}"), Key("tab"), Hotkey("ctrl", "s"), Click(1, 2), Delay(0)}
+	for _, step := range good {
+		if err := step.validate(ctx); err != nil {
+			t.Fatalf("valid step %s: %v", step.kind, err)
+		}
+	}
+	bad := []Step{
+		{}, TypeKeys("{unfinished"), Key("no-such-key"), Hotkey("ctrl"), Hotkey("ctrl", "unknown"),
+		Hotkey("not-a-modifier", "s"), Hotkey(strings.Repeat("ctrl", 70), "s"),
+		Delay(-time.Second),
+	}
+	for _, step := range bad {
+		if err := step.validate(ctx); !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("invalid step %s returned %v", step.kind, err)
+		}
+	}
+	// The parser must not proceed after a cancellation, even with valid keys.
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := validateHotkey(canceled, "ctrl+s"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("canceled parsing: %v", err)
+	}
+}
+
+func TestConvenienceCoverageRunStepKindsAndDelay(t *testing.T) {
+	s := convenienceSession(t, &convenienceInput{})
+	ctx := context.Background()
+	for _, step := range []Step{
+		Type("literal"), TypeKeys("{tab}"), Key("enter"), Hotkey("ctrl", "s"),
+		Click(1, 2), Delay(3 * time.Millisecond),
+	} {
+		if err := s.runStep(ctx, step); err != nil {
+			t.Fatalf("run %s: %v", step.kind, err)
+		}
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := s.runStep(canceled, Delay(time.Second)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellable delay: %v", err)
+	}
+}
+
+func TestConvenienceCoveragePreflightAndDirectGuards(t *testing.T) {
+	s := convenienceSession(t, &convenienceInput{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.preflightSteps(ctx, []Step{Type("text")}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled preflight: %v", err)
+	}
+	if err := s.runStepsChecked(ctx, []Step{Type("text")}, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled execution: %v", err)
+	}
+	if err := s.runStepsChecked(context.Background(), []Step{Type("text")},
+		func(context.Context) error { return ErrWindowFocusUnverified }); !errors.Is(err, ErrWindowFocusUnverified) {
+		t.Fatalf("guard not applied: %v", err)
+	}
+	if err := s.preflightSteps(context.Background(), []Step{Type("text")}); err != nil {
+		t.Fatalf("normal preflight: %v", err)
+	}
+}
+
+type cancelOnNthErrContext struct {
+	context.Context
+	n     atomic.Int32
+	index int32
+}
+
+func (c *cancelOnNthErrContext) Err() error {
+	if c.n.Add(1) >= c.index {
+		return context.Canceled
+	}
+	return nil
+}
+
+// These assertions exercise the authority boundary between validation and
+// input, where a caller can cancel or a session can close.
+func TestConvenienceCoverageIntraPreflightRevocation(t *testing.T) {
+	s := convenienceSession(t, &convenienceInput{})
+	ctx := &cancelOnNthErrContext{Context: context.Background(), index: 2}
+	if err := s.preflightSteps(ctx, []Step{Type("private")}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel between validation and dispatch: %v", err)
+	}
+	original := s.Input
+	s.Input = nil
+	err := s.preflightSteps(context.Background(), []Step{Type("private")})
+	s.Input = original
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing Input facade: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.runStepsChecked(context.Background(), []Step{Type("private")}, nil); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("closed execution: %v", err)
+	}
+}
 
 func convenienceSession(t *testing.T, backend input.Inputter) *Session {
 	t.Helper()
@@ -349,5 +539,401 @@ func TestConvenienceOversizedPortableKeyAndChordDoNotDispatch(t *testing.T) {
 		if len(backend.Calls) != 0 {
 			t.Fatalf("invalid key dispatched: %d input calls", len(backend.Calls))
 		}
+	}
+}
+
+type scriptedFocusManager struct {
+	*focusTestWindowManager
+	infoReads   atomic.Int32
+	failAt      int32
+	switchAt    int32
+	activateErr error
+}
+
+func (m *scriptedFocusManager) InfoByID(ctx context.Context, id string) (window.Info, error) {
+	read := m.infoReads.Add(1)
+	if read == m.failAt {
+		return window.Info{}, ErrInvalidArgument
+	}
+	if read == m.switchAt {
+		m.mu.Lock()
+		for i := range m.windows {
+			if m.windows[i].StableID() == id {
+				m.windows[i].PID++
+			}
+		}
+		m.mu.Unlock()
+	}
+	return m.focusTestWindowManager.InfoByID(ctx, id)
+}
+
+func (m *scriptedFocusManager) ActivateByID(ctx context.Context, id string) error {
+	if m.activateErr != nil {
+		return m.activateErr
+	}
+	return m.focusTestWindowManager.ActivateByID(ctx, id)
+}
+
+func scriptedWindowSession(t *testing.T) (*Session, *scriptedFocusManager, *windowInputSpy) {
+	t.Helper()
+	manager := &scriptedFocusManager{focusTestWindowManager: &focusTestWindowManager{
+		handleWindowManager: newHandleWindowManager(window.Info{
+			NativeID: "1", Title: "Editor", PID: 120, AppID: "org.example.Editor",
+		}),
+	}}
+	backend := &windowInputSpy{}
+	s := NewSessionForTesting(nil, backend, manager, nil, nil)
+	t.Cleanup(func() { _ = s.Close() })
+	return s, manager, backend
+}
+
+func TestWindowTargetCoverageEarlyReturnPaths(t *testing.T) {
+	t.Run("nil view", func(t *testing.T) {
+		target := &WindowTarget{}
+		if err := target.Do(Type("x")); !errors.Is(err, ErrNilSession) {
+			t.Fatal(err)
+		}
+	})
+	t.Run("missing capability", func(t *testing.T) {
+		s, _, backend := scriptedWindowSession(t)
+		original := s.Windows.backend
+		s.Windows.backend = nil
+		t.Cleanup(func() { s.Windows.backend = original })
+		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("missing window backend: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("input sent without window capability")
+		}
+	})
+	t.Run("missing title", func(t *testing.T) {
+		s, _, backend := scriptedWindowSession(t)
+		if err := s.Window("Not this window").Do(Type("text")); !errors.Is(err, ErrWindowNotFound) {
+			t.Fatalf("window not found: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("input dispatched for missing title")
+		}
+	})
+	t.Run("empty batch", func(t *testing.T) {
+		s, manager, _ := scriptedWindowSession(t)
+		if err := s.Window("Editor").Do(); err != nil {
+			t.Fatal(err)
+		}
+		if len(manager.actions) != 0 {
+			t.Fatal("empty batch activated window")
+		}
+	})
+	t.Run("initial info failure", func(t *testing.T) {
+		s, manager, backend := scriptedWindowSession(t)
+		manager.failAt = 1
+		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("initial window info error: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("dispatched after initial info error")
+		}
+	})
+	t.Run("activation failure", func(t *testing.T) {
+		s, manager, backend := scriptedWindowSession(t)
+		manager.activateErr = ErrUnsupported
+		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("activation error: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("dispatched after activation error")
+		}
+	})
+	t.Run("wait observer error", func(t *testing.T) {
+		s, manager, backend := scriptedWindowSession(t)
+		manager.failAt = 2
+		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("wait observation error: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("dispatched after unreadable focus observation")
+		}
+	})
+	t.Run("focus identity changes during activation", func(t *testing.T) {
+		s, manager, backend := scriptedWindowSession(t)
+		manager.switchAt = 2
+		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrWindowIdentityChanged) {
+			t.Fatalf("identity changed during wait: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("dispatched to replaced window")
+		}
+	})
+	t.Run("guard observation fails", func(t *testing.T) {
+		s, manager, backend := scriptedWindowSession(t)
+		manager.failAt = 3
+		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("guard info error: %v", err)
+		}
+		if len(backend.callsSnapshot()) != 0 {
+			t.Fatal("dispatched after pre-input observation failure")
+		}
+	})
+}
+
+type cancelWaitWindowManager struct {
+	*focusTestWindowManager
+	reads  int
+	cancel context.CancelFunc
+}
+
+func (m *cancelWaitWindowManager) InfoByID(ctx context.Context, id string) (window.Info, error) {
+	info, err := m.focusTestWindowManager.InfoByID(ctx, id)
+	m.reads++
+	if m.reads == 2 {
+		m.cancel()
+	}
+	return info, err
+}
+
+// Explicit caller cancellation during the focus observation must propagate
+// unchanged; it is not an activation timeout and must never send a keystroke.
+func TestWindowTargetCoverageCanceledDuringFocusWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager := &cancelWaitWindowManager{focusTestWindowManager: &focusTestWindowManager{
+		handleWindowManager: newHandleWindowManager(window.Info{
+			NativeID: "1", Title: "Editor", PID: 12, AppID: "org.example.Editor",
+		}),
+	}, cancel: cancel}
+	backend := &windowInputSpy{}
+	s := NewSessionForTesting(nil, backend, manager, nil, nil)
+	t.Cleanup(func() { _ = s.Close() })
+	err := s.WithContext(ctx).Window("Editor").Do(Type("private"))
+	if !errors.Is(err, context.Canceled) || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("canceled focus wait = %v, input = %v", err, backend.callsSnapshot())
+	}
+}
+
+// Activation can be accepted but never observed. A shorter internal focus
+// deadline, rather than caller cancellation, must return the focus-specific
+// uncertainty signal and must not inject any input.
+func TestWindowTargetCoverageInternalFocusTimeout(t *testing.T) {
+	manager := newHandleWindowManager(window.Info{
+		NativeID: "1", Title: "Editor", PID: 42, AppID: "org.example.Editor",
+	})
+	backend := &windowInputSpy{}
+	session := NewSessionForTesting(nil, backend, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	session.config.Timeouts = TimeoutPolicy{Short: 15 * time.Millisecond, Poll: time.Millisecond}
+	err := session.Window("Editor").Do(Type("private"))
+	if !errors.Is(err, ErrWindowFocusUnverified) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("focus timeout: %v", err)
+	}
+	if len(backend.callsSnapshot()) != 0 {
+		t.Fatal("input dispatched despite unobserved focus")
+	}
+}
+
+// focusTestWindowManager models a compositor that observes focus only after
+// ActivateByID, rather than treating the activation request as proof of focus.
+type focusTestWindowManager struct {
+	*handleWindowManager
+}
+
+func (m *focusTestWindowManager) ActivateByID(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.actions = append(m.actions, "activate:"+id)
+	for i := range m.windows {
+		m.windows[i].Active = m.windows[i].StableID() == id
+	}
+	return nil
+}
+
+type windowInputSpy struct {
+	closeCountingInput
+	mu    sync.Mutex
+	calls []string
+	after func()
+}
+
+func (b *windowInputSpy) TypeLiteral(_ context.Context, value string) error {
+	b.mu.Lock()
+	b.calls = append(b.calls, "literal:"+value)
+	b.mu.Unlock()
+	if b.after != nil {
+		b.after()
+	}
+	return nil
+}
+
+func (b *windowInputSpy) Type(_ context.Context, value string) error {
+	b.mu.Lock()
+	b.calls = append(b.calls, "keys:"+value)
+	b.mu.Unlock()
+	if b.after != nil {
+		b.after()
+	}
+	return nil
+}
+
+func (b *windowInputSpy) callsSnapshot() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.calls...)
+}
+
+func windowConvenienceFixture(t *testing.T, info ...window.Info) (*Session, *focusTestWindowManager, *windowInputSpy) {
+	t.Helper()
+	manager := &focusTestWindowManager{handleWindowManager: newHandleWindowManager(info...)}
+	backend := &windowInputSpy{}
+	session := NewSessionForTesting(nil, input.Inputter(backend), manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	return session, manager, backend
+}
+
+func TestWindowTargetActivatesAndChecksEachInput(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "office-1", Title: "Journal", PID: 42, AppID: "editor", Active: false,
+	})
+	if err := session.Window("Journal").Do(Type("text {ctrl+s}+é"), Key("tab")); err != nil {
+		t.Fatal(err)
+	}
+	if got := backend.callsSnapshot(); !reflect.DeepEqual(got, []string{"literal:text {ctrl+s}+é", "keys:{tab}"}) {
+		t.Fatalf("dispatches = %v", got)
+	}
+	if got := manager.actions; !reflect.DeepEqual(got, []string{"activate:office-1"}) {
+		t.Fatalf("activations = %v", got)
+	}
+}
+
+func TestWindowTargetPreflightRejectsLateInvalidStepBeforeActivation(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "office-1", Title: "Journal", PID: 42, AppID: "editor",
+	})
+	err := session.Window("Journal").Do(Type("secret"), Key("x}{ctrl+a"))
+	if !errors.Is(err, ErrInvalidArgument) || len(manager.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("preflight err=%v activations=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+func TestWindowTargetRejectsAmbiguousTitleWithoutInput(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t,
+		window.Info{NativeID: "1", Title: "Journal", PID: 42, AppID: "editor"},
+		window.Info{NativeID: "2", Title: "Journal", PID: 43, AppID: "editor"},
+	)
+	err := session.Window("Journal").Do(Type("private"))
+	if !errors.Is(err, ErrWindowAmbiguous) || len(manager.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("ambiguous target err=%v activations=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+func TestWindowTargetFailsBeforeInputIfIdentityUnverifiable(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "1", Title: "Journal",
+	})
+	err := session.Window("Journal").Do(Type("private"))
+	if !errors.Is(err, ErrUnsupported) || len(manager.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("unverifiable target err=%v activations=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+func TestWindowTargetStopsOnFocusLossWithoutReactivation(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "1", Title: "Journal", PID: 42, AppID: "editor",
+	})
+	backend.after = func() {
+		manager.mu.Lock()
+		manager.windows[0].Active = false
+		manager.mu.Unlock()
+	}
+	err := session.Window("Journal").Do(Type("first"), Type("second"))
+	var stepErr *StepError
+	if !errors.Is(err, ErrWindowFocusUnverified) || !errors.As(err, &stepErr) ||
+		stepErr.Index != 1 || stepErr.MayHaveDispatched ||
+		len(manager.actions) != 1 || !reflect.DeepEqual(backend.callsSnapshot(), []string{"literal:first"}) {
+		t.Fatalf("focus loss err=%v activations=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+func TestWindowTargetDoesNotRetargetRecycledIDWithChangedIdentity(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "1", Title: "Journal", PID: 42, AppID: "editor",
+	})
+	backend.after = func() {
+		manager.mu.Lock()
+		manager.windows[0].PID = 99
+		manager.mu.Unlock()
+	}
+	err := session.Window("Journal").Do(Type("first"), Type("second"))
+	if !errors.Is(err, ErrWindowIdentityChanged) || len(manager.actions) != 1 ||
+		!reflect.DeepEqual(backend.callsSnapshot(), []string{"literal:first"}) {
+		t.Fatalf("retarget err=%v activations=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+func TestWindowTargetFailsClosedWhenFocusCannotBeObserved(t *testing.T) {
+	manager := newHandleWindowManager(window.Info{
+		NativeID: "1", Title: "Journal", PID: 42, AppID: "editor", Active: false,
+	})
+	backend := &windowInputSpy{}
+	session := NewSessionForTesting(nil, backend, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := session.WithContext(ctx).Window("Journal").Do(Type("private"))
+	if !errors.Is(err, context.DeadlineExceeded) || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("unobserved focus err=%v calls=%v", err, backend.callsSnapshot())
+	}
+	if got := manager.actions; !reflect.DeepEqual(got, []string{"activate:1"}) {
+		t.Fatalf("activation attempts = %v", got)
+	}
+}
+
+func TestWindowTargetInvalidClosedAndCanceledViews(t *testing.T) {
+	var nilTarget *WindowTarget
+	if err := nilTarget.Do(Type("text")); !errors.Is(err, ErrNilSession) {
+		t.Fatalf("nil target: %v", err)
+	}
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "1", Title: "Journal", PID: 42, AppID: "editor",
+	})
+	if err := session.Window(" ").Do(Type("text")); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("blank selector: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := session.WithContext(ctx).Window("Journal").Do(Type("text")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled view: %v", err)
+	}
+	if len(manager.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+		t.Fatal("invalid views dispatched input or activation")
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Window("Journal").Do(Type("text")); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("closed session: %v", err)
+	}
+}
+
+func TestWindowTargetRejectsGlobalPointerClickBeforeActivation(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{
+		NativeID: "office-1", Title: "Journal", PID: 42, AppID: "editor",
+	})
+	err := session.Window("Journal").Do(Type("first"), Click(500, 500))
+	if !errors.Is(err, ErrUnsupported) || len(manager.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("unsafe global click err=%v activations=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+// A real editor often changes its title after the first keystroke.
+func TestWindowTargetContinuesAfterTitleChangeOnSameIdentity(t *testing.T) {
+	session, manager, backend := windowConvenienceFixture(t, window.Info{NativeID: "1", Title: "Journal", PID: 42, AppID: "editor"})
+	backend.after = func() { manager.mu.Lock(); manager.windows[0].Title = "*Journal"; manager.mu.Unlock() }
+	if err := session.Window("Journal").Do(Type("first"), Type("second")); err != nil {
+		t.Fatal(err)
+	}
+	if got := backend.callsSnapshot(); !reflect.DeepEqual(got, []string{"literal:first", "literal:second"}) {
+		t.Fatalf("input after title change: %v", got)
 	}
 }

@@ -8,6 +8,112 @@ import (
 	"time"
 )
 
+func TestKWinWindowListPreservesActiveStateForStableIDVerification(t *testing.T) {
+	data := `[{"id":"{active-uuid}","title":"active","active":true,"x":0,"y":0,"width":600,"height":300},{"id":"{inactive-uuid}","title":"inactive","active":false,"x":200,"y":100,"width":500,"height":250}]`
+	got, err := parseKWinWindowList(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].Active || got[1].Active {
+		t.Fatalf("lost actual focus state: %+v", got)
+	}
+}
+
+// Malformed compositor results cannot be exposed as a partial window list,
+// and the temporary script must be unloaded after the failure.
+func TestSyntheticKWinMalformedWindowSnapshotFailsClosedAndUnloadsScript(t *testing.T) {
+	manager, provider := newSyntheticKWinManager(t)
+	provider.mu.Lock()
+	provider.listOverride = `[{"id":"7","title":"valid"},{"id":false}]`
+	provider.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	windows, err := manager.List(ctx)
+	if err == nil || len(windows) != 0 {
+		t.Fatalf("malformed compositor snapshot accepted: windows=%v err=%v", windows, err)
+	}
+	if !strings.Contains(err.Error(), "window") && !strings.Contains(err.Error(), "id") {
+		t.Logf("malformed snapshot rejected: %v", err)
+	}
+	provider.mu.Lock()
+	loads, starts, unloads := provider.loadCount, provider.startCount, provider.unloadCount
+	provider.mu.Unlock()
+	if loads != 1 || starts != 1 || unloads != 1 {
+		t.Fatalf("rejected KWin snapshot leaked a script: loads=%d starts=%d unloads=%d", loads, starts, unloads)
+	}
+}
+
+func TestKWinNilManagerCloseIsIdempotent(t *testing.T) {
+	var manager *KWinScriptManager
+	if err := manager.Close(); err != nil {
+		t.Fatalf("nil manager cleanup failed: %v", err)
+	}
+	if err := (&KWinScriptManager{}).Close(); err != nil {
+		t.Fatalf("disconnected manager cleanup failed: %v", err)
+	}
+}
+
+// KWin 6 exposes a maximizeMode bitmask, not a boolean maximized property.
+// The compositor's reported state must reflect full, not partial, maximization.
+func TestKWinWindowListingReadsFullMaximizeMode(t *testing.T) {
+	manager, provider := newSyntheticKWinManager(t)
+	if _, err := manager.List(context.Background()); err != nil {
+		t.Fatalf("KWin window listing: %v", err)
+	}
+	provider.mu.Lock()
+	script := provider.loadedScript
+	provider.mu.Unlock()
+	if !strings.Contains(script, "maximized: Number(w.maximizeMode) === 3") {
+		t.Fatalf("window listing did not read KWin's maximizeMode (full=3): %s", script)
+	}
+	if strings.Contains(script, "!!w.maximized") {
+		t.Fatal("window listing relied on nonexistent KWin maximized property")
+	}
+}
+
+func TestKWinNumericNativeIDPreservesDecimalLeadingZero(t *testing.T) {
+	list, err := parseKWinWindowList(`[{"id":"010","title":"decimal ten","width":10,"height":10},{"id":"0x10","title":"hex sixteen","width":10,"height":10}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].ID != 10 || list[1].ID != 16 {
+		t.Fatalf("KWin numeric IDs changed value: %#v", list)
+	}
+}
+
+// KWin desktop positions must be unique: a duplicated index makes ordered
+// desktop state ambiguous even when stable IDs differ.
+func TestKWinDesktopParserRejectsRepeatedPositions(t *testing.T) {
+	for _, tc := range []struct{ name, data string }{
+		{"same position", `[{"id":"desktop-a","position":1,"current":true},{"id":"desktop-b","position":1}]`},
+		{"same later position", `[{"id":"desktop-a","position":1,"current":true},{"id":"desktop-b","position":2},{"id":"desktop-c","position":2}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseKWinDesktops(tc.data)
+			if err == nil {
+				t.Fatalf("accepted duplicate desktop positions: %+v", got)
+			}
+		})
+	}
+}
+
+// The KWin script assigns position=i+1 while enumerating workspace.desktops.
+// A response with gaps or mismatched ordering cannot be an authoritative
+// rendering of that snapshot.
+func TestKWinDesktopParserRejectsOutOfOrderAndNoncontiguousPositions(t *testing.T) {
+	for _, tc := range []struct{ name, payload string }{
+		{"skipped-position", `[{"id":"first","position":1,"current":true},{"id":"second","position":3}]`},
+		{"swapped-position", `[{"id":"first","position":2,"current":true},{"id":"second","position":1}]`},
+		{"start-at-two", `[{"id":"only","position":2,"current":true}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := parseKWinDesktops(tc.payload); err == nil {
+				t.Fatalf("accepted KWin desktop positions inconsistent with enumeration: %+v", got)
+			}
+		})
+	}
+}
+
 func TestKWinDesktopParserPreservesStableIDsAndCurrentDesktop(t *testing.T) {
 	items, err := parseKWinDesktops(`[
 	 {"id":"first-uuid","name":"Desktop 1","position":1,"current":false},

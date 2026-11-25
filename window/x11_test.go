@@ -1,752 +1,196 @@
-//go:build linux
-
 package window
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
-	"fmt"
-	"net"
-	"os"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
+	"strings"
+	"testing"
 )
 
-// newStubX11Backend creates an X11Backend backed by a shared MockConnection with
-// pre-set atom values.  Tests that need to inspect or override specific methods
-// receive the *x11.MockConnection directly so they can set Func hooks without
-// any type-assertion.
-func newStubX11Backend(t *testing.T, withWindow bool, title string) (*X11Backend, *x11.MockConnection) {
-	t.Helper()
-	conn := &x11.MockConnection{}
-	// InternAtom(false) creates a named atom and must return a nonzero ID.
-	// Preserve that wire contract for successful action tests.
-	conn.InternAtomFunc = func(bool, uint16, string) x11.InternAtomCookie {
-		return cancelAwareAtomReply{}
-	}
-	b := &X11Backend{
-		conn:                        conn,
-		root:                        1,
-		atomNetClientList:           10,
-		atomNetActiveWindow:         11,
-		atomNetFrameExtent:          12,
-		atomNetWMName:               13,
-		atomNetWMState:              20,
-		atomNetWMStateHidden:        21,
-		atomNetWMStateMaximizedVert: 22,
-		atomNetWMStateMaximizedHorz: 23,
-		atomNetWMPID:                14,
-		atomMotifWMHints:            15,
-		atomUTF8String:              16,
-	}
-	conn.DefaultScreenFunc = func() *xproto.ScreenInfo {
-		return &xproto.ScreenInfo{Root: b.root, WidthInPixels: 1920, HeightInPixels: 1080}
-	}
-	// Default: return an empty client list (Format 32, zero bytes) so that
-	// IterateWindows/findByTitle return "not found" rather than a format error.
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	if withWindow {
-		wid := xproto.Window(50)
-		titleBytes := []byte(title)
-		conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-			switch p {
-			case b.atomNetClientList:
-				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{byte(wid), byte(wid >> 8), byte(wid >> 16), byte(wid >> 24)}})
-			case b.atomNetWMName:
-				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: titleBytes})
-			case b.atomNetWMPID:
-				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{1, 0, 0, 0}})
-			case b.atomNetActiveWindow:
-				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-			case b.atomNetFrameExtent, b.atomMotifWMHints:
-				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-			}
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-		}
-		conn.GetGeometryFunc = func(d xproto.Drawable) x11.GetGeometryCookie {
-			return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{X: 10, Y: 20, Width: 800, Height: 600})
-		}
-		conn.TranslateCoordinatesFunc = func(s, d xproto.Window, sx, sy int16) x11.TranslateCoordinatesCookie {
-			return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{DstX: 10, DstY: 20})
-		}
-	}
-	return b, conn
-}
-
-func TestX11Backend_New_NoDisplay(t *testing.T) {
-	orig := os.Getenv("DISPLAY")
-	os.Unsetenv("DISPLAY")
-	defer os.Setenv("DISPLAY", orig)
-	_, err := NewX11Backend("")
-	if err == nil || !strings.Contains(err.Error(), "window/x11: connect to display") {
-		t.Fatalf("NewX11Backend() error = %v, want connection error", err)
-	}
-}
-
-func TestX11Backend_List(t *testing.T) {
-	b, _ := newStubX11Backend(t, true, "Test Window")
-	wins, err := b.List(context.Background())
-	if err != nil {
-		t.Fatalf("List() unexpected error: %v", err)
-	}
-	if len(wins) != 1 || wins[0].Title != "Test Window" {
-		t.Errorf("List() = %+v, want 1 window titled %q", wins, "Test Window")
-	}
-}
-
-func TestX11Backend_List_Empty(t *testing.T) {
-	b, _ := newStubX11Backend(t, false, "")
-	wins, err := b.List(context.Background())
-	if err != nil {
-		t.Fatalf("List() unexpected error: %v", err)
-	}
-	if len(wins) != 0 {
-		t.Errorf("List() expected 0 windows, got %d", len(wins))
-	}
-}
-
-func TestX11Backend_List_GetPropertyError(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookieError(fmt.Errorf("simulated error"))
-	}
-	_, err := b.List(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "get _NET_CLIENT_LIST") {
-		t.Errorf("List() error = %v, want error containing %q", err, "get _NET_CLIENT_LIST")
-	}
-}
-
-func TestX11Backend_List_UnexpectedFormat(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte{1, 2, 3}})
-	}
-	_, err := b.List(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "unexpected _NET_CLIENT_LIST format") {
-		t.Errorf("List() error = %v, want error containing format", err)
-	}
-}
-
-func TestX11Backend_List_MalformedPayloadLength(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{1, 2, 3}})
-	}
-	_, err := b.List(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "malformed _NET_CLIENT_LIST payload length") {
-		t.Errorf("List() error = %v, want malformed payload error", err)
-	}
-}
-
-// runX11ActionTest is a table-helper for ID-based actions that send an event.
-func runX11ActionTest(t *testing.T, name string, action func(*X11Backend, context.Context, string) error) {
-	t.Helper()
-	t.Run("valid ID", func(t *testing.T) {
-		var events []string
-		b, conn := newStubX11Backend(t, true, name)
-		conn.SendEventCheckedFunc = func(p bool, dest xproto.Window, mask uint32, ev string) x11.SendEventCookie {
-			events = append(events, ev)
-			return &x11.MockCheckCookie{}
-		}
-		if err := action(b, context.Background(), "50"); err != nil {
-			t.Errorf("%s() unexpected error: %v", name, err)
-		}
-		if len(events) == 0 {
-			t.Errorf("%s() did not send event", name)
-		}
-	})
-	t.Run("invalid ID", func(t *testing.T) {
-		b, _ := newStubX11Backend(t, false, "")
-		err := action(b, context.Background(), "not-a-number")
-		if err == nil {
-			t.Errorf("%s() error = nil, want invalid ID error", name)
-		}
-	})
-}
-
-func TestX11Backend_ActivateByID(t *testing.T) {
-	runX11ActionTest(t, "ActivateByID", func(b *X11Backend, ctx context.Context, id string) error {
-		return b.ActivateByID(ctx, id)
-	})
-}
-
-func TestX11Backend_CloseWindowByID(t *testing.T) {
-	runX11ActionTest(t, "CloseWindowByID", func(b *X11Backend, ctx context.Context, id string) error {
-		return b.CloseWindowByID(ctx, id)
-	})
-}
-
-func TestX11Backend_MinimizeByID(t *testing.T) {
-	runX11ActionTest(t, "MinimizeByID", func(b *X11Backend, ctx context.Context, id string) error {
-		return b.MinimizeByID(ctx, id)
-	})
-}
-
-func TestX11Backend_MaximizeByID(t *testing.T) {
-	runX11ActionTest(t, "MaximizeByID", func(b *X11Backend, ctx context.Context, id string) error {
-		return b.MaximizeByID(ctx, id)
-	})
-}
-
-func TestX11Backend_RestoreByID(t *testing.T) {
-	t.Run("valid ID", func(t *testing.T) {
-		var events []string
-		var mapped []xproto.Window
-		b, conn := newStubX11Backend(t, true, "RestoreByID")
-		conn.SendEventCheckedFunc = func(p bool, dest xproto.Window, mask uint32, ev string) x11.SendEventCookie {
-			events = append(events, ev)
-			return &x11.MockCheckCookie{}
-		}
-		conn.MapWindowCheckedFunc = func(w xproto.Window) x11.MapWindowCookie {
-			mapped = append(mapped, w)
-			return &x11.MockCheckCookie{}
-		}
-		if err := b.RestoreByID(context.Background(), "50"); err != nil {
-			t.Errorf("RestoreByID() unexpected error: %v", err)
-		}
-		if len(events) == 0 {
-			t.Errorf("RestoreByID() did not send event")
-		}
-		if len(mapped) == 0 {
-			t.Errorf("RestoreByID() did not map window")
-		}
-	})
-	t.Run("invalid ID", func(t *testing.T) {
-		b, _ := newStubX11Backend(t, false, "")
-		if err := b.RestoreByID(context.Background(), "not-a-number"); err == nil {
-			t.Error("RestoreByID() error = nil, want invalid ID error")
-		}
-	})
-}
-
-func TestX11Backend_MoveByID(t *testing.T) { //nolint:dupl
-	t.Run("valid ID", func(t *testing.T) {
-		var cfg []struct {
-			mask   uint16
-			values []uint32
-		}
-		b, conn := newStubX11Backend(t, true, "MoveMe")
-		conn.ConfigureWindowCheckedFunc = func(w xproto.Window, mask uint16, vals []uint32) x11.ConfigureWindowCookie {
-			cfg = append(cfg, struct {
-				mask   uint16
-				values []uint32
-			}{mask, vals})
-			return &x11.MockCheckCookie{}
-		}
-		if err := b.MoveByID(context.Background(), "50", 100, 200); err != nil {
-			t.Errorf("MoveByID() unexpected error: %v", err)
-		}
-		if len(cfg) == 0 {
-			t.Errorf("MoveByID() did not configure window")
-		}
-	})
-	t.Run("invalid ID", func(t *testing.T) {
-		b, _ := newStubX11Backend(t, false, "")
-		if err := b.MoveByID(context.Background(), "not-a-number", 100, 200); err == nil {
-			t.Error("MoveByID() error = nil, want invalid ID error")
-		}
-	})
-}
-
-func TestX11Backend_ResizeByID(t *testing.T) { //nolint:dupl
-	t.Run("valid ID", func(t *testing.T) {
-		var cfg []struct {
-			mask   uint16
-			values []uint32
-		}
-		b, conn := newStubX11Backend(t, true, "ResizeMe")
-		conn.ConfigureWindowCheckedFunc = func(w xproto.Window, mask uint16, vals []uint32) x11.ConfigureWindowCookie {
-			cfg = append(cfg, struct {
-				mask   uint16
-				values []uint32
-			}{mask, vals})
-			return &x11.MockCheckCookie{}
-		}
-		if err := b.ResizeByID(context.Background(), "50", 1024, 768); err != nil {
-			t.Errorf("ResizeByID() unexpected error: %v", err)
-		}
-		if len(cfg) == 0 {
-			t.Errorf("ResizeByID() did not configure window")
-		}
-	})
-	t.Run("invalid ID", func(t *testing.T) {
-		b, _ := newStubX11Backend(t, false, "")
-		if err := b.ResizeByID(context.Background(), "not-a-number", 1024, 768); err == nil {
-			t.Error("ResizeByID() error = nil, want invalid ID error")
-		}
-	})
-}
-
-func TestX11Backend_ActiveTitle(t *testing.T) {
-	b, conn := newStubX11Backend(t, true, "Active Window")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetActiveWindow {
-			wid := xproto.Window(50)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{byte(wid), byte(wid >> 8), byte(wid >> 16), byte(wid >> 24)}})
-		}
-		if p == b.atomNetWMName {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("Active Window")})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	title, err := b.ActiveTitle(context.Background())
-	if err != nil {
-		t.Fatalf("ActiveTitle() unexpected error: %v", err)
-	}
-	if title != "Active Window" {
-		t.Errorf("ActiveTitle() = %q, want %q", title, "Active Window")
-	}
-}
-
-func TestX11Backend_ActiveTitle_NoActive(t *testing.T) {
-	b, _ := newStubX11Backend(t, false, "")
-	title, err := b.ActiveTitle(context.Background())
-	if err != nil {
-		t.Fatalf("ActiveTitle() unexpected error: %v", err)
-	}
-	if title != "" {
-		t.Errorf("ActiveTitle() = %q, want empty", title)
-	}
-}
-
-func TestX11Backend_windowTitle(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMName {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("UTF8 Title")})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	if title := b.windowTitle(50); title != "UTF8 Title" {
-		t.Errorf("windowTitle() = %q, want %q", title, "UTF8 Title")
-	}
-}
-
-func TestX11Backend_windowPID(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMPID {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{42, 0, 0, 0}})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	if pid := b.windowPID(50); pid != 42 {
-		t.Errorf("windowPID() = %d, want 42", pid)
-	}
-}
-
-func TestX11Backend_windowPID_NoPID(t *testing.T) {
-	b, _ := newStubX11Backend(t, false, "")
-	if pid := b.windowPID(50); pid != 0 {
-		t.Errorf("windowPID() = %d, want 0", pid)
-	}
-}
-
-func TestX11Backend_windowClass(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == xproto.AtomWmClass {
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("org.example\x00Example\x00")})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	appID, class := b.windowClass(50)
-	if appID != "org.example" || class != "Example" {
-		t.Fatalf("windowClass() = (%q, %q), want (%q, %q)", appID, class, "org.example", "Example")
-	}
-}
-
-func TestX11Backend_windowHasDecoration(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomMotifWMHints {
-			data := make([]byte, 20)
-			data[0] = 2 // MwmHintsDecorations flag
-			data[8] = 1 // decorations = 1
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: data})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	if !b.windowHasDecoration(50) {
-		t.Errorf("windowHasDecoration() = false, want true")
-	}
-}
-
-func TestX11Backend_windowHasDecoration_NoDecoration(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, tp xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomMotifWMHints {
-			data := make([]byte, 20)
-			data[0] = 2 // MwmHintsDecorations flag
-			data[8] = 0 // decorations = 0
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: data})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	if b.windowHasDecoration(50) {
-		t.Errorf("windowHasDecoration() = true, want false")
-	}
-}
-
-func TestX11Backend_windowGeometry(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetGeometryFunc = func(d xproto.Drawable) x11.GetGeometryCookie {
-		return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{X: 10, Y: 20, Width: 800, Height: 600})
-	}
-	conn.TranslateCoordinatesFunc = func(s, d xproto.Window, x, y int16) x11.TranslateCoordinatesCookie {
-		return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{DstX: 10, DstY: 20})
-	}
-	x, y, w, h := b.windowGeometry(50)
-	if x != 10 || y != 20 || w != 800 || h != 600 {
-		t.Errorf("windowGeometry() = (%d, %d, %d, %d), want (10, 20, 800, 600)", x, y, w, h)
-	}
-}
-
-func TestX11Backend_Close(t *testing.T) {
-	b, _ := newStubX11Backend(t, false, "")
-	if err := b.Close(); err != nil {
-		t.Errorf("Close() unexpected error: %v", err)
-	}
-}
-
-type trackingX11Connection struct {
-	*x11.MockConnection
-	closeOnce func()
-	closed    chan struct{}
-}
-
-func (c *trackingX11Connection) Close() {
-	c.closeOnce()
-}
-
-type blockedGetPropertyCookie struct {
-	started chan struct{}
-	closed  <-chan struct{}
-}
-
-func (c *blockedGetPropertyCookie) Reply() (*xproto.GetPropertyReply, error) {
-	close(c.started)
-	<-c.closed
-	return nil, net.ErrClosed
-}
-
-func TestX11BackendCloseUnblocksBlockedReply(t *testing.T) {
-	mock := &x11.MockConnection{}
-	conn := &trackingX11Connection{
-		MockConnection: mock,
-		closed:         make(chan struct{}),
-	}
-	conn.closeOnce = sync.OnceFunc(func() { close(conn.closed) })
-	defer conn.Close()
-	b := &X11Backend{conn: conn, root: 1, atomNetActiveWindow: 2}
-	replyStarted := make(chan struct{})
-	mock.GetPropertyFunc = func(bool, xproto.Window, xproto.Atom, xproto.Atom, uint32, uint32) x11.GetPropertyCookie {
-		return &blockedGetPropertyCookie{started: replyStarted, closed: conn.closed}
-	}
-
-	operationDone := make(chan error, 1)
-	go func() {
-		_, err := b.ActiveTitle(context.Background())
-		operationDone <- err
-	}()
-	<-replyStarted
-
-	closeDone := make(chan error, 1)
-	go func() { closeDone <- b.Close() }()
-	select {
-	case err := <-closeDone:
-		if err != nil {
-			t.Fatalf("Close: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Close did not unblock the blocked Reply")
-	}
-
-	select {
-	case err := <-operationDone:
-		if !errors.Is(err, net.ErrClosed) {
-			t.Fatalf("ActiveTitle error = %v, want net.ErrClosed", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("blocked ActiveTitle did not exit after Close")
-	}
-}
-
-func TestX11BackendRejectsOperationsAfterClose(t *testing.T) {
-	b, _ := newStubX11Backend(t, false, "")
-	if err := b.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	tests := []struct {
+func TestX11MoveRejectsUnrepresentableSignedWireCoordinatesBeforeMutation(t *testing.T) {
+	for _, tc := range []struct {
 		name string
-		run  func() error
+		x, y int
 	}{
-		{name: "List", run: func() error {
-			_, err := b.List(context.Background())
-			return err
-		}},
-		{name: "IterateWindows", run: func() error {
-			for _, err := range b.IterateWindows(context.Background()) {
-				return err
+		{"x greater than int16", 32768, 42}, {"y greater than int16", 42, 32768},
+		{"x less than int16", -32769, 42}, {"y less than int16", 42, -32769},
+		{"x wraps uint32", 1 << 33, 42}, {"negative x wraps uint32", -(1 << 33), 42},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, conn := newStubX11Backend(t, true, "A")
+			mutated := 0
+			conn.ConfigureWindowCheckedFunc = func(xproto.Window, uint16, []uint32) x11.ConfigureWindowCookie {
+				mutated++
+				return &x11.MockCheckCookie{}
 			}
-			return nil
-		}},
-		{name: "ActiveTitle", run: func() error {
-			_, err := b.ActiveTitle(context.Background())
-			return err
-		}},
-		{name: "Sync", run: func() error { return b.Sync(context.Background()) }},
-		{name: "ActivateByID", run: func() error { return b.ActivateByID(context.Background(), "50") }},
-		{name: "MoveByID", run: func() error { return b.MoveByID(context.Background(), "50", 1, 2) }},
-		{name: "ResizeByID", run: func() error { return b.ResizeByID(context.Background(), "50", 1, 2) }},
-		{name: "CloseWindowByID", run: func() error {
-			return b.CloseWindowByID(context.Background(), "50")
-		}},
-		{name: "MinimizeByID", run: func() error { return b.MinimizeByID(context.Background(), "50") }},
-		{name: "MaximizeByID", run: func() error { return b.MaximizeByID(context.Background(), "50") }},
-		{name: "FullscreenByID", run: func() error {
-			return b.FullscreenByID(context.Background(), "50")
-		}},
-		{name: "UnfullscreenByID", run: func() error {
-			return b.UnfullscreenByID(context.Background(), "50")
-		}},
-		{name: "RestoreByID", run: func() error { return b.RestoreByID(context.Background(), "50") }},
-		{name: "InfoByID", run: func() error {
-			_, err := b.InfoByID(context.Background(), "50")
-			return err
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.run(); !errors.Is(err, net.ErrClosed) {
-				t.Fatalf("error = %v, want net.ErrClosed", err)
+			err := b.MoveByID(context.Background(), "50", tc.x, tc.y)
+			if err == nil || mutated != 0 {
+				t.Fatalf("invalid X11 coordinate %d,%d dispatched %d times: %v", tc.x, tc.y, mutated, err)
 			}
 		})
 	}
 }
 
-func TestX11Backend_activeWindow(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	// Test with active window
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetActiveWindow {
-			wid := xproto.Window(50)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{byte(wid), byte(wid >> 8), byte(wid >> 16), byte(wid >> 24)}})
+func TestX11MoveAllowsSignedWireBoundaryCoordinates(t *testing.T) {
+	b, conn := newStubX11Backend(t, true, "A")
+	var moves [][2]int
+	conn.ConfigureWindowCheckedFunc = func(_ xproto.Window, _ uint16, values []uint32) x11.ConfigureWindowCookie {
+		moves = append(moves, [2]int{int(int32(values[0])), int(int32(values[1]))})
+		return &x11.MockCheckCookie{}
+	}
+	for _, tc := range [][2]int{{-32768, 32767}, {32767, -32768}, {0, 0}} {
+		if err := b.MoveByID(context.Background(), "50", tc[0], tc[1]); err != nil {
+			t.Fatalf("valid signed x11 coordinate %v rejected: %v", tc, err)
 		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	win, err := b.activeWindow()
-	if err != nil {
-		t.Fatalf("activeWindow() unexpected error: %v", err)
-	}
-	if win != xproto.Window(50) {
-		t.Errorf("activeWindow() = %d, want 50", win)
+	if len(moves) != 3 || moves[0] != ([2]int{-32768, 32767}) || moves[1] != ([2]int{32767, -32768}) || moves[2] != ([2]int{0, 0}) {
+		t.Fatalf("valid signed positions were not preserved: %v", moves)
 	}
 }
 
-func TestX11Backend_activeWindow_NoActive(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
+// An unavailable X11 backend must not panic or try to access connection
+// state when an application attempts operations during startup/shutdown.
+func TestX11NilBackendRejectsAdmittedOperationsWithoutPanic(t *testing.T) {
+	var backend *X11Backend
+	if err := backend.Close(); err != nil {
+		t.Fatalf("nil backend Close: %v", err)
 	}
-	win, err := b.activeWindow()
-	if err != nil {
-		t.Fatalf("activeWindow() unexpected error: %v", err)
+	if err := backend.Close(); err != nil {
+		t.Fatalf("repeated nil backend Close: %v", err)
 	}
-	if win != 0 {
-		t.Errorf("activeWindow() = %d, want 0", win)
+	if title, err := backend.ActiveTitle(context.Background()); title != "" || err == nil || !strings.Contains(err.Error(), "backend is nil") {
+		t.Fatalf("nil backend leaked title or did not fail: title=%q err=%v", title, err)
 	}
-}
-
-func TestX11Backend_activeWindow_Error(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		return x11.NewMockGetPropertyCookieError(fmt.Errorf("connection error"))
-	}
-	_, err := b.activeWindow()
-	if err == nil {
-		t.Fatal("activeWindow() expected error, got nil")
+	if err := backend.Sync(context.Background()); err == nil || !strings.Contains(err.Error(), "backend is nil") {
+		t.Fatalf("nil backend Sync succeeded: %v", err)
 	}
 }
 
-func TestX11Backend_windowState_Minimized(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			// Return _NET_WM_STATE_HIDDEN in the state
-			atomBytes := []byte{
-				byte(b.atomNetWMStateHidden), byte(b.atomNetWMStateHidden >> 8),
-				byte(b.atomNetWMStateHidden >> 16), byte(b.atomNetWMStateHidden >> 24),
+// A canceled request must not attempt X11 transport operations, including
+// when the connection was never opened. Cancellation wins over geometry and
+// window ID parsing and is enforced by each public operation entry point.
+func TestX11WindowOperationsRejectPreCanceledRequestsBeforeTransport(t *testing.T) {
+	var backend X11Backend
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	operations := []struct {
+		name string
+		run  func() error
+	}{
+		{"list", func() error { _, err := backend.List(ctx); return err }},
+		{"active title", func() error { _, err := backend.ActiveTitle(ctx); return err }},
+		{"sync", func() error { return backend.Sync(ctx) }},
+		{"activate", func() error { return backend.ActivateByID(ctx, "17") }},
+		{"move", func() error { return backend.MoveByID(ctx, "17", 20, 30) }},
+		{"resize", func() error { return backend.ResizeByID(ctx, "17", 600, 400) }},
+		{"close", func() error { return backend.CloseWindowByID(ctx, "17") }},
+		{"minimize", func() error { return backend.MinimizeByID(ctx, "17") }},
+		{"maximize", func() error { return backend.MaximizeByID(ctx, "17") }},
+		{"fullscreen", func() error { return backend.FullscreenByID(ctx, "17") }},
+		{"unfullscreen", func() error { return backend.UnfullscreenByID(ctx, "17") }},
+		{"restore", func() error { return backend.RestoreByID(ctx, "17") }},
+		{"info", func() error { _, err := backend.InfoByID(ctx, "17"); return err }},
+	}
+	for _, tc := range operations {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.run(); !errors.Is(err, context.Canceled) {
+				t.Fatalf("pre-canceled operation proceeded: %v", err)
 			}
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	minimized, maximized, _ := b.windowState(50)
-	if !minimized {
-		t.Errorf("windowState() minimized = false, want true")
-	}
-	if maximized {
-		t.Errorf("windowState() maximized = true, want false")
+		})
 	}
 }
 
-func TestX11Backend_windowState_Maximized(t *testing.T) {
+func TestX11ResizeRejectsInvalidDimensionsBeforeSendingProtocol(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		w, h int
+	}{
+		{"zero width", 0, 20}, {"negative width", -1, 20}, {"zero height", 30, 0}, {"negative height", 30, -1}, {"width exceeds wire size", 65536, 40}, {"height exceeds wire size", 50, 65536},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, conn := newStubX11Backend(t, true, "A")
+			invoked := 0
+			conn.ConfigureWindowCheckedFunc = func(xproto.Window, uint16, []uint32) x11.ConfigureWindowCookie {
+				invoked++
+				return &x11.MockCheckCookie{}
+			}
+			err := b.ResizeByID(context.Background(), "50", tc.w, tc.h)
+			if err == nil || invoked != 0 {
+				t.Fatalf("X11 accepted invalid %dx%d resize: %v, %d mutations", tc.w, tc.h, err, invoked)
+			}
+		})
+	}
+}
+
+func TestX11GeometryIncludesFrameOnlyForDecoratedWindows(t *testing.T) {
+	for _, tc := range []struct {
+		name                       string
+		flags, decorations         uint32
+		frameErr                   error
+		wantX, wantY, wantW, wantH int
+	}{
+		{"decorated window", 2, 1, nil, 86, 170, 323, 249},
+		{"CSD no decoration", 2, 0, nil, 100, 200, 300, 200},
+		{"no motif hint defaults decorated", 0, 0, nil, 86, 170, 323, 249},
+		{"missing extent leaves client geometry", 2, 1, errors.New("no extents"), 100, 200, 300, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, conn := newStubX11Backend(t, false, "")
+			conn.GetGeometryFunc = func(xproto.Drawable) x11.GetGeometryCookie {
+				return x11.NewMockGetGeometryCookie(&xproto.GetGeometryReply{X: 5, Y: 7, Width: 300, Height: 200})
+			}
+			conn.TranslateCoordinatesFunc = func(xproto.Window, xproto.Window, int16, int16) x11.TranslateCoordinatesCookie {
+				return x11.NewMockTranslateCoordinatesCookie(&xproto.TranslateCoordinatesReply{DstX: 100, DstY: 200})
+			}
+			conn.GetPropertyFunc = func(_ bool, _ xproto.Window, p, _ xproto.Atom, _, _ uint32) x11.GetPropertyCookie {
+				if p == b.atomMotifWMHints {
+					data := make([]byte, 20)
+					binary.LittleEndian.PutUint32(data, tc.flags)
+					binary.LittleEndian.PutUint32(data[8:], tc.decorations)
+					return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: data})
+				}
+				if p == b.atomNetFrameExtent {
+					if tc.frameErr != nil {
+						return x11.NewMockGetPropertyCookieError(tc.frameErr)
+					}
+					data := make([]byte, 16)
+					for i, v := range []uint32{14, 9, 30, 19} {
+						binary.LittleEndian.PutUint32(data[i*4:], v)
+					}
+					return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: data})
+				}
+				return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{})
+			}
+			x, y, w, h := b.windowGeometry(50)
+			if x != tc.wantX || y != tc.wantY || w != tc.wantW || h != tc.wantH {
+				t.Fatalf("frame geometry (%d,%d,%d,%d) want (%d,%d,%d,%d)", x, y, w, h, tc.wantX, tc.wantY, tc.wantW, tc.wantH)
+			}
+		})
+	}
+}
+
+func TestX11TitleFallsBackToLegacyWMNameWithoutLeakingInvalidUTF8Property(t *testing.T) {
 	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			// Return both maximized vert and horz (8 bytes = 2 atoms * 4 bytes each)
-			atomBytes := make([]byte, 8)
-			// _NET_WM_STATE_MAXIMIZED_VERT
-			atomBytes[0] = byte(b.atomNetWMStateMaximizedVert)
-			atomBytes[1] = byte(b.atomNetWMStateMaximizedVert >> 8)
-			atomBytes[2] = byte(b.atomNetWMStateMaximizedVert >> 16)
-			atomBytes[3] = byte(b.atomNetWMStateMaximizedVert >> 24)
-			// _NET_WM_STATE_MAXIMIZED_HORZ
-			atomBytes[4] = byte(b.atomNetWMStateMaximizedHorz)
-			atomBytes[5] = byte(b.atomNetWMStateMaximizedHorz >> 8)
-			atomBytes[6] = byte(b.atomNetWMStateMaximizedHorz >> 16)
-			atomBytes[7] = byte(b.atomNetWMStateMaximizedHorz >> 24)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
+	names := []string{}
+	conn.GetPropertyFunc = func(_ bool, _ xproto.Window, p, _ xproto.Atom, _, _ uint32) x11.GetPropertyCookie {
+		switch p {
+		case b.atomNetWMName:
+			names = append(names, "UTF8")
+			return x11.NewMockGetPropertyCookieError(errors.New("UTF8 unsupported"))
+		case xproto.AtomWmName:
+			names = append(names, "WM_NAME")
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 8, Value: []byte("Fallback")})
+		default:
+			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{})
 		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
 	}
-	minimized, maximized, _ := b.windowState(50)
-	if minimized {
-		t.Errorf("windowState() minimized = true, want false")
+	if name := b.windowTitle(50); name != "Fallback" {
+		t.Fatalf("fallback title %q", name)
 	}
-	if !maximized {
-		t.Errorf("windowState() maximized = false, want true")
-	}
-}
-
-func TestX11Backend_windowState_OneMaximizedAxisIsNotFullyMaximized(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			atomBytes := make([]byte, 4)
-			atomBytes[0] = byte(b.atomNetWMStateMaximizedVert)
-			atomBytes[1] = byte(b.atomNetWMStateMaximizedVert >> 8)
-			atomBytes[2] = byte(b.atomNetWMStateMaximizedVert >> 16)
-			atomBytes[3] = byte(b.atomNetWMStateMaximizedVert >> 24)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	_, maximized, _ := b.windowState(50)
-	if maximized {
-		t.Fatal("windowState() reported a one-axis maximize as fully maximized")
-	}
-}
-
-func TestX11Backend_windowState_Fullscreen(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			atomBytes := make([]byte, 4)
-			atomBytes[0] = byte(b.atomNetWMStateFullscreen)
-			atomBytes[1] = byte(b.atomNetWMStateFullscreen >> 8)
-			atomBytes[2] = byte(b.atomNetWMStateFullscreen >> 16)
-			atomBytes[3] = byte(b.atomNetWMStateFullscreen >> 24)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	minimized, maximized, fullscreen := b.windowState(50)
-	if minimized {
-		t.Errorf("windowState() minimized = true, want false")
-	}
-	if maximized {
-		t.Errorf("windowState() maximized = true, want false")
-	}
-	if !fullscreen {
-		t.Errorf("windowState() fullscreen = false, want true")
-	}
-}
-
-// encodeWMStateAtoms encodes three atom uint32 values into a 12-byte little-endian slice
-// suitable for a _NET_WM_STATE property reply.
-func encodeWMStateAtoms(a, b, c xproto.Atom) []byte {
-	atomBytes := make([]byte, 12)
-	atomBytes[0] = byte(a)
-	atomBytes[1] = byte(a >> 8)
-	atomBytes[2] = byte(a >> 16)
-	atomBytes[3] = byte(a >> 24)
-	atomBytes[4] = byte(b)
-	atomBytes[5] = byte(b >> 8)
-	atomBytes[6] = byte(b >> 16)
-	atomBytes[7] = byte(b >> 24)
-	atomBytes[8] = byte(c)
-	atomBytes[9] = byte(c >> 8)
-	atomBytes[10] = byte(c >> 16)
-	atomBytes[11] = byte(c >> 24)
-	return atomBytes
-}
-
-func TestX11Backend_windowState_Both(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			atomBytes := encodeWMStateAtoms(b.atomNetWMStateHidden, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	minimized, maximized, _ := b.windowState(50)
-	if !minimized {
-		t.Errorf("windowState() minimized = false, want true")
-	}
-	if !maximized {
-		t.Errorf("windowState() maximized = false, want true")
-	}
-}
-
-func TestX11Backend_windowState_Error(t *testing.T) {
-	b, conn := newStubX11Backend(t, false, "")
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			return x11.NewMockGetPropertyCookieError(fmt.Errorf("connection error"))
-		}
-		return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: []byte{}})
-	}
-	minimized, maximized, _ := b.windowState(50)
-	if minimized || maximized {
-		t.Errorf("windowState() with error should return false, false, got %v, %v", minimized, maximized)
-	}
-}
-
-func TestX11Backend_IterateWindows_MinimizedMaximized(t *testing.T) {
-	b, conn := newStubX11Backend(t, true, "Test Window")
-	// Override getPropertyFn to also handle atomNetWMState
-	origFn := conn.GetPropertyFunc
-	conn.GetPropertyFunc = func(d bool, w xproto.Window, p, t xproto.Atom, lo, ll uint32) x11.GetPropertyCookie {
-		if p == b.atomNetWMState {
-			atomBytes := encodeWMStateAtoms(b.atomNetWMStateHidden, b.atomNetWMStateMaximizedVert, b.atomNetWMStateMaximizedHorz)
-			return x11.NewMockGetPropertyCookie(&xproto.GetPropertyReply{Format: 32, Value: atomBytes})
-		}
-		// Call original function for other properties
-		return origFn(d, w, p, t, lo, ll)
-	}
-	ctx := context.Background()
-	var found Info
-	for info, err := range b.IterateWindows(ctx) {
-		if err != nil {
-			t.Fatalf("IterateWindows() error: %v", err)
-		}
-		found = info
-	}
-	if !found.Minimized {
-		t.Errorf("IterateWindows() Minimized = false, want true")
-	}
-	if !found.Maximized {
-		t.Errorf("IterateWindows() Maximized = false, want true")
+	if len(names) != 2 || names[0] != "UTF8" || names[1] != "WM_NAME" {
+		t.Fatalf("unexpected title resolution order: %v", names)
 	}
 }

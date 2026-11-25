@@ -3,8 +3,826 @@ package window
 import (
 	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 )
+
+// The bounded cache can already be full from unrelated tests. Exercise a
+// deterministic fresh cache and restore the prior cache on test cleanup.
+func isolatedCompiledMatchCache(t *testing.T) {
+	t.Helper()
+	compiledMatchCacheMu.Lock()
+	old := compiledMatchCache
+	compiledMatchCache = make(map[matchCacheKey]Matcher)
+	compiledMatchCacheMu.Unlock()
+	t.Cleanup(func() {
+		compiledMatchCacheMu.Lock()
+		compiledMatchCache = old
+		compiledMatchCacheMu.Unlock()
+	})
+}
+
+func TestCompileMatchSnapshotsMutablePredicates(t *testing.T) {
+	isolatedCompiledMatchCache(t)
+	pid := int32(1201)
+	active := true
+	id := uint64(10)
+	title := "perfuncted-predicate-snapshot-unique"
+	compiled := CompileMatch(Match{TitleContains: title, PID: &pid, ID: &id, Active: &active})
+	before := Info{Title: title, PID: 1201, ID: 10, Active: true}
+	after := Info{Title: title, PID: 1202, ID: 11, Active: false}
+	if !compiled.Matches(before) {
+		t.Fatal("baseline matcher rejected original predicates")
+	}
+	pid, active, id = 1202, false, 11
+	if !compiled.Matches(before) || compiled.Matches(after) {
+		t.Fatal("compiled matcher changed when caller modified source predicate pointers")
+	}
+	// A fresh matcher for the original key must still use its original values.
+	matching := CompileMatch(Match{TitleContains: title, PID: ptrInt32(1201), ID: ptrUint64(10), Active: ptrBool(true)})
+	if !matching.Matches(before) || matching.Matches(after) {
+		t.Fatal("cache retained mutated predicate values")
+	}
+}
+
+func TestCompileMatchReturnedMatchersDoNotMutateSharedCache(t *testing.T) {
+	isolatedCompiledMatchCache(t)
+	title := "perfuncted-cache-isolation-unique"
+	returned := CompileMatch(Match{TitleContains: title, PID: ptrInt32(1734), Minimized: ptrBool(false)})
+	*returned.PID = 3333
+	*returned.Minimized = true
+	other := CompileMatch(Match{TitleContains: title, PID: ptrInt32(1734), Minimized: ptrBool(false)})
+	if !other.Matches(Info{Title: title, PID: 1734, Minimized: false}) {
+		t.Fatal("mutating a returned matcher contaminated the compiled cache")
+	}
+}
+
+func ptrInt32(v int32) *int32    { return &v }
+func ptrUint64(v uint64) *uint64 { return &v }
+func ptrBool(v bool) *bool       { return &v }
+
+// Under a simultaneous cold-key stampede a second caller can miss the read
+// cache before another publisher acquires the writer lock. Every result must
+// still own its predicates, and only one fully initialized entry may persist.
+func TestCompileMatchContendedColdPublicationKeepsPredicateIsolation(t *testing.T) {
+	isolatedCompiledMatchCache(t)
+	const callers = 96
+	// Nontrivial normalization keeps workers in the pre-publication phase
+	// long enough to exercise actual competing cache misses under -race too.
+	title := strings.Repeat("BROWSER EDITOR Ω ", 4096)
+	start := make(chan struct{})
+	results := make(chan Matcher, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			pid, active := int32(741), true
+			results <- CompileMatch(Match{TitleContains: title, PID: &pid, Active: &active})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	for matcher := range results {
+		if matcher.PID == nil || matcher.Active == nil || *matcher.PID != 741 || !*matcher.Active || matcher.titleContainsLower != strings.ToLower(title) {
+			t.Fatal("contended cache returned a partially initialized matcher")
+		}
+		*matcher.PID = -1
+		*matcher.Active = false
+	}
+	matched := CompileMatch(Match{TitleContains: title, PID: ptrInt32(741), Active: ptrBool(true)})
+	if matched.PID == nil || matched.Active == nil || *matched.PID != 741 || !*matched.Active {
+		t.Fatal("one concurrent caller contaminated the shared cache")
+	}
+	compiledMatchCacheMu.RLock()
+	n := len(compiledMatchCache)
+	compiledMatchCacheMu.RUnlock()
+	if n != 1 {
+		t.Fatalf("cache published %d entries for one key", n)
+	}
+}
+
+// Concurrent cold-cache callers must see independently owned predicate pointers,
+// even when another caller publishes the same compiled key first.
+func TestCompileMatchConcurrentColdCacheIsolation(t *testing.T) {
+	compiledMatchCacheMu.Lock()
+	previous := compiledMatchCache
+	compiledMatchCache = make(map[matchCacheKey]Matcher)
+	compiledMatchCacheMu.Unlock()
+	t.Cleanup(func() {
+		compiledMatchCacheMu.Lock()
+		compiledMatchCache = previous
+		compiledMatchCacheMu.Unlock()
+	})
+
+	const callers = 128
+	start := make(chan struct{})
+	results := make(chan Matcher, callers)
+	var workers sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			pid, active := int32(37), true
+			results <- CompileMatch(Match{TitleContains: "BROWSER", PID: &pid, Active: &active})
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+
+	for got := range results {
+		if got.PID == nil || got.Active == nil || *got.PID != 37 || !*got.Active {
+			t.Fatalf("concurrent compiled matcher lost its predicates: %+v", got)
+		}
+		*got.PID = -1
+		*got.Active = false
+	}
+	pid, active := int32(37), true
+	fresh := CompileMatch(Match{TitleContains: "BROWSER", PID: &pid, Active: &active})
+	if fresh.PID == nil || fresh.Active == nil || *fresh.PID != 37 || !*fresh.Active {
+		t.Fatalf("compiled cache leaked caller mutations: %+v", fresh)
+	}
+	compiledMatchCacheMu.RLock()
+	entries := len(compiledMatchCache)
+	compiledMatchCacheMu.RUnlock()
+	if entries != 1 {
+		t.Fatalf("concurrent identical keys created %d cache entries, want one", entries)
+	}
+}
+
+// A matcher cache key must distinguish both the presence and value of every
+// optional window predicate, even when a prior caller mutates its input and
+// the returned matcher. In particular, nil and explicit false are different.
+func TestCompileMatchAllOptionalPredicateCacheIdentity(t *testing.T) {
+	isolatedCompiledMatchCache(t)
+	pid, id := int32(418), uint64(72)
+	active, minimized, maximized, fullscreen := true, false, true, false
+	request := Match{
+		TitleContains: "editor", PID: &pid, ID: &id,
+		Active: &active, Minimized: &minimized,
+		Maximized: &maximized, Fullscreen: &fullscreen,
+	}
+	original := Info{Title: "Editor", PID: pid, ID: id, Active: active,
+		Minimized: minimized, Maximized: maximized, Fullscreen: fullscreen}
+	compiled := CompileMatch(request)
+	if !compiled.Matches(original) {
+		t.Fatal("full predicate matcher rejected its original window")
+	}
+	pid, id = 999, 999
+	active, minimized, maximized, fullscreen = false, true, false, true
+	if !compiled.Matches(original) {
+		t.Fatal("source predicate mutation changed compiled matcher")
+	}
+	*compiled.PID, *compiled.ID = 999, 999
+	*compiled.Active, *compiled.Minimized = false, true
+	*compiled.Maximized, *compiled.Fullscreen = false, true
+	fresh := CompileMatch(Match{TitleContains: "editor", PID: ptrInt32(418), ID: ptrUint64(72),
+		Active: ptrBool(true), Minimized: ptrBool(false), Maximized: ptrBool(true), Fullscreen: ptrBool(false)})
+	if !fresh.Matches(original) {
+		t.Fatal("mutating returned pointers polluted the shared cache")
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Match)
+	}{
+		{"nil pid", func(m *Match) { m.PID = nil }},
+		{"nil id", func(m *Match) { m.ID = nil }},
+		{"nil active", func(m *Match) { m.Active = nil }},
+		{"nil minimized", func(m *Match) { m.Minimized = nil }},
+		{"nil maximized", func(m *Match) { m.Maximized = nil }},
+		{"nil fullscreen", func(m *Match) { m.Fullscreen = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Match{TitleContains: "editor", PID: ptrInt32(418), ID: ptrUint64(72),
+				Active: ptrBool(true), Minimized: ptrBool(false), Maximized: ptrBool(true), Fullscreen: ptrBool(false)}
+			tc.mutate(&m)
+			got := CompileMatch(m)
+			if !got.Matches(original) {
+				t.Fatalf("omitting predicate %s unexpectedly rejects original", tc.name)
+			}
+			if matchCacheKeyFromMatch(m) == matchCacheKeyFromMatch(fresh.Match) {
+				t.Fatalf("omitting predicate %s collided with fully specified cache key", tc.name)
+			}
+		})
+	}
+}
+
+func TestCompileMatchCacheIsBounded(t *testing.T) {
+	const limit = 1024
+	for i := 0; i < limit*2; i++ {
+		CompileMatch(Match{TitleContains: fmt.Sprintf("audit-unique-%d", i)})
+	}
+
+	compiledMatchCacheMu.RLock()
+	entries := len(compiledMatchCache)
+	compiledMatchCacheMu.RUnlock()
+	if entries > limit {
+		t.Fatalf("compiled match cache entries = %d, want <= %d", entries, limit)
+	}
+}
+
+// ── parseMatchBool ────────────────────────────────────────────────────────────
+
+func TestParseMatchBool_True(t *testing.T) {
+	for _, v := range []string{"1", "t", "true", "yes", "on", "TRUE", "Yes"} {
+		b, err := parseMatchBool(v)
+		if err != nil {
+			t.Errorf("parseMatchBool(%q) error = %v", v, err)
+		}
+		if !b {
+			t.Errorf("parseMatchBool(%q) = false, want true", v)
+		}
+	}
+}
+
+func TestParseMatchBool_False(t *testing.T) {
+	for _, v := range []string{"0", "f", "false", "no", "off", "FALSE"} {
+		b, err := parseMatchBool(v)
+		if err != nil {
+			t.Errorf("parseMatchBool(%q) error = %v", v, err)
+		}
+		if b {
+			t.Errorf("parseMatchBool(%q) = true, want false", v)
+		}
+	}
+}
+
+func TestParseMatchBool_EmptyIsTrue(t *testing.T) {
+	b, err := parseMatchBool("")
+	if err != nil {
+		t.Fatalf("parseMatchBool(\"\") error = %v", err)
+	}
+	if !b {
+		t.Fatal("parseMatchBool(\"\") = false, want true")
+	}
+}
+
+func TestParseMatchBool_Invalid(t *testing.T) {
+	_, err := parseMatchBool("bogus")
+	if err == nil {
+		t.Fatal("parseMatchBool(\"bogus\") expected error, got nil")
+	}
+}
+
+// ── tokenizeMatchSpec ─────────────────────────────────────────────────────────
+
+func TestTokenizeMatchSpec_EscapedChar(t *testing.T) {
+	// Backslash inside quotes is an escape character.
+	tokens, err := tokenizeMatchSpec(`"hello\"world"`)
+	if err != nil {
+		t.Fatalf("tokenizeMatchSpec error = %v", err)
+	}
+	if len(tokens) != 1 || tokens[0] != `hello"world` {
+		t.Fatalf("tokens = %v, want [%s]", tokens, `hello"world`)
+	}
+}
+
+func TestTokenizeMatchSpec_SingleQuoted(t *testing.T) {
+	tokens, err := tokenizeMatchSpec("'hello world'")
+	if err != nil {
+		t.Fatalf("tokenizeMatchSpec error = %v", err)
+	}
+	if len(tokens) != 1 || tokens[0] != "hello world" {
+		t.Fatalf("tokens = %v, want [hello world]", tokens)
+	}
+}
+
+func TestTokenizeMatchSpec_CommaSeparated(t *testing.T) {
+	tokens, err := tokenizeMatchSpec("foo,bar,baz")
+	if err != nil {
+		t.Fatalf("tokenizeMatchSpec error = %v", err)
+	}
+	want := []string{"foo", "bar", "baz"}
+	if !reflect.DeepEqual(tokens, want) {
+		t.Fatalf("tokens = %v, want %v", tokens, want)
+	}
+}
+
+func TestTokenizeMatchSpec_TrailingBackslash(t *testing.T) {
+	// A trailing backslash outside quotes is treated as literal backslash.
+	tokens, err := tokenizeMatchSpec(`hello\`)
+	if err != nil {
+		t.Fatalf("tokenizeMatchSpec error = %v", err)
+	}
+	if len(tokens) != 1 || tokens[0] != `hello\` {
+		t.Fatalf("tokens = %v, want [hello\\]", tokens)
+	}
+}
+
+func TestTokenizeMatchSpec_UnterminatedQuote(t *testing.T) {
+	_, err := tokenizeMatchSpec(`"unterminated`)
+	if err == nil {
+		t.Fatal("expected error for unterminated quote")
+	}
+}
+
+// ── applyMatchState ───────────────────────────────────────────────────────────
+
+func TestApplyMatchState_AllFields(t *testing.T) {
+	tests := []struct {
+		raw        string
+		wantActive *bool
+		wantMin    *bool
+		wantMax    *bool
+		wantFS     *bool
+		wantVis    bool
+	}{
+		{"active", boolPtr(true), nil, nil, nil, false},
+		{"-active", boolPtr(false), nil, nil, nil, false},
+		{"minimized", nil, boolPtr(true), nil, nil, false},
+		{"-minimized", nil, boolPtr(false), nil, nil, false},
+		{"maximized", nil, nil, boolPtr(true), nil, false},
+		{"-maximized", nil, nil, boolPtr(false), nil, false},
+		{"fullscreen", nil, nil, nil, boolPtr(true), false},
+		{"-fullscreen", nil, nil, nil, boolPtr(false), false},
+		{"visible-only", nil, nil, nil, nil, true},
+		{"-visible-only", nil, nil, nil, nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			var m Match
+			if err := applyMatchState(&m, tc.raw); err != nil {
+				t.Fatalf("applyMatchState(%q) error = %v", tc.raw, err)
+			}
+			if !boolPtrEq(m.Active, tc.wantActive) {
+				t.Errorf("Active = %v, want %v", m.Active, tc.wantActive)
+			}
+			if !boolPtrEq(m.Minimized, tc.wantMin) {
+				t.Errorf("Minimized = %v, want %v", m.Minimized, tc.wantMin)
+			}
+			if !boolPtrEq(m.Maximized, tc.wantMax) {
+				t.Errorf("Maximized = %v, want %v", m.Maximized, tc.wantMax)
+			}
+			if !boolPtrEq(m.Fullscreen, tc.wantFS) {
+				t.Errorf("Fullscreen = %v, want %v", m.Fullscreen, tc.wantFS)
+			}
+			if m.VisibleOnly != tc.wantVis {
+				t.Errorf("VisibleOnly = %v, want %v", m.VisibleOnly, tc.wantVis)
+			}
+		})
+	}
+}
+
+func TestApplyMatchState_UnknownState(t *testing.T) {
+	var m Match
+	if err := applyMatchState(&m, "bogusstate"); err == nil {
+		t.Fatal("applyMatchState expected error for unknown state")
+	}
+}
+
+func boolPtrEq(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+// ── ParseMatchSpec — additional coverage ─────────────────────────────────────
+
+func TestParseMatchSpec_BoolKeywords(t *testing.T) {
+	tests := []struct {
+		spec string
+		want Match
+	}{
+		{"active", Match{Active: boolPtr(true)}},
+		{"minimized", Match{Minimized: boolPtr(true)}},
+		{"maximized", Match{Maximized: boolPtr(true)}},
+		{"fullscreen", Match{Fullscreen: boolPtr(true)}},
+		{"visible", Match{VisibleOnly: true}},
+		{"visible-only", Match{VisibleOnly: true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			got, err := ParseMatchSpec(tc.spec)
+			if err != nil {
+				t.Fatalf("ParseMatchSpec(%q) error = %v", tc.spec, err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("ParseMatchSpec(%q) = %+v, want %+v", tc.spec, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseMatchSpec_BoolValues(t *testing.T) {
+	tests := []struct {
+		spec       string
+		wantActive *bool
+		wantMin    *bool
+		wantMax    *bool
+		wantFS     *bool
+		wantVis    bool
+	}{
+		{"active=true", boolPtr(true), nil, nil, nil, false},
+		{"active=false", boolPtr(false), nil, nil, nil, false},
+		{"minimized=1", nil, boolPtr(true), nil, nil, false},
+		{"minimized=0", nil, boolPtr(false), nil, nil, false},
+		{"maximized=yes", nil, nil, boolPtr(true), nil, false},
+		{"maximized=no", nil, nil, boolPtr(false), nil, false},
+		{"fullscreen=on", nil, nil, nil, boolPtr(true), false},
+		{"fullscreen=off", nil, nil, nil, boolPtr(false), false},
+		{"visible-only=true", nil, nil, nil, nil, true},
+		{"visible-only=false", nil, nil, nil, nil, false},
+		{"visible=true", nil, nil, nil, nil, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			got, err := ParseMatchSpec(tc.spec)
+			if err != nil {
+				t.Fatalf("ParseMatchSpec(%q) error = %v", tc.spec, err)
+			}
+			if !boolPtrEq(got.Active, tc.wantActive) {
+				t.Errorf("Active = %v, want %v", got.Active, tc.wantActive)
+			}
+			if !boolPtrEq(got.Minimized, tc.wantMin) {
+				t.Errorf("Minimized = %v, want %v", got.Minimized, tc.wantMin)
+			}
+			if !boolPtrEq(got.Maximized, tc.wantMax) {
+				t.Errorf("Maximized = %v, want %v", got.Maximized, tc.wantMax)
+			}
+			if !boolPtrEq(got.Fullscreen, tc.wantFS) {
+				t.Errorf("Fullscreen = %v, want %v", got.Fullscreen, tc.wantFS)
+			}
+			if got.VisibleOnly != tc.wantVis {
+				t.Errorf("VisibleOnly = %v, want %v", got.VisibleOnly, tc.wantVis)
+			}
+		})
+	}
+}
+
+func TestParseMatchSpec_AppAliases(t *testing.T) {
+	tests := []struct {
+		spec  string
+		appID string
+	}{
+		{"app=org.example", "org.example"},
+		{"appid=org.test", "org.test"},
+		{"app_id=org.foo", "org.foo"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			got, err := ParseMatchSpec(tc.spec)
+			if err != nil {
+				t.Fatalf("ParseMatchSpec(%q) error = %v", tc.spec, err)
+			}
+			if got.AppID != tc.appID {
+				t.Fatalf("AppID = %q, want %q", got.AppID, tc.appID)
+			}
+		})
+	}
+}
+
+func TestParseMatchSpec_ClassKey(t *testing.T) {
+	got, err := ParseMatchSpec("class=Terminal")
+	if err != nil {
+		t.Fatalf("ParseMatchSpec error = %v", err)
+	}
+	if got.Class != "Terminal" {
+		t.Fatalf("Class = %q, want Terminal", got.Class)
+	}
+}
+
+func TestParseMatchSpec_TitleSubstringKey(t *testing.T) {
+	got, err := ParseMatchSpec("title~=editor")
+	if err != nil {
+		t.Fatalf("ParseMatchSpec error = %v", err)
+	}
+	if got.TitleContains != "editor" {
+		t.Fatalf("TitleContains = %q, want editor", got.TitleContains)
+	}
+}
+
+func TestParseMatchSpec_MultipleTitleSubstrings(t *testing.T) {
+	_, err := ParseMatchSpec("hello world")
+	if err == nil {
+		t.Fatal("expected error for multiple title substring terms")
+	}
+}
+
+func TestParseMatchSpec_UnknownKey(t *testing.T) {
+	_, err := ParseMatchSpec("boguskey=value")
+	if err == nil {
+		t.Fatal("expected error for unknown match key")
+	}
+}
+
+func TestParseMatchSpec_InvalidBoolValue(t *testing.T) {
+	for _, spec := range []string{"active=bogus", "minimized=nope", "maximized=invalid", "fullscreen=junk", "visible-only=bad"} {
+		t.Run(spec, func(t *testing.T) {
+			if _, err := ParseMatchSpec(spec); err == nil {
+				t.Fatalf("ParseMatchSpec(%q) expected error, got nil", spec)
+			}
+		})
+	}
+}
+
+func TestParseMatchSpec_ColonSyntax(t *testing.T) {
+	// title:value is the colon-separator form
+	got, err := ParseMatchSpec("title:MyTitle")
+	if err != nil {
+		t.Fatalf("ParseMatchSpec error = %v", err)
+	}
+	if got.TitleExact != "MyTitle" {
+		t.Fatalf("TitleExact = %q, want MyTitle", got.TitleExact)
+	}
+}
+
+// ── Match.Matches — branches not yet covered ──────────────────────────────────
+
+func TestMatch_Matches_IDMismatch(t *testing.T) {
+	info := Info{ID: 5}
+	if (Match{ID: uint64Ptr(99)}).Matches(info) {
+		t.Fatal("expected false for ID mismatch")
+	}
+}
+
+func TestMatch_Matches_ActiveMismatch(t *testing.T) {
+	info := Info{Active: false}
+	if (Match{Active: boolPtr(true)}).Matches(info) {
+		t.Fatal("expected false when Active mismatch")
+	}
+}
+
+func TestMatch_Matches_MinimizedMismatch(t *testing.T) {
+	info := Info{Minimized: false}
+	if (Match{Minimized: boolPtr(true)}).Matches(info) {
+		t.Fatal("expected false when Minimized mismatch")
+	}
+}
+
+func TestMatch_Matches_MaximizedMismatch(t *testing.T) {
+	info := Info{Maximized: false}
+	if (Match{Maximized: boolPtr(true)}).Matches(info) {
+		t.Fatal("expected false when Maximized mismatch")
+	}
+}
+
+func TestMatch_Matches_FullscreenMismatch(t *testing.T) {
+	info := Info{Fullscreen: false}
+	if (Match{Fullscreen: boolPtr(true)}).Matches(info) {
+		t.Fatal("expected false when Fullscreen mismatch")
+	}
+}
+
+func TestMatch_Matches_TitleExactMismatch(t *testing.T) {
+	info := Info{Title: "Foo Bar"}
+	if (Match{TitleExact: "Baz"}).Matches(info) {
+		t.Fatal("expected false for TitleExact mismatch")
+	}
+}
+
+func TestMatch_Matches_AppIDMismatch(t *testing.T) {
+	info := Info{AppID: "org.example"}
+	if (Match{AppID: "org.other"}).Matches(info) {
+		t.Fatal("expected false for AppID mismatch")
+	}
+}
+
+func TestMatch_Matches_ClassMismatch(t *testing.T) {
+	info := Info{Class: "Firefox"}
+	if (Match{Class: "Chrome"}).Matches(info) {
+		t.Fatal("expected false for Class mismatch")
+	}
+}
+
+func TestMatch_Matches_PIDMismatch(t *testing.T) {
+	info := Info{PID: 100}
+	if (Match{PID: int32Ptr(200)}).Matches(info) {
+		t.Fatal("expected false for PID mismatch")
+	}
+}
+
+func TestMatch_Matches_TitleContainsMismatch(t *testing.T) {
+	info := Info{Title: "Hello World"}
+	if (Match{TitleContains: "zzz"}).Matches(info) {
+		t.Fatal("expected false for TitleContains mismatch")
+	}
+}
+
+func TestMatch_Matches_EmptyMatchAll(t *testing.T) {
+	info := Info{ID: 42, Title: "Anything"}
+	if !(Match{}).Matches(info) {
+		t.Fatal("empty Match should match any window")
+	}
+}
+
+func TestCompileMatch_Matches(t *testing.T) {
+	active := true
+	info := Info{
+		ID:        7,
+		Title:     "Exact Title",
+		AppID:     "org.example",
+		Class:     "Example",
+		PID:       42,
+		Active:    true,
+		Minimized: false,
+	}
+	match := Match{
+		TitleContains: "exact",
+		AppID:         "org.example",
+		Class:         "example",
+		Active:        &active,
+	}
+	compiled := CompileMatch(match)
+	if !compiled.Matches(info) {
+		t.Fatal("compiled matcher should match the same window as Match.Matches")
+	}
+	if !match.Matches(info) {
+		t.Fatal("Match.Matches should match the same window")
+	}
+}
+
+// ── Match.String — all fields ─────────────────────────────────────────────────
+
+func TestMatchString_AllFields(t *testing.T) {
+	pid := int32(42)
+	id := uint64(7)
+	m := Match{
+		TitleExact:    "Exact",
+		TitleContains: "sub",
+		AppID:         "org.example",
+		Class:         "MyClass",
+		PID:           &pid,
+		ID:            &id,
+		Active:        boolPtr(true),
+		Minimized:     boolPtr(false),
+		Maximized:     boolPtr(true),
+		Fullscreen:    boolPtr(false),
+		VisibleOnly:   true,
+	}
+	s := m.String()
+	for _, want := range []string{
+		"title=", "title~=", "app_id=", "class=", "pid=42", "id=7",
+		"active=true", "minimized=false", "maximized=true", "fullscreen=false", "visible-only",
+	} {
+		if !containsStr(s, want) {
+			t.Errorf("Match.String() missing %q; got %q", want, s)
+		}
+	}
+}
+
+func TestMatchString_Empty(t *testing.T) {
+	s := (Match{}).String()
+	if s != "<any window>" {
+		t.Fatalf("Match{}.String() = %q, want <any window>", s)
+	}
+}
+
+func containsStr(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || stringContains(s, sub))
+}
+
+func stringContains(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+// TestContainsFoldLowerMatchesLowerLowerContains proves that the
+// allocation-free fold matches the previous strings.Contains(strings.ToLower,
+// strings.ToLower) semantics exactly, including runes whose lowercase form has
+// a different byte length.
+func TestContainsFoldLowerMatchesLowerLowerContains(t *testing.T) {
+	corpus := []struct{ s, sub string }{
+		{"Firefox Web Browser", "firefox"},
+		{"Firefox Web Browser", "WEB"},
+		{"Firefox Web Browser", "browser"},
+		{"Firefox Web Browser", ""},
+		{"", ""},
+		{"", "x"},
+		{"é", "ée"},
+		{"a", "abc"},
+		{"abc", "abcd"},
+		{"CAFÉ", "café"},
+		{"café", "CAFÉ"},
+		{"café au lait", "é au"},
+		{"STRASSE", "straße"},
+		{"straße", "STRASSE"},
+		{"İstanbul", "istanbul"},
+		{"Istanbul", "İstanbul"},
+		{"ı", "I"},
+		{"I", "ı"},
+		{"ẞETA", "ßeta"},
+		{"eßential", "ESSENTIAL"},
+		{"aİb", "ai"},
+		{"aİb", "aİ"},
+		{"A" + "İ" + "B", "aib"},
+		{"no match here", "zzz"},
+		{"abc", "b"},
+		{"abc", "bc"},
+		{"abc", "ab"},
+		{"AbC", "abc"},
+		{"x1y2", "1Y"},
+		{"mixed CASE string", "CASE"},
+		{"ÉÉ", "éé"},
+		{"ÉÉÉ", "é"},
+		{"aeiou", "iou"},
+		{"привет", "ПРИВЕТ"},
+		{"ПРИВЕТ", "рив"},
+		{"déjà vu", "DÉJÀ"},
+		{"Resumé", "resume"},
+		{"Resumé", "é"},
+		{"Ωmega", "omega"},
+		{"omega", "Ω"},
+	}
+	for _, pair := range corpus {
+		got := containsFoldLower(pair.s, strings.ToLower(pair.sub))
+		want := strings.Contains(strings.ToLower(pair.s), strings.ToLower(pair.sub))
+		if got != want {
+			t.Errorf("containsFoldLower(%q, %q) = %v, want %v", pair.s, strings.ToLower(pair.sub), got, want)
+		}
+	}
+}
+
+func TestMatcherTitleContainsFoldEquivalent(t *testing.T) {
+	infos := []Info{
+		{ID: 1, Title: "Firefox Web Browser", AppID: "org.mozilla.firefox", Active: true},
+		{ID: 2, Title: "CAFÉ", AppID: "org.example"},
+		{ID: 3, Title: "İstanbul Airport", AppID: "org.example"},
+		{ID: 4, Title: "STRASSE", AppID: "org.example"},
+		{ID: 5, Title: "Window 5", AppID: "org.example", Minimized: true},
+		{ID: 6, Title: "é", AppID: "org.example"},
+	}
+	substrings := []string{"firefox", "café", "İstanbul", "strasse", "straße", "window", "ée", ""}
+	for _, title := range infos {
+		for _, sub := range substrings {
+			previous := strings.Contains(strings.ToLower(title.Title), strings.ToLower(sub))
+			match := Match{TitleContains: sub}
+			if got := match.Matches(title); got != previous {
+				t.Errorf("Match{TitleContains:%q}.Matches(%q) = %v, want %v", sub, title.Title, got, previous)
+			}
+			matcher := CompileMatch(Match{TitleContains: sub})
+			if got := matcher.Matches(title); got != previous {
+				t.Errorf("CompileMatch(Match{TitleContains:%q}).Matches(%q) = %v, want %v", sub, title.Title, got, previous)
+			}
+		}
+	}
+}
+
+// Older match specifications treated unknown backslash sequences as an
+// escaped literal character. These are not valid Go quoted string escapes,
+// so tokenizer fallback must retain the legacy meaning without leaking a
+// backslash or dropping the rest of the predicate.
+func TestTokenizeMatchSpecLegacyUnknownQuotedEscapesRemainCompatible(t *testing.T) {
+	for _, tc := range []struct {
+		name, spec string
+		want       []string
+	}{
+		{"single unknown escape", `title="folder\q"`, []string{"title=folderq"}},
+		{"mixed escaped slash and invalid escape", `class='a\q\\b'`, []string{`class=aq\b`}},
+		{"quoted path with unknown escape and separators", `title="first\q second" active`, []string{"title=firstq second", "active"}},
+		{"repeated legacy escapes", `app="a\zb\yc"`, []string{"app=azbyc"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tokenizeMatchSpec(tc.spec)
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("legacy match tokenization %q: got=%q want=%q err=%v", tc.spec, got, tc.want, err)
+			}
+		})
+	}
+}
+
+func TestMatchSpecificationLegacyEscapeKeepsPredicatesAndRejectsUnterminatedQuotes(t *testing.T) {
+	m, err := ParseMatchSpec(`title="Firefox\q Browser" active`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.TitleExact != "Firefoxq Browser" || m.Active == nil || !*m.Active {
+		t.Fatalf("legacy escape corrupted parsed predicates: %+v", m)
+	}
+	if _, err := ParseMatchSpec(`title="Firefox\q`); err == nil {
+		t.Fatal("unterminated legacy quote accepted")
+	}
+}
+
+// Match.String produces strconv-quoted values. ParseMatchSpec must decode
+// that representation without losing control characters or backslashes.
+func TestMatchStringParseRoundTripQuotedControlCharacters(t *testing.T) {
+	cases := []string{"line one\nline two", "tabs\tinside", "carriage\rreturn", "back\\slash", "quoted \"title\"", "control\x01byte"}
+	for _, value := range cases {
+		t.Run(value, func(t *testing.T) {
+			original := Match{TitleExact: value, TitleContains: value, AppID: value, Class: value}
+			parsed, err := ParseMatchSpec(original.String())
+			if err != nil {
+				t.Fatalf("parse %q: %v", original.String(), err)
+			}
+			if parsed.TitleExact != value || parsed.TitleContains != value || parsed.AppID != value || parsed.Class != value {
+				t.Fatalf("round trip %q: parsed %#v", original.String(), parsed)
+			}
+		})
+	}
+}
 
 func int32Ptr(v int32) *int32    { return new(v) }
 func uint64Ptr(v uint64) *uint64 { return new(v) }

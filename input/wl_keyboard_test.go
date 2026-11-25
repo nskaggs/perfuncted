@@ -3,11 +3,379 @@ package input
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/nskaggs/perfuncted/internal/wl"
 	"strings"
 	"testing"
-
-	"github.com/nskaggs/perfuncted/internal/wl"
 )
+
+// Repeated direct KeyDown must not put a second physical press on the wire.
+// In particular, modifiers live in k.mods rather than k.held and previously
+// bypassed sendkeys' held-key ownership preflight entirely.
+func TestVirtualKeyboardDirectDuplicateKeyDownDoesNotDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name, key string
+		mods      uint32
+		held      map[string]uint32
+	}{
+		{name: "held ctrl", key: "control", mods: modControl},
+		{name: "held shift", key: "shift_l", mods: modShift},
+		{name: "held named", key: "return", held: map[string]uint32{"enter": kcReturn}},
+		{name: "held literal", key: "q", held: map[string]uint32{"q": kcDynBase}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k, wire := newTestKeyboard()
+			k.mods = tc.mods
+			for key, slot := range tc.held {
+				k.held[key] = slot
+			}
+			err := k.pressKey(context.Background(), tc.key)
+			if err == nil || !strings.Contains(err.Error(), "already held") {
+				t.Fatalf("duplicate KeyDown(%q) err=%v; want already held", tc.key, err)
+			}
+			if len(wire.msgs) != 0 || k.mods != tc.mods || len(k.held) != len(tc.held) {
+				t.Fatalf("duplicate press affected state or wire: msgs=%d mods=%d held=%v", len(wire.msgs), k.mods, k.held)
+			}
+		})
+	}
+}
+
+// An empty character set must not synthesize dynamic slots, whose names
+// could conflict with modifiers or permit an empty batch to alter the keymap.
+func TestVirtualKeyboardEmptyRuneMapUsesOnlyModifierKeymap(t *testing.T) {
+	expected := xkbModsOnly()
+	actual := xkbWithRunes(nil)
+	if actual != expected {
+		t.Fatalf("nil rune set introduced dynamic keys into keymap")
+	}
+	actual = xkbWithRunes([]rune{})
+	if actual != expected {
+		t.Fatal("empty rune set introduced dynamic keys into keymap")
+	}
+	if strings.Contains(actual, "<K0") || strings.Contains(actual, "U0000") {
+		t.Fatal("empty keymap allocated a dynamic character slot")
+	}
+}
+
+// An operation canceled before direct tap admission must not send a press or
+// rely on cleanup to undo a key event that was never authorized.
+func TestVirtualKeyboardDirectTapPreCanceledBeforeWire(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	k, wire := newTestKeyboard()
+	if err := k.tap(ctx, kcDynBase); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled tap returned %v", err)
+	}
+	if wire.writes != 0 || len(wire.msgs) != 0 {
+		t.Fatalf("canceled tap sent %d compositor messages", wire.writes)
+	}
+	if k.mods != 0 || len(k.held) != 0 {
+		t.Fatalf("canceled tap mutated input ownership: mods=%d held=%v", k.mods, k.held)
+	}
+}
+
+// Direct KeyDown must never translate malformed UTF-8 into a real replacement
+// character press: the caller did not authorize that physical key event.
+func TestVirtualKeyboardDirectKeyDownRejectsInvalidUTF8BeforeWire(t *testing.T) {
+	for i, raw := range []string{string([]byte{0xff}), string([]byte{'a', 0xff})} {
+		t.Run(fmt.Sprintf("invalid-utf8-%d", i), func(t *testing.T) {
+			k, wire := newTestKeyboard()
+			err := k.pressKey(context.Background(), raw)
+			if err == nil || !strings.Contains(err.Error(), "valid UTF-8") {
+				t.Fatalf("invalid direct key accepted: %v", err)
+			}
+			if len(wire.msgs) != 0 || len(k.held) != 0 || k.mods != 0 {
+				t.Fatalf("invalid key emitted compositor events: %d held=%v mods=%d", len(wire.msgs), k.held, k.mods)
+			}
+		})
+	}
+}
+
+func TestVirtualKeyboardNamedKeyProtocolMapping(t *testing.T) {
+	cases := []struct {
+		key    string
+		code   uint32
+		symbol string
+	}{
+		{"shift", kcShift, "Shift_L"}, {"ctrl", kcCtrl, "Control_L"}, {"alt", kcAlt, "Alt_L"}, {"super", kcSuper, "Super_L"},
+		{"enter", kcReturn, "Return"}, {"escape", kcEscape, "Escape"}, {"tab", kcTab, "Tab"},
+		{"backspace", kcBksp, "BackSpace"}, {"delete", kcDelete, "Delete"},
+		{"home", kcHome, "Home"}, {"end", kcEnd, "End"}, {"pageup", kcPgUp, "Prior"}, {"pagedown", kcPgDown, "Next"},
+		{"left", kcLeft, "Left"}, {"right", kcRight, "Right"}, {"up", kcUp, "Up"}, {"down", kcDown, "Down"},
+		{"f1", kcF1, "F1"}, {"f2", kcF1 + 1, "F2"}, {"f3", kcF1 + 2, "F3"}, {"f4", kcF1 + 3, "F4"},
+		{"f5", kcF1 + 4, "F5"}, {"f6", kcF1 + 5, "F6"}, {"f7", kcF1 + 6, "F7"},
+		{"f8", kcF1 + 7, "F8"}, {"f9", kcF1 + 8, "F9"}, {"f10", kcF1 + 9, "F10"}, {"f11", kcF1 + 10, "F11"}, {"f12", kcF1 + 11, "F12"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			code, sym, ok := namedKey(tc.key)
+			if !ok || code != tc.code || sym != tc.symbol {
+				t.Fatalf("protocol mapping for %q: %d %q %t; want %d %q", tc.key, code, sym, ok, tc.code, tc.symbol)
+			}
+			if sym == "" {
+				t.Fatal("named key missing keysym")
+			}
+		})
+	}
+	for _, key := range []string{"not-a-key", "F13", "pageupgarbage"} {
+		if _, _, ok := namedKey(key); ok {
+			t.Fatalf("unrecognized key %q mapped to protocol", key)
+		}
+	}
+}
+
+func TestVirtualKeyboardUnavailableTransportReleasesTemporaryModifiers(t *testing.T) {
+	k, conn := newFailingKeyboard(2)
+	seq, err := parseKeySend("{ctrl+a}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.sendkeys(context.Background(), seq); err == nil {
+		t.Fatal("failed key injection was acknowledged")
+	}
+	if k.mods != 0 || len(k.held) != 0 {
+		t.Fatalf("failed key injection retained pressed state: mods=%d held=%v", k.mods, k.held)
+	}
+	if len(conn.msgs) != 2 {
+		t.Fatalf("expected attempted keymap + modifier before failing key: %d", len(conn.msgs))
+	}
+	if wl.Uint32(conn.msgs[1][4:8])&0xffff != 2 {
+		t.Fatalf("second request was not temporary modifier state: %x", conn.msgs[1])
+	}
+}
+
+func TestVirtualKeyboardRejectsCanceledOperationsAndUnbalancedKeys(t *testing.T) {
+	k, conn := newTestKeyboard()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := k.sendkeys(ctx, []keySend{{key: "enter"}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled operation accepted: %v", err)
+	}
+	if conn.writes != 0 {
+		t.Fatalf("canceled operation emitted %d messages", conn.writes)
+	}
+	if err := k.releaseKey(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "not held") {
+		t.Fatalf("unheld key release accepted: %v", err)
+	}
+	if conn.writes != 0 {
+		t.Fatalf("unheld release emitted messages: %d", conn.writes)
+	}
+	if err := k.sendkeys(context.Background(), []keySend{{key: "enter", up: true}}); err == nil || !strings.Contains(err.Error(), "not held") {
+		t.Fatalf("unheld named release accepted: %v", err)
+	}
+	if len(k.held) != 0 {
+		t.Fatalf("phantom held state retained: %v", k.held)
+	}
+}
+
+// Unknown multi-character key tokens execute as individual taps. A held key
+// within that token must be rejected before any keymap or key wire message.
+func TestVirtualKeyboardMultiCharacterTokenNeverTapsHeldRune(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		actions []keySend
+	}{
+		{"held at end", []keySend{{key: "ba"}}},
+		{"held at start", []keySend{{key: "ab"}}},
+		{"held after valid prefix", []keySend{{text: "ok"}, {key: "ba"}}},
+		{"held earlier in batch", []keySend{{key: "a", down: true}, {key: "ba"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k, wire := newTestKeyboard()
+			if tc.name != "held earlier in batch" {
+				k.held["a"] = kcDynBase
+			}
+			err := k.sendkeys(context.Background(), tc.actions)
+			if err == nil || !strings.Contains(err.Error(), "already held") {
+				t.Fatalf("held rune allowed within multi-character token: %v", err)
+			}
+			if len(wire.msgs) != 0 || len(k.held) != (map[bool]int{true: 0, false: 1}[tc.name == "held earlier in batch"]) {
+				t.Fatalf("invalid batch crossed wire or altered holds: msgs=%d held=%v", len(wire.msgs), k.held)
+			}
+		})
+	}
+}
+
+// Named aliases such as enter/return refer to the same physical key. A tap
+// or second hold via an alias must not release or duplicate a caller's hold.
+func TestVirtualKeyboardNamedAliasesCannotBypassHeldOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		actions []keySend
+	}{
+		{"tap alias", []keySend{{key: "return"}}},
+		{"hold alias", []keySend{{key: "return", down: true}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k, wire := newTestKeyboard()
+			k.held = map[string]uint32{"enter": kcReturn}
+			err := k.sendkeys(context.Background(), tc.actions)
+			if err == nil || !strings.Contains(err.Error(), "already held") {
+				t.Fatalf("alias crossed held-key ownership: err=%v", err)
+			}
+			if len(wire.msgs) != 0 {
+				t.Fatalf("alias emitted %d compositor messages", len(wire.msgs))
+			}
+			if len(k.held) != 1 || k.held["enter"] != kcReturn {
+				t.Fatalf("existing hold was changed: %v", k.held)
+			}
+		})
+	}
+}
+
+// Releasing a held key through its alias is valid; the original hold must
+// be removed rather than treated as an unrelated key.
+func TestVirtualKeyboardAliasReleaseMatchesOriginalHold(t *testing.T) {
+	k, wire := newTestKeyboard()
+	k.held = map[string]uint32{"enter": kcReturn}
+	if err := k.sendkeys(context.Background(), []keySend{{key: "return", up: true}}); err != nil {
+		t.Fatalf("alias release failed: %v", err)
+	}
+	if len(k.held) != 0 {
+		t.Fatalf("alias release left key depressed: %v", k.held)
+	}
+	if len(wire.msgs) == 0 {
+		t.Fatal("alias release emitted no compositor events")
+	}
+}
+
+func TestVirtualKeyboardInsertIsOneNamedKeyNotSixLetters(t *testing.T) {
+	k, wire := newTestKeyboard()
+	if err := k.sendkeys(context.Background(), []keySend{{key: "insert"}}); err != nil {
+		t.Fatalf("insert tap: %v", err)
+	}
+	events := 0
+	for _, msg := range wire.msgs {
+		if len(msg) >= 20 && wl.Uint32(msg[4:8])&0xffff == 1 {
+			events++
+		}
+	}
+	if events != 2 {
+		t.Fatalf("insert emitted %d key events, want one press and release", events)
+	}
+}
+
+func TestVirtualKeyboardInsertCanBeHeldAndReleased(t *testing.T) {
+	k, wire := newTestKeyboard()
+	if err := k.sendkeys(context.Background(), []keySend{{key: "insert", down: true}}); err != nil {
+		t.Fatalf("hold insert: %v", err)
+	}
+	if len(k.held) != 1 {
+		t.Fatalf("insert hold missing: %v", k.held)
+	}
+	prior := len(wire.msgs)
+	if err := k.sendkeys(context.Background(), []keySend{{key: "insert"}}); err == nil || !strings.Contains(err.Error(), "already held") {
+		t.Fatalf("held Insert accepted tap: %v", err)
+	}
+	if len(wire.msgs) != prior {
+		t.Fatalf("invalid insert tap sent %d events", len(wire.msgs)-prior)
+	}
+	if err := k.sendkeys(context.Background(), []keySend{{key: "insert", up: true}}); err != nil {
+		t.Fatalf("release insert: %v", err)
+	}
+	if len(k.held) != 0 {
+		t.Fatalf("insert remained held: %v", k.held)
+	}
+}
+
+// The public key syntax accepts {space}. It must represent one physical
+// Space key, not type the five letters of the key's name.
+func TestVirtualKeyboardNamedSpaceEmitsOneKeyTap(t *testing.T) {
+	k, wire := newTestKeyboard()
+	if err := k.sendkeys(context.Background(), []keySend{{key: "space"}}); err != nil {
+		t.Fatalf("named space tap: %v", err)
+	}
+	keyMessages := 0
+	for _, msg := range wire.msgs {
+		if len(msg) >= 8 && uint16(msg[4]) == 1 {
+			keyMessages++
+		}
+	}
+	if keyMessages != 2 {
+		t.Fatalf("named space emitted %d key transitions, want one down and one up", keyMessages)
+	}
+}
+
+func TestVirtualKeyboardNamedSpaceHoldAndRelease(t *testing.T) {
+	k, _ := newTestKeyboard()
+	if err := k.sendkeys(context.Background(), []keySend{{key: "space", down: true}}); err != nil {
+		t.Fatalf("hold space: %v", err)
+	}
+	if len(k.held) != 1 {
+		t.Fatalf("space hold was not recorded: %v", k.held)
+	}
+	if err := k.sendkeys(context.Background(), []keySend{{key: "space", up: true}}); err != nil {
+		t.Fatalf("release space: %v", err)
+	}
+	if len(k.held) != 0 {
+		t.Fatalf("space key remains held: %v", k.held)
+	}
+}
+
+func TestVirtualKeyboardNamedSpaceSharesLiteralHeldOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		held    string
+		attempt string
+	}{
+		{"literal held named tap", " ", "space"},
+		{"named held literal tap", "space", " "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k, wire := newTestKeyboard()
+			if err := k.pressKey(context.Background(), tc.held); err != nil {
+				t.Fatalf("hold %q: %v", tc.held, err)
+			}
+			prior := len(wire.msgs)
+			err := k.sendkeys(context.Background(), []keySend{{key: tc.attempt}})
+			if err == nil || !strings.Contains(err.Error(), "already held") {
+				t.Fatalf("tap %q while held %q: %v", tc.attempt, tc.held, err)
+			}
+			if len(wire.msgs) != prior {
+				t.Fatalf("held space tap emitted %d wire messages", len(wire.msgs)-prior)
+			}
+			if err := k.releaseKey(context.Background(), "space"); err != nil {
+				t.Fatalf("release named space: %v", err)
+			}
+			if len(k.held) != 0 {
+				t.Fatalf("held state not cleared: %v", k.held)
+			}
+		})
+	}
+}
+
+// A successful virtual-keyboard press must still be released when the caller
+// cancels during the protocol's 10ms key-down pacing delay. The compensating
+// release uses a bounded independent context; cleanup errors remain visible.
+func TestWaylandTapCancelDuringPacingReleasesPressedKey(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		failCleanup bool
+	}{
+		{name: "cleanup succeeds"},
+		{name: "cleanup fails", failCleanup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			cleanupErr := errors.New("synthetic key release transport failure")
+			wire := &uncertainDirectKeyPressWire{cancel: cancel, cleanupErr: cleanupErr, failCleanup: tc.failCleanup}
+			k, _ := newTestKeyboard()
+			k.ctx = wire
+			err := k.tap(ctx, kcDynBase)
+			if !errors.Is(err, context.Canceled) || errors.Is(err, cleanupErr) != tc.failCleanup {
+				t.Fatalf("canceled tap lost cancellation or cleanup failure: %v", err)
+			}
+			events := keyboardEventsFromMessages(t, wire.msgs)
+			if len(events) != 2 || events[0].opcode != 1 || events[0].keycode != kcDynBase || events[0].state != 1 || events[1].opcode != 1 || events[1].keycode != kcDynBase || events[1].state != 0 {
+				t.Fatalf("cancelled pacing left key held in compositor: %+v", events)
+			}
+			if k.mods != 0 || len(k.held) != 0 {
+				t.Fatalf("cancelled pacing retained ownership: mods=%d held=%v", k.mods, k.held)
+			}
+		})
+	}
+}
 
 func TestXkbKeysym(t *testing.T) {
 	tests := []struct {

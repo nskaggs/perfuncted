@@ -1,791 +1,589 @@
-//go:build linux
-// +build linux
-
 package input
 
 import (
 	"context"
 	"errors"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
 	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
 )
 
-type xtestEvent struct {
-	eventType byte
-	detail    byte
-}
-
-type orderingXTestConnection struct {
-	*x11.MockConnection
-
-	mu           sync.Mutex
-	events       []xtestEvent
-	firstStarted chan struct{}
-	firstRelease chan struct{}
-	firstOnce    func()
-	closeCalls   int
-}
-
-var _ x11.Connection = (*orderingXTestConnection)(nil)
-
-func newOrderingXTestConnection(keysyms []xproto.Keysym) *orderingXTestConnection {
-	firstStarted := make(chan struct{})
-	return &orderingXTestConnection{
-		MockConnection: &x11.MockConnection{
-			SetupFunc: func() *xproto.SetupInfo {
-				return &xproto.SetupInfo{
-					MinKeycode: 8,
-					MaxKeycode: 8 + xproto.Keycode(len(keysyms)) - 1,
-				}
-			},
-			GetKeyboardMappingFunc: func(xproto.Keycode, byte) x11.GetKeyboardMappingCookie {
-				return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
-					KeysymsPerKeycode: 1,
-					Keysyms:           keysyms,
-				})
-			},
-		},
-		firstStarted: firstStarted,
-		firstRelease: make(chan struct{}),
-		firstOnce:    sync.OnceFunc(func() { close(firstStarted) }),
-	}
-}
-
-func (c *orderingXTestConnection) FakeInputChecked(eventType byte, detail byte, _ uint32, _ xproto.Window, _, _ int16, _ byte) x11.XTestFakeInputCookie {
-	c.mu.Lock()
-	c.events = append(c.events, xtestEvent{eventType: eventType, detail: detail})
-	first := len(c.events) == 1
-	c.mu.Unlock()
-	if first {
-		c.firstOnce()
-		<-c.firstRelease
-	}
-	return x11.NewMockXTestFakeInputCookie(nil)
-}
-
-func (c *orderingXTestConnection) Close() {
-	c.mu.Lock()
-	c.closeCalls++
-	c.mu.Unlock()
-}
-
-func (c *orderingXTestConnection) eventsSnapshot() []xtestEvent {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]xtestEvent(nil), c.events...)
-}
-
-func (c *orderingXTestConnection) closeCallCount() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.closeCalls
-}
-
-func newTestXTestBackend(
-	t *testing.T,
-	keysymsPerKeycode byte,
-	keysyms []xproto.Keysym,
-	fail func(xtestEvent) error,
-) (*XTestBackend, *[]xtestEvent) {
-	t.Helper()
-	if keysymsPerKeycode == 0 || len(keysyms)%int(keysymsPerKeycode) != 0 {
-		t.Fatalf("invalid test keymap: %d keysyms per keycode, %d keysyms", keysymsPerKeycode, len(keysyms))
-	}
-
-	events := make([]xtestEvent, 0, 8)
-	conn := &x11.MockConnection{
-		SetupFunc: func() *xproto.SetupInfo {
-			return &xproto.SetupInfo{
-				MinKeycode: 8,
-				MaxKeycode: 8 + xproto.Keycode(len(keysyms)/int(keysymsPerKeycode)) - 1,
-			}
-		},
-		GetKeyboardMappingFunc: func(xproto.Keycode, byte) x11.GetKeyboardMappingCookie {
-			return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
-				KeysymsPerKeycode: keysymsPerKeycode,
-				Keysyms:           keysyms,
-			})
-		},
-		FakeInputCheckedFunc: func(eventType byte, detail byte, _ uint32, _ xproto.Window, _, _ int16, _ byte) x11.XTestFakeInputCookie {
-			event := xtestEvent{eventType: eventType, detail: detail}
-			events = append(events, event)
-			if fail != nil {
-				if err := fail(event); err != nil {
-					return x11.NewMockXTestFakeInputCookie(err)
-				}
-			}
-			return x11.NewMockXTestFakeInputCookie(nil)
-		},
-	}
-	return &XTestBackend{conn: conn, root: 1}, &events
-}
-
-func TestXTestTypeReleasesTemporaryModifiersAfterKeyFailure(t *testing.T) {
-	const (
-		shift = byte(8)
-		ctrl  = byte(9)
-		key   = byte(12)
-	)
-	wantErr := errors.New("synthetic key failure")
-	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{
-		0xffe1, // shift
-		0xffe3, // ctrl
-		0xffe9, // alt
-		0xffeb, // super
-		0x61,   // a
-	}, func(event xtestEvent) error {
-		if event.eventType == xproto.KeyPress && event.detail == key {
-			return wantErr
-		}
-		return nil
-	})
-
-	err := b.typeContext(context.Background(), "{ctrl+shift+a}")
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("typeContext error = %v, want %v", err, wantErr)
-	}
-
-	want := []xtestEvent{
-		{eventType: xproto.KeyPress, detail: shift},
-		{eventType: xproto.KeyPress, detail: ctrl},
-		{eventType: xproto.KeyPress, detail: key},
-		{eventType: xproto.KeyRelease, detail: key},
-		{eventType: xproto.KeyRelease, detail: ctrl},
-		{eventType: xproto.KeyRelease, detail: shift},
-	}
-	if !sameXTestEvents(*events, want) {
-		t.Fatalf("events = %#v, want %#v", *events, want)
-	}
-}
-
-func TestXTestMouseMoveRejectsCoordinatesThatWouldTruncate(t *testing.T) {
+// Internal XTEST helpers must refuse canceled operations before touching an
+// uninitialized X11 connection or querying the server's keyboard map.
+func TestXTestInternalDispatchRejectsCanceledOperationsBeforeX11Access(t *testing.T) {
+	var backend XTestBackend
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	for _, tc := range []struct {
 		name string
-		x, y int
+		run  func() error
 	}{
-		{name: "x below", x: -1<<15 - 1, y: 0},
-		{name: "x above", x: 1<<15 + 0, y: 0},
-		{name: "y below", x: 0, y: -1<<15 - 1},
-		{name: "y above", x: 0, y: 1<<15 + 0},
+		{"pointer movement", func() error { return backend.mouseMove(ctx, 12, 34) }},
+		{"button event", func() error { return backend.mouseButton(ctx, xproto.ButtonPress, 1) }},
+		{"scroll", func() error { return backend.scroll(ctx, 4, 1) }},
+		{"text preflight", func() error { return backend.validateTextKeysyms(ctx, "a") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.run(); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled dispatch reached X11 transport: %v", err)
+			}
+		})
+	}
+}
+
+func TestXTestNilBackendCloseHasNoConnectionSideEffects(t *testing.T) {
+	var backend *XTestBackend
+	if err := backend.Close(); err != nil {
+		t.Fatalf("nil XTEST close: %v", err)
+	}
+}
+
+// Even when the requested key itself exists, a missing modifier mapping must
+// reject direct action dispatch before XTEST can synthesize a key event.
+func TestXTestInternalActionRejectsUnmappedModifierBeforeTransport(t *testing.T) {
+	b := &XTestBackend{keymap: map[xproto.Keysym]keycodeLevel{xproto.Keysym('a'): {keycode: 38}}}
+	err := b.typeAction(context.Background(), keySend{key: "a", modifiers: modifiers{ctrl: true}})
+	if err == nil || !strings.Contains(err.Error(), "not found in keymap") {
+		t.Fatalf("unmapped accelerator modifier reached transport: %v", err)
+	}
+}
+
+// Internal literal dispatch must reject both missing runes and missing level
+// modifiers without sending the underlying XTEST keycode to the server.
+func TestXTestInternalLiteralRejectsUnavailableRuneAndShiftLevel(t *testing.T) {
+	b := &XTestBackend{keymap: map[xproto.Keysym]keycodeLevel{xproto.Keysym('A'): {keycode: 38, level: 1}}}
+	for _, tc := range []struct {
+		name string
+		ch   rune
+	}{
+		{"missing rune", 'Ω'},
+		{"missing shift modifier", 'A'},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := b.typeTextRune(context.Background(), tc.ch, nil)
+			if err == nil || !strings.Contains(err.Error(), "not found in keymap") {
+				t.Fatalf("unavailable literal %q reached transport: %v", tc.ch, err)
+			}
+		})
+	}
+}
+
+// A direct helper call must reject revoked work before parsing a request or
+// consulting an uninitialized X11 connection.
+func TestXTestInternalTypePreflightRejectsCanceledAndMalformedRequests(t *testing.T) {
+	var backend XTestBackend
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := backend.typeContext(canceled, "{unclosed"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled internal type parsed request: %v", err)
+	}
+	if err := backend.typeContext(context.Background(), "{unclosed"); err == nil {
+		t.Fatal("malformed internal type request was accepted")
+	}
+}
+
+// Empty actions must remain no-ops, and malformed direct actions must not
+// attempt event injection on an unavailable X11 connection.
+func TestXTestInternalTypeActionNoopAndUnknownKeyBeforeTransport(t *testing.T) {
+	var backend XTestBackend
+	if err := backend.typeAction(context.Background(), keySend{}); err != nil {
+		t.Fatalf("empty action was rejected: %v", err)
+	}
+	if err := backend.typeAction(context.Background(), keySend{key: "unknown-key"}); err == nil || !strings.Contains(err.Error(), "unknown key") {
+		t.Fatalf("unknown key reached XTEST transport: %v", err)
+	}
+}
+
+// A caller may cancel after the transport operation starts but before its
+// reply is acknowledged. XTEST must not report success from that operation;
+// similarly, a device failure and cancellation must both remain observable.
+func TestXTestOperationDoesNotAcknowledgeLateCanceledRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fail error
+	}{
+		{name: "transport succeeded"},
+		{name: "transport failed", fail: errors.New("synthetic X11 operation failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &XTestBackend{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			executed := false
+			err := b.withOperation(ctx, func(context.Context) error {
+				executed = true
+				cancel()
+				return tc.fail
+			})
+			if !executed {
+				t.Fatal("operation never entered")
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("late cancellation acknowledged as success: %v", err)
+			}
+			if tc.fail != nil && !errors.Is(err, tc.fail) {
+				t.Fatalf("device failure lost after cancellation: %v", err)
+			}
+		})
+	}
+}
+
+// Direct operation admission must reject nil and retired XTEST transports,
+// preserve caller cancellation, and release each accepted operation exactly
+// once. No such path may authorize device activity after shutdown.
+func TestXTestOperationAdmissionHonorsCancellationAndShutdown(t *testing.T) {
+	var absent *XTestBackend
+	if ctx, finish, err := absent.beginOperation(context.Background()); err == nil || ctx != nil || finish != nil {
+		t.Fatalf("nil backend admitted operation: ctx=%v finishNil=%t err=%v", ctx, finish == nil, err)
+	}
+	b := &XTestBackend{}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if ctx, finish, err := b.beginOperation(canceled); !errors.Is(err, context.Canceled) || ctx != nil || finish != nil {
+		t.Fatalf("canceled operation admitted: ctx=%v finishNil=%t err=%v", ctx, finish == nil, err)
+	}
+	active, finish, err := b.beginOperation(context.Background())
+	if err != nil || active == nil || finish == nil {
+		t.Fatalf("live operation admission failed: ctx=%v err=%v", active, err)
+	}
+	finish()
+	if err := b.Close(); err != nil {
+		t.Fatalf("backend close: %v", err)
+	}
+	if ctx, finish, err := b.beginOperation(context.Background()); !errors.Is(err, errXTestBackendClosed) || ctx != nil || finish != nil {
+		t.Fatalf("retired backend admitted operation: ctx=%v finishNil=%t err=%v", ctx, finish == nil, err)
+	}
+	if err := b.withOperation(context.Background(), func(context.Context) error { t.Error("post-close transport dispatched"); return nil }); !errors.Is(err, errXTestBackendClosed) {
+		t.Fatalf("retired operation result: %v", err)
+	}
+}
+
+// Closing XTEST must cancel both the active transport operation and a second
+// operation queued at its serialization gate. The queued operation must never
+// reach the device, even if the first operation releases the gate during Close.
+func TestXTestCloseCancelsQueuedOperationWithoutDispatch(t *testing.T) {
+	b := &XTestBackend{}
+	entered := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- b.withOperation(context.Background(), func(ctx context.Context) error {
+			close(entered)
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first XTEST operation did not acquire gate")
+	}
+	secondDone := make(chan error, 1)
+	secondStarted := make(chan struct{})
+	dispatched := make(chan struct{}, 1)
+	go func() {
+		close(secondStarted)
+		secondDone <- b.withOperation(context.Background(), func(context.Context) error { dispatched <- struct{}{}; return nil })
+	}()
+	<-secondStarted
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- b.Close() }()
+	for name, ch := range map[string]<-chan error{"active": firstDone, "queued": secondDone} {
+		select {
+		case err := <-ch:
+			if !errors.Is(err, context.Canceled) && !(name == "queued" && errors.Is(err, errXTestBackendClosed)) {
+				t.Errorf("%s operation completed after close: %v", name, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s operation did not drain during close", name)
+		}
+	}
+	select {
+	case <-dispatched:
+		t.Fatal("queued operation dispatched to closed XTEST device")
+	default:
+	}
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("close failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("close failed to drain queued operations")
+	}
+	if err := b.withOperation(context.Background(), func(context.Context) error { t.Error("post-close request dispatched"); return nil }); !errors.Is(err, errXTestBackendClosed) {
+		t.Fatalf("post-close admission: %v", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("idempotent close failed: %v", err)
+	}
+}
+
+// Type must keep its explicit modifier ownership consistent with KeyDown/Up.
+// In particular a caller-held Ctrl cannot be released as a temporary key,
+// and a later command must see the same state as the previous command.
+func TestXTestExplicitModifierHoldAndReleaseAcrossCommands(t *testing.T) {
+	b, events := newModifierXTestBackend(t)
+	ctrl := keycodeForCtrl(t, b)
+	a, err := b.keycodeFor("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		command string
+		want    []xtestEvent
+		held    bool
+	}{
+		{"{ctrl down}", []xtestEvent{{xproto.KeyPress, ctrl}}, true},
+		{"{ctrl+a}", []xtestEvent{{xproto.KeyPress, byte(a)}, {xproto.KeyRelease, byte(a)}}, true},
+		{"{ctrl up}", []xtestEvent{{xproto.KeyRelease, ctrl}}, false},
+		{"{ctrl+a}", []xtestEvent{{xproto.KeyPress, ctrl}, {xproto.KeyPress, byte(a)}, {xproto.KeyRelease, byte(a)}, {xproto.KeyRelease, ctrl}}, false},
+	} {
+		*events = nil
+		if err := b.Type(context.Background(), tc.command); err != nil {
+			t.Fatalf("type %q: %v", tc.command, err)
+		}
+		if !reflect.DeepEqual(*events, tc.want) {
+			t.Fatalf("type %q sent %+v, want %+v", tc.command, *events, tc.want)
+		}
+		if held := b.modifierHeld(xproto.Keycode(ctrl)); held != tc.held {
+			t.Fatalf("type %q owned ctrl=%t want=%t", tc.command, held, tc.held)
+		}
+	}
+}
+
+func TestXTestModifierTransactionFailsClosedAtEveryProtocolBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		failAt int
+		want   []xtestEvent
+	}{
+		{"mod down fails", 1, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyRelease, 8}}},
+		{"key down fails", 2, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 8}}},
+		{"key up fails", 3, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 8}}},
+		{"mod up fails", 4, []xtestEvent{{xproto.KeyPress, 8}, {xproto.KeyPress, 9}, {xproto.KeyRelease, 9}, {xproto.KeyRelease, 8}, {xproto.KeyRelease, 8}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			b, events := newTestXTestBackend(t, 1, []xproto.Keysym{0xffe3, 0x61}, func(ev xtestEvent) error {
+				calls++
+				if calls == tc.failAt {
+					return errors.New("synthetic XTEST wire write rejected")
+				}
+				return nil
+			})
+			// Ctrl is slot 8, A is slot 9.
+			err := b.Type(context.Background(), "{ctrl+a}")
+			if err == nil {
+				t.Fatal("failed XTEST wire message was acknowledged")
+			}
+			if !reflect.DeepEqual(*events, tc.want) {
+				t.Fatalf("failed wire request and cleanup events=%v, want=%v", *events, tc.want)
+			}
+			if b.modifierHeld(xproto.Keycode(8)) {
+				t.Fatal("failed temporary modifier transaction retained caller-owned Ctrl")
+			}
+		})
+	}
+}
+
+// Cancellation during a synchronous X11 pointer reply revokes permission to
+// publish its coordinates, even if the transport successfully completed.
+func TestXTestPointerLocationHidesCoordinatesCanceledDuringReply(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mock := &x11.MockConnection{}
+	mock.QueryPointerFunc = func(xproto.Window) x11.QueryPointerCookie {
+		cancel()
+		return syntheticPointerReply{reply: &xproto.QueryPointerReply{RootX: 321, RootY: 654}}
+	}
+	backend := &XTestBackend{conn: mock, root: 1}
+	x, y, err := backend.PointerLocation(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("query returned error %v", err)
+	}
+	if x != 0 || y != 0 {
+		t.Fatalf("canceled query revealed pointer position (%d,%d)", x, y)
+	}
+}
+
+// A caller that has already canceled may not get a different outcome from
+// malformed button or scroll arguments. The XTEST connection is deliberately
+// absent; none of these calls may reach its transport.
+func TestXTestPreCanceledPointerAndScrollRejectBeforeValidation(t *testing.T) {
+	b := &XTestBackend{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cases := []struct {
+		name string
+		run  func(context.Context) error
+	}{
+		{"click", func(c context.Context) error { return b.MouseClick(c, 10, 20, 99) }},
+		{"down", func(c context.Context) error { return b.MouseDown(c, 99) }},
+		{"up", func(c context.Context) error { return b.MouseUp(c, 99) }},
+		{"scroll up", func(c context.Context) error { return b.ScrollUp(c, -1) }},
+		{"scroll down", func(c context.Context) error { return b.ScrollDown(c, -1) }},
+		{"scroll left", func(c context.Context) error { return b.ScrollLeft(c, -1) }},
+		{"scroll right", func(c context.Context) error { return b.ScrollRight(c, -1) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.run(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("pre-canceled operation returned %v", err)
+			}
+		})
+	}
+}
+
+// A queued XTEST operation must not execute once its owner cancels, even if
+// the backend itself remains alive and another operation owns the gate.
+// Use a held callback for a deterministic admission boundary, not X11 timing.
+func TestXTestQueuedOperationCanceledBeforeTransportDispatch(t *testing.T) {
+	backend := &XTestBackend{}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- backend.withOperation(context.Background(), func(context.Context) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial XTEST operation never acquired gate")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	invoked := make(chan struct{}, 1)
+	queued := make(chan error, 1)
+	go func() {
+		queued <- backend.withOperation(ctx, func(context.Context) error {
+			invoked <- struct{}{}
+			return nil
+		})
+	}()
+	// Cancellation must terminate a queued operation while gate is still held.
+	cancel()
+	select {
+	case err := <-queued:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("queued operation cancellation: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled XTEST operation remained queued")
+	}
+	select {
+	case <-invoked:
+		t.Fatal("canceled request reached XTEST transport")
+	default:
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("unrelated admitted operation failed: %v", err)
+	}
+	if err := backend.withOperation(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("cancellation poisoned subsequent operations: %v", err)
+	}
+}
+
+type syntheticPointerReply struct {
+	reply *xproto.QueryPointerReply
+	err   error
+}
+
+func (s syntheticPointerReply) Reply() (*xproto.QueryPointerReply, error) { return s.reply, s.err }
+
+func TestXTestScrollButtonsAndCancellation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		button byte
+		act    func(*XTestBackend, context.Context, int) error
+	}{
+		{"up", 4, (*XTestBackend).ScrollUp},
+		{"down", 5, (*XTestBackend).ScrollDown},
+		{"left", 6, (*XTestBackend).ScrollLeft},
+		{"right", 7, (*XTestBackend).ScrollRight},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b, events := newTestXTestBackend(t, 1, []xproto.Keysym{0x61}, nil)
-			if err := b.MouseMove(context.Background(), tc.x, tc.y); err == nil {
-				t.Fatal("MouseMove accepted a coordinate outside the X11 int16 range")
+			if err := tc.act(b, context.Background(), 2); err != nil {
+				t.Fatal(err)
 			}
-			if len(*events) != 0 {
-				t.Fatalf("events = %#v, want no wire event after validation failure", *events)
+			expected := []xtestEvent{{xproto.ButtonPress, tc.button}, {xproto.ButtonRelease, tc.button}, {xproto.ButtonPress, tc.button}, {xproto.ButtonRelease, tc.button}}
+			if !sameXTestEvents(*events, expected) {
+				t.Fatalf("wrong scroll event sequence: %#v want %#v", *events, expected)
 			}
-		})
-	}
-}
-
-func TestXTestTypeJoinsTemporaryModifierCleanupFailure(t *testing.T) {
-	const (
-		shift = byte(8)
-		ctrl  = byte(9)
-		key   = byte(12)
-	)
-	keyErr := errors.New("synthetic key failure")
-	cleanupErr := errors.New("synthetic modifier cleanup failure")
-	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{
-		0xffe1, // shift
-		0xffe3, // ctrl
-		0xffe9, // alt
-		0xffeb, // super
-		0x61,   // a
-	}, func(event xtestEvent) error {
-		if event.eventType == xproto.KeyPress && event.detail == key {
-			return keyErr
-		}
-		if event.eventType == xproto.KeyRelease && event.detail == ctrl {
-			return cleanupErr
-		}
-		return nil
-	})
-
-	err := b.typeContext(context.Background(), "{ctrl+shift+a}")
-	if !errors.Is(err, keyErr) {
-		t.Fatalf("typeContext error = %v, want key error %v", err, keyErr)
-	}
-	if !errors.Is(err, cleanupErr) {
-		t.Fatalf("typeContext error = %v, want cleanup error %v joined", err, cleanupErr)
-	}
-	if got := *events; len(got) != 6 || got[3] != (xtestEvent{eventType: xproto.KeyRelease, detail: key}) || got[4] != (xtestEvent{eventType: xproto.KeyRelease, detail: ctrl}) {
-		t.Fatalf("events = %#v, want uncertain key release before modifier cleanup", got)
-	}
-}
-
-func TestXTestTypeReleasesEarlierModifiersWhenModifierSetupFails(t *testing.T) {
-	const (
-		ctrl  = byte(9)
-		shift = byte(8)
-	)
-	wantErr := errors.New("synthetic modifier failure")
-	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{
-		0xffe1, // shift
-		0xffe3, // ctrl
-		0xffe9, // alt
-		0xffeb, // super
-		0x61,   // a
-	}, func(event xtestEvent) error {
-		if event.eventType == xproto.KeyPress && event.detail == ctrl {
-			return wantErr
-		}
-		return nil
-	})
-
-	err := b.typeContext(context.Background(), "{ctrl+shift+a}")
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("typeContext error = %v, want %v", err, wantErr)
-	}
-
-	want := []xtestEvent{
-		{eventType: xproto.KeyPress, detail: shift},
-		{eventType: xproto.KeyPress, detail: ctrl},
-		{eventType: xproto.KeyRelease, detail: ctrl},
-		{eventType: xproto.KeyRelease, detail: shift},
-	}
-	if !sameXTestEvents(*events, want) {
-		t.Fatalf("events = %#v, want %#v", *events, want)
-	}
-}
-
-func TestXTestTypeTextReleasesShiftAfterKeyFailure(t *testing.T) {
-	const (
-		shift = byte(8)
-		key   = byte(9)
-	)
-	wantErr := errors.New("synthetic text key failure")
-	b, events := newTestXTestBackend(t, 2, []xproto.Keysym{
-		0xffe1, 0,
-		0x61, 0x41,
-	}, func(event xtestEvent) error {
-		if event.eventType == xproto.KeyPress && event.detail == key {
-			return wantErr
-		}
-		return nil
-	})
-
-	err := b.typeContext(context.Background(), "A")
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("typeContext error = %v, want %v", err, wantErr)
-	}
-
-	want := []xtestEvent{
-		{eventType: xproto.KeyPress, detail: shift},
-		{eventType: xproto.KeyPress, detail: key},
-		{eventType: xproto.KeyRelease, detail: key},
-		{eventType: xproto.KeyRelease, detail: shift},
-	}
-	if !sameXTestEvents(*events, want) {
-		t.Fatalf("events = %#v, want %#v", *events, want)
-	}
-}
-
-func TestXTestTypeTextJoinsShiftCleanupFailure(t *testing.T) {
-	const (
-		shift = byte(8)
-		key   = byte(9)
-	)
-	keyErr := errors.New("synthetic text key failure")
-	cleanupErr := errors.New("synthetic shift cleanup failure")
-	b, _ := newTestXTestBackend(t, 2, []xproto.Keysym{
-		0xffe1, 0,
-		0x61, 0x41,
-	}, func(event xtestEvent) error {
-		if event.eventType == xproto.KeyPress && event.detail == key {
-			return keyErr
-		}
-		if event.eventType == xproto.KeyRelease && event.detail == shift {
-			return cleanupErr
-		}
-		return nil
-	})
-
-	err := b.typeContext(context.Background(), "A")
-	if !errors.Is(err, keyErr) {
-		t.Fatalf("typeContext error = %v, want key error %v", err, keyErr)
-	}
-	if !errors.Is(err, cleanupErr) {
-		t.Fatalf("typeContext error = %v, want cleanup error %v joined", err, cleanupErr)
-	}
-}
-
-func TestXTestTypeReleasesTemporaryModifiersAfterCancellation(t *testing.T) {
-	const (
-		shift = byte(8)
-		ctrl  = byte(9)
-		key   = byte(12)
-	)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{
-		0xffe1, // shift
-		0xffe3, // ctrl
-		0xffe9, // alt
-		0xffeb, // super
-		0x61,   // a
-	}, func(event xtestEvent) error {
-		if event.eventType == xproto.KeyPress && event.detail == key {
+			before := len(*events)
+			if err := tc.act(b, context.Background(), -1); err == nil {
+				t.Fatal("negative clicks were accepted")
+			}
+			canceled, cancel := context.WithCancel(context.Background())
 			cancel()
+			if err := tc.act(b, canceled, 1); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled scroll=%v", err)
+			}
+			if len(*events) != before {
+				t.Fatalf("invalid/canceled scroll injected events: %#v", (*events)[before:])
+			}
+		})
+	}
+}
+
+func TestXTestScrollStopsImmediatelyOnTransportFailure(t *testing.T) {
+	failure := errors.New("synthetic XTEST wheel transport failure")
+	failedOnce := false
+	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{0x61}, func(ev xtestEvent) error {
+		if ev.eventType == xproto.ButtonRelease && !failedOnce {
+			failedOnce = true
+			return failure
 		}
 		return nil
 	})
-	b.delay = 10 * time.Millisecond
-
-	err := b.typeContext(ctx, "{ctrl+shift+a}")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("typeContext error = %v, want context.Canceled", err)
+	if err := b.ScrollDown(context.Background(), 3); !errors.Is(err, failure) {
+		t.Fatalf("scroll failure lost source error: %v", err)
 	}
-
-	want := []xtestEvent{
-		{eventType: xproto.KeyPress, detail: shift},
-		{eventType: xproto.KeyPress, detail: ctrl},
-		{eventType: xproto.KeyPress, detail: key},
-		{eventType: xproto.KeyRelease, detail: key},
-		{eventType: xproto.KeyRelease, detail: ctrl},
-		{eventType: xproto.KeyRelease, detail: shift},
+	expected := []xtestEvent{
+		{eventType: xproto.ButtonPress, detail: 5},
+		{eventType: xproto.ButtonRelease, detail: 5}, // failed transiently
+		{eventType: xproto.ButtonRelease, detail: 5}, // best-effort cleanup
 	}
-	if !sameXTestEvents(*events, want) {
-		t.Fatalf("events = %#v, want %#v", *events, want)
+	if !sameXTestEvents(*events, expected) {
+		t.Fatalf("failed scroll did not clean up held wheel button: got %#v want %#v", *events, expected)
 	}
 }
 
-func sameXTestEvents(got, want []xtestEvent) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			return false
-		}
-	}
-	return true
-}
-
-type xtestOperationOrderingCase struct {
-	name       string
-	newBackend func() (*XTestBackend, *orderingXTestConnection)
-	first      func(*XTestBackend) error
-	second     func(*XTestBackend) error
-	want       []xtestEvent
-}
-
-func TestXTestLogicalOperationsDoNotInterleave(t *testing.T) {
-	tests := []xtestOperationOrderingCase{
-		{
-			name: "Type",
-			newBackend: func() (*XTestBackend, *orderingXTestConnection) {
-				conn := newOrderingXTestConnection([]xproto.Keysym{0x61, 0x62, 0x63})
-				return &XTestBackend{conn: conn, root: 1, delay: 0}, conn
-			},
-			first:  func(b *XTestBackend) error { return b.Type(context.Background(), "ab") },
-			second: func(b *XTestBackend) error { return b.Type(context.Background(), "c") },
-			want: []xtestEvent{
-				{eventType: xproto.KeyPress, detail: 8},
-				{eventType: xproto.KeyRelease, detail: 8},
-				{eventType: xproto.KeyPress, detail: 9},
-				{eventType: xproto.KeyRelease, detail: 9},
-				{eventType: xproto.KeyPress, detail: 10},
-				{eventType: xproto.KeyRelease, detail: 10},
-			},
-		},
-		{
-			name: "MouseClick",
-			newBackend: func() (*XTestBackend, *orderingXTestConnection) {
-				conn := newOrderingXTestConnection(nil)
-				return &XTestBackend{conn: conn, root: 1, delay: 0}, conn
-			},
-			first: func(b *XTestBackend) error {
-				return b.MouseClick(context.Background(), 1, 2, 1)
-			},
-			second: func(b *XTestBackend) error {
-				return b.MouseClick(context.Background(), 3, 4, 2)
-			},
-			want: []xtestEvent{
-				{eventType: xproto.MotionNotify, detail: 0},
-				{eventType: xproto.ButtonPress, detail: 1},
-				{eventType: xproto.ButtonRelease, detail: 1},
-				{eventType: xproto.MotionNotify, detail: 0},
-				{eventType: xproto.ButtonPress, detail: 2},
-				{eventType: xproto.ButtonRelease, detail: 2},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b, conn := tt.newBackend()
-			assertXTestOperationsDoNotInterleave(t, b, conn, tt.first, tt.second, tt.want)
-		})
-	}
-}
-
-func assertXTestOperationsDoNotInterleave(
-	t *testing.T,
-	b *XTestBackend,
-	conn *orderingXTestConnection,
-	first func(*XTestBackend) error,
-	second func(*XTestBackend) error,
-	want []xtestEvent,
-) {
-	t.Helper()
-	firstDone := make(chan error, 1)
-	go func() { firstDone <- first(b) }()
-	select {
-	case <-conn.firstStarted:
-	case <-time.After(time.Second):
-		t.Fatal("first operation did not reach the connection")
-	}
-
-	secondDone := make(chan error, 1)
-	go func() { secondDone <- second(b) }()
-	select {
-	case err := <-secondDone:
-		t.Fatalf("second operation completed while first was blocked: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	if got := len(conn.eventsSnapshot()); got != 1 {
-		t.Fatalf("events while first operation was blocked = %d, want 1", got)
-	}
-
-	close(conn.firstRelease)
-	for name, done := range map[string]<-chan error{"first": firstDone, "second": secondDone} {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("%s operation: %v", name, err)
-			}
-		case <-time.After(time.Second):
-			t.Fatalf("%s operation did not finish", name)
-		}
-	}
-	if got := conn.eventsSnapshot(); !sameXTestEvents(got, want) {
-		t.Fatalf("events = %#v, want %#v", got, want)
-	}
-}
-
-func TestXTestQueuedOperationHonorsCancellation(t *testing.T) {
-	conn := newOrderingXTestConnection([]xproto.Keysym{0x61, 0x62})
-	b := &XTestBackend{conn: conn, root: 1, delay: 0}
-
-	firstDone := make(chan error, 1)
-	go func() { firstDone <- b.Type(context.Background(), "a") }()
-	select {
-	case <-conn.firstStarted:
-	case <-time.After(time.Second):
-		t.Fatal("first operation did not reach the connection")
-	}
-
-	queuedCtx, cancel := context.WithCancel(context.Background())
-	queuedDone := make(chan error, 1)
-	go func() { queuedDone <- b.Type(queuedCtx, "b") }()
-	cancel()
-	select {
-	case err := <-queuedDone:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("queued operation error = %v, want context.Canceled", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("queued operation did not honor cancellation")
-	}
-
-	close(conn.firstRelease)
-	select {
-	case err := <-firstDone:
-		if err != nil {
-			t.Fatalf("first operation: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("first operation did not finish")
-	}
-	if err := b.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-func TestXTestCloseWaitsForActiveOperation(t *testing.T) {
-	conn := newOrderingXTestConnection([]xproto.Keysym{0x61})
-	b := &XTestBackend{conn: conn, root: 1, delay: time.Second}
-
-	opDone := make(chan error, 1)
-	go func() { opDone <- b.Type(context.Background(), "a") }()
-	select {
-	case <-conn.firstStarted:
-	case <-time.After(time.Second):
-		t.Fatal("operation did not reach the connection")
-	}
-
-	closeDone := make(chan error, 1)
-	go func() { closeDone <- b.Close() }()
-	select {
-	case err := <-closeDone:
-		t.Fatalf("Close returned while operation was active: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	if got := conn.closeCallCount(); got != 0 {
-		t.Fatalf("connection close calls while operation was active = %d, want 0", got)
-	}
-
-	close(conn.firstRelease)
-	select {
-	case err := <-opDone:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("operation error = %v, want context.Canceled", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("active operation did not finish after release")
-	}
-	select {
-	case err := <-closeDone:
-		if err != nil {
-			t.Fatalf("Close: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Close did not finish after active operation ended")
-	}
-	if got := conn.closeCallCount(); got != 1 {
-		t.Fatalf("connection close calls = %d, want 1", got)
-	}
-}
-
-func TestXTestRejectsNewWorkAfterClose(t *testing.T) {
-	conn := newOrderingXTestConnection([]xproto.Keysym{0x61})
-	b := &XTestBackend{conn: conn, root: 1, delay: 0}
-	if err := b.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if err := b.Type(context.Background(), "a"); !errors.Is(err, errXTestBackendClosed) {
-		t.Fatalf("Type after Close = %v, want backend-closed error", err)
-	}
-	if err := b.MouseClick(context.Background(), 1, 2, 1); !errors.Is(err, errXTestBackendClosed) {
-		t.Fatalf("MouseClick after Close = %v, want backend-closed error", err)
-	}
-	if err := b.Close(); err != nil {
-		t.Fatalf("repeated Close: %v", err)
-	}
-	if got := conn.closeCallCount(); got != 1 {
-		t.Fatalf("connection close calls after repeated Close = %d, want 1", got)
-	}
-}
-
-// A layout may map either ISO_Level3_Shift or Mode_switch to the key that reaches
-// its third level. They are distinct keysyms, so looking for only the first
-// reported a layout that does have AltGr as having none.
-func TestXTestAltGrAcceptsEitherThirdLevelKeysym(t *testing.T) {
-	const (
-		keysymsPerKey = 4
-		charKeycode   = 10
-		altGrKeycode  = 11
-	)
-
-	for _, testCase := range []struct {
-		name     string
-		altGrSym xproto.Keysym
-	}{
-		{"ISO_Level3_Shift", 0xfe03},
-		{"Mode_switch", 0xff7e},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			keysyms := []xproto.Keysym{
-				0, 0, 0, 0, // keycode 8: unused
-				0xffe1, 0, 0, 0, // keycode 9: left shift
-				0x61, 0x41, 0x20ac, 0x20ac, // keycode 10: a, A, Euro
-				testCase.altGrSym, 0, 0, 0, // keycode 11: the AltGr key
-			}
-
-			b, _ := newTestXTestBackend(t, keysymsPerKey, keysyms, nil)
-
-			kc, err := b.altGrKeycode()
-			if err != nil {
-				t.Fatalf("altGrKeycode: %v", err)
-			}
-			if kc != altGrKeycode {
-				t.Fatalf("altGrKeycode = %d, want %d", kc, altGrKeycode)
-			}
-
-			// The Euro sign sits at the third level, so reaching it needs AltGr.
-			required, err := b.levelModifiers(2)
-			if err != nil {
-				t.Fatalf("levelModifiers(2): %v", err)
-			}
-			if len(required) != 1 || required[0] != altGrKeycode {
-				t.Fatalf("levelModifiers(2) = %v, want just the AltGr keycode %d", required, altGrKeycode)
-			}
-			gotKeycode, level, err := b.keycodeAndLevel(0x20ac)
-			if err != nil {
-				t.Fatalf("Euro sign not reachable: %v", err)
-			}
-			if gotKeycode != charKeycode || level != 2 {
-				t.Fatalf("Euro sign at keycode %d level %d, want keycode %d level 2", gotKeycode, level, charKeycode)
-			}
-		})
-	}
-}
-
-// A layout that maps neither keysym genuinely has no reachable third level.
-func TestXTestAltGrAbsentReportsBothKeysyms(t *testing.T) {
-	keysyms := []xproto.Keysym{
-		0, 0, 0, 0, // keycode 8: unused
-		0xffe1, 0, 0, 0, // keycode 9: left shift
-		0x61, 0x41, 0x20ac, 0x20ac, // keycode 10: a, A, Euro
-		0xffe3, 0, 0, 0, // keycode 11: plain right Alt, not a third-level switch
-	}
-	b, _ := newTestXTestBackend(t, 4, keysyms, nil)
-
-	if _, err := b.altGrKeycode(); err == nil {
-		t.Fatal("altGrKeycode succeeded on a layout with no third-level switch")
-	} else if !strings.Contains(err.Error(), "ISO_Level3_Shift") || !strings.Contains(err.Error(), "Mode_switch") {
-		t.Fatalf("error = %v, want it to name both keysyms it looked for", err)
-	}
-}
-
-// A map may report more slots per keycode than the four this backend can name.
-// Naming a modifier for an unknown slot would guess, so the level is reported as
-// unsupported, and the message says what is actually missing rather than claiming
-// a limit X11 does not impose.
-func TestXTestWideMapReportsUnsupportedLevel(t *testing.T) {
-	const keysymsPerKey = 7
-
-	keysyms := []xproto.Keysym{
-		0, 0, 0, 0, 0, 0, 0, // keycode 8: unused
-		0xffe1, 0, 0, 0, 0, 0, 0, // keycode 9: left shift
-		0x61, 0x41, 0x20ac, 0x20ac, 0, 0, 0, // keycode 10: a, A, Euro
-		0xfe03, 0, 0, 0, 0, 0, 0, // keycode 11: ISO_Level3_Shift
-	}
-
-	b, _ := newTestXTestBackend(t, keysymsPerKey, keysyms, nil)
-
-	kc, level, err := b.keycodeAndLevel(0x20ac)
-	if err != nil {
-		t.Fatalf("Euro sign not reachable: %v", err)
-	}
-	if kc != 10 || level != 2 {
-		t.Fatalf("Euro sign at keycode %d level %d, want keycode 10 level 2", kc, level)
-	}
-	// A level this backend can name stays expressible on a wider map.
-	if required, err := b.levelModifiers(level); err != nil || len(required) != 1 {
-		t.Fatalf("levelModifiers(%d) = %v, err=%v; want one AltGr keycode", level, required, err)
-	}
-
-	// A level past what this backend can name is refused, and says why.
-	if _, err := b.levelModifiers(5); err == nil {
-		t.Fatal("levelModifiers(5) succeeded, want an unsupported-level error")
-	} else if !strings.Contains(err.Error(), "keyboard-group") {
-		t.Fatalf("unsupported-level error = %v, want it to name the missing keyboard-group information", err)
-	}
-}
-
-// The keymap is re-read after a failed read instead of the failure being cached.
-// Caching it left the backend unable to name any keycode for the rest of the
-// process, so every keystroke failed and no held modifier was ever recognised.
-func TestXTestRetriesTheKeymapAfterAFailedRead(t *testing.T) {
-	reads := 0
-	conn := &x11.MockConnection{
-		SetupFunc: func() *xproto.SetupInfo {
-			return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 8 + 3 - 1}
-		},
-		GetKeyboardMappingFunc: func(xproto.Keycode, byte) x11.GetKeyboardMappingCookie {
-			reads++
-			if reads == 1 {
-				return x11.NewMockGetKeyboardMappingErrorCookie(errTestKeymapRead)
-			}
-			return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
-				KeysymsPerKeycode: 4,
-				Keysyms:           []xproto.Keysym{0xffe1, 0, 0, 0, 0x61, 0x41, 0, 0},
-			})
-		},
-	}
-	b := &XTestBackend{conn: conn}
-
-	// The modifier set is the thing that must not be cached here: an empty one makes
-	// every held modifier invisible, so a caller's Ctrl is pressed again on every
-	// character and released after each one. The first read fails, so this call has
-	// nothing to build from and must leave nothing behind.
-	if got := b.modifierCodeSet(); got != nil {
-		t.Fatalf("modifier set = %v after a failed keymap read, want nil so the next call retries", got)
-	}
-
-	set := b.modifierCodeSet()
-	if set == nil {
-		t.Fatal("modifier set still nil after the keymap became readable")
-	}
-	if len(set) == 0 {
-		t.Fatal("modifier set is empty on a layout that maps a shift key")
-	}
-	if reads != 2 {
-		t.Fatalf("GetKeyboardMapping calls = %d, want 2", reads)
-	}
-}
-
-// The modifier set is only unknowable when the keymap could not be read. A layout
-// that genuinely maps no key for one modifier still gets a usable set.
-func TestXTestModifierSetCachesWhenOnlyOneModifierIsAbsent(t *testing.T) {
-	b, _ := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
-
-	first := b.modifierCodeSet()
-	if first == nil {
-		t.Fatal("modifier set was not built on a usable layout")
-	}
-	second := b.modifierCodeSet()
-	if len(first) == 0 {
-		t.Fatal("modifier set is empty on a layout that maps modifiers")
-	}
-	// Cached: the same set comes back without re-reading.
-	if len(second) != len(first) {
-		t.Fatalf("cached modifier set changed size: %d then %d", len(first), len(second))
-	}
-}
-
-var errTestKeymapRead = errors.New("test keymap read failure")
-
-// A keysym can appear at several levels and keycodes. Keeping whichever came first
-// reported a character as untypable when its first occurrence sits at a level this
-// backend cannot express, while a later one is directly typable.
-func TestEnsureKeymapPrefersATypableLevelForARepeatedKeysym(t *testing.T) {
-	// Nine keysyms per keycode, so levels run past the four levelModifiers can name.
-	// The same keysym sits at level 4 on the first keycode and level 0 on the second:
-	// iteration reaches the untypable one first.
-	const kpk = 9
-	keysyms := make([]xproto.Keysym, kpk*2)
-	keysyms[4] = 'a' // first keycode, level 4: not expressible
-	keysyms[kpk+0] = 'a'
-
-	conn := &x11.MockConnection{
-		SetupFunc: func() *xproto.SetupInfo {
-			return &xproto.SetupInfo{MinKeycode: 8, MaxKeycode: 9}
-		},
-		GetKeyboardMappingFunc: func(xproto.Keycode, byte) x11.GetKeyboardMappingCookie {
-			return x11.NewMockGetKeyboardMappingCookie(&xproto.GetKeyboardMappingReply{
-				KeysymsPerKeycode: kpk,
-				Keysyms:           keysyms,
-			})
-		},
-	}
-	b := &XTestBackend{conn: conn}
-
-	mapping, err := b.ensureKeymap()
-	if err != nil {
-		t.Fatalf("ensureKeymap: %v", err)
-	}
-	got, ok := mapping['a']
+func TestXTestPointerQueryAndSyncUseSameConnection(t *testing.T) {
+	b, _ := newTestXTestBackend(t, 1, []xproto.Keysym{0x61}, nil)
+	conn, ok := b.conn.(*x11.MockConnection)
 	if !ok {
-		t.Fatal("the repeated keysym is missing from the mapping")
+		t.Fatalf("unexpected X11 connection %T", b.conn)
 	}
-	if got.level > maxTypableLevel {
-		t.Fatalf("keysym 'a' resolved to level %d, which cannot be expressed; a typable occurrence existed", got.level)
+	queries := 0
+	conn.QueryPointerFunc = func(window xproto.Window) x11.QueryPointerCookie {
+		queries++
+		if window != 1 {
+			t.Fatalf("pointer queried on wrong root: %d", window)
+		}
+		return syntheticPointerReply{reply: &xproto.QueryPointerReply{RootX: 71, RootY: -52}}
 	}
-	if _, err := b.levelModifiers(got.level); err != nil {
-		t.Fatalf("the resolved level %d is not expressible: %v", got.level, err)
+	x, y, err := b.PointerLocation(context.Background())
+	if err != nil || x != 71 || y != -52 || queries != 1 {
+		t.Fatalf("pointer=(%d,%d) err=%v queries=%d", x, y, err, queries)
 	}
-	if _, _, err := b.keycodeAndLevel('a'); err != nil {
-		t.Fatalf("the keysym is reported untypable: %v", err)
+	if err := b.Sync(context.Background()); err != nil {
+		t.Fatalf("synchronize mocked X connection: %v", err)
+	}
+	conn.QueryPointerFunc = func(xproto.Window) x11.QueryPointerCookie {
+		return syntheticPointerReply{err: errors.New("disconnected")}
+	}
+	if _, _, err := b.PointerLocation(context.Background()); err == nil {
+		t.Fatal("failed pointer query acknowledged")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := b.PointerLocation(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled query=%v", err)
+	}
+	if err := b.Sync(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled sync=%v", err)
+	}
+}
+
+func TestXTestScrollPermanentReleaseFailureIsBoundedAndReported(t *testing.T) {
+	failure := errors.New("permanent synthetic XTEST release failure")
+	b, events := newTestXTestBackend(t, 1, []xproto.Keysym{0x61}, func(ev xtestEvent) error {
+		if ev.eventType == xproto.ButtonRelease {
+			return failure
+		}
+		return nil
+	})
+	if err := b.ScrollRight(context.Background(), 5); !errors.Is(err, failure) {
+		t.Fatalf("permanent release failure lost: %v", err)
+	}
+	if len(*events) != 3 {
+		t.Fatalf("unbounded cleanup or additional clicks: %+v", *events)
+	}
+	for _, ev := range (*events)[1:] {
+		if ev.eventType != xproto.ButtonRelease || ev.detail != 7 {
+			t.Fatalf("cleanup targeted wrong XTEST button: %+v", *events)
+		}
+	}
+	if err := b.ScrollRight(context.Background(), 0); err != nil {
+		t.Fatalf("zero scroll should do no work: %v", err)
+	}
+	if len(*events) != 3 {
+		t.Fatal("zero-click call injected input")
+	}
+}
+
+// Four-level keyboard maps place Shift+AltGr characters in the fourth
+// slot. The backend must apply both modifiers and restore only its own holds.
+func TestXTestFourthLevelAppliesShiftAndAltGrInOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		holdShift bool
+	}{
+		{"temporary modifiers", false},
+		{"caller-owned shift", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend, events := newTestXTestBackend(t, keycodesPerKeycode4, germanLikeKeysyms(), nil)
+			shift, err := backend.keycodeFor("shift")
+			if err != nil {
+				t.Fatal(err)
+			}
+			altGr, err := backend.altGrKeycode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			key, level, err := backend.keycodeAndLevel('@')
+			if err != nil || level != 3 {
+				t.Fatalf("at-sign mapped to key=%d level=%d err=%v, want level 3", key, level, err)
+			}
+			if tc.holdShift {
+				if err := backend.KeyDown(context.Background(), "shift"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			initial := len(*events)
+			if err := backend.TypeLiteral(context.Background(), "@"); err != nil {
+				t.Fatalf("fourth-level literal: %v", err)
+			}
+			var want []xtestEvent
+			if !tc.holdShift {
+				want = append(want, xtestEvent{eventType: xproto.KeyPress, detail: byte(shift)})
+			}
+			want = append(want,
+				xtestEvent{eventType: xproto.KeyPress, detail: byte(altGr)},
+				xtestEvent{eventType: xproto.KeyPress, detail: byte(key)},
+				xtestEvent{eventType: xproto.KeyRelease, detail: byte(key)},
+				xtestEvent{eventType: xproto.KeyRelease, detail: byte(altGr)},
+			)
+			if !tc.holdShift {
+				want = append(want, xtestEvent{eventType: xproto.KeyRelease, detail: byte(shift)})
+			}
+			got := (*events)[initial:]
+			if len(got) != len(want) {
+				t.Fatalf("fourth-level events=%v want %v", got, want)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("event %d = %+v want %+v (all %v)", i, got[i], want[i], got)
+				}
+			}
+			if !tc.holdShift && backend.modifierHeld(shift) {
+				t.Fatal("temporary shift remains held")
+			}
+			if tc.holdShift && !backend.modifierHeld(shift) {
+				t.Fatal("caller shift was released")
+			}
+			if backend.modifierHeld(altGr) {
+				t.Fatal("temporary AltGr remains held")
+			}
+		})
 	}
 }

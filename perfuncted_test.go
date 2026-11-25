@@ -1,442 +1,1610 @@
-package perfuncted_test
+package perfuncted
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/clipboard"
+	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/capability"
+	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/output"
+	"github.com/nskaggs/perfuncted/window"
+	"go.uber.org/goleak"
 	"image"
-	"image/color"
+	"iter"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
-
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
 )
 
-func TestNewAssemblesAllBackends(t *testing.T) {
-	t.Parallel()
-	// Use pftest to provide mocks for all backends.
-	sc := &pftest.Screenshotter{Width: 100, Height: 100}
-	inp := &pftest.Inputter{}
-	mgr := &pftest.Manager{}
-	cb := &pftest.Clipboard{}
-	ctx := context.Background()
-
-	pf := pftest.New(sc, inp, mgr, cb)
-	defer pf.Close()
-
-	if _, err := pf.Screen.Grab(
-		ctx,
-		image.Rect(0, 0, 1, 1),
-	); err != nil {
-		t.Errorf("Screen.Grab: %v", err)
-	}
-	// pf.Input uses InputBundle which wraps inp.
-	if err := pf.Input.Type(ctx, "a"); err != nil {
-		t.Errorf("Type: %v", err)
-	}
-	if err := pf.Input.Type(ctx, "^c"); err != nil {
-		t.Errorf("Type ctrl+c: %v", err)
-	}
-	if _, err := pf.Windows.List(ctx, perfuncted.WindowMatch{}); err != nil {
-		t.Errorf("Windows.List: %v", err)
-	}
-	if err := pf.Clipboard.Set(ctx, "assembled"); err != nil {
-		t.Errorf("Clipboard.Set: %v", err)
-	}
-	if got, err := pf.Clipboard.Get(ctx); err != nil || got != "assembled" {
-		t.Errorf("Clipboard.Get = %q, %v", got, err)
-	}
+type cancelingCoreScreenRead struct {
+	capabilityScreen
+	cancel context.CancelFunc
 }
 
-func TestBundleSmoke(t *testing.T) {
-	sc := &pftest.Screenshotter{Width: 1024, Height: 768}
-	inp := &pftest.Inputter{}
-	mgr := &pftest.Manager{}
-	pf := pftest.New(sc, inp, mgr, nil)
-	ctx := context.Background()
+func (b *cancelingCoreScreenRead) Grab(context.Context, image.Rectangle) (image.Image, error) {
+	b.cancel()
+	return image.NewRGBA(image.Rect(0, 0, 2, 2)), nil
+}
 
-	t.Run("Input", func(t *testing.T) {
-		if err := pf.Input.KeyDown(ctx, "ctrl"); err != nil {
-			t.Fatal(err)
-		}
-		if err := pf.Input.KeyUp(ctx, "ctrl"); err != nil {
-			t.Fatal(err)
-		}
-		if err := pf.Input.Type(ctx, "hello"); err != nil {
-			t.Fatal(err)
-		}
-		if err := pf.Input.MouseClick(ctx, 10, 20, 1); err != nil {
-			t.Fatal(err)
-		}
-		if err := pf.Input.DoubleClick(ctx, 10, 20); err != nil {
-			t.Fatal(err)
-		}
-		if err := pf.Input.DragAndDrop(ctx, 0, 0, 100, 100); err != nil {
-			t.Fatal(err)
+type cancelingCoreOutputRead struct {
+	cancel context.CancelFunc
+}
+
+func (b *cancelingCoreOutputRead) List(context.Context) ([]output.Info, error) {
+	b.cancel()
+	return []output.Info{{Name: "PRIVATE-OUTPUT"}}, nil
+}
+func (b *cancelingCoreOutputRead) Close() error { return nil }
+
+type cancelingCoreClipboardRead struct {
+	capabilityClipboard
+	cancel context.CancelFunc
+}
+
+func (b *cancelingCoreClipboardRead) Get(context.Context) (string, error) {
+	b.cancel()
+	return "private clipboard", nil
+}
+
+type cancelingCoreActiveTitleRead struct {
+	*handleWindowManager
+	cancel context.CancelFunc
+}
+
+func (b *cancelingCoreActiveTitleRead) ActiveTitle(context.Context) (string, error) {
+	b.cancel()
+	return "private window title", nil
+}
+
+// Desktop read facades must not return a private result that arrives after
+// caller cancellation, even when the underlying provider ignores the context.
+func TestCoreDesktopReadsDiscardLateCanceledResults(t *testing.T) {
+	t.Run("screen image", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		session := NewSessionForTesting(&cancelingCoreScreenRead{cancel: cancel}, nil, nil, nil, nil)
+		t.Cleanup(func() { _ = session.Close() })
+		img, err := session.Screen.Grab(ctx, image.Rectangle{})
+		if !errors.Is(err, context.Canceled) || img != nil {
+			t.Fatalf("canceled screen returned %T err=%v", img, err)
 		}
 	})
-
-	t.Run("Screen", func(t *testing.T) {
-		if _, err := pf.Screen.GetPixel(ctx, 5, 5); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pf.Screen.GetMultiplePixels(ctx, []image.Point{{1, 1}}); err != nil {
-			t.Fatal(err)
+	t.Run("outputs", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		session := NewSessionForTesting(nil, nil, nil, &cancelingCoreOutputRead{cancel: cancel}, nil)
+		t.Cleanup(func() { _ = session.Close() })
+		infos, err := session.Outputs.List(ctx)
+		if !errors.Is(err, context.Canceled) || len(infos) != 0 {
+			t.Fatalf("canceled outputs returned %+v err=%v", infos, err)
 		}
 	})
-
-	t.Run("Window", func(t *testing.T) {
-		mgr.Lists = [][]window.Info{{{
-			ID:       1,
-			NativeID: "1",
-			Title:    "Firefox",
-		}}}
-		browserWindow, err := pf.Windows.Find(
-			ctx,
-			perfuncted.WindowMatch{TitleContains: "Firefox"},
-		)
-		if err != nil {
-			t.Fatal(err)
+	t.Run("clipboard text", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		session := NewSessionForTesting(nil, nil, nil, nil, &cancelingCoreClipboardRead{cancel: cancel})
+		t.Cleanup(func() { _ = session.Close() })
+		text, err := session.Clipboard.Get(ctx)
+		if !errors.Is(err, context.Canceled) || text != "" {
+			t.Fatalf("canceled clipboard returned %q err=%v", text, err)
 		}
-		_ = browserWindow.Resize(ctx, 800, 600)
-		_ = browserWindow.Minimize(ctx)
-		_ = browserWindow.Maximize(ctx)
-		_ = browserWindow.Restore(ctx)
+	})
+	t.Run("active window title", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		manager := &cancelingCoreActiveTitleRead{handleWindowManager: newHandleWindowManager(window.Info{Title: "window"}), cancel: cancel}
+		session := NewSessionForTesting(nil, nil, manager, nil, nil)
+		t.Cleanup(func() { _ = session.Close() })
+		title, err := session.Windows.ActiveTitle(ctx)
+		if !errors.Is(err, context.Canceled) || title != "" {
+			t.Fatalf("canceled active title returned %q err=%v", title, err)
+		}
 	})
 }
 
-type tapErrInputter struct {
-	pftest.Inputter
-}
-
-type closeErrScreen struct {
-	pftest.Screenshotter
-	err error
-}
-
-func (s *closeErrScreen) Close() error { return s.err }
-
-type closeErrInput struct {
-	pftest.Inputter
-	err error
-}
-
-func (i *closeErrInput) Close() error { return i.err }
-
-type closeErrWindow struct {
-	pftest.Manager
-	err error
-}
-
-func (w *closeErrWindow) Close() error { return w.err }
-
-type closeErrClipboard struct {
-	pftest.Clipboard
-	err error
-}
-
-func (c *closeErrClipboard) Close() error { return c.err }
-
-type contextKey struct{}
-
-type contextSpyInputter struct {
-	pftest.Inputter
-	ctxValue any
-}
-
-func (s *contextSpyInputter) Type(ctx context.Context, text string) error {
-	s.ctxValue = ctx.Value(contextKey{})
-	return nil
-}
-
-type contextSpyManager struct {
-	pftest.Manager
-	ctxValue any
-}
-
-func (m *contextSpyManager) List(ctx context.Context) ([]window.Info, error) {
-	m.ctxValue = ctx.Value(contextKey{})
-	return []window.Info{{Title: "Firefox"}}, nil
-}
-
-type contextSpyClipboard struct {
-	pftest.Clipboard
-	setValue any
-	getValue any
-}
-
-func (c *contextSpyClipboard) Get(ctx context.Context) (string, error) {
-	c.getValue = ctx.Value(contextKey{})
-	return c.Text, nil
-}
-
-func (c *contextSpyClipboard) Set(ctx context.Context, text string) error {
-	c.setValue = ctx.Value(contextKey{})
-	c.Text = text
-	return nil
-}
-
-type contextSpyScreenshotter struct {
-	pftest.Screenshotter
-	ctxValue any
-}
-
-func (s *contextSpyScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
-	s.ctxValue = ctx.Value(contextKey{})
-	return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
-}
-
-func (m *tapErrInputter) Type(ctx context.Context, s string) error {
-	return errors.New("type error")
-}
-
-func TestInputBundleErrors(t *testing.T) {
-	t.Parallel()
-	inp := &tapErrInputter{}
-	pf := pftest.New(nil, inp, nil, nil)
-	ctx := context.Background()
-
-	err := pf.Input.Type(ctx, "a")
-	if err == nil || !errors.Is(err, perfuncted.ErrOperationFailed) ||
-		!strings.Contains(err.Error(), "type error") {
-		t.Errorf("expected an operation failure containing 'type error', got %v", err)
+// Cancellation can arrive inside a compositor's hash primitive too. An
+// acknowledged digest is still a private observation from a canceled read.
+func TestCoreScreenHashRejectsLateCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	screenshotter := &cancelingCoreScreenRead{cancel: cancel}
+	session := NewSessionForTesting(screenshotter, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	got, err := session.Screen.GrabFullHash(ctx)
+	if !errors.Is(err, context.Canceled) || got != 0 {
+		t.Fatalf("canceled screen hash returned %d, err=%v", got, err)
 	}
 }
 
-func TestOperationErrorPreservesStableErrorCategories(t *testing.T) {
-	t.Parallel()
+// Caller cancellation is not the only authority boundary. Session.Close may
+// complete while a provider is reading; old data must not escape after close.
+func TestCoreDesktopReadsDiscardResultsAfterSessionClose(t *testing.T) {
+	t.Run("screen", func(t *testing.T) {
+		backend := &cancelingCoreScreenRead{}
+		session := NewSessionForTesting(backend, nil, nil, nil, nil)
+		backend.cancel = func() {
+			if err := session.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+		img, err := session.Screen.Grab(context.Background(), image.Rectangle{})
+		if !errors.Is(err, ErrSessionClosed) || img != nil {
+			t.Fatalf("closed session exposed screen %T err=%v", img, err)
+		}
+	})
+	t.Run("output", func(t *testing.T) {
+		backend := &cancelingCoreOutputRead{}
+		session := NewSessionForTesting(nil, nil, nil, backend, nil)
+		backend.cancel = func() {
+			if err := session.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+		items, err := session.Outputs.List(context.Background())
+		if !errors.Is(err, ErrSessionClosed) || len(items) != 0 {
+			t.Fatalf("closed session exposed outputs %+v err=%v", items, err)
+		}
+	})
+	t.Run("clipboard", func(t *testing.T) {
+		backend := &cancelingCoreClipboardRead{}
+		session := NewSessionForTesting(nil, nil, nil, nil, backend)
+		backend.cancel = func() {
+			if err := session.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+		text, err := session.Clipboard.Get(context.Background())
+		if !errors.Is(err, ErrSessionClosed) || text != "" {
+			t.Fatalf("closed session exposed clipboard %q err=%v", text, err)
+		}
+	})
+	t.Run("window title", func(t *testing.T) {
+		backend := &cancelingCoreActiveTitleRead{handleWindowManager: newHandleWindowManager()}
+		session := NewSessionForTesting(nil, nil, backend, nil, nil)
+		backend.cancel = func() {
+			if err := session.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+		title, err := session.Windows.ActiveTitle(context.Background())
+		if !errors.Is(err, ErrSessionClosed) || title != "" {
+			t.Fatalf("closed session exposed title %q err=%v", title, err)
+		}
+	})
+}
 
-	tests := []struct {
-		name       string
-		cause      error
-		wantFailed bool
-		wantCause  error
+// Public facade methods must reject an absent session without touching a
+// display, spawning a process, or panicking on embedded bundleBase access.
+func TestCoreFacadeMethodsFailClosedOnNilReceivers(t *testing.T) {
+	var in *InputBundle
+	var sc *ScreenBundle
+	var win *WindowBundle
+	var out *OutputBundle
+	var cb *ClipboardBundle
+	ctx := context.Background()
+	calls := []struct {
+		name   string
+		invoke func() error
 	}{
-		{
-			name:       "backend failure",
-			cause:      errors.New("backend failed"),
-			wantFailed: true,
-			wantCause:  nil,
-		},
-		{
-			name:       "unsupported",
-			cause:      errors.Join(perfuncted.ErrUnsupported, errors.New("not implemented")),
-			wantFailed: false,
-			wantCause:  perfuncted.ErrUnsupported,
-		},
-		{
-			name:       "unavailable",
-			cause:      perfuncted.ErrUnavailable,
-			wantFailed: false,
-			wantCause:  perfuncted.ErrUnavailable,
-		},
-		{
-			name:       "invalid argument",
-			cause:      perfuncted.ErrInvalidArgument,
-			wantFailed: false,
-			wantCause:  perfuncted.ErrInvalidArgument,
-		},
+		{"key-down", func() error { return in.KeyDown(ctx, "A") }},
+		{"key-up", func() error { return in.KeyUp(ctx, "A") }},
+		{"type", func() error { return in.Type(ctx, "text") }},
+		{"type-literal", func() error { return in.TypeLiteral(ctx, "text") }},
+		{"move", func() error { return in.MouseMove(ctx, 1, 2) }},
+		{"click", func() error { return in.MouseClick(ctx, 1, 2, 1) }},
+		{"click-center", func() error { return in.ClickCenter(ctx, image.Rect(0, 0, 2, 2)) }},
+		{"double-click", func() error { return in.DoubleClick(ctx, 1, 2) }},
+		{"button-down", func() error { return in.MouseDown(ctx, 1) }},
+		{"button-up", func() error { return in.MouseUp(ctx, 1) }},
+		{"scroll-up", func() error { return in.ScrollUp(ctx, 1) }},
+		{"scroll-down", func() error { return in.ScrollDown(ctx, 1) }},
+		{"scroll-left", func() error { return in.ScrollLeft(ctx, 1) }},
+		{"scroll-right", func() error { return in.ScrollRight(ctx, 1) }},
+		{"pointer-location", func() error { _, _, err := in.PointerLocation(ctx); return err }},
+		{"pointer-space", func() error { _, err := in.PointerCoordinateSpace(ctx); return err }},
+		{"input-sync", func() error { return in.Sync(ctx) }},
+		{"drag", func() error { return in.DragAndDrop(ctx, 1, 2, 3, 4) }},
+		{"screen-grab", func() error { _, err := sc.Grab(ctx, image.Rectangle{}); return err }},
+		{"screen-hash", func() error { _, err := sc.GrabFullHash(ctx); return err }},
+		{"screen-pixels", func() error { _, err := sc.GetAllPixels(ctx); return err }},
+		{"window-sync", func() error { return win.Sync(ctx) }},
+		{"window-title", func() error { _, err := win.ActiveTitle(ctx); return err }},
+		{"window-events", func() error { _, err := win.Events(); return err }},
+		{"output-list", func() error { _, err := out.List(ctx); return err }},
+		{"clipboard-get", func() error { _, err := cb.Get(ctx); return err }},
+		{"clipboard-set", func() error { return cb.Set(ctx, "text") }},
+		{"clipboard-paste-no-input", func() error { return cb.pasteWithInputContext(ctx, "text", nil) }},
 	}
+	for _, tc := range calls {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.invoke(); !errors.Is(err, ErrNilSession) {
+				t.Fatalf("absent session returned %v, want ErrNilSession", err)
+			}
+		})
+	}
+	if err := in.close(); err != nil {
+		t.Fatalf("nil input close: %v", err)
+	}
+	if err := sc.close(); err != nil {
+		t.Fatalf("nil screen close: %v", err)
+	}
+	if err := win.close(); err != nil {
+		t.Fatalf("nil window close: %v", err)
+	}
+	if err := out.close(); err != nil {
+		t.Fatalf("nil outputs close: %v", err)
+	}
+	if err := cb.close(); err != nil {
+		t.Fatalf("nil clipboard close: %v", err)
+	}
+}
 
+// Validate the action-and-wait API's error order without opening AT-SPI.
+func TestCoreAccessibilityActionWaitRejectsInvalidCalls(t *testing.T) {
+	var absent *Session
+	root := accessibility.NodeID{}
+	query := accessibility.Query{}
+	_, _, err := absent.InvokeAccessibilityActionAndWait(context.Background(), root, query, "click", accessibility.SnapshotOptions{}, nil)
+	if !errors.Is(err, ErrNilSession) {
+		t.Fatalf("nil session: %v", err)
+	}
+	live := &Session{}
+	_, _, err = live.InvokeAccessibilityActionAndWait(nil, root, query, "click", accessibility.SnapshotOptions{}, nil)
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil context: %v", err)
+	}
+	_, _, err = live.InvokeAccessibilityActionAndWait(context.Background(), root, query, "click", accessibility.SnapshotOptions{}, nil)
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil postcondition: %v", err)
+	}
+}
+
+type listOnlyWindowManager struct {
+	infos []window.Info
+}
+
+func (m *listOnlyWindowManager) List(context.Context) ([]window.Info, error) {
+	return m.infos, nil
+}
+
+func (m *listOnlyWindowManager) IterateWindows(context.Context) iter.Seq2[window.Info, error] {
+	return func(yield func(window.Info, error) bool) {
+		for _, info := range m.infos {
+			if !yield(info, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (m *listOnlyWindowManager) ActiveTitle(context.Context) (string, error) {
+	if len(m.infos) == 0 {
+		return "", window.ErrWindowNotFound
+	}
+	return m.infos[0].Title, nil
+}
+
+func (m *listOnlyWindowManager) Close() error { return nil }
+
+func TestOperationErrorMapsBackendSentinels(t *testing.T) {
+	t.Parallel()
+	base := bundleBase{capability: CapabilityScreen}
+	tests := []struct {
+		name      string
+		cause     error
+		wantCause error
+		wantFail  bool
+	}{
+		{name: "input unsupported", cause: input.ErrNotSupported, wantCause: ErrUnsupported},
+		{name: "window unsupported", cause: window.ErrNotSupported, wantCause: ErrUnsupported},
+		{name: "accessibility unsupported", cause: accessibility.ErrUnsupported, wantCause: ErrUnsupported},
+		{name: "accessibility correlation unsupported", cause: accessibility.ErrUnsupportedCorrelation, wantCause: ErrUnsupported},
+		{name: "capability unsupported", cause: capability.Unsupported("output", "wayland", "no globals"), wantCause: ErrUnsupported},
+		{name: "gnome bridge unavailable", cause: gnomebridge.ErrUnavailable, wantCause: ErrUnavailable},
+		{name: "clipboard tool unavailable", cause: clipboard.ErrNoClipboardTool, wantCause: ErrUnavailable},
+		{name: "util not available", cause: util.ErrNotAvailable, wantCause: ErrUnavailable},
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := &perfuncted.OperationError{
-				Capability: perfuncted.CapabilityInput,
-				Operation:  "test",
-				Err:        test.cause,
+			t.Parallel()
+			err := base.operationError("test", test.cause)
+			var operationErr *OperationError
+			if !errors.As(err, &operationErr) {
+				t.Fatalf("error = %v, want *OperationError", err)
 			}
-			if got := errors.Is(err, perfuncted.ErrOperationFailed); got != test.wantFailed {
-				t.Fatalf("errors.Is(ErrOperationFailed) = %v, want %v; err = %v", got, test.wantFailed, err)
+			if !errors.Is(err, test.wantCause) {
+				t.Fatalf("error = %v, want %v", err, test.wantCause)
 			}
-			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
-				t.Fatalf("errors.Is(%v) = false; err = %v", test.wantCause, err)
+			if got := errors.Is(err, ErrOperationFailed); got != test.wantFail {
+				t.Fatalf("errors.Is(ErrOperationFailed) = %v, want %v; err = %v", got, test.wantFail, err)
 			}
 		})
 	}
 }
 
-func TestBundleMethodsPropagateContext(t *testing.T) {
+func TestUtilCheckAvailableReturnsSentinel(t *testing.T) {
 	t.Parallel()
-	ctx := context.WithValue(context.Background(), contextKey{}, "token")
-	inp := &contextSpyInputter{}
-	mgr := &contextSpyManager{}
-	cb := &contextSpyClipboard{}
-	sc := &contextSpyScreenshotter{}
-	pf := pftest.New(sc, inp, mgr, cb)
-
-	if err := pf.Input.Type(ctx, "hello"); err != nil {
-		t.Fatal(err)
+	err := util.CheckAvailable("screen", nil)
+	if !errors.Is(err, util.ErrNotAvailable) {
+		t.Fatalf("CheckAvailable error = %v, want ErrNotAvailable", err)
 	}
-	if _, err := pf.Windows.List(ctx, perfuncted.WindowMatch{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := pf.Clipboard.Set(ctx, "clipboard"); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := pf.Clipboard.Get(ctx); err != nil || got != "clipboard" {
-		t.Fatalf("Clipboard.Get = %q, %v", got, err)
-	}
-	if _, err := pf.Screen.GetPixel(ctx, 0, 0); err != nil {
-		t.Fatal(err)
-	}
-
-	if inp.ctxValue != "token" {
-		t.Fatalf("input ctx = %v, want token", inp.ctxValue)
-	}
-	if mgr.ctxValue != "token" {
-		t.Fatalf("window ctx = %v, want token", mgr.ctxValue)
-	}
-	if cb.setValue != "token" || cb.getValue != "token" {
-		t.Fatalf("clipboard ctx = set:%v get:%v, want token", cb.setValue, cb.getValue)
-	}
-	if sc.ctxValue != "token" {
-		t.Fatalf("screen ctx = %v, want token", sc.ctxValue)
+	base := bundleBase{capability: CapabilityScreen}
+	wrapped := base.operationError("resolution", err)
+	if !errors.Is(wrapped, ErrUnavailable) {
+		t.Fatalf("wrapped error = %v, want ErrUnavailable", wrapped)
 	}
 }
 
-func TestCloseJoinsErrors(t *testing.T) {
+func TestWindowFindReturnsOperationError(t *testing.T) {
 	t.Parallel()
-	screenErr := errors.New("screen close failed")
-	inputErr := errors.New("input close failed")
-	windowErr := errors.New("window close failed")
-	clipboardErr := errors.New("clipboard close failed")
+	session := NewSessionForTesting(nil, nil, &listOnlyWindowManager{}, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
 
-	pf := pftest.New(
-		&closeErrScreen{err: screenErr},
-		&closeErrInput{err: inputErr},
-		&closeErrWindow{err: windowErr},
-		&closeErrClipboard{err: clipboardErr},
+	_, err := session.Windows.Find(context.Background(), WindowMatch{TitleContains: "missing"})
+	var operationErr *OperationError
+	if !errors.As(err, &operationErr) {
+		t.Fatalf("Find error = %v, want *OperationError", err)
+	}
+	if !errors.Is(err, ErrWindowNotFound) {
+		t.Fatalf("Find error = %v, want ErrWindowNotFound", err)
+	}
+	if !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("Find error = %v, want ErrOperationFailed", err)
+	}
+
+	ambiguous := &listOnlyWindowManager{infos: []window.Info{{Title: "dup", NativeID: "1"}, {Title: "dup", NativeID: "2"}}}
+	session2 := NewSessionForTesting(nil, nil, ambiguous, nil, nil)
+	t.Cleanup(func() { _ = session2.Close() })
+	_, err = session2.Windows.Find(context.Background(), WindowMatch{TitleContains: "dup"})
+	if !errors.As(err, &operationErr) {
+		t.Fatalf("ambiguous Find error = %v, want *OperationError", err)
+	}
+	if !errors.Is(err, ErrWindowAmbiguous) {
+		t.Fatalf("ambiguous Find error = %v, want ErrWindowAmbiguous", err)
+	}
+}
+
+func TestWindowStableHandleUnsupportedIsOperationError(t *testing.T) {
+	t.Parallel()
+	session := NewSessionForTesting(nil, nil, &listOnlyWindowManager{infos: []window.Info{{Title: "one", NativeID: "1"}}}, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	found, err := session.Windows.Find(context.Background(), WindowMatch{TitleContains: "one"})
+	if err != nil {
+		t.Fatalf("Find error = %v", err)
+	}
+	err = found.Activate(context.Background())
+	var operationErr *OperationError
+	if !errors.As(err, &operationErr) {
+		t.Fatalf("Activate error = %v, want *OperationError", err)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Activate error = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestPasteWithoutInputReturnsCapabilityError(t *testing.T) {
+	t.Parallel()
+	session := NewSessionForTesting(&capabilityScreen{}, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	session.Input = nil
+	err := session.Paste(context.Background(), "text")
+	var capabilityErr *CapabilityError
+	if !errors.As(err, &capabilityErr) {
+		t.Fatalf("Paste error = %v, want *CapabilityError", err)
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Paste error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestAccessibilityActionWithoutBundleReturnsCapabilityError(t *testing.T) {
+	t.Parallel()
+	session := NewSessionForTesting(&capabilityScreen{}, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	session.Accessibility = nil
+	_, _, err := session.InvokeAccessibilityActionAndWait(context.Background(), accessibility.NodeID{}, accessibility.Query{}, "activate", accessibility.SnapshotOptions{}, Predicate("test", func(context.Context) (bool, error) { return true, nil }))
+	var capabilityErr *CapabilityError
+	if !errors.As(err, &capabilityErr) {
+		t.Fatalf("InvokeAccessibilityActionAndWait error = %v, want *CapabilityError", err)
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("InvokeAccessibilityActionAndWait error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestClipboardPasteWithoutInputReturnsCapabilityError(t *testing.T) {
+	t.Parallel()
+	session := NewSessionForTesting(nil, nil, nil, nil, &capabilityClipboard{})
+	t.Cleanup(func() { _ = session.Close() })
+	err := session.Clipboard.pasteWithInputContext(context.Background(), "text", nil)
+	var capabilityErr *CapabilityError
+	if !errors.As(err, &capabilityErr) {
+		t.Fatalf("pasteWithInputContext error = %v, want *CapabilityError", err)
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("pasteWithInputContext error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestSessionCloseCleansOwnedInfrastructure(t *testing.T) {
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
+		t.Fatalf("mkdir xdg: %v", err)
+	}
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.infra = &sessionInfra{xdgDir: xdgDir}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(xdgDir); !os.IsNotExist(err) {
+		t.Fatal("owned session infrastructure was not cleaned")
+	}
+}
+
+func TestSessionCloseIsConcurrentAndIdempotent(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	var waitGroup sync.WaitGroup
+	for range 16 {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			if err := session.Close(); err != nil {
+				t.Errorf("Close: %v", err)
+			}
+		}()
+	}
+	waitGroup.Wait()
+}
+
+func TestSessionCloseNil(t *testing.T) {
+	var session *Session
+	if err := session.Close(); err != nil {
+		t.Fatalf("nil Close returned error: %v", err)
+	}
+}
+
+// A rejected runtime cleanup is not a successful session teardown. Every
+// caller of Close must observe the same failure even when shutdown joins a
+// concurrent signal-triggered stop.
+func TestSessionCloseReportsUnsafeRuntimeCleanup(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.infra = &sessionInfra{xdgDir: "/"}
+	err := session.Close()
+	if err == nil || !strings.Contains(err.Error(), "unsafe") {
+		t.Fatalf("Close error=%v, want unsafe runtime cleanup failure", err)
+	}
+	if again := session.Close(); !errors.Is(again, err) {
+		t.Fatalf("Close replay error=%v, want original error=%v", again, err)
+	}
+}
+
+func TestResolveRuntimePreservesHostDesktopWhenNoSessionOverride(t *testing.T) {
+	t.Setenv("DISPLAY", ":99")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+
+	session, err := Open(context.Background())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = session.Close()
+	})
+	if got := session.env.Display(); got != ":99" {
+		t.Fatalf("display = %q, want :99", got)
+	}
+}
+
+func TestExplicitTargetUsesExactImmutableEnvironment(t *testing.T) {
+	environment := []string{
+		"XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-test",
+		"WAYLAND_DISPLAY=wayland-1",
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/perfuncted-xdg-test/bus",
+		"DISPLAY=",
+		"SWAYSOCK=",
+	}
+	session, err := Open(
+		context.Background(),
+		WithTarget(EnvironmentTarget(environment)),
 	)
-
-	err := pf.Close()
-	if !errors.Is(err, screenErr) || !errors.Is(err, inputErr) ||
-		!errors.Is(err, windowErr) || !errors.Is(err, clipboardErr) {
-		t.Fatalf("close error %v does not include all component errors", err)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = session.Close()
+	})
+	environment[0] = "XDG_RUNTIME_DIR=/changed"
+	targetEnv := env.FromEnviron(session.Target().Env())
+	if got := targetEnv.Get("XDG_RUNTIME_DIR"); got != "/tmp/perfuncted-xdg-test" {
+		t.Fatalf("XDG_RUNTIME_DIR = %q", got)
+	}
+	if got := targetEnv.Get("WAYLAND_DISPLAY"); got != "wayland-1" {
+		t.Fatalf("WAYLAND_DISPLAY = %q", got)
+	}
+	if got := targetEnv.Display(); got != "" {
+		t.Fatalf("DISPLAY = %q, want empty", got)
+	}
+	if got := targetEnv.Get("SWAYSOCK"); got != "" {
+		t.Fatalf("SWAYSOCK = %q, want empty", got)
 	}
 }
 
-func TestWindowBundle(t *testing.T) {
-	mgr := &pftest.Manager{
-		Lists: [][]window.Info{
-			{{ID: 1, Title: "Firefox"}},
+func TestLaunchWithExplicitTargetDoesNotInheritHostEnvironment(t *testing.T) {
+	t.Setenv("PERFUNCTED_HOST_ONLY", "host-value")
+	t.Setenv("DISPLAY", ":host")
+
+	session, err := Open(
+		context.Background(),
+		WithTarget(EnvironmentTarget([]string{
+			"WAYLAND_DISPLAY=target-wayland",
+		})),
+	)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	var stdout strings.Builder
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: "sh",
+			Args: []string{
+				"-c",
+				`printf '%s|%s|%s' "$PERFUNCTED_HOST_ONLY" "$DISPLAY" "$WAYLAND_DISPLAY"`,
+			},
+			Stdout: &stdout,
 		},
-	}
-	pf := pftest.New(nil, nil, mgr, nil)
-	ctx := context.Background()
-
-	wins, err := pf.Windows.List(ctx, perfuncted.WindowMatch{})
+	)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Launch: %v", err)
 	}
-	if len(wins) != 1 || wins[0].Title() != "Firefox" {
-		t.Errorf("unexpected list: %v", wins)
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
 	}
-
-	if err := wins[0].Activate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(mgr.Activated) != 1 || mgr.Activated[0] != "1" {
-		t.Errorf("unexpected activated: %v", mgr.Activated)
+	if got := stdout.String(); got != "||target-wayland" {
+		t.Fatalf("stdout = %q, want ||target-wayland", got)
 	}
 }
 
-func TestScreenBundleHashing(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	sc := &legacyHashScreenshotter{
-		Screenshotter: &pftest.Screenshotter{Frames: []image.Image{img}},
-	}
-	pf := pftest.New(sc, nil, nil, nil)
-	defer pf.Close()
-	ctx := context.Background()
-	want := find.PixelHash(img, nil)
-
-	h1, err := pf.Screen.GrabRegionHash(ctx, image.Rect(0, 0, 10, 10))
+func TestLaunchEmptyEnvironmentUsesOnlyRoutingOverlay(t *testing.T) {
+	session, err := Open(
+		context.Background(),
+		WithTarget(EnvironmentTarget([]string{
+			"WAYLAND_DISPLAY=target-wayland",
+			"CUSTOM_SESSION=value",
+		})),
+	)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Open: %v", err)
 	}
-	if h1 != want {
-		t.Errorf("GrabRegionHash = %08x, want canonical image hash %08x", h1, want)
+	t.Cleanup(func() { _ = session.Close() })
+
+	var stdout strings.Builder
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: "sh",
+			Args: []string{
+				"-c",
+				`printf '%s|%s' "${CUSTOM_SESSION-unset}" "$WAYLAND_DISPLAY"`,
+			},
+			Env:    []string{},
+			Stdout: &stdout,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch with empty environment: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if got := stdout.String(); got != "unset|target-wayland" {
+		t.Fatalf("stdout = %q, want unset|target-wayland", got)
+	}
+}
+
+func TestRuntimeSocketPathResolvesRelativeWaylandDisplay(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"XDG_RUNTIME_DIR=/tmp/perfuncted-host",
+		"WAYLAND_DISPLAY=wayland-0",
+	})
+
+	if got := rt.SocketPath(); got != "/tmp/perfuncted-host/wayland-0" {
+		t.Fatalf("SocketPath = %q, want /tmp/perfuncted-host/wayland-0", got)
+	}
+}
+
+func TestRuntimeSocketPathKeepsAbsoluteWaylandDisplay(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"XDG_RUNTIME_DIR=/tmp/perfuncted-host",
+		"WAYLAND_DISPLAY=/run/user/1000/wayland-1",
+	})
+
+	if got := rt.SocketPath(); got != "/run/user/1000/wayland-1" {
+		t.Fatalf("SocketPath = %q, want /run/user/1000/wayland-1", got)
+	}
+}
+
+func TestRuntimeSocketPathReturnsEmptyWithoutRuntimeDir(t *testing.T) {
+	rt := env.FromEnviron([]string{
+		"WAYLAND_DISPLAY=wayland-0",
+	})
+
+	if got := rt.SocketPath(); got != "" {
+		t.Fatalf("SocketPath = %q, want empty", got)
+	}
+}
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
+
+func TestEnviron(t *testing.T) { //nolint:gocyclo
+	t.Parallel()
+	ev := env.Environ("/tmp/test-xdg", "wayland-99", "unix:path=/tmp/test-xdg/bus")
+
+	var xdg, wl, dbus, display, sessionType string
+	for _, e := range ev {
+		switch {
+		case strings.HasPrefix(e, "XDG_RUNTIME_DIR="):
+			xdg = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
+		case strings.HasPrefix(e, "WAYLAND_DISPLAY="):
+			wl = strings.TrimPrefix(e, "WAYLAND_DISPLAY=")
+		case strings.HasPrefix(e, "DBUS_SESSION_BUS_ADDRESS="):
+			dbus = strings.TrimPrefix(e, "DBUS_SESSION_BUS_ADDRESS=")
+		case strings.HasPrefix(e, "DISPLAY="):
+			display = strings.TrimPrefix(e, "DISPLAY=")
+		case strings.HasPrefix(e, "XDG_SESSION_TYPE="):
+			sessionType = strings.TrimPrefix(e, "XDG_SESSION_TYPE=")
+		}
 	}
 
-	h2, err := pf.Screen.GrabFullHash(ctx)
+	if xdg != "/tmp/test-xdg" {
+		t.Errorf("XDG_RUNTIME_DIR = %q, want /tmp/test-xdg", xdg)
+	}
+	if wl != "wayland-99" {
+		t.Errorf("WAYLAND_DISPLAY = %q, want wayland-99", wl)
+	}
+	if dbus != "unix:path=/tmp/test-xdg/bus" {
+		t.Errorf("DBUS_SESSION_BUS_ADDRESS = %q", dbus)
+	}
+	if display != "" {
+		t.Errorf("DISPLAY = %q, want empty", display)
+	}
+	if sessionType != "wayland" {
+		t.Errorf("XDG_SESSION_TYPE = %q, want wayland", sessionType)
+	}
+}
+
+func TestEnvironFiltersHost(t *testing.T) {
+	os.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	os.Setenv("WAYLAND_DISPLAY", "wayland-0")
+	os.Setenv("DISPLAY", ":0")
+	defer os.Unsetenv("DISPLAY")
+
+	ev := env.Environ("/tmp/sess", "wayland-1", "unix:path=/tmp/sess/bus")
+
+	count := 0
+	for _, e := range ev {
+		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("XDG_RUNTIME_DIR appears %d times, want 1", count)
+	}
+}
+
+func TestSessionConfigDefaults(t *testing.T) {
+	cfg := SessionConfig{}
+	if cfg.Resolution != (image.Point{}) {
+		t.Errorf("default Resolution = %v, want zero", cfg.Resolution)
+	}
+	if cfg.LogDir != "" {
+		t.Errorf("default LogDir = %q, want empty", cfg.LogDir)
+	}
+}
+
+func TestEmbeddedConfigs(t *testing.T) {
+	data, err := embeddedConfigs.ReadFile("configs/headless.conf")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read embedded headless.conf: %v", err)
 	}
-	if h2 != h1 {
-		t.Errorf("expected same hash for full screen, got %08x vs %08x", h1, h2)
+	if len(data) == 0 {
+		t.Fatal("embedded headless.conf is empty")
 	}
-	if sc.fullHashCalls != 0 || sc.regionHashCalls != 0 {
-		t.Fatalf("legacy fast hash calls = full:%d region:%d, want 0",
-			sc.fullHashCalls,
-			sc.regionHashCalls,
+	if !strings.Contains(string(data), "HEADLESS-1") {
+		t.Error("headless.conf missing HEADLESS-1 output line")
+	}
+
+	data, err = embeddedConfigs.ReadFile("configs/nested.conf")
+	if err != nil {
+		t.Fatalf("read embedded nested.conf: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("embedded nested.conf is empty")
+	}
+}
+
+func TestStopManagedProcessReapsChild(t *testing.T) {
+	infra := &sessionInfra{}
+	cmd := helperCommand(t)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	infra.stopManagedProcess(sessionruntime.NewSessionProcess(cmd), 500*time.Millisecond)
+	if err := syscall.Kill(cmd.Process.Pid, 0); err != syscall.ESRCH {
+		t.Fatalf("expected process to be gone, got %v", err)
+	}
+}
+
+func TestManagedSessionProcessReapsNaturallyExitingChild(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 0")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	proc := sessionruntime.NewSessionProcess(cmd)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := proc.Wait(ctx, ErrInvalidArgument); err != nil {
+		t.Fatalf("wait for helper: %v", err)
+	}
+	if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+		t.Fatal("managed session process did not record the child exit")
+	}
+
+	var status syscall.WaitStatus
+	if _, err := syscall.Wait4(cmd.Process.Pid, &status, syscall.WNOHANG, nil); !errors.Is(err, syscall.ECHILD) {
+		t.Fatalf("Wait4 after managed reap error = %v, want ECHILD", err)
+	}
+}
+
+func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	cmd := exec.Command(
+		"sh",
+		"-c",
+		`umask 077; (trap '' TERM; sleep 30) & child=$!; printf '%s' "$child" > "$CHILD_PID"; exit 0`,
+	)
+	cmd.Env = env.Merge(os.Environ(), "CHILD_PID="+childPIDPath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start process group: %v", err)
+	}
+	childPID := 0
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if childPID > 0 {
+			_ = syscall.Kill(childPID, syscall.SIGKILL)
+		}
+	})
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+
+	group := sessionruntime.NewGroup(cmd, cmd.Process.Pid)
+	group.Stop(100 * time.Millisecond)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for sessionruntime.PIDAlive(childPID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sessionruntime.PIDAlive(childPID) {
+		t.Fatalf("process-group child %d survived managed shutdown", childPID)
+	}
+}
+
+func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	childReadyPath := filepath.Join(t.TempDir(), "child.ready")
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: os.Args[0],
+			Args: []string{"-test.run=TestHelperProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_PROCESS=1",
+				"GO_HELPER_CHILD_PID=" + childPIDPath,
+				"GO_HELPER_CHILD_READY=" + childReadyPath,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	if err := sessionruntime.WaitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait for leader: %v", err)
+	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	stopErr := app.Stop(stopCtx)
+	if !errors.Is(stopErr, context.DeadlineExceeded) {
+		t.Fatalf("Stop error = %v, want context deadline after descendant ignored SIGTERM", stopErr)
+	}
+	if err := app.Kill(); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	if err := app.proc.WaitGroup(waitCtx, ErrInvalidArgument); err != nil {
+		t.Fatalf("wait for killed process group: %v", err)
+	}
+	if sessionruntime.PIDAlive(childPID) {
+		t.Fatalf("process-group child %d survived Kill", childPID)
+	}
+}
+
+func TestApplicationStopPreservesCancellationCause(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	app, err := session.Launch(context.Background(), Command{Name: "sleep", Args: []string{"10"}})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Kill()
+		_ = session.Close()
+	})
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cause := errors.New("caller stopped application shutdown")
+	cancel(cause)
+	err = app.Stop(ctx)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+		t.Fatalf("Stop error = %v, want context cancellation and caller cause", err)
+	}
+}
+
+func TestSessionCloseUsesShortTimeoutPolicyForProcessStop(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.config.Timeouts = TimeoutPolicy{Short: 25 * time.Millisecond}
+	app, err := session.Launch(
+		context.Background(),
+		Command{Name: "sh", Args: []string{"-c", `trap '' TERM; while :; do :; done`}},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	started := time.Now()
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("Close elapsed = %s, want bounded by short policy", elapsed)
+	}
+	if app.proc.GroupAlive() {
+		t.Fatal("application process group survived policy-bounded shutdown")
+	}
+}
+
+func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session.config.ApplicationGracePeriod = 200 * time.Millisecond
+
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	childReadyPath := filepath.Join(t.TempDir(), "child.ready")
+	app, err := session.Launch(
+		context.Background(),
+		Command{
+			Name: os.Args[0],
+			Args: []string{"-test.run=TestHelperProcess", "--"},
+			Env: []string{
+				"GO_WANT_HELPER_PROCESS=1",
+				"GO_HELPER_CHILD_PID=" + childPIDPath,
+				"GO_HELPER_CHILD_READY=" + childReadyPath,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	if err := sessionruntime.WaitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+	if err := app.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait for leader: %v", err)
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if app.proc.GroupAlive() {
+		t.Fatal("application process group survived Session.Close")
+	}
+	if sessionruntime.PIDAlive(childPID) {
+		t.Fatalf("process-group child %d survived Session.Close", childPID)
+	}
+}
+
+func waitForPIDFile(
+	ctx context.Context,
+	path string,
+) (int, error) {
+	const attempts = 100
+	const interval = 5 * time.Millisecond
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		pid, err := sessionruntime.ReadPIDFile(path)
+		if err == nil {
+			return pid, nil
+		}
+		lastErr = err
+		if i == attempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return 0, fmt.Errorf("read pid file %s: %w", path, lastErr)
+}
+
+func helperCommand(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
+	cmd.Env = env.Merge(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
+}
+
+func TestHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	if childPIDPath := os.Getenv("GO_HELPER_CHILD_PID"); childPIDPath != "" {
+		child := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
+		child.Env = env.Merge(
+			os.Environ(),
+			"GO_HELPER_CHILD_PID=",
+			"GO_WANT_HELPER_PROCESS=1",
+			"GO_WANT_IGNORE_SIGTERM=1",
 		)
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(
+			childPIDPath,
+			[]byte(strconv.Itoa(child.Process.Pid)),
+			0o600,
+		); err != nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+			os.Exit(2)
+		}
+		if os.Getenv("GO_HELPER_HOLD_UNTIL_TERM") != "1" {
+			os.Exit(0)
+		}
+		_ = os.Unsetenv("GO_HELPER_CHILD_READY")
+	}
+	if signalPath := os.Getenv("GO_HELPER_SIGTERM_MARKER"); signalPath != "" {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGTERM)
+		go func() {
+			for range signals {
+				_ = os.WriteFile(signalPath, nil, 0o600)
+			}
+		}()
+	} else if os.Getenv("GO_WANT_IGNORE_SIGTERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+	}
+	if readyPath := os.Getenv("GO_HELPER_READY"); readyPath != "" {
+		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+			os.Exit(2)
+		}
+	}
+	if readyPath := os.Getenv("GO_HELPER_CHILD_READY"); readyPath != "" {
+		if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+			os.Exit(2)
+		}
+	}
+	for {
+		time.Sleep(10 * time.Second)
 	}
 }
 
-type legacyHashScreenshotter struct {
-	*pftest.Screenshotter
-	fullHashCalls   int
-	regionHashCalls int
-}
-
-func (s *legacyHashScreenshotter) CanonicalHashing() bool { return false }
-
-func (s *legacyHashScreenshotter) GrabFullHash(context.Context) (uint32, error) {
-	s.fullHashCalls++
-	return 0xdeadbeef, nil
-}
-
-func (s *legacyHashScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
-	s.regionHashCalls++
-	return 0xbeefdead, nil
-}
-
-func TestWaitForVisibleChange(t *testing.T) {
-	img1 := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	img2 := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	img2.Set(5, 5, color.RGBA{R: 255, A: 255})
-
-	sc := &pftest.Screenshotter{
-		Frames: []image.Image{img1, img1, img2, img2, img2},
+func TestCleanupOnSignalStopsOnContextCancel(t *testing.T) {
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	if err := os.MkdirAll(xdgDir, 0700); err != nil {
+		t.Fatalf("mkdir xdg: %v", err)
 	}
-	pf := pftest.New(sc, nil, nil, nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	infra := &sessionInfra{xdgDir: xdgDir}
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() error { return nil }, 2, 10*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
+	unregister := infra.CleanupOnSignal(ctx)
+	defer unregister()
+	cancel()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		infra.mu.Lock()
+		stopped := infra.stopped
+		infra.mu.Unlock()
+		if stopped {
+			if _, err := os.Stat(xdgDir); os.IsNotExist(err) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if h == 0 {
-		t.Error("expected non-zero hash")
+	t.Fatalf("session was not stopped on context cancellation")
+}
+
+func TestSessionStopUnregistersAutoSignalHandler(t *testing.T) {
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
+		t.Fatalf("mkdir xdg: %v", err)
+	}
+	infra := &sessionInfra{xdgDir: xdgDir}
+	infra.unregister = infra.CleanupOnSignal(context.Background())
+
+	if err := infra.stop(); err != nil {
+		t.Fatalf("session cleanup: %v", err)
+	}
+
+	if infra.unregister != nil {
+		t.Fatal("signal handler unregister function was not cleared")
 	}
 }
 
-func TestWaitForSettle(t *testing.T) {
-	img1 := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	img2 := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	img2.Set(5, 5, color.RGBA{R: 255, A: 255})
-
-	sc := &pftest.Screenshotter{
-		Frames: []image.Image{img1, img1, img2, img2, img2, img2},
+func TestSessionCleanupRemovesXDGRuntimeDir(t *testing.T) {
+	xdgDir := filepath.Join(shortPrivateRuntimeDir(t), "xdg")
+	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
+		t.Fatalf("mkdir xdg: %v", err)
 	}
-	pf := pftest.New(sc, nil, nil, nil)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	infra := &sessionInfra{xdgDir: xdgDir}
+	if err := infra.stop(); err != nil {
+		t.Fatalf("session cleanup: %v", err)
+	}
 
-	h, err := pf.Screen.WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() error {
-		return nil
-	}, 3, 10*time.Millisecond)
+	infra.mu.Lock()
+	stopped := infra.stopped
+	infra.mu.Unlock()
+	if !stopped {
+		t.Fatal("session was not marked stopped")
+	}
+	if _, err := os.Stat(xdgDir); !os.IsNotExist(err) {
+		t.Fatalf("xdg dir still exists after cleanup: %v", err)
+	}
+}
 
+func TestSessionStopNil(t *testing.T) {
+	var infra *sessionInfra
+	if err := infra.stop(); err != nil {
+		t.Fatalf("nil session cleanup: %v", err)
+	}
+}
+
+func TestStartNestedSessionCompiles(t *testing.T) {
+	t.Skip("requires display server (Wayland)")
+	_, _ = Open(context.Background(), WithNested(SessionConfig{}))
+}
+
+func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MkdirTemp: %v", err)
 	}
-	if h == 0 {
-		t.Error("expected non-zero hash")
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	if err := os.WriteFile(filepath.Join(dir, "perfuncted.pid"), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestSessionLogDirectoriesAreUniquePrivateAndRetainedByAge(t *testing.T) { //nolint:gocyclo // the test checks the complete private-directory contract.
+	root := t.TempDir()
+	first, err := sessionruntime.CreateSessionLogDir(root)
+	if err != nil {
+		t.Fatalf("create first log directory: %v", err)
+	}
+	second, err := sessionruntime.CreateSessionLogDir(root)
+	if err != nil {
+		t.Fatalf("create second log directory: %v", err)
+	}
+	if first == second {
+		t.Fatalf("log directories collided: %q", first)
+	}
+	for _, path := range []string{first, second} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat %q: %v", path, statErr)
+		}
+		if mode := info.Mode().Perm(); mode != 0o700 {
+			t.Fatalf("log directory mode = %o, want 700", mode)
+		}
+	}
+	log, err := sessionruntime.OpenPrivateSessionLog(filepath.Join(first, "sway-session.log"))
+	if err != nil {
+		t.Fatalf("open session log: %v", err)
+	}
+	if closeErr := log.Close(); closeErr != nil {
+		t.Fatalf("close session log: %v", closeErr)
+	}
+	logInfo, err := os.Stat(filepath.Join(first, "sway-session.log"))
+	if err != nil {
+		t.Fatalf("stat session log: %v", err)
+	}
+	if mode := logInfo.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("session log mode = %o, want 600", mode)
+	}
+
+	old := filepath.Join(root, sessionruntime.SessionLogPrefix+"old")
+	if err := os.Mkdir(old, 0o700); err != nil {
+		t.Fatalf("mkdir old log directory: %v", err)
+	}
+	oldTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+		t.Fatalf("age old log directory: %v", err)
+	}
+	keep := filepath.Join(root, "caller-owned")
+	if err := os.Mkdir(keep, 0o700); err != nil {
+		t.Fatalf("mkdir caller-owned directory: %v", err)
+	}
+	CleanupSessionLogs(root, time.Hour)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("expired log directory still exists: %v", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("caller-owned directory was removed: %v", err)
+	}
+}
+
+func TestConcurrentSessionLogDirectoriesDoNotCollide(t *testing.T) {
+	root := t.TempDir()
+	const count = 8
+	paths := make(chan string, count)
+	errs := make(chan error, count)
+	var wg sync.WaitGroup
+	for range count {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			path, err := sessionruntime.CreateSessionLogDir(root)
+			if err != nil {
+				errs <- err
+				return
+			}
+			paths <- path
+		}()
+	}
+	wg.Wait()
+	close(paths)
+	close(errs)
+	for err := range errs {
+		t.Fatalf("create concurrent log directory: %v", err)
+	}
+	seen := make(map[string]struct{}, count)
+	for path := range paths {
+		if _, ok := seen[path]; ok {
+			t.Fatalf("duplicate concurrent log directory %q", path)
+		}
+		seen[path] = struct{}{}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat concurrent log directory %q: %v", path, err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o700 {
+			t.Fatalf("concurrent log directory mode = %o, want 700", mode)
+		}
+	}
+	if len(seen) != count {
+		t.Fatalf("created %d/%d concurrent log directories", len(seen), count)
+	}
+}
+
+func TestCleanupStaleSessionsConcurrentNoPidfileIsIdempotent(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			CleanupStaleSessions(24 * time.Hour)
+		}()
+	}
+	wg.Wait()
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale no-pidfile session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsKeepsRecentNoPidfileDir(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	recent := time.Now().Add(-1 * time.Minute)
+	if err := os.Chtimes(dir, recent, recent); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("recent no-pidfile session dir was removed: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsClampsUnsafeMetadataAge(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("invalid"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+	recent := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(dir, recent, recent); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(0)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("recent malformed-owner session dir was removed: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsReapsNoPidfileAfterGrace(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	stale := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(dir, stale, stale); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale no-pidfile session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsReapsRecordedGroupAfterLeaderExit(t *testing.T) { //nolint:gocyclo
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if writeErr := os.WriteFile(
+		filepath.Join(dir, sessionOwnerPIDFile),
+		[]byte("99999999"),
+		0o600,
+	); writeErr != nil {
+		t.Fatalf("WriteFile owner pid: %v", writeErr)
+	}
+
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	childReadyPath := filepath.Join(t.TempDir(), "child.ready")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess", "--")
+	cmd.Env = env.Merge(
+		os.Environ(),
+		"XDG_RUNTIME_DIR="+dir,
+		"GO_WANT_HELPER_PROCESS=1",
+		"GO_HELPER_CHILD_PID="+childPIDPath,
+		"GO_HELPER_CHILD_READY="+childReadyPath,
+		"GO_HELPER_HOLD_UNTIL_TERM=1",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if startErr := cmd.Start(); startErr != nil {
+		t.Fatalf("start process group: %v", startErr)
+	}
+	childPID, err := waitForPIDFile(
+		context.Background(),
+		childPIDPath,
+	)
+	if err != nil {
+		t.Fatalf("wait for child pid: %v", err)
+	}
+	if err := sessionruntime.WaitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recorded process group leader survived cleanup")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for sessionruntime.PIDAlive(childPID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sessionruntime.PIDAlive(childPID) {
+		t.Fatalf("recorded process-group child %d survived cleanup", childPID)
+	}
+	if sessionruntime.ProcessGroupAlive(cmd.Process.Pid) {
+		t.Fatal("recorded process group survived cleanup")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR="+dir, "GO_HELPER_READY="+readyPath)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+		t.Fatalf("wait for helper readiness: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sway.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("recorded child process still alive")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsEscalatesForOwnedChild(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(filepath.Join(dir, sessionOwnerPIDFile), []byte("99999999"), 0o600); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(
+		cmd.Env,
+		"XDG_RUNTIME_DIR="+dir,
+		"GO_WANT_IGNORE_SIGTERM=1",
+		"GO_HELPER_READY="+readyPath,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	waitCh := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(waitCh)
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-waitCh:
+		case <-time.After(2 * time.Second):
+		}
+	})
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+		t.Fatalf("wait for helper readiness: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("owned child process ignored cleanup escalation")
+	}
+}
+
+func TestCleanupStaleSessionsDoesNotTerminateMismatchedChild(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.WriteFile(
+		filepath.Join(dir, sessionOwnerPIDFile),
+		[]byte("99999999"),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile owner pid: %v", err)
+	}
+
+	cmd := helperCommand(t)
+	cmd.Env = env.Merge(cmd.Env, "XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-other")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+	if err := os.WriteFile(
+		filepath.Join(dir, "sway.pid"),
+		[]byte(strconv.Itoa(cmd.Process.Pid)),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile child pid: %v", err)
+	}
+
+	CleanupStaleSessions(24 * time.Hour)
+
+	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
+		t.Fatalf("mismatched child process was terminated: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("stale session dir still exists: %v", err)
+	}
+}
+
+func TestCleanupStaleSessionsKeepsLivePIDDir(t *testing.T) {
+	cleanupStaleSessionsMu.Lock()
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	dir, err := os.MkdirTemp("", "perfuncted-xdg-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	if err := os.WriteFile(filepath.Join(dir, "perfuncted.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatalf("WriteFile pid: %v", err)
+	}
+
+	CleanupStaleSessions(0)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("live session dir was removed: %v", err)
 	}
 }

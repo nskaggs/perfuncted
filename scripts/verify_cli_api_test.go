@@ -3,12 +3,87 @@ package main
 import (
 	"go/token"
 	"go/types"
+	"golang.org/x/tools/go/packages"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-
-	"golang.org/x/tools/go/packages"
 )
+
+func TestCLISyncCheckerValidatesRealRepositoryAndRejectsOutdatedDocs(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verifyCLISync(root, filepath.Join(root, "docs-cli")); got != 0 {
+		t.Fatalf("real CLI documentation has API discrepancies; exit=%d", got)
+	}
+	docRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(docRoot, "pf_screen_totally-unimplemented-operation.md"), []byte("# bogus command\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := verifyCLISync(root, docRoot); got != 1 {
+		t.Fatalf("unimplemented CLI docs were accepted: exit=%d", got)
+	}
+	if got := verifyCLISync(root, t.TempDir()); got != 1 {
+		t.Fatalf("missing documented API commands were accepted: exit=%d", got)
+	}
+}
+
+func TestCLISyncCheckerNeverFallsBackToUnrelatedModule(t *testing.T) {
+	if got := verifyCLISync(t.TempDir(), t.TempDir()); got != 2 {
+		t.Fatalf("unrelated module unexpectedly accepted: exit=%d", got)
+	}
+}
+
+// An invalid documentation glob must be a hard verification failure rather
+// than silently interpreting the documentation set as empty.
+func TestCLISyncCheckerRejectsMalformedDocumentationGlob(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verifyCLISync(root, "[invalid-glob"); got != 2 {
+		t.Fatalf("malformed documentation glob status = %d, want 2", got)
+	}
+}
+
+// A declared manual CLI alias must not hide the disappearance of its API
+// counterpart. A synthetic module isolates the check from the real bundle.
+func TestCLISyncCheckerRejectsMissingManualBinding(t *testing.T) {
+	module := t.TempDir()
+	docs := t.TempDir()
+	for name, content := range map[string]string{
+		"go.mod":    "module github.com/nskaggs/perfuncted\n\ngo 1.23\n",
+		"bundle.go": "package perfuncted\ntype ScreenBundle struct{}\ntype InputBundle struct{}\ntype WindowBundle struct{}\ntype ClipboardBundle struct{}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(module, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(docs, "pf_window_keep_above.md"), []byte("# Keep above\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := verifyCLISync(module, docs); got != 1 {
+		t.Fatalf("missing manual WindowBundle.SetKeepAboveByID binding status = %d, want 1", got)
+	}
+}
+
+// The CLI/API contract must fail closed if a bundle API disappears entirely.
+// Otherwise an empty documentation directory could make a broken package pass.
+func TestCLISyncCheckerRejectsMissingBundleTypes(t *testing.T) {
+	module := t.TempDir()
+	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module github.com/nskaggs/perfuncted\n\ngo 1.23\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(module, "bundle.go"), []byte("package perfuncted\ntype ScreenBundle struct{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := verifyCLISync(module, t.TempDir()); got != 2 {
+		t.Fatalf("missing InputBundle, WindowBundle and ClipboardBundle accepted: exit=%d, want 2", got)
+	}
+}
 
 func TestUniqRemovesEmptyValuesAndSorts(t *testing.T) {
 	got := uniq([]string{"second", "first", "second", "", "first", "third"})
