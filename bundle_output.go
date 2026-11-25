@@ -27,20 +27,7 @@ func (b *OutputBundle) List(ctx context.Context) ([]output.Info, error) {
 	if err := b.checkAvailable("list"); err != nil {
 		return nil, err
 	}
-	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	b.traceAction("output", "list")
-	items, err := b.backend.List(ctx)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return nil, openErr
-	}
-	return items, b.operationError("list", err)
+	return readBundleValue(ctx, &b.bundleBase, "output", "list", b.backend.List)
 }
 
 func (b *OutputBundle) close() error {

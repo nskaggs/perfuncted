@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/capture"
 	"image"
 	"image/png"
 	"os"
@@ -184,7 +185,7 @@ func (s *Session) captureScreenshot(ctx context.Context, directory string) error
 	}
 	// Unlike the public ScreenBundle path, diagnostics read the capture
 	// backend directly. Reject truncated planes before PNG accesses them.
-	if err := validateCaptureImageLayout(img); err != nil {
+	if err := capture.ValidateImageLayout(img); err != nil {
 		return err
 	}
 	return writePNG(filepath.Join(directory, "screenshot.png"), img)

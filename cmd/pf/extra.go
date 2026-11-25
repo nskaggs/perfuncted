@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+
 	"bufio"
 	"context"
 	"encoding/json"
@@ -21,6 +23,7 @@ import (
 	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/probe"
+	"github.com/nskaggs/perfuncted/internal/workflow"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/window"
 )
@@ -71,7 +74,7 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 }
 
 type scriptRunner struct {
-	lifecycle         *workflowLifecycle
+	lifecycle         *workflow.Lifecycle
 	externalLifecycle bool
 	ctx               context.Context //nolint:containedctx // runner owns command context
 	in                io.Reader
@@ -150,25 +153,24 @@ control record is safely recovered by starting another run with the same ID.`,
 				}
 				r = f
 			}
-			var lifecycle *workflowLifecycle
-			var control *workflowControl
+			var lifecycle *workflow.Lifecycle
+			var control *sessionregistry.WorkflowControl
 			var err error
 			runCtx := cmd.Context()
 			if workflowID != "" {
-				lifecycle = newWorkflowLifecycle(cmd.Context())
-				lifecycle.id = workflowID
-				control, err = startWorkflowControl(lifecycle)
+				lifecycle = workflow.New(cmd.Context(), workflowID)
+				control, err = sessionregistry.StartWorkflowControl(lifecycle)
 				if err != nil {
-					lifecycle.cancel()
+					lifecycle.Cancel()
 					return err
 				}
-				defer lifecycle.cancel()
-				runCtx = lifecycle.ctx
+				defer lifecycle.Cancel()
+				runCtx = lifecycle.Context()
 			}
 			pf, err := openPF(runCtx)
 			if err != nil {
 				if lifecycle != nil {
-					return errors.Join(lifecycle.finish(err), control.close())
+					return errors.Join(lifecycle.Finish(err), control.Close())
 				}
 				return err
 			}
@@ -185,8 +187,8 @@ control record is safely recovered by starting another run with the same ID.`,
 			runErr := sr.run(r)
 			closeErr := pf.Close()
 			if lifecycle != nil {
-				finalErr := lifecycle.finish(errors.Join(runErr, closeErr))
-				return errors.Join(finalErr, control.close())
+				finalErr := lifecycle.Finish(errors.Join(runErr, closeErr))
+				return errors.Join(finalErr, control.Close())
 			}
 			return runErr
 		},
@@ -198,13 +200,13 @@ control record is safely recovered by starting another run with the same ID.`,
 func (s *scriptRunner) run(r io.Reader) (runErr error) {
 	originalCtx := s.ctx
 	if s.lifecycle == nil {
-		s.lifecycle = newWorkflowLifecycle(s.ctx)
+		s.lifecycle = workflow.New(s.ctx, "")
 	}
 	lifecycle := s.lifecycle
-	s.ctx = lifecycle.ctx
+	s.ctx = lifecycle.Context()
 	defer func() {
 		if !s.externalLifecycle {
-			runErr = lifecycle.finish(runErr)
+			runErr = lifecycle.Finish(runErr)
 		}
 		s.ctx = originalCtx
 		s.lifecycle = nil
@@ -216,115 +218,7 @@ func (s *scriptRunner) run(r io.Reader) (runErr error) {
 	if s.scriptFromStdin {
 		s.in = reader
 	}
-	step := 0
-	for lineNo := 1; ; lineNo++ {
-		lineBytes, readErr := reader.ReadSlice('\n')
-		if errors.Is(readErr, io.EOF) && len(lineBytes) == 0 {
-			return nil
-		}
-		if errors.Is(readErr, bufio.ErrBufferFull) {
-			return fmt.Errorf("script line %d: token too long", lineNo)
-		}
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return readErr
-		}
-		if s.ctx != nil {
-			if err := s.ctx.Err(); err != nil {
-				return err
-			}
-		}
-		if err := s.runLine(lineNo, string(lineBytes), &step); err != nil {
-			return err
-		}
-	}
-}
-
-func (s *scriptRunner) runLine(lineNo int, raw string, step *int) error {
-	line := strings.TrimSpace(raw)
-	if line == "" || strings.HasPrefix(line, "#") {
-		return nil
-	}
-	toks, err := splitShell(line)
-	if err != nil {
-		return fmt.Errorf("script line %d: %w", lineNo, err)
-	}
-	if len(toks) == 0 {
-		return nil
-	}
-	*step++
-	s.lifecycle.beginStep(*step, "waiting")
-	if err := s.lifecycle.checkpoint(); err != nil {
-		return err
-	}
-	s.lifecycle.beginStep(*step, "running")
-	if err := s.exec(lineNo, toks); err != nil {
-		s.lifecycle.beginStep(*step, "failed")
-		return err
-	}
-	s.lifecycle.completeStep(*step)
-	return nil
-}
-
-func splitShell(s string) ([]string, error) {
-	var out []string
-	var cur strings.Builder
-	inQuote := byte(0)
-	escaped := false
-	tokenStarted := false
-	emit := func() {
-		if tokenStarted {
-			out = append(out, cur.String())
-			cur.Reset()
-			tokenStarted = false
-		}
-	}
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if escaped {
-			tokenStarted = true
-			cur.WriteByte(ch)
-			escaped = false
-			continue
-		}
-		switch ch {
-		case '\\':
-			tokenStarted = true
-			if inQuote == '\'' {
-				cur.WriteByte(ch)
-			} else {
-				escaped = true
-			}
-		case '\'', '"':
-			tokenStarted = true
-			if inQuote == 0 {
-				inQuote = ch
-				continue
-			}
-			if inQuote == ch {
-				inQuote = 0
-				continue
-			}
-			cur.WriteByte(ch)
-		case ' ', '\t':
-			if inQuote != 0 {
-				tokenStarted = true
-				cur.WriteByte(ch)
-				continue
-			}
-			emit()
-		default:
-			tokenStarted = true
-			cur.WriteByte(ch)
-		}
-	}
-	if escaped {
-		return nil, fmt.Errorf("trailing escape")
-	}
-	if inQuote != 0 {
-		return nil, fmt.Errorf("unterminated quote")
-	}
-	emit()
-	return out, nil
+	return workflow.Run(s.ctx, reader, lifecycle, s.exec)
 }
 
 func (s *scriptRunner) exec(lineNo int, toks []string) error {

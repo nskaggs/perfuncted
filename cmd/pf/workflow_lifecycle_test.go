@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nskaggs/perfuncted/internal/workflow"
 	"github.com/nskaggs/perfuncted/pftest"
 )
 
@@ -44,11 +45,11 @@ func workflowReceive[T any](t *testing.T, ch <-chan T) T {
 	}
 }
 
-func workflowAwaitState(t *testing.T, w *workflowLifecycle, want workflowState) {
+func workflowAwaitState(t *testing.T, w *workflow.Lifecycle, want workflow.State) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
-		_, state, changed := w.snapshot()
+		_, state, changed := w.Snapshot()
 		if state == want {
 			return
 		}
@@ -65,8 +66,8 @@ func TestWorkflowRunnerLifecycle(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			parent, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			w := newWorkflowLifecycle(parent)
-			defer w.stop()
+			w := workflow.New(parent, "")
+			defer w.Stop()
 			inp := &workflowTestInput{entered: make(chan string, 3), proceed: make(chan struct{}), cleaned: make(chan struct{})}
 			session := pftest.New(&pftest.Screenshotter{}, inp, &pftest.Manager{}, nil)
 			defer session.Close()
@@ -76,32 +77,32 @@ func TestWorkflowRunnerLifecycle(t *testing.T) {
 			if got := workflowReceive(t, inp.entered); got != "first" {
 				t.Fatal(got)
 			}
-			id, state, _ := w.snapshot()
-			if id == "" || state != workflowRunning {
+			id, state, _ := w.Snapshot()
+			if id == "" || state != workflow.Running {
 				t.Fatalf("initial identity/state: %q %s", id, state)
 			}
 			switch mode {
 			case "resume", "stop-paused":
-				if !w.pause() {
+				if !w.Pause() {
 					t.Fatal("pause refused")
 				}
-				workflowAwaitState(t, w, workflowPausing)
+				workflowAwaitState(t, w, workflow.Pausing)
 				close(inp.proceed)
-				workflowAwaitState(t, w, workflowPaused)
+				workflowAwaitState(t, w, workflow.Paused)
 				select {
 				case got := <-inp.entered:
 					t.Fatalf("dispatch while paused: %s", got)
 				default:
 				}
 				if mode == "resume" {
-					if !w.resume() {
+					if !w.Resume() {
 						t.Fatal("resume refused")
 					}
-				} else if !w.stop() {
+				} else if !w.Stop() {
 					t.Fatal("stop refused")
 				}
 			case "stop-in-flight":
-				if !w.stop() {
+				if !w.Stop() {
 					t.Fatal("stop refused")
 				}
 			case "parent-cancel":
@@ -111,9 +112,9 @@ func TestWorkflowRunnerLifecycle(t *testing.T) {
 			}
 			err := workflowReceive(t, done)
 			workflowReceive(t, inp.cleaned)
-			want := workflowStopped
+			want := workflow.Stopped
 			if mode == "legacy" || mode == "resume" {
-				want = workflowCompleted
+				want = workflow.Completed
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -123,11 +124,11 @@ func TestWorkflowRunnerLifecycle(t *testing.T) {
 			} else if !errors.Is(err, context.Canceled) {
 				t.Fatalf("want cancellation, got %v", err)
 			}
-			gotID, gotState, _ := w.snapshot()
+			gotID, gotState, _ := w.Snapshot()
 			if gotID != id || gotState != want {
 				t.Fatalf("final identity/state: %q %s", gotID, gotState)
 			}
-			if w.resume() || w.pause() || w.stop() {
+			if w.Resume() || w.Pause() || w.Stop() {
 				t.Fatal("terminal state accepted control")
 			}
 			select {
@@ -140,27 +141,27 @@ func TestWorkflowRunnerLifecycle(t *testing.T) {
 }
 
 func TestWorkflowFailureAndIdentity(t *testing.T) {
-	w := newWorkflowLifecycle(context.Background())
-	other := newWorkflowLifecycle(context.Background())
-	defer other.stop()
-	if w.id == other.id {
+	w := workflow.New(context.Background(), "")
+	other := workflow.New(context.Background(), "")
+	defer other.Stop()
+	if w.ID() == other.ID() {
 		t.Fatal("duplicate run identity")
 	}
 	runner := &scriptRunner{lifecycle: w}
 	if err := runner.run(strings.NewReader("unknown\n")); err == nil {
 		t.Fatal("expected script error")
 	}
-	workflowAwaitState(t, w, workflowFailed)
+	workflowAwaitState(t, w, workflow.Failed)
 }
 
 func TestWorkflowCommandLocalCancellationFails(t *testing.T) {
 	for _, err := range []error{context.Canceled, context.DeadlineExceeded} {
 		t.Run(err.Error(), func(t *testing.T) {
-			w := newWorkflowLifecycle(context.Background())
-			if got := w.finish(err); !errors.Is(got, err) {
+			w := workflow.New(context.Background(), "")
+			if got := w.Finish(err); !errors.Is(got, err) {
 				t.Fatalf("finish returned %v, want %v", got, err)
 			}
-			workflowAwaitState(t, w, workflowFailed)
+			workflowAwaitState(t, w, workflow.Failed)
 		})
 	}
 }

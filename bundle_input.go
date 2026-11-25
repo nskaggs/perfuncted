@@ -394,7 +394,7 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 
 // DragAndDrop drags the primary button from (x1, y1) to (x2, y2).
 func (b *InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
-	return b.dragPoints(ctx, []motionPoint{{x1, y1}, {x2, y2}}, 0)
+	return b.dragPoints(ctx, []motionPoint{{X: x1, Y: y1}, {X: x2, Y: y2}}, 0)
 }
 
 //nolint:gocyclo // Keep explicit authority and owned-button cleanup checks.
@@ -421,7 +421,7 @@ func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, dura
 	if checkErr := b.session.ensureOpen(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.operationError("pointer", b.backend.MouseMove(ctx, points[0].x, points[0].y)); checkErr != nil {
+	if checkErr := b.operationError("pointer", b.backend.MouseMove(ctx, points[0].X, points[0].Y)); checkErr != nil {
 		return checkErr
 	}
 	if checkErr := ctx.Err(); checkErr != nil {

@@ -50,7 +50,7 @@ func TestManagedSwayConfigSelectionStaysInsideRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", activeTempRoot)
-	if isSafeToRemoveDir(unsafeDir) {
+	if sessionruntime.IsSafeToRemoveDir(unsafeDir) {
 		t.Fatalf("fixture path %q unexpectedly qualifies as safe", unsafeDir)
 	}
 	if _, err := (&sessionInfra{xdgDir: unsafeDir}).writeEmbeddedConfig("configs/headless.conf", image.Point{}); err == nil {
@@ -81,7 +81,7 @@ func TestWriteChildPIDRequiresSafeLocationAndPositivePID(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", activeTempRoot)
-	if isSafeToRemoveDir(unsafeDir) {
+	if sessionruntime.IsSafeToRemoveDir(unsafeDir) {
 		t.Fatalf("fixture path %q unexpectedly qualifies as safe", unsafeDir)
 	}
 	(&sessionInfra{xdgDir: unsafeDir}).writeChildPID("child.pid", os.Getpid())

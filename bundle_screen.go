@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/capture"
 	"image"
 	"image/color"
 	"image/png"
@@ -95,7 +96,7 @@ func (s *ScreenBundle) grab(
 	if err != nil {
 		return nil, s.operationError("capture", err)
 	}
-	if err := validateCaptureImageLayout(img); err != nil {
+	if err := capture.ValidateImageLayout(img); err != nil {
 		return nil, s.operationError("capture", err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {

@@ -28,20 +28,7 @@ func (b *ClipboardBundle) Get(ctx context.Context) (string, error) {
 	if err := b.checkAvailable("get"); err != nil {
 		return "", err
 	}
-	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	b.traceAction("clipboard", "get")
-	text, err := b.backend.Get(ctx)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", ctxErr
-	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return "", openErr
-	}
-	return text, b.operationError("get", err)
+	return readBundleValue(ctx, &b.bundleBase, "clipboard", "get", b.backend.Get)
 }
 
 // Set replaces the clipboard text.

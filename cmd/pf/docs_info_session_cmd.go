@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -369,16 +371,16 @@ Use session cleanup for orphaned runtimes.`,
 			var cancel context.CancelFunc
 			var finished chan error
 			var served chan struct{}
-			var owner *namedOwner
+			var owner *sessionregistry.Owner
 			if startName != "" {
 				ctx, cancel = context.WithCancel(ctx)
 				defer cancel()
 				var err error
-				owner, err = namedReserve(startName)
+				owner, err = sessionregistry.Reserve(startName)
 				if err != nil {
 					return err
 				}
-				defer owner.close()
+				defer owner.Close()
 			}
 			session, err := open(ctx, perfuncted.WithHeadless(cfg))
 			if err != nil {
@@ -391,16 +393,16 @@ Use session cleanup for orphaned runtimes.`,
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				if err := owner.publish(); err != nil {
+				if err := owner.Publish(); err != nil {
 					return err
 				}
 				finished = make(chan error, 1)
 				served = make(chan struct{})
-				go func() { defer close(served); owner.serve(ctx, namedSafeEnv(runtime), cancel, finished) }()
+				go func() { defer close(served); owner.Serve(ctx, sessionregistry.SafeEnv(runtime), cancel, finished) }()
 				defer func() {
 					cancel()
 					finished <- closeSession()
-					_ = owner.listener.Close()
+					_ = owner.CloseListener()
 					<-served
 				}()
 			}

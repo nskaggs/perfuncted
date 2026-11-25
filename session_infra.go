@@ -50,11 +50,11 @@ type sessionInfra struct {
 	wlDisplay       string
 	dbusAddr        string
 	logDir          string
-	swayCmd         *managedSessionProcess
-	dbusCmd         *managedSessionProcess
-	atspiCmd        *managedSessionProcess
+	swayCmd         *sessionruntime.SessionProcess
+	dbusCmd         *sessionruntime.SessionProcess
+	atspiCmd        *sessionruntime.SessionProcess
 	atspiAddr       string
-	wlPasteCmd      *managedSessionProcess
+	wlPasteCmd      *sessionruntime.SessionProcess
 	ctx             context.Context //nolint:containedctx // infrastructure owns this context
 	cancel          context.CancelFunc
 	mu              sync.Mutex
@@ -244,23 +244,6 @@ func (i *sessionInfra) resolveSwayConfig(mode sessionMode, res image.Point) (str
 // managed *runtime* sockets, not arbitrary application Unix sockets.
 const maxManagedSessionSocketPathBytes = 80
 
-// managedSessionTempRoots preserves the caller-selected temporary directory
-// when safe, but can fall back to /tmp for Unix socket paths that are too long.
-// The fallback must also be considered by stale-session cleanup.
-func managedSessionTempRoots() []string {
-	preferred := filepath.Clean(os.TempDir())
-	const shortRoot = "/tmp"
-	// A relative TMPDIR would produce relative managed runtime and socket
-	// paths, which D-Bus cannot reliably bind and cleanup cannot own safely.
-	if !filepath.IsAbs(preferred) {
-		return []string{shortRoot}
-	}
-	if preferred == shortRoot {
-		return []string{preferred}
-	}
-	return []string{preferred, shortRoot}
-}
-
 func validateManagedSessionSocketPath(path string) error {
 	if err := validateSessionUnixSocketPath(path); err != nil {
 		return err
@@ -277,7 +260,7 @@ func validateManagedSessionSocketPath(path string) error {
 // Random 0700 directories under sticky /tmp preserve session isolation.
 func createManagedSessionRuntimeDir() (string, error) {
 	var pathErr error
-	for _, root := range managedSessionTempRoots() {
+	for _, root := range sessionruntime.ManagedSessionTempRoots() {
 		dir, err := os.MkdirTemp(root, "perfuncted-xdg-")
 		if err != nil {
 			return "", fmt.Errorf("create managed runtime in %q: %w", root, err)
@@ -340,8 +323,8 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 		observeStartupPhase(i.startupObserver, StartupPhaseDBusProcessSpawn, startupPhaseResult(ctx, err))
 		return err
 	}
-	i.dbusCmd = newManagedSessionProcess(cmd)
-	i.writeChildPID("dbus.pid", cmd.Process.Pid)
+	i.dbusCmd = sessionruntime.NewSessionProcess(cmd)
+	i.writeChildPID("dbus.pid", i.dbusCmd.PID())
 	observeStartupPhase(i.startupObserver, StartupPhaseDBusProcessSpawn, StartupPhaseSucceeded)
 
 	busPath := filepath.Join(i.xdgDir, "bus")
@@ -370,8 +353,8 @@ func (i *sessionInfra) launchAccessibility() error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	i.atspiCmd = newManagedSessionProcess(cmd)
-	i.writeChildPID("at-spi.pid", cmd.Process.Pid)
+	i.atspiCmd = sessionruntime.NewSessionProcess(cmd)
+	i.writeChildPID("at-spi.pid", i.atspiCmd.PID())
 	return nil
 }
 
@@ -465,8 +448,8 @@ func (i *sessionInfra) launchSway(
 		sessionruntime.CloseLogFile(logFile)
 		return err
 	}
-	i.swayCmd = newManagedSessionProcess(cmd)
-	i.writeChildPID("sway.pid", cmd.Process.Pid)
+	i.swayCmd = sessionruntime.NewSessionProcess(cmd)
+	i.writeChildPID("sway.pid", i.swayCmd.PID())
 	sessionruntime.CloseLogFile(logFile)
 	observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, StartupPhaseSucceeded)
 
@@ -496,8 +479,8 @@ func (i *sessionInfra) launchWlPaste() error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	err := cmd.Start()
 	if err == nil {
-		i.wlPasteCmd = newManagedSessionProcess(cmd)
-		i.writeChildPID("wl-paste.pid", cmd.Process.Pid)
+		i.wlPasteCmd = sessionruntime.NewSessionProcess(cmd)
+		i.writeChildPID("wl-paste.pid", i.wlPasteCmd.PID())
 		return nil
 	}
 	slog.Warn("wl-paste helper failed to start", "error", err)
@@ -513,7 +496,7 @@ func (i *sessionInfra) writeChildPID(name string, pid int) {
 		slog.Warn("session: reject unsafe child pid filename", "name", name)
 		return
 	}
-	if !isPrivateManagedSessionDir(i.xdgDir) {
+	if !sessionruntime.IsPrivateManagedSessionDir(i.xdgDir) {
 		slog.Warn("session: skip writing pidfile to non-managed directory", "path", i.xdgDir, "name", name)
 		return
 	}
@@ -534,7 +517,7 @@ func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string
 		conf = strings.ReplaceAll(conf, "1024x768", resStr)
 	}
 
-	if !isPrivateManagedSessionDir(i.xdgDir) {
+	if !sessionruntime.IsPrivateManagedSessionDir(i.xdgDir) {
 		return "", fmt.Errorf("session: refuse to write config to non-managed directory %q", i.xdgDir)
 	}
 	confPath := filepath.Join(i.xdgDir, "sway.conf")
@@ -614,12 +597,12 @@ func (i *sessionInfra) stop() error {
 		i.stopManagedProcess(i.atspiCmd, stopTimeout)
 		i.stopManagedProcess(i.dbusCmd, stopTimeout)
 		if i.xdgDir != "" {
-			if !isSafeToRemoveDir(i.xdgDir) {
+			if !sessionruntime.IsSafeToRemoveDir(i.xdgDir) {
 				i.stopErr = fmt.Errorf("session: refuse unsafe managed runtime directory %q", i.xdgDir)
 				slog.Warn("session: skip removal of non-managed directory", "path", i.xdgDir)
 			} else if info, err := os.Lstat(i.xdgDir); errors.Is(err, os.ErrNotExist) {
 				// Another cleanup already removed the directory.
-			} else if err != nil || !isPrivateSessionRuntimeInfo(info) {
+			} else if err != nil || !sessionruntime.IsPrivateSessionRuntimeInfo(info) {
 				cause := err
 				if cause == nil {
 					cause = errors.New("runtime directory is not privately owned")
@@ -628,7 +611,7 @@ func (i *sessionInfra) stop() error {
 				slog.Warn("session: skip removal of runtime without private ownership", "path", i.xdgDir)
 			} else {
 				unmountCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-				unmountErr := unmountSubdirsContext(unmountCtx, i.xdgDir)
+				unmountErr := sessionruntime.UnmountSubdirsContext(unmountCtx, i.xdgDir)
 				cancel()
 				if unmountErr != nil {
 					// Leave the directory intact for a later stale-session cleanup.
@@ -651,9 +634,9 @@ func (i *sessionInfra) stop() error {
 	return i.stopErr
 }
 
-func (i *sessionInfra) stopManagedProcess(proc *managedSessionProcess, waitTimeout time.Duration) {
+func (i *sessionInfra) stopManagedProcess(proc *sessionruntime.SessionProcess, waitTimeout time.Duration) {
 	if proc == nil {
 		return
 	}
-	proc.stop(waitTimeout)
+	proc.Stop(waitTimeout)
 }

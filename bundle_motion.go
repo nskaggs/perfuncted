@@ -2,9 +2,8 @@ package perfuncted
 
 import (
 	"context"
-	"fmt"
+	"github.com/nskaggs/perfuncted/internal/motion"
 	"image"
-	"math"
 	"time"
 
 	"github.com/nskaggs/perfuncted/input"
@@ -19,97 +18,11 @@ type MotionOptions struct {
 	Variation int     // seeded coordinate variation in backend units, 0..16
 	Seed      uint64
 }
-type motionPoint struct{ x, y int }
-
-const (
-	motionInterval    = time.Second / 60
-	motionMaxDuration = 10 * time.Second
-	motionMaxSamples  = 120
-)
+type motionPoint = motion.Point
 
 // ValidateMotionOptions checks a motion request before opening an input session.
 func ValidateMotionOptions(o MotionOptions) error { return o.validate() }
-func (o MotionOptions) validate() error {
-	if o.Duration < 0 || o.Duration > motionMaxDuration {
-		return fmt.Errorf("input: duration must be between 0 and %s", motionMaxDuration)
-	}
-	if o.Easing != "" && o.Easing != "linear" && o.Easing != "ease-in-out" {
-		return fmt.Errorf("input: invalid easing %q", o.Easing)
-	}
-	if math.IsNaN(o.Curve) || math.IsInf(o.Curve, 0) || math.Abs(o.Curve) > .5 {
-		return fmt.Errorf("input: invalid curve")
-	}
-	if o.Variation < 0 || o.Variation > 16 {
-		return fmt.Errorf("input: variation must be 0..16")
-	}
-	return nil
-}
-func motionSamples(a, b motionPoint, o MotionOptions) []motionPoint {
-	if o.Duration == 0 || a == b {
-		return []motionPoint{a, b}
-	}
-	n := int(o.Duration / motionInterval)
-	if n < 2 {
-		n = 2
-	}
-	if n > motionMaxSamples {
-		n = motionMaxSamples
-	}
-	points := make([]motionPoint, n+1)
-	points[0], points[n] = a, b
-	ax, ay := float64(a.x), float64(a.y)
-	dx, dy := float64(b.x)-ax, float64(b.y)-ay
-	// The coordinate envelope is the endpoint rectangle expanded by the
-	// maximum perpendicular bend (|Curve| <= 0.5) and variation on each
-	// relevant axis. Unlike the endpoint rectangle, this permits horizontal
-	// and vertical paths to bend normally without flattening.
-	xMargin := .5*math.Abs(dy) + float64(o.Variation)
-	yMargin := .5*math.Abs(dx) + float64(o.Variation)
-	minX, maxX := math.Min(ax, float64(b.x))-xMargin, math.Max(ax, float64(b.x))+xMargin
-	minY, maxY := math.Min(ay, float64(b.y))-yMargin, math.Max(ay, float64(b.y))+yMargin
-	state := o.Seed
-	rand := func() float64 {
-		state += 0x9e3779b97f4a7c15
-		z := state
-		z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
-		z = (z ^ (z >> 27)) * 0x94d049bb133111eb
-		z ^= z >> 31
-		return float64(z>>11)/float64(uint64(1)<<53)*2 - 1
-	}
-	for i := 1; i < n; i++ {
-		t := float64(i) / float64(n)
-		e := t
-		if o.Easing == "ease-in-out" {
-			e = t * t * (3 - 2*t)
-		}
-		bend := 4 * e * (1 - e) * o.Curve
-		x, y := ax+dx*e-dy*bend, ay+dy*e+dx*bend
-		if o.Variation > 0 {
-			fade := 2 * math.Min(e, 1-e)
-			x += rand() * float64(o.Variation) * fade
-			y += rand() * float64(o.Variation) * fade
-		}
-		x = math.Max(minX, math.Min(maxX, x))
-		y = math.Max(minY, math.Min(maxY, y))
-		points[i] = motionPoint{motionCoordinate(x), motionCoordinate(y)}
-	}
-	return points
-}
-
-// motionCoordinate rounds and saturates finite trajectory positions. Float64
-// cannot represent MaxInt precisely on 64-bit hosts, so compare before
-// conversion, which would otherwise overflow at the integer limits.
-func motionCoordinate(v float64) int {
-	maxInt := int(^uint(0) >> 1)
-	minInt := -maxInt - 1
-	if v >= float64(maxInt) {
-		return maxInt
-	}
-	if v <= float64(minInt) {
-		return minInt
-	}
-	return int(math.Round(v))
-}
+func (o MotionOptions) validate() error           { return motion.Options(o).Validate() }
 
 // validateMotionSpace uses the existing Session-authorized coordinate
 // provenance reader. Smooth operations never guess whether coordinates are
@@ -122,7 +35,7 @@ func (b *InputBundle) validateMotionSpace(ctx context.Context) error {
 func (b *InputBundle) validateMotionPoints(ctx context.Context, points []motionPoint) error {
 	if v, ok := b.backend.(input.PointerTargetValidator); ok {
 		for _, p := range points {
-			if err := v.ValidatePointerTarget(ctx, p.x, p.y); err != nil {
+			if err := v.ValidatePointerTarget(ctx, p.X, p.Y); err != nil {
 				return b.operationError("pointer", err)
 			}
 			if err := ctx.Err(); err != nil {
@@ -171,7 +84,7 @@ func (b *InputBundle) sendMotion(ctx context.Context, points []motionPoint, d ti
 		if err := b.session.ensureOpen(); err != nil {
 			return err
 		}
-		if err := b.operationError("pointer", b.backend.MouseMove(ctx, points[i].x, points[i].y)); err != nil {
+		if err := b.operationError("pointer", b.backend.MouseMove(ctx, points[i].X, points[i].Y)); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -246,7 +159,7 @@ func (b *InputBundle) MouseMoveSmooth(ctx context.Context, start *image.Point, e
 		}
 		start = &image.Point{X: x, Y: y}
 	}
-	points := motionSamples(motionPoint{start.X, start.Y}, motionPoint{end.X, end.Y}, o)
+	points := motion.Samples(motionPoint{X: start.X, Y: start.Y}, motionPoint{X: end.X, Y: end.Y}, motion.Options(o))
 	if checkErr := b.validateMotionPoints(ctx, points); checkErr != nil {
 		return checkErr
 	}
@@ -273,8 +186,8 @@ func (b *InputBundle) DragAndDropSmooth(ctx context.Context, start, end image.Po
 		return b.DragAndDrop(ctx, start.X, start.Y, end.X, end.Y)
 	}
 	if start == end {
-		return b.dragPoints(ctx, []motionPoint{{start.X, start.Y}}, 0)
+		return b.dragPoints(ctx, []motionPoint{{X: start.X, Y: start.Y}}, 0)
 	}
-	points := motionSamples(motionPoint{start.X, start.Y}, motionPoint{end.X, end.Y}, o)
+	points := motion.Samples(motionPoint{X: start.X, Y: start.Y}, motionPoint{X: end.X, Y: end.Y}, motion.Options(o))
 	return b.dragPoints(ctx, points, o.Duration)
 }

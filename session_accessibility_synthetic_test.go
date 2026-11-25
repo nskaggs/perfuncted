@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -142,7 +141,7 @@ func TestLaunchAccessibilityOwnsAndStopsSyntheticLauncher(t *testing.T) {
 	t.Setenv("ATSPI_DBUS_IMPLEMENTATION", "dbus-broker")
 	bin := t.TempDir()
 	launcher := filepath.Join(bin, atspiBusLauncherName)
-	if err := os.WriteFile(launcher, []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0700); err != nil {
+	if err := os.WriteFile(launcher, []byte("#!/bin/sh\nprintf '%s' \"$ATSPI_DBUS_IMPLEMENTATION\" > \"$XDG_RUNTIME_DIR/atspi-implementation\"\nexec /bin/sleep 30\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
@@ -161,15 +160,19 @@ func TestLaunchAccessibilityOwnsAndStopsSyntheticLauncher(t *testing.T) {
 		_ = os.RemoveAll(runtimeDir)
 		t.Fatalf("launch synthetic AT-SPI helper: %v", err)
 	}
-	if infra.atspiCmd != nil && !slices.Contains(infra.atspiCmd.proc.cmd.Env, "ATSPI_DBUS_IMPLEMENTATION=dbus-daemon") {
-		t.Error("private accessibility bus must use direct daemon activation, not host broker activation")
+	implementationFile := filepath.Join(runtimeDir, "atspi-implementation")
+	if err := sessionruntime.WaitForFile(context.Background(), implementationFile, 100, 5*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if implementation, err := os.ReadFile(implementationFile); err != nil || string(implementation) != "dbus-daemon" {
+		t.Errorf("private accessibility bus must use direct daemon activation, not host broker activation: %q %v", implementation, err)
 	}
 	if infra.atspiCmd == nil {
 		t.Fatal("successful launch did not publish process ownership")
 	}
 	pid, err := sessionruntime.ReadPIDFile(filepath.Join(runtimeDir, "at-spi.pid"))
-	if err != nil || pid != infra.atspiCmd.proc.pid {
-		t.Fatalf("owned helper pidfile = %d, %v; process pid = %d", pid, err, infra.atspiCmd.proc.pid)
+	if err != nil || pid != infra.atspiCmd.PID() {
+		t.Fatalf("owned helper pidfile = %d, %v; process pid = %d", pid, err, infra.atspiCmd.PID())
 	}
 	if err := infra.stop(); err != nil {
 		t.Fatalf("stop managed synthetic launcher: %v", err)

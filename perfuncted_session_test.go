@@ -118,7 +118,7 @@ func TestStopManagedProcessReapsChild(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	infra.stopManagedProcess(newManagedSessionProcess(cmd), 500*time.Millisecond)
+	infra.stopManagedProcess(sessionruntime.NewSessionProcess(cmd), 500*time.Millisecond)
 	if err := syscall.Kill(cmd.Process.Pid, 0); err != syscall.ESRCH {
 		t.Fatalf("expected process to be gone, got %v", err)
 	}
@@ -130,11 +130,11 @@ func TestManagedSessionProcessReapsNaturallyExitingChild(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	proc := newManagedSessionProcess(cmd)
+	proc := sessionruntime.NewSessionProcess(cmd)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := proc.wait(ctx); err != nil {
+	if err := proc.Wait(ctx, ErrInvalidArgument); err != nil {
 		t.Fatalf("wait for helper: %v", err)
 	}
 	if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
@@ -174,7 +174,8 @@ func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
 		t.Fatalf("wait for child pid: %v", err)
 	}
 
-	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(100 * time.Millisecond)
+	group := sessionruntime.NewGroup(cmd, cmd.Process.Pid)
+	group.Stop(100 * time.Millisecond)
 
 	deadline := time.Now().Add(2 * time.Second)
 	for sessionruntime.PIDAlive(childPID) && time.Now().Before(deadline) {
@@ -232,7 +233,7 @@ func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
 
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
 	defer waitCancel()
-	if err := app.proc.waitGroup(waitCtx); err != nil {
+	if err := app.proc.WaitGroup(waitCtx, ErrInvalidArgument); err != nil {
 		t.Fatalf("wait for killed process group: %v", err)
 	}
 	if sessionruntime.PIDAlive(childPID) {
@@ -278,7 +279,7 @@ func TestSessionCloseUsesShortTimeoutPolicyForProcessStop(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
 		t.Fatalf("Close elapsed = %s, want bounded by short policy", elapsed)
 	}
-	if app.proc.groupAlive() {
+	if app.proc.GroupAlive() {
 		t.Fatal("application process group survived policy-bounded shutdown")
 	}
 }
@@ -321,7 +322,7 @@ func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
 	if err := session.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if app.proc.groupAlive() {
+	if app.proc.GroupAlive() {
 		t.Fatal("application process group survived Session.Close")
 	}
 	if sessionruntime.PIDAlive(childPID) {
@@ -494,38 +495,6 @@ func TestSessionStopNil(t *testing.T) {
 	var infra *sessionInfra
 	if err := infra.stop(); err != nil {
 		t.Fatalf("nil session cleanup: %v", err)
-	}
-}
-
-func TestProcessUsesRuntimeDirAt(t *testing.T) {
-	procRoot := t.TempDir()
-	pidDir := filepath.Join(procRoot, "123")
-	if err := os.Mkdir(pidDir, 0o700); err != nil {
-		t.Fatalf("mkdir process dir: %v", err)
-	}
-	environPath := filepath.Join(pidDir, "environ")
-
-	writeEnvironment := func(values ...string) {
-		t.Helper()
-		if err := os.WriteFile(environPath, []byte(strings.Join(values, "\x00")+"\x00"), 0o600); err != nil {
-			t.Fatalf("write environ: %v", err)
-		}
-	}
-
-	writeEnvironment("PATH=/usr/bin", "XDG_RUNTIME_DIR=/tmp/perfuncted-xdg-owned")
-	if !processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-owned") {
-		t.Fatal("matching runtime directory was not recognized")
-	}
-	if processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-other") {
-		t.Fatal("mismatched runtime directory was accepted")
-	}
-
-	writeEnvironment("PATH=/usr/bin", "OTHER=/tmp/perfuncted-xdg-owned")
-	if processUsesRuntimeDirAt(procRoot, 123, "/tmp/perfuncted-xdg-owned") {
-		t.Fatal("runtime directory value under another key was accepted")
-	}
-	if processUsesRuntimeDirAt(procRoot, 999, "/tmp/perfuncted-xdg-owned") {
-		t.Fatal("missing process was accepted")
 	}
 }
 

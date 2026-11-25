@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -17,27 +16,6 @@ type scriptBrokenWriter struct{}
 
 func (scriptBrokenWriter) Write([]byte) (int, error) {
 	return 0, errors.New("synthetic output failure")
-}
-
-func TestScriptRunnerQuotingPreservesEmptyAndEscapedArguments(t *testing.T) {
-	for _, tc := range []struct {
-		input string
-		want  []string
-		bad   bool
-	}{
-		{"input type 'two words'", []string{"input", "type", "two words"}, false},
-		{`input type ""`, []string{"input", "type", ""}, false},
-		{`input type hello\ world`, []string{"input", "type", "hello world"}, false},
-		{`input type "one 'inner' word"`, []string{"input", "type", "one 'inner' word"}, false},
-		{`input type 'one "inner" word'`, []string{"input", "type", "one \"inner\" word"}, false},
-		{`input type "unterminated`, nil, true},
-		{`input type trailing\`, nil, true},
-	} {
-		got, err := splitShell(tc.input)
-		if (err != nil) != tc.bad || (!tc.bad && !reflect.DeepEqual(got, tc.want)) {
-			t.Errorf("splitShell(%q)=%#v,%v; want %#v error=%v", tc.input, got, err, tc.want, tc.bad)
-		}
-	}
 }
 
 func TestScriptRunnerFailClosedCommandAndOutputBoundaries(t *testing.T) {

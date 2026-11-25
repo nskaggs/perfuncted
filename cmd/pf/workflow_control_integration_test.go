@@ -3,6 +3,8 @@
 package main
 
 import (
+	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+
 	"context"
 	"errors"
 	"io"
@@ -13,13 +15,14 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/internal/workflow"
 )
 
 func TestWorkflowControlHeadlessWayland(t *testing.T) {
 	if os.Getenv("PF_TEST_DISPLAY_SERVER") != "headless-wayland" {
 		t.Skip("requires the managed headless Wayland session")
 	}
-	id := "wf-integration-" + newWorkflowLifecycle(context.Background()).id[:12]
+	id := "wf-integration-" + workflow.New(context.Background(), "").ID()[:12]
 	script := filepath.Join(t.TempDir(), "workflow.pf")
 	longInput := strings.Repeat("a", 2000)
 	if err := os.WriteFile(script, []byte("input type first\ninput type "+longInput+"\ninput type must-not-run\n"), 0600); err != nil {
@@ -54,25 +57,25 @@ func TestWorkflowControlHeadlessWayland(t *testing.T) {
 				t.Error("headless controlled run did not stop during cleanup")
 			}
 		}
-		root, err := workflowRegistry()
+		root, err := sessionregistry.WorkflowRegistry()
 		if err == nil {
-			if recoverErr := namedRecover(root, id); recoverErr != nil && !errors.Is(recoverErr, os.ErrNotExist) {
+			if recoverErr := sessionregistry.Recover(root, id); recoverErr != nil && !errors.Is(recoverErr, os.ErrNotExist) {
 				t.Errorf("recover completed test workflow: %v", recoverErr)
 			}
 			_ = root.Close()
 		}
 	}()
 
-	if _, err := waitWorkflowIntegrationState(t, id, 10*time.Second, func(status workflowStatus) bool {
-		return status.State == workflowRunning
+	if _, err := waitWorkflowIntegrationState(t, id, 10*time.Second, func(status workflow.Status) bool {
+		return status.State == workflow.Running
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if paused, err := workflowIntegrationCall(t, id, "pause"); err != nil || !paused.Accepted || paused.State != workflowPausing {
+	if paused, err := workflowIntegrationCall(t, id, "pause"); err != nil || !paused.Accepted || paused.State != workflow.Pausing {
 		t.Fatalf("pause request = %+v, err = %v", paused, err)
 	}
-	paused, err := waitWorkflowIntegrationState(t, id, 15*time.Second, func(status workflowStatus) bool {
-		return status.State == workflowPaused && status.CurrentStep == 1 && status.CurrentStepPhase == "waiting"
+	paused, err := waitWorkflowIntegrationState(t, id, 15*time.Second, func(status workflow.Status) bool {
+		return status.State == workflow.Paused && status.CurrentStep == 1 && status.CurrentStepPhase == "waiting"
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -83,42 +86,42 @@ func TestWorkflowControlHeadlessWayland(t *testing.T) {
 	if resumed, err := workflowIntegrationCall(t, id, "resume"); err != nil || !resumed.Accepted {
 		t.Fatalf("resume = %+v, err = %v", resumed, err)
 	}
-	if _, err := waitWorkflowIntegrationState(t, id, 10*time.Second, func(status workflowStatus) bool {
-		return status.State == workflowRunning && status.CurrentStep == 2 && status.CurrentStepPhase == "running" && status.LastCompletedStep == 1
+	if _, err := waitWorkflowIntegrationState(t, id, 10*time.Second, func(status workflow.Status) bool {
+		return status.State == workflow.Running && status.CurrentStep == 2 && status.CurrentStepPhase == "running" && status.LastCompletedStep == 1
 	}); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
-	if status, err := workflowReadIntegrationStatus(id); err != nil || status.State != workflowRunning || status.CurrentStep != 2 {
+	if status, err := workflowReadIntegrationStatus(id); err != nil || status.State != workflow.Running || status.CurrentStep != 2 {
 		t.Fatalf("long input did not remain in flight before stop: %+v, err = %v", status, err)
 	}
 	stopped, err := workflowIntegrationCall(t, id, "stop")
-	if err != nil || !stopped.Accepted || stopped.State != workflowStopped || stopped.CurrentStep != 2 || stopped.CurrentStepPhase != "canceled" || stopped.LastCompletedStep != 1 {
+	if err != nil || !stopped.Accepted || stopped.State != workflow.Stopped || stopped.CurrentStep != 2 || stopped.CurrentStepPhase != "canceled" || stopped.LastCompletedStep != 1 {
 		t.Fatalf("stop result = %+v, err = %v", stopped, err)
 	}
 	if err := workflowReceive(t, runDone); !errors.Is(err, context.Canceled) {
 		t.Fatalf("run result = %v, want context canceled", err)
 	}
-	if status, err := workflowReadIntegrationStatus(id); err != nil || status.State != workflowStopped || status.CurrentStep != 2 {
+	if status, err := workflowReadIntegrationStatus(id); err != nil || status.State != workflow.Stopped || status.CurrentStep != 2 {
 		t.Fatalf("terminal status = %+v, err = %v", status, err)
 	}
 }
 
-func workflowIntegrationCall(t *testing.T, id, operation string) (workflowReply, error) {
+func workflowIntegrationCall(t *testing.T, id, operation string) (sessionregistry.WorkflowReply, error) {
 	t.Helper()
 	// Invoke the public Cobra command against the live owner rather than
 	// calling the underlying socket transport directly.
 	return executeWorkflowCommand(t, operation, id)
 }
 
-func workflowReadIntegrationStatus(id string) (workflowStatus, error) {
-	root, err := workflowRegistry()
+func workflowReadIntegrationStatus(id string) (workflow.Status, error) {
+	root, err := sessionregistry.WorkflowRegistry()
 	if err != nil {
-		return workflowStatus{}, err
+		return workflow.Status{}, err
 	}
 	defer root.Close()
-	reply, err := workflowCall(context.Background(), root, id, "status")
-	return workflowStatus{
+	reply, err := sessionregistry.CallWorkflow(context.Background(), root, id, "status")
+	return workflow.Status{
 		ID:                reply.ID,
 		State:             reply.State,
 		LastCompletedStep: reply.LastCompletedStep,
@@ -128,7 +131,7 @@ func workflowReadIntegrationStatus(id string) (workflowStatus, error) {
 	}, err
 }
 
-func waitWorkflowIntegrationState(t *testing.T, id string, timeout time.Duration, match func(workflowStatus) bool) (workflowStatus, error) {
+func waitWorkflowIntegrationState(t *testing.T, id string, timeout time.Duration, match func(workflow.Status) bool) (workflow.Status, error) {
 	t.Helper()
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()

@@ -1,6 +1,8 @@
 package perfuncted
 
 import (
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+
 	"context"
 	"errors"
 	"os"
@@ -89,7 +91,7 @@ func TestManagedSessionLongTMPDIRAutomaticallyUsesShortPrivateRuntime(t *testing
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
 		t.Fatalf("runtime dir should be private 0700: %v %v", info, err)
 	}
-	if !isManagedSessionDir(runtimeDir) || !isSafeToRemoveDir(runtimeDir) {
+	if !sessionruntime.IsManagedSessionDir(runtimeDir) || !sessionruntime.IsSafeToRemoveDir(runtimeDir) {
 		t.Fatal("shortened directory must be recognized for safe cleanup")
 	}
 	children, err := filepath.Glob(filepath.Join(temp, "perfuncted-xdg-*"))

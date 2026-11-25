@@ -94,7 +94,7 @@ func TestStopRecordedProcessHonorsContextDuringGrace(t *testing.T) {
 		err   error
 	}, 1)
 	go func() {
-		owned, stopErr := stopRecordedProcess(ctx, cmd.Process.Pid, dir, time.Hour)
+		owned, stopErr := sessionruntime.StopRecordedProcess(ctx, cmd.Process.Pid, dir, time.Hour)
 		result <- struct {
 			owned bool
 			err   error
@@ -122,7 +122,7 @@ func TestStopRecordedProcessHonorsCancellationBeforeOwnershipLookup(t *testing.T
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	owned, err := stopRecordedProcess(ctx, 0, "", 0)
+	owned, err := sessionruntime.StopRecordedProcess(ctx, 0, "", 0)
 	if owned || !errors.Is(err, context.Canceled) {
 		t.Fatalf("pre-canceled stop = (%v, %v), want (false, context.Canceled)", owned, err)
 	}

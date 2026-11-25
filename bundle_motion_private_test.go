@@ -53,7 +53,7 @@ func (c *motionStepContext) Deadline() (time.Time, bool) { return time.Now().Add
 func (c *motionStepContext) Done() <-chan struct{}       { return nil }
 
 func TestMotionInternalAuthorityPerFrame(t *testing.T) {
-	points := []motionPoint{{0, 0}, {1, 1}, {2, 2}}
+	points := []motionPoint{{X: 0, Y: 0}, {X: 1, Y: 1}, {X: 2, Y: 2}}
 	for _, tc := range []struct {
 		name     string
 		target   int
@@ -126,7 +126,7 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 			if tc.close {
 				ctx.onTrigger = func() { _ = s.Close() }
 			}
-			err := s.Input.dragPoints(ctx, []motionPoint{{1, 1}, {2, 2}}, 0)
+			err := s.Input.dragPoints(ctx, []motionPoint{{X: 1, Y: 1}, {X: 2, Y: 2}}, 0)
 			if err == nil || backend.moves != 0 {
 				t.Fatalf("admission err=%v moves=%d", err, backend.moves)
 			}

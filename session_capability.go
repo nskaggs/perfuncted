@@ -88,3 +88,9 @@ func closeFailedBackend(backend any, openErr error) {
 		_ = closer.Close()
 	}
 }
+
+func (s *Session) supportsCapabilityOperation(c Capability, operation string) bool {
+	s.capabilitiesMu.RLock()
+	defer s.capabilitiesMu.RUnlock()
+	return s.capabilities[c].Supports(operation)
+}

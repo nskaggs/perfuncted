@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/internal/capture"
 	"image"
 
 	"github.com/nskaggs/perfuncted/screen"
@@ -150,7 +151,7 @@ func validateBackgroundBuffer(buffer screen.WindowPixmapCapture, captureErr erro
 			return captureErr
 		}
 	}
-	if err := validateCaptureImageLayout(buffer.Image); err != nil {
+	if err := capture.ValidateImageLayout(buffer.Image); err != nil {
 		return err
 	}
 	if buffer.ScreenRect.Empty() || buffer.Image.Bounds().Dx() != buffer.ScreenRect.Dx() || buffer.Image.Bounds().Dy() != buffer.ScreenRect.Dy() {

@@ -99,10 +99,7 @@ func (b *bundleBase) checkAvailable(operation string, available bool) error {
 	if b.operationsResolved && b.capability != CapabilityAccessibility {
 		supported = slices.Contains(b.resolvedOperations, operation)
 	} else {
-		b.session.capabilitiesMu.RLock()
-		status := b.session.capabilities[b.capability]
-		supported = status.Supports(operation)
-		b.session.capabilitiesMu.RUnlock()
+		supported = b.session.supportsCapabilityOperation(b.capability, operation)
 	}
 	if !supported {
 		return &CapabilityError{
@@ -159,4 +156,25 @@ func (b *bundleBase) operationError(operation string, err error) error {
 		Operation:  operation,
 		Err:        err,
 	}
+}
+
+// readBundleValue shares the admission and post-read authority checks for
+// read-only capability operations. Mutations deliberately retain their own
+// error joining and dispatch rules.
+func readBundleValue[T any](ctx context.Context, b *bundleBase, component, operation string, read func(context.Context) (T, error)) (T, error) {
+	var zero T
+	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+	b.traceAction(component, "%s", operation)
+	value, err := read(ctx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return zero, ctxErr
+	}
+	if openErr := b.session.ensureOpen(); openErr != nil {
+		return zero, openErr
+	}
+	return value, b.operationError(operation, err)
 }

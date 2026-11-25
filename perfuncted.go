@@ -4,9 +4,9 @@
 package perfuncted
 
 import (
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
@@ -35,52 +35,6 @@ var (
 	openClipboard          = clipboard.OpenRuntimeContext
 )
 
-func nestedSessionPrefix() string {
-	return filepath.Join(os.TempDir(), "perfuncted-xdg-")
-}
-
-// matchesManagedSessionRoot accepts only a directly nested managed runtime
-// directory. Never broaden /tmp cleanup to arbitrary caller-owned paths.
-func matchesManagedSessionRoot(dir, root string) bool {
-	prefix := filepath.Join(root, "perfuncted-xdg-")
-	if !strings.HasPrefix(dir, prefix) || len(dir) <= len(prefix) {
-		return false
-	}
-	return !strings.Contains(dir[len(prefix):], string(os.PathSeparator))
-}
-
-func isSafeToRemoveDir(dir string) bool {
-	if dir == "" {
-		return false
-	}
-	cleaned := filepath.Clean(dir)
-	if cleaned == "/" || cleaned == "." {
-		return false
-	}
-	tmp := filepath.Clean(os.TempDir())
-	if cleaned == tmp {
-		return false
-	}
-	if strings.HasPrefix(cleaned, tmp+string(os.PathSeparator)) {
-		return true
-	}
-	// Only our exact managed pattern qualifies outside the caller's TMPDIR.
-	return matchesManagedSessionRoot(cleaned, "/tmp")
-}
-
-func isManagedSessionDir(dir string) bool {
-	if !isSafeToRemoveDir(dir) {
-		return false
-	}
-	cleaned := filepath.Clean(dir)
-	for _, root := range managedSessionTempRoots() {
-		if matchesManagedSessionRoot(cleaned, root) {
-			return true
-		}
-	}
-	return false
-}
-
 // SessionDetection is an immutable snapshot of the environment used to
 // classify the current desktop session.
 type SessionDetection struct {
@@ -105,7 +59,7 @@ func DetectSession() SessionDetection {
 		WaylandDisplay: os.Getenv("WAYLAND_DISPLAY"),
 		DBusAddress:    os.Getenv("DBUS_SESSION_BUS_ADDRESS"),
 	}
-	if isManagedSessionDir(xdg) {
+	if sessionruntime.IsManagedSessionDir(xdg) {
 		detection.Kind = TargetNested
 	}
 	return detection

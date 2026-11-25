@@ -12,6 +12,8 @@ import (
 
 	"github.com/nskaggs/perfuncted/internal/env"
 	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+
+	"github.com/nskaggs/perfuncted/internal/contextutil"
 )
 
 var sessionRoutingKeys = []string{
@@ -51,7 +53,7 @@ type Command struct {
 // Application is a process group launched and owned by a Session.
 type Application struct {
 	session *Session
-	proc    managedProc
+	proc    sessionruntime.Group
 	path    string
 
 	done chan struct{}
@@ -115,7 +117,7 @@ func (s *Session) Launch(
 
 	app := &Application{
 		session: s,
-		proc:    managedProc{cmd: execCommand, pid: execCommand.Process.Pid},
+		proc:    sessionruntime.NewGroup(execCommand, execCommand.Process.Pid),
 		path:    resolved,
 		done:    make(chan struct{}),
 	}
@@ -142,7 +144,7 @@ func (s *Session) routingEnvironment() []string {
 }
 
 func (a *Application) reap() {
-	err := a.proc.cmd.Wait()
+	err := a.proc.WaitLeader()
 	a.mu.Lock()
 	a.err = err
 	a.mu.Unlock()
@@ -183,7 +185,7 @@ func (a *Application) PID() int {
 	if a == nil {
 		return 0
 	}
-	return a.proc.pid
+	return a.proc.PID()
 }
 
 // Path returns the resolved executable path.
@@ -210,19 +212,19 @@ func (a *Application) Exited() bool {
 
 // Stop sends SIGTERM to the application process group and waits for ctx.
 func (a *Application) Stop(ctx context.Context) error {
-	if a == nil || a.proc.pid <= 0 {
+	if a == nil || a.proc.PID() <= 0 {
 		return nil
 	}
 	if ctx == nil {
 		return fmt.Errorf("perfuncted: stop application: %w: nil context", ErrInvalidArgument)
 	}
 	if err := ctx.Err(); err != nil {
-		return contextErrorWithCause(ctx)
+		return contextutil.ErrorWithCause(ctx)
 	}
-	if err := a.proc.signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("perfuncted: stop application %d: %w", a.proc.pid, err)
+	if err := a.proc.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("perfuncted: stop application %d: %w", a.proc.PID(), err)
 	}
-	if err := a.proc.waitGroup(ctx); err != nil {
+	if err := a.proc.WaitGroup(ctx, ErrInvalidArgument); err != nil {
 		return err
 	}
 	return nil
@@ -230,11 +232,11 @@ func (a *Application) Stop(ctx context.Context) error {
 
 // Kill sends SIGKILL to the application process group.
 func (a *Application) Kill() error {
-	if a == nil || a.proc.pid <= 0 {
+	if a == nil || a.proc.PID() <= 0 {
 		return nil
 	}
-	if err := a.proc.signal(syscall.SIGKILL); err != nil {
-		return fmt.Errorf("perfuncted: kill application %d: %w", a.proc.pid, err)
+	if err := a.proc.Signal(syscall.SIGKILL); err != nil {
+		return fmt.Errorf("perfuncted: kill application %d: %w", a.proc.PID(), err)
 	}
 	return nil
 }
@@ -262,7 +264,7 @@ func (s *Session) stopApplication(app *Application) error {
 		grace,
 	)
 	defer killCancel()
-	if err := app.proc.waitGroup(killCtx); err != nil {
+	if err := app.proc.WaitGroup(killCtx, ErrInvalidArgument); err != nil {
 		return err
 	}
 	if err := app.Wait(killCtx); err != nil {
@@ -276,11 +278,11 @@ func (s *Session) stopApplication(app *Application) error {
 }
 
 func (a *Application) ownsPID(pid int32) bool {
-	if a == nil || pid <= 0 || !a.proc.groupAlive() {
+	if a == nil || pid <= 0 || !a.proc.GroupAlive() {
 		return false
 	}
 	pgid, err := syscall.Getpgid(int(pid))
-	return err == nil && pgid == a.proc.pid
+	return err == nil && pgid == a.proc.PID()
 }
 
 // LogPath returns the unique private log directory used by owned session

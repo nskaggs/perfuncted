@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+
 	"context"
 	"errors"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/internal/workflow"
 	"golang.org/x/sys/unix"
 )
 
@@ -28,7 +31,7 @@ func TestReviewControlledWorkflowRejectsNonregularScript(t *testing.T) {
 	defer unix.Close(fd)
 	for _, path := range []string{fifo, "/dev/null"} {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			id := "rv-" + newWorkflowLifecycle(context.Background()).id[:24]
+			id := "rv-" + workflow.New(context.Background(), "").ID()[:24]
 			called := false
 			cmd := runCmd(func(context.Context) (*perfuncted.Session, error) {
 				called = true
@@ -40,8 +43,8 @@ func TestReviewControlledWorkflowRejectsNonregularScript(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			err := cmd.ExecuteContext(ctx)
-			if root, e := workflowRegistry(); e == nil {
-				_ = namedRecover(root, id)
+			if root, e := sessionregistry.WorkflowRegistry(); e == nil {
+				_ = sessionregistry.Recover(root, id)
 				root.Close()
 			}
 			if called || err == nil || !strings.Contains(err.Error(), "regular") {
