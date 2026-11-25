@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // The direct managed-session stop path must terminate and reap a real helper;
@@ -24,7 +25,7 @@ func TestManagedSessionDirectStopTerminatesAndReapsActiveHelper(t *testing.T) {
 	}
 	process := newManagedSessionProcess(cmd)
 	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
-	if err := waitForFile(context.Background(), ready, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), ready, 100, 5*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	if process.waitTimeout(0) {

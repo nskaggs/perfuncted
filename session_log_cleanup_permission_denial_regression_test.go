@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Retention must never claim success deleting an expired owned log directory
@@ -26,7 +28,7 @@ func TestSessionLogRetentionPreservesExpiredSessionsWhileRootAccessDenied(t *tes
 	} {
 		t.Run(access.name, func(t *testing.T) {
 			root := t.TempDir()
-			expired := filepath.Join(root, sessionLogPrefix+"expired")
+			expired := filepath.Join(root, sessionruntime.SessionLogPrefix+"expired")
 			if err := os.Mkdir(expired, 0o700); err != nil {
 				t.Fatal(err)
 			}

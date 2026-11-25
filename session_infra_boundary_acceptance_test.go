@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestManagedSwayConfigSelectionStaysInsideRuntime(t *testing.T) {
@@ -68,7 +70,7 @@ func TestWriteChildPIDRequiresSafeLocationAndPositivePID(t *testing.T) {
 		t.Fatalf("nonpositive child pid created a file: %v", err)
 	}
 	infra.writeChildPID("child.pid", os.Getpid())
-	pid, err := readPIDFile(filepath.Join(runtimeDir, "child.pid"))
+	pid, err := sessionruntime.ReadPIDFile(filepath.Join(runtimeDir, "child.pid"))
 	if err != nil || pid != os.Getpid() {
 		t.Fatalf("owned runtime pidfile = %d, %v", pid, err)
 	}

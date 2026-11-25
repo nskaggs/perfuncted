@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Cleanup must inspect the actual kernel mount table and leave an ordinary
@@ -17,7 +19,7 @@ func TestUnmountSubdirsContextLeavesUnMountedPrivateRuntimeIntact(t *testing.T) 
 	if err := os.WriteFile(sentinel, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
-	mounts, err := readSessionSubdirMounts(dir)
+	mounts, err := sessionruntime.ReadSessionSubdirMounts(dir)
 	if err != nil {
 		t.Fatalf("read actual kernel mountinfo: %v", err)
 	}

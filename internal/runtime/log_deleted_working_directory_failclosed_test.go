@@ -1,6 +1,6 @@
 //go:build linux
 
-package perfuncted
+package runtime
 
 import (
 	"errors"

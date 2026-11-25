@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestOpenCancellationStopsStaleSessionCleanup(t *testing.T) {
@@ -83,7 +84,7 @@ func TestStopRecordedProcessHonorsContextDuringGrace(t *testing.T) {
 		case <-time.After(2 * time.Second):
 		}
 	})
-	if err := waitForFile(context.Background(), readyPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 5*time.Millisecond); err != nil {
 		t.Fatalf("wait for process helper readiness: %v", err)
 	}
 
@@ -99,7 +100,7 @@ func TestStopRecordedProcessHonorsContextDuringGrace(t *testing.T) {
 			err   error
 		}{owned: owned, err: stopErr}
 	}()
-	if err := waitForFile(context.Background(), signalPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), signalPath, 100, 5*time.Millisecond); err != nil {
 		cancel()
 		t.Fatalf("wait for TERM delivery: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestStopRecordedProcessHonorsContextDuringGrace(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("process-group stop did not return after cancellation")
 	}
-	if !processGroupAlive(cmd.Process.Pid) {
+	if !sessionruntime.ProcessGroupAlive(cmd.Process.Pid) {
 		t.Fatal("canceled cleanup escalated to SIGKILL")
 	}
 }

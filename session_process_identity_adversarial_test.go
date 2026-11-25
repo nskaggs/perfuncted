@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestManagedSessionProcessWaitCancellationKeepsReapingChild(t *testing.T) {
@@ -26,7 +27,7 @@ func TestManagedSessionProcessWaitCancellationKeepsReapingChild(t *testing.T) {
 	process := newManagedSessionProcess(cmd)
 	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
 
-	if err := waitForFile(context.Background(), readyPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 5*time.Millisecond); err != nil {
 		t.Fatalf("wait for helper readiness: %v", err)
 	}
 	if process.waitTimeout(-time.Second) {
@@ -199,7 +200,7 @@ func TestNilAndZeroManagedProcessLifecyclesAreSafe(t *testing.T) {
 	}
 
 	var proc *managedProc
-	if proc.groupAlive() || processGroupAlive(0) {
+	if proc.groupAlive() || sessionruntime.ProcessGroupAlive(0) {
 		t.Fatal("invalid process group was reported alive")
 	}
 	if err := proc.signal(syscall.SIGTERM); err != nil {

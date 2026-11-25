@@ -1,6 +1,6 @@
 //go:build linux
 
-package perfuncted
+package runtime
 
 import (
 	"os"
@@ -20,7 +20,7 @@ func TestWaitForProcRetainsRunningChildAfterTimeoutThenReaps(t *testing.T) {
 	}
 	pid := cmd.Process.Pid
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL); _ = cmd.Process.Release() })
-	if waitForProc(pid, 0) {
+	if WaitForProc(pid, 0) {
 		t.Fatal("raw wait4 marked running process reaped")
 	}
 	if err := syscall.Kill(pid, 0); err != nil {
@@ -29,7 +29,7 @@ func TestWaitForProcRetainsRunningChildAfterTimeoutThenReaps(t *testing.T) {
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	if !waitForProc(pid, time.Second) {
+	if !WaitForProc(pid, time.Second) {
 		t.Fatal("killed child was not reaped")
 	}
 	var status syscall.WaitStatus
@@ -39,7 +39,7 @@ func TestWaitForProcRetainsRunningChildAfterTimeoutThenReaps(t *testing.T) {
 	}
 	// The existing child has already been reaped. ECHILD is a completed wait,
 	// not a reason for the caller to block or signal an unrelated process.
-	if !waitForProc(pid, 0) {
+	if !WaitForProc(pid, 0) {
 		t.Fatal("already reaped direct child was reported active")
 	}
 }
@@ -50,13 +50,13 @@ func TestWaitForProcReturnsTrueForNaturallyExitedDirectChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Release() }()
-	if !waitForProc(cmd.Process.Pid, time.Second) {
+	if !WaitForProc(cmd.Process.Pid, time.Second) {
 		t.Fatal("naturally exited child was not collected")
 	}
 	if _, err := os.FindProcess(cmd.Process.Pid); err != nil {
 		t.Fatalf("process handle unexpectedly unavailable: %v", err)
 	}
-	if !waitForProc(cmd.Process.Pid, 0) {
+	if !WaitForProc(cmd.Process.Pid, 0) {
 		t.Fatal("subsequent wait did not observe ECHILD")
 	}
 }

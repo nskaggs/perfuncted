@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Polling can exhaust its retry budget at the same instant startup loses
@@ -14,7 +16,7 @@ func TestReadinessExhaustedBudgetPreservesLateOwnerCancellation(t *testing.T) {
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: base, cancel: cancel, target: 3}
 	calls := 0
-	err := pollCondition(ctx, 1, time.Millisecond, func() bool {
+	err := sessionruntime.PollCondition(ctx, 1, time.Millisecond, func() bool {
 		calls++
 		return false
 	})

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Stale-session cleanup must never wait for a FIFO writer to provide a PID.
@@ -29,7 +31,7 @@ func TestSessionCleanupPIDMetadataRejectsFIFOWithoutBlocking(t *testing.T) {
 				if name == sessionOwnerPIDFile {
 					_ = reapSessionDirIfStale(context.Background(), dir, time.Hour, time.Now())
 				} else {
-					_, _ = readPIDFile(fifo)
+					_, _ = sessionruntime.ReadPIDFile(fifo)
 				}
 			}()
 			select {
@@ -57,7 +59,7 @@ func TestSessionCleanupPIDMetadataRejectsSymlinksAndOversize(t *testing.T) {
 	if err := os.Symlink(foreign, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readPIDFile(link); err == nil {
+	if _, err := sessionruntime.ReadPIDFile(link); err == nil {
 		t.Fatal("symlinked PID authorized")
 	}
 	before, readErr := os.ReadFile(foreign)
@@ -68,14 +70,14 @@ func TestSessionCleanupPIDMetadataRejectsSymlinksAndOversize(t *testing.T) {
 	if err := os.WriteFile(tooLarge, []byte(strings.Repeat("1", 1024*1024)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readPIDFile(tooLarge); err == nil || !strings.Contains(err.Error(), "oversized") {
+	if _, err := sessionruntime.ReadPIDFile(tooLarge); err == nil || !strings.Contains(err.Error(), "oversized") {
 		t.Fatalf("oversized PID metadata accepted: %v", err)
 	}
 	valid := filepath.Join(dir, "valid.pid")
 	if err := os.WriteFile(valid, []byte("  4242\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	pid, err := readPIDFile(valid)
+	pid, err := sessionruntime.ReadPIDFile(valid)
 	if err != nil || pid != 4242 {
 		t.Fatalf("valid PID rejected: %d %v", pid, err)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/internal/env"
 	"github.com/nskaggs/perfuncted/internal/executil"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 //go:embed configs/headless.conf configs/nested.conf
@@ -128,7 +129,7 @@ func (s *Session) startSession(
 	pidPath := filepath.Join(xdgDir, sessionOwnerPIDFile)
 	// Publish through a new inode: an existing symlink or hard link must
 	// never redirect the owner metadata write outside this runtime.
-	if writeErr := writeManagedSessionFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); writeErr != nil {
+	if writeErr := sessionruntime.WriteManagedSessionFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); writeErr != nil {
 		return nil, fmt.Errorf("session: write owner pidfile: %w", writeErr)
 	}
 
@@ -175,7 +176,7 @@ func prepareSessionRuntimeDirs(xdgDir, logDir *string, logPath string) error {
 	if err != nil {
 		return fmt.Errorf("session: managed runtime: %w", err)
 	}
-	*logDir, err = createSessionLogDir(logPath)
+	*logDir, err = sessionruntime.CreateSessionLogDir(logPath)
 	if err != nil {
 		return fmt.Errorf("session: create logs: %w", err)
 	}
@@ -345,7 +346,7 @@ func (i *sessionInfra) launchDBus(ctx context.Context) error {
 
 	busPath := filepath.Join(i.xdgDir, "bus")
 	observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, StartupPhaseStarted)
-	if err := waitForSocket(ctx, busPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
+	if err := sessionruntime.WaitForSocket(ctx, busPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); err != nil {
 		observeStartupPhase(i.startupObserver, StartupPhaseDBusSocketReady, startupPhaseResult(ctx, err))
 		return fmt.Errorf("dbus socket %s did not appear within %s: %w", busPath, i.timeouts.Startup, err)
 	}
@@ -449,7 +450,7 @@ func (i *sessionInfra) launchSway(
 	// A rejected startup must not create a log file that prevents a later
 	// attempt in this session from using the same fresh log directory.
 	logPath := filepath.Join(i.logDir, "sway-session.log")
-	logFile, err := openPrivateSessionLog(logPath)
+	logFile, err := sessionruntime.OpenPrivateSessionLog(logPath)
 	if err != nil {
 		return fmt.Errorf("create log: %w", err)
 	}
@@ -461,25 +462,25 @@ func (i *sessionInfra) launchSway(
 	err = cmd.Start()
 	if err != nil {
 		observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, startupPhaseResult(ctx, err))
-		logFileClose(logFile)
+		sessionruntime.CloseLogFile(logFile)
 		return err
 	}
 	i.swayCmd = newManagedSessionProcess(cmd)
 	i.writeChildPID("sway.pid", cmd.Process.Pid)
-	logFileClose(logFile)
+	sessionruntime.CloseLogFile(logFile)
 	observeStartupPhase(i.startupObserver, StartupPhaseSwayProcessSpawn, StartupPhaseSucceeded)
 
 	socketPath := filepath.Join(i.xdgDir, i.wlDisplay)
 	observeStartupPhase(i.startupObserver, StartupPhaseSwaySocketsReady, StartupPhaseStarted)
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		if readinessErr := waitForSocket(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
+		if readinessErr := sessionruntime.WaitForSocket(ctx, socketPath, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
 			return fmt.Errorf("wayland socket %s did not appear within %s: %w", socketPath, i.timeouts.Startup, readinessErr)
 		}
 		return nil
 	})
 	g.Go(func() error {
-		if readinessErr := waitForSwayIPCSocket(ctx, i.xdgDir, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
+		if readinessErr := sessionruntime.WaitForSwayIPCSocket(ctx, i.xdgDir, startupWaitAttempts(i.timeouts), i.timeouts.Poll); readinessErr != nil {
 			return fmt.Errorf("sway IPC socket in %s did not appear within %s: %w", i.xdgDir, i.timeouts.Startup, readinessErr)
 		}
 		return nil
@@ -516,35 +517,9 @@ func (i *sessionInfra) writeChildPID(name string, pid int) {
 		slog.Warn("session: skip writing pidfile to non-managed directory", "path", i.xdgDir, "name", name)
 		return
 	}
-	if err := writeManagedSessionFile(filepath.Join(i.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600); err != nil {
+	if err := sessionruntime.WriteManagedSessionFile(filepath.Join(i.xdgDir, name), []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		slog.Warn("failed to write child pidfile", "name", name, "pid", pid, "error", err)
 	}
-}
-
-// writeManagedSessionFile replaces only the directory entry inside the private
-// runtime. os.WriteFile would follow a preplaced symlink or overwrite the inode
-// behind a hard link, potentially corrupting a file outside this runtime.
-// Rename preserves the existing contract that Sway configs and child PID files
-// can be updated while keeping partial writes invisible to readers.
-func writeManagedSessionFile(path string, data []byte, mode os.FileMode) error {
-	file, err := os.CreateTemp(filepath.Dir(path), ".perfuncted-managed-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = file.Close()
-		_ = os.Remove(file.Name())
-	}()
-	if err := file.Chmod(mode); err != nil {
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
 }
 
 func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string, error) {
@@ -563,7 +538,7 @@ func (i *sessionInfra) writeEmbeddedConfig(name string, res image.Point) (string
 		return "", fmt.Errorf("session: refuse to write config to non-managed directory %q", i.xdgDir)
 	}
 	confPath := filepath.Join(i.xdgDir, "sway.conf")
-	if err := writeManagedSessionFile(confPath, []byte(conf), 0o644); err != nil {
+	if err := sessionruntime.WriteManagedSessionFile(confPath, []byte(conf), 0o644); err != nil {
 		return "", fmt.Errorf("write config: %w", err)
 	}
 	return confPath, nil

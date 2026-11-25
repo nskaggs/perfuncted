@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // A managed log root may become unreadable while retaining private session
@@ -15,7 +17,7 @@ func TestSessionLogRetentionDoesNotTouchUnreadableRoot(t *testing.T) {
 		t.Skip("root bypasses directory read permission")
 	}
 	root := filepath.Join(t.TempDir(), "private-retention")
-	child := filepath.Join(root, sessionLogPrefix+"retained")
+	child := filepath.Join(root, sessionruntime.SessionLogPrefix+"retained")
 	if err := os.MkdirAll(child, 0700); err != nil {
 		t.Fatal(err)
 	}

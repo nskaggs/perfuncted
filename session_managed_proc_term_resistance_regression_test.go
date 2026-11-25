@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // The raw managedProc path owns process-group shutdown without an asynchronous
@@ -24,7 +25,7 @@ func TestManagedProcDirectStopEscalatesAndReapsTermResistantLeader(t *testing.T)
 	}
 	pid := cmd.Process.Pid
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL); _ = cmd.Wait() })
-	if err := waitForFile(context.Background(), ready, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), ready, 100, 5*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	proc := &managedProc{cmd: cmd, pid: pid}
@@ -32,7 +33,7 @@ func TestManagedProcDirectStopEscalatesAndReapsTermResistantLeader(t *testing.T)
 		t.Fatal("running helper group was not detected")
 	}
 	proc.stop(60 * time.Millisecond)
-	if proc.groupAlive() || processGroupAlive(pid) {
+	if proc.groupAlive() || sessionruntime.ProcessGroupAlive(pid) {
 		t.Fatal("SIGTERM-resistant helper survived direct stop escalation")
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {

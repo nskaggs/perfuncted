@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // A final-component Lstat does not protect a cleanup root reached through a
@@ -13,7 +15,7 @@ func TestCleanupSessionLogsRejectsSymlinkAncestor(t *testing.T) {
 	base := t.TempDir()
 	outside := filepath.Join(base, "outside")
 	logs := filepath.Join(outside, "logs")
-	victim := filepath.Join(logs, sessionLogPrefix+"foreign")
+	victim := filepath.Join(logs, sessionruntime.SessionLogPrefix+"foreign")
 	if err := os.MkdirAll(victim, 0700); err != nil {
 		t.Fatal(err)
 	}

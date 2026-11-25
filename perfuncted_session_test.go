@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 	"go.uber.org/goleak"
 )
 
@@ -176,10 +177,10 @@ func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
 	(&managedProc{cmd: cmd, pid: cmd.Process.Pid}).stop(100 * time.Millisecond)
 
 	deadline := time.Now().Add(2 * time.Second)
-	for pidAlive(childPID) && time.Now().Before(deadline) {
+	for sessionruntime.PIDAlive(childPID) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if pidAlive(childPID) {
+	if sessionruntime.PIDAlive(childPID) {
 		t.Fatalf("process-group child %d survived managed shutdown", childPID)
 	}
 }
@@ -212,7 +213,7 @@ func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wait for child pid: %v", err)
 	}
-	if err := waitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
 		t.Fatalf("wait for child readiness: %v", err)
 	}
 	if err := app.Wait(context.Background()); err != nil {
@@ -234,7 +235,7 @@ func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
 	if err := app.proc.waitGroup(waitCtx); err != nil {
 		t.Fatalf("wait for killed process group: %v", err)
 	}
-	if pidAlive(childPID) {
+	if sessionruntime.PIDAlive(childPID) {
 		t.Fatalf("process-group child %d survived Kill", childPID)
 	}
 }
@@ -310,7 +311,7 @@ func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wait for child pid: %v", err)
 	}
-	if err := waitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
 		t.Fatalf("wait for child readiness: %v", err)
 	}
 	if err := app.Wait(context.Background()); err != nil {
@@ -323,7 +324,7 @@ func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
 	if app.proc.groupAlive() {
 		t.Fatal("application process group survived Session.Close")
 	}
-	if pidAlive(childPID) {
+	if sessionruntime.PIDAlive(childPID) {
 		t.Fatalf("process-group child %d survived Session.Close", childPID)
 	}
 }
@@ -342,7 +343,7 @@ func waitForPIDFile(
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		pid, err := readPIDFile(path)
+		pid, err := sessionruntime.ReadPIDFile(path)
 		if err == nil {
 			return pid, nil
 		}
@@ -557,11 +558,11 @@ func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {
 
 func TestSessionLogDirectoriesAreUniquePrivateAndRetainedByAge(t *testing.T) { //nolint:gocyclo // the test checks the complete private-directory contract.
 	root := t.TempDir()
-	first, err := createSessionLogDir(root)
+	first, err := sessionruntime.CreateSessionLogDir(root)
 	if err != nil {
 		t.Fatalf("create first log directory: %v", err)
 	}
-	second, err := createSessionLogDir(root)
+	second, err := sessionruntime.CreateSessionLogDir(root)
 	if err != nil {
 		t.Fatalf("create second log directory: %v", err)
 	}
@@ -577,7 +578,7 @@ func TestSessionLogDirectoriesAreUniquePrivateAndRetainedByAge(t *testing.T) { /
 			t.Fatalf("log directory mode = %o, want 700", mode)
 		}
 	}
-	log, err := openPrivateSessionLog(filepath.Join(first, "sway-session.log"))
+	log, err := sessionruntime.OpenPrivateSessionLog(filepath.Join(first, "sway-session.log"))
 	if err != nil {
 		t.Fatalf("open session log: %v", err)
 	}
@@ -592,7 +593,7 @@ func TestSessionLogDirectoriesAreUniquePrivateAndRetainedByAge(t *testing.T) { /
 		t.Fatalf("session log mode = %o, want 600", mode)
 	}
 
-	old := filepath.Join(root, sessionLogPrefix+"old")
+	old := filepath.Join(root, sessionruntime.SessionLogPrefix+"old")
 	if err := os.Mkdir(old, 0o700); err != nil {
 		t.Fatalf("mkdir old log directory: %v", err)
 	}
@@ -623,7 +624,7 @@ func TestConcurrentSessionLogDirectoriesDoNotCollide(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			path, err := createSessionLogDir(root)
+			path, err := sessionruntime.CreateSessionLogDir(root)
 			if err != nil {
 				errs <- err
 				return
@@ -796,7 +797,7 @@ func TestCleanupStaleSessionsReapsRecordedGroupAfterLeaderExit(t *testing.T) { /
 	if err != nil {
 		t.Fatalf("wait for child pid: %v", err)
 	}
-	if err := waitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), childReadyPath, 100, 5*time.Millisecond); err != nil {
 		t.Fatalf("wait for child readiness: %v", err)
 	}
 	if err := os.WriteFile(
@@ -827,13 +828,13 @@ func TestCleanupStaleSessionsReapsRecordedGroupAfterLeaderExit(t *testing.T) { /
 		t.Fatal("recorded process group leader survived cleanup")
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for pidAlive(childPID) && time.Now().Before(deadline) {
+	for sessionruntime.PIDAlive(childPID) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if pidAlive(childPID) {
+	if sessionruntime.PIDAlive(childPID) {
 		t.Fatalf("recorded process-group child %d survived cleanup", childPID)
 	}
-	if processGroupAlive(cmd.Process.Pid) {
+	if sessionruntime.ProcessGroupAlive(cmd.Process.Pid) {
 		t.Fatal("recorded process group survived cleanup")
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -874,7 +875,7 @@ func TestCleanupStaleSessionsTerminatesRecordedChildren(t *testing.T) {
 		case <-time.After(2 * time.Second):
 		}
 	})
-	if err := waitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
 		t.Fatalf("wait for helper readiness: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "sway.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
@@ -929,7 +930,7 @@ func TestCleanupStaleSessionsEscalatesForOwnedChild(t *testing.T) {
 		case <-time.After(2 * time.Second):
 		}
 	})
-	if err := waitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 10*time.Millisecond); err != nil {
 		t.Fatalf("wait for helper readiness: %v", err)
 	}
 	if err := os.WriteFile(

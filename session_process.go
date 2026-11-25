@@ -9,6 +9,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // managedSessionProcess owns waiting for a session infrastructure child. The
@@ -129,9 +131,9 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 	}
 	leaderExited := false
 	if m.cmd == nil {
-		leaderExited = !pidAlive(m.pid)
+		leaderExited = !sessionruntime.PIDAlive(m.pid)
 	} else {
-		leaderExited = waitForProc(m.pid, waitTimeout)
+		leaderExited = sessionruntime.WaitForProc(m.pid, waitTimeout)
 	}
 	if leaderExited {
 		if m.waitGroupTimeout(waitTimeout) {
@@ -142,17 +144,9 @@ func (m *managedProc) stop(waitTimeout time.Duration) {
 		slog.Debug("session: kill process group", "pid", m.pid, "error", err)
 	}
 	if m.cmd != nil {
-		waitForProc(m.pid, waitTimeout)
+		sessionruntime.WaitForProc(m.pid, waitTimeout)
 	}
 	_ = m.waitGroupTimeout(waitTimeout)
-}
-
-func processGroupAlive(pgid int) bool {
-	if pgid <= 0 {
-		return false
-	}
-	err := syscall.Kill(-pgid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func (m *managedProc) groupAlive() bool {
@@ -164,7 +158,7 @@ func (m *managedProc) groupAlive() bool {
 	if m.groupGone {
 		return false
 	}
-	if !processGroupAlive(m.pid) {
+	if !sessionruntime.ProcessGroupAlive(m.pid) {
 		m.groupGone = true
 		return false
 	}
@@ -180,7 +174,7 @@ func (m *managedProc) signal(signal syscall.Signal) error {
 	if m.groupGone {
 		return nil
 	}
-	if !processGroupAlive(m.pid) {
+	if !sessionruntime.ProcessGroupAlive(m.pid) {
 		m.groupGone = true
 		return nil
 	}
@@ -235,26 +229,6 @@ func (m *managedProc) waitGroupTimeout(timeout time.Duration) bool {
 	for {
 		if !m.groupAlive() {
 			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func waitForProc(pid int, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		var status syscall.WaitStatus
-		waited, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
-		switch {
-		case waited == pid:
-			return true
-		case errors.Is(err, syscall.ECHILD):
-			return true
-		case errors.Is(err, syscall.EINTR):
-			continue
 		}
 		if time.Now().After(deadline) {
 			return false

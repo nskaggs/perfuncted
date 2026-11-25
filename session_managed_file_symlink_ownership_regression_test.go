@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Managed runtime names are not authority to overwrite arbitrary files:
@@ -122,7 +124,7 @@ func TestManagedSessionFileWritesReplaceOnlyOwnedDirectoryEntry(t *testing.T) {
 	if readErr != nil || string(retained) != "retain" {
 		t.Fatalf("write changed hardlink sibling: %q %v", retained, readErr)
 	}
-	pid, pidErr := readPIDFile(alias)
+	pid, pidErr := sessionruntime.ReadPIDFile(alias)
 	if pidErr != nil || pid != os.Getpid() {
 		t.Fatalf("fresh PID metadata unavailable: %d %v", pid, pidErr)
 	}

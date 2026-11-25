@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestStaleCleanupPreservesRuntimeUsedByUnownedProcessGroup(t *testing.T) {
@@ -39,7 +40,7 @@ func TestStaleCleanupPreservesRuntimeUsedByUnownedProcessGroup(t *testing.T) {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
-	if err := waitForFile(context.Background(), readyPath, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), readyPath, 100, 5*time.Millisecond); err != nil {
 		t.Fatalf("wait for runtime user readiness: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "sway.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {

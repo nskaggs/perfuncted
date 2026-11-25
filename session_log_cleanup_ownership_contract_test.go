@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Retention scans a caller-supplied parent. Expired private session folders
@@ -14,8 +16,8 @@ import (
 func TestSessionLogRetentionPreservesForeignEntriesAndRecentSessions(t *testing.T) {
 	root := t.TempDir()
 	external := t.TempDir()
-	old := filepath.Join(root, sessionLogPrefix+"expired")
-	recent := filepath.Join(root, sessionLogPrefix+"recent")
+	old := filepath.Join(root, sessionruntime.SessionLogPrefix+"expired")
+	recent := filepath.Join(root, sessionruntime.SessionLogPrefix+"recent")
 	foreign := filepath.Join(root, "caller-owned")
 	externalData := filepath.Join(external, "important")
 	for _, directory := range []string{old, recent, foreign} {
@@ -26,11 +28,11 @@ func TestSessionLogRetentionPreservesForeignEntriesAndRecentSessions(t *testing.
 	if err := os.WriteFile(externalData, []byte("untouched"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	alias := filepath.Join(root, sessionLogPrefix+"external-link")
+	alias := filepath.Join(root, sessionruntime.SessionLogPrefix+"external-link")
 	if err := os.Symlink(external, alias); err != nil {
 		t.Fatal(err)
 	}
-	matchingFile := filepath.Join(root, sessionLogPrefix+"ordinary-file")
+	matchingFile := filepath.Join(root, sessionruntime.SessionLogPrefix+"ordinary-file")
 	if err := os.WriteFile(matchingFile, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +58,7 @@ func TestSessionLogRetentionPreservesForeignEntriesAndRecentSessions(t *testing.
 
 func TestSessionLogRetentionDisabledOrMissingRootNeverRemovesEntries(t *testing.T) {
 	root := t.TempDir()
-	expired := filepath.Join(root, sessionLogPrefix+"old")
+	expired := filepath.Join(root, sessionruntime.SessionLogPrefix+"old")
 	if err := os.Mkdir(expired, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +92,7 @@ func TestSessionLogRootRejectsSymlinksAndRegularFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{alias, file} {
-		if dir, err := createSessionLogDir(path); err == nil {
+		if dir, err := sessionruntime.CreateSessionLogDir(path); err == nil {
 			_ = os.RemoveAll(dir)
 			t.Fatalf("unsafe log root accepted: %q", path)
 		}

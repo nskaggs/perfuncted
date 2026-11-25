@@ -7,12 +7,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 var sessionRoutingKeys = []string{
@@ -299,22 +298,5 @@ func (s *Session) SwaySocket() string {
 	if s == nil || s.infra == nil {
 		return ""
 	}
-	// xdgDir is a literal managed path. A glob would interpret brackets and
-	// wildcards in its ancestors and could select another session's socket.
-	entries, err := os.ReadDir(s.infra.xdgDir)
-	if err != nil {
-		return ""
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasPrefix(name, "sway-ipc.") || !strings.HasSuffix(name, ".sock") || len(name) <= len("sway-ipc..sock") {
-			continue
-		}
-		// Never follow a symlink into another desktop or select a regular
-		// file that merely resembles a managed Sway IPC socket.
-		if entry.Type()&os.ModeSocket != 0 {
-			return filepath.Join(s.infra.xdgDir, name)
-		}
-	}
-	return ""
+	return sessionruntime.SwaySocketPath(s.infra.xdgDir)
 }

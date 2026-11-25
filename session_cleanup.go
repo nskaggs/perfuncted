@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 var (
@@ -141,7 +140,7 @@ func reapSessionDirIfStale(
 	maxAge time.Duration,
 	now time.Time,
 ) error {
-	data, err := readSessionPIDMetadata(filepath.Join(dir, sessionOwnerPIDFile))
+	data, err := sessionruntime.ReadSessionPIDMetadata(filepath.Join(dir, sessionOwnerPIDFile))
 	if err != nil {
 		return reapSessionDirWhenOlderThan(ctx, dir, now, noPIDFileReapGrace)
 	}
@@ -152,7 +151,7 @@ func reapSessionDirIfStale(
 		// minimum grace instead of immediately reaping its directory.
 		return reapSessionDirWhenOlderThan(ctx, dir, now, staleMalformedPIDThreshold(maxAge))
 	}
-	if !pidAlive(pid) {
+	if !sessionruntime.PIDAlive(pid) {
 		return reapSessionDir(ctx, dir)
 	}
 	return nil
@@ -201,7 +200,7 @@ func reapSessionDir(ctx context.Context, dir string) error {
 		if err := ctx.Err(); err != nil {
 			return contextErrorWithCause(ctx)
 		}
-		pid, err := readPIDFile(filepath.Join(dir, name))
+		pid, err := sessionruntime.ReadPIDFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
@@ -262,7 +261,7 @@ func isPrivateManagedSessionDir(dir string) bool {
 // disappeared before callers may remove its directory tree. Otherwise RemoveAll
 // could descend into a still-mounted filesystem and delete unrelated data.
 func unmountSubdirsContext(ctx context.Context, dir string) error {
-	return unmountSubdirsWith(ctx, dir, readSessionSubdirMounts, func(ctx context.Context, mount string) error {
+	return unmountSubdirsWith(ctx, dir, sessionruntime.ReadSessionSubdirMounts, func(ctx context.Context, mount string) error {
 		return exec.CommandContext(ctx, "fusermount", "-u", mount).Run()
 	})
 }
@@ -317,87 +316,6 @@ func unmountSubdirsWith(
 		return fmt.Errorf("session: refuse directory removal: %d mounts remain below managed runtime", len(remaining))
 	}
 	return nil
-}
-
-func readSessionSubdirMounts(dir string) ([]string, error) {
-	data, err := os.ReadFile("/proc/self/mountinfo")
-	if err != nil {
-		return nil, err
-	}
-	return parseSessionSubdirMounts(dir, data), nil
-}
-
-// Linux mountinfo percent-encodes neither spaces nor backslashes: it encodes
-// ASCII whitespace and '\\' as octal escapes. Compare decoded mountpoints
-// rather than the raw fields, or a managed runtime with spaces can go unseen.
-var mountInfoPathUnescape = strings.NewReplacer(
-	`\040`, " ",
-	`\011`, "\t",
-	`\012`, "\n",
-	`\134`, `\`,
-)
-
-func parseSessionSubdirMounts(dir string, data []byte) []string {
-	if dir == "" {
-		return nil
-	}
-	dir = filepath.Clean(dir)
-	prefix := dir + string(filepath.Separator)
-	var mounts []string
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			continue
-		}
-		mountpoint := mountInfoPathUnescape.Replace(fields[4])
-		if mountpoint == dir || strings.HasPrefix(mountpoint, prefix) {
-			mounts = append(mounts, mountpoint)
-		}
-	}
-	return mounts
-}
-
-// readSessionPIDMetadata treats runtime PID files as untrusted: a replaced
-// FIFO must not block cleanup, and links/devices must not be read as ownership
-// claims. A PID is short, so never read an unbounded file into memory.
-func readSessionPIDMetadata(path string) ([]byte, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	file := os.NewFile(uintptr(fd), path)
-	defer file.Close()
-	var stat unix.Stat_t
-	if statErr := unix.Fstat(fd, &stat); statErr != nil {
-		return nil, statErr
-	}
-	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 {
-		return nil, fmt.Errorf("session: PID metadata %q must be a single-link regular file", path)
-	}
-	if stat.Uid != uint32(os.Geteuid()) || stat.Mode&0022 != 0 {
-		return nil, fmt.Errorf("session: PID metadata %q must be owned by the current user and not writable by others", path)
-	}
-	const maxPIDBytes = 64
-	bytes, err := io.ReadAll(io.LimitReader(file, maxPIDBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(bytes) > maxPIDBytes {
-		return nil, fmt.Errorf("session: PID metadata %q is oversized", path)
-	}
-	return bytes, nil
-}
-
-func readPIDFile(path string) (int, error) {
-	data, err := readSessionPIDMetadata(path)
-	if err != nil {
-		return 0, err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 0 {
-		return 0, fmt.Errorf("invalid pid in %s", path)
-	}
-	return pid, nil
 }
 
 func processUsesRuntimeDir(pid int, dir string) bool {
@@ -570,7 +488,7 @@ func stopRecordedProcess(
 	if !errors.Is(waitErr, context.DeadlineExceeded) {
 		return false, waitErr
 	}
-	if !processGroupAlive(pid) || !owner.refresh() {
+	if !sessionruntime.ProcessGroupAlive(pid) || !owner.refresh() {
 		return true, nil
 	}
 	if err := proc.signal(syscall.SIGKILL); err != nil {
@@ -592,7 +510,7 @@ func waitForOwnedProcessGroup(ctx context.Context, owner *processGroupOwner) err
 		if err := ctx.Err(); err != nil {
 			return contextErrorWithCause(ctx)
 		}
-		if !processGroupAlive(owner.pgid) || !owner.refresh() {
+		if !sessionruntime.ProcessGroupAlive(owner.pgid) || !owner.refresh() {
 			return nil
 		}
 		select {

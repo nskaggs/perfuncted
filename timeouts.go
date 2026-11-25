@@ -50,3 +50,14 @@ func (p TimeoutPolicy) WithDefaults() TimeoutPolicy {
 	}
 	return p
 }
+
+func startupWaitAttempts(policy TimeoutPolicy) int {
+	policy = policy.WithDefaults()
+	// Ceiling division via quotient and remainder avoids overflowing a
+	// valid positive time.Duration when Startup is near its maximum.
+	attempts := int(policy.Startup / policy.Poll)
+	if policy.Startup%policy.Poll != 0 {
+		attempts++
+	}
+	return attempts
+}

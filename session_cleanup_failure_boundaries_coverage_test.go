@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // Losing access to the mount table after an unmount is not proof that the
@@ -73,7 +75,7 @@ func TestStaleChildPIDMetadataRejectsInvalidProcessIdentifiers(t *testing.T) {
 		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
-		pid, err := readPIDFile(path)
+		pid, err := sessionruntime.ReadPIDFile(path)
 		if err == nil || pid != 0 {
 			t.Fatalf("unsafe PID record %q accepted: pid=%d err=%v", value, pid, err)
 		}
@@ -81,7 +83,7 @@ func TestStaleChildPIDMetadataRejectsInvalidProcessIdentifiers(t *testing.T) {
 	if err := os.WriteFile(path, []byte("  1234\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if pid, err := readPIDFile(path); err != nil || pid != 1234 {
+	if pid, err := sessionruntime.ReadPIDFile(path); err != nil || pid != 1234 {
 		t.Fatalf("valid PID record rejected: pid=%d err=%v", pid, err)
 	}
 }

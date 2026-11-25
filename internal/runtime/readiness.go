@@ -1,4 +1,4 @@
-package perfuncted
+package runtime
 
 import (
 	"context"
@@ -10,13 +10,14 @@ import (
 	"time"
 )
 
-func waitForFile(
+// WaitForFile waits for the exact file path to exist.
+func WaitForFile(
 	ctx context.Context,
 	path string,
 	attempts int,
 	interval time.Duration,
 ) error {
-	err := pollCondition(ctx, attempts, interval, func() bool {
+	err := PollCondition(ctx, attempts, interval, func() bool {
 		_, statErr := os.Stat(path)
 		return statErr == nil
 	})
@@ -29,25 +30,15 @@ func waitForFile(
 	return err
 }
 
-func startupWaitAttempts(policy TimeoutPolicy) int {
-	policy = policy.WithDefaults()
-	// Ceiling division via quotient and remainder avoids overflowing a
-	// valid positive time.Duration when Startup is near its maximum.
-	attempts := int(policy.Startup / policy.Poll)
-	if policy.Startup%policy.Poll != 0 {
-		attempts++
-	}
-	return attempts
-}
-
-func waitForGlob(
+// WaitForGlob waits for a valid glob to match a filesystem entry.
+func WaitForGlob(
 	ctx context.Context,
 	pattern string,
 	attempts int,
 	interval time.Duration,
 ) error {
 	var globErr error
-	err := pollCondition(ctx, attempts, interval, func() bool {
+	err := PollCondition(ctx, attempts, interval, func() bool {
 		var matches []string
 		matches, globErr = filepath.Glob(pattern)
 		// An invalid pattern cannot become valid on a later poll.
@@ -67,7 +58,8 @@ func waitForGlob(
 
 var errPollTimeout = errors.New("poll timeout")
 
-func pollCondition(ctx context.Context, attempts int, interval time.Duration, done func() bool) error {
+// PollCondition observes readiness within the supplied attempt budget.
+func PollCondition(ctx context.Context, attempts int, interval time.Duration, done func() bool) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for i := 0; i < attempts; i++ {
@@ -98,35 +90,22 @@ func pollCondition(ctx context.Context, attempts int, interval time.Duration, do
 	return errPollTimeout
 }
 
-// waitForSwayIPCSocket checks the exact managed runtime directory rather
+// WaitForSwayIPCSocket checks the exact managed runtime directory rather
 // than globbing across its path components. File lookalikes and symlinks do
 // not demonstrate that the compositor created an IPC socket.
-func waitForSwayIPCSocket(ctx context.Context, dir string, attempts int, interval time.Duration) error {
-	err := pollCondition(ctx, attempts, interval, func() bool {
-		entries, readErr := os.ReadDir(dir)
-		if readErr != nil {
-			return false
-		}
-		for _, entry := range entries {
-			name := entry.Name()
-			if strings.HasPrefix(name, "sway-ipc.") && strings.HasSuffix(name, ".sock") &&
-				len(name) > len("sway-ipc..sock") && entry.Type()&os.ModeSocket != 0 {
-				return true
-			}
-		}
-		return false
-	})
+func WaitForSwayIPCSocket(ctx context.Context, dir string, attempts int, interval time.Duration) error {
+	err := PollCondition(ctx, attempts, interval, func() bool { return SwaySocketPath(dir) != "" })
 	if errors.Is(err, errPollTimeout) {
 		return fmt.Errorf("sway IPC socket in %s did not appear within %s", dir, time.Duration(attempts)*interval)
 	}
 	return err
 }
 
-// waitForSocket requires an actual Unix socket at the managed runtime path.
+// WaitForSocket requires an actual Unix socket at the managed runtime path.
 // A regular file, directory, or symlink cannot prove that the child created
 // its IPC endpoint and must never be accepted as startup readiness.
-func waitForSocket(ctx context.Context, path string, attempts int, interval time.Duration) error {
-	err := pollCondition(ctx, attempts, interval, func() bool {
+func WaitForSocket(ctx context.Context, path string, attempts int, interval time.Duration) error {
+	err := PollCondition(ctx, attempts, interval, func() bool {
 		info, statErr := os.Lstat(path)
 		return statErr == nil && info.Mode()&os.ModeSocket != 0
 	})
@@ -134,4 +113,26 @@ func waitForSocket(ctx context.Context, path string, attempts int, interval time
 		return fmt.Errorf("socket %s did not appear within %s", path, time.Duration(attempts)*interval)
 	}
 	return err
+}
+
+// SwaySocketPath finds an actual IPC socket within the literal managed runtime directory.
+func SwaySocketPath(dir string) string {
+	// xdgDir is a literal managed path. A glob would interpret brackets and
+	// wildcards in its ancestors and could select another session's socket.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "sway-ipc.") || !strings.HasSuffix(name, ".sock") || len(name) <= len("sway-ipc..sock") {
+			continue
+		}
+		// Never follow a symlink into another desktop or select a regular
+		// file that merely resembles a managed Sway IPC socket.
+		if entry.Type()&os.ModeSocket != 0 {
+			return filepath.Join(dir, name)
+		}
+	}
+	return ""
 }

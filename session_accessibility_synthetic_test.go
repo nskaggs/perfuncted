@@ -16,6 +16,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 type syntheticAccessibilityAddress struct {
@@ -166,7 +167,7 @@ func TestLaunchAccessibilityOwnsAndStopsSyntheticLauncher(t *testing.T) {
 	if infra.atspiCmd == nil {
 		t.Fatal("successful launch did not publish process ownership")
 	}
-	pid, err := readPIDFile(filepath.Join(runtimeDir, "at-spi.pid"))
+	pid, err := sessionruntime.ReadPIDFile(filepath.Join(runtimeDir, "at-spi.pid"))
 	if err != nil || pid != infra.atspiCmd.proc.pid {
 		t.Fatalf("owned helper pidfile = %d, %v; process pid = %d", pid, err, infra.atspiCmd.proc.pid)
 	}

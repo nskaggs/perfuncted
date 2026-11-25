@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // A nil parent context is a supported call path and must be replaced by a
@@ -37,7 +39,7 @@ func TestConfigureScreenTimeoutAcceptsMissingBackend(t *testing.T) {
 // targets a whole process group and has different authorization semantics.
 func TestSessionPIDLivenessRejectsNonpositiveIdentifiers(t *testing.T) {
 	for _, pid := range []int{0, -1, -1024} {
-		if pidAlive(pid) {
+		if sessionruntime.PIDAlive(pid) {
 			t.Fatalf("invalid process identifier %d accepted as live", pid)
 		}
 	}

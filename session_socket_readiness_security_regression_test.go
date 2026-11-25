@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestManagedSessionSocketReadinessRejectsFilesDirectoriesAndSymlinks(t *testing.T) {
@@ -39,7 +41,7 @@ func TestManagedSessionSocketReadinessRejectsFilesDirectoriesAndSymlinks(t *test
 		{"real unix socket", socket, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := waitForSocket(context.Background(), tc.path, 1, time.Millisecond)
+			err := sessionruntime.WaitForSocket(context.Background(), tc.path, 1, time.Millisecond)
 			if tc.ready && err != nil {
 				t.Fatalf("real socket rejected: %v", err)
 			}

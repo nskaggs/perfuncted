@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // A session creates its own fresh log directory and must never truncate an
@@ -35,7 +37,7 @@ func TestSessionLogCreationNeverTruncatesPreexistingTargets(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			file, err := openPrivateSessionLog(logPath)
+			file, err := sessionruntime.OpenPrivateSessionLog(logPath)
 			if file != nil {
 				_ = file.Close()
 			}

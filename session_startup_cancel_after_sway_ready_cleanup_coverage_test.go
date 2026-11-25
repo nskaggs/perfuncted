@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestStartSessionCancellationAfterSwayReadinessStopsProcessesAndCleansRuntime(t *testing.T) {
@@ -76,7 +78,7 @@ func TestStartSessionCancellationAfterSwayReadinessStopsProcessesAndCleansRuntim
 		t.Fatalf("recorded managed process IDs=%v, want D-Bus and Sway", processIDs)
 	}
 	for _, pid := range processIDs {
-		if pidAlive(pid) {
+		if sessionruntime.PIDAlive(pid) {
 			t.Errorf("managed process %d survived startup cancellation", pid)
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
@@ -783,13 +784,13 @@ func TestStartupWaitHelpersHonorContextCancellation(t *testing.T) {
 		{
 			name: "file",
 			wait: func(ctx context.Context) error {
-				return waitForFile(ctx, t.TempDir()+"/missing", 100, time.Second)
+				return sessionruntime.WaitForFile(ctx, t.TempDir()+"/missing", 100, time.Second)
 			},
 		},
 		{
 			name: "glob",
 			wait: func(ctx context.Context) error {
-				return waitForGlob(ctx, t.TempDir()+"/*", 100, time.Second)
+				return sessionruntime.WaitForGlob(ctx, t.TempDir()+"/*", 100, time.Second)
 			},
 		},
 	} {

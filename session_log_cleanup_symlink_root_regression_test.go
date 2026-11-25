@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // CleanupSessionLogs is an exported maintenance entry point. Unlike normal
@@ -16,7 +18,7 @@ func TestCleanupSessionLogsNeverFollowsSymlinkRoot(t *testing.T) {
 	if err := os.Mkdir(external, 0700); err != nil {
 		t.Fatal(err)
 	}
-	victim := filepath.Join(external, sessionLogPrefix+"expired")
+	victim := filepath.Join(external, sessionruntime.SessionLogPrefix+"expired")
 	if err := os.Mkdir(victim, 0700); err != nil {
 		t.Fatal(err)
 	}

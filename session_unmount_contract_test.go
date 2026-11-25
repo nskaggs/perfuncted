@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 func TestParseSessionSubdirMountsDecodesKernelEscapes(t *testing.T) {
@@ -15,7 +17,7 @@ func TestParseSessionSubdirMountsDecodesKernelEscapes(t *testing.T) {
 	info := []byte("24 23 0:12 / /tmp/perfuncted-xdg-abc\\040with\\040space rw - tmpfs tmpfs rw\n" +
 		"25 24 0:12 / /tmp/perfuncted-xdg-abc\\040with\\040space/inner\\040dir rw - tmpfs tmpfs rw\n" +
 		"26 23 0:12 / /tmp/perfuncted-xdg-abc\\040with\\040space-other rw - tmpfs tmpfs rw\n")
-	got := parseSessionSubdirMounts(root, info)
+	got := sessionruntime.ParseSessionSubdirMounts(root, info)
 	want := []string{root, root + "/inner dir"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("escaped mountpoints: got %q, want %q", got, want)

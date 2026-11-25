@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
@@ -80,14 +79,6 @@ func isManagedSessionDir(dir string) bool {
 		}
 	}
 	return false
-}
-
-func pidAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || err == syscall.EPERM
 }
 
 // SessionDetection is an immutable snapshot of the environment used to

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
 )
 
 // A helper that deliberately ignores SIGTERM must still be killed and reaped
@@ -23,7 +24,7 @@ func TestManagedSessionStopEscalatesAfterIgnoredSIGTERM(t *testing.T) {
 	}
 	process := newManagedSessionProcess(cmd)
 	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
-	if err := waitForFile(context.Background(), ready, 100, 5*time.Millisecond); err != nil {
+	if err := sessionruntime.WaitForFile(context.Background(), ready, 100, 5*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	// The helper has installed the ignore handler before reporting ready.
