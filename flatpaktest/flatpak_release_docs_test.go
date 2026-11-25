@@ -24,14 +24,14 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 		return string(data)
 	}
 	readme := read("README.md")
-	guide := read("FLATPAK.md")
+	guide := read("docs/flatpak.md")
 	release := read(".github/workflows/release.yml")
 	// The README is deliberately concise. The full invocation and filesystem
 	// examples belong in the dedicated Flatpak guide, not on the landing page.
 	for _, required := range []string{
 		"flatpak install --user ./perfuncted.flatpak",
 		"flatpak run io.github.nskaggs.perfuncted info",
-		"(FLATPAK.md)",
+		"(docs/flatpak.md)",
 	} {
 		if !strings.Contains(readme, required) {
 			t.Errorf("README missing basic Flatpak entry point %q", required)
@@ -56,7 +56,7 @@ func TestFlatpakReleaseInstructionsUseOnlyPublishedAssets(t *testing.T) {
 			t.Errorf("%s still requires an undeclared repository checkout", target.name)
 		}
 	}
-	if strings.Contains(readme, `(FLATPAK.md)\n`) {
+	if strings.Contains(readme, `(docs/flatpak.md)\n`) {
 		t.Fatal("README contains literal newline escapes instead of rendered paragraphs")
 	}
 	if !strings.Contains(release, "gh release upload") ||

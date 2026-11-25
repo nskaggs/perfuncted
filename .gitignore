@@ -5,14 +5,16 @@
 *.test
 /dist
 
-# Documentation (local only)
-docs/
+# Documentation allowlist
 *.md
-!README.md
+!/README.md
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/docs/desktop.md
+!/docs/accessibility.md
+!/docs/go-api.md
+!/docs/flatpak.md
 !docs-cli/*.md
-!CONTRIBUTING.md
-!RELEASE.md
-!SCREENSHOT_CAPTURE_BENCHMARKS.md
 # Curated release bodies are part of the tagged source tree.
 !.github/release-notes/
 !.github/release-notes/*.md
@@ -34,6 +36,7 @@ perfuncted-menu-*.png
 
 # Scratch / dev-session artifacts (do not commit)
 .codex
+/.agents/
 ff.log
 sway.log
 primary.txt
@@ -44,3 +47,4 @@ coverage*.out
 
 # Private improvement audits and implementation plans
 /plans/
+/evidence/
