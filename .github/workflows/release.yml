@@ -131,6 +131,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git fetch --no-tags origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           NOTES=""
           if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag ]; then
             NOTES=$(git for-each-ref --format='%(contents)' "refs/tags/$GITHUB_REF_NAME")

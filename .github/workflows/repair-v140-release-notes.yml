@@ -1,0 +1,29 @@
+name: Correct v1.4.0 release notes
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/repair-v140-release-notes.yml]
+permissions:
+  contents: write
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Correct published Markdown
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=v1.4.0
+          ref=$(gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")
+          test "$(jq -r .object.type <<< "$ref")" = tag
+          test "$(jq -r .object.sha <<< "$ref")" = 53bc98b0cd5a4f7af95b5a85f2ce72fc3110d780
+          gh api "/repos/$GITHUB_REPOSITORY/git/tags/53bc98b0cd5a4f7af95b5a85f2ce72fc3110d780" --jq .message > "$RUNNER_TEMP/original.md"
+          sed -e '1{/^# Perfuncted v1\.4\.0$/d;}' -e 's/^## \(.*\)$/**\1**/' "$RUNNER_TEMP/original.md" | sed '/./,$!d' > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md"
+          grep -Fx '**Automation and input**' "$RUNNER_TEMP/notes.md"
+          grep -Fx '**Reliability and validation**' "$RUNNER_TEMP/notes.md"
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)" = 458534109
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+          gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .body > "$RUNNER_TEMP/published.md"
+          test "$(cat "$RUNNER_TEMP/notes.md")" = "$(cat "$RUNNER_TEMP/published.md")"
