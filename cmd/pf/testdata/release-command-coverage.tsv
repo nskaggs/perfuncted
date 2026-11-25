@@ -1,7 +1,7 @@
 a11y action	native-atspi:TestAccessibilityCertification
 a11y apps	native-atspi:TestAccessibilityCertification
 a11y at-point	contract:TestAccessibilityCLICommandsJSON
-a11y events	contract:TestAccessibilityCLICommandsJSON
+a11y events	contract:TestAccessibilityCLICommandsJSON/TestAccessibilityCLIEventsDefaultToJSONLines
 a11y find	native-atspi:TestAccessibilityCertification
 a11y focus	native-atspi:TestAccessibilityCertification
 a11y focused	native-atspi:TestAccessibilityCertification

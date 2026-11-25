@@ -65,7 +65,7 @@ func run() error {
 // names and skips fail even if go test itself exits successfully.
 func runLive(args []string) error {
 	if len(args) < 3 || args[0] != "--live" {
-		return fmt.Errorf("usage: --live PACKAGE TestName ...")
+		return fmt.Errorf("usage: --live PACKAGE followed by required test names")
 	}
 	required := map[string]bool{}
 	names := make([]string, 0, len(args)-2)
