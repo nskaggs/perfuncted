@@ -115,11 +115,11 @@ func startWorkflowControlIn(root *os.File, w *workflowLifecycle) (*workflowContr
 
 func (c *workflowControl) close() error {
 	c.once.Do(func() {
+		c.closeErr = errors.Join(c.closeErr, workflowWriteTerminalStatus(c.owner.dir, c.workflow.status()))
 		if c.owner.listener != nil {
 			c.closeErr = errors.Join(c.closeErr, c.owner.listener.Close())
 		}
 		<-c.done
-		c.closeErr = errors.Join(c.closeErr, workflowWriteTerminalStatus(c.owner.dir, c.workflow.status()))
 		var current unix.Stat_t
 		if err := unix.Fstatat(int(c.owner.dir.Fd()), "control", &current, unix.AT_SYMLINK_NOFOLLOW); err == nil {
 			if sameWorkflowSocket(c.socketIdentity, current) {
@@ -299,6 +299,9 @@ func sameWorkflowSocket(a, b unix.Stat_t) bool {
 
 func workflowCall(ctx context.Context, root *os.File, id, operation string) (workflowReply, error) {
 	var reply workflowReply
+	if err := ctx.Err(); err != nil {
+		return reply, err
+	}
 	if !sessionNamePattern.MatchString(id) {
 		return reply, errors.New("invalid workflow ID")
 	}
@@ -319,6 +322,9 @@ func workflowCall(ctx context.Context, root *os.File, id, operation string) (wor
 		if errors.Is(err, os.ErrNotExist) {
 			status, statusErr := workflowReadTerminalStatus(dir, id)
 			if statusErr == nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return workflowReply{}, ctxErr
+				}
 				return workflowReplyFor(status, operation == "status"), nil
 			}
 		}
@@ -334,6 +340,18 @@ func workflowCall(ctx context.Context, root *os.File, id, operation string) (wor
 	dialer := net.Dialer{Timeout: time.Second}
 	conn, err := dialer.DialContext(ctx, "unix", namedFDPath(dir, "control"))
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return reply, ctxErr
+		}
+		if errors.Is(err, unix.ECONNREFUSED) || errors.Is(err, os.ErrNotExist) {
+			status, statusErr := workflowReadTerminalStatus(dir, id)
+			if statusErr == nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return reply, ctxErr
+				}
+				return workflowReplyFor(status, operation == "status"), nil
+			}
+		}
 		return reply, err
 	}
 	defer conn.Close()
