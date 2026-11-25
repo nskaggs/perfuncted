@@ -241,9 +241,9 @@ func (c capabilityCondition) validateSession(session *Session) error {
 	return validateConditionForSession(session, c.condition)
 }
 
-func (c capabilityCondition) validateActionTarget(node accessibility.Node) error {
+func (c capabilityCondition) validateActionTarget(root accessibility.NodeID, node accessibility.Node) error {
 	if targetCondition, ok := c.condition.(actionTargetCondition); ok {
-		return targetCondition.validateActionTarget(node)
+		return targetCondition.validateActionTarget(root, node)
 	}
 	return nil
 }
@@ -367,6 +367,17 @@ func (c compositeCondition) pollingOnly() bool {
 	return true
 }
 
+func (c compositeCondition) validateActionTarget(root accessibility.NodeID, node accessibility.Node) error {
+	for _, child := range c.conditions {
+		if targetCondition, ok := child.(actionTargetCondition); ok {
+			if err := targetCondition.validateActionTarget(root, node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (c compositeCondition) requiredCapabilities() ([]Capability, error) {
 	var capabilities []Capability
 	for _, child := range c.conditions {
@@ -452,6 +463,13 @@ func (c notCondition) describe() string {
 
 func (c notCondition) pollingOnly() bool {
 	return c.child != nil && c.child.pollingOnly()
+}
+
+func (c notCondition) validateActionTarget(root accessibility.NodeID, node accessibility.Node) error {
+	if targetCondition, ok := c.child.(actionTargetCondition); ok {
+		return targetCondition.validateActionTarget(root, node)
+	}
+	return nil
 }
 
 func (c notCondition) requiredCapabilities() ([]Capability, error) {
@@ -543,6 +561,12 @@ func (c accessibilityNodeChangedCondition) requiredCapabilities() ([]Capability,
 }
 
 func (c accessibilityNodeChangedCondition) preflight() error {
+	if c.baseline.TextTruncated || len(c.baseline.Warnings) != 0 {
+		return fmt.Errorf("perfuncted: %w: accessibility baseline is incomplete", ErrInvalidArgument)
+	}
+	if c.opts.VisibleOnly || len(c.opts.SkipRoles) != 0 {
+		return fmt.Errorf("perfuncted: %w: filtered accessibility snapshots cannot prove target disappearance", ErrInvalidArgument)
+	}
 	if c.root.BusName == "" || c.root.ObjectPath == "" || c.root.Incarnation == 0 || c.baseline.ID.BusName == "" || c.baseline.ID.ObjectPath == "" || c.baseline.ID.Generation == 0 {
 		return fmt.Errorf("perfuncted: %w: accessibility change condition requires a current root and baseline node", ErrInvalidArgument)
 	}
@@ -552,7 +576,10 @@ func (c accessibilityNodeChangedCondition) preflight() error {
 	return nil
 }
 
-func (c accessibilityNodeChangedCondition) validateActionTarget(current accessibility.Node) error {
+func (c accessibilityNodeChangedCondition) validateActionTarget(root accessibility.NodeID, current accessibility.Node) error {
+	if !sameAccessibilityIdentity(root, c.root) {
+		return fmt.Errorf("perfuncted: accessibility verification root differs from action scope: %w", ErrManagedScopeChanged)
+	}
 	if !sameAccessibilityIdentity(current.ID, c.baseline.ID) || !sameAccessibilityNodeState(current, c.baseline) {
 		return fmt.Errorf("perfuncted: accessibility baseline target changed before dispatch: %w", ErrManagedScopeChanged)
 	}
@@ -560,7 +587,12 @@ func (c accessibilityNodeChangedCondition) validateActionTarget(current accessib
 }
 
 func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session *Session) (bool, error) {
-	snapshot, err := session.Accessibility.Snapshot(ctx, c.root, c.opts)
+	if err := c.preflight(); err != nil {
+		return false, err
+	}
+	opts := c.opts
+	opts.Fresh = true
+	snapshot, err := session.Accessibility.Snapshot(ctx, c.root, opts)
 	if err != nil {
 		return false, err
 	}
@@ -572,6 +604,9 @@ func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session
 	}
 	for _, node := range snapshot.Nodes {
 		if sameAccessibilityIdentity(node.ID, c.baseline.ID) {
+			if node.TextTruncated || len(node.Warnings) != 0 {
+				return false, fmt.Errorf("perfuncted: accessibility change target is incomplete: %w", ErrUnavailable)
+			}
 			return !sameAccessibilityNodeState(node, c.baseline), nil
 		}
 	}
@@ -583,6 +618,7 @@ func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session
 // the same accessible object has a different observable state or is absent.
 // Capture baseline before dispatch and retain it in this condition for one
 // action's verification; errors never authorize replaying the action.
+// When used as an action postcondition, the root must match the action scope.
 func AccessibilityNodeChanged(root accessibility.NodeID, baseline accessibility.Node, opts accessibility.SnapshotOptions) Condition {
 	return accessibilityNodeChangedCondition{root: root, baseline: baseline, opts: opts}
 }

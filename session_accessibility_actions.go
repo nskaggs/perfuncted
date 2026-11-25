@@ -18,7 +18,7 @@ type ActionVerificationError struct {
 }
 
 type actionTargetCondition interface {
-	validateActionTarget(accessibility.Node) error
+	validateActionTarget(accessibility.NodeID, accessibility.Node) error
 }
 
 func (e *ActionVerificationError) Error() string {
@@ -67,7 +67,7 @@ func (s *Session) InvokeAccessibilityActionAndWait(
 		var node accessibility.Node
 		node, err = s.Accessibility.FindOne(ctx, root, query, snapshotOptions)
 		if err == nil {
-			err = targetCondition.validateActionTarget(node)
+			err = targetCondition.validateActionTarget(root, node)
 		}
 		if err == nil {
 			receipt, err = s.Accessibility.invokeSemanticActionOnNode(ctx, node, actionName)

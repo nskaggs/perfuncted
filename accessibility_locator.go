@@ -452,6 +452,12 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 			stopObservation()
 			return AccessibilityActionReceipt{}, WaitEvidence{}, openErr
 		}
+		if targetCondition, ok := postcondition.(actionTargetCondition); ok {
+			if err := targetCondition.validateActionTarget(root, node); err != nil {
+				stopObservation()
+				return receipt, WaitEvidence{}, err
+			}
+		}
 		dispatched := dispatch(ctx, node)
 		stopObservation()
 		// A failed provider dispatch can carry the resolved private node in
