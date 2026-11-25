@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jezek/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
 )
 
 // A reachable X server without the XTEST extension must not grant input

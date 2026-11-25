@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // Four-level keyboard maps place Shift+AltGr characters in the fourth

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jezek/xgb"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 func (b *x11Observer) stateConnection(ctx context.Context) (*xgb.Conn, func(), error) {

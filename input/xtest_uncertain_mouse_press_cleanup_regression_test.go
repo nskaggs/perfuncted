@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // An XTEST request can be processed before the X server reports a protocol

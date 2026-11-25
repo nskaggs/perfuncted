@@ -37,9 +37,9 @@ lint:
 check-fmt:
     # Keep pristine pinned upstream source untouched. Enforce formatting on
     # local source, all new nested tests, and locally modified XGB files.
-    @files=$(find . -name '*.go' -not -path './third_party/xgb/*'; \
-        printf '%s\n' ./third_party/xgb/xgb.go ./third_party/xgb/conn.go ./third_party/xgb/xproto/xproto.go; \
-        find ./third_party/xgb -name '*_test.go'); \
+    @files=$(find . -name '*.go' -not -path './internal/third_party/xgb/*'; \
+        printf '%s\n' ./internal/third_party/xgb/xgb.go ./internal/third_party/xgb/conn.go ./internal/third_party/xgb/xproto/xproto.go; \
+        find ./internal/third_party/xgb -name '*_test.go'); \
       unformatted=$(printf '%s\n' "$files" | xargs -r gofmt -l); \
       if [ -n "$unformatted" ]; then \
         echo 'FAIL: Files not formatted:'; printf '%s\n' "$unformatted"; \
@@ -111,7 +111,7 @@ quality-fast: check-generate check-docs check-api-sync check-fmt vet
 
 # Run the full static quality suite (includes linters and unit tests)
 # This matches the 'quality' job in GitHub Actions.
-quality: quality-fast lint deadcode vulncheck test-unit coverage-convenience test-release-command-contracts
+quality: quality-fast lint deadcode vulncheck test-unit coverage-convenience test-release-command-contracts test-module-consumer
 
 # Require full statement coverage in the new scripting facade, rather than
 # imposing a spurious 100% requirement on unrelated legacy source.
@@ -124,6 +124,10 @@ coverage-convenience:
 test-release-command-contracts:
     CGO_ENABLED=0 go test ./cmd/pf -run '^TestReleaseCommandCoverageInventory$' -count=1 -v
     CGO_ENABLED=0 go run ./scripts/check_release_command_contracts
+
+# Verify a real distributed Go module can be consumed without local replacements.
+test-module-consumer:
+    CGO_ENABLED=0 go test ./scripts/check_module_consumer -run "^TestPublishedModuleConsumer$" -count=1 -v
 
 # Pre-commit: runs only the fastest essential checks
 precommit: quality-fast

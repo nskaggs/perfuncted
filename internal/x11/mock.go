@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/jezek/xgb/randr"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // Minimal mock connection for unit tests.

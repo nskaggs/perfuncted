@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // No XTEST input event may be injected for an unheld modifier: a release is a

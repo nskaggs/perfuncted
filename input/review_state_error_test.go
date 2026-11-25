@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 func TestReviewStateQueryAdmissionErrors(t *testing.T) {

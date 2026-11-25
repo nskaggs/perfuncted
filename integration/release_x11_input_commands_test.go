@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jezek/xgb"
-	"github.com/jezek/xgb/xproto"
-	"github.com/jezek/xgb/xtest"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xtest"
 )
 
 func certifyReleaseX11InputCommands(t *testing.T, ctx context.Context, s *suite, binary string, conn *xgb.Conn, win, root xproto.Window) {

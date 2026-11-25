@@ -109,7 +109,7 @@ linters:
           - unparam
         text: interface method
     paths:
-      - third_party$
+      - internal/third_party/xgb/
       - builtin$
       - examples$
 
@@ -121,6 +121,6 @@ formatters:
   exclusions:
     generated: lax
     paths:
-      - third_party$
+      - internal/third_party/xgb/
       - builtin$
       - examples$

@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jezek/xgb/randr"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // The synthetic connection is the only mock shared by screen, window, output,

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // After a successful key press, a failed release may never have reached the

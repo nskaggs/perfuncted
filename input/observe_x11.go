@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jezek/xgb"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 type x11Observer struct {

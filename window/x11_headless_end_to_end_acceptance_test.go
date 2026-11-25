@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/jezek/xgb"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11test"
 )
 

@@ -4,7 +4,7 @@ package input
 
 import (
 	"context"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"strings"
 	"testing"
 )

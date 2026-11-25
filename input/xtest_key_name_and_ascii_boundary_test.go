@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 func TestXTestKeyNameResolutionPrintableASCIIAndUntrustedBytes(t *testing.T) {

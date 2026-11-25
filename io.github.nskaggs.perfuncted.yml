@@ -23,6 +23,7 @@ modules:
     build-commands:
       - sh scripts/flatpak-build.sh
       - install -Dm0644 LICENSE "${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/perfuncted/LICENSE"
+      - install -Dm0644 internal/third_party/xgb/LICENSE "${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/xgb/LICENSE"
       - install -Dm0644 flatpak/io.github.nskaggs.perfuncted.metainfo.xml "${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml"
       - install -Dm0644 flatpak/io.github.nskaggs.perfuncted-128.png "${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/${FLATPAK_ID}.png"
     sources:
@@ -41,9 +42,6 @@ modules:
         strip-components: 4
         type: archive
         url: https://proxy.golang.org/github.com/godbus/dbus/v5/@v/v5.2.2.zip
-      - type: dir
-        path: third_party/xgb
-        dest: vendor/github.com/jezek/xgb
       - dest: vendor/github.com/spf13/cobra
         sha256: a00aae6fcd631e0fde52c98604452ff70e1b73c3b8a560d68db15aff5e26872d
         strip-components: 3

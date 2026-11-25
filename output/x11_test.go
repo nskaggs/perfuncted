@@ -6,8 +6,8 @@ import (
 	"net"
 	"testing"
 
-	"github.com/jezek/xgb/randr"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 

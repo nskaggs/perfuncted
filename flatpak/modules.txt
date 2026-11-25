@@ -10,16 +10,6 @@ github.com/godbus/dbus/v5
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
 github.com/inconshreveable/mousetrap
-# github.com/jezek/xgb v1.3.0 => ./third_party/xgb
-## explicit; go 1.11
-github.com/jezek/xgb
-github.com/jezek/xgb/composite
-github.com/jezek/xgb/randr
-github.com/jezek/xgb/render
-github.com/jezek/xgb/shape
-github.com/jezek/xgb/xfixes
-github.com/jezek/xgb/xproto
-github.com/jezek/xgb/xtest
 # github.com/kr/text v0.2.0
 ## explicit
 # github.com/russross/blackfriday/v2 v2.1.0
@@ -41,7 +31,11 @@ go.uber.org/goleak/internal/stack
 go.yaml.in/yaml/v3
 # golang.org/x/mod v0.41.0
 ## explicit; go 1.26.0
+golang.org/x/mod/internal/lazyregexp
+golang.org/x/mod/modfile
+golang.org/x/mod/module
 golang.org/x/mod/semver
+golang.org/x/mod/zip
 # golang.org/x/sync v0.23.0
 ## explicit; go 1.26.0
 golang.org/x/sync/errgroup
@@ -70,4 +64,3 @@ golang.org/x/tools/internal/versions
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
-# github.com/jezek/xgb => ./third_party/xgb

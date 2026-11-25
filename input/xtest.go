@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
 	oplife "github.com/nskaggs/perfuncted/internal/operation"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 

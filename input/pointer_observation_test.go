@@ -3,7 +3,7 @@ package input
 import (
 	"context"
 	"errors"
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
 	"testing"
 )

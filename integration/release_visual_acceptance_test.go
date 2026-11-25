@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jezek/xgb"
-	"github.com/jezek/xgb/xproto"
-	"github.com/jezek/xgb/xtest"
 	"github.com/nskaggs/perfuncted"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xtest"
 )
 
 // This lane owns a real native X11 framebuffer; the independent X client

@@ -1,11 +1,11 @@
 package x11
 
 import (
-	"github.com/jezek/xgb"
-	"github.com/jezek/xgb/composite"
-	"github.com/jezek/xgb/randr"
-	"github.com/jezek/xgb/xproto"
-	"github.com/jezek/xgb/xtest"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/composite"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xtest"
 )
 
 // Connection abstracts the minimal xgb/xproto/xtest surface used by backends.
@@ -41,7 +41,7 @@ type Connection interface {
 	InitXTest() error
 }
 
-// XgbConnection implements Connection using github.com/jezek/xgb.
+// XgbConnection implements Connection using github.com/nskaggs/perfuncted/internal/third_party/xgb.
 type XgbConnection struct {
 	conn *xgb.Conn
 }

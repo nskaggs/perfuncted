@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // countXTestEvents counts recorded XTEST events of a kind for a keycode detail.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jezek/xgb/xproto"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 )
 
 // Even when the requested key itself exists, a missing modifier mapping must

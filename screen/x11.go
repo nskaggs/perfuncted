@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/jezek/xgb/xproto"
 	"github.com/nskaggs/perfuncted/find"
 	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
 	"github.com/nskaggs/perfuncted/internal/x11"
 )
 
