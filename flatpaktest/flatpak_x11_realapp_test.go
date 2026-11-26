@@ -4,6 +4,7 @@ package flatpaktest
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image/png"
 	"os"
@@ -13,13 +14,24 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/internal/x11test"
 )
 
-// Unlike synthetic input success codes, xev records real X events delivered
-// to a distinct GUI process running on the same Xvfb desktop as the bundle.
-func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot, testRoot string) {
+const (
+	x11WMReadyProperty  = "_PERFUNCTED_TEST_WM_READY"
+	x11WMStartupCommand = "xprop -root -f " + x11WMReadyProperty + " 8s -set " + x11WMReadyProperty + " ready"
+)
+
+type x11EventTarget struct {
+	title, id, logPath, wmLogPath, ewmhClients string
+}
+
+// startX11EventTarget operates only on a fresh, isolated Xvfb display owned
+// by the caller. Both child processes are cleaned up before the X server.
+func startX11EventTarget(t *testing.T, env []string, testRoot string) x11EventTarget {
 	t.Helper()
-	for _, tool := range []string{"openbox", "xev", "xdotool", "stdbuf", "xprop"} {
+	for _, tool := range []string{"openbox", "xev", "xdotool", "stdbuf", "xprop", "xwininfo"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Fatalf("real X11 acceptance requires %s: %v", tool, err)
 		}
@@ -30,49 +42,61 @@ func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot
 		t.Fatal(err)
 	}
 	defer events.Close()
-	wmLog, err := os.Create(filepath.Join(testRoot, "x11-window-manager.log"))
+	wmLogPath := filepath.Join(testRoot, "x11-window-manager.log")
+	wmLog, err := os.Create(wmLogPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer wmLog.Close()
-	wm := exec.Command("openbox", "--sm-disable")
-	wm.Env = h.env
+	// Openbox publishes _NET_SUPPORTING_WM_CHECK before it has completed
+	// startup. A client mapped in that interval can remain unmapped.
+	// Use Openbox's post-startup command as a readiness barrier instead
+	// of treating a nonzero EWMH window as proof of readiness.
+	wm := exec.Command("openbox", "--sm-disable", "--startup", x11WMStartupCommand)
+	wm.Env = env
 	wm.Stdout = wmLog
 	wm.Stderr = wmLog
 	if err := wm.Start(); err != nil {
 		t.Fatalf("start isolated X11 WM: %v", err)
 	}
 	t.Cleanup(func() { _ = wm.Process.Kill(); _ = wm.Wait() })
+	var ewmh, startup string
 	if !pollX11Program(5*time.Second, func() bool {
-		cmd := exec.Command("xprop", "-root", "_NET_SUPPORTING_WM_CHECK")
-		cmd.Env = h.env
-		out, err := cmd.CombinedOutput()
-		return err == nil && x11WindowManagerReady(string(out))
+		ewmh = x11FixtureCommand(env, "xprop", "-root", "_NET_SUPPORTING_WM_CHECK")
+		startup = x11FixtureCommand(env, "xprop", "-root", x11WMReadyProperty)
+		return x11WindowManagerReady(ewmh) && x11WindowManagerStartupComplete(startup)
 	}) {
-		log, _ := os.ReadFile(wmLog.Name())
-		t.Fatalf("X11 WM did not advertise EWMH: %s", log)
+		log, _ := os.ReadFile(wmLogPath)
+		t.Fatalf("X11 WM startup incomplete (DISPLAY=%s): EWMH=%q startup=%q wm=%q",
+			getEnv(env, "DISPLAY"), ewmh, startup, log)
 	}
 	title := "perfuncted-flatpak-positive-app"
 	target := exec.Command("stdbuf", "-oL", "xev", "-name", title, "-geometry", "280x160+80+80", "-event", "mouse", "-event", "keyboard")
-	target.Env = h.env
+	target.Env = env
 	target.Stdout = events
 	target.Stderr = events
 	if err := target.Start(); err != nil {
 		t.Fatalf("start isolated X11 event target: %v", err)
 	}
 	t.Cleanup(func() { _ = target.Process.Kill(); _ = target.Wait() })
-	var id string
+	var id, searchResult string
 	if !pollX11Program(8*time.Second, func() bool {
-		cmd := exec.Command("xdotool", "search", "--onlyvisible", "--name", title)
-		cmd.Env = h.env
-		out, err := cmd.CombinedOutput()
-		if err == nil && len(strings.Fields(string(out))) > 0 {
-			id = strings.Fields(string(out))[0]
-			return true
+		searchResult = x11FixtureCommand(env, "xdotool", "search", "--onlyvisible", "--name", title)
+		fields := strings.Fields(searchResult)
+		if len(fields) == 1 {
+			if value, err := strconv.ParseUint(fields[0], 10, 32); err == nil && value != 0 {
+				id = fields[0]
+				return true
+			}
 		}
 		return false
 	}) {
-		t.Fatalf("X11 event target never became visible (DISPLAY=%s)", getEnv(h.env, "DISPLAY"))
+		wmOutput, _ := os.ReadFile(wmLogPath)
+		targetOutput, _ := os.ReadFile(logPath)
+		t.Fatalf("X11 event target never became visible (DISPLAY=%s): search=%q wm=%q target=%q clients=%q tree=%q",
+			getEnv(env, "DISPLAY"), searchResult, wmOutput, targetOutput,
+			x11FixtureCommand(env, "xprop", "-root", "_NET_CLIENT_LIST", "_NET_ACTIVE_WINDOW"),
+			x11FixtureCommand(env, "xwininfo", "-root", "-tree"))
 	}
 	// xdotool sees a newly mapped X11 window before Openbox necessarily
 	// publishes it in the EWMH _NET_CLIENT_LIST. The Flatpak uses that
@@ -85,26 +109,33 @@ func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot
 	}
 	var ewmhClients string
 	if !pollX11Program(12*time.Second, func() bool {
-		cmd := exec.Command("xprop", "-root", "_NET_CLIENT_LIST")
-		cmd.Env = h.env
-		out, commandErr := cmd.CombinedOutput()
-		ewmhClients = string(out)
-		return commandErr == nil && x11ClientListContains(ewmhClients, uint32(windowID))
+		ewmhClients = x11FixtureCommand(env, "xprop", "-root", "_NET_CLIENT_LIST")
+		return x11ClientListContains(ewmhClients, uint32(windowID))
 	}) {
-		wmOutput, _ := os.ReadFile(wmLog.Name())
+		wmOutput, _ := os.ReadFile(wmLogPath)
 		targetOutput, _ := os.ReadFile(logPath)
 		t.Fatalf("X11 target %q (XID=0x%x) mapped but Openbox never registered it in _NET_CLIENT_LIST; clients=%q wm=%q target=%q",
 			title, windowID, ewmhClients, wmOutput, targetOutput)
 	}
+	return x11EventTarget{title: title, id: id, logPath: logPath, wmLogPath: wmLogPath, ewmhClients: ewmhClients}
+}
+
+// Unlike synthetic input success codes, xev records real X events delivered
+// to a distinct GUI process running on the same Xvfb desktop as the bundle.
+func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot, testRoot string) {
+	t.Helper()
+	target := startX11EventTarget(t, h.env, testRoot)
+	title, id, logPath := target.title, target.id, target.logPath
+	windowID, _ := strconv.ParseUint(id, 10, 32) // validated by startX11EventTarget
 	var list, stderr string
 	var code int
 	if !pollX11Program(12*time.Second, func() bool {
 		list, stderr, code = h.run(t, sourceRoot, "run", "--socket=x11", appID, "window", "list")
 		return code == 0 && strings.Contains(list, title)
 	}) {
-		wmOutput, _ := os.ReadFile(wmLog.Name())
+		wmOutput, _ := os.ReadFile(target.wmLogPath)
 		t.Fatalf("installed Flatpak could not discover managed X11 window %q (XID=0x%x); EWMH clients=%q; code=%d list=%q stderr=%q wm=%q",
-			title, windowID, ewmhClients, code, list, stderr, wmOutput)
+			title, windowID, target.ewmhClients, code, list, stderr, wmOutput)
 	}
 	active, stderr, code := h.run(t, sourceRoot, "run", "--socket=x11", appID, "window", "activate", title, "--verify")
 	if code != 0 || !strings.Contains(active, "verified") {
@@ -155,6 +186,59 @@ func testInstalledFlatpakRealX11Application(t *testing.T, h *harness, sourceRoot
 		t.Fatalf("real X11 screenshot malformed: %+v %v", img, err)
 	}
 	t.Logf("installed Flatpak discovered, focused, clicked, typed into, and captured a real X11 GUI app")
+}
+
+// Bound individual host diagnostic/readiness commands too: a wedged X
+// connection must not make an otherwise bounded readiness poll hang.
+func x11FixtureCommand(env []string, program string, args ...string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, program, args...)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("%s: %v; %s", program, err, out)
+	}
+	return string(out)
+}
+
+func x11WindowManagerStartupComplete(property string) bool {
+	return strings.TrimSpace(property) == x11WMReadyProperty+"(STRING) = \"ready\""
+}
+
+// Run the same host fixture independently of Flatpak build/install so startup
+// races can be reproduced quickly against fresh isolated X servers.
+func TestX11RealApplicationFixture(t *testing.T) {
+	display, stop, err := x11test.StartXvfbNoReset()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stop)
+	root := t.TempDir()
+	env := setEnv(os.Environ(), "DISPLAY", display)
+	env = setEnv(env, "XDG_SESSION_TYPE", "x11")
+	env = setEnv(env, "HOME", root)
+	env = setEnv(env, "XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	target := startX11EventTarget(t, env, root)
+	if got := x11FixtureCommand(env, "xdotool", "getwindowname", target.id); strings.TrimSpace(got) != target.title {
+		t.Fatalf("unexpected managed target title: %q", got)
+	}
+}
+
+func TestX11WindowManagerStartupRequiresHandshake(t *testing.T) {
+	for _, tc := range []struct {
+		property string
+		want     bool
+	}{
+		{"_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x200001", false},
+		{x11WMReadyProperty + ":  no such atom on any window.", false},
+		{x11WMReadyProperty + "(STRING) = \"not-ready\"", false},
+		{x11WMReadyProperty + "(STRING) = \"ready\"\n", true},
+	} {
+		if got := x11WindowManagerStartupComplete(tc.property); got != tc.want {
+			t.Errorf("%q: startup=%t want %t", tc.property, got, tc.want)
+		}
+	}
 }
 
 func pollX11Program(timeout time.Duration, condition func() bool) bool {
