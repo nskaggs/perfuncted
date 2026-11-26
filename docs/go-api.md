@@ -54,3 +54,29 @@ other advanced control, use the existing session bundles. In particular,
 conditions such as `AccessibilityTextContains` can express a postcondition.
 
 See the [Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted/v2).
+
+## Migrating from v1 to v2
+
+The v2 development module deliberately changes Go source compatibility to prevent callers from overwriting session-owned backends and process state. CLI commands, flags, output contracts and workflow formats are unchanged. Existing v1 consumers can remain pinned to `github.com/nskaggs/perfuncted@v1.4.0`. To test unreleased v2 code, pin the desired commit explicitly.
+
+Change the module requirement and all Perfuncted imports (including subpackages) to `github.com/nskaggs/perfuncted/v2`. Replace the seven session capability fields with accessor calls:
+
+| v1 field | v2 accessor | Return type |
+| --- | --- | --- |
+| `s.Screen` | `s.Screen()` | `ScreenBundle` |
+| `s.Input` | `s.Input()` | `InputBundle` |
+| `s.InputObservation` | `s.InputObservation()` | `InputObservationBundle` |
+| `s.Windows` | `s.Windows()` | `WindowBundle` |
+| `s.Outputs` | `s.Outputs()` | `OutputBundle` |
+| `s.Clipboard` | `s.Clipboard()` | `ClipboardBundle` |
+| `s.Accessibility` | `s.Accessibility()` | `AccessibilityBundle` |
+
+For example, `s.Input.Type(ctx, text)` becomes `s.Input().Type(ctx, text)`. Variables and parameters holding pointers to capability bundles should now hold concrete bundle values. Bundles are non-owning handles; they cannot be assigned back into a session. Use `s.Has(capability)` or `s.Capability(capability)` for availability instead of comparing bundles to nil.
+
+`Open`, `OpenDefault` and `NewSessionForTesting` still return `*Session`. Copying a Session value aliases the private session; closing either copy closes the same session. Overwriting a wrapper does not redirect previously issued handles. Retain the original session reference and close it when finished.
+
+`*Window` and `*Application` retain their pointer-shaped APIs. Copies preserve their original target or process identity; replacing a public wrapper does not replace the owning session's resource. A zero Session cannot authorize launching a process.
+
+Existing root names for capture metadata, window events, motion options, input receipts and accessibility action receipts remain available. Canonical capture metadata lives in the screen package, window events in the window package and semantic action receipts in the accessibility package. For example, `perfuncted.AccessibilityActionReceipt` aliases `accessibility.ActionReceipt`. Existing root names remain usable.
+
+To return to v1, restore the original module path, version and capability field calls. Existing v1 tags and installed CLI releases are unchanged.
