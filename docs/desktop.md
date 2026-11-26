@@ -35,7 +35,7 @@ pf input drag-and-drop --x1 100 --y1 100 --x2 800 --y2 450 --duration 700ms --cu
 ```
 
 The Go equivalents are `Input.MouseMoveSmooth`, `Input.DragAndDropSmooth`
-and `MotionOptions`. Smooth movement without an explicit origin reads the
+and `input.MotionOptions`. Smooth movement without an explicit origin reads the
 cursor position; backends unable to report it (including portal/EIS and
 wl-virtual) require both `--from-x` and `--from-y` or return unsupported.
 Explicit origins are not verified as the cursor's real location. Coordinates

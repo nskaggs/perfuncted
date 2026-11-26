@@ -729,11 +729,8 @@ func (s *state) Capture(ctx context.Context, rect image.Rectangle) (screen.Captu
 // Admission is the screen-local authority and policy seam. A capture cannot
 // access other backends or change session identity.
 type Admission interface {
-	CheckBackend(operation string, backend any) error
-	BackendContext(context.Context) (context.Context, context.CancelFunc)
+	capability.BoundedAuthority
 	Tracef(component, format string, args ...any)
-	EnsureOpen() error
-	OperationError(operation string, err error) error
 	AfterClose(func()) func() bool
 }
 

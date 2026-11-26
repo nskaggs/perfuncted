@@ -13,6 +13,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"github.com/spf13/cobra"
 )
 
@@ -103,7 +104,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 func (o accessibilityCLIOptions) managedWindowID(ctx context.Context, pf *perfuncted.Session) (string, error) {
 	managedWindowID := strings.TrimSpace(o.windowID)
 	if strings.TrimSpace(o.window) != "" {
-		managedWindow, err := pf.Windows().Find(ctx, perfuncted.WindowMatch{TitleExact: strings.TrimSpace(o.window)})
+		managedWindow, err := pf.Windows().Find(ctx, window.Match{TitleExact: strings.TrimSpace(o.window)})
 		if err != nil {
 			return "", err
 		}
@@ -197,7 +198,7 @@ func writeAccessibilityText(w io.Writer, value any) error {
 	case accessibility.Action:
 		_, err := fmt.Fprintf(w, "action index=%d name=%q localized=%q description=%q key=%q\n", typed.Index, typed.Name, typed.LocalizedName, typed.Description, typed.KeyBinding)
 		return err
-	case perfuncted.AccessibilityActionReceipt:
+	case accessibility.ActionReceipt:
 		if err := writeAccessibilityNode(w, typed.Node, "target "); err != nil {
 			return err
 		}
@@ -243,10 +244,10 @@ type accessibilityWaitCLIResult struct {
 }
 
 type accessibilityActionCLIResult struct {
-	Status    string                                `json:"status"`
-	Receipt   perfuncted.AccessibilityActionReceipt `json:"receipt"`
-	Evidence  perfuncted.WaitEvidence               `json:"evidence"`
-	ErrorCode string                                `json:"errorCode,omitempty"`
+	Status    string                      `json:"status"`
+	Receipt   accessibility.ActionReceipt `json:"receipt"`
+	Evidence  perfuncted.WaitEvidence     `json:"evidence"`
+	ErrorCode string                      `json:"errorCode,omitempty"`
 }
 
 // writeAccessibilityOutline preserves incomplete-tree diagnostic evidence.

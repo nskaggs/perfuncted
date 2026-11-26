@@ -936,11 +936,10 @@ func (b *operationState) findApplicationDirect(ctx context.Context, filter acces
 // OperationAdmission exposes only the accessibility provider and its dynamic
 // operation policy. Generation ownership remains with Owner.
 type OperationAdmission interface {
+	capability.Authority
 	Backend() accessibility.Backend
 	CheckAvailable(string) error
 	OperationContext(context.Context) (context.Context, context.CancelFunc)
-	EnsureOpen() error
-	OperationError(string, error) error
 	IsClosed() bool
 }
 type operationState struct{ gate OperationAdmission }

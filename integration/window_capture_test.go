@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func TestWindowCaptureIntegration(t *testing.T) {
@@ -40,7 +42,7 @@ func TestWindowCaptureIntegration(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	target, err := s.pf.Windows().Wait(ctx, perfuncted.WindowMatch{TitleContains: app.winMatch}, perfuncted.WaitEvery(250*time.Millisecond))
+	target, err := s.pf.Windows().Wait(ctx, window.Match{TitleContains: app.winMatch}, perfuncted.WaitEvery(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("find %s window: %v", app.name, err)
 	}
@@ -69,7 +71,7 @@ func TestWindowCaptureIntegration(t *testing.T) {
 	if capture.PixelScaleX <= 0 || capture.PixelScaleY <= 0 || capture.PixelScaleX != capture.PixelScaleY {
 		t.Fatalf("capture scale=(%v,%v), want equal positive scale", capture.PixelScaleX, capture.PixelScaleY)
 	}
-	if capture.Mode != perfuncted.WindowCaptureVisibleScreenCrop {
+	if capture.Mode != screen.WindowCaptureVisibleScreenCrop {
 		t.Fatalf("capture mode=%q", capture.Mode)
 	}
 	t.Logf("%s captured window %q at %v with pixel scale (%v,%v)", s.mode, capture.WindowID, capture.ScreenRect, capture.PixelScaleX, capture.PixelScaleY)

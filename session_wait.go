@@ -500,7 +500,7 @@ func Not(child Condition) Condition {
 }
 
 // WindowExists succeeds when match identifies at least one window.
-func WindowExists(match WindowMatch) Condition {
+func WindowExists(match window.Match) Condition {
 	return sessionCondition(
 		"window exists "+match.String(),
 		func(ctx context.Context, session *sessionCore) (bool, error) {

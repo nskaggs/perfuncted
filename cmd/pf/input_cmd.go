@@ -52,12 +52,12 @@ func inputCmd(
 	var motionVariation int
 	var motionSeed uint64
 	var fromX, fromY int
-	motionOpts := func() (perfuncted.MotionOptions, error) {
+	motionOpts := func() (input.MotionOptions, error) {
 		duration, err := parseDuration(motionDuration, 0)
 		if err != nil {
-			return perfuncted.MotionOptions{}, err
+			return input.MotionOptions{}, err
 		}
-		return perfuncted.MotionOptions{Duration: duration, Easing: motionEasing, Curve: motionCurve, Variation: motionVariation, Seed: motionSeed}, nil
+		return input.MotionOptions{Duration: duration, Easing: motionEasing, Curve: motionCurve, Variation: motionVariation, Seed: motionSeed}, nil
 	}
 	addMotionFlags := func(c *cobra.Command) {
 		c.Flags().StringVar(&motionDuration, "duration", "0", "motion duration (0 means direct; max 10s)")
@@ -76,7 +76,7 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
-			if validationErr := perfuncted.ValidateMotionOptions(opts); validationErr != nil {
+			if validationErr := input.ValidateMotionOptions(opts); validationErr != nil {
 				return validationErr
 			}
 			if cmd.Flags().Changed("from-x") != cmd.Flags().Changed("from-y") {
@@ -261,7 +261,7 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
-			if validationErr := perfuncted.ValidateMotionOptions(opts); validationErr != nil {
+			if validationErr := input.ValidateMotionOptions(opts); validationErr != nil {
 				return validationErr
 			}
 			pf, err := openPF(cmd.Context())

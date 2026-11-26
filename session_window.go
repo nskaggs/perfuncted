@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/nskaggs/perfuncted/v2/internal/sessionwindow"
 
 	"github.com/nskaggs/perfuncted/v2/window"
@@ -18,9 +19,6 @@ var (
 	// requested window appeared.
 	ErrApplicationExited = errors.New("application exited before window appeared")
 )
-
-// WindowMatch describes a window query.
-type WindowMatch = window.Match
 
 // WindowID is an opaque identifier scoped to the Session that created it.
 type WindowID struct {
@@ -67,7 +65,7 @@ func (w *windowState) target() *sessionwindow.Target {
 	}
 	return w.Target
 }
-func (b *windowBundleState) List(ctx context.Context, match WindowMatch) ([]*windowState, error) {
+func (b *windowBundleState) List(ctx context.Context, match window.Match) ([]*windowState, error) {
 	if b == nil {
 		return nil, ErrNilSession
 	}
@@ -97,7 +95,7 @@ func (w *windowState) WaitClosed(ctx context.Context) error {
 // Find returns exactly one matching window.
 func (b *windowBundleState) Find(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 ) (*windowState, error) {
 	windows, err := b.List(ctx, match)
 	if err != nil {
@@ -124,7 +122,7 @@ func (b *windowBundleState) Find(
 // Wait waits for match to identify exactly one window.
 func (b *windowBundleState) Wait(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 	options ...WaitOption,
 ) (*windowState, error) {
 	if b == nil || b.session == nil {
@@ -157,7 +155,7 @@ func (b *windowBundleState) Wait(
 // group. When the backend has no PID data, match must identify one window.
 func (a *applicationState) WaitForWindow(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 ) (*windowState, error) {
 	if a == nil || a.session == nil {
 		return nil, ErrNilSession
@@ -318,7 +316,7 @@ func (w *Window) WaitClosed(ctx context.Context) error {
 // List returns every window satisfying match.
 func (s WindowBundle) List(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 ) ([]*Window, error) {
 	values, err := s.state.List(ctx, match)
 	if values == nil {
@@ -334,7 +332,7 @@ func (s WindowBundle) List(
 // Find returns exactly one matching window.
 func (s WindowBundle) Find(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 ) (*Window, error) {
 	v, err := s.state.Find(ctx, match)
 	return wrapWindow(v), err
@@ -343,7 +341,7 @@ func (s WindowBundle) Find(
 // Wait waits for match to identify exactly one window.
 func (s WindowBundle) Wait(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 	options ...WaitOption,
 ) (*Window, error) {
 	v, err := s.state.Wait(ctx, match, options...)

@@ -137,10 +137,8 @@ func (b *observationState) queryState(
 
 // ObservationAdmission excludes injection backends and receipt state.
 type ObservationAdmission interface {
-	CheckBackend(string, any) error
+	capability.BackendAuthority
 	InputContext(context.Context, time.Duration) (context.Context, context.CancelFunc)
-	OperationError(string, error) error
-	EnsureOpen() error
 	AfterClose(func()) func() bool
 }
 type ObservationOwner struct{ *observationState }

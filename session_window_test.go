@@ -3,14 +3,15 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"iter"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type windowFullscreenFailureManager struct {
@@ -159,7 +160,7 @@ func TestWindowGeometryRejectsUnrepresentableValuesBeforeDispatch(t *testing.T) 
 			t.Cleanup(func() {
 				_ = session.Close()
 			})
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Target"})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Target"})
 			if err != nil {
 				t.Fatalf("Find: %v", err)
 			}
@@ -210,7 +211,7 @@ func TestWindowGeometryAcceptsRepresentableValues(t *testing.T) {
 			t.Cleanup(func() {
 				_ = session.Close()
 			})
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Target"})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Target"})
 			if err != nil {
 				t.Fatalf("Find: %v", err)
 			}
@@ -253,7 +254,7 @@ func TestManagedWindowListRejectsMetadataFromCanceledRead(t *testing.T) {
 	backend := &cancelingWindowReadBackend{handleWindowManager: newHandleWindowManager(), cancel: cancel}
 	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	got, err := session.windows.List(ctx, WindowMatch{})
+	got, err := session.windows.List(ctx, window.Match{})
 	if !errors.Is(err, context.Canceled) || len(got) != 0 {
 		t.Fatalf("canceled window listing leaked %v, err=%v", got, err)
 	}
@@ -291,7 +292,7 @@ func TestManagedWindowHandlesDiscardResultsAfterSessionClose(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		windows, err := session.windows.List(context.Background(), WindowMatch{})
+		windows, err := session.windows.List(context.Background(), window.Match{})
 		if !errors.Is(err, ErrSessionClosed) || len(windows) != 0 {
 			t.Fatalf("closed session leaked windows %+v, err=%v", windows, err)
 		}
@@ -338,7 +339,7 @@ func TestWindowListRejectsSessionCloseAfterMetadataFiltering(t *testing.T) {
 	base, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	ctx := &closeSessionAtWindowPostcheckContext{Context: base, session: session}
-	windows, err := session.windows.List(ctx, WindowMatch{})
+	windows, err := session.windows.List(ctx, window.Match{})
 	if ctx.closeErr != nil || !errors.Is(err, ErrSessionClosed) || len(windows) != 0 || ctx.checks != 2 {
 		t.Fatalf("session closed after filtering: got windows=%v err=%v cleanup=%v checks=%d", windows, err, ctx.closeErr, ctx.checks)
 	}
@@ -593,7 +594,7 @@ func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 
 	target, err := session.windows.Find(
 		context.Background(),
-		WindowMatch{TitleExact: "Old title"},
+		window.Match{TitleExact: "Old title"},
 	)
 	if err != nil {
 		t.Fatalf("Find: %v", err)
@@ -633,7 +634,7 @@ func TestWindowCachedInfoDoesNotRefreshWindowManager(t *testing.T) {
 	t.Cleanup(func() {
 		_ = session.Close()
 	})
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleContains: "Firefox"})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleContains: "Firefox"})
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
@@ -654,7 +655,7 @@ func TestWindowFindRejectsAmbiguous(t *testing.T) {
 	})
 	_, err := session.windows.Find(
 		context.Background(),
-		WindowMatch{TitleExact: "Editor"},
+		window.Match{TitleExact: "Editor"},
 	)
 	if !errors.Is(err, ErrWindowAmbiguous) {
 		t.Fatalf("Find error = %v", err)
@@ -673,7 +674,7 @@ func TestWaitUsesEventsAndPollingRecovery(t *testing.T) {
 		go func() {
 			_, err := session.windows.Wait(
 				context.Background(),
-				WindowMatch{TitleExact: "Ready"},
+				window.Match{TitleExact: "Ready"},
 			)
 			result <- err
 		}()
@@ -712,7 +713,7 @@ func TestWaitUsesEventsAndPollingRecovery(t *testing.T) {
 		}()
 		if err := session.Wait(
 			ctx,
-			WindowExists(WindowMatch{TitleExact: "Ready"}),
+			WindowExists(window.Match{TitleExact: "Ready"}),
 			WaitEvery(10*time.Millisecond),
 		); err != nil {
 			t.Fatalf("Wait: %v", err)
@@ -729,11 +730,11 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 	if err := session.Wait(
 		context.Background(),
 		All(
-			WindowExists(WindowMatch{TitleExact: "Ready"}),
-			Not(WindowExists(WindowMatch{TitleExact: "Missing"})),
+			WindowExists(window.Match{TitleExact: "Ready"}),
+			Not(WindowExists(window.Match{TitleExact: "Missing"})),
 			Any(
-				WindowExists(WindowMatch{TitleExact: "Ready"}),
-				WindowExists(WindowMatch{TitleExact: "Other"}),
+				WindowExists(window.Match{TitleExact: "Ready"}),
+				WindowExists(window.Match{TitleExact: "Other"}),
 			),
 		),
 	); err != nil {
@@ -744,7 +745,7 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 	manager.setError(backendErr)
 	err := session.Wait(
 		context.Background(),
-		WindowExists(WindowMatch{}),
+		WindowExists(window.Match{}),
 	)
 	if !errors.Is(err, backendErr) {
 		t.Fatalf("terminal error = %v", err)
@@ -755,7 +756,7 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 	cancel()
 	if err := session.Wait(
 		cancelled,
-		WindowExists(WindowMatch{TitleExact: "Missing"}),
+		WindowExists(window.Match{TitleExact: "Missing"}),
 	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel error = %v", err)
 	}
@@ -764,7 +765,7 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 	go func() {
 		waitResult <- session.Wait(
 			context.Background(),
-			WindowExists(WindowMatch{TitleExact: "Missing"}),
+			WindowExists(window.Match{TitleExact: "Missing"}),
 		)
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -806,11 +807,11 @@ func TestClosedSessionRejectsWindowWork(t *testing.T) {
 			return session.input.KeyDown(context.Background(), "a")
 		}},
 		{name: "windows list", call: func() error {
-			_, err := session.windows.List(context.Background(), WindowMatch{})
+			_, err := session.windows.List(context.Background(), window.Match{})
 			return err
 		}},
 		{name: "windows wait", call: func() error {
-			return session.Wait(context.Background(), WindowExists(WindowMatch{}))
+			return session.Wait(context.Background(), WindowExists(window.Match{}))
 		}},
 		{name: "retained window", call: func() error {
 			return retained.Close(context.Background())
@@ -880,7 +881,7 @@ func TestApplicationWaitForWindowAndExitBeforeWindow(t *testing.T) {
 	}()
 	target, err := app.WaitForWindow(
 		context.Background(),
-		WindowMatch{TitleExact: "Browser"},
+		window.Match{TitleExact: "Browser"},
 	)
 	if err != nil {
 		t.Fatalf("WaitForWindow: %v", err)
@@ -900,7 +901,7 @@ func TestApplicationWaitForWindowAndExitBeforeWindow(t *testing.T) {
 	defer cancel()
 	_, err = exited.WaitForWindow(
 		ctx,
-		WindowMatch{TitleExact: "Never"},
+		window.Match{TitleExact: "Never"},
 	)
 	if !errors.Is(err, ErrApplicationExited) {
 		t.Fatalf("exit-before-window error = %v", err)
@@ -1551,7 +1552,7 @@ func TestWindowListRejectsCancellationAfterFilteringResults(t *testing.T) {
 	base, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: base, cancel: cancel, target: 2}
-	windows, err := session.windows.List(ctx, WindowMatch{})
+	windows, err := session.windows.List(ctx, window.Match{})
 	if len(windows) != 0 || !errors.Is(err, context.Canceled) || ctx.calls != 2 {
 		t.Fatalf("canceled post-filter enumeration escaped: windows=%v err=%v checks=%d", windows, err, ctx.calls)
 	}

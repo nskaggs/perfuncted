@@ -3,9 +3,9 @@ package capture
 
 import (
 	"fmt"
-	"image"
-
 	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"image"
+	"math/bits"
 )
 
 // ValidateImageLayout rejects malformed built-in packed image buffers
@@ -95,4 +95,18 @@ func validatePackedCaptureRows(rect image.Rectangle, stride int, pix []byte, byt
 		return fmt.Errorf("screen: invalid capture stride=%d bytes=%d bounds=%v", stride, len(pix), rect)
 	}
 	return nil
+}
+
+func AxisSpan(min, max int) (uint64, bool) {
+	if max <= min {
+		return 0, false
+	}
+	span := uint64(max) - uint64(min)
+	return span, span <= uint64(^uint(0)>>1)
+}
+
+func ScaleOffset(offset, sourceSpan, destinationSpan uint64) uint64 {
+	high, low := bits.Mul64(offset, destinationSpan)
+	quotient, _ := bits.Div64(high, low, sourceSpan)
+	return quotient
 }

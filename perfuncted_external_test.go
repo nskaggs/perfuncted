@@ -3,11 +3,6 @@ package perfuncted_test
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2"
-	"github.com/nskaggs/perfuncted/v2/find"
-	"github.com/nskaggs/perfuncted/v2/output"
-	"github.com/nskaggs/perfuncted/v2/pftest"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/draw"
@@ -17,6 +12,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type clipboardSpy struct {
@@ -749,7 +750,7 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	if err := pf.Input().Type(ctx, "^c"); err != nil {
 		t.Errorf("Type ctrl+c: %v", err)
 	}
-	if _, err := pf.Windows().List(ctx, perfuncted.WindowMatch{}); err != nil {
+	if _, err := pf.Windows().List(ctx, window.Match{}); err != nil {
 		t.Errorf("Windows.List: %v", err)
 	}
 	if err := pf.Clipboard().Set(ctx, "assembled"); err != nil {
@@ -805,7 +806,7 @@ func TestBundleSmoke(t *testing.T) {
 		}}}
 		browserWindow, err := pf.Windows().Find(
 			ctx,
-			perfuncted.WindowMatch{TitleContains: "Firefox"},
+			window.Match{TitleContains: "Firefox"},
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -979,7 +980,7 @@ func TestBundleMethodsPropagateContext(t *testing.T) {
 	if err := pf.Input().Type(ctx, "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pf.Windows().List(ctx, perfuncted.WindowMatch{}); err != nil {
+	if _, err := pf.Windows().List(ctx, window.Match{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := pf.Clipboard().Set(ctx, "clipboard"); err != nil {
@@ -1036,7 +1037,7 @@ func TestWindowBundle(t *testing.T) {
 	pf := pftest.New(nil, nil, mgr, nil)
 	ctx := context.Background()
 
-	wins, err := pf.Windows().List(ctx, perfuncted.WindowMatch{})
+	wins, err := pf.Windows().List(ctx, window.Match{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1178,8 +1179,8 @@ func TestWindowBundleEventsExposesBackendEventSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WindowBundle.Events: %v", err)
 	}
-	want := perfuncted.WindowEvent{
-		Kind: perfuncted.WindowAddedEvent,
+	want := window.Event{
+		Kind: window.WindowAddedEvent,
 		ID:   "17",
 	}
 	events <- want
@@ -1240,11 +1241,11 @@ func TestV2WindowHandleOverwriteCannotRedirectCopies(t *testing.T) {
 	s2 := perfuncted.NewSessionForTesting(nil, nil, second, nil, nil)
 	defer s1.Close()
 	defer s2.Close()
-	a, err := s1.Windows().Find(ctx, perfuncted.WindowMatch{})
+	a, err := s1.Windows().Find(ctx, window.Match{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s2.Windows().Find(ctx, perfuncted.WindowMatch{})
+	b, err := s2.Windows().Find(ctx, window.Match{})
 	if err != nil {
 		t.Fatal(err)
 	}

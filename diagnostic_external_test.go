@@ -4,12 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/input"
-	"github.com/nskaggs/perfuncted/v2/output"
-	"github.com/nskaggs/perfuncted/v2/pftest"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/png"
@@ -18,6 +12,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *testing.T) { //nolint:gocyclo // one end-to-end fixture verifies every optional artifact and privacy bound.
@@ -79,10 +80,10 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	locator := session.Accessibility().LocatorForWindow("private-window-id", selector, accessibility.SnapshotOptions{
 		MaxDepth: 12, MaxNodes: 70, MaxTextBytes: 4096, MaxTotalBytes: 1 << 20,
 	})
-	action := &perfuncted.AccessibilityActionReceipt{
+	action := &accessibility.ActionReceipt{
 		Node: nodes[0], Action: accessibility.Action{Index: 2, Name: secret},
 		Operation: "set-text-contents", Mechanism: "at-spi.text", Dispatch: accessibility.DispatchAccepted,
-		Outcome: perfuncted.ActionOutcomeProof{Status: perfuncted.ActionOutcomeVerified, Condition: secret, ObservedAt: event.Timestamp},
+		Outcome: accessibility.ActionOutcomeProof{Status: accessibility.ActionOutcomeVerified, Condition: secret, ObservedAt: event.Timestamp},
 	}
 	postcondition := &perfuncted.WaitEvidence{
 		Evaluations: 3, Wakeups: 1, AccessibilityWakeups: 1, LastWakeSource: "accessibility-event",
@@ -141,7 +142,7 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	if got := len(requireDiagnosticArray(t, artifact["events"])); got != 64 || artifact["events_omitted"] != float64(6) {
 		t.Fatalf("event summary count=%d omitted=%v, want 64 and 6", got, artifact["events_omitted"])
 	}
-	if actionSummary := requireDiagnosticMap(t, artifact["action"]); actionSummary["has_condition"] != true || actionSummary["outcome"] != string(perfuncted.ActionOutcomeVerified) {
+	if actionSummary := requireDiagnosticMap(t, artifact["action"]); actionSummary["has_condition"] != true || actionSummary["outcome"] != string(accessibility.ActionOutcomeVerified) {
 		t.Fatalf("action summary = %v", actionSummary)
 	}
 	if waitSummary := requireDiagnosticMap(t, artifact["postcondition"]); waitSummary["evaluations"] != float64(3) {
@@ -156,7 +157,7 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	if strings.Contains(string(inputData), secret) {
 		t.Fatalf("input-receipts.json contains typed content %q", secret)
 	}
-	var receipts []perfuncted.InputActionReceipt
+	var receipts []input.ActionReceipt
 	if err := json.Unmarshal(inputData, &receipts); err != nil {
 		t.Fatalf("decode input-receipts.json: %v", err)
 	}

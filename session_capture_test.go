@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2/find"
-	"github.com/nskaggs/perfuncted/v2/screen"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/png"
@@ -16,6 +13,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type cancelDuringPNGEncoding struct {
@@ -403,7 +404,7 @@ func TestCaptureWindowBackgroundReportsTargetOnlyStateWithoutActivation(t *testi
 	}}
 	session := newSessionForTesting(backend, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +412,7 @@ func TestCaptureWindowBackgroundReportsTargetOnlyStateWithoutActivation(t *testi
 	if err != nil {
 		t.Fatalf("CaptureWindowBackground: %v", err)
 	}
-	if capture.Mode != WindowCaptureBackgroundPixmap || capture.State != WindowCaptureOccluded || capture.WindowID != info.NativeID {
+	if capture.Mode != screen.WindowCaptureBackgroundPixmap || capture.State != screen.WindowCaptureOccluded || capture.WindowID != info.NativeID {
 		t.Fatalf("capture metadata=%+v", capture)
 	}
 	if capture.ScreenRect != image.Rect(10, 20, 50, 50) || capture.Capture.Image.Bounds() != image.Rect(0, 0, 40, 30) {
@@ -427,11 +428,11 @@ func TestCaptureWindowBackgroundRequiresKnownFocusForBackgroundVisibleState(t *t
 		name       string
 		foreground bool
 		known      bool
-		want       WindowCaptureState
+		want       screen.WindowCaptureState
 	}{
-		{name: "known inactive", known: true, want: WindowCaptureBackgroundVisible},
-		{name: "known foreground", foreground: true, known: true, want: WindowCaptureForeground},
-		{name: "focus property unavailable", want: WindowCaptureStateUnknown},
+		{name: "known inactive", known: true, want: screen.WindowCaptureBackgroundVisible},
+		{name: "known foreground", foreground: true, known: true, want: screen.WindowCaptureForeground},
+		{name: "focus property unavailable", want: screen.WindowCaptureStateUnknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			info := window.Info{NativeID: "42", Title: "Editor", X: 10, Y: 20, W: 4, H: 3}
@@ -445,7 +446,7 @@ func TestCaptureWindowBackgroundRequiresKnownFocusForBackgroundVisibleState(t *t
 			}}
 			session := newSessionForTesting(backend, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -490,7 +491,7 @@ func TestCaptureWindowBackgroundRejectsMinimizedAndUnsupportedBackends(t *testin
 			}
 			session := newSessionForTesting(backend, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -498,7 +499,7 @@ func TestCaptureWindowBackgroundRejectsMinimizedAndUnsupportedBackends(t *testin
 			if !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("CaptureWindowBackground error=%v, want ErrUnsupported", err)
 			}
-			if tc.name == "minimized" && !errors.Is(err, ErrWindowCaptureMinimized) {
+			if tc.name == "minimized" && !errors.Is(err, screen.ErrWindowCaptureMinimized) {
 				t.Fatalf("minimized error=%v, want ErrWindowCaptureMinimized", err)
 			}
 			if pixmapCalls != 0 || len(manager.actions) != 0 {
@@ -519,11 +520,11 @@ func TestCaptureWindowBackgroundPreservesUnmappedState(t *testing.T) {
 	}}
 	session := newSessionForTesting(backend, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.screen.CaptureWindowBackground(context.Background(), target); !errors.Is(err, ErrUnsupported) || !errors.Is(err, ErrWindowCaptureUnmapped) {
+	if _, err := session.screen.CaptureWindowBackground(context.Background(), target); !errors.Is(err, ErrUnsupported) || !errors.Is(err, screen.ErrWindowCaptureUnmapped) {
 		t.Fatalf("unmapped target error=%v", err)
 	}
 }
@@ -544,7 +545,7 @@ func TestCaptureWindowBackgroundToWritesPNGAndReturnsMetadata(t *testing.T) {
 	}
 	session := newSessionForTesting(backend, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +562,7 @@ func TestCaptureWindowBackgroundToWritesPNGAndReturnsMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode output PNG: %v", err)
 	}
-	if decoded.Bounds().Dx() != info.W || decoded.Bounds().Dy() != info.H || capture.WindowID != "editor" || capture.Mode != WindowCaptureBackgroundPixmap {
+	if decoded.Bounds().Dx() != info.W || decoded.Bounds().Dy() != info.H || capture.WindowID != "editor" || capture.Mode != screen.WindowCaptureBackgroundPixmap {
 		t.Fatalf("PNG bounds=%v capture=%+v", decoded.Bounds(), capture)
 	}
 }
@@ -600,7 +601,7 @@ func TestCaptureWindowBackgroundToRejectsEmptyPathBeforeCaptureAndPropagatesFail
 			}
 			session := newSessionForTesting(backend, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -659,7 +660,7 @@ func TestCaptureWindowUsesFreshBoundsAndDoesNotActivate(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +697,7 @@ func TestCaptureWindowAcceptsUniformHiDPIScale(t *testing.T) {
 	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx()*2, rect.Dy()*2)), nil
 	})
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Scaled"})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Scaled"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -721,7 +722,7 @@ func TestCaptureWindowRejectsClippedCapture(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx()-10, rect.Dy())), nil
 	})
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Offscreen"})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Offscreen"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -748,7 +749,7 @@ func TestCaptureWindowRejectsMinimizedAndMissingGeometryBeforeCapture(t *testing
 				grabs++
 				return image.NewRGBA(image.Rect(0, 0, 32, 32)), nil
 			})
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: tc.info.Title})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: tc.info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -779,7 +780,7 @@ func TestCaptureWindowRejectsIdentityOrGeometryChangesDuringCapture(t *testing.T
 				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 			})
 			manager = m
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -797,7 +798,7 @@ func TestCaptureWindowRejectsReplacementBeforeCapture(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +816,7 @@ func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 	first, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := first.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := first.windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -837,7 +838,7 @@ func TestCaptureWindowToWritesPNGAndReturnsMetadata(t *testing.T) {
 	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -882,7 +883,7 @@ func TestCaptureWindowToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *te
 				}
 				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 			})
-			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2115,12 +2116,12 @@ func TestReviewBackgroundCaptureUnknownVisibilityIsNotForeground(t *testing.T) {
 	}
 	session := newSessionForTesting(backend, nil, newHandleWindowManager(info), nil, nil)
 	defer session.Close()
-	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), window.Match{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := session.screen.CaptureWindowBackground(context.Background(), target)
-	if err != nil || got.State != WindowCaptureStateUnknown {
+	if err != nil || got.State != screen.WindowCaptureStateUnknown {
 		t.Fatalf("state=%q err=%v; focus does not prove visibility", got.State, err)
 	}
 }

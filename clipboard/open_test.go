@@ -574,3 +574,9 @@ func TestClipboardOpenRuntimeUnreachableAndNoTools(t *testing.T) {
 		t.Fatal("error lacks capability guidance")
 	}
 }
+
+func TestNewGnomeNativeClipboardForRuntimeRequiresSession(t *testing.T) {
+	if _, err := NewGnomeNativeClipboardForRuntime(env.FromEnviron(nil)); err == nil {
+		t.Fatal("NewGnomeNativeClipboardForRuntime succeeded without a session bus")
+	}
+}

@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"image"
 )
 
 func ExampleOpenDefault() {
@@ -69,7 +70,7 @@ func ExampleAccessibilityLocator_ClickAndWait() {
 		if err != nil {
 			return err
 		}
-		if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != perfuncted.ActionOutcomeVerified {
+		if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeVerified {
 			return errors.New("save action lacks accepted dispatch or independent verification")
 		}
 		return nil

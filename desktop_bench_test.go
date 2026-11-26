@@ -15,6 +15,7 @@ import (
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/nskaggs/perfuncted/v2/internal/capturebench"
 	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 const desktopBenchmarkTimeout = 2 * time.Minute
@@ -341,7 +342,7 @@ func launchDesktopBenchmarkWindow(b *testing.B, session *sessionCore, accessibil
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-		window, waitErr := app.WaitForWindow(ctx, WindowMatch{TitleContains: candidate.match})
+		window, waitErr := app.WaitForWindow(ctx, window.Match{TitleContains: candidate.match})
 		cancel()
 		if waitErr == nil {
 			return app, window
@@ -374,17 +375,17 @@ func BenchmarkDesktopInputClickType(b *testing.B) {
 // activation against a real application window.
 func BenchmarkDesktopWindowListActivate(b *testing.B) {
 	session := openDesktopBenchmarkSession(b, b.TempDir(), false)
-	_, window := launchDesktopBenchmarkWindow(b, session, false)
+	_, target := launchDesktopBenchmarkWindow(b, session, false)
 	ctx := context.Background()
 	for b.Loop() {
-		windows, err := session.windows.List(ctx, WindowMatch{})
+		windows, err := session.windows.List(ctx, window.Match{})
 		if err != nil {
 			b.Fatalf("list windows: %v", err)
 		}
 		if len(windows) == 0 {
 			b.Fatal("window list unexpectedly empty")
 		}
-		if err := window.Activate(ctx); err != nil {
+		if err := target.Activate(ctx); err != nil {
 			b.Fatalf("activate window: %v", err)
 		}
 	}

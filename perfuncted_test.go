@@ -4,18 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/clipboard"
-	"github.com/nskaggs/perfuncted/v2/input"
-	"github.com/nskaggs/perfuncted/v2/internal/capability"
-	"github.com/nskaggs/perfuncted/v2/internal/env"
-	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
-	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
-	"github.com/nskaggs/perfuncted/v2/internal/testutil"
-	"github.com/nskaggs/perfuncted/v2/internal/util"
-	"github.com/nskaggs/perfuncted/v2/output"
-	"github.com/nskaggs/perfuncted/v2/window"
-	"go.uber.org/goleak"
 	"image"
 	"iter"
 	"os"
@@ -28,6 +16,19 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/window"
+	"go.uber.org/goleak"
 )
 
 type cancelingCoreScreenRead struct {
@@ -349,7 +350,7 @@ func TestWindowFindReturnsOperationError(t *testing.T) {
 	session := newSessionForTesting(nil, nil, &listOnlyWindowManager{}, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
-	_, err := session.windows.Find(context.Background(), WindowMatch{TitleContains: "missing"})
+	_, err := session.windows.Find(context.Background(), window.Match{TitleContains: "missing"})
 	var operationErr *OperationError
 	if !errors.As(err, &operationErr) {
 		t.Fatalf("Find error = %v, want *OperationError", err)
@@ -364,7 +365,7 @@ func TestWindowFindReturnsOperationError(t *testing.T) {
 	ambiguous := &listOnlyWindowManager{infos: []window.Info{{Title: "dup", NativeID: "1"}, {Title: "dup", NativeID: "2"}}}
 	session2 := newSessionForTesting(nil, nil, ambiguous, nil, nil)
 	t.Cleanup(func() { _ = session2.Close() })
-	_, err = session2.windows.Find(context.Background(), WindowMatch{TitleContains: "dup"})
+	_, err = session2.windows.Find(context.Background(), window.Match{TitleContains: "dup"})
 	if !errors.As(err, &operationErr) {
 		t.Fatalf("ambiguous Find error = %v, want *OperationError", err)
 	}
@@ -377,7 +378,7 @@ func TestWindowStableHandleUnsupportedIsOperationError(t *testing.T) {
 	t.Parallel()
 	session := newSessionForTesting(nil, nil, &listOnlyWindowManager{infos: []window.Info{{Title: "one", NativeID: "1"}}}, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	found, err := session.windows.Find(context.Background(), WindowMatch{TitleContains: "one"})
+	found, err := session.windows.Find(context.Background(), window.Match{TitleContains: "one"})
 	if err != nil {
 		t.Fatalf("Find error = %v", err)
 	}

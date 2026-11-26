@@ -18,7 +18,7 @@ type state struct {
 	backend      input.Inputter
 	receiptMu    sync.Mutex
 	receiptSeq   uint64
-	receiptTrail []InputActionReceipt
+	receiptTrail []input.ActionReceipt
 	gate         Admission
 }
 
@@ -514,19 +514,7 @@ func (b *state) ObservePointer(ctx context.Context) (input.PointerObservation, e
 	})
 }
 
-// MotionOptions selects optional bounded pointer interpolation in backend coordinates.
-type MotionOptions struct {
-	Duration  time.Duration
-	Easing    string  // "", "linear", or "ease-in-out"
-	Curve     float64 // perpendicular bend fraction, -0.5..0.5
-	Variation int     // seeded coordinate variation in backend units, 0..16
-	Seed      uint64
-}
 type motionPoint = motion.Point
-
-// ValidateMotionOptions checks a motion request before opening an input session.
-func ValidateMotionOptions(o MotionOptions) error { return o.validate() }
-func (o MotionOptions) validate() error           { return motion.Options(o).Validate() }
 
 // validateMotionSpace uses the existing Session-authorized coordinate
 // provenance reader. Smooth operations never guess whether coordinates are
@@ -625,8 +613,8 @@ func (b *state) flushMotionRequests(ctx context.Context) error {
 
 // MouseMoveSmooth moves from an explicit start, or the reported pointer position.
 // Unknown pointer origins fail rather than using a guessed location.
-func (b *state) MouseMoveSmooth(ctx context.Context, start *image.Point, end image.Point, o MotionOptions) (err error) {
-	if checkErr := o.validate(); checkErr != nil {
+func (b *state) MouseMoveSmooth(ctx context.Context, start *image.Point, end image.Point, o input.MotionOptions) (err error) {
+	if checkErr := input.ValidateMotionOptions(o); checkErr != nil {
 		return checkErr
 	}
 	if o.Duration == 0 {
@@ -663,7 +651,7 @@ func (b *state) MouseMoveSmooth(ctx context.Context, start *image.Point, end ima
 		}
 		start = &image.Point{X: x, Y: y}
 	}
-	points := motion.Samples(motionPoint{X: start.X, Y: start.Y}, motionPoint{X: end.X, Y: end.Y}, motion.Options(o))
+	points := motion.Samples(motionPoint{X: start.X, Y: start.Y}, motionPoint{X: end.X, Y: end.Y}, o)
 	if checkErr := b.validateMotionPoints(ctx, points); checkErr != nil {
 		return checkErr
 	}
@@ -680,8 +668,8 @@ func (b *state) MouseMoveSmooth(ctx context.Context, start *image.Point, end ima
 }
 
 // DragAndDropSmooth shares the direct drag's button ownership and cleanup.
-func (b *state) DragAndDropSmooth(ctx context.Context, start, end image.Point, o MotionOptions) error {
-	if checkErr := o.validate(); checkErr != nil {
+func (b *state) DragAndDropSmooth(ctx context.Context, start, end image.Point, o input.MotionOptions) error {
+	if checkErr := input.ValidateMotionOptions(o); checkErr != nil {
 		return checkErr
 	}
 	// An identical-origin drag is an immediate press/release gesture,
@@ -692,30 +680,17 @@ func (b *state) DragAndDropSmooth(ctx context.Context, start, end image.Point, o
 	if start == end {
 		return b.dragPoints(ctx, []motionPoint{{X: start.X, Y: start.Y}}, 0)
 	}
-	points := motion.Samples(motionPoint{X: start.X, Y: start.Y}, motionPoint{X: end.X, Y: end.Y}, motion.Options(o))
+	points := motion.Samples(motionPoint{X: start.X, Y: start.Y}, motionPoint{X: end.X, Y: end.Y}, o)
 	return b.dragPoints(ctx, points, o.Duration)
 }
 
 const inputReceiptHistoryLimit = 32
 
-// InputActionReceipt records a bounded, payload-free result for one input
-// operation. Dispatch is unknown when a backend returns an error because the
-// operation may have reached the desktop before the error was observed.
-type InputActionReceipt struct {
-	Sequence     uint64    `json:"sequence"`
-	Operation    string    `json:"operation"`
-	Mechanism    string    `json:"mechanism,omitempty"`
-	Dispatch     string    `json:"dispatch"`
-	FailureClass string    `json:"failure_class,omitempty"`
-	StartedAt    time.Time `json:"started_at"`
-	CompletedAt  time.Time `json:"completed_at"`
-}
-
 func (b *state) recordInputReceipt(operation string, started time.Time, err error) error {
 	if b == nil {
 		return err
 	}
-	receipt := InputActionReceipt{
+	receipt := input.ActionReceipt{
 		Operation:   operation,
 		Dispatch:    inputDispatchResult(err),
 		StartedAt:   started.UTC(),
@@ -741,12 +716,12 @@ func (b *state) recordInputReceipt(operation string, started time.Time, err erro
 	return err
 }
 
-func (b *state) recentInputReceipts() []InputActionReceipt {
+func (b *state) recentInputReceipts() []input.ActionReceipt {
 	if b == nil {
 		return nil
 	}
 	b.receiptMu.Lock()
-	receipts := append([]InputActionReceipt(nil), b.receiptTrail...)
+	receipts := append([]input.ActionReceipt(nil), b.receiptTrail...)
 	b.receiptMu.Unlock()
 
 	if len(receipts) > 0 && b.gate != nil {
@@ -785,11 +760,9 @@ func inputFailureClass(err error) string {
 // Admission is the injection-specific session boundary. It cannot obtain
 // other backends or alter session ownership.
 type Admission interface {
-	CheckBackend(operation string, backend any) error
+	capability.BackendAuthority
 	InputContext(context.Context, time.Duration) (context.Context, context.CancelFunc)
 	Tracef(component, format string, args ...any)
-	EnsureOpen() error
-	OperationError(operation string, err error) error
 	Mechanism() string
 }
 
@@ -821,7 +794,7 @@ func (o *Owner) CheckAvailable(operation string) error {
 	}
 	return o.checkAvailable(operation)
 }
-func (o *Owner) RecentInputReceipts() []InputActionReceipt {
+func (o *Owner) RecentInputReceipts() []input.ActionReceipt {
 	if o == nil {
 		return nil
 	}

@@ -17,6 +17,8 @@ import (
 
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"github.com/spf13/cobra"
 )
 
@@ -99,10 +101,10 @@ func resolveScreenWindow(ctx context.Context, bundle perfuncted.WindowBundle, se
 	case "window-id":
 		return findWindowByStableID(ctx, bundle, selector.id)
 	case "window-title":
-		return bundle.Find(ctx, perfuncted.WindowMatch{TitleExact: selector.title})
+		return bundle.Find(ctx, window.Match{TitleExact: selector.title})
 	case "pid":
 		pid := selector.pid
-		return bundle.Find(ctx, perfuncted.WindowMatch{PID: &pid})
+		return bundle.Find(ctx, window.Match{PID: &pid})
 	default:
 		return nil, fmt.Errorf("%w: unknown screen window selector", perfuncted.ErrInvalidArgument)
 	}
@@ -122,7 +124,7 @@ func sameOutputPath(left, right string) bool {
 	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
 }
 
-func writeWindowCaptureMetadata(ctx context.Context, capture perfuncted.WindowCapture, path string) error {
+func writeWindowCaptureMetadata(ctx context.Context, capture screen.WindowCapture, path string) error {
 	if path == "" || path == "-" {
 		return fmt.Errorf("%w: metadata output must be a file path", perfuncted.ErrInvalidArgument)
 	}
@@ -229,7 +231,7 @@ goes to stderr.`,
 				if err != nil {
 					return err
 				}
-				var capture perfuncted.WindowCapture
+				var capture screen.WindowCapture
 				if out == "-" {
 					if grabBackgroundFlag {
 						capture, err = pf.Screen().CaptureWindowBackground(cmd.Context(), target)

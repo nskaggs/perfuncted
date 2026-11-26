@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 // A completed application and a canceled caller are both ready in the select.
@@ -175,7 +176,7 @@ func TestApplicationWindowWaitDoesNotAcceptAmbiguousOrUnreadableCandidates(t *te
 	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	app := &applicationState{session: session, done: make(chan struct{})}
-	match := WindowMatch{TitleExact: "Browser"}
+	match := window.Match{TitleExact: "Browser"}
 	for _, tc := range []struct {
 		name    string
 		failure error

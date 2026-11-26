@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/internal/sessionaccessibility"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"iter"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionaccessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type closingActionReceiptBackend struct {
@@ -1890,7 +1891,7 @@ func TestAccessibilityBundleInvokesSemanticActionWithReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InvokeSemanticAction: %v", err)
 	}
-	if receipt.Mechanism != "at-spi.action" || receipt.Action.Index != 7 || receipt.Action.Name != "provider-actual" || receipt.Generation != 3 || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeNotObserved {
+	if receipt.Mechanism != "at-spi.action" || receipt.Action.Index != 7 || receipt.Action.Name != "provider-actual" || receipt.Generation != 3 || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeNotObserved {
 		t.Fatalf("semantic action receipt = %+v", receipt)
 	}
 	if len(spy.calls) != 1 || spy.calls[0] != "action-name" {
@@ -1951,7 +1952,7 @@ func TestSessionAccessibilityActionWaitUsesIndependentPostcondition(t *testing.T
 	if err != nil {
 		t.Fatalf("InvokeAccessibilityActionAndWait: %v", err)
 	}
-	if receipt.Mechanism != "at-spi.action" || evidence.Evaluations != 2 || receipt.Outcome.Status != ActionOutcomeVerified || receipt.Outcome.Condition == "" {
+	if receipt.Mechanism != "at-spi.action" || evidence.Evaluations != 2 || receipt.Outcome.Status != accessibility.ActionOutcomeVerified || receipt.Outcome.Condition == "" {
 		t.Fatalf("receipt=%+v evidence=%+v", receipt, evidence)
 	}
 }
@@ -2050,7 +2051,7 @@ func TestAccessibilityActionWaitTimeoutPreservesAcceptedReceiptWithoutReplay(t *
 	if !errors.As(err, &verificationErr) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want ActionVerificationError wrapping deadline", err)
 	}
-	if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeNotVerified {
+	if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeNotVerified {
 		t.Fatalf("receipt = %+v, want accepted and not verified", receipt)
 	}
 	if len(spy.calls) != 1 || spy.calls[0] != "action-name" || evidence.Evaluations == 0 {
@@ -2161,7 +2162,7 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 	if fake.freshApplicationFind == 0 {
 		t.Fatal("application locator did not resolve its scope from fresh provider state")
 	}
-	if receipt.Node.ID != target || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeVerified || receipt.Outcome.Condition != "saved" {
+	if receipt.Node.ID != target || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeVerified || receipt.Outcome.Condition != "saved" {
 		t.Fatalf("verified action receipt = %+v", receipt)
 	}
 	if evidence.Evaluations != 1 || checks != 1 || spy.invokeCount != 1 {
@@ -2328,7 +2329,7 @@ func TestAccessibilityLocatorClickAndFillVerifySingleDispatch(t *testing.T) { //
 	if err != nil {
 		t.Fatalf("FillAndWait: %v", err)
 	}
-	if receipt.Node.ID != target || receipt.Operation != "set-text-contents" || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeVerified {
+	if receipt.Node.ID != target || receipt.Operation != "set-text-contents" || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeVerified {
 		t.Fatalf("fill receipt = %+v", receipt)
 	}
 	if spy.textCount != 1 || spy.textValue != "user@example.test" || checks != 1 || evidence.Evaluations != 1 {
@@ -2344,7 +2345,7 @@ func TestAccessibilityLocatorClickAndFillVerifySingleDispatch(t *testing.T) { //
 	if err != nil {
 		t.Fatalf("ClickAndWait: %v", err)
 	}
-	if receipt.Operation != "invoke-action" || receipt.Action.Name != "default" || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeVerified {
+	if receipt.Operation != "invoke-action" || receipt.Action.Name != "default" || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeVerified {
 		t.Fatalf("click receipt = %+v", receipt)
 	}
 	if spy.invokeCount != 0 || len(spy.calls) != 1 || spy.calls[0] != "default-action" || checks != 1 || evidence.Evaluations != 1 {
@@ -2372,7 +2373,7 @@ func TestLocatorActionRetryDispatchMatrix(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			attempt := locatorDispatchAttempt{
-				receipt: AccessibilityActionReceipt{Dispatch: test.dispatch}, err: test.err,
+				receipt: accessibility.ActionReceipt{Dispatch: test.dispatch}, err: test.err,
 				retryableNotSent: test.retryableNotSent,
 			}
 			if got := locatorRetryAllowed(attempt, test.attempt); got != test.wantRetry {
@@ -2474,7 +2475,7 @@ func TestAccessibilityLocatorRetriesOnlyKnownNotSentStaleAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InvokeActionAndWait: %v", err)
 	}
-	if spy.invokeCount != 2 || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != ActionOutcomeVerified {
+	if spy.invokeCount != 2 || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeVerified {
 		t.Fatalf("invocations=%d receipt=%+v, want bounded retry then verified success", spy.invokeCount, receipt)
 	}
 }
@@ -3091,23 +3092,23 @@ func TestLocatorRejectsInvalidMutationInputsWithoutProviderActivity(t *testing.T
 	valid := sessionCondition("after mutation", func(context.Context, *sessionCore) (bool, error) { return true, nil })
 	for _, tc := range []struct {
 		name string
-		call func() (AccessibilityActionReceipt, WaitEvidence, error)
+		call func() (accessibility.ActionReceipt, WaitEvidence, error)
 		want error
 	}{
-		{"fill nil context", func() (AccessibilityActionReceipt, WaitEvidence, error) { return loc.FillAndWait(nil, "text", valid) }, ErrInvalidArgument},
-		{"fill nil condition", func() (AccessibilityActionReceipt, WaitEvidence, error) {
+		{"fill nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) { return loc.FillAndWait(nil, "text", valid) }, ErrInvalidArgument},
+		{"fill nil condition", func() (accessibility.ActionReceipt, WaitEvidence, error) {
 			return loc.FillAndWait(context.Background(), "text", nil)
 		}, ErrInvalidArgument},
-		{"fill invalid UTF-8", func() (AccessibilityActionReceipt, WaitEvidence, error) {
+		{"fill invalid UTF-8", func() (accessibility.ActionReceipt, WaitEvidence, error) {
 			return loc.FillAndWait(context.Background(), "\xff", valid)
 		}, ErrInvalidArgument},
-		{"action nil context", func() (AccessibilityActionReceipt, WaitEvidence, error) {
+		{"action nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) {
 			return loc.InvokeActionAndWait(nil, "click", valid)
 		}, ErrInvalidArgument},
-		{"action nil condition", func() (AccessibilityActionReceipt, WaitEvidence, error) {
+		{"action nil condition", func() (accessibility.ActionReceipt, WaitEvidence, error) {
 			return loc.InvokeActionAndWait(context.Background(), "click", nil)
 		}, ErrInvalidArgument},
-		{"click nil context", func() (AccessibilityActionReceipt, WaitEvidence, error) { return loc.ClickAndWait(nil, valid) }, ErrInvalidArgument},
+		{"click nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) { return loc.ClickAndWait(nil, valid) }, ErrInvalidArgument},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			receipt, evidence, err := tc.call()

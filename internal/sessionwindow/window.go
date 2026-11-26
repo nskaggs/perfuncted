@@ -13,25 +13,8 @@ import (
 // WindowBundle is the session-bound window discovery and control facade.
 type ownerState struct {
 	backend window.Manager
-	gate    Admission
+	gate    capability.BoundedAuthority
 }
-
-// WindowEventKind identifies a window lifecycle or focus notification.
-type WindowEventKind = window.EventKind
-
-const (
-	// WindowAddedEvent reports a newly visible window.
-	WindowAddedEvent = window.WindowAddedEvent
-	// WindowRemovedEvent reports a window that is no longer managed.
-	WindowRemovedEvent = window.WindowRemovedEvent
-	// WindowChangedEvent reports changed window metadata or state.
-	WindowChangedEvent = window.WindowChangedEvent
-	// FocusChangedEvent reports a changed focus target.
-	FocusChangedEvent = window.FocusChangedEvent
-)
-
-// WindowEvent is a window lifecycle or focus notification from a backend.
-type WindowEvent = window.Event
 
 func (b *ownerState) checkAvailable(operation string) error {
 	if b == nil {
@@ -107,7 +90,7 @@ func (b *ownerState) ActiveTitle(ctx context.Context) (string, error) {
 // Event subscription setup is performed during backend initialization under
 // the session startup policy; the returned stream is caller-owned and has no
 // artificial expiry.
-func (b *ownerState) Events() (<-chan WindowEvent, error) {
+func (b *ownerState) Events() (<-chan window.Event, error) {
 	if err := b.checkAvailable("events"); err != nil {
 		return nil, err
 	}
@@ -551,17 +534,10 @@ func (w *Target) Restore(ctx context.Context) error {
 	return w.owner.gate.OperationError("restore", backend.RestoreByID(ctx, w.native))
 }
 
-type Admission interface {
-	CheckBackend(string, any) error
-	BackendContext(context.Context) (context.Context, context.CancelFunc)
-	EnsureOpen() error
-	OperationError(string, error) error
-}
-
 type Owner struct{ *ownerState }
 type Handle struct{ *ownerState }
 
-func New(gate Admission, backend window.Manager) *Owner {
+func New(gate capability.BoundedAuthority, backend window.Manager) *Owner {
 	return &Owner{&ownerState{gate: gate, backend: backend}}
 }
 func (o *Owner) Handle() Handle {

@@ -5,10 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/v2/output"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/png"
 	"os"
@@ -18,6 +14,11 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type failingDiagnosticScreenshotBackend struct {
@@ -901,12 +902,12 @@ func TestDiagnosticActionOutcomesRejectUnknownProviderValues(t *testing.T) {
 		})
 	}
 	for _, tc := range []struct {
-		raw  ActionOutcomeStatus
+		raw  accessibility.ActionOutcomeStatus
 		want string
 	}{
-		{ActionOutcomeNotObserved, "not-observed"},
-		{ActionOutcomeVerified, "verified"},
-		{ActionOutcomeNotVerified, "not-verified"},
+		{accessibility.ActionOutcomeNotObserved, "not-observed"},
+		{accessibility.ActionOutcomeVerified, "verified"},
+		{accessibility.ActionOutcomeNotVerified, "not-verified"},
 		{"", "not-observed"},
 		{"private desktop content", "not-observed"},
 	} {

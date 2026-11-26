@@ -77,6 +77,20 @@ For example, `s.Input.Type(ctx, text)` becomes `s.Input().Type(ctx, text)`. Vari
 
 `*Window` and `*Application` retain their pointer-shaped APIs. Copies preserve their original target or process identity; replacing a public wrapper does not replace the owning session's resource. A zero Session cannot authorize launching a process.
 
-Existing root names for capture metadata, window events, motion options, input receipts and accessibility action receipts remain available. Canonical capture metadata lives in the screen package, window events in the window package and semantic action receipts in the accessibility package. For example, `perfuncted.AccessibilityActionReceipt` aliases `accessibility.ActionReceipt`. Existing root names remain usable.
+Domain types now have one canonical public spelling. Replace the former root aliases and companion constants in callers (including signatures, struct literals, and errors.Is checks):
+
+| Former root name | Final v2 name |
+| --- | --- |
+| `MotionOptions`, `ValidateMotionOptions` | `input.MotionOptions`, `input.ValidateMotionOptions` |
+| `InputActionReceipt` | `input.ActionReceipt` |
+| `RemoteDesktopInputOptions` | `input.RemoteDesktopOptions` |
+| `Capture`, `WindowCapture`, `WindowCaptureMode`, `WindowCaptureState` | Corresponding `screen` types |
+| `WindowCapture*` constants and `ErrWindowCaptureMinimized`/`ErrWindowCaptureUnmapped` | Corresponding `screen` constants and errors |
+| `WindowMatch` | `window.Match` |
+| `WindowEvent`, `WindowEventKind` and window event constants | `window.Event`, `window.EventKind` and `window` constants |
+| `AccessibilityActionReceipt` | `accessibility.ActionReceipt` |
+| `ActionOutcomeStatus`, `ActionOutcomeProof`, and `ActionOutcome*` constants | Corresponding `accessibility` names |
+
+The seven capability accessors, session-specific errors, WindowID, Window, Application and wait/convenience contracts retain their root names. These are source changes within unreleased v2; the CLI and serialized data formats remain unchanged.
 
 To return to v1, restore the original module path, version and capability field calls. Existing v1 tags and installed CLI releases are unchanged.

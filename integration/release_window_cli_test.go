@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/screen"
 )
 
 func certifyReleaseWindowCapture(t *testing.T, ctx context.Context, s *suite, binary string, target *perfuncted.Window) {
@@ -46,12 +47,12 @@ func certifyReleaseWindowCapture(t *testing.T, ctx context.Context, s *suite, bi
 		if err != nil {
 			t.Fatal(err)
 		}
-		var meta perfuncted.WindowCapture
+		var meta screen.WindowCapture
 		if err := json.Unmarshal(data, &meta); err != nil {
 			t.Fatal(err)
 		}
 		expected := image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H)
-		if meta.WindowID != info.StableID() || meta.ScreenRect != expected || meta.ScreenRect != want.ScreenRect || meta.PixelBounds != want.PixelBounds || meta.Mode != perfuncted.WindowCaptureVisibleScreenCrop || meta.PixelScaleX != want.PixelScaleX || meta.PixelScaleY != want.PixelScaleY || img.Bounds().Size() != meta.PixelBounds.Size() {
+		if meta.WindowID != info.StableID() || meta.ScreenRect != expected || meta.ScreenRect != want.ScreenRect || meta.PixelBounds != want.PixelBounds || meta.Mode != screen.WindowCaptureVisibleScreenCrop || meta.PixelScaleX != want.PixelScaleX || meta.PixelScaleY != want.PixelScaleY || img.Bounds().Size() != meta.PixelBounds.Size() {
 			t.Fatalf("wrong CLI provenance: %+v; expected %v, API=%+v", meta, expected, want)
 		}
 	}

@@ -7,18 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/clipboard"
-	"github.com/nskaggs/perfuncted/v2/input"
-	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/v2/internal/env"
-	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
-	"github.com/nskaggs/perfuncted/v2/internal/testutil"
-	"github.com/nskaggs/perfuncted/v2/output"
-	"github.com/nskaggs/perfuncted/v2/screen"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"io"
 	"log/slog"
@@ -34,6 +22,19 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type closeCountingScreen struct {
@@ -2501,7 +2502,7 @@ func TestRemoteDesktopInputIsRequiredAndNeverFallsBack(t *testing.T) {
 	}
 	_, err := openSession(context.Background(),
 		WithTarget(EnvironmentTarget(nil)),
-		WithRemoteDesktopInput(RemoteDesktopInputOptions{ParentWindow: "xdg:test-parent", PersistPermission: true}),
+		WithRemoteDesktopInput(input.RemoteDesktopOptions{ParentWindow: "xdg:test-parent", PersistPermission: true}),
 	)
 	if !errors.Is(err, input.ErrRemoteDesktopDenied) {
 		t.Fatalf("Open error = %v, want portal denial", err)
@@ -2515,7 +2516,7 @@ func TestRemoteDesktopInputRejectsOptionalAndDuplicateConfiguration(t *testing.T
 	newConfig := func() openConfig {
 		return openConfig{required: make(map[Capability]struct{}), optional: make(map[Capability]struct{})}
 	}
-	options := RemoteDesktopInputOptions{}
+	options := input.RemoteDesktopOptions{}
 	cfg := newConfig()
 	if err := Optional(CapabilityInput)(&cfg); err != nil {
 		t.Fatalf("mark input optional: %v", err)
@@ -3153,7 +3154,7 @@ func TestWindowDiscoveryFailureDoesNotManufactureWindowOrSuccess(t *testing.T) {
 	t.Cleanup(func() { _ = session.Close() })
 	failure := errors.New("synthetic window discovery connection timeout")
 	manager.setError(failure)
-	match := WindowMatch{TitleExact: "private title"}
+	match := window.Match{TitleExact: "private title"}
 	got, err := session.windows.Find(context.Background(), match)
 	if got != nil || !errors.Is(err, failure) {
 		t.Fatalf("failed discovery accepted window=%v err=%v", got, err)
@@ -3216,17 +3217,17 @@ func TestWindowAndApplicationUnownedHandleOperationsFailClosed(t *testing.T) {
 		t.Fatalf("unowned window Info returned %v", err)
 	}
 	var windows WindowBundle
-	if got, err := windows.Wait(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := windows.Wait(context.Background(), window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil window bundle wait=%v %v", got, err)
 	}
-	if got, err := (&windowBundleState{}).Wait(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := (&windowBundleState{}).Wait(context.Background(), window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("unowned window bundle wait=%v %v", got, err)
 	}
 	var app *applicationState
-	if got, err := app.WaitForWindow(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := app.WaitForWindow(context.Background(), window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil app wait=%v %v", got, err)
 	}
-	if got, err := (&applicationState{}).WaitForWindow(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := (&applicationState{}).WaitForWindow(context.Background(), window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("unowned app wait=%v %v", got, err)
 	}
 }
@@ -3504,7 +3505,7 @@ func TestNilFacadesReportNilSession(t *testing.T) {
 	}
 
 	var windows WindowBundle
-	if _, err := windows.List(ctx, WindowMatch{}); !errors.Is(err, ErrNilSession) {
+	if _, err := windows.List(ctx, window.Match{}); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Windows.List() = %v, want ErrNilSession", err)
 	}
 

@@ -11,10 +11,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"reflect"
-	"time"
-
 	"github.com/nskaggs/perfuncted/v2/internal/compositor"
 	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 	"github.com/nskaggs/perfuncted/v2/internal/env"
@@ -22,6 +18,10 @@ import (
 	"github.com/nskaggs/perfuncted/v2/internal/probe"
 	"github.com/nskaggs/perfuncted/v2/internal/wl"
 	"golang.org/x/sys/unix"
+	"math"
+	"os"
+	"reflect"
+	"time"
 )
 
 // RemoteDesktopOptions controls explicit XDG RemoteDesktop/EIS input. The
@@ -465,4 +465,45 @@ func checkUinputPath(path string) probe.Result {
 	r.Available = true
 	r.Reason = fmt.Sprintf("%s accessible (mode %v, uinput protocol version %d)", path, info.Mode(), version)
 	return r
+}
+
+// MotionOptions selects optional bounded pointer interpolation in backend coordinates.
+type MotionOptions struct {
+	Duration  time.Duration
+	Easing    string  // "", "linear", or "ease-in-out"
+	Curve     float64 // perpendicular bend fraction, -0.5..0.5
+	Variation int     // seeded coordinate variation in backend units, 0..16
+	Seed      uint64
+}
+
+const motionMaxDuration = 10 * time.Second
+
+// ValidateMotionOptions checks a motion request before opening an input session.
+func ValidateMotionOptions(o MotionOptions) error {
+	if o.Duration < 0 || o.Duration > motionMaxDuration {
+		return fmt.Errorf("input: duration must be between 0 and %s", motionMaxDuration)
+	}
+	if o.Easing != "" && o.Easing != "linear" && o.Easing != "ease-in-out" {
+		return fmt.Errorf("input: invalid easing %q", o.Easing)
+	}
+	if math.IsNaN(o.Curve) || math.IsInf(o.Curve, 0) || math.Abs(o.Curve) > .5 {
+		return fmt.Errorf("input: invalid curve")
+	}
+	if o.Variation < 0 || o.Variation > 16 {
+		return fmt.Errorf("input: variation must be 0..16")
+	}
+	return nil
+}
+
+// ActionReceipt records a bounded, payload-free result for one input
+// operation. Dispatch is unknown when a backend returns an error because the
+// operation may have reached the desktop before the error was observed.
+type ActionReceipt struct {
+	Sequence     uint64    `json:"sequence"`
+	Operation    string    `json:"operation"`
+	Mechanism    string    `json:"mechanism,omitempty"`
+	Dispatch     string    `json:"dispatch"`
+	FailureClass string    `json:"failure_class,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	CompletedAt  time.Time `json:"completed_at"`
 }

@@ -558,7 +558,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if fillErr != nil {
 		t.Fatalf("real %s Locator fill with independent content postcondition: %v", representative.name, fillErr)
 	}
-	if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != perfuncted.ActionOutcomeVerified || fillEvidence.Evaluations == 0 {
+	if receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeVerified || fillEvidence.Evaluations == 0 {
 		t.Fatalf("real %s Locator action lacks independent postcondition proof: receipt=%+v evidence=%+v", representative.name, receipt, fillEvidence)
 	}
 	if receipt.Node.ID.BusName != editable.ID.BusName || receipt.Node.ID.ObjectPath != editable.ID.ObjectPath {

@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,9 +25,13 @@ import (
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/find"
 	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func TestReleaseVisualAcceptanceWayland(t *testing.T) {
+	if _, _, err := waylandMotionExecutables(); err != nil {
+		t.Fatal(err)
+	}
 	s := mustSuite(t)
 	if s.mode != displayHeadlessWayland && s.mode != displayNestedWayland {
 		t.Fatal("requires isolated headless or nested Wayland")
@@ -289,16 +295,24 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 		t.Fatal(err)
 	}
 	defer log.Close()
-	cmd := exec.CommandContext(ctx, "stdbuf", "-oL", "-eL", "wev", "-f", "wl_pointer")
+	stdbuf, wev, err := waylandMotionExecutables()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureCtx, stopFixture := context.WithCancelCause(ctx)
+	defer stopFixture(nil)
+	cmd := exec.CommandContext(fixtureCtx, stdbuf, "-oL", "-eL", wev, "-f", "wl_pointer")
 	cmd.Env = s.rt.EnvList()
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	win, err := s.pf.Windows().Wait(ctx, perfuncted.WindowMatch{TitleContains: "wev"}, perfuncted.WaitEvery(100*time.Millisecond))
+	finished := watchWaylandMotionFixture(cmd, log.Name(), stopFixture)
+	defer func() { stopFixture(nil); <-finished }()
+	ctx = fixtureCtx
+	win, err := s.pf.Windows().Wait(ctx, window.Match{TitleContains: "wev"}, perfuncted.WaitEvery(100*time.Millisecond))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("wev window readiness: %v (fixture: %v)", err, context.Cause(ctx))
 	}
 	info, err := win.Info(ctx)
 	if err != nil || info.W < 320 || info.H < 250 {
@@ -319,7 +333,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 	waitReleasePointerFocus(t, ctx, s, log.Name(), start)
 	offset := releaseLogSize(t, log.Name())
 	began := time.Now()
-	opts := perfuncted.MotionOptions{Duration: 450 * time.Millisecond, Easing: "linear"}
+	opts := input.MotionOptions{Duration: 450 * time.Millisecond, Easing: "linear"}
 	if err := s.pf.Input().MouseMoveSmooth(ctx, &start, end, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +365,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- s.pf.Input().DragAndDropSmooth(cancelCtx, start, end, perfuncted.MotionOptions{Duration: 2 * time.Second})
+		done <- s.pf.Input().DragAndDropSmooth(cancelCtx, start, end, input.MotionOptions{Duration: 2 * time.Second})
 	}()
 	waitReleaseLog(t, log.Name(), func(s string) bool { return strings.Contains(s[offset:], "state: 1 (pressed)") })
 	cancel()
@@ -434,4 +448,72 @@ func absRelease(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// Resolve both programs before starting the isolated desktop. stdbuf alone
+// can start successfully even when its child executable does not exist.
+func waylandMotionExecutables() (string, string, error) {
+	stdbuf, err := exec.LookPath("stdbuf")
+	if err != nil {
+		return "", "", fmt.Errorf("Wayland pointer fixture requires stdbuf: %w", err)
+	}
+	wev, err := exec.LookPath("wev")
+	if err != nil {
+		return "", "", fmt.Errorf("Wayland pointer fixture requires wev: %w", err)
+	}
+	return stdbuf, wev, nil
+}
+
+// Wait exactly once. A premature child exit cancels the window wait instead
+// of letting the parent acceptance timeout obscure the process failure.
+func watchWaylandMotionFixture(cmd *exec.Cmd, path string, cancel context.CancelCauseFunc) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		err := cmd.Wait()
+		if err == nil {
+			err = errors.New("unexpected successful exit")
+		}
+		var tail string
+		if f, openErr := os.Open(path); openErr == nil {
+			defer f.Close()
+			if info, statErr := f.Stat(); statErr == nil {
+				_, _ = f.Seek(max(0, info.Size()-2048), io.SeekStart)
+				data, _ := io.ReadAll(io.LimitReader(f, 2048))
+				tail = strings.ToValidUTF8(string(data), "?")
+			}
+		}
+		cancel(fmt.Errorf("Wayland pointer fixture exited: %w; log tail: %q", err, tail))
+	}()
+	return done
+}
+
+func TestWaylandMotionFixtureMissingDependency(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if _, _, err := waylandMotionExecutables(); err == nil || !strings.Contains(err.Error(), "requires stdbuf") {
+		t.Fatalf("missing prerequisite not reported: %v", err)
+	}
+}
+
+func TestWaylandMotionFixtureEarlyExit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	fixtureCtx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
+	path := filepath.Join(t.TempDir(), "fixture.log")
+	log, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	cmd := exec.CommandContext(fixtureCtx, "/bin/sh", "-c", "printf synthetic-fixture-failure; exit 7")
+	cmd.Stdout, cmd.Stderr = log, log
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := watchWaylandMotionFixture(cmd, path, stop)
+	<-done
+	if cause := context.Cause(fixtureCtx); cause == nil || !strings.Contains(cause.Error(), "synthetic-fixture-failure") || !strings.Contains(cause.Error(), "exit status 7") {
+		t.Fatalf("early exit cause: %v", cause)
+	}
 }

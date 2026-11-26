@@ -449,7 +449,7 @@ func TestSessionLifecycle(t *testing.T) {
 	defer cancelWindow()
 	target, err := application.WaitForWindow(
 		windowCtx,
-		perfuncted.WindowMatch{TitleContains: app.winMatch},
+		window.Match{TitleContains: app.winMatch},
 	)
 	if err != nil {
 		t.Fatalf("wait for %s window: %v", app.name, err)
@@ -1039,7 +1039,7 @@ func findWindowHandle(
 ) (*perfuncted.Window, error) {
 	return pf.Windows().Find(
 		ctx,
-		perfuncted.WindowMatch{TitleContains: pattern},
+		window.Match{TitleContains: pattern},
 	)
 }
 
@@ -1117,7 +1117,7 @@ func listWindowInfos(
 	pf *perfuncted.Session,
 	ctx context.Context,
 ) ([]window.Info, error) {
-	handles, err := pf.Windows().List(ctx, perfuncted.WindowMatch{})
+	handles, err := pf.Windows().List(ctx, window.Match{})
 	if err != nil {
 		return nil, err
 	}
@@ -1141,7 +1141,7 @@ func waitForWindow(
 	defer cancel()
 	target, err := pf.Windows().Wait(
 		ctx,
-		perfuncted.WindowMatch{TitleContains: pattern},
+		window.Match{TitleContains: pattern},
 		perfuncted.WaitEvery(500*time.Millisecond),
 	)
 	if err != nil {

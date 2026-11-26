@@ -4,17 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/internal/capture"
-	"github.com/nskaggs/perfuncted/v2/internal/compositor"
-	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/v2/internal/probe"
-	"github.com/nskaggs/perfuncted/v2/internal/util"
 	"image"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/capture"
+	"github.com/nskaggs/perfuncted/v2/internal/compositor"
+	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/probe"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 // FailureBundleOptions controls an opt-in diagnostic capture.
@@ -50,7 +52,7 @@ type AccessibilityFailureEvidence struct {
 	Locator       *AccessibilityLocator
 	Snapshot      *accessibility.Snapshot
 	Events        []accessibility.Event
-	Action        *AccessibilityActionReceipt
+	Action        *accessibility.ActionReceipt
 	Postcondition *WaitEvidence
 }
 
@@ -143,7 +145,7 @@ func (s *sessionCore) captureFailureArtifacts(ctx context.Context, directory str
 		collector.capture("input-receipts.json", func() error {
 			receipts := s.input.RecentInputReceipts()
 			if receipts == nil {
-				receipts = []InputActionReceipt{}
+				receipts = []input.ActionReceipt{}
 			}
 			return diagnostic.WriteJSON(filepath.Join(directory, "input-receipts.json"), summarizeInputReceipts(receipts))
 		})
@@ -590,12 +592,12 @@ func diagnosticNodeID(id accessibility.NodeID) accessibility.NodeID {
 	}
 }
 
-func summarizeInputReceipts(receipts []InputActionReceipt) []InputActionReceipt {
+func summarizeInputReceipts(receipts []input.ActionReceipt) []input.ActionReceipt {
 	limit := min(len(receipts), inputReceiptHistoryLimit)
 	if limit == 0 {
-		return []InputActionReceipt{}
+		return []input.ActionReceipt{}
 	}
-	summary := make([]InputActionReceipt, 0, limit)
+	summary := make([]input.ActionReceipt, 0, limit)
 	for _, receipt := range receipts[len(receipts)-limit:] {
 		receipt.Operation = diagnostic.Label(receipt.Operation)
 		receipt.Mechanism = diagnostic.Label(receipt.Mechanism)
@@ -614,12 +616,12 @@ func diagnosticDispatch(value accessibility.DispatchOutcome) string {
 	}
 }
 
-func diagnosticOutcome(value ActionOutcomeStatus) string {
+func diagnosticOutcome(value accessibility.ActionOutcomeStatus) string {
 	switch value {
-	case ActionOutcomeNotObserved, ActionOutcomeVerified, ActionOutcomeNotVerified:
+	case accessibility.ActionOutcomeNotObserved, accessibility.ActionOutcomeVerified, accessibility.ActionOutcomeNotVerified:
 		return string(value)
 	default:
-		return string(ActionOutcomeNotObserved)
+		return string(accessibility.ActionOutcomeNotObserved)
 	}
 }
 

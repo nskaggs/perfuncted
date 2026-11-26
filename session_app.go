@@ -12,6 +12,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/v2/internal/env"
 	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/window"
 
 	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
@@ -379,7 +380,7 @@ func (s *Session) SwaySocket() string {
 // group. When the backend has no PID data, match must identify one window.
 func (a *Application) WaitForWindow(
 	ctx context.Context,
-	match WindowMatch,
+	match window.Match,
 ) (*Window, error) {
 	v, err := a.privateState().WaitForWindow(ctx, match)
 	return wrapWindow(v), err

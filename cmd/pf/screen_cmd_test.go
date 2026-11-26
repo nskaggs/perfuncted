@@ -6,22 +6,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"io"
+	"math"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/find"
 	"github.com/nskaggs/perfuncted/v2/output"
 	"github.com/nskaggs/perfuncted/v2/pftest"
 	"github.com/nskaggs/perfuncted/v2/screen"
 	"github.com/nskaggs/perfuncted/v2/window"
-	"image"
-	"image/color"
-	"image/png"
-	"io"
-	"math"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
 )
 
 type screenCommandFailureWriter struct {
@@ -906,7 +908,7 @@ func TestScreenGrabWindowWritesPNGAndSeparateMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var metadata perfuncted.WindowCapture
+	var metadata screen.WindowCapture
 	if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
 		t.Fatalf("decode metadata: %v", err)
 	}
@@ -1042,5 +1044,54 @@ func TestScreenshotLogicalVerticalOverflowRejectsEntirePoint(t *testing.T) {
 				t.Fatalf("vertical overflow produced (%d,%d), err=%v; must reject whole point", x, y, err)
 			}
 		})
+	}
+}
+
+func TestScreenshotPointBoundsAndConversionsFuzzTable(t *testing.T) {
+	rng := rand.New(rand.NewSource(2032))
+	for i := 0; i < 2500; i++ {
+		physicalW := rng.Intn(3840) + 1
+		physicalH := rng.Intn(2160) + 1
+		logicalW := rng.Intn(3840) + 1
+		logicalH := rng.Intn(2160) + 1
+		offsetX := rng.Intn(1200) - 600
+		offsetY := rng.Intn(1200) - 600
+		outputInfo := []output.Info{{Available: true, Geometry: output.Geometry{X: offsetX, Y: offsetY, W: logicalW, H: logicalH}, ResolutionW: physicalW, ResolutionH: physicalH}}
+		x := rng.Intn(physicalW+4) - 2
+		y := rng.Intn(physicalH+4) - 2
+		rx, ry, err := screenshotPointToLogical(outputInfo, x, y)
+		valid := x >= 0 && y >= 0 && x < physicalW && y < physicalH
+		if valid && err != nil || !valid && err == nil {
+			t.Fatalf("case %d: xy=%d,%d physical=%dx%d logical=%dx%d error=%v", i, x, y, physicalW, physicalH, logicalW, logicalH, err)
+		}
+		if valid {
+			expectedX := offsetX + min(logicalW-1, int(math.Round(float64(x)*float64(logicalW)/float64(physicalW))))
+			expectedY := offsetY + min(logicalH-1, int(math.Round(float64(y)*float64(logicalH)/float64(physicalH))))
+			if expectedX != rx || expectedY != ry {
+				t.Fatalf("case %d want %d,%d got %d,%d", i, expectedX, expectedY, rx, ry)
+			}
+		}
+	}
+}
+
+func TestScreenshotPointRejectsLogicalOverflow(t *testing.T) {
+	o := []output.Info{{Available: true, Geometry: output.Geometry{X: math.MaxInt - 5, Y: math.MaxInt - 5, W: 100, H: 100}, ResolutionW: 100, ResolutionH: 100}}
+	if _, _, err := screenshotPointToLogical(o, 90, 90); err == nil {
+		t.Fatal("accepted overflowing logical screen coordinate")
+	}
+}
+
+func TestScreenshotPixelNearFarEdgeNeverMapsOutsideLogicalOutput(t *testing.T) {
+	for _, tc := range []struct{ physical, logical int }{{10000, 1}, {1000, 2}, {3840, 1}, {1920, 800}, {800, 1920}, {1, 3840}} {
+		o := []output.Info{{Available: true, Geometry: output.Geometry{W: tc.logical, H: tc.logical}, ResolutionW: tc.physical, ResolutionH: tc.physical}}
+		for _, px := range []int{0, tc.physical / 2, tc.physical - 1} {
+			x, y, err := screenshotPointToLogical(o, px, px)
+			if err != nil {
+				t.Fatalf("scale=%v pixel=%d err=%v", tc, px, err)
+			}
+			if x < 0 || y < 0 || x >= tc.logical || y >= tc.logical {
+				t.Fatalf("scale=%v pixel=%d -> out of bounds (%d,%d)", tc, px, x, y)
+			}
+		}
 	}
 }

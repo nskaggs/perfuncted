@@ -1,6 +1,7 @@
 package motion
 
 import (
+	"github.com/nskaggs/perfuncted/v2/input"
 	"math"
 	"reflect"
 	"testing"
@@ -19,7 +20,7 @@ func TestMotionCurveEnvelopeHorizontalVerticalDiagonal(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			opts := Options{Duration: 160 * time.Millisecond, Curve: .5}
+			opts := input.MotionOptions{Duration: 160 * time.Millisecond, Curve: .5}
 			points := Samples(tc.a, tc.b, opts)
 			if points[0] != tc.a || points[len(points)-1] != tc.b {
 				t.Fatalf("inexact endpoints: %v", points)
@@ -61,7 +62,7 @@ func TestMotionSaturatedCoordinateEnvelope(t *testing.T) {
 	max := int(^uint(0) >> 1)
 	min := -max - 1
 	for _, tc := range [][2]Point{{{max, max}, {min, min}}, {{max, max}, {max - 1, max}}, {{min, min}, {min + 1, min}}} {
-		points := Samples(tc[0], tc[1], Options{Duration: 10 * time.Second, Curve: .5, Variation: 16})
+		points := Samples(tc[0], tc[1], input.MotionOptions{Duration: 10 * time.Second, Curve: .5, Variation: 16})
 		if points[0] != tc[0] || points[len(points)-1] != tc[1] {
 			t.Fatal("extreme endpoints changed")
 		}
@@ -74,7 +75,7 @@ func TestMotionSaturatedCoordinateEnvelope(t *testing.T) {
 }
 
 func TestMotionSamplerCapacityReverseAndExtremeCoordinates(t *testing.T) {
-	opts := Options{Duration: 10 * time.Second, Curve: -.5, Variation: 16, Seed: 7}
+	opts := input.MotionOptions{Duration: 10 * time.Second, Curve: -.5, Variation: 16, Seed: 7}
 	max := int(^uint(0) >> 1)
 	min := -max - 1
 	for _, tc := range [][2]Point{
@@ -104,11 +105,11 @@ func TestMotionSamplerCapacityReverseAndExtremeCoordinates(t *testing.T) {
 			}
 		}
 	}
-	short := Samples(Point{1, 2}, Point{3, 4}, Options{Duration: time.Millisecond})
+	short := Samples(Point{1, 2}, Point{3, 4}, input.MotionOptions{Duration: time.Millisecond})
 	if len(short) != 3 {
 		t.Fatalf("minimum samples %v", short)
 	}
-	err := (Options{Duration: -1}).Validate()
+	err := input.ValidateMotionOptions(input.MotionOptions{Duration: -1})
 	if err == nil {
 		t.Fatal("accepted invalid duration")
 	}

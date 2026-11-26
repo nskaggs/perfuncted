@@ -3,6 +3,12 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"image"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/nskaggs/perfuncted/v2/clipboard"
 	"github.com/nskaggs/perfuncted/v2/input"
@@ -10,11 +16,6 @@ import (
 	"github.com/nskaggs/perfuncted/v2/output"
 	"github.com/nskaggs/perfuncted/v2/screen"
 	"github.com/nskaggs/perfuncted/v2/window"
-	"image"
-	"slices"
-	"strings"
-	"testing"
-	"time"
 )
 
 type countingFindBackend struct {
@@ -428,7 +429,7 @@ func TestBundleAvailabilityTreatsTypedNilBackendsAsUnavailable(t *testing.T) {
 			name: "windows",
 			check: func(session *sessionCore) error {
 				bundle := newWindowState(session.bundleBase(CapabilityWindows), manager)
-				_, err := bundle.List(context.Background(), WindowMatch{})
+				_, err := bundle.List(context.Background(), window.Match{})
 				return err
 			},
 		},

@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"slices"
+	"sync"
+	"time"
+
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/nskaggs/perfuncted/v2/clipboard"
 	"github.com/nskaggs/perfuncted/v2/input"
@@ -23,10 +28,6 @@ import (
 	"github.com/nskaggs/perfuncted/v2/output"
 	"github.com/nskaggs/perfuncted/v2/screen"
 	"github.com/nskaggs/perfuncted/v2/window"
-	"image"
-	"slices"
-	"sync"
-	"time"
 )
 
 // Session is the central orchestrator of perfuncted. It owns all backends and
@@ -964,18 +965,9 @@ func (s *sessionCore) pasteWithInputContext(
 type inputState = sessioninput.Owner
 type inputHandle = sessioninput.Handle
 
-// MotionOptions selects bounded pointer interpolation in backend coordinates.
-type MotionOptions = sessioninput.MotionOptions
-
-// InputActionReceipt records a bounded, payload-free input result.
-type InputActionReceipt = sessioninput.InputActionReceipt
-
 type motionPoint = motion.Point
 
 const inputReceiptHistoryLimit = sessioninput.ReceiptHistoryLimit
-
-// ValidateMotionOptions checks a motion request before opening an input session.
-func ValidateMotionOptions(o MotionOptions) error { return sessioninput.ValidateMotionOptions(o) }
 
 // Input and screen share the same private composition adapter.
 
@@ -1058,20 +1050,6 @@ type windowBundleState struct {
 	owner *sessionwindow.Owner
 	bundleBase
 }
-
-// WindowEventKind identifies a lifecycle or focus notification.
-type WindowEventKind = window.EventKind
-
-// WindowEvent reports a window lifecycle or focus change.
-type WindowEvent = window.Event
-
-// Window event kinds reported by the active backend.
-const (
-	WindowAddedEvent   = window.WindowAddedEvent
-	WindowRemovedEvent = window.WindowRemovedEvent
-	WindowChangedEvent = window.WindowChangedEvent
-	FocusChangedEvent  = window.FocusChangedEvent
-)
 
 func newWindowState(base bundleBase, backend window.Manager) *windowBundleState {
 	b := &windowBundleState{bundleBase: base}

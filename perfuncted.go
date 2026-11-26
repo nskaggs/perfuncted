@@ -16,10 +16,6 @@ import (
 	"github.com/nskaggs/perfuncted/v2/window"
 )
 
-// RemoteDesktopInputOptions configures the explicitly authorized Wayland
-// RemoteDesktop and EIS input backend.
-type RemoteDesktopInputOptions = input.RemoteDesktopOptions
-
 // ErrGNOMESessionRestartRequired reports that perfuncted installed or replaced
 // its bundled GNOME Shell extension and GNOME must load it at the next login.
 // It is safe to inspect with errors.Is.

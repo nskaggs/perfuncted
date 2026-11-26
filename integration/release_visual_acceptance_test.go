@@ -189,7 +189,7 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 			t.Fatal(err)
 		}
 		start, end := image.Pt(150, 150), image.Pt(280, 230)
-		opts := perfuncted.MotionOptions{Duration: 300 * time.Millisecond}
+		opts := input.MotionOptions{Duration: 300 * time.Millisecond}
 		if err := s.pf.Input().MouseMoveSmooth(ctx, &start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
 			t.Fatalf("timed X11 move must reject unproved coordinate metadata: %v", err)
 		}

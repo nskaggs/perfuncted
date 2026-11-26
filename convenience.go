@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/nskaggs/perfuncted/v2/input"
 	"github.com/nskaggs/perfuncted/v2/internal/keymap"
 	"github.com/nskaggs/perfuncted/v2/window"
-	"strings"
-	"time"
 )
 
 // OpenDefault opens a session requiring input and no other capabilities by
@@ -421,7 +422,7 @@ func (t *WindowTarget) Do(steps ...Step) error {
 	if availabilityErr := s.windows.checkAvailable("discover"); availabilityErr != nil {
 		return availabilityErr
 	}
-	w, err := s.windows.Find(ctx, WindowMatch{TitleExact: t.title})
+	w, err := s.windows.Find(ctx, window.Match{TitleExact: t.title})
 	if err != nil {
 		return err
 	}

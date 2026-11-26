@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
+	"testing"
+
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/nskaggs/perfuncted/v2/pftest"
 	"github.com/nskaggs/perfuncted/v2/window"
-	"slices"
-	"strings"
-	"testing"
 )
 
 func TestAccessibilityOutlineTextDistinguishesProviderIncompleteSnapshot(t *testing.T) {
@@ -356,7 +357,7 @@ func TestAccessibilityCLIVerifiedActionTextAndChangedState(t *testing.T) {
 			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 				t.Fatalf("verified action output is not JSON: %q: %v", stdout, err)
 			}
-			if result.Status != "verified" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != perfuncted.ActionOutcomeVerified {
+			if result.Status != "verified" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != accessibility.ActionOutcomeVerified {
 				t.Fatalf("verified action result = %+v", result)
 			}
 			if result.Evidence.Evaluations == 0 || backend.actionCalls != 1 {
@@ -386,7 +387,7 @@ func TestAccessibilityCLIVerificationTimeoutPreservesDispatchAndDoesNotLeakExpec
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("verification failure output is not JSON: %q: %v", stdout, err)
 	}
-	if result.Status != "verification-timeout" || result.ErrorCode != "deadline-exceeded" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != perfuncted.ActionOutcomeNotVerified {
+	if result.Status != "verification-timeout" || result.ErrorCode != "deadline-exceeded" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != accessibility.ActionOutcomeNotVerified {
 		t.Fatalf("timeout result = %+v", result)
 	}
 	if backend.actionCalls != 1 {
@@ -438,7 +439,7 @@ func TestAccessibilityCLIChangedVerificationRejectsRootIdentitySwap(t *testing.T
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("scope failure output is not JSON: %q: %v", stdout, err)
 	}
-	if result.Status != "verification-failed" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != perfuncted.ActionOutcomeNotVerified || backend.actionCalls != 1 {
+	if result.Status != "verification-failed" || result.Receipt.Dispatch != accessibility.DispatchAccepted || result.Receipt.Outcome.Status != accessibility.ActionOutcomeNotVerified || backend.actionCalls != 1 {
 		t.Fatalf("result=%+v actionCalls=%d, want accepted but unverified one-shot action", result, backend.actionCalls)
 	}
 }
@@ -1221,7 +1222,7 @@ func TestAccessibilityOutputNeverAcknowledgesFailedSink(t *testing.T) {
 		{"outline", outline, false},
 		{"partial outline", accessibility.Outline{Generation: 7, Truncated: true, Root: accessibility.OutlineNode{ID: node.ID, Role: "app"}}, false},
 		{"action", accessibility.Action{Index: 4, Name: "press"}, false},
-		{"receipt", perfuncted.AccessibilityActionReceipt{Node: node, Action: accessibility.Action{Index: 4, Name: "press"}}, false},
+		{"receipt", accessibility.ActionReceipt{Node: node, Action: accessibility.Action{Index: 4, Name: "press"}}, false},
 		{"fallback", struct{ Value int }{Value: 19}, false},
 		{"JSON", node, true},
 	} {
@@ -1465,7 +1466,7 @@ func TestAccessibilityHumanAndJSONOutputPropagateWriterFailures(t *testing.T) {
 		accessibility.Snapshot{Root: accessibility.Node{ID: id}, Generation: 9},
 		accessibility.Outline{Generation: 9, Truncated: true},
 		accessibility.Action{Index: 3, Name: "activate"},
-		perfuncted.AccessibilityActionReceipt{Node: accessibility.Node{ID: id}, Generation: 9},
+		accessibility.ActionReceipt{Node: accessibility.Node{ID: id}, Generation: 9},
 		"default response",
 	}
 	for i, value := range types {

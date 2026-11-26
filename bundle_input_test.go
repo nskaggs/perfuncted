@@ -3,12 +3,13 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2/input"
 	"image"
 	"os"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/input"
 )
 
 // This is an opt-in controlled Xvfb acceptance test, not proof of native
@@ -446,7 +447,7 @@ func TestMotionDeliveryAcknowledgement(t *testing.T) {
 			s := newSessionForTesting(nil, backend, nil, nil, nil)
 			defer s.Close()
 			start, end := image.Pt(10, 20), image.Pt(40, 50)
-			opts := MotionOptions{Duration: 20 * time.Millisecond}
+			opts := input.MotionOptions{Duration: 20 * time.Millisecond}
 			var err error
 			if tc.drag {
 				err = s.input.DragAndDropSmooth(context.Background(), start, end, opts)
@@ -562,10 +563,10 @@ func TestMotionInternalAuthorityPerFrame(t *testing.T) {
 }
 
 func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
-	if err := ValidateMotionOptions(MotionOptions{Duration: -1}); err == nil {
+	if err := input.ValidateMotionOptions(input.MotionOptions{Duration: -1}); err == nil {
 		t.Fatal("invalid options allowed")
 	}
-	if err := ValidateMotionOptions(MotionOptions{}); err != nil {
+	if err := input.ValidateMotionOptions(input.MotionOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -592,7 +593,7 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 		backend := &motionPrivateBackend{}
 		s := newSessionForTesting(nil, backend, nil, nil, nil)
 		_ = s.Close()
-		err := s.input.MouseMoveSmooth(context.Background(), &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+		err := s.input.MouseMoveSmooth(context.Background(), &image.Point{}, image.Pt(4, 4), input.MotionOptions{Duration: 20 * time.Millisecond})
 		if !errors.Is(err, ErrSessionClosed) {
 			t.Fatal(err)
 		}
@@ -603,7 +604,7 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 		defer s.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		err := s.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+		err := s.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), input.MotionOptions{Duration: 20 * time.Millisecond})
 		if !errors.Is(err, context.Canceled) {
 			t.Fatal(err)
 		}
@@ -622,7 +623,7 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 			if tc.close {
 				ctx.onTrigger = func() { _ = s.Close() }
 			}
-			err := s.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+			err := s.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), input.MotionOptions{Duration: 20 * time.Millisecond})
 			if err == nil || backend.moves != 0 {
 				t.Fatalf("authority err=%v moves=%d", err, backend.moves)
 			}
@@ -636,7 +637,7 @@ func TestMotionLocationCapabilityRevokedBetweenChecks(t *testing.T) {
 	defer s.Close()
 	ctx := &motionStepContext{Context: context.Background(), trigger: 1}
 	ctx.onTrigger = func() { _ = s.Close() }
-	err := s.input.MouseMoveSmooth(ctx, nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+	err := s.input.MouseMoveSmooth(ctx, nil, image.Pt(4, 4), input.MotionOptions{Duration: 20 * time.Millisecond})
 	if !errors.Is(err, ErrSessionClosed) || backend.moves != 0 {
 		t.Fatalf("location admission err=%v moves=%d", err, backend.moves)
 	}
@@ -655,7 +656,7 @@ func TestMotionNoPointerLocationPermission(t *testing.T) {
 		}
 	}
 	session.inputAdmission.resolvedOperations = operations
-	err := session.input.MouseMoveSmooth(context.Background(), nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+	err := session.input.MouseMoveSmooth(context.Background(), nil, image.Pt(4, 4), input.MotionOptions{Duration: 20 * time.Millisecond})
 	if !errors.Is(err, ErrUnsupported) || backend.moves != 0 {
 		t.Fatalf("location authority err=%v moves=%d", err, backend.moves)
 	}
@@ -673,7 +674,7 @@ func TestMotionPreflightHandoffAuthority(t *testing.T) {
 			if closeSession {
 				ctx.onTrigger = func() { _ = session.Close() }
 			}
-			_ = session.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(5, 5), MotionOptions{Duration: 20 * time.Millisecond})
+			_ = session.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(5, 5), input.MotionOptions{Duration: 20 * time.Millisecond})
 			_ = session.Close()
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +77,7 @@ func defaultOpenPFFactory(cfg *cliConfig) sessionOpener {
 				return nil, fmt.Errorf("--remember-input-permission requires --input-backend remote-desktop")
 			}
 		case "remote-desktop":
-			opts = append(opts, perfuncted.WithRemoteDesktopInput(perfuncted.RemoteDesktopInputOptions{PersistPermission: cfg.rememberInputPermission}))
+			opts = append(opts, perfuncted.WithRemoteDesktopInput(input.RemoteDesktopOptions{PersistPermission: cfg.rememberInputPermission}))
 		default:
 			return nil, fmt.Errorf("unknown --input-backend %q (supported: auto, remote-desktop)", cfg.inputBackend)
 		}

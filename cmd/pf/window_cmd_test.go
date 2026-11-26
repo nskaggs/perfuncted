@@ -4,19 +4,22 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/v2"
-	"github.com/nskaggs/perfuncted/v2/input"
-	"github.com/nskaggs/perfuncted/v2/output"
-	"github.com/nskaggs/perfuncted/v2/pftest"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"io"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func TestScreenPixelActionsRefuseMixedScaleMultiOutputMosaics(t *testing.T) {
@@ -1366,4 +1369,146 @@ func TestWindowOptionalIDGeometryJSONUsesReportedTitle(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"title":"Reported title"`) || !strings.Contains(out, `"w":300`) {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out, stderr)
 	}
+}
+
+func TestScreenshotPointMapsToLogicalFractionalScale(t *testing.T) {
+	outs := []output.Info{{Available: true, Geometry: output.Geometry{W: 1600, H: 900}, ResolutionW: 1920, ResolutionH: 1080}}
+	x, y, err := screenshotPointToLogical(outs, 1200, 600)
+	if err != nil || x != 1000 || y != 500 {
+		t.Fatalf("mapped %d,%d err=%v, want 1000,500", x, y, err)
+	}
+	for _, bad := range [][]output.Info{{}, {{Available: true, Geometry: output.Geometry{W: 1600, H: 900}, ResolutionW: 0, ResolutionH: 0}}, {outs[0], outs[0]}} {
+		if _, _, err := screenshotPointToLogical(bad, 100, 100); err == nil {
+			t.Errorf("accepted ambiguous/unknown output geometry %+v", bad)
+		}
+	}
+}
+
+func TestVerifiedActivationObservesTargetWindowNotJustInputDelivery(t *testing.T) {
+	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}, {{NativeID: "one", Title: "A", Active: true}}}}
+	pf := pftest.New(nil, nil, m, nil)
+	defer pf.Close()
+	w, err := pf.Windows().Find(context.Background(), window.Match{TitleExact: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lintShadow36 := waitWindowActive(context.Background(), w, 75*time.Millisecond, 5*time.Millisecond); lintShadow36 != nil {
+		t.Fatal(lintShadow36)
+	}
+	m = &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}}}
+	pf2 := pftest.New(nil, nil, m, nil)
+	defer pf2.Close()
+	w, err = pf2.Windows().Find(context.Background(), window.Match{TitleExact: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitWindowActive(context.Background(), w, 20*time.Millisecond, 5*time.Millisecond); err == nil {
+		t.Fatal("delivered event incorrectly considered verified activation")
+	}
+}
+
+func TestWaylandXTestInfoExplicitlyWarnsAboutNativeWindows(t *testing.T) {
+	report := infoReport{Compositor: "KDE Plasma Wayland", Capabilities: map[string]capabilityEntry{"input": {Supported: true, Backend: "*input.XTestBackend"}}}
+	if msg := inputBackendWarning(report); !strings.Contains(msg, "XWayland") || !strings.Contains(msg, "remote-desktop") {
+		t.Fatalf("warning=%q", msg)
+	}
+	report.Compositor = "X11"
+	if msg := inputBackendWarning(report); msg != "" {
+		t.Errorf("native X11 should not warn, got %q", msg)
+	}
+}
+
+func TestClickWindowCLIRejectsMissingTargetBeforeOpening(t *testing.T) {
+	opened := false
+	_, _, code := captureRunIO(t, []string{"input", "click-window", "--x", "15", "--y", "20"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { opened = true; return nil, nil }
+	})
+	if code == 0 || opened {
+		t.Fatalf("missing target code=%d opened=%v", code, opened)
+	}
+}
+
+var _ = input.CoordinateSpaceLogical
+
+func TestActivateByTitleVerificationRejectsUnfocusedTarget(t *testing.T) {
+	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "Test Focus", Active: false}}}}
+	_, stderr, code := captureRunIO(t, []string{"window", "activate", "Test Focus", "--verify", "--verify-timeout", "150ms", "--verify-poll", "5ms"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, nil, m, nil), nil }
+	})
+	if code == 0 || (!strings.Contains(stderr, "never reported active") && !strings.Contains(stderr, "context deadline exceeded")) {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+}
+func TestCloseByIDVerificationRequiresWindowDisappearance(t *testing.T) {
+	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "Dialog"}}}}
+	_, stderr, code := captureRunIO(t, []string{"window", "close-id", "one", "--verify", "--verify-timeout", "150ms", "--verify-poll", "5ms"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, nil, m, nil), nil }
+	})
+	if code == 0 || (!strings.Contains(stderr, "remains open") && !strings.Contains(stderr, "context deadline exceeded")) {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestActivateByIDVerificationConfirmsActualFocus(t *testing.T) {
+	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "id-one", Title: "Duplicate", Active: false}, {NativeID: "id-two", Title: "Duplicate", Active: false}}}}
+	_, stderr, code := captureRunIO(t, []string{"window", "activate-id", "id-two", "--verify", "--verify-timeout", "150ms", "--verify-poll", "5ms"}, func(*cliConfig) sessionOpener {
+		return func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, nil, m, nil), nil }
+	})
+	if code == 0 || (!strings.Contains(stderr, "never reported active") && !strings.Contains(stderr, "context deadline exceeded")) {
+		t.Fatalf("verify flag ignored: code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestWindowRelativePointFuzzTable(t *testing.T) {
+	rng := rand.New(rand.NewSource(7319))
+	spaces := []input.CoordinateSpaceInfo{{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}, {Kind: input.CoordinateSpacePhysical, ScaleX: 1.25, ScaleY: 1.5}, {Kind: input.CoordinateSpacePhysical, ScaleX: 0.5, ScaleY: 0.8}, {Kind: input.CoordinateSpacePhysical, ScaleX: 2, ScaleY: 2}}
+	for i := 0; i < 3000; i++ {
+		w := window.Info{X: rng.Intn(3001) - 1500, Y: rng.Intn(3001) - 1500, W: rng.Intn(1800) + 1, H: rng.Intn(1200) + 1}
+		space := spaces[i%len(spaces)]
+		x := rng.Intn(w.W+4) - 2
+		y := rng.Intn(w.H+4) - 2
+		ax, ay, err := windowRelativePoint(w, x, y, space)
+		valid := x >= 0 && y >= 0 && x < w.W && y < w.H
+		if valid && err != nil || !valid && err == nil {
+			t.Fatalf("case %d: geom=%+v x,y=%d,%d space=%+v: returned %d,%d err %v", i, w, x, y, space, ax, ay, err)
+		}
+		if valid {
+			wantX := int(math.Round(float64(w.X+x) * space.ScaleX))
+			wantY := int(math.Round(float64(w.Y+y) * space.ScaleY))
+			if ax != wantX || ay != wantY {
+				t.Fatalf("case %d: want %d,%d got %d,%d", i, wantX, wantY, ax, ay)
+			}
+		}
+	}
+}
+
+func TestWindowRelativePointRejectsOverflowAndNonFinite(t *testing.T) {
+	info := window.Info{X: math.MaxInt - 5, Y: math.MaxInt - 5, W: 100, H: 100}
+	for _, space := range []input.CoordinateSpaceInfo{
+		{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1},
+		{Kind: input.CoordinateSpacePhysical, ScaleX: 2, ScaleY: 2},
+		{Kind: input.CoordinateSpacePhysical, ScaleX: math.MaxFloat64, ScaleY: 1},
+		{Kind: input.CoordinateSpacePhysical, ScaleX: math.Inf(1), ScaleY: 1},
+		{Kind: input.CoordinateSpacePhysical, ScaleX: math.NaN(), ScaleY: 1},
+	} {
+		if _, _, err := windowRelativePoint(info, 30, 30, space); err == nil {
+			t.Errorf("accepted overflow/non-finite coordinate space %+v", space)
+		}
+	}
+}
+
+func FuzzWindowRelativePoint(f *testing.F) {
+	for _, seed := range [][4]int{{10, 10, 100, 100}, {-1, 5, 20, 30}, {0, 0, 1, 1}, {math.MaxInt, math.MaxInt, 200, 200}} {
+		f.Add(seed[0], seed[1], seed[2], seed[3])
+	}
+	f.Fuzz(func(t *testing.T, x, y, w, h int) {
+		if w < 1 || w > 100000 || h < 1 || h > 100000 {
+			return
+		}
+		px, py, err := windowRelativePoint(window.Info{X: 100, Y: 200, W: w, H: h}, x, y, input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1})
+		valid := x >= 0 && x < w && y >= 0 && y < h
+		if valid && (err != nil || px != x+100 || py != y+200) || !valid && err == nil {
+			t.Fatalf("(%d,%d) dims %dx%d => (%d,%d) err %v", x, y, w, h, px, py, err)
+		}
+	})
 }

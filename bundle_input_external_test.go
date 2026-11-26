@@ -4,10 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/v2"
-	"github.com/nskaggs/perfuncted/v2/input"
-	"github.com/nskaggs/perfuncted/v2/pftest"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"math"
 	"reflect"
@@ -15,6 +11,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type doubleClickDualFailureBackend struct {
@@ -978,7 +979,7 @@ func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
 	}
 	target, err := pf.Windows().Find(
 		ctx,
-		perfuncted.WindowMatch{TitleContains: "Firefox"},
+		window.Match{TitleContains: "Firefox"},
 	)
 	if err != nil {
 		t.Fatalf("Find: %v", err)
@@ -1010,7 +1011,7 @@ func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
 type motionNoSpace struct{ input.Inputter }
 
 func TestSmoothRequiresAuthoritativeCoordinateSpace(t *testing.T) {
-	opts := perfuncted.MotionOptions{Duration: 35 * time.Millisecond}
+	opts := input.MotionOptions{Duration: 35 * time.Millisecond}
 	a, b := image.Pt(0, 0), image.Pt(40, 40)
 	for _, tc := range []struct {
 		name        string
@@ -1083,7 +1084,7 @@ func TestSmoothZeroDistanceDragIsImmediateWithoutRedundantMotion(t *testing.T) {
 	defer session.Close()
 	at := image.Pt(200, 200)
 	start := time.Now()
-	err := session.Input().DragAndDropSmooth(context.Background(), at, at, perfuncted.MotionOptions{Duration: 800 * time.Millisecond, Easing: "ease-in-out", Curve: .4, Variation: 16, Seed: 9})
+	err := session.Input().DragAndDropSmooth(context.Background(), at, at, input.MotionOptions{Duration: 800 * time.Millisecond, Easing: "ease-in-out", Curve: .4, Variation: 16, Seed: 9})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1113,7 +1114,7 @@ func TestSmoothCurvedIntermediatePreflightRejectsBeforeButton(t *testing.T) {
 	backend := &rejectNegativeCurveInput{motionSpy: spy}
 	session := pftest.New(nil, backend, nil, nil)
 	defer session.Close()
-	err := session.Input().DragAndDropSmooth(context.Background(), image.Pt(0, 0), image.Pt(100, 0), perfuncted.MotionOptions{Duration: 80 * time.Millisecond, Curve: -.5})
+	err := session.Input().DragAndDropSmooth(context.Background(), image.Pt(0, 0), image.Pt(100, 0), input.MotionOptions{Duration: 80 * time.Millisecond, Curve: -.5})
 	if err == nil {
 		t.Fatal("offscreen curve accepted")
 	}
@@ -1131,7 +1132,7 @@ func TestSmoothZeroDurationPreservesLegacyDrag(t *testing.T) {
 	spy := &motionSpy{spaceErr: input.ErrNotSupported}
 	session := pftest.New(nil, spy, nil, nil)
 	defer session.Close()
-	err := session.Input().DragAndDropSmooth(context.Background(), image.Pt(1, 2), image.Pt(3, 4), perfuncted.MotionOptions{})
+	err := session.Input().DragAndDropSmooth(context.Background(), image.Pt(1, 2), image.Pt(3, 4), input.MotionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1217,7 +1218,7 @@ func (s *motionSpy) ValidatePointerTarget(_ context.Context, x, y int) error {
 }
 func TestMotionOptionsAndEnvelope(t *testing.T) {
 	a, b := image.Pt(0, 0), image.Pt(100, 100)
-	opts := perfuncted.MotionOptions{Duration: 80 * time.Millisecond, Easing: "ease-in-out", Curve: .4, Variation: 16, Seed: 99}
+	opts := input.MotionOptions{Duration: 80 * time.Millisecond, Easing: "ease-in-out", Curve: .4, Variation: 16, Seed: 99}
 	s := &motionSpy{}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
@@ -1253,7 +1254,7 @@ func TestMotionOptionsAndEnvelope(t *testing.T) {
 	}
 }
 func TestMotionValidationBeforeInput(t *testing.T) {
-	invalid := []perfuncted.MotionOptions{
+	invalid := []input.MotionOptions{
 		{Duration: -time.Second}, {Duration: 11 * time.Second}, {Duration: 20 * time.Millisecond, Easing: "unknown"},
 		{Duration: time.Second, Curve: math.NaN()}, {Duration: time.Second, Curve: math.Inf(1)},
 		{Duration: time.Second, Curve: .6}, {Duration: time.Second, Variation: -1}, {Duration: time.Second, Variation: 17},
@@ -1275,7 +1276,7 @@ func TestMotionValidationBeforeInput(t *testing.T) {
 	s := &motionSpy{reject: true}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	err := pf.Input().DragAndDropSmooth(context.Background(), image.Pt(0, 0), image.Pt(10, 10), perfuncted.MotionOptions{Duration: 40 * time.Millisecond})
+	err := pf.Input().DragAndDropSmooth(context.Background(), image.Pt(0, 0), image.Pt(10, 10), input.MotionOptions{Duration: 40 * time.Millisecond})
 	if err == nil || s.moves != 0 || s.down != 0 || s.up != 0 {
 		t.Fatalf("bounds rejection: %v %+v", err, s)
 	}
@@ -1284,11 +1285,11 @@ func TestMotionUnknownOriginAndImmediate(t *testing.T) {
 	s := &motionSpy{locationErr: input.ErrNotSupported}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(20, 20), perfuncted.MotionOptions{Duration: 40 * time.Millisecond})
+	err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(20, 20), input.MotionOptions{Duration: 40 * time.Millisecond})
 	if !errors.Is(err, input.ErrNotSupported) || s.moves != 0 {
 		t.Fatalf("unknown origin: %v %+v", err, s)
 	}
-	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(20, 20), perfuncted.MotionOptions{}); err != nil {
+	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(20, 20), input.MotionOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if s.moves != 1 || s.up != 0 {
@@ -1296,7 +1297,7 @@ func TestMotionUnknownOriginAndImmediate(t *testing.T) {
 	}
 }
 func TestMotionDragCleanup(t *testing.T) {
-	o := perfuncted.MotionOptions{Duration: 40 * time.Millisecond}
+	o := input.MotionOptions{Duration: 40 * time.Millisecond}
 	for _, tc := range []struct {
 		name             string
 		failAt           int
@@ -1346,13 +1347,13 @@ func TestMotionObservedOriginAndNoop(t *testing.T) {
 	s := &motionSpy{}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(5, 7), perfuncted.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
+	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(5, 7), input.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
 	if s.moves != 0 {
 		t.Fatalf("noop moved: %+v", s)
 	}
-	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(9, 12), perfuncted.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
+	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(9, 12), input.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(s.Inputter.Calls[0], "move:5,7") {
@@ -1363,7 +1364,7 @@ func TestMotionObservedOriginAndNoop(t *testing.T) {
 // TestMotionAuthorityTransitions guards the boundaries where a backend call
 // completes only after caller cancellation or Session.Close.
 func TestMotionAuthorityTransitions(t *testing.T) {
-	opts := perfuncted.MotionOptions{Duration: 40 * time.Millisecond}
+	opts := input.MotionOptions{Duration: 40 * time.Millisecond}
 	a, b := image.Pt(1, 1), image.Pt(20, 20)
 	for _, stage := range []string{"validation-cancel", "validation-close", "location-cancel", "location-close", "move-cancel", "move-close", "down-cancel", "down-close"} {
 		t.Run(stage, func(t *testing.T) {
@@ -1422,7 +1423,7 @@ func TestMotionCancellationInTimedWait(t *testing.T) {
 			cancel()
 		}
 	}
-	err := pf.Input().MouseMoveSmooth(ctx, ptrPoint(image.Pt(0, 0)), image.Pt(50, 50), perfuncted.MotionOptions{Duration: 500 * time.Millisecond})
+	err := pf.Input().MouseMoveSmooth(ctx, ptrPoint(image.Pt(0, 0)), image.Pt(50, 50), input.MotionOptions{Duration: 500 * time.Millisecond})
 	if !errors.Is(err, context.Canceled) || s.moves != 1 {
 		t.Fatalf("cancellation: %v %+v", err, s)
 	}

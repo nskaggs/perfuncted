@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/v2/accessibility"
-	"github.com/nskaggs/perfuncted/v2/window"
 	"iter"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func reviewChangeFixture(t *testing.T) (*AccessibilityLocator, *snapshotAccessibilityAutomationFake, accessibility.NodeID, accessibility.Node) {
@@ -399,7 +400,7 @@ func TestMixedConditionPreservesEventWakeups(t *testing.T) {
 				return tt.name == "All", nil
 			})
 			windowReady := sessionCondition("ready window", func(ctx context.Context, s *sessionCore) (bool, error) {
-				ready, err := WindowExists(WindowMatch{TitleExact: "Ready"}).evaluate(ctx, s)
+				ready, err := WindowExists(window.Match{TitleExact: "Ready"}).evaluate(ctx, s)
 				select {
 				case <-firstWindowQuery:
 				default:
@@ -851,7 +852,7 @@ func TestSessionWaitRetriesTransientEvaluationErrors(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := session.Wait(ctx, WindowExists(WindowMatch{TitleExact: "Ready"}), WaitEvery(5*time.Millisecond)); err != nil {
+	if err := session.Wait(ctx, WindowExists(window.Match{TitleExact: "Ready"}), WaitEvery(5*time.Millisecond)); err != nil {
 		t.Fatalf("Wait aborted on transient evaluation errors: %v", err)
 	}
 }
@@ -867,7 +868,7 @@ func TestSessionWaitAbortsOnPermanentEvaluationError(t *testing.T) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err := session.Wait(ctx, WindowExists(WindowMatch{TitleExact: "Ready"}), WaitEvery(5*time.Millisecond))
+	err := session.Wait(ctx, WindowExists(window.Match{TitleExact: "Ready"}), WaitEvery(5*time.Millisecond))
 	if err == nil || !errors.Is(err, ErrApplicationExited) {
 		t.Fatalf("Wait error = %v; want immediate ErrApplicationExited", err)
 	}
@@ -886,7 +887,7 @@ func TestSessionWaitGivesUpAfterSustainedTransientErrors(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	err := session.Wait(ctx, WindowExists(WindowMatch{TitleExact: "Ready"}), WaitEvery(2*time.Millisecond))
+	err := session.Wait(ctx, WindowExists(window.Match{TitleExact: "Ready"}), WaitEvery(2*time.Millisecond))
 	if err == nil || !strings.Contains(err.Error(), "consecutive and") || !strings.Contains(err.Error(), "total evaluation errors") {
 		t.Fatalf("Wait error = %v; want sustained-failure abort", err)
 	}
@@ -946,7 +947,7 @@ func TestSessionWaitGivesUpOnFailuresInterleavedWithSuccessfulReads(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	start := time.Now()
-	err := session.Wait(ctx, WindowExists(WindowMatch{TitleExact: "Ready"}), WaitEvery(time.Millisecond))
+	err := session.Wait(ctx, WindowExists(window.Match{TitleExact: "Ready"}), WaitEvery(time.Millisecond))
 	elapsed := time.Since(start)
 	if err == nil || !strings.Contains(err.Error(), "total evaluation errors") {
 		t.Fatalf("Wait error = %v; want an abort reporting the wait-wide failure total", err)

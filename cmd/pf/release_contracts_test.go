@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/nskaggs/perfuncted/v2"
-	"github.com/spf13/cobra"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -20,6 +18,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/spf13/cobra"
 )
 
 // The ledger must cover every runnable command, specify a real test or
@@ -173,10 +174,10 @@ func TestReleaseConsumerReconstructsScreenStream(t *testing.T) {
 	defer cancel()
 	var wire bytes.Buffer
 	next := 0
-	capture := func(context.Context, image.Rectangle) (perfuncted.Capture, error) {
+	capture := func(context.Context, image.Rectangle) (screen.Capture, error) {
 		if next == len(samples) {
 			cancel()
-			return perfuncted.Capture{}, ctx.Err()
+			return screen.Capture{}, ctx.Err()
 		}
 		sample := samples[next]
 		next++
@@ -203,12 +204,12 @@ func TestReleaseConsumerReconstructsScreenStream(t *testing.T) {
 }
 
 type releaseConsumerExpectation struct {
-	capture perfuncted.Capture
+	capture screen.Capture
 	version uint64
 	full    bool
 }
 
-func releaseConsumerSamples() ([]perfuncted.Capture, []releaseConsumerExpectation) {
+func releaseConsumerSamples() ([]screen.Capture, []releaseConsumerExpectation) {
 	region := image.Rect(10, 20, 30, 40)
 	base := releaseConsumerSolid(image.Rect(5, 7, 25, 27), color.NRGBA{R: 80, A: 255})
 	sparse := releaseConsumerClone(base)
@@ -234,15 +235,15 @@ func releaseConsumerSamples() ([]perfuncted.Capture, []releaseConsumerExpectatio
 	translated := region.Add(image.Pt(100, 60))
 
 	want := []releaseConsumerExpectation{
-		{perfuncted.Capture{Image: base, ScreenRect: region}, 1, true},
-		{perfuncted.Capture{Image: sparse, ScreenRect: region}, 1, false},
-		{perfuncted.Capture{Image: resized, ScreenRect: region}, 2, true},
-		{perfuncted.Capture{Image: scaledDelta, ScreenRect: region}, 2, false},
-		{perfuncted.Capture{Image: overflow, ScreenRect: region}, 2, true},
-		{perfuncted.Capture{Image: lastDelta, ScreenRect: region}, 2, false},
-		{perfuncted.Capture{Image: lastDelta, ScreenRect: translated}, 3, true},
+		{screen.Capture{Image: base, ScreenRect: region}, 1, true},
+		{screen.Capture{Image: sparse, ScreenRect: region}, 1, false},
+		{screen.Capture{Image: resized, ScreenRect: region}, 2, true},
+		{screen.Capture{Image: scaledDelta, ScreenRect: region}, 2, false},
+		{screen.Capture{Image: overflow, ScreenRect: region}, 2, true},
+		{screen.Capture{Image: lastDelta, ScreenRect: region}, 2, false},
+		{screen.Capture{Image: lastDelta, ScreenRect: translated}, 3, true},
 	}
-	samples := make([]perfuncted.Capture, 0, len(want)*2)
+	samples := make([]screen.Capture, 0, len(want)*2)
 	for _, entry := range want {
 		// A stable sample after each change must never advance the frame ID.
 		samples = append(samples, entry.capture, entry.capture)

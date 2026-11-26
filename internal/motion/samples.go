@@ -2,42 +2,19 @@
 package motion
 
 import (
-	"fmt"
+	"github.com/nskaggs/perfuncted/v2/input"
 	"math"
 	"time"
 )
 
-type Options struct {
-	Duration  time.Duration
-	Easing    string  // "", "linear", or "ease-in-out"
-	Curve     float64 // perpendicular bend fraction, -0.5..0.5
-	Variation int     // seeded coordinate variation in backend units, 0..16
-	Seed      uint64
-}
 type Point struct{ X, Y int }
 
 const (
-	motionInterval    = time.Second / 60
-	motionMaxDuration = 10 * time.Second
-	motionMaxSamples  = 120
+	motionInterval   = time.Second / 60
+	motionMaxSamples = 120
 )
 
-func (o Options) Validate() error {
-	if o.Duration < 0 || o.Duration > motionMaxDuration {
-		return fmt.Errorf("input: duration must be between 0 and %s", motionMaxDuration)
-	}
-	if o.Easing != "" && o.Easing != "linear" && o.Easing != "ease-in-out" {
-		return fmt.Errorf("input: invalid easing %q", o.Easing)
-	}
-	if math.IsNaN(o.Curve) || math.IsInf(o.Curve, 0) || math.Abs(o.Curve) > .5 {
-		return fmt.Errorf("input: invalid curve")
-	}
-	if o.Variation < 0 || o.Variation > 16 {
-		return fmt.Errorf("input: variation must be 0..16")
-	}
-	return nil
-}
-func Samples(a, b Point, o Options) []Point {
+func Samples(a, b Point, o input.MotionOptions) []Point {
 	if o.Duration == 0 || a == b {
 		return []Point{a, b}
 	}
