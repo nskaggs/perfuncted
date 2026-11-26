@@ -5,26 +5,26 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 // NewSessionForTesting assembles a Session from deterministic backend fakes.
 // Production code should use Open.
-func NewSessionForTesting(
+func newSessionForTesting(
 	screenshotter screen.Screenshotter,
 	inputter input.Inputter,
 	windowManager window.Manager,
 	outputLister output.Lister,
 	clipboardBackend clipboard.Clipboard,
 	accessibilityBackend ...accessibility.Backend,
-) *Session {
+) *sessionCore {
 	if util.IsNil(screenshotter) {
 		screenshotter = nil
 	}
@@ -41,7 +41,7 @@ func NewSessionForTesting(
 		clipboardBackend = nil
 	}
 
-	session := &Session{
+	session := &sessionCore{
 		capabilities: make(
 			map[Capability]CapabilityStatus,
 			len(allCapabilities),
@@ -57,36 +57,19 @@ func NewSessionForTesting(
 	// Test sessions retain a bounded action history without writing to the
 	// caller's output. This makes opt-in failure bundles useful by default.
 	session.tracer = newActionTracer(io.Discard, nil, 0)
-	session.Screen = &ScreenBundle{
-		backend:    screenshotter,
-		bundleBase: session.bundleBase(CapabilityScreen),
-	}
-	session.Input = &InputBundle{
-		backend:    inputter,
-		bundleBase: session.bundleBase(CapabilityInput),
-	}
-	session.Windows = &WindowBundle{
-		backend:    windowManager,
-		bundleBase: session.bundleBase(CapabilityWindows),
-	}
-	session.Outputs = &OutputBundle{
-		backend:    outputLister,
-		bundleBase: session.bundleBase(CapabilityOutputs),
-	}
-	session.Clipboard = &ClipboardBundle{
-		backend: clipboardBackend,
-		bundleBase: session.bundleBase(
-			CapabilityClipboard,
-		),
-	}
-	session.Accessibility = &AccessibilityBundle{
-		backend:    newAccessibilityBackendOwner(session),
-		bundleBase: session.bundleBase(CapabilityAccessibility),
-	}
+	session.screen = newScreenState(session.bundleBase(CapabilityScreen), screenshotter)
+	session.inputAdmission = session.bundleBase(CapabilityInput)
+	session.input = newInputState(&session.inputAdmission, inputter)
+	session.windows = newWindowState(session.bundleBase(CapabilityWindows), windowManager)
+	session.outputAdmission = session.bundleBase(CapabilityOutputs)
+	session.outputs = newOutputState(&session.outputAdmission, outputLister)
+	session.clipboardAdmission = session.bundleBase(CapabilityClipboard)
+	session.clipboard = newClipboardState(&session.clipboardAdmission, clipboardBackend)
+	session.accessibility = newAccessibilityState(session.bundleBase(CapabilityAccessibility), newAccessibilityBackendOwner(session))
 	var accessibilityImpl accessibility.Backend
 	if len(accessibilityBackend) > 0 && !util.IsNil(accessibilityBackend[0]) {
 		accessibilityImpl = accessibilityBackend[0]
-		session.Accessibility.installBackend(accessibilityImpl)
+		session.accessibility.installBackend(accessibilityImpl)
 	}
 	backends := map[Capability]any{
 		CapabilityScreen:        screenshotter,

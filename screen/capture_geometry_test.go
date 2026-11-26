@@ -2,7 +2,7 @@ package screen
 
 import (
 	"context"
-	"github.com/nskaggs/perfuncted/internal/capturebench"
+	"github.com/nskaggs/perfuncted/v2/internal/capturebench"
 	"image"
 	"image/png"
 	"io"

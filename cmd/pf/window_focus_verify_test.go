@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +29,7 @@ func TestVerifiedActivationObservesTargetWindowNotJustInputDelivery(t *testing.T
 	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}, {{NativeID: "one", Title: "A", Active: true}}}}
 	pf := pftest.New(nil, nil, m, nil)
 	defer pf.Close()
-	w, err := pf.Windows.Find(context.Background(), window.Match{TitleExact: "A"})
+	w, err := pf.Windows().Find(context.Background(), window.Match{TitleExact: "A"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestVerifiedActivationObservesTargetWindowNotJustInputDelivery(t *testing.T
 	m = &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}}}
 	pf2 := pftest.New(nil, nil, m, nil)
 	defer pf2.Close()
-	w, err = pf2.Windows.Find(context.Background(), window.Match{TitleExact: "A"})
+	w, err = pf2.Windows().Find(context.Background(), window.Match{TitleExact: "A"})
 	if err != nil {
 		t.Fatal(err)
 	}

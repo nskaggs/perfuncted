@@ -3,7 +3,7 @@ package screen
 import (
 	"bytes"
 	"errors"
-	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/v2/find"
 	"image"
 	"image/color"
 	"math"

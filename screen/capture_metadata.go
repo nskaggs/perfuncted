@@ -1,13 +1,14 @@
-package perfuncted
+package screen
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/capture"
 	"image"
 	"math/bits"
 
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 // Capture keeps captured pixels together with the desktop rectangle they
@@ -93,18 +94,18 @@ func (c Capture) ReportsDownscale() bool {
 // inside ScreenRect rather than at its exclusive maximum edge.
 func (c Capture) ScreenPoint(pixel image.Point) (image.Point, error) {
 	if util.IsNil(c.Image) {
-		return image.Point{}, fmt.Errorf("perfuncted: capture has no image: %w", ErrInvalidArgument)
+		return image.Point{}, fmt.Errorf("perfuncted: capture has no image: %w", capability.ErrInvalidArgument)
 	}
 	imageBounds := c.Image.Bounds()
-	imageWidth, imageWidthOK := captureAxisSpan(imageBounds.Min.X, imageBounds.Max.X)
-	imageHeight, imageHeightOK := captureAxisSpan(imageBounds.Min.Y, imageBounds.Max.Y)
-	screenWidth, screenWidthOK := captureAxisSpan(c.ScreenRect.Min.X, c.ScreenRect.Max.X)
-	screenHeight, screenHeightOK := captureAxisSpan(c.ScreenRect.Min.Y, c.ScreenRect.Max.Y)
+	imageWidth, imageWidthOK := capture.AxisSpan(imageBounds.Min.X, imageBounds.Max.X)
+	imageHeight, imageHeightOK := capture.AxisSpan(imageBounds.Min.Y, imageBounds.Max.Y)
+	screenWidth, screenWidthOK := capture.AxisSpan(c.ScreenRect.Min.X, c.ScreenRect.Max.X)
+	screenHeight, screenHeightOK := capture.AxisSpan(c.ScreenRect.Min.Y, c.ScreenRect.Max.Y)
 	if !imageWidthOK || !imageHeightOK || !screenWidthOK || !screenHeightOK {
-		return image.Point{}, fmt.Errorf("perfuncted: capture has empty or invalid bounds: %w", ErrInvalidArgument)
+		return image.Point{}, fmt.Errorf("perfuncted: capture has empty or invalid bounds: %w", capability.ErrInvalidArgument)
 	}
 	if !pixel.In(imageBounds) {
-		return image.Point{}, fmt.Errorf("perfuncted: image point %v is outside capture bounds %v: %w", pixel, imageBounds, ErrInvalidArgument)
+		return image.Point{}, fmt.Errorf("perfuncted: image point %v is outside capture bounds %v: %w", pixel, imageBounds, capability.ErrInvalidArgument)
 	}
 	// A capture that is not a uniform scaling of the region is refused rather than mapped
 	// through. translatePointsToImage refuses the same captures, so accepting one here
@@ -121,54 +122,20 @@ func (c Capture) ScreenPoint(pixel image.Point) (image.Point, error) {
 	if lhsHi != rhsHi || lhsLo != rhsLo {
 		return image.Point{}, fmt.Errorf(
 			"perfuncted: capture %v is not a uniform scaling of region %v: %w",
-			imageBounds, c.ScreenRect, ErrInvalidArgument,
+			imageBounds, c.ScreenRect, capability.ErrInvalidArgument,
 		)
 	}
 	if imageWidth < screenWidth || imageHeight < screenHeight {
 		return image.Point{}, fmt.Errorf(
 			"perfuncted: capture %v is smaller than region %v: it cannot be told apart from a clipped capture: %w",
-			imageBounds, c.ScreenRect, ErrInvalidArgument,
+			imageBounds, c.ScreenRect, capability.ErrInvalidArgument,
 		)
 	}
 
-	xOffset := scaleCaptureOffset(uint64(pixel.X)-uint64(imageBounds.Min.X), imageWidth, screenWidth)
-	yOffset := scaleCaptureOffset(uint64(pixel.Y)-uint64(imageBounds.Min.Y), imageHeight, screenHeight)
+	xOffset := capture.ScaleOffset(uint64(pixel.X)-uint64(imageBounds.Min.X), imageWidth, screenWidth)
+	yOffset := capture.ScaleOffset(uint64(pixel.Y)-uint64(imageBounds.Min.Y), imageHeight, screenHeight)
 	return image.Point{
 		X: c.ScreenRect.Min.X + int(xOffset),
 		Y: c.ScreenRect.Min.Y + int(yOffset),
 	}, nil
-}
-
-// Capture captures rect and preserves the requested desktop region represented
-// by the returned image. An empty rect is rejected because the screenshot
-// backend does not expose a backend-independent desktop rectangle for an
-// image-only full-screen capture.
-func (s *ScreenBundle) Capture(ctx context.Context, rect image.Rectangle) (Capture, error) {
-	s.traceAction("capture rect=%s", rect)
-	if rect.Empty() {
-		return Capture{}, fmt.Errorf("screen: capture provenance requires a non-empty rectangle: %w", ErrInvalidArgument)
-	}
-	img, err := s.grab(ctx, rect)
-	if err != nil {
-		return Capture{}, err
-	}
-	if util.IsNil(img) {
-		return Capture{}, s.operationError("capture", fmt.Errorf("screen: capture returned nil image"))
-	}
-
-	return Capture{Image: img, ScreenRect: rect}, nil
-}
-
-func captureAxisSpan(min, max int) (uint64, bool) {
-	if max <= min {
-		return 0, false
-	}
-	span := uint64(max) - uint64(min)
-	return span, span <= uint64(^uint(0)>>1)
-}
-
-func scaleCaptureOffset(offset, sourceSpan, destinationSpan uint64) uint64 {
-	high, low := bits.Mul64(offset, destinationSpan)
-	quotient, _ := bits.Div64(high, low, sourceSpan)
-	return quotient
 }

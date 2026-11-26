@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/input"
 )
 
 func TestReleaseVisualAcceptanceWayland(t *testing.T) {
@@ -32,11 +32,11 @@ func TestReleaseVisualAcceptanceWayland(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	w, h, err := s.pf.Screen.Resolution(ctx)
+	w, h, err := s.pf.Screen().Resolution(ctx)
 	if err != nil || w < 480 || h < 320 {
 		t.Fatalf("fixture requires at least 480x320: %dx%d, %v", w, h, err)
 	}
-	if err := s.pf.Input.MouseMove(ctx, w-40, h-40); err != nil {
+	if err := s.pf.Input().MouseMove(ctx, w-40, h-40); err != nil {
 		t.Fatal(err)
 	}
 	base := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -54,11 +54,11 @@ func TestReleaseVisualAcceptanceWayland(t *testing.T) {
 		template := image.NewRGBA(image.Rect(0, 0, 10, 10))
 		draw.Draw(template, template.Bounds(), image.NewUniform(red), image.Point{}, draw.Src)
 		region := image.Rect(40, 180, 110, 210)
-		got, err := s.pf.Screen.FindTemplate(ctx, region, template, 1)
+		got, err := s.pf.Screen().FindTemplate(ctx, region, template, 1)
 		if err != nil || got.Rect != a || got.Confidence != 1 {
 			t.Fatalf("best template: %+v, %v", got, err)
 		}
-		all, err := s.pf.Screen.FindTemplates(ctx, region, template, 1, 4)
+		all, err := s.pf.Screen().FindTemplates(ctx, region, template, 1, 4)
 		if err != nil || len(all) != 2 || all[0].Rect != a || all[1].Rect != b {
 			t.Fatalf("ordered templates: %+v, %v", all, err)
 		}
@@ -169,7 +169,7 @@ func waitReleasePixels(t *testing.T, ctx context.Context, s *suite, region image
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := s.pf.Screen.Grab(ctx, region)
+		got, err := s.pf.Screen().Grab(ctx, region)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -280,7 +280,7 @@ var releaseMotionPattern = regexp.MustCompile(`motion:.*x, y: ([0-9.]+), ([0-9.]
 
 func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary string) {
 	t.Helper()
-	space, err := s.pf.Input.PointerCoordinateSpace(ctx)
+	space, err := s.pf.Input().PointerCoordinateSpace(ctx)
 	if err != nil || space.Kind != input.CoordinateSpaceLogical || space.ScaleX != 1 || space.ScaleY != 1 {
 		t.Fatalf("Wayland motion coordinate metadata: %+v, %v", space, err)
 	}
@@ -296,7 +296,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	win, err := s.pf.Windows.Wait(ctx, perfuncted.WindowMatch{TitleContains: "wev"}, perfuncted.WaitEvery(100*time.Millisecond))
+	win, err := s.pf.Windows().Wait(ctx, perfuncted.WindowMatch{TitleContains: "wev"}, perfuncted.WaitEvery(100*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 	origin := image.Pt(info.X, info.Y)
 	start := origin.Add(image.Pt(60, 60))
 	end := origin.Add(image.Pt(260, 180))
-	if err := s.pf.Input.MouseMove(ctx, start.X, start.Y); err != nil {
+	if err := s.pf.Input().MouseMove(ctx, start.X, start.Y); err != nil {
 		t.Fatal(err)
 	}
 	// Window discovery can precede Wayland surface commit and pointer focus.
@@ -320,7 +320,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 	offset := releaseLogSize(t, log.Name())
 	began := time.Now()
 	opts := perfuncted.MotionOptions{Duration: 450 * time.Millisecond, Easing: "linear"}
-	if err := s.pf.Input.MouseMoveSmooth(ctx, &start, end, opts); err != nil {
+	if err := s.pf.Input().MouseMoveSmooth(ctx, &start, end, opts); err != nil {
 		t.Fatal(err)
 	}
 	if elapsed := time.Since(began); elapsed < 400*time.Millisecond {
@@ -328,7 +328,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 	}
 	verifyReleaseMotion(t, log.Name(), offset, end.Sub(origin), false)
 	offset = releaseLogSize(t, log.Name())
-	if err := s.pf.Input.DragAndDropSmooth(ctx, end, start, opts); err != nil {
+	if err := s.pf.Input().DragAndDropSmooth(ctx, end, start, opts); err != nil {
 		t.Fatal(err)
 	}
 	verifyReleaseMotion(t, log.Name(), offset, start.Sub(origin), true)
@@ -351,7 +351,7 @@ func certifyWaylandMotion(t *testing.T, ctx context.Context, s *suite, binary st
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- s.pf.Input.DragAndDropSmooth(cancelCtx, start, end, perfuncted.MotionOptions{Duration: 2 * time.Second})
+		done <- s.pf.Input().DragAndDropSmooth(cancelCtx, start, end, perfuncted.MotionOptions{Duration: 2 * time.Second})
 	}()
 	waitReleaseLog(t, log.Name(), func(s string) bool { return strings.Contains(s[offset:], "state: 1 (pressed)") })
 	cancel()
@@ -365,7 +365,7 @@ func waitReleasePointerFocus(t *testing.T, ctx context.Context, s *suite, path s
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
-		if err := s.pf.Input.MouseMove(ctx, start.X+i%2, start.Y); err != nil {
+		if err := s.pf.Input().MouseMove(ctx, start.X+i%2, start.Y); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(50 * time.Millisecond)

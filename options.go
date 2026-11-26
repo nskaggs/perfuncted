@@ -3,8 +3,8 @@ package perfuncted
 import (
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/input"
-	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/input"
+	capabilityops "github.com/nskaggs/perfuncted/v2/internal/capability"
 	"image"
 	"io"
 	"log/slog"
@@ -15,19 +15,19 @@ import (
 var (
 	// ErrUnsupported indicates that the selected backend does not implement an
 	// operation. It is safe to inspect with errors.Is.
-	ErrUnsupported = errors.New("operation unsupported")
+	ErrUnsupported = capabilityops.ErrUnsupported
 	// ErrUnavailable indicates that a requested capability or backend could not
 	// be opened for the current session.
-	ErrUnavailable = errors.New("backend unavailable")
+	ErrUnavailable = capabilityops.ErrUnavailable
 	// ErrInvalidArgument indicates invalid caller input.
-	ErrInvalidArgument = errors.New("invalid argument")
+	ErrInvalidArgument = capabilityops.ErrInvalidArgument
 	// ErrOperationFailed identifies an operation that was supported but failed
 	// while executing. The underlying backend error remains wrapped.
 	ErrOperationFailed = errors.New("operation failed")
 	// ErrNilSession is returned when operating on a nil Session.
-	ErrNilSession = errors.New("session is nil")
+	ErrNilSession = capabilityops.ErrNilSession
 	// ErrSessionClosed is returned when starting work on a closed Session.
-	ErrSessionClosed = errors.New("session is closed")
+	ErrSessionClosed = capabilityops.ErrSessionClosed
 	// ErrManagedScopeChanged means the managed window or application selected
 	// for a locator changed identity during an operation.
 	ErrManagedScopeChanged = errors.New("managed accessibility scope changed")

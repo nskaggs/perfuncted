@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 	"github.com/spf13/cobra"
 	"go/ast"
 	"go/parser"

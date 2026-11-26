@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xinerama"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xinerama"
 )
 
 func main() {

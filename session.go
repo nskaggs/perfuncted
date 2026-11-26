@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"slices"
 	"sync"
@@ -20,21 +20,25 @@ import (
 
 // Session is the central orchestrator of perfuncted. It owns all backends and
 // manages the desktop session lifecycle.
-type Session struct {
+type sessionCore struct {
 	// Screen exposes screen-capture operations for this session.
-	Screen *ScreenBundle
+	screen *screenState
 	// Input exposes keyboard and pointer operations for this session.
-	Input *InputBundle
+	input          *inputState
+	inputAdmission bundleBase
 	// InputObservation observes explicitly requested global shortcuts or buttons.
-	InputObservation *InputObservationBundle
+	inputObservation     *inputObservationState
+	observationAdmission bundleBase
 	// Windows exposes window discovery and control for this session.
-	Windows *WindowBundle
+	windows *windowBundleState
 	// Outputs exposes display-output discovery for this session.
-	Outputs *OutputBundle
+	outputs         *outputState
+	outputAdmission bundleBase
 	// Clipboard exposes clipboard access for this session.
-	Clipboard *ClipboardBundle
+	clipboard          *clipboardState
+	clipboardAdmission bundleBase
 	// Accessibility exposes AT-SPI semantic queries and typed automation for this session.
-	Accessibility *AccessibilityBundle
+	accessibility *accessibilityState
 
 	config          SessionConfig
 	startupObserver StartupPhaseObserver
@@ -53,7 +57,7 @@ type Session struct {
 
 	lifecycleMu sync.Mutex
 	closed      bool
-	apps        []*Application
+	apps        []*applicationState
 
 	closeOnce sync.Once
 	closeDone chan struct{}
@@ -66,7 +70,7 @@ type Session struct {
 
 // Open creates a new Session, resolving backends and optionally starting
 // an isolated desktop session.
-func Open(ctx context.Context, opts ...Option) (*Session, error) {
+func openSession(ctx context.Context, opts ...Option) (*sessionCore, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("perfuncted: open: %w: nil context", ErrInvalidArgument)
 	}
@@ -95,7 +99,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 		return nil, err
 	}
 
-	s := &Session{
+	s := &sessionCore{
 		config:          cfg.target.config,
 		startupObserver: cfg.startupObserver,
 		portalInput:     cfg.portalInput,
@@ -134,7 +138,7 @@ func Open(ctx context.Context, opts ...Option) (*Session, error) {
 	return s, nil
 }
 
-func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wantAccessibility bool) error {
+func (s *sessionCore) resolveRuntime(ctx context.Context, target targetSelection, wantAccessibility bool) error {
 	runStaleCleanup := func() error {
 		cleanupCtx, cancel := context.WithTimeout(
 			ctx,
@@ -191,19 +195,18 @@ func (s *Session) resolveRuntime(ctx context.Context, target targetSelection, wa
 	return nil
 }
 
-func (s *Session) initializeCapabilities(ctx context.Context, cfg openConfig) error {
-	s.Screen = &ScreenBundle{bundleBase: s.bundleBase(CapabilityScreen)}
-	s.Input = &InputBundle{bundleBase: s.bundleBase(CapabilityInput)}
-	s.InputObservation = &InputObservationBundle{bundleBase: s.bundleBase(CapabilityInputObservation)}
-	s.Windows = &WindowBundle{
-		bundleBase: s.bundleBase(CapabilityWindows),
-	}
-	s.Outputs = &OutputBundle{bundleBase: s.bundleBase(CapabilityOutputs)}
-	s.Clipboard = &ClipboardBundle{bundleBase: s.bundleBase(CapabilityClipboard)}
-	s.Accessibility = &AccessibilityBundle{
-		backend:    newAccessibilityBackendOwner(s),
-		bundleBase: s.bundleBase(CapabilityAccessibility),
-	}
+func (s *sessionCore) initializeCapabilities(ctx context.Context, cfg openConfig) error {
+	s.screen = newScreenState(s.bundleBase(CapabilityScreen), nil)
+	s.inputAdmission = s.bundleBase(CapabilityInput)
+	s.input = newInputState(&s.inputAdmission, nil)
+	s.observationAdmission = s.bundleBase(CapabilityInputObservation)
+	s.inputObservation = newObservationState(&s.observationAdmission, nil)
+	s.windows = newWindowState(s.bundleBase(CapabilityWindows), nil)
+	s.outputAdmission = s.bundleBase(CapabilityOutputs)
+	s.outputs = newOutputState(&s.outputAdmission, nil)
+	s.clipboardAdmission = s.bundleBase(CapabilityClipboard)
+	s.clipboard = newClipboardState(&s.clipboardAdmission, nil)
+	s.accessibility = newAccessibilityState(s.bundleBase(CapabilityAccessibility), newAccessibilityBackendOwner(s))
 
 	for _, capability := range allCapabilities {
 		_, required := cfg.required[capability]
@@ -273,30 +276,30 @@ func backendDiagnostics(backend any) []string {
 
 // cacheResolvedBundleOperations binds immutable backend support to the
 // per-capability facades before the session becomes visible to callers.
-func (s *Session) cacheResolvedBundleOperations() {
+func (s *sessionCore) cacheResolvedBundleOperations() {
 	for _, bundle := range []*bundleBase{
-		&s.Screen.bundleBase,
-		&s.Input.bundleBase,
-		&s.Windows.bundleBase,
-		&s.Outputs.bundleBase,
-		&s.Clipboard.bundleBase,
+		&s.screen.bundleBase,
+		&s.inputAdmission,
+		&s.windows.bundleBase,
+		&s.outputAdmission,
+		&s.clipboardAdmission,
 	} {
 		bundle.cacheOperations(s.capabilities[bundle.capability].Operations)
 	}
 	// The testing constructor predates the optional observation facade.
-	if s.InputObservation != nil {
-		s.InputObservation.cacheOperations(s.capabilities[CapabilityInputObservation].Operations)
+	if s.inputObservation != nil {
+		s.observationAdmission.cacheOperations(s.capabilities[CapabilityInputObservation].Operations)
 	}
 }
 
-func (s *Session) bundleBase(capability Capability) bundleBase {
+func (s *sessionCore) bundleBase(capability Capability) bundleBase {
 	return bundleBase{
 		session:    s,
 		capability: capability,
 	}
 }
 
-func (s *Session) isClosed() bool {
+func (s *sessionCore) isClosed() bool {
 	if s == nil {
 		return true
 	}
@@ -305,25 +308,25 @@ func (s *Session) isClosed() bool {
 	return s.closed || s.ctx == nil
 }
 
-func (s *Session) ensureOpen() error {
+func (s *sessionCore) ensureOpen() error {
 	if s.isClosed() {
 		return ErrSessionClosed
 	}
 	return nil
 }
 
-func (s *Session) openCapability(capability Capability) (any, error) {
+func (s *sessionCore) openCapability(capability Capability) (any, error) {
 	return s.openCapabilityContext(context.Background(), capability)
 }
 
-func (s *Session) openCapabilityContext(ctx context.Context, capability Capability) (any, error) { //nolint:contextcheck // capability setup derives the effective startup policy.
+func (s *sessionCore) openCapabilityContext(ctx context.Context, capability Capability) (any, error) { //nolint:contextcheck // capability setup derives the effective startup policy.
 	switch capability {
 	case CapabilityScreen:
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (screen.Screenshotter, error) { return openScreen(ctx, s.env) },
 			func(backend screen.Screenshotter) { configureScreenBackendTimeout(backend, s.Timeouts().Medium) },
-			func(backend screen.Screenshotter) { s.Screen.backend = backend },
+			func(backend screen.Screenshotter) { s.screen.install(backend) },
 		)
 	case CapabilityInput:
 		var maxX, maxY int32
@@ -339,42 +342,42 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 				return openInput(ctx, s.env, maxX, maxY)
 			},
 			nil,
-			func(backend input.Inputter) { s.Input.backend = backend },
+			func(backend input.Inputter) { s.input.Install(backend) },
 		)
 	case CapabilityInputObservation:
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (input.Observer, error) { return input.OpenObserver(ctx, s.env) },
 			nil,
-			func(backend input.Observer) { s.InputObservation.backend = backend },
+			func(backend input.Observer) { s.inputObservation.Install(backend) },
 		)
 	case CapabilityWindows:
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (window.Manager, error) { return openWindow(ctx, s.env) },
 			nil,
-			func(backend window.Manager) { s.Windows.backend = backend },
+			func(backend window.Manager) { s.windows.install(backend) },
 		)
 	case CapabilityOutputs:
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (output.Lister, error) { return openOutput(ctx, s.env) },
 			nil,
-			func(backend output.Lister) { s.Outputs.backend = backend },
+			func(backend output.Lister) { s.outputs.Install(backend) },
 		)
 	case CapabilityClipboard:
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (clipboard.Clipboard, error) { return openClipboard(ctx, s.env) },
 			nil,
-			func(backend clipboard.Clipboard) { s.Clipboard.backend = backend },
+			func(backend clipboard.Clipboard) { s.clipboard.Install(backend) },
 		)
 	case CapabilityAccessibility:
 		return openCapabilityBackend(
 			ctx, s.Timeouts().Startup, capability,
 			func(ctx context.Context) (accessibility.Backend, error) { return openAccessibility(ctx, s.env) },
 			nil,
-			func(backend accessibility.Backend) { s.Accessibility.installBackend(backend) },
+			func(backend accessibility.Backend) { s.accessibility.installBackend(backend) },
 		)
 	default:
 		return nil, fmt.Errorf("unknown capability %q", capability)
@@ -382,7 +385,7 @@ func (s *Session) openCapabilityContext(ctx context.Context, capability Capabili
 }
 
 // Close releases all backends and tears down any managed session infrastructure.
-func (s *Session) Close() error {
+func (s *sessionCore) Close() error {
 	if s == nil {
 		return nil
 	}
@@ -398,10 +401,10 @@ func (s *Session) Close() error {
 	return s.closeErr
 }
 
-func (s *Session) close() error {
+func (s *sessionCore) close() error {
 	s.lifecycleMu.Lock()
 	s.closed = true
-	apps := make([]*Application, len(s.apps))
+	apps := make([]*applicationState, len(s.apps))
 	copy(apps, s.apps)
 	s.lifecycleMu.Unlock()
 	if s.cancel != nil {
@@ -414,26 +417,26 @@ func (s *Session) close() error {
 			errs = append(errs, err)
 		}
 	}
-	if s.Screen != nil {
-		errs = append(errs, s.Screen.close())
+	if s.screen != nil {
+		errs = append(errs, s.screen.close())
 	}
-	if s.Input != nil {
-		errs = append(errs, s.Input.close())
+	if s.input != nil {
+		errs = append(errs, s.input.Close())
 	}
-	if s.InputObservation != nil {
-		errs = append(errs, s.InputObservation.close())
+	if s.inputObservation != nil {
+		errs = append(errs, s.inputObservation.Close())
 	}
-	if s.Windows != nil {
-		errs = append(errs, s.Windows.close())
+	if s.windows != nil {
+		errs = append(errs, s.windows.close())
 	}
-	if s.Outputs != nil {
-		errs = append(errs, s.Outputs.close())
+	if s.outputs != nil {
+		errs = append(errs, s.outputs.Close())
 	}
-	if s.Clipboard != nil {
-		errs = append(errs, s.Clipboard.close())
+	if s.clipboard != nil {
+		errs = append(errs, s.clipboard.Close())
 	}
-	if s.Accessibility != nil {
-		errs = append(errs, s.Accessibility.close())
+	if s.accessibility != nil {
+		errs = append(errs, s.accessibility.close())
 	}
 
 	if s.infra != nil {
@@ -444,7 +447,7 @@ func (s *Session) close() error {
 }
 
 // Has reports whether the session provides the given capability.
-func (s *Session) Has(cap Capability) bool {
+func (s *sessionCore) Has(cap Capability) bool {
 	if s == nil || s.isClosed() {
 		return false
 	}
@@ -455,7 +458,7 @@ func (s *Session) Has(cap Capability) bool {
 }
 
 // Capability returns the immutable resolution status for cap.
-func (s *Session) Capability(cap Capability) CapabilityStatus {
+func (s *sessionCore) Capability(cap Capability) CapabilityStatus {
 	if s == nil {
 		return CapabilityStatus{
 			Capability: cap,
@@ -472,7 +475,7 @@ func (s *Session) Capability(cap Capability) CapabilityStatus {
 }
 
 // Capabilities returns every capability's immutable resolution status.
-func (s *Session) Capabilities() []CapabilityStatus {
+func (s *sessionCore) Capabilities() []CapabilityStatus {
 	statuses := make([]CapabilityStatus, 0, len(allCapabilities))
 	for _, capability := range allCapabilities {
 		statuses = append(statuses, s.Capability(capability))
@@ -482,7 +485,7 @@ func (s *Session) Capabilities() []CapabilityStatus {
 
 // Timeouts returns the effective timing policy used by this session. The
 // returned value is a copy and can be safely modified by the caller.
-func (s *Session) Timeouts() TimeoutPolicy {
+func (s *sessionCore) Timeouts() TimeoutPolicy {
 	if s == nil {
 		return DefaultTimeoutPolicy
 	}
@@ -490,7 +493,7 @@ func (s *Session) Timeouts() TimeoutPolicy {
 }
 
 // Target returns the exact immutable desktop target.
-func (s *Session) Target() DesktopTarget {
+func (s *sessionCore) Target() DesktopTarget {
 	if s == nil {
 		return DesktopTarget{}
 	}
@@ -499,7 +502,7 @@ func (s *Session) Target() DesktopTarget {
 
 // Env returns a copy of the process environment that routes child processes to
 // the Session's target.
-func (s *Session) Env() []string {
+func (s *sessionCore) Env() []string {
 	if s == nil {
 		return []string{}
 	}
@@ -508,7 +511,7 @@ func (s *Session) Env() []string {
 
 // Paste writes text through the clipboard when available and otherwise types
 // it directly.
-func (s *Session) Paste(ctx context.Context, text string) (result error) {
+func (s *sessionCore) Paste(ctx context.Context, text string) (result error) {
 	if s == nil {
 		return ErrNilSession
 	}
@@ -531,20 +534,20 @@ func (s *Session) Paste(ctx context.Context, text string) (result error) {
 		}
 	}()
 	if s.Has(CapabilityClipboard) {
-		return s.Clipboard.pasteWithInputContext(ctx, text, s.Input)
+		return s.pasteWithInputContext(ctx, text, s.input)
 	}
-	if s.Input == nil {
+	if s.input == nil {
 		return &CapabilityError{
 			Capability: CapabilityInput,
 			Operation:  "paste",
 			Err:        ErrUnavailable,
 		}
 	}
-	return s.Input.TypeLiteral(ctx, text)
+	return s.input.TypeLiteral(ctx, text)
 }
 
 // XDG returns the resolved XDG runtime directory for the session.
-func (s *Session) XDG() string {
+func (s *sessionCore) XDG() string {
 	if s == nil {
 		return ""
 	}
@@ -552,7 +555,7 @@ func (s *Session) XDG() string {
 }
 
 // DBusAddress returns the session D-Bus bus address.
-func (s *Session) DBusAddress() string {
+func (s *sessionCore) DBusAddress() string {
 	if s == nil {
 		return ""
 	}
@@ -560,7 +563,7 @@ func (s *Session) DBusAddress() string {
 }
 
 // WaylandDisplay returns the session Wayland display name.
-func (s *Session) WaylandDisplay() string {
+func (s *sessionCore) WaylandDisplay() string {
 	if s == nil {
 		return ""
 	}
@@ -568,7 +571,7 @@ func (s *Session) WaylandDisplay() string {
 }
 
 // X11Display returns the session X11 display string.
-func (s *Session) X11Display() string {
+func (s *sessionCore) X11Display() string {
 	if s == nil {
 		return ""
 	}
@@ -655,7 +658,7 @@ func closeFailedBackend(backend any, openErr error) {
 	}
 }
 
-func (s *Session) supportsCapabilityOperation(c Capability, operation string) bool {
+func (s *sessionCore) supportsCapabilityOperation(c Capability, operation string) bool {
 	s.capabilitiesMu.RLock()
 	defer s.capabilitiesMu.RUnlock()
 	return s.capabilities[c].Supports(operation)

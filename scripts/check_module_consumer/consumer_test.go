@@ -26,14 +26,14 @@ func TestPublishedModuleConsumer(t *testing.T) {
 		t.Fatal(err)
 	}
 	tmp := t.TempDir()
-	const path = "github.com/nskaggs/perfuncted"
+	const path = "github.com/nskaggs/perfuncted/v2"
 	// Each invocation uses a different synthetic prerelease to avoid reusing a
 	// previously cached module zip or altering the real release's identity.
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		t.Fatal(err)
 	}
-	version := "v1.999.0-consumer." + hex.EncodeToString(nonce[:])
+	version := "v2.999.0-consumer." + hex.EncodeToString(nonce[:])
 	proxy := filepath.Join(tmp, "proxy", filepath.FromSlash(path), "@v")
 	if err := os.MkdirAll(proxy, 0700); err != nil {
 		t.Fatal(err)

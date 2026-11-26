@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 )
 
 // The actual release executable, independent clipboard clients, a real editor
@@ -94,7 +94,7 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { terminateCmd(cmd, 5*time.Second) })
-		target, err := s.pf.Windows.Wait(ctx, perfuncted.WindowMatch{TitleContains: app.winMatch}, perfuncted.WaitEvery(100*time.Millisecond))
+		target, err := s.pf.Windows().Wait(ctx, perfuncted.WindowMatch{TitleContains: app.winMatch}, perfuncted.WaitEvery(100*time.Millisecond))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
 )
 
 const (

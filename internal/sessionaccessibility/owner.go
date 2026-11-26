@@ -1,11 +1,12 @@
-package perfuncted
+package sessionaccessibility
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 	"slices"
 	"sync"
 )
@@ -21,8 +22,8 @@ type accessibilityBackendGeneration struct {
 	closeDone    chan struct{}
 }
 
-type accessibilityBackendOwner struct {
-	session *Session
+type Owner struct {
+	session Admission
 
 	mu          sync.Mutex
 	current     *accessibilityBackendGeneration
@@ -39,13 +40,13 @@ type accessibilityBackendOwner struct {
 }
 
 type accessibilityBackendLease struct {
-	owner *accessibilityBackendOwner
+	owner *Owner
 	gen   *accessibilityBackendGeneration
 	once  sync.Once
 }
 
 type accessibilityEventSubscription struct {
-	owner *accessibilityBackendOwner
+	owner *Owner
 	opts  accessibility.EventOptions
 	out   chan accessibility.Event
 
@@ -67,8 +68,8 @@ type accessibilityEventBindingWaiter struct {
 	binding      *accessibilityEventBinding
 }
 
-func newAccessibilityBackendOwner(session *Session) *accessibilityBackendOwner {
-	return &accessibilityBackendOwner{
+func New(session Admission) *Owner {
+	return &Owner{
 		session:     session,
 		generations: make(map[*accessibilityBackendGeneration]struct{}),
 		eventSubs:   make(map[*accessibilityEventSubscription]struct{}),
@@ -87,7 +88,7 @@ func newAccessibilityBackendGeneration(backend accessibility.Backend) *accessibi
 	}
 }
 
-func (o *accessibilityBackendOwner) install(backend accessibility.Backend) {
+func (o *Owner) Install(backend accessibility.Backend) {
 	if o == nil || util.IsNil(backend) {
 		if !util.IsNil(backend) {
 			_ = backend.Close()
@@ -111,7 +112,7 @@ func (o *accessibilityBackendOwner) install(backend accessibility.Backend) {
 	o.mu.Unlock()
 }
 
-func (o *accessibilityBackendOwner) acquire() (*accessibilityBackendLease, error) {
+func (o *Owner) acquire() (*accessibilityBackendLease, error) {
 	if o == nil {
 		return nil, accessibility.ErrDisconnected
 	}
@@ -124,7 +125,7 @@ func (o *accessibilityBackendOwner) acquire() (*accessibilityBackendLease, error
 	return &accessibilityBackendLease{owner: o, gen: o.current}, nil
 }
 
-func (o *accessibilityBackendOwner) acquireGeneration(gen *accessibilityBackendGeneration) (*accessibilityBackendLease, error) {
+func (o *Owner) acquireGeneration(gen *accessibilityBackendGeneration) (*accessibilityBackendLease, error) {
 	if o == nil || gen == nil {
 		return nil, accessibility.ErrDisconnected
 	}
@@ -137,7 +138,7 @@ func (o *accessibilityBackendOwner) acquireGeneration(gen *accessibilityBackendG
 	return &accessibilityBackendLease{owner: o, gen: gen}, nil
 }
 
-func (o *accessibilityBackendOwner) hasBackend() bool {
+func (o *Owner) HasBackend() bool {
 	if o == nil {
 		return false
 	}
@@ -156,7 +157,7 @@ func (l *accessibilityBackendLease) release() {
 	})
 }
 
-func (o *accessibilityBackendOwner) releaseGeneration(gen *accessibilityBackendGeneration) {
+func (o *Owner) releaseGeneration(gen *accessibilityBackendGeneration) {
 	o.mu.Lock()
 	gen.active--
 	closeNow := gen.retired && gen.active == 0 && !gen.closeStarted
@@ -176,8 +177,8 @@ func (l *accessibilityBackendLease) context(parent context.Context) (context.Con
 	ctx, cancel := context.WithCancel(parent)
 	stopGeneration := context.AfterFunc(l.gen.ctx, cancel)
 	var stopSession func() bool
-	if l.owner.session != nil && l.owner.session.ctx != nil {
-		stopSession = context.AfterFunc(l.owner.session.ctx, cancel)
+	if l.owner.session != nil && l.owner.session.Context() != nil {
+		stopSession = context.AfterFunc(l.owner.session.Context(), cancel)
 	}
 	return ctx, func() {
 		stopGeneration()
@@ -192,8 +193,8 @@ func (l *accessibilityBackendLease) streamContext(parent context.Context) (conte
 	ctx, cancel := context.WithCancel(parent)
 	stopGeneration := context.AfterFunc(l.gen.ctx, cancel)
 	var stopSession func() bool
-	if l.owner.session != nil && l.owner.session.ctx != nil {
-		stopSession = context.AfterFunc(l.owner.session.ctx, cancel)
+	if l.owner.session != nil && l.owner.session.Context() != nil {
+		stopSession = context.AfterFunc(l.owner.session.Context(), cancel)
 	}
 	go func() {
 		<-ctx.Done()
@@ -205,7 +206,7 @@ func (l *accessibilityBackendLease) streamContext(parent context.Context) (conte
 	return ctx, cancel
 }
 
-func (o *accessibilityBackendOwner) withBackend(call func(accessibility.Backend) error) error {
+func (o *Owner) withBackend(call func(accessibility.Backend) error) error {
 	lease, err := o.acquire()
 	if err != nil {
 		return err
@@ -214,7 +215,7 @@ func (o *accessibilityBackendOwner) withBackend(call func(accessibility.Backend)
 	return call(lease.gen.backend)
 }
 
-func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call func(accessibility.Backend, context.Context) error) error {
+func (o *Owner) withBackendContext(ctx context.Context, call func(accessibility.Backend, context.Context) error) error {
 	if ctx == nil {
 		return errors.New("accessibility: nil context")
 	}
@@ -228,8 +229,8 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	if ctxErr := callCtx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	if o.session != nil && o.session.ctx != nil {
-		if sessionErr := o.session.ctx.Err(); sessionErr != nil {
+	if o.session != nil && o.session.Context() != nil {
+		if sessionErr := o.session.Context().Err(); sessionErr != nil {
 			return sessionErr
 		}
 	}
@@ -244,15 +245,15 @@ func (o *accessibilityBackendOwner) withBackendContext(ctx context.Context, call
 	// Closing the owning session ends permission to receive private data,
 	// even if a provider ignores cancellation and the original caller lives.
 	// Generation retirement alone still permits admitted calls to finish.
-	if o.session != nil && o.session.ctx != nil {
-		if sessionErr := o.session.ctx.Err(); sessionErr != nil {
+	if o.session != nil && o.session.Context() != nil {
+		if sessionErr := o.session.Context().Err(); sessionErr != nil {
 			return sessionErr
 		}
 	}
 	return err
 }
 
-func (o *accessibilityBackendOwner) retireLocked(gen *accessibilityBackendGeneration) bool {
+func (o *Owner) retireLocked(gen *accessibilityBackendGeneration) bool {
 	if gen == nil || gen.retired {
 		return false
 	}
@@ -266,7 +267,7 @@ func (o *accessibilityBackendOwner) retireLocked(gen *accessibilityBackendGenera
 	return false
 }
 
-func (o *accessibilityBackendOwner) closeGeneration(gen *accessibilityBackendGeneration) {
+func (o *Owner) closeGeneration(gen *accessibilityBackendGeneration) {
 	err := gen.backend.Close()
 	o.mu.Lock()
 	delete(o.generations, gen)
@@ -277,7 +278,7 @@ func (o *accessibilityBackendOwner) closeGeneration(gen *accessibilityBackendGen
 	o.mu.Unlock()
 }
 
-func (o *accessibilityBackendOwner) Close() error {
+func (o *Owner) Close() error {
 	if o == nil {
 		return nil
 	}
@@ -323,7 +324,7 @@ func (o *accessibilityBackendOwner) Close() error {
 	return err
 }
 
-func (o *accessibilityBackendOwner) SupportedOperations() []string {
+func (o *Owner) SupportedOperations() []string {
 	var operations []string
 	_ = o.withBackend(func(backend accessibility.Backend) error {
 		operations = slices.Clone(backend.SupportedOperations())
@@ -342,7 +343,7 @@ func discardCanceledAccessibilityResult[T any](value T, err error) (T, error) {
 	return value, err
 }
 
-func (o *accessibilityBackendOwner) Applications(ctx context.Context) ([]accessibility.Application, error) {
+func (o *Owner) Applications(ctx context.Context) ([]accessibility.Application, error) {
 	var result []accessibility.Application
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		var err error
@@ -352,7 +353,7 @@ func (o *accessibilityBackendOwner) Applications(ctx context.Context) ([]accessi
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
+func (o *Owner) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	var result accessibility.Snapshot
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		var err error
@@ -362,7 +363,7 @@ func (o *accessibilityBackendOwner) Snapshot(ctx context.Context, root accessibi
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+func (o *Owner) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	var result []accessibility.Node
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		var err error
@@ -372,7 +373,7 @@ func (o *accessibilityBackendOwner) Find(ctx context.Context, root accessibility
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) Focused(ctx context.Context, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
+func (o *Owner) Focused(ctx context.Context, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	var result accessibility.Node
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		var err error
@@ -382,7 +383,7 @@ func (o *accessibilityBackendOwner) Focused(ctx context.Context, opts accessibil
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) AtPoint(ctx context.Context, x, y int) (accessibility.Node, error) {
+func (o *Owner) AtPoint(ctx context.Context, x, y int) (accessibility.Node, error) {
 	var result accessibility.Node
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		var err error
@@ -392,7 +393,7 @@ func (o *accessibilityBackendOwner) AtPoint(ctx context.Context, x, y int) (acce
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+func (o *Owner) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
 	var result accessibility.Application
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		finder, ok := backend.(accessibility.ApplicationFinder)
@@ -406,7 +407,7 @@ func (o *accessibilityBackendOwner) FindApplication(ctx context.Context, filter 
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+func (o *Owner) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
 	var result accessibility.Application
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		finder, ok := backend.(accessibility.FreshApplicationFinder)
@@ -420,7 +421,7 @@ func (o *accessibilityBackendOwner) FindApplicationFresh(ctx context.Context, fi
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) ResolveWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+func (o *Owner) ResolveWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	var result accessibility.WindowScope
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		resolver, ok := backend.(accessibility.WindowResolver)
@@ -434,7 +435,7 @@ func (o *accessibilityBackendOwner) ResolveWindow(ctx context.Context, target ac
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) ResolveWindowFresh(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+func (o *Owner) ResolveWindowFresh(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	var result accessibility.WindowScope
 	err := o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		resolver, ok := backend.(accessibility.FreshWindowResolver)
@@ -448,7 +449,7 @@ func (o *accessibilityBackendOwner) ResolveWindowFresh(ctx context.Context, targ
 	return discardCanceledAccessibilityResult(result, err)
 }
 
-func (o *accessibilityBackendOwner) Generation() uint64 {
+func (o *Owner) Generation() uint64 {
 	var generation uint64
 	_ = o.withBackend(func(backend accessibility.Backend) error {
 		if source, ok := backend.(accessibility.GenerationSource); ok {
@@ -459,7 +460,7 @@ func (o *accessibilityBackendOwner) Generation() uint64 {
 	return generation
 }
 
-func (o *accessibilityBackendOwner) Invalidate(id accessibility.NodeID) {
+func (o *Owner) Invalidate(id accessibility.NodeID) {
 	if o == nil {
 		return
 	}
@@ -475,7 +476,7 @@ func (o *accessibilityBackendOwner) Invalidate(id accessibility.NodeID) {
 	}
 }
 
-func (o *accessibilityBackendOwner) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
+func (o *Owner) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
 	}
@@ -512,7 +513,7 @@ func (o *accessibilityBackendOwner) Events(ctx context.Context, opts accessibili
 	return stream, nil
 }
 
-func (o *accessibilityBackendOwner) eventsAcrossReopens(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
+func (o *Owner) EventsAcrossReopens(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
 	if ctx == nil {
 		return nil, errors.New("accessibility: nil context")
 	}
@@ -554,7 +555,7 @@ func (o *accessibilityBackendOwner) eventsAcrossReopens(ctx context.Context, opt
 	return sub.out, nil
 }
 
-func (o *accessibilityBackendOwner) isCurrent(gen *accessibilityBackendGeneration) bool {
+func (o *Owner) isCurrent(gen *accessibilityBackendGeneration) bool {
 	if o == nil {
 		return false
 	}
@@ -750,7 +751,7 @@ func (s *accessibilityEventSubscription) finishStream() {
 	})
 }
 
-func (o *accessibilityBackendOwner) reopen(ctx context.Context) error {
+func (o *Owner) Reopen(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("accessibility: nil context")
 	}
@@ -785,7 +786,7 @@ func (o *accessibilityBackendOwner) reopen(ctx context.Context) error {
 	return o.finishReopen(ctx, bindings)
 }
 
-func (o *accessibilityBackendOwner) openFreshBackend(ctx context.Context, lease *accessibilityBackendLease, reopener accessibility.Reopener) (accessibility.Backend, error) {
+func (o *Owner) openFreshBackend(ctx context.Context, lease *accessibilityBackendLease, reopener accessibility.Reopener) (accessibility.Backend, error) {
 	reopenCtx, cancel := lease.context(ctx)
 	fresh, err := reopener.Reopen(reopenCtx)
 	cancel()
@@ -801,14 +802,14 @@ func (o *accessibilityBackendOwner) openFreshBackend(ctx context.Context, lease 
 	return fresh, nil
 }
 
-func (o *accessibilityBackendOwner) retireBeforeReopen(ctx context.Context, lease *accessibilityBackendLease) error {
+func (o *Owner) retireBeforeReopen(ctx context.Context, lease *accessibilityBackendLease) error {
 	retireErr := o.retireEvents(ctx, lease)
 	if retireErr != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		if o.session == nil || o.session.isClosed() {
-			return ErrSessionClosed
+		if o.session == nil || o.session.IsClosed() {
+			return capability.ErrSessionClosed
 		}
 		o.setAllEventLimits(retireErr)
 	}
@@ -818,7 +819,7 @@ func (o *accessibilityBackendOwner) retireBeforeReopen(ctx context.Context, leas
 	return nil
 }
 
-func (o *accessibilityBackendOwner) publishFreshBackend(ctx context.Context, lease *accessibilityBackendLease, fresh accessibility.Backend) ([]*accessibilityEventBindingWaiter, bool, error) {
+func (o *Owner) publishFreshBackend(ctx context.Context, lease *accessibilityBackendLease, fresh accessibility.Backend) ([]*accessibilityEventBindingWaiter, bool, error) {
 	o.epochMu.Lock()
 	defer o.epochMu.Unlock()
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -828,8 +829,8 @@ func (o *accessibilityBackendOwner) publishFreshBackend(ctx context.Context, lea
 	canPublish := !o.closed && o.current == lease.gen
 	o.mu.Unlock()
 	if !canPublish {
-		if o.session != nil && o.session.isClosed() {
-			return nil, false, ErrSessionClosed
+		if o.session != nil && o.session.IsClosed() {
+			return nil, false, capability.ErrSessionClosed
 		}
 		return nil, false, accessibility.ErrDisconnected
 	}
@@ -841,7 +842,7 @@ func (o *accessibilityBackendOwner) publishFreshBackend(ctx context.Context, lea
 	return bindings, closeNow, err
 }
 
-func (o *accessibilityBackendOwner) finishReopen(ctx context.Context, bindings []*accessibilityEventBindingWaiter) error {
+func (o *Owner) finishReopen(ctx context.Context, bindings []*accessibilityEventBindingWaiter) error {
 	var waitErr error
 	for _, waiter := range bindings {
 		if err := waiter.subscription.waitBinding(ctx, waiter.binding); err != nil {
@@ -852,17 +853,17 @@ func (o *accessibilityBackendOwner) finishReopen(ctx context.Context, bindings [
 		}
 	}
 	o.refreshCapabilities()
-	o.session.notifyWaiters()
+	o.session.NotifyWaiters()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	if o.session.isClosed() {
-		return ErrSessionClosed
+	if o.session.IsClosed() {
+		return capability.ErrSessionClosed
 	}
 	return waitErr
 }
 
-func (o *accessibilityBackendOwner) retireEvents(ctx context.Context, lease *accessibilityBackendLease) error {
+func (o *Owner) retireEvents(ctx context.Context, lease *accessibilityBackendLease) error {
 	retirer, ok := lease.gen.backend.(interface {
 		RetireEventsForReopen(context.Context) error
 	})
@@ -890,7 +891,7 @@ func advanceReopenedGeneration(old, fresh accessibility.Backend) error {
 	return fmt.Errorf("accessibility: reopened generation %d does not exceed retired generation %d: %w", source.Generation(), oldGeneration, accessibility.ErrStaleGeneration)
 }
 
-func (o *accessibilityBackendOwner) abandonCurrentGeneration(gen *accessibilityBackendGeneration, cause error) bool {
+func (o *Owner) abandonCurrentGeneration(gen *accessibilityBackendGeneration, cause error) bool {
 	o.mu.Lock()
 	closeNow := false
 	abandoned := false
@@ -905,26 +906,21 @@ func (o *accessibilityBackendOwner) abandonCurrentGeneration(gen *accessibilityB
 	}
 	o.mu.Unlock()
 	if abandoned && o.session != nil {
-		o.session.capabilitiesMu.Lock()
-		status := o.session.capabilities[CapabilityAccessibility]
-		status.Available = false
-		status.Failure = errors.Join(ErrUnavailable, cause)
-		o.session.capabilities[CapabilityAccessibility] = status
-		o.session.capabilitiesMu.Unlock()
+		o.session.MarkUnavailable(cause)
 	}
 	return closeNow
 }
 
-func (o *accessibilityBackendOwner) publishReopenedBackend(lease *accessibilityBackendLease, fresh accessibility.Backend) ([]*accessibilityEventBindingWaiter, bool, error) {
+func (o *Owner) publishReopenedBackend(lease *accessibilityBackendLease, fresh accessibility.Backend) ([]*accessibilityEventBindingWaiter, bool, error) {
 	session := o.session
 	if session == nil {
-		return nil, false, ErrNilSession
+		return nil, false, capability.ErrNilSession
 	}
-	session.lifecycleMu.Lock()
-	defer session.lifecycleMu.Unlock()
-	if session.closed || session.ctx == nil {
-		return nil, false, ErrSessionClosed
+	unlock, err := session.LockPublication()
+	if err != nil {
+		return nil, false, err
 	}
+	defer unlock()
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.closed || o.current != lease.gen {
@@ -944,7 +940,7 @@ func (o *accessibilityBackendOwner) publishReopenedBackend(lease *accessibilityB
 	return bindings, closeNow, nil
 }
 
-func (o *accessibilityBackendOwner) setEventLimit(sub *accessibilityEventSubscription, err error) {
+func (o *Owner) setEventLimit(sub *accessibilityEventSubscription, err error) {
 	o.mu.Lock()
 	if _, active := o.eventSubs[sub]; active {
 		if err == nil {
@@ -961,7 +957,7 @@ func (o *accessibilityBackendOwner) setEventLimit(sub *accessibilityEventSubscri
 	o.refreshCapabilities()
 }
 
-func (o *accessibilityBackendOwner) setAllEventLimits(err error) {
+func (o *Owner) setAllEventLimits(err error) {
 	o.mu.Lock()
 	for sub := range o.eventSubs {
 		message := err.Error()
@@ -974,7 +970,7 @@ func (o *accessibilityBackendOwner) setAllEventLimits(err error) {
 	o.refreshCapabilities()
 }
 
-func (o *accessibilityBackendOwner) refreshCapabilities() {
+func (o *Owner) refreshCapabilities() {
 	if o == nil || o.session == nil {
 		return
 	}
@@ -983,12 +979,7 @@ func (o *accessibilityBackendOwner) refreshCapabilities() {
 		return
 	}
 	backend := lease.gen.backend
-	status := o.session.Capability(CapabilityAccessibility)
-	status.Available = true
-	status.Failure = nil
-	status.Backend = fmt.Sprintf("%T", backend)
-	status.Operations = slices.Clone(supportedOperations(CapabilityAccessibility, backend))
-	status.Diagnostics = backendDiagnostics(backend)
+	status := o.session.DescribeBackend(backend)
 	o.mu.Lock()
 	if o.closed || o.current != lease.gen {
 		o.mu.Unlock()
@@ -1001,21 +992,19 @@ func (o *accessibilityBackendOwner) refreshCapabilities() {
 	}
 	slices.Sort(limits)
 	status.Diagnostics = append(status.Diagnostics, limits...)
-	o.session.capabilitiesMu.Lock()
-	o.session.capabilities[CapabilityAccessibility] = status
-	o.session.capabilitiesMu.Unlock()
+	o.session.PublishStatus(status)
 	o.mu.Unlock()
 	lease.release()
 }
 
-var _ accessibility.Backend = (*accessibilityBackendOwner)(nil)
-var _ accessibility.ApplicationFinder = (*accessibilityBackendOwner)(nil)
-var _ accessibility.WindowResolver = (*accessibilityBackendOwner)(nil)
-var _ accessibility.GenerationSource = (*accessibilityBackendOwner)(nil)
-var _ accessibility.EventSource = (*accessibilityBackendOwner)(nil)
-var _ accessibility.Automation = (*accessibilityBackendOwner)(nil)
+var _ accessibility.Backend = (*Owner)(nil)
+var _ accessibility.ApplicationFinder = (*Owner)(nil)
+var _ accessibility.WindowResolver = (*Owner)(nil)
+var _ accessibility.GenerationSource = (*Owner)(nil)
+var _ accessibility.EventSource = (*Owner)(nil)
+var _ accessibility.Automation = (*Owner)(nil)
 
-func (o *accessibilityBackendOwner) withAutomation(ctx context.Context, call func(accessibility.Automation, context.Context) error) error {
+func (o *Owner) withAutomation(ctx context.Context, call func(accessibility.Automation, context.Context) error) error {
 	return o.withBackendContext(ctx, func(backend accessibility.Backend, callCtx context.Context) error {
 		automation, ok := backend.(accessibility.Automation)
 		if !ok {
@@ -1025,7 +1014,7 @@ func (o *accessibilityBackendOwner) withAutomation(ctx context.Context, call fun
 	})
 }
 
-func withAutomationResult[T any](ctx context.Context, o *accessibilityBackendOwner, call func(accessibility.Automation, context.Context) (T, error)) (T, error) {
+func withAutomationResult[T any](ctx context.Context, o *Owner, call func(accessibility.Automation, context.Context) (T, error)) (T, error) {
 	var result T
 	err := o.withAutomation(ctx, func(automation accessibility.Automation, callCtx context.Context) error {
 		var err error
@@ -1035,140 +1024,161 @@ func withAutomationResult[T any](ctx context.Context, o *accessibilityBackendOwn
 	return result, err
 }
 
-func (o *accessibilityBackendOwner) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
+func (o *Owner) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.InvokeAction(ctx, id, index) })
 }
 
-func (o *accessibilityBackendOwner) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) (accessibility.Action, error) {
+func (o *Owner) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) (accessibility.Action, error) {
 	return withAutomationResult(ctx, o, func(a accessibility.Automation, callCtx context.Context) (accessibility.Action, error) {
 		return a.InvokeActionByName(callCtx, id, name)
 	})
 }
 
-func (o *accessibilityBackendOwner) InvokeDefaultAction(ctx context.Context, id accessibility.NodeID) (accessibility.Action, error) {
+func (o *Owner) InvokeDefaultAction(ctx context.Context, id accessibility.NodeID) (accessibility.Action, error) {
 	return withAutomationResult(ctx, o, func(a accessibility.Automation, callCtx context.Context) (accessibility.Action, error) {
 		return a.InvokeDefaultAction(callCtx, id)
 	})
 }
 
-func (o *accessibilityBackendOwner) GrabFocus(ctx context.Context, id accessibility.NodeID) error {
+func (o *Owner) GrabFocus(ctx context.Context, id accessibility.NodeID) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.GrabFocus(ctx, id) })
 }
 
-func (o *accessibilityBackendOwner) ScrollTo(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType) error {
+func (o *Owner) ScrollTo(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.ScrollTo(ctx, id, kind) })
 }
 
-func (o *accessibilityBackendOwner) ScrollToPoint(ctx context.Context, id accessibility.NodeID, kind accessibility.CoordType, x, y int) error {
+func (o *Owner) ScrollToPoint(ctx context.Context, id accessibility.NodeID, kind accessibility.CoordType, x, y int) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.ScrollToPoint(ctx, id, kind, x, y)
 	})
 }
 
-func (o *accessibilityBackendOwner) SetPosition(ctx context.Context, id accessibility.NodeID, x, y int, kind accessibility.CoordType) error {
+func (o *Owner) SetPosition(ctx context.Context, id accessibility.NodeID, x, y int, kind accessibility.CoordType) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SetPosition(ctx, id, x, y, kind) })
 }
 
-func (o *accessibilityBackendOwner) SetSize(ctx context.Context, id accessibility.NodeID, width, height int) error {
+func (o *Owner) SetSize(ctx context.Context, id accessibility.NodeID, width, height int) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SetSize(ctx, id, width, height) })
 }
 
-func (o *accessibilityBackendOwner) SetExtents(ctx context.Context, id accessibility.NodeID, x, y, width, height int, kind accessibility.CoordType) error {
+func (o *Owner) SetExtents(ctx context.Context, id accessibility.NodeID, x, y, width, height int, kind accessibility.CoordType) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.SetExtents(ctx, id, x, y, width, height, kind)
 	})
 }
 
-func (o *accessibilityBackendOwner) SetValue(ctx context.Context, id accessibility.NodeID, value float64) error {
+func (o *Owner) SetValue(ctx context.Context, id accessibility.NodeID, value float64) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SetValue(ctx, id, value) })
 }
 
-func (o *accessibilityBackendOwner) SetTextContents(ctx context.Context, id accessibility.NodeID, value string) error {
+func (o *Owner) SetTextContents(ctx context.Context, id accessibility.NodeID, value string) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SetTextContents(ctx, id, value) })
 }
 
-func (o *accessibilityBackendOwner) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
+func (o *Owner) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.InsertText(ctx, id, offset, value)
 	})
 }
 
-func (o *accessibilityBackendOwner) DeleteText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (o *Owner) DeleteText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.DeleteText(ctx, id, start, end) })
 }
 
-func (o *accessibilityBackendOwner) CopyText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (o *Owner) CopyText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.CopyText(ctx, id, start, end) })
 }
 
-func (o *accessibilityBackendOwner) CutText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (o *Owner) CutText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.CutText(ctx, id, start, end) })
 }
 
-func (o *accessibilityBackendOwner) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
+func (o *Owner) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.PasteText(ctx, id, position) })
 }
 
-func (o *accessibilityBackendOwner) SetCaretOffset(ctx context.Context, id accessibility.NodeID, offset int32) error {
+func (o *Owner) SetCaretOffset(ctx context.Context, id accessibility.NodeID, offset int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SetCaretOffset(ctx, id, offset) })
 }
 
-func (o *accessibilityBackendOwner) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
+func (o *Owner) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.SetTextSelection(ctx, id, selection, start, end)
 	})
 }
 
-func (o *accessibilityBackendOwner) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (o *Owner) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.AddTextSelection(ctx, id, start, end)
 	})
 }
 
-func (o *accessibilityBackendOwner) RemoveTextSelection(ctx context.Context, id accessibility.NodeID, selection int32) error {
+func (o *Owner) RemoveTextSelection(ctx context.Context, id accessibility.NodeID, selection int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.RemoveTextSelection(ctx, id, selection)
 	})
 }
 
-func (o *accessibilityBackendOwner) SetTextSelections(ctx context.Context, id accessibility.NodeID, selections []accessibility.DocumentTextSelection) error {
+func (o *Owner) SetTextSelections(ctx context.Context, id accessibility.NodeID, selections []accessibility.DocumentTextSelection) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error {
 		return a.SetTextSelections(ctx, id, selections)
 	})
 }
 
-func (o *accessibilityBackendOwner) SelectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
+func (o *Owner) SelectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SelectChild(ctx, id, index) })
 }
 
-func (o *accessibilityBackendOwner) DeselectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
+func (o *Owner) DeselectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.DeselectChild(ctx, id, index) })
 }
 
-func (o *accessibilityBackendOwner) SelectAll(ctx context.Context, id accessibility.NodeID) error {
+func (o *Owner) SelectAll(ctx context.Context, id accessibility.NodeID) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SelectAll(ctx, id) })
 }
 
-func (o *accessibilityBackendOwner) ClearSelection(ctx context.Context, id accessibility.NodeID) error {
+func (o *Owner) ClearSelection(ctx context.Context, id accessibility.NodeID) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.ClearSelection(ctx, id) })
 }
 
-func (o *accessibilityBackendOwner) DeselectSelectedChild(ctx context.Context, id accessibility.NodeID) error {
+func (o *Owner) DeselectSelectedChild(ctx context.Context, id accessibility.NodeID) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.DeselectSelectedChild(ctx, id) })
 }
 
-func (o *accessibilityBackendOwner) SelectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
+func (o *Owner) SelectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SelectRow(ctx, id, row) })
 }
 
-func (o *accessibilityBackendOwner) DeselectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
+func (o *Owner) DeselectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.DeselectRow(ctx, id, row) })
 }
 
-func (o *accessibilityBackendOwner) SelectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
+func (o *Owner) SelectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.SelectColumn(ctx, id, column) })
 }
 
-func (o *accessibilityBackendOwner) DeselectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
+func (o *Owner) DeselectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
 	return o.withAutomation(ctx, func(a accessibility.Automation, ctx context.Context) error { return a.DeselectColumn(ctx, id, column) })
+}
+
+// Status is only the dynamic provider portion of the session capability status.
+type Status struct {
+	Backend     string
+	Operations  []string
+	Diagnostics []string
+}
+
+// Admission is the generation owner's narrow session-lifecycle seam. The
+// lifecycle lock is acquired before the owner lock when publishing a new
+// generation. The owner lock protects a status publication against retirement;
+// status callbacks take only the capability-status lock, never the lifecycle lock.
+type Admission interface {
+	Context() context.Context
+	IsClosed() bool
+	LockPublication() (unlock func(), err error)
+	NotifyWaiters()
+	MarkUnavailable(error)
+	DescribeBackend(accessibility.Backend) Status
+	PublishStatus(Status)
 }

@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionregistry"
 
 	"bytes"
 	"context"
@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/internal/workflow"
-	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2/pftest"
 )
 
 func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {

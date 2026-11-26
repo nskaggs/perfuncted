@@ -55,7 +55,7 @@ func TestCLISyncCheckerRejectsMissingManualBinding(t *testing.T) {
 	module := t.TempDir()
 	docs := t.TempDir()
 	for name, content := range map[string]string{
-		"go.mod":    "module github.com/nskaggs/perfuncted\n\ngo 1.23\n",
+		"go.mod":    "module github.com/nskaggs/perfuncted/v2\n\ngo 1.23\n",
 		"bundle.go": "package perfuncted\ntype ScreenBundle struct{}\ntype InputBundle struct{}\ntype WindowBundle struct{}\ntype ClipboardBundle struct{}\n",
 	} {
 		if err := os.WriteFile(filepath.Join(module, name), []byte(content), 0600); err != nil {
@@ -74,7 +74,7 @@ func TestCLISyncCheckerRejectsMissingManualBinding(t *testing.T) {
 // Otherwise an empty documentation directory could make a broken package pass.
 func TestCLISyncCheckerRejectsMissingBundleTypes(t *testing.T) {
 	module := t.TempDir()
-	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module github.com/nskaggs/perfuncted\n\ngo 1.23\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module github.com/nskaggs/perfuncted/v2\n\ngo 1.23\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(module, "bundle.go"), []byte("package perfuncted\ntype ScreenBundle struct{}\n"), 0600); err != nil {

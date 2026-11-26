@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +65,7 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 	if strings.TrimSpace(o.window) != "" || strings.TrimSpace(o.windowID) != "" {
 		return o.windowRoot(ctx, pf)
 	}
-	app, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+	app, err := pf.Accessibility().FindApplication(ctx, accessibility.ApplicationFilter{
 		Name:        strings.TrimSpace(o.appName),
 		PID:         o.pid,
 		WindowID:    strings.TrimSpace(o.windowID),
@@ -85,7 +85,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 	// Preserve additional app/PID scope constraints even though the returned
 	// root is the selected window rather than its application.
 	if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-		if _, scopeErr := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+		if _, scopeErr := pf.Accessibility().FindApplication(ctx, accessibility.ApplicationFilter{
 			Name:     strings.TrimSpace(o.appName),
 			PID:      o.pid,
 			WindowID: managedWindowID,
@@ -93,7 +93,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 			return accessibility.NodeID{}, scopeErr
 		}
 	}
-	scope, err := pf.Accessibility.WindowRoot(ctx, managedWindowID)
+	scope, err := pf.Accessibility().WindowRoot(ctx, managedWindowID)
 	if err != nil {
 		return accessibility.NodeID{}, err
 	}
@@ -103,7 +103,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 func (o accessibilityCLIOptions) managedWindowID(ctx context.Context, pf *perfuncted.Session) (string, error) {
 	managedWindowID := strings.TrimSpace(o.windowID)
 	if strings.TrimSpace(o.window) != "" {
-		managedWindow, err := pf.Windows.Find(ctx, perfuncted.WindowMatch{TitleExact: strings.TrimSpace(o.window)})
+		managedWindow, err := pf.Windows().Find(ctx, perfuncted.WindowMatch{TitleExact: strings.TrimSpace(o.window)})
 		if err != nil {
 			return "", err
 		}
@@ -125,15 +125,15 @@ func (o accessibilityCLIOptions) locator(ctx context.Context, pf *perfuncted.Ses
 			return nil, err
 		}
 		if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-			if _, err := pf.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{
+			if _, err := pf.Accessibility().FindApplication(ctx, accessibility.ApplicationFilter{
 				Name: strings.TrimSpace(o.appName), PID: o.pid, WindowID: managedWindowID,
 			}); err != nil {
 				return nil, err
 			}
 		}
-		return pf.Accessibility.LocatorForWindow(managedWindowID, selector, o.snapshot()), nil
+		return pf.Accessibility().LocatorForWindow(managedWindowID, selector, o.snapshot()), nil
 	}
-	return pf.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{
+	return pf.Accessibility().LocatorForApplication(accessibility.ApplicationFilter{
 		Name: strings.TrimSpace(o.appName), PID: o.pid,
 	}, selector, o.snapshot()), nil
 }
@@ -333,7 +333,7 @@ func openAccessibilitySession(ctx context.Context, openPF sessionOpener) (*perfu
 	if err != nil {
 		return nil, err
 	}
-	if pf == nil || pf.Accessibility == nil || !pf.Has(perfuncted.CapabilityAccessibility) {
+	if pf == nil || !pf.Has(perfuncted.CapabilityAccessibility) {
 		if pf != nil {
 			_ = pf.Close() //nolint:contextcheck // close is the bounded cleanup for a rejected session.
 		}
@@ -363,7 +363,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		value, err := pf.Accessibility.Applications(c.Context())
+		value, err := pf.Accessibility().Applications(c.Context())
 		if err != nil {
 			return err
 		}
@@ -385,7 +385,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		if err != nil {
 			return err
 		}
-		snapshot, err := pf.Accessibility.Snapshot(c.Context(), root, treeOpts.snapshot())
+		snapshot, err := pf.Accessibility().Snapshot(c.Context(), root, treeOpts.snapshot())
 		if err != nil {
 			return err
 		}
@@ -420,7 +420,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 				return err
 			}
 			findQuery.Attributes = parseAccessibilityAttributes(findAttributes)
-			value, err := pf.Accessibility.Find(c.Context(), root, findQuery, findOpts.snapshot())
+			value, err := pf.Accessibility().Find(c.Context(), root, findQuery, findOpts.snapshot())
 			if err != nil {
 				return err
 			}
@@ -503,7 +503,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		value, err := pf.Accessibility.Focused(c.Context(), accessibility.SnapshotOptions{})
+		value, err := pf.Accessibility().Focused(c.Context(), accessibility.SnapshotOptions{})
 		if err != nil {
 			return err
 		}
@@ -539,7 +539,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		value, err := pf.Accessibility.AtPoint(c.Context(), pointX, pointY)
+		value, err := pf.Accessibility().AtPoint(c.Context(), pointX, pointY)
 		if err != nil {
 			return err
 		}
@@ -559,7 +559,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		stream, err := pf.Accessibility.Events(c.Context(), accessibility.EventOptions{Buffer: eventBuffer})
+		stream, err := pf.Accessibility().Events(c.Context(), accessibility.EventOptions{Buffer: eventBuffer})
 		if err != nil {
 			return err
 		}
@@ -637,7 +637,7 @@ Examples:
 			}
 			actionQuery.Attributes = parseAccessibilityAttributes(actionAttributes)
 			if !verificationRequested {
-				receipt, err := pf.Accessibility.InvokeSemanticAction(c.Context(), root, actionQuery, actionName, actionOpts.snapshot())
+				receipt, err := pf.Accessibility().InvokeSemanticAction(c.Context(), root, actionQuery, actionName, actionOpts.snapshot())
 				if err != nil {
 					return err
 				}
@@ -648,7 +648,7 @@ Examples:
 			if c.Flags().Changed("expect-text") {
 				postcondition = perfuncted.AccessibilityTextContains(root, actionExpectText, actionOpts.snapshot())
 			} else {
-				baseline, findErr := pf.Accessibility.FindOne(c.Context(), root, actionQuery, actionOpts.snapshot())
+				baseline, findErr := pf.Accessibility().FindOne(c.Context(), root, actionQuery, actionOpts.snapshot())
 				if findErr != nil {
 					result := accessibilityActionCLIResult{Status: "preflight-failed", ErrorCode: "preflight-failed"}
 					if outputErr := accessibilityOutput(c.OutOrStdout(), actionOpts.json, result); outputErr != nil {
@@ -713,11 +713,11 @@ Examples:
 			return err
 		}
 		focusQuery.Attributes = parseAccessibilityAttributes(focusAttributes)
-		node, err := pf.Accessibility.FindOne(c.Context(), root, focusQuery, focusOpts.snapshot())
+		node, err := pf.Accessibility().FindOne(c.Context(), root, focusQuery, focusOpts.snapshot())
 		if err != nil {
 			return err
 		}
-		if err := pf.Accessibility.FocusNode(c.Context(), node.ID); err != nil {
+		if err := pf.Accessibility().FocusNode(c.Context(), node.ID); err != nil {
 			return err
 		}
 		return accessibilityOutput(c.OutOrStdout(), focusOpts.json, node)
@@ -745,11 +745,11 @@ Examples:
 			return err
 		}
 		textQuery.Attributes = parseAccessibilityAttributes(textAttributes)
-		node, err := pf.Accessibility.FindOne(c.Context(), root, textQuery, textOpts.snapshot())
+		node, err := pf.Accessibility().FindOne(c.Context(), root, textQuery, textOpts.snapshot())
 		if err != nil {
 			return err
 		}
-		if err := pf.Accessibility.ReplaceEditableText(c.Context(), node.ID, textValue); err != nil {
+		if err := pf.Accessibility().ReplaceEditableText(c.Context(), node.ID, textValue); err != nil {
 			return err
 		}
 		return accessibilityOutput(c.OutOrStdout(), textOpts.json, node)
@@ -799,12 +799,12 @@ Examples:
 		}
 		defer pf.Close()
 		if op == "reopen" {
-			if reopenErr := pf.Accessibility.Reopen(c.Context()); reopenErr != nil {
+			if reopenErr := pf.Accessibility().Reopen(c.Context()); reopenErr != nil {
 				return reopenErr
 			}
 			return accessibilityOutput(c.OutOrStdout(), rawOpts.json, "ok")
 		}
-		value, err := invokeRawOp(c.Context(), pf.Accessibility, node, inv)
+		value, err := invokeRawOp(c.Context(), pf.Accessibility(), node, inv)
 		if err != nil {
 			return err
 		}
@@ -888,7 +888,7 @@ func validateRawInvocation(in rawInvocation) error {
 	}
 }
 
-func invokeRawOp(ctx context.Context, bundle *perfuncted.AccessibilityBundle, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
+func invokeRawOp(ctx context.Context, bundle perfuncted.AccessibilityBundle, node accessibility.NodeID, in rawInvocation) (any, error) { //nolint:gocyclo // one dispatch table over the typed primitive surface.
 	switch in.op {
 	case "action":
 		if strings.TrimSpace(in.actionName) != "" {

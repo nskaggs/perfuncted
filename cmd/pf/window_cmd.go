@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +38,7 @@ func parseWindowMatchArgs(args []string) (window.Match, error) {
 
 func collectWindowMatches(
 	ctx context.Context,
-	bundle *perfuncted.WindowBundle,
+	bundle perfuncted.WindowBundle,
 	match window.Match,
 ) ([]window.Info, error) {
 	handles, err := bundle.List(ctx, match)
@@ -80,7 +80,7 @@ func printWindowListPlain(out io.Writer, wins []window.Info) error {
 
 func waitForWindowMatch(
 	ctx context.Context,
-	bundle *perfuncted.WindowBundle,
+	bundle perfuncted.WindowBundle,
 	match window.Match,
 	poll time.Duration,
 ) (window.Info, error) {
@@ -112,7 +112,7 @@ func waitForWindowCloseMatch(
 
 func findWindowByTitle(
 	ctx context.Context,
-	bundle *perfuncted.WindowBundle,
+	bundle perfuncted.WindowBundle,
 	title string,
 ) (*perfuncted.Window, error) {
 	return bundle.Find(
@@ -123,11 +123,11 @@ func findWindowByTitle(
 
 // findWindowByStableID resolves a concrete native ID rather than a title. The
 // ID is displayed by `window list`; UUIDs and numeric X11 identifiers both work.
-func findWindowByStableID(ctx context.Context, bundle *perfuncted.WindowBundle, id string) (*perfuncted.Window, error) {
+func findWindowByStableID(ctx context.Context, bundle perfuncted.WindowBundle, id string) (*perfuncted.Window, error) {
 	return resolveWindowID(ctx, bundle, id, false)
 }
 
-func resolveWindowID(ctx context.Context, bundle *perfuncted.WindowBundle, id string, unique bool) (*perfuncted.Window, error) {
+func resolveWindowID(ctx context.Context, bundle perfuncted.WindowBundle, id string, unique bool) (*perfuncted.Window, error) {
 	if id == "" {
 		return nil, fmt.Errorf("window ID must be non-empty: %w", window.ErrInvalidArgument)
 	}
@@ -211,7 +211,7 @@ func windowSelectionTitle(cmd *cobra.Command, args []string) string {
 	return args[0]
 }
 
-func resolveWindowSelection(ctx context.Context, bundle *perfuncted.WindowBundle, title, id string) (*perfuncted.Window, error) {
+func resolveWindowSelection(ctx context.Context, bundle perfuncted.WindowBundle, title, id string) (*perfuncted.Window, error) {
 	if id != "" {
 		return resolveWindowID(ctx, bundle, id, true)
 	}
@@ -232,7 +232,7 @@ func activateSelectedWindow(
 	selection string,
 	openPF sessionOpener,
 	syncIf func(context.Context, *perfuncted.Session) error,
-	find func(context.Context, *perfuncted.WindowBundle, string) (*perfuncted.Window, error),
+	find func(context.Context, perfuncted.WindowBundle, string) (*perfuncted.Window, error),
 	verify bool,
 	verifyTimeout, verifyPoll time.Duration,
 ) error {
@@ -241,7 +241,7 @@ func activateSelectedWindow(
 		return err
 	}
 	defer session.Close()
-	target, err := find(cmd.Context(), session.Windows, selection)
+	target, err := find(cmd.Context(), session.Windows(), selection)
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,7 @@ func windowCmd(
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Windows.Sync(ctx)
+			return pf.Windows().Sync(ctx)
 		}
 		return nil
 	}
@@ -291,7 +291,7 @@ func windowCmd(
 			defer pf.Close()
 			wins, err := collectWindowMatches(
 				cmd.Context(),
-				pf.Windows,
+				pf.Windows(),
 				window.Match{},
 			)
 			if err != nil {
@@ -337,7 +337,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			t, err := pf.Windows.ActiveTitle(cmd.Context())
+			t, err := pf.Windows().ActiveTitle(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -365,7 +365,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, mvTitle, mvID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), mvTitle, mvID)
 			if err != nil {
 				return err
 			}
@@ -405,7 +405,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, rsTitle, rsID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), rsTitle, rsID)
 			if err != nil {
 				return err
 			}
@@ -434,7 +434,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), fullscreenID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), windowSelectionTitle(cmd, args), fullscreenID)
 			if err != nil {
 				return err
 			}
@@ -460,7 +460,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), unfullscreenID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), windowSelectionTitle(cmd, args), unfullscreenID)
 			if err != nil {
 				return err
 			}
@@ -495,7 +495,7 @@ func windowCmd(
 			defer pf.Close()
 			wins, err := collectWindowMatches(
 				cmd.Context(),
-				pf.Windows,
+				pf.Windows(),
 				match,
 			)
 			if err != nil {
@@ -532,7 +532,7 @@ func windowCmd(
 			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			w, err := waitForWindowMatch(ctx, pf.Windows, match, poll)
+			w, err := waitForWindowMatch(ctx, pf.Windows(), match, poll)
 			if err != nil {
 				return err
 			}
@@ -593,7 +593,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), getGeomID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), windowSelectionTitle(cmd, args), getGeomID)
 			if err != nil {
 				return err
 			}
@@ -637,7 +637,7 @@ func windowCmd(
 			defer pf.Close()
 			target, err := findWindowByTitle(
 				cmd.Context(),
-				pf.Windows,
+				pf.Windows(),
 				args[0],
 			)
 			if err != nil {
@@ -670,7 +670,7 @@ func windowCmd(
 			defer pf.Close()
 			_, err = findWindowByTitle(
 				cmd.Context(),
-				pf.Windows,
+				pf.Windows(),
 				args[0],
 			)
 			switch {
@@ -712,7 +712,7 @@ func windowCmd(
 				}
 				wins, err := collectWindowMatches(
 					ctx,
-					pf.Windows,
+					pf.Windows(),
 					window.Match{},
 				)
 				if err != nil {
@@ -757,7 +757,7 @@ func windowCmd(
 			return err
 		}
 		defer pf.Close()
-		target, err := findWindowByStableID(cmd.Context(), pf.Windows, args[0])
+		target, err := findWindowByStableID(cmd.Context(), pf.Windows(), args[0])
 		if err != nil {
 			return err
 		}
@@ -768,7 +768,7 @@ func windowCmd(
 			return err
 		}
 		if verifyClose {
-			if err := waitWindowGone(cmd.Context(), pf.Windows, target.ID().String(), verifyCloseTimeout, verifyClosePoll); err != nil {
+			if err := waitWindowGone(cmd.Context(), pf.Windows(), target.ID().String(), verifyCloseTimeout, verifyClosePoll); err != nil {
 				return err
 			}
 			return writeCLIOutput(cmd.OutOrStdout(), "close verified: %s\n", args[0])
@@ -797,7 +797,7 @@ func windowCmd(
 			defer pf.Close()
 			target, err := findWindowByTitle(
 				cmd.Context(),
-				pf.Windows,
+				pf.Windows(),
 				args[0],
 			)
 			if err != nil {
@@ -824,7 +824,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), minimizeID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), windowSelectionTitle(cmd, args), minimizeID)
 			if err != nil {
 				return err
 			}
@@ -850,7 +850,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			target, err := resolveWindowSelection(cmd.Context(), pf.Windows, windowSelectionTitle(cmd, args), maximizeID)
+			target, err := resolveWindowSelection(cmd.Context(), pf.Windows(), windowSelectionTitle(cmd, args), maximizeID)
 			if err != nil {
 				return err
 			}

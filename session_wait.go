@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 const (
@@ -91,7 +91,7 @@ func isPermanentWaitError(err error) bool {
 
 // Condition is an authoritative state check used by Session.Wait.
 type Condition interface {
-	evaluate(context.Context, *Session) (bool, error)
+	evaluate(context.Context, *sessionCore) (bool, error)
 	describe() string
 	pollingOnly() bool
 }
@@ -105,21 +105,21 @@ type conditionPreflight interface {
 }
 
 type conditionSessionValidator interface {
-	validateSession(*Session) error
+	validateSession(*sessionCore) error
 }
 
 type conditionFunc struct {
 	name         string
-	check        func(context.Context, *Session) (bool, error)
+	check        func(context.Context, *sessionCore) (bool, error)
 	pollOnly     bool
 	capabilities []Capability
-	sessionCheck func(*Session) error
+	sessionCheck func(*sessionCore) error
 	preflightErr error
 }
 
 func (c conditionFunc) evaluate(
 	ctx context.Context,
-	session *Session,
+	session *sessionCore,
 ) (bool, error) {
 	return c.check(ctx, session)
 }
@@ -136,7 +136,7 @@ func (c conditionFunc) requiredCapabilities() ([]Capability, error) {
 	return slices.Clone(c.capabilities), c.preflightErr
 }
 
-func (c conditionFunc) validateSession(session *Session) error {
+func (c conditionFunc) validateSession(session *sessionCore) error {
 	if c.sessionCheck != nil {
 		return c.sessionCheck(session)
 	}
@@ -164,7 +164,7 @@ func Predicate(
 	}
 	return conditionFunc{
 		name: name,
-		check: func(ctx context.Context, _ *Session) (bool, error) {
+		check: func(ctx context.Context, _ *sessionCore) (bool, error) {
 			if check == nil {
 				return false, fmt.Errorf("perfuncted: %w: nil wait predicate", ErrInvalidArgument)
 			}
@@ -177,7 +177,7 @@ func Predicate(
 
 func sessionCondition(
 	name string,
-	check func(context.Context, *Session) (bool, error),
+	check func(context.Context, *sessionCore) (bool, error),
 	capabilities ...Capability,
 ) Condition {
 	return conditionFunc{
@@ -189,8 +189,8 @@ func sessionCondition(
 
 func sessionConditionWithValidation(
 	name string,
-	check func(context.Context, *Session) (bool, error),
-	validate func(*Session) error,
+	check func(context.Context, *sessionCore) (bool, error),
+	validate func(*sessionCore) error,
 	capabilities ...Capability,
 ) Condition {
 	return conditionFunc{
@@ -206,7 +206,7 @@ type capabilityCondition struct {
 	capabilities []Capability
 }
 
-func (c capabilityCondition) evaluate(ctx context.Context, session *Session) (bool, error) {
+func (c capabilityCondition) evaluate(ctx context.Context, session *sessionCore) (bool, error) {
 	if c.condition == nil {
 		return false, fmt.Errorf("perfuncted: %w: nil wait condition", ErrInvalidArgument)
 	}
@@ -244,7 +244,7 @@ func (c capabilityCondition) preflight() error {
 	return validateConditionPreflight(c.condition)
 }
 
-func (c capabilityCondition) validateSession(session *Session) error {
+func (c capabilityCondition) validateSession(session *sessionCore) error {
 	return validateConditionForSession(session, c.condition)
 }
 
@@ -308,7 +308,7 @@ func validateConditionPreflight(condition Condition) error {
 	return nil
 }
 
-func validateWaitCondition(session *Session, condition Condition, operation string) error {
+func validateWaitCondition(session *sessionCore, condition Condition, operation string) error {
 	if err := validateConditionPreflight(condition); err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func validateWaitCondition(session *Session, condition Condition, operation stri
 	return nil
 }
 
-func validateConditionForSession(session *Session, condition Condition) error {
+func validateConditionForSession(session *sessionCore, condition Condition) error {
 	if condition == nil {
 		return fmt.Errorf("perfuncted: %w: nil wait condition", ErrInvalidArgument)
 	}
@@ -399,7 +399,7 @@ func (c compositeCondition) requiredCapabilities() ([]Capability, error) {
 
 func (c compositeCondition) evaluate(
 	ctx context.Context,
-	session *Session,
+	session *sessionCore,
 ) (bool, error) {
 	switch c.mode {
 	case "all":
@@ -485,7 +485,7 @@ func (c notCondition) requiredCapabilities() ([]Capability, error) {
 
 func (c notCondition) evaluate(
 	ctx context.Context,
-	session *Session,
+	session *sessionCore,
 ) (bool, error) {
 	if c.child == nil {
 		return false, fmt.Errorf("perfuncted: %w: nil child condition", ErrInvalidArgument)
@@ -503,8 +503,8 @@ func Not(child Condition) Condition {
 func WindowExists(match WindowMatch) Condition {
 	return sessionCondition(
 		"window exists "+match.String(),
-		func(ctx context.Context, session *Session) (bool, error) {
-			windows, err := session.Windows.List(ctx, match)
+		func(ctx context.Context, session *sessionCore) (bool, error) {
+			windows, err := session.windows.List(ctx, match)
 			return len(windows) > 0, err
 		},
 		CapabilityWindows,
@@ -516,16 +516,16 @@ func WindowExists(match WindowMatch) Condition {
 // evaluation error: Session.Wait retries it as transient until one of the failure
 // bounds in waitEvaluateFailures is reached, then returns the last error.
 func AccessibilityNodeExists(root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) Condition {
-	return sessionCondition("accessibility node exists", func(ctx context.Context, session *Session) (bool, error) {
-		nodes, err := session.Accessibility.Find(ctx, root, query, opts)
+	return sessionCondition("accessibility node exists", func(ctx context.Context, session *sessionCore) (bool, error) {
+		nodes, err := session.accessibility.Find(ctx, root, query, opts)
 		return len(nodes) > 0, err
 	}, CapabilityAccessibility)
 }
 
 // AccessibilityFocused succeeds when AT-SPI reports a focused object.
 func AccessibilityFocused(opts accessibility.SnapshotOptions) Condition {
-	return sessionCondition("accessibility focused", func(ctx context.Context, session *Session) (bool, error) {
-		_, err := session.Accessibility.Focused(ctx, opts)
+	return sessionCondition("accessibility focused", func(ctx context.Context, session *sessionCore) (bool, error) {
+		_, err := session.accessibility.Focused(ctx, opts)
 		if errors.Is(err, accessibility.ErrNotFound) {
 			return false, nil
 		}
@@ -540,8 +540,8 @@ func AccessibilityFocused(opts accessibility.SnapshotOptions) Condition {
 // Session.Wait and are never treated as authoritative.
 func AccessibilityStateContains(root accessibility.NodeID, query accessibility.Query, states []string, opts accessibility.SnapshotOptions) Condition {
 	query.States = append([]string(nil), states...)
-	return sessionCondition("accessibility state contains", func(ctx context.Context, session *Session) (bool, error) {
-		nodes, err := session.Accessibility.Find(ctx, root, query, opts)
+	return sessionCondition("accessibility state contains", func(ctx context.Context, session *sessionCore) (bool, error) {
+		nodes, err := session.accessibility.Find(ctx, root, query, opts)
 		return len(nodes) > 0, err
 	}, CapabilityAccessibility)
 }
@@ -593,13 +593,13 @@ func (c accessibilityNodeChangedCondition) validateActionTarget(root accessibili
 	return nil
 }
 
-func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session *Session) (bool, error) {
+func (c accessibilityNodeChangedCondition) evaluate(ctx context.Context, session *sessionCore) (bool, error) {
 	if err := c.preflight(); err != nil {
 		return false, err
 	}
 	opts := c.opts
 	opts.Fresh = true
-	snapshot, err := session.Accessibility.Snapshot(ctx, c.root, opts)
+	snapshot, err := session.accessibility.Snapshot(ctx, c.root, opts)
 	if err != nil {
 		return false, err
 	}
@@ -675,10 +675,10 @@ func sortedStateCopy(states []string) []string {
 }
 
 // WindowClosed succeeds when the stable window handle no longer exists.
-func WindowClosed(target *Window) Condition {
+func windowClosed(target *windowState) Condition {
 	return sessionConditionWithValidation(
 		"window closed",
-		func(ctx context.Context, session *Session) (bool, error) {
+		func(ctx context.Context, session *sessionCore) (bool, error) {
 			if target == nil || target.id.session == nil {
 				return false, ErrNilSession
 			}
@@ -688,7 +688,7 @@ func WindowClosed(target *Window) Condition {
 					ErrInvalidArgument,
 				)
 			}
-			if err := session.Windows.checkAvailable("info"); err != nil {
+			if err := session.windows.checkAvailable("info"); err != nil {
 				// Window capability is fixed for this session. An absent
 				// manager can never establish that this native ID disappeared;
 				// report unsupported observation immediately instead of
@@ -698,16 +698,16 @@ func WindowClosed(target *Window) Condition {
 				}
 				return false, err
 			}
-			backend, ok := session.Windows.backend.(interface {
+			backend, ok := session.windows.backend().(interface {
 				InfoByID(context.Context, string) (window.Info, error)
 			})
 			if !ok {
-				return false, session.Windows.operationError(
+				return false, session.windows.operationError(
 					"info",
 					errors.Join(ErrUnsupported, window.ErrNotSupported),
 				)
 			}
-			ctx, cancel := session.Windows.backendContext(ctx, session.Timeouts().Medium)
+			ctx, cancel := session.windows.backendContext(ctx, session.Timeouts().Medium)
 			defer cancel()
 			_, err := backend.InfoByID(
 				ctx,
@@ -716,9 +716,9 @@ func WindowClosed(target *Window) Condition {
 			if errors.Is(err, ErrWindowNotFound) {
 				return true, nil
 			}
-			return false, session.Windows.operationError("info", err)
+			return false, session.windows.operationError("info", err)
 		},
-		func(session *Session) error {
+		func(session *sessionCore) error {
 			if target == nil || target.id.session == nil {
 				return ErrNilSession
 			}
@@ -765,7 +765,7 @@ func WaitEvery(interval time.Duration) WaitOption {
 
 // Wait blocks until condition succeeds. Timeout and cancellation follow ctx;
 // persistent observation failures are bounded, and terminal failures abort.
-func (s *Session) Wait(
+func (s *sessionCore) Wait(
 	ctx context.Context,
 	condition Condition,
 	options ...WaitOption,
@@ -777,7 +777,7 @@ func (s *Session) Wait(
 // WaitWithEvidence blocks until condition succeeds and returns bounded
 // diagnostic evidence about the event-backed and polling wakeups observed.
 // Events only wake the wait; the condition remains the authority.
-func (s *Session) WaitWithEvidence(
+func (s *sessionCore) WaitWithEvidence(
 	ctx context.Context,
 	condition Condition,
 	options ...WaitOption,
@@ -809,7 +809,7 @@ func (s *Session) WaitWithEvidence(
 	return s.waitWithEvidence(ctx, condition, config)
 }
 
-func (s *Session) prepareWait(ctx context.Context, condition Condition, options []WaitOption, operation string) (waitConfig, error) {
+func (s *sessionCore) prepareWait(ctx context.Context, condition Condition, options []WaitOption, operation string) (waitConfig, error) {
 	if s == nil {
 		return waitConfig{}, ErrNilSession
 	}
@@ -840,7 +840,7 @@ func (s *Session) prepareWait(ctx context.Context, condition Condition, options 
 	return config, nil
 }
 
-func (s *Session) waitWithEvidence(
+func (s *sessionCore) waitWithEvidence(
 	ctx context.Context,
 	condition Condition,
 	config waitConfig,
@@ -888,7 +888,7 @@ func (s *Session) waitWithEvidence(
 	}
 }
 
-func (s *Session) evaluateWaitCondition(ctx context.Context, condition Condition, failures *waitEvaluateFailures) (bool, error) {
+func (s *sessionCore) evaluateWaitCondition(ctx context.Context, condition Condition, failures *waitEvaluateFailures) (bool, error) {
 	ok, err := condition.evaluate(ctx, s)
 	if err == nil {
 		failures.reset()
@@ -927,7 +927,7 @@ func (e *WaitEvidence) recordWaitChange(change waitChange) {
 	}
 }
 
-func (s *Session) waitState(ctx context.Context) error {
+func (s *sessionCore) waitState(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -983,14 +983,14 @@ type windowChangeSource interface {
 	WindowChanges() <-chan struct{}
 }
 
-func (s *Session) waitChanges() *waitEpoch { //nolint:gocyclo // one hub owns independent window and accessibility sources.
+func (s *sessionCore) waitChanges() *waitEpoch { //nolint:gocyclo // one hub owns independent window and accessibility sources.
 	s.hubOnce.Do(func() {
 		hub := newInvalidationHub()
 		s.hubMu.Lock()
 		s.hub = hub
 		s.hubMu.Unlock()
-		if s.Windows != nil && !util.IsNil(s.Windows.backend) {
-			if source, ok := s.Windows.backend.(windowChangeSource); ok {
+		if s.windows != nil && !util.IsNil(s.windows.backend()) {
+			if source, ok := s.windows.backend().(windowChangeSource); ok {
 				if changes := source.WindowChanges(); changes != nil {
 					go func() {
 						for {
@@ -1008,11 +1008,11 @@ func (s *Session) waitChanges() *waitEpoch { //nolint:gocyclo // one hub owns in
 				}
 			}
 		}
-		if s.Accessibility != nil && !util.IsNil(s.Accessibility.backend) {
+		if s.accessibility != nil && !util.IsNil(s.accessibility.backend) {
 			var openEvents func(context.Context, accessibility.EventOptions) (<-chan accessibility.Event, error)
-			if owner, ok := s.Accessibility.backend.(*accessibilityBackendOwner); ok {
-				openEvents = owner.eventsAcrossReopens
-			} else if source, ok := s.Accessibility.backend.(accessibility.EventSource); ok {
+			if owner, ok := s.accessibility.backend.(*accessibilityBackendOwner); ok {
+				openEvents = owner.EventsAcrossReopens
+			} else if source, ok := s.accessibility.backend.(accessibility.EventSource); ok {
 				openEvents = source.Events
 			}
 			if openEvents != nil {
@@ -1045,7 +1045,7 @@ func (s *Session) waitChanges() *waitEpoch { //nolint:gocyclo // one hub owns in
 	return hub.subscribe()
 }
 
-func (s *Session) notifyWaiters() {
+func (s *sessionCore) notifyWaiters() {
 	if s == nil {
 		return
 	}

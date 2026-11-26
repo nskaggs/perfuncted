@@ -6,14 +6,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"io"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 func serveWindowCompositorWithMalformedManagerRoundTrip(conn *net.UnixConn) error {

@@ -3,7 +3,7 @@ package window
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
 )
 
 type syntheticKWinScriptService struct {

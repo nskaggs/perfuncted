@@ -10,10 +10,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 // Session describes the detected runtime session environment.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"image"
 )
 
@@ -42,7 +42,7 @@ func ExampleCapabilityError() {
 	session := perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 
-	_, err := session.Screen.Grab(context.Background(), imageRect())
+	_, err := session.Screen().Grab(context.Background(), imageRect())
 	fmt.Println(errors.Is(err, perfuncted.ErrUnavailable))
 	// Output: true
 }
@@ -62,7 +62,7 @@ func ExampleSession_Wait_cancellation() {
 
 func ExampleAccessibilityLocator_ClickAndWait() {
 	verifiedSave := func(ctx context.Context, session *perfuncted.Session, window *perfuncted.Window, saved perfuncted.Condition) error {
-		locator := session.Accessibility.LocatorForWindow(window.ID().String(), accessibility.Selector{
+		locator := session.Accessibility().LocatorForWindow(window.ID().String(), accessibility.Selector{
 			Role: "button", Name: "Save",
 		}, accessibility.SnapshotOptions{})
 		receipt, _, err := locator.ClickAndWait(ctx, saved)

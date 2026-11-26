@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 // Runtime is a snapshot of the environment used to route automation requests

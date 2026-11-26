@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionregistry"
 
 	"bufio"
 	"context"
@@ -17,15 +17,15 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/compositor"
-	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/probe"
-	"github.com/nskaggs/perfuncted/internal/workflow"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/compositor"
+	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/probe"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 var outputFormatFlag = "plain"
@@ -42,7 +42,7 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			outs, err := pf.Outputs.List(cmd.Context())
+			outs, err := pf.Outputs().List(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -258,7 +258,7 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		target, err := s.pf.Windows.Find(s.ctx, match)
+		target, err := s.pf.Windows().Find(s.ctx, match)
 		if err != nil {
 			return err
 		}
@@ -267,7 +267,7 @@ func (s *scriptRunner) execWindow(
 	case "list":
 		wins, err := collectWindowMatches(
 			s.ctx,
-			s.pf.Windows,
+			s.pf.Windows(),
 			window.Match{},
 		)
 		if err != nil {
@@ -275,7 +275,7 @@ func (s *scriptRunner) execWindow(
 		}
 		return printWindowListPlain(s.out, wins)
 	case "active":
-		t, err := s.pf.Windows.ActiveTitle(s.ctx)
+		t, err := s.pf.Windows().ActiveTitle(s.ctx)
 		if err != nil {
 			return err
 		}
@@ -317,7 +317,7 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		wins, err := collectWindowMatches(s.ctx, s.pf.Windows, match)
+		wins, err := collectWindowMatches(s.ctx, s.pf.Windows(), match)
 		if err != nil {
 			return err
 		}
@@ -348,7 +348,7 @@ func (s *scriptRunner) targetForTitle(
 	title string,
 ) (*perfuncted.Window, error) {
 	if title != "" {
-		return findWindowByTitle(s.ctx, s.pf.Windows, title)
+		return findWindowByTitle(s.ctx, s.pf.Windows(), title)
 	}
 	if s.selectedWindow != nil {
 		return s.selectedWindow, nil
@@ -478,12 +478,12 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 		if len(toks) != 2 {
 			return fmt.Errorf("script line %d: input type-literal requires exactly one text argument", lineNo)
 		}
-		if err := s.pf.Input.TypeLiteral(s.ctx, toks[1]); err != nil {
+		if err := s.pf.Input().TypeLiteral(s.ctx, toks[1]); err != nil {
 			return err
 		}
 		return s.syncInput()
 	case "location":
-		x, y, err := s.pf.Input.PointerLocation(s.ctx)
+		x, y, err := s.pf.Input().PointerLocation(s.ctx)
 		if err != nil {
 			return err
 		}
@@ -523,7 +523,7 @@ func (s *scriptRunner) execInputType(lineNo int, toks []string) error {
 			return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
 		}
 	}
-	if err := s.pf.Input.Type(s.ctx, text); err != nil {
+	if err := s.pf.Input().Type(s.ctx, text); err != nil {
 		return err
 	}
 	return s.syncInput()
@@ -533,14 +533,14 @@ func (s *scriptRunner) syncInput() error {
 	if !s.sync {
 		return nil
 	}
-	return s.pf.Input.Sync(s.ctx)
+	return s.pf.Input().Sync(s.ctx)
 }
 
 func (s *scriptRunner) syncWindows() error {
 	if !s.sync {
 		return nil
 	}
-	return s.pf.Windows.Sync(s.ctx)
+	return s.pf.Windows().Sync(s.ctx)
 }
 
 func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
@@ -573,7 +573,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		return s.pf.Screen.CaptureRegion(s.ctx, r, out)
+		return s.pf.Screen().CaptureRegion(s.ctx, r, out)
 	case "hash":
 		rect := "0,0,1920,1080"
 		for i := 1; i < len(toks); i++ {
@@ -590,7 +590,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		h, err := s.pf.Screen.GrabRegionHash(s.ctx, r)
+		h, err := s.pf.Screen().GrabRegionHash(s.ctx, r)
 		if err != nil {
 			return err
 		}
@@ -604,7 +604,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 	if len(toks) == 0 || toks[0] != "list" {
 		return fmt.Errorf("script line %d: unsupported output subcommand", lineNo)
 	}
-	wins, err := s.pf.Outputs.List(s.ctx)
+	wins, err := s.pf.Outputs().List(s.ctx)
 	if err != nil {
 		return err
 	}

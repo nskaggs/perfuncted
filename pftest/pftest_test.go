@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/output"
+	"github.com/nskaggs/perfuncted/v2/output"
 	"image"
 	"image/color"
 	"os"

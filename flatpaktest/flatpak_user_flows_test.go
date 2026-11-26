@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
 )
 
 const previousReleaseSHA256 = "5607b377e502c968db1458260d37afb6dd50afc30b6ad5a784c3f7741f844f87"

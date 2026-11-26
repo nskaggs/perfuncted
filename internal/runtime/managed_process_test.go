@@ -3,7 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 	"os/exec"
 	"sync"
 	"syscall"

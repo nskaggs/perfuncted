@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"net"
 	"os/exec"
 	"strings"

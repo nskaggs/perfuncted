@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
 )
 
 // The X11 adapter must be exercised against an actual X protocol peer, not

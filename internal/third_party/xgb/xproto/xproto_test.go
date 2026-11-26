@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb"
 )
 
 // The X connection used throughout testing.

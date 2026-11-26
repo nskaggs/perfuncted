@@ -10,7 +10,7 @@ import (
 	"image/png"
 	"io"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 )
 
 const watchPixelFrameLimit = 16 << 20

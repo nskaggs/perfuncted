@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
 )
 
 func TestOpenRuntimeContextSelectsAndListsLiveX11Outputs(t *testing.T) {

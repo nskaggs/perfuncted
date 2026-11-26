@@ -10,10 +10,10 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/nskaggs/perfuncted/internal/env"
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 var sessionRoutingKeys = []string{
@@ -51,8 +51,8 @@ type Command struct {
 }
 
 // Application is a process group launched and owned by a Session.
-type Application struct {
-	session *Session
+type applicationState struct {
+	session *sessionCore
 	proc    sessionruntime.Group
 	path    string
 
@@ -63,10 +63,10 @@ type Application struct {
 
 // Launch starts cmd as a managed process group. ctx governs startup only:
 // cancelling it after Launch returns does not terminate the application.
-func (s *Session) Launch(
+func (s *sessionCore) Launch(
 	ctx context.Context,
 	command Command,
-) (*Application, error) {
+) (*applicationState, error) {
 	if s == nil {
 		return nil, ErrNilSession
 	}
@@ -105,7 +105,7 @@ func (s *Session) Launch(
 
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
-	if s.closed {
+	if s.closed || s.ctx == nil {
 		return nil, ErrSessionClosed
 	}
 	if err := ctx.Err(); err != nil {
@@ -115,7 +115,7 @@ func (s *Session) Launch(
 		return nil, fmt.Errorf("perfuncted: launch %q: %w", command.Name, err)
 	}
 
-	app := &Application{
+	app := &applicationState{
 		session: s,
 		proc:    sessionruntime.NewGroup(execCommand, execCommand.Process.Pid),
 		path:    resolved,
@@ -133,7 +133,7 @@ func commandEnvironment(values []string) []string {
 	return values
 }
 
-func (s *Session) routingEnvironment() []string {
+func (s *sessionCore) routingEnvironment() []string {
 	overlays := make([]string, 0, len(sessionRoutingKeys))
 	for _, key := range sessionRoutingKeys {
 		if val, ok := s.env.Lookup(key); ok {
@@ -143,7 +143,7 @@ func (s *Session) routingEnvironment() []string {
 	return overlays
 }
 
-func (a *Application) reap() {
+func (a *applicationState) reap() {
 	err := a.proc.WaitLeader()
 	a.mu.Lock()
 	a.err = err
@@ -155,7 +155,7 @@ func (a *Application) reap() {
 // Wait waits for the process-group leader to exit. It is safe to call
 // repeatedly or concurrently; Stop and Session.Close additionally wait for
 // the entire owned process group.
-func (a *Application) Wait(ctx context.Context) error {
+func (a *applicationState) Wait(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
@@ -181,7 +181,7 @@ func (a *Application) Wait(ctx context.Context) error {
 }
 
 // PID returns the process-group leader's PID.
-func (a *Application) PID() int {
+func (a *applicationState) PID() int {
 	if a == nil {
 		return 0
 	}
@@ -189,7 +189,7 @@ func (a *Application) PID() int {
 }
 
 // Path returns the resolved executable path.
-func (a *Application) Path() string {
+func (a *applicationState) Path() string {
 	if a == nil {
 		return ""
 	}
@@ -198,7 +198,7 @@ func (a *Application) Path() string {
 
 // Exited reports whether the process-group leader has been reaped. Descendants
 // may still be alive until Stop or Session.Close completes.
-func (a *Application) Exited() bool {
+func (a *applicationState) Exited() bool {
 	if a == nil {
 		return true
 	}
@@ -211,7 +211,7 @@ func (a *Application) Exited() bool {
 }
 
 // Stop sends SIGTERM to the application process group and waits for ctx.
-func (a *Application) Stop(ctx context.Context) error {
+func (a *applicationState) Stop(ctx context.Context) error {
 	if a == nil || a.proc.PID() <= 0 {
 		return nil
 	}
@@ -231,7 +231,7 @@ func (a *Application) Stop(ctx context.Context) error {
 }
 
 // Kill sends SIGKILL to the application process group.
-func (a *Application) Kill() error {
+func (a *applicationState) Kill() error {
 	if a == nil || a.proc.PID() <= 0 {
 		return nil
 	}
@@ -241,7 +241,7 @@ func (a *Application) Kill() error {
 	return nil
 }
 
-func (s *Session) stopApplication(app *Application) error {
+func (s *sessionCore) stopApplication(app *applicationState) error {
 	if app == nil {
 		return nil
 	}
@@ -277,7 +277,7 @@ func (s *Session) stopApplication(app *Application) error {
 	return nil
 }
 
-func (a *Application) ownsPID(pid int32) bool {
+func (a *applicationState) ownsPID(pid int32) bool {
 	if a == nil || pid <= 0 || !a.proc.GroupAlive() {
 		return false
 	}
@@ -288,7 +288,7 @@ func (a *Application) ownsPID(pid int32) bool {
 // LogPath returns the unique private log directory used by owned session
 // infrastructure. The directory is retained for bounded post-failure
 // inspection and is cleaned up by CleanupSessionLogs when it expires.
-func (s *Session) LogPath() string {
+func (s *sessionCore) LogPath() string {
 	if s == nil || s.infra == nil {
 		return ""
 	}
@@ -296,7 +296,7 @@ func (s *Session) LogPath() string {
 }
 
 // SwaySocket returns the owned Sway IPC socket, when present.
-func (s *Session) SwaySocket() string {
+func (s *sessionCore) SwaySocket() string {
 	if s == nil || s.infra == nil {
 		return ""
 	}

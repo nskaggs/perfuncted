@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionwindow"
 
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 var (
@@ -24,7 +24,7 @@ type WindowMatch = window.Match
 
 // WindowID is an opaque identifier scoped to the Session that created it.
 type WindowID struct {
-	session *Session
+	session *sessionCore
 	native  string
 }
 
@@ -33,299 +33,72 @@ func (id WindowID) String() string {
 	return id.native
 }
 
-// Window is a stable, session-bound handle to one native window.
-type Window struct {
+// windowState binds a domain target to the original session for cross-capability
+// operations. The target owns its own cache; no public wrapper is retained.
+type windowState struct {
 	id WindowID
-
-	mu       sync.RWMutex
-	snapshot window.Info
+	*sessionwindow.Target
 }
 
-// ID returns the opaque session-scoped identifier.
-func (w *Window) ID() WindowID {
+func (w *windowState) ID() WindowID {
 	if w == nil {
 		return WindowID{}
 	}
 	return w.id
 }
+func (w *windowState) Title() string                                 { return w.target().Title() }
+func (w *windowState) CachedInfo() window.Info                       { return w.target().CachedInfo() }
+func (w *windowState) Info(ctx context.Context) (window.Info, error) { return w.target().Info(ctx) }
+func (w *windowState) Activate(ctx context.Context) error            { return w.target().Activate(ctx) }
+func (w *windowState) Move(ctx context.Context, x, y int) error      { return w.target().Move(ctx, x, y) }
+func (w *windowState) Resize(ctx context.Context, width, height int) error {
+	return w.target().Resize(ctx, width, height)
+}
+func (w *windowState) Close(ctx context.Context) error        { return w.target().Close(ctx) }
+func (w *windowState) Minimize(ctx context.Context) error     { return w.target().Minimize(ctx) }
+func (w *windowState) Maximize(ctx context.Context) error     { return w.target().Maximize(ctx) }
+func (w *windowState) Fullscreen(ctx context.Context) error   { return w.target().Fullscreen(ctx) }
+func (w *windowState) Unfullscreen(ctx context.Context) error { return w.target().Unfullscreen(ctx) }
+func (w *windowState) Restore(ctx context.Context) error      { return w.target().Restore(ctx) }
 
-// Title returns the latest title observed through Info or discovery.
-func (w *Window) Title() string {
+func (w *windowState) target() *sessionwindow.Target {
 	if w == nil {
-		return ""
+		return nil
 	}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.snapshot.Title
+	return w.Target
 }
-
-// CachedInfo returns the last authoritative window metadata used to create or
-// refresh this handle. It does not query the window manager. Callers that need
-// current geometry or focus state should use Info; callers crossing into
-// another semantic subsystem during a compositor stall can use this bounded
-// snapshot without issuing a second discovery request.
-func (w *Window) CachedInfo() window.Info {
-	if w == nil {
-		return window.Info{}
-	}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.snapshot
-}
-
-// Info refreshes and returns authoritative window state.
-func (w *Window) Info(ctx context.Context) (window.Info, error) {
-	backend, err := w.backend("info")
-	if err != nil {
-		return window.Info{}, err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return window.Info{}, ctxErr
-	}
-	info, err := backend.InfoByID(ctx, w.id.native)
-	// A backend may acknowledge a read after caller cancellation. Do not
-	// expose private window data or mutate the cached handle in that case.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return window.Info{}, ctxErr
-	}
-	if sessionErr := w.id.session.ensureOpen(); sessionErr != nil {
-		return window.Info{}, sessionErr
-	}
-	if err != nil {
-		return window.Info{}, w.id.session.Windows.operationError("info", err)
-	}
-	info.NativeID = w.id.native
-	w.mu.Lock()
-	w.snapshot = info
-	w.mu.Unlock()
-	return info, nil
-}
-
-func (w *Window) backend(operation string) (window.IDManager, error) {
-	if w == nil || w.id.session == nil {
+func (b *windowBundleState) List(ctx context.Context, match WindowMatch) ([]*windowState, error) {
+	if b == nil {
 		return nil, ErrNilSession
 	}
-	if err := w.id.session.Windows.checkAvailable(operation); err != nil {
+	targets, err := b.owner.Discover(ctx, match)
+	if err != nil {
 		return nil, err
 	}
-	backend, ok := w.id.session.Windows.backend.(window.IDManager)
-	if !ok {
-		return nil, w.id.session.Windows.operationError(
-			operation,
-			fmt.Errorf(
-				"perfuncted: window backend does not support stable handles: %w",
-				window.ErrNotSupported,
-			),
-		)
+	result := make([]*windowState, 0, len(targets))
+	for _, target := range targets {
+		result = append(result, &windowState{id: WindowID{session: b.session, native: target.Native()}, Target: target})
 	}
-	return backend, nil
+	return result, nil
 }
-
-// Activate focuses the window.
-func (w *Window) Activate(ctx context.Context) error {
-	backend, err := w.backend("activate")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("activate", backend.ActivateByID(ctx, w.id.native))
-}
-
-// Move positions the window at x and y. Negative coordinates are valid for a
-// monitor left of or above the primary one; a coordinate no backend can carry
-// is rejected with ErrInvalidArgument.
-func (w *Window) Move(ctx context.Context, x int, y int) error {
-	backend, err := w.backend("move")
-	if err != nil {
-		return err
-	}
-	if err := window.ValidatePosition(x, y); err != nil {
-		return w.id.session.Windows.operationError("move", err)
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("move", backend.MoveByID(ctx, w.id.native, x, y))
-}
-
-// Resize changes the window size to width by height. Both edges must be
-// positive and within the geometry range every backend can represent; anything
-// else is rejected with ErrInvalidArgument rather than sent to a compositor that
-// would truncate it.
-func (w *Window) Resize(
-	ctx context.Context,
-	width int,
-	height int,
-) error {
-	backend, err := w.backend("resize")
-	if err != nil {
-		return err
-	}
-	if err := window.ValidateSize(width, height); err != nil {
-		return w.id.session.Windows.operationError("resize", err)
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("resize", backend.ResizeByID(ctx, w.id.native, width, height))
-}
-
-// Close requests that the window close.
-func (w *Window) Close(ctx context.Context) error {
-	backend, err := w.backend("close")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("close", backend.CloseWindowByID(ctx, w.id.native))
-}
-
-// Minimize minimizes the window.
-func (w *Window) Minimize(ctx context.Context) error {
-	backend, err := w.backend("minimize")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("minimize", backend.MinimizeByID(ctx, w.id.native))
-}
-
-// Maximize maximizes the window.
-func (w *Window) Maximize(ctx context.Context) error {
-	backend, err := w.backend("maximize")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("maximize", backend.MaximizeByID(ctx, w.id.native))
-}
-
-// Fullscreen makes the window occupy the screen.
-func (w *Window) Fullscreen(ctx context.Context) error {
-	backend, err := w.backend("fullscreen")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("fullscreen", backend.FullscreenByID(ctx, w.id.native))
-}
-
-// Unfullscreen restores the window from fullscreen mode.
-func (w *Window) Unfullscreen(ctx context.Context) error {
-	backend, err := w.backend("fullscreen")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("fullscreen", backend.UnfullscreenByID(ctx, w.id.native))
-}
-
-// Restore returns the window to its normal state.
-func (w *Window) Restore(ctx context.Context) error {
-	backend, err := w.backend("restore")
-	if err != nil {
-		return err
-	}
-	ctx, cancel := w.id.session.Windows.backendContext(ctx, w.id.session.Timeouts().Medium)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return w.id.session.Windows.operationError("restore", backend.RestoreByID(ctx, w.id.native))
+func (b *windowBundleState) window(info window.Info) *windowState {
+	target := b.owner.Target(info)
+	return &windowState{id: WindowID{session: b.session, native: target.Native()}, Target: target}
 }
 
 // WaitClosed waits until the authoritative backend no longer reports w.
-func (w *Window) WaitClosed(ctx context.Context) error {
+func (w *windowState) WaitClosed(ctx context.Context) error {
 	if w == nil || w.id.session == nil {
 		return ErrNilSession
 	}
-	return w.id.session.Wait(ctx, WindowClosed(w))
-}
-
-// List returns every window satisfying match.
-func (b *WindowBundle) List(
-	ctx context.Context,
-	match WindowMatch,
-) ([]*Window, error) {
-	if err := b.checkAvailable("discover"); err != nil {
-		return nil, err
-	}
-	ctx, cancel := b.backendContext(ctx, b.session.Timeouts().Medium)
-	defer cancel()
-	infos, err := b.backend.List(ctx)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	if sessionErr := b.session.ensureOpen(); sessionErr != nil {
-		return nil, sessionErr
-	}
-	if err != nil {
-		return nil, b.operationError("discover", err)
-	}
-	windows := make([]*Window, 0, len(infos))
-	for _, info := range infos {
-		if !match.Matches(info) {
-			continue
-		}
-		windows = append(windows, b.window(info))
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := b.session.ensureOpen(); err != nil {
-		return nil, err
-	}
-	return windows, nil
-}
-
-func (b *WindowBundle) window(info window.Info) *Window {
-	nativeID := info.StableID()
-	info.NativeID = nativeID
-	id := WindowID{
-		session: b.session,
-		native:  nativeID,
-	}
-	return &Window{
-		id:       id,
-		snapshot: info,
-	}
+	return w.id.session.Wait(ctx, windowClosed(w))
 }
 
 // Find returns exactly one matching window.
-func (b *WindowBundle) Find(
+func (b *windowBundleState) Find(
 	ctx context.Context,
 	match WindowMatch,
-) (*Window, error) {
+) (*windowState, error) {
 	windows, err := b.List(ctx, match)
 	if err != nil {
 		return nil, err
@@ -349,18 +122,18 @@ func (b *WindowBundle) Find(
 }
 
 // Wait waits for match to identify exactly one window.
-func (b *WindowBundle) Wait(
+func (b *windowBundleState) Wait(
 	ctx context.Context,
 	match WindowMatch,
 	options ...WaitOption,
-) (*Window, error) {
+) (*windowState, error) {
 	if b == nil || b.session == nil {
 		return nil, ErrNilSession
 	}
-	var matched *Window
+	var matched *windowState
 	condition := sessionCondition(
 		"window "+match.String(),
-		func(ctx context.Context, _ *Session) (bool, error) {
+		func(ctx context.Context, _ *sessionCore) (bool, error) {
 			found, err := b.Find(ctx, match)
 			switch {
 			case err == nil:
@@ -382,32 +155,30 @@ func (b *WindowBundle) Wait(
 
 // WaitForWindow waits for a window belonging to the application's process
 // group. When the backend has no PID data, match must identify one window.
-func (a *Application) WaitForWindow(
+func (a *applicationState) WaitForWindow(
 	ctx context.Context,
 	match WindowMatch,
-) (*Window, error) {
+) (*windowState, error) {
 	if a == nil || a.session == nil {
 		return nil, ErrNilSession
 	}
-	var matched *Window
+	var matched *windowState
 	condition := sessionCondition(
 		"application window "+match.String(),
-		func(ctx context.Context, _ *Session) (bool, error) {
+		func(ctx context.Context, _ *sessionCore) (bool, error) {
 			select {
 			case <-a.done:
 				return false, ErrApplicationExited
 			default:
 			}
-			candidates, err := a.session.Windows.List(ctx, match)
+			candidates, err := a.session.windows.List(ctx, match)
 			if err != nil {
 				return false, err
 			}
-			owned := make([]*Window, 0, len(candidates))
+			owned := make([]*windowState, 0, len(candidates))
 			hasPID := false
 			for _, candidate := range candidates {
-				candidate.mu.RLock()
-				pid := candidate.snapshot.PID
-				candidate.mu.RUnlock()
+				pid := candidate.CachedInfo().PID
 				if pid > 0 {
 					hasPID = true
 					if a.ownsPID(pid) {
@@ -425,7 +196,7 @@ func (a *Application) WaitForWindow(
 				matched = candidates[0]
 				return true, nil
 			default:
-				return false, a.session.Windows.operationError(
+				return false, a.session.windows.operationError(
 					"discover",
 					fmt.Errorf(
 						"%s matched %d application windows: %w",

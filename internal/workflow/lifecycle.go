@@ -7,7 +7,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // State is the stable serialized lifecycle state.

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 var (

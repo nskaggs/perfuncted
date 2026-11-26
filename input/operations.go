@@ -1,6 +1,6 @@
 package input
 
-import "github.com/nskaggs/perfuncted/internal/capability"
+import "github.com/nskaggs/perfuncted/v2/internal/capability"
 
 func supportedOperations(pointerLocation, coordinateSpace bool, additionalExclusions ...string) []string {
 	exclude := append([]string(nil), additionalExclusions...)

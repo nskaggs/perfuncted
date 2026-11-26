@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/output"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/output"
 )
 
 // validateUinputDimensions runs before opening /dev/uinput. Zero axes create

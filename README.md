@@ -41,7 +41,7 @@ Verify the installation with `pf version` and `pf info`.
 **Go developers:**
 
 ```sh
-go install github.com/nskaggs/perfuncted/cmd/pf@latest
+go install github.com/nskaggs/perfuncted/v2/cmd/pf@latest
 ```
 
 **Flatpak:** Download `perfuncted.flatpak` from [GitHub Releases](https://github.com/nskaggs/perfuncted/releases), then run:
@@ -98,11 +98,11 @@ and [Flatpak permissions](docs/flatpak.md).
 ## Go library
 
 ```sh
-go get github.com/nskaggs/perfuncted
+go get github.com/nskaggs/perfuncted/v2
 ```
 
 ```go
-import "github.com/nskaggs/perfuncted"
+import "github.com/nskaggs/perfuncted/v2"
 
 func enter() error {
     s, err := perfuncted.OpenDefault()
@@ -113,7 +113,7 @@ func enter() error {
 ```
 
 See the [Go library guide](docs/go-api.md) and
-[Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted).
+[Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted/v2).
 
 ## Documentation
 

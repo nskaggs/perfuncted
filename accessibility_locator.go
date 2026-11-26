@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"math"
 	"strings"
 	"time"
@@ -43,7 +43,7 @@ type locatorIdentity struct {
 // provider nodes only when an operation runs. Resolution requires an active
 // AT-SPI event stream so provider changes during a fresh snapshot can fail closed.
 type AccessibilityLocator struct {
-	bundle   *AccessibilityBundle
+	bundle   *accessibilityState
 	scope    locatorScope
 	selector accessibility.Selector
 	options  accessibility.SnapshotOptions
@@ -51,7 +51,7 @@ type AccessibilityLocator struct {
 
 // LocatorForWindow creates a locator rooted in a managed Perfuncted window.
 // The window and AT-SPI scope are re-resolved for each operation.
-func (b *AccessibilityBundle) LocatorForWindow(windowID string, selector accessibility.Selector, options accessibility.SnapshotOptions) *AccessibilityLocator {
+func (b *accessibilityState) LocatorForWindow(windowID string, selector accessibility.Selector, options accessibility.SnapshotOptions) *AccessibilityLocator {
 	return &AccessibilityLocator{
 		bundle: b, scope: locatorScope{kind: locatorWindowScope, windowID: strings.TrimSpace(windowID)},
 		selector: cloneSelector(selector), options: options,
@@ -61,7 +61,7 @@ func (b *AccessibilityBundle) LocatorForWindow(windowID string, selector accessi
 // LocatorForApplication creates a locator rooted in an application selected
 // by authoritative accessibility identity. Ambiguous application filters fail
 // before selector matching.
-func (b *AccessibilityBundle) LocatorForApplication(filter accessibility.ApplicationFilter, selector accessibility.Selector, options accessibility.SnapshotOptions) *AccessibilityLocator {
+func (b *accessibilityState) LocatorForApplication(filter accessibility.ApplicationFilter, selector accessibility.Selector, options accessibility.SnapshotOptions) *AccessibilityLocator {
 	return &AccessibilityLocator{
 		bundle: b, scope: locatorScope{kind: locatorApplicationScope, application: filter},
 		selector: cloneSelector(selector), options: options,
@@ -632,7 +632,7 @@ func (l *AccessibilityLocator) waitForState(
 	haveTarget := false
 	var baseline *accessibilityWaitValue
 
-	condition := sessionCondition("accessibility locator "+string(state), func(ctx context.Context, _ *Session) (bool, error) {
+	condition := sessionCondition("accessibility locator "+string(state), func(ctx context.Context, _ *sessionCore) (bool, error) {
 		var pinnedTarget *accessibility.NodeID
 		if haveTarget && state != AccessibilityWaitAbsent {
 			pinnedTarget = &targetID

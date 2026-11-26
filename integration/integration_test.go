@@ -18,15 +18,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/executil"
-	"github.com/nskaggs/perfuncted/internal/x11test"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type displayMode string
@@ -460,7 +460,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 	// Give the editor a moment to fully focus before typing.
 	time.Sleep(1 * time.Second)
-	if err := session.Input.Type(context.Background(), "session test"); err != nil {
+	if err := session.Input().Type(context.Background(), "session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -538,7 +538,7 @@ func compositorKind(rt env.Runtime) string {
 func runScreenSmoke(t *testing.T, s *suite) {
 	t.Helper()
 	ctx := context.Background()
-	w, h, err := s.pf.Screen.Resolution(ctx)
+	w, h, err := s.pf.Screen().Resolution(ctx)
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
@@ -547,40 +547,40 @@ func runScreenSmoke(t *testing.T, s *suite) {
 	}
 
 	rect := image.Rect(0, 0, min(w, 200), min(h, 200))
-	img, err := s.pf.Screen.Grab(ctx, rect)
+	img, err := s.pf.Screen().Grab(ctx, rect)
 	if err != nil {
 		t.Fatalf("grab: %v", err)
 	}
-	if _, err := s.pf.Screen.GrabRegionHash(ctx, rect); err != nil {
+	if _, err := s.pf.Screen().GrabRegionHash(ctx, rect); err != nil {
 		t.Fatalf("grab hash: %v", err)
 	}
 	// Grab hash of full screen
 	fullScreenRect := image.Rect(0, 0, w, h)
-	if _, err := s.pf.Screen.GrabRegionHash(ctx, fullScreenRect); err != nil {
+	if _, err := s.pf.Screen().GrabRegionHash(ctx, fullScreenRect); err != nil {
 		t.Fatalf("grab full hash: %v", err)
 	}
 
 	tmp := filepath.Join(t.TempDir(), "capture.png")
-	if err := s.pf.Screen.CaptureRegion(ctx, rect, tmp); err != nil {
+	if err := s.pf.Screen().CaptureRegion(ctx, rect, tmp); err != nil {
 		t.Fatalf("capture region: %v", err)
 	}
 	if _, err := os.Stat(tmp); err != nil {
 		t.Fatalf("capture region output missing: %v", err)
 	}
-	if _, err := s.pf.Screen.GetPixel(ctx, rect.Min.X, rect.Min.Y); err != nil {
+	if _, err := s.pf.Screen().GetPixel(ctx, rect.Min.X, rect.Min.Y); err != nil {
 		t.Fatalf("get pixel: %v", err)
 	}
-	if _, err := s.pf.Screen.GetMultiplePixels(ctx, []image.Point{{rect.Min.X, rect.Min.Y}}); err != nil {
+	if _, err := s.pf.Screen().GetMultiplePixels(ctx, []image.Point{{rect.Min.X, rect.Min.Y}}); err != nil {
 		t.Fatalf("get multiple pixels: %v", err)
 	}
 
 	ctxWait, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if _, err := s.pf.Screen.WaitForFn(ctxWait, rect, func(_ context.Context, i image.Image) bool { return i != nil }, 100*time.Millisecond); err != nil {
+	if _, err := s.pf.Screen().WaitForFn(ctxWait, rect, func(_ context.Context, i image.Image) bool { return i != nil }, 100*time.Millisecond); err != nil {
 		t.Fatalf("wait for fn: %v", err)
 	}
 
-	pt, err := s.pf.Screen.FindColor(ctx, rect, colorAt(img, rect.Min.X, rect.Min.Y), 0)
+	pt, err := s.pf.Screen().FindColor(ctx, rect, colorAt(img, rect.Min.X, rect.Min.Y), 0)
 	if err != nil {
 		t.Fatalf("find color: %v", err)
 	}
@@ -589,7 +589,7 @@ func runScreenSmoke(t *testing.T, s *suite) {
 	}
 
 	refRect := image.Rect(rect.Min.X, rect.Min.Y, min(rect.Min.X+20, rect.Max.X), min(rect.Min.Y+20, rect.Max.Y))
-	ref, err := s.pf.Screen.Grab(ctx, refRect)
+	ref, err := s.pf.Screen().Grab(ctx, refRect)
 	if err == nil {
 		// WaitWithTolerance is not exposed; skip advanced tolerance testing
 		_ = ref
@@ -612,12 +612,12 @@ func (v *Verifier) captureFailure(label string) {
 	v.t.Cleanup(func() { <-done })
 	go func() {
 		defer close(done)
-		w, h, err := v.pf.Screen.Resolution(ctx)
+		w, h, err := v.pf.Screen().Resolution(ctx)
 		if err != nil {
 			v.t.Logf("failed to resolve screen for failure capture: %v", err)
 			return
 		}
-		if err := v.pf.Screen.CaptureRegion(ctx, image.Rect(0, 0, w, h), path); err != nil {
+		if err := v.pf.Screen().CaptureRegion(ctx, image.Rect(0, 0, w, h), path); err != nil {
 			v.t.Logf("failed to capture screen snapshot on failure: %v", err)
 			return
 		}
@@ -628,8 +628,8 @@ func (v *Verifier) captureFailure(label string) {
 // VerifyStableRegion polls a region until it stabilizes, then performs a final validation grab.
 func (v *Verifier) VerifyStableRegion(ctx context.Context, label string, rect image.Rectangle) {
 	v.t.Helper()
-	_, waitErr := find.WaitForNoChange(ctx, v.pf.Screen, rect, 3, 100*time.Millisecond, nil)
-	if _, err := v.pf.Screen.Grab(ctx, rect); err != nil {
+	_, waitErr := find.WaitForNoChange(ctx, v.pf.Screen(), rect, 3, 100*time.Millisecond, nil)
+	if _, err := v.pf.Screen().Grab(ctx, rect); err != nil {
 		v.captureFailure(label)
 		v.t.Fatalf("%s: failed to grab region %v: %v", label, rect, err)
 	}
@@ -642,7 +642,7 @@ func (v *Verifier) VerifyStableRegion(ctx context.Context, label string, rect im
 // WaitForState blocks until a condition is met within a region.
 func (v *Verifier) WaitForState(ctx context.Context, label string, rect image.Rectangle, check func(context.Context, image.Image) bool) {
 	v.t.Helper()
-	if _, err := v.pf.Screen.WaitForFn(ctx, rect, check, 100*time.Millisecond); err != nil {
+	if _, err := v.pf.Screen().WaitForFn(ctx, rect, check, 100*time.Millisecond); err != nil {
 		v.captureFailure(label)
 		v.t.Fatalf("%s: condition not met within timeout: %v", label, err)
 	}
@@ -684,7 +684,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if _, err := waitForWindow(s.pf, docName, 20*time.Second); err != nil {
 		t.Fatalf("wait for %s document title %q: %v", app.name, docName, err)
 	}
-	active, err := s.pf.Windows.ActiveTitle(ctx)
+	active, err := s.pf.Windows().ActiveTitle(ctx)
 	if err != nil {
 		t.Fatalf("active title: %v", err)
 	}
@@ -705,7 +705,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if rect.Empty() {
 		t.Fatal("geometry returned empty rect")
 	}
-	screenW, screenH, err := s.pf.Screen.Resolution(ctx)
+	screenW, screenH, err := s.pf.Screen().Resolution(ctx)
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
@@ -735,7 +735,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	defer cancelFocus()
 	verify.VerifyStableRegion(ctxFocus, "post-focus", typingRect)
 
-	if err := s.pf.Input.Type(ctx, "Integration"); err != nil {
+	if err := s.pf.Input().Type(ctx, "Integration"); err != nil {
 		t.Fatalf("text entry: %v", err)
 	}
 	// XTEST types only symbols in the active X keymap. Test literal shortcut
@@ -759,13 +759,13 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	defer cancelType()
 	verify.VerifyStableRegion(ctxType, "post-typing", typingRect)
 
-	if _, err := s.pf.Screen.GrabRegionHash(ctx, captureRect); err != nil {
+	if _, err := s.pf.Screen().GrabRegionHash(ctx, captureRect); err != nil {
 		t.Fatalf("grab hash: %v", err)
 	}
-	if _, err := s.pf.Screen.GetMultiplePixels(ctx, []image.Point{{captureRect.Min.X, captureRect.Min.Y}, {captureRect.Min.X + 1, captureRect.Min.Y + 1}}); err != nil {
+	if _, err := s.pf.Screen().GetMultiplePixels(ctx, []image.Point{{captureRect.Min.X, captureRect.Min.Y}, {captureRect.Min.X + 1, captureRect.Min.Y + 1}}); err != nil {
 		t.Fatalf("get multiple pixels: %v", err)
 	}
-	if _, err := s.pf.Screen.GetPixel(ctx, captureRect.Min.X, captureRect.Min.Y); err != nil {
+	if _, err := s.pf.Screen().GetPixel(ctx, captureRect.Min.X, captureRect.Min.Y); err != nil {
 		t.Fatalf("get pixel: %v", err)
 	}
 	// Use a tiny 10x10 region at the center of the window for pixel
@@ -774,13 +774,13 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	cx := rect.Min.X + rect.Dx()/2
 	cy := rect.Min.Y + rect.Dy()/2
 	tinyRect := image.Rect(cx-5, cy-5, cx+5, cy+5)
-	tinyImg, err := s.pf.Screen.Grab(ctx, tinyRect)
+	tinyImg, err := s.pf.Screen().Grab(ctx, tinyRect)
 	if err != nil {
 		t.Fatalf("grab tiny rect: %v", err)
 	}
 	scanCtx, scanCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer scanCancel()
-	if _, err := s.pf.Screen.ScanFor(scanCtx, []image.Rectangle{tinyRect}, []uint32{find.PixelHash(tinyImg, nil)}, 100*time.Millisecond); err != nil {
+	if _, err := s.pf.Screen().ScanFor(scanCtx, []image.Rectangle{tinyRect}, []uint32{find.PixelHash(tinyImg, nil)}, 100*time.Millisecond); err != nil {
 		t.Fatalf("scan for: %v", err)
 	}
 
@@ -795,14 +795,14 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	ctxPaste, cancelPaste := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelPaste()
 	verify.VerifyStableRegion(ctxPaste, "post-paste", typingRect)
-	if got, err := s.pf.Clipboard.Get(ctx); err != nil || got != marker {
+	if got, err := s.pf.Clipboard().Get(ctx); err != nil || got != marker {
 		t.Fatalf("clipboard get after paste = %q, %v", got, err)
 	}
 
 	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate before save: %v", err)
 	}
-	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("ctrl+s: %v", err)
 	}
 	savedText, err := waitForFileContains(context.Background(), saveFile, "Integration", 10*time.Second)
@@ -842,7 +842,7 @@ func exerciseEditorAccessibility(t *testing.T, s *suite, info window.Info, app a
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	scope, err := s.pf.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: info.NativeID, Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active})
+	scope, err := s.pf.Accessibility().AccessibilityWindow(ctx, accessibility.WindowTarget{ID: info.NativeID, Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active})
 	if err != nil {
 		if errors.Is(err, accessibility.ErrNotFound) || errors.Is(err, accessibility.ErrUnsupported) || errors.Is(err, accessibility.ErrDisconnected) || isAccessibilityTemporarilyUnavailable(err) {
 			t.Logf("AT-SPI window correlation unavailable for %s: %v", app.name, err)
@@ -850,29 +850,29 @@ func exerciseEditorAccessibility(t *testing.T, s *suite, info window.Info, app a
 		}
 		t.Fatalf("AT-SPI window correlation for %s: %v", app.name, err)
 	}
-	snapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
+	snapshot, err := s.pf.Accessibility().Snapshot(ctx, scope.Root, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
 	if err != nil {
 		t.Fatalf("AT-SPI %s scoped snapshot: %v", app.name, err)
 	}
 	if snapshot.Root.ID != scope.Root || snapshot.Generation != scope.Root.Generation {
 		t.Fatalf("AT-SPI %s scope generation/root mismatch: scope=%+v snapshot=%+v", app.name, scope, snapshot)
 	}
-	entries, err := s.pf.Accessibility.Find(ctx, scope.Root, accessibility.Query{Role: "text"}, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
+	entries, err := s.pf.Accessibility().Find(ctx, scope.Root, accessibility.Query{Role: "text"}, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
 	if err != nil || len(entries) == 0 {
-		entries, err = s.pf.Accessibility.Find(ctx, scope.Root, accessibility.Query{Role: "entry"}, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
+		entries, err = s.pf.Accessibility().Find(ctx, scope.Root, accessibility.Query{Role: "entry"}, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024})
 	}
 	if err != nil || len(entries) == 0 {
 		t.Logf("AT-SPI %s exposes no editable text node (mutation skipped): %v", app.name, err)
 		return
 	}
 	entry := entries[0]
-	if err := s.pf.Accessibility.FocusNode(ctx, entry.ID); err != nil && !errors.Is(err, accessibility.ErrUnsupported) && !errors.Is(err, accessibility.ErrMutationRejected) && !errors.Is(err, accessibility.ErrDisconnected) && !isAccessibilityTemporarilyUnavailable(err) {
+	if err := s.pf.Accessibility().FocusNode(ctx, entry.ID); err != nil && !errors.Is(err, accessibility.ErrUnsupported) && !errors.Is(err, accessibility.ErrMutationRejected) && !errors.Is(err, accessibility.ErrDisconnected) && !isAccessibilityTemporarilyUnavailable(err) {
 		t.Fatalf("AT-SPI %s focus: %v", app.name, err)
 	} else if err != nil {
 		t.Logf("AT-SPI %s focus not completed: %v", app.name, err)
 	}
 	marker := "AT-SPI-" + app.name
-	if err := s.pf.Accessibility.ReplaceEditableText(ctx, entry.ID, marker); err != nil {
+	if err := s.pf.Accessibility().ReplaceEditableText(ctx, entry.ID, marker); err != nil {
 		if errors.Is(err, accessibility.ErrUnsupported) || errors.Is(err, accessibility.ErrMutationRejected) || errors.Is(err, accessibility.ErrDisconnected) || isAccessibilityTemporarilyUnavailable(err) {
 			t.Logf("AT-SPI %s editable mutation skipped: %v", app.name, err)
 			return
@@ -880,7 +880,7 @@ func exerciseEditorAccessibility(t *testing.T, s *suite, info window.Info, app a
 		t.Fatalf("AT-SPI %s editable mutation: %v", app.name, err)
 	}
 	updated, err := retryChangedSnapshot(ctx, func() (accessibility.Snapshot, error) {
-		return s.pf.Accessibility.Snapshot(ctx, scope.Root, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024, Fresh: true})
+		return s.pf.Accessibility().Snapshot(ctx, scope.Root, accessibility.SnapshotOptions{MaxDepth: 12, MaxNodes: 2048, MaxTextBytes: 1024, Fresh: true})
 	})
 	if err != nil {
 		if errors.Is(err, accessibility.ErrStaleGeneration) || errors.Is(err, accessibility.ErrStaleNode) || errors.Is(err, accessibility.ErrDisconnected) || isAccessibilityTemporarilyUnavailable(err) || strings.Contains(strings.ToLower(err.Error()), "generation") {
@@ -981,20 +981,20 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("activate browser: %v", err)
 	}
 
-	if err := s.pf.Input.Type(ctx, "{ctrl+l}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{ctrl+l}"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
 	if err := s.pf.Paste(ctx, "about:support"); err != nil {
 		t.Fatalf("type address: %v", err)
 	}
-	if err := s.pf.Input.Type(ctx, "{enter}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{enter}"); err != nil {
 		t.Fatalf("return: %v", err)
 	}
 
 	rect := image.Rect(0, 0, 100, 100)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if _, err := find.WaitForNoChange(ctx, s.pf.Screen, rect, 3, 500*time.Millisecond, nil); err != nil {
+	if _, err := find.WaitForNoChange(ctx, s.pf.Screen(), rect, 3, 500*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for stable: %v", err)
 	}
 }
@@ -1037,7 +1037,7 @@ func findWindowHandle(
 	ctx context.Context,
 	pattern string,
 ) (*perfuncted.Window, error) {
-	return pf.Windows.Find(
+	return pf.Windows().Find(
 		ctx,
 		perfuncted.WindowMatch{TitleContains: pattern},
 	)
@@ -1117,7 +1117,7 @@ func listWindowInfos(
 	pf *perfuncted.Session,
 	ctx context.Context,
 ) ([]window.Info, error) {
-	handles, err := pf.Windows.List(ctx, perfuncted.WindowMatch{})
+	handles, err := pf.Windows().List(ctx, perfuncted.WindowMatch{})
 	if err != nil {
 		return nil, err
 	}
@@ -1139,7 +1139,7 @@ func waitForWindow(
 ) (window.Info, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	target, err := pf.Windows.Wait(
+	target, err := pf.Windows().Wait(
 		ctx,
 		perfuncted.WindowMatch{TitleContains: pattern},
 		perfuncted.WaitEvery(500*time.Millisecond),

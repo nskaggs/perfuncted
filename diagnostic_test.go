@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/png"
 	"os"
@@ -69,7 +70,7 @@ func TestDiagnosticArtifactsRejectBackendTransportFailureAndRecover(t *testing.T
 	screen := &failingDiagnosticScreenshotBackend{syntheticMalformedScreenshotter: syntheticMalformedScreenshotter{frame: image.NewRGBA(image.Rect(0, 0, 2, 2))}, failure: failure}
 	windows := &failingDiagnosticWindowBackend{handleWindowManager: newHandleWindowManager(window.Info{NativeID: "recovered", Title: "recovered title"}), failure: failure}
 	outputs := &failingDiagnosticOutputBackend{failure: failure}
-	session := NewSessionForTesting(screen, nil, windows, outputs, nil)
+	session := newSessionForTesting(screen, nil, windows, outputs, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	dir := t.TempDir()
 	for _, tc := range []struct {
@@ -140,7 +141,7 @@ func TestDiagnosticAtomicReplacementPreservesPermissionsAndCompleteBytes(t *test
 		t.Fatal(err)
 	}
 	payload := append([]byte("{\"revision\":\"new\"}\n"), bytes.Repeat([]byte("x"), 256*1024)...)
-	if err := writeAtomic(target, payload, 0o600); err != nil {
+	if err := diagnostic.WriteAtomic(target, payload, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(target)
@@ -171,8 +172,8 @@ func TestDiagnosticAtomicRenameFailurePreservesTargetAndReapsStaging(t *testing.
 	if err := os.WriteFile(marker, []byte("untouched"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeAtomic(target, []byte("replacement"), 0o600); err == nil {
-		t.Fatal("writeAtomic replaced an existing directory")
+	if err := diagnostic.WriteAtomic(target, []byte("replacement"), 0o600); err == nil {
+		t.Fatal("diagnostic.WriteAtomic replaced an existing directory")
 	}
 	got, err := os.ReadFile(marker)
 	if err != nil || string(got) != "untouched" {
@@ -191,7 +192,7 @@ func TestDiagnosticPNGFailedDestinationPreservesOriginalAndCleansStaging(t *test
 	if err := os.WriteFile(marker, []byte("untouched"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePNG(target, image.NewRGBA(image.Rect(0, 0, 2, 2))); err == nil {
+	if err := diagnostic.WritePNG(target, image.NewRGBA(image.Rect(0, 0, 2, 2))); err == nil {
 		t.Fatal("PNG replaced an existing directory")
 	}
 	got, err := os.ReadFile(marker)
@@ -199,7 +200,7 @@ func TestDiagnosticPNGFailedDestinationPreservesOriginalAndCleansStaging(t *test
 		t.Fatalf("existing target mutated: %q %v", got, err)
 	}
 	assertNoDiagnosticTemporaryArtifacts(t, dir)
-	if err := writePNG(filepath.Join(dir, "screen.png"), image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+	if err := diagnostic.WritePNG(filepath.Join(dir, "screen.png"), image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
 	file, err := os.Open(filepath.Join(dir, "screen.png"))
@@ -223,14 +224,14 @@ func TestDiagnosticPNGFailedDestinationPreservesOriginalAndCleansStaging(t *test
 func TestDiagnosticAtomicMissingDirectoryNeverCreatesTarget(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "missing", "manifest.json")
-	if err := writeAtomic(target, []byte("secret"), 0o600); !os.IsNotExist(err) {
-		t.Fatalf("writeAtomic to missing dir: %v", err)
+	if err := diagnostic.WriteAtomic(target, []byte("secret"), 0o600); !os.IsNotExist(err) {
+		t.Fatalf("diagnostic.WriteAtomic to missing dir: %v", err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("unexpected partial target: %v", err)
 	}
-	if err := writePNG(filepath.Join(dir, "missing", "screen.png"), image.NewRGBA(image.Rect(0, 0, 1, 1))); !os.IsNotExist(err) {
-		t.Fatalf("writePNG to missing dir: %v", err)
+	if err := diagnostic.WritePNG(filepath.Join(dir, "missing", "screen.png"), image.NewRGBA(image.Rect(0, 0, 1, 1))); !os.IsNotExist(err) {
+		t.Fatalf("diagnostic.WritePNG to missing dir: %v", err)
 	}
 	assertNoDiagnosticTemporaryArtifacts(t, dir)
 }
@@ -247,7 +248,7 @@ func (s *cancelingDiagnosticScreen) Grab(ctx context.Context, rect image.Rectang
 }
 
 func TestFailureBundlePreCanceledCaptureNeverCreatesDiagnosticArtifacts(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	directory := filepath.Join(t.TempDir(), "cancelled-private-diagnostics")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -265,7 +266,7 @@ func TestDiagnosticScreenshotDoesNotWriteLateCanceledSensitivePixels(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend := &cancelingDiagnosticScreen{captureTestScreenshotter: &captureTestScreenshotter{img: image.NewRGBA(image.Rect(0, 0, 4, 4))}, cancel: cancel}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	defer session.Close()
 	directory := t.TempDir()
 	err := session.captureScreenshot(ctx, directory)
@@ -314,18 +315,18 @@ func (*cancelingDiagnosticOutputLister) Close() error { return nil }
 func TestDiagnosticWindowAndOutputArtifactsRejectLateCancelledBackendData(t *testing.T) {
 	for _, tc := range []struct {
 		name, file string
-		fixture    func(context.CancelFunc) *Session
-		capture    func(*Session, context.Context, string) error
+		fixture    func(context.CancelFunc) *sessionCore
+		capture    func(*sessionCore, context.Context, string) error
 	}{
-		{"windows", "windows.json", func(cancel context.CancelFunc) *Session {
-			return NewSessionForTesting(nil, nil, &cancelingDiagnosticWindowManager{cancel: cancel}, nil, nil)
-		}, (*Session).captureWindows},
-		{"active title", "active-window.json", func(cancel context.CancelFunc) *Session {
-			return NewSessionForTesting(nil, nil, &cancelingDiagnosticWindowManager{cancel: cancel}, nil, nil)
-		}, (*Session).captureActiveWindow},
-		{"outputs", "outputs.json", func(cancel context.CancelFunc) *Session {
-			return NewSessionForTesting(nil, nil, nil, &cancelingDiagnosticOutputLister{cancel: cancel}, nil)
-		}, (*Session).captureOutputs},
+		{"windows", "windows.json", func(cancel context.CancelFunc) *sessionCore {
+			return newSessionForTesting(nil, nil, &cancelingDiagnosticWindowManager{cancel: cancel}, nil, nil)
+		}, (*sessionCore).captureWindows},
+		{"active title", "active-window.json", func(cancel context.CancelFunc) *sessionCore {
+			return newSessionForTesting(nil, nil, &cancelingDiagnosticWindowManager{cancel: cancel}, nil, nil)
+		}, (*sessionCore).captureActiveWindow},
+		{"outputs", "outputs.json", func(cancel context.CancelFunc) *sessionCore {
+			return newSessionForTesting(nil, nil, nil, &cancelingDiagnosticOutputLister{cancel: cancel}, nil)
+		}, (*sessionCore).captureOutputs},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -350,17 +351,17 @@ func TestDiagnosticArtifactCaptureDoesNotCallProviderAfterCancellation(t *testin
 	screenshot := &captureTestScreenshotter{img: image.NewRGBA(image.Rect(0, 0, 1, 1))}
 	windowManager := &cancelingDiagnosticWindowManager{cancel: func() {}}
 	outputs := &cancelingDiagnosticOutputLister{cancel: func() {}}
-	session := NewSessionForTesting(screenshot, nil, windowManager, outputs, nil)
+	session := newSessionForTesting(screenshot, nil, windowManager, outputs, nil)
 	defer session.Close()
 	directory := t.TempDir()
 	for _, tc := range []struct {
 		name    string
-		capture func(*Session, context.Context, string) error
+		capture func(*sessionCore, context.Context, string) error
 	}{
-		{"screenshot", (*Session).captureScreenshot},
-		{"window list", (*Session).captureWindows},
-		{"active title", (*Session).captureActiveWindow},
-		{"outputs", (*Session).captureOutputs},
+		{"screenshot", (*sessionCore).captureScreenshot},
+		{"window list", (*sessionCore).captureWindows},
+		{"active title", (*sessionCore).captureActiveWindow},
+		{"outputs", (*sessionCore).captureOutputs},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.capture(session, ctx, directory); !errors.Is(err, context.Canceled) {
@@ -404,24 +405,24 @@ func TestAccessibilityFailureDiagnosticClassifiesApplicationScopeWithoutIdentity
 // Diagnostic metadata is bounded before it is exposed to callers. Empty
 // collections stay absent rather than becoming an allocated empty list.
 func TestDiagnosticLabelsBoundedUnicodeAndEmptyContract(t *testing.T) {
-	if labels := diagnosticLabels(nil); labels != nil {
+	if labels := diagnostic.Labels(nil); labels != nil {
 		t.Fatalf("nil diagnostic labels must remain nil: %#v", labels)
 	}
-	if labels := diagnosticLabels([]string{}); labels != nil {
+	if labels := diagnostic.Labels([]string{}); labels != nil {
 		t.Fatalf("empty diagnostic labels must remain nil: %#v", labels)
 	}
 
-	long := strings.Repeat("界", maxDiagnosticLabelBytes)
-	values := make([]string, maxDiagnosticListItems+5)
+	long := strings.Repeat("界", diagnostic.MaxLabelBytes)
+	values := make([]string, diagnostic.MaxListItems+5)
 	for i := range values {
 		values[i] = long
 	}
-	labels := diagnosticLabels(values)
-	if len(labels) != maxDiagnosticListItems {
-		t.Fatalf("diagnostic list size = %d, want %d", len(labels), maxDiagnosticListItems)
+	labels := diagnostic.Labels(values)
+	if len(labels) != diagnostic.MaxListItems {
+		t.Fatalf("diagnostic list size = %d, want %d", len(labels), diagnostic.MaxListItems)
 	}
 	for i, label := range labels {
-		if len(label) > maxDiagnosticLabelBytes || !utf8.ValidString(label) || label != strings.Repeat("界", maxDiagnosticLabelBytes/len("界")) {
+		if len(label) > diagnostic.MaxLabelBytes || !utf8.ValidString(label) || label != strings.Repeat("界", diagnostic.MaxLabelBytes/len("界")) {
 			t.Fatalf("label %d improperly truncated: %q (%d bytes)", i, label, len(label))
 		}
 	}
@@ -489,7 +490,7 @@ func TestDiagnosticWriteAtomicReplacesSymlinkWithoutTouchingForeignFile(t *testi
 	if err := os.Symlink(foreign, path); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeAtomic(path, []byte("private diagnostic"), 0600); err != nil {
+	if err := diagnostic.WriteAtomic(path, []byte("private diagnostic"), 0600); err != nil {
 		t.Fatalf("atomic manifest replacement: %v", err)
 	}
 	got, err := os.ReadFile(foreign)
@@ -513,7 +514,7 @@ func TestDiagnosticWriteAtomicReplacesSymlinkWithoutTouchingForeignFile(t *testi
 func TestDiagnosticWriteAtomicFailsClosedWithoutWritableParent(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "absent", "manifest.json")
-	if err := writeAtomic(missing, []byte("private"), 0600); !errors.Is(err, os.ErrNotExist) {
+	if err := diagnostic.WriteAtomic(missing, []byte("private"), 0600); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing parent returned %v", err)
 	}
 	if _, err := os.Stat(missing); !os.IsNotExist(err) {
@@ -527,7 +528,7 @@ func TestDiagnosticWriteAtomicFailsClosedWithoutWritableParent(t *testing.T) {
 
 func TestDiagnosticWritePNGRejectsMissingParentAndDoesNotWriteOutsideBundle(t *testing.T) {
 	dir := t.TempDir()
-	err := writePNG(filepath.Join(dir, "missing", "screen.png"), nil)
+	err := diagnostic.WritePNG(filepath.Join(dir, "missing", "screen.png"), nil)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing screenshot directory returned %v", err)
 	}
@@ -543,7 +544,7 @@ func TestDiagnosticWritePNGRejectsMissingParentAndDoesNotWriteOutsideBundle(t *t
 // Bundle creation can happen after a failed UI interaction and must never
 // write diagnostic material outside the requested directory.
 func TestFailureBundleRejectsUnwritableExplicitDestinationBeforeCollecting(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	root := t.TempDir()
 	blocker := filepath.Join(root, "file-not-directory")
@@ -563,7 +564,7 @@ func TestFailureBundleRejectsUnwritableExplicitDestinationBeforeCollecting(t *te
 }
 
 func TestFailureBundleRejectsUnavailableAutomaticTempDirectory(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	inaccessible := filepath.Join(t.TempDir(), "missing-temp-directory")
 	t.Setenv("TMPDIR", inaccessible)
@@ -623,7 +624,7 @@ func TestDiagnosticFailureCategoriesDeduplicateAndSortDeterministically(t *testi
 // diagnostics must serialize it as [] rather than null, without inventing
 // actions, and must not include the file when receipts were not requested.
 func TestFailureDiagnosticSerializesEmptyInputReceiptsAsArray(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	dir := t.TempDir()
 	manifest := &failureManifest{ArtifactErrors: make(map[string]string)}
@@ -661,7 +662,7 @@ func TestDiagnosticScreenshotRejectsTruncatedPixelBufferWithoutOverwriting(t *te
 		{"Gray", &image.Gray{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: tc.frame}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: tc.frame}, nil, nil, nil, nil)
 			defer session.Close()
 			dir := t.TempDir()
 			path := filepath.Join(dir, "screenshot.png")
@@ -688,7 +689,7 @@ func TestDiagnosticScreenshotRejectsTruncatedPixelBufferWithoutOverwriting(t *te
 // be returned even when earlier artifacts succeeded. The atomic writer must
 // not replace an existing directory or leave private staging files behind.
 func TestFailureBundleManifestPublicationFailurePreservesCompletedArtifacts(t *testing.T) {
-	s := NewSessionForTesting(nil, nil, nil, nil, nil)
+	s := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer s.Close()
 	directory := t.TempDir()
 	blocked := filepath.Join(directory, "manifest.json")
@@ -718,12 +719,12 @@ func TestFailureBundleManifestPublicationFailurePreservesCompletedArtifacts(t *t
 // when they request an explicit directory that has not yet been created.
 func TestFailureBundleNilSessionAndContextCannotCreateArtifacts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "uncreated")
-	var absent *Session
+	var absent *sessionCore
 	got, err := absent.CaptureFailureBundle(context.Background(), FailureBundleOptions{Directory: path})
 	if got != "" || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil session returned path=%q err=%v", got, err)
 	}
-	s := NewSessionForTesting(nil, nil, nil, nil, nil)
+	s := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer s.Close()
 	got, err = s.CaptureFailureBundle(nil, FailureBundleOptions{Directory: path})
 	if got != "" || !errors.Is(err, ErrInvalidArgument) {
@@ -747,7 +748,7 @@ func TestDiagnosticPNGWriterRejectsAbsentImagesWithoutPanicking(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "capture.png")
-			if err := writePNG(path, tc.img); err == nil {
+			if err := diagnostic.WritePNG(path, tc.img); err == nil {
 				t.Fatal("missing screenshot accepted")
 			}
 			if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -768,7 +769,7 @@ func TestDiagnosticPNGEncodingRejectsZeroSizedImageAndCleansStaging(t *testing.T
 		t.Run(rect.String(), func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "screen.png")
-			err := writePNG(path, image.NewRGBA(rect))
+			err := diagnostic.WritePNG(path, image.NewRGBA(rect))
 			if err == nil || !strings.Contains(err.Error(), "invalid image size") {
 				t.Fatalf("zero-pixel screenshot unexpectedly encoded: %v", err)
 			}
@@ -790,7 +791,7 @@ func TestDiagnosticPNGEncodeFailureLeavesExistingScreenshotAndNoTempFiles(t *tes
 	if err := os.WriteFile(target, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePNG(target, image.NewRGBA(image.Rectangle{})); err == nil {
+	if err := diagnostic.WritePNG(target, image.NewRGBA(image.Rectangle{})); err == nil {
 		t.Fatal("empty image accepted as diagnostic PNG")
 	}
 	data, err := os.ReadFile(target)
@@ -805,7 +806,7 @@ func TestDiagnosticPNGEncodeFailureLeavesExistingScreenshotAndNoTempFiles(t *tes
 func TestDiagnosticCaptureRejectsPreCanceledRequestWithoutFiles(t *testing.T) {
 	manager := newHandleWindowManager()
 	source := syntheticMalformedScreenshotter{frame: image.NewRGBA(image.Rect(0, 0, 2, 2))}
-	session := NewSessionForTesting(source, nil, manager, nil, nil)
+	session := newSessionForTesting(source, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -841,7 +842,7 @@ func TestDiagnosticCaptureRejectsPreCanceledRequestWithoutFiles(t *testing.T) {
 
 func TestTimeoutProvenanceTracksExplicitAndDefaultFields(t *testing.T) {
 	configured := TimeoutPolicy{Medium: 17 * time.Second}
-	session := &Session{
+	session := &sessionCore{
 		config:          SessionConfig{Timeouts: configured.WithDefaults()},
 		timeoutInput:    configured,
 		hasTimeoutInput: true,
@@ -865,7 +866,7 @@ func TestTimeoutProvenanceTracksExplicitAndDefaultFields(t *testing.T) {
 // Diagnostic collection is best-effort. An untrusted capture backend returning
 // a typed nil image must produce an artifact error, not crash collection.
 func TestDiagnosticScreenshotRejectsTypedNilWithoutPublishingArtifact(t *testing.T) {
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: (*image.RGBA)(nil)}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: (*image.RGBA)(nil)}, nil, nil, nil, nil)
 	defer session.Close()
 	dir := t.TempDir()
 	err := session.captureScreenshot(context.Background(), dir)
@@ -939,8 +940,8 @@ func TestStartupCapabilityPhaseUsesFixedVocabulary(t *testing.T) {
 
 // An absent clipboard facade is not an authorization to inspect the desktop.
 func TestNilClipboardFacadeCannotPassAvailabilityGate(t *testing.T) {
-	var clipboard *ClipboardBundle
-	if err := clipboard.checkAvailable("get"); !errors.Is(err, ErrNilSession) {
+	var clipboard *clipboardState
+	if err := clipboard.CheckAvailable("get"); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil clipboard availability: %v, want ErrNilSession", err)
 	}
 }
@@ -957,7 +958,7 @@ func TestDiagnosticBuildInfoRedactsExplicitGoWorkspacePath(t *testing.T) {
 	} {
 		t.Run(tc.want+"-"+strings.ReplaceAll(tc.value, "/", "_"), func(t *testing.T) {
 			t.Setenv("GOWORK", tc.value)
-			info := currentBuildInfo()
+			info := diagnostic.CurrentBuildInfo()
 			if info.WorkspaceMode != tc.want {
 				t.Fatalf("workspace mode=%q, want %q", info.WorkspaceMode, tc.want)
 			}

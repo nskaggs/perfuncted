@@ -6,7 +6,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // Tracker is a zero-value-ready operation owner. One owner admits operations,

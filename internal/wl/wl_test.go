@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"io"
 	"math"
 	"net"

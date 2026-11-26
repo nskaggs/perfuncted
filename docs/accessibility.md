@@ -54,13 +54,13 @@ the action and declare the required screen capability so unavailable screen
 observation fails before dispatch:
 
 ```go
-baseline, err := session.Screen.GrabRegionHash(ctx, region)
+baseline, err := session.Screen().GrabRegionHash(ctx, region)
 if err != nil {
     return err
 }
 screenChanged := perfuncted.WithConditionCapabilities(
     perfuncted.Predicate("screen region changed", func(ctx context.Context) (bool, error) {
-        current, err := session.Screen.GrabRegionHash(ctx, region)
+        current, err := session.Screen().GrabRegionHash(ctx, region)
         return current != baseline, err
     }),
     perfuncted.CapabilityScreen,
@@ -77,7 +77,7 @@ their own observation capabilities. Caller-defined conditions should use
 The Go API uses the same bounded wait engine:
 
 ```go
-locator := session.Accessibility.LocatorForApplication(
+locator := session.Accessibility().LocatorForApplication(
     accessibility.ApplicationFilter{Name: "Editor"},
     accessibility.Selector{Role: "button", Name: "Save"},
     accessibility.SnapshotOptions{},

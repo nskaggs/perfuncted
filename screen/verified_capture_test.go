@@ -5,7 +5,7 @@ import (
 	"image"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/v2/find"
 )
 
 func TestVerifiedPhysicalRectRequiresCompleteFrameCoverage(t *testing.T) {

@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionregistry"
 
 	"context"
 	"errors"
@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
 )
 
 func TestWorkflowControlHeadlessWayland(t *testing.T) {

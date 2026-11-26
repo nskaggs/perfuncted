@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/capability"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
-	"github.com/nskaggs/perfuncted/internal/testutil"
-	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"go.uber.org/goleak"
 	"image"
 	"iter"
@@ -75,27 +75,27 @@ func (b *cancelingCoreActiveTitleRead) ActiveTitle(context.Context) (string, err
 func TestCoreDesktopReadsDiscardLateCanceledResults(t *testing.T) {
 	t.Run("screen image", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		session := NewSessionForTesting(&cancelingCoreScreenRead{cancel: cancel}, nil, nil, nil, nil)
+		session := newSessionForTesting(&cancelingCoreScreenRead{cancel: cancel}, nil, nil, nil, nil)
 		t.Cleanup(func() { _ = session.Close() })
-		img, err := session.Screen.Grab(ctx, image.Rectangle{})
+		img, err := session.screen.Grab(ctx, image.Rectangle{})
 		if !errors.Is(err, context.Canceled) || img != nil {
 			t.Fatalf("canceled screen returned %T err=%v", img, err)
 		}
 	})
 	t.Run("outputs", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		session := NewSessionForTesting(nil, nil, nil, &cancelingCoreOutputRead{cancel: cancel}, nil)
+		session := newSessionForTesting(nil, nil, nil, &cancelingCoreOutputRead{cancel: cancel}, nil)
 		t.Cleanup(func() { _ = session.Close() })
-		infos, err := session.Outputs.List(ctx)
+		infos, err := session.outputs.List(ctx)
 		if !errors.Is(err, context.Canceled) || len(infos) != 0 {
 			t.Fatalf("canceled outputs returned %+v err=%v", infos, err)
 		}
 	})
 	t.Run("clipboard text", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		session := NewSessionForTesting(nil, nil, nil, nil, &cancelingCoreClipboardRead{cancel: cancel})
+		session := newSessionForTesting(nil, nil, nil, nil, &cancelingCoreClipboardRead{cancel: cancel})
 		t.Cleanup(func() { _ = session.Close() })
-		text, err := session.Clipboard.Get(ctx)
+		text, err := session.clipboard.Get(ctx)
 		if !errors.Is(err, context.Canceled) || text != "" {
 			t.Fatalf("canceled clipboard returned %q err=%v", text, err)
 		}
@@ -103,9 +103,9 @@ func TestCoreDesktopReadsDiscardLateCanceledResults(t *testing.T) {
 	t.Run("active window title", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		manager := &cancelingCoreActiveTitleRead{handleWindowManager: newHandleWindowManager(window.Info{Title: "window"}), cancel: cancel}
-		session := NewSessionForTesting(nil, nil, manager, nil, nil)
+		session := newSessionForTesting(nil, nil, manager, nil, nil)
 		t.Cleanup(func() { _ = session.Close() })
-		title, err := session.Windows.ActiveTitle(ctx)
+		title, err := session.windows.ActiveTitle(ctx)
 		if !errors.Is(err, context.Canceled) || title != "" {
 			t.Fatalf("canceled active title returned %q err=%v", title, err)
 		}
@@ -117,9 +117,9 @@ func TestCoreDesktopReadsDiscardLateCanceledResults(t *testing.T) {
 func TestCoreScreenHashRejectsLateCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	screenshotter := &cancelingCoreScreenRead{cancel: cancel}
-	session := NewSessionForTesting(screenshotter, nil, nil, nil, nil)
+	session := newSessionForTesting(screenshotter, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	got, err := session.Screen.GrabFullHash(ctx)
+	got, err := session.screen.GrabFullHash(ctx)
 	if !errors.Is(err, context.Canceled) || got != 0 {
 		t.Fatalf("canceled screen hash returned %d, err=%v", got, err)
 	}
@@ -130,52 +130,52 @@ func TestCoreScreenHashRejectsLateCancellation(t *testing.T) {
 func TestCoreDesktopReadsDiscardResultsAfterSessionClose(t *testing.T) {
 	t.Run("screen", func(t *testing.T) {
 		backend := &cancelingCoreScreenRead{}
-		session := NewSessionForTesting(backend, nil, nil, nil, nil)
+		session := newSessionForTesting(backend, nil, nil, nil, nil)
 		backend.cancel = func() {
 			if err := session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		img, err := session.Screen.Grab(context.Background(), image.Rectangle{})
+		img, err := session.screen.Grab(context.Background(), image.Rectangle{})
 		if !errors.Is(err, ErrSessionClosed) || img != nil {
 			t.Fatalf("closed session exposed screen %T err=%v", img, err)
 		}
 	})
 	t.Run("output", func(t *testing.T) {
 		backend := &cancelingCoreOutputRead{}
-		session := NewSessionForTesting(nil, nil, nil, backend, nil)
+		session := newSessionForTesting(nil, nil, nil, backend, nil)
 		backend.cancel = func() {
 			if err := session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		items, err := session.Outputs.List(context.Background())
+		items, err := session.outputs.List(context.Background())
 		if !errors.Is(err, ErrSessionClosed) || len(items) != 0 {
 			t.Fatalf("closed session exposed outputs %+v err=%v", items, err)
 		}
 	})
 	t.Run("clipboard", func(t *testing.T) {
 		backend := &cancelingCoreClipboardRead{}
-		session := NewSessionForTesting(nil, nil, nil, nil, backend)
+		session := newSessionForTesting(nil, nil, nil, nil, backend)
 		backend.cancel = func() {
 			if err := session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		text, err := session.Clipboard.Get(context.Background())
+		text, err := session.clipboard.Get(context.Background())
 		if !errors.Is(err, ErrSessionClosed) || text != "" {
 			t.Fatalf("closed session exposed clipboard %q err=%v", text, err)
 		}
 	})
 	t.Run("window title", func(t *testing.T) {
 		backend := &cancelingCoreActiveTitleRead{handleWindowManager: newHandleWindowManager()}
-		session := NewSessionForTesting(nil, nil, backend, nil, nil)
+		session := newSessionForTesting(nil, nil, backend, nil, nil)
 		backend.cancel = func() {
 			if err := session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		title, err := session.Windows.ActiveTitle(context.Background())
+		title, err := session.windows.ActiveTitle(context.Background())
 		if !errors.Is(err, ErrSessionClosed) || title != "" {
 			t.Fatalf("closed session exposed title %q err=%v", title, err)
 		}
@@ -185,11 +185,11 @@ func TestCoreDesktopReadsDiscardResultsAfterSessionClose(t *testing.T) {
 // Public facade methods must reject an absent session without touching a
 // display, spawning a process, or panicking on embedded bundleBase access.
 func TestCoreFacadeMethodsFailClosedOnNilReceivers(t *testing.T) {
-	var in *InputBundle
-	var sc *ScreenBundle
-	var win *WindowBundle
-	var out *OutputBundle
-	var cb *ClipboardBundle
+	var in InputBundle
+	var sc ScreenBundle
+	var win WindowBundle
+	var out *outputState
+	var cb *clipboardState
 	ctx := context.Background()
 	calls := []struct {
 		name   string
@@ -222,7 +222,7 @@ func TestCoreFacadeMethodsFailClosedOnNilReceivers(t *testing.T) {
 		{"output-list", func() error { _, err := out.List(ctx); return err }},
 		{"clipboard-get", func() error { _, err := cb.Get(ctx); return err }},
 		{"clipboard-set", func() error { return cb.Set(ctx, "text") }},
-		{"clipboard-paste-no-input", func() error { return cb.pasteWithInputContext(ctx, "text", nil) }},
+		{"clipboard-paste-no-input", func() error { return new(sessionCore).pasteWithInputContext(ctx, "text", nil) }},
 	}
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
@@ -231,33 +231,33 @@ func TestCoreFacadeMethodsFailClosedOnNilReceivers(t *testing.T) {
 			}
 		})
 	}
-	if err := in.close(); err != nil {
+	if err := (*inputState)(nil).Close(); err != nil {
 		t.Fatalf("nil input close: %v", err)
 	}
-	if err := sc.close(); err != nil {
+	if err := (*screenState)(nil).close(); err != nil {
 		t.Fatalf("nil screen close: %v", err)
 	}
-	if err := win.close(); err != nil {
+	if err := (*windowBundleState)(nil).close(); err != nil {
 		t.Fatalf("nil window close: %v", err)
 	}
-	if err := out.close(); err != nil {
+	if err := out.Close(); err != nil {
 		t.Fatalf("nil outputs close: %v", err)
 	}
-	if err := cb.close(); err != nil {
+	if err := cb.Close(); err != nil {
 		t.Fatalf("nil clipboard close: %v", err)
 	}
 }
 
 // Validate the action-and-wait API's error order without opening AT-SPI.
 func TestCoreAccessibilityActionWaitRejectsInvalidCalls(t *testing.T) {
-	var absent *Session
+	var absent *sessionCore
 	root := accessibility.NodeID{}
 	query := accessibility.Query{}
 	_, _, err := absent.InvokeAccessibilityActionAndWait(context.Background(), root, query, "click", accessibility.SnapshotOptions{}, nil)
 	if !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil session: %v", err)
 	}
-	live := &Session{}
+	live := &sessionCore{}
 	_, _, err = live.InvokeAccessibilityActionAndWait(nil, root, query, "click", accessibility.SnapshotOptions{}, nil)
 	if !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("nil context: %v", err)
@@ -346,10 +346,10 @@ func TestUtilCheckAvailableReturnsSentinel(t *testing.T) {
 
 func TestWindowFindReturnsOperationError(t *testing.T) {
 	t.Parallel()
-	session := NewSessionForTesting(nil, nil, &listOnlyWindowManager{}, nil, nil)
+	session := newSessionForTesting(nil, nil, &listOnlyWindowManager{}, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
-	_, err := session.Windows.Find(context.Background(), WindowMatch{TitleContains: "missing"})
+	_, err := session.windows.Find(context.Background(), WindowMatch{TitleContains: "missing"})
 	var operationErr *OperationError
 	if !errors.As(err, &operationErr) {
 		t.Fatalf("Find error = %v, want *OperationError", err)
@@ -362,9 +362,9 @@ func TestWindowFindReturnsOperationError(t *testing.T) {
 	}
 
 	ambiguous := &listOnlyWindowManager{infos: []window.Info{{Title: "dup", NativeID: "1"}, {Title: "dup", NativeID: "2"}}}
-	session2 := NewSessionForTesting(nil, nil, ambiguous, nil, nil)
+	session2 := newSessionForTesting(nil, nil, ambiguous, nil, nil)
 	t.Cleanup(func() { _ = session2.Close() })
-	_, err = session2.Windows.Find(context.Background(), WindowMatch{TitleContains: "dup"})
+	_, err = session2.windows.Find(context.Background(), WindowMatch{TitleContains: "dup"})
 	if !errors.As(err, &operationErr) {
 		t.Fatalf("ambiguous Find error = %v, want *OperationError", err)
 	}
@@ -375,9 +375,9 @@ func TestWindowFindReturnsOperationError(t *testing.T) {
 
 func TestWindowStableHandleUnsupportedIsOperationError(t *testing.T) {
 	t.Parallel()
-	session := NewSessionForTesting(nil, nil, &listOnlyWindowManager{infos: []window.Info{{Title: "one", NativeID: "1"}}}, nil, nil)
+	session := newSessionForTesting(nil, nil, &listOnlyWindowManager{infos: []window.Info{{Title: "one", NativeID: "1"}}}, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	found, err := session.Windows.Find(context.Background(), WindowMatch{TitleContains: "one"})
+	found, err := session.windows.Find(context.Background(), WindowMatch{TitleContains: "one"})
 	if err != nil {
 		t.Fatalf("Find error = %v", err)
 	}
@@ -393,9 +393,9 @@ func TestWindowStableHandleUnsupportedIsOperationError(t *testing.T) {
 
 func TestPasteWithoutInputReturnsCapabilityError(t *testing.T) {
 	t.Parallel()
-	session := NewSessionForTesting(&capabilityScreen{}, nil, nil, nil, nil)
+	session := newSessionForTesting(&capabilityScreen{}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	session.Input = nil
+	session.input = nil
 	err := session.Paste(context.Background(), "text")
 	var capabilityErr *CapabilityError
 	if !errors.As(err, &capabilityErr) {
@@ -408,9 +408,9 @@ func TestPasteWithoutInputReturnsCapabilityError(t *testing.T) {
 
 func TestAccessibilityActionWithoutBundleReturnsCapabilityError(t *testing.T) {
 	t.Parallel()
-	session := NewSessionForTesting(&capabilityScreen{}, nil, nil, nil, nil)
+	session := newSessionForTesting(&capabilityScreen{}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	session.Accessibility = nil
+	session.accessibility = nil
 	_, _, err := session.InvokeAccessibilityActionAndWait(context.Background(), accessibility.NodeID{}, accessibility.Query{}, "activate", accessibility.SnapshotOptions{}, Predicate("test", func(context.Context) (bool, error) { return true, nil }))
 	var capabilityErr *CapabilityError
 	if !errors.As(err, &capabilityErr) {
@@ -423,9 +423,9 @@ func TestAccessibilityActionWithoutBundleReturnsCapabilityError(t *testing.T) {
 
 func TestClipboardPasteWithoutInputReturnsCapabilityError(t *testing.T) {
 	t.Parallel()
-	session := NewSessionForTesting(nil, nil, nil, nil, &capabilityClipboard{})
+	session := newSessionForTesting(nil, nil, nil, nil, &capabilityClipboard{})
 	t.Cleanup(func() { _ = session.Close() })
-	err := session.Clipboard.pasteWithInputContext(context.Background(), "text", nil)
+	err := session.pasteWithInputContext(context.Background(), "text", nil)
 	var capabilityErr *CapabilityError
 	if !errors.As(err, &capabilityErr) {
 		t.Fatalf("pasteWithInputContext error = %v, want *CapabilityError", err)
@@ -440,7 +440,7 @@ func TestSessionCloseCleansOwnedInfrastructure(t *testing.T) {
 	if err := os.MkdirAll(xdgDir, 0o700); err != nil {
 		t.Fatalf("mkdir xdg: %v", err)
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.infra = &sessionInfra{xdgDir: xdgDir}
 
 	if err := session.Close(); err != nil {
@@ -452,7 +452,7 @@ func TestSessionCloseCleansOwnedInfrastructure(t *testing.T) {
 }
 
 func TestSessionCloseIsConcurrentAndIdempotent(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	var waitGroup sync.WaitGroup
 	for range 16 {
 		waitGroup.Add(1)
@@ -467,7 +467,7 @@ func TestSessionCloseIsConcurrentAndIdempotent(t *testing.T) {
 }
 
 func TestSessionCloseNil(t *testing.T) {
-	var session *Session
+	var session *sessionCore
 	if err := session.Close(); err != nil {
 		t.Fatalf("nil Close returned error: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestSessionCloseNil(t *testing.T) {
 // caller of Close must observe the same failure even when shutdown joins a
 // concurrent signal-triggered stop.
 func TestSessionCloseReportsUnsafeRuntimeCleanup(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.infra = &sessionInfra{xdgDir: "/"}
 	err := session.Close()
 	if err == nil || !strings.Contains(err.Error(), "unsafe") {
@@ -493,7 +493,7 @@ func TestResolveRuntimePreservesHostDesktopWhenNoSessionOverride(t *testing.T) {
 	t.Setenv("WAYLAND_DISPLAY", "")
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
 
-	session, err := Open(context.Background())
+	session, err := openSession(context.Background())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestExplicitTargetUsesExactImmutableEnvironment(t *testing.T) {
 		"DISPLAY=",
 		"SWAYSOCK=",
 	}
-	session, err := Open(
+	session, err := openSession(
 		context.Background(),
 		WithTarget(EnvironmentTarget(environment)),
 	)
@@ -543,7 +543,7 @@ func TestLaunchWithExplicitTargetDoesNotInheritHostEnvironment(t *testing.T) {
 	t.Setenv("PERFUNCTED_HOST_ONLY", "host-value")
 	t.Setenv("DISPLAY", ":host")
 
-	session, err := Open(
+	session, err := openSession(
 		context.Background(),
 		WithTarget(EnvironmentTarget([]string{
 			"WAYLAND_DISPLAY=target-wayland",
@@ -578,7 +578,7 @@ func TestLaunchWithExplicitTargetDoesNotInheritHostEnvironment(t *testing.T) {
 }
 
 func TestLaunchEmptyEnvironmentUsesOnlyRoutingOverlay(t *testing.T) {
-	session, err := Open(
+	session, err := openSession(
 		context.Background(),
 		WithTarget(EnvironmentTarget([]string{
 			"WAYLAND_DISPLAY=target-wayland",
@@ -812,7 +812,7 @@ func TestManagedProcStopReapsProcessGroupChildren(t *testing.T) {
 }
 
 func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
@@ -867,7 +867,7 @@ func TestApplicationStopWaitsForGroupAfterLeaderExit(t *testing.T) {
 }
 
 func TestApplicationStopPreservesCancellationCause(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	app, err := session.Launch(context.Background(), Command{Name: "sleep", Args: []string{"10"}})
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
@@ -887,7 +887,7 @@ func TestApplicationStopPreservesCancellationCause(t *testing.T) {
 }
 
 func TestSessionCloseUsesShortTimeoutPolicyForProcessStop(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.config.Timeouts = TimeoutPolicy{Short: 25 * time.Millisecond}
 	app, err := session.Launch(
 		context.Background(),
@@ -910,7 +910,7 @@ func TestSessionCloseUsesShortTimeoutPolicyForProcessStop(t *testing.T) {
 }
 
 func TestSessionCloseEscalatesApplicationGroupAfterLeaderExit(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.config.ApplicationGracePeriod = 200 * time.Millisecond
 
 	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
@@ -1125,7 +1125,7 @@ func TestSessionStopNil(t *testing.T) {
 
 func TestStartNestedSessionCompiles(t *testing.T) {
 	t.Skip("requires display server (Wayland)")
-	_, _ = Open(context.Background(), WithNested(SessionConfig{}))
+	_, _ = openSession(context.Background(), WithNested(SessionConfig{}))
 }
 
 func TestCleanupStaleSessionsRemovesDeadPIDDir(t *testing.T) {

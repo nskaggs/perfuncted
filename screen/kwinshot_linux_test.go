@@ -8,7 +8,7 @@ import (
 	"errors"
 	"flag"
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/v2/find"
 	"golang.org/x/sys/unix"
 	"image"
 	"image/color"

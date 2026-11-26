@@ -2,7 +2,7 @@ package input
 
 import (
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"net"
 	"os"
 	"syscall"

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 )
 
 // Retention must never claim success deleting an expired owned log directory

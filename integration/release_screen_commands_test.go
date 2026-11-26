@@ -76,7 +76,7 @@ func certifyReleaseScreenCommands(t *testing.T, ctx context.Context, s *suite, b
 			}
 		}
 	}
-	w, h, err := s.pf.Screen.Resolution(ctx)
+	w, h, err := s.pf.Screen().Resolution(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

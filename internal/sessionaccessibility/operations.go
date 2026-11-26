@@ -1,62 +1,17 @@
-package perfuncted
+package sessionaccessibility
 
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 	"strings"
 	"time"
 )
 
-var openAccessibility = accessibility.OpenRuntimeContext
-
-// AccessibilityBundle exposes AT-SPI queries and typed automation for the active session.
-// It is optional because many headless or minimal desktop sessions do not run
-// an accessibility bus.
-type AccessibilityBundle struct {
-	backend accessibility.Backend
-	bundleBase
-}
-
-func (b *AccessibilityBundle) checkAvailable(operation string) error {
-	if b == nil {
-		return (&bundleBase{}).unavailable(operation)
-	}
-	owner, ok := b.backend.(*accessibilityBackendOwner)
-	if ok {
-		return b.bundleBase.checkAvailable(operation, owner.hasBackend())
-	}
-	return b.checkBackend(operation, b.backend)
-}
-
-func (b *AccessibilityBundle) installBackend(backend accessibility.Backend) {
-	if b == nil {
-		if !util.IsNil(backend) {
-			_ = backend.Close()
-		}
-		return
-	}
-	if owner, ok := b.backend.(*accessibilityBackendOwner); ok {
-		owner.install(backend)
-	} else if !util.IsNil(backend) {
-		_ = backend.Close()
-	}
-}
-
-func (b *AccessibilityBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return b.backendContext(ctx, b.session.Timeouts().Long)
-}
-
-func (b *AccessibilityBundle) close() error {
-	if b == nil {
-		return nil
-	}
-	return closeBackend(b.backend)
-}
-
 // Applications lists application roots currently registered with AT-SPI.
-func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility.Application, error) {
+func (b *operationState) Applications(ctx context.Context) ([]accessibility.Application, error) {
 	if err := b.checkAvailable("applications"); err != nil {
 		return nil, err
 	}
@@ -65,14 +20,14 @@ func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return nil, err
 	}
-	apps, err := b.backend.Applications(ctx)
+	apps, err := b.gate.Backend().Applications(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, errors.Join(ctxErr, b.operationError("applications", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return nil, errors.Join(openErr, b.operationError("applications", err))
 	}
 	return apps, b.operationError("applications", err)
@@ -81,7 +36,7 @@ func (b *AccessibilityBundle) Applications(ctx context.Context) ([]accessibility
 // Snapshot returns a bounded accessibility tree. Callers must provide an
 // application/window/root handle; a zero root is accepted only with the
 // explicit SnapshotOptions.AllowDesktopRoot diagnostic opt-in.
-func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
+func (b *operationState) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
 	if err := b.checkAvailable("snapshot"); err != nil {
 		return accessibility.Snapshot{}, err
 	}
@@ -90,14 +45,14 @@ func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.N
 	if err := ctx.Err(); err != nil {
 		return accessibility.Snapshot{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Snapshot{}, err
 	}
-	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	snapshot, err := b.gate.Backend().Snapshot(ctx, root, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Snapshot{}, errors.Join(ctxErr, b.operationError("snapshot", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Snapshot{}, errors.Join(openErr, b.operationError("snapshot", err))
 	}
 	return snapshot, b.operationError("snapshot", err)
@@ -105,7 +60,7 @@ func (b *AccessibilityBundle) Snapshot(ctx context.Context, root accessibility.N
 
 // Outline returns a bounded compact semantic view derived from a scoped
 // accessibility snapshot.
-func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.NodeID, snapshotOptions accessibility.SnapshotOptions, outlineOptions accessibility.OutlineOptions) (accessibility.Outline, error) {
+func (b *operationState) Outline(ctx context.Context, root accessibility.NodeID, snapshotOptions accessibility.SnapshotOptions, outlineOptions accessibility.OutlineOptions) (accessibility.Outline, error) {
 	if err := b.checkAvailable("outline"); err != nil {
 		return accessibility.Outline{}, err
 	}
@@ -114,26 +69,26 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 	if err := ctx.Err(); err != nil {
 		return accessibility.Outline{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Outline{}, err
 	}
-	if source, ok := b.backend.(interface {
+	if source, ok := b.gate.Backend().(interface {
 		Outline(context.Context, accessibility.NodeID, accessibility.SnapshotOptions, accessibility.OutlineOptions) (accessibility.Outline, error)
 	}); ok {
 		outline, err := source.Outline(ctx, root, snapshotOptions, outlineOptions)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return accessibility.Outline{}, errors.Join(ctxErr, b.operationError("outline", err))
 		}
-		if openErr := b.session.ensureOpen(); openErr != nil {
+		if openErr := b.gate.EnsureOpen(); openErr != nil {
 			return accessibility.Outline{}, errors.Join(openErr, b.operationError("outline", err))
 		}
 		return outline, b.operationError("outline", err)
 	}
-	snapshot, err := b.backend.Snapshot(ctx, root, snapshotOptions)
+	snapshot, err := b.gate.Backend().Snapshot(ctx, root, snapshotOptions)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Outline{}, errors.Join(ctxErr, b.operationError("outline", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Outline{}, errors.Join(openErr, b.operationError("outline", err))
 	}
 	if err != nil {
@@ -145,11 +100,11 @@ func (b *AccessibilityBundle) Outline(ctx context.Context, root accessibility.No
 // AccessibilityWindow resolves an explicit compositor/accessibility target to
 // its exact AT-SPI top-level subtree. It never substitutes the application
 // root. Prefer WindowRoot when the caller has a Perfuncted managed window ID.
-func (b *AccessibilityBundle) AccessibilityWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
+func (b *operationState) AccessibilityWindow(ctx context.Context, target accessibility.WindowTarget) (accessibility.WindowScope, error) {
 	return b.accessibilityWindow(ctx, target, false)
 }
 
-func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target accessibility.WindowTarget, fresh bool) (accessibility.WindowScope, error) {
+func (b *operationState) accessibilityWindow(ctx context.Context, target accessibility.WindowTarget, fresh bool) (accessibility.WindowScope, error) {
 	if err := b.checkAvailable("window-root"); err != nil {
 		return accessibility.WindowScope{}, err
 	}
@@ -158,11 +113,11 @@ func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target ac
 	if err := ctx.Err(); err != nil {
 		return accessibility.WindowScope{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.WindowScope{}, err
 	}
 	if fresh {
-		resolver, ok := b.backend.(accessibility.FreshWindowResolver)
+		resolver, ok := b.gate.Backend().(accessibility.FreshWindowResolver)
 		if !ok {
 			return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
 		}
@@ -170,12 +125,12 @@ func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target ac
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return accessibility.WindowScope{}, errors.Join(ctxErr, b.operationError("window-root", err))
 		}
-		if openErr := b.session.ensureOpen(); openErr != nil {
+		if openErr := b.gate.EnsureOpen(); openErr != nil {
 			return accessibility.WindowScope{}, errors.Join(openErr, b.operationError("window-root", err))
 		}
 		return scope, b.operationError("window-root", err)
 	}
-	resolver, ok := b.backend.(accessibility.WindowResolver)
+	resolver, ok := b.gate.Backend().(accessibility.WindowResolver)
 	if !ok {
 		return accessibility.WindowScope{}, b.operationError("window-root", accessibility.ErrUnsupported)
 	}
@@ -183,32 +138,10 @@ func (b *AccessibilityBundle) accessibilityWindow(ctx context.Context, target ac
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.WindowScope{}, errors.Join(ctxErr, b.operationError("window-root", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.WindowScope{}, errors.Join(openErr, b.operationError("window-root", err))
 	}
 	return scope, b.operationError("window-root", err)
-}
-
-// WindowRoot is the preferred high-level scope path. It resolves a managed
-// window by its authoritative native ID and correlates that window to its
-// exact AT-SPI top-level subtree.
-func (b *AccessibilityBundle) WindowRoot(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
-	return b.windowRoot(ctx, windowID, false)
-}
-
-// WindowRootFresh re-correlates a managed window from uncached AT-SPI state.
-// It is used by semantic locators so the scope root and matched descendants
-// are observed from the same current generation.
-func (b *AccessibilityBundle) WindowRootFresh(ctx context.Context, windowID string) (accessibility.WindowScope, error) {
-	return b.windowRoot(ctx, windowID, true)
-}
-
-func (b *AccessibilityBundle) windowRoot(ctx context.Context, windowID string, fresh bool) (accessibility.WindowScope, error) {
-	selected, err := b.resolveManagedWindow(ctx, windowID, "", "window-root")
-	if err != nil {
-		return accessibility.WindowScope{}, err
-	}
-	return b.accessibilityWindow(ctx, windowTargetFor(selected, 0), fresh)
 }
 
 // Find returns nodes matching a bounded case-insensitive query from one fresh,
@@ -216,7 +149,7 @@ func (b *AccessibilityBundle) windowRoot(ctx context.Context, windowID string, f
 // A truncated or structurally inconsistent traversal returns
 // accessibility.ErrIncompleteSnapshot. Use a scoped AccessibilityLocator when
 // the result must be guarded against AT-SPI events during resolution and action.
-func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
+func (b *operationState) Find(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) ([]accessibility.Node, error) {
 	if err := b.checkAvailable("find"); err != nil {
 		return nil, err
 	}
@@ -225,15 +158,15 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return nil, err
 	}
 	opts.Fresh = true
-	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	snapshot, err := b.gate.Backend().Snapshot(ctx, root, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, errors.Join(ctxErr, b.operationError("find", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return nil, errors.Join(openErr, b.operationError("find", err))
 	}
 	if err != nil {
@@ -249,7 +182,7 @@ func (b *AccessibilityBundle) Find(ctx context.Context, root accessibility.NodeI
 // FindOne resolves a unique node from a single bounded snapshot. Candidate
 // context comes from the same snapshot so a miss costs one AT-SPI traversal,
 // not a find plus a second diagnostic snapshot.
-func (b *AccessibilityBundle) FindOne(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
+func (b *operationState) FindOne(ctx context.Context, root accessibility.NodeID, query accessibility.Query, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	return b.FindOneSelector(ctx, root, selectorFromQuery(query), opts)
 }
 
@@ -265,7 +198,7 @@ func selectorFromQuery(query accessibility.Query) accessibility.Selector {
 
 // FindOneSelector resolves one target through the shared semantic predicate
 // path and rejects observations that cannot prove the result is unique.
-func (b *AccessibilityBundle) FindOneSelector(ctx context.Context, root accessibility.NodeID, selector accessibility.Selector, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
+func (b *operationState) FindOneSelector(ctx context.Context, root accessibility.NodeID, selector accessibility.Selector, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	if err := b.checkAvailable("find"); err != nil {
 		return accessibility.Node{}, err
 	}
@@ -274,15 +207,15 @@ func (b *AccessibilityBundle) FindOneSelector(ctx context.Context, root accessib
 	if err := ctx.Err(); err != nil {
 		return accessibility.Node{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Node{}, err
 	}
 	opts.Fresh = true
-	snapshot, err := b.backend.Snapshot(ctx, root, opts)
+	snapshot, err := b.gate.Backend().Snapshot(ctx, root, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("find", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Node{}, errors.Join(openErr, b.operationError("find", err))
 	}
 	if err != nil {
@@ -313,69 +246,35 @@ func (b *AccessibilityBundle) FindOneSelector(ctx context.Context, root accessib
 	return accessibility.Node{}, b.operationError("find", &accessibility.MatchError{Operation: "find", Err: accessibility.ErrAmbiguous, Candidates: candidates})
 }
 
-// AccessibilityActionReceipt records the exact semantic target and AT-SPI
-// action selected by InvokeSemanticAction. The action is never replaced by a
-// physical input fallback.
-type AccessibilityActionReceipt struct {
-	Node         accessibility.Node            `json:"node"`
-	Action       accessibility.Action          `json:"action"`
-	Operation    string                        `json:"operation,omitempty"`
-	Mechanism    string                        `json:"mechanism"`
-	Generation   uint64                        `json:"generation"`
-	Dispatch     accessibility.DispatchOutcome `json:"dispatch"`
-	DispatchedAt time.Time                     `json:"dispatchedAt,omitempty"`
-	Outcome      ActionOutcomeProof            `json:"outcome"`
-}
-
-// ActionOutcomeStatus describes independent observation after dispatch.
-type ActionOutcomeStatus string
-
-const (
-	// ActionOutcomeNotObserved means no independent postcondition was evaluated.
-	ActionOutcomeNotObserved ActionOutcomeStatus = "not-observed"
-	// ActionOutcomeVerified means the caller's postcondition became true.
-	ActionOutcomeVerified ActionOutcomeStatus = "verified"
-	// ActionOutcomeNotVerified means the postcondition did not complete successfully.
-	ActionOutcomeNotVerified ActionOutcomeStatus = "not-verified"
-)
-
-// ActionOutcomeProof records whether the caller's independent condition was
-// observed after the provider acknowledged dispatch.
-type ActionOutcomeProof struct {
-	Status     ActionOutcomeStatus `json:"status"`
-	Condition  string              `json:"condition,omitempty"`
-	ObservedAt time.Time           `json:"observedAt,omitempty"`
-}
-
 // InvokeSemanticAction finds exactly one accessible node in root and invokes
 // either its named action or its first exposed action. An empty action name
 // is the only convenience behavior; callers can inspect the receipt before
 // waiting for an independent postcondition.
-func (b *AccessibilityBundle) InvokeSemanticAction(
+func (b *operationState) InvokeSemanticAction(
 	ctx context.Context,
 	root accessibility.NodeID,
 	query accessibility.Query,
 	actionName string,
 	opts accessibility.SnapshotOptions,
-) (AccessibilityActionReceipt, error) {
+) (accessibility.ActionReceipt, error) {
 	node, err := b.FindOne(ctx, root, query, opts)
 	if err != nil {
-		return AccessibilityActionReceipt{}, err
+		return accessibility.ActionReceipt{}, err
 	}
 	return b.invokeSemanticActionOnNode(ctx, node, actionName)
 }
 
 // InvokeSelectorSemanticAction applies a rich semantic selector before one
 // action dispatch. The same matcher is used by locators and discovery.
-func (b *AccessibilityBundle) InvokeSelectorSemanticAction(ctx context.Context, root accessibility.NodeID, selector accessibility.Selector, actionName string, opts accessibility.SnapshotOptions) (AccessibilityActionReceipt, error) {
+func (b *operationState) InvokeSelectorSemanticAction(ctx context.Context, root accessibility.NodeID, selector accessibility.Selector, actionName string, opts accessibility.SnapshotOptions) (accessibility.ActionReceipt, error) {
 	node, err := b.FindOneSelector(ctx, root, selector, opts)
 	if err != nil {
-		return AccessibilityActionReceipt{}, err
+		return accessibility.ActionReceipt{}, err
 	}
 	return b.invokeSemanticActionOnNode(ctx, node, actionName)
 }
 
-func (b *AccessibilityBundle) invokeSemanticActionOnNode(ctx context.Context, node accessibility.Node, actionName string) (AccessibilityActionReceipt, error) {
+func (b *operationState) invokeSemanticActionOnNode(ctx context.Context, node accessibility.Node, actionName string) (accessibility.ActionReceipt, error) {
 	name := strings.TrimSpace(actionName)
 	var chosen accessibility.Action
 	var err error
@@ -389,23 +288,23 @@ func (b *AccessibilityBundle) invokeSemanticActionOnNode(ctx context.Context, no
 		// failure receipt once the caller or session has lost authority.
 		if ctx != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return AccessibilityActionReceipt{}, errors.Join(ctxErr, err)
+				return accessibility.ActionReceipt{}, errors.Join(ctxErr, err)
 			}
 		}
-		if openErr := b.session.ensureOpen(); openErr != nil {
-			return AccessibilityActionReceipt{}, errors.Join(openErr, err)
+		if openErr := b.gate.EnsureOpen(); openErr != nil {
+			return accessibility.ActionReceipt{}, errors.Join(openErr, err)
 		}
 		var dispatchErr *accessibility.ActionInvocationError
 		if errors.As(err, &dispatchErr) {
-			return AccessibilityActionReceipt{
+			return accessibility.ActionReceipt{
 				Node: node, Action: dispatchErr.Action, Operation: "invoke-action", Mechanism: "at-spi.action",
 				Generation: node.ID.Generation, Dispatch: dispatchErr.Dispatch,
-				Outcome: ActionOutcomeProof{Status: ActionOutcomeNotObserved},
+				Outcome: accessibility.ActionOutcomeProof{Status: accessibility.ActionOutcomeNotObserved},
 			}, err
 		}
-		return AccessibilityActionReceipt{}, err
+		return accessibility.ActionReceipt{}, err
 	}
-	return AccessibilityActionReceipt{
+	return accessibility.ActionReceipt{
 		Node:         node,
 		Action:       chosen,
 		Operation:    "invoke-action",
@@ -413,12 +312,12 @@ func (b *AccessibilityBundle) invokeSemanticActionOnNode(ctx context.Context, no
 		Generation:   node.ID.Generation,
 		Dispatch:     accessibility.DispatchAccepted,
 		DispatchedAt: time.Now().UTC(),
-		Outcome:      ActionOutcomeProof{Status: ActionOutcomeNotObserved},
+		Outcome:      accessibility.ActionOutcomeProof{Status: accessibility.ActionOutcomeNotObserved},
 	}, nil
 }
 
 // Focused returns the currently focused accessible object.
-func (b *AccessibilityBundle) Focused(ctx context.Context, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
+func (b *operationState) Focused(ctx context.Context, opts accessibility.SnapshotOptions) (accessibility.Node, error) {
 	if err := b.checkAvailable("focused"); err != nil {
 		return accessibility.Node{}, err
 	}
@@ -427,21 +326,21 @@ func (b *AccessibilityBundle) Focused(ctx context.Context, opts accessibility.Sn
 	if err := ctx.Err(); err != nil {
 		return accessibility.Node{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Node{}, err
 	}
-	node, err := b.backend.Focused(ctx, opts)
+	node, err := b.gate.Backend().Focused(ctx, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("focused", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Node{}, errors.Join(openErr, b.operationError("focused", err))
 	}
 	return node, b.operationError("focused", err)
 }
 
 // AtPoint returns the accessible object at a screen coordinate.
-func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibility.Node, error) {
+func (b *operationState) AtPoint(ctx context.Context, x, y int) (accessibility.Node, error) {
 	if err := b.checkAvailable("at-point"); err != nil {
 		return accessibility.Node{}, err
 	}
@@ -450,99 +349,27 @@ func (b *AccessibilityBundle) AtPoint(ctx context.Context, x, y int) (accessibil
 	if err := ctx.Err(); err != nil {
 		return accessibility.Node{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Node{}, err
 	}
-	node, err := b.backend.AtPoint(ctx, x, y)
+	node, err := b.gate.Backend().AtPoint(ctx, x, y)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Node{}, errors.Join(ctxErr, b.operationError("at-point", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Node{}, errors.Join(openErr, b.operationError("at-point", err))
 	}
 	return node, b.operationError("at-point", err)
 }
 
-// FindApplication selects a single application by accessible name, PID, or
-// AT-SPI bus name when the runtime backend exposes process ownership.
-func (b *AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
-	return b.findApplication(ctx, filter, false)
-}
-
-// FindApplicationFresh selects an application from current backend identity
-// state when supported by the runtime.
-func (b *AccessibilityBundle) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
-	return b.findApplication(ctx, filter, true)
-}
-
-func (b *AccessibilityBundle) findApplication(ctx context.Context, filter accessibility.ApplicationFilter, fresh bool) (accessibility.Application, error) { //nolint:gocyclo // window and app filters share the same ownership and ambiguity rules.
-	if err := b.checkAvailable("find-application"); err != nil {
-		return accessibility.Application{}, err
-	}
-	if filter.WindowID != "" || filter.WindowTitle != "" {
-		selectedWindow, err := b.resolveManagedWindow(ctx, filter.WindowID, filter.WindowTitle, "find-application")
-		if err != nil {
-			return accessibility.Application{}, err
-		}
-		selectedWindow.mu.RLock()
-		selectedInfo := selectedWindow.snapshot
-		selectedWindow.mu.RUnlock()
-		if filter.PID != 0 && selectedInfo.PID != 0 && filter.PID != selectedInfo.PID {
-			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
-		}
-		scope, err := b.accessibilityWindow(ctx, windowTargetFor(selectedWindow, filter.PID), fresh)
-		if err != nil {
-			return accessibility.Application{}, b.operationError("find-application", err)
-		}
-		app := scope.Application
-		if app.ID.BusName == "" || app.ID.ObjectPath == "" || app.ID.Generation == 0 {
-			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupportedCorrelation)
-		}
-		if want := strings.ToLower(strings.TrimSpace(filter.Name)); want != "" && !strings.Contains(strings.ToLower(app.Name), want) {
-			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrNotFound)
-		}
-		return app, nil
-	}
-	finder, ok := b.backend.(accessibility.ApplicationFinder)
-	if !ok {
-		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
-	}
-	ctx, cancel := b.operationContext(ctx)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return accessibility.Application{}, err
-	}
-	if err := b.session.ensureOpen(); err != nil {
-		return accessibility.Application{}, err
-	}
-	var app accessibility.Application
-	var err error
-	if fresh {
-		freshFinder, supported := b.backend.(accessibility.FreshApplicationFinder)
-		if !supported {
-			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
-		}
-		app, err = freshFinder.FindApplicationFresh(ctx, filter)
-	} else {
-		app, err = finder.FindApplication(ctx, filter)
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return accessibility.Application{}, errors.Join(ctxErr, b.operationError("find-application", err))
-	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return accessibility.Application{}, errors.Join(openErr, b.operationError("find-application", err))
-	}
-	return app, b.operationError("find-application", err)
-}
-
 // Events returns the bounded AT-SPI invalidation stream when supported. Its
 // context owns the stream lifetime; backend setup has its own short protocol
 // guard and is not replaced with a fixed stream expiry.
-func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
+func (b *operationState) Events(ctx context.Context, opts accessibility.EventOptions) (<-chan accessibility.Event, error) {
 	if err := b.checkAvailable("events"); err != nil {
 		return nil, err
 	}
-	source, ok := b.backend.(accessibility.EventSource)
+	source, ok := b.gate.Backend().(accessibility.EventSource)
 	if !ok {
 		return nil, b.operationError("events", accessibility.ErrUnsupported)
 	}
@@ -555,14 +382,14 @@ func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.Eve
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return nil, err
 	}
 	stream, err := source.Events(ctx, opts)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, errors.Join(ctxErr, b.operationError("events", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return nil, errors.Join(openErr, b.operationError("events", err))
 	}
 	// An event subscription has only one valid success form: a live channel
@@ -579,28 +406,28 @@ func (b *AccessibilityBundle) Events(ctx context.Context, opts accessibility.Eve
 // dispatchMutation only acknowledges one AT-SPI mutation while its caller
 // and owning session remain authorized. Backends may ignore cancellation,
 // so check both before dispatch and after the backend returns.
-func (b *AccessibilityBundle) dispatchMutation(ctx context.Context, operation string, run func() error) error {
+func (b *operationState) dispatchMutation(ctx context.Context, operation string, run func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return err
 	}
 	backendErr := run()
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, b.operationError(operation, backendErr))
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return errors.Join(err, b.operationError(operation, backendErr))
 	}
 	return b.operationError(operation, backendErr)
 }
 
-func (b *AccessibilityBundle) automation(operation string) (accessibility.Automation, error) {
+func (b *operationState) automation(operation string) (accessibility.Automation, error) {
 	if err := b.checkAvailable(operation); err != nil {
 		return nil, err
 	}
-	automation, ok := b.backend.(accessibility.Automation)
+	automation, ok := b.gate.Backend().(accessibility.Automation)
 	if !ok {
 		return nil, b.operationError(operation, accessibility.ErrUnsupported)
 	}
@@ -608,7 +435,7 @@ func (b *AccessibilityBundle) automation(operation string) (accessibility.Automa
 }
 
 // InvokeAction invokes a stable AT-SPI action index.
-func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
+func (b *operationState) InvokeAction(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("invoke-action")
 	if err != nil {
 		return err
@@ -622,7 +449,7 @@ func (b *AccessibilityBundle) InvokeAction(ctx context.Context, id accessibility
 
 // InvokeActionByName invokes a uniquely named AT-SPI action and returns the
 // metadata selected by the same read used to choose its stable index.
-func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) (accessibility.Action, error) {
+func (b *operationState) InvokeActionByName(ctx context.Context, id accessibility.NodeID, name string) (accessibility.Action, error) {
 	a, err := b.automation("invoke-action-by-name")
 	if err != nil {
 		return accessibility.Action{}, err
@@ -632,14 +459,14 @@ func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessi
 	if err := ctx.Err(); err != nil {
 		return accessibility.Action{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Action{}, err
 	}
 	chosen, callErr := a.InvokeActionByName(ctx, id, name)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Action{}, errors.Join(ctxErr, b.operationError("invoke-action-by-name", callErr))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Action{}, errors.Join(openErr, b.operationError("invoke-action-by-name", callErr))
 	}
 	return chosen, b.operationError("invoke-action-by-name", callErr)
@@ -647,7 +474,7 @@ func (b *AccessibilityBundle) InvokeActionByName(ctx context.Context, id accessi
 
 // InvokeDefaultAction invokes the first stable action and reports which one
 // was selected, making the convenience behavior observable.
-func (b *AccessibilityBundle) InvokeDefaultAction(ctx context.Context, id accessibility.NodeID) (accessibility.Action, error) {
+func (b *operationState) InvokeDefaultAction(ctx context.Context, id accessibility.NodeID) (accessibility.Action, error) {
 	a, err := b.automation("invoke-default-action")
 	if err != nil {
 		return accessibility.Action{}, err
@@ -657,21 +484,21 @@ func (b *AccessibilityBundle) InvokeDefaultAction(ctx context.Context, id access
 	if err := ctx.Err(); err != nil {
 		return accessibility.Action{}, err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return accessibility.Action{}, err
 	}
 	chosen, callErr := a.InvokeDefaultAction(ctx, id)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return accessibility.Action{}, errors.Join(ctxErr, b.operationError("invoke-default-action", callErr))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
 		return accessibility.Action{}, errors.Join(openErr, b.operationError("invoke-default-action", callErr))
 	}
 	return chosen, b.operationError("invoke-default-action", callErr)
 }
 
 // ScrollTo scrolls an AT-SPI node into view using the requested alignment.
-func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType) error {
+func (b *operationState) ScrollTo(ctx context.Context, id accessibility.NodeID, kind accessibility.ScrollType) error {
 	a, err := b.automation("scroll")
 	if err != nil {
 		return err
@@ -684,7 +511,7 @@ func (b *AccessibilityBundle) ScrollTo(ctx context.Context, id accessibility.Nod
 }
 
 // ScrollToPoint scrolls an AT-SPI node to a point in the requested coordinate space.
-func (b *AccessibilityBundle) ScrollToPoint(ctx context.Context, id accessibility.NodeID, kind accessibility.CoordType, x, y int) error {
+func (b *operationState) ScrollToPoint(ctx context.Context, id accessibility.NodeID, kind accessibility.CoordType, x, y int) error {
 	a, err := b.automation("scroll-to-point")
 	if err != nil {
 		return err
@@ -697,7 +524,7 @@ func (b *AccessibilityBundle) ScrollToPoint(ctx context.Context, id accessibilit
 }
 
 // SetPosition moves an AT-SPI Component in the requested coordinate space.
-func (b *AccessibilityBundle) SetPosition(ctx context.Context, id accessibility.NodeID, x, y int, kind accessibility.CoordType) error {
+func (b *operationState) SetPosition(ctx context.Context, id accessibility.NodeID, x, y int, kind accessibility.CoordType) error {
 	a, err := b.automation("set-position")
 	if err != nil {
 		return err
@@ -710,7 +537,7 @@ func (b *AccessibilityBundle) SetPosition(ctx context.Context, id accessibility.
 }
 
 // SetSize resizes an AT-SPI Component.
-func (b *AccessibilityBundle) SetSize(ctx context.Context, id accessibility.NodeID, width, height int) error {
+func (b *operationState) SetSize(ctx context.Context, id accessibility.NodeID, width, height int) error {
 	a, err := b.automation("set-size")
 	if err != nil {
 		return err
@@ -723,7 +550,7 @@ func (b *AccessibilityBundle) SetSize(ctx context.Context, id accessibility.Node
 }
 
 // SetExtents moves and resizes an AT-SPI Component in the requested coordinate space.
-func (b *AccessibilityBundle) SetExtents(ctx context.Context, id accessibility.NodeID, x, y, width, height int, kind accessibility.CoordType) error {
+func (b *operationState) SetExtents(ctx context.Context, id accessibility.NodeID, x, y, width, height int, kind accessibility.CoordType) error {
 	a, err := b.automation("set-extents")
 	if err != nil {
 		return err
@@ -736,7 +563,7 @@ func (b *AccessibilityBundle) SetExtents(ctx context.Context, id accessibility.N
 }
 
 // SetValue sets the current value exposed by an AT-SPI Value object.
-func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.NodeID, value float64) error {
+func (b *operationState) SetValue(ctx context.Context, id accessibility.NodeID, value float64) error {
 	a, err := b.automation("set-value")
 	if err != nil {
 		return err
@@ -749,7 +576,7 @@ func (b *AccessibilityBundle) SetValue(ctx context.Context, id accessibility.Nod
 }
 
 // InsertText inserts text at a character offset in an AT-SPI editable-text object.
-func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
+func (b *operationState) InsertText(ctx context.Context, id accessibility.NodeID, offset int32, value string) error {
 	a, err := b.automation("insert-text")
 	if err != nil {
 		return err
@@ -762,7 +589,7 @@ func (b *AccessibilityBundle) InsertText(ctx context.Context, id accessibility.N
 }
 
 // DeleteText deletes a character range from an AT-SPI editable-text object.
-func (b *AccessibilityBundle) DeleteText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (b *operationState) DeleteText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("delete-text")
 	if err != nil {
 		return err
@@ -775,7 +602,7 @@ func (b *AccessibilityBundle) DeleteText(ctx context.Context, id accessibility.N
 }
 
 // CopyText copies a character range from an AT-SPI editable-text object.
-func (b *AccessibilityBundle) CopyText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (b *operationState) CopyText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("copy-text")
 	if err != nil {
 		return err
@@ -788,7 +615,7 @@ func (b *AccessibilityBundle) CopyText(ctx context.Context, id accessibility.Nod
 }
 
 // CutText cuts a character range from an AT-SPI editable-text object.
-func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (b *operationState) CutText(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("cut-text")
 	if err != nil {
 		return err
@@ -801,7 +628,7 @@ func (b *AccessibilityBundle) CutText(ctx context.Context, id accessibility.Node
 }
 
 // PasteText pastes clipboard text at a character offset in an AT-SPI editable-text object.
-func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
+func (b *operationState) PasteText(ctx context.Context, id accessibility.NodeID, position int32) error {
 	a, err := b.automation("paste-text")
 	if err != nil {
 		return err
@@ -814,7 +641,7 @@ func (b *AccessibilityBundle) PasteText(ctx context.Context, id accessibility.No
 }
 
 // SetCaretOffset sets the caret character offset in an AT-SPI text object.
-func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibility.NodeID, offset int32) error {
+func (b *operationState) SetCaretOffset(ctx context.Context, id accessibility.NodeID, offset int32) error {
 	a, err := b.automation("set-caret")
 	if err != nil {
 		return err
@@ -827,7 +654,7 @@ func (b *AccessibilityBundle) SetCaretOffset(ctx context.Context, id accessibili
 }
 
 // SetTextSelections replaces a document's cross-object selections (AT-SPI 2.52).
-func (b *AccessibilityBundle) SetTextSelections(ctx context.Context, id accessibility.NodeID, selections []accessibility.DocumentTextSelection) error {
+func (b *operationState) SetTextSelections(ctx context.Context, id accessibility.NodeID, selections []accessibility.DocumentTextSelection) error {
 	a, err := b.automation("set-document-text-selections")
 	if err != nil {
 		return err
@@ -842,7 +669,7 @@ func (b *AccessibilityBundle) SetTextSelections(ctx context.Context, id accessib
 // SetTextSelection sets selection N to a character-offset range in an AT-SPI
 // text object. All three arguments are required; there is no implicit
 // selection zero.
-func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
+func (b *operationState) SetTextSelection(ctx context.Context, id accessibility.NodeID, selection, start, end int32) error {
 	a, err := b.automation("set-text-selection")
 	if err != nil {
 		return err
@@ -855,7 +682,7 @@ func (b *AccessibilityBundle) SetTextSelection(ctx context.Context, id accessibi
 }
 
 // AddTextSelection adds a character-offset range to an AT-SPI text object.
-func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
+func (b *operationState) AddTextSelection(ctx context.Context, id accessibility.NodeID, start, end int32) error {
 	a, err := b.automation("add-text-selection")
 	if err != nil {
 		return err
@@ -868,7 +695,7 @@ func (b *AccessibilityBundle) AddTextSelection(ctx context.Context, id accessibi
 }
 
 // RemoveTextSelection removes a selection from an AT-SPI text object.
-func (b *AccessibilityBundle) RemoveTextSelection(ctx context.Context, id accessibility.NodeID, selection int32) error {
+func (b *operationState) RemoveTextSelection(ctx context.Context, id accessibility.NodeID, selection int32) error {
 	a, err := b.automation("remove-text-selection")
 	if err != nil {
 		return err
@@ -881,7 +708,7 @@ func (b *AccessibilityBundle) RemoveTextSelection(ctx context.Context, id access
 }
 
 // SelectChild selects a child in an AT-SPI selection object.
-func (b *AccessibilityBundle) SelectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
+func (b *operationState) SelectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("select-child")
 	if err != nil {
 		return err
@@ -894,7 +721,7 @@ func (b *AccessibilityBundle) SelectChild(ctx context.Context, id accessibility.
 }
 
 // DeselectChild deselects a child in an AT-SPI selection object.
-func (b *AccessibilityBundle) DeselectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
+func (b *operationState) DeselectChild(ctx context.Context, id accessibility.NodeID, index int32) error {
 	a, err := b.automation("deselect-child")
 	if err != nil {
 		return err
@@ -907,7 +734,7 @@ func (b *AccessibilityBundle) DeselectChild(ctx context.Context, id accessibilit
 }
 
 // SelectAll selects all children in an AT-SPI selection object.
-func (b *AccessibilityBundle) SelectAll(ctx context.Context, id accessibility.NodeID) error {
+func (b *operationState) SelectAll(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("select-all")
 	if err != nil {
 		return err
@@ -920,7 +747,7 @@ func (b *AccessibilityBundle) SelectAll(ctx context.Context, id accessibility.No
 }
 
 // ClearSelection clears all children in an AT-SPI selection object.
-func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibility.NodeID) error {
+func (b *operationState) ClearSelection(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("clear-selection")
 	if err != nil {
 		return err
@@ -933,7 +760,7 @@ func (b *AccessibilityBundle) ClearSelection(ctx context.Context, id accessibili
 }
 
 // DeselectSelectedChild deselects the currently selected child in an AT-SPI Selection object.
-func (b *AccessibilityBundle) DeselectSelectedChild(ctx context.Context, id accessibility.NodeID) error {
+func (b *operationState) DeselectSelectedChild(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("deselect-selected-child")
 	if err != nil {
 		return err
@@ -946,7 +773,7 @@ func (b *AccessibilityBundle) DeselectSelectedChild(ctx context.Context, id acce
 }
 
 // SelectRow selects a row in an AT-SPI table selection object.
-func (b *AccessibilityBundle) SelectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
+func (b *operationState) SelectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
 	a, err := b.automation("select-row")
 	if err != nil {
 		return err
@@ -959,7 +786,7 @@ func (b *AccessibilityBundle) SelectRow(ctx context.Context, id accessibility.No
 }
 
 // DeselectRow deselects a row in an AT-SPI table selection object.
-func (b *AccessibilityBundle) DeselectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
+func (b *operationState) DeselectRow(ctx context.Context, id accessibility.NodeID, row int32) error {
 	a, err := b.automation("deselect-row")
 	if err != nil {
 		return err
@@ -972,7 +799,7 @@ func (b *AccessibilityBundle) DeselectRow(ctx context.Context, id accessibility.
 }
 
 // SelectColumn selects a column in an AT-SPI table selection object.
-func (b *AccessibilityBundle) SelectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
+func (b *operationState) SelectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
 	a, err := b.automation("select-column")
 	if err != nil {
 		return err
@@ -985,7 +812,7 @@ func (b *AccessibilityBundle) SelectColumn(ctx context.Context, id accessibility
 }
 
 // DeselectColumn deselects a column in an AT-SPI table selection object.
-func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
+func (b *operationState) DeselectColumn(ctx context.Context, id accessibility.NodeID, column int32) error {
 	a, err := b.automation("deselect-column")
 	if err != nil {
 		return err
@@ -998,7 +825,7 @@ func (b *AccessibilityBundle) DeselectColumn(ctx context.Context, id accessibili
 }
 
 // FocusNode requests focus for a semantic node.
-func (b *AccessibilityBundle) FocusNode(ctx context.Context, id accessibility.NodeID) error {
+func (b *operationState) FocusNode(ctx context.Context, id accessibility.NodeID) error {
 	a, err := b.automation("grab-focus")
 	if err != nil {
 		return err
@@ -1011,12 +838,12 @@ func (b *AccessibilityBundle) FocusNode(ctx context.Context, id accessibility.No
 }
 
 // ScrollNodeIntoView scrolls a node into view with default alignment.
-func (b *AccessibilityBundle) ScrollNodeIntoView(ctx context.Context, id accessibility.NodeID) error {
+func (b *operationState) ScrollNodeIntoView(ctx context.Context, id accessibility.NodeID) error {
 	return b.ScrollTo(ctx, id, accessibility.ScrollAnyWhere)
 }
 
 // ReplaceEditableText replaces all contents of an editable text node.
-func (b *AccessibilityBundle) ReplaceEditableText(ctx context.Context, id accessibility.NodeID, value string) error {
+func (b *operationState) ReplaceEditableText(ctx context.Context, id accessibility.NodeID, value string) error {
 	a, err := b.automation("set-text-contents")
 	if err != nil {
 		return err
@@ -1031,30 +858,30 @@ func (b *AccessibilityBundle) ReplaceEditableText(ctx context.Context, id access
 // Reopen explicitly reconnects the accessibility bundle to the same target
 // session. Reconnection remains caller-directed; it does not happen in the
 // background.
-func (b *AccessibilityBundle) Reopen(ctx context.Context) error {
+func (b *operationState) Reopen(ctx context.Context) error {
 	if b == nil {
-		return ErrNilSession
+		return capability.ErrNilSession
 	}
 	if err := b.checkAvailable("reopen"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	owner, ok := b.backend.(*accessibilityBackendOwner)
+	owner, ok := b.gate.Backend().(*Owner)
 	if !ok {
 		return b.operationError("reopen", accessibility.ErrUnsupported)
 	}
-	return b.operationError("reopen", owner.reopen(ctx))
+	return b.operationError("reopen", owner.Reopen(ctx))
 }
 
 // Generation returns the current accessibility invalidation generation.
-func (b *AccessibilityBundle) Generation() uint64 {
-	if b == nil || util.IsNil(b.backend) || (b.session != nil && b.session.isClosed()) {
+func (b *operationState) Generation() uint64 {
+	if b == nil || util.IsNil(b.gate.Backend()) || (b.gate.IsClosed()) {
 		return 0
 	}
-	if source, ok := b.backend.(accessibility.GenerationSource); ok {
+	if source, ok := b.gate.Backend().(accessibility.GenerationSource); ok {
 		generation := source.Generation()
-		if b.session != nil && b.session.isClosed() {
+		if b.gate.IsClosed() {
 			return 0
 		}
 		return generation
@@ -1064,64 +891,95 @@ func (b *AccessibilityBundle) Generation() uint64 {
 
 // Invalidate drops cached accessibility observations when a caller observes a
 // state change through another channel.
-func (b *AccessibilityBundle) Invalidate(id accessibility.NodeID) {
-	if b == nil || util.IsNil(b.backend) || (b.session != nil && b.session.isClosed()) {
+func (b *operationState) Invalidate(id accessibility.NodeID) {
+	if b == nil || util.IsNil(b.gate.Backend()) || (b.gate.IsClosed()) {
 		return
 	}
-	if source, ok := b.backend.(accessibility.GenerationSource); ok {
+	if source, ok := b.gate.Backend().(accessibility.GenerationSource); ok {
 		source.Invalidate(id)
 	}
 }
 
-// resolveManagedWindow selects exactly one managed window by native ID and/or
-// exact title. It is the single authority for compositor-window selection
-// across WindowRoot, FindApplication, and CLI scope resolution. The operation
-// label is caller-owned so error messages reflect the actual entry point.
-func (b *AccessibilityBundle) resolveManagedWindow(ctx context.Context, windowID, windowTitle, operation string) (*Window, error) {
-	if b == nil {
-		return nil, ErrNilSession
+func (b *operationState) findApplicationDirect(ctx context.Context, filter accessibility.ApplicationFilter, fresh bool) (accessibility.Application, error) {
+	finder, ok := b.gate.Backend().(accessibility.ApplicationFinder)
+	if !ok {
+		return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
 	}
-	if b.session == nil || b.session.Windows == nil {
-		return nil, b.operationError(operation, accessibility.ErrUnsupported)
+	ctx, cancel := b.operationContext(ctx)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return accessibility.Application{}, err
 	}
-	windows, err := b.session.Windows.List(ctx, WindowMatch{})
-	if err != nil {
-		return nil, b.operationError(operation, err)
+	if err := b.gate.EnsureOpen(); err != nil {
+		return accessibility.Application{}, err
 	}
-	wantID, wantTitle := strings.TrimSpace(windowID), strings.TrimSpace(windowTitle)
-	var selected *Window
-	for _, candidate := range windows {
-		candidate.mu.RLock()
-		info := candidate.snapshot
-		candidate.mu.RUnlock()
-		if wantID != "" && candidate.ID().String() != wantID {
-			continue
+	var app accessibility.Application
+	var err error
+	if fresh {
+		freshFinder, supported := b.gate.Backend().(accessibility.FreshApplicationFinder)
+		if !supported {
+			return accessibility.Application{}, b.operationError("find-application", accessibility.ErrUnsupported)
 		}
-		if wantTitle != "" && info.Title != wantTitle {
-			continue
-		}
-		if selected != nil {
-			return nil, b.operationError(operation, accessibility.ErrAmbiguous)
-		}
-		selected = candidate
+		app, err = freshFinder.FindApplicationFresh(ctx, filter)
+	} else {
+		app, err = finder.FindApplication(ctx, filter)
 	}
-	if selected == nil {
-		return nil, b.operationError(operation, accessibility.ErrNotFound)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return accessibility.Application{}, errors.Join(ctxErr, b.operationError("find-application", err))
 	}
-	return selected, nil
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
+		return accessibility.Application{}, errors.Join(openErr, b.operationError("find-application", err))
+	}
+	return app, b.operationError("find-application", err)
 }
 
-// windowTargetFor converts an authoritative managed window handle into the
-// AT-SPI correlation target. PID, title, geometry, and active state are the
-// correlation evidence; PIDHint carries a caller-supplied PID only when the
-// compositor did not report one.
-func windowTargetFor(selected *Window, pidHint int32) accessibility.WindowTarget {
-	selected.mu.RLock()
-	info := selected.snapshot
-	selected.mu.RUnlock()
-	target := accessibility.WindowTarget{ID: selected.ID().String(), Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active}
-	if target.PID == 0 {
-		target.PIDHint = pidHint
+// OperationAdmission exposes only the accessibility provider and its dynamic
+// operation policy. Generation ownership remains with Owner.
+type OperationAdmission interface {
+	Backend() accessibility.Backend
+	CheckAvailable(string) error
+	OperationContext(context.Context) (context.Context, context.CancelFunc)
+	EnsureOpen() error
+	OperationError(string, error) error
+	IsClosed() bool
+}
+type operationState struct{ gate OperationAdmission }
+type Operations struct{ *operationState }
+type Handle struct{ *operationState }
+
+func NewOperations(gate OperationAdmission) *Operations {
+	return &Operations{&operationState{gate: gate}}
+}
+func (o *Operations) Handle() Handle {
+	if o == nil {
+		return Handle{}
 	}
-	return target
+	return Handle{o.operationState}
+}
+func (b *operationState) checkAvailable(op string) error {
+	if b == nil || b.gate == nil {
+		return capability.ErrNilSession
+	}
+	return b.gate.CheckAvailable(op)
+}
+func (b *operationState) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return b.gate.OperationContext(ctx)
+}
+func (b *operationState) operationError(op string, err error) error {
+	return b.gate.OperationError(op, err)
+}
+func (o *Operations) ResolveWindow(ctx context.Context, target accessibility.WindowTarget, fresh bool) (accessibility.WindowScope, error) {
+	if o == nil {
+		return accessibility.WindowScope{}, capability.ErrNilSession
+	}
+	return o.accessibilityWindow(ctx, target, fresh)
+}
+func (o *Operations) InvokeOnNode(ctx context.Context, node accessibility.Node, name string) (accessibility.ActionReceipt, error) {
+	if o == nil {
+		return accessibility.ActionReceipt{}, capability.ErrNilSession
+	}
+	return o.invokeSemanticActionOnNode(ctx, node, name)
+}
+func (o *Operations) FindApplicationDirect(ctx context.Context, filter accessibility.ApplicationFilter, fresh bool) (accessibility.Application, error) {
+	return o.findApplicationDirect(ctx, filter, fresh)
 }

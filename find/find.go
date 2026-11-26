@@ -16,9 +16,9 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/util"
-	pollpkg "github.com/nskaggs/perfuncted/poll"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	pollpkg "github.com/nskaggs/perfuncted/v2/poll"
 )
 
 // ErrNotFound is returned when a pixel pattern or color could not be located.

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
 )
 
 // Exercise the published command boundary, not synthetic registry owners.

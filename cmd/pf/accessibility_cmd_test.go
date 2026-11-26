@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"slices"
 	"strings"
 	"testing"
@@ -992,7 +992,7 @@ func TestRawAccessibilityDispatchRejectsMalformedInputsBeforeBackend(t *testing.
 		{"unknown operation", rawInvocation{op: "unrecognized-op"}, "unknown raw op"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			value, err := invokeRawOp(context.Background(), nil, accessibility.NodeID{}, tc.request)
+			value, err := invokeRawOp(context.Background(), perfuncted.AccessibilityBundle{}, accessibility.NodeID{}, tc.request)
 			if value != nil || err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("malformed request returned value=%v err=%v (want %q)", value, err, tc.message)
 			}

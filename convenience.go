@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/keymap"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/keymap"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"strings"
 	"time"
 )
@@ -14,7 +14,7 @@ import (
 // OpenDefault opens a session requiring input and no other capabilities by
 // default. Explicit optional input remains optional. Startup uses the selected
 // target's startup timeout. Wayland authorization may be requested at startup.
-func OpenDefault(opts ...Option) (*Session, error) {
+func openDefault(opts ...Option) (*sessionCore, error) {
 	cfg := openConfig{required: make(map[Capability]struct{}), optional: make(map[Capability]struct{}), target: targetSelection{kind: TargetHost}}
 	for _, opt := range opts {
 		if opt != nil {
@@ -30,19 +30,19 @@ func OpenDefault(opts ...Option) (*Session, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.target.config.Timeouts.WithDefaults().Startup)
 	defer cancel()
-	return Open(ctx, func(dst *openConfig) error { *dst = cfg; return nil })
+	return openSession(ctx, func(dst *openConfig) error { *dst = cfg; return nil })
 }
 
 // SessionView holds immutable operation settings for a Session. It does not
 // own the session; closing the Session cancels operations through the view.
 type SessionView struct {
-	session *Session
+	session *sessionCore
 	ctx     context.Context //nolint:containedctx // The view explicitly carries caller context.
 	timeout time.Duration
 }
 
 // WithContext returns a non-owning view. A nil context is rejected on use.
-func (s *Session) WithContext(ctx context.Context) *SessionView {
+func (s *sessionCore) WithContext(ctx context.Context) *SessionView {
 	return &SessionView{session: s, ctx: ctx}
 }
 
@@ -69,7 +69,7 @@ func (v *SessionView) WithTimeout(d time.Duration) *SessionView {
 }
 
 // WithTimeout returns a non-owning view with a batch timeout.
-func (s *Session) WithTimeout(d time.Duration) *SessionView {
+func (s *sessionCore) WithTimeout(d time.Duration) *SessionView {
 	return &SessionView{session: s, ctx: context.Background(), timeout: d}
 }
 
@@ -199,15 +199,15 @@ func validateHotkey(ctx context.Context, chord string) error {
 // Do executes steps in order against the currently focused application. It
 // preflights known requirements but cannot guarantee application acceptance or
 // atomic focus, and does not retry failed input.
-func (s *Session) Do(steps ...Step) error {
+func (s *sessionCore) Do(steps ...Step) error {
 	return (&SessionView{session: s, ctx: context.Background()}).Do(steps...)
 }
 
 // Type immediately sends literal text to the currently focused application.
-func (s *Session) Type(text string) error { return s.Do(Type(text)) }
+func (s *sessionCore) Type(text string) error { return s.Do(Type(text)) }
 
 // Key immediately sends one named key to the currently focused application.
-func (s *Session) Key(name string) error { return s.Do(Key(name)) }
+func (s *sessionCore) Key(name string) error { return s.Do(Key(name)) }
 
 // Type immediately sends literal text using the view's context and timeout.
 func (v *SessionView) Type(text string) error { return v.Do(Type(text)) }
@@ -255,7 +255,7 @@ func (v *SessionView) Do(steps ...Step) error {
 	return s.runSteps(ctx, steps)
 }
 
-func (s *Session) preflightSteps(ctx context.Context, steps []Step) error {
+func (s *sessionCore) preflightSteps(ctx context.Context, steps []Step) error {
 	for i, step := range steps {
 		if err := ctx.Err(); err != nil {
 			return &StepError{Index: i, Operation: step.kind, Err: err}
@@ -274,23 +274,23 @@ func (s *Session) preflightSteps(ctx context.Context, steps []Step) error {
 		if step.kind == "click" {
 			op = "click"
 		}
-		if s.Input == nil {
+		if s.input == nil {
 			return &StepError{Index: i, Operation: step.kind, Err: &CapabilityError{Capability: CapabilityInput, Operation: op, Err: ErrUnavailable}}
 		}
-		if err := s.Input.checkAvailable(op); err != nil {
+		if err := s.input.CheckAvailable(op); err != nil {
 			return &StepError{Index: i, Operation: step.kind, Err: err}
 		}
 	}
 	return ctx.Err()
 }
 
-func (s *Session) runSteps(ctx context.Context, steps []Step) error {
+func (s *sessionCore) runSteps(ctx context.Context, steps []Step) error {
 	return s.runStepsChecked(ctx, steps, nil)
 }
 
 // A guard observes the current target immediately before each input mutation.
 // A failed guard is never an input dispatch and must not trigger a retry.
-func (s *Session) runStepsChecked(ctx context.Context, steps []Step, guard func(context.Context) error) error {
+func (s *sessionCore) runStepsChecked(ctx context.Context, steps []Step, guard func(context.Context) error) error {
 	for i, step := range steps {
 		if err := s.ensureOpen(); err != nil {
 			return &StepError{Index: i, Operation: step.kind, Err: err}
@@ -316,17 +316,17 @@ func (s *Session) runStepsChecked(ctx context.Context, steps []Step, guard func(
 	return nil
 }
 
-func (s *Session) runStep(ctx context.Context, step Step) error {
+func (s *sessionCore) runStep(ctx context.Context, step Step) error {
 	var err error
 	switch step.kind {
 	case "type-literal":
-		err = s.Input.TypeLiteral(ctx, step.text)
+		err = s.input.TypeLiteral(ctx, step.text)
 	case "type-keys":
-		err = s.Input.Type(ctx, step.text)
+		err = s.input.Type(ctx, step.text)
 	case "key", "hotkey":
-		err = s.Input.Type(ctx, "{"+step.text+"}")
+		err = s.input.Type(ctx, "{"+step.text+"}")
 	case "click":
-		err = s.Input.MouseClick(ctx, step.x, step.y, 1)
+		err = s.input.MouseClick(ctx, step.x, step.y, 1)
 	case "delay":
 		timer := time.NewTimer(step.delay)
 		select {
@@ -362,7 +362,7 @@ type WindowTarget struct {
 
 // Window selects a window by exact, case-insensitive title for a targeted batch.
 // Pass Require(CapabilityWindows) to OpenDefault to enable this operation.
-func (s *Session) Window(title string) *WindowTarget {
+func (s *sessionCore) Window(title string) *WindowTarget {
 	return (&SessionView{session: s, ctx: context.Background()}).Window(title)
 }
 
@@ -418,10 +418,10 @@ func (t *WindowTarget) Do(steps ...Step) error {
 	if len(steps) == 0 {
 		return nil
 	}
-	if availabilityErr := s.Windows.checkAvailable("discover"); availabilityErr != nil {
+	if availabilityErr := s.windows.checkAvailable("discover"); availabilityErr != nil {
 		return availabilityErr
 	}
-	w, err := s.Windows.Find(ctx, WindowMatch{TitleExact: t.title})
+	w, err := s.windows.Find(ctx, WindowMatch{TitleExact: t.title})
 	if err != nil {
 		return err
 	}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"iter"
 	"strings"
 	"sync"
@@ -189,7 +189,7 @@ func TestReviewCompositeOwnsChildSlice(t *testing.T) {
 }
 
 func TestReviewWaitRejectsInvalidConditionBeforeObservation(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	calls := 0
 	ready := Predicate("ready", func(context.Context) (bool, error) { calls++; return true, nil })
@@ -221,7 +221,7 @@ func TestReviewWaitRejectsInvalidConditionBeforeObservation(t *testing.T) {
 // invalidate independent application notifications.
 func TestWaitHubClosedWindowChangeStreamPreservesOtherNotifications(t *testing.T) {
 	backend := newHandleWindowManager(window.Info{NativeID: "w-1"})
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	first := session.waitChanges()
@@ -271,9 +271,9 @@ func TestWaitHubClosedAccessibilityStreamPreservesOtherNotifications(t *testing.
 		events: make(chan accessibility.Event, 1),
 		opened: make(chan struct{}),
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	session.Accessibility.backend = source
+	session.accessibility.backend = source
 	first := session.waitChanges()
 	select {
 	case <-source.opened:
@@ -389,7 +389,7 @@ func TestMixedConditionPreservesEventWakeups(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := newHandleWindowManager()
-			session := NewSessionForTesting(nil, nil, manager, nil, nil)
+			session := newSessionForTesting(nil, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
 			// Wait for a completed first window query, not merely the first
 			// predicate call. Otherwise a ready window can be observed in
@@ -398,7 +398,7 @@ func TestMixedConditionPreservesEventWakeups(t *testing.T) {
 			poll := Predicate("local prerequisite", func(context.Context) (bool, error) {
 				return tt.name == "All", nil
 			})
-			windowReady := sessionCondition("ready window", func(ctx context.Context, s *Session) (bool, error) {
+			windowReady := sessionCondition("ready window", func(ctx context.Context, s *sessionCore) (bool, error) {
 				ready, err := WindowExists(WindowMatch{TitleExact: "Ready"}).evaluate(ctx, s)
 				select {
 				case <-firstWindowQuery:
@@ -443,7 +443,7 @@ func TestMixedConditionPreservesEventWakeups(t *testing.T) {
 // A successful predicate is not evidence of success if it invalidated the
 // caller's context while being evaluated.
 func TestWaitDoesNotAcceptSuccessAfterCancellation(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -461,9 +461,9 @@ func TestWaitDoesNotAcceptSuccessAfterCancellation(t *testing.T) {
 // its original epoch rather than being replaced by later notifications.
 func TestWaitChangesAcceptsDirectAccessibilityEventSource(t *testing.T) {
 	source := newWaitAccessibilityEventBackend()
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	session.Accessibility.backend = source
+	session.accessibility.backend = source
 	epoch := session.waitChanges()
 	select {
 	case <-source.opened:
@@ -502,7 +502,7 @@ func TestWaitChangesAcceptsDirectAccessibilityEventSource(t *testing.T) {
 // withdraws wait authority. Cancellation must win over the retry policy,
 // including any failures already accumulated for this wait.
 func TestWaitConditionFailureAfterCallerCancellationDoesNotRetry(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -526,15 +526,15 @@ func TestWaitConditionFailureAfterCallerCancellationDoesNotRetry(t *testing.T) {
 // Receipt bookkeeping must be a no-op for a missing optional input bundle,
 // preserving the original caller result without manufacturing diagnostics.
 func TestMissingInputBundleReceiptIsInertAndDoesNotSwallowError(t *testing.T) {
-	var absent *InputBundle
+	var absent *inputState
 	failure := errors.New("synthetic transport unavailable")
-	if err := absent.recordInputReceipt("type", time.Now(), failure); !errors.Is(err, failure) {
+	if err := absent.RecordInputReceipt("type", time.Now(), failure); !errors.Is(err, failure) {
 		t.Fatalf("missing receipt owner changed failure: %v", err)
 	}
-	if err := absent.recordInputReceipt("type", time.Now(), nil); err != nil {
+	if err := absent.RecordInputReceipt("type", time.Now(), nil); err != nil {
 		t.Fatalf("missing receipt owner manufactured failure: %v", err)
 	}
-	if got := absent.recentInputReceipts(); got != nil {
+	if got := absent.RecentInputReceipts(); got != nil {
 		t.Fatalf("missing input bundle exposed receipts: %v", got)
 	}
 }
@@ -545,17 +545,17 @@ func TestMissingInputBundleReceiptIsInertAndDoesNotSwallowError(t *testing.T) {
 func TestWindowClosedRejectsForeignSessionHandleBeforeBackendLookup(t *testing.T) {
 	ownerManager := newHandleWindowManager(window.Info{NativeID: "reused-id", Title: "owner window"})
 	otherManager := newHandleWindowManager(window.Info{NativeID: "reused-id", Title: "different window"})
-	owner := NewSessionForTesting(nil, nil, ownerManager, nil, nil)
-	other := NewSessionForTesting(nil, nil, otherManager, nil, nil)
+	owner := newSessionForTesting(nil, nil, ownerManager, nil, nil)
+	other := newSessionForTesting(nil, nil, otherManager, nil, nil)
 	t.Cleanup(func() { _ = owner.Close(); _ = other.Close() })
-	target := &Window{id: WindowID{session: owner, native: "reused-id"}}
+	target := &windowState{id: WindowID{session: owner, native: "reused-id"}}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	evidence, err := other.WaitWithEvidence(ctx, WindowClosed(target), WaitEvery(100*time.Millisecond))
+	evidence, err := other.WaitWithEvidence(ctx, windowClosed(target), WaitEvery(100*time.Millisecond))
 	if !errors.Is(err, ErrInvalidArgument) || evidence.Evaluations != 1 || evidence.PollWakeups != 0 {
 		t.Fatalf("foreign session handle not rejected immediately: evidence=%+v err=%v", evidence, err)
 	}
-	ok, err := WindowClosed(target).evaluate(ctx, owner)
+	ok, err := windowClosed(target).evaluate(ctx, owner)
 	if err != nil || ok {
 		t.Fatalf("same-owner live window incorrectly considered closed: ok=%v err=%v", ok, err)
 	}
@@ -564,7 +564,7 @@ func TestWindowClosedRejectsForeignSessionHandleBeforeBackendLookup(t *testing.T
 // A wait with no owner or no condition must be rejected without constructing
 // observers or claiming any condition evaluation occurred.
 func TestWaitWithEvidenceRejectsMissingOwnerAndConditionBeforePolling(t *testing.T) {
-	var missing *Session
+	var missing *sessionCore
 	evidence, err := missing.WaitWithEvidence(context.Background(), Predicate("ready", func(context.Context) (bool, error) {
 		t.Fatal("nil session invoked predicate")
 		return true, nil
@@ -572,7 +572,7 @@ func TestWaitWithEvidenceRejectsMissingOwnerAndConditionBeforePolling(t *testing
 	if !errors.Is(err, ErrNilSession) || evidence != (WaitEvidence{}) {
 		t.Fatalf("nil session returned evidence=%+v error=%v", evidence, err)
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	evidence, err = session.WaitWithEvidence(context.Background(), nil)
 	if !errors.Is(err, ErrInvalidArgument) || evidence != (WaitEvidence{}) {
@@ -592,7 +592,7 @@ func TestCompositeConditionRejectsUnsupportedModeWithoutEvaluatingChildren(t *te
 	condition := compositeCondition{name: "unsupported", mode: "none", conditions: []Condition{
 		Predicate("ready", func(context.Context) (bool, error) { calls++; return true, nil }),
 	}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -616,7 +616,7 @@ func TestWaitRejectsMalformedConditionWithoutPollingUntilDeadline(t *testing.T) 
 		{"not with nil child", Not(nil)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := NewSessionForTesting(nil, nil, nil, nil, nil)
+			session := newSessionForTesting(nil, nil, nil, nil, nil)
 			defer session.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()
@@ -634,16 +634,16 @@ func TestWaitRejectsMalformedConditionWithoutPollingUntilDeadline(t *testing.T) 
 // Loss of a window backend does not prove an ID has disappeared. A closure
 // waiter cannot turn a missing observation capability into a success result.
 func TestWindowClosedDoesNotInferDisappearanceFromMissingManager(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	handle := &Window{id: WindowID{session: session, native: "unobserved-window"}}
+	handle := &windowState{id: WindowID{session: session, native: "unobserved-window"}}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	ok, err := WindowClosed(handle).evaluate(ctx, session)
+	ok, err := windowClosed(handle).evaluate(ctx, session)
 	if ok || !errors.Is(err, ErrUnavailable) || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unavailable manager proved closure: ok=%v err=%v", ok, err)
 	}
-	evidence, err := session.WaitWithEvidence(ctx, WindowClosed(handle), WaitEvery(100*time.Millisecond))
+	evidence, err := session.WaitWithEvidence(ctx, windowClosed(handle), WaitEvery(100*time.Millisecond))
 	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, ErrUnsupported) || evidence.Evaluations != 1 || evidence.PollWakeups != 0 {
 		t.Fatalf("unavailable manager was treated as closed or polled: evidence=%+v err=%v", evidence, err)
 	}
@@ -656,7 +656,7 @@ func TestWindowClosedDoesNotInferDisappearanceFromMissingManager(t *testing.T) {
 // Unrelated event storms must not bypass the configured polling interval or
 // misattribute event wakeups to a state-only predicate.
 func TestWaitPollingOnlyIgnoresUnrelatedInvalidationEvents(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	var evaluations atomic.Int32
 	var ready atomic.Bool
@@ -707,11 +707,11 @@ func TestWaitPollingOnlyIgnoresUnrelatedInvalidationEvents(t *testing.T) {
 // A missing session-bound window is a programming error, not a transient
 // compositor observation. Retrying until the caller's deadline conceals it.
 func TestWaitWindowClosedRejectsMissingWindowHandleImmediately(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, newHandleWindowManager(), nil, nil)
+	session := newSessionForTesting(nil, nil, newHandleWindowManager(), nil, nil)
 	defer session.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	evidence, err := session.WaitWithEvidence(ctx, WindowClosed(nil), WaitEvery(time.Second))
+	evidence, err := session.WaitWithEvidence(ctx, windowClosed(nil), WaitEvery(time.Second))
 	if !errors.Is(err, ErrNilSession) || evidence.Evaluations != 1 {
 		t.Fatalf("missing handle retried as a transient failure: %+v %v", evidence, err)
 	}
@@ -721,12 +721,12 @@ func TestWaitWindowClosedRejectsMissingWindowHandleImmediately(t *testing.T) {
 // Its unsupported capability must fail without a long retry loop.
 func TestWaitWindowClosedRejectsUnsupportedStableHandleLookupImmediately(t *testing.T) {
 	manager := &flakyWindowManager{}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	target := &Window{id: WindowID{session: session, native: "synthetic-window"}}
+	target := &windowState{id: WindowID{session: session, native: "synthetic-window"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	evidence, err := session.WaitWithEvidence(ctx, WindowClosed(target), WaitEvery(time.Second))
+	evidence, err := session.WaitWithEvidence(ctx, windowClosed(target), WaitEvery(time.Second))
 	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, window.ErrNotSupported) || evidence.Evaluations != 1 {
 		t.Fatalf("unsupported stable ID lookup retried: %+v %v", evidence, err)
 	}
@@ -736,22 +736,22 @@ func TestWaitWindowClosedRejectsUnsupportedStableHandleLookupImmediately(t *test
 // is still present; disappearance of its native handle is the success proof.
 func TestWaitWindowClosedRequiresStableHandleDisappearance(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "opaque-123", Title: "Before"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	target := &Window{id: WindowID{session: session, native: "opaque-123"}}
+	target := &windowState{id: WindowID{session: session, native: "opaque-123"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	manager.setWindows(false, window.Info{NativeID: "opaque-123", Title: "After"})
-	proof, err := WindowClosed(target).evaluate(ctx, session)
+	proof, err := windowClosed(target).evaluate(ctx, session)
 	if err != nil || proof {
 		t.Fatalf("title-only change falsely proved window closed: proof=%v err=%v", proof, err)
 	}
 	manager.setWindows(false)
-	proof, err = WindowClosed(target).evaluate(ctx, session)
+	proof, err = windowClosed(target).evaluate(ctx, session)
 	if err != nil || !proof {
 		t.Fatalf("stable window disappearance was not recognized: proof=%v err=%v", proof, err)
 	}
-	evidence, err := session.WaitWithEvidence(ctx, WindowClosed(target))
+	evidence, err := session.WaitWithEvidence(ctx, windowClosed(target))
 	if err != nil || evidence.Evaluations != 1 {
 		t.Fatalf("closed window not recognized immediately: %+v %v", evidence, err)
 	}
@@ -760,23 +760,23 @@ func TestWaitWindowClosedRequiresStableHandleDisappearance(t *testing.T) {
 // A manager that cannot answer is not evidence that a live window vanished.
 func TestWaitWindowClosedPropagatesTransientBackendFailure(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "opaque-123", Title: "Live"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	target := &Window{id: WindowID{session: session, native: "opaque-123"}}
+	target := &windowState{id: WindowID{session: session, native: "opaque-123"}}
 	failure := errors.New("synthetic window transport timeout")
 	manager.setError(failure)
-	proof, err := WindowClosed(target).evaluate(context.Background(), session)
+	proof, err := windowClosed(target).evaluate(context.Background(), session)
 	if proof || !errors.Is(err, failure) {
 		t.Fatalf("failed lookup falsely proved window closed: proof=%v err=%v", proof, err)
 	}
 	failures := waitEvaluateFailures{}
-	proof, err = session.evaluateWaitCondition(context.Background(), WindowClosed(target), &failures)
+	proof, err = session.evaluateWaitCondition(context.Background(), windowClosed(target), &failures)
 	if proof || err != nil || failures.total != 1 {
 		t.Fatalf("transient manager failure no longer retries: proof=%v err=%v count=%d", proof, err, failures.total)
 	}
 	manager.setError(nil)
 	manager.setWindows(false)
-	proof, err = session.evaluateWaitCondition(context.Background(), WindowClosed(target), &failures)
+	proof, err = session.evaluateWaitCondition(context.Background(), windowClosed(target), &failures)
 	if err != nil || !proof || failures.consecutive != 0 {
 		t.Fatalf("subsequent valid disappearance failed: proof=%v err=%v failures=%+v", proof, err, failures)
 	}
@@ -787,12 +787,12 @@ func TestWaitWindowClosedPropagatesTransientBackendFailure(t *testing.T) {
 // error must not be mistaken for an unavailable compositor and retried.
 func TestWindowClosedConditionPreservesClosedSessionError(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "private-handle", Title: "private"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
-	handle := &Window{id: WindowID{session: session, native: "private-handle"}}
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
+	handle := &windowState{id: WindowID{session: session, native: "private-handle"}}
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
 	}
-	matched, err := WindowClosed(handle).evaluate(context.Background(), session)
+	matched, err := windowClosed(handle).evaluate(context.Background(), session)
 	if matched || !errors.Is(err, ErrSessionClosed) || errors.Is(err, ErrUnavailable) {
 		t.Fatalf("closed owner incorrectly proved disappearance: matched=%v err=%v", matched, err)
 	}
@@ -846,7 +846,7 @@ func TestSessionWaitRetriesTransientEvaluationErrors(t *testing.T) {
 		err:      fmt.Errorf("window/sway: get_tree: read unix: i/o timeout"),
 		windows:  []window.Info{{NativeID: "ready", Title: "Ready"}},
 	}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -861,7 +861,7 @@ func TestSessionWaitAbortsOnPermanentEvaluationError(t *testing.T) {
 		failures: 1000,
 		err:      ErrApplicationExited,
 	}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	start := time.Now()
@@ -881,7 +881,7 @@ func TestSessionWaitGivesUpAfterSustainedTransientErrors(t *testing.T) {
 		failures: 1000,
 		err:      fmt.Errorf("window/sway: get_tree: read unix: i/o timeout"),
 	}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -938,7 +938,7 @@ func (m *alternatingWindowManager) Close() error { return nil }
 // caller has to be told so rather than being waited out to its own deadline.
 func TestSessionWaitGivesUpOnFailuresInterleavedWithSuccessfulReads(t *testing.T) {
 	manager := &alternatingWindowManager{err: fmt.Errorf("window/sway: get_tree: read unix: i/o timeout")}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	// The deadline is far longer than the bound needs, so an implementation that
@@ -1015,7 +1015,7 @@ func TestWaitEvaluateFailuresResetEndsStreakNotTotal(t *testing.T) {
 // Cancellation may occur after public wait preflight and before the first
 // condition evaluation. Exercise this boundary without a scheduling race.
 func TestWaitWithEvidenceRejectsCancellationBeforeFirstEvaluation(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

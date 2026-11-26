@@ -3,7 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/v2/input"
 	"image"
 	"os"
 	"slices"
@@ -19,11 +19,11 @@ func TestInputObservationSessionOnControlledX11(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	session, err := Open(ctx, Require(CapabilityInputObservation))
+	session, err := openSession(ctx, Require(CapabilityInputObservation))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := session.InputObservation.Listen(ctx, input.ObservationFilter{Combo: "F8", Transition: "both"})
+	sub, err := session.inputObservation.Listen(ctx, input.ObservationFilter{Combo: "F8", Transition: "both"})
 	if err != nil {
 		_ = session.Close()
 		t.Fatal(err)
@@ -88,20 +88,21 @@ func (s *fakeObservationSub) Close() error {
 	}
 	return nil
 }
-func setupObservationTestSession(backend input.Observer) *Session {
+func setupObservationTestSession(backend input.Observer) *sessionCore {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Session{
+	s := &sessionCore{
 		ctx: ctx, cancel: cancel,
 		capabilities: map[Capability]CapabilityStatus{
 			CapabilityInputObservation: {Capability: CapabilityInputObservation, Available: true, Operations: []string{"listen-hotkey", "listen-button"}},
 		},
 	}
-	s.InputObservation = &InputObservationBundle{bundleBase: s.bundleBase(CapabilityInputObservation), backend: backend}
+	s.observationAdmission = s.bundleBase(CapabilityInputObservation)
+	s.inputObservation = newObservationState(&s.observationAdmission, backend)
 	s.cacheResolvedBundleOperationsForTest()
 	return s
 }
-func (s *Session) cacheResolvedBundleOperationsForTest() {
-	s.InputObservation.bundleBase.cacheOperations(s.capabilities[CapabilityInputObservation].Operations)
+func (s *sessionCore) cacheResolvedBundleOperationsForTest() {
+	s.observationAdmission.cacheOperations(s.capabilities[CapabilityInputObservation].Operations)
 }
 
 type fakeStateObservationBackend struct {
@@ -127,20 +128,20 @@ func (f *fakeStateObservationBackend) MouseButtonState(ctx context.Context, butt
 	return f.buttonQuery(ctx, button)
 }
 
-func setupStateObservationTestSession(backend input.Observer) *Session {
+func setupStateObservationTestSession(backend input.Observer) *sessionCore {
 	session := setupObservationTestSession(backend)
 	ops := []string{"query-key-state", "query-lock-state", "query-button-state"}
 	session.capabilities[CapabilityInputObservation] = CapabilityStatus{
 		Capability: CapabilityInputObservation, Available: true, Operations: ops,
 	}
-	session.InputObservation.bundleBase.cacheOperations(ops)
+	session.observationAdmission.cacheOperations(ops)
 	return session
 }
 
 func TestInputObservationSessionLifecycle(t *testing.T) {
 	backend := &fakeObservationBackend{}
 	session := setupObservationTestSession(backend)
-	sub, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"})
+	sub, err := session.inputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"})
 	if err != nil || sub == nil || backend.listened != 1 {
 		t.Fatalf("listen %v %+v", err, backend)
 	}
@@ -153,7 +154,7 @@ func TestInputObservationSessionLifecycle(t *testing.T) {
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Button: 1}); !errors.Is(err, ErrSessionClosed) {
+	if _, err := session.inputObservation.Listen(context.Background(), input.ObservationFilter{Button: 1}); !errors.Is(err, ErrSessionClosed) {
 		t.Fatalf("closed session listen: %v", err)
 	}
 }
@@ -161,32 +162,32 @@ func TestInputObservationBundleValidationAndErrors(t *testing.T) {
 	backend := &fakeObservationBackend{}
 	session := setupObservationTestSession(backend)
 	defer session.Close()
-	if _, err := session.InputObservation.Listen(nil, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrInvalidArgument) {
+	if _, err := session.inputObservation.Listen(nil, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatal(err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := session.InputObservation.Listen(canceled, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, context.Canceled) {
+	if _, err := session.inputObservation.Listen(canceled, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	backend.err = input.ErrObservationUnsupported
-	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrUnsupported) {
+	if _, err := session.inputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrUnsupported) {
 		t.Fatal(err)
 	}
 	backend.err = nil
 	ctx, stop := context.WithDeadline(context.Background(), time.Now().Add(time.Second))
 	defer stop()
-	sub, err := session.InputObservation.Listen(ctx, input.ObservationFilter{Button: 1})
+	sub, err := session.inputObservation.Listen(ctx, input.ObservationFilter{Button: 1})
 	if err != nil || sub == nil {
 		t.Fatal(err)
 	}
 	_ = sub.Close()
 	session.capabilities[CapabilityInputObservation] = CapabilityStatus{Capability: CapabilityInputObservation, Operations: []string{"listen-hotkey"}}
-	session.InputObservation.bundleBase.cacheOperations([]string{"listen-hotkey"})
-	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Button: 1}); !errors.Is(err, ErrUnsupported) {
+	session.observationAdmission.cacheOperations([]string{"listen-hotkey"})
+	if _, err := session.inputObservation.Listen(context.Background(), input.ObservationFilter{Button: 1}); !errors.Is(err, ErrUnsupported) {
 		t.Fatal(err)
 	}
-	if err := (*InputObservationBundle)(nil).close(); err != nil {
+	if err := (*inputObservationState)(nil).Close(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -196,20 +197,20 @@ func TestInputObservationBundleValidationAndErrors(t *testing.T) {
 func TestInputObservationBundleAdmissionRaces(t *testing.T) {
 	backend := &fakeObservationBackend{}
 	session := setupObservationTestSession(backend)
-	var nilBundle *InputObservationBundle
+	var nilBundle InputObservationBundle
 	if _, err := nilBundle.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); err == nil {
 		t.Fatal("nil facade was accepted")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	backend.onListen = cancel
-	if _, err := session.InputObservation.Listen(ctx, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, context.Canceled) {
+	if _, err := session.inputObservation.Listen(ctx, input.ObservationFilter{Combo: "F8"}); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	if backend.sub == nil || !backend.sub.closed {
 		t.Fatal("canceled registration leaked returned subscription")
 	}
 	backend.onListen = func() { _ = session.Close() }
-	if _, err := session.InputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrSessionClosed) {
+	if _, err := session.inputObservation.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); !errors.Is(err, ErrSessionClosed) {
 		t.Fatal(err)
 	}
 	if backend.sub == nil || !backend.sub.closed {
@@ -237,25 +238,25 @@ func TestInputObservationStateValidationAndResults(t *testing.T) {
 	session := setupStateObservationTestSession(backend)
 	defer session.Close()
 
-	if _, err := session.InputObservation.KeyState(context.Background(), "invalid"); !errors.Is(err, ErrInvalidArgument) {
+	if _, err := session.inputObservation.KeyState(context.Background(), "invalid"); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("invalid key query: %v", err)
 	}
-	if _, err := session.InputObservation.LockState(context.Background(), "compose"); !errors.Is(err, ErrInvalidArgument) {
+	if _, err := session.inputObservation.LockState(context.Background(), "compose"); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("invalid lock query: %v", err)
 	}
-	if _, err := session.InputObservation.MouseButtonState(context.Background(), 6); !errors.Is(err, ErrInvalidArgument) {
+	if _, err := session.inputObservation.MouseButtonState(context.Background(), 6); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("invalid button query: %v", err)
 	}
 	if calls != 0 {
 		t.Fatalf("invalid queries reached backend %d times", calls)
 	}
-	if got, err := session.InputObservation.KeyState(context.Background(), "shift"); err != nil || got.State != input.StatePressed || got.Provenance != "unknown" {
+	if got, err := session.inputObservation.KeyState(context.Background(), "shift"); err != nil || got.State != input.StatePressed || got.Provenance != "unknown" {
 		t.Fatalf("key state = %+v, %v", got, err)
 	}
-	if got, err := session.InputObservation.LockState(context.Background(), "capslock"); err != nil || got.State != input.StateEnabled {
+	if got, err := session.inputObservation.LockState(context.Background(), "capslock"); err != nil || got.State != input.StateEnabled {
 		t.Fatalf("lock state = %+v, %v", got, err)
 	}
-	if got, err := session.InputObservation.MouseButtonState(context.Background(), 1); err != nil || got.State != input.StateReleased {
+	if got, err := session.inputObservation.MouseButtonState(context.Background(), 1); err != nil || got.State != input.StateReleased {
 		t.Fatalf("button state = %+v, %v", got, err)
 	}
 	if calls != 3 {
@@ -266,7 +267,7 @@ func TestInputObservationStateValidationAndResults(t *testing.T) {
 func TestInputObservationStateUnsupportedAndCancellation(t *testing.T) {
 	plain := &fakeObservationBackend{}
 	session := setupStateObservationTestSession(plain)
-	if _, err := session.InputObservation.KeyState(context.Background(), "shift"); !errors.Is(err, ErrUnsupported) {
+	if _, err := session.inputObservation.KeyState(context.Background(), "shift"); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("backend without StateReader: %v", err)
 	}
 	_ = session.Close()
@@ -286,7 +287,7 @@ func TestInputObservationStateUnsupportedAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.InputObservation.KeyState(ctx, "shift")
+		_, err := session.inputObservation.KeyState(ctx, "shift")
 		result <- err
 	}()
 	<-started
@@ -313,7 +314,7 @@ func TestInputObservationStateLateResultAfterSessionClose(t *testing.T) {
 	session := setupStateObservationTestSession(backend)
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.InputObservation.KeyState(context.Background(), "shift")
+		_, err := session.inputObservation.KeyState(context.Background(), "shift")
 		result <- err
 	}()
 	<-started
@@ -357,7 +358,7 @@ func TestInputPointerReadsRequireAuthorityAtDispatchAndReturn(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				source := &authorityLossPointerRead{closeCountingInput: &closeCountingInput{}}
-				session := NewSessionForTesting(nil, source, nil, nil, nil)
+				session := newSessionForTesting(nil, source, nil, nil, nil)
 				t.Cleanup(func() { _ = session.Close() })
 				expected := context.Canceled
 				if mode == "pre-cancel" {
@@ -370,13 +371,13 @@ func TestInputPointerReadsRequireAuthorityAtDispatchAndReturn(t *testing.T) {
 				}
 				var err error
 				if operation == "position" {
-					x, y, e := session.Input.PointerLocation(ctx)
+					x, y, e := session.input.PointerLocation(ctx)
 					err = e
 					if x != 0 || y != 0 {
 						t.Errorf("leaked position %d,%d", x, y)
 					}
 				} else {
-					info, e := session.Input.PointerCoordinateSpace(ctx)
+					info, e := session.input.PointerCoordinateSpace(ctx)
 					err = e
 					if info != (input.CoordinateSpaceInfo{}) {
 						t.Errorf("leaked coordinate space %+v", info)
@@ -442,15 +443,15 @@ func TestMotionDeliveryAcknowledgement(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &motionDeliveryBackend{failureAt: tc.failure}
-			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			s := newSessionForTesting(nil, backend, nil, nil, nil)
 			defer s.Close()
 			start, end := image.Pt(10, 20), image.Pt(40, 50)
 			opts := MotionOptions{Duration: 20 * time.Millisecond}
 			var err error
 			if tc.drag {
-				err = s.Input.DragAndDropSmooth(context.Background(), start, end, opts)
+				err = s.input.DragAndDropSmooth(context.Background(), start, end, opts)
 			} else {
-				err = s.Input.MouseMoveSmooth(context.Background(), &start, end, opts)
+				err = s.input.MouseMoveSmooth(context.Background(), &start, end, opts)
 			}
 			if (err != nil) != (tc.failure != 0) {
 				t.Fatalf("delivery error: %v", err)
@@ -524,22 +525,22 @@ func TestMotionInternalAuthorityPerFrame(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &motionPrivateBackend{}
-			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			s := newSessionForTesting(nil, backend, nil, nil, nil)
 			defer s.Close()
 			ctx := &motionStepContext{Context: context.Background(), trigger: tc.target, abort: !tc.close}
 			if tc.close {
 				ctx.onTrigger = func() { _ = s.Close() }
 			}
-			if err := s.Input.sendMotion(ctx, points, tc.duration, 0); err == nil {
+			if err := s.input.SendMotion(ctx, points, tc.duration, 0); err == nil {
 				t.Fatalf("ignored authority loss: %+v", tc)
 			}
 		})
 	}
 	t.Run("skip-overdue", func(t *testing.T) {
 		backend := &motionPrivateBackend{delay: 40 * time.Millisecond}
-		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		s := newSessionForTesting(nil, backend, nil, nil, nil)
 		defer s.Close()
-		if err := s.Input.sendMotion(context.Background(), points, 20*time.Millisecond, 0); err != nil {
+		if err := s.input.SendMotion(context.Background(), points, 20*time.Millisecond, 0); err != nil {
 			t.Fatal(err)
 		}
 		if backend.moves != 2 {
@@ -548,12 +549,12 @@ func TestMotionInternalAuthorityPerFrame(t *testing.T) {
 	})
 	t.Run("cancel-during-wait", func(t *testing.T) {
 		backend := &motionPrivateBackend{}
-		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		s := newSessionForTesting(nil, backend, nil, nil, nil)
 		defer s.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go func() { time.Sleep(5 * time.Millisecond); cancel() }()
-		err := s.Input.sendMotion(ctx, points, 200*time.Millisecond, 1)
+		err := s.input.SendMotion(ctx, points, 200*time.Millisecond, 1)
 		if !errors.Is(err, context.Canceled) || backend.moves != 0 {
 			t.Fatalf("wait cancellation err=%v moves=%d", err, backend.moves)
 		}
@@ -575,13 +576,13 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &motionPrivateBackend{}
-			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			s := newSessionForTesting(nil, backend, nil, nil, nil)
 			defer s.Close()
 			ctx := &motionStepContext{Context: context.Background(), trigger: 1, abort: !tc.close}
 			if tc.close {
 				ctx.onTrigger = func() { _ = s.Close() }
 			}
-			err := s.Input.dragPoints(ctx, []motionPoint{{X: 1, Y: 1}, {X: 2, Y: 2}}, 0)
+			err := s.input.DragPoints(ctx, []motionPoint{{X: 1, Y: 1}, {X: 2, Y: 2}}, 0)
 			if err == nil || backend.moves != 0 {
 				t.Fatalf("admission err=%v moves=%d", err, backend.moves)
 			}
@@ -589,20 +590,20 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 	}
 	t.Run("move-closed", func(t *testing.T) {
 		backend := &motionPrivateBackend{}
-		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		s := newSessionForTesting(nil, backend, nil, nil, nil)
 		_ = s.Close()
-		err := s.Input.MouseMoveSmooth(context.Background(), &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+		err := s.input.MouseMoveSmooth(context.Background(), &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
 		if !errors.Is(err, ErrSessionClosed) {
 			t.Fatal(err)
 		}
 	})
 	t.Run("move-canceled", func(t *testing.T) {
 		backend := &motionPrivateBackend{}
-		s := NewSessionForTesting(nil, backend, nil, nil, nil)
+		s := newSessionForTesting(nil, backend, nil, nil, nil)
 		defer s.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		err := s.Input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+		err := s.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
 		if !errors.Is(err, context.Canceled) {
 			t.Fatal(err)
 		}
@@ -615,13 +616,13 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &motionPrivateBackend{}
-			s := NewSessionForTesting(nil, backend, nil, nil, nil)
+			s := newSessionForTesting(nil, backend, nil, nil, nil)
 			defer s.Close()
 			ctx := &motionStepContext{Context: context.Background(), trigger: 2, abort: !tc.close}
 			if tc.close {
 				ctx.onTrigger = func() { _ = s.Close() }
 			}
-			err := s.Input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+			err := s.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
 			if err == nil || backend.moves != 0 {
 				t.Fatalf("authority err=%v moves=%d", err, backend.moves)
 			}
@@ -631,11 +632,11 @@ func TestMotionPrivateAdmissionAndPreflight(t *testing.T) {
 
 func TestMotionLocationCapabilityRevokedBetweenChecks(t *testing.T) {
 	backend := &motionPrivateBackend{}
-	s := NewSessionForTesting(nil, backend, nil, nil, nil)
+	s := newSessionForTesting(nil, backend, nil, nil, nil)
 	defer s.Close()
 	ctx := &motionStepContext{Context: context.Background(), trigger: 1}
 	ctx.onTrigger = func() { _ = s.Close() }
-	err := s.Input.MouseMoveSmooth(ctx, nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+	err := s.input.MouseMoveSmooth(ctx, nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
 	if !errors.Is(err, ErrSessionClosed) || backend.moves != 0 {
 		t.Fatalf("location admission err=%v moves=%d", err, backend.moves)
 	}
@@ -645,16 +646,16 @@ func TestMotionLocationCapabilityRevokedBetweenChecks(t *testing.T) {
 // authority when only explicit-start movement is permitted.
 func TestMotionNoPointerLocationPermission(t *testing.T) {
 	backend := &motionPrivateBackend{}
-	session := NewSessionForTesting(nil, backend, nil, nil, nil)
+	session := newSessionForTesting(nil, backend, nil, nil, nil)
 	defer session.Close()
-	operations := session.Input.resolvedOperations[:0]
-	for _, name := range session.Input.resolvedOperations {
+	operations := session.inputAdmission.resolvedOperations[:0]
+	for _, name := range session.inputAdmission.resolvedOperations {
 		if name != "pointer-location" {
 			operations = append(operations, name)
 		}
 	}
-	session.Input.resolvedOperations = operations
-	err := session.Input.MouseMoveSmooth(context.Background(), nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
+	session.inputAdmission.resolvedOperations = operations
+	err := session.input.MouseMoveSmooth(context.Background(), nil, image.Pt(4, 4), MotionOptions{Duration: 20 * time.Millisecond})
 	if !errors.Is(err, ErrUnsupported) || backend.moves != 0 {
 		t.Fatalf("location authority err=%v moves=%d", err, backend.moves)
 	}
@@ -667,12 +668,12 @@ func TestMotionPreflightHandoffAuthority(t *testing.T) {
 	for _, closeSession := range []bool{false, true} {
 		for trigger := 1; trigger <= 35; trigger++ {
 			backend := &motionPrivateBackend{}
-			session := NewSessionForTesting(nil, backend, nil, nil, nil)
+			session := newSessionForTesting(nil, backend, nil, nil, nil)
 			ctx := &motionStepContext{Context: context.Background(), trigger: trigger, abort: !closeSession}
 			if closeSession {
 				ctx.onTrigger = func() { _ = session.Close() }
 			}
-			_ = session.Input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(5, 5), MotionOptions{Duration: 20 * time.Millisecond})
+			_ = session.input.MouseMoveSmooth(ctx, &image.Point{}, image.Pt(5, 5), MotionOptions{Duration: 20 * time.Millisecond})
 			_ = session.Close()
 		}
 	}
@@ -697,7 +698,7 @@ func TestObservePointerContract(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			f := &observationFixture{closeCountingInput: &closeCountingInput{}, result: input.PointerObservation{Provider: "synthetic", ObservedAt: time.Now(), CoordinateSpace: input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 1, ScaleY: 1}}}
-			s := NewSessionForTesting(nil, f, nil, nil, nil)
+			s := newSessionForTesting(nil, f, nil, nil, nil)
 			defer s.Close()
 			var want error
 			switch mode {
@@ -715,7 +716,7 @@ func TestObservePointerContract(t *testing.T) {
 				f.after = func() { _ = s.Close() }
 				want = ErrSessionClosed
 			}
-			got, err := s.Input.ObservePointer(ctx)
+			got, err := s.input.ObservePointer(ctx)
 			if want != nil || mode == "invalid-scale" {
 				if err == nil || (want != nil && !errors.Is(err, want)) || got != (input.PointerObservation{}) {
 					t.Fatalf("got %+v, %v; want %v", got, err, want)
@@ -747,13 +748,13 @@ func TestInputReceiptClassifiesAdversarialFailureAndDispatch(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			bundle := &InputBundle{}
+			bundle := newInputState(nil, nil)
 			started := time.Now().Add(-time.Second)
-			returned := bundle.recordInputReceipt("key-down", started, tc.failure)
+			returned := bundle.RecordInputReceipt("key-down", started, tc.failure)
 			if !errors.Is(returned, tc.failure) && !(returned == nil && tc.failure == nil) {
 				t.Fatalf("receipt changed original error: got=%v want=%v", returned, tc.failure)
 			}
-			receipts := bundle.recentInputReceipts()
+			receipts := bundle.RecentInputReceipts()
 			if len(receipts) != 1 {
 				t.Fatalf("receipts=%+v", receipts)
 			}
@@ -768,8 +769,8 @@ func TestInputReceiptClassifiesAdversarialFailureAndDispatch(t *testing.T) {
 	}
 }
 
-func benchmarkInputReceiptBundle() *InputBundle {
-	s := &Session{
+func benchmarkInputReceiptBundle() *inputState {
+	s := &sessionCore{
 		ctx: context.Background(),
 		capabilities: map[Capability]CapabilityStatus{
 			CapabilityInput: {
@@ -781,19 +782,20 @@ func benchmarkInputReceiptBundle() *InputBundle {
 			},
 		},
 	}
-	return &InputBundle{bundleBase: bundleBase{session: s, capability: CapabilityInput}}
+	base := s.bundleBase(CapabilityInput)
+	return newInputState(&base, nil)
 }
 
 func BenchmarkSyntheticInputReceiptRecordingWithSession(b *testing.B) {
 	input := benchmarkInputReceiptBundle()
 	start := time.Now()
 	for i := 0; i < inputReceiptHistoryLimit; i++ {
-		_ = input.recordInputReceipt("type", start, nil)
+		_ = input.RecordInputReceipt("type", start, nil)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if err := input.recordInputReceipt("type", start, nil); err != nil {
+		if err := input.RecordInputReceipt("type", start, nil); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -803,12 +805,12 @@ func BenchmarkSyntheticInputReceiptDiagnosticSnapshot(b *testing.B) {
 	input := benchmarkInputReceiptBundle()
 	start := time.Now()
 	for i := 0; i < inputReceiptHistoryLimit; i++ {
-		_ = input.recordInputReceipt("type", start, nil)
+		_ = input.RecordInputReceipt("type", start, nil)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		receipts := input.recentInputReceipts()
+		receipts := input.RecentInputReceipts()
 		if len(receipts) != inputReceiptHistoryLimit || receipts[0].Mechanism != "*input.WlVirtualBackend" {
 			b.Fatal("receipt snapshot lost backend identity")
 		}
@@ -821,9 +823,9 @@ func TestInputReceiptMechanismOnDiagnosticSnapshot(t *testing.T) {
 	input := benchmarkInputReceiptBundle()
 	start := time.Now()
 	for i := 0; i < inputReceiptHistoryLimit+7; i++ {
-		_ = input.recordInputReceipt("type", start, nil)
+		_ = input.RecordInputReceipt("type", start, nil)
 	}
-	receipts := input.recentInputReceipts()
+	receipts := input.RecentInputReceipts()
 	if len(receipts) != inputReceiptHistoryLimit {
 		t.Fatalf("count=%d", len(receipts))
 	}
@@ -834,7 +836,7 @@ func TestInputReceiptMechanismOnDiagnosticSnapshot(t *testing.T) {
 		}
 	}
 	receipts[0].Mechanism = "mutated"
-	if input.recentInputReceipts()[0].Mechanism == "mutated" {
+	if input.RecentInputReceipts()[0].Mechanism == "mutated" {
 		t.Fatal("diagnostic receipt snapshot aliases retained history")
 	}
 }

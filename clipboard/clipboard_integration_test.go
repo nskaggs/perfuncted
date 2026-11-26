@@ -4,7 +4,7 @@
 package clipboard
 
 import (
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"net"
 	"path/filepath"
 	"reflect"

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -24,12 +24,12 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			handle, err := findWindowByTitle(cmd.Context(), pf.Windows, args[0])
+			handle, err := findWindowByTitle(cmd.Context(), pf.Windows(), args[0])
 			if err != nil {
 				return err
 			}
 			id := handle.ID().String()
-			err = pf.Windows.TileWindowByID(cmd.Context(), id, x, y)
+			err = pf.Windows().TileWindowByID(cmd.Context(), id, x, y)
 			if err != nil {
 				return err
 			}
@@ -60,12 +60,12 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			handle, err := findWindowByTitle(cmd.Context(), pf.Windows, args[0])
+			handle, err := findWindowByTitle(cmd.Context(), pf.Windows(), args[0])
 			if err != nil {
 				return err
 			}
 			id := handle.ID().String()
-			err = pf.Windows.FloatWindowByID(cmd.Context(), id)
+			err = pf.Windows().FloatWindowByID(cmd.Context(), id)
 			if err != nil {
 				return err
 			}
@@ -84,4 +84,4 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 	return []*cobra.Command{tile, float}
 }
 
-var _ *perfuncted.WindowBundle
+var _ perfuncted.WindowBundle

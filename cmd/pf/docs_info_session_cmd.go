@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionregistry"
 
 	"context"
 	"encoding/json"
@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2"
+	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )

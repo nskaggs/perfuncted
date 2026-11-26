@@ -8,14 +8,14 @@ import (
 	"image"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/internal/compositor"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
-	"github.com/nskaggs/perfuncted/internal/probe"
-	"github.com/nskaggs/perfuncted/internal/util"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/compositor"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/v2/internal/probe"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 // Screenshotter captures a rectangular region of the screen.

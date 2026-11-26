@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	oplife "github.com/nskaggs/perfuncted/internal/operation"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
-	"github.com/nskaggs/perfuncted/internal/x11"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	oplife "github.com/nskaggs/perfuncted/v2/internal/operation"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/x11"
 )
 
 var _ Inputter = (*XTestBackend)(nil)

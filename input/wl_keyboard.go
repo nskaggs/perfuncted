@@ -16,10 +16,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/keymap"
-	"github.com/nskaggs/perfuncted/internal/shmutil"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/keymap"
+	"github.com/nskaggs/perfuncted/v2/internal/shmutil"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 // Fixed keycode assignments. XKB keycodes start at 8 (X11 convention).

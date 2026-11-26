@@ -9,7 +9,7 @@ import (
 	"math"
 	"math/bits"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // ErrUnverifiedCaptureGeometry reports that a live screenshot backend cannot

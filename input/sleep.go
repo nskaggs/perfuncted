@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // sleepContext waits for d or until ctx is done, whichever happens first.

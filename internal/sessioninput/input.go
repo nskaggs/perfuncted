@@ -1,68 +1,76 @@
-package perfuncted
+package sessioninput
 
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/motion"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/motion"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 	"image"
 	"sync"
 	"time"
 )
 
 // InputBundle exposes input operations through a capability-safe facade.
-type InputBundle struct {
+type state struct {
 	backend      input.Inputter
 	receiptMu    sync.Mutex
 	receiptSeq   uint64
 	receiptTrail []InputActionReceipt
-	bundleBase
+	gate         Admission
 }
 
-func (b *InputBundle) checkAvailable(operation string) error {
+func (b *state) checkAvailable(operation string) error {
 	if b == nil {
-		return (&bundleBase{}).unavailable(operation)
+		return capability.ErrNilSession
 	}
-	return b.checkBackend(operation, b.backend)
+	if b.gate == nil {
+		return capability.ErrNilSession
+	}
+	return b.gate.CheckBackend(operation, b.backend)
 }
 
-func (b *InputBundle) close() error {
+func (b *state) close() error {
 	if b == nil {
 		return nil
 	}
-	return closeBackend(b.backend)
+	if util.IsNil(b.backend) {
+		return nil
+	}
+	return b.backend.Close()
 }
 
-func (b *InputBundle) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return b.backendContext(ctx, b.session.Timeouts().Short)
+func (b *state) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return b.gate.InputContext(ctx, 0)
 }
 
 // singleInputAction enforces request and session authority before injecting
 // one input action and again before acknowledging its backend receipt. A
 // backend may ignore cancellation while an event is in flight, so a late
 // success cannot certify authorized completion.
-func (b *InputBundle) singleInputAction(ctx context.Context, operation, capability string, started time.Time, run func() error) error {
+func (b *state) singleInputAction(ctx context.Context, operation, capability string, started time.Time, run func() error) error {
 	if err := ctx.Err(); err != nil {
 		return b.recordInputReceipt(operation, started, err)
 	}
-	err := b.operationError(capability, run())
+	err := b.gate.OperationError(capability, run())
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		err = errors.Join(ctxErr, err)
-	} else if openErr := b.session.ensureOpen(); openErr != nil {
+	} else if openErr := b.gate.EnsureOpen(); openErr != nil {
 		err = errors.Join(openErr, err)
 	}
 	return b.recordInputReceipt(operation, started, err)
 }
 
 // KeyDown presses and holds key.
-func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
+func (b *state) KeyDown(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "key-down %s", key)
+	b.gate.Tracef("input", "key-down %s", key)
 	started := time.Now()
 	return b.singleInputAction(ctx, "key-down", "keyboard", started, func() error {
 		return b.backend.KeyDown(ctx, key)
@@ -70,13 +78,13 @@ func (b *InputBundle) KeyDown(ctx context.Context, key string) error {
 }
 
 // KeyUp releases key.
-func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
+func (b *state) KeyUp(ctx context.Context, key string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "key-up %s", key)
+	b.gate.Tracef("input", "key-up %s", key)
 	started := time.Now()
 	return b.singleInputAction(ctx, "key-up", "keyboard", started, func() error {
 		return b.backend.KeyUp(ctx, key)
@@ -84,17 +92,17 @@ func (b *InputBundle) KeyUp(ctx context.Context, key string) error {
 }
 
 // Type sends text using the input backend's key syntax.
-func (b *InputBundle) Type(ctx context.Context, text string) error {
+func (b *state) Type(ctx context.Context, text string) error {
 	return b.typeContext(ctx, text)
 }
 
-func (b *InputBundle) typeContext(ctx context.Context, text string) error {
+func (b *state) typeContext(ctx context.Context, text string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "type")
+	b.gate.Tracef("input", "type")
 	started := time.Now()
 	return b.singleInputAction(ctx, "type", "keyboard", started, func() error {
 		return b.backend.Type(ctx, text)
@@ -103,13 +111,13 @@ func (b *InputBundle) typeContext(ctx context.Context, text string) error {
 
 // TypeLiteral sends text as-is without interpreting key syntax, so arbitrary
 // text (including braces and modifier characters) round-trips unchanged.
-func (b *InputBundle) TypeLiteral(ctx context.Context, text string) error {
+func (b *state) TypeLiteral(ctx context.Context, text string) error {
 	if err := b.checkAvailable("keyboard"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "type-literal")
+	b.gate.Tracef("input", "type-literal")
 	started := time.Now()
 	return b.singleInputAction(ctx, "type-literal", "keyboard", started, func() error {
 		return b.backend.TypeLiteral(ctx, text)
@@ -117,7 +125,7 @@ func (b *InputBundle) TypeLiteral(ctx context.Context, text string) error {
 }
 
 // MouseMove moves the pointer to screen coordinates x and y.
-func (b *InputBundle) MouseMove(
+func (b *state) MouseMove(
 	ctx context.Context,
 	x int,
 	y int,
@@ -127,7 +135,7 @@ func (b *InputBundle) MouseMove(
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "mouse-move %d,%d", x, y)
+	b.gate.Tracef("input", "mouse-move %d,%d", x, y)
 	started := time.Now()
 	return b.singleInputAction(ctx, "mouse-move", "pointer", started, func() error {
 		return b.backend.MouseMove(ctx, x, y)
@@ -135,7 +143,7 @@ func (b *InputBundle) MouseMove(
 }
 
 // MouseClick moves to x and y and clicks button.
-func (b *InputBundle) MouseClick(
+func (b *state) MouseClick(
 	ctx context.Context,
 	x int,
 	y int,
@@ -146,7 +154,7 @@ func (b *InputBundle) MouseClick(
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "mouse-click %d,%d,%d", x, y, button)
+	b.gate.Tracef("input", "mouse-click %d,%d,%d", x, y, button)
 	started := time.Now()
 	return b.singleInputAction(ctx, "mouse-click", "click", started, func() error {
 		return b.backend.MouseClick(ctx, x, y, button)
@@ -154,7 +162,7 @@ func (b *InputBundle) MouseClick(
 }
 
 // ClickCenter clicks the center of rect with the primary button.
-func (b *InputBundle) ClickCenter(
+func (b *state) ClickCenter(
 	ctx context.Context,
 	rect image.Rectangle,
 ) error {
@@ -169,7 +177,7 @@ func (b *InputBundle) ClickCenter(
 // DoubleClick performs two primary-button clicks at x and y.
 //
 //nolint:gocyclo // Held-button cleanup and cancellation require explicit guards.
-func (b *InputBundle) DoubleClick(
+func (b *state) DoubleClick(
 	ctx context.Context,
 	x int,
 	y int,
@@ -185,7 +193,7 @@ func (b *InputBundle) DoubleClick(
 	released := true
 	defer func() {
 		if !released {
-			cleanupErr := b.operationError(
+			cleanupErr := b.gate.OperationError(
 				"click",
 				b.backend.MouseUp(context.WithoutCancel(ctx), 1),
 			)
@@ -194,7 +202,7 @@ func (b *InputBundle) DoubleClick(
 			}
 		}
 	}()
-	if err := b.operationError("pointer", b.backend.MouseMove(ctx, x, y)); err != nil {
+	if err := b.gate.OperationError("pointer", b.backend.MouseMove(ctx, x, y)); err != nil {
 		return err
 	}
 	// Initial positioning never acquires a button hold. Do not inject the
@@ -202,14 +210,14 @@ func (b *InputBundle) DoubleClick(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return err
 	}
 	released = false
-	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
+	if err := b.gate.OperationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
-	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
+	if err := b.gate.OperationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
 		return err
 	}
 	released = true
@@ -218,7 +226,7 @@ func (b *InputBundle) DoubleClick(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return err
 	}
 	// Double-click inter-click spacing is an input protocol gesture interval;
@@ -233,14 +241,14 @@ func (b *InputBundle) DoubleClick(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return err
 	}
 	released = false
-	if err := b.operationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
+	if err := b.gate.OperationError("click", b.backend.MouseDown(ctx, 1)); err != nil {
 		return err
 	}
-	if err := b.operationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
+	if err := b.gate.OperationError("click", b.backend.MouseUp(ctx, 1)); err != nil {
 		return err
 	}
 	released = true
@@ -249,20 +257,20 @@ func (b *InputBundle) DoubleClick(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return err
 	}
 	return nil
 }
 
 // MouseDown presses button without releasing it.
-func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
+func (b *state) MouseDown(ctx context.Context, button int) error {
 	if err := b.checkAvailable("click"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "mouse-down %d", button)
+	b.gate.Tracef("input", "mouse-down %d", button)
 	started := time.Now()
 	return b.singleInputAction(ctx, "mouse-down", "click", started, func() error {
 		return b.backend.MouseDown(ctx, button)
@@ -270,13 +278,13 @@ func (b *InputBundle) MouseDown(ctx context.Context, button int) error {
 }
 
 // MouseUp releases button.
-func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
+func (b *state) MouseUp(ctx context.Context, button int) error {
 	if err := b.checkAvailable("click"); err != nil {
 		return err
 	}
 	ctx, cancel := b.operationContext(ctx)
 	defer cancel()
-	b.traceAction("input", "mouse-up %d", button)
+	b.gate.Tracef("input", "mouse-up %d", button)
 	started := time.Now()
 	return b.singleInputAction(ctx, "mouse-up", "click", started, func() error {
 		return b.backend.MouseUp(ctx, button)
@@ -284,7 +292,7 @@ func (b *InputBundle) MouseUp(ctx context.Context, button int) error {
 }
 
 // ScrollUp scrolls upward by clicks.
-func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
+func (b *state) ScrollUp(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
@@ -297,7 +305,7 @@ func (b *InputBundle) ScrollUp(ctx context.Context, clicks int) error {
 }
 
 // ScrollDown scrolls downward by clicks.
-func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
+func (b *state) ScrollDown(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
@@ -310,7 +318,7 @@ func (b *InputBundle) ScrollDown(ctx context.Context, clicks int) error {
 }
 
 // ScrollLeft scrolls left by clicks.
-func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
+func (b *state) ScrollLeft(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
@@ -323,7 +331,7 @@ func (b *InputBundle) ScrollLeft(ctx context.Context, clicks int) error {
 }
 
 // ScrollRight scrolls right by clicks.
-func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
+func (b *state) ScrollRight(ctx context.Context, clicks int) error {
 	if err := b.checkAvailable("scroll"); err != nil {
 		return err
 	}
@@ -336,7 +344,7 @@ func (b *InputBundle) ScrollRight(ctx context.Context, clicks int) error {
 }
 
 // PointerLocation returns the current pointer coordinates.
-func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
+func (b *state) PointerLocation(ctx context.Context) (int, int, error) {
 	if err := b.checkAvailable("pointer-location"); err != nil {
 		return 0, 0, err
 	}
@@ -347,19 +355,19 @@ func (b *InputBundle) PointerLocation(ctx context.Context) (int, int, error) {
 	}
 	x, y, err := b.backend.PointerLocation(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return 0, 0, errors.Join(ctxErr, b.operationError("pointer-location", err))
+		return 0, 0, errors.Join(ctxErr, b.gate.OperationError("pointer-location", err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return 0, 0, errors.Join(openErr, b.operationError("pointer-location", err))
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
+		return 0, 0, errors.Join(openErr, b.gate.OperationError("pointer-location", err))
 	}
-	return x, y, b.operationError("pointer-location", err)
+	return x, y, b.gate.OperationError("pointer-location", err)
 }
 
 // PointerCoordinateSpace reports the absolute coordinate space accepted by
 // the active input backend. It is optional: backends without authoritative
-// scale/provenance metadata return ErrUnsupported so callers cannot mistake a
+// scale/provenance metadata return capability.ErrUnsupported so callers cannot mistake a
 // browser CSS coordinate for a physical pointer coordinate.
-func (b *InputBundle) PointerCoordinateSpace(ctx context.Context) (input.CoordinateSpaceInfo, error) {
+func (b *state) PointerCoordinateSpace(ctx context.Context) (input.CoordinateSpaceInfo, error) {
 	return observeInput(ctx, b, "pointer-coordinate-space", func(ctx context.Context) (input.CoordinateSpaceInfo, error) {
 		reporter, ok := b.backend.(input.PointerCoordinateSpaceReporter)
 		if !ok {
@@ -370,7 +378,7 @@ func (b *InputBundle) PointerCoordinateSpace(ctx context.Context) (input.Coordin
 }
 
 // Sync flushes pending input when the backend supports synchronization.
-func (b *InputBundle) Sync(ctx context.Context) error {
+func (b *state) Sync(ctx context.Context) error {
 	if err := b.checkAvailable("sync"); err != nil {
 		return err
 	}
@@ -380,25 +388,25 @@ func (b *InputBundle) Sync(ctx context.Context) error {
 		return err
 	}
 	if backend, ok := b.backend.(input.Syncer); ok {
-		err := b.operationError("sync", backend.Sync(ctx))
+		err := b.gate.OperationError("sync", backend.Sync(ctx))
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return errors.Join(ctxErr, err)
 		}
-		if openErr := b.session.ensureOpen(); openErr != nil {
+		if openErr := b.gate.EnsureOpen(); openErr != nil {
 			return errors.Join(openErr, err)
 		}
 		return err
 	}
-	return b.operationError("sync", ErrUnsupported)
+	return b.gate.OperationError("sync", capability.ErrUnsupported)
 }
 
 // DragAndDrop drags the primary button from (x1, y1) to (x2, y2).
-func (b *InputBundle) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
+func (b *state) DragAndDrop(ctx context.Context, x1, y1, x2, y2 int) error {
 	return b.dragPoints(ctx, []motionPoint{{X: x1, Y: y1}, {X: x2, Y: y2}}, 0)
 }
 
 //nolint:gocyclo // Keep explicit authority and owned-button cleanup checks.
-func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, duration time.Duration) (err error) {
+func (b *state) dragPoints(ctx context.Context, points []motionPoint, duration time.Duration) (err error) {
 	ctx = contextutil.Default(ctx)
 	if checkErr := b.checkAvailable("drag"); checkErr != nil {
 		return checkErr
@@ -418,40 +426,40 @@ func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, dura
 	if checkErr := ctx.Err(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.session.ensureOpen(); checkErr != nil {
+	if checkErr := b.gate.EnsureOpen(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.operationError("pointer", b.backend.MouseMove(ctx, points[0].X, points[0].Y)); checkErr != nil {
+	if checkErr := b.gate.OperationError("pointer", b.backend.MouseMove(ctx, points[0].X, points[0].Y)); checkErr != nil {
 		return checkErr
 	}
 	if checkErr := ctx.Err(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.session.ensureOpen(); checkErr != nil {
+	if checkErr := b.gate.EnsureOpen(); checkErr != nil {
 		return checkErr
 	}
 	released := false
 	defer func() {
 		if !released {
-			cleanupErr := b.operationError("click", b.backend.MouseUp(context.WithoutCancel(ctx), 1))
+			cleanupErr := b.gate.OperationError("click", b.backend.MouseUp(context.WithoutCancel(ctx), 1))
 			if cleanupErr != nil {
 				err = errors.Join(err, cleanupErr)
 			}
 		}
 	}()
-	if checkErr := b.operationError("click", b.backend.MouseDown(ctx, 1)); checkErr != nil {
+	if checkErr := b.gate.OperationError("click", b.backend.MouseDown(ctx, 1)); checkErr != nil {
 		return checkErr
 	}
 	if checkErr := ctx.Err(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.session.ensureOpen(); checkErr != nil {
+	if checkErr := b.gate.EnsureOpen(); checkErr != nil {
 		return checkErr
 	}
 	if checkErr := b.sendMotion(ctx, points, duration, 1); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.operationError("click", b.backend.MouseUp(ctx, 1)); checkErr != nil {
+	if checkErr := b.gate.OperationError("click", b.backend.MouseUp(ctx, 1)); checkErr != nil {
 		return checkErr
 	}
 	released = true
@@ -461,14 +469,14 @@ func (b *InputBundle) dragPoints(ctx context.Context, points []motionPoint, dura
 	if checkErr := ctx.Err(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.session.ensureOpen(); checkErr != nil {
+	if checkErr := b.gate.EnsureOpen(); checkErr != nil {
 		return checkErr
 	}
 	return nil
 }
 
 // observeInput preserves cancellation and session authority around native observations.
-func observeInput[T interface{ Validate() error }](ctx context.Context, b *InputBundle, operation string, observe func(context.Context) (T, error)) (T, error) {
+func observeInput[T interface{ Validate() error }](ctx context.Context, b *state, operation string, observe func(context.Context) (T, error)) (T, error) {
 	var zero T
 	if err := b.checkAvailable(operation); err != nil {
 		return zero, err
@@ -480,23 +488,23 @@ func observeInput[T interface{ Validate() error }](ctx context.Context, b *Input
 	}
 	result, err := observe(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return zero, errors.Join(ctxErr, b.operationError(operation, err))
+		return zero, errors.Join(ctxErr, b.gate.OperationError(operation, err))
 	}
-	if openErr := b.session.ensureOpen(); openErr != nil {
-		return zero, errors.Join(openErr, b.operationError(operation, err))
+	if openErr := b.gate.EnsureOpen(); openErr != nil {
+		return zero, errors.Join(openErr, b.gate.OperationError(operation, err))
 	}
 	if err != nil {
-		return zero, b.operationError(operation, err)
+		return zero, b.gate.OperationError(operation, err)
 	}
 	if err := result.Validate(); err != nil {
-		return zero, b.operationError(operation, err)
+		return zero, b.gate.OperationError(operation, err)
 	}
 	return result, nil
 }
 
 // ObservePointer returns an authoritative position and its provider-native units.
 // It never falls back to another capability or to remembered injection targets.
-func (b *InputBundle) ObservePointer(ctx context.Context) (input.PointerObservation, error) {
+func (b *state) ObservePointer(ctx context.Context) (input.PointerObservation, error) {
 	return observeInput(ctx, b, "pointer-location", func(ctx context.Context) (input.PointerObservation, error) {
 		observer, ok := b.backend.(input.PointerObserver)
 		if !ok {
@@ -523,40 +531,40 @@ func (o MotionOptions) validate() error           { return motion.Options(o).Val
 // validateMotionSpace uses the existing Session-authorized coordinate
 // provenance reader. Smooth operations never guess whether coordinates are
 // logical or physical; the caller supplies units in this proven backend space.
-func (b *InputBundle) validateMotionSpace(ctx context.Context) error {
+func (b *state) validateMotionSpace(ctx context.Context) error {
 	_, err := b.PointerCoordinateSpace(ctx)
 	return err
 }
 
-func (b *InputBundle) validateMotionPoints(ctx context.Context, points []motionPoint) error {
+func (b *state) validateMotionPoints(ctx context.Context, points []motionPoint) error {
 	if v, ok := b.backend.(input.PointerTargetValidator); ok {
 		for _, p := range points {
 			if err := v.ValidatePointerTarget(ctx, p.X, p.Y); err != nil {
-				return b.operationError("pointer", err)
+				return b.gate.OperationError("pointer", err)
 			}
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := b.session.ensureOpen(); err != nil {
+			if err := b.gate.EnsureOpen(); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
 }
-func (b *InputBundle) motionContext(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
-	return b.backendContext(ctx, d+b.session.Timeouts().Short)
+func (b *state) motionContext(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	return b.gate.InputContext(ctx, d)
 }
 
 //nolint:gocyclo // Per-frame timing, cancellation and session authority are explicit.
-func (b *InputBundle) sendMotion(ctx context.Context, points []motionPoint, d time.Duration, first int) error {
+func (b *state) sendMotion(ctx context.Context, points []motionPoint, d time.Duration, first int) error {
 	started := time.Now()
 	last := len(points) - 1
 	for i := first; i <= last; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.session.ensureOpen(); err != nil {
+		if err := b.gate.EnsureOpen(); err != nil {
 			return err
 		}
 		if d > 0 && i > 0 {
@@ -577,16 +585,16 @@ func (b *InputBundle) sendMotion(ctx context.Context, points []motionPoint, d ti
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.session.ensureOpen(); err != nil {
+		if err := b.gate.EnsureOpen(); err != nil {
 			return err
 		}
-		if err := b.operationError("pointer", b.backend.MouseMove(ctx, points[i].X, points[i].Y)); err != nil {
+		if err := b.gate.OperationError("pointer", b.backend.MouseMove(ctx, points[i].X, points[i].Y)); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := b.session.ensureOpen(); err != nil {
+		if err := b.gate.EnsureOpen(); err != nil {
 			return err
 		}
 	}
@@ -595,7 +603,7 @@ func (b *InputBundle) sendMotion(ctx context.Context, points []motionPoint, d ti
 
 // flushMotionRequests is a backend-specific protocol delivery barrier. It
 // deliberately does not imply that any target application consumed the input.
-func (b *InputBundle) flushMotionRequests(ctx context.Context) error {
+func (b *state) flushMotionRequests(ctx context.Context) error {
 	flusher, ok := b.backend.(interface{ FlushMotionRequests(context.Context) error })
 	if !ok {
 		return nil
@@ -603,21 +611,21 @@ func (b *InputBundle) flushMotionRequests(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.session.ensureOpen(); err != nil {
+	if err := b.gate.EnsureOpen(); err != nil {
 		return err
 	}
-	if err := b.operationError("pointer", flusher.FlushMotionRequests(ctx)); err != nil {
+	if err := b.gate.OperationError("pointer", flusher.FlushMotionRequests(ctx)); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return b.session.ensureOpen()
+	return b.gate.EnsureOpen()
 }
 
 // MouseMoveSmooth moves from an explicit start, or the reported pointer position.
 // Unknown pointer origins fail rather than using a guessed location.
-func (b *InputBundle) MouseMoveSmooth(ctx context.Context, start *image.Point, end image.Point, o MotionOptions) (err error) {
+func (b *state) MouseMoveSmooth(ctx context.Context, start *image.Point, end image.Point, o MotionOptions) (err error) {
 	if checkErr := o.validate(); checkErr != nil {
 		return checkErr
 	}
@@ -645,12 +653,12 @@ func (b *InputBundle) MouseMoveSmooth(ctx context.Context, start *image.Point, e
 		var x, y int
 		x, y, err = b.backend.PointerLocation(ctx)
 		if err != nil {
-			return b.operationError("pointer-location", err)
+			return b.gate.OperationError("pointer-location", err)
 		}
 		if checkErr := ctx.Err(); checkErr != nil {
 			return checkErr
 		}
-		if checkErr := b.session.ensureOpen(); checkErr != nil {
+		if checkErr := b.gate.EnsureOpen(); checkErr != nil {
 			return checkErr
 		}
 		start = &image.Point{X: x, Y: y}
@@ -662,7 +670,7 @@ func (b *InputBundle) MouseMoveSmooth(ctx context.Context, start *image.Point, e
 	if checkErr := ctx.Err(); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := b.session.ensureOpen(); checkErr != nil {
+	if checkErr := b.gate.EnsureOpen(); checkErr != nil {
 		return checkErr
 	}
 	if points[0] == points[len(points)-1] {
@@ -672,7 +680,7 @@ func (b *InputBundle) MouseMoveSmooth(ctx context.Context, start *image.Point, e
 }
 
 // DragAndDropSmooth shares the direct drag's button ownership and cleanup.
-func (b *InputBundle) DragAndDropSmooth(ctx context.Context, start, end image.Point, o MotionOptions) error {
+func (b *state) DragAndDropSmooth(ctx context.Context, start, end image.Point, o MotionOptions) error {
 	if checkErr := o.validate(); checkErr != nil {
 		return checkErr
 	}
@@ -703,7 +711,7 @@ type InputActionReceipt struct {
 	CompletedAt  time.Time `json:"completed_at"`
 }
 
-func (b *InputBundle) recordInputReceipt(operation string, started time.Time, err error) error {
+func (b *state) recordInputReceipt(operation string, started time.Time, err error) error {
 	if b == nil {
 		return err
 	}
@@ -733,7 +741,7 @@ func (b *InputBundle) recordInputReceipt(operation string, started time.Time, er
 	return err
 }
 
-func (b *InputBundle) recentInputReceipts() []InputActionReceipt {
+func (b *state) recentInputReceipts() []InputActionReceipt {
 	if b == nil {
 		return nil
 	}
@@ -741,8 +749,8 @@ func (b *InputBundle) recentInputReceipts() []InputActionReceipt {
 	receipts := append([]InputActionReceipt(nil), b.receiptTrail...)
 	b.receiptMu.Unlock()
 
-	if len(receipts) > 0 && b.session != nil {
-		mechanism := b.session.Capability(CapabilityInput).Backend
+	if len(receipts) > 0 && b.gate != nil {
+		mechanism := b.gate.Mechanism()
 		for i := range receipts {
 			receipts[i].Mechanism = mechanism
 		}
@@ -754,7 +762,7 @@ func inputDispatchResult(err error) string {
 	switch {
 	case err == nil:
 		return "accepted"
-	case errors.Is(err, ErrInvalidArgument), errors.Is(err, ErrUnsupported), errors.Is(err, input.ErrNotSupported):
+	case errors.Is(err, capability.ErrInvalidArgument), errors.Is(err, capability.ErrUnsupported), errors.Is(err, input.ErrNotSupported):
 		return "not-sent"
 	default:
 		return "unknown"
@@ -767,9 +775,69 @@ func inputFailureClass(err error) string {
 		return "canceled"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "deadline-exceeded"
-	case errors.Is(err, ErrInvalidArgument), errors.Is(err, ErrUnsupported), errors.Is(err, input.ErrNotSupported):
+	case errors.Is(err, capability.ErrInvalidArgument), errors.Is(err, capability.ErrUnsupported), errors.Is(err, input.ErrNotSupported):
 		return "rejected-before-dispatch"
 	default:
 		return "operation-failed"
 	}
 }
+
+// Admission is the injection-specific session boundary. It cannot obtain
+// other backends or alter session ownership.
+type Admission interface {
+	CheckBackend(operation string, backend any) error
+	InputContext(context.Context, time.Duration) (context.Context, context.CancelFunc)
+	Tracef(component, format string, args ...any)
+	EnsureOpen() error
+	OperationError(operation string, err error) error
+	Mechanism() string
+}
+
+// Owner holds the session-owned state; only the composition boundary receives it.
+type Owner struct{ *state }
+
+// Handle references private state, and does not expose Owner's lifecycle methods.
+type Handle struct{ *state }
+
+func New(gate Admission, backend input.Inputter) *Owner {
+	return &Owner{&state{gate: gate, backend: backend}}
+}
+func (o *Owner) Handle() Handle {
+	if o == nil {
+		return Handle{}
+	}
+	return Handle{o.state}
+}
+func (o *Owner) Install(backend input.Inputter) { o.backend = backend }
+func (o *Owner) Close() error {
+	if o == nil {
+		return nil
+	}
+	return o.close()
+}
+func (o *Owner) CheckAvailable(operation string) error {
+	if o == nil {
+		return capability.ErrNilSession
+	}
+	return o.checkAvailable(operation)
+}
+func (o *Owner) RecentInputReceipts() []InputActionReceipt {
+	if o == nil {
+		return nil
+	}
+	return o.recentInputReceipts()
+}
+func (o *Owner) RecordInputReceipt(operation string, started time.Time, err error) error {
+	if o == nil {
+		return err
+	}
+	return o.recordInputReceipt(operation, started, err)
+}
+func (o *Owner) SendMotion(ctx context.Context, points []motion.Point, d time.Duration, first int) error {
+	return o.sendMotion(ctx, points, d, first)
+}
+func (o *Owner) DragPoints(ctx context.Context, points []motion.Point, d time.Duration) error {
+	return o.dragPoints(ctx, points, d)
+}
+
+const ReceiptHistoryLimit = inputReceiptHistoryLimit

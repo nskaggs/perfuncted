@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/png"
@@ -33,16 +33,16 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	defer session.Close()
 
 	for range 40 {
-		if err := session.Input.Type(context.Background(), secret); err != nil {
+		if err := session.Input().Type(context.Background(), secret); err != nil {
 			t.Fatalf("record input receipt: %v", err)
 		}
 	}
 	inputBackend.Err = errors.New("backend failed after dispatch")
-	if err := session.Input.Type(context.Background(), secret); err == nil {
+	if err := session.Input().Type(context.Background(), secret); err == nil {
 		t.Fatal("failed input operation returned nil")
 	}
 	inputBackend.Err = input.ErrNotSupported
-	if err := session.Input.Type(context.Background(), secret); !errors.Is(err, input.ErrNotSupported) {
+	if err := session.Input().Type(context.Background(), secret); !errors.Is(err, input.ErrNotSupported) {
 		t.Fatalf("unsupported input error = %v, want input.ErrNotSupported", err)
 	}
 	inputBackend.Err = nil
@@ -76,7 +76,7 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 		States: []string{"enabled"}, Attributes: map[string]string{"value": secret},
 		Ancestors: []accessibility.AncestorSelector{{Name: secret}},
 	}
-	locator := session.Accessibility.LocatorForWindow("private-window-id", selector, accessibility.SnapshotOptions{
+	locator := session.Accessibility().LocatorForWindow("private-window-id", selector, accessibility.SnapshotOptions{
 		MaxDepth: 12, MaxNodes: 70, MaxTextBytes: 4096, MaxTotalBytes: 1 << 20,
 	})
 	action := &perfuncted.AccessibilityActionReceipt{
@@ -235,7 +235,7 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	}}}
 	session := pftest.NewWithOutputs(screenshotter, &pftest.Inputter{}, manager, outputs, nil)
 	defer session.Close()
-	if err := session.Input.Type(context.Background(), "{ctrl+s}"); err != nil {
+	if err := session.Input().Type(context.Background(), "{ctrl+s}"); err != nil {
 		t.Fatalf("trace setup: %v", err)
 	}
 

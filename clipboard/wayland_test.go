@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
 	"os"
 	"os/exec"
 	"path/filepath"

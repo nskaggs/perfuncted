@@ -3,7 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"iter"
 	"reflect"
@@ -32,9 +32,9 @@ func (m *windowFullscreenFailureManager) UnfullscreenByID(ctx context.Context, i
 
 func TestWindowFullscreenAndUnfullscreenRequireStableWindowIDAndLiveSession(t *testing.T) {
 	manager := &windowFullscreenFailureManager{handleWindowManager: newHandleWindowManager(window.Info{NativeID: "private-101", Title: "Synthetic Editor"})}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	handle, err := session.Windows.Find(context.Background(), window.Match{TitleExact: "Synthetic Editor"})
+	handle, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Synthetic Editor"})
 	if err != nil {
 		t.Fatalf("find stable-ID window: %v", err)
 	}
@@ -80,9 +80,9 @@ func TestWindowFullscreenAndUnfullscreenRequireStableWindowIDAndLiveSession(t *t
 
 func TestAllWindowOperationsRejectCanceledContextBeforeBackendDispatch(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "private-101", Title: "Synthetic Editor"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	handle, err := session.Windows.Find(context.Background(), window.Match{TitleExact: "Synthetic Editor"})
+	handle, err := session.windows.Find(context.Background(), window.Match{TitleExact: "Synthetic Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,42 +123,42 @@ func TestAllWindowOperationsRejectCanceledContextBeforeBackendDispatch(t *testin
 func TestWindowGeometryRejectsUnrepresentableValuesBeforeDispatch(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		invoke  func(*Window) error
+		invoke  func(*windowState) error
 		wantErr error
 	}{
 		{
 			name:    "resize negative width",
-			invoke:  func(w *Window) error { return w.Resize(context.Background(), -1, 100) },
+			invoke:  func(w *windowState) error { return w.Resize(context.Background(), -1, 100) },
 			wantErr: ErrInvalidArgument,
 		},
 		{
 			name:    "resize negative height",
-			invoke:  func(w *Window) error { return w.Resize(context.Background(), 100, -1) },
+			invoke:  func(w *windowState) error { return w.Resize(context.Background(), 100, -1) },
 			wantErr: ErrInvalidArgument,
 		},
 		{
 			name:    "resize zero size",
-			invoke:  func(w *Window) error { return w.Resize(context.Background(), 0, 0) },
+			invoke:  func(w *windowState) error { return w.Resize(context.Background(), 0, 0) },
 			wantErr: ErrInvalidArgument,
 		},
 		{
 			name:    "resize beyond 16-bit geometry",
-			invoke:  func(w *Window) error { return w.Resize(context.Background(), window.MaxDimension+1, 100) },
+			invoke:  func(w *windowState) error { return w.Resize(context.Background(), window.MaxDimension+1, 100) },
 			wantErr: ErrInvalidArgument,
 		},
 		{
 			name:    "move beyond representable range",
-			invoke:  func(w *Window) error { return w.Move(context.Background(), 1<<40, 0) },
+			invoke:  func(w *windowState) error { return w.Move(context.Background(), 1<<40, 0) },
 			wantErr: ErrInvalidArgument,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := newHandleWindowManager(window.Info{NativeID: "opaque-id", Title: "Target"})
-			session := NewSessionForTesting(nil, nil, manager, nil, nil)
+			session := newSessionForTesting(nil, nil, manager, nil, nil)
 			t.Cleanup(func() {
 				_ = session.Close()
 			})
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Target"})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Target"})
 			if err != nil {
 				t.Fatalf("Find: %v", err)
 			}
@@ -182,32 +182,34 @@ func TestWindowGeometryRejectsUnrepresentableValuesBeforeDispatch(t *testing.T) 
 func TestWindowGeometryAcceptsRepresentableValues(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		invoke     func(*Window) error
+		invoke     func(*windowState) error
 		wantAction string
 	}{
 		{
 			name:       "resize",
-			invoke:     func(w *Window) error { return w.Resize(context.Background(), 1280, 720) },
+			invoke:     func(w *windowState) error { return w.Resize(context.Background(), 1280, 720) },
 			wantAction: "resize:opaque-id",
 		},
 		{
-			name:       "resize to the maximum",
-			invoke:     func(w *Window) error { return w.Resize(context.Background(), window.MaxDimension, window.MaxDimension) },
+			name: "resize to the maximum",
+			invoke: func(w *windowState) error {
+				return w.Resize(context.Background(), window.MaxDimension, window.MaxDimension)
+			},
 			wantAction: "resize:opaque-id",
 		},
 		{
 			name:       "move to a negative origin",
-			invoke:     func(w *Window) error { return w.Move(context.Background(), -1920, -1080) },
+			invoke:     func(w *windowState) error { return w.Move(context.Background(), -1920, -1080) },
 			wantAction: "move:opaque-id",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := newHandleWindowManager(window.Info{NativeID: "opaque-id", Title: "Target"})
-			session := NewSessionForTesting(nil, nil, manager, nil, nil)
+			session := newSessionForTesting(nil, nil, manager, nil, nil)
 			t.Cleanup(func() {
 				_ = session.Close()
 			})
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Target"})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Target"})
 			if err != nil {
 				t.Fatalf("Find: %v", err)
 			}
@@ -248,9 +250,9 @@ func (b *cancelingWindowReadBackend) InfoByID(_ context.Context, id string) (win
 func TestManagedWindowListRejectsMetadataFromCanceledRead(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	backend := &cancelingWindowReadBackend{handleWindowManager: newHandleWindowManager(), cancel: cancel}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	got, err := session.Windows.List(ctx, WindowMatch{})
+	got, err := session.windows.List(ctx, WindowMatch{})
 	if !errors.Is(err, context.Canceled) || len(got) != 0 {
 		t.Fatalf("canceled window listing leaked %v, err=%v", got, err)
 	}
@@ -264,9 +266,9 @@ func TestManagedWindowListRejectsMetadataFromCanceledRead(t *testing.T) {
 func TestManagedWindowInfoDoesNotPublishCanceledMetadata(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	backend := &cancelingWindowReadBackend{handleWindowManager: newHandleWindowManager(), cancel: cancel}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	handle := session.Windows.window(window.Info{NativeID: "private-1", Title: "old title"})
+	handle := session.windows.window(window.Info{NativeID: "private-1", Title: "old title"})
 	info, err := handle.Info(ctx)
 	if !errors.Is(err, context.Canceled) || info != (window.Info{}) {
 		t.Fatalf("canceled window metadata leaked %+v, err=%v", info, err)
@@ -282,26 +284,26 @@ func TestManagedWindowInfoDoesNotPublishCanceledMetadata(t *testing.T) {
 func TestManagedWindowHandlesDiscardResultsAfterSessionClose(t *testing.T) {
 	t.Run("list", func(t *testing.T) {
 		backend := &cancelingWindowReadBackend{handleWindowManager: newHandleWindowManager()}
-		session := NewSessionForTesting(nil, nil, backend, nil, nil)
+		session := newSessionForTesting(nil, nil, backend, nil, nil)
 		backend.cancel = func() {
 			if err := session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		windows, err := session.Windows.List(context.Background(), WindowMatch{})
+		windows, err := session.windows.List(context.Background(), WindowMatch{})
 		if !errors.Is(err, ErrSessionClosed) || len(windows) != 0 {
 			t.Fatalf("closed session leaked windows %+v, err=%v", windows, err)
 		}
 	})
 	t.Run("info", func(t *testing.T) {
 		backend := &cancelingWindowReadBackend{handleWindowManager: newHandleWindowManager()}
-		session := NewSessionForTesting(nil, nil, backend, nil, nil)
+		session := newSessionForTesting(nil, nil, backend, nil, nil)
 		backend.cancel = func() {
 			if err := session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		handle := session.Windows.window(window.Info{NativeID: "private-1", Title: "previous"})
+		handle := session.windows.window(window.Info{NativeID: "private-1", Title: "previous"})
 		info, err := handle.Info(context.Background())
 		if !errors.Is(err, ErrSessionClosed) || info != (window.Info{}) || handle.Title() != "previous" {
 			t.Fatalf("closed session leaked window data %+v, title=%q err=%v", info, handle.Title(), err)
@@ -315,7 +317,7 @@ func TestManagedWindowHandlesDiscardResultsAfterSessionClose(t *testing.T) {
 // the stale result.
 type closeSessionAtWindowPostcheckContext struct {
 	context.Context
-	session  *Session
+	session  *sessionCore
 	checks   int
 	closeErr error
 }
@@ -330,12 +332,12 @@ func (c *closeSessionAtWindowPostcheckContext) Err() error {
 
 func TestWindowListRejectsSessionCloseAfterMetadataFiltering(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "private-window", Title: "sensitive"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	base, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	ctx := &closeSessionAtWindowPostcheckContext{Context: base, session: session}
-	windows, err := session.Windows.List(ctx, WindowMatch{})
+	windows, err := session.windows.List(ctx, WindowMatch{})
 	if ctx.closeErr != nil || !errors.Is(err, ErrSessionClosed) || len(windows) != 0 || ctx.checks != 2 {
 		t.Fatalf("session closed after filtering: got windows=%v err=%v cleanup=%v checks=%d", windows, err, ctx.closeErr, ctx.checks)
 	}
@@ -583,12 +585,12 @@ func TestWindowHandleRemainsStableAcrossTitleChange(t *testing.T) {
 		NativeID: "kwin-{opaque-id}",
 		Title:    "Old title",
 	})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() {
 		_ = session.Close()
 	})
 
-	target, err := session.Windows.Find(
+	target, err := session.windows.Find(
 		context.Background(),
 		WindowMatch{TitleExact: "Old title"},
 	)
@@ -626,11 +628,11 @@ func TestWindowCachedInfoDoesNotRefreshWindowManager(t *testing.T) {
 		AppID:    "org.mozilla.firefox",
 		PID:      42,
 	})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() {
 		_ = session.Close()
 	})
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleContains: "Firefox"})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleContains: "Firefox"})
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
@@ -645,11 +647,11 @@ func TestWindowFindRejectsAmbiguous(t *testing.T) {
 		window.Info{NativeID: "1", Title: "Editor"},
 		window.Info{NativeID: "2", Title: "Editor"},
 	)
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() {
 		_ = session.Close()
 	})
-	_, err := session.Windows.Find(
+	_, err := session.windows.Find(
 		context.Background(),
 		WindowMatch{TitleExact: "Editor"},
 	)
@@ -662,13 +664,13 @@ func TestWindowFindRejectsAmbiguous(t *testing.T) {
 func TestWaitUsesEventsAndPollingRecovery(t *testing.T) {
 	t.Run("event wake", func(t *testing.T) {
 		manager := newHandleWindowManager()
-		session := NewSessionForTesting(nil, nil, manager, nil, nil)
+		session := newSessionForTesting(nil, nil, manager, nil, nil)
 		t.Cleanup(func() {
 			_ = session.Close()
 		})
 		result := make(chan error, 1)
 		go func() {
-			_, err := session.Windows.Wait(
+			_, err := session.windows.Wait(
 				context.Background(),
 				WindowMatch{TitleExact: "Ready"},
 			)
@@ -691,7 +693,7 @@ func TestWaitUsesEventsAndPollingRecovery(t *testing.T) {
 
 	t.Run("missed event fallback", func(t *testing.T) {
 		manager := newHandleWindowManager()
-		session := NewSessionForTesting(nil, nil, manager, nil, nil)
+		session := newSessionForTesting(nil, nil, manager, nil, nil)
 		t.Cleanup(func() {
 			_ = session.Close()
 		})
@@ -722,7 +724,7 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 		NativeID: "1",
 		Title:    "Ready",
 	})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	if err := session.Wait(
 		context.Background(),
 		All(
@@ -779,14 +781,14 @@ func TestWaitCompositionErrorsCancellationAndShutdown(t *testing.T) {
 }
 
 func TestClosedSessionRejectsWindowWork(t *testing.T) {
-	session := NewSessionForTesting(
+	session := newSessionForTesting(
 		nil,
 		nil,
 		newHandleWindowManager(),
 		nil,
 		nil,
 	)
-	retained := session.Windows.window(window.Info{NativeID: "retained"})
+	retained := session.windows.window(window.Info{NativeID: "retained"})
 	if err := session.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -796,14 +798,14 @@ func TestClosedSessionRejectsWindowWork(t *testing.T) {
 		call func() error
 	}{
 		{name: "screen", call: func() error {
-			_, err := session.Screen.Grab(context.Background(), image.Rectangle{})
+			_, err := session.screen.Grab(context.Background(), image.Rectangle{})
 			return err
 		}},
 		{name: "input", call: func() error {
-			return session.Input.KeyDown(context.Background(), "a")
+			return session.input.KeyDown(context.Background(), "a")
 		}},
 		{name: "windows list", call: func() error {
-			_, err := session.Windows.List(context.Background(), WindowMatch{})
+			_, err := session.windows.List(context.Background(), WindowMatch{})
 			return err
 		}},
 		{name: "windows wait", call: func() error {
@@ -813,11 +815,11 @@ func TestClosedSessionRejectsWindowWork(t *testing.T) {
 			return retained.Close(context.Background())
 		}},
 		{name: "outputs", call: func() error {
-			_, err := session.Outputs.List(context.Background())
+			_, err := session.outputs.List(context.Background())
 			return err
 		}},
 		{name: "clipboard", call: func() error {
-			_, err := session.Clipboard.Get(context.Background())
+			_, err := session.clipboard.Get(context.Background())
 			return err
 		}},
 	}
@@ -831,7 +833,7 @@ func TestClosedSessionRejectsWindowWork(t *testing.T) {
 }
 
 func TestWaitRejectsCanceledContextBeforeSatisfiedCondition(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -844,7 +846,7 @@ func TestWaitRejectsCanceledContextBeforeSatisfiedCondition(t *testing.T) {
 }
 
 func TestWaitRejectsZeroValueSession(t *testing.T) {
-	if err := (&Session{}).Wait(
+	if err := (&sessionCore{}).Wait(
 		context.Background(),
 		Predicate("never", func(context.Context) (bool, error) {
 			return false, nil
@@ -856,7 +858,7 @@ func TestWaitRejectsZeroValueSession(t *testing.T) {
 
 func TestApplicationWaitForWindowAndExitBeforeWindow(t *testing.T) {
 	manager := newHandleWindowManager()
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() {
 		_ = session.Close()
 	})

@@ -13,14 +13,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/capability"
-	"github.com/nskaggs/perfuncted/internal/compositor"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/executil"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
-	"github.com/nskaggs/perfuncted/internal/wl"
-	pollpkg "github.com/nskaggs/perfuncted/poll"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/compositor"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
+	pollpkg "github.com/nskaggs/perfuncted/v2/poll"
 )
 
 // ErrNoClipboardTool reports that no supported clipboard executable is installed.

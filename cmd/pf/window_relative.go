@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 // windowRelativePoint translates compositor-logical window client coordinates

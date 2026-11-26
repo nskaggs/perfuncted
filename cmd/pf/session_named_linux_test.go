@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionregistry"
 
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/pftest"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 	"io"

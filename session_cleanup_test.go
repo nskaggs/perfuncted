@@ -3,8 +3,8 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/env"
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +34,7 @@ func TestOpenCancellationStopsStaleSessionCleanup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	started := false
-	_, err = Open(
+	_, err = openSession(
 		ctx,
 		WithHeadless(SessionConfig{Timeouts: TimeoutPolicy{Startup: time.Second}}),
 		WithStartupPhaseObserver(func(phase StartupPhase, state StartupPhaseState) {

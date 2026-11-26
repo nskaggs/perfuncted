@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type strictWindowApplicationFixture struct {

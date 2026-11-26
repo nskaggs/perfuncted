@@ -9,8 +9,8 @@ import (
 	"math"
 	"os"
 
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // GrabVerified captures the requested GNOME logical desktop region only when

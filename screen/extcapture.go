@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	oplife "github.com/nskaggs/perfuncted/internal/operation"
-	"github.com/nskaggs/perfuncted/internal/shmutil"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	oplife "github.com/nskaggs/perfuncted/v2/internal/operation"
+	"github.com/nskaggs/perfuncted/v2/internal/shmutil"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 var _ Screenshotter = (*ExtCaptureBackend)(nil)

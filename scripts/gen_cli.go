@@ -22,7 +22,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/scripts/internal/cliname"
+	"github.com/nskaggs/perfuncted/v2/scripts/internal/cliname"
 
 	"golang.org/x/tools/go/packages"
 	"gopkg.in/yaml.v3"
@@ -163,7 +163,7 @@ func main() {
 
 	var perfPkg *packages.Package
 	for _, p := range pkgs {
-		if p.PkgPath == "github.com/nskaggs/perfuncted" {
+		if p.PkgPath == "github.com/nskaggs/perfuncted/v2" {
 			perfPkg = p
 			break
 		}
@@ -492,7 +492,7 @@ func main() {
 			// build call string
 			recv := "pf"
 			bundleField := map[string]string{"screen": "Screen", "input": "Input", "window": "Windows", "clipboard": "Clipboard"}[grp]
-			callStr := fmt.Sprintf("%s.%s(%s)", recv+"."+bundleField, mn, strings.Join(callParams, ", "))
+			callStr := fmt.Sprintf("%s.%s(%s)", recv+"."+bundleField+"()", mn, strings.Join(callParams, ", "))
 
 			if produce == "image" {
 				// img, err := pf.Screen.Grab(r)

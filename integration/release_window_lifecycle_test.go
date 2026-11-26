@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func certifyReleaseWindowLifecycle(t *testing.T, ctx context.Context, s *suite, binary string, target *perfuncted.Window) {

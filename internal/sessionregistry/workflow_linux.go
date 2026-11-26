@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
 	"golang.org/x/sys/unix"
 )
 

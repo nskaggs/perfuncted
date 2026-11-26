@@ -16,9 +16,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
 )
 
 var _ Screenshotter = (*PortalDBusBackend)(nil)

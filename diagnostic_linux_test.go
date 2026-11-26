@@ -5,6 +5,7 @@ package perfuncted
 import (
 	"errors"
 	"flag"
+	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
 	"image"
 	"os"
 	"os/exec"
@@ -35,8 +36,8 @@ func TestDiagnosticDiskQuotaFailurePreservesArtifacts(t *testing.T) {
 		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &limited); err != nil {
 			t.Fatal(err)
 		}
-		atomicErr := writeAtomic(manifest, []byte("replacement"), 0o600)
-		pngErr := writePNG(screenshot, image.NewRGBA(image.Rect(0, 0, 2, 2)))
+		atomicErr := diagnostic.WriteAtomic(manifest, []byte("replacement"), 0o600)
+		pngErr := diagnostic.WritePNG(screenshot, image.NewRGBA(image.Rect(0, 0, 2, 2)))
 		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &original); err != nil {
 			t.Fatal(err)
 		}

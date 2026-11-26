@@ -1,7 +1,7 @@
 package screen_test
 
 import (
-	"github.com/nskaggs/perfuncted/screen"
+	"github.com/nskaggs/perfuncted/v2/screen"
 	"image"
 	"image/color"
 	"reflect"

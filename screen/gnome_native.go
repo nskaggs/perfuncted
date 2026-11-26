@@ -12,11 +12,11 @@ import (
 	"math"
 	"os"
 
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 var _ Screenshotter = (*GnomeNativeScreenBackend)(nil)

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +20,7 @@ import (
 func TestApplicationWaitCompletedProcessDoesNotOverrideCanceledCaller(t *testing.T) {
 	completed := make(chan struct{})
 	close(completed)
-	app := &Application{done: completed}
+	app := &applicationState{done: completed}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for i := 0; i < 100; i++ {
@@ -34,7 +34,7 @@ func TestApplicationWaitCompletedProcessPreservesExitAndDeadlineErrors(t *testin
 	done := make(chan struct{})
 	close(done)
 	failure := errors.New("synthetic process failed")
-	app := &Application{done: done, err: failure, path: "/synthetic/app"}
+	app := &applicationState{done: done, err: failure, path: "/synthetic/app"}
 	if err := app.Wait(context.Background()); !errors.Is(err, failure) {
 		t.Fatalf("completed process exit error changed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestApplicationWaitCompletedProcessPreservesExitAndDeadlineErrors(t *testin
 	if err := app.Wait(nil); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("nil Wait context error=%v", err)
 	}
-	var missing *Application
+	var missing *applicationState
 	if missing.Path() != "" || !missing.Exited() || missing.PID() != 0 || missing.Wait(context.Background()) != nil || missing.Stop(context.Background()) != nil || missing.Kill() != nil {
 		t.Fatal("nil application failed safe lifecycle contract")
 	}
@@ -58,7 +58,7 @@ func TestApplicationWaitCompletedProcessPreservesExitAndDeadlineErrors(t *testin
 // Startup error paths must not register an application, start a process group,
 // or silently downgrade invalid/canceled requests into a successful launch.
 func TestSessionLaunchRejectsInvalidOrUnavailableCommandsWithoutTrackingProcesses(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -94,7 +94,7 @@ func TestSessionLaunchRejectsInvalidOrUnavailableCommandsWithoutTrackingProcesse
 }
 
 func TestApplicationPathTracksResolvedSyntheticExecutable(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	executable := os.Args[0]
 	var childStderr bytes.Buffer
@@ -121,7 +121,7 @@ func TestSyntheticApplicationChildExit(t *testing.T) {}
 // KILL when the process ignores TERM. Do not require Session.Close to perform
 // escalation or report the expected forced exit as a shutdown failure.
 func TestStopApplicationEscalatesIgnoredTERMAndReapsProcess(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.config.ApplicationGracePeriod = 80 * time.Millisecond
 	t.Cleanup(func() { _ = session.Close() })
 
@@ -172,9 +172,9 @@ func TestApplicationWindowWaitDoesNotAcceptAmbiguousOrUnreadableCandidates(t *te
 		window.Info{NativeID: "first", Title: "Browser"},
 		window.Info{NativeID: "second", Title: "Browser"},
 	)
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	app := &Application{session: session, done: make(chan struct{})}
+	app := &applicationState{session: session, done: make(chan struct{})}
 	match := WindowMatch{TitleExact: "Browser"}
 	for _, tc := range []struct {
 		name    string
@@ -219,7 +219,7 @@ func (c *notifiedLaunchContext) Err() error {
 // lifecycle ownership. Cancellation during that wait must prohibit spawning
 // the executable even if it is otherwise valid and available.
 func TestSessionLaunchRejectsCancellationWhileWaitingForLifecycleOwnership(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	marker := filepath.Join(t.TempDir(), "unexpected-child")
 	parent, cancel := context.WithCancel(context.Background())
@@ -270,7 +270,7 @@ func TestSessionLaunchRejectsCancellationWhileWaitingForLifecycleOwnership(t *te
 func TestApplicationWaitRechecksRevocationAfterChildCompletion(t *testing.T) {
 	done := make(chan struct{})
 	close(done)
-	app := &Application{done: done}
+	app := &applicationState{done: done}
 	for attempt := 0; attempt < 100; attempt++ {
 		base, cancel := context.WithCancelCause(context.Background())
 		ctx := &cancelAtErrCallContext{Context: base, cancel: cancel, target: 2}
@@ -295,7 +295,7 @@ func (c *cancelWhenWaitSelectsContext) Done() <-chan struct{} {
 // Revocation after the first preflight, while waiting for a live child, must
 // complete the wait without requiring that the child exit.
 func TestApplicationWaitRevokedDuringLiveChildObservation(t *testing.T) {
-	app := &Application{done: make(chan struct{})}
+	app := &applicationState{done: make(chan struct{})}
 	for attempt := 0; attempt < 100; attempt++ {
 		base, cancel := context.WithCancel(context.Background())
 		ctx := &cancelWhenWaitSelectsContext{Context: base, cancel: cancel}

@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 var _ Manager = (*WaylandWindowManager)(nil)

@@ -3,14 +3,14 @@ package sessionregistry
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
 	"os"
 	"testing"
 	"time"
 
 	"golang.org/x/sys/unix"
 
-	"github.com/nskaggs/perfuncted/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
 )
 
 func TestReviewWorkflowStatusHonorsCanceledContext(t *testing.T) {

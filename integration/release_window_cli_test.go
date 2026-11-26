@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 )
 
 func certifyReleaseWindowCapture(t *testing.T, ctx context.Context, s *suite, binary string, target *perfuncted.Window) {
@@ -22,7 +22,7 @@ func certifyReleaseWindowCapture(t *testing.T, ctx context.Context, s *suite, bi
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := s.pf.Screen.CaptureWindow(ctx, target)
+	want, err := s.pf.Screen().CaptureWindow(ctx, target)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,9 +6,9 @@ package gnomebridge
 import (
 	"context"
 
-	"github.com/nskaggs/perfuncted/internal/compositor"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/probe"
+	"github.com/nskaggs/perfuncted/v2/internal/compositor"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/probe"
 )
 
 // ProbeCapability returns a probe result for the GNOME native bridge

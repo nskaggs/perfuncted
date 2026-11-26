@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
 	"reflect"
 	"sync"
 	"sync/atomic"

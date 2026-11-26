@@ -34,7 +34,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 )
 
 // binaryPath resolves the pf binary to test.

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/capturebench"
-	"github.com/nskaggs/perfuncted/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/internal/capturebench"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
 )
 
 const captureBenchmarkReal = "PERFUNCTED_CAPTURE_BENCH_REAL"

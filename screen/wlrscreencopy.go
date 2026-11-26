@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/shmutil"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/shmutil"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 var _ Screenshotter = (*WlrScreencopyBackend)(nil)

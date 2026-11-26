@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 func TestExtCaptureSharedMemoryQuotaFailureDoesNotPublishPixels(t *testing.T) {

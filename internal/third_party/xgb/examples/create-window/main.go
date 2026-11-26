@@ -7,8 +7,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
 )
 
 func main() {
@@ -113,7 +113,7 @@ func main() {
 		// either xproto.CreateWindow or xproto.ChangeWindowAttributes.
 		switch ev.(type) {
 		case xproto.KeyPressEvent:
-			// See https://pkg.go.dev/github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto#KeyPressEvent
+			// See https://pkg.go.dev/github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto#KeyPressEvent
 			// for documentation about a key press event.
 			kpe := ev.(xproto.KeyPressEvent)
 			fmt.Printf("Key pressed: %d\n", kpe.Detail)
@@ -141,7 +141,7 @@ func main() {
 			//
 			// For more information about closing windows while maintaining
 			// the X connection see
-			// https://github.com/nskaggs/perfuncted/internal/third_party/xgbutil/blob/master/_examples/graceful-window-close/main.go
+			// https://github.com/nskaggs/perfuncted/v2/internal/third_party/xgbutil/blob/master/_examples/graceful-window-close/main.go
 			return
 		}
 	}

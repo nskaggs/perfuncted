@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image"
 
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 // DirtyRects compares packed 8-bit RGBA or NRGBA captures without hashing.

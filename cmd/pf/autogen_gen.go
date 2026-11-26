@@ -22,7 +22,7 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			h, err := pf.Screen.GrabFullHash(cmd.Context())
+			h, err := pf.Screen().GrabFullHash(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			h, err := pf.Screen.WaitForNoChange(cmd.Context(), r_0, cmd_screen_wait_for_no_change_stable, cmd_screen_wait_for_no_change_poll_dur)
+			h, err := pf.Screen().WaitForNoChange(cmd.Context(), r_0, cmd_screen_wait_for_no_change_stable, cmd_screen_wait_for_no_change_poll_dur)
 			if err != nil {
 				return err
 			}
@@ -102,7 +102,7 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			h, err := pf.Screen.WaitForNoChangeFrom(cmd.Context(), r_0, cmd_screen_wait_for_no_change_from_initial_parsed, cmd_screen_wait_for_no_change_from_stable, cmd_screen_wait_for_no_change_from_poll_dur)
+			h, err := pf.Screen().WaitForNoChangeFrom(cmd.Context(), r_0, cmd_screen_wait_for_no_change_from_initial_parsed, cmd_screen_wait_for_no_change_from_stable, cmd_screen_wait_for_no_change_from_poll_dur)
 			if err != nil {
 				return err
 			}
@@ -137,7 +137,7 @@ func autogenInputCommands(openPF sessionOpener) []*cobra.Command {
 			defer pf.Close()
 			var cmd_input_type_literal_text string
 			cmd_input_type_literal_text = args[0]
-			if err := pf.Input.TypeLiteral(cmd.Context(), cmd_input_type_literal_text); err != nil {
+			if err := pf.Input().TypeLiteral(cmd.Context(), cmd_input_type_literal_text); err != nil {
 				return err
 			}
 			return nil

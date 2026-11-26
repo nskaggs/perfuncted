@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
 )
 
 const (

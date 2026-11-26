@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 )
 
 func TestWindowCaptureIntegration(t *testing.T) {
@@ -40,7 +40,7 @@ func TestWindowCaptureIntegration(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	target, err := s.pf.Windows.Wait(ctx, perfuncted.WindowMatch{TitleContains: app.winMatch}, perfuncted.WaitEvery(250*time.Millisecond))
+	target, err := s.pf.Windows().Wait(ctx, perfuncted.WindowMatch{TitleContains: app.winMatch}, perfuncted.WaitEvery(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("find %s window: %v", app.name, err)
 	}
@@ -48,7 +48,7 @@ func TestWindowCaptureIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s window geometry: %v", app.name, err)
 	}
-	capture, err := s.pf.Screen.CaptureWindow(ctx, target)
+	capture, err := s.pf.Screen().CaptureWindow(ctx, target)
 	if before.W <= 0 || before.H <= 0 {
 		if !errors.Is(err, perfuncted.ErrUnsupported) {
 			t.Fatalf("geometry-unavailable backend capture error=%v, want ErrUnsupported", err)

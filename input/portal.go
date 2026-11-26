@@ -17,9 +17,9 @@ import (
 
 	"github.com/bendahl/uinput"
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/keymap"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/keymap"
 )
 
 const (

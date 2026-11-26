@@ -1,6 +1,6 @@
 package screen
 
-import "github.com/nskaggs/perfuncted/internal/capability"
+import "github.com/nskaggs/perfuncted/v2/internal/capability"
 
 func supportedOperations() []string {
 	return capability.Operations("screen")

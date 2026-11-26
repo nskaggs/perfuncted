@@ -5,7 +5,7 @@ import (
 	"image"
 	"image/draw"
 
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 // requireCapturedImage rejects a decode that produced no pixels.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"time"
 )
 
@@ -43,7 +43,7 @@ func waitWindowActive(ctx context.Context, w *perfuncted.Window, timeout, poll t
 // waitWindowGone confirms a dialog or window disappeared, which is stronger
 // than observing that a close or Enter keystroke was merely sent. It also
 // prevents restoring clipboard contents before an asynchronous paste is read.
-func waitWindowGone(ctx context.Context, bundle *perfuncted.WindowBundle, id string, timeout, poll time.Duration) error {
+func waitWindowGone(ctx context.Context, bundle perfuncted.WindowBundle, id string, timeout, poll time.Duration) error {
 	if id == "" || timeout <= 0 || poll <= 0 {
 		return fmt.Errorf("window disappearance verification needs an ID and positive durations")
 	}

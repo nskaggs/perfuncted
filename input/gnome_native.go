@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
-	"github.com/nskaggs/perfuncted/internal/keymap"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/v2/internal/keymap"
 )
 
 var _ Inputter = (*GnomeNativeBackend)(nil)

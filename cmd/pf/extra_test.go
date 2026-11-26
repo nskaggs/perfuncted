@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted"
-	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/internal/workflow"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"io"
 	"os"
@@ -509,10 +509,10 @@ func TestScriptRunnerScreenCaptureFallbackAndInputStdin(t *testing.T) {
 	if err := s.execInput(4, []string{"type-literal", "z"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.pf.Screen.Resolution(context.Background()); err != nil {
+	if _, _, err := s.pf.Screen().Resolution(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.pf.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+	_, err := s.pf.Screen().Grab(context.Background(), image.Rect(0, 0, 1, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestScriptRunnerMultiwordInputAndInvalidGrabPath(t *testing.T) {
 // close when the compositor refuses the command.
 func TestScriptSelectedWindowClosePropagatesRejection(t *testing.T) {
 	runner, _, manager, _ := newScriptFixture(t)
-	selected, err := findWindowByTitle(context.Background(), runner.pf.Windows, "Editor")
+	selected, err := findWindowByTitle(context.Background(), runner.pf.Windows(), "Editor")
 	if err != nil {
 		t.Fatal(err)
 	}

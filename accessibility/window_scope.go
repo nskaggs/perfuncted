@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // windowCandidateReadTimeout is the safety fallback for one identity read

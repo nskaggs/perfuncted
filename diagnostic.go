@@ -2,25 +2,19 @@ package perfuncted
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/internal/capture"
-	"github.com/nskaggs/perfuncted/internal/compositor"
-	diagnostic "github.com/nskaggs/perfuncted/internal/diagnostic"
-	"github.com/nskaggs/perfuncted/internal/probe"
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/capture"
+	"github.com/nskaggs/perfuncted/v2/internal/compositor"
+	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/probe"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 	"image"
-	"image/png"
 	"os"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // FailureBundleOptions controls an opt-in diagnostic capture.
@@ -65,7 +59,7 @@ type AccessibilityFailureEvidence struct {
 // the returned error reports collection failures after the successful files
 // have been written. Its manifest records the effective timeout policy and
 // whether each field came from SessionConfig or the library defaults.
-func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundleOptions) (string, error) {
+func (s *sessionCore) CaptureFailureBundle(ctx context.Context, options FailureBundleOptions) (string, error) {
 	if s == nil {
 		return "", ErrNilSession
 	}
@@ -94,7 +88,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 		Target:            string(s.Target().Kind()),
 		Compositor:        compositor.DetectRuntime(s.env).String(), //nolint:contextcheck // Runtime detection has no contextual API; bundle records a best-effort snapshot.
 		Environment:       diagnostic.Environment(s.env.EnvList()),
-		Build:             currentBuildInfo(),
+		Build:             diagnostic.CurrentBuildInfo(),
 		LogDirectory:      s.LogPath(),
 		Metadata:          copyStringMap(options.Metadata),
 		Capabilities:      diagnosticCapabilities(s.Capabilities()),
@@ -111,7 +105,7 @@ func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundl
 
 	manifest.Artifacts = uniqueSortedStrings(manifest.Artifacts)
 	manifest.ArtifactErrors = copyStringMap(manifest.ArtifactErrors)
-	if err := writeJSON(filepath.Join(directory, "manifest.json"), manifest); err != nil {
+	if err := diagnostic.WriteJSON(filepath.Join(directory, "manifest.json"), manifest); err != nil {
 		artifactErrors = errors.Join(artifactErrors, fmt.Errorf("manifest.json: %w", err))
 	}
 	return directory, artifactErrors
@@ -133,7 +127,7 @@ func (c *failureArtifactCollector) capture(name string, fn func() error) {
 	c.manifest.Artifacts = append(c.manifest.Artifacts, name)
 }
 
-func (s *Session) captureFailureArtifacts(ctx context.Context, directory string, manifest *failureManifest, options FailureBundleOptions) error {
+func (s *sessionCore) captureFailureArtifacts(ctx context.Context, directory string, manifest *failureManifest, options FailureBundleOptions) error {
 	collector := failureArtifactCollector{manifest: manifest}
 	collector.capture("screenshot.png", func() error { return s.captureScreenshot(ctx, directory) })
 	collector.capture("windows.json", func() error { return s.captureWindows(ctx, directory) })
@@ -142,30 +136,30 @@ func (s *Session) captureFailureArtifacts(ctx context.Context, directory string,
 	collector.capture("trace.txt", func() error { return s.captureTrace(directory) })
 	if options.Accessibility != nil {
 		collector.capture("accessibility.json", func() error {
-			return writeJSON(filepath.Join(directory, "accessibility.json"), summarizeAccessibilityFailure(options.Accessibility))
+			return diagnostic.WriteJSON(filepath.Join(directory, "accessibility.json"), summarizeAccessibilityFailure(options.Accessibility))
 		})
 	}
 	if options.IncludeInputReceipts {
 		collector.capture("input-receipts.json", func() error {
-			receipts := s.Input.recentInputReceipts()
+			receipts := s.input.RecentInputReceipts()
 			if receipts == nil {
 				receipts = []InputActionReceipt{}
 			}
-			return writeJSON(filepath.Join(directory, "input-receipts.json"), summarizeInputReceipts(receipts))
+			return diagnostic.WriteJSON(filepath.Join(directory, "input-receipts.json"), summarizeInputReceipts(receipts))
 		})
 	}
 	return errors.Join(collector.errors...)
 }
 
-func (s *Session) diagnosticContext(ctx context.Context) (context.Context, context.CancelFunc) {
+func (s *sessionCore) diagnosticContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	return context.WithTimeout(ctx, s.Timeouts().Diagnostic)
 }
 
-func (s *Session) captureScreenshot(ctx context.Context, directory string) error {
-	if s.Screen == nil || util.IsNil(s.Screen.backend) {
+func (s *sessionCore) captureScreenshot(ctx context.Context, directory string) error {
+	if s.screen == nil || util.IsNil(s.screen.backend()) {
 		return errors.New("screen capability is not configured")
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
@@ -173,7 +167,7 @@ func (s *Session) captureScreenshot(ctx context.Context, directory string) error
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	img, err := s.Screen.backend.Grab(ctx, image.Rectangle{})
+	img, err := s.screen.backend().Grab(ctx, image.Rectangle{})
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
@@ -188,11 +182,11 @@ func (s *Session) captureScreenshot(ctx context.Context, directory string) error
 	if err := capture.ValidateImageLayout(img); err != nil {
 		return err
 	}
-	return writePNG(filepath.Join(directory, "screenshot.png"), img)
+	return diagnostic.WritePNG(filepath.Join(directory, "screenshot.png"), img)
 }
 
-func (s *Session) captureWindows(ctx context.Context, directory string) error {
-	if s.Windows == nil || util.IsNil(s.Windows.backend) {
+func (s *sessionCore) captureWindows(ctx context.Context, directory string) error {
+	if s.windows == nil || util.IsNil(s.windows.backend()) {
 		return errors.New("window capability is not configured")
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
@@ -200,18 +194,18 @@ func (s *Session) captureWindows(ctx context.Context, directory string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	windows, err := s.Windows.backend.List(ctx)
+	windows, err := s.windows.backend().List(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(directory, "windows.json"), windows)
+	return diagnostic.WriteJSON(filepath.Join(directory, "windows.json"), windows)
 }
 
-func (s *Session) captureActiveWindow(ctx context.Context, directory string) error {
-	if s.Windows == nil || util.IsNil(s.Windows.backend) {
+func (s *sessionCore) captureActiveWindow(ctx context.Context, directory string) error {
+	if s.windows == nil || util.IsNil(s.windows.backend()) {
 		return errors.New("window capability is not configured")
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
@@ -219,20 +213,20 @@ func (s *Session) captureActiveWindow(ctx context.Context, directory string) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	title, err := s.Windows.backend.ActiveTitle(ctx)
+	title, err := s.windows.backend().ActiveTitle(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(directory, "active-window.json"), struct {
+	return diagnostic.WriteJSON(filepath.Join(directory, "active-window.json"), struct {
 		Title string `json:"title"`
 	}{Title: title})
 }
 
-func (s *Session) captureOutputs(ctx context.Context, directory string) error {
-	if s.Outputs == nil || util.IsNil(s.Outputs.backend) {
+func (s *sessionCore) captureOutputs(ctx context.Context, directory string) error {
+	if s.outputs == nil || util.IsNil(s.outputs.Backend()) {
 		return errors.New("output capability is not configured")
 	}
 	ctx, cancel := s.diagnosticContext(ctx)
@@ -240,17 +234,17 @@ func (s *Session) captureOutputs(ctx context.Context, directory string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	outputs, err := s.Outputs.backend.List(ctx)
+	outputs, err := s.outputs.DiagnosticList(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(directory, "outputs.json"), outputs)
+	return diagnostic.WriteJSON(filepath.Join(directory, "outputs.json"), outputs)
 }
 
-func (s *Session) captureTrace(directory string) error {
+func (s *sessionCore) captureTrace(directory string) error {
 	trace := strings.Join(s.tracer.recent(), "\n")
 	if trace != "" {
 		trace += "\n"
@@ -266,7 +260,7 @@ type failureManifest struct {
 	Target            string                    `json:"target"`
 	Compositor        string                    `json:"compositor"`
 	Environment       map[string]string         `json:"environment"`
-	Build             diagnosticBuildInfo       `json:"build"`
+	Build             diagnostic.BuildInfo      `json:"build"`
 	LogDirectory      string                    `json:"log_directory,omitempty"`
 	Metadata          map[string]string         `json:"metadata,omitempty"`
 	Capabilities      []diagnosticCapability    `json:"capabilities"`
@@ -277,7 +271,7 @@ type failureManifest struct {
 	ArtifactErrors    map[string]string         `json:"artifact_errors,omitempty"`
 }
 
-func (s *Session) timeoutProvenance() map[string]string {
+func (s *sessionCore) timeoutProvenance() map[string]string {
 	configured := s.config.Timeouts
 	if s.hasTimeoutInput {
 		configured = s.timeoutInput
@@ -310,25 +304,6 @@ type diagnosticCapability struct {
 	Failure     string   `json:"failure,omitempty"`
 }
 
-type diagnosticBuildInfo struct {
-	GoVersion     string                 `json:"go_version"`
-	OS            string                 `json:"os"`
-	Arch          string                 `json:"arch"`
-	WorkspaceMode string                 `json:"workspace_mode"`
-	Module        string                 `json:"module,omitempty"`
-	ModuleVersion string                 `json:"module_version,omitempty"`
-	Revision      string                 `json:"revision,omitempty"`
-	RevisionTime  string                 `json:"revision_time,omitempty"`
-	Modified      bool                   `json:"modified,omitempty"`
-	Dependencies  []diagnosticDependency `json:"dependencies,omitempty"`
-}
-
-type diagnosticDependency struct {
-	Path    string `json:"path"`
-	Version string `json:"version,omitempty"`
-	Sum     string `json:"sum,omitempty"`
-}
-
 func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability {
 	out := make([]diagnosticCapability, 0, len(statuses))
 	for _, status := range statuses {
@@ -350,108 +325,6 @@ func diagnosticCapabilities(statuses []CapabilityStatus) []diagnosticCapability 
 		out = append(out, item)
 	}
 	return out
-}
-
-func currentBuildInfo() diagnosticBuildInfo {
-	workspaceMode := os.Getenv("GOWORK")
-	switch workspaceMode {
-	case "":
-		workspaceMode = "default"
-	case "off":
-		// Preserve the diagnostic distinction for disabled workspace mode.
-	default:
-		// GOWORK may contain a private absolute path to go.work. A failure
-		// bundle needs only the workspace mode, not its local filename.
-		workspaceMode = "on"
-	}
-	info := diagnosticBuildInfo{
-		GoVersion:     runtime.Version(),
-		OS:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		WorkspaceMode: workspaceMode,
-	}
-	build, ok := debug.ReadBuildInfo()
-	if !ok || build == nil {
-		return info
-	}
-	info.Module = build.Path
-	info.ModuleVersion = build.Main.Version
-	info.Dependencies = make([]diagnosticDependency, 0, len(build.Deps))
-	for _, dependency := range build.Deps {
-		if dependency == nil {
-			continue
-		}
-		info.Dependencies = append(info.Dependencies, diagnosticDependency{
-			Path: dependency.Path, Version: dependency.Version, Sum: dependency.Sum,
-		})
-	}
-	for _, setting := range build.Settings {
-		switch setting.Key {
-		case "vcs.revision":
-			info.Revision = setting.Value
-		case "vcs.time":
-			info.RevisionTime = setting.Value
-		case "vcs.modified":
-			info.Modified, _ = strconv.ParseBool(setting.Value)
-		}
-	}
-	return info
-}
-
-func writeJSON(path string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return writeAtomic(path, data, 0o600)
-}
-
-func writePNG(path string, img image.Image) error {
-	dir := filepath.Dir(path)
-	file, err := os.CreateTemp(dir, ".perfuncted-png-*")
-	if err != nil {
-		return err
-	}
-	tempPath := file.Name()
-	defer os.Remove(tempPath)
-	if util.IsNil(img) {
-		_ = file.Close()
-		return fmt.Errorf("diagnostic: no screenshot image to encode")
-	}
-	if err := png.Encode(file, img); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, path)
-}
-
-//nolint:unparam // Explicit file mode is part of the safe atomic write helper contract.
-func writeAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	file, err := os.CreateTemp(dir, ".perfuncted-atomic-*")
-	if err != nil {
-		return err
-	}
-	tempPath := file.Name()
-	defer os.Remove(tempPath)
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, perm); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, path)
 }
 
 func copyStringMap(values map[string]string) map[string]string {
@@ -487,8 +360,6 @@ func uniqueSortedStrings(values []string) []string {
 const (
 	maxDiagnosticAccessibilityNodes  = 64
 	maxDiagnosticAccessibilityEvents = 64
-	maxDiagnosticLabelBytes          = 128
-	maxDiagnosticListItems           = 16
 )
 
 type accessibilityFailureArtifact struct {
@@ -601,11 +472,11 @@ func summarizeAccessibilityFailure(evidence *AccessibilityFailureEvidence) acces
 		selector := locator.selector
 		artifact.Locator = &locatorDiagnosticSummary{
 			Scope:          scope,
-			Role:           diagnosticLabel(selector.Role),
+			Role:           diagnostic.Label(selector.Role),
 			HasName:        selector.Name != "",
 			HasLabel:       selector.Label != "",
 			HasText:        selector.Text != "",
-			States:         diagnosticLabels(selector.States),
+			States:         diagnostic.Labels(selector.States),
 			AttributeCount: len(selector.Attributes),
 			AncestorCount:  len(selector.Ancestors),
 			FreshRequested: locator.options.Fresh,
@@ -628,7 +499,7 @@ func summarizeAccessibilityFailure(evidence *AccessibilityFailureEvidence) acces
 		artifact.Snapshot = &snapshotDiagnosticSummary{
 			Generation:            snapshot.Generation,
 			CapturedAt:            snapshot.CapturedAt.UTC().Format(time.RFC3339Nano),
-			Source:                diagnosticLabel(snapshot.Source),
+			Source:                diagnostic.Label(snapshot.Source),
 			Truncated:             snapshot.Truncated,
 			TruncationReasonCount: len(snapshot.TruncationReasons),
 			ProviderErrors:        snapshot.ProviderErrors,
@@ -647,13 +518,13 @@ func summarizeAccessibilityFailure(evidence *AccessibilityFailureEvidence) acces
 		action := evidence.Action
 		artifact.Action = &actionDiagnosticSummary{
 			Node:         summarizeAccessibilityNode(action.Node),
-			Operation:    diagnosticLabel(action.Operation),
-			Mechanism:    diagnosticLabel(action.Mechanism),
+			Operation:    diagnostic.Label(action.Operation),
+			Mechanism:    diagnostic.Label(action.Mechanism),
 			ActionIndex:  action.Action.Index,
 			Dispatch:     diagnosticDispatch(action.Dispatch),
-			DispatchedAt: diagnosticTimestamp(action.DispatchedAt),
+			DispatchedAt: diagnostic.Timestamp(action.DispatchedAt),
 			Outcome:      diagnosticOutcome(action.Outcome.Status),
-			ObservedAt:   diagnosticTimestamp(action.Outcome.ObservedAt),
+			ObservedAt:   diagnostic.Timestamp(action.Outcome.ObservedAt),
 			HasCondition: action.Outcome.Condition != "",
 		}
 	}
@@ -666,7 +537,7 @@ func summarizeAccessibilityFailure(evidence *AccessibilityFailureEvidence) acces
 			WindowWakeups:        wait.WindowWakeups,
 			AccessibilityWakeups: wait.AccessibilityWakeups,
 			ApplicationWakeups:   wait.ApplicationWakeups,
-			LastWakeSource:       diagnosticLabel(wait.LastWakeSource),
+			LastWakeSource:       diagnostic.Label(wait.LastWakeSource),
 			HasCondition:         true,
 		}
 		if wait.LastAccessibilityEvent != nil {
@@ -681,9 +552,9 @@ func summarizeAccessibilityNode(node accessibility.Node) nodeDiagnosticSummary {
 	return nodeDiagnosticSummary{
 		ID:             diagnosticNodeID(node.ID),
 		Parent:         diagnosticNodeID(node.Parent),
-		Role:           diagnosticLabel(node.Role),
-		Interfaces:     diagnosticLabels(node.Interfaces),
-		States:         diagnosticLabels(node.States),
+		Role:           diagnostic.Label(node.Role),
+		Interfaces:     diagnostic.Labels(node.Interfaces),
+		States:         diagnostic.Labels(node.States),
 		HasName:        node.Name != "",
 		HasDescription: node.Description != "",
 		HasText:        node.Text != "",
@@ -701,55 +572,22 @@ func summarizeAccessibilityNode(node accessibility.Node) nodeDiagnosticSummary {
 
 func summarizeAccessibilityEvent(event accessibility.Event) eventDiagnosticSummary {
 	return eventDiagnosticSummary{
-		Kind:      diagnosticLabel(event.Kind),
+		Kind:      diagnostic.Label(event.Kind),
 		Node:      diagnosticNodeID(event.Node),
-		Property:  diagnosticLabel(event.Property),
+		Property:  diagnostic.Label(event.Property),
 		HasValue:  event.Value != "",
 		Dropped:   event.Dropped,
-		Timestamp: diagnosticTimestamp(event.Timestamp),
+		Timestamp: diagnostic.Timestamp(event.Timestamp),
 	}
 }
 
 func diagnosticNodeID(id accessibility.NodeID) accessibility.NodeID {
 	return accessibility.NodeID{
-		BusName:     diagnosticLabel(id.BusName),
-		ObjectPath:  diagnosticLabel(id.ObjectPath),
+		BusName:     diagnostic.Label(id.BusName),
+		ObjectPath:  diagnostic.Label(id.ObjectPath),
 		Generation:  id.Generation,
 		Incarnation: id.Incarnation,
 	}
-}
-
-func diagnosticLabels(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	limit := min(len(values), maxDiagnosticListItems)
-	labels := make([]string, 0, limit)
-	for _, value := range values[:limit] {
-		labels = append(labels, diagnosticLabel(value))
-	}
-	return labels
-}
-
-func diagnosticLabel(value string) string {
-	var label strings.Builder
-	label.Grow(min(len(value), maxDiagnosticLabelBytes))
-	for len(value) > 0 {
-		r, size := utf8.DecodeRuneInString(value)
-		if size == 0 || label.Len()+utf8.RuneLen(r) > maxDiagnosticLabelBytes {
-			break
-		}
-		label.WriteRune(r)
-		value = value[size:]
-	}
-	return label.String()
-}
-
-func diagnosticTimestamp(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func summarizeInputReceipts(receipts []InputActionReceipt) []InputActionReceipt {
@@ -759,9 +597,9 @@ func summarizeInputReceipts(receipts []InputActionReceipt) []InputActionReceipt 
 	}
 	summary := make([]InputActionReceipt, 0, limit)
 	for _, receipt := range receipts[len(receipts)-limit:] {
-		receipt.Operation = diagnosticLabel(receipt.Operation)
-		receipt.Mechanism = diagnosticLabel(receipt.Mechanism)
-		receipt.FailureClass = diagnosticLabel(receipt.FailureClass)
+		receipt.Operation = diagnostic.Label(receipt.Operation)
+		receipt.Mechanism = diagnostic.Label(receipt.Mechanism)
+		receipt.FailureClass = diagnostic.Label(receipt.FailureClass)
 		summary = append(summary, receipt)
 	}
 	return summary

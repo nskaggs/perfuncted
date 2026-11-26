@@ -11,7 +11,7 @@ to events.
 If you're looking to query information about your window manager,
 get-active-window is a start. However, to do anything extensive requires
 a lot of boiler plate. To that end, I'd recommend use of a higher level
-library (eg. xgbutil: https://github.com/nskaggs/perfuncted/internal/third_party/xgbutil).
+library (eg. xgbutil: https://github.com/nskaggs/perfuncted/v2/internal/third_party/xgbutil).
 
 There are also examples of using the Xinerama and RandR extensions, if you're
 interested in querying information about your active heads. In RandR's case,

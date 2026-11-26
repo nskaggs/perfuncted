@@ -1,7 +1,7 @@
 package sessionregistry
 
 import (
-	"github.com/nskaggs/perfuncted/internal/workflow"
+	"github.com/nskaggs/perfuncted/v2/internal/workflow"
 	"testing"
 	"time"
 )

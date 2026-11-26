@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/pftest"
 )
 
 // Denied session opening must fail both clipboard commands before invoking a

@@ -8,16 +8,17 @@ import (
 	"flag"
 	"fmt"
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
-	"github.com/nskaggs/perfuncted/internal/testutil"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/testutil"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"io"
 	"log/slog"
@@ -104,7 +105,7 @@ func TestSessionCloseUnifiesBundleTeardown(t *testing.T) {
 	windowBackend := &listOnlyWindowManager{}
 	outputBackend := &closeCountingOutput{}
 	clipboardBackend := &capabilityClipboard{}
-	session := NewSessionForTesting(screenBackend, inputBackend, windowBackend, outputBackend, clipboardBackend)
+	session := newSessionForTesting(screenBackend, inputBackend, windowBackend, outputBackend, clipboardBackend)
 	if err := session.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -130,12 +131,12 @@ func TestSessionCloseUnifiesBundleTeardown(t *testing.T) {
 
 func TestBundleCloseNilSafe(t *testing.T) {
 	t.Parallel()
-	var screenBundle *ScreenBundle
+	var screenBundle *screenState
 	if err := screenBundle.close(); err != nil {
 		t.Fatalf("nil ScreenBundle close = %v, want nil", err)
 	}
-	var inputBundle *InputBundle
-	if err := inputBundle.close(); err != nil {
+	var inputBundle *inputState
+	if err := inputBundle.Close(); err != nil {
 		t.Fatalf("nil InputBundle close = %v, want nil", err)
 	}
 }
@@ -145,13 +146,13 @@ func TestAccessibilityReopenRefreshesCapabilities(t *testing.T) {
 	old := &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
 	fresh := &bundleAccessibilityFake{gen: 2}
 	old.fresh = fresh
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, old)
 	t.Cleanup(func() { _ = session.Close() })
 	before := session.Capability(CapabilityAccessibility)
 	if !before.Available {
 		t.Fatal("accessibility capability not available before reopen")
 	}
-	if err := session.Accessibility.Reopen(context.Background()); err != nil {
+	if err := session.accessibility.Reopen(context.Background()); err != nil {
 		t.Fatalf("Reopen: %v", err)
 	}
 	after := session.Capability(CapabilityAccessibility)
@@ -166,7 +167,7 @@ func TestAccessibilityReopenRefreshesCapabilities(t *testing.T) {
 	if len(after.Operations) == 0 {
 		t.Fatal("capability operations empty after reopen")
 	}
-	apps, err := session.Accessibility.Applications(context.Background())
+	apps, err := session.accessibility.Applications(context.Background())
 	if err != nil {
 		t.Fatalf("Applications after reopen: %v", err)
 	}
@@ -178,8 +179,8 @@ func TestDiagnosticAtomicWritesLeaveNoPartialFiles(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	jsonPath := filepath.Join(dir, "manifest.json")
-	if err := writeJSON(jsonPath, map[string]string{"op": "test"}); err != nil {
-		t.Fatalf("writeJSON: %v", err)
+	if err := diagnostic.WriteJSON(jsonPath, map[string]string{"op": "test"}); err != nil {
+		t.Fatalf("diagnostic.WriteJSON: %v", err)
 	}
 	if _, statErr := os.Stat(jsonPath); statErr != nil {
 		t.Fatalf("stat manifest: %v", statErr)
@@ -191,12 +192,12 @@ func TestDiagnosticAtomicWritesLeaveNoPartialFiles(t *testing.T) {
 	for _, entry := range entries {
 		name := entry.Name()
 		if len(name) > 12 && name[:12] == ".perfuncted-" {
-			t.Fatalf("temp file %q left after writeJSON", name)
+			t.Fatalf("temp file %q left after diagnostic.WriteJSON", name)
 		}
 	}
 	pngPath := filepath.Join(dir, "screenshot.png")
-	if pngErr := writePNG(pngPath, image.NewRGBA(image.Rect(0, 0, 2, 2))); pngErr != nil {
-		t.Fatalf("writePNG: %v", pngErr)
+	if pngErr := diagnostic.WritePNG(pngPath, image.NewRGBA(image.Rect(0, 0, 2, 2))); pngErr != nil {
+		t.Fatalf("diagnostic.WritePNG: %v", pngErr)
 	}
 	entries, readErr = os.ReadDir(dir)
 	if readErr != nil {
@@ -205,15 +206,15 @@ func TestDiagnosticAtomicWritesLeaveNoPartialFiles(t *testing.T) {
 	for _, entry := range entries {
 		name := entry.Name()
 		if len(name) > 12 && name[:12] == ".perfuncted-" {
-			t.Fatalf("temp file %q left after writePNG", name)
+			t.Fatalf("temp file %q left after diagnostic.WritePNG", name)
 		}
 	}
 	failingPath := filepath.Join(dir, "failing.json")
-	if err := writeJSON(failingPath, map[string]any{"bad": make(chan int)}); err == nil {
-		t.Fatal("writeJSON with unserializable value succeeded, want error")
+	if err := diagnostic.WriteJSON(failingPath, map[string]any{"bad": make(chan int)}); err == nil {
+		t.Fatal("diagnostic.WriteJSON with unserializable value succeeded, want error")
 	}
 	if _, statErr := os.Stat(failingPath); !os.IsNotExist(statErr) {
-		t.Fatalf("partial file %q exists after failed writeJSON", failingPath)
+		t.Fatalf("partial file %q exists after failed diagnostic.WriteJSON", failingPath)
 	}
 }
 
@@ -246,7 +247,7 @@ func TestAccessibilityFocusedConditionDistinguishesAbsentTargetErrorAndSuccess(t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &focusedATSPISynthetic{focused: tc.node, err: tc.err}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 			t.Cleanup(func() { _ = session.Close() })
 			condition := AccessibilityFocused(accessibility.SnapshotOptions{Fresh: true})
 			ok, err := condition.evaluate(context.Background(), session)
@@ -271,7 +272,7 @@ func TestAccessibilityFocusedConditionDistinguishesAbsentTargetErrorAndSuccess(t
 
 func TestAccessibilityFocusedWaitOnlyCompletesOnAuthoritativeFocus(t *testing.T) {
 	fake := &focusedATSPISynthetic{err: accessibility.ErrNotFound}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -549,7 +550,7 @@ func (b *waitAccessibilityBackend) Close() error { return nil }
 
 func TestAccessibilityWaitConditionsRefreshUntilSatisfied(t *testing.T) {
 	backend := &waitAccessibilityBackend{}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	root := accessibility.NodeID{BusName: "org.test", ObjectPath: "/root"}
@@ -570,7 +571,7 @@ func TestAccessibilityWaitConditionsRefreshUntilSatisfied(t *testing.T) {
 
 func TestAccessibilityNodeExistsWaitRetriesIncompleteSnapshots(t *testing.T) {
 	backend := &waitAccessibilityBackend{incompleteSnapshots: 1}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
 	condition := AccessibilityNodeExists(
 		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root"},
@@ -591,7 +592,7 @@ func TestAccessibilityNodeExistsWaitRetriesIncompleteSnapshots(t *testing.T) {
 
 func TestAccessibilityNodeExistsWaitSurfacesSustainedIncompleteSnapshots(t *testing.T) {
 	backend := &waitAccessibilityBackend{alwaysIncomplete: true}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
 	condition := AccessibilityNodeExists(
 		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root"},
@@ -664,7 +665,7 @@ func (b *waitAccessibilityEventBackend) Events(
 
 func TestWaitChangesIncludesAccessibilityEvents(t *testing.T) {
 	backend := newWaitAccessibilityEventBackend()
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
 	wake := session.waitChanges()
 	backend.events <- accessibility.Event{Kind: "focus"}
@@ -697,7 +698,7 @@ func TestWaitEpochKeepsWakeAttributionAcrossRapidNotifications(t *testing.T) {
 
 func TestWaitWithEvidenceReportsAccessibilityWake(t *testing.T) {
 	backend := newWaitAccessibilityEventBackend()
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
 
 	// The wait opens its event stream lazily, on its first evaluation, so the
@@ -714,7 +715,7 @@ func TestWaitWithEvidenceReportsAccessibilityWake(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	evaluations := 0
-	evidence, err := session.WaitWithEvidence(ctx, sessionCondition("after event", func(ctx context.Context, _ *Session) (bool, error) {
+	evidence, err := session.WaitWithEvidence(ctx, sessionCondition("after event", func(ctx context.Context, _ *sessionCore) (bool, error) {
 		evaluations++
 		if evaluations == 1 {
 			select {
@@ -946,7 +947,7 @@ func TestSessionSwayConfigRejectsCancellationAfterPhaseSuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var states []StartupPhaseState
-	session := &Session{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
+	session := &sessionCore{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
 		if phase != StartupPhaseSwayConfiguration {
 			return
 		}
@@ -1111,7 +1112,7 @@ func TestManagedSessionWritersRejectOtherWritableRuntime(t *testing.T) {
 func TestManagedSessionPreparationAndCancellationFailBeforeSpawning(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	session := &Session{}
+	session := &sessionCore{}
 	if infra, err := session.startSession(ctx, sessionModeHeadless, SessionConfig{}, false); infra != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled startup: infra=%v err=%v", infra, err)
 	}
@@ -1147,7 +1148,7 @@ func TestManagedSessionInvalidConfigurationAndDaemonAddressNeverSpawn(t *testing
 	if _, err := infra.writeEmbeddedConfig("configs/not-a-configuration.conf", image.Point{}); err == nil || !strings.Contains(err.Error(), "read embedded config") {
 		t.Fatalf("missing embedded config accepted: %v", err)
 	}
-	if _, err := (&Session{}).resolveSessionSwayConfig(context.Background(), infra, sessionMode(-8), SessionConfig{}); err == nil || !strings.Contains(err.Error(), "unknown mode") {
+	if _, err := (&sessionCore{}).resolveSessionSwayConfig(context.Background(), infra, sessionMode(-8), SessionConfig{}); err == nil || !strings.Contains(err.Error(), "unknown mode") {
 		t.Fatalf("invalid compositor mode accepted: %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(runtimeDir, "sway.conf")); !errors.Is(statErr, os.ErrNotExist) {
@@ -1333,7 +1334,7 @@ func TestManagedSessionLogCreationFailureRollsBackAllocatedRuntime(t *testing.T)
 	if err := os.WriteFile(blocker, []byte("retain"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	session := &Session{}
+	session := &sessionCore{}
 	infra, startErr := session.startSession(context.Background(), sessionModeHeadless, SessionConfig{LogDir: filepath.Join(blocker, "logs")}, false)
 	if infra != nil || startErr == nil || !strings.Contains(startErr.Error(), "create logs") {
 		t.Fatalf("invalid log directory admitted: infra=%v err=%v", infra, startErr)
@@ -1694,7 +1695,7 @@ func TestCapabilityOpenWindowAndOutputFailuresRemainIsolated(t *testing.T) {
 		outputCalls++
 		return nil, failure
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 
 	for _, cap := range []Capability{CapabilityWindows, CapabilityOutputs} {
@@ -1706,7 +1707,7 @@ func TestCapabilityOpenWindowAndOutputFailuresRemainIsolated(t *testing.T) {
 	if windowCalls != 1 || outputCalls != 1 {
 		t.Fatalf("unexpected opener calls: windows=%d outputs=%d", windowCalls, outputCalls)
 	}
-	if session.Windows.backend != nil || session.Outputs.backend != nil {
+	if session.windows.backend() != nil || session.outputs.Backend() != nil {
 		t.Fatal("failed capability opener mutated unrelated facade backend")
 	}
 }
@@ -1724,7 +1725,7 @@ func TestCapabilityOpenInputWithoutResolutionUsesZeroBounds(t *testing.T) {
 		}
 		return nil, failure
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	backend, err := session.openCapabilityContext(context.Background(), CapabilityInput)
 	if !called || backend != nil || !errors.Is(err, failure) {
@@ -1747,18 +1748,18 @@ func TestCapabilityOpenWindowAndOutputBindOnlyOwnedFacades(t *testing.T) {
 		outputsOpened++
 		return outputs, nil
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 
 	gotWindow, err := session.openCapabilityContext(context.Background(), CapabilityWindows)
-	if err != nil || gotWindow != windows || session.Windows.backend != windows {
+	if err != nil || gotWindow != windows || session.windows.backend() != windows {
 		t.Fatalf("window opener did not install exact backend: backend=%v err=%v", gotWindow, err)
 	}
-	if outputsOpened != 0 || session.Outputs.backend != nil {
+	if outputsOpened != 0 || session.outputs.Backend() != nil {
 		t.Fatal("opening windows unexpectedly initialized the output backend")
 	}
 	gotOutput, err := session.openCapabilityContext(context.Background(), CapabilityOutputs)
-	if err != nil || gotOutput != outputs || session.Outputs.backend != outputs {
+	if err != nil || gotOutput != outputs || session.outputs.Backend() != outputs {
 		t.Fatalf("output opener did not install exact backend: backend=%v err=%v", gotOutput, err)
 	}
 	if windowsOpened != 1 || outputsOpened != 1 {
@@ -1774,7 +1775,7 @@ func TestResolveRuntimeExplicitTargetNeverInheritsHostDesktop(t *testing.T) {
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/host/private-bus")
 	t.Setenv("XDG_RUNTIME_DIR", "/host/private-runtime")
 	target := EnvironmentTarget([]string{"DISPLAY=:46", "DBUS_SESSION_BUS_ADDRESS=unix:path=/explicit/bus", "XDG_RUNTIME_DIR=/explicit/runtime", "TOKEN=private-target"})
-	session := &Session{}
+	session := &sessionCore{}
 	if err := session.resolveRuntime(context.Background(), targetSelection{kind: TargetExplicit, target: target}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -1804,7 +1805,7 @@ func TestResolveRuntimeExplicitTargetNeverInheritsHostDesktop(t *testing.T) {
 func TestResolveRuntimeHostTargetUsesCurrentEnvironmentAndRejectsUnknownKind(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "/synthetic-host-runtime")
 	t.Setenv("DISPLAY", ":99")
-	session := &Session{}
+	session := &sessionCore{}
 	if err := session.resolveRuntime(context.Background(), targetSelection{kind: TargetHost}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -1820,7 +1821,7 @@ func TestResolveRuntimeHostTargetUsesCurrentEnvironmentAndRejectsUnknownKind(t *
 	if session.Target().Kind() != original.Kind() || len(session.Env()) != len(originalEnv) {
 		t.Fatalf("unknown target replaced current routing snapshot")
 	}
-	var nilSession *Session
+	var nilSession *sessionCore
 	if len(nilSession.Env()) != 0 || nilSession.XDG() != "" || nilSession.DBusAddress() != "" || nilSession.WaylandDisplay() != "" || nilSession.X11Display() != "" {
 		t.Fatal("nil session exposed environment data")
 	}
@@ -2065,7 +2066,7 @@ func TestSessionPIDLivenessRejectsNonpositiveIdentifiers(t *testing.T) {
 
 // A missing clipboard facade must not initiate a desktop write.
 func TestNilClipboardFacadeCannotWrite(t *testing.T) {
-	var clipboard *ClipboardBundle
+	var clipboard *clipboardState
 	if err := clipboard.Set(context.Background(), "private text"); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil clipboard Set error %v, want ErrNilSession", err)
 	}
@@ -2075,7 +2076,7 @@ func TestNilClipboardFacadeCannotWrite(t *testing.T) {
 // opening, and explicitly enabled action traces must use the caller's writer.
 func TestOpenIgnoresNilOptionAndRoutesOwnedTrace(t *testing.T) {
 	var writer bytes.Buffer
-	session, err := Open(context.Background(), nil, WithTrace(true), WithTraceOut(&writer))
+	session, err := openSession(context.Background(), nil, WithTrace(true), WithTraceOut(&writer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2083,7 +2084,7 @@ func TestOpenIgnoresNilOptionAndRoutesOwnedTrace(t *testing.T) {
 	if session.tracer == nil {
 		t.Fatal("requested trace writer did not initialize")
 	}
-	session.Input.traceAction("input", "key-up %s", "Return")
+	session.inputAdmission.traceAction("input", "key-up %s", "Return")
 	if got := writer.String(); !strings.Contains(got, "input key-up Return") {
 		t.Fatalf("session did not route trace to configured writer: %q", got)
 	}
@@ -2095,7 +2096,7 @@ func TestOpenIgnoresNilOptionAndRoutesOwnedTrace(t *testing.T) {
 // An invalid context must be refused before configuration or desktop routing.
 func TestOpenNilContextDoesNotEvaluateOptions(t *testing.T) {
 	called := false
-	session, err := Open(nil, Option(func(*openConfig) error {
+	session, err := openSession(nil, Option(func(*openConfig) error {
 		called = true
 		return nil
 	}))
@@ -2109,7 +2110,7 @@ func TestOpenNilContextDoesNotEvaluateOptions(t *testing.T) {
 func TestOpenOptionFailureStopsConfigurationBeforeRuntime(t *testing.T) {
 	rejected := errors.New("synthetic rejected desktop configuration")
 	laterCalled := false
-	session, err := Open(context.Background(),
+	session, err := openSession(context.Background(),
 		Option(func(*openConfig) error { return rejected }),
 		Option(func(*openConfig) error { laterCalled = true; return nil }),
 	)
@@ -2122,7 +2123,7 @@ func TestOpenOptionFailureStopsConfigurationBeforeRuntime(t *testing.T) {
 func TestOpenOptionCancellationStopsRuntimeSelection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	session, err := Open(ctx, Option(func(*openConfig) error {
+	session, err := openSession(ctx, Option(func(*openConfig) error {
 		cancel()
 		return nil
 	}))
@@ -2134,7 +2135,7 @@ func TestOpenOptionCancellationStopsRuntimeSelection(t *testing.T) {
 // Closing a session revokes direct paste authority independently of whether
 // clipboard and keyboard backends were ever requested.
 func TestClosedSessionPasteRejectsWithoutDesktopDispatch(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -2172,7 +2173,7 @@ func TestCompositeWaitConditionPreservesEventWakeupsAndShortCircuits(t *testing.
 	ctx := context.Background()
 	calls := make([]string, 0, 3)
 	condition := func(name string, value bool, err error, pollOnly bool) Condition {
-		return conditionFunc{name: name, pollOnly: pollOnly, check: func(context.Context, *Session) (bool, error) { calls = append(calls, name); return value, err }}
+		return conditionFunc{name: name, pollOnly: pollOnly, check: func(context.Context, *sessionCore) (bool, error) { calls = append(calls, name); return value, err }}
 	}
 	observed := errors.New("synthetic unreadable window state")
 	falseCondition := condition("false", false, nil, true)
@@ -2235,7 +2236,7 @@ func TestSessionStartupOwnerPIDWriteDoesNotFollowSymlink(t *testing.T) {
 	}
 	var runtimeDir string
 	var fixtureErr error
-	s := &Session{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
+	s := &sessionCore{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
 		if phase != StartupPhaseRuntimeDirectoryPreparation || state != StartupPhaseSucceeded {
 			return
 		}
@@ -2273,7 +2274,7 @@ func TestSessionStartupOwnerPIDWriteDoesNotFollowSymlink(t *testing.T) {
 // A missing caller context must be rejected before any clipboard or keyboard
 // backend can dispatch a paste. Context.Background is not an implicit grant.
 func TestSessionPasteRejectsNilContextBeforeDispatch(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	if err := session.Paste(nil, "private selection"); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("paste without explicit context = %v, want ErrInvalidArgument", err)
@@ -2282,7 +2283,7 @@ func TestSessionPasteRejectsNilContextBeforeDispatch(t *testing.T) {
 
 // An absent or only partially initialized owner never authorizes operations.
 func TestSessionAbsentReceiverAndOwnerlessTraceFailClosed(t *testing.T) {
-	var session *Session
+	var session *sessionCore
 	if !session.isClosed() {
 		t.Fatal("nil session must be treated as closed")
 	}
@@ -2498,7 +2499,7 @@ func TestRemoteDesktopInputIsRequiredAndNeverFallsBack(t *testing.T) {
 		fallbackCalls++
 		return nil, errors.New("fallback must not run")
 	}
-	_, err := Open(context.Background(),
+	_, err := openSession(context.Background(),
 		WithTarget(EnvironmentTarget(nil)),
 		WithRemoteDesktopInput(RemoteDesktopInputOptions{ParentWindow: "xdg:test-parent", PersistPermission: true}),
 	)
@@ -2688,7 +2689,7 @@ func TestStartSessionCancellationAfterSwayReadinessStopsProcessesAndCleansRuntim
 	var processIDs []int
 	var observerErr error
 	var events []startupEvent
-	session := &Session{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
+	session := &sessionCore{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
 		events = append(events, startupEvent{phase: phase, state: state})
 		if phase != StartupPhaseSwaySocketsReady || state != StartupPhaseSucceeded {
 			return
@@ -2767,7 +2768,7 @@ func TestStartSessionFailureReportsCleanupError(t *testing.T) {
 
 	var managed string
 	var prepErr error
-	s := NewSessionForTesting(nil, nil, nil, nil, nil)
+	s := newSessionForTesting(nil, nil, nil, nil, nil)
 	s.startupObserver = func(phase StartupPhase, state StartupPhaseState) {
 		if phase != StartupPhaseRuntimeDirectoryPreparation || state != StartupPhaseSucceeded {
 			return
@@ -2823,7 +2824,7 @@ func TestManagedStartupCleansUpWhenSwayConfigCannotBePublished(t *testing.T) {
 	root := prepareHeadlessHelpers(t, true)
 	var setupErr error
 	var events []startupEvent
-	session := &Session{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
+	session := &sessionCore{startupObserver: func(phase StartupPhase, state StartupPhaseState) {
 		events = append(events, startupEvent{phase: phase, state: state})
 		if phase != StartupPhaseSwayConfiguration || state != StartupPhaseStarted {
 			return
@@ -2877,7 +2878,7 @@ func TestManagedSessionExplicitSwayConfigPreservesCallerFileAndCancellation(t *t
 	if err := os.WriteFile(callerConfig, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
-	session := &Session{}
+	session := &sessionCore{}
 	infra := &sessionInfra{xdgDir: runtimeDir}
 	config := SessionConfig{SwayConfigPath: callerConfig, Resolution: image.Pt(1920, 1080)}
 	for _, mode := range []sessionMode{sessionModeHeadless, sessionModeNested} {
@@ -2926,7 +2927,7 @@ func TestSwaySocketUsesLiteralRuntimeDirectory(t *testing.T) {
 	defer foreignListener.Close()
 	expected, ownListener := listen(own)
 	defer ownListener.Close()
-	session := &Session{infra: &sessionInfra{xdgDir: own}}
+	session := &sessionCore{infra: &sessionInfra{xdgDir: own}}
 	if got := session.SwaySocket(); got != expected {
 		t.Fatalf("runtime %q resolved socket %q, want own %q (foreign %q)", own, got, expected, outside)
 	}
@@ -2948,7 +2949,7 @@ func TestSwaySocketSupportsInvalidGlobCharacterInLiteralRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	session := &Session{infra: &sessionInfra{xdgDir: own}}
+	session := &sessionCore{infra: &sessionInfra{xdgDir: own}}
 	if got := session.SwaySocket(); got != path {
 		t.Fatalf("literal bracket runtime socket=%q want %q", got, path)
 	}
@@ -2962,7 +2963,7 @@ func TestSwaySocketRejectsMissingRuntimeAndMalformedSocketNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	missing := &Session{infra: &sessionInfra{xdgDir: filepath.Join(root, "missing")}}
+	missing := &sessionCore{infra: &sessionInfra{xdgDir: filepath.Join(root, "missing")}}
 	if found := missing.SwaySocket(); found != "" {
 		t.Fatalf("missing owned runtime resolved unrelated socket: %q", found)
 	}
@@ -2977,7 +2978,7 @@ func TestSwaySocketRejectsMissingRuntimeAndMalformedSocketNames(t *testing.T) {
 		}
 		t.Cleanup(func() { listener.Close() })
 	}
-	owned := &Session{infra: &sessionInfra{xdgDir: runtime}}
+	owned := &sessionCore{infra: &sessionInfra{xdgDir: runtime}}
 	if found := owned.SwaySocket(); found != "" {
 		t.Fatalf("malformed socket selected: %q", found)
 	}
@@ -3024,7 +3025,7 @@ func TestSwaySocketSkipsUntrustedLookalikesAndSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
-	session := &Session{infra: &sessionInfra{xdgDir: runtimeDir}}
+	session := &sessionCore{infra: &sessionInfra{xdgDir: runtimeDir}}
 	if got := session.SwaySocket(); got != local {
 		t.Fatalf("chose non-owned or non-socket Sway IPC path: %q instead of %q", got, local)
 	}
@@ -3045,7 +3046,7 @@ func TestStartSessionReportsUnavailableSwayAndCleansManagedRuntime(t *testing.T)
 
 	var events []startupEvent
 	pathRestricted := false
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.startupObserver = func(phase StartupPhase, state StartupPhaseState) {
 		events = append(events, startupEvent{phase: phase, state: state})
 		if phase == StartupPhaseDBusSocketReady && state == StartupPhaseSucceeded && !pathRestricted {
@@ -3117,7 +3118,7 @@ func TestNestedManagedSessionWithoutHostWaylandRefusesSpawn(t *testing.T) {
 // An unknown capability must be rejected before a backend opener, session
 // registry, or desktop process can be touched.
 func TestSessionOpenCapabilityRejectsUnknownIdentifierWithoutBackendMutation(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	unknown := Capability("future-unsupported-backend")
 	for _, open := range []struct {
@@ -3148,23 +3149,23 @@ func TestSessionOpenCapabilityRejectsUnknownIdentifierWithoutBackendMutation(t *
 // may be retried only while the caller still authorizes the wait.
 func TestWindowDiscoveryFailureDoesNotManufactureWindowOrSuccess(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "stable-1", Title: "private title"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	failure := errors.New("synthetic window discovery connection timeout")
 	manager.setError(failure)
 	match := WindowMatch{TitleExact: "private title"}
-	got, err := session.Windows.Find(context.Background(), match)
+	got, err := session.windows.Find(context.Background(), match)
 	if got != nil || !errors.Is(err, failure) {
 		t.Fatalf("failed discovery accepted window=%v err=%v", got, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	got, err = session.Windows.Wait(ctx, match, WaitEvery(time.Millisecond))
+	got, err = session.windows.Wait(ctx, match, WaitEvery(time.Millisecond))
 	if got != nil || !errors.Is(err, failure) {
 		t.Fatalf("unreadable backend yielded window=%v err=%v", got, err)
 	}
 	manager.setError(nil)
-	got, err = session.Windows.Wait(context.Background(), match)
+	got, err = session.windows.Wait(context.Background(), match)
 	if err != nil || got == nil || got.ID().String() != "stable-1" {
 		t.Fatalf("recovered backend could not discover stable window: window=%v err=%v", got, err)
 	}
@@ -3174,9 +3175,9 @@ func TestWindowDiscoveryFailureDoesNotManufactureWindowOrSuccess(t *testing.T) {
 // Once the manager recovers, the same handle can accept a fresh observation.
 func TestWindowInfoTransportFailurePreservesCacheAndLaterRecovers(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "stable-id", Title: "original"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	handle := session.Windows.window(window.Info{NativeID: "stable-id", Title: "original"})
+	handle := session.windows.window(window.Info{NativeID: "stable-id", Title: "original"})
 	readErr := errors.New("synthetic window transport failure")
 	manager.setError(readErr)
 	info, err := handle.Info(context.Background())
@@ -3198,7 +3199,7 @@ func TestWindowInfoTransportFailurePreservesCacheAndLaterRecovers(t *testing.T) 
 // metadata accessors must return empty values, and operations must refuse
 // the absent owner before touching any desktop backend.
 func TestWindowAndApplicationUnownedHandleOperationsFailClosed(t *testing.T) {
-	var missing *Window
+	var missing *windowState
 	if got := missing.ID(); got != (WindowID{}) {
 		t.Fatalf("nil window exposed identity: %+v", got)
 	}
@@ -3211,21 +3212,21 @@ func TestWindowAndApplicationUnownedHandleOperationsFailClosed(t *testing.T) {
 	if _, err := missing.Info(context.Background()); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil window Info returned %v", err)
 	}
-	if _, err := (&Window{}).Info(context.Background()); !errors.Is(err, ErrNilSession) {
+	if _, err := (&windowState{}).Info(context.Background()); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("unowned window Info returned %v", err)
 	}
-	var windows *WindowBundle
+	var windows WindowBundle
 	if got, err := windows.Wait(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil window bundle wait=%v %v", got, err)
 	}
-	if got, err := (&WindowBundle{}).Wait(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := (&windowBundleState{}).Wait(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("unowned window bundle wait=%v %v", got, err)
 	}
-	var app *Application
+	var app *applicationState
 	if got, err := app.WaitForWindow(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil app wait=%v %v", got, err)
 	}
-	if got, err := (&Application{}).WaitForWindow(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := (&applicationState{}).WaitForWindow(context.Background(), WindowMatch{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("unowned app wait=%v %v", got, err)
 	}
 }
@@ -3237,24 +3238,24 @@ func TestUnownedWindowMutationEntryPointsRejectBeforeDispatch(t *testing.T) {
 	ctx := context.Background()
 	operations := []struct {
 		name string
-		run  func(*Window) error
+		run  func(*windowState) error
 	}{
-		{"activate", func(w *Window) error { return w.Activate(ctx) }},
-		{"move", func(w *Window) error { return w.Move(ctx, 10, 20) }},
-		{"resize", func(w *Window) error { return w.Resize(ctx, 640, 480) }},
-		{"close", func(w *Window) error { return w.Close(ctx) }},
-		{"minimize", func(w *Window) error { return w.Minimize(ctx) }},
-		{"maximize", func(w *Window) error { return w.Maximize(ctx) }},
-		{"fullscreen", func(w *Window) error { return w.Fullscreen(ctx) }},
-		{"unfullscreen", func(w *Window) error { return w.Unfullscreen(ctx) }},
-		{"restore", func(w *Window) error { return w.Restore(ctx) }},
+		{"activate", func(w *windowState) error { return w.Activate(ctx) }},
+		{"move", func(w *windowState) error { return w.Move(ctx, 10, 20) }},
+		{"resize", func(w *windowState) error { return w.Resize(ctx, 640, 480) }},
+		{"close", func(w *windowState) error { return w.Close(ctx) }},
+		{"minimize", func(w *windowState) error { return w.Minimize(ctx) }},
+		{"maximize", func(w *windowState) error { return w.Maximize(ctx) }},
+		{"fullscreen", func(w *windowState) error { return w.Fullscreen(ctx) }},
+		{"unfullscreen", func(w *windowState) error { return w.Unfullscreen(ctx) }},
+		{"restore", func(w *windowState) error { return w.Restore(ctx) }},
 	}
 	for _, owner := range []struct {
 		name   string
-		handle *Window
+		handle *windowState
 	}{
 		{name: "nil handle"},
-		{name: "unowned handle", handle: &Window{}},
+		{name: "unowned handle", handle: &windowState{}},
 	} {
 		t.Run(owner.name, func(t *testing.T) {
 			for _, op := range operations {
@@ -3272,17 +3273,17 @@ func TestUnownedWindowMutationEntryPointsRejectBeforeDispatch(t *testing.T) {
 // canceled waiter must never manufacture a successful disappearance. Later
 // verified disappearance of the same native ID must complete a fresh wait.
 func TestWindowWaitClosedHonorsStableIdentityAndWaiterCancellation(t *testing.T) {
-	var absent *Window
+	var absent *windowState
 	if err := absent.WaitClosed(context.Background()); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil handle wait=%v", err)
 	}
-	if err := (&Window{}).WaitClosed(context.Background()); !errors.Is(err, ErrNilSession) {
+	if err := (&windowState{}).WaitClosed(context.Background()); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("unowned handle wait=%v", err)
 	}
 	manager := newHandleWindowManager(window.Info{NativeID: "native-17", Title: "Original"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	handle := &Window{id: WindowID{session: session, native: "native-17"}}
+	handle := &windowState{id: WindowID{session: session, native: "native-17"}}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := handle.WaitClosed(canceled); !errors.Is(err, context.Canceled) {
@@ -3362,7 +3363,7 @@ func TestOpenNestedRuntimeUsesHostWaylandAndOwnsManagedChildren(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	session, err := Open(ctx, WithNested(SessionConfig{Timeouts: TimeoutPolicy{Startup: 3 * time.Second, Poll: time.Millisecond}}))
+	session, err := openSession(ctx, WithNested(SessionConfig{Timeouts: TimeoutPolicy{Startup: 3 * time.Second, Poll: time.Millisecond}}))
 	if err != nil {
 		t.Fatalf("Open nested runtime with a live host Wayland socket: %v", err)
 	}
@@ -3394,7 +3395,7 @@ func TestOpenNestedRuntimeWithoutHostWaylandCleansUpStartedBus(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	session, err := Open(ctx, WithNested(SessionConfig{Timeouts: TimeoutPolicy{Startup: 3 * time.Second, Poll: time.Millisecond}}))
+	session, err := openSession(ctx, WithNested(SessionConfig{Timeouts: TimeoutPolicy{Startup: 3 * time.Second, Poll: time.Millisecond}}))
 	if session != nil || err == nil || !strings.Contains(err.Error(), "nested session requires a host Wayland socket") {
 		if session != nil {
 			_ = session.Close()
@@ -3416,7 +3417,7 @@ func TestOpenNestedRuntimeWithoutHostWaylandCleansUpStartedBus(t *testing.T) {
 // dereferenced the session directly and panicked, which turned a documented
 // defensive case into a crash for library callers.
 func TestNilSessionAccessorsDoNotPanic(t *testing.T) {
-	var s *Session
+	var s *sessionCore
 
 	stringAccessors := map[string]func() string{
 		"XDG":            s.XDG,
@@ -3492,27 +3493,27 @@ func TestNilSessionAccessorsDoNotPanic(t *testing.T) {
 func TestNilFacadesReportNilSession(t *testing.T) {
 	ctx := context.Background()
 
-	var screen *ScreenBundle
+	var screen ScreenBundle
 	if _, err := screen.Grab(ctx, image.Rectangle{}); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Screen.Grab() = %v, want ErrNilSession", err)
 	}
 
-	var input *InputBundle
+	var input InputBundle
 	if err := input.Type(ctx, "x"); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Input.Type() = %v, want ErrNilSession", err)
 	}
 
-	var windows *WindowBundle
+	var windows WindowBundle
 	if _, err := windows.List(ctx, WindowMatch{}); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Windows.List() = %v, want ErrNilSession", err)
 	}
 
-	var clipboard *ClipboardBundle
+	var clipboard *clipboardState
 	if _, err := clipboard.Get(ctx); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Clipboard.Get() = %v, want ErrNilSession", err)
 	}
 
-	var outputs *OutputBundle
+	var outputs *outputState
 	if _, err := outputs.List(ctx); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Outputs.List() = %v, want ErrNilSession", err)
 	}
@@ -3555,7 +3556,7 @@ func TestOpenCancellationDuringCapabilityDiagnosticsClosesBackend(t *testing.T) 
 		openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
 			return backend, nil
 		}
-		session, err := Open(ctx, Require(CapabilityScreen))
+		session, err := openSession(ctx, Require(CapabilityScreen))
 		if session != nil || !errors.Is(err, context.Canceled) || backend.closeCalls.Load() != 1 {
 			t.Fatalf("Open = (%v, %v), backend closes=%d", session, err, backend.closeCalls.Load())
 		}
@@ -3569,7 +3570,7 @@ func TestOpenCancellationDuringCapabilityDiagnosticsClosesBackend(t *testing.T) 
 		openAccessibility = func(context.Context, env.Runtime) (accessibility.Backend, error) {
 			return backend, nil
 		}
-		session, err := Open(ctx, Require(CapabilityAccessibility))
+		session, err := openSession(ctx, Require(CapabilityAccessibility))
 		if session != nil || !errors.Is(err, context.Canceled) || backend.closes.Load() != 1 {
 			t.Fatalf("Open = (%v, %v), backend closes=%d", session, err, backend.closes.Load())
 		}
@@ -3580,7 +3581,7 @@ func TestNestedStartupCanceledDuringStaleCleanupDoesNotStartRuntime(t *testing.T
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	managedStarted := false
-	session, err := Open(ctx,
+	session, err := openSession(ctx,
 		WithNested(SessionConfig{Timeouts: TimeoutPolicy{Startup: time.Second}}),
 		WithStartupPhaseObserver(func(phase StartupPhase, state StartupPhaseState) {
 			if phase == StartupPhaseStaleSessionCleanup && state == StartupPhaseStarted {
@@ -3871,7 +3872,7 @@ func TestOpenLeavesUnrequestedCapabilitiesClosed(t *testing.T) {
 		return nil, errors.New("unexpected clipboard open")
 	}
 
-	session, err := Open(context.Background(), WithLogger(nil))
+	session, err := openSession(context.Background(), WithLogger(nil))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -3886,11 +3887,11 @@ func TestOpenLeavesUnrequestedCapabilitiesClosed(t *testing.T) {
 			t.Fatalf("unrequested status = %+v", status)
 		}
 	}
-	if session.Screen == nil ||
-		session.Input == nil ||
-		session.Windows == nil ||
-		session.Outputs == nil ||
-		session.Clipboard == nil {
+	if session.screen == nil ||
+		session.input == nil ||
+		session.windows == nil ||
+		session.outputs == nil ||
+		session.clipboard == nil {
 		t.Fatal("Open exposed a nil capability facade")
 	}
 }
@@ -3903,7 +3904,7 @@ func TestOpenCapabilityInputUsesManagedResolution(t *testing.T) {
 		gotX, gotY = maxX, maxY
 		return nil, wantErr
 	}
-	s := &Session{
+	s := &sessionCore{
 		config: SessionConfig{Resolution: image.Pt(1234, 567)},
 		env:    env.FromEnviron(nil),
 	}
@@ -3923,10 +3924,10 @@ func TestOpenCapabilityScreenUsesEffectiveTimeoutPolicy(t *testing.T) {
 	openScreen = func(context.Context, env.Runtime) (screen.Screenshotter, error) {
 		return backend, nil
 	}
-	s := &Session{
+	s := &sessionCore{
 		config: SessionConfig{Timeouts: TimeoutPolicy{Medium: 17 * time.Second}},
 		env:    env.FromEnviron(nil),
-		Screen: &ScreenBundle{},
+		screen: &screenState{},
 	}
 
 	if _, err := s.openCapability(CapabilityScreen); err != nil {
@@ -3949,12 +3950,12 @@ func TestOpenCapabilityPassesEffectiveDeadlineToBackendSetup(t *testing.T) {
 		observed <- deadline
 		return backend, nil
 	}
-	s := &Session{
+	s := &sessionCore{
 		config: SessionConfig{Timeouts: TimeoutPolicy{Startup: 40 * time.Millisecond}},
 		env:    env.FromEnviron(nil),
-		Screen: &ScreenBundle{bundleBase: bundleBase{session: nil, capability: CapabilityScreen}},
+		screen: &screenState{bundleBase: bundleBase{session: nil, capability: CapabilityScreen}},
 	}
-	s.Screen.session = s
+	s.screen.session = s
 	if _, err := s.openCapability(CapabilityScreen); err != nil {
 		t.Fatalf("openCapability screen: %v", err)
 	}
@@ -3967,13 +3968,13 @@ func TestOpenCapabilityPassesEffectiveDeadlineToBackendSetup(t *testing.T) {
 
 func TestScreenCaptureUsesEffectiveTimeoutAndReturnsDeadlineCause(t *testing.T) {
 	backend := &contextReportingScreen{contexts: make(chan context.Context, 1)}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	session.config.Timeouts = TimeoutPolicy{Medium: 20 * time.Millisecond}
 	t.Cleanup(func() { _ = session.Close() })
 
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+		_, err := session.screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
 		result <- err
 	}()
 	ctx := <-backend.contexts
@@ -3987,7 +3988,7 @@ func TestScreenCaptureUsesEffectiveTimeoutAndReturnsDeadlineCause(t *testing.T) 
 
 func TestScreenCaptureCallerDeadlineCapsPolicyDeadline(t *testing.T) {
 	backend := &contextReportingScreen{contexts: make(chan context.Context, 1)}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	session.config.Timeouts = TimeoutPolicy{Medium: time.Minute}
 	t.Cleanup(func() { _ = session.Close() })
 
@@ -3995,7 +3996,7 @@ func TestScreenCaptureCallerDeadlineCapsPolicyDeadline(t *testing.T) {
 	defer callerCancel()
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.Screen.Grab(callerCtx, image.Rect(0, 0, 1, 1))
+		_, err := session.screen.Grab(callerCtx, image.Rect(0, 0, 1, 1))
 		result <- err
 	}()
 
@@ -4012,14 +4013,14 @@ func TestScreenCaptureCallerDeadlineCapsPolicyDeadline(t *testing.T) {
 
 func TestScreenCapturePreservesCallerCancellationWithPolicy(t *testing.T) {
 	backend := &contextReportingScreen{contexts: make(chan context.Context, 1)}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	session.config.Timeouts = TimeoutPolicy{Medium: time.Minute}
 	t.Cleanup(func() { _ = session.Close() })
 
 	callerCtx, callerCancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.Screen.Grab(callerCtx, image.Rect(0, 0, 1, 1))
+		_, err := session.screen.Grab(callerCtx, image.Rect(0, 0, 1, 1))
 		result <- err
 	}()
 	operationCtx := <-backend.contexts
@@ -4037,13 +4038,13 @@ func TestAccessibilityUsesEffectiveLongTimeout(t *testing.T) {
 		bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1},
 		contexts:                make(chan context.Context, 1),
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	session.config.Timeouts = TimeoutPolicy{Long: 20 * time.Millisecond}
 	t.Cleanup(func() { _ = session.Close() })
 
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.Accessibility.Applications(context.Background())
+		_, err := session.accessibility.Applications(context.Background())
 		result <- err
 	}()
 	ctx := <-backend.contexts
@@ -4059,7 +4060,7 @@ func TestOpenRejectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := Open(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := openSession(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context.Canceled", err)
 	}
 }
@@ -4079,7 +4080,7 @@ func TestOpenStopsCapabilityInitializationWhenContextCanceled(t *testing.T) {
 		return nil, errors.New("input opener ran after cancellation")
 	}
 
-	if session, err := Open(ctx, Require(CapabilityScreen, CapabilityInput)); !errors.Is(err, context.Canceled) {
+	if session, err := openSession(ctx, Require(CapabilityScreen, CapabilityInput)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Open error = %v, want context.Canceled", err)
 	} else if session != nil {
 		t.Fatal("Open returned a session after cancellation")
@@ -4110,7 +4111,7 @@ func TestOpenPassesContextToCapabilityOpener(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		_, err := Open(ctx, Require(CapabilityScreen, CapabilityInput))
+		_, err := openSession(ctx, Require(CapabilityScreen, CapabilityInput))
 		result <- err
 	}()
 	<-started
@@ -4134,7 +4135,7 @@ func TestOpenRequiredAndOptionalCapabilities(t *testing.T) {
 		return nil, optionalErr
 	}
 
-	session, err := Open(
+	session, err := openSession(
 		context.Background(),
 		Require(CapabilityClipboard),
 		Optional(CapabilityOutputs),
@@ -4161,7 +4162,7 @@ func TestOpenRequiredAndOptionalCapabilities(t *testing.T) {
 		!errors.Is(outputStatus.Failure, optionalErr) {
 		t.Fatalf("output status = %+v", outputStatus)
 	}
-	_, err = session.Outputs.List(context.Background())
+	_, err = session.outputs.List(context.Background())
 	var capabilityErr *CapabilityError
 	if !errors.As(err, &capabilityErr) ||
 		capabilityErr.Capability != CapabilityOutputs ||
@@ -4181,7 +4182,7 @@ func TestOpenRequiredFailureCleansPartialCapabilities(t *testing.T) {
 		return nil, inputErr
 	}
 
-	session, err := Open(
+	session, err := openSession(
 		context.Background(),
 		Require(CapabilityScreen, CapabilityInput),
 	)
@@ -4208,7 +4209,7 @@ func TestOpenTreatsNilBackendAsUnavailable(t *testing.T) {
 		return nil, nil
 	}
 
-	session, err := Open(context.Background(), Require(CapabilityScreen))
+	session, err := openSession(context.Background(), Require(CapabilityScreen))
 	if session != nil {
 		t.Fatal("Open returned a session for a nil backend")
 	}
@@ -4227,7 +4228,7 @@ func TestOpenTreatsTypedNilBackendAsUnavailable(t *testing.T) {
 		return backend, nil
 	}
 
-	session, err := Open(context.Background(), Require(CapabilityScreen))
+	session, err := openSession(context.Background(), Require(CapabilityScreen))
 	if session != nil {
 		t.Fatal("Open returned a session for a typed nil backend")
 	}
@@ -4241,20 +4242,20 @@ func TestOpenTreatsTypedNilBackendAsUnavailable(t *testing.T) {
 
 func TestNewSessionForTestingTreatsTypedNilBackendAsUnavailable(t *testing.T) {
 	var backend *capabilityScreen
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	if session.Has(CapabilityScreen) {
 		t.Fatal("typed-nil screen backend was reported as available")
 	}
-	_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+	_, err := session.screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("typed-nil screen operation error = %v, want ErrUnavailable", err)
 	}
 }
 
 func TestSessionEnforcesBackendOperationReport(t *testing.T) {
-	session := NewSessionForTesting(
+	session := newSessionForTesting(
 		&operationReportingScreen{},
 		nil,
 		nil,
@@ -4270,14 +4271,14 @@ func TestSessionEnforcesBackendOperationReport(t *testing.T) {
 	if len(status.Diagnostics) != 2 || status.Diagnostics[0] != "capture cost: test backend" {
 		t.Fatalf("screen diagnostics = %v, want backend diagnostics", status.Diagnostics)
 	}
-	_, err := session.Screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
+	_, err := session.screen.Grab(context.Background(), image.Rect(0, 0, 1, 1))
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unadvertised capture error = %v, want ErrUnsupported", err)
 	}
 }
 
 func TestTargetOptionsAreMutuallyExclusive(t *testing.T) {
-	_, err := Open(
+	_, err := openSession(
 		context.Background(),
 		WithTarget(EnvironmentTarget([]string{})),
 		WithHeadless(SessionConfig{}),
@@ -4290,7 +4291,7 @@ func TestTargetOptionsAreMutuallyExclusive(t *testing.T) {
 func TestLaunchRoutesEnvironmentAndIgnoresLaterContextCancellation(
 	t *testing.T,
 ) {
-	session, err := Open(
+	session, err := openSession(
 		context.Background(),
 		WithTarget(EnvironmentTarget([]string{
 			"WAYLAND_DISPLAY=target-wayland",
@@ -4346,7 +4347,7 @@ func TestLaunchDoesNotReintroduceHostAccessibilityBus(t *testing.T) {
 	t.Setenv("AT_SPI_BUS", "unix:path=/host/accessibility-bus")
 	t.Setenv("ATSPI_BUS_ADDRESS", "unix:path=/host/canonical-accessibility-bus")
 	t.Setenv("AT_SPI_BUS_ADDRESS", "unix:path=/host/legacy-accessibility-bus")
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	session.env = env.FromEnviron([]string{"PATH=" + os.Getenv("PATH")})
 	session.target = DesktopTarget{kind: TargetHeadless, env: session.env.EnvList()}
 	t.Cleanup(func() { _ = session.Close() })
@@ -4382,7 +4383,7 @@ func TestTargetHostPassesHostSessionBusWithoutAccessibilityOverride(t *testing.T
 		return &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}, nil
 	}
 
-	session, err := Open(context.Background(), Require(CapabilityAccessibility))
+	session, err := openSession(context.Background(), Require(CapabilityAccessibility))
 	if err != nil {
 		t.Fatalf("Open TargetHost accessibility: %v", err)
 	}
@@ -4396,7 +4397,7 @@ func TestTargetHostPassesHostSessionBusWithoutAccessibilityOverride(t *testing.T
 }
 
 func TestSessionCloseStopsApplicationsInReverseLaunchOrder(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	// This asserts shutdown order, and the grace period is only the ceiling
 	// before Close escalates to SIGKILL. It has to be comfortably longer than
 	// the scheduler needs to deliver SIGTERM to a child and let its trap run,
@@ -4471,7 +4472,7 @@ func TestSessionCloseStopsApplicationsInReverseLaunchOrder(t *testing.T) {
 }
 
 func TestApplicationStopRejectsNilContext(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	app, err := session.Launch(
 		context.Background(),
 		Command{Name: "sleep", Args: []string{"10"}},
@@ -4624,7 +4625,7 @@ func TestOpenStartupObserverReportsHealthyHeadlessInitialization(t *testing.T) {
 	var events []startupEvent
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	session, err := Open(
+	session, err := openSession(
 		ctx,
 		WithHeadless(SessionConfig{Timeouts: TimeoutPolicy{Startup: 2 * time.Second, Poll: time.Millisecond}}),
 		Require(CapabilityScreen),
@@ -4679,7 +4680,7 @@ func TestOpenStartupObserverIdentifiesCanceledHeadlessDBusReadiness(t *testing.T
 	events := make(chan startupEvent, 32)
 	result := make(chan error, 1)
 	go func() {
-		_, err := Open(
+		_, err := openSession(
 			ctx,
 			WithHeadless(SessionConfig{Timeouts: TimeoutPolicy{Startup: 30 * time.Second, Poll: time.Millisecond}}),
 			WithStartupPhaseObserver(func(phase StartupPhase, state StartupPhaseState) {
@@ -4746,7 +4747,7 @@ func TestOpenStartupObserverIdentifiesTimedOutHeadlessDBusReadiness(t *testing.T
 	started := make(chan struct{})
 	result := make(chan error, 1)
 	go func() {
-		_, err := Open(
+		_, err := openSession(
 			ctx,
 			WithHeadless(SessionConfig{Timeouts: TimeoutPolicy{Startup: time.Second, Poll: time.Millisecond}}),
 			WithStartupPhaseObserver(func(phase StartupPhase, state StartupPhaseState) {
@@ -4797,7 +4798,7 @@ func TestOpenStartupObserverCallbackPanicDoesNotBreakOpen(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	session, err := Open(
+	session, err := openSession(
 		ctx,
 		WithHeadless(SessionConfig{Timeouts: TimeoutPolicy{Startup: 2 * time.Second, Poll: time.Millisecond}}),
 		Require(CapabilityScreen),
@@ -4831,7 +4832,7 @@ func TestOpenStartupObserverReportsOptionalAccessibilityAddressTimeout(t *testin
 	var events []startupEvent
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	session, err := Open(
+	session, err := openSession(
 		ctx,
 		WithHeadless(SessionConfig{Timeouts: TimeoutPolicy{
 			Startup: time.Second,

@@ -3,8 +3,8 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"testing"
 	"time"
 )
@@ -15,12 +15,12 @@ func TestAdversarialResolveManagedWindowIsSingleAuthority(t *testing.T) {
 		{NativeID: "two", Title: "Firefox", PID: 22},
 	}}
 	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Firefox"}, PID: 11}}, gen: 1}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
-	if _, err := session.Accessibility.WindowRoot(context.Background(), "one"); err != nil {
+	if _, err := session.accessibility.WindowRoot(context.Background(), "one"); err != nil {
 		t.Fatalf("WindowRoot one: %v", err)
 	}
-	if _, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowTitle: "Firefox"}); !errors.Is(err, accessibility.ErrAmbiguous) {
+	if _, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowTitle: "Firefox"}); !errors.Is(err, accessibility.ErrAmbiguous) {
 		t.Fatalf("shared title via FindApplication = %v, want ambiguous from the same resolver", err)
 	}
 }
@@ -28,10 +28,10 @@ func TestAdversarialResolveManagedWindowIsSingleAuthority(t *testing.T) {
 func TestAdversarialSetTextSelectionRequiresExplicitSelection(t *testing.T) {
 	spy := &accessibilityAutomationSpy{}
 	fake := &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 3}, accessibilityAutomationSpy: spy}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	id := accessibility.NodeID{BusName: "org.test", ObjectPath: "/entry", Generation: 3}
-	if err := session.Accessibility.SetTextSelection(context.Background(), id, 2, 4, 9); err != nil {
+	if err := session.accessibility.SetTextSelection(context.Background(), id, 2, 4, 9); err != nil {
 		t.Fatalf("SetTextSelection: %v", err)
 	}
 	if len(spy.calls) != 1 || spy.calls[0] != "selection" {
@@ -45,11 +45,11 @@ func TestAdversarialSetTextSelectionRequiresExplicitSelection(t *testing.T) {
 func TestAdversarialBundleWrappersCoverAutomationSurface(t *testing.T) {
 	spy := &accessibilityAutomationSpy{}
 	fake := &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 5}, accessibilityAutomationSpy: spy}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	ctx := context.Background()
 	id := accessibility.NodeID{BusName: "org.test", ObjectPath: "/node", Generation: 5}
-	bundle := session.Accessibility
+	bundle := session.accessibility
 	calls := []struct {
 		name string
 		call func() error
@@ -97,10 +97,10 @@ func TestAdversarialBundleWrappersCoverAutomationSurface(t *testing.T) {
 }
 
 func TestManagedWindowResolverRejectsMissingScopeFailuresAndAmbiguity(t *testing.T) {
-	if selected, err := (*AccessibilityBundle)(nil).resolveManagedWindow(context.Background(), "", "", "test"); selected != nil || !errors.Is(err, ErrNilSession) {
+	if selected, err := (*accessibilityState)(nil).resolveManagedWindow(context.Background(), "", "", "test"); selected != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil bundle resolution = %v, %v; want nil and ErrNilSession", selected, err)
 	}
-	if selected, err := (&AccessibilityBundle{}).resolveManagedWindow(context.Background(), "", "", "test"); selected != nil || !errors.Is(err, accessibility.ErrUnsupported) {
+	if selected, err := (&accessibilityState{}).resolveManagedWindow(context.Background(), "", "", "test"); selected != nil || !errors.Is(err, accessibility.ErrUnsupported) {
 		t.Fatalf("bundle without managed windows = %v, %v; want unsupported", selected, err)
 	}
 
@@ -108,38 +108,39 @@ func TestManagedWindowResolverRejectsMissingScopeFailuresAndAmbiguity(t *testing
 		window.Info{NativeID: "one", Title: "Shared Editor"},
 		window.Info{NativeID: "two", Title: "Shared Editor"},
 	)
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	defer session.Close()
-	selected, err := session.Accessibility.resolveManagedWindow(context.Background(), "", " Shared Editor ", "test")
+	selected, err := session.accessibility.resolveManagedWindow(context.Background(), "", " Shared Editor ", "test")
 	if selected != nil || !errors.Is(err, accessibility.ErrAmbiguous) {
 		t.Fatalf("ambiguous title selected=%v err=%v; want no target and ErrAmbiguous", selected, err)
 	}
 
 	// A valid native ID must not override contradictory title evidence.
-	selected, err = session.Accessibility.resolveManagedWindow(context.Background(), "one", "Other Person Private Window", "test")
+	selected, err = session.accessibility.resolveManagedWindow(context.Background(), "one", "Other Person Private Window", "test")
 	if selected != nil || !errors.Is(err, accessibility.ErrNotFound) {
 		t.Fatalf("conflicting managed window title selected=%v err=%v; want no target and ErrNotFound", selected, err)
 	}
 
 	providerFailure := errors.New("synthetic compositor window listing failure")
 	manager.setError(providerFailure)
-	selected, err = session.Accessibility.resolveManagedWindow(context.Background(), "one", "", "test")
+	selected, err = session.accessibility.resolveManagedWindow(context.Background(), "one", "", "test")
 	if selected != nil || !errors.Is(err, providerFailure) {
 		t.Fatalf("window listing failure selected=%v err=%v; want wrapped provider error", selected, err)
 	}
 }
 
 func TestWindowTargetUsesPIDHintOnlyWhenManagedMetadataOmitsPID(t *testing.T) {
-	selected := &Window{
-		id:       WindowID{native: "managed-42"},
-		snapshot: window.Info{Title: "Editor", AppID: "org.example.Editor", X: 10, Y: 20, W: 300, H: 200, Active: true},
-	}
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
+	defer session.Close()
+	info := window.Info{NativeID: "managed-42", Title: "Editor", AppID: "org.example.Editor", X: 10, Y: 20, W: 300, H: 200, Active: true}
+	selected := session.windows.window(info)
 	target := windowTargetFor(selected, 42)
 	if target.ID != "managed-42" || target.PID != 0 || target.PIDHint != 42 || target.Title != "Editor" || target.AppID != "org.example.Editor" || target.Bounds != (accessibility.Rect{X: 10, Y: 20, Width: 300, Height: 200}) || !target.Active {
 		t.Fatalf("window correlation target lost managed metadata or PID hint: %+v", target)
 	}
 
-	selected.snapshot.PID = 84
+	info.PID = 84
+	selected = session.windows.window(info)
 	target = windowTargetFor(selected, 42)
 	if target.PID != 84 || target.PIDHint != 0 {
 		t.Fatalf("caller PID hint overrode compositor PID: %+v", target)
@@ -162,9 +163,9 @@ func TestWindowBundleActiveTitlePreCanceledRequestDoesNotReadBackend(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	backend := &countingManagedWindowTitleBackend{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	title, err := session.Windows.ActiveTitle(ctx)
+	title, err := session.windows.ActiveTitle(ctx)
 	if !errors.Is(err, context.Canceled) || title != "" || backend.calls != 0 {
 		t.Fatalf("canceled title read: title=%q err=%v backend calls=%d", title, err, backend.calls)
 	}
@@ -181,7 +182,7 @@ func (*advertisedDesktopWithoutMethods) SupportedOperations() []string {
 
 func TestWindowDesktopAdvertisedButUnimplementedOperationsFailClosed(t *testing.T) {
 	backend := &advertisedDesktopWithoutMethods{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	defer session.Close()
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -189,26 +190,26 @@ func TestWindowDesktopAdvertisedButUnimplementedOperationsFailClosed(t *testing.
 		call func() error
 	}{
 		{"list desktops", func() error {
-			got, err := session.Windows.ListDesktops(ctx)
+			got, err := session.windows.ListDesktops(ctx)
 			if len(got) != 0 {
 				t.Errorf("unimplemented list leaked %+v", got)
 			}
 			return err
 		}},
-		{"switch desktop", func() error { return session.Windows.SwitchDesktop(ctx, "d-1") }},
-		{"assign desktop", func() error { return session.Windows.SetWindowDesktopByID(ctx, "w-1", "d-1") }},
-		{"keep above", func() error { return session.Windows.SetKeepAboveByID(ctx, "w-1", true) }},
-		{"keep below", func() error { return session.Windows.SetKeepBelowByID(ctx, "w-1", true) }},
+		{"switch desktop", func() error { return session.windows.SwitchDesktop(ctx, "d-1") }},
+		{"assign desktop", func() error { return session.windows.SetWindowDesktopByID(ctx, "w-1", "d-1") }},
+		{"keep above", func() error { return session.windows.SetKeepAboveByID(ctx, "w-1", true) }},
+		{"keep below", func() error { return session.windows.SetKeepBelowByID(ctx, "w-1", true) }},
 		{"cursor position", func() error {
-			x, y, err := session.Windows.CursorPosition(ctx)
+			x, y, err := session.windows.CursorPosition(ctx)
 			if x != 0 || y != 0 {
 				t.Errorf("unimplemented pointer leaked coordinates %d,%d", x, y)
 			}
 			return err
 		}},
-		{"shade", func() error { return session.Windows.SetShadeByID(ctx, "w-1", true) }},
-		{"tile", func() error { return session.Windows.TileWindowByID(ctx, "w-1", 12, 34) }},
-		{"float", func() error { return session.Windows.FloatWindowByID(ctx, "w-1") }},
+		{"shade", func() error { return session.windows.SetShadeByID(ctx, "w-1", true) }},
+		{"tile", func() error { return session.windows.TileWindowByID(ctx, "w-1", 12, 34) }},
+		{"float", func() error { return session.windows.FloatWindowByID(ctx, "w-1") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.call(); !errors.Is(err, window.ErrNotSupported) {
@@ -222,7 +223,7 @@ func TestWindowDesktopAdvertisedButUnimplementedOperationsFailClosed(t *testing.
 // executing any compositor request, even when the backend advertises support.
 func TestWindowDesktopClosedSessionRevokesAllOperations(t *testing.T) {
 	backend := &countingDesktopBackend{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -232,26 +233,26 @@ func TestWindowDesktopClosedSessionRevokesAllOperations(t *testing.T) {
 		run  func() error
 	}{
 		{"list desktops", func() error {
-			list, err := session.Windows.ListDesktops(ctx)
+			list, err := session.windows.ListDesktops(ctx)
 			if len(list) != 0 {
 				t.Errorf("closed session leaked desktop list: %v", list)
 			}
 			return err
 		}},
-		{"switch desktop", func() error { return session.Windows.SwitchDesktop(ctx, "desktop-1") }},
-		{"set desktop", func() error { return session.Windows.SetWindowDesktopByID(ctx, "window-1", "desktop-1") }},
-		{"keep above", func() error { return session.Windows.SetKeepAboveByID(ctx, "window-1", true) }},
-		{"keep below", func() error { return session.Windows.SetKeepBelowByID(ctx, "window-1", true) }},
+		{"switch desktop", func() error { return session.windows.SwitchDesktop(ctx, "desktop-1") }},
+		{"set desktop", func() error { return session.windows.SetWindowDesktopByID(ctx, "window-1", "desktop-1") }},
+		{"keep above", func() error { return session.windows.SetKeepAboveByID(ctx, "window-1", true) }},
+		{"keep below", func() error { return session.windows.SetKeepBelowByID(ctx, "window-1", true) }},
 		{"cursor position", func() error {
-			x, y, err := session.Windows.CursorPosition(ctx)
+			x, y, err := session.windows.CursorPosition(ctx)
 			if x != 0 || y != 0 {
 				t.Errorf("closed session leaked cursor position %d,%d", x, y)
 			}
 			return err
 		}},
-		{"shade", func() error { return session.Windows.SetShadeByID(ctx, "window-1", true) }},
-		{"tile", func() error { return session.Windows.TileWindowByID(ctx, "window-1", 10, 20) }},
-		{"float", func() error { return session.Windows.FloatWindowByID(ctx, "window-1") }},
+		{"shade", func() error { return session.windows.SetShadeByID(ctx, "window-1", true) }},
+		{"tile", func() error { return session.windows.TileWindowByID(ctx, "window-1", 10, 20) }},
+		{"float", func() error { return session.windows.FloatWindowByID(ctx, "window-1") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := len(backend.calls)
@@ -329,26 +330,26 @@ func (m *desktopMutationRaceManager) FloatWindowByID(_ context.Context, id strin
 func TestDesktopMutationsDoNotAcknowledgeCanceledOperation(t *testing.T) {
 	calls := []struct {
 		name   string
-		invoke func(*WindowBundle, context.Context) error
+		invoke func(*windowBundleState, context.Context) error
 	}{
-		{"switch", func(b *WindowBundle, c context.Context) error { return b.SwitchDesktop(c, "desktop-id") }},
-		{"assign", func(b *WindowBundle, c context.Context) error {
+		{"switch", func(b *windowBundleState, c context.Context) error { return b.SwitchDesktop(c, "desktop-id") }},
+		{"assign", func(b *windowBundleState, c context.Context) error {
 			return b.SetWindowDesktopByID(c, "window-id", "desktop-id")
 		}},
-		{"above", func(b *WindowBundle, c context.Context) error { return b.SetKeepAboveByID(c, "window-id", true) }},
-		{"below", func(b *WindowBundle, c context.Context) error { return b.SetKeepBelowByID(c, "window-id", true) }},
-		{"shade", func(b *WindowBundle, c context.Context) error { return b.SetShadeByID(c, "window-id", true) }},
-		{"tile", func(b *WindowBundle, c context.Context) error { return b.TileWindowByID(c, "window-id", 13, 17) }},
-		{"float", func(b *WindowBundle, c context.Context) error { return b.FloatWindowByID(c, "window-id") }},
+		{"above", func(b *windowBundleState, c context.Context) error { return b.SetKeepAboveByID(c, "window-id", true) }},
+		{"below", func(b *windowBundleState, c context.Context) error { return b.SetKeepBelowByID(c, "window-id", true) }},
+		{"shade", func(b *windowBundleState, c context.Context) error { return b.SetShadeByID(c, "window-id", true) }},
+		{"tile", func(b *windowBundleState, c context.Context) error { return b.TileWindowByID(c, "window-id", 13, 17) }},
+		{"float", func(b *windowBundleState, c context.Context) error { return b.FloatWindowByID(c, "window-id") }},
 	}
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			manager := &desktopMutationRaceManager{after: cancel}
-			session := NewSessionForTesting(nil, nil, manager, nil, nil)
+			session := newSessionForTesting(nil, nil, manager, nil, nil)
 			defer session.Close()
-			err := tc.invoke(session.Windows, ctx)
+			err := tc.invoke(session.windows, ctx)
 			if manager.seen != tc.name {
 				t.Fatalf("backend not invoked: got %q", manager.seen)
 			}
@@ -364,24 +365,24 @@ func TestDesktopMutationsDoNotAcknowledgeCanceledOperation(t *testing.T) {
 func TestDesktopMutationCompletionAndBackendFailureContracts(t *testing.T) {
 	calls := []struct {
 		name   string
-		invoke func(*WindowBundle, context.Context) error
+		invoke func(*windowBundleState, context.Context) error
 	}{
-		{"switch", func(b *WindowBundle, c context.Context) error { return b.SwitchDesktop(c, "desktop-id") }},
-		{"assign", func(b *WindowBundle, c context.Context) error {
+		{"switch", func(b *windowBundleState, c context.Context) error { return b.SwitchDesktop(c, "desktop-id") }},
+		{"assign", func(b *windowBundleState, c context.Context) error {
 			return b.SetWindowDesktopByID(c, "window-id", "desktop-id")
 		}},
-		{"above", func(b *WindowBundle, c context.Context) error { return b.SetKeepAboveByID(c, "window-id", true) }},
-		{"below", func(b *WindowBundle, c context.Context) error { return b.SetKeepBelowByID(c, "window-id", true) }},
-		{"shade", func(b *WindowBundle, c context.Context) error { return b.SetShadeByID(c, "window-id", true) }},
-		{"tile", func(b *WindowBundle, c context.Context) error { return b.TileWindowByID(c, "window-id", 13, 17) }},
-		{"float", func(b *WindowBundle, c context.Context) error { return b.FloatWindowByID(c, "window-id") }},
+		{"above", func(b *windowBundleState, c context.Context) error { return b.SetKeepAboveByID(c, "window-id", true) }},
+		{"below", func(b *windowBundleState, c context.Context) error { return b.SetKeepBelowByID(c, "window-id", true) }},
+		{"shade", func(b *windowBundleState, c context.Context) error { return b.SetShadeByID(c, "window-id", true) }},
+		{"tile", func(b *windowBundleState, c context.Context) error { return b.TileWindowByID(c, "window-id", 13, 17) }},
+		{"float", func(b *windowBundleState, c context.Context) error { return b.FloatWindowByID(c, "window-id") }},
 	}
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, mode := range []string{"success", "backend-error", "cancel-and-error", "session-closed"} {
 				t.Run(mode, func(t *testing.T) {
 					manager := &desktopMutationRaceManager{}
-					session := NewSessionForTesting(nil, nil, manager, nil, nil)
+					session := newSessionForTesting(nil, nil, manager, nil, nil)
 					defer session.Close()
 					backendErr := errors.New("synthetic backend failure")
 					ctx, cancel := context.WithCancel(context.Background())
@@ -395,7 +396,7 @@ func TestDesktopMutationCompletionAndBackendFailureContracts(t *testing.T) {
 					case "session-closed":
 						manager.after = func() { _ = session.Close() }
 					}
-					err := tc.invoke(session.Windows, ctx)
+					err := tc.invoke(session.windows, ctx)
 					if manager.seen != tc.name {
 						t.Fatalf("wrong backend call: %q", manager.seen)
 					}
@@ -473,33 +474,33 @@ func TestWindowDesktopFacadePreCanceledRequestsDoNotDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	backend := &countingDesktopBackend{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	actions := []struct {
 		name string
 		run  func() error
 	}{
 		{"list", func() error {
-			items, err := session.Windows.ListDesktops(ctx)
+			items, err := session.windows.ListDesktops(ctx)
 			if len(items) != 0 {
 				t.Errorf("canceled desktop list leaked %v", items)
 			}
 			return err
 		}},
-		{"switch", func() error { return session.Windows.SwitchDesktop(ctx, "1") }},
-		{"set-desktop", func() error { return session.Windows.SetWindowDesktopByID(ctx, "5", "1") }},
-		{"above", func() error { return session.Windows.SetKeepAboveByID(ctx, "5", true) }},
-		{"below", func() error { return session.Windows.SetKeepBelowByID(ctx, "5", true) }},
+		{"switch", func() error { return session.windows.SwitchDesktop(ctx, "1") }},
+		{"set-desktop", func() error { return session.windows.SetWindowDesktopByID(ctx, "5", "1") }},
+		{"above", func() error { return session.windows.SetKeepAboveByID(ctx, "5", true) }},
+		{"below", func() error { return session.windows.SetKeepBelowByID(ctx, "5", true) }},
 		{"cursor", func() error {
-			x, y, err := session.Windows.CursorPosition(ctx)
+			x, y, err := session.windows.CursorPosition(ctx)
 			if x != 0 || y != 0 {
 				t.Errorf("canceled cursor leaked coordinates %d %d", x, y)
 			}
 			return err
 		}},
-		{"shade", func() error { return session.Windows.SetShadeByID(ctx, "5", true) }},
-		{"tile", func() error { return session.Windows.TileWindowByID(ctx, "5", 42, 23) }},
-		{"float", func() error { return session.Windows.FloatWindowByID(ctx, "5") }},
+		{"shade", func() error { return session.windows.SetShadeByID(ctx, "5", true) }},
+		{"tile", func() error { return session.windows.TileWindowByID(ctx, "5", 42, 23) }},
+		{"float", func() error { return session.windows.FloatWindowByID(ctx, "5") }},
 	}
 	for _, action := range actions {
 		t.Run(action.name, func(t *testing.T) {
@@ -526,19 +527,19 @@ func (m *desktopMutationRaceManager) CursorPosition(context.Context) (int, int, 
 func TestDesktopReadRetainsConcurrentCancellationAndBackendFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		invoke func(*WindowBundle, context.Context) error
+		invoke func(*windowBundleState, context.Context) error
 	}{
-		{"list", func(b *WindowBundle, ctx context.Context) error { _, err := b.ListDesktops(ctx); return err }},
-		{"cursor", func(b *WindowBundle, ctx context.Context) error { _, _, err := b.CursorPosition(ctx); return err }},
+		{"list", func(b *windowBundleState, ctx context.Context) error { _, err := b.ListDesktops(ctx); return err }},
+		{"cursor", func(b *windowBundleState, ctx context.Context) error { _, _, err := b.CursorPosition(ctx); return err }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			backendErr := errors.New("synthetic backend read failure")
 			manager := &desktopMutationRaceManager{after: cancel, resultErr: backendErr}
-			session := NewSessionForTesting(nil, nil, manager, nil, nil)
+			session := newSessionForTesting(nil, nil, manager, nil, nil)
 			defer session.Close()
-			err := tc.invoke(session.Windows, ctx)
+			err := tc.invoke(session.windows, ctx)
 			if manager.seen != tc.name {
 				t.Fatalf("wrong backend call: %q", manager.seen)
 			}
@@ -552,16 +553,16 @@ func TestDesktopReadRetainsConcurrentCancellationAndBackendFailure(t *testing.T)
 func TestDesktopReadSuccessCancellationAndSessionClosure(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		invoke func(*WindowBundle, context.Context) error
+		invoke func(*windowBundleState, context.Context) error
 	}{
-		{"list", func(b *WindowBundle, ctx context.Context) error {
+		{"list", func(b *windowBundleState, ctx context.Context) error {
 			ds, err := b.ListDesktops(ctx)
 			if err == nil && (len(ds) != 1 || ds[0].ID != "desktop-id" || !ds[0].Current) {
 				return errors.New("lost returned desktop identity")
 			}
 			return err
 		}},
-		{"cursor", func(b *WindowBundle, ctx context.Context) error {
+		{"cursor", func(b *windowBundleState, ctx context.Context) error {
 			x, y, err := b.CursorPosition(ctx)
 			if err == nil && (x != 13 || y != 17) {
 				return errors.New("lost compositor cursor position")
@@ -572,7 +573,7 @@ func TestDesktopReadSuccessCancellationAndSessionClosure(t *testing.T) {
 		for _, mode := range []string{"success", "late-cancellation", "session-closed"} {
 			t.Run(tc.name+"/"+mode, func(t *testing.T) {
 				manager := &desktopMutationRaceManager{}
-				session := NewSessionForTesting(nil, nil, manager, nil, nil)
+				session := newSessionForTesting(nil, nil, manager, nil, nil)
 				defer session.Close()
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -582,7 +583,7 @@ func TestDesktopReadSuccessCancellationAndSessionClosure(t *testing.T) {
 				case "session-closed":
 					manager.after = func() { _ = session.Close() }
 				}
-				err := tc.invoke(session.Windows, ctx)
+				err := tc.invoke(session.windows, ctx)
 				if manager.seen != tc.name {
 					t.Fatalf("unexpected backend call: %q", manager.seen)
 				}
@@ -616,9 +617,9 @@ func (*advertisedEventsWithoutSource) SupportedOperations() []string {
 // when the source interface is absent.
 func TestWindowEventsAdvertisedWithoutSourceFailClosed(t *testing.T) {
 	manager := &advertisedEventsWithoutSource{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	events, err := session.Windows.Events()
+	events, err := session.windows.Events()
 	if events != nil || !errors.Is(err, ErrUnsupported) || !errors.Is(err, window.ErrNotSupported) {
 		t.Fatalf("advertised but unimplemented events: stream=%v err=%v", events, err)
 	}
@@ -634,9 +635,9 @@ func (*advertisedSyncWithoutImplementation) SupportedOperations() []string {
 // success when the backend fails to implement the corresponding interface.
 func TestWindowSyncAdvertisedWithoutImplementationFailsClosed(t *testing.T) {
 	manager := &advertisedSyncWithoutImplementation{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	if err := session.Windows.Sync(context.Background()); !errors.Is(err, ErrUnsupported) {
+	if err := session.windows.Sync(context.Background()); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unimplemented sync was accepted: %v", err)
 	}
 }
@@ -645,14 +646,14 @@ func TestWindowSyncAdvertisedWithoutImplementationFailsClosed(t *testing.T) {
 // post-filter check must discard all observed private window metadata.
 func TestWindowListRejectsCancellationAfterFilteringResults(t *testing.T) {
 	manager := newHandleWindowManager(window.Info{NativeID: "synthetic-private", Title: "private"})
-	session := NewSessionForTesting(nil, nil, manager, nil, nil)
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	parent, cancelTimeout := context.WithTimeout(context.Background(), time.Second)
 	defer cancelTimeout()
 	base, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: base, cancel: cancel, target: 2}
-	windows, err := session.Windows.List(ctx, WindowMatch{})
+	windows, err := session.windows.List(ctx, WindowMatch{})
 	if len(windows) != 0 || !errors.Is(err, context.Canceled) || ctx.calls != 2 {
 		t.Fatalf("canceled post-filter enumeration escaped: windows=%v err=%v checks=%d", windows, err, ctx.calls)
 	}
@@ -677,9 +678,9 @@ func (m *cancelDuringManagedWindowSync) Sync(context.Context) error {
 func TestWindowBundleSyncRejectsLateCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	backend := &cancelDuringManagedWindowSync{handleWindowManager: newHandleWindowManager(), cancel: cancel}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	err := session.Windows.Sync(ctx)
+	err := session.windows.Sync(ctx)
 	if !errors.Is(err, context.Canceled) || backend.calls != 1 {
 		t.Fatalf("late cancel: err=%v backend calls=%d", err, backend.calls)
 	}
@@ -689,9 +690,9 @@ func TestWindowBundleSyncRejectsPreCanceledOperation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	backend := &cancelDuringManagedWindowSync{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	err := session.Windows.Sync(ctx)
+	err := session.windows.Sync(ctx)
 	if !errors.Is(err, context.Canceled) || backend.calls != 0 {
 		t.Fatalf("pre-canceled sync: err=%v backend calls=%d", err, backend.calls)
 	}
@@ -699,7 +700,7 @@ func TestWindowBundleSyncRejectsPreCanceledOperation(t *testing.T) {
 
 type closeDuringManagedWindowSync struct {
 	*handleWindowManager
-	session *Session
+	session *sessionCore
 	calls   int
 }
 
@@ -713,10 +714,10 @@ func (b *closeDuringManagedWindowSync) Sync(context.Context) error {
 // may be returned to the caller.
 func TestManagedWindowSyncRejectsBackendCompletionAfterSessionClose(t *testing.T) {
 	backend := &closeDuringManagedWindowSync{handleWindowManager: newHandleWindowManager()}
-	session := NewSessionForTesting(nil, nil, backend, nil, nil)
+	session := newSessionForTesting(nil, nil, backend, nil, nil)
 	backend.session = session
 	defer func() { _ = session.Close() }()
-	err := session.Windows.Sync(context.Background())
+	err := session.windows.Sync(context.Background())
 	if !errors.Is(err, ErrSessionClosed) || backend.calls != 1 {
 		t.Fatalf("sync completed after session closure: err=%v calls=%d", err, backend.calls)
 	}
@@ -725,9 +726,9 @@ func TestManagedWindowSyncRejectsBackendCompletionAfterSessionClose(t *testing.T
 // An absent session must not fabricate invalidation notifications or panic
 // during cancellation and shutdown of its optional components.
 func TestMissingSessionWaitNotificationIsInert(t *testing.T) {
-	var missing *Session
+	var missing *sessionCore
 	missing.notifyWaiters()
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	session.notifyWaiters() // No wait hub exists until an observer subscribes.
 }

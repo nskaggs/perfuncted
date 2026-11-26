@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"image"
 
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 // ValidateImageLayout rejects malformed built-in packed image buffers

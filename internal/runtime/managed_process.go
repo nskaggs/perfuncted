@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // SessionProcess owns waiting for a session infrastructure child. The

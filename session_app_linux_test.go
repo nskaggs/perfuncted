@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 )
 
 // A stale application handle must treat an already vanished owned process
@@ -18,7 +18,7 @@ func TestApplicationControlTreatsMissingOwnedProcessGroupAsStopped(t *testing.T)
 	if err := syscall.Kill(-absentPGID, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Skipf("cannot establish absent process group: %v", err)
 	}
-	app := &Application{proc: sessionruntime.NewGroup(nil, absentPGID)}
+	app := &applicationState{proc: sessionruntime.NewGroup(nil, absentPGID)}
 	if err := app.Stop(context.Background()); err != nil {
 		t.Fatalf("stopping a vanished owned group must be idempotent: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestApplicationControlTreatsMissingOwnedProcessGroupAsStopped(t *testing.T)
 }
 
 func TestSessionStopApplicationNilAndLogPathOwnership(t *testing.T) {
-	session := &Session{}
+	session := &sessionCore{}
 	if err := session.stopApplication(nil); err != nil {
 		t.Fatalf("stopping absent application = %v", err)
 	}

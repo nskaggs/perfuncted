@@ -3,9 +3,9 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/png"
@@ -43,14 +43,14 @@ func TestGetMultiplePixelsRejectsAuthorityLossDuringPixelInspection(t *testing.T
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			img := &cancelDuringPixelInspection{}
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
 			if mode == "cancel" {
 				img.after = cancel
 			} else {
 				img.after = func() { _ = session.Close() }
 			}
-			colors, err := session.Screen.GetMultiplePixels(ctx, []image.Point{{X: 0, Y: 0}, {X: 1, Y: 1}})
+			colors, err := session.screen.GetMultiplePixels(ctx, []image.Point{{X: 0, Y: 0}, {X: 1, Y: 1}})
 			expected := context.Canceled
 			if mode == "session-close" {
 				expected = ErrSessionClosed
@@ -86,7 +86,7 @@ func (*recoverableCaptureBackend) Close() error { return nil }
 func TestScreenBundleCaptureFailureDoesNotPublishOrPoisonRecovery(t *testing.T) {
 	cause := errors.New("transient screen transport failure")
 	backend := &recoverableCaptureBackend{fail: cause}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	defer session.Close()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "screenshot.png")
@@ -94,11 +94,11 @@ func TestScreenBundleCaptureFailureDoesNotPublishOrPoisonRecovery(t *testing.T) 
 	if err := os.WriteFile(target, []byte(old), 0600); err != nil {
 		t.Fatal(err)
 	}
-	img, err := session.Screen.Grab(context.Background(), image.Rectangle{})
+	img, err := session.screen.Grab(context.Background(), image.Rectangle{})
 	if img != nil || !errors.Is(err, cause) || !errors.Is(err, ErrOperationFailed) {
 		t.Fatalf("backend failure leaked image: image=%v err=%v", img, err)
 	}
-	err = session.Screen.CaptureRegion(context.Background(), image.Rectangle{}, target)
+	err = session.screen.CaptureRegion(context.Background(), image.Rectangle{}, target)
 	if !errors.Is(err, cause) || !errors.Is(err, ErrOperationFailed) {
 		t.Fatalf("failed capture did not preserve backend cause: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestScreenBundleCaptureFailureDoesNotPublishOrPoisonRecovery(t *testing.T) 
 	}
 	backend.fail = nil
 	inaccessible := filepath.Join(dir, "missing-parent", "capture.png")
-	if err := session.Screen.CaptureRegion(context.Background(), image.Rectangle{}, inaccessible); err == nil || !errors.Is(err, ErrOperationFailed) || !strings.Contains(err.Error(), "create") {
+	if err := session.screen.CaptureRegion(context.Background(), image.Rectangle{}, inaccessible); err == nil || !errors.Is(err, ErrOperationFailed) || !strings.Contains(err.Error(), "create") {
 		t.Fatalf("missing staging directory did not fail closed: %v", err)
 	}
 	if _, err := os.Stat(inaccessible); !errors.Is(err, os.ErrNotExist) {
@@ -118,7 +118,7 @@ func TestScreenBundleCaptureFailureDoesNotPublishOrPoisonRecovery(t *testing.T) 
 	if err != nil || len(entries) != 1 || entries[0].Name() != "screenshot.png" {
 		t.Fatalf("failure left staging artifacts: %v %v", entries, err)
 	}
-	if err := session.Screen.CaptureRegion(context.Background(), image.Rectangle{}, target); err != nil {
+	if err := session.screen.CaptureRegion(context.Background(), image.Rectangle{}, target); err != nil {
 		t.Fatalf("capture did not recover: %v", err)
 	}
 	data, err = os.ReadFile(target)
@@ -152,16 +152,16 @@ func (*cancelAfterSuccessfulScreenRead) Close() error { return nil }
 func TestScreenBundleRejectsSuccessfulCaptureCanceledBeforeReturn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		run  func(*ScreenBundle, context.Context, string) (image.Image, error)
+		run  func(*screenState, context.Context, string) (image.Image, error)
 	}{
-		{"grab", func(b *ScreenBundle, ctx context.Context, _ string) (image.Image, error) {
+		{"grab", func(b *screenState, ctx context.Context, _ string) (image.Image, error) {
 			return b.Grab(ctx, image.Rectangle{})
 		}},
-		{"region", func(b *ScreenBundle, ctx context.Context, _ string) (image.Image, error) {
+		{"region", func(b *screenState, ctx context.Context, _ string) (image.Image, error) {
 			return b.GrabRegion(ctx, image.Rect(0, 0, 3, 2))
 		}},
-		{"all pixels", func(b *ScreenBundle, ctx context.Context, _ string) (image.Image, error) { return b.GetAllPixels(ctx) }},
-		{"capture file", func(b *ScreenBundle, ctx context.Context, path string) (image.Image, error) {
+		{"all pixels", func(b *screenState, ctx context.Context, _ string) (image.Image, error) { return b.GetAllPixels(ctx) }},
+		{"capture file", func(b *screenState, ctx context.Context, path string) (image.Image, error) {
 			return nil, b.CaptureRegion(ctx, image.Rect(0, 0, 3, 2), path)
 		}},
 	} {
@@ -169,10 +169,10 @@ func TestScreenBundleRejectsSuccessfulCaptureCanceledBeforeReturn(t *testing.T) 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			source := &cancelAfterSuccessfulScreenRead{cancel: cancel}
-			session := NewSessionForTesting(source, nil, nil, nil, nil)
+			session := newSessionForTesting(source, nil, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
 			path := filepath.Join(t.TempDir(), "screenshot.png")
-			img, err := tc.run(session.Screen, ctx, path)
+			img, err := tc.run(session.screen, ctx, path)
 			if img != nil || !errors.Is(err, context.Canceled) || source.calls != 1 {
 				t.Fatalf("canceled backend returned image=%v error=%v calls=%d", img, err, source.calls)
 			}
@@ -188,10 +188,10 @@ func TestScreenBundleRejectsSuccessfulCaptureCanceledBeforeReturn(t *testing.T) 
 func TestScreenMultiplePixelsRejectsCaptureTransportFailureWithoutPartialResults(t *testing.T) {
 	failure := errors.New("synthetic screenshot transport unavailable")
 	backend := &failingSettleBaselineCapture{failure: failure}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	points := []image.Point{{X: 1, Y: 2}, {X: 3, Y: 4}, {X: 5, Y: 6}}
-	colors, err := session.Screen.GetMultiplePixels(context.Background(), points)
+	colors, err := session.screen.GetMultiplePixels(context.Background(), points)
 	if colors != nil || !errors.Is(err, failure) || backend.calls != 1 {
 		t.Fatalf("failed multi-pixel capture disclosed data: colors=%v err=%v backend calls=%d", colors, err, backend.calls)
 	}
@@ -209,9 +209,9 @@ func TestScreenMultiplePixelsRejectsNilCaptureThroughSharedValidation(t *testing
 		{name: "typed nil image", frame: (*image.RGBA)(nil)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: tc.frame}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: tc.frame}, nil, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			pixels, err := session.Screen.GetMultiplePixels(context.Background(), []image.Point{{X: 3, Y: 4}, {X: 4, Y: 4}})
+			pixels, err := session.screen.GetMultiplePixels(context.Background(), []image.Point{{X: 3, Y: 4}, {X: 4, Y: 4}})
 			if pixels != nil || err == nil || !strings.Contains(err.Error(), "nil image") {
 				t.Fatalf("invalid capture exposed multiple pixels: pixels=%v err=%v", pixels, err)
 			}
@@ -222,7 +222,7 @@ func TestScreenMultiplePixelsRejectsNilCaptureThroughSharedValidation(t *testing
 // ScreenBundle delegates nil caller contexts to backendContext, which treats
 // them as Background. Post-capture checks must use that effective context too.
 func TestScreenCaptureRegionNilContextDoesNotPanicAfterSuccessfulGrab(t *testing.T) {
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: image.NewRGBA(image.Rect(0, 0, 2, 2))}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: image.NewRGBA(image.Rect(0, 0, 2, 2))}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	path := filepath.Join(t.TempDir(), "capture.png")
 	defer func() {
@@ -230,7 +230,7 @@ func TestScreenCaptureRegionNilContextDoesNotPanicAfterSuccessfulGrab(t *testing
 			t.Errorf("CaptureRegion nil context panic: %v", failure)
 		}
 	}()
-	if err := session.Screen.CaptureRegion(nil, image.Rect(0, 0, 2, 2), path); err != nil {
+	if err := session.screen.CaptureRegion(nil, image.Rect(0, 0, 2, 2), path); err != nil {
 		t.Fatalf("nil context capture: %v", err)
 	}
 	f, err := os.Open(path)
@@ -247,21 +247,21 @@ func TestScreenCaptureRegionNilContextDoesNotPanicAfterSuccessfulGrab(t *testing
 func TestScreenMultiplePixelsNilContextDoesNotPanicAfterSuccessfulGrab(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	frame.SetRGBA(0, 0, color.RGBA{R: 0x33, G: 0x44, B: 0x55, A: 0xff})
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	defer func() {
 		if failure := recover(); failure != nil {
 			t.Errorf("GetMultiplePixels nil context panic: %v", failure)
 		}
 	}()
-	pixels, err := session.Screen.GetMultiplePixels(nil, []image.Point{{X: 1, Y: 1}})
+	pixels, err := session.screen.GetMultiplePixels(nil, []image.Point{{X: 1, Y: 1}})
 	if err != nil || len(pixels) != 1 || pixels[0] != (color.RGBA{R: 0x33, G: 0x44, B: 0x55, A: 0xff}) {
 		t.Fatalf("nil context pixels=%v err=%v", pixels, err)
 	}
 }
 
 func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 
 	ctx := context.Background()
@@ -275,7 +275,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "wait for no change",
 			operation: "wait-stable",
 			run: func() error {
-				_, err := session.Screen.WaitForNoChange(ctx, region, 1, time.Millisecond)
+				_, err := session.screen.WaitForNoChange(ctx, region, 1, time.Millisecond)
 				return err
 			},
 		},
@@ -283,7 +283,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "wait for no change from initial hash",
 			operation: "wait-stable",
 			run: func() error {
-				_, err := session.Screen.WaitForNoChangeFrom(ctx, region, 7, 1, time.Millisecond)
+				_, err := session.screen.WaitForNoChangeFrom(ctx, region, 7, 1, time.Millisecond)
 				return err
 			},
 		},
@@ -291,7 +291,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "find color",
 			operation: "pixel",
 			run: func() error {
-				_, err := session.Screen.FindColor(ctx, region, color.RGBA{R: 1, A: 255}, 0)
+				_, err := session.screen.FindColor(ctx, region, color.RGBA{R: 1, A: 255}, 0)
 				return err
 			},
 		},
@@ -299,7 +299,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "wait for change",
 			operation: "wait-change",
 			run: func() error {
-				_, err := session.Screen.WaitForChange(ctx, region, 7, time.Millisecond)
+				_, err := session.screen.WaitForChange(ctx, region, 7, time.Millisecond)
 				return err
 			},
 		},
@@ -307,7 +307,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "wait for hash",
 			operation: "wait",
 			run: func() error {
-				_, err := session.Screen.WaitFor(ctx, region, 9, time.Millisecond)
+				_, err := session.screen.WaitFor(ctx, region, 9, time.Millisecond)
 				return err
 			},
 		},
@@ -315,7 +315,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "scan for hash",
 			operation: "wait",
 			run: func() error {
-				_, err := session.Screen.ScanFor(ctx, []image.Rectangle{region}, []uint32{9}, time.Millisecond)
+				_, err := session.screen.ScanFor(ctx, []image.Rectangle{region}, []uint32{9}, time.Millisecond)
 				return err
 			},
 		},
@@ -323,7 +323,7 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 			name:      "resolve dimensions",
 			operation: "resolution",
 			run: func() error {
-				_, _, err := session.Screen.Resolution(ctx)
+				_, _, err := session.screen.Resolution(ctx)
 				return err
 			},
 		},
@@ -343,14 +343,14 @@ func TestScreenBundleOperationsFailClosedWithoutBackend(t *testing.T) {
 // withdraws authority. The post-validation check must still reject pixels.
 func TestScreenGrabRejectsCancellationAfterLayoutValidation(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	base, deadlineCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer deadlineCancel()
 	owner, cancel := context.WithCancelCause(base)
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: owner, cancel: cancel, target: 2}
-	got, err := session.Screen.Grab(ctx, frame.Bounds())
+	got, err := session.screen.Grab(ctx, frame.Bounds())
 	if got != nil || !errors.Is(err, context.Canceled) || ctx.calls != 2 {
 		t.Fatalf("completed frame published after cancellation: image=%v err=%v checks=%d", got, err, ctx.calls)
 	}
@@ -360,7 +360,7 @@ func TestScreenGrabRejectsCancellationAfterLayoutValidation(t *testing.T) {
 // screenshot's filesystem staging. No transient file may be created then.
 func TestScreenCaptureRegionRejectsCancellationBeforeFileStaging(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	base, deadlineCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer deadlineCancel()
@@ -369,7 +369,7 @@ func TestScreenCaptureRegionRejectsCancellationBeforeFileStaging(t *testing.T) {
 	ctx := &cancelAtErrCallContext{Context: owner, cancel: cancel, target: 3}
 	root := t.TempDir()
 	destination := filepath.Join(root, "private.png")
-	err := session.Screen.CaptureRegion(ctx, frame.Bounds(), destination)
+	err := session.screen.CaptureRegion(ctx, frame.Bounds(), destination)
 	if !errors.Is(err, context.Canceled) || ctx.calls != 3 {
 		t.Fatalf("canceled file staging: err=%v checks=%d", err, ctx.calls)
 	}
@@ -386,10 +386,10 @@ func TestScreenWaitForSettleRejectsFailedActionAndAbsentChange(t *testing.T) {
 	rect := image.Rect(0, 0, 4, 4)
 	actionErr := errors.New("synthetic action refused")
 	t.Run("unavailable source never dispatches", func(t *testing.T) {
-		session := NewSessionForTesting(nil, nil, nil, nil, nil)
+		session := newSessionForTesting(nil, nil, nil, nil, nil)
 		defer session.Close()
 		invoked := false
-		hash, err := session.Screen.WaitForSettle(context.Background(), rect, func() error { invoked = true; return nil }, 1, time.Millisecond)
+		hash, err := session.screen.WaitForSettle(context.Background(), rect, func() error { invoked = true; return nil }, 1, time.Millisecond)
 		if hash != 0 || !errors.Is(err, ErrUnavailable) || invoked {
 			t.Fatalf("unavailable screenshot source returned hash=%x err=%v invoked=%t", hash, err, invoked)
 		}
@@ -398,10 +398,10 @@ func TestScreenWaitForSettleRejectsFailedActionAndAbsentChange(t *testing.T) {
 		frame := image.NewRGBA(rect)
 		frame.SetRGBA(1, 1, color.RGBA{R: 255, A: 255})
 		mock := &captureTestScreenshotter{img: frame}
-		session := NewSessionForTesting(mock, nil, nil, nil, nil)
+		session := newSessionForTesting(mock, nil, nil, nil, nil)
 		defer session.Close()
 		calls := 0
-		hash, err := session.Screen.WaitForSettle(context.Background(), rect, func() error { calls++; return actionErr }, 2, time.Millisecond)
+		hash, err := session.screen.WaitForSettle(context.Background(), rect, func() error { calls++; return actionErr }, 2, time.Millisecond)
 		if hash != 0 || !errors.Is(err, actionErr) || calls != 1 {
 			t.Fatalf("failed action hash=%x err=%v calls=%d", hash, err, calls)
 		}
@@ -410,12 +410,12 @@ func TestScreenWaitForSettleRejectsFailedActionAndAbsentChange(t *testing.T) {
 		frame := image.NewRGBA(rect)
 		frame.SetRGBA(2, 2, color.RGBA{B: 255, A: 255})
 		mock := &captureTestScreenshotter{img: frame}
-		session := NewSessionForTesting(mock, nil, nil, nil, nil)
+		session := newSessionForTesting(mock, nil, nil, nil, nil)
 		defer session.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Millisecond)
 		defer cancel()
 		calls := 0
-		hash, err := session.Screen.WaitForSettle(ctx, rect, func() error { calls++; return nil }, 2, time.Millisecond)
+		hash, err := session.screen.WaitForSettle(ctx, rect, func() error { calls++; return nil }, 2, time.Millisecond)
 		if hash != 0 || err == nil || calls != 1 {
 			t.Fatalf("unchanged screen declared stable: hash=%x err=%v actionCalls=%d", hash, err, calls)
 		}
@@ -428,10 +428,10 @@ func TestScreenWaitForSettleCancellingActionSkipsChangePoll(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	backend := &countingSettleCapture{syntheticMalformedScreenshotter: syntheticMalformedScreenshotter{frame: image.NewRGBA(image.Rect(0, 0, 2, 2))}}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	actions := 0
-	hash, err := session.Screen.WaitForSettle(ctx, image.Rect(0, 0, 2, 2), func() error {
+	hash, err := session.screen.WaitForSettle(ctx, image.Rect(0, 0, 2, 2), func() error {
 		actions++
 		cancel()
 		return nil
@@ -454,9 +454,9 @@ func TestScreenSettleRejectsCallerRevocationAtPhaseBoundary(t *testing.T) {
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: owner, cancel: cancel, target: 10}
 	source := &settleFinalCaptureRevocation{}
-	session := NewSessionForTesting(source, nil, nil, nil, nil)
+	session := newSessionForTesting(source, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	hash, err := session.Screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
+	hash, err := session.screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
 	if hash != 0 || !errors.Is(err, context.Canceled) || source.calls != 2 || ctx.calls != 10 {
 		t.Fatalf("canceled phase transition: hash=%08x err=%v checks=%d captures=%d", hash, err, ctx.calls, source.calls)
 	}
@@ -468,14 +468,14 @@ func TestScreenSettleRejectsCallerRevocationAtPhaseBoundary(t *testing.T) {
 func TestScreenGetPixelFinalCallerRevocationDoesNotPublishSample(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	frame.SetRGBA(0, 0, color.RGBA{R: 101, G: 44, B: 9, A: 255})
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	parent, cancelDeadline := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancelDeadline()
 	owner, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: owner, cancel: cancel, target: 4}
-	pixel, err := session.Screen.GetPixel(ctx, 0, 0)
+	pixel, err := session.screen.GetPixel(ctx, 0, 0)
 	if pixel != (color.RGBA{}) || !errors.Is(err, context.Canceled) || ctx.calls != 4 {
 		t.Fatalf("final caller revocation leaked pixel=%+v err=%v checks=%d", pixel, err, ctx.calls)
 	}
@@ -486,12 +486,12 @@ func TestScreenGetPixelFinalCallerRevocationDoesNotPublishSample(t *testing.T) {
 // context rather than treating a stale matching frame as success.
 func TestScreenWaitForFnRejectsFrameAfterPredicateCancelsCaller(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 3, 2))
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	invoked := 0
-	img, err := session.Screen.WaitForFn(ctx, frame.Bounds(), func(_ context.Context, _ image.Image) bool {
+	img, err := session.screen.WaitForFn(ctx, frame.Bounds(), func(_ context.Context, _ image.Image) bool {
 		invoked++
 		cancel()
 		return true
@@ -505,9 +505,9 @@ func TestScreenWaitForFnRejectsFrameAfterPredicateCancelsCaller(t *testing.T) {
 // or spin until the deadline; the error is a caller input error, not a capture.
 func TestScreenWaitForFnRejectsMissingPredicateBeforePolling(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 3, 2))
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	img, err := session.Screen.WaitForFn(context.Background(), frame.Bounds(), nil, time.Millisecond)
+	img, err := session.screen.WaitForFn(context.Background(), frame.Bounds(), nil, time.Millisecond)
 	if img != nil || err == nil || !strings.Contains(err.Error(), "nil predicate") {
 		t.Fatalf("missing predicate accepted: image=%T err=%v", img, err)
 	}
@@ -517,10 +517,10 @@ func TestScreenWaitForFnRejectsMissingPredicateBeforePolling(t *testing.T) {
 // facade must not expose a captured image from that now-closed session.
 func TestScreenWaitForFnDoesNotReturnImageAfterSessionClose(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	invoked := false
-	got, err := session.Screen.WaitForFn(context.Background(), img.Bounds(), func(_ context.Context, _ image.Image) bool {
+	got, err := session.screen.WaitForFn(context.Background(), img.Bounds(), func(_ context.Context, _ image.Image) bool {
 		invoked = true
 		if closeErr := session.Close(); closeErr != nil {
 			t.Errorf("session close: %v", closeErr)
@@ -553,23 +553,23 @@ func (i *closeDuringHashReadImage) At(int, int) color.Color {
 func TestScreenHashesDoNotPublishAfterClosureDuringPixelHash(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		hash func(*ScreenBundle) (uint32, error)
+		hash func(*screenState) (uint32, error)
 	}{
-		{"full", func(b *ScreenBundle) (uint32, error) { return b.GrabFullHash(context.Background()) }},
-		{"region", func(b *ScreenBundle) (uint32, error) {
+		{"full", func(b *screenState) (uint32, error) { return b.GrabFullHash(context.Background()) }},
+		{"region", func(b *screenState) (uint32, error) {
 			return b.GrabRegionHash(context.Background(), image.Rect(0, 0, 2, 2))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			img := &closeDuringHashReadImage{}
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
 			img.onRead = func() {
 				if err := session.Close(); err != nil {
 					t.Errorf("close session: %v", err)
 				}
 			}
-			value, err := tc.hash(session.Screen)
+			value, err := tc.hash(session.screen)
 			if value != 0 || !errors.Is(err, ErrSessionClosed) || img.reads == 0 {
 				t.Fatalf("closed session published hash %08x, error=%v, pixel reads=%d", value, err, img.reads)
 			}
@@ -609,7 +609,7 @@ func TestScreenMultiplePixelsRejectsRevocationDuringFinalPixelRead(t *testing.T)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			frame := &revokeOnLastPixelImage{}
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
 			frame.onLastRead = func() {
 				if tc.cancelCaller {
@@ -620,7 +620,7 @@ func TestScreenMultiplePixelsRejectsRevocationDuringFinalPixelRead(t *testing.T)
 					t.Errorf("session close: %v", err)
 				}
 			}
-			pixels, err := session.Screen.GetMultiplePixels(ctx, []image.Point{{0, 0}, {1, 0}})
+			pixels, err := session.screen.GetMultiplePixels(ctx, []image.Point{{0, 0}, {1, 0}})
 			if pixels != nil || !errors.Is(err, tc.want) || frame.reads != 2 {
 				t.Fatalf("revoked last read published data: pixels=%v err=%v reads=%d", pixels, err, frame.reads)
 			}
@@ -651,9 +651,9 @@ func TestScreenMultiplePixelsStopsReadingAfterCancellationWithinImage(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	frame := &cancelDuringPixelRead{bounds: image.Rect(0, 0, 2, 1), at: cancel}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	pixels, err := session.Screen.GetMultiplePixels(ctx, []image.Point{{0, 0}, {1, 0}})
+	pixels, err := session.screen.GetMultiplePixels(ctx, []image.Point{{0, 0}, {1, 0}})
 	if !errors.Is(err, context.Canceled) || pixels != nil || frame.calls != 1 {
 		t.Fatalf("canceled pixel read disclosed result: pixels=%v err=%v calls=%d", pixels, err, frame.calls)
 	}
@@ -663,14 +663,14 @@ func TestScreenMultiplePixelsStopsReadingAfterCancellationWithinImage(t *testing
 // from that image, even when the original request context remains active.
 func TestScreenMultiplePixelsStopsReadingAfterSessionCloseWithinImage(t *testing.T) {
 	frame := &cancelDuringPixelRead{bounds: image.Rect(0, 0, 2, 1)}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	frame.at = func() {
 		if err := session.Close(); err != nil {
 			t.Errorf("session close: %v", err)
 		}
 	}
-	pixels, err := session.Screen.GetMultiplePixels(context.Background(), []image.Point{{0, 0}, {1, 0}})
+	pixels, err := session.screen.GetMultiplePixels(context.Background(), []image.Point{{0, 0}, {1, 0}})
 	if !errors.Is(err, ErrSessionClosed) || pixels != nil || frame.calls != 1 {
 		t.Fatalf("closed session disclosed pixel data: pixels=%v err=%v calls=%d", pixels, err, frame.calls)
 	}
@@ -1036,10 +1036,10 @@ func (*failingSettleBaselineCapture) Close() error { return nil }
 func TestScreenWaitForSettleRejectsInitialCaptureTransportFailure(t *testing.T) {
 	failure := errors.New("synthetic baseline capture transport failure")
 	source := &failingSettleBaselineCapture{failure: failure}
-	session := NewSessionForTesting(source, nil, nil, nil, nil)
+	session := newSessionForTesting(source, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	actions := 0
-	hash, err := session.Screen.WaitForSettle(context.Background(), image.Rect(0, 0, 3, 2), func() error { actions++; return nil }, 1, time.Millisecond)
+	hash, err := session.screen.WaitForSettle(context.Background(), image.Rect(0, 0, 3, 2), func() error { actions++; return nil }, 1, time.Millisecond)
 	if hash != 0 || !errors.Is(err, failure) || actions != 0 || source.calls != 1 {
 		t.Fatalf("failed baseline permitted action: hash=%08x err=%v actions=%d captures=%d", hash, err, actions, source.calls)
 	}
@@ -1074,16 +1074,16 @@ func TestScreenSettleChangePhaseStopsOnCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	source := &cancelOnChangedFrame{cancel: cancel}
-	session := NewSessionForTesting(source, nil, nil, nil, nil)
+	session := newSessionForTesting(source, nil, nil, nil, nil)
 	defer session.Close()
-	hash, err := session.Screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
+	hash, err := session.screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
 	if !errors.Is(err, context.Canceled) || hash != 0 || source.calls != 2 {
 		t.Fatalf("canceled settle invoked additional captures: hash=%x err=%v calls=%d", hash, err, source.calls)
 	}
 }
 
 type closingOnChangedFrame struct {
-	owner *Session
+	owner *sessionCore
 	calls int
 }
 
@@ -1111,12 +1111,12 @@ func (s *closingOnChangedFrame) Close() error { return nil }
 // distinct settle phase, even if the caller context itself is still live.
 func TestScreenSettleChangePhaseDoesNotPollAfterSessionCloses(t *testing.T) {
 	source := &closingOnChangedFrame{}
-	session := NewSessionForTesting(source, nil, nil, nil, nil)
+	session := newSessionForTesting(source, nil, nil, nil, nil)
 	source.owner = session
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	hash, err := session.Screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
+	hash, err := session.screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
 	if !errors.Is(err, ErrSessionClosed) || hash != 0 || source.calls != 2 {
 		t.Fatalf("closed session entered second settle phase: hash=%x err=%v capture calls=%d", hash, err, source.calls)
 	}
@@ -1152,7 +1152,7 @@ func TestScreenWaitForSettleDiscardsFinalStableHashAfterRevocation(t *testing.T)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			frame := &settleFinalCaptureRevocation{}
-			session := NewSessionForTesting(frame, nil, nil, nil, nil)
+			session := newSessionForTesting(frame, nil, nil, nil, nil)
 			defer session.Close()
 			want := context.Canceled
 			if mode == "session closed" {
@@ -1161,7 +1161,7 @@ func TestScreenWaitForSettleDiscardsFinalStableHashAfterRevocation(t *testing.T)
 			} else {
 				frame.afterStableCapture = cancel
 			}
-			hash, err := session.Screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
+			hash, err := session.screen.WaitForSettle(ctx, image.Rect(0, 0, 3, 3), nil, 1, time.Millisecond)
 			if !errors.Is(err, want) || hash != 0 || frame.calls != 3 {
 				t.Fatalf("revoked stable frame acknowledged: hash=%x err=%v calls=%d want=%v", hash, err, frame.calls, want)
 			}
@@ -1184,12 +1184,12 @@ func (s *countingSettleCapture) Grab(ctx context.Context, rect image.Rectangle) 
 func TestScreenSettleStopsWhenActionClosesSession(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	source := &countingSettleCapture{syntheticMalformedScreenshotter: syntheticMalformedScreenshotter{frame: frame}}
-	session := NewSessionForTesting(source, nil, nil, nil, nil)
+	session := newSessionForTesting(source, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
 	actionCalls := 0
-	hash, err := session.Screen.WaitForSettle(ctx, frame.Bounds(), func() error {
+	hash, err := session.screen.WaitForSettle(ctx, frame.Bounds(), func() error {
 		actionCalls++
 		return session.Close()
 	}, 1, time.Millisecond)
@@ -1217,10 +1217,10 @@ func (i *closeDuringSinglePixelRead) At(x, y int) color.Color {
 // the requested pixel. A closed session cannot publish the sampled color.
 func TestScreenGetPixelRejectsResultAfterSessionClosedDuringRead(t *testing.T) {
 	img := &closeDuringSinglePixelRead{}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	img.after = func() { _ = session.Close() }
-	pixel, err := session.Screen.GetPixel(context.Background(), 0, 0)
+	pixel, err := session.screen.GetPixel(context.Background(), 0, 0)
 	if !img.called || !errors.Is(err, ErrSessionClosed) || pixel != (color.RGBA{}) {
 		t.Fatalf("closed session exposed pixel %+v err=%v img called=%v", pixel, err, img.called)
 	}
@@ -1276,10 +1276,10 @@ func TestScreenBundleFindTemplateMapsHiDPIResultToDesktop(t *testing.T) {
 		}
 	}
 	backend := &templateBundleScreenshotter{frame: frame}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
-	got, err := session.Screen.FindTemplate(context.Background(), region, template, 1)
+	got, err := session.screen.FindTemplate(context.Background(), region, template, 1)
 	if err != nil {
 		t.Fatalf("FindTemplate: %v", err)
 	}
@@ -1301,9 +1301,9 @@ func TestScreenBundleFindTemplatePreservesCaptureFailuresAndAvailability(t *test
 		{name: "capture error", backend: &templateBundleScreenshotter{err: os.ErrPermission}, wantErr: os.ErrPermission},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := NewSessionForTesting(tc.backend, nil, nil, nil, nil)
+			session := newSessionForTesting(tc.backend, nil, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			got, err := session.Screen.FindTemplate(context.Background(), region, template, 0.95)
+			got, err := session.screen.FindTemplate(context.Background(), region, template, 0.95)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("FindTemplate error = %v, want %v", err, tc.wantErr)
 			}
@@ -1320,10 +1320,10 @@ func TestScreenBundleFindTemplateRejectsInvalidThresholdBeforeCapture(t *testing
 		calls++
 		return image.NewRGBA(image.Rect(0, 0, 4, 4)), nil
 	}}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	for _, threshold := range []float64{-0.01, 1.01} {
-		if got, err := session.Screen.FindTemplate(context.Background(), image.Rect(0, 0, 4, 4), image.NewRGBA(image.Rect(0, 0, 1, 1)), threshold); err == nil || got != (find.TemplateMatch{}) {
+		if got, err := session.screen.FindTemplate(context.Background(), image.Rect(0, 0, 4, 4), image.NewRGBA(image.Rect(0, 0, 1, 1)), threshold); err == nil || got != (find.TemplateMatch{}) {
 			t.Fatalf("invalid threshold %g returned %+v, %v", threshold, got, err)
 		}
 	}
@@ -1368,7 +1368,7 @@ func TestScreenBundleFindTemplateReturnsNoResultAfterCloseOrTimeout(t *testing.T
 				operationContext <- ctx
 				return frame, nil
 			}}
-			session := NewSessionForTesting(backend, nil, nil, nil, nil)
+			session := newSessionForTesting(backend, nil, nil, nil, nil)
 			if tc.timeout {
 				session.config.Timeouts = TimeoutPolicy{Medium: 20 * time.Millisecond}
 			}
@@ -1377,7 +1377,7 @@ func TestScreenBundleFindTemplateReturnsNoResultAfterCloseOrTimeout(t *testing.T
 				err   error
 			}, 1)
 			go func() {
-				match, err := session.Screen.FindTemplate(context.Background(), frame.bounds, image.NewNRGBA(image.Rect(0, 0, 1, 1)), 0.95)
+				match, err := session.screen.FindTemplate(context.Background(), frame.bounds, image.NewNRGBA(image.Rect(0, 0, 1, 1)), 0.95)
 				result <- struct {
 					match find.TemplateMatch
 					err   error
@@ -1408,35 +1408,35 @@ func TestScreenBundleFindTemplatesResultFailuresAndAuthority(t *testing.T) {
 	frame := image.NewNRGBA(area)
 	frame.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
 	frame.SetNRGBA(2, 0, color.NRGBA{R: 255, A: 255})
-	session := NewSessionForTesting(&templateBundleScreenshotter{frame: frame}, nil, nil, nil, nil)
-	got, err := session.Screen.FindTemplates(context.Background(), area, ref, 1, 64)
+	session := newSessionForTesting(&templateBundleScreenshotter{frame: frame}, nil, nil, nil, nil)
+	got, err := session.screen.FindTemplates(context.Background(), area, ref, 1, 64)
 	if err != nil || len(got) != 2 || got[0].Rect.Min.X != 0 || got[1].Rect.Min.X != 2 {
 		t.Fatalf("matches=%v err=%v", got, err)
 	}
-	no, err := session.Screen.FindTemplates(context.Background(), area, ref, 1, 0)
+	no, err := session.screen.FindTemplates(context.Background(), area, ref, 1, 0)
 	if !errors.Is(err, find.ErrInvalidFrame) || no != nil {
 		t.Fatalf("invalid=%v %v", no, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	no, err = session.Screen.FindTemplates(ctx, area, ref, 1, 64)
+	no, err = session.screen.FindTemplates(ctx, area, ref, 1, 64)
 	if !errors.Is(err, context.Canceled) || no != nil {
 		t.Fatalf("cancelled=%v %v", no, err)
 	}
 	_ = session.Close()
-	no, err = session.Screen.FindTemplates(context.Background(), area, ref, 1, 64)
+	no, err = session.screen.FindTemplates(context.Background(), area, ref, 1, 64)
 	if err == nil || no != nil {
 		t.Fatalf("closed=%v %v", no, err)
 	}
-	missing := NewSessionForTesting(nil, nil, nil, nil, nil)
+	missing := newSessionForTesting(nil, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = missing.Close() })
-	no, err = missing.Screen.FindTemplates(context.Background(), area, ref, 1, 64)
+	no, err = missing.screen.FindTemplates(context.Background(), area, ref, 1, 64)
 	if !errors.Is(err, ErrUnavailable) || no != nil {
 		t.Fatalf("unavailable=%v %v", no, err)
 	}
-	denied := NewSessionForTesting(&templateBundleScreenshotter{err: os.ErrPermission}, nil, nil, nil, nil)
+	denied := newSessionForTesting(&templateBundleScreenshotter{err: os.ErrPermission}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = denied.Close() })
-	no, err = denied.Screen.FindTemplates(context.Background(), area, ref, 1, 64)
+	no, err = denied.screen.FindTemplates(context.Background(), area, ref, 1, 64)
 	if !errors.Is(err, os.ErrPermission) || no != nil {
 		t.Fatalf("denied=%v %v", no, err)
 	}
@@ -1444,7 +1444,7 @@ func TestScreenBundleFindTemplatesResultFailuresAndAuthority(t *testing.T) {
 
 type closingTemplateFrame struct {
 	image.Image
-	session *Session
+	session *sessionCore
 }
 
 func (f *closingTemplateFrame) At(x, y int) color.Color {
@@ -1458,11 +1458,11 @@ func TestScreenBundleFindTemplatesChecksLateClosedSession(t *testing.T) {
 	frame := image.NewNRGBA(region)
 	frame.SetNRGBA(0, 0, color.NRGBA{A: 255, R: 255})
 	backend := &templateBundleScreenshotter{}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	backend.frame = &closingTemplateFrame{Image: frame, session: session}
 	reference := image.NewNRGBA(region)
 	reference.SetNRGBA(0, 0, color.NRGBA{A: 255, R: 255})
-	result, err := session.Screen.FindTemplates(context.Background(), region, reference, 1, 1)
+	result, err := session.screen.FindTemplates(context.Background(), region, reference, 1, 1)
 	session.lifecycleMu.Lock()
 	session.closed = false // Restore synthetic state so Close runs its real cleanup.
 	session.lifecycleMu.Unlock()
@@ -1531,11 +1531,11 @@ func TestScreenBundleFindTextUsesVerifiedCaptureAndSessionLifecycle(t *testing.T
 	region := image.Rect(40, 50, 50, 60)
 	frame := image.NewNRGBA(image.Rect(0, 0, 20, 20))
 	backend := &textBundleScreenshotter{image: frame, region: region}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	confidence := 88.0
 	provider := &bundleTextRecognizer{words: []find.OCRWord{{Text: "Continue", PixelRect: image.Rect(2, 4, 18, 16), Confidence: &confidence, Page: 1, Block: 1, Paragraph: 1, Line: 1, Word: 1}}}
-	got, err := session.Screen.FindText(context.Background(), region, "Continue", find.TextOptions{Recognizer: provider})
+	got, err := session.screen.FindText(context.Background(), region, "Continue", find.TextOptions{Recognizer: provider})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1548,9 +1548,9 @@ func TestScreenBundleFindTextRejectsMissingProviderBeforeCapture(t *testing.T) {
 	region := image.Rect(0, 0, 4, 4)
 	frame := image.NewNRGBA(image.Rect(0, 0, 4, 4))
 	backend := &textBundleScreenshotter{image: frame, region: region}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	_, err := session.Screen.FindText(context.Background(), region, "text", find.TextOptions{})
+	_, err := session.screen.FindText(context.Background(), region, "text", find.TextOptions{})
 	if !errors.Is(err, find.ErrOCRProviderUnavailable) || backend.calls != 0 {
 		t.Fatalf("error=%v captures=%d", err, backend.calls)
 	}
@@ -1558,10 +1558,10 @@ func TestScreenBundleFindTextRejectsMissingProviderBeforeCapture(t *testing.T) {
 
 func TestScreenBundleFindTextRejectsBackendWithoutVerifiedGeometry(t *testing.T) {
 	region := image.Rect(0, 0, 4, 4)
-	session := NewSessionForTesting(&plainTextScreenshotter{image: image.NewNRGBA(region)}, nil, nil, nil, nil)
+	session := newSessionForTesting(&plainTextScreenshotter{image: image.NewNRGBA(region)}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	provider := &bundleTextRecognizer{}
-	_, err := session.Screen.FindText(context.Background(), region, "text", find.TextOptions{Recognizer: provider})
+	_, err := session.screen.FindText(context.Background(), region, "text", find.TextOptions{Recognizer: provider})
 	if !errors.Is(err, find.ErrOCRGeometry) || provider.calls != 0 {
 		t.Fatalf("error=%v recognition calls=%d", err, provider.calls)
 	}
@@ -1575,13 +1575,13 @@ func TestReviewBackgroundCaptureUnknownVisibilityIsNotForeground(t *testing.T) {
 			return screen.WindowPixmapCapture{Image: image.NewRGBA(image.Rect(0, 0, 4, 3)), ScreenRect: image.Rect(10, 20, 14, 23), Visibility: screen.WindowPixmapUnknown, Foreground: true, ForegroundKnown: true}, nil
 		},
 	}
-	session := NewSessionForTesting(backend, nil, newHandleWindowManager(info), nil, nil)
+	session := newSessionForTesting(backend, nil, newHandleWindowManager(info), nil, nil)
 	defer session.Close()
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := session.Screen.CaptureWindowBackground(context.Background(), target)
+	got, err := session.screen.CaptureWindowBackground(context.Background(), target)
 	if err != nil || got.State != WindowCaptureStateUnknown {
 		t.Fatalf("state=%q err=%v; focus does not prove visibility", got.State, err)
 	}

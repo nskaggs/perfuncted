@@ -1,10 +1,10 @@
 package x11
 
 import (
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/composite"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xtest"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/composite"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/randr"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xtest"
 )
 
 type RandRScreenResourcesCookie interface {

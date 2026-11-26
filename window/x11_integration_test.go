@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/x11test"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 // TestMain starts a throwaway Xvfb display for all integration tests in this

@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	oplife "github.com/nskaggs/perfuncted/internal/operation"
-	"github.com/nskaggs/perfuncted/internal/wl"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	oplife "github.com/nskaggs/perfuncted/v2/internal/operation"
+	"github.com/nskaggs/perfuncted/v2/internal/wl"
 )
 
 var _ Inputter = (*WlVirtualBackend)(nil)

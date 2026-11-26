@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
 	"golang.org/x/sys/unix"
 )
 

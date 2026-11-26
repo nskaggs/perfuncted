@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/png"
@@ -384,7 +384,7 @@ func TestScreenRawWriterRejectsMissingAndTruncatedFramesBeforeOutput(t *testing.
 // No output metadata is not evidence of a particular monitor resolution.
 // The caller must continue to the authorized screenshot fallback.
 func TestScreenOutputResolutionProbeWithoutBundleMustFallBack(t *testing.T) {
-	w, h, ok := singleOutputPhysicalResolution(context.Background(), nil)
+	w, h, ok := singleOutputPhysicalResolution(context.Background(), perfuncted.OutputBundle{})
 	if ok || w != 0 || h != 0 {
 		t.Fatalf("missing output bundle fabricated geometry: %dx%d ok=%t", w, h, ok)
 	}

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/internal/x11test"
+	"github.com/nskaggs/perfuncted/v2/internal/x11test"
 )
 
 func TestX11HeadlessRandROutputTopologyAndLifecycle(t *testing.T) {

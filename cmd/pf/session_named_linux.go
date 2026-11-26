@@ -5,7 +5,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/sessionregistry"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionregistry"
 	"github.com/spf13/cobra"
 	"os"
 	"strings"

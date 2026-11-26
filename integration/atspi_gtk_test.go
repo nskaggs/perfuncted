@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
 )
 
 // TestGTKAccessibilityRepresentative keeps optional Zenity action coverage in
@@ -40,16 +40,16 @@ func TestGTKAccessibilityRepresentative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find zenity window: %v", err)
 	}
-	scope, err := s.pf.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: info.NativeID, Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active})
+	scope, err := s.pf.Accessibility().AccessibilityWindow(ctx, accessibility.WindowTarget{ID: info.NativeID, Title: info.Title, PID: info.PID, AppID: info.AppID, Bounds: accessibility.Rect{X: info.X, Y: info.Y, Width: info.W, Height: info.H}, Active: info.Active})
 	if err != nil {
 		if errors.Is(err, accessibility.ErrNotFound) || errors.Is(err, accessibility.ErrUnsupported) {
-			apps, appsErr := s.pf.Accessibility.Applications(ctx)
+			apps, appsErr := s.pf.Accessibility().Applications(ctx)
 			t.Logf("AT-SPI correlation diagnostics: window=%+v apps=%+v appsErr=%v", info, apps, appsErr)
 			t.Skipf("AT-SPI could not correlate zenity window: %v", err)
 		}
 		t.Fatalf("correlate zenity window: %v", err)
 	}
-	receipt, err := s.pf.Accessibility.InvokeSemanticAction(
+	receipt, err := s.pf.Accessibility().InvokeSemanticAction(
 		ctx,
 		scope.Root,
 		accessibility.Query{Role: "button"},

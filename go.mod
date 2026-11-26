@@ -1,4 +1,4 @@
-module github.com/nskaggs/perfuncted
+module github.com/nskaggs/perfuncted/v2
 
 go 1.27.4
 

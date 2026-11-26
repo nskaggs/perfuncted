@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 type accessibilityCertificationApp struct {
@@ -140,16 +140,16 @@ func certifyGTKTextEntryParity(t *testing.T, s *suite) {
 	marker := `AT-SPI parity: "quoted" \ path /`
 	suffix := " — café 東京"
 	expected := marker + suffix
-	if err := s.pf.Accessibility.ReplaceEditableText(ctx, editable.ID, marker); err != nil {
+	if err := s.pf.Accessibility().ReplaceEditableText(ctx, editable.ID, marker); err != nil {
 		t.Fatalf("set semantic parity text: %v", err)
 	}
-	if err := s.pf.Accessibility.InsertText(ctx, editable.ID, int32(len([]rune(marker))), suffix); err != nil {
+	if err := s.pf.Accessibility().InsertText(ctx, editable.ID, int32(len([]rune(marker))), suffix); err != nil {
 		t.Fatalf("append Unicode semantic parity suffix: %v", err)
 	}
 	if err := activateWindow(s.pf, ctx, semanticApp.winMatch); err != nil {
 		t.Fatalf("activate semantic editor for physical save: %v", err)
 	}
-	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("save semantic text through physical input: %v", err)
 	}
 	semanticContents := requireExactSavedFile(t, ctx, semanticFile, expected+"\n")
@@ -162,10 +162,10 @@ func certifyGTKTextEntryParity(t *testing.T, s *suite) {
 	physicalFile := filepath.Join(t.TempDir(), "physical-parity.txt")
 	physicalApp, physicalCmd := startEditorForParity(t, s, ctx, textEditor, physicalFile)
 	waitForEditorStable(t, s, ctx, physicalApp.winMatch)
-	if err := s.pf.Input.Type(ctx, expected); err != nil {
+	if err := s.pf.Input().Type(ctx, expected); err != nil {
 		t.Fatalf("enter Unicode parity text through physical keyboard input: %v", err)
 	}
-	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("save physical parity text: %v", err)
 	}
 	physicalContents := requireExactSavedFile(t, ctx, physicalFile, expected+"\n")
@@ -189,10 +189,10 @@ func certifyKWriteSaveActionParity(t *testing.T, s *suite) {
 	_, scope, _, editable := resolveEditorForParity(t, s, ctx, semanticApp.winMatch)
 
 	const expected = "Save action parity: café 東京"
-	if err := s.pf.Accessibility.ReplaceEditableText(ctx, editable.ID, expected); err != nil {
+	if err := s.pf.Accessibility().ReplaceEditableText(ctx, editable.ID, expected); err != nil {
 		t.Fatalf("dirty semantic save-action document: %v", err)
 	}
-	dirtySnapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, certificationSnapshotOptions())
+	dirtySnapshot, err := s.pf.Accessibility().Snapshot(ctx, scope.Root, certificationSnapshotOptions())
 	if err != nil {
 		t.Fatalf("snapshot dirty semantic save-action document: %v", err)
 	}
@@ -200,7 +200,7 @@ func certifyKWriteSaveActionParity(t *testing.T, s *suite) {
 	if err != nil {
 		t.Fatalf("find machine-readable Save action: %v", err)
 	}
-	selected, err := s.pf.Accessibility.InvokeActionByName(ctx, actionNode.ID, action.Name)
+	selected, err := s.pf.Accessibility().InvokeActionByName(ctx, actionNode.ID, action.Name)
 	if err != nil {
 		t.Fatalf("invoke machine-readable Save action %q: %v", action.Name, err)
 	}
@@ -216,7 +216,7 @@ func certifyKWriteSaveActionParity(t *testing.T, s *suite) {
 	if err := s.pf.Paste(ctx, expected); err != nil {
 		t.Fatalf("dirty physical save-action document: %v", err)
 	}
-	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("save physical save-action document: %v", err)
 	}
 	physicalContents := requireExactSavedFile(t, ctx, physicalFile, expected+"\n")
@@ -273,7 +273,7 @@ func resolveEditorForParity(
 		Active:  info.Active,
 		Focused: info.Active,
 	}
-	scope, snapshot, err := resolveCertificationScopeAndSnapshot(ctx, s.pf.Accessibility, target, certificationSnapshotOptions())
+	scope, snapshot, err := resolveCertificationScopeAndSnapshot(ctx, s.pf.Accessibility(), target, certificationSnapshotOptions())
 	if err != nil {
 		t.Fatalf("correlate parity window to AT-SPI: %v", err)
 	}
@@ -282,10 +282,10 @@ func resolveEditorForParity(
 		t.Fatalf("find unique parity editable node: %v", err)
 	}
 	if !editable.Focused {
-		if err := s.pf.Accessibility.FocusNode(ctx, editable.ID); err != nil {
+		if err := s.pf.Accessibility().FocusNode(ctx, editable.ID); err != nil {
 			t.Fatalf("focus parity editable node: %v", err)
 		}
-		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility, target, editable.ID, certificationSnapshotOptions()); err != nil {
+		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility(), target, editable.ID, certificationSnapshotOptions()); err != nil {
 			t.Fatalf("verify parity editable focus: %v", err)
 		}
 	}
@@ -299,7 +299,7 @@ func waitForActiveWindow(ctx context.Context, pf *perfuncted.Session, pattern st
 	defer ticker.Stop()
 	var lastTitle string
 	for {
-		title, err := pf.Windows.ActiveTitle(ctx)
+		title, err := pf.Windows().ActiveTitle(ctx)
 		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "no focused window") {
 			return err
 		}
@@ -331,7 +331,7 @@ func waitForEditorStable(t *testing.T, s *suite, ctx context.Context, windowMatc
 	)
 	stableCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if _, err := find.WaitForNoChange(stableCtx, s.pf.Screen, region, 3, 200*time.Millisecond, nil); err != nil {
+	if _, err := find.WaitForNoChange(stableCtx, s.pf.Screen(), region, 3, 200*time.Millisecond, nil); err != nil {
 		t.Fatalf("wait for parity editor window %q to settle: %v", windowMatch, err)
 	}
 }
@@ -383,7 +383,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 		t.Logf("failure bundle written to %s", path)
 	})
 	eventCtx, eventCancel := context.WithCancel(ctx)
-	eventStream, eventErr := s.pf.Accessibility.Events(eventCtx, accessibility.EventOptions{Buffer: 256})
+	eventStream, eventErr := s.pf.Accessibility().Events(eventCtx, accessibility.EventOptions{Buffer: 256})
 	if eventErr == nil {
 		t.Cleanup(func() {
 			if !t.Failed() {
@@ -452,10 +452,10 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	// The managed window metadata is already authoritative. Reusing it avoids
 	// a second compositor discovery request while the AT-SPI provider is starting.
 	correlationCtx, correlationCancel := context.WithTimeout(ctx, 60*time.Second)
-	scope, snapshot, err := resolveCertificationScopeAndSnapshot(correlationCtx, s.pf.Accessibility, target, options)
+	scope, snapshot, err := resolveCertificationScopeAndSnapshot(correlationCtx, s.pf.Accessibility(), target, options)
 	correlationCancel()
 	if err != nil {
-		logAccessibilityCorrelationDiagnostics(t, ctx, s.pf.Accessibility, info, optionsForCorrelationDiagnostics())
+		logAccessibilityCorrelationDiagnostics(t, ctx, s.pf.Accessibility(), info, optionsForCorrelationDiagnostics())
 		t.Fatalf("correlate managed %s window to AT-SPI: %v", representative.name, err)
 	}
 	if !certificationNodeIDValid(scope.Root) || !certificationNodeIDValid(scope.ApplicationRoot) || scope.Generation == 0 {
@@ -471,7 +471,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	cardinalityOptions := options
 	cardinalityOptions.Fresh = true
 	cardinalityOptions.VisibleOnly = false
-	cardinalitySnapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, cardinalityOptions)
+	cardinalitySnapshot, err := s.pf.Accessibility().Snapshot(ctx, scope.Root, cardinalityOptions)
 	if err != nil {
 		t.Fatalf("fresh unfiltered %s AT-SPI snapshot for child cardinality: %v", representative.name, err)
 	}
@@ -490,10 +490,10 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if editable.Focused {
 		t.Logf("AT-SPI editable target is already focused in the bounded snapshot")
 	} else {
-		if err := s.pf.Accessibility.FocusNode(ctx, editable.ID); err != nil {
+		if err := s.pf.Accessibility().FocusNode(ctx, editable.ID); err != nil {
 			t.Fatalf("AT-SPI focus %s editable target: %v (node=%+v)", representative.name, err, editable)
 		}
-		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility, target, editable.ID, options); err != nil {
+		if err := waitForFocusedAccessibilityNode(ctx, s.pf.Accessibility(), target, editable.ID, options); err != nil {
 			t.Fatalf("independent AT-SPI focus verification for %s: %v", representative.name, err)
 		}
 	}
@@ -502,7 +502,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 		if err != nil {
 			t.Fatalf("machine-readable named action target for %s: %v", representative.name, err)
 		}
-		freshActionSnapshot, err := s.pf.Accessibility.Snapshot(ctx, scope.Root, options)
+		freshActionSnapshot, err := s.pf.Accessibility().Snapshot(ctx, scope.Root, options)
 		if err != nil {
 			t.Fatalf("refresh %s action metadata after focus verification: %v", representative.name, err)
 		}
@@ -513,7 +513,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 		if freshActionNode.ID.BusName != actionNode.ID.BusName || freshActionNode.ID.ObjectPath != actionNode.ID.ObjectPath {
 			t.Fatalf("%s action identity changed after focus: initial=%+v fresh=%+v", representative.name, actionNode.ID, freshActionNode.ID)
 		}
-		selected, err := s.pf.Accessibility.InvokeActionByName(ctx, freshActionNode.ID, freshAction.Name)
+		selected, err := s.pf.Accessibility().InvokeActionByName(ctx, freshActionNode.ID, freshAction.Name)
 		if err != nil {
 			t.Fatalf("invoke %s action %q by machine-readable name: %v", representative.name, freshAction.Name, err)
 		}
@@ -528,12 +528,12 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	locatorOptions := options
 	locatorOptions.AllowSensitive = true
 	selector := accessibility.Selector{Role: editable.Role, Name: editable.Name}
-	locator := s.pf.Accessibility.LocatorForWindow(info.NativeID, selector, locatorOptions)
+	locator := s.pf.Accessibility().LocatorForWindow(info.NativeID, selector, locatorOptions)
 	failureEvidence.Locator = locator
 	certifyEditorSemanticWaits(t, ctx, locator, editable.ID)
 	absenceOptions := locatorOptions
 	absenceOptions.VisibleOnly = false
-	absent := s.pf.Accessibility.LocatorForWindow(info.NativeID, accessibility.Selector{Name: "perfuncted-nonexistent-certification-control-" + representative.name}, absenceOptions)
+	absent := s.pf.Accessibility().LocatorForWindow(info.NativeID, accessibility.Selector{Name: "perfuncted-nonexistent-certification-control-" + representative.name}, absenceOptions)
 	if _, evidence, waitErr := absent.WaitForState(ctx, perfuncted.AccessibilityWaitAbsent, 5*time.Second); waitErr != nil || evidence.Evaluations == 0 {
 		t.Fatalf("real %s scoped absence: evidence=%+v err=%v", representative.name, evidence, waitErr)
 	}
@@ -569,14 +569,14 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 		t.Fatalf("re-resolve real %s editable target after verified fill: %v", representative.name, err)
 	}
 	unicodeSuffix := " — café"
-	if err := s.pf.Accessibility.InsertText(ctx, editable.ID, int32(len([]rune(marker))), unicodeSuffix); err != nil {
+	if err := s.pf.Accessibility().InsertText(ctx, editable.ID, int32(len([]rune(marker))), unicodeSuffix); err != nil {
 		t.Fatalf("AT-SPI UTF-8 InsertText %s: %v", representative.name, err)
 	}
 	editable, err = resolveCertificationEditable(ctx, locator, editable.ID, marker+unicodeSuffix)
 	if err != nil {
 		t.Fatalf("re-resolve real %s editable target after Unicode insert: %v", representative.name, err)
 	}
-	if err := s.pf.Accessibility.SetCaretOffset(ctx, editable.ID, int32(len([]rune(marker+unicodeSuffix)))); err != nil {
+	if err := s.pf.Accessibility().SetCaretOffset(ctx, editable.ID, int32(len([]rune(marker+unicodeSuffix)))); err != nil {
 		t.Fatalf("AT-SPI caret mutation %s: %v", representative.name, err)
 	}
 	expected := marker + unicodeSuffix
@@ -584,7 +584,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate %s for save: %v", representative.name, err)
 	}
-	if err := s.pf.Input.Type(ctx, "{ctrl+s}"); err != nil {
+	if err := s.pf.Input().Type(ctx, "{ctrl+s}"); err != nil {
 		t.Fatalf("save %s: %v", representative.name, err)
 	}
 	saved, err := waitForFileContains(ctx, saveFile, expected, 30*time.Second)
@@ -871,7 +871,7 @@ func TestSnapshotChildCardinalityErrorRejectsMismatch(t *testing.T) {
 
 func waitForAccessibilityWindow(
 	ctx context.Context,
-	bundle *perfuncted.AccessibilityBundle,
+	bundle perfuncted.AccessibilityBundle,
 	target accessibility.WindowTarget,
 ) (accessibility.WindowScope, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -899,7 +899,7 @@ func waitForAccessibilityWindow(
 
 func resolveCertificationScopeAndSnapshot(
 	ctx context.Context,
-	bundle *perfuncted.AccessibilityBundle,
+	bundle perfuncted.AccessibilityBundle,
 	target accessibility.WindowTarget,
 	options accessibility.SnapshotOptions,
 ) (accessibility.WindowScope, accessibility.Snapshot, error) {
@@ -928,7 +928,7 @@ func resolveCertificationScopeAndSnapshot(
 func logAccessibilityCorrelationDiagnostics(
 	t *testing.T,
 	ctx context.Context,
-	bundle *perfuncted.AccessibilityBundle,
+	bundle perfuncted.AccessibilityBundle,
 	info window.Info,
 	options accessibility.SnapshotOptions,
 ) {
@@ -953,7 +953,7 @@ func logAccessibilityCorrelationDiagnostics(
 
 func waitForFocusedAccessibilityNode(
 	ctx context.Context,
-	bundle *perfuncted.AccessibilityBundle,
+	bundle perfuncted.AccessibilityBundle,
 	target accessibility.WindowTarget,
 	want accessibility.NodeID,
 	options accessibility.SnapshotOptions,

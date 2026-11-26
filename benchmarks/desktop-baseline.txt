@@ -8,7 +8,7 @@
 # This accepts the measured new floor, but retains the 50% regression budget.
 goos: linux
 goarch: amd64
-pkg: github.com/nskaggs/perfuncted
+pkg: github.com/nskaggs/perfuncted/v2
 cpu: Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz
 BenchmarkDesktopOpenClose-8               3 314759566 ns/op 582058 B/op 5206 allocs/op
 BenchmarkDesktopOpenClose-8               3 313453055 ns/op 585101 B/op 5225 allocs/op

@@ -5,7 +5,7 @@ package x11test
 import (
 	"testing"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb"
 )
 
 func TestXvfbNoResetAllowsReconnectAfterLastClientDisconnects(t *testing.T) {

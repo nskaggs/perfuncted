@@ -3,7 +3,7 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"reflect"
 	"sync"
 	"testing"
@@ -123,7 +123,7 @@ func TestLocatorIdentityRejectsAuthoritativeEvidenceDowngrade(t *testing.T) {
 // subscription, or mutation dispatch can expose or change a target.
 func TestLocatorRejectsInvalidMutationInputsWithoutProviderActivity(t *testing.T) {
 	loc, fake := newLocatorWaitFixture(t, 1, false)
-	valid := sessionCondition("after mutation", func(context.Context, *Session) (bool, error) { return true, nil })
+	valid := sessionCondition("after mutation", func(context.Context, *sessionCore) (bool, error) { return true, nil })
 	for _, tc := range []struct {
 		name string
 		call func() (AccessibilityActionReceipt, WaitEvidence, error)
@@ -161,7 +161,7 @@ func TestLocatorUnownedOperationsDoNotDisclosePrivateTargets(t *testing.T) {
 	detached := *loc
 	detached.bundle = nil
 	var nilLocator *AccessibilityLocator
-	postcondition := sessionCondition("done", func(context.Context, *Session) (bool, error) { return true, nil })
+	postcondition := sessionCondition("done", func(context.Context, *sessionCore) (bool, error) { return true, nil })
 	for _, tc := range []struct {
 		name    string
 		locator *AccessibilityLocator
@@ -568,7 +568,7 @@ func TestLocatorScopeRootApplicationAndInvalidScopes(t *testing.T) {
 
 func TestLocatorConstructorsCopySelectorIntentAndTrimManagedWindowID(t *testing.T) {
 	base := accessibility.Selector{States: []string{"focused"}, Attributes: map[string]string{"role": "button"}, Ancestors: []accessibility.AncestorSelector{{Name: "Editor"}}}
-	b := &AccessibilityBundle{}
+	b := &accessibilityState{}
 	loc := b.LocatorForWindow("  17  ", base, accessibility.SnapshotOptions{})
 	base.States[0] = "untrusted"
 	base.Attributes["role"] = "untrusted"
@@ -849,9 +849,9 @@ func TestAccessibilityLocatorRejectsSnapshotAfterSessionClosure(t *testing.T) {
 			locator, fake := newLocatorWaitFixture(t, 1, false)
 			session := locator.bundle.session
 			backend := &locatorClosingSnapshot{snapshotAccessibilityAutomationFake: fake}
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
 			backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			var found string
 			var err error
@@ -943,9 +943,9 @@ func newLocatorWaitFixture(t *testing.T, targets int, truncated bool) (*Accessib
 		accessibilityAutomationFake: &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{apps: []accessibility.Application{app}, gen: 11}, accessibilityAutomationSpy: &accessibilityAutomationSpy{}},
 		snapshot:                    accessibility.Snapshot{Root: app.Node, Nodes: nodes, Generation: 11, Truncated: truncated},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	t.Cleanup(func() { _ = session.Close() })
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
 	return locator, fake
 }
 func TestAccessibilityLocatorWaitResolvesSingleAuthoritativeTargetAndPreservesEvidence(t *testing.T) {
@@ -1047,9 +1047,9 @@ func newSequencedAccessibilityWaitFixture(t *testing.T, snapshots []accessibilit
 		},
 	}
 	backend := &sequencedAccessibilityWaitBackend{snapshotAccessibilityAutomationFake: base, snapshots: snapshots}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
-	locator := session.Accessibility.LocatorForApplication(
+	locator := session.accessibility.LocatorForApplication(
 		accessibility.ApplicationFilter{Name: "Editor"},
 		accessibility.Selector{Role: "button", Name: "Save"},
 		accessibility.SnapshotOptions{},
@@ -1143,9 +1143,9 @@ func TestAccessibilityLocatorWaitForStateAbsenceRequiresLiveScope(t *testing.T) 
 	}
 	sequence := &sequencedAccessibilityWaitBackend{snapshotAccessibilityAutomationFake: base, snapshots: []accessibility.Snapshot{accessibilityWaitFixtureSnapshot(11)}}
 	backend := &missingApplicationWaitBackend{sequencedAccessibilityWaitBackend: sequence}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
 	_, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitAbsent, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrManagedScopeChanged) || !errors.Is(err, accessibility.ErrNotFound) || evidence.Evaluations != 1 || backend.snapshotCalls != 0 {
 		t.Fatalf("missing application incorrectly proved absence: evidence=%+v snapshots=%d err=%v", evidence, backend.snapshotCalls, err)
@@ -1196,9 +1196,9 @@ func TestAccessibilityLocatorWaitForStateValueChangeUsesStableBaseline(t *testin
 	backend := &sequencedAccessibilityWaitBackend{snapshotAccessibilityAutomationFake: base, snapshots: []accessibility.Snapshot{
 		accessibilityWaitFixtureSnapshot(11, initial), accessibilityWaitFixtureSnapshot(11, updated),
 	}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "status bar", Name: "Status"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "status bar", Name: "Status"}, accessibility.SnapshotOptions{})
 	node, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitValueChanged, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || node.Text != "Saved" || evidence.Evaluations < 2 {
 		t.Fatalf("value changed wait: node=%+v evidence=%+v err=%v", node, evidence, err)
@@ -1281,10 +1281,10 @@ func TestAccessibilityLocatorWaitForStateRejectsLostScopeAndTargetReplacement(t 
 	backend := &sequencedAccessibilityWaitBackend{snapshotAccessibilityAutomationFake: base, snapshots: []accessibility.Snapshot{
 		accessibilityWaitFixtureSnapshot(11, waitSaveNode("/save")), accessibilityWaitFixtureSnapshot(12, waitSaveNode("/save")),
 	}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	firstSession := session
 	t.Cleanup(func() { _ = firstSession.Close() })
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
 	_, _, err := locator.WaitForState(context.Background(), AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrManagedScopeChanged) {
 		t.Fatalf("changed application identity error = %v, want managed scope changed", err)
@@ -1308,10 +1308,10 @@ func TestAccessibilityLocatorWaitForStateRejectsLostScopeAndTargetReplacement(t 
 	backend = &sequencedAccessibilityWaitBackend{snapshotAccessibilityAutomationFake: base, snapshots: []accessibility.Snapshot{
 		accessibilityWaitFixtureSnapshot(11), accessibilityWaitFixtureSnapshot(12, waitSaveNode("/save")),
 	}}
-	session = NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session = newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	generationSession := session
 	t.Cleanup(func() { _ = generationSession.Close() })
-	locator = session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	locator = session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
 	_, _, err = locator.WaitForState(context.Background(), AccessibilityWaitPresent, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrManagedScopeChanged) {
 		t.Fatalf("changed application generation error = %v, want managed scope changed", err)
@@ -1348,9 +1348,9 @@ func TestAccessibilityLocatorWaitForStateValidatesBeforeObservation(t *testing.T
 		t.Fatalf("invalid waits queried provider %d times", backend.snapshotCalls)
 	}
 
-	visibleOnlySession := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	visibleOnlySession := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = visibleOnlySession.Close() })
-	visibleOnlyLocator := visibleOnlySession.Accessibility.LocatorForApplication(
+	visibleOnlyLocator := visibleOnlySession.accessibility.LocatorForApplication(
 		accessibility.ApplicationFilter{Name: "Editor"},
 		accessibility.Selector{Role: "button", Name: "Save"},
 		accessibility.SnapshotOptions{VisibleOnly: true},

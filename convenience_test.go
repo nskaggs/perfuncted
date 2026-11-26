@@ -3,9 +3,9 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"reflect"
 	"strings"
 	"sync"
@@ -15,7 +15,7 @@ import (
 )
 
 func BenchmarkConvenienceBatch(b *testing.B) {
-	s := NewSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
+	s := newSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
 	defer s.Close()
 	steps := make([]Step, 10)
 	for i := range steps {
@@ -30,13 +30,13 @@ func BenchmarkConvenienceBatch(b *testing.B) {
 }
 
 func BenchmarkConvenienceDirect(b *testing.B) {
-	s := NewSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
+	s := newSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
 	defer s.Close()
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 10; j++ {
-			if err := s.Input.TypeLiteral(ctx, "example"); err != nil {
+			if err := s.input.TypeLiteral(ctx, "example"); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -45,7 +45,7 @@ func BenchmarkConvenienceDirect(b *testing.B) {
 
 func TestConvenienceCoverageOpenAndViewCopies(t *testing.T) {
 	sentinel := errors.New("reject requested option")
-	if _, err := OpenDefault(func(*openConfig) error { return sentinel }); !errors.Is(err, sentinel) {
+	if _, err := openDefault(func(*openConfig) error { return sentinel }); !errors.Is(err, sentinel) {
 		t.Fatalf("option error: %v", err)
 	}
 	s := convenienceSession(t, &convenienceInput{})
@@ -187,10 +187,10 @@ func TestConvenienceCoverageIntraPreflightRevocation(t *testing.T) {
 	if err := s.preflightSteps(ctx, []Step{Type("private")}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel between validation and dispatch: %v", err)
 	}
-	original := s.Input
-	s.Input = nil
+	original := s.input
+	s.input = nil
 	err := s.preflightSteps(context.Background(), []Step{Type("private")})
-	s.Input = original
+	s.input = original
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("missing Input facade: %v", err)
 	}
@@ -202,11 +202,11 @@ func TestConvenienceCoverageIntraPreflightRevocation(t *testing.T) {
 	}
 }
 
-func convenienceSession(t *testing.T, backend input.Inputter) *Session {
+func convenienceSession(t *testing.T, backend input.Inputter) *sessionCore {
 	t.Helper()
 	preserveOpeners(t)
 	openInput = func(context.Context, env.Runtime, int32, int32) (input.Inputter, error) { return backend, nil }
-	s, err := OpenDefault()
+	s, err := openDefault()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestOpenDefaultOptionalInput(t *testing.T) {
 	openInput = func(context.Context, env.Runtime, int32, int32) (input.Inputter, error) {
 		return nil, errors.New("unavailable")
 	}
-	s, err := OpenDefault(Optional(CapabilityInput))
+	s, err := openDefault(Optional(CapabilityInput))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestOpenDefaultPortalDenialDoesNotFallback(t *testing.T) {
 	openRemoteDesktopInput = func(context.Context, env.Runtime, input.RemoteDesktopOptions) (input.Inputter, error) {
 		return nil, input.ErrRemoteDesktopDenied
 	}
-	_, err := OpenDefault(WithRemoteDesktopInput(input.RemoteDesktopOptions{}))
+	_, err := openDefault(WithRemoteDesktopInput(input.RemoteDesktopOptions{}))
 	if !errors.Is(err, input.ErrRemoteDesktopDenied) || fallback != 0 {
 		t.Fatalf("denial = %v, fallback calls = %d", err, fallback)
 	}
@@ -390,7 +390,7 @@ func (b *cancelConvenienceInput) TypeLiteral(context.Context, string) error {
 }
 
 func TestConvenienceViewBoundsAndNil(t *testing.T) {
-	var session *Session
+	var session *sessionCore
 	var view *SessionView
 	if err := session.Do(); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil session: %v", err)
@@ -432,7 +432,7 @@ func TestConvenienceAcceptsCommonKeys(t *testing.T) {
 }
 
 func TestConvenienceReusedStepsAndIndependentViews(t *testing.T) {
-	s := NewSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
+	s := newSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
 	defer s.Close()
 	step := Type("value")
 	canceled, cancel := context.WithCancel(context.Background())
@@ -447,7 +447,7 @@ func TestConvenienceReusedStepsAndIndependentViews(t *testing.T) {
 }
 
 func TestConvenienceMissingInputPreflight(t *testing.T) {
-	s := NewSessionForTesting(nil, nil, nil, nil, nil)
+	s := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer s.Close()
 	err := s.Do(Delay(0), Click(1, 2))
 	if !errors.Is(err, ErrUnavailable) {
@@ -574,7 +574,7 @@ func (m *scriptedFocusManager) ActivateByID(ctx context.Context, id string) erro
 	return m.focusTestWindowManager.ActivateByID(ctx, id)
 }
 
-func scriptedWindowSession(t *testing.T) (*Session, *scriptedFocusManager, *windowInputSpy) {
+func scriptedWindowSession(t *testing.T) (*sessionCore, *scriptedFocusManager, *windowInputSpy) {
 	t.Helper()
 	manager := &scriptedFocusManager{focusTestWindowManager: &focusTestWindowManager{
 		handleWindowManager: newHandleWindowManager(window.Info{
@@ -582,7 +582,7 @@ func scriptedWindowSession(t *testing.T) (*Session, *scriptedFocusManager, *wind
 		}),
 	}}
 	backend := &windowInputSpy{}
-	s := NewSessionForTesting(nil, backend, manager, nil, nil)
+	s := newSessionForTesting(nil, backend, manager, nil, nil)
 	t.Cleanup(func() { _ = s.Close() })
 	return s, manager, backend
 }
@@ -596,9 +596,9 @@ func TestWindowTargetCoverageEarlyReturnPaths(t *testing.T) {
 	})
 	t.Run("missing capability", func(t *testing.T) {
 		s, _, backend := scriptedWindowSession(t)
-		original := s.Windows.backend
-		s.Windows.backend = nil
-		t.Cleanup(func() { s.Windows.backend = original })
+		original := s.windows.backend()
+		s.windows.install(nil)
+		t.Cleanup(func() { s.windows.install(original) })
 		if err := s.Window("Editor").Do(Type("text")); !errors.Is(err, ErrUnavailable) {
 			t.Fatalf("missing window backend: %v", err)
 		}
@@ -702,7 +702,7 @@ func TestWindowTargetCoverageCanceledDuringFocusWait(t *testing.T) {
 		}),
 	}, cancel: cancel}
 	backend := &windowInputSpy{}
-	s := NewSessionForTesting(nil, backend, manager, nil, nil)
+	s := newSessionForTesting(nil, backend, manager, nil, nil)
 	t.Cleanup(func() { _ = s.Close() })
 	err := s.WithContext(ctx).Window("Editor").Do(Type("private"))
 	if !errors.Is(err, context.Canceled) || len(backend.callsSnapshot()) != 0 {
@@ -718,7 +718,7 @@ func TestWindowTargetCoverageInternalFocusTimeout(t *testing.T) {
 		NativeID: "1", Title: "Editor", PID: 42, AppID: "org.example.Editor",
 	})
 	backend := &windowInputSpy{}
-	session := NewSessionForTesting(nil, backend, manager, nil, nil)
+	session := newSessionForTesting(nil, backend, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	session.config.Timeouts = TimeoutPolicy{Short: 15 * time.Millisecond, Poll: time.Millisecond}
 	err := session.Window("Editor").Do(Type("private"))
@@ -782,11 +782,11 @@ func (b *windowInputSpy) callsSnapshot() []string {
 	return append([]string(nil), b.calls...)
 }
 
-func windowConvenienceFixture(t *testing.T, info ...window.Info) (*Session, *focusTestWindowManager, *windowInputSpy) {
+func windowConvenienceFixture(t *testing.T, info ...window.Info) (*sessionCore, *focusTestWindowManager, *windowInputSpy) {
 	t.Helper()
 	manager := &focusTestWindowManager{handleWindowManager: newHandleWindowManager(info...)}
 	backend := &windowInputSpy{}
-	session := NewSessionForTesting(nil, input.Inputter(backend), manager, nil, nil)
+	session := newSessionForTesting(nil, input.Inputter(backend), manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	return session, manager, backend
 }
@@ -876,7 +876,7 @@ func TestWindowTargetFailsClosedWhenFocusCannotBeObserved(t *testing.T) {
 		NativeID: "1", Title: "Journal", PID: 42, AppID: "editor", Active: false,
 	})
 	backend := &windowInputSpy{}
-	session := NewSessionForTesting(nil, backend, manager, nil, nil)
+	session := newSessionForTesting(nil, backend, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()

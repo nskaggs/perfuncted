@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +40,7 @@ func inputCmd(
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Input.Sync(ctx)
+			return pf.Input().Sync(ctx)
 		}
 		return nil
 	}
@@ -88,13 +88,13 @@ func inputCmd(
 			}
 			defer pf.Close()
 			if opts.Duration == 0 {
-				err = pf.Input.MouseMove(cmd.Context(), mx, my)
+				err = pf.Input().MouseMove(cmd.Context(), mx, my)
 			} else {
 				var origin *image.Point
 				if cmd.Flags().Changed("from-x") {
 					origin = &image.Point{X: fromX, Y: fromY}
 				}
-				err = pf.Input.MouseMoveSmooth(cmd.Context(), origin, image.Point{X: mx, Y: my}, opts)
+				err = pf.Input().MouseMoveSmooth(cmd.Context(), origin, image.Point{X: mx, Y: my}, opts)
 			}
 			if err != nil {
 				return err
@@ -126,7 +126,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			space, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+			space, err := pf.Input().PointerCoordinateSpace(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -135,9 +135,9 @@ func inputCmd(
 			if string(space.Kind) != "global-logical" || space.ScaleX != 1 || space.ScaleY != 1 {
 				return fmt.Errorf("cannot safely move relative to KWin cursor in pointer space %s with scale %g,%g", space.Kind, space.ScaleX, space.ScaleY)
 			}
-			x, y, err := pf.Input.PointerLocation(cmd.Context())
+			x, y, err := pf.Input().PointerLocation(cmd.Context())
 			if err != nil && errors.Is(err, perfuncted.ErrUnsupported) {
-				x, y, err = pf.Windows.CursorPosition(cmd.Context())
+				x, y, err = pf.Windows().CursorPosition(cmd.Context())
 			}
 			if err != nil {
 				return err
@@ -149,14 +149,14 @@ func inputCmd(
 				return fmt.Errorf("relative movement overflows pointer coordinates")
 			}
 			destX, destY := x+relX, y+relY
-			if err := pf.Input.MouseMove(cmd.Context(), destX, destY); err != nil {
+			if err := pf.Input().MouseMove(cmd.Context(), destX, destY); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
 				return err
 			}
 			if verifyRelative {
-				verifiedX, verifiedY, readErr := pf.Windows.CursorPosition(cmd.Context())
+				verifiedX, verifiedY, readErr := pf.Windows().CursorPosition(cmd.Context())
 				if readErr != nil {
 					return fmt.Errorf("relative pointer position verification: %w", readErr)
 				}
@@ -204,7 +204,7 @@ func inputCmd(
 				defer timer.Stop()
 			}
 			for i := 0; i < repeat; i++ {
-				if err := pf.Input.MouseClick(cmd.Context(), mx, my, button); err != nil {
+				if err := pf.Input().MouseClick(cmd.Context(), mx, my, button); err != nil {
 					return err
 				}
 				if i+1 < repeat && timer != nil {
@@ -239,7 +239,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.DoubleClick(cmd.Context(), mx, my); err != nil {
+			if err := pf.Input().DoubleClick(cmd.Context(), mx, my); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -270,9 +270,9 @@ func inputCmd(
 			}
 			defer pf.Close()
 			if opts.Duration == 0 {
-				err = pf.Input.DragAndDrop(cmd.Context(), x1, y1, x2, y2)
+				err = pf.Input().DragAndDrop(cmd.Context(), x1, y1, x2, y2)
 			} else {
-				err = pf.Input.DragAndDropSmooth(cmd.Context(), image.Point{X: x1, Y: y1}, image.Point{X: x2, Y: y2}, opts)
+				err = pf.Input().DragAndDropSmooth(cmd.Context(), image.Point{X: x1, Y: y1}, image.Point{X: x2, Y: y2}, opts)
 			}
 			if err != nil {
 				return err
@@ -304,7 +304,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ClickCenter(cmd.Context(), r); err != nil {
+			if err := pf.Input().ClickCenter(cmd.Context(), r); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -341,7 +341,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.Type(cmd.Context(), text); err != nil {
+			if err := pf.Input().Type(cmd.Context(), text); err != nil {
 				return err
 			}
 			return syncIf(cmd.Context(), pf)
@@ -359,7 +359,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.KeyDown(cmd.Context(), args[0]); err != nil {
+			if err := pf.Input().KeyDown(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -379,7 +379,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.KeyUp(cmd.Context(), args[0]); err != nil {
+			if err := pf.Input().KeyUp(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -405,11 +405,11 @@ func inputCmd(
 			}
 			defer pf.Close()
 			if mdx != -1 && mdy != -1 {
-				if err := pf.Input.MouseMove(cmd.Context(), mdx, mdy); err != nil {
+				if err := pf.Input().MouseMove(cmd.Context(), mdx, mdy); err != nil {
 					return err
 				}
 			}
-			if err := pf.Input.MouseDown(cmd.Context(), mdButton); err != nil {
+			if err := pf.Input().MouseDown(cmd.Context(), mdButton); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -438,11 +438,11 @@ func inputCmd(
 			}
 			defer pf.Close()
 			if mux != -1 && muy != -1 {
-				if err := pf.Input.MouseMove(cmd.Context(), mux, muy); err != nil {
+				if err := pf.Input().MouseMove(cmd.Context(), mux, muy); err != nil {
 					return err
 				}
 			}
-			if err := pf.Input.MouseUp(cmd.Context(), muButton); err != nil {
+			if err := pf.Input().MouseUp(cmd.Context(), muButton); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -471,20 +471,20 @@ func inputCmd(
 			}
 			defer pf.Close()
 			if locationOutput == "json" {
-				result, observeErr := pf.Input.ObservePointer(cmd.Context())
+				result, observeErr := pf.Input().ObservePointer(cmd.Context())
 				if observeErr != nil {
 					return observeErr
 				}
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 			}
-			x, y, err := pf.Input.PointerLocation(cmd.Context())
+			x, y, err := pf.Input().PointerLocation(cmd.Context())
 			if err != nil && errors.Is(err, perfuncted.ErrUnsupported) && openInputWindow != nil {
 				// uinput and portal-EIS can inject input but cannot read the
 				// composited cursor. KDE's window backend can query KWin
 				// directly, without requiring a privileged injection device.
 				other, openErr := openInputWindow(cmd.Context())
 				if openErr == nil {
-					x, y, err = other.Windows.CursorPosition(cmd.Context())
+					x, y, err = other.Windows().CursorPosition(cmd.Context())
 					_ = other.Close()
 				}
 			}
@@ -506,7 +506,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			info, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+			info, err := pf.Input().PointerCoordinateSpace(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -535,9 +535,9 @@ func inputCmd(
 			defer pf.Close()
 			var target *perfuncted.Window
 			if clickWindowID != "" {
-				target, err = findWindowByStableID(cmd.Context(), pf.Windows, clickWindowID)
+				target, err = findWindowByStableID(cmd.Context(), pf.Windows(), clickWindowID)
 			} else {
-				target, err = findWindowByTitle(cmd.Context(), pf.Windows, clickWindowTitle)
+				target, err = findWindowByTitle(cmd.Context(), pf.Windows(), clickWindowTitle)
 			}
 			if err != nil {
 				return err
@@ -546,7 +546,7 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
-			space, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+			space, err := pf.Input().PointerCoordinateSpace(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("cannot safely map window coordinates to current input backend: %w (use --input-backend remote-desktop on Wayland)", err)
 			}
@@ -554,7 +554,7 @@ func inputCmd(
 			if err != nil {
 				return err
 			}
-			if err := pf.Input.MouseClick(cmd.Context(), px, py, clickWindowButton); err != nil {
+			if err := pf.Input().MouseClick(cmd.Context(), px, py, clickWindowButton); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -582,7 +582,7 @@ func inputCmd(
 			return err
 		}
 		defer pf.Close()
-		outs, err := pf.Outputs.List(cmd.Context())
+		outs, err := pf.Outputs().List(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -590,7 +590,7 @@ func inputCmd(
 		if err != nil {
 			return err
 		}
-		space, err := pf.Input.PointerCoordinateSpace(cmd.Context())
+		space, err := pf.Input().PointerCoordinateSpace(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("cannot map screenshot point to input backend: %w (use --input-backend remote-desktop on Wayland)", err)
 		}
@@ -601,7 +601,7 @@ func inputCmd(
 			return fmt.Errorf("mapped screenshot point outside pointer range")
 		}
 		px, py := int(fx), int(fy)
-		if err := pf.Input.MouseClick(cmd.Context(), px, py, clickScreenButton); err != nil {
+		if err := pf.Input().MouseClick(cmd.Context(), px, py, clickScreenButton); err != nil {
 			return err
 		}
 		if err := syncIf(cmd.Context(), pf); err != nil {
@@ -643,9 +643,9 @@ func inputCmd(
 		defer pf.Close()
 		var target *perfuncted.Window
 		if fileTargetID != "" {
-			target, err = findWindowByStableID(cmd.Context(), pf.Windows, fileTargetID)
+			target, err = findWindowByStableID(cmd.Context(), pf.Windows(), fileTargetID)
 		} else {
-			target, err = findWindowByTitle(cmd.Context(), pf.Windows, fileTargetTitle)
+			target, err = findWindowByTitle(cmd.Context(), pf.Windows(), fileTargetTitle)
 		}
 		if err != nil {
 			return err
@@ -656,40 +656,40 @@ func inputCmd(
 		if waitErr := waitWindowActive(cmd.Context(), target, 2*time.Second, 50*time.Millisecond); waitErr != nil {
 			return waitErr
 		}
-		prev, err := pf.Clipboard.Get(cmd.Context())
+		prev, err := pf.Clipboard().Get(cmd.Context())
 		if err != nil {
 			return err
 		}
-		if err := pf.Clipboard.Set(cmd.Context(), filePath); err != nil {
+		if err := pf.Clipboard().Set(cmd.Context(), filePath); err != nil {
 			return err
 		}
 		restored := false
 		defer func() {
 			if !restored {
-				if restoreErr := pf.Clipboard.Set(context.WithoutCancel(cmd.Context()), prev); restoreErr != nil {
+				if restoreErr := pf.Clipboard().Set(context.WithoutCancel(cmd.Context()), prev); restoreErr != nil {
 					retErr = errors.Join(retErr, fmt.Errorf("restore clipboard: %w", restoreErr))
 				}
 			}
 		}()
-		if err := pf.Input.Type(cmd.Context(), "{ctrl+l}{ctrl+v}{enter}"); err != nil {
+		if err := pf.Input().Type(cmd.Context(), "{ctrl+l}{ctrl+v}{enter}"); err != nil {
 			return err
 		}
 		if confirmFile {
 			// KDE and other choosers may first navigate into a directory and
 			// select the filename. The final Enter accepts the selected file.
-			if err := pf.Input.Type(cmd.Context(), "{enter}"); err != nil {
+			if err := pf.Input().Type(cmd.Context(), "{enter}"); err != nil {
 				return err
 			}
 		}
 		// Only restore clipboard after the chooser disappears: event dispatch
 		// alone does not prove that Ctrl+V has been processed.
-		if err := waitWindowGone(cmd.Context(), pf.Windows, target.ID().String(), 10*time.Second, 75*time.Millisecond); err != nil {
+		if err := waitWindowGone(cmd.Context(), pf.Windows(), target.ID().String(), 10*time.Second, 75*time.Millisecond); err != nil {
 			return err
 		}
 		// A successful chooser operation also promises that the caller's
 		// clipboard has been restored. Do not print success before verifying
 		// restoration: a deferred failure would otherwise contradict stdout.
-		restoreErr := pf.Clipboard.Set(context.WithoutCancel(cmd.Context()), prev)
+		restoreErr := pf.Clipboard().Set(context.WithoutCancel(cmd.Context()), prev)
 		restored = true
 		if restoreErr != nil {
 			return fmt.Errorf("restore clipboard: %w", restoreErr)
@@ -715,7 +715,7 @@ func inputCmd(
 				return err
 			}
 			defer pf.Close()
-			return pf.Input.Sync(cmd.Context())
+			return pf.Input().Sync(cmd.Context())
 		},
 	}
 	cmd.AddCommand(sync)
@@ -745,7 +745,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Input.Sync(ctx)
+			return pf.Input().Sync(ctx)
 		}
 		return nil
 	}
@@ -762,7 +762,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollUp(cmd.Context(), clicks); err != nil {
+			if err := pf.Input().ScrollUp(cmd.Context(), clicks); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -783,7 +783,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollDown(cmd.Context(), clicks); err != nil {
+			if err := pf.Input().ScrollDown(cmd.Context(), clicks); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -806,7 +806,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollLeft(cmd.Context(), clicks); err != nil {
+			if err := pf.Input().ScrollLeft(cmd.Context(), clicks); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -827,7 +827,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if err := pf.Input.ScrollRight(cmd.Context(), clicks); err != nil {
+			if err := pf.Input().ScrollRight(cmd.Context(), clicks); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -886,7 +886,7 @@ func inputHotkeyCmd(openObserver sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			sub, err := pf.InputObservation.Listen(ctx, filter)
+			sub, err := pf.InputObservation().Listen(ctx, filter)
 			if err != nil {
 				return err
 			}

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
+	"github.com/nskaggs/perfuncted/v2"
 	"github.com/spf13/cobra"
 )
 

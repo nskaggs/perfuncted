@@ -1181,7 +1181,7 @@ index 0000000..7b16440
 +
 +import (
 +	"bytes"
-+	"github.com/nskaggs/perfuncted/internal/third_party/xgb"
++	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb"
 +	"testing"
 +)
 +

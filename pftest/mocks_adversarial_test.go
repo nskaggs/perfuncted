@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func TestFixtureScreenshotterFramePlaybackAndCrop(t *testing.T) {

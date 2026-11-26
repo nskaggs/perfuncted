@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image"
 
-	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/v2/find"
 )
 
 // verifiedPhysicalRect converts a logical output-local rectangle into pixels

@@ -23,14 +23,14 @@ func (i *monitoringPasteInput) Type(context.Context, string) error {
 func TestClipboardPasteRejectsRevocationBetweenSetAndKeyboardDispatch(t *testing.T) {
 	input := &monitoringPasteInput{closeCountingInput: &closeCountingInput{}}
 	clipboard := &authorityLossClipboardBackend{}
-	session := NewSessionForTesting(nil, input, nil, nil, clipboard)
+	session := newSessionForTesting(nil, input, nil, nil, clipboard)
 	t.Cleanup(func() { _ = session.Close() })
 	base, cancelDeadline := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelDeadline()
 	owner, cancel := context.WithCancelCause(base)
 	defer cancel(nil)
 	ctx := &cancelAtErrCallContext{Context: owner, cancel: cancel, target: 3}
-	err := session.Clipboard.pasteWithInputContext(ctx, "sensitive updated selection", session.Input)
+	err := session.pasteWithInputContext(ctx, "sensitive updated selection", session.input)
 	if !errors.Is(err, context.Canceled) || ctx.calls != 3 {
 		t.Fatalf("post-clipboard cancellation: err=%v checks=%d", err, ctx.calls)
 	}
@@ -50,12 +50,12 @@ func (*readOnlyClipboardFixture) SupportedOperations() []string { return []strin
 
 func TestClipboardSetRejectsReadOnlyBackendBeforeMutation(t *testing.T) {
 	backend := &readOnlyClipboardFixture{authorityLossClipboardBackend: &authorityLossClipboardBackend{}}
-	session := NewSessionForTesting(nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
-	if _, err := session.Clipboard.Get(context.Background()); err != nil {
+	if _, err := session.clipboard.Get(context.Background()); err != nil {
 		t.Fatalf("readable clipboard not available: %v", err)
 	}
-	err := session.Clipboard.Set(context.Background(), "private content")
+	err := session.clipboard.Set(context.Background(), "private content")
 	if !errors.Is(err, ErrUnsupported) || backend.calls != 0 {
 		t.Fatalf("read-only clipboard accepted mutation: err=%v backend calls=%d", err, backend.calls)
 	}
@@ -84,7 +84,7 @@ func TestClipboardSetRejectsAuthorityLoss(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			backend := &authorityLossClipboardBackend{}
-			session := NewSessionForTesting(nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
 			expected := context.Canceled
 			if mode == "pre-canceled" {
@@ -95,7 +95,7 @@ func TestClipboardSetRejectsAuthorityLoss(t *testing.T) {
 				expected = ErrSessionClosed
 				backend.after = func() { _ = session.Close() }
 			}
-			err := session.Clipboard.Set(ctx, "private text")
+			err := session.clipboard.Set(ctx, "private text")
 			calls := 1
 			if mode == "pre-canceled" {
 				calls = 0

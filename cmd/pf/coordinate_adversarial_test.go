@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"math"
 	"math/rand"
 	"testing"

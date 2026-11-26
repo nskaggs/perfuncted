@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/nskaggs/perfuncted/output"
+	"github.com/nskaggs/perfuncted/v2/output"
 	"math/big"
 )
 

@@ -79,10 +79,10 @@ func (c *Context) Morph(xmlBytes []byte) {
 	// Write imports. We always need to import at least xgb.
 	// We also need to import xproto if it's an extension.
 	c.Putln("import (")
-	c.Putln("\"github.com/nskaggs/perfuncted/internal/third_party/xgb\"")
+	c.Putln("\"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb\"")
 	c.Putln("")
 	if c.protocol.isExt() {
-		c.Putln("\"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto\"")
+		c.Putln("\"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto\"")
 	}
 
 	sort.Sort(Protocols(c.protocol.Imports))
@@ -91,7 +91,7 @@ func (c *Context) Morph(xmlBytes []byte) {
 		if imp.Name == "xproto" {
 			continue
 		}
-		c.Putln("\"github.com/nskaggs/perfuncted/internal/third_party/xgb/%s\"", imp.Name)
+		c.Putln("\"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/%s\"", imp.Name)
 	}
 	c.Putln(")")
 	c.Putln("")

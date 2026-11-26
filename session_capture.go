@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/internal/capture"
+	"github.com/nskaggs/perfuncted/v2/internal/capture"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
-
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
 )
 
 // ErrWindowGeometryChanged means the selected window moved, resized, or
@@ -19,7 +18,7 @@ var ErrWindowGeometryChanged = errors.New("perfuncted: selected window geometry 
 // Session-owned window handle. It captures the visible desktop composite in
 // that rectangle, including any windows drawn above the target; it does not
 // retrieve hidden or minimized window contents.
-func (s *ScreenBundle) CaptureWindow(ctx context.Context, target *Window) (WindowCapture, error) {
+func (s *screenState) CaptureWindow(ctx context.Context, target *windowState) (WindowCapture, error) {
 	if err := s.validateWindowCaptureTarget(ctx, target, "capture window"); err != nil {
 		return WindowCapture{}, err
 	}
@@ -76,7 +75,7 @@ func (s *ScreenBundle) CaptureWindow(ctx context.Context, target *Window) (Windo
 // CaptureWindowBackground reads a target-only buffer when the selected screen
 // backend exposes that capability. It never activates the target and never
 // falls back to a visible desktop crop.
-func (s *ScreenBundle) CaptureWindowBackground(ctx context.Context, target *Window) (WindowCapture, error) {
+func (s *screenState) CaptureWindowBackground(ctx context.Context, target *windowState) (WindowCapture, error) {
 	if err := s.validateWindowCaptureTarget(ctx, target, "background capture"); err != nil {
 		return WindowCapture{}, err
 	}
@@ -92,7 +91,7 @@ func (s *ScreenBundle) CaptureWindowBackground(ctx context.Context, target *Wind
 		return WindowCapture{}, errors.Join(ErrUnsupported,
 			fmt.Errorf("perfuncted: minimized window %q: %w", target.id.native, ErrWindowCaptureMinimized))
 	}
-	capturer, ok := s.backend.(interface {
+	capturer, ok := s.backend().(interface {
 		CaptureWindowPixmap(context.Context, string) (screen.WindowPixmapCapture, error)
 	})
 	if !ok {
@@ -173,7 +172,7 @@ func backgroundCaptureState(buffer screen.WindowPixmapCapture) WindowCaptureStat
 	}
 }
 
-func (s *ScreenBundle) validateWindowCaptureTarget(ctx context.Context, target *Window, operation string) error {
+func (s *screenState) validateWindowCaptureTarget(ctx context.Context, target *windowState, operation string) error {
 	if ctx == nil {
 		return fmt.Errorf("perfuncted: %s: %w: nil context", operation, ErrInvalidArgument)
 	}
@@ -192,7 +191,7 @@ func (s *ScreenBundle) validateWindowCaptureTarget(ctx context.Context, target *
 	return ctx.Err()
 }
 
-func verifyWindowCaptureTarget(ctx context.Context, target *Window, before window.Info, operation string) (window.Info, error) {
+func verifyWindowCaptureTarget(ctx context.Context, target *windowState, before window.Info, operation string) (window.Info, error) {
 	after, err := target.Info(ctx)
 	if err != nil {
 		return window.Info{}, err
@@ -208,7 +207,7 @@ func verifyWindowCaptureTarget(ctx context.Context, target *Window, before windo
 
 // CaptureWindowBackgroundTo captures one target-only background buffer and
 // atomically publishes it as PNG at path.
-func (s *ScreenBundle) CaptureWindowBackgroundTo(ctx context.Context, target *Window, path string) (WindowCapture, error) {
+func (s *screenState) CaptureWindowBackgroundTo(ctx context.Context, target *windowState, path string) (WindowCapture, error) {
 	if path == "" {
 		return WindowCapture{}, fmt.Errorf("perfuncted: background capture: %w: empty output path", ErrInvalidArgument)
 	}
@@ -225,7 +224,7 @@ func (s *ScreenBundle) CaptureWindowBackgroundTo(ctx context.Context, target *Wi
 // CaptureWindowTo captures one stable window's visible screen rectangle and
 // atomically publishes it as PNG at path. The captured content is the desktop
 // composite, not a background-only buffer.
-func (s *ScreenBundle) CaptureWindowTo(ctx context.Context, target *Window, path string) (WindowCapture, error) {
+func (s *screenState) CaptureWindowTo(ctx context.Context, target *windowState, path string) (WindowCapture, error) {
 	if path == "" {
 		return WindowCapture{}, fmt.Errorf("perfuncted: capture window: %w: empty output path", ErrInvalidArgument)
 	}
@@ -283,3 +282,31 @@ func validateWindowCaptureImage(capture Capture) error {
 	}
 	return nil
 }
+
+// Capture preserves screen geometry alongside captured pixels.
+type Capture = screen.Capture
+
+// WindowCapture preserves pixels and the associated window identity.
+type WindowCapture = screen.WindowCapture
+
+// WindowCaptureMode identifies how a capture obtains pixels.
+type WindowCaptureMode = screen.WindowCaptureMode
+
+// WindowCaptureState describes established visibility.
+type WindowCaptureState = screen.WindowCaptureState
+
+// Window capture modes and visibility states.
+const (
+	WindowCaptureVisibleScreenCrop = screen.WindowCaptureVisibleScreenCrop
+	WindowCaptureBackgroundPixmap  = screen.WindowCaptureBackgroundPixmap
+	WindowCaptureForeground        = screen.WindowCaptureForeground
+	WindowCaptureBackgroundVisible = screen.WindowCaptureBackgroundVisible
+	WindowCaptureOccluded          = screen.WindowCaptureOccluded
+	WindowCaptureStateUnknown      = screen.WindowCaptureStateUnknown
+)
+
+// Errors specific to target-only capture.
+var (
+	ErrWindowCaptureMinimized = screen.ErrWindowCaptureMinimized
+	ErrWindowCaptureUnmapped  = screen.ErrWindowCaptureUnmapped
+)

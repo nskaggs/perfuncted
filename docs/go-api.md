@@ -3,11 +3,11 @@
 Perfuncted is also available as a Go library for direct desktop automation.
 
 ```bash
-go get github.com/nskaggs/perfuncted
+go get github.com/nskaggs/perfuncted/v2
 ```
 
 ```go
-import "github.com/nskaggs/perfuncted"
+import "github.com/nskaggs/perfuncted/v2"
 
 func enter() error {
     s, err := perfuncted.OpenDefault()
@@ -53,4 +53,4 @@ other advanced control, use the existing session bundles. In particular,
 `AccessibilityLocator.ClickAndWait` returns action and observation evidence;
 conditions such as `AccessibilityTextContains` can express a postcondition.
 
-See the [Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted).
+See the [Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted/v2).

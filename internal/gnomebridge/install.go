@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/executil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
 	"golang.org/x/sys/unix"
 )
 

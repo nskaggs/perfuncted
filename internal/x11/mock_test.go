@@ -2,8 +2,8 @@ package x11
 
 import (
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/randr"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/randr"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
 	"reflect"
 	"testing"
 )

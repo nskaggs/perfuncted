@@ -3,8 +3,8 @@ package input
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
-	"github.com/nskaggs/perfuncted/internal/x11"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/x11"
 	"reflect"
 	"strings"
 	"testing"

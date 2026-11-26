@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/accessibility"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
 )
 
 func certifyReleaseAccessibilityCLI(t *testing.T, s *suite) {
@@ -94,14 +94,14 @@ func certifyReleaseAccessibilityCLI(t *testing.T, s *suite) {
 	// Read-only fresh observation; never replay the text mutation.
 	options := certificationSnapshotOptions()
 	options.AllowSensitive = true
-	locator := s.pf.Accessibility.LocatorForWindow(info.NativeID, accessibility.Selector{Role: editable.Role, Name: editable.Name}, options)
+	locator := s.pf.Accessibility().LocatorForWindow(info.NativeID, accessibility.Selector{Role: editable.Role, Name: editable.Name}, options)
 	if _, err := resolveCertificationEditable(ctx, locator, editable.ID, marker); err != nil {
 		t.Fatalf("CLI text did not reach exact original node: %v", err)
 	}
 	// A separate CLI connection must validate its generation and handle.
 	run("a11y", "raw", "--op", "set-caret", "--bus", matches[0].ID.BusName, "--path", matches[0].ID.ObjectPath, "--generation", strconv.FormatUint(matches[0].ID.Generation, 10), "--offset", strconv.Itoa(len([]rune(marker))), "--json")
 	dirty, err := retryChangedSnapshot(ctx, func() (accessibility.Snapshot, error) {
-		return s.pf.Accessibility.Snapshot(ctx, originalScope.Root, certificationSnapshotOptions())
+		return s.pf.Accessibility().Snapshot(ctx, originalScope.Root, certificationSnapshotOptions())
 	})
 	if err != nil {
 		t.Fatal(err)

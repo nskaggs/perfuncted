@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // ErrNilFunction is returned when a poll helper receives a nil callback.

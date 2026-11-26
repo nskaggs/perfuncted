@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/scripts/internal/cliname"
+	"github.com/nskaggs/perfuncted/v2/scripts/internal/cliname"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -179,7 +179,7 @@ func verifyCLISync(moduleDir, docsDir string) int { //nolint:gocyclo
 
 	var perfPkg *packages.Package
 	for _, p := range pkgs {
-		if p.PkgPath == "github.com/nskaggs/perfuncted" {
+		if p.PkgPath == "github.com/nskaggs/perfuncted/v2" {
 			perfPkg = p
 			break
 		}

@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
-	"github.com/nskaggs/perfuncted/internal/x11"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/x11"
 )
 
 var _ Screenshotter = (*X11Backend)(nil)

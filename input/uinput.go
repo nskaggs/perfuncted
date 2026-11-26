@@ -13,10 +13,10 @@ import (
 	"unsafe"
 
 	"github.com/bendahl/uinput"
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/keymap"
-	oplife "github.com/nskaggs/perfuncted/internal/operation"
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/keymap"
+	oplife "github.com/nskaggs/perfuncted/v2/internal/operation"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 var _ Inputter = (*UinputBackend)(nil)

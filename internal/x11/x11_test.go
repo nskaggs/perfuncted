@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
 )
 
 var errTest = errors.New("test error")

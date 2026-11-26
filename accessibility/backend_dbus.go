@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/internal/capability"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
 )
 
 const (

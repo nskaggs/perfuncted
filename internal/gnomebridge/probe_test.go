@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/probe"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/probe"
 )
 
 func TestProbeCapabilityPrefersAdvertisedGNOMEBridge(t *testing.T) {

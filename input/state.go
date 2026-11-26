@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/third_party/xgb/xproto"
+	"github.com/nskaggs/perfuncted/v2/internal/third_party/xgb/xproto"
 )
 
 // ErrInvalidStateQuery reports a malformed or unsupported state selector.

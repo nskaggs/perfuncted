@@ -8,7 +8,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // Session encapsulates a Wayland connection and the display/registry helpers.

@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/nskaggs/perfuncted/find"
+	"github.com/nskaggs/perfuncted/v2/find"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +78,7 @@ truncated the result. Tesseract confidence is on its 0–100 provider scale.`,
 				return err
 			}
 			defer pf.Close()
-			result, err := pf.Screen.FindText(ctx, rect, query, options)
+			result, err := pf.Screen().FindText(ctx, rect, query, options)
 			if err != nil {
 				return err
 			}

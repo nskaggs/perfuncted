@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"image/png"
@@ -36,7 +36,7 @@ func TestCaptureRegionDoesNotPublishAfterEncodingCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	img := &cancelDuringPNGEncoding{cancel: cancel}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	dir := t.TempDir()
 	path := filepath.Join(dir, "screen.png")
@@ -44,7 +44,7 @@ func TestCaptureRegionDoesNotPublishAfterEncodingCancellation(t *testing.T) {
 	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err := session.Screen.CaptureRegion(ctx, img.Bounds(), path)
+	err := session.screen.CaptureRegion(ctx, img.Bounds(), path)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("encoder cancellation acknowledged as success: %v", err)
 	}
@@ -75,7 +75,7 @@ func (i *closeSessionDuringPNGEncoding) At(int, int) color.Color {
 // replace the existing destination or leave a temporary file behind.
 func TestCaptureRegionDoesNotPublishAfterSessionClosesDuringEncoding(t *testing.T) {
 	img := &closeSessionDuringPNGEncoding{}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	img.onRead = func() {
 		if err := session.Close(); err != nil {
@@ -88,7 +88,7 @@ func TestCaptureRegionDoesNotPublishAfterSessionClosesDuringEncoding(t *testing.
 	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err := session.Screen.CaptureRegion(context.Background(), img.Bounds(), path)
+	err := session.screen.CaptureRegion(context.Background(), img.Bounds(), path)
 	if !errors.Is(err, ErrSessionClosed) {
 		t.Fatalf("revoked encoding incorrectly published: %v", err)
 	}
@@ -166,17 +166,17 @@ func TestScreenBundleNeverPublishesMalformedCaptureOrOverwritesExistingPNG(t *te
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: tc.img}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: tc.img}, nil, nil, nil, nil)
 			defer session.Close()
 			ctx := context.Background()
-			if _, err := session.Screen.Grab(ctx, image.Rect(0, 0, 2, 2)); err == nil || !strings.Contains(err.Error(), "invalid capture") {
+			if _, err := session.screen.Grab(ctx, image.Rect(0, 0, 2, 2)); err == nil || !strings.Contains(err.Error(), "invalid capture") {
 				t.Fatalf("malformed provider image exposed: %v", err)
 			}
 			target := filepath.Join(t.TempDir(), "existing.png")
 			if err := os.WriteFile(target, []byte("preserve original"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if err := session.Screen.CaptureRegion(ctx, image.Rect(0, 0, 2, 2), target); err == nil || !strings.Contains(err.Error(), "invalid capture") {
+			if err := session.screen.CaptureRegion(ctx, image.Rect(0, 0, 2, 2), target); err == nil || !strings.Contains(err.Error(), "invalid capture") {
 				t.Fatalf("malformed provider capture published: %v", err)
 			}
 			data, err := os.ReadFile(target)
@@ -193,9 +193,9 @@ func TestScreenBundleNeverPublishesMalformedCaptureOrOverwritesExistingPNG(t *te
 
 func TestScreenBundleAcceptsZeroWidthYCbCrBoundsWithoutPixelPlanes(t *testing.T) {
 	frame := &image.YCbCr{Rect: image.Rect(4, 4, 4, 6), SubsampleRatio: image.YCbCrSubsampleRatio420}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	defer session.Close()
-	got, err := session.Screen.Grab(context.Background(), frame.Bounds())
+	got, err := session.screen.Grab(context.Background(), frame.Bounds())
 	if err != nil || got != frame {
 		t.Fatalf("valid zero-width YCbCr capture rejected or rewritten: %v %T", err, got)
 	}
@@ -223,15 +223,15 @@ func TestScreenBundlePreservesValidOddOriginYCbCrSubimage(t *testing.T) {
 				parent.Cr[i] = byte(140 + i)
 			}
 			frame := parent.SubImage(image.Rect(11, 21, 15, 25))
-			session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 			defer session.Close()
 			ctx := context.Background()
-			if got, err := session.Screen.Grab(ctx, frame.Bounds()); err != nil || got != frame {
+			if got, err := session.screen.Grab(ctx, frame.Bounds()); err != nil || got != frame {
 				t.Fatalf("valid odd-origin YCbCr subimage rejected or rewritten: %v %T", err, got)
 			}
 			expected := color.RGBAModel.Convert(frame.At(14, 24)).(color.RGBA) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
 			target := filepath.Join(t.TempDir(), "capture.png")
-			if err := session.Screen.CaptureRegion(ctx, frame.Bounds(), target); err != nil {
+			if err := session.screen.CaptureRegion(ctx, frame.Bounds(), target); err != nil {
 				t.Fatal(err)
 			}
 			file, err := os.Open(target)
@@ -257,15 +257,15 @@ func TestScreenBundlePreservesValidPaddedSubimageAndEncodesExpectedPixels(t *tes
 		1, 2, 3, 255, 5, 6, 7, 255, 0xc1, 0xc2, 0xc3, 0xc4,
 		9, 10, 11, 255, 13, 14, 15, 255,
 	}}
-	session := NewSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
 	defer session.Close()
 	ctx := context.Background()
-	got, err := session.Screen.Grab(ctx, image.Rect(10, 20, 12, 22))
+	got, err := session.screen.Grab(ctx, image.Rect(10, 20, 12, 22))
 	if err != nil || got != frame {
 		t.Fatalf("valid subimage rejected or rewritten: %v %T", err, got)
 	}
 	target := filepath.Join(t.TempDir(), "capture.png")
-	if err := session.Screen.CaptureRegion(ctx, image.Rect(10, 20, 12, 22), target); err != nil {
+	if err := session.screen.CaptureRegion(ctx, image.Rect(10, 20, 12, 22), target); err != nil {
 		t.Fatal(err)
 	}
 	file, err := os.Open(target)
@@ -290,7 +290,7 @@ func TestScreenBundlePreservesValidPaddedSubimageAndEncodesExpectedPixels(t *tes
 // compute that receiver and panicked before any nil check could report the
 // unavailable session.
 func TestNilScreenBundleCaptureReturnsUnavailable(t *testing.T) {
-	var s *ScreenBundle
+	var s ScreenBundle
 	if _, err := s.Capture(context.Background(), image.Rect(0, 0, 10, 10)); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Capture on a nil bundle = %v, want ErrNilSession", err)
 	}
@@ -299,7 +299,7 @@ func TestNilScreenBundleCaptureReturnsUnavailable(t *testing.T) {
 // Every traced entry point has to tolerate a nil receiver, because each traces
 // before it checks the backend.
 func TestNilScreenBundleTracedEntrypointsDoNotPanic(t *testing.T) {
-	var s *ScreenBundle
+	var s ScreenBundle
 	ctx := context.Background()
 	rect := image.Rect(0, 0, 10, 10)
 
@@ -455,11 +455,11 @@ var _ screen.Screenshotter = (*captureTestScreenshotter)(nil)
 
 func TestScreenCapturePreservesRequestedScreenRect(t *testing.T) {
 	backend := &captureTestScreenshotter{img: image.NewRGBA(image.Rect(20, 30, 24, 34))}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
 	wantRect := image.Rect(100, 200, 104, 204)
-	capture, err := session.Screen.Capture(context.Background(), wantRect)
+	capture, err := session.screen.Capture(context.Background(), wantRect)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -477,10 +477,10 @@ func TestScreenCapturePreservesRequestedScreenRect(t *testing.T) {
 func TestScreenCaptureRejectsUnknownFullScreenProvenance(t *testing.T) {
 	img := image.NewRGBA(image.Rect(3, 4, 8, 10))
 	backend := &captureTestScreenshotter{img: img}
-	session := NewSessionForTesting(backend, nil, nil, nil, nil)
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
-	capture, err := session.Screen.Capture(context.Background(), image.Rectangle{})
+	capture, err := session.screen.Capture(context.Background(), image.Rectangle{})
 	if err == nil || !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("Capture error = %v, want ErrInvalidArgument", err)
 	}
@@ -551,13 +551,13 @@ func TestCaptureWindowBackgroundReportsTargetOnlyStateWithoutActivation(t *testi
 			Visibility: screen.WindowPixmapOccluded,
 		}, nil
 	}}
-	session := NewSessionForTesting(backend, nil, manager, nil, nil)
+	session := newSessionForTesting(backend, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture, err := session.Screen.CaptureWindowBackground(context.Background(), target)
+	capture, err := session.screen.CaptureWindowBackground(context.Background(), target)
 	if err != nil {
 		t.Fatalf("CaptureWindowBackground: %v", err)
 	}
@@ -593,13 +593,13 @@ func TestCaptureWindowBackgroundRequiresKnownFocusForBackgroundVisibleState(t *t
 				return screen.WindowPixmapCapture{Image: image.NewRGBA(image.Rect(0, 0, 4, 3)), ScreenRect: image.Rect(10, 20, 14, 23),
 					Visibility: screen.WindowPixmapUnobscured, Foreground: tc.foreground, ForegroundKnown: tc.known}, nil
 			}}
-			session := NewSessionForTesting(backend, nil, manager, nil, nil)
+			session := newSessionForTesting(backend, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
-			capture, err := session.Screen.CaptureWindowBackground(context.Background(), target)
+			capture, err := session.screen.CaptureWindowBackground(context.Background(), target)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -638,13 +638,13 @@ func TestCaptureWindowBackgroundRejectsMinimizedAndUnsupportedBackends(t *testin
 					return screen.WindowPixmapCapture{}, nil
 				}}
 			}
-			session := NewSessionForTesting(backend, nil, manager, nil, nil)
+			session := newSessionForTesting(backend, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = session.Screen.CaptureWindowBackground(context.Background(), target)
+			_, err = session.screen.CaptureWindowBackground(context.Background(), target)
 			if !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("CaptureWindowBackground error=%v, want ErrUnsupported", err)
 			}
@@ -667,13 +667,13 @@ func TestCaptureWindowBackgroundPreservesUnmappedState(t *testing.T) {
 	backend := &windowPixmapScreenshotter{windowCaptureScreenshotter: base, capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
 		return screen.WindowPixmapCapture{}, errors.Join(screen.ErrBackgroundWindowCaptureUnsupported, screen.ErrBackgroundWindowUnmapped)
 	}}
-	session := NewSessionForTesting(backend, nil, manager, nil, nil)
+	session := newSessionForTesting(backend, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Screen.CaptureWindowBackground(context.Background(), target); !errors.Is(err, ErrUnsupported) || !errors.Is(err, ErrWindowCaptureUnmapped) {
+	if _, err := session.screen.CaptureWindowBackground(context.Background(), target); !errors.Is(err, ErrUnsupported) || !errors.Is(err, ErrWindowCaptureUnmapped) {
 		t.Fatalf("unmapped target error=%v", err)
 	}
 }
@@ -692,14 +692,14 @@ func TestCaptureWindowBackgroundToWritesPNGAndReturnsMetadata(t *testing.T) {
 			}, nil
 		},
 	}
-	session := NewSessionForTesting(backend, nil, manager, nil, nil)
+	session := newSessionForTesting(backend, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "background.png")
-	capture, err := session.Screen.CaptureWindowBackgroundTo(context.Background(), target, path)
+	capture, err := session.screen.CaptureWindowBackgroundTo(context.Background(), target, path)
 	if err != nil {
 		t.Fatalf("CaptureWindowBackgroundTo: %v", err)
 	}
@@ -748,13 +748,13 @@ func TestCaptureWindowBackgroundToRejectsEmptyPathBeforeCaptureAndPropagatesFail
 					}, nil
 				},
 			}
-			session := NewSessionForTesting(backend, nil, manager, nil, nil)
+			session := newSessionForTesting(backend, nil, manager, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = session.Screen.CaptureWindowBackgroundTo(context.Background(), target, tc.path(t))
+			_, err = session.screen.CaptureWindowBackgroundTo(context.Background(), target, tc.path(t))
 			if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
 				t.Fatalf("CaptureWindowBackgroundTo error=%v, want error matching %v", err, tc.wantErr)
 			}
@@ -787,11 +787,11 @@ func windowCaptureFixture(
 	t *testing.T,
 	info window.Info,
 	grab func(context.Context, image.Rectangle) (image.Image, error),
-) (*Session, *handleWindowManager) {
+) (*sessionCore, *handleWindowManager) {
 	t.Helper()
 	manager := newHandleWindowManager(info)
 	screenshot := &windowCaptureScreenshotter{grab: grab}
-	session := NewSessionForTesting(screenshot, nil, manager, nil, nil)
+	session := newSessionForTesting(screenshot, nil, manager, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	return session, manager
 }
@@ -809,12 +809,12 @@ func TestCaptureWindowUsesFreshBoundsAndDoesNotActivate(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	capture, err := session.Screen.CaptureWindow(context.Background(), target)
+	capture, err := session.screen.CaptureWindow(context.Background(), target)
 	if err != nil {
 		t.Fatalf("CaptureWindow: %v", err)
 	}
@@ -846,12 +846,12 @@ func TestCaptureWindowAcceptsUniformHiDPIScale(t *testing.T) {
 	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx()*2, rect.Dy()*2)), nil
 	})
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Scaled"})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Scaled"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	capture, err := session.Screen.CaptureWindow(context.Background(), target)
+	capture, err := session.screen.CaptureWindow(context.Background(), target)
 	if err != nil {
 		t.Fatalf("CaptureWindow: %v", err)
 	}
@@ -871,12 +871,12 @@ func TestCaptureWindowRejectsClippedCapture(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx()-10, rect.Dy())), nil
 	})
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Offscreen"})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Offscreen"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := session.Screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrUnsupported) {
+	if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("CaptureWindow error=%v, want ErrUnsupported for clipped geometry", err)
 	}
 	if grabs != 1 {
@@ -898,11 +898,11 @@ func TestCaptureWindowRejectsMinimizedAndMissingGeometryBeforeCapture(t *testing
 				grabs++
 				return image.NewRGBA(image.Rect(0, 0, 32, 32)), nil
 			})
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: tc.info.Title})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: tc.info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := session.Screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrUnsupported) {
+			if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("CaptureWindow error=%v, want ErrUnsupported", err)
 			}
 			if grabs != 0 {
@@ -929,11 +929,11 @@ func TestCaptureWindowRejectsIdentityOrGeometryChangesDuringCapture(t *testing.T
 				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 			})
 			manager = m
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := session.Screen.CaptureWindow(context.Background(), target); !errors.Is(err, tc.wantErr) {
+			if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, tc.wantErr) {
 				t.Fatalf("CaptureWindow error=%v, want %v", err, tc.wantErr)
 			}
 		})
@@ -947,12 +947,12 @@ func TestCaptureWindowRejectsReplacementBeforeCapture(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	manager.setWindows(false, window.Info{NativeID: "reused-id", Title: "Replacement", AppID: "other", PID: 99, X: 1, Y: 2, W: 20, H: 10})
-	if _, err := session.Screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrWindowIdentityChanged) {
+	if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrWindowIdentityChanged) {
 		t.Fatalf("CaptureWindow error=%v, want ErrWindowIdentityChanged", err)
 	}
 	if grabs != 0 {
@@ -965,7 +965,7 @@ func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 	first, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := first.Windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	target, err := first.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -974,7 +974,7 @@ func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
 		grabs++
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	if _, err := second.Screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrInvalidArgument) {
+	if _, err := second.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("CaptureWindow error=%v, want ErrInvalidArgument", err)
 	}
 	if grabs != 0 {
@@ -987,12 +987,12 @@ func TestCaptureWindowToWritesPNGAndReturnsMetadata(t *testing.T) {
 	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
 		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 	})
-	target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "visible.png")
-	capture, err := session.Screen.CaptureWindowTo(context.Background(), target, path)
+	capture, err := session.screen.CaptureWindowTo(context.Background(), target, path)
 	if err != nil {
 		t.Fatalf("CaptureWindowTo: %v", err)
 	}
@@ -1032,11 +1032,11 @@ func TestCaptureWindowToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *te
 				}
 				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
 			})
-			target, err := session.Windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = session.Screen.CaptureWindowTo(context.Background(), target, tc.path(t))
+			_, err = session.screen.CaptureWindowTo(context.Background(), target, tc.path(t))
 			if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
 				t.Fatalf("CaptureWindowTo error=%v, want error matching %v", err, tc.wantErr)
 			}

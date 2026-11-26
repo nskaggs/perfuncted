@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/input"
+	"github.com/nskaggs/perfuncted/v2/input"
 	"github.com/spf13/cobra"
 )
 
@@ -55,14 +55,14 @@ separate from whether the Caps Lock key is held.`,
 			var state input.StateObservation
 			switch {
 			case cmd.Flags().Changed("key"):
-				state, err = pf.InputObservation.KeyState(cmd.Context(), keyName)
+				state, err = pf.InputObservation().KeyState(cmd.Context(), keyName)
 			case cmd.Flags().Changed("lock"):
-				state, err = pf.InputObservation.LockState(cmd.Context(), lockName)
+				state, err = pf.InputObservation().LockState(cmd.Context(), lockName)
 			default:
 				var button int
 				button, err = parseInputStateButton(buttonName)
 				if err == nil {
-					state, err = pf.InputObservation.MouseButtonState(cmd.Context(), button)
+					state, err = pf.InputObservation().MouseButtonState(cmd.Context(), button)
 				}
 			}
 			if err != nil {

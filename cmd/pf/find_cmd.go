@@ -44,7 +44,7 @@ func findCmd(
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitFor(ctx, r, want, poll)
+			h, err := pf.Screen().WaitFor(ctx, r, want, poll)
 			if err != nil {
 				return err
 			}
@@ -85,7 +85,7 @@ func findCmd(
 			defer cancel()
 			var initial uint32
 			if waitForChangeCaptureInitial {
-				if initial, err = pf.Screen.GrabRegionHash(ctx, r); err != nil {
+				if initial, err = pf.Screen().GrabRegionHash(ctx, r); err != nil {
 					return err
 				}
 			} else {
@@ -93,7 +93,7 @@ func findCmd(
 					return err
 				}
 			}
-			h, err := pf.Screen.WaitForChange(ctx, r, initial, poll)
+			h, err := pf.Screen().WaitForChange(ctx, r, initial, poll)
 			if err != nil {
 				return err
 			}
@@ -138,7 +138,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			h, err := pf.Screen.WaitForNoChange(
+			h, err := pf.Screen().WaitForNoChange(
 				ctx,
 				r,
 				waitForNoChangeStableCount,
@@ -191,7 +191,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			res, err := pf.Screen.ScanFor(ctx, rects, wants, poll)
+			res, err := pf.Screen().ScanFor(ctx, rects, wants, poll)
 			if err != nil {
 				return err
 			}
@@ -234,16 +234,16 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			initial, err := pf.Screen.GrabRegionHash(ctx, r)
+			initial, err := pf.Screen().GrabRegionHash(ctx, r)
 			if err != nil {
 				return err
 			}
-			h, err := pf.Screen.WaitForChange(ctx, r, initial, poll)
+			h, err := pf.Screen().WaitForChange(ctx, r, initial, poll)
 			if err != nil {
 				return err
 			}
 			if vfStable > 1 {
-				h, err = pf.Screen.WaitForNoChange(
+				h, err = pf.Screen().WaitForNoChange(
 					ctx,
 					r,
 					vfStable,
@@ -281,7 +281,7 @@ starts (e.g. navigation begins), then wait-for-no-change to detect when it finis
 			if err != nil {
 				return err
 			}
-			pt, err := pf.Screen.FindColor(cmd.Context(), r, c, colorTolerance)
+			pt, err := pf.Screen().FindColor(cmd.Context(), r, c, colorTolerance)
 			if err != nil {
 				return err
 			}

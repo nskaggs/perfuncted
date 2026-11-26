@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"iter"
 	"reflect"
 	"strings"
@@ -43,19 +43,19 @@ func TestAccessibilityActionReceiptRejectsClosedSession(t *testing.T) {
 			backend := &closingActionReceiptBackend{accessibilityAutomationFake: &accessibilityAutomationFake{
 				bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, accessibilityAutomationSpy: &accessibilityAutomationSpy{},
 			}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
 			backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			var action accessibility.Action
 			var err error
 			id := accessibility.NodeID{BusName: "org.synthetic", ObjectPath: "/button", Generation: 1}
 			if name == "by-name" {
-				action, err = session.Accessibility.InvokeActionByName(context.Background(), id, "press")
+				action, err = session.accessibility.InvokeActionByName(context.Background(), id, "press")
 			} else {
-				action, err = session.Accessibility.InvokeDefaultAction(context.Background(), id)
+				action, err = session.accessibility.InvokeDefaultAction(context.Background(), id)
 			}
 			if !errors.Is(err, ErrSessionClosed) || action.Name != "" || backend.calls != 1 {
 				t.Fatalf("%s receipt after session closure: action=%+v err=%v calls=%d", name, action, err, backend.calls)
@@ -93,12 +93,12 @@ func TestAccessibilityBundleDirectOutlineProviderPreservesScopeAndFailures(t *te
 		accessibilityAutomationFake: &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 11}, accessibilityAutomationSpy: &accessibilityAutomationSpy{}},
 	}
 	p := &directOutlineAccessibilityProbe{snapshotAccessibilityAutomationFake: underlying, response: accessibility.Outline{Root: accessibility.OutlineNode{ID: root}, Generation: 11, Truncated: true, ProviderErrors: 2, Warnings: []string{"synthetic provider incomplete"}}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, p)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, p)
 	defer session.Close()
-	owner := session.Accessibility.backend
-	session.Accessibility.backend = p
-	defer func() { session.Accessibility.backend = owner }()
-	actual, err := session.Accessibility.Outline(context.Background(), root, snapshotOpts, outlineOpts)
+	owner := session.accessibility.backend
+	session.accessibility.backend = p
+	defer func() { session.accessibility.backend = owner }()
+	actual, err := session.accessibility.Outline(context.Background(), root, snapshotOpts, outlineOpts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,13 +110,13 @@ func TestAccessibilityBundleDirectOutlineProviderPreservesScopeAndFailures(t *te
 	}
 	failure := errors.New("synthetic provider refused scoped outline")
 	p.failure = failure
-	actual, err = session.Accessibility.Outline(context.Background(), root, snapshotOpts, outlineOpts)
+	actual, err = session.accessibility.Outline(context.Background(), root, snapshotOpts, outlineOpts)
 	if !errors.Is(err, failure) || p.calls != 2 || underlying.snapshotCalls != 0 {
 		t.Fatalf("provider failure was hidden or retried as unscoped snapshot: err=%v calls=%d fallback=%d", err, p.calls, underlying.snapshotCalls)
 	}
 }
 
-func semanticActionCoverageFixture(spy *accessibilityAutomationSpy) (*Session, accessibility.NodeID) {
+func semanticActionCoverageFixture(spy *accessibilityAutomationSpy) (*sessionCore, accessibility.NodeID) {
 	root := accessibility.NodeID{BusName: "org.synthetic.Editor", ObjectPath: "/app", Generation: 19}
 	target := accessibility.NodeID{BusName: root.BusName, ObjectPath: "/app/save", Generation: root.Generation}
 	app := accessibility.Node{ID: root, Role: "application", Name: "Editor"}
@@ -134,7 +134,7 @@ func semanticActionCoverageFixture(spy *accessibilityAutomationSpy) (*Session, a
 			Generation: root.Generation,
 		},
 	}
-	return NewSessionForTesting(nil, nil, nil, nil, nil, fake), root
+	return newSessionForTesting(nil, nil, nil, nil, nil, fake), root
 }
 
 func TestAccessibilitySemanticActionDoesNotInventReceiptForProviderError(t *testing.T) {
@@ -146,7 +146,7 @@ func TestAccessibilitySemanticActionDoesNotInventReceiptForProviderError(t *test
 	session, root := semanticActionCoverageFixture(spy)
 	defer session.Close()
 
-	receipt, err := session.Accessibility.InvokeSemanticAction(
+	receipt, err := session.accessibility.InvokeSemanticAction(
 		context.Background(), root, accessibility.Query{Name: "Save", Role: "button"}, "press", accessibility.SnapshotOptions{},
 	)
 	if !errors.Is(err, providerErr) {
@@ -174,7 +174,7 @@ func TestAccessibilitySemanticActionSuppressesReceiptWhenCallerCancelsDuringFail
 	session, root := semanticActionCoverageFixture(spy)
 	defer session.Close()
 
-	receipt, err := session.Accessibility.InvokeSemanticAction(
+	receipt, err := session.accessibility.InvokeSemanticAction(
 		ctx, root, accessibility.Query{Name: "Save", Role: "button"}, "press", accessibility.SnapshotOptions{},
 	)
 	if !errors.Is(err, context.Canceled) || errors.Is(err, providerErr) {
@@ -190,10 +190,10 @@ func TestAccessibilitySemanticActionSuppressesReceiptWhenCallerCancelsDuringFail
 
 func TestAccessibilityEventsRejectNilContextBeforeProviderDispatch(t *testing.T) {
 	provider := &bundleAccessibilityFake{gen: 1}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, provider)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, provider)
 	defer session.Close()
 
-	stream, err := session.Accessibility.Events(nil, accessibility.EventOptions{})
+	stream, err := session.accessibility.Events(nil, accessibility.EventOptions{})
 	if stream != nil || err == nil {
 		t.Fatalf("nil-context event request returned stream=%v err=%v", stream, err)
 	}
@@ -231,12 +231,12 @@ func TestAccessibilityBundleRejectsMalformedSubscriptionResults(t *testing.T) {
 			if tc.stream {
 				backend.stream = make(chan accessibility.Event, 1)
 			}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
-			stream, err := session.Accessibility.Events(context.Background(), accessibility.EventOptions{})
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
+			stream, err := session.accessibility.Events(context.Background(), accessibility.EventOptions{})
 			want := tc.want
 			if want == nil {
 				want = tc.backendErr
@@ -270,11 +270,11 @@ func TestAccessibilityEventsRefuseUnauthorizedSubscriptionResults(t *testing.T) 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			backend := &revokingAccessibilityEventSetup{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			oldBackend := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = oldBackend })
+			oldBackend := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = oldBackend })
 			want := context.Canceled
 			switch mode {
 			case "pre-cancel":
@@ -289,7 +289,7 @@ func TestAccessibilityEventsRefuseUnauthorizedSubscriptionResults(t *testing.T) 
 					session.lifecycleMu.Unlock()
 				}
 			}
-			stream, err := session.Accessibility.Events(ctx, accessibility.EventOptions{})
+			stream, err := session.accessibility.Events(ctx, accessibility.EventOptions{})
 			wantCalls := 1
 			if mode == "pre-cancel" {
 				wantCalls = 0
@@ -325,20 +325,20 @@ func TestAccessibilityFindDiscardsResultsAfterSessionClosure(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := accessibility.NodeID{BusName: "org.synthetic.Editor", ObjectPath: "/app", Generation: 1}
 			backend := &closingAccessibilityFindSnapshot{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, root: root}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
 			backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			var nameOut string
 			var err error
 			if name == "find" {
 				var got []accessibility.Node
-				got, err = session.Accessibility.Find(context.Background(), root, accessibility.Query{Name: "private-button", Role: "button"}, accessibility.SnapshotOptions{})
+				got, err = session.accessibility.Find(context.Background(), root, accessibility.Query{Name: "private-button", Role: "button"}, accessibility.SnapshotOptions{})
 				if len(got) != 0 {
 					nameOut = got[0].Name
 				}
 			} else {
 				var got accessibility.Node
-				got, err = session.Accessibility.FindOneSelector(context.Background(), root, accessibility.Selector{Name: "private-button", Role: "button"}, accessibility.SnapshotOptions{})
+				got, err = session.accessibility.FindOneSelector(context.Background(), root, accessibility.Selector{Name: "private-button", Role: "button"}, accessibility.SnapshotOptions{})
 				nameOut = got.Name
 			}
 			if !errors.Is(err, ErrSessionClosed) || nameOut != "" || backend.calls != 1 {
@@ -366,13 +366,13 @@ func (b *closingGenerationReadBackend) Generation() uint64 {
 // cannot remain valid if the session closes while the backend is reading it.
 func TestAccessibilityGenerationDiscardsIdentityOnLateSessionClosure(t *testing.T) {
 	backend := &closingGenerationReadBackend{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 71}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
-	owner := session.Accessibility.backend
-	session.Accessibility.backend = backend
-	t.Cleanup(func() { session.Accessibility.backend = owner })
+	owner := session.accessibility.backend
+	session.accessibility.backend = backend
+	t.Cleanup(func() { session.accessibility.backend = owner })
 	backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
-	got := session.Accessibility.Generation()
+	got := session.accessibility.Generation()
 	if got != 0 || backend.calls != 1 {
 		t.Fatalf("generation leaked during closure: got=%d calls=%d", got, backend.calls)
 	}
@@ -411,7 +411,7 @@ func TestAccessibilityIdentityReadsDiscardResultsAfterSessionClosure(t *testing.
 	for _, name := range []string{"window", "fresh-window", "application", "fresh-application"} {
 		t.Run(name, func(t *testing.T) {
 			backend := &closingAccessibilityIdentityBackend{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
 			backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			var err error
@@ -420,17 +420,17 @@ func TestAccessibilityIdentityReadsDiscardResultsAfterSessionClosure(t *testing.
 			case "window", "fresh-window":
 				var scope accessibility.WindowScope
 				if name == "window" {
-					scope, err = session.Accessibility.AccessibilityWindow(context.Background(), accessibility.WindowTarget{ID: "win", Title: "Editor"})
+					scope, err = session.accessibility.AccessibilityWindow(context.Background(), accessibility.WindowTarget{ID: "win", Title: "Editor"})
 				} else {
-					scope, err = session.Accessibility.accessibilityWindow(context.Background(), accessibility.WindowTarget{ID: "win", Title: "Editor"}, true)
+					scope, err = session.accessibility.accessibilityWindow(context.Background(), accessibility.WindowTarget{ID: "win", Title: "Editor"}, true)
 				}
 				leaked = scope.Root.BusName
 			case "application", "fresh-application":
 				var app accessibility.Application
 				if name == "application" {
-					app, err = session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{Name: "private"})
+					app, err = session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{Name: "private"})
 				} else {
-					app, err = session.Accessibility.FindApplicationFresh(context.Background(), accessibility.ApplicationFilter{Name: "private"})
+					app, err = session.accessibility.FindApplicationFresh(context.Background(), accessibility.ApplicationFilter{Name: "private"})
 				}
 				leaked = app.Name
 			}
@@ -457,10 +457,10 @@ func (b *rejectedAccessibilityBackend) Close() error {
 func TestAccessibilityInstallBackendClosesUnownedCandidates(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		bundle *AccessibilityBundle
+		bundle *accessibilityState
 	}{
 		{name: "nil bundle", bundle: nil},
-		{name: "bundle without owner", bundle: &AccessibilityBundle{backend: &bundleAccessibilityFake{}}},
+		{name: "bundle without owner", bundle: &accessibilityState{backend: &bundleAccessibilityFake{}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			candidate := &rejectedAccessibilityBackend{bundleAccessibilityFake: &bundleAccessibilityFake{}}
@@ -498,10 +498,10 @@ func TestAccessibilityFindOneSelectorRetainsLargeAmbiguityEvidence(t *testing.T)
 		nodes = append(nodes, accessibility.Node{ID: id, Parent: root, Name: "Save", Role: "button"})
 	}
 	backend := &manyMatchingAccessibilityBackend{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, root: root, nodes: nodes}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
 	selector := accessibility.Selector{Name: "Save", Role: "button"}
-	node, err := session.Accessibility.FindOneSelector(context.Background(), root, selector, accessibility.SnapshotOptions{})
+	node, err := session.accessibility.FindOneSelector(context.Background(), root, selector, accessibility.SnapshotOptions{})
 	if !errors.Is(err, accessibility.ErrAmbiguous) || node.ID.BusName != "" || backend.snapshotCalls != 1 {
 		t.Fatalf("ambiguity: node=%+v err=%v snapshots=%d", node, err, backend.snapshotCalls)
 	}
@@ -577,49 +577,49 @@ func TestAccessibilityReadResultsAreDiscardedAfterLateCallerCancellation(t *test
 	selector := accessibility.Selector{Name: "private-button", Role: "button"}
 	tests := []struct {
 		name string
-		read func(*AccessibilityBundle, context.Context) (bool, error)
+		read func(*accessibilityState, context.Context) (bool, error)
 	}{
-		{"applications", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"applications", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.Applications(c)
 			return len(a) != 0, e
 		}},
-		{"snapshot", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"snapshot", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.Snapshot(c, root, accessibility.SnapshotOptions{})
 			return len(a.Nodes) != 0, e
 		}},
-		{"outline-fallback", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"outline-fallback", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.Outline(c, root, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
 			return a.Root.ID.BusName != "" || len(a.Warnings) != 0, e
 		}},
-		{"find", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"find", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.Find(c, root, accessibility.Query{Name: "private-button", Role: "button"}, accessibility.SnapshotOptions{})
 			return len(a) != 0, e
 		}},
-		{"find-one", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"find-one", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.FindOneSelector(c, root, selector, accessibility.SnapshotOptions{})
 			return a.Name != "", e
 		}},
-		{"focused", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"focused", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.Focused(c, accessibility.SnapshotOptions{})
 			return a.Name != "", e
 		}},
-		{"at-point", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"at-point", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.AtPoint(c, 5, 6)
 			return a.Name != "", e
 		}},
-		{"window", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"window", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.AccessibilityWindow(c, accessibility.WindowTarget{ID: "private-window"})
 			return a.Root.BusName != "", e
 		}},
-		{"fresh-window", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"fresh-window", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.accessibilityWindow(c, accessibility.WindowTarget{ID: "private-window"}, true)
 			return a.Root.BusName != "", e
 		}},
-		{"application", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"application", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.FindApplication(c, accessibility.ApplicationFilter{Name: "private"})
 			return a.Name != "", e
 		}},
-		{"fresh-application", func(b *AccessibilityBundle, c context.Context) (bool, error) {
+		{"fresh-application", func(b *accessibilityState, c context.Context) (bool, error) {
 			a, e := b.FindApplicationFresh(c, accessibility.ApplicationFilter{Name: "private"})
 			return a.Name != "", e
 		}},
@@ -629,12 +629,12 @@ func TestAccessibilityReadResultsAreDiscardedAfterLateCallerCancellation(t *test
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			backend := &lateCanceledAccessibilityReadBackend{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, cancel: cancel, root: root}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
-			exposed, err := tc.read(session.Accessibility, ctx)
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
+			exposed, err := tc.read(session.accessibility, ctx)
 			if !errors.Is(err, context.Canceled) || exposed || backend.calls != 1 {
 				t.Fatalf("late-canceled %s: exposed=%v err=%v backend calls=%d", tc.name, exposed, err, backend.calls)
 			}
@@ -684,16 +684,16 @@ func TestAccessibilityMutationsRespectAuthorityAtDispatchAndReceipt(t *testing.T
 	id := accessibility.NodeID{BusName: "org.synthetic", ObjectPath: "/element", Generation: 1}
 	actions := []struct {
 		name string
-		run  func(*AccessibilityBundle, context.Context) error
+		run  func(*accessibilityState, context.Context) error
 	}{
-		{"invoke-action", func(b *AccessibilityBundle, c context.Context) error { return b.InvokeAction(c, id, 1) }},
-		{"scroll", func(b *AccessibilityBundle, c context.Context) error {
+		{"invoke-action", func(b *accessibilityState, c context.Context) error { return b.InvokeAction(c, id, 1) }},
+		{"scroll", func(b *accessibilityState, c context.Context) error {
 			return b.ScrollTo(c, id, accessibility.ScrollAnyWhere)
 		}},
-		{"set-text-contents", func(b *AccessibilityBundle, c context.Context) error {
+		{"set-text-contents", func(b *accessibilityState, c context.Context) error {
 			return b.ReplaceEditableText(c, id, "private text")
 		}},
-		{"select-all", func(b *AccessibilityBundle, c context.Context) error { return b.SelectAll(c, id) }},
+		{"select-all", func(b *accessibilityState, c context.Context) error { return b.SelectAll(c, id) }},
 	}
 	for _, action := range actions {
 		for _, mode := range []string{"pre-cancel", "late-cancel", "session-close"} {
@@ -701,11 +701,11 @@ func TestAccessibilityMutationsRespectAuthorityAtDispatchAndReceipt(t *testing.T
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				b := &revokingAccessibilityMutations{accessibilityAutomationFake: &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, accessibilityAutomationSpy: &accessibilityAutomationSpy{}}}
-				session := NewSessionForTesting(nil, nil, nil, nil, nil, b)
+				session := newSessionForTesting(nil, nil, nil, nil, nil, b)
 				t.Cleanup(func() { _ = session.Close() })
-				owner := session.Accessibility.backend
-				session.Accessibility.backend = b
-				t.Cleanup(func() { session.Accessibility.backend = owner })
+				owner := session.accessibility.backend
+				session.accessibility.backend = b
+				t.Cleanup(func() { session.accessibility.backend = owner })
 				expected := context.Canceled
 				switch mode {
 				case "pre-cancel":
@@ -716,7 +716,7 @@ func TestAccessibilityMutationsRespectAuthorityAtDispatchAndReceipt(t *testing.T
 					expected = ErrSessionClosed
 					b.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 				}
-				err := action.run(session.Accessibility, ctx)
+				err := action.run(session.accessibility, ctx)
 				wantCalls := 1
 				if mode == "pre-cancel" {
 					wantCalls = 0
@@ -756,15 +756,15 @@ func TestAccessibilityNodeReadsDoNotEscapeClosedSession(t *testing.T) {
 	for _, name := range []string{"focused", "at-point"} {
 		t.Run(name, func(t *testing.T) {
 			backend := &revokingAccessibilityNodeReads{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
 			backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			var node accessibility.Node
 			var err error
 			if name == "focused" {
-				node, err = session.Accessibility.Focused(context.Background(), accessibility.SnapshotOptions{})
+				node, err = session.accessibility.Focused(context.Background(), accessibility.SnapshotOptions{})
 			} else {
-				node, err = session.Accessibility.AtPoint(context.Background(), 14, 23)
+				node, err = session.accessibility.AtPoint(context.Background(), 14, 23)
 			}
 			if !errors.Is(err, ErrSessionClosed) || node.Name != "" || backend.calls != 1 {
 				t.Fatalf("node leaked after session closure: node=%+v err=%v calls=%d", node, err, backend.calls)
@@ -792,13 +792,13 @@ func (b *applicationFinderOnlyBundleBackend) FindApplication(context.Context, ac
 	return accessibility.Application{}, nil
 }
 
-func installRestrictedAccessibilityBackend(t *testing.T, backend accessibility.Backend, manager *accessibilityWindowManager) *Session {
+func installRestrictedAccessibilityBackend(t *testing.T, backend accessibility.Backend, manager *accessibilityWindowManager) *sessionCore {
 	t.Helper()
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, backend)
-	owner := session.Accessibility.backend
-	session.Accessibility.backend = backend
+	session := newSessionForTesting(nil, nil, manager, nil, nil, backend)
+	owner := session.accessibility.backend
+	session.accessibility.backend = backend
 	t.Cleanup(func() {
-		session.Accessibility.backend = owner
+		session.accessibility.backend = owner
 		_ = session.Close()
 	})
 	return session
@@ -817,7 +817,7 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 	t.Run("window resolver", func(t *testing.T) {
 		backend := newCore()
 		session := installRestrictedAccessibilityBackend(t, backend, windowManager)
-		scope, err := session.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "window-1"})
+		scope, err := session.accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "window-1"})
 		if scope.WindowID != "" || scope.Root != (accessibility.NodeID{}) || !errors.Is(err, accessibility.ErrUnsupported) {
 			t.Fatalf("window resolution returned scope=%+v err=%v, want unsupported", scope, err)
 		}
@@ -826,7 +826,7 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 	t.Run("fresh window resolver", func(t *testing.T) {
 		backend := newCore()
 		session := installRestrictedAccessibilityBackend(t, backend, windowManager)
-		scope, err := session.Accessibility.WindowRootFresh(ctx, "window-1")
+		scope, err := session.accessibility.WindowRootFresh(ctx, "window-1")
 		if scope.WindowID != "" || scope.Root != (accessibility.NodeID{}) || !errors.Is(err, accessibility.ErrUnsupported) {
 			t.Fatalf("fresh window resolution returned scope=%+v err=%v, want unsupported", scope, err)
 		}
@@ -835,7 +835,7 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 	t.Run("application finder", func(t *testing.T) {
 		backend := newCore()
 		session := installRestrictedAccessibilityBackend(t, backend, windowManager)
-		app, err := session.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{})
+		app, err := session.accessibility.FindApplication(ctx, accessibility.ApplicationFilter{})
 		if app.Node.ID != (accessibility.NodeID{}) || app.Name != "" || !errors.Is(err, accessibility.ErrUnsupported) {
 			t.Fatalf("application lookup returned app=%+v err=%v, want unsupported", app, err)
 		}
@@ -845,7 +845,7 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 		backend := newCore()
 		finder := &applicationFinderOnlyBundleBackend{restrictedBundleAccessibilityBackend: backend}
 		session := installRestrictedAccessibilityBackend(t, finder, windowManager)
-		app, err := session.Accessibility.FindApplicationFresh(ctx, accessibility.ApplicationFilter{})
+		app, err := session.accessibility.FindApplicationFresh(ctx, accessibility.ApplicationFilter{})
 		if app.Node.ID != (accessibility.NodeID{}) || app.Name != "" || !errors.Is(err, accessibility.ErrUnsupported) || finder.calls != 0 {
 			t.Fatalf("fresh application lookup returned app=%+v err=%v calls=%d, want unsupported without fallback", app, err, finder.calls)
 		}
@@ -854,7 +854,7 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 	t.Run("event source", func(t *testing.T) {
 		backend := newCore()
 		session := installRestrictedAccessibilityBackend(t, backend, windowManager)
-		stream, err := session.Accessibility.Events(ctx, accessibility.EventOptions{})
+		stream, err := session.accessibility.Events(ctx, accessibility.EventOptions{})
 		if stream != nil || !errors.Is(err, accessibility.ErrUnsupported) {
 			t.Fatalf("event subscription returned stream=%v err=%v, want unsupported", stream, err)
 		}
@@ -863,10 +863,10 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 	t.Run("automation", func(t *testing.T) {
 		for _, tc := range []struct {
 			name string
-			call func(*AccessibilityBundle) error
+			call func(*accessibilityState) error
 		}{
-			{"invoke action", func(b *AccessibilityBundle) error { return b.InvokeAction(ctx, accessibility.NodeID{}, 0) }},
-			{"default action", func(b *AccessibilityBundle) error {
+			{"invoke action", func(b *accessibilityState) error { return b.InvokeAction(ctx, accessibility.NodeID{}, 0) }},
+			{"default action", func(b *accessibilityState) error {
 				_, err := b.InvokeDefaultAction(ctx, accessibility.NodeID{})
 				return err
 			}},
@@ -874,7 +874,7 @@ func TestAccessibilityBundleRejectsAdvertisedMissingOptionalCapabilities(t *test
 			t.Run(tc.name, func(t *testing.T) {
 				backend := newCore("invoke-action", "invoke-default-action")
 				session := installRestrictedAccessibilityBackend(t, backend, windowManager)
-				if err := tc.call(session.Accessibility); !errors.Is(err, accessibility.ErrUnsupported) {
+				if err := tc.call(session.accessibility); !errors.Is(err, accessibility.ErrUnsupported) {
 					t.Fatalf("automation call error = %v, want unsupported", err)
 				}
 			})
@@ -935,13 +935,13 @@ func TestAccessibilityOutlineDiscardsResultAfterSessionClosure(t *testing.T) {
 				after = &probe.after
 				calls = &probe.calls
 			}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
 			*after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
-			result, err := session.Accessibility.Outline(context.Background(), accessibility.NodeID{}, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
+			result, err := session.accessibility.Outline(context.Background(), accessibility.NodeID{}, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
 			if !errors.Is(err, ErrSessionClosed) || len(result.Warnings) != 0 || len(result.Root.Children) != 0 || *calls != 1 {
 				t.Fatalf("outline after closure: result=%+v error=%v backend calls=%d", result, err, *calls)
 			}
@@ -997,43 +997,43 @@ func TestAccessibilityReadsNeverDispatchPreCanceledRequests(t *testing.T) {
 	root := accessibility.NodeID{BusName: "org.example", ObjectPath: "/app", Generation: 1}
 	tests := []struct {
 		name string
-		read func(*AccessibilityBundle, context.Context) error
+		read func(*accessibilityState, context.Context) error
 	}{
-		{"applications", func(b *AccessibilityBundle, c context.Context) error { _, err := b.Applications(c); return err }},
-		{"snapshot", func(b *AccessibilityBundle, c context.Context) error {
+		{"applications", func(b *accessibilityState, c context.Context) error { _, err := b.Applications(c); return err }},
+		{"snapshot", func(b *accessibilityState, c context.Context) error {
 			_, err := b.Snapshot(c, root, accessibility.SnapshotOptions{})
 			return err
 		}},
-		{"outline-fallback", func(b *AccessibilityBundle, c context.Context) error {
+		{"outline-fallback", func(b *accessibilityState, c context.Context) error {
 			_, err := b.Outline(c, root, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
 			return err
 		}},
-		{"find", func(b *AccessibilityBundle, c context.Context) error {
+		{"find", func(b *accessibilityState, c context.Context) error {
 			_, err := b.Find(c, root, accessibility.Query{}, accessibility.SnapshotOptions{})
 			return err
 		}},
-		{"find-one-selector", func(b *AccessibilityBundle, c context.Context) error {
+		{"find-one-selector", func(b *accessibilityState, c context.Context) error {
 			_, err := b.FindOneSelector(c, root, accessibility.Selector{}, accessibility.SnapshotOptions{})
 			return err
 		}},
-		{"focused", func(b *AccessibilityBundle, c context.Context) error {
+		{"focused", func(b *accessibilityState, c context.Context) error {
 			_, err := b.Focused(c, accessibility.SnapshotOptions{})
 			return err
 		}},
-		{"at-point", func(b *AccessibilityBundle, c context.Context) error { _, err := b.AtPoint(c, 2, 3); return err }},
-		{"window", func(b *AccessibilityBundle, c context.Context) error {
+		{"at-point", func(b *accessibilityState, c context.Context) error { _, err := b.AtPoint(c, 2, 3); return err }},
+		{"window", func(b *accessibilityState, c context.Context) error {
 			_, err := b.AccessibilityWindow(c, accessibility.WindowTarget{ID: "test"})
 			return err
 		}},
-		{"fresh-window", func(b *AccessibilityBundle, c context.Context) error {
+		{"fresh-window", func(b *accessibilityState, c context.Context) error {
 			_, err := b.accessibilityWindow(c, accessibility.WindowTarget{ID: "test"}, true)
 			return err
 		}},
-		{"application", func(b *AccessibilityBundle, c context.Context) error {
+		{"application", func(b *accessibilityState, c context.Context) error {
 			_, err := b.FindApplication(c, accessibility.ApplicationFilter{Name: "Test"})
 			return err
 		}},
-		{"fresh-application", func(b *AccessibilityBundle, c context.Context) error {
+		{"fresh-application", func(b *accessibilityState, c context.Context) error {
 			_, err := b.FindApplicationFresh(c, accessibility.ApplicationFilter{Name: "Test"})
 			return err
 		}},
@@ -1041,14 +1041,14 @@ func TestAccessibilityReadsNeverDispatchPreCanceledRequests(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &precanceledAccessibilityBackend{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1, apps: []accessibility.Application{{Node: accessibility.Node{ID: root, Name: "Test"}}}}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			err := tc.read(session.Accessibility, ctx)
+			err := tc.read(session.accessibility, ctx)
 			if !errors.Is(err, context.Canceled) || backend.calls != 0 {
 				t.Fatalf("pre-canceled %s read: err=%v backend calls=%d", tc.name, err, backend.calls)
 			}
@@ -1065,31 +1065,31 @@ func TestAccessibilityBundleSnapshotOutlineFocusedAndPointNormalAndFailure(t *te
 		accessibilityAutomationFake: &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 19}, accessibilityAutomationSpy: &accessibilityAutomationSpy{}},
 		snapshot:                    accessibility.Snapshot{Root: accessibility.Node{ID: id, Role: "application", Name: "Editor", Children: []accessibility.NodeID{target}}, Nodes: []accessibility.Node{{ID: id, Role: "application", Name: "Editor", Children: []accessibility.NodeID{target}}, {ID: target, Parent: id, Role: "button", Name: "Save"}}, Generation: 19, Source: "synthetic-at-spi"},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	opts := accessibility.SnapshotOptions{MaxNodes: 8, MaxDepth: 3, MaxTextBytes: 256, Fresh: true}
-	snap, err := session.Accessibility.Snapshot(context.Background(), id, opts)
+	snap, err := session.accessibility.Snapshot(context.Background(), id, opts)
 	if err != nil || snap.Source != "synthetic-at-spi" || len(snap.Nodes) != 2 || fake.snapshotCalls != 1 {
 		t.Fatalf("public snapshot returned %+v err=%v calls=%d", snap, err, fake.snapshotCalls)
 	}
-	outline, err := session.Accessibility.Outline(context.Background(), id, opts, accessibility.OutlineOptions{})
+	outline, err := session.accessibility.Outline(context.Background(), id, opts, accessibility.OutlineOptions{})
 	if err != nil || fake.snapshotCalls != 2 || outline.Root.ID != id {
 		t.Fatalf("public outline %+v err=%v calls=%d", outline, err, fake.snapshotCalls)
 	}
-	node, err := session.Accessibility.Focused(context.Background(), opts)
+	node, err := session.accessibility.Focused(context.Background(), opts)
 	if err != nil || node.Name != "focused" {
 		t.Fatalf("public focused=%+v %v", node, err)
 	}
-	point, err := session.Accessibility.AtPoint(context.Background(), 13, 29)
+	point, err := session.accessibility.AtPoint(context.Background(), 13, 29)
 	if err != nil || point.Name != "point" {
 		t.Fatalf("public point=%+v %v", point, err)
 	}
 	failure := errors.New("synthetic accessibility provider refused observation")
 	fake.snapshotErr = failure
-	if _, err := session.Accessibility.Snapshot(context.Background(), id, opts); !errors.Is(err, failure) {
+	if _, err := session.accessibility.Snapshot(context.Background(), id, opts); !errors.Is(err, failure) {
 		t.Fatalf("snapshot provider error lost: %v", err)
 	}
-	if _, err := session.Accessibility.Outline(context.Background(), id, opts, accessibility.OutlineOptions{}); !errors.Is(err, failure) {
+	if _, err := session.accessibility.Outline(context.Background(), id, opts, accessibility.OutlineOptions{}); !errors.Is(err, failure) {
 		t.Fatalf("outline snapshot provider error lost: %v", err)
 	}
 	if fake.snapshotCalls != 4 {
@@ -1101,13 +1101,13 @@ func TestAccessibilityBundleSnapshotOutlineFocusedAndPointNormalAndFailure(t *te
 		name string
 		call func(context.Context) error
 	}{
-		{"snapshot", func(ctx context.Context) error { _, err := session.Accessibility.Snapshot(ctx, id, opts); return err }},
+		{"snapshot", func(ctx context.Context) error { _, err := session.accessibility.Snapshot(ctx, id, opts); return err }},
 		{"outline", func(ctx context.Context) error {
-			_, err := session.Accessibility.Outline(ctx, id, opts, accessibility.OutlineOptions{})
+			_, err := session.accessibility.Outline(ctx, id, opts, accessibility.OutlineOptions{})
 			return err
 		}},
-		{"focused", func(ctx context.Context) error { _, err := session.Accessibility.Focused(ctx, opts); return err }},
-		{"atpoint", func(ctx context.Context) error { _, err := session.Accessibility.AtPoint(ctx, 13, 29); return err }},
+		{"focused", func(ctx context.Context) error { _, err := session.accessibility.Focused(ctx, opts); return err }},
+		{"atpoint", func(ctx context.Context) error { _, err := session.accessibility.AtPoint(ctx, 13, 29); return err }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.call(canceled); !errors.Is(err, context.Canceled) {
@@ -1120,58 +1120,58 @@ func TestAccessibilityBundleAutomationRejectsUnsupportedCapabilityAndClosedSessi
 	id := accessibility.NodeID{BusName: "org.synthetic.App", ObjectPath: "/button", Generation: 1}
 	calls := []struct {
 		name string
-		call func(*AccessibilityBundle) error
+		call func(*accessibilityState) error
 	}{
-		{"invoke index", func(b *AccessibilityBundle) error { return b.InvokeAction(context.Background(), id, 3) }},
-		{"invoke by name", func(b *AccessibilityBundle) error {
+		{"invoke index", func(b *accessibilityState) error { return b.InvokeAction(context.Background(), id, 3) }},
+		{"invoke by name", func(b *accessibilityState) error {
 			_, err := b.InvokeActionByName(context.Background(), id, "activate")
 			return err
 		}},
-		{"default action", func(b *AccessibilityBundle) error {
+		{"default action", func(b *accessibilityState) error {
 			_, err := b.InvokeDefaultAction(context.Background(), id)
 			return err
 		}},
-		{"scroll", func(b *AccessibilityBundle) error {
+		{"scroll", func(b *accessibilityState) error {
 			return b.ScrollTo(context.Background(), id, accessibility.ScrollType(0))
 		}},
-		{"scroll point", func(b *AccessibilityBundle) error {
+		{"scroll point", func(b *accessibilityState) error {
 			return b.ScrollToPoint(context.Background(), id, accessibility.CoordType(0), 2, 3)
 		}},
-		{"position", func(b *AccessibilityBundle) error {
+		{"position", func(b *accessibilityState) error {
 			return b.SetPosition(context.Background(), id, 3, 4, accessibility.CoordType(0))
 		}},
-		{"size", func(b *AccessibilityBundle) error { return b.SetSize(context.Background(), id, 20, 30) }},
-		{"extents", func(b *AccessibilityBundle) error {
+		{"size", func(b *accessibilityState) error { return b.SetSize(context.Background(), id, 20, 30) }},
+		{"extents", func(b *accessibilityState) error {
 			return b.SetExtents(context.Background(), id, 1, 2, 3, 4, accessibility.CoordType(0))
 		}},
-		{"value", func(b *AccessibilityBundle) error { return b.SetValue(context.Background(), id, 1.5) }},
-		{"insert", func(b *AccessibilityBundle) error { return b.InsertText(context.Background(), id, 0, "hello") }},
-		{"delete", func(b *AccessibilityBundle) error { return b.DeleteText(context.Background(), id, 1, 4) }},
-		{"copy", func(b *AccessibilityBundle) error { return b.CopyText(context.Background(), id, 1, 4) }},
-		{"cut", func(b *AccessibilityBundle) error { return b.CutText(context.Background(), id, 1, 4) }},
-		{"paste", func(b *AccessibilityBundle) error { return b.PasteText(context.Background(), id, 0) }},
-		{"caret", func(b *AccessibilityBundle) error { return b.SetCaretOffset(context.Background(), id, 1) }},
-		{"document selections", func(b *AccessibilityBundle) error { return b.SetTextSelections(context.Background(), id, nil) }},
-		{"set selection", func(b *AccessibilityBundle) error { return b.SetTextSelection(context.Background(), id, 0, 0, 1) }},
-		{"add selection", func(b *AccessibilityBundle) error { return b.AddTextSelection(context.Background(), id, 0, 1) }},
-		{"remove selection", func(b *AccessibilityBundle) error { return b.RemoveTextSelection(context.Background(), id, 0) }},
-		{"select child", func(b *AccessibilityBundle) error { return b.SelectChild(context.Background(), id, 1) }},
-		{"deselect child", func(b *AccessibilityBundle) error { return b.DeselectChild(context.Background(), id, 1) }},
-		{"select all", func(b *AccessibilityBundle) error { return b.SelectAll(context.Background(), id) }},
-		{"clear selection", func(b *AccessibilityBundle) error { return b.ClearSelection(context.Background(), id) }},
-		{"deselect selected", func(b *AccessibilityBundle) error { return b.DeselectSelectedChild(context.Background(), id) }},
-		{"select row", func(b *AccessibilityBundle) error { return b.SelectRow(context.Background(), id, 1) }},
-		{"deselect row", func(b *AccessibilityBundle) error { return b.DeselectRow(context.Background(), id, 1) }},
-		{"select column", func(b *AccessibilityBundle) error { return b.SelectColumn(context.Background(), id, 1) }},
-		{"deselect column", func(b *AccessibilityBundle) error { return b.DeselectColumn(context.Background(), id, 1) }},
-		{"focus", func(b *AccessibilityBundle) error { return b.FocusNode(context.Background(), id) }},
-		{"replace text", func(b *AccessibilityBundle) error { return b.ReplaceEditableText(context.Background(), id, "text") }},
+		{"value", func(b *accessibilityState) error { return b.SetValue(context.Background(), id, 1.5) }},
+		{"insert", func(b *accessibilityState) error { return b.InsertText(context.Background(), id, 0, "hello") }},
+		{"delete", func(b *accessibilityState) error { return b.DeleteText(context.Background(), id, 1, 4) }},
+		{"copy", func(b *accessibilityState) error { return b.CopyText(context.Background(), id, 1, 4) }},
+		{"cut", func(b *accessibilityState) error { return b.CutText(context.Background(), id, 1, 4) }},
+		{"paste", func(b *accessibilityState) error { return b.PasteText(context.Background(), id, 0) }},
+		{"caret", func(b *accessibilityState) error { return b.SetCaretOffset(context.Background(), id, 1) }},
+		{"document selections", func(b *accessibilityState) error { return b.SetTextSelections(context.Background(), id, nil) }},
+		{"set selection", func(b *accessibilityState) error { return b.SetTextSelection(context.Background(), id, 0, 0, 1) }},
+		{"add selection", func(b *accessibilityState) error { return b.AddTextSelection(context.Background(), id, 0, 1) }},
+		{"remove selection", func(b *accessibilityState) error { return b.RemoveTextSelection(context.Background(), id, 0) }},
+		{"select child", func(b *accessibilityState) error { return b.SelectChild(context.Background(), id, 1) }},
+		{"deselect child", func(b *accessibilityState) error { return b.DeselectChild(context.Background(), id, 1) }},
+		{"select all", func(b *accessibilityState) error { return b.SelectAll(context.Background(), id) }},
+		{"clear selection", func(b *accessibilityState) error { return b.ClearSelection(context.Background(), id) }},
+		{"deselect selected", func(b *accessibilityState) error { return b.DeselectSelectedChild(context.Background(), id) }},
+		{"select row", func(b *accessibilityState) error { return b.SelectRow(context.Background(), id, 1) }},
+		{"deselect row", func(b *accessibilityState) error { return b.DeselectRow(context.Background(), id, 1) }},
+		{"select column", func(b *accessibilityState) error { return b.SelectColumn(context.Background(), id, 1) }},
+		{"deselect column", func(b *accessibilityState) error { return b.DeselectColumn(context.Background(), id, 1) }},
+		{"focus", func(b *accessibilityState) error { return b.FocusNode(context.Background(), id) }},
+		{"replace text", func(b *accessibilityState) error { return b.ReplaceEditableText(context.Background(), id, "text") }},
 	}
 	// A read-only AT-SPI backend cannot silently fall back to physical input.
-	readonly := NewSessionForTesting(nil, nil, nil, nil, nil, &bundleAccessibilityFake{gen: 1})
+	readonly := newSessionForTesting(nil, nil, nil, nil, nil, &bundleAccessibilityFake{gen: 1})
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.call(readonly.Accessibility)
+			err := tc.call(readonly.accessibility)
 			if err == nil || (!errors.Is(err, accessibility.ErrUnsupported) && !strings.Contains(err.Error(), "unsupported")) {
 				t.Fatalf("read-only backend executed %s: %v", tc.name, err)
 			}
@@ -1182,7 +1182,7 @@ func TestAccessibilityBundleAutomationRejectsUnsupportedCapabilityAndClosedSessi
 	}
 	for _, tc := range calls {
 		t.Run("closed-"+tc.name, func(t *testing.T) {
-			if err := tc.call(readonly.Accessibility); err == nil {
+			if err := tc.call(readonly.accessibility); err == nil {
 				t.Fatalf("closed backend accepted %s", tc.name)
 			}
 		})
@@ -1217,7 +1217,7 @@ func TestAccessibilityBundleReadsDiscardResultsAfterAuthorizationLoss(t *testing
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				backend := &revokingAccessibilityReads{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
-				session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+				session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 				t.Cleanup(func() { _ = session.Close() })
 				wantErr := context.Canceled
 				if mode == "pre-cancel" {
@@ -1233,12 +1233,12 @@ func TestAccessibilityBundleReadsDiscardResultsAfterAuthorizationLoss(t *testing
 					}
 				}
 				if operation == "applications" {
-					got, err := session.Accessibility.Applications(ctx)
+					got, err := session.accessibility.Applications(ctx)
 					if !errors.Is(err, wantErr) || len(got) != 0 {
 						t.Errorf("apps result leaked: %v %v", got, err)
 					}
 				} else {
-					got, err := session.Accessibility.Snapshot(ctx, accessibility.NodeID{}, accessibility.SnapshotOptions{})
+					got, err := session.accessibility.Snapshot(ctx, accessibility.NodeID{}, accessibility.SnapshotOptions{})
 					if !errors.Is(err, wantErr) || len(got.Nodes) != 0 {
 						t.Errorf("snapshot result leaked: %+v %v", got, err)
 					}
@@ -1297,13 +1297,13 @@ func TestAccessibilityDirectOutlineDiscardsResultAfterCallerCancellation(t *test
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	probe := &directOutlineCancellationProbe{accessibilityBundleContractProbe: newAccessibilityBundleContractProbe(), cancel: cancel}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, probe)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, probe)
 	defer session.Close()
-	owner := session.Accessibility.backend
-	session.Accessibility.backend = probe
-	defer func() { session.Accessibility.backend = owner }()
+	owner := session.accessibility.backend
+	session.accessibility.backend = probe
+	defer func() { session.accessibility.backend = owner }()
 
-	outline, err := session.Accessibility.Outline(ctx, accessibility.NodeID{}, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
+	outline, err := session.accessibility.Outline(ctx, accessibility.NodeID{}, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Outline error = %v, want context cancellation", err)
 	}
@@ -1320,13 +1320,13 @@ func TestAccessibilityFindOperationsPreserveSnapshotProviderFailure(t *testing.T
 	root := accessibility.NodeID{BusName: "org.synthetic.Editor", ObjectPath: "/app", Generation: 1}
 	for _, tc := range []struct {
 		name string
-		call func(*AccessibilityBundle) error
+		call func(*accessibilityState) error
 	}{
-		{"find", func(b *AccessibilityBundle) error {
+		{"find", func(b *accessibilityState) error {
 			_, err := b.Find(context.Background(), root, accessibility.Query{Name: "Save"}, accessibility.SnapshotOptions{})
 			return err
 		}},
-		{"find one", func(b *AccessibilityBundle) error {
+		{"find one", func(b *accessibilityState) error {
 			_, err := b.FindOneSelector(context.Background(), root, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 			return err
 		}},
@@ -1334,10 +1334,10 @@ func TestAccessibilityFindOperationsPreserveSnapshotProviderFailure(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			backend := newAccessibilityBundleContractProbe()
 			backend.snapshotErr = providerErr
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			defer session.Close()
 
-			if err := tc.call(session.Accessibility); !errors.Is(err, providerErr) {
+			if err := tc.call(session.accessibility); !errors.Is(err, providerErr) {
 				t.Fatalf("find error = %v, want snapshot provider failure", err)
 			}
 			if backend.calls != 1 {
@@ -1348,10 +1348,10 @@ func TestAccessibilityFindOperationsPreserveSnapshotProviderFailure(t *testing.T
 }
 
 func TestAccessibilityWindowRootWrapsMissingManagedWindowCapability(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 
-	_, err := session.Accessibility.WindowRoot(context.Background(), "window-1")
+	_, err := session.accessibility.WindowRoot(context.Background(), "window-1")
 	var operationErr *OperationError
 	if !errors.Is(err, ErrUnavailable) || !errors.As(err, &operationErr) || operationErr.Operation != "window-root" {
 		t.Fatalf("WindowRoot without window backend error = %v, want unavailable window-root capability", err)
@@ -1363,7 +1363,7 @@ func TestAccessibilitySelectorSemanticActionReturnsExactDispatchReceipt(t *testi
 	session, root := semanticActionCoverageFixture(spy)
 	defer session.Close()
 
-	receipt, err := session.Accessibility.InvokeSelectorSemanticAction(
+	receipt, err := session.accessibility.InvokeSelectorSemanticAction(
 		context.Background(), root, accessibility.Selector{Name: "Save", Role: "button"}, "press", accessibility.SnapshotOptions{},
 	)
 	if err != nil {
@@ -1394,13 +1394,13 @@ func TestAccessibilityDefaultActionDiscardsLateResultAfterCallerCancellation(t *
 	defer cancel()
 	providerErr := errors.New("provider completed after cancellation")
 	probe := &lateCanceledDefaultActionProbe{accessibilityBundleContractProbe: newAccessibilityBundleContractProbe(), cancel: cancel, failure: providerErr}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, probe)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, probe)
 	defer session.Close()
-	owner := session.Accessibility.backend
-	session.Accessibility.backend = probe
-	defer func() { session.Accessibility.backend = owner }()
+	owner := session.accessibility.backend
+	session.accessibility.backend = probe
+	defer func() { session.accessibility.backend = owner }()
 
-	action, err := session.Accessibility.InvokeDefaultAction(ctx, accessibility.NodeID{})
+	action, err := session.accessibility.InvokeDefaultAction(ctx, accessibility.NodeID{})
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, providerErr) {
 		t.Fatalf("InvokeDefaultAction error = %v, want caller cancellation and provider cause", err)
 	}
@@ -1447,18 +1447,18 @@ func TestAccessibilitySemanticErrorReceiptSuppressesPrivateMetadataAfterSessionC
 			backend := &closingSemanticErrorActionBackend{accessibilityAutomationFake: &accessibilityAutomationFake{
 				bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, accessibilityAutomationSpy: &accessibilityAutomationSpy{},
 			}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			owner := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = owner })
+			owner := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = owner })
 			backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			node := accessibility.Node{ID: accessibility.NodeID{BusName: "org.private", ObjectPath: "/secret", Generation: 1}, Name: "private-button"}
 			actionName := "press"
 			if name == "default" {
 				actionName = ""
 			}
-			receipt, err := session.Accessibility.invokeSemanticActionOnNode(context.Background(), node, actionName)
+			receipt, err := session.accessibility.invokeSemanticActionOnNode(context.Background(), node, actionName)
 			if !errors.Is(err, ErrSessionClosed) || backend.calls != 1 || receipt.Node.Name != "" || receipt.Action.Name != "" {
 				t.Fatalf("%s leaked semantic receipt after closure: receipt=%+v err=%v calls=%d", name, receipt, err, backend.calls)
 			}
@@ -1551,10 +1551,10 @@ func TestAccessibilityFindRequiresFreshCompleteSnapshot(t *testing.T) {
 					Truncated:  test.truncated,
 				},
 			}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			defer session.Close()
 
-			got, err := session.Accessibility.Find(context.Background(), root, accessibility.Query{Name: "Save", Role: "button"}, accessibility.SnapshotOptions{})
+			got, err := session.accessibility.Find(context.Background(), root, accessibility.Query{Name: "Save", Role: "button"}, accessibility.SnapshotOptions{})
 			if test.wantErr {
 				if !errors.Is(err, accessibility.ErrIncompleteSnapshot) {
 					t.Fatalf("Find error = %v, want ErrIncompleteSnapshot", err)
@@ -1836,17 +1836,17 @@ func (f *bundleAccessibilityFake) Invalidate(accessibility.NodeID) { f.gen++ }
 
 func TestAccessibilityBundleDelegatesOptionalSurface(t *testing.T) {
 	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Firefox"}}}, gen: 7}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	app, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{Name: "fire"})
+	app, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{Name: "fire"})
 	if err != nil || app.Name != "Firefox" {
 		t.Fatalf("FindApplication = %+v, %v", app, err)
 	}
-	if got := session.Accessibility.Generation(); got != 7 {
+	if got := session.accessibility.Generation(); got != 7 {
 		t.Fatalf("generation = %d", got)
 	}
-	session.Accessibility.Invalidate(accessibility.NodeID{})
-	if got := session.Accessibility.Generation(); got != 8 {
+	session.accessibility.Invalidate(accessibility.NodeID{})
+	if got := session.accessibility.Generation(); got != 8 {
 		t.Fatalf("generation after invalidation = %d", got)
 	}
 }
@@ -1854,16 +1854,16 @@ func TestAccessibilityBundleDelegatesOptionalSurface(t *testing.T) {
 func TestAccessibilityBundleDelegatesTypedAutomation(t *testing.T) {
 	spy := &accessibilityAutomationSpy{}
 	fake := &accessibilityAutomationFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 3}, accessibilityAutomationSpy: spy}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	id := accessibility.NodeID{BusName: "org.test", ObjectPath: "/button", Generation: 3}
-	if err := session.Accessibility.FocusNode(context.Background(), id); err != nil {
+	if err := session.accessibility.FocusNode(context.Background(), id); err != nil {
 		t.Fatalf("FocusNode: %v", err)
 	}
-	if err := session.Accessibility.SetValue(context.Background(), id, 0.5); err != nil {
+	if err := session.accessibility.SetValue(context.Background(), id, 0.5); err != nil {
 		t.Fatalf("SetValue: %v", err)
 	}
-	if _, err := session.Accessibility.InvokeDefaultAction(context.Background(), id); err != nil {
+	if _, err := session.accessibility.InvokeDefaultAction(context.Background(), id); err != nil {
 		t.Fatalf("InvokeDefaultAction: %v", err)
 	}
 	if len(spy.calls) != 3 || spy.calls[0] != "focus" || spy.calls[1] != "set-value" || spy.calls[2] != "default-action" {
@@ -1877,9 +1877,9 @@ func TestAccessibilityBundleInvokesSemanticActionWithReceipt(t *testing.T) {
 		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
 		accessibilityAutomationSpy: spy,
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	receipt, err := session.Accessibility.InvokeSemanticAction(
+	receipt, err := session.accessibility.InvokeSemanticAction(
 		context.Background(),
 		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
 		accessibility.Query{Name: "Save"},
@@ -1903,9 +1903,9 @@ func TestAccessibilityBundleSemanticActionReceiptUsesInvocationMetadata(t *testi
 		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
 		accessibilityAutomationSpy: spy,
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	receipt, err := session.Accessibility.InvokeSemanticAction(
+	receipt, err := session.accessibility.InvokeSemanticAction(
 		context.Background(),
 		accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
 		accessibility.Query{Name: "Save"},
@@ -1932,7 +1932,7 @@ func TestSessionAccessibilityActionWaitUsesIndependentPostcondition(t *testing.T
 		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
 		accessibilityAutomationSpy: spy,
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	checks := 0
 	receipt, evidence, err := session.InvokeAccessibilityActionAndWait(
@@ -1941,7 +1941,7 @@ func TestSessionAccessibilityActionWaitUsesIndependentPostcondition(t *testing.T
 		accessibility.Query{Name: "Save"},
 		"press",
 		accessibility.SnapshotOptions{},
-		sessionCondition("postcondition", func(context.Context, *Session) (bool, error) {
+		sessionCondition("postcondition", func(context.Context, *sessionCore) (bool, error) {
 			checks++
 			return checks == 2, nil
 		}),
@@ -1984,7 +1984,7 @@ func TestAccessibilityActionWaitPreflightsConditionCapabilitiesAndOptions(t *tes
 		},
 		{
 			name:      "nil window postcondition target",
-			condition: WindowClosed(nil),
+			condition: windowClosed(nil),
 			wantErr:   ErrNilSession,
 		},
 		{
@@ -1999,7 +1999,7 @@ func TestAccessibilityActionWaitPreflightsConditionCapabilitiesAndOptions(t *tes
 				bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
 				accessibilityAutomationSpy: spy,
 			}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 			defer session.Close()
 			_, _, err := session.InvokeAccessibilityActionAndWait(
 				context.Background(),
@@ -2034,7 +2034,7 @@ func TestAccessibilityActionWaitTimeoutPreservesAcceptedReceiptWithoutReplay(t *
 		bundleAccessibilityFake:    &bundleAccessibilityFake{gen: 3},
 		accessibilityAutomationSpy: spy,
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -2067,9 +2067,9 @@ func TestInvokeSemanticActionRejectsTruncatedUniqueSnapshot(t *testing.T) {
 		},
 		snapshot: accessibility.Snapshot{Root: node, Nodes: []accessibility.Node{node}, Generation: 3, Truncated: true, TruncationReasons: []string{"max nodes"}},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
-	_, err := session.Accessibility.InvokeSemanticAction(
+	_, err := session.accessibility.InvokeSemanticAction(
 		context.Background(), accessibility.NodeID{BusName: "org.test", ObjectPath: "/root", Generation: 3},
 		accessibility.Query{Name: "Save"}, "press", accessibility.SnapshotOptions{},
 	)
@@ -2093,9 +2093,9 @@ func TestInvokeSemanticActionRejectsAmbiguousSnapshotWithoutDispatch(t *testing.
 		},
 		snapshot: accessibility.Snapshot{Root: accessibility.Node{ID: root}, Nodes: []accessibility.Node{{ID: root}, first, second}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
-	_, err := session.Accessibility.InvokeSelectorSemanticAction(context.Background(), root, accessibility.Selector{Role: "button", Name: "Save"}, "press", accessibility.SnapshotOptions{})
+	_, err := session.accessibility.InvokeSelectorSemanticAction(context.Background(), root, accessibility.Selector{Role: "button", Name: "Save"}, "press", accessibility.SnapshotOptions{})
 	if !errors.Is(err, accessibility.ErrAmbiguous) {
 		t.Fatalf("semantic action error = %v, want ambiguous target", err)
 	}
@@ -2131,9 +2131,9 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 			return nil
 		}
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(
+	locator := session.accessibility.LocatorForApplication(
 		accessibility.ApplicationFilter{Name: "Editor"},
 		accessibility.Selector{Role: "button", Name: "Save", States: []string{"enabled"}},
 		accessibility.SnapshotOptions{},
@@ -2178,9 +2178,9 @@ func TestAccessibilityLocatorFailsClosedWhenEventObservationIsUnavailable(t *tes
 		},
 		snapshot: accessibility.Snapshot{Root: app.Node, Nodes: []accessibility.Node{app.Node}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 	if _, err := locator.Matches(context.Background()); !errors.Is(err, accessibility.ErrObservationChanged) || !errors.Is(err, accessibility.ErrUnsupported) {
 		t.Fatalf("Matches error = %v, want observation-changed and unsupported causes", err)
 	}
@@ -2220,9 +2220,9 @@ func TestAccessibilityLocatorCancelsObservationAfterResolutionErrors(t *testing.
 				},
 				snapshot: accessibility.Snapshot{Root: app.Node, Nodes: nodes, Generation: root.Generation},
 			}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 			defer session.Close()
-			locator := session.Accessibility.LocatorForApplication(
+			locator := session.accessibility.LocatorForApplication(
 				accessibility.ApplicationFilter{Name: "Editor"},
 				accessibility.Selector{Role: "button", Name: "Save"},
 				accessibility.SnapshotOptions{},
@@ -2257,10 +2257,10 @@ func TestAccessibilityLocatorDoesNotActOnObservationChangedSnapshot(t *testing.T
 		},
 		snapshotErr: accessibility.ErrObservationChanged,
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	checks := 0
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
 	_, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
@@ -2290,9 +2290,9 @@ func TestAccessibilityWindowLocatorUsesFreshWindowCorrelation(t *testing.T) {
 			{ID: accessibility.NodeID{BusName: "org.test", ObjectPath: "/save", Generation: 3}, Parent: root, Name: "Save", Role: "button"},
 		}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForWindow("managed-window", accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForWindow("managed-window", accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
 	if _, err := locator.Resolve(context.Background()); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -2316,9 +2316,9 @@ func TestAccessibilityLocatorClickAndFillVerifySingleDispatch(t *testing.T) { //
 			{ID: target, Parent: root, Name: "Email", Role: "text input", States: []string{"editable", "enabled"}},
 		}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "text input", Name: "Email"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "text input", Name: "Email"}, accessibility.SnapshotOptions{})
 	checks := 0
 	receipt, evidence, err := locator.FillAndWait(context.Background(), "user@example.test", Predicate("filled", func(context.Context) (bool, error) {
 		checks++
@@ -2396,9 +2396,9 @@ func TestAccessibilityLocatorFillDoesNotRepeatUnknownDispatch(t *testing.T) {
 			{ID: target, Parent: root, Name: "Email", Role: "text input"},
 		}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Email"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Email"}, accessibility.SnapshotOptions{})
 	postconditionChecks := 0
 	receipt, _, err := locator.FillAndWait(context.Background(), "new value", Predicate("filled", func(context.Context) (bool, error) {
 		postconditionChecks++
@@ -2430,9 +2430,9 @@ func TestAccessibilityLocatorDoesNotRepeatUncertainDispatch(t *testing.T) {
 			{ID: target, Parent: root, Name: "Save", Role: "button"},
 		}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 	postconditionChecks := 0
 	receipt, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("done", func(context.Context) (bool, error) {
 		postconditionChecks++
@@ -2466,9 +2466,9 @@ func TestAccessibilityLocatorRetriesOnlyKnownNotSentStaleAction(t *testing.T) {
 			{ID: target, Parent: root, Name: "Save", Role: "button"},
 		}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 	receipt, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("done", func(context.Context) (bool, error) { return true, nil }))
 	if err != nil {
 		t.Fatalf("InvokeActionAndWait: %v", err)
@@ -2500,9 +2500,9 @@ func TestAccessibilityLocatorRejectsStaleActionRetryOnChangedRootPath(t *testing
 			{ID: target, Parent: root, Name: "Save", Role: "button"},
 		}, Generation: 3},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
-	locator := session.Accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
+	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 	postconditionChecks := 0
 	_, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
 		postconditionChecks++
@@ -2520,12 +2520,12 @@ func TestAccessibilityBundleExplicitReopenSwapsBackend(t *testing.T) {
 	old := &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "old"}}}, gen: 1}}
 	fresh := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "fresh"}}}, gen: 2}
 	old.fresh = fresh
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, old)
 	defer session.Close()
-	if err := session.Accessibility.Reopen(context.Background()); err != nil {
+	if err := session.accessibility.Reopen(context.Background()); err != nil {
 		t.Fatalf("Reopen: %v", err)
 	}
-	apps, err := session.Accessibility.Applications(context.Background())
+	apps, err := session.accessibility.Applications(context.Background())
 	if err != nil || len(apps) != 1 || apps[0].Name != "fresh" {
 		t.Fatalf("reopened applications = %+v err=%v", apps, err)
 	}
@@ -2539,27 +2539,27 @@ func TestAccessibilityBundleExplicitReopenAfterDisconnect(t *testing.T) {
 	fresh := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "rediscovered"}}}, gen: 6}
 	old.fresh = fresh
 	old.disconnected = true
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, old)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, old)
 	defer session.Close()
-	if _, err := session.Accessibility.Applications(context.Background()); !errors.Is(err, accessibility.ErrDisconnected) {
+	if _, err := session.accessibility.Applications(context.Background()); !errors.Is(err, accessibility.ErrDisconnected) {
 		t.Fatalf("disconnected applications error = %v, want disconnected", err)
 	}
-	if err := session.Accessibility.Reopen(context.Background()); err != nil {
+	if err := session.accessibility.Reopen(context.Background()); err != nil {
 		t.Fatalf("Reopen after disconnect: %v", err)
 	}
-	if got := session.Accessibility.Generation(); got != fresh.gen {
+	if got := session.accessibility.Generation(); got != fresh.gen {
 		t.Fatalf("reopened generation = %d, want %d", got, fresh.gen)
 	}
-	apps, err := session.Accessibility.Applications(context.Background())
+	apps, err := session.accessibility.Applications(context.Background())
 	if err != nil || len(apps) != 1 || apps[0].Name != "rediscovered" {
 		t.Fatalf("rediscovered applications = %+v, err=%v", apps, err)
 	}
 }
 
 func TestAccessibilityBundleUnavailableIsTyped(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
-	_, err := session.Accessibility.Focused(context.Background(), accessibility.SnapshotOptions{})
+	_, err := session.accessibility.Focused(context.Background(), accessibility.SnapshotOptions{})
 	if err == nil || !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Focused error = %v", err)
 	}
@@ -2585,13 +2585,13 @@ func (m *accessibilityWindowManager) Close() error                              
 func TestAccessibilityBundleCorrelatesApplicationWithWindow(t *testing.T) {
 	manager := &accessibilityWindowManager{windows: []window.Info{{NativeID: "window-1", Title: "Firefox", PID: 77}}}
 	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Firefox"}, PID: 77}}, gen: 1}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
-	app, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "window-1", WindowTitle: "Firefox"})
+	app, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "window-1", WindowTitle: "Firefox"})
 	if err != nil || app.PID != 77 {
 		t.Fatalf("correlated application = %+v, %v", app, err)
 	}
-	if _, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "missing"}); !errors.Is(err, accessibility.ErrNotFound) {
+	if _, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "missing"}); !errors.Is(err, accessibility.ErrNotFound) {
 		t.Fatalf("missing window error = %v", err)
 	}
 }
@@ -2599,9 +2599,9 @@ func TestAccessibilityBundleCorrelatesApplicationWithWindow(t *testing.T) {
 func TestAccessibilityBundleRejectsAmbiguousWindowTitle(t *testing.T) {
 	manager := &accessibilityWindowManager{windows: []window.Info{{NativeID: "one", Title: "Firefox"}, {NativeID: "two", Title: "Firefox"}}}
 	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Firefox"}, PID: 77}}}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
-	if _, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowTitle: "Firefox"}); !errors.Is(err, accessibility.ErrAmbiguous) {
+	if _, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowTitle: "Firefox"}); !errors.Is(err, accessibility.ErrAmbiguous) {
 		t.Fatalf("ambiguous window error = %v", err)
 	}
 }
@@ -2612,10 +2612,10 @@ func TestAccessibilityBundleRejectsConflictingWindowPIDBeforeCorrelation(t *test
 		{Node: accessibility.Node{Name: "Firefox"}, PID: 77},
 		{Node: accessibility.Node{Name: "Other"}, PID: 99},
 	}}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
 
-	_, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{
+	_, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{
 		WindowID: "window-1",
 		PID:      99,
 	})
@@ -2637,18 +2637,18 @@ func TestAccessibilityActionReceiptsRejectPreCanceledDispatch(t *testing.T) {
 			backend := &closingActionReceiptBackend{accessibilityAutomationFake: &accessibilityAutomationFake{
 				bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, accessibilityAutomationSpy: &accessibilityAutomationSpy{},
 			}}
-			session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 			t.Cleanup(func() { _ = session.Close() })
-			previous := session.Accessibility.backend
-			session.Accessibility.backend = backend
-			t.Cleanup(func() { session.Accessibility.backend = previous })
+			previous := session.accessibility.backend
+			session.accessibility.backend = backend
+			t.Cleanup(func() { session.accessibility.backend = previous })
 			id := accessibility.NodeID{BusName: "org.synthetic", ObjectPath: "/button", Generation: 1}
 			var receipt accessibility.Action
 			var err error
 			if name == "by-name" {
-				receipt, err = session.Accessibility.InvokeActionByName(ctx, id, "press")
+				receipt, err = session.accessibility.InvokeActionByName(ctx, id, "press")
 			} else {
-				receipt, err = session.Accessibility.InvokeDefaultAction(ctx, id)
+				receipt, err = session.accessibility.InvokeDefaultAction(ctx, id)
 			}
 			if !errors.Is(err, context.Canceled) || backend.calls != 0 || receipt.Name != "" {
 				t.Fatalf("pre-canceled %s mutation dispatched: receipt=%+v err=%v calls=%d", name, receipt, err, backend.calls)
@@ -2676,9 +2676,9 @@ func TestAccessibilityFindApplicationWindowCorrelationRequiresFreshIdentityAndMa
 		t.Run(tc.name, func(t *testing.T) {
 			manager := &accessibilityWindowManager{windows: []window.Info{{NativeID: "desktop-window", Title: "Editor Window", PID: 321}}}
 			backend := &bundleAccessibilityFake{apps: []accessibility.Application{tc.app}, gen: tc.gen}
-			session := NewSessionForTesting(nil, nil, manager, nil, nil, backend)
+			session := newSessionForTesting(nil, nil, manager, nil, nil, backend)
 			defer session.Close()
-			app, err := session.Accessibility.FindApplication(context.Background(), tc.filter)
+			app, err := session.accessibility.FindApplication(context.Background(), tc.filter)
 			if tc.want != nil {
 				if !errors.Is(err, tc.want) || app.ID.BusName != "" || app.Name != "" {
 					t.Fatalf("unsafe correlation: app=%+v err=%v want %v", app, err, tc.want)
@@ -2696,9 +2696,9 @@ func TestAccessibilityFindApplicationWindowCorrelationRequiresFreshIdentityAndMa
 func TestAccessibilityFindApplicationWindowResolverFailureCannotSelectAnotherApplication(t *testing.T) {
 	manager := &accessibilityWindowManager{windows: []window.Info{{NativeID: "desktop-window", Title: "Editor Window", PID: 321}}}
 	backend := &bundleAccessibilityFake{gen: 5}
-	session := NewSessionForTesting(nil, nil, manager, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, manager, nil, nil, backend)
 	defer session.Close()
-	app, err := session.Accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "desktop-window"})
+	app, err := session.accessibility.FindApplication(context.Background(), accessibility.ApplicationFilter{WindowID: "desktop-window"})
 	if !errors.Is(err, accessibility.ErrNotFound) || app.ID.BusName != "" || len(backend.resolvedTargets) != 1 {
 		t.Fatalf("missing window application selected: app=%+v err=%v targets=%+v", app, err, backend.resolvedTargets)
 	}
@@ -2708,7 +2708,7 @@ func TestAccessibilityFindApplicationWindowResolverFailureCannotSelectAnotherApp
 // read operation may consult the backend or disclose a stale observation.
 func TestAccessibilityClosedSessionRejectsReadsWithoutBackendDispatch(t *testing.T) {
 	backend := &bundleAccessibilityFake{gen: 4, apps: []accessibility.Application{{Node: accessibility.Node{Name: "private window"}}}}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -2720,57 +2720,57 @@ func TestAccessibilityClosedSessionRejectsReadsWithoutBackendDispatch(t *testing
 		run  func() error
 	}{
 		{"applications", func() error {
-			got, err := session.Accessibility.Applications(ctx)
+			got, err := session.accessibility.Applications(ctx)
 			if len(got) > 0 {
 				t.Errorf("leaked applications: %v", got)
 			}
 			return err
 		}},
 		{"snapshot", func() error {
-			got, err := session.Accessibility.Snapshot(ctx, id, opts)
+			got, err := session.accessibility.Snapshot(ctx, id, opts)
 			if len(got.Nodes) > 0 {
 				t.Errorf("leaked snapshot: %v", got)
 			}
 			return err
 		}},
 		{"outline", func() error {
-			_, err := session.Accessibility.Outline(ctx, id, opts, accessibility.OutlineOptions{})
+			_, err := session.accessibility.Outline(ctx, id, opts, accessibility.OutlineOptions{})
 			return err
 		}},
 		{"window scope", func() error {
-			got, err := session.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "private"})
+			got, err := session.accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "private"})
 			if got.WindowID != "" {
 				t.Errorf("leaked window scope: %v", got)
 			}
 			return err
 		}},
 		{"find", func() error {
-			got, err := session.Accessibility.Find(ctx, id, accessibility.Query{}, opts)
+			got, err := session.accessibility.Find(ctx, id, accessibility.Query{}, opts)
 			if len(got) > 0 {
 				t.Errorf("leaked matches: %v", got)
 			}
 			return err
 		}},
 		{"find one", func() error {
-			_, err := session.Accessibility.FindOneSelector(ctx, id, accessibility.Selector{}, opts)
+			_, err := session.accessibility.FindOneSelector(ctx, id, accessibility.Selector{}, opts)
 			return err
 		}},
 		{"focused", func() error {
-			got, err := session.Accessibility.Focused(ctx, opts)
+			got, err := session.accessibility.Focused(ctx, opts)
 			if got.Name != "" {
 				t.Errorf("leaked focus: %v", got)
 			}
 			return err
 		}},
 		{"at point", func() error {
-			got, err := session.Accessibility.AtPoint(ctx, 10, 20)
+			got, err := session.accessibility.AtPoint(ctx, 10, 20)
 			if got.Name != "" {
 				t.Errorf("leaked hit: %v", got)
 			}
 			return err
 		}},
 		{"find application", func() error {
-			got, err := session.Accessibility.FindApplication(ctx, accessibility.ApplicationFilter{Name: "private"})
+			got, err := session.accessibility.FindApplication(ctx, accessibility.ApplicationFilter{Name: "private"})
 			if got.Name != "" {
 				t.Errorf("leaked application: %v", got)
 			}
@@ -2793,36 +2793,36 @@ func TestAccessibilityClosedSessionRejectsReadsWithoutBackendDispatch(t *testing
 // does not implement EventSource. A rejected event request must not alter the
 // underlying provider or accidentally publish a channel with no event owner.
 func TestAccessibilityBundleEventsRejectsUnsupportedAndUnavailableSources(t *testing.T) {
-	var nilBundle *AccessibilityBundle
+	var nilBundle AccessibilityBundle
 	if stream, err := nilBundle.Events(context.Background(), accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil bundle admitted events: stream=%v err=%v", stream, err)
 	}
-	unavailable := NewSessionForTesting(nil, nil, nil, nil, nil)
-	if stream, err := unavailable.Accessibility.Events(context.Background(), accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrUnavailable) {
+	unavailable := newSessionForTesting(nil, nil, nil, nil, nil)
+	if stream, err := unavailable.accessibility.Events(context.Background(), accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("missing backend admitted events: stream=%v err=%v", stream, err)
 	}
 	if err := unavailable.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if stream, err := unavailable.Accessibility.Events(context.Background(), accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrSessionClosed) {
+	if stream, err := unavailable.accessibility.Events(context.Background(), accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrSessionClosed) {
 		t.Fatalf("closed session admitted events: stream=%v err=%v", stream, err)
 	}
 
 	provider := newOwnerLifecycleBackend(31, "events", "applications")
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, provider)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, provider)
 	t.Cleanup(func() { _ = session.Close() })
-	original := session.Accessibility.backend
-	session.Accessibility.backend = &coreOnlyAccessibilityBackend{Backend: provider}
-	defer func() { session.Accessibility.backend = original }()
-	stream, err := session.Accessibility.Events(context.Background(), accessibility.EventOptions{Buffer: 2})
+	original := session.accessibility.backend
+	session.accessibility.backend = &coreOnlyAccessibilityBackend{Backend: provider}
+	defer func() { session.accessibility.backend = original }()
+	stream, err := session.accessibility.Events(context.Background(), accessibility.EventOptions{Buffer: 2})
 	if stream != nil || !errors.Is(err, accessibility.ErrUnsupported) {
 		t.Fatalf("provider without EventSource exposed stream=%v err=%v", stream, err)
 	}
 	if provider.eventCalls.Load() != 0 || provider.closeCalls.Load() != 0 {
 		t.Fatalf("unsupported event source dispatched or closed provider: calls=%d closed=%d", provider.eventCalls.Load(), provider.closeCalls.Load())
 	}
-	session.Accessibility.backend = original
-	if _, err := session.Accessibility.Applications(context.Background()); err != nil {
+	session.accessibility.backend = original
+	if _, err := session.accessibility.Applications(context.Background()); err != nil {
 		t.Fatalf("rejected event subscription damaged live provider: %v", err)
 	}
 }
@@ -2832,7 +2832,7 @@ func TestAccessibilityBundleEventsRejectsUnsupportedAndUnavailableSources(t *tes
 // epoch, and invalidation must never reach a hidden optional implementation.
 func TestAccessibilityBundleGenerationAndInvalidationOptionalProviderBoundaries(t *testing.T) {
 	id := accessibility.NodeID{BusName: "org.example.Document", ObjectPath: "/document", Generation: 7}
-	var absent *AccessibilityBundle
+	var absent AccessibilityBundle
 	if absent.Generation() != 0 {
 		t.Fatal("nil bundle claimed live generation")
 	}
@@ -2848,7 +2848,7 @@ func TestAccessibilityBundleGenerationAndInvalidationOptionalProviderBoundaries(
 		{name: "core only", backend: &coreOnlyAccessibilityBackend{Backend: &bundleAccessibilityFake{gen: 7}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			bundle := &AccessibilityBundle{backend: tc.backend}
+			bundle := newAccessibilityState(bundleBase{}, tc.backend)
 			if got := bundle.Generation(); got != 0 {
 				t.Fatalf("unsupported generation=%d, want zero", got)
 			}
@@ -2859,7 +2859,7 @@ func TestAccessibilityBundleGenerationAndInvalidationOptionalProviderBoundaries(
 		})
 	}
 	provider := &bundleAccessibilityFake{gen: 7}
-	bundle := &AccessibilityBundle{backend: provider}
+	bundle := newAccessibilityState(bundleBase{}, provider)
 	if got := bundle.Generation(); got != 7 {
 		t.Fatalf("live provider generation=%d", got)
 	}
@@ -2873,21 +2873,21 @@ func TestAccessibilityBundleGenerationAndInvalidationOptionalProviderBoundaries(
 // invalidate a provider that no longer belongs to their session.
 func TestAccessibilityGenerationAndInvalidationRejectClosedSession(t *testing.T) {
 	backend := &bundleAccessibilityFake{gen: 41}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
-	original := session.Accessibility.backend
-	session.Accessibility.backend = backend
-	defer func() { session.Accessibility.backend = original }()
-	if got := session.Accessibility.Generation(); got != 41 {
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
+	original := session.accessibility.backend
+	session.accessibility.backend = backend
+	defer func() { session.accessibility.backend = original }()
+	if got := session.accessibility.Generation(); got != 41 {
 		t.Fatalf("initial generation=%d", got)
 	}
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
 	id := accessibility.NodeID{BusName: "org.example", ObjectPath: "/node", Generation: 41}
-	if got := session.Accessibility.Generation(); got != 0 {
+	if got := session.accessibility.Generation(); got != 0 {
 		t.Errorf("closed session advertised generation %d", got)
 	}
-	session.Accessibility.Invalidate(id)
+	session.accessibility.Invalidate(id)
 	if backend.gen != 41 {
 		t.Errorf("closed session invalidated retired provider to generation %d", backend.gen)
 	}
@@ -2897,7 +2897,7 @@ func TestAccessibilityGenerationAndInvalidationRejectClosedSession(t *testing.T)
 // invoke discovery operations directly on a nil bundle. The absence of any
 // session also must not trigger a provider operation or panic.
 func TestNilAccessibilityBundleReadsFailClosed(t *testing.T) {
-	var bundle *AccessibilityBundle
+	var bundle AccessibilityBundle
 	ctx := context.Background()
 	root := accessibility.NodeID{BusName: "org.example.Application", ObjectPath: "/app", Generation: 7}
 	selector := accessibility.Selector{Name: "Save", Role: "button"}
@@ -2920,7 +2920,7 @@ func TestNilAccessibilityBundleReadsFailClosed(t *testing.T) {
 			return v.Root.BusName != "", e
 		}},
 		{"fresh-window", func() (bool, error) {
-			v, e := bundle.accessibilityWindow(ctx, accessibility.WindowTarget{ID: "win"}, true)
+			v, e := bundle.state.accessibilityWindow(ctx, accessibility.WindowTarget{ID: "win"}, true)
 			return v.Root.BusName != "", e
 		}},
 		{"find", func() (bool, error) {
@@ -2962,29 +2962,29 @@ func TestNilAccessibilityBundleReadsFailClosed(t *testing.T) {
 // or non-reconnectable accessibility provider. In particular, advertising the
 // capability does not authorize casting an arbitrary backend to its owner.
 func TestAccessibilityBundleReopenRejectsAbsentClosedOrUnownedBackend(t *testing.T) {
-	var nilBundle *AccessibilityBundle
+	var nilBundle AccessibilityBundle
 	if err := nilBundle.Reopen(context.Background()); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil bundle reopened: %v", err)
 	}
-	unavailable := NewSessionForTesting(nil, nil, nil, nil, nil)
-	if err := unavailable.Accessibility.Reopen(context.Background()); !errors.Is(err, ErrUnavailable) {
+	unavailable := newSessionForTesting(nil, nil, nil, nil, nil)
+	if err := unavailable.accessibility.Reopen(context.Background()); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("absent provider reopened: %v", err)
 	}
 	if err := unavailable.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := unavailable.Accessibility.Reopen(context.Background()); !errors.Is(err, ErrSessionClosed) {
+	if err := unavailable.accessibility.Reopen(context.Background()); !errors.Is(err, ErrSessionClosed) {
 		t.Fatalf("closed session reopened: %v", err)
 	}
 
 	owned := newOwnerLifecycleBackend(8, "applications", "reopen")
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, owned)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, owned)
 	t.Cleanup(func() { _ = session.Close() })
-	owner := session.Accessibility.backend
+	owner := session.accessibility.backend
 	direct := &coreOnlyAccessibilityBackend{Backend: owned}
-	session.Accessibility.backend = direct
-	defer func() { session.Accessibility.backend = owner }()
-	if err := session.Accessibility.Reopen(context.Background()); !errors.Is(err, accessibility.ErrUnsupported) {
+	session.accessibility.backend = direct
+	defer func() { session.accessibility.backend = owner }()
+	if err := session.accessibility.Reopen(context.Background()); !errors.Is(err, accessibility.ErrUnsupported) {
 		t.Fatalf("unowned backend reconnect: %v", err)
 	}
 	if owned.closeCalls.Load() != 0 {
@@ -2993,8 +2993,8 @@ func TestAccessibilityBundleReopenRejectsAbsentClosedOrUnownedBackend(t *testing
 	if !session.Capability(CapabilityAccessibility).Available {
 		t.Fatal("unsupported reconnect disabled still-owned capability")
 	}
-	session.Accessibility.backend = owner
-	if _, err := session.Accessibility.Applications(context.Background()); err != nil {
+	session.accessibility.backend = owner
+	if _, err := session.accessibility.Applications(context.Background()); err != nil {
 		t.Fatalf("unsupported request corrupted original backend: %v", err)
 	}
 }

@@ -5,7 +5,7 @@ package screen
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
 	"image"
 	"math"
 	"os"

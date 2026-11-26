@@ -8,8 +8,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/screen"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/screen"
 )
 
 const watchMaxDirtyRects = 256

@@ -80,7 +80,7 @@ pf input hotkey listen --button left --event press --output json
 
 Press Ctrl+C to cancel and unregister. JSON reports `kind`, `id`,
 `transition`, `time`, and `source`. The event source does **not**
-attest physical-vs-injected provenance. The Go equivalent is `Session.InputObservation.Listen(ctx,
+attest physical-vs-injected provenance. The Go equivalent is `Session.InputObservation().Listen(ctx,
 input.ObservationFilter{Combo: "F8", Transition: "press"})`, returning a
 subscription with `Events`, `Err`, and `Close`.
 
@@ -110,7 +110,7 @@ Lock-key held state (for example, `--key capslock`) is distinct from the
 enabled mode (`--lock capslock`). The X11 backend can query Caps Lock, Num Lock
 and Scroll Lock when the current modifier map identifies an unambiguous lock
 bit; unmapped or ambiguous lock states return unsupported.
-The Go equivalent is `Session.InputObservation.KeyState`, `LockState` or
+The Go equivalent is `Session.InputObservation().KeyState`, `LockState` or
 `MouseButtonState`; check `errors.Is(err, perfuncted.ErrUnsupported)` when the
 selected session cannot observe global state. Successful queries include an
 observation timestamp and provider so callers can distinguish a current X11

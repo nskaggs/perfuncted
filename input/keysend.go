@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 )
 
 // keySend represents a parsed key-send action produced by parseKeySend.

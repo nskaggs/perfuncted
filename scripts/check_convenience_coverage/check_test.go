@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const modulePrefix = "github.com/nskaggs/perfuncted/"
+const modulePrefix = "github.com/nskaggs/perfuncted/v2/"
 
 var requiredFiles = []string{"convenience.go", "input/keysend.go"}
 

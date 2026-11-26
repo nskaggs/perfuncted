@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nskaggs/perfuncted/internal/contextutil"
-	"github.com/nskaggs/perfuncted/internal/util"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/util"
 )
 
 func clampPoll(poll time.Duration) time.Duration {

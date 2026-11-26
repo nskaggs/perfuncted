@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
 	"io/fs"
 	"os"
 	"os/exec"

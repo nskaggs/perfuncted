@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/find"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/find"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ func TestErrorPath_WaitForFn_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
-	screenW, screenH, err := s.pf.Screen.Resolution(ctx)
+	screenW, screenH, err := s.pf.Screen().Resolution(ctx)
 	if err != nil {
 		t.Skipf("screen resolution unavailable: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestErrorPath_WaitForFn_Timeout(t *testing.T) {
 	}
 
 	rect := image.Rect(0, 0, 10, 10)
-	_, err = s.pf.Screen.WaitForFn(ctx, rect, func(_ context.Context, _ image.Image) bool {
+	_, err = s.pf.Screen().WaitForFn(ctx, rect, func(_ context.Context, _ image.Image) bool {
 		return false // never satisfies
 	}, 50*time.Millisecond)
 	if err == nil {
@@ -62,7 +62,7 @@ func TestErrorPath_WaitForFn_AlreadyCancelled(t *testing.T) {
 	cancel()
 
 	rect := image.Rect(0, 0, 10, 10)
-	_, err := s.pf.Screen.WaitForFn(ctx, rect, func(_ context.Context, _ image.Image) bool {
+	_, err := s.pf.Screen().WaitForFn(ctx, rect, func(_ context.Context, _ image.Image) bool {
 		return false
 	}, 50*time.Millisecond)
 	if err == nil {
@@ -108,7 +108,7 @@ func TestErrorPath_ContextCancelledClipboardSet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := s.pf.Clipboard.Set(ctx, "should not matter")
+	err := s.pf.Clipboard().Set(ctx, "should not matter")
 	if err == nil {
 		t.Error("Clipboard.Set: expected error with pre-cancelled context, got nil")
 	}
@@ -122,7 +122,7 @@ func TestErrorPath_WaitForChange_NeverChanges(t *testing.T) {
 	hashCtx, hashCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer hashCancel()
 
-	screenW, screenH, err := s.pf.Screen.Resolution(hashCtx)
+	screenW, screenH, err := s.pf.Screen().Resolution(hashCtx)
 	if err != nil {
 		t.Skipf("screen resolution unavailable: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestErrorPath_WaitForChange_NeverChanges(t *testing.T) {
 	}
 
 	rect := image.Rect(0, 0, min(screenW, 50), min(screenH, 50))
-	_, err = s.pf.Screen.GrabRegionHash(hashCtx, rect)
+	_, err = s.pf.Screen().GrabRegionHash(hashCtx, rect)
 	if err != nil {
 		t.Fatalf("initial hash: %v", err)
 	}
@@ -167,10 +167,10 @@ func TestPaste_Unicode_Emoji(t *testing.T) {
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get after Paste(emoji): %v", err)
 	}
@@ -193,10 +193,10 @@ func TestPaste_Unicode_CJK(t *testing.T) {
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get after Paste(CJK): %v", err)
 	}
@@ -221,10 +221,10 @@ func TestPaste_Unicode_CombiningChars(t *testing.T) {
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get after Paste(combining chars): %v", err)
 	}
@@ -247,10 +247,10 @@ func TestPaste_Unicode_MixedASCIIAndMultibyte(t *testing.T) {
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get after Paste(mixed): %v", err)
 	}
@@ -510,16 +510,16 @@ func TestClipboard_LargePayload(t *testing.T) {
 	sb.WriteString("||END||")
 	large := sb.String()
 
-	if err := s.pf.Clipboard.Set(ctx, large); err != nil {
+	if err := s.pf.Clipboard().Set(ctx, large); err != nil {
 		t.Skipf("clipboard rejected large payload: %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get (large payload): %v", err)
 	}
@@ -543,16 +543,16 @@ func TestClipboard_LargeUnicodePayload(t *testing.T) {
 	sb.WriteString("||UNICODE_END||")
 	large := sb.String()
 
-	if err := s.pf.Clipboard.Set(ctx, large); err != nil {
+	if err := s.pf.Clipboard().Set(ctx, large); err != nil {
 		t.Skipf("clipboard rejected large unicode payload: %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get (large unicode): %v", err)
 	}
@@ -571,20 +571,20 @@ func TestClipboard_RapidSuccessiveWrites(t *testing.T) {
 	const last = "FINAL_VALUE_RAPID_WRITES_999"
 	for i := 0; i < 5; i++ {
 		val := "interim-value-" + strings.Repeat("x", i*10)
-		if err := s.pf.Clipboard.Set(ctx, val); err != nil {
+		if err := s.pf.Clipboard().Set(ctx, val); err != nil {
 			t.Skipf("clipboard not available: %v", err)
 		}
 	}
-	if err := s.pf.Clipboard.Set(ctx, last); err != nil {
+	if err := s.pf.Clipboard().Set(ctx, last); err != nil {
 		t.Fatalf("clipboard final set: %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Fatalf("clipboard get after rapid writes: %v", err)
 	}
@@ -602,16 +602,16 @@ func TestClipboard_NullBytes(t *testing.T) {
 	defer cancel()
 
 	text := "before\x00after"
-	if err := s.pf.Clipboard.Set(ctx, text); err != nil {
+	if err := s.pf.Clipboard().Set(ctx, text); err != nil {
 		t.Skipf("clipboard backend rejected NUL bytes (expected limitation): %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard.Set(cctx, "")
+		_ = s.pf.Clipboard().Set(cctx, "")
 	})
 
-	got, err := s.pf.Clipboard.Get(ctx)
+	got, err := s.pf.Clipboard().Get(ctx)
 	if err != nil {
 		t.Skipf("clipboard get returned error for NUL content (backend limitation): %v", err)
 	}

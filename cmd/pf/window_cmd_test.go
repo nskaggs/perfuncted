@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/pftest"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/pftest"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"image/color"
 	"io"
@@ -374,7 +374,7 @@ func TestWindowVerificationRejectsInvalidArguments(t *testing.T) {
 	if err := waitWindowActive(context.Background(), nil, 0, time.Millisecond); err == nil {
 		t.Fatal("activation verification accepted a nonpositive timeout")
 	}
-	if err := waitWindowGone(context.Background(), nil, "", time.Second, time.Millisecond); err == nil {
+	if err := waitWindowGone(context.Background(), perfuncted.WindowBundle{}, "", time.Second, time.Millisecond); err == nil {
 		t.Fatal("disappearance verification accepted an empty ID")
 	}
 }
@@ -385,7 +385,7 @@ func TestWindowVerificationPropagatesBackendErrors(t *testing.T) {
 	session := pftest.New(nil, nil, manager, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
-	target, err := session.Windows.Find(context.Background(), window.Match{TitleExact: "Editor"})
+	target, err := session.Windows().Find(context.Background(), window.Match{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatalf("find verification target: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestWindowVerificationPropagatesBackendErrors(t *testing.T) {
 	if err := waitWindowActive(context.Background(), target, time.Second, time.Millisecond); !errors.Is(err, wantErr) {
 		t.Fatalf("activation verification error = %v, want %v", err, wantErr)
 	}
-	if err := waitWindowGone(context.Background(), session.Windows, "editor", time.Second, time.Millisecond); !errors.Is(err, wantErr) {
+	if err := waitWindowGone(context.Background(), session.Windows(), "editor", time.Second, time.Millisecond); !errors.Is(err, wantErr) {
 		t.Fatalf("disappearance verification error = %v, want %v", err, wantErr)
 	}
 }
@@ -526,7 +526,7 @@ func TestCLIStableIDLeadingZeroDecimalDoesNotSelectWrongWindow(t *testing.T) {
 	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "8", ID: 8, Title: "wrong"}, {NativeID: "10", ID: 10, Title: "correct"}}}}
 	pf := pftest.New(nil, nil, m, nil)
 	defer pf.Close()
-	target, err := findWindowByStableID(context.Background(), pf.Windows, "010")
+	target, err := findWindowByStableID(context.Background(), pf.Windows(), "010")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +554,7 @@ func TestCLIStableIDPrefersExactOpaqueHandleOverNumericAlias(t *testing.T) {
 	}}}
 	pf := pftest.New(nil, nil, m, nil)
 	defer pf.Close()
-	target, err := findWindowByStableID(context.Background(), pf.Windows, "010")
+	target, err := findWindowByStableID(context.Background(), pf.Windows(), "010")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -946,7 +946,7 @@ func TestWindowReadCommandsRejectBackendFailuresWithoutResults(t *testing.T) {
 func TestFindWindowByStableIDRejectsEmptyIDBeforeListing(t *testing.T) {
 	pf := pftest.New(nil, nil, &pftest.Manager{Err: errors.New("unexpected backend listing")}, nil)
 	defer pf.Close()
-	_, err := findWindowByStableID(context.Background(), pf.Windows, "")
+	_, err := findWindowByStableID(context.Background(), pf.Windows(), "")
 	if !errors.Is(err, window.ErrInvalidArgument) || strings.Contains(err.Error(), "unexpected backend listing") {
 		t.Fatalf("empty window ID queried backend: %v", err)
 	}
@@ -956,14 +956,14 @@ func TestFindWindowByStableIDHandlesDuplicateTitles(t *testing.T) {
 	mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "uuid-one", Title: "Remote Control", ID: 1}, {NativeID: "uuid-two", Title: "Remote Control", ID: 2}}}}
 	pf := pftest.New(nil, nil, mgr, nil)
 	defer pf.Close()
-	target, err := findWindowByStableID(context.Background(), pf.Windows, "uuid-two")
+	target, err := findWindowByStableID(context.Background(), pf.Windows(), "uuid-two")
 	if err != nil {
 		t.Fatalf("find: %v", err)
 	}
 	if got := target.ID().String(); got != "uuid-two" {
 		t.Fatalf("target=%q", got)
 	}
-	_, err = findWindowByStableID(context.Background(), pf.Windows, "absent")
+	_, err = findWindowByStableID(context.Background(), pf.Windows(), "absent")
 	if !errors.Is(err, window.ErrWindowNotFound) {
 		t.Fatalf("missing id error=%v", err)
 	}
@@ -1020,7 +1020,7 @@ func TestFindWindowByStableIDAcceptsX11PrintedHexID(t *testing.T) {
 	mgr := &pftest.Manager{Lists: [][]window.Info{{{ID: 0xe00017, Title: "X11 window"}, {ID: 0xe00018, Title: "other"}}}}
 	pf := pftest.New(nil, nil, mgr, nil)
 	defer pf.Close()
-	target, err := findWindowByStableID(context.Background(), pf.Windows, "0xe00017")
+	target, err := findWindowByStableID(context.Background(), pf.Windows(), "0xe00017")
 	if err != nil || target.CachedInfo().ID != 0xe00017 {
 		t.Fatalf("target=%v err=%v", target, err)
 	}
@@ -1030,13 +1030,13 @@ func TestWaitWindowGoneRequiresConfirmedDisappearance(t *testing.T) {
 	mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-uuid", Title: "File Upload"}}, {{NativeID: "dialog-uuid", Title: "File Upload"}}, {}}}
 	pf := pftest.New(nil, nil, mgr, nil)
 	defer pf.Close()
-	if err := waitWindowGone(context.Background(), pf.Windows, "dialog-uuid", 100*time.Millisecond, 5*time.Millisecond); err != nil {
+	if err := waitWindowGone(context.Background(), pf.Windows(), "dialog-uuid", 100*time.Millisecond, 5*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	stuck := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-uuid", Title: "File Upload"}}}}
 	pf2 := pftest.New(nil, nil, stuck, nil)
 	defer pf2.Close()
-	if err := waitWindowGone(context.Background(), pf2.Windows, "dialog-uuid", 15*time.Millisecond, 5*time.Millisecond); err == nil {
+	if err := waitWindowGone(context.Background(), pf2.Windows(), "dialog-uuid", 15*time.Millisecond, 5*time.Millisecond); err == nil {
 		t.Fatal("ignored still open file chooser")
 	}
 }

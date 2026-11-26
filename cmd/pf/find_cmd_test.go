@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted"
-	"github.com/nskaggs/perfuncted/pftest"
+	"github.com/nskaggs/perfuncted/v2"
+	"github.com/nskaggs/perfuncted/v2/pftest"
 	"image"
 	"image/color"
 	"os"

@@ -4,16 +4,16 @@
 package perfuncted
 
 import (
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 
 	"os"
 
-	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/gnomebridge"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/gnomebridge"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 // RemoteDesktopInputOptions configures the explicitly authorized Wayland

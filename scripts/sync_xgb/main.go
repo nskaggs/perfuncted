@@ -19,7 +19,7 @@ import (
 )
 
 const upstreamPath = "github.com/jezek/xgb"
-const internalPath = "github.com/nskaggs/perfuncted/internal/third_party/xgb"
+const internalPath = "github.com/nskaggs/perfuncted/v2/internal/third_party/xgb"
 
 type pin struct {
 	Path    string   `json:"path"`

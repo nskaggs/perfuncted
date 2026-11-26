@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godbus/dbus/v5"
-	"github.com/nskaggs/perfuncted/internal/dbusutil"
-	"github.com/nskaggs/perfuncted/internal/env"
-	"github.com/nskaggs/perfuncted/internal/executil"
-	sessionruntime "github.com/nskaggs/perfuncted/internal/runtime"
+	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
+	"github.com/nskaggs/perfuncted/v2/internal/executil"
+	sessionruntime "github.com/nskaggs/perfuncted/v2/internal/runtime"
 	"golang.org/x/sync/errgroup"
 	"image"
 	"log/slog"
@@ -65,7 +65,7 @@ type sessionInfra struct {
 	startupObserver StartupPhaseObserver
 }
 
-func (s *Session) startSession(
+func (s *sessionCore) startSession(
 	ctx context.Context,
 	mode sessionMode,
 	config SessionConfig,
@@ -181,7 +181,7 @@ func prepareSessionRuntimeDirs(xdgDir, logDir *string, logPath string) error {
 	return nil
 }
 
-func (s *Session) tryStartAccessibility(startupCtx context.Context, infra *sessionInfra, wait time.Duration) {
+func (s *sessionCore) tryStartAccessibility(startupCtx context.Context, infra *sessionInfra, wait time.Duration) {
 	if launchErr := s.runStartupPhase(startupCtx, StartupPhaseAccessibilityLauncher, infra.launchAccessibility); launchErr != nil {
 		return
 	}
@@ -202,7 +202,7 @@ func (s *Session) tryStartAccessibility(startupCtx context.Context, infra *sessi
 	infra.atspiAddr = address
 }
 
-func (s *Session) resolveSessionSwayConfig(ctx context.Context, infra *sessionInfra, mode sessionMode, config SessionConfig) (string, error) {
+func (s *sessionCore) resolveSessionSwayConfig(ctx context.Context, infra *sessionInfra, mode sessionMode, config SessionConfig) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("session: sway config: %w", err)
 	}
@@ -728,7 +728,7 @@ func startupPhaseResult(ctx context.Context, err error) StartupPhaseState {
 	return StartupPhaseFailed
 }
 
-func (s *Session) runStartupPhase(ctx context.Context, phase StartupPhase, run func() error) error {
+func (s *sessionCore) runStartupPhase(ctx context.Context, phase StartupPhase, run func() error) error {
 	if s == nil || s.startupObserver == nil {
 		return run()
 	}

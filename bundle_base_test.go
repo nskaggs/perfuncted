@@ -3,13 +3,13 @@ package perfuncted
 import (
 	"context"
 	"errors"
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/clipboard"
-	"github.com/nskaggs/perfuncted/input"
-	"github.com/nskaggs/perfuncted/internal/capability"
-	"github.com/nskaggs/perfuncted/output"
-	"github.com/nskaggs/perfuncted/screen"
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/clipboard"
+	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
+	"github.com/nskaggs/perfuncted/v2/output"
+	"github.com/nskaggs/perfuncted/v2/screen"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"image"
 	"slices"
 	"strings"
@@ -50,9 +50,9 @@ func TestAdversarialFindOnePaysSingleSnapshot(t *testing.T) {
 			{ID: accessibility.NodeID{BusName: "b", ObjectPath: "/a", Generation: 2}, Name: "alpha"},
 		},
 	}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, backend)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	defer session.Close()
-	_, err := session.Accessibility.FindOne(context.Background(), root, missing, accessibility.SnapshotOptions{})
+	_, err := session.accessibility.FindOne(context.Background(), root, missing, accessibility.SnapshotOptions{})
 	if err == nil {
 		t.Fatal("missing query unexpectedly succeeded")
 	}
@@ -85,7 +85,7 @@ func TestAdversarialCapabilityOperationsMatchBackend(t *testing.T) {
 func syntheticSupportedBundle() *bundleBase {
 	bundle := &bundleBase{
 		capability: CapabilityInput,
-		session: &Session{ctx: context.Background(), capabilities: map[Capability]CapabilityStatus{
+		session: &sessionCore{ctx: context.Background(), capabilities: map[Capability]CapabilityStatus{
 			CapabilityInput: {
 				Capability: CapabilityInput, Available: true, Backend: "*input.WlVirtualBackend",
 				Operations:  []string{"keyboard", "click", "pointer", "scroll", "sync", "pointer-location", "pointer-coordinate-space"},
@@ -186,30 +186,30 @@ func TestAccessibilityOperationSupportRemainsDynamic(t *testing.T) {
 // Normal session construction wires the immutable contracts before returning.
 // Accessibility must remain on the live path because its backend may reopen.
 func TestSessionCreationCachesOnlyStaticOperations(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	for _, bundle := range []*bundleBase{
-		&session.Screen.bundleBase,
-		&session.Input.bundleBase,
-		&session.Windows.bundleBase,
-		&session.Outputs.bundleBase,
-		&session.Clipboard.bundleBase,
+		&session.screen.bundleBase,
+		&session.inputAdmission,
+		&session.windows.bundleBase,
+		&session.outputAdmission,
+		&session.clipboardAdmission,
 	} {
 		if !bundle.operationsResolved {
 			t.Fatalf("%s was not prevalidated at session creation", bundle.capability)
 		}
 	}
-	if session.Accessibility.operationsResolved {
+	if session.accessibility.operationsResolved {
 		t.Fatal("accessibility cannot prevalidate a reopenable backend")
 	}
 }
 
 func TestBackendContextReusesEarlierCallerDeadline(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	parent, stop := context.WithTimeout(context.Background(), time.Minute)
 	defer stop()
-	child, finish := session.Screen.backendContext(parent, 2*time.Minute)
+	child, finish := session.screen.backendContext(parent, 2*time.Minute)
 	defer finish()
 	if child != parent {
 		t.Fatalf("backend context duplicated the earlier caller deadline; want exact parent context")
@@ -220,11 +220,11 @@ func TestBackendContextReusesEarlierCallerDeadline(t *testing.T) {
 }
 
 func TestBackendContextAddsShorterBackendTimeout(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	parent, stop := context.WithTimeout(context.Background(), time.Minute)
 	defer stop()
-	child, finish := session.Screen.backendContext(parent, 10*time.Millisecond)
+	child, finish := session.screen.backendContext(parent, 10*time.Millisecond)
 	defer finish()
 	if child == parent {
 		t.Fatal("backend deadline is shorter; child required")
@@ -244,9 +244,9 @@ func TestBackendContextAddsShorterBackendTimeout(t *testing.T) {
 }
 
 func TestBackendContextUnboundedCallerStaysBounded(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
-	child, finish := session.Screen.backendContext(context.Background(), time.Second)
+	child, finish := session.screen.backendContext(context.Background(), time.Second)
 	defer finish()
 	deadline, ok := child.Deadline()
 	if !ok || time.Until(deadline) > time.Second {
@@ -276,11 +276,11 @@ func TestBackendContextWithoutOwnerRetainsCallerCancellation(t *testing.T) {
 // An omitted operation timeout uses the session's configured medium policy
 // and the returned cancellation remains owned by the backend operation.
 func TestBackendContextZeroTimeoutUsesSessionPolicy(t *testing.T) {
-	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	session := newSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 	policy := session.Timeouts()
 	before := time.Now()
-	child, finish := session.Screen.backendContext(context.Background(), 0)
+	child, finish := session.screen.backendContext(context.Background(), 0)
 	deadline, ok := child.Deadline()
 	if !ok || deadline.Before(before) || deadline.After(before.Add(policy.Medium+time.Second)) {
 		finish()
@@ -310,62 +310,62 @@ func (b *authoritativeCoordinateBackend) PointerCoordinateSpace(ctx context.Cont
 func TestInputBundleCoordinateSpaceRequiresAuthoritativeValidBackendProof(t *testing.T) {
 	physical := input.CoordinateSpaceInfo{Kind: input.CoordinateSpacePhysical, ScaleX: 2, ScaleY: 1.5}
 	backend := &authoritativeCoordinateBackend{closeCountingInput: &closeCountingInput{}, report: physical}
-	session := NewSessionForTesting(nil, backend, nil, nil, nil)
+	session := newSessionForTesting(nil, backend, nil, nil, nil)
 	defer session.Close()
-	got, err := session.Input.PointerCoordinateSpace(context.Background())
+	got, err := session.input.PointerCoordinateSpace(context.Background())
 	if err != nil || got != physical || backend.calls != 1 {
 		t.Fatalf("authoritative coordinate report lost: %+v err=%v calls=%d", got, err, backend.calls)
 	}
 	backend.report = input.CoordinateSpaceInfo{Kind: input.CoordinateSpaceLogical, ScaleX: 2, ScaleY: 1}
-	if _, err := session.Input.PointerCoordinateSpace(context.Background()); err == nil {
+	if _, err := session.input.PointerCoordinateSpace(context.Background()); err == nil {
 		t.Fatal("non-unit logical scale accepted")
 	}
 	failure := errors.New("synthetic coordinate discovery failed")
 	backend.failure = failure
-	if _, err := session.Input.PointerCoordinateSpace(context.Background()); !errors.Is(err, failure) {
+	if _, err := session.input.PointerCoordinateSpace(context.Background()); !errors.Is(err, failure) {
 		t.Fatalf("backend error lost: %v", err)
 	}
 	backend.failure = nil
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := session.Input.PointerCoordinateSpace(canceled); !errors.Is(err, context.Canceled) {
+	if _, err := session.input.PointerCoordinateSpace(canceled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation not preserved: %v", err)
 	}
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Input.PointerCoordinateSpace(context.Background()); err == nil {
+	if _, err := session.input.PointerCoordinateSpace(context.Background()); err == nil {
 		t.Fatal("closed session disclosed coordinate scale")
 	}
-	withoutMetadata := NewSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
+	withoutMetadata := newSessionForTesting(nil, &closeCountingInput{}, nil, nil, nil)
 	defer withoutMetadata.Close()
-	if _, err := withoutMetadata.Input.PointerCoordinateSpace(context.Background()); !errors.Is(err, input.ErrNotSupported) {
+	if _, err := withoutMetadata.input.PointerCoordinateSpace(context.Background()); !errors.Is(err, input.ErrNotSupported) {
 		t.Fatalf("unproven coordinate space was not rejected: %v", err)
 	}
 }
 
 func TestAccessibilityWindowDelegatesExplicitScopeAndPreservesFailure(t *testing.T) {
 	fake := &bundleAccessibilityFake{apps: []accessibility.Application{{Node: accessibility.Node{Name: "Synthetic Editor"}}}, gen: 7}
-	session := NewSessionForTesting(nil, nil, nil, nil, nil, fake)
+	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	ctx := context.Background()
-	scope, err := session.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "synthetic-editor-window"})
+	scope, err := session.accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "synthetic-editor-window"})
 	if err != nil || scope.WindowID != "synthetic-editor-window" || scope.Generation != 7 || len(fake.resolvedTargets) != 1 || fake.resolvedTargets[0].ID != "synthetic-editor-window" {
 		t.Fatalf("incorrect window correlation scope=%+v err=%v targets=%+v", scope, err, fake.resolvedTargets)
 	}
-	if _, err := session.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "missing"}); !errors.Is(err, accessibility.ErrNotFound) {
+	if _, err := session.accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "missing"}); !errors.Is(err, accessibility.ErrNotFound) {
 		t.Fatalf("missing window error lost: %v", err)
 	}
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "synthetic-editor-window"}); err == nil {
+	if _, err := session.accessibility.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "synthetic-editor-window"}); err == nil {
 		t.Fatal("closed accessibility session resolved stale window")
 	}
 }
 
 func TestNilAccessibilityBundleClosesRejectedBackendWithoutLeaking(t *testing.T) {
-	var absent *AccessibilityBundle
+	var absent *accessibilityState
 	candidate := &accessibilityReopenerFake{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}}
 	absent.installBackend(candidate)
 	if !candidate.closed {
@@ -406,73 +406,46 @@ func TestBundleAvailabilityTreatsTypedNilBackendsAsUnavailable(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		check func(*Session) error
+		check func(*sessionCore) error
 	}{
 		{
 			name: "screen",
-			check: func(session *Session) error {
-				bundle := &ScreenBundle{
-					backend: screenshotter,
-					bundleBase: bundleBase{
-						session:    session,
-						capability: CapabilityScreen,
-					},
-				}
+			check: func(session *sessionCore) error {
+				bundle := newScreenState(session.bundleBase(CapabilityScreen), screenshotter)
 				_, err := bundle.Grab(context.Background(), image.Rectangle{})
 				return err
 			},
 		},
 		{
 			name: "input",
-			check: func(session *Session) error {
-				bundle := &InputBundle{
-					backend: inputter,
-					bundleBase: bundleBase{
-						session:    session,
-						capability: CapabilityInput,
-					},
-				}
+			check: func(session *sessionCore) error {
+				base := session.bundleBase(CapabilityInput)
+				bundle := newInputState(&base, inputter)
 				return bundle.KeyDown(context.Background(), "a")
 			},
 		},
 		{
 			name: "windows",
-			check: func(session *Session) error {
-				bundle := &WindowBundle{
-					backend: manager,
-					bundleBase: bundleBase{
-						session:    session,
-						capability: CapabilityWindows,
-					},
-				}
+			check: func(session *sessionCore) error {
+				bundle := newWindowState(session.bundleBase(CapabilityWindows), manager)
 				_, err := bundle.List(context.Background(), WindowMatch{})
 				return err
 			},
 		},
 		{
 			name: "outputs",
-			check: func(session *Session) error {
-				bundle := &OutputBundle{
-					backend: lister,
-					bundleBase: bundleBase{
-						session:    session,
-						capability: CapabilityOutputs,
-					},
-				}
+			check: func(session *sessionCore) error {
+				base := session.bundleBase(CapabilityOutputs)
+				bundle := newOutputState(&base, lister)
 				_, err := bundle.List(context.Background())
 				return err
 			},
 		},
 		{
 			name: "clipboard",
-			check: func(session *Session) error {
-				bundle := &ClipboardBundle{
-					backend: clipboardBackend,
-					bundleBase: bundleBase{
-						session:    session,
-						capability: CapabilityClipboard,
-					},
-				}
+			check: func(session *sessionCore) error {
+				base := session.bundleBase(CapabilityClipboard)
+				bundle := newClipboardState(&base, clipboardBackend)
 				_, err := bundle.Get(context.Background())
 				return err
 			},
@@ -489,8 +462,8 @@ func TestBundleAvailabilityTreatsTypedNilBackendsAsUnavailable(t *testing.T) {
 	}
 }
 
-func bundleAvailabilityTestSession() *Session {
-	return &Session{ctx: context.Background()}
+func bundleAvailabilityTestSession() *sessionCore {
+	return &sessionCore{ctx: context.Background()}
 }
 
 var (
@@ -525,13 +498,13 @@ func TestDesktopReadFacadesDoNotDispatchAfterPreCancellation(t *testing.T) {
 	cancel()
 	outputs := &countOutputReadBackend{}
 	clipboard := &countClipboardReadBackend{}
-	session := NewSessionForTesting(nil, nil, nil, outputs, clipboard)
+	session := newSessionForTesting(nil, nil, nil, outputs, clipboard)
 	t.Cleanup(func() { _ = session.Close() })
-	infos, err := session.Outputs.List(ctx)
+	infos, err := session.outputs.List(ctx)
 	if !errors.Is(err, context.Canceled) || len(infos) > 0 || outputs.calls != 0 {
 		t.Errorf("canceled output request leaked %v, err %v, backend calls %d", infos, err, outputs.calls)
 	}
-	value, err := session.Clipboard.Get(ctx)
+	value, err := session.clipboard.Get(ctx)
 	if !errors.Is(err, context.Canceled) || value != "" || clipboard.calls != 0 {
 		t.Errorf("canceled clipboard request leaked %q, err %v, backend calls %d", value, err, clipboard.calls)
 	}
@@ -564,14 +537,14 @@ func TestUninitializedBundleAvailabilityFailsClosed(t *testing.T) {
 // An absent output facade has no owner and cannot advertise capability
 // support, even if the caller asks about an otherwise valid operation.
 func TestNilOutputBundleCannotAdvertiseOrDispatch(t *testing.T) {
-	var bundle *OutputBundle
-	if err := bundle.checkAvailable("list"); !errors.Is(err, ErrNilSession) {
+	var bundle *outputState
+	if err := bundle.CheckAvailable("list"); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil output facade advertised a list operation: %v", err)
 	}
 	if outputs, err := bundle.List(context.Background()); !errors.Is(err, ErrNilSession) || outputs != nil {
 		t.Fatalf("nil facade published outputs=%v err=%v", outputs, err)
 	}
-	if err := bundle.close(); err != nil {
+	if err := bundle.Close(); err != nil {
 		t.Fatalf("closing nil facade was not idempotent: %v", err)
 	}
 }

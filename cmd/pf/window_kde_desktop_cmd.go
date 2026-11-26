@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nskaggs/perfuncted/window"
+	"github.com/nskaggs/perfuncted/v2/window"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +27,7 @@ func desktopCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			desktops, err := pf.Windows.ListDesktops(cmd.Context())
+			desktops, err := pf.Windows().ListDesktops(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -54,12 +54,12 @@ func desktopCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if switchErr := pf.Windows.SwitchDesktop(cmd.Context(), args[0]); switchErr != nil {
+			if switchErr := pf.Windows().SwitchDesktop(cmd.Context(), args[0]); switchErr != nil {
 				return switchErr
 			}
 			if verify {
 				err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-					desktops, lookupErr := pf.Windows.ListDesktops(ctx)
+					desktops, lookupErr := pf.Windows().ListDesktops(ctx)
 					if lookupErr != nil {
 						return false, lookupErr
 					}
@@ -118,7 +118,7 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 			}
 			defer pf.Close()
 			active := true
-			handles, err := pf.Windows.List(cmd.Context(), window.Match{Active: &active})
+			handles, err := pf.Windows().List(cmd.Context(), window.Match{Active: &active})
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			x, y, err := pf.Windows.CursorPosition(cmd.Context())
+			x, y, err := pf.Windows().CursorPosition(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -158,12 +158,12 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			handle, err := findWindowByTitle(cmd.Context(), pf.Windows, args[0])
+			handle, err := findWindowByTitle(cmd.Context(), pf.Windows(), args[0])
 			if err != nil {
 				return err
 			}
 			id := handle.ID().String()
-			if moveErr := pf.Windows.SetWindowDesktopByID(cmd.Context(), id, args[1]); moveErr != nil {
+			if moveErr := pf.Windows().SetWindowDesktopByID(cmd.Context(), id, args[1]); moveErr != nil {
 				return moveErr
 			}
 			if verifySet {
@@ -210,15 +210,15 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 					return err
 				}
 				defer pf.Close()
-				handle, err := findWindowByTitle(cmd.Context(), pf.Windows, args[0])
+				handle, err := findWindowByTitle(cmd.Context(), pf.Windows(), args[0])
 				if err != nil {
 					return err
 				}
 				id := handle.ID().String()
 				if above {
-					err = pf.Windows.SetKeepAboveByID(cmd.Context(), id, on)
+					err = pf.Windows().SetKeepAboveByID(cmd.Context(), id, on)
 				} else {
-					err = pf.Windows.SetKeepBelowByID(cmd.Context(), id, on)
+					err = pf.Windows().SetKeepBelowByID(cmd.Context(), id, on)
 				}
 				if err != nil {
 					return err
@@ -260,12 +260,12 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			target, err := findWindowByTitle(cmd.Context(), pf.Windows, args[0])
+			target, err := findWindowByTitle(cmd.Context(), pf.Windows(), args[0])
 			if err != nil {
 				return err
 			}
 			id := target.ID().String()
-			if err := pf.Windows.SetShadeByID(cmd.Context(), id, on); err != nil {
+			if err := pf.Windows().SetShadeByID(cmd.Context(), id, on); err != nil {
 				return err
 			}
 			if err := waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {

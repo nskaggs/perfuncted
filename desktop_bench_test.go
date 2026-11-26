@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nskaggs/perfuncted/accessibility"
-	"github.com/nskaggs/perfuncted/internal/capturebench"
-	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/internal/capturebench"
+	"github.com/nskaggs/perfuncted/v2/internal/env"
 )
 
 const desktopBenchmarkTimeout = 2 * time.Minute
@@ -40,11 +40,11 @@ func desktopBenchmarkOptions(logDir string, accessibilityRequired bool) []Option
 	return options
 }
 
-func openDesktopBenchmarkSession(b *testing.B, logDir string, accessibilityRequired bool) *Session {
+func openDesktopBenchmarkSession(b *testing.B, logDir string, accessibilityRequired bool) *sessionCore {
 	b.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 	defer cancel()
-	session, err := Open(ctx, desktopBenchmarkOptions(logDir, accessibilityRequired)...)
+	session, err := openSession(ctx, desktopBenchmarkOptions(logDir, accessibilityRequired)...)
 	if err != nil {
 		b.Fatalf("open real headless benchmark session: %v", err)
 	}
@@ -53,7 +53,7 @@ func openDesktopBenchmarkSession(b *testing.B, logDir string, accessibilityRequi
 			b.Errorf("close benchmark session: %v", err)
 		}
 	})
-	b.Logf("target=%s screen=%T input=%T windows=%T timeouts=%+v", session.Target().Kind(), session.Screen, session.Input, session.Windows, session.Timeouts())
+	b.Logf("target=%s screen=%T input=%T windows=%T timeouts=%+v", session.Target().Kind(), session.screen, session.input, session.windows, session.Timeouts())
 	return session
 }
 
@@ -71,7 +71,7 @@ func BenchmarkDesktopOpenClose(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-		session, err := Open(ctx, desktopBenchmarkOptions(logDir, false)...)
+		session, err := openSession(ctx, desktopBenchmarkOptions(logDir, false)...)
 		cancel()
 		if err != nil {
 			b.Fatalf("open real headless benchmark session: %v", err)
@@ -88,7 +88,7 @@ func BenchmarkDesktopRegionHash(b *testing.B) {
 	ctx := context.Background()
 	region := image.Rect(0, 0, 256, 256)
 	for b.Loop() {
-		if _, err := session.Screen.GrabRegionHash(ctx, region); err != nil {
+		if _, err := session.screen.GrabRegionHash(ctx, region); err != nil {
 			b.Fatalf("region hash: %v", err)
 		}
 	}
@@ -111,7 +111,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 		b.Run(variant.name, func(b *testing.B) {
 			session := openDesktopBenchmarkSession(b, b.TempDir(), false)
 			firstCtx, firstCancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-			first, err := session.Screen.backend.Grab(firstCtx, image.Rectangle{})
+			first, err := session.screen.backend().Grab(firstCtx, image.Rectangle{})
 			firstCtxErr := firstCtx.Err()
 			firstCancel()
 			if err == nil && firstCtxErr != nil {
@@ -127,25 +127,25 @@ func BenchmarkDesktopCapture(b *testing.B) {
 				b.Skipf("region %v exceeds output bounds %v", variant.rect, first.Bounds())
 			}
 			if variant.rect != (image.Rectangle{}) {
-				if _, _, err := collectDesktopCaptureSamples(session.Screen.backend, variant.rect, 1); err != nil {
+				if _, _, err := collectDesktopCaptureSamples(session.screen.backend(), variant.rect, 1); err != nil {
 					b.Fatalf("region warmup: %v", err)
 				}
 			}
-			durations, returned, err := collectDesktopCaptureSamples(session.Screen.backend, variant.rect, 50)
+			durations, returned, err := collectDesktopCaptureSamples(session.screen.backend(), variant.rect, 50)
 			if err != nil {
 				b.Fatalf("distribution samples: %v", err)
 			}
 			if variant.rect == (image.Rectangle{}) && returned != first.Bounds() {
 				b.Fatalf("full-screen geometry changed from %v to %v", first.Bounds(), returned)
 			}
-			b.Logf("source=real-headless mode=%s backend=%T compositor=sway requested=%v returned=%v desktop=%v %s", variant.name, session.Screen.backend, variant.rect, returned, first.Bounds(), desktopCaptureEnvironment())
+			b.Logf("source=real-headless mode=%s backend=%T compositor=sway requested=%v returned=%v desktop=%v %s", variant.name, session.screen.backend(), variant.rect, returned, first.Bounds(), desktopCaptureEnvironment())
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
 				b.StopTimer()
 				captureCtx, captureCancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 				b.StartTimer()
-				img, err := session.Screen.backend.Grab(captureCtx, variant.rect)
+				img, err := session.screen.backend().Grab(captureCtx, variant.rect)
 				captureErr := captureCtx.Err()
 				b.StopTimer()
 				captureCancel()
@@ -178,14 +178,14 @@ func BenchmarkDesktopCapture(b *testing.B) {
 	}
 	b.Run("SessionFacadeWarmFull", func(b *testing.B) {
 		session := openDesktopBenchmarkSession(b, b.TempDir(), false)
-		if _, _, err := collectDesktopCaptureSamples(session.Screen, image.Rectangle{}, 1); err != nil {
+		if _, _, err := collectDesktopCaptureSamples(session.screen, image.Rectangle{}, 1); err != nil {
 			b.Fatalf("facade warmup: %v", err)
 		}
-		durations, bounds, err := collectDesktopCaptureSamples(session.Screen, image.Rectangle{}, 50)
+		durations, bounds, err := collectDesktopCaptureSamples(session.screen, image.Rectangle{}, 50)
 		if err != nil {
 			b.Fatalf("facade distribution samples: %v", err)
 		}
-		b.Logf("source=real-headless mode=SessionFacadeWarmFull backend=%T compositor=sway returned=%v %s", session.Screen.backend, bounds, desktopCaptureEnvironment())
+		b.Logf("source=real-headless mode=SessionFacadeWarmFull backend=%T compositor=sway returned=%v %s", session.screen.backend(), bounds, desktopCaptureEnvironment())
 		distribution, err := capturebench.Summarize(durations)
 		if err != nil {
 			b.Fatal(err)
@@ -196,7 +196,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			b.StopTimer()
 			captureCtx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 			b.StartTimer()
-			img, err := session.Screen.Grab(captureCtx, image.Rectangle{})
+			img, err := session.screen.Grab(captureCtx, image.Rectangle{})
 			captureErr := captureCtx.Err()
 			b.StopTimer()
 			cancel()
@@ -229,13 +229,13 @@ func BenchmarkDesktopCapture(b *testing.B) {
 		for b.Loop() {
 			b.StopTimer()
 			ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-			session, err := Open(ctx, desktopBenchmarkOptions(b.TempDir(), false)...)
+			session, err := openSession(ctx, desktopBenchmarkOptions(b.TempDir(), false)...)
 			if err != nil {
 				b.Fatalf("open session: %v", err)
 			}
 			captureCtx, captureCancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 			b.StartTimer()
-			img, captureErr := session.Screen.backend.Grab(captureCtx, image.Rectangle{})
+			img, captureErr := session.screen.backend().Grab(captureCtx, image.Rectangle{})
 			captureContextErr := captureCtx.Err()
 			b.StopTimer()
 			captureCancel()
@@ -254,7 +254,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 				b.Fatalf("close session: %v", closeErr)
 			}
 			if !loggedBackend {
-				b.Logf("source=real-headless mode=FirstFull backend=%T compositor=sway requested=%v returned=%v %s", session.Screen.backend, image.Rectangle{}, img.Bounds(), desktopCaptureEnvironment())
+				b.Logf("source=real-headless mode=FirstFull backend=%T compositor=sway requested=%v returned=%v %s", session.screen.backend(), image.Rectangle{}, img.Bounds(), desktopCaptureEnvironment())
 				loggedBackend = true
 			}
 			b.StartTimer()
@@ -267,7 +267,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			b.StopTimer()
 			ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 			b.StartTimer()
-			session, err := Open(ctx, desktopBenchmarkOptions(b.TempDir(), false)...)
+			session, err := openSession(ctx, desktopBenchmarkOptions(b.TempDir(), false)...)
 			if err != nil {
 				b.StopTimer()
 				cancel()
@@ -276,7 +276,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 			b.StopTimer()
 			captureCtx, captureCancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
 			b.StartTimer()
-			img, captureErr := session.Screen.backend.Grab(captureCtx, image.Rectangle{})
+			img, captureErr := session.screen.backend().Grab(captureCtx, image.Rectangle{})
 			captureContextErr := captureCtx.Err()
 			b.StopTimer()
 			captureCancel()
@@ -295,7 +295,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 				b.Fatalf("close session: %v", closeErr)
 			}
 			if !loggedBackend {
-				b.Logf("source=real-headless mode=OpenAndFirstFull backend=%T compositor=sway requested=%v returned=%v %s", session.Screen.backend, image.Rectangle{}, img.Bounds(), desktopCaptureEnvironment())
+				b.Logf("source=real-headless mode=OpenAndFirstFull backend=%T compositor=sway requested=%v returned=%v %s", session.screen.backend(), image.Rectangle{}, img.Bounds(), desktopCaptureEnvironment())
 				loggedBackend = true
 			}
 			b.StartTimer()
@@ -303,7 +303,7 @@ func BenchmarkDesktopCapture(b *testing.B) {
 	})
 }
 
-func launchDesktopBenchmarkWindow(b *testing.B, session *Session, accessibility bool) (*Application, *Window) {
+func launchDesktopBenchmarkWindow(b *testing.B, session *sessionCore, accessibility bool) (*applicationState, *windowState) {
 	b.Helper()
 	commands := []struct {
 		name  string
@@ -361,10 +361,10 @@ func BenchmarkDesktopInputClickType(b *testing.B) {
 		b.Fatalf("activate benchmark window: %v", err)
 	}
 	for b.Loop() {
-		if err := session.Input.MouseClick(ctx, 8, 8, 1); err != nil {
+		if err := session.input.MouseClick(ctx, 8, 8, 1); err != nil {
 			b.Fatalf("click: %v", err)
 		}
-		if err := session.Input.TypeLiteral(ctx, "x"); err != nil {
+		if err := session.input.TypeLiteral(ctx, "x"); err != nil {
 			b.Fatalf("type: %v", err)
 		}
 	}
@@ -377,7 +377,7 @@ func BenchmarkDesktopWindowListActivate(b *testing.B) {
 	_, window := launchDesktopBenchmarkWindow(b, session, false)
 	ctx := context.Background()
 	for b.Loop() {
-		windows, err := session.Windows.List(ctx, WindowMatch{})
+		windows, err := session.windows.List(ctx, WindowMatch{})
 		if err != nil {
 			b.Fatalf("list windows: %v", err)
 		}
@@ -390,7 +390,7 @@ func BenchmarkDesktopWindowListActivate(b *testing.B) {
 	}
 }
 
-func openAccessibilityBenchmarkRoot(b *testing.B) (*Session, accessibility.NodeID) {
+func openAccessibilityBenchmarkRoot(b *testing.B) (*sessionCore, accessibility.NodeID) {
 	b.Helper()
 	session := openDesktopBenchmarkSession(b, b.TempDir(), true)
 	status := session.Capability(CapabilityAccessibility)
@@ -402,7 +402,7 @@ func openAccessibilityBenchmarkRoot(b *testing.B) (*Session, accessibility.NodeI
 	// Subscribe before launch so the benchmark starts its snapshot only after
 	// AT-SPI reports application-tree changes. The application list remains the
 	// authoritative readiness check because the event stream is lossy.
-	events, err := session.Accessibility.Events(ctx, accessibility.EventOptions{})
+	events, err := session.accessibility.Events(ctx, accessibility.EventOptions{})
 	if err != nil {
 		b.Fatalf("start AT-SPI benchmark readiness events: %v", err)
 	}
@@ -411,7 +411,7 @@ func openAccessibilityBenchmarkRoot(b *testing.B) (*Session, accessibility.NodeI
 		b.Fatal("accessibility benchmark application has no managed process identity")
 	}
 	for {
-		apps, err := session.Accessibility.Applications(ctx)
+		apps, err := session.accessibility.Applications(ctx)
 		if err != nil {
 			b.Fatalf("list AT-SPI benchmark applications: %v", err)
 		}
@@ -437,7 +437,7 @@ func BenchmarkDesktopAccessibilitySnapshot(b *testing.B) {
 	options := accessibility.SnapshotOptions{MaxDepth: 8, MaxNodes: 256, MaxTextBytes: 512}
 	ctx := context.Background()
 	for b.Loop() {
-		if _, err := session.Accessibility.Snapshot(ctx, root, options); err != nil {
+		if _, err := session.accessibility.Snapshot(ctx, root, options); err != nil {
 			b.Fatalf("accessibility snapshot: %v", err)
 		}
 	}
@@ -448,7 +448,7 @@ func BenchmarkDesktopAccessibilitySnapshot(b *testing.B) {
 func BenchmarkDesktopAccessibilityAction(b *testing.B) {
 	session, root := openAccessibilityBenchmarkRoot(b)
 	ctx, cancel := context.WithTimeout(context.Background(), desktopBenchmarkTimeout)
-	snapshot, err := session.Accessibility.Snapshot(ctx, root, accessibility.SnapshotOptions{MaxDepth: 8, MaxNodes: 256, MaxTextBytes: 512})
+	snapshot, err := session.accessibility.Snapshot(ctx, root, accessibility.SnapshotOptions{MaxDepth: 8, MaxNodes: 256, MaxTextBytes: 512})
 	cancel()
 	if err != nil {
 		b.Skipf("accessibility snapshot unavailable: %v", err)
@@ -464,7 +464,7 @@ func BenchmarkDesktopAccessibilityAction(b *testing.B) {
 		b.Skip("accessibility snapshot exposes no actionable node")
 	}
 	for b.Loop() {
-		if _, err := session.Accessibility.InvokeDefaultAction(context.Background(), actionNode.ID); err != nil {
+		if _, err := session.accessibility.InvokeDefaultAction(context.Background(), actionNode.ID); err != nil {
 			b.Fatalf("accessibility action: %v", err)
 		}
 	}
