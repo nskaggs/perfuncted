@@ -8,6 +8,7 @@ import (
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/nskaggs/perfuncted/v2/clipboard"
 	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/v2/internal/env"
 	"github.com/nskaggs/perfuncted/v2/internal/util"
 	"github.com/nskaggs/perfuncted/v2/output"
@@ -56,7 +57,7 @@ func newSessionForTesting(
 	session.ctx, session.cancel = context.WithCancel(context.Background())
 	// Test sessions retain a bounded action history without writing to the
 	// caller's output. This makes opt-in failure bundles useful by default.
-	session.tracer = newActionTracer(io.Discard, nil, 0)
+	session.tracer = diagnostic.NewTracer(io.Discard, nil, 0)
 	session.screen = newScreenState(session.bundleBase(CapabilityScreen), screenshotter)
 	session.inputAdmission = session.bundleBase(CapabilityInput)
 	session.input = newInputState(&session.inputAdmission, inputter)
@@ -97,4 +98,10 @@ func newSessionForTesting(
 	}
 	session.cacheResolvedBundleOperations()
 	return session
+}
+
+// NewSessionForTesting transfers lifecycle responsibility for the supplied
+// backend fakes to the new Session. Production code should use Open.
+func NewSessionForTesting(screenshotter screen.Screenshotter, inputter input.Inputter, windowManager window.Manager, outputLister output.Lister, clipboardBackend clipboard.Clipboard, accessibilityBackend ...accessibility.Backend) *Session {
+	return wrapSession(newSessionForTesting(screenshotter, inputter, windowManager, outputLister, clipboardBackend, accessibilityBackend...))
 }

@@ -2,10 +2,14 @@ package screen
 
 import (
 	"context"
+	"errors"
+	"github.com/nskaggs/perfuncted/v2/internal/capability"
 	"github.com/nskaggs/perfuncted/v2/internal/capturebench"
 	"image"
+	"image/color"
 	"image/png"
 	"io"
+	"math/bits"
 	"testing"
 )
 
@@ -142,3 +146,122 @@ func TestRequireCapturedImageRejectsTypedNilAndEmptyFrames(t *testing.T) {
 		})
 	}
 }
+
+func TestCaptureScreenPoint(t *testing.T) {
+	tests := []struct {
+		name    string
+		capture Capture
+		pixel   image.Point
+		want    image.Point
+		wantErr bool
+	}{
+		{
+			name:    "one to one",
+			capture: Capture{Image: image.NewRGBA(image.Rect(0, 0, 4, 3)), ScreenRect: image.Rect(10, 20, 14, 23)},
+			pixel:   image.Pt(3, 2),
+			want:    image.Pt(13, 22),
+		},
+		{
+			name:    "rebased image",
+			capture: Capture{Image: image.NewRGBA(image.Rect(100, 200, 104, 204)), ScreenRect: image.Rect(10, 20, 14, 24)},
+			pixel:   image.Pt(101, 202),
+			want:    image.Pt(11, 22),
+		},
+		{
+			name:    "smaller capture than the region",
+			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(-20, 30, -12, 38)},
+			pixel:   image.Pt(6, 8),
+			wantErr: true,
+		},
+		{
+			name:    "rebased smaller capture than the region",
+			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(0, 0, 8, 8)},
+			pixel:   image.Pt(6, 8),
+			wantErr: true,
+		},
+		{
+			name:    "nil image",
+			capture: Capture{ScreenRect: image.Rect(0, 0, 1, 1)},
+			pixel:   image.Pt(0, 0),
+			wantErr: true,
+		},
+		{
+			name:    "empty image",
+			capture: Capture{Image: image.NewRGBA(image.Rect(0, 0, 0, 1)), ScreenRect: image.Rect(0, 0, 1, 1)},
+			pixel:   image.Pt(0, 0),
+			wantErr: true,
+		},
+		{
+			name:    "empty screen region",
+			capture: Capture{Image: image.NewRGBA(image.Rect(0, 0, 1, 1))},
+			pixel:   image.Pt(0, 0),
+			wantErr: true,
+		},
+		{
+			name:    "exclusive max x",
+			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(0, 0, 2, 2)},
+			pixel:   image.Pt(7, 8),
+			wantErr: true,
+		},
+		{
+			name:    "exclusive max y",
+			capture: Capture{Image: image.NewRGBA(image.Rect(5, 7, 7, 9)), ScreenRect: image.Rect(0, 0, 2, 2)},
+			pixel:   image.Pt(6, 9),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.capture.ScreenPoint(tt.pixel)
+			if tt.wantErr {
+				if err == nil || !errors.Is(err, capability.ErrInvalidArgument) {
+					t.Fatalf("ScreenPoint error = %v, want capability.ErrInvalidArgument", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ScreenPoint: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("ScreenPoint(%v) = %v, want %v", tt.pixel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCaptureScreenPointAvoidsIntermediateOverflow(t *testing.T) {
+	span := uint64(1) << (bits.UintSize - 2)
+	offset := span / 2
+	capture := Capture{
+		Image:      captureBoundsImage{bounds: image.Rect(0, 0, int(span), int(span))},
+		ScreenRect: image.Rect(0, 0, int(span), int(span)),
+	}
+
+	got, err := capture.ScreenPoint(image.Pt(int(offset), int(offset)))
+	if err != nil {
+		t.Fatalf("ScreenPoint: %v", err)
+	}
+	if want := image.Pt(int(offset), int(offset)); got != want {
+		t.Fatalf("ScreenPoint = %v, want %v", got, want)
+	}
+}
+
+func TestCaptureScreenPointRejectsTypedNilImage(t *testing.T) {
+	var typedNil *image.RGBA
+	capture := Capture{Image: typedNil, ScreenRect: image.Rect(0, 0, 1, 1)}
+
+	_, err := capture.ScreenPoint(image.Pt(0, 0))
+	if err == nil || !errors.Is(err, capability.ErrInvalidArgument) {
+		t.Fatalf("ScreenPoint error = %v, want capability.ErrInvalidArgument", err)
+	}
+}
+
+type captureBoundsImage struct {
+	bounds image.Rectangle
+}
+
+func (i captureBoundsImage) ColorModel() color.Model { return color.RGBAModel }
+
+func (i captureBoundsImage) Bounds() image.Rectangle { return i.bounds }
+
+func (captureBoundsImage) At(int, int) color.Color { return color.RGBA{} }

@@ -1,4 +1,4 @@
-package perfuncted
+package diagnostic
 
 import (
 	"bytes"
@@ -11,43 +11,43 @@ import (
 	"time"
 )
 
-// ── newActionTracer ───────────────────────────────────────────────────────────
+// ── NewTracer ───────────────────────────────────────────────────────────
 
 func TestNewActionTracer_BothNilReturnsNil(t *testing.T) {
-	tracer := newActionTracer(nil, nil, 0)
+	tracer := NewTracer(nil, nil, 0)
 	if tracer != nil {
-		t.Fatal("newActionTracer(nil, nil, 0) should return nil")
+		t.Fatal("NewTracer(nil, nil, 0) should return nil")
 	}
 }
 
 func TestNewActionTracer_WriterOnly(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := newActionTracer(&buf, nil, 0)
+	tracer := NewTracer(&buf, nil, 0)
 	if tracer == nil {
-		t.Fatal("newActionTracer(writer, nil, 0) should not return nil")
+		t.Fatal("NewTracer(writer, nil, 0) should not return nil")
 	}
 }
 
 func TestNewActionTracer_LoggerOnly(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	tracer := newActionTracer(nil, logger, 0)
+	tracer := NewTracer(nil, logger, 0)
 	if tracer == nil {
-		t.Fatal("newActionTracer(nil, logger, 0) should not return nil")
+		t.Fatal("NewTracer(nil, logger, 0) should not return nil")
 	}
 }
 
 // ── Tracef ────────────────────────────────────────────────────────────────────
 
 func TestTracef_NilTracerNoPanic(t *testing.T) {
-	// A nil *actionTracer must not panic.
-	var tracer *actionTracer
+	// A nil *Tracer must not panic.
+	var tracer *Tracer
 	tracer.Tracef("action", "format %s", "arg")
 }
 
 func TestTracef_NoFormat(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := newActionTracer(&buf, nil, 0)
+	tracer := NewTracer(&buf, nil, 0)
 	tracer.Tracef("click", "")
 	got := buf.String()
 	if !strings.Contains(got, "click") {
@@ -62,7 +62,7 @@ func TestTracef_NoFormat(t *testing.T) {
 func TestTracef_LoggerOnlyNoWriter(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	tracer := newActionTracer(nil, logger, 0)
+	tracer := NewTracer(nil, logger, 0)
 	tracer.Tracef("type", "text=%s", "hello")
 
 	if got := logs.String(); !strings.Contains(got, "perfuncted trace") {
@@ -72,7 +72,7 @@ func TestTracef_LoggerOnlyNoWriter(t *testing.T) {
 
 func TestTracef_WriterOnlyNoLogger(t *testing.T) {
 	var buf bytes.Buffer
-	tracer := newActionTracer(&buf, nil, 0)
+	tracer := NewTracer(&buf, nil, 0)
 	tracer.Tracef("move", "x=%d y=%d", 10, 20)
 
 	if got := buf.String(); !strings.Contains(got, "move x=10 y=20") {
@@ -83,7 +83,7 @@ func TestTracef_WriterOnlyNoLogger(t *testing.T) {
 func TestTracef_WithDelay(t *testing.T) {
 	var buf bytes.Buffer
 	delay := 5 * time.Millisecond
-	tracer := newActionTracer(&buf, nil, delay)
+	tracer := NewTracer(&buf, nil, delay)
 
 	start := time.Now()
 	tracer.Tracef("wait", "")
@@ -100,7 +100,7 @@ func TestTracef_WithDelay(t *testing.T) {
 func TestTracef_BothNilFieldsOnExistingTracer(t *testing.T) {
 	// Create a tracer then zero out its fields. Tracef should return early.
 	var buf bytes.Buffer
-	tracer := newActionTracer(&buf, nil, 0)
+	tracer := NewTracer(&buf, nil, 0)
 	tracer.w = nil
 	tracer.logger = nil
 	tracer.Tracef("noop", "should not write")
@@ -112,11 +112,11 @@ func TestTracef_BothNilFieldsOnExistingTracer(t *testing.T) {
 // Diagnostic snapshots retain only the newest bounded set of actions. Older
 // action text must not leak into a later failure bundle after eviction.
 func TestTraceHistoryEvictsOlderActionsAndReturnsIsolatedSnapshot(t *testing.T) {
-	tracer := newActionTracer(io.Discard, nil, 0)
+	tracer := NewTracer(io.Discard, nil, 0)
 	for i := 0; i < traceHistoryLimit+91; i++ {
 		tracer.Tracef("action", "event-%03d", i)
 	}
-	history := tracer.recent()
+	history := tracer.Recent()
 	if len(history) != traceHistoryLimit {
 		t.Fatalf("history length %d, want %d", len(history), traceHistoryLimit)
 	}
@@ -127,7 +127,7 @@ func TestTraceHistoryEvictsOlderActionsAndReturnsIsolatedSnapshot(t *testing.T) 
 		}
 	}
 	history[0] = "modified snapshot"
-	if tracer.recent()[0] != "action event-091" {
+	if tracer.Recent()[0] != "action event-091" {
 		t.Fatal("modifying diagnostic snapshot changed retained action history")
 	}
 }
@@ -135,11 +135,11 @@ func TestTraceHistoryEvictsOlderActionsAndReturnsIsolatedSnapshot(t *testing.T) 
 // The caller may retrieve a trace while events are being appended. A snapshot
 // must stay coherent and be detached from subsequent evictions.
 func TestTraceHistoryConcurrentSnapshotBoundAndNilTracer(t *testing.T) {
-	var absent *actionTracer
-	if got := absent.recent(); got != nil {
+	var absent *Tracer
+	if got := absent.Recent(); got != nil {
 		t.Fatalf("nil tracer leaked history: %v", got)
 	}
-	tracer := newActionTracer(io.Discard, nil, 0)
+	tracer := NewTracer(io.Discard, nil, 0)
 	var wg sync.WaitGroup
 	for worker := 0; worker < 4; worker++ {
 		wg.Add(1)
@@ -147,7 +147,7 @@ func TestTraceHistoryConcurrentSnapshotBoundAndNilTracer(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < traceHistoryLimit; i++ {
 				tracer.Tracef("action", "worker-%d-%d", worker, i)
-				snapshot := tracer.recent()
+				snapshot := tracer.Recent()
 				if len(snapshot) > traceHistoryLimit {
 					t.Errorf("unbounded history snapshot: %d", len(snapshot))
 					return
@@ -156,8 +156,8 @@ func TestTraceHistoryConcurrentSnapshotBoundAndNilTracer(t *testing.T) {
 		}(worker)
 	}
 	wg.Wait()
-	if len(tracer.recent()) != traceHistoryLimit {
-		t.Fatalf("history bound after concurrency: %d", len(tracer.recent()))
+	if len(tracer.Recent()) != traceHistoryLimit {
+		t.Fatalf("history bound after concurrency: %d", len(tracer.Recent()))
 	}
 }
 
@@ -166,7 +166,7 @@ func TestActionTracerWritesToLoggerAndWriter(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	tracer := newActionTracer(&writer, logger, 0)
+	tracer := NewTracer(&writer, logger, 0)
 	tracer.Tracef("screen", "grab rect=%s", "(0,0)-(1,1)")
 
 	if got := writer.String(); !strings.Contains(got, "screen grab rect=(0,0)-(1,1)") {

@@ -245,7 +245,7 @@ func (s *sessionCore) captureOutputs(ctx context.Context, directory string) erro
 }
 
 func (s *sessionCore) captureTrace(directory string) error {
-	trace := strings.Join(s.tracer.recent(), "\n")
+	trace := strings.Join(s.tracer.Recent(), "\n")
 	if trace != "" {
 		trace += "\n"
 	}
@@ -621,4 +621,13 @@ func diagnosticOutcome(value ActionOutcomeStatus) string {
 	default:
 		return string(ActionOutcomeNotObserved)
 	}
+}
+
+// CaptureFailureBundle collects best-effort diagnostic artifacts into a
+// directory and returns its path. Each artifact is attempted independently;
+// the returned error reports collection failures after the successful files
+// have been written. Its manifest records the effective timeout policy and
+// whether each field came from SessionConfig or the library defaults.
+func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundleOptions) (string, error) {
+	return s.coreState().CaptureFailureBundle(ctx, options)
 }

@@ -1064,3 +1064,28 @@ func waitEpochDone(epoch *waitEpoch) <-chan struct{} {
 	}
 	return epoch.done
 }
+
+// WindowClosed returns a condition bound to the supplied target's current
+// private identity, rather than to a caller-overwritable wrapper.
+func WindowClosed(target *Window) Condition { return windowClosed(target.privateState()) }
+
+// Wait blocks until condition succeeds. Timeout and cancellation follow ctx;
+// persistent observation failures are bounded, and terminal failures abort.
+func (s *Session) Wait(
+	ctx context.Context,
+	condition Condition,
+	options ...WaitOption,
+) error {
+	return s.coreState().Wait(ctx, condition, options...)
+}
+
+// WaitWithEvidence blocks until condition succeeds and returns bounded
+// diagnostic evidence about the event-backed and polling wakeups observed.
+// Events only wake the wait; the condition remains the authority.
+func (s *Session) WaitWithEvidence(
+	ctx context.Context,
+	condition Condition,
+	options ...WaitOption,
+) (WaitEvidence, error) {
+	return s.coreState().WaitWithEvidence(ctx, condition, options...)
+}

@@ -1,6 +1,7 @@
 package perfuncted
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"github.com/nskaggs/perfuncted/v2/find"
@@ -9,8 +10,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"math/bits"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +17,885 @@ import (
 	"testing"
 	"time"
 )
+
+type cancelDuringPNGEncoding struct {
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (i *cancelDuringPNGEncoding) ColorModel() color.Model { return color.RGBAModel }
+func (i *cancelDuringPNGEncoding) Bounds() image.Rectangle { return image.Rect(0, 0, 8, 8) }
+func (i *cancelDuringPNGEncoding) At(x, y int) color.Color {
+	i.once.Do(i.cancel)
+	return color.RGBA{R: 0x12, G: 0x23, B: 0x34, A: 0xff}
+}
+
+// A screenshot may be valid when captured, but its PNG encoder can outlive
+// caller authorization. Never publish an encoded file after cancellation.
+func TestCaptureRegionDoesNotPublishAfterEncodingCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	img := &cancelDuringPNGEncoding{cancel: cancel}
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	dir := t.TempDir()
+	path := filepath.Join(dir, "screen.png")
+	const original = "keep previous screenshot"
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := session.screen.CaptureRegion(ctx, img.Bounds(), path)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("encoder cancellation acknowledged as success: %v", err)
+	}
+	saved, readErr := os.ReadFile(path)
+	if readErr != nil || string(saved) != original {
+		t.Fatalf("canceled encoding replaced old screenshot: %q %v", saved, readErr)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil || len(entries) != 1 || entries[0].Name() != "screen.png" {
+		t.Fatalf("canceled encoding left staging file: %v %v", entries, readErr)
+	}
+}
+
+type closeSessionDuringPNGEncoding struct {
+	onRead func()
+	once   sync.Once
+}
+
+func (*closeSessionDuringPNGEncoding) ColorModel() color.Model { return color.RGBAModel }
+func (*closeSessionDuringPNGEncoding) Bounds() image.Rectangle { return image.Rect(0, 0, 8, 8) }
+func (i *closeSessionDuringPNGEncoding) At(int, int) color.Color {
+	i.once.Do(i.onRead)
+	return color.RGBA{R: 0x12, G: 0x23, B: 0x34, A: 0xff}
+}
+
+// The PNG writer can continue pulling pixels after the session has been
+// closed. A successfully encoded image from that revoked session must not
+// replace the existing destination or leave a temporary file behind.
+func TestCaptureRegionDoesNotPublishAfterSessionClosesDuringEncoding(t *testing.T) {
+	img := &closeSessionDuringPNGEncoding{}
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: img}, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	img.onRead = func() {
+		if err := session.Close(); err != nil {
+			t.Errorf("close session: %v", err)
+		}
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "screen.png")
+	const original = "retain previous valid screenshot"
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := session.screen.CaptureRegion(context.Background(), img.Bounds(), path)
+	if !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("revoked encoding incorrectly published: %v", err)
+	}
+	saved, readErr := os.ReadFile(path)
+	if readErr != nil || string(saved) != original {
+		t.Fatalf("revoked capture replaced prior image: %q %v", saved, readErr)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil || len(entries) != 1 || entries[0].Name() != "screen.png" {
+		t.Fatalf("revoked capture retained temporary files: %v %v", entries, readErr)
+	}
+}
+
+type syntheticMalformedScreenshotter struct{ frame image.Image }
+
+func (s syntheticMalformedScreenshotter) Grab(context.Context, image.Rectangle) (image.Image, error) {
+	return s.frame, nil
+}
+func (s syntheticMalformedScreenshotter) GrabFullHash(context.Context) (uint32, error) { return 0, nil }
+func (s syntheticMalformedScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	return 0, nil
+}
+func (s syntheticMalformedScreenshotter) Close() error { return nil }
+
+func TestScreenBundleNeverPublishesMalformedCaptureOrOverwritesExistingPNG(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	for _, tc := range []struct {
+		name string
+		img  image.Image
+	}{
+		{"nil image", nil},
+		{"typed nil image", (*image.RGBA)(nil)},
+		{"RGBA truncated", &image.RGBA{Rect: image.Rect(0, 0, 2, 2), Stride: 8, Pix: make([]byte, 11)}},
+		{"NRGBA truncated", &image.NRGBA{Rect: image.Rect(0, 0, 2, 2), Stride: 8, Pix: make([]byte, 11)}},
+		{"Gray truncated", &image.Gray{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
+		{"Paletted truncated", &image.Paletted{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
+		{"RGBA64 truncated", &image.RGBA64{Rect: image.Rect(0, 0, 2, 2), Stride: 16, Pix: make([]byte, 25)}},
+		{"NRGBA64 truncated", &image.NRGBA64{Rect: image.Rect(0, 0, 2, 2), Stride: 16, Pix: make([]byte, 31)}},
+		{"Gray16 truncated", &image.Gray16{Rect: image.Rect(0, 0, 2, 2), Stride: 4, Pix: make([]byte, 7)}},
+		{"Alpha truncated", &image.Alpha{Rect: image.Rect(0, 0, 2, 2), Stride: 2, Pix: make([]byte, 3)}},
+		{"Alpha16 truncated", &image.Alpha16{Rect: image.Rect(0, 0, 2, 2), Stride: 4, Pix: make([]byte, 7)}},
+		{"CMYK truncated", &image.CMYK{Rect: image.Rect(0, 0, 2, 2), Stride: 8, Pix: make([]byte, 15)}},
+		{"inverted bounds", &image.RGBA{Rect: image.Rectangle{Min: image.Pt(2, 0), Max: image.Pt(1, 2)}, Stride: 8, Pix: make([]byte, 16)}},
+		{"width overflow", &image.RGBA{Rect: image.Rect(0, 0, maxInt, 1), Stride: maxInt}},
+		{"YCbCr Y plane truncated", &image.YCbCr{
+			Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+			Y: make([]byte, 3), Cb: make([]byte, 1), Cr: make([]byte, 1),
+			SubsampleRatio: image.YCbCrSubsampleRatio420,
+		}},
+		{"YCbCr Cb plane truncated", &image.YCbCr{
+			Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+			Y: make([]byte, 4), Cr: make([]byte, 1),
+			SubsampleRatio: image.YCbCrSubsampleRatio420,
+		}},
+		{"YCbCr Cr plane truncated", &image.YCbCr{
+			Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+			Y: make([]byte, 4), Cb: make([]byte, 1),
+			SubsampleRatio: image.YCbCrSubsampleRatio420,
+		}},
+		{"NYCbCrA alpha plane truncated", &image.NYCbCrA{
+			YCbCr: image.YCbCr{
+				Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+				Y: make([]byte, 4), Cb: make([]byte, 1), Cr: make([]byte, 1),
+				SubsampleRatio: image.YCbCrSubsampleRatio420,
+			},
+			A: make([]byte, 3), AStride: 2,
+		}},
+		{"NYCbCrA chroma plane truncated", &image.NYCbCrA{
+			YCbCr: image.YCbCr{
+				Rect: image.Rect(0, 0, 2, 2), YStride: 2, CStride: 1,
+				Y: make([]byte, 4), Cr: make([]byte, 1),
+				SubsampleRatio: image.YCbCrSubsampleRatio420,
+			},
+			A: make([]byte, 4), AStride: 2,
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: tc.img}, nil, nil, nil, nil)
+			defer session.Close()
+			ctx := context.Background()
+			if _, err := session.screen.Grab(ctx, image.Rect(0, 0, 2, 2)); err == nil || !strings.Contains(err.Error(), "invalid capture") {
+				t.Fatalf("malformed provider image exposed: %v", err)
+			}
+			target := filepath.Join(t.TempDir(), "existing.png")
+			if err := os.WriteFile(target, []byte("preserve original"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.screen.CaptureRegion(ctx, image.Rect(0, 0, 2, 2), target); err == nil || !strings.Contains(err.Error(), "invalid capture") {
+				t.Fatalf("malformed provider capture published: %v", err)
+			}
+			data, err := os.ReadFile(target)
+			if err != nil || string(data) != "preserve original" {
+				t.Fatalf("malformed capture overwrote existing file: %v %q", err, data)
+			}
+			matches, err := filepath.Glob(filepath.Join(filepath.Dir(target), ".perfuncted-capture-*"))
+			if err != nil || len(matches) != 0 {
+				t.Fatalf("temporary capture leaked: %v %v", matches, err)
+			}
+		})
+	}
+}
+
+func TestScreenBundleAcceptsZeroWidthYCbCrBoundsWithoutPixelPlanes(t *testing.T) {
+	frame := &image.YCbCr{Rect: image.Rect(4, 4, 4, 6), SubsampleRatio: image.YCbCrSubsampleRatio420}
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	defer session.Close()
+	got, err := session.screen.Grab(context.Background(), frame.Bounds())
+	if err != nil || got != frame {
+		t.Fatalf("valid zero-width YCbCr capture rejected or rewritten: %v %T", err, got)
+	}
+}
+
+func TestScreenBundlePreservesValidOddOriginYCbCrSubimage(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ratio image.YCbCrSubsampleRatio
+	}{
+		{"444", image.YCbCrSubsampleRatio444},
+		{"422", image.YCbCrSubsampleRatio422},
+		{"420", image.YCbCrSubsampleRatio420},
+		{"440", image.YCbCrSubsampleRatio440},
+		{"411", image.YCbCrSubsampleRatio411},
+		{"410", image.YCbCrSubsampleRatio410},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := image.NewYCbCr(image.Rect(10, 20, 15, 25), tc.ratio)
+			for i := range parent.Y {
+				parent.Y[i] = byte(60 + i)
+			}
+			for i := range parent.Cb {
+				parent.Cb[i] = byte(110 + i)
+				parent.Cr[i] = byte(140 + i)
+			}
+			frame := parent.SubImage(image.Rect(11, 21, 15, 25))
+			session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+			defer session.Close()
+			ctx := context.Background()
+			if got, err := session.screen.Grab(ctx, frame.Bounds()); err != nil || got != frame {
+				t.Fatalf("valid odd-origin YCbCr subimage rejected or rewritten: %v %T", err, got)
+			}
+			expected := color.RGBAModel.Convert(frame.At(14, 24)).(color.RGBA) //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
+			target := filepath.Join(t.TempDir(), "capture.png")
+			if err := session.screen.CaptureRegion(ctx, frame.Bounds(), target); err != nil {
+				t.Fatal(err)
+			}
+			file, err := os.Open(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			decoded, err := png.Decode(file)
+			if err != nil {
+				t.Fatalf("valid YCbCr PNG capture undecodable: %v", err)
+			}
+			if got := color.RGBAModel.Convert(decoded.At(3, 3)).(color.RGBA); got != expected { //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
+				t.Fatalf("odd-origin YCbCr pixel changed: got %+v want %+v", got, expected)
+			}
+		})
+	}
+}
+
+// A subimage's Pix ends after its final visible row. It need not contain
+// trailing stride padding, and its nonzero bounds are legitimate metadata.
+func TestScreenBundlePreservesValidPaddedSubimageAndEncodesExpectedPixels(t *testing.T) {
+	frame := &image.RGBA{Rect: image.Rect(10, 20, 12, 22), Stride: 12, Pix: []byte{
+		1, 2, 3, 255, 5, 6, 7, 255, 0xc1, 0xc2, 0xc3, 0xc4,
+		9, 10, 11, 255, 13, 14, 15, 255,
+	}}
+	session := newSessionForTesting(syntheticMalformedScreenshotter{frame: frame}, nil, nil, nil, nil)
+	defer session.Close()
+	ctx := context.Background()
+	got, err := session.screen.Grab(ctx, image.Rect(10, 20, 12, 22))
+	if err != nil || got != frame {
+		t.Fatalf("valid subimage rejected or rewritten: %v %T", err, got)
+	}
+	target := filepath.Join(t.TempDir(), "capture.png")
+	if err := session.screen.CaptureRegion(ctx, image.Rect(10, 20, 12, 22), target); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	decoded, err := png.Decode(file)
+	if err != nil {
+		t.Fatalf("valid PNG capture undecodable: %v", err)
+	}
+	if b := decoded.Bounds(); b.Dx() != 2 || b.Dy() != 2 {
+		t.Fatalf("invalid encoded dimensions %v", b)
+	}
+	if got := color.RGBAModel.Convert(decoded.At(1, 1)).(color.RGBA); got != (color.RGBA{R: 13, G: 14, B: 15, A: 255}) { //nolint:errcheck // Color models and synthetic fixture builders guarantee this concrete type.
+		t.Fatalf("last visible pixel mutated: %+v", got)
+	}
+}
+
+// bundleBase is embedded by value, so the promoted trace method's receiver is
+// &s.bundleBase. Calling a traced entry point on a nil bundle dereferenced it to
+// compute that receiver and panicked before any nil check could report the
+// unavailable session.
+func TestNilScreenBundleCaptureReturnsUnavailable(t *testing.T) {
+	var s ScreenBundle
+	if _, err := s.Capture(context.Background(), image.Rect(0, 0, 10, 10)); !errors.Is(err, ErrNilSession) {
+		t.Fatalf("Capture on a nil bundle = %v, want ErrNilSession", err)
+	}
+}
+
+// Every traced entry point has to tolerate a nil receiver, because each traces
+// before it checks the backend.
+func TestNilScreenBundleTracedEntrypointsDoNotPanic(t *testing.T) {
+	var s ScreenBundle
+	ctx := context.Background()
+	rect := image.Rect(0, 0, 10, 10)
+
+	_, _ = s.Grab(ctx, rect)
+	_, _ = s.GetAllPixels(ctx)
+	_ = s.CaptureRegion(ctx, rect, "")
+	_, _ = s.GetPixel(ctx, 0, 0)
+	_, _ = s.GetMultiplePixels(ctx, []image.Point{{}})
+	_, _ = s.WaitForFn(ctx, rect, func(context.Context, image.Image) bool { return true }, time.Millisecond)
+	_, _ = s.Capture(ctx, rect)
+}
+
+type captureTestScreenshotter struct {
+	img       image.Image
+	lastRect  image.Rectangle
+	grabCalls int
+}
+
+func (s *captureTestScreenshotter) Grab(_ context.Context, rect image.Rectangle) (image.Image, error) {
+	s.lastRect = rect
+	s.grabCalls++
+	return s.img, nil
+}
+
+func (*captureTestScreenshotter) GrabFullHash(context.Context) (uint32, error) { return 0, nil }
+
+func (*captureTestScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	return 0, nil
+}
+
+func (*captureTestScreenshotter) Close() error { return nil }
+
+var _ screen.Screenshotter = (*captureTestScreenshotter)(nil)
+
+func TestScreenCapturePreservesRequestedScreenRect(t *testing.T) {
+	backend := &captureTestScreenshotter{img: image.NewRGBA(image.Rect(20, 30, 24, 34))}
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	wantRect := image.Rect(100, 200, 104, 204)
+	capture, err := session.screen.Capture(context.Background(), wantRect)
+	if err != nil {
+		t.Fatalf("Capture: %v", err)
+	}
+	if capture.Image != backend.img {
+		t.Fatal("Capture returned a different image")
+	}
+	if capture.ScreenRect != wantRect {
+		t.Fatalf("ScreenRect = %v, want %v", capture.ScreenRect, wantRect)
+	}
+	if backend.lastRect != wantRect || backend.grabCalls != 1 {
+		t.Fatalf("backend received rect=%v calls=%d, want rect=%v calls=1", backend.lastRect, backend.grabCalls, wantRect)
+	}
+}
+
+func TestScreenCaptureRejectsUnknownFullScreenProvenance(t *testing.T) {
+	img := image.NewRGBA(image.Rect(3, 4, 8, 10))
+	backend := &captureTestScreenshotter{img: img}
+	session := newSessionForTesting(backend, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+
+	capture, err := session.screen.Capture(context.Background(), image.Rectangle{})
+	if err == nil || !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("Capture error = %v, want ErrInvalidArgument", err)
+	}
+	if capture.Image != nil || !capture.ScreenRect.Empty() {
+		t.Fatalf("Capture result = %#v, want empty capture", capture)
+	}
+	if backend.grabCalls != 0 {
+		t.Fatalf("backend grab calls = %d, want 0", backend.grabCalls)
+	}
+}
+
+type windowPixmapScreenshotter struct {
+	*windowCaptureScreenshotter
+	capture func(context.Context, string) (screen.WindowPixmapCapture, error)
+}
+
+func (s *windowPixmapScreenshotter) CaptureWindowPixmap(ctx context.Context, id string) (screen.WindowPixmapCapture, error) {
+	return s.capture(ctx, id)
+}
+
+func TestCaptureWindowBackgroundReportsTargetOnlyStateWithoutActivation(t *testing.T) {
+	info := window.Info{NativeID: "0x2a", Title: "Editor", AppID: "org.example.Editor", PID: 41,
+		X: 10, Y: 20, W: 40, H: 30}
+	manager := newHandleWindowManager(info)
+	grabCalls, pixmapCalls := 0, 0
+	base := &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+		grabCalls++
+		return nil, errors.New("visible screen crop must not be used")
+	}}
+	backend := &windowPixmapScreenshotter{windowCaptureScreenshotter: base, capture: func(_ context.Context, id string) (screen.WindowPixmapCapture, error) {
+		pixmapCalls++
+		if id != info.NativeID {
+			t.Fatalf("backend target ID=%q, want %q", id, info.NativeID)
+		}
+		return screen.WindowPixmapCapture{
+			Image: image.NewRGBA(image.Rect(0, 0, 40, 30)), ScreenRect: image.Rect(10, 20, 50, 50),
+			Visibility: screen.WindowPixmapOccluded,
+		}, nil
+	}}
+	session := newSessionForTesting(backend, nil, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture, err := session.screen.CaptureWindowBackground(context.Background(), target)
+	if err != nil {
+		t.Fatalf("CaptureWindowBackground: %v", err)
+	}
+	if capture.Mode != WindowCaptureBackgroundPixmap || capture.State != WindowCaptureOccluded || capture.WindowID != info.NativeID {
+		t.Fatalf("capture metadata=%+v", capture)
+	}
+	if capture.ScreenRect != image.Rect(10, 20, 50, 50) || capture.Capture.Image.Bounds() != image.Rect(0, 0, 40, 30) {
+		t.Fatalf("capture geometry=%v image=%v", capture.ScreenRect, capture.Capture.Image.Bounds())
+	}
+	if pixmapCalls != 1 || grabCalls != 0 || len(manager.actions) != 0 {
+		t.Fatalf("pixmap=%d visible-crop=%d window-actions=%v", pixmapCalls, grabCalls, manager.actions)
+	}
+}
+
+func TestCaptureWindowBackgroundRequiresKnownFocusForBackgroundVisibleState(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		foreground bool
+		known      bool
+		want       WindowCaptureState
+	}{
+		{name: "known inactive", known: true, want: WindowCaptureBackgroundVisible},
+		{name: "known foreground", foreground: true, known: true, want: WindowCaptureForeground},
+		{name: "focus property unavailable", want: WindowCaptureStateUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := window.Info{NativeID: "42", Title: "Editor", X: 10, Y: 20, W: 4, H: 3}
+			manager := newHandleWindowManager(info)
+			base := &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+				return nil, errors.New("visible crop must not be used")
+			}}
+			backend := &windowPixmapScreenshotter{windowCaptureScreenshotter: base, capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+				return screen.WindowPixmapCapture{Image: image.NewRGBA(image.Rect(0, 0, 4, 3)), ScreenRect: image.Rect(10, 20, 14, 23),
+					Visibility: screen.WindowPixmapUnobscured, Foreground: tc.foreground, ForegroundKnown: tc.known}, nil
+			}}
+			session := newSessionForTesting(backend, nil, manager, nil, nil)
+			t.Cleanup(func() { _ = session.Close() })
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			capture, err := session.screen.CaptureWindowBackground(context.Background(), target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if capture.State != tc.want {
+				t.Fatalf("state=%q, want %q", capture.State, tc.want)
+			}
+		})
+	}
+}
+
+func TestCaptureWindowBackgroundRejectsMinimizedAndUnsupportedBackends(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		info    window.Info
+		backend func() screen.Screenshotter
+	}{
+		{name: "minimized", info: window.Info{NativeID: "min", Title: "Editor", Minimized: true}},
+		{name: "backend lacks target-only capture", info: window.Info{NativeID: "other", Title: "Editor"}, backend: func() screen.Screenshotter {
+			return &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+				return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
+			}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := newHandleWindowManager(tc.info)
+			pixmapCalls := 0
+			var backend screen.Screenshotter
+			if tc.backend != nil {
+				backend = tc.backend()
+			} else {
+				base := &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+					return nil, errors.New("should not capture")
+				}}
+				backend = &windowPixmapScreenshotter{windowCaptureScreenshotter: base, capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+					pixmapCalls++
+					return screen.WindowPixmapCapture{}, nil
+				}}
+			}
+			session := newSessionForTesting(backend, nil, manager, nil, nil)
+			t.Cleanup(func() { _ = session.Close() })
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.screen.CaptureWindowBackground(context.Background(), target)
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("CaptureWindowBackground error=%v, want ErrUnsupported", err)
+			}
+			if tc.name == "minimized" && !errors.Is(err, ErrWindowCaptureMinimized) {
+				t.Fatalf("minimized error=%v, want ErrWindowCaptureMinimized", err)
+			}
+			if pixmapCalls != 0 || len(manager.actions) != 0 {
+				t.Fatalf("pixmap calls=%d actions=%v", pixmapCalls, manager.actions)
+			}
+		})
+	}
+}
+
+func TestCaptureWindowBackgroundPreservesUnmappedState(t *testing.T) {
+	info := window.Info{NativeID: "unmapped", Title: "Editor", X: 1, Y: 2, W: 3, H: 4}
+	manager := newHandleWindowManager(info)
+	base := &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+		return nil, errors.New("visible crop must not be used")
+	}}
+	backend := &windowPixmapScreenshotter{windowCaptureScreenshotter: base, capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+		return screen.WindowPixmapCapture{}, errors.Join(screen.ErrBackgroundWindowCaptureUnsupported, screen.ErrBackgroundWindowUnmapped)
+	}}
+	session := newSessionForTesting(backend, nil, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.screen.CaptureWindowBackground(context.Background(), target); !errors.Is(err, ErrUnsupported) || !errors.Is(err, ErrWindowCaptureUnmapped) {
+		t.Fatalf("unmapped target error=%v", err)
+	}
+}
+
+func TestCaptureWindowBackgroundToWritesPNGAndReturnsMetadata(t *testing.T) {
+	info := window.Info{NativeID: "editor", Title: "Editor", X: 3, Y: 4, W: 5, H: 2}
+	manager := newHandleWindowManager(info)
+	backend := &windowPixmapScreenshotter{
+		windowCaptureScreenshotter: &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+			return nil, errors.New("visible crop must not be used")
+		}},
+		capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+			return screen.WindowPixmapCapture{
+				Image: image.NewRGBA(image.Rect(0, 0, info.W, info.H)), ScreenRect: image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H),
+				Visibility: screen.WindowPixmapOccluded,
+			}, nil
+		},
+	}
+	session := newSessionForTesting(backend, nil, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "background.png")
+	capture, err := session.screen.CaptureWindowBackgroundTo(context.Background(), target, path)
+	if err != nil {
+		t.Fatalf("CaptureWindowBackgroundTo: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output PNG: %v", err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode output PNG: %v", err)
+	}
+	if decoded.Bounds().Dx() != info.W || decoded.Bounds().Dy() != info.H || capture.WindowID != "editor" || capture.Mode != WindowCaptureBackgroundPixmap {
+		t.Fatalf("PNG bounds=%v capture=%+v", decoded.Bounds(), capture)
+	}
+}
+
+func TestCaptureWindowBackgroundToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *testing.T) {
+	captureErr := errors.New("background capture failed")
+	for _, tc := range []struct {
+		name         string
+		path         func(*testing.T) string
+		captureErr   error
+		wantErr      error
+		wantCaptures int
+	}{
+		{name: "empty path", path: func(*testing.T) string { return "" }, wantErr: ErrInvalidArgument},
+		{name: "capture failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "capture.png") }, captureErr: captureErr, wantErr: captureErr, wantCaptures: 1},
+		{name: "publish failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing", "capture.png") }, wantCaptures: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := window.Info{NativeID: "editor", Title: "Editor", X: 1, Y: 2, W: 3, H: 2}
+			manager := newHandleWindowManager(info)
+			captures := 0
+			backend := &windowPixmapScreenshotter{
+				windowCaptureScreenshotter: &windowCaptureScreenshotter{grab: func(context.Context, image.Rectangle) (image.Image, error) {
+					return nil, errors.New("visible crop must not be used")
+				}},
+				capture: func(context.Context, string) (screen.WindowPixmapCapture, error) {
+					captures++
+					if tc.captureErr != nil {
+						return screen.WindowPixmapCapture{}, tc.captureErr
+					}
+					return screen.WindowPixmapCapture{
+						Image: image.NewRGBA(image.Rect(0, 0, info.W, info.H)), ScreenRect: image.Rect(info.X, info.Y, info.X+info.W, info.Y+info.H),
+						Visibility: screen.WindowPixmapOccluded,
+					}, nil
+				},
+			}
+			session := newSessionForTesting(backend, nil, manager, nil, nil)
+			t.Cleanup(func() { _ = session.Close() })
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.screen.CaptureWindowBackgroundTo(context.Background(), target, tc.path(t))
+			if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
+				t.Fatalf("CaptureWindowBackgroundTo error=%v, want error matching %v", err, tc.wantErr)
+			}
+			if captures != tc.wantCaptures {
+				t.Fatalf("background captures=%d, want %d", captures, tc.wantCaptures)
+			}
+		})
+	}
+}
+
+type windowCaptureScreenshotter struct {
+	grab func(context.Context, image.Rectangle) (image.Image, error)
+}
+
+func (s *windowCaptureScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	return s.grab(ctx, rect)
+}
+
+func (*windowCaptureScreenshotter) GrabFullHash(context.Context) (uint32, error) { return 0, nil }
+
+func (*windowCaptureScreenshotter) GrabRegionHash(context.Context, image.Rectangle) (uint32, error) {
+	return 0, nil
+}
+
+func (*windowCaptureScreenshotter) Close() error { return nil }
+
+var _ screen.Screenshotter = (*windowCaptureScreenshotter)(nil)
+
+func windowCaptureFixture(
+	t *testing.T,
+	info window.Info,
+	grab func(context.Context, image.Rectangle) (image.Image, error),
+) (*sessionCore, *handleWindowManager) {
+	t.Helper()
+	manager := newHandleWindowManager(info)
+	screenshot := &windowCaptureScreenshotter{grab: grab}
+	session := newSessionForTesting(screenshot, nil, manager, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	return session, manager
+}
+
+func TestCaptureWindowUsesFreshBoundsAndDoesNotActivate(t *testing.T) {
+	info := window.Info{
+		NativeID: "editor-1", Title: "Editor", AppID: "org.example.Editor", PID: 41,
+		X: -20, Y: 30, W: 40, H: 25,
+	}
+	want := image.Rect(-20, 30, 20, 55)
+	var got image.Rectangle
+	grabs := 0
+	session, manager := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		got = rect
+		grabs++
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	capture, err := session.screen.CaptureWindow(context.Background(), target)
+	if err != nil {
+		t.Fatalf("CaptureWindow: %v", err)
+	}
+	if got != want || capture.ScreenRect != want || capture.Capture.ScreenRect != want {
+		t.Fatalf("requested rect=%v metadata rect=%v capture rect=%v, want %v", got, capture.ScreenRect, capture.Capture.ScreenRect, want)
+	}
+	if capture.Capture.Image.Bounds().Dx() != want.Dx() || capture.Capture.Image.Bounds().Dy() != want.Dy() {
+		t.Fatalf("image bounds=%v, want %dx%d crop", capture.Capture.Image.Bounds(), want.Dx(), want.Dy())
+	}
+	if capture.PixelBounds != capture.Capture.Image.Bounds() || capture.PixelScaleX != 1 || capture.PixelScaleY != 1 {
+		t.Fatalf("pixel provenance bounds=%v scale=(%v,%v)", capture.PixelBounds, capture.PixelScaleX, capture.PixelScaleY)
+	}
+	if capture.WindowID != "editor-1" || capture.Title != "Editor" || capture.Mode != "visible-screen-crop" || capture.GeometrySource != "window-manager-reported" {
+		t.Fatalf("capture metadata=%+v", capture)
+	}
+	if capture.Occlusion != "desktop composite; overlapping windows may appear" {
+		t.Fatalf("occlusion metadata=%q", capture.Occlusion)
+	}
+	if grabs != 1 {
+		t.Fatalf("screen captures=%d, want exactly one", grabs)
+	}
+	if len(manager.actions) != 0 {
+		t.Fatalf("window actions=%v, capture must not activate or mutate the window", manager.actions)
+	}
+}
+
+func TestCaptureWindowAcceptsUniformHiDPIScale(t *testing.T) {
+	info := window.Info{NativeID: "scaled", Title: "Scaled", X: 5, Y: 10, W: 40, H: 30}
+	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx()*2, rect.Dy()*2)), nil
+	})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Scaled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	capture, err := session.screen.CaptureWindow(context.Background(), target)
+	if err != nil {
+		t.Fatalf("CaptureWindow: %v", err)
+	}
+	if capture.PixelScaleX != 2 || capture.PixelScaleY != 2 {
+		t.Fatalf("pixel scale=(%v,%v), want (2,2)", capture.PixelScaleX, capture.PixelScaleY)
+	}
+	point, err := capture.Capture.ScreenPoint(image.Pt(2, 2))
+	if err != nil || point != image.Pt(6, 11) {
+		t.Fatalf("ScreenPoint=(%v,%v), want (6,11)", point, err)
+	}
+}
+
+func TestCaptureWindowRejectsClippedCapture(t *testing.T) {
+	info := window.Info{NativeID: "offscreen", Title: "Offscreen", X: -10, Y: 10, W: 30, H: 20}
+	grabs := 0
+	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		grabs++
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx()-10, rect.Dy())), nil
+	})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Offscreen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("CaptureWindow error=%v, want ErrUnsupported for clipped geometry", err)
+	}
+	if grabs != 1 {
+		t.Fatalf("screen captures=%d, want one attempted capture", grabs)
+	}
+}
+
+func TestCaptureWindowRejectsMinimizedAndMissingGeometryBeforeCapture(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		info window.Info
+	}{
+		{name: "minimized", info: window.Info{NativeID: "min", Title: "Minimized", X: 1, Y: 2, W: 20, H: 10, Minimized: true}},
+		{name: "missing geometry", info: window.Info{NativeID: "unknown", Title: "Unknown"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			grabs := 0
+			session, _ := windowCaptureFixture(t, tc.info, func(context.Context, image.Rectangle) (image.Image, error) {
+				grabs++
+				return image.NewRGBA(image.Rect(0, 0, 32, 32)), nil
+			})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: tc.info.Title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("CaptureWindow error=%v, want ErrUnsupported", err)
+			}
+			if grabs != 0 {
+				t.Fatalf("screen captures=%d, want zero", grabs)
+			}
+		})
+	}
+}
+
+func TestCaptureWindowRejectsIdentityOrGeometryChangesDuringCapture(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		updated window.Info
+		wantErr error
+	}{
+		{name: "identity", updated: window.Info{NativeID: "same-id", Title: "Replacement", AppID: "editor", PID: 41, X: 1, Y: 2, W: 20, H: 10}, wantErr: ErrWindowIdentityChanged},
+		{name: "geometry", updated: window.Info{NativeID: "same-id", Title: "Editor", AppID: "editor", PID: 41, X: 3, Y: 2, W: 20, H: 10}, wantErr: ErrWindowGeometryChanged},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			initial := window.Info{NativeID: "same-id", Title: "Editor", AppID: "editor", PID: 41, X: 1, Y: 2, W: 20, H: 10}
+			var manager *handleWindowManager
+			session, m := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+				manager.setWindows(false, tc.updated)
+				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+			})
+			manager = m
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("CaptureWindow error=%v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestCaptureWindowRejectsReplacementBeforeCapture(t *testing.T) {
+	initial := window.Info{NativeID: "reused-id", Title: "Editor", AppID: "editor", PID: 41, X: 1, Y: 2, W: 20, H: 10}
+	grabs := 0
+	session, manager := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		grabs++
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.setWindows(false, window.Info{NativeID: "reused-id", Title: "Replacement", AppID: "other", PID: 99, X: 1, Y: 2, W: 20, H: 10})
+	if _, err := session.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrWindowIdentityChanged) {
+		t.Fatalf("CaptureWindow error=%v, want ErrWindowIdentityChanged", err)
+	}
+	if grabs != 0 {
+		t.Fatalf("screen captures=%d, want zero after identity replacement", grabs)
+	}
+}
+
+func TestCaptureWindowRejectsCrossSessionHandleBeforeCapture(t *testing.T) {
+	info := window.Info{NativeID: "window", Title: "Editor", X: 1, Y: 2, W: 20, H: 10}
+	first, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	target, err := first.windows.Find(context.Background(), WindowMatch{TitleExact: "Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grabs := 0
+	second, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		grabs++
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	if _, err := second.screen.CaptureWindow(context.Background(), target); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("CaptureWindow error=%v, want ErrInvalidArgument", err)
+	}
+	if grabs != 0 {
+		t.Fatalf("screen captures=%d, want zero", grabs)
+	}
+}
+
+func TestCaptureWindowToWritesPNGAndReturnsMetadata(t *testing.T) {
+	info := window.Info{NativeID: "editor", Title: "Editor", X: 3, Y: 4, W: 5, H: 2}
+	session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "visible.png")
+	capture, err := session.screen.CaptureWindowTo(context.Background(), target, path)
+	if err != nil {
+		t.Fatalf("CaptureWindowTo: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output PNG: %v", err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode output PNG: %v", err)
+	}
+	if decoded.Bounds().Dx() != info.W || decoded.Bounds().Dy() != info.H || capture.WindowID != "editor" {
+		t.Fatalf("PNG bounds=%v capture=%+v", decoded.Bounds(), capture)
+	}
+}
+
+func TestCaptureWindowToRejectsEmptyPathBeforeCaptureAndPropagatesFailures(t *testing.T) {
+	captureErr := errors.New("capture failed")
+	for _, tc := range []struct {
+		name      string
+		path      func(*testing.T) string
+		grabErr   error
+		wantErr   error
+		wantGrabs int
+	}{
+		{name: "empty path", path: func(*testing.T) string { return "" }, wantErr: ErrInvalidArgument},
+		{name: "capture failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "capture.png") }, grabErr: captureErr, wantErr: captureErr, wantGrabs: 1},
+		{name: "publish failure", path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing", "capture.png") }, wantGrabs: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := window.Info{NativeID: "editor", Title: "Editor", X: 1, Y: 2, W: 3, H: 2}
+			grabs := 0
+			session, _ := windowCaptureFixture(t, info, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+				grabs++
+				if tc.grabErr != nil {
+					return nil, tc.grabErr
+				}
+				return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+			})
+			target, err := session.windows.Find(context.Background(), WindowMatch{TitleExact: info.Title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.screen.CaptureWindowTo(context.Background(), target, tc.path(t))
+			if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
+				t.Fatalf("CaptureWindowTo error=%v, want error matching %v", err, tc.wantErr)
+			}
+			if grabs != tc.wantGrabs {
+				t.Fatalf("screen captures=%d, want %d", grabs, tc.wantGrabs)
+			}
+		})
+	}
+}
 
 type cancelDuringPixelInspection struct {
 	after  func()
@@ -673,346 +1551,6 @@ func TestScreenMultiplePixelsStopsReadingAfterSessionCloseWithinImage(t *testing
 	pixels, err := session.screen.GetMultiplePixels(context.Background(), []image.Point{{0, 0}, {1, 0}})
 	if !errors.Is(err, ErrSessionClosed) || pixels != nil || frame.calls != 1 {
 		t.Fatalf("closed session disclosed pixel data: pixels=%v err=%v calls=%d", pixels, err, frame.calls)
-	}
-}
-
-// A capture of a desktop region comes back at the output's pixel scale, so a
-// desktop point maps onto the image by ratio along each axis. Translating by a
-// constant offset returned a neighbouring pixel for every point except the first
-// on each axis, and reported the point as outside the image near the far edge.
-func TestTranslatePointsToImageScalesByRatio(t *testing.T) {
-	region := image.Rect(0, 0, 100, 100)
-	imageBounds := image.Rect(0, 0, 200, 200) // scale 2
-
-	got, err := translatePointsToImage([]image.Point{{0, 0}, {50, 50}, {99, 99}}, region, imageBounds)
-	if err != nil {
-		t.Fatalf("translatePointsToImage: %v", err)
-	}
-	want := []image.Point{{0, 0}, {100, 100}, {198, 198}}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("point %d mapped to %v, want %v (all: %v)", i, got[i], want[i], got)
-		}
-	}
-}
-
-// A capture whose origin is not zero must be handled: the image offset matters
-// as well as the scale.
-func TestTranslatePointsToImageAccountsForImageOrigin(t *testing.T) {
-	region := image.Rect(40, 20, 140, 120)
-	imageBounds := image.Rect(80, 40, 280, 240) // scale 2, origin doubled
-
-	got, err := translatePointsToImage([]image.Point{{40, 20}, {90, 70}, {139, 119}}, region, imageBounds)
-	if err != nil {
-		t.Fatalf("translatePointsToImage: %v", err)
-	}
-	want := []image.Point{{80, 40}, {180, 140}, {278, 238}}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("point %d mapped to %v, want %v (all: %v)", i, got[i], want[i], got)
-		}
-	}
-}
-
-// At scale one the mapping is a pure offset, which is the case the previous
-// implementation handled.
-func TestTranslatePointsToImageAtScaleOneIsAnOffset(t *testing.T) {
-	region := image.Rect(10, 10, 20, 20)
-	imageBounds := image.Rect(10, 10, 20, 20)
-
-	got, err := translatePointsToImage([]image.Point{{10, 10}, {15, 15}, {19, 19}}, region, imageBounds)
-	if err != nil {
-		t.Fatalf("translatePointsToImage: %v", err)
-	}
-	want := []image.Point{{10, 10}, {15, 15}, {19, 19}}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("point %d mapped to %v, want %v", i, got[i], want[i])
-		}
-	}
-}
-
-// Every mapped point must land inside the image, which the previous offset
-// translation could not guarantee once the scale was above one.
-func TestTranslatePointsToImageKeepsEveryPointInsideTheImage(t *testing.T) {
-	for _, scale := range []int{1, 2, 3, 4} {
-		region := image.Rect(0, 0, 64, 64)
-		imageBounds := image.Rect(0, 0, 64*scale, 64*scale)
-
-		points := make([]image.Point, 0, 64*64)
-		for y := 0; y < 64; y++ {
-			for x := 0; x < 64; x++ {
-				points = append(points, image.Point{x, y})
-			}
-		}
-		got, err := translatePointsToImage(points, region, imageBounds)
-		if err != nil {
-			t.Fatalf("scale %d: translatePointsToImage: %v", scale, err)
-		}
-		for i, p := range got {
-			if !p.In(imageBounds) {
-				t.Fatalf("scale %d: desktop point %v mapped to %v, outside %v", scale, points[i], p, imageBounds)
-			}
-		}
-	}
-}
-
-// The mapping is the inverse of Capture.ScreenPoint, so a round trip returns to
-// the pixel that was asked for. The two APIs must not disagree about where a
-// desktop coordinate lives in an image.
-func TestTranslatePointsToImageRoundTripsWithScreenPoint(t *testing.T) {
-	const (
-		regionW = 300
-		regionH = 200
-	)
-	for _, scale := range []int{1, 2, 3} {
-		region := image.Rect(0, 0, regionW, regionH)
-		imageBounds := image.Rect(0, 0, regionW*scale, regionH*scale)
-
-		capture := Capture{
-			Image:      image.NewRGBA(imageBounds),
-			ScreenRect: region,
-		}
-
-		points := []image.Point{
-			{0, 0},
-			{1, 1},
-			{regionW / 2, regionH / 2},
-			{regionW - 1, regionH - 1},
-		}
-		mapped, err := translatePointsToImage(points, region, imageBounds)
-		if err != nil {
-			t.Fatalf("scale %d: translatePointsToImage: %v", scale, err)
-		}
-		for i, pixel := range mapped {
-			back, err := capture.ScreenPoint(pixel)
-			if err != nil {
-				t.Fatalf("scale %d: ScreenPoint(%v): %v", scale, pixel, err)
-			}
-			// A scaled image has more pixels than desktop points, so the round
-			// trip lands within one desktop pixel.
-			if abs(back.X-points[i].X) > 1 || abs(back.Y-points[i].Y) > 1 {
-				t.Fatalf("scale %d: %v -> %v -> %v drifted by more than one desktop pixel",
-					scale, points[i], pixel, back)
-			}
-		}
-	}
-}
-
-// An empty or inverted region cannot be mapped and must be reported rather than
-// dividing by zero. image.Rect canonicalizes its arguments, so the inverted
-// cases are built as literals.
-func TestTranslatePointsToImageRejectsDegenerateBounds(t *testing.T) {
-	cases := []struct {
-		name        string
-		region      image.Rectangle
-		imageBounds image.Rectangle
-	}{
-		{name: "empty region", region: image.Rect(0, 0, 0, 0), imageBounds: image.Rect(0, 0, 10, 10)},
-		{name: "empty image", region: image.Rect(0, 0, 10, 10), imageBounds: image.Rect(0, 0, 0, 0)},
-		{
-			name:        "inverted region",
-			region:      image.Rectangle{Min: image.Point{X: 10, Y: 10}, Max: image.Point{X: 5, Y: 5}},
-			imageBounds: image.Rect(0, 0, 10, 10),
-		},
-		{
-			name:        "inverted image",
-			region:      image.Rect(0, 0, 10, 10),
-			imageBounds: image.Rectangle{Min: image.Point{X: 10, Y: 10}, Max: image.Point{X: 5, Y: 5}},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := translatePointsToImage([]image.Point{{1, 1}}, tc.region, tc.imageBounds); err == nil {
-				t.Fatalf("translatePointsToImage accepted %v for %v", tc.region, tc.imageBounds)
-			}
-		})
-	}
-}
-
-// A point outside the captured region has no image pixel. Subtracting the
-// region's origin from it wrapped around and overflowed the scaling multiply,
-// so the precondition is checked rather than assumed.
-func TestTranslatePointsToImageRejectsPointOutsideRegion(t *testing.T) {
-	region := image.Rect(50, 50, 60, 60)
-	imageBounds := image.Rect(0, 0, 20, 20)
-
-	cases := []struct {
-		name  string
-		point image.Point
-	}{
-		{name: "left of region", point: image.Point{X: 49, Y: 55}},
-		{name: "above region", point: image.Point{X: 55, Y: 49}},
-		{name: "far negative", point: image.Point{X: -1000, Y: -1000}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("translatePointsToImage panicked on %v: %v", tc.point, r)
-				}
-			}()
-			if _, err := translatePointsToImage([]image.Point{tc.point}, region, imageBounds); err == nil {
-				t.Fatalf("translatePointsToImage accepted %v outside %v", tc.point, region)
-			}
-		})
-	}
-}
-
-// Randomized round trips across scales and origins, so an off-by-one in either
-// the offset or the scale is caught.
-func TestTranslatePointsToImageAgreesWithRatioMath(t *testing.T) {
-	rng := rand.New(rand.NewSource(20261002))
-	for range 200 {
-		regionW := 1 + rng.Intn(400)
-		regionH := 1 + rng.Intn(400)
-		originX := rng.Intn(2000)
-		originY := rng.Intn(2000)
-		scale := 1 + rng.Intn(4)
-
-		region := image.Rect(originX, originY, originX+regionW, originY+regionH)
-		imageBounds := image.Rect(
-			originX*scale, originY*scale,
-			originX*scale+regionW*scale, originY*scale+regionH*scale,
-		)
-
-		points := []image.Point{
-			{originX, originY},
-			{originX + regionW/2, originY + regionH/2},
-			{originX + regionW - 1, originY + regionH - 1},
-		}
-		got, err := translatePointsToImage(points, region, imageBounds)
-		if err != nil {
-			t.Fatalf("translatePointsToImage: %v", err)
-		}
-		for i, p := range got {
-			wantX := imageBounds.Min.X + (points[i].X-region.Min.X)*scale
-			wantY := imageBounds.Min.Y + (points[i].Y-region.Min.Y)*scale
-			// Integer division truncates, so allow one pixel of slack and require
-			// the error to shrink as the scale grows.
-			if abs(p.X-wantX) > 1 || abs(p.Y-wantY) > 1 {
-				t.Fatalf("region %v image %v: %v -> %v, want about (%d,%d)",
-					region, imageBounds, points[i], p, wantX, wantY)
-			}
-		}
-	}
-}
-
-func abs(v int) int {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
-// A capture smaller than the requested region is the part the backend could get,
-// not a scaled version of the whole thing. Scaling the region into it anyway maps
-// a point near the clipped edge onto a pixel standing for a different place, so
-// the mismatch has to be refused rather than sampled.
-func TestTranslatePointsRejectsAClippedCapture(t *testing.T) {
-	region := image.Rect(0, 0, 100, 100)
-
-	// A uniform downscale is not fine. Output scaling multiplies a region's pixels and
-	// never divides them, so a capture smaller than the region is one that came back
-	// with part of the region missing. Reading a pixel out of it yields an averaged
-	// value standing for somewhere else on screen, and clipping both edges by the same
-	// proportion keeps the aspect ratio, so a uniform-scale check alone cannot tell
-	// the two apart.
-	downscale := image.Rect(0, 0, 50, 50)
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, downscale); err == nil {
-		t.Fatal("a capture smaller than the region was treated as a scaled capture")
-	}
-
-	// A uniform upscale is fine too.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 200, 200)); err != nil {
-		t.Fatalf("a uniform upscale was refused: %v", err)
-	}
-
-	// Clipped on one axis only: 50x100 for a 100x100 region.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 100)); err == nil {
-		t.Fatal("a capture clipped on one axis was treated as a scaled region")
-	}
-	// Clipped on the other axis only.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 25)); err == nil {
-		t.Fatal("a capture clipped on the other axis was treated as a scaled region")
-	}
-	// A non-uniform stretch is not a capture at all.
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 50, 25)); err == nil {
-		t.Fatal("a non-uniform scaling was accepted")
-	}
-}
-
-// The two spans are compared through 128-bit products. Their coordinates come from
-// ints, so on a wide enough rectangle the 64-bit products wrap and spans of
-// different aspect ratios share a low word, which a 64-bit comparison reads as equal.
-func TestSpanProductsDistinguishPairsThatShareALowWord(t *testing.T) {
-	const twoTo32 = uint64(1) << 32
-
-	hiSmall, loSmall := bits.Mul64(twoTo32, twoTo32)
-	hiLarge, loLarge := bits.Mul64(3*twoTo32, twoTo32)
-
-	if loSmall != loLarge {
-		t.Fatalf("fixture does not exercise the low word: %d and %d", loSmall, loLarge)
-	}
-	if hiSmall == hiLarge {
-		t.Fatalf("fixture does not exercise the high word: both %d", hiSmall)
-	}
-	if hiSmall == 0 || hiLarge == 0 {
-		t.Fatalf("fixture does not overflow 64 bits: %d and %d", hiSmall, hiLarge)
-	}
-	// The low words are equal and the products differ, so a comparison that looked at
-	// only the low word would call them the same number.
-}
-
-// A capture whose aspect ratio differs from the region's is refused at the sizes a
-// real screen produces.
-func TestTranslatePointsRejectsAMismatchedAspectRatio(t *testing.T) {
-	region := image.Rect(0, 0, 100, 50)
-	if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, image.Rect(0, 0, 100, 100)); err == nil {
-		t.Fatal("a capture of a different aspect ratio was accepted as a scaled capture")
-	}
-}
-
-// Capture.ScreenPoint maps image points to the desktop and translatePointsToImage maps
-// them back, so they have to reach the same conclusion about the same capture. A capture
-// smaller than the region it represents used to be accepted by one and refused by the
-// other, and the bounds cannot say which case it is: a downscale and a region clipped on
-// both axes by the same proportion look identical.
-func TestCaptureDirectionsAgreeOnACaptureSmallerThanItsRegion(t *testing.T) {
-	region := image.Rect(0, 0, 100, 100)
-
-	// A capture covering the region is mapped by both directions, and the round trip
-	// returns the pixel it started from.
-	exact := Capture{Image: image.NewRGBA(image.Rect(0, 0, 100, 100)), ScreenRect: region}
-	pixel := image.Point{10, 10}
-	forward, err := exact.ScreenPoint(pixel)
-	if err != nil {
-		t.Fatalf("ScreenPoint on a covering capture: %v", err)
-	}
-	back, err := translatePointsToImage([]image.Point{forward}, region, image.Rect(0, 0, 100, 100))
-	if err != nil {
-		t.Fatalf("translatePointsToImage refused the inverse of an accepted mapping: %v", err)
-	}
-	if back[0] != pixel {
-		t.Fatalf("round trip = %v, want %v", back[0], pixel)
-	}
-
-	// Smaller than the region: refused by both, whichever origin the image uses, because
-	// the origin is not what makes a capture unusable.
-	for _, bounds := range []image.Rectangle{
-		image.Rect(0, 0, 50, 50),
-		image.Rect(5, 7, 55, 57),
-	} {
-		partial := Capture{Image: image.NewRGBA(bounds), ScreenRect: region}
-		if _, err := partial.ScreenPoint(image.Point{bounds.Min.X + 1, bounds.Min.Y + 1}); err == nil {
-			t.Fatalf("ScreenPoint accepted a capture smaller than its region: %v", bounds)
-		}
-		if _, err := translatePointsToImage([]image.Point{{X: 10, Y: 10}}, region, bounds); err == nil {
-			t.Fatalf("translatePointsToImage accepted a capture smaller than its region: %v", bounds)
-		}
-		if partial.ReportsDownscale() {
-			t.Fatalf("a capture smaller than its region was reported as a downscale: %v", bounds)
-		}
 	}
 }
 

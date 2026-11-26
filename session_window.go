@@ -214,3 +214,138 @@ func (a *applicationState) WaitForWindow(
 	}
 	return matched, nil
 }
+
+// Window is a detached, non-owning handle to a stable session-bound target.
+type Window struct{ state *windowState }
+
+func (w *Window) privateState() *windowState {
+	if w == nil {
+		return nil
+	}
+	return w.state
+}
+
+func wrapWindow(w *windowState) *Window {
+	if w == nil {
+		return nil
+	}
+	return &Window{state: w}
+}
+
+// ID returns the opaque session-scoped identifier.
+func (w *Window) ID() WindowID {
+	return w.privateState().ID()
+}
+
+// Title returns the latest title observed through Info or discovery.
+func (w *Window) Title() string {
+	return w.privateState().Title()
+}
+
+// CachedInfo returns the last authoritative window metadata used to create or
+// refresh this handle. It does not query the window manager. Callers that need
+// current geometry or focus state should use Info; callers crossing into
+// another semantic subsystem during a compositor stall can use this bounded
+// snapshot without issuing a second discovery request.
+func (w *Window) CachedInfo() window.Info {
+	return w.privateState().CachedInfo()
+}
+
+// Info refreshes and returns authoritative window state.
+func (w *Window) Info(ctx context.Context) (window.Info, error) {
+	return w.privateState().Info(ctx)
+}
+
+// Activate focuses the window.
+func (w *Window) Activate(ctx context.Context) error {
+	return w.privateState().Activate(ctx)
+}
+
+// Move positions the window at x and y. Negative coordinates are valid for a
+// monitor left of or above the primary one; a coordinate no backend can carry
+// is rejected with ErrInvalidArgument.
+func (w *Window) Move(ctx context.Context, x int, y int) error {
+	return w.privateState().Move(ctx, x, y)
+}
+
+// Resize changes the window size to width by height. Both edges must be
+// positive and within the geometry range every backend can represent; anything
+// else is rejected with ErrInvalidArgument rather than sent to a compositor that
+// would truncate it.
+func (w *Window) Resize(
+	ctx context.Context,
+	width int,
+	height int,
+) error {
+	return w.privateState().Resize(ctx, width, height)
+}
+
+// Close requests that the window close.
+func (w *Window) Close(ctx context.Context) error {
+	return w.privateState().Close(ctx)
+}
+
+// Minimize minimizes the window.
+func (w *Window) Minimize(ctx context.Context) error {
+	return w.privateState().Minimize(ctx)
+}
+
+// Maximize maximizes the window.
+func (w *Window) Maximize(ctx context.Context) error {
+	return w.privateState().Maximize(ctx)
+}
+
+// Fullscreen makes the window occupy the screen.
+func (w *Window) Fullscreen(ctx context.Context) error {
+	return w.privateState().Fullscreen(ctx)
+}
+
+// Unfullscreen restores the window from fullscreen mode.
+func (w *Window) Unfullscreen(ctx context.Context) error {
+	return w.privateState().Unfullscreen(ctx)
+}
+
+// Restore returns the window to its normal state.
+func (w *Window) Restore(ctx context.Context) error {
+	return w.privateState().Restore(ctx)
+}
+
+// WaitClosed waits until the authoritative backend no longer reports w.
+func (w *Window) WaitClosed(ctx context.Context) error {
+	return w.privateState().WaitClosed(ctx)
+}
+
+// List returns every window satisfying match.
+func (s WindowBundle) List(
+	ctx context.Context,
+	match WindowMatch,
+) ([]*Window, error) {
+	values, err := s.state.List(ctx, match)
+	if values == nil {
+		return nil, err
+	}
+	result := make([]*Window, len(values))
+	for i, v := range values {
+		result[i] = wrapWindow(v)
+	}
+	return result, err
+}
+
+// Find returns exactly one matching window.
+func (s WindowBundle) Find(
+	ctx context.Context,
+	match WindowMatch,
+) (*Window, error) {
+	v, err := s.state.Find(ctx, match)
+	return wrapWindow(v), err
+}
+
+// Wait waits for match to identify exactly one window.
+func (s WindowBundle) Wait(
+	ctx context.Context,
+	match WindowMatch,
+	options ...WaitOption,
+) (*Window, error) {
+	v, err := s.state.Wait(ctx, match, options...)
+	return wrapWindow(v), err
+}

@@ -1,4 +1,4 @@
-package perfuncted
+package diagnostic
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-type actionTracer struct {
+type Tracer struct {
 	w       io.Writer
 	logger  *slog.Logger
 	delay   time.Duration
@@ -20,14 +20,14 @@ type actionTracer struct {
 
 const traceHistoryLimit = 256
 
-func newActionTracer(w io.Writer, logger *slog.Logger, delay time.Duration) *actionTracer {
+func NewTracer(w io.Writer, logger *slog.Logger, delay time.Duration) *Tracer {
 	if w == nil && logger == nil {
 		return nil
 	}
-	return &actionTracer{w: w, logger: logger, delay: delay}
+	return &Tracer{w: w, logger: logger, delay: delay}
 }
 
-func (t *actionTracer) Tracef(action, format string, args ...any) {
+func (t *Tracer) Tracef(action, format string, args ...any) {
 	if t == nil || (t.w == nil && t.logger == nil) {
 		return
 	}
@@ -56,7 +56,7 @@ func (t *actionTracer) Tracef(action, format string, args ...any) {
 	}
 }
 
-func (t *actionTracer) recent() []string {
+func (t *Tracer) Recent() []string {
 	if t == nil {
 		return nil
 	}

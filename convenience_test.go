@@ -937,3 +937,30 @@ func TestWindowTargetContinuesAfterTitleChangeOnSameIdentity(t *testing.T) {
 		t.Fatalf("input after title change: %v", got)
 	}
 }
+
+// Exercise the public facade as well as its private session coordinator.
+// Both must remain covered when the wrapper is located with its implementation.
+func TestPublicConvenienceFacadeDelegatesToOwningSession(t *testing.T) {
+	sentinel := errors.New("reject requested option")
+	if _, err := OpenDefault(func(*openConfig) error { return sentinel }); !errors.Is(err, sentinel) {
+		t.Fatalf("public OpenDefault option error: %v", err)
+	}
+	backend := &convenienceInput{}
+	core := convenienceSession(t, backend)
+	s := wrapSession(core)
+	ctx := context.Background()
+	if view := s.WithContext(ctx); view.session != core || view.ctx != ctx {
+		t.Fatal("public context view lost its private session or context")
+	}
+	if view := s.WithTimeout(time.Second); view.session != core || view.timeout != time.Second {
+		t.Fatal("public timeout view lost its private session or timeout")
+	}
+	for _, err := range []error{s.Do(Type("batch")), s.Type("literal"), s.Key("tab")} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if target := s.Window("Editor"); target == nil {
+		t.Fatal("public window selection returned no target")
+	}
+}

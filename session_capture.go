@@ -310,3 +310,31 @@ var (
 	ErrWindowCaptureMinimized = screen.ErrWindowCaptureMinimized
 	ErrWindowCaptureUnmapped  = screen.ErrWindowCaptureUnmapped
 )
+
+// CaptureWindow captures the current screen rectangle reported by a stable
+// Session-owned window handle. It captures the visible desktop composite in
+// that rectangle, including any windows drawn above the target; it does not
+// retrieve hidden or minimized window contents.
+func (s ScreenBundle) CaptureWindow(ctx context.Context, target *Window) (WindowCapture, error) {
+	return s.state.CaptureWindow(ctx, target.privateState())
+}
+
+// CaptureWindowBackground reads a target-only buffer when the selected screen
+// backend exposes that capability. It never activates the target and never
+// falls back to a visible desktop crop.
+func (s ScreenBundle) CaptureWindowBackground(ctx context.Context, target *Window) (WindowCapture, error) {
+	return s.state.CaptureWindowBackground(ctx, target.privateState())
+}
+
+// CaptureWindowBackgroundTo captures one target-only background buffer and
+// atomically publishes it as PNG at path.
+func (s ScreenBundle) CaptureWindowBackgroundTo(ctx context.Context, target *Window, path string) (WindowCapture, error) {
+	return s.state.CaptureWindowBackgroundTo(ctx, target.privateState(), path)
+}
+
+// CaptureWindowTo captures one stable window's visible screen rectangle and
+// atomically publishes it as PNG at path. The captured content is the desktop
+// composite, not a background-only buffer.
+func (s ScreenBundle) CaptureWindowTo(ctx context.Context, target *Window, path string) (WindowCapture, error) {
+	return s.state.CaptureWindowTo(ctx, target.privateState(), path)
+}

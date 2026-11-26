@@ -302,3 +302,85 @@ func (s *sessionCore) SwaySocket() string {
 	}
 	return sessionruntime.SwaySocketPath(s.infra.xdgDir)
 }
+
+// Application is a detached, non-owning handle to a session-owned process group.
+type Application struct{ state *applicationState }
+
+func (a *Application) privateState() *applicationState {
+	if a == nil {
+		return nil
+	}
+	return a.state
+}
+
+func wrapApplication(a *applicationState) *Application {
+	if a == nil {
+		return nil
+	}
+	return &Application{state: a}
+}
+
+// Launch starts cmd as a managed process group. ctx governs startup only:
+// cancelling it after Launch returns does not terminate the application.
+func (s *Session) Launch(
+	ctx context.Context,
+	command Command,
+) (*Application, error) {
+	v, err := s.coreState().Launch(ctx, command)
+	return wrapApplication(v), err
+}
+
+// Wait waits for the process-group leader to exit. It is safe to call
+// repeatedly or concurrently; Stop and Session.Close additionally wait for
+// the entire owned process group.
+func (a *Application) Wait(ctx context.Context) error {
+	return a.privateState().Wait(ctx)
+}
+
+// PID returns the process-group leader's PID.
+func (a *Application) PID() int {
+	return a.privateState().PID()
+}
+
+// Path returns the resolved executable path.
+func (a *Application) Path() string {
+	return a.privateState().Path()
+}
+
+// Exited reports whether the process-group leader has been reaped. Descendants
+// may still be alive until Stop or Session.Close completes.
+func (a *Application) Exited() bool {
+	return a.privateState().Exited()
+}
+
+// Stop sends SIGTERM to the application process group and waits for ctx.
+func (a *Application) Stop(ctx context.Context) error {
+	return a.privateState().Stop(ctx)
+}
+
+// Kill sends SIGKILL to the application process group.
+func (a *Application) Kill() error {
+	return a.privateState().Kill()
+}
+
+// LogPath returns the unique private log directory used by owned session
+// infrastructure. The directory is retained for bounded post-failure
+// inspection and is cleaned up by CleanupSessionLogs when it expires.
+func (s *Session) LogPath() string {
+	return s.coreState().LogPath()
+}
+
+// SwaySocket returns the owned Sway IPC socket, when present.
+func (s *Session) SwaySocket() string {
+	return s.coreState().SwaySocket()
+}
+
+// WaitForWindow waits for a window belonging to the application's process
+// group. When the backend has no PID data, match must identify one window.
+func (a *Application) WaitForWindow(
+	ctx context.Context,
+	match WindowMatch,
+) (*Window, error) {
+	v, err := a.privateState().WaitForWindow(ctx, match)
+	return wrapWindow(v), err
+}

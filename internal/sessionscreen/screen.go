@@ -771,8 +771,3 @@ func (o *Owner) CheckAvailable(operation string) error {
 func (o *Owner) SavePNG(ctx context.Context, img image.Image, path string) error {
 	return o.savePNG(ctx, img, path)
 }
-
-// TranslatePointsToImage is shared with the root capture contract tests.
-func TranslatePointsToImage(points []image.Point, region, bounds image.Rectangle) ([]image.Point, error) {
-	return translatePointsToImage(points, region, bounds)
-}

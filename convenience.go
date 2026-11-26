@@ -470,3 +470,42 @@ func (t *WindowTarget) Do(steps ...Step) error {
 	// after an activation or observation that completes during session shutdown.
 	return s.runStepsChecked(ctx, steps, guard)
 }
+
+// OpenDefault opens a session with the default convenience capabilities.
+func OpenDefault(opts ...Option) (*Session, error) {
+	s, err := openDefault(opts...)
+	return wrapSession(s), err
+}
+
+// WithContext returns a non-owning view. A nil context is rejected on use.
+func (s *Session) WithContext(ctx context.Context) *SessionView {
+	return s.coreState().WithContext(ctx)
+}
+
+// WithTimeout returns a non-owning view with a batch timeout.
+func (s *Session) WithTimeout(d time.Duration) *SessionView {
+	return s.coreState().WithTimeout(d)
+}
+
+// Do executes steps in order against the currently focused application. It
+// preflights known requirements but cannot guarantee application acceptance or
+// atomic focus, and does not retry failed input.
+func (s *Session) Do(steps ...Step) error {
+	return s.coreState().Do(steps...)
+}
+
+// Type immediately sends literal text to the currently focused application.
+func (s *Session) Type(text string) error {
+	return s.coreState().Type(text)
+}
+
+// Key immediately sends one named key to the currently focused application.
+func (s *Session) Key(name string) error {
+	return s.coreState().Key(name)
+}
+
+// Window selects a window by exact, case-insensitive title for a targeted batch.
+// Pass Require(CapabilityWindows) to OpenDefault to enable this operation.
+func (s *Session) Window(title string) *WindowTarget {
+	return s.coreState().Window(title)
+}
