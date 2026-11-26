@@ -78,7 +78,7 @@ truncated the result. Tesseract confidence is on its 0–100 provider scale.`,
 				return err
 			}
 			defer pf.Close()
-			result, err := pf.Screen().FindText(ctx, rect, query, options)
+			result, err := pf.Screen().WithContext(ctx).FindText(rect, query, options)
 			if err != nil {
 				return err
 			}

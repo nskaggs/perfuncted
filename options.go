@@ -1,6 +1,7 @@
 package perfuncted
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/nskaggs/perfuncted/v2/input"
@@ -266,9 +267,12 @@ type targetSelection struct {
 }
 
 type openConfig struct {
-	target          targetSelection
-	selected        bool
-	startupObserver StartupPhaseObserver
+	target               targetSelection
+	selected             bool
+	startupObserver      StartupPhaseObserver
+	startupContext       context.Context
+	capabilitiesSelected bool
+	implicitCapabilities bool
 
 	required map[Capability]struct{}
 	optional map[Capability]struct{}
@@ -282,6 +286,18 @@ type openConfig struct {
 
 // Option configures Open.
 type Option func(*openConfig) error
+
+// WithStartupContext controls opening only. Cancellation after a successful
+// Open does not close the owned session.
+func WithStartupContext(ctx context.Context) Option {
+	return func(cfg *openConfig) error {
+		if ctx == nil {
+			return fmt.Errorf("perfuncted: open: %w: nil startup context", ErrInvalidArgument)
+		}
+		cfg.startupContext = ctx
+		return nil
+	}
+}
 
 // WithStartupPhaseObserver reports bounded Open stages using fixed phase and
 // state values. The observer must append sanitized data and return promptly.
@@ -308,14 +324,27 @@ func WithTarget(target DesktopTarget) Option {
 }
 
 // WithHeadless starts and owns an isolated headless Sway desktop.
-func WithHeadless(sessionConfig SessionConfig) Option {
-	return selectManagedTarget(TargetHeadless, sessionConfig)
+func WithHeadless(configs ...SessionConfig) Option {
+	return selectManagedTargetConfig(TargetHeadless, configs)
 }
 
 // WithNested starts and owns an isolated Sway desktop nested in the host
 // Wayland session.
-func WithNested(sessionConfig SessionConfig) Option {
-	return selectManagedTarget(TargetNested, sessionConfig)
+func WithNested(configs ...SessionConfig) Option {
+	return selectManagedTargetConfig(TargetNested, configs)
+}
+
+func selectManagedTargetConfig(kind TargetKind, configs []SessionConfig) Option {
+	if len(configs) > 1 {
+		return func(*openConfig) error {
+			return fmt.Errorf("perfuncted: %w: expected at most one session config", ErrInvalidArgument)
+		}
+	}
+	var cfg SessionConfig
+	if len(configs) == 1 {
+		cfg = configs[0]
+	}
+	return selectManagedTarget(kind, cfg)
 }
 
 // WithRemoteDesktopInput selects the user-authorized XDG RemoteDesktop portal
@@ -332,6 +361,7 @@ func WithRemoteDesktopInput(options input.RemoteDesktopOptions) Option {
 		copy := options
 		cfg.portalInput = &copy
 		cfg.required[CapabilityInput] = struct{}{}
+		cfg.capabilitiesSelected = true
 		return nil
 	}
 }
@@ -363,6 +393,7 @@ func Optional(capabilities ...Capability) Option {
 
 func requestCapabilities(required bool, capabilities []Capability) Option {
 	return func(cfg *openConfig) error {
+		cfg.capabilitiesSelected = true
 		for _, cap := range capabilities {
 			if !validCapability(cap) {
 				return fmt.Errorf("perfuncted: %w: unknown capability %q", ErrInvalidArgument, cap)

@@ -55,14 +55,14 @@ separate from whether the Caps Lock key is held.`,
 			var state input.StateObservation
 			switch {
 			case cmd.Flags().Changed("key"):
-				state, err = pf.InputObservation().KeyState(cmd.Context(), keyName)
+				state, err = pf.InputObservation().WithContext(cmd.Context()).KeyState(keyName)
 			case cmd.Flags().Changed("lock"):
-				state, err = pf.InputObservation().LockState(cmd.Context(), lockName)
+				state, err = pf.InputObservation().WithContext(cmd.Context()).LockState(lockName)
 			default:
 				var button int
 				button, err = parseInputStateButton(buttonName)
 				if err == nil {
-					state, err = pf.InputObservation().MouseButtonState(cmd.Context(), button)
+					state, err = pf.InputObservation().WithContext(cmd.Context()).MouseButtonState(button)
 				}
 			}
 			if err != nil {

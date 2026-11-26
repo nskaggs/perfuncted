@@ -80,7 +80,7 @@ storage plus allocation overhead. The full search is scanned once.`,
 			}
 			defer pf.Close()
 			if all {
-				matches, matchErr := pf.Screen().FindTemplates(ctx, rect, template, confidence, maxResults)
+				matches, matchErr := pf.Screen().WithContext(ctx).FindTemplates(rect, template, confidence, maxResults)
 				if matchErr != nil {
 					return matchErr
 				}
@@ -91,7 +91,7 @@ storage plus allocation overhead. The full search is scanned once.`,
 				}
 				return nil
 			}
-			match, err := pf.Screen().FindTemplate(ctx, rect, template, confidence)
+			match, err := pf.Screen().WithContext(ctx).FindTemplate(rect, template, confidence)
 			if err != nil {
 				return err
 			}

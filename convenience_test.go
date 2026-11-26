@@ -49,18 +49,18 @@ func TestConvenienceCoverageOpenAndViewCopies(t *testing.T) {
 		t.Fatalf("option error: %v", err)
 	}
 	s := convenienceSession(t, &convenienceInput{})
-	var nilView *SessionView
-	if nilView.WithContext(context.Background()).session != nil {
+	var nilView *Session
+	if nilView.WithContext(context.Background()).core != nil {
 		t.Fatal("nil receiver acquired a session")
 	}
-	if nilView.WithTimeout(time.Second).session != nil {
+	if nilView.WithTimeout(time.Second).core != nil {
 		t.Fatal("nil receiver acquired a session")
 	}
 	parent := s.WithContext(context.Background()).WithTimeout(time.Second)
 	copyWithContext := parent.WithContext(context.Background())
 	copyWithTimeout := parent.WithTimeout(2 * time.Second)
-	if parent.timeout != time.Second || copyWithContext.timeout != time.Second ||
-		copyWithTimeout.timeout != 2*time.Second || parent.session != s || copyWithTimeout.session != s {
+	if parent.scope.timeout != time.Second || copyWithContext.scope.timeout != time.Second ||
+		copyWithTimeout.scope.timeout != 2*time.Second || parent.core != s || copyWithTimeout.core != s {
 		t.Fatal("immutable views changed parent or lost owner")
 	}
 	for _, err := range []error{s.Type("literal"), s.Key("tab"), parent.Type("view"), parent.Key("enter")} {
@@ -391,7 +391,7 @@ func (b *cancelConvenienceInput) TypeLiteral(context.Context, string) error {
 
 func TestConvenienceViewBoundsAndNil(t *testing.T) {
 	var session *sessionCore
-	var view *SessionView
+	var view *Session
 	if err := session.Do(); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil session: %v", err)
 	}
@@ -942,17 +942,17 @@ func TestWindowTargetContinuesAfterTitleChangeOnSameIdentity(t *testing.T) {
 // Both must remain covered when the wrapper is located with its implementation.
 func TestPublicConvenienceFacadeDelegatesToOwningSession(t *testing.T) {
 	sentinel := errors.New("reject requested option")
-	if _, err := OpenDefault(func(*openConfig) error { return sentinel }); !errors.Is(err, sentinel) {
+	if _, err := Open(func(*openConfig) error { return sentinel }); !errors.Is(err, sentinel) {
 		t.Fatalf("public OpenDefault option error: %v", err)
 	}
 	backend := &convenienceInput{}
 	core := convenienceSession(t, backend)
 	s := wrapSession(core)
 	ctx := context.Background()
-	if view := s.WithContext(ctx); view.session != core || view.ctx != ctx {
+	if view := s.WithContext(ctx); view.core != core || view.scope.ctx != ctx {
 		t.Fatal("public context view lost its private session or context")
 	}
-	if view := s.WithTimeout(time.Second); view.session != core || view.timeout != time.Second {
+	if view := s.WithTimeout(time.Second); view.core != core || view.scope.timeout != time.Second {
 		t.Fatal("public timeout view lost its private session or timeout")
 	}
 	for _, err := range []error{s.Do(Type("batch")), s.Type("literal"), s.Key("tab")} {
@@ -962,5 +962,49 @@ func TestPublicConvenienceFacadeDelegatesToOwningSession(t *testing.T) {
 	}
 	if target := s.Window("Editor"); target == nil {
 		t.Fatal("public window selection returned no target")
+	}
+}
+
+func TestCallerImmediateAndBatchTimeoutOverrideReachProvider(t *testing.T) {
+	backend := &deadlineConvenienceInput{}
+	core := convenienceSession(t, backend)
+	s := wrapSession(core)
+	for name, run := range map[string]func() error{
+		"root":  func() error { return s.WithTimeout(time.Minute).Type("hello") },
+		"input": func() error { return s.Input().WithTimeout(time.Minute).Type("hello") },
+		"batch": func() error { return s.WithTimeout(time.Minute).Do(Type("hello")) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			before := time.Now()
+			if err := run(); err != nil {
+				t.Fatal(err)
+			}
+			if !backend.ok || backend.deadline.Before(before.Add(59*time.Second)) || backend.deadline.After(time.Now().Add(time.Minute)) {
+				t.Fatalf("override was capped or missing: %v", backend.deadline.Sub(before))
+			}
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := s.WithTimeout(time.Minute).WithContext(ctx).Type("hello"); err != nil {
+		t.Fatal(err)
+	}
+	deadline, _ := ctx.Deadline()
+	if !backend.deadline.Equal(deadline) {
+		t.Fatalf("parent deadline lost: %v != %v", backend.deadline, deadline)
+	}
+}
+
+func TestCallerBatchCancellationRetainsCause(t *testing.T) {
+	backend := &blockingConvenienceInput{started: make(chan struct{})}
+	s := wrapSession(convenienceSession(t, backend))
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cause := errors.New("caller revoked batch")
+	done := make(chan error, 1)
+	go func() { done <- s.WithContext(ctx).Do(Type("first"), Type("second")) }()
+	<-backend.started
+	cancel(cause)
+	if err := <-done; !errors.Is(err, cause) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost cancellation cause: %v", err)
 	}
 }

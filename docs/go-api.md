@@ -10,7 +10,7 @@ go get github.com/nskaggs/perfuncted/v2
 import "github.com/nskaggs/perfuncted/v2"
 
 func enter() error {
-    s, err := perfuncted.OpenDefault()
+    s, err := perfuncted.Open()
     if err != nil { return err }
     defer s.Close()
     return s.Do(perfuncted.Type("Invoice {A} + tax"),
@@ -18,8 +18,10 @@ func enter() error {
 }
 ```
 
-By default, `OpenDefault` requires input before returning and may prompt for Wayland
-authorization. Request additional capabilities with `Require` or `Optional`.
+By default, `Open()` attempts input, screen, windows, outputs and clipboard
+noninteractively on a best-effort basis. Accessibility and input observation are opt-in.
+Explicit Require or Optional options replace the default set, including an empty
+selection. Use Require when a capability must be available.
 `Type` sends literal text; `Key` sends a named key, `Hotkey` sends a chord,
 and `TypeKeys` explicitly interprets key syntax. The batch targets the
 currently focused application and stops at the first error. A successful
@@ -31,7 +33,7 @@ X keymap; this is an input-backend limitation, not a shortcut parse.
 For an exact-title, window-targeted sequence, request the window capability:
 
 ~~~go
-s, err := perfuncted.OpenDefault(perfuncted.Require(perfuncted.CapabilityWindows))
+s, err := perfuncted.Open(perfuncted.Require(perfuncted.CapabilityWindows, perfuncted.CapabilityInput))
 if err != nil { return err }
 defer s.Close()
 return s.Window("Editor").Do(perfuncted.Type("Hello"), perfuncted.Key("tab"))
@@ -71,9 +73,9 @@ Change the module requirement and all Perfuncted imports (including subpackages)
 | `s.Clipboard` | `s.Clipboard()` | `ClipboardBundle` |
 | `s.Accessibility` | `s.Accessibility()` | `AccessibilityBundle` |
 
-For example, `s.Input.Type(ctx, text)` becomes `s.Input().Type(ctx, text)`. Variables and parameters holding pointers to capability bundles should now hold concrete bundle values. Bundles are non-owning handles; they cannot be assigned back into a session. Use `s.Has(capability)` or `s.Capability(capability)` for availability instead of comparing bundles to nil.
+For example, `s.Input.Type(ctx, text)` becomes `s.Input().WithContext(ctx).TypeKeys(text)`. Variables and parameters holding pointers to capability bundles should now hold concrete bundle values. Bundles are non-owning handles; they cannot be assigned back into a session. Use `s.Has(capability)` or `s.Capability(capability)` for availability instead of comparing bundles to nil.
 
-`Open`, `OpenDefault` and `NewSessionForTesting` still return `*Session`. Copying a Session value aliases the private session; closing either copy closes the same session. Overwriting a wrapper does not redirect previously issued handles. Retain the original session reference and close it when finished.
+`Open` and `NewSessionForTesting` still return `*Session`. Copying a Session value aliases the private session; closing either copy closes the same session. Overwriting a wrapper does not redirect previously issued handles. Retain the original session reference and close it when finished.
 
 `*Window` and `*Application` retain their pointer-shaped APIs. Copies preserve their original target or process identity; replacing a public wrapper does not replace the owning session's resource. A zero Session cannot authorize launching a process.
 
@@ -94,3 +96,40 @@ Domain types now have one canonical public spelling. Replace the former root ali
 The seven capability accessors, session-specific errors, WindowID, Window, Application and wait/convenience contracts retain their root names. These are source changes within unreleased v2; the CLI and serialized data formats remain unchanged.
 
 To return to v1, restore the original module path, version and capability field calls. Existing v1 tags and installed CLI releases are unchanged.
+
+### Operation scopes and startup
+
+`Open(opts...)` accepts optional `WithStartupContext(ctx)` for the startup
+phase only. A successful session has its own lifetime. Use `WithHeadless()`
+or `WithNested()` for default isolated desktop configuration, or supply one
+typed configuration value.
+
+Each session-bound handle supports `WithContext(ctx)` and `WithTimeout(d)`.
+They copy the handle's settings, not the desktop or process. Returned windows,
+applications and locators inherit their selected scope. A positive timeout
+replaces the ordinary operation default; zero restores that default. An
+earlier caller deadline still wins, and backend safety limits remain in force.
+Durations start at each call, not when the scope is created. An explicit
+batch override covers the whole batch. Nil contexts and negative durations
+are invalid. Closing any scoped Session closes the shared desktop, even
+when its caller context has expired.
+
+`Type(text)` on the session or input handle is literal. Use
+`Input().TypeKeys(sequence)` for interpreted syntax, and `Input().Click(x,y)`
+for a left click (an optional button selects a different button). Use
+`Windows().Find(window.Title("Editor"))` for a unique exact-title target.
+An empty match is invalid for Find and Wait; List() lists all windows.
+Use a rich window.Match for other predicates. No match or ambiguity is an
+error, not permission to act on an arbitrary target.
+
+`Screen().Grab()` captures the whole desktop as an image; an explicit
+rectangle selects a region. `Capture(rect)` retains region metadata.
+Whole-desktop metadata is supported only when the backend can establish its
+desktop rectangle authoritatively; otherwise Capture() returns an
+unsupported error and the caller can use Grab().
+
+Long-lived subscriptions do not inherit a short operation deadline. A
+positive timeout override bounds setup; the established stream is governed
+by its explicit caller context and session lifetime. A scoped window event
+stream consumes the existing session-owned channel, not an independent
+broadcast subscription. Canceling the scope does not close that channel.

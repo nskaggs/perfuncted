@@ -96,6 +96,7 @@ func methodsForType(pkg *packages.Package, typeName string) ([]string, error) {
 // follow the generic Go method-to-command convention. Each binding is checked
 // in both directions. The "desktop" CLI is a view of WindowBundle.
 var manualCLIAPIMethods = map[string]map[string]string{
+	"screen": {"get-all-pixels": "Grab"},
 	"find": {
 		"text": "FindText",
 	},
@@ -115,6 +116,8 @@ var manualCLIAPIMethods = map[string]map[string]string{
 	},
 	"input": {
 		"move-relative": "MouseMove",
+		"type":          "TypeKeys",
+		"type-literal":  "Type",
 		"location":      "ObservePointer",
 	},
 }
@@ -130,7 +133,7 @@ func mappedBundleGroup(cliGroup string) string {
 }
 
 func skipMethodForCLISync(name string) bool {
-	if strings.HasSuffix(name, "Context") || name == "Close" {
+	if strings.HasSuffix(name, "Context") || name == "WithTimeout" || name == "Close" {
 		return true
 	}
 	switch name {

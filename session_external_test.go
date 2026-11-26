@@ -103,7 +103,7 @@ func TestPasteRejectsCanceledRequestBeforeDesktopSideEffects(t *testing.T) {
 			t.Cleanup(func() { _ = session.Close() })
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			err := session.Paste(ctx, "sensitive")
+			err := session.WithContext(ctx).Paste("sensitive")
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("canceled paste: %v", err)
 			}
@@ -125,7 +125,7 @@ func TestPasteDoesNotTypeAfterClipboardSetCancels(t *testing.T) {
 	input := &pftest.Inputter{}
 	session := perfuncted.NewSessionForTesting(nil, input, nil, nil, clipboard)
 	t.Cleanup(func() { _ = session.Close() })
-	err := session.Paste(ctx, "new selection")
+	err := session.WithContext(ctx).Paste("new selection")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled clipboard operation reported %v", err)
 	}
@@ -171,7 +171,7 @@ func TestPasteRejectsSuccessAcknowledgedAfterCancellation(t *testing.T) {
 			}
 			session := perfuncted.NewSessionForTesting(nil, input, nil, nil, clipboard)
 			t.Cleanup(func() { _ = session.Close() })
-			err := session.Paste(ctx, "payload")
+			err := session.WithContext(ctx).Paste("payload")
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("late-canceled paste returned %v, want cancellation", err)
 			}
@@ -217,7 +217,7 @@ func TestPasteReturnsCancellationAfterLateBackendSuccess(t *testing.T) {
 		session := pftest.New(nil, input, nil, clipboard)
 		defer session.Close()
 
-		err := session.Paste(ctx, "private clipboard text")
+		err := session.WithContext(ctx).Paste("private clipboard text")
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Paste error = %v, want context.Canceled", err)
 		}
@@ -236,7 +236,7 @@ func TestPasteReturnsCancellationAfterLateBackendSuccess(t *testing.T) {
 		session := pftest.New(nil, input, nil, nil)
 		defer session.Close()
 
-		err := session.Paste(ctx, "late typed text")
+		err := session.WithContext(ctx).Paste("late typed text")
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Paste fallback error = %v, want context.Canceled", err)
 		}

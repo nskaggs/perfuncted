@@ -1223,7 +1223,7 @@ func TestDiagnosticsDoNotExposeSensitiveEnvironment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			openFactory := func(*cliConfig) sessionOpener {
 				return func(ctx context.Context) (*perfuncted.Session, error) {
-					return perfuncted.Open(ctx)
+					return perfuncted.Open(perfuncted.WithStartupContext(ctx), perfuncted.Optional())
 				}
 			}
 			stdout, stderr, code := captureRunIO(t, tt.args, openFactory)

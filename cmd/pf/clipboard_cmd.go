@@ -15,7 +15,7 @@ func clipboardCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			s, err := pf.Clipboard().Get(cmd.Context())
+			s, err := pf.Clipboard().WithContext(cmd.Context()).Get()
 			if err != nil {
 				return err
 			}
@@ -33,7 +33,7 @@ func clipboardCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			return pf.Clipboard().Set(cmd.Context(), args[0])
+			return pf.Clipboard().WithContext(cmd.Context()).Set(args[0])
 		},
 	}
 

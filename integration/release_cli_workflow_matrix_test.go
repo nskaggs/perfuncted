@@ -95,11 +95,11 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { terminateCmd(cmd, 5*time.Second) })
-		target, err := s.pf.Windows().Wait(ctx, window.Match{TitleContains: app.winMatch}, perfuncted.WaitEvery(100*time.Millisecond))
+		target, err := s.pf.Windows().WithContext(ctx).Wait(window.Match{TitleContains: app.winMatch}, perfuncted.WaitEvery(100*time.Millisecond))
 		if err != nil {
 			t.Fatal(err)
 		}
-		info, err := target.Info(ctx)
+		info, err := target.WithContext(ctx).Info()
 		if err != nil {
 			t.Fatal(err)
 		}

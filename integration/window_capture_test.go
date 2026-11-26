@@ -42,15 +42,15 @@ func TestWindowCaptureIntegration(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	target, err := s.pf.Windows().Wait(ctx, window.Match{TitleContains: app.winMatch}, perfuncted.WaitEvery(250*time.Millisecond))
+	target, err := s.pf.Windows().WithContext(ctx).Wait(window.Match{TitleContains: app.winMatch}, perfuncted.WaitEvery(250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("find %s window: %v", app.name, err)
 	}
-	before, err := target.Info(ctx)
+	before, err := target.WithContext(ctx).Info()
 	if err != nil {
 		t.Fatalf("read %s window geometry: %v", app.name, err)
 	}
-	capture, err := s.pf.Screen().CaptureWindow(ctx, target)
+	capture, err := s.pf.Screen().WithContext(ctx).CaptureWindow(target)
 	if before.W <= 0 || before.H <= 0 {
 		if !errors.Is(err, perfuncted.ErrUnsupported) {
 			t.Fatalf("geometry-unavailable backend capture error=%v, want ErrUnsupported", err)
@@ -75,7 +75,7 @@ func TestWindowCaptureIntegration(t *testing.T) {
 		t.Fatalf("capture mode=%q", capture.Mode)
 	}
 	t.Logf("%s captured window %q at %v with pixel scale (%v,%v)", s.mode, capture.WindowID, capture.ScreenRect, capture.PixelScaleX, capture.PixelScaleY)
-	if info, infoErr := target.Info(ctx); infoErr != nil {
+	if info, infoErr := target.WithContext(ctx).Info(); infoErr != nil {
 		t.Fatalf("refresh window after capture: %v", infoErr)
 	} else if info.StableID() != before.StableID() {
 		t.Fatalf("selected window changed after capture: %q -> %q", before.StableID(), info.StableID())

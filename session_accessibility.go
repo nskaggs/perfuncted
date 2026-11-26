@@ -298,7 +298,7 @@ func (s *sessionCore) InvokeAccessibilityActionAndWait(
 // action and waits for an independent authoritative postcondition. The
 // returned evidence describes only bounded wakeups; callers decide what the
 // postcondition means.
-func (s *Session) InvokeAccessibilityActionAndWait(
+func (s *Session) invokeAccessibilityActionAndWaitContext(
 	ctx context.Context,
 	root accessibility.NodeID,
 	query accessibility.Query,
@@ -311,33 +311,41 @@ func (s *Session) InvokeAccessibilityActionAndWait(
 }
 
 // WindowRoot resolves a managed window's exact accessibility subtree.
-func (b AccessibilityBundle) WindowRoot(ctx context.Context, id string) (accessibility.WindowScope, error) {
+func (b AccessibilityBundle) windowRootContext(ctx context.Context, id string) (accessibility.WindowScope, error) {
 	return b.state.WindowRoot(ctx, id)
 }
 
 // WindowRootFresh re-correlates a managed window from fresh state.
-func (b AccessibilityBundle) WindowRootFresh(ctx context.Context, id string) (accessibility.WindowScope, error) {
+func (b AccessibilityBundle) windowRootFreshContext(ctx context.Context, id string) (accessibility.WindowScope, error) {
 	return b.state.WindowRootFresh(ctx, id)
 }
 
 // FindApplication resolves a unique application in the owning session.
-func (b AccessibilityBundle) FindApplication(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+func (b AccessibilityBundle) findApplicationContext(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
 	return b.state.FindApplication(ctx, filter)
 }
 
 // FindApplicationFresh resolves an application from uncached identity state.
-func (b AccessibilityBundle) FindApplicationFresh(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
+func (b AccessibilityBundle) findApplicationFreshContext(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
 	return b.state.FindApplicationFresh(ctx, filter)
 }
 
 // LocatorForWindow scopes a semantic locator to a managed window.
 func (b AccessibilityBundle) LocatorForWindow(id string, selector accessibility.Selector, opts accessibility.SnapshotOptions) *AccessibilityLocator {
-	return b.state.LocatorForWindow(id, selector, opts)
+	loc := b.state.LocatorForWindow(id, selector, opts)
+	if loc != nil {
+		loc.operation = b.scope
+	}
+	return loc
 }
 
 // LocatorForApplication scopes a semantic locator to a unique application.
 func (b AccessibilityBundle) LocatorForApplication(filter accessibility.ApplicationFilter, selector accessibility.Selector, opts accessibility.SnapshotOptions) *AccessibilityLocator {
-	return b.state.LocatorForApplication(filter, selector, opts)
+	loc := b.state.LocatorForApplication(filter, selector, opts)
+	if loc != nil {
+		loc.operation = b.scope
+	}
+	return loc
 }
 
 const locatorResolutionAttempts = 2
@@ -364,10 +372,11 @@ type locatorScope struct {
 // provider nodes only when an operation runs. Resolution requires an active
 // AT-SPI event stream so provider changes during a fresh snapshot can fail closed.
 type AccessibilityLocator struct {
-	bundle   *accessibilityState
-	scope    locatorScope
-	selector accessibility.Selector
-	options  accessibility.SnapshotOptions
+	operation operationScope
+	bundle    *accessibilityState
+	scope     locatorScope
+	selector  accessibility.Selector
+	options   accessibility.SnapshotOptions
 }
 
 // LocatorForWindow creates a locator rooted in a managed Perfuncted window.
@@ -551,7 +560,7 @@ func (l *AccessibilityLocator) findTarget(ctx context.Context, targetID *accessi
 
 // Matches returns all matches from one complete, current snapshot. It preserves
 // ambiguity for discovery callers; Resolve applies the unique-target rule.
-func (l *AccessibilityLocator) Matches(ctx context.Context) ([]accessibility.Node, error) {
+func (l *AccessibilityLocator) matchesContext(ctx context.Context) ([]accessibility.Node, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("perfuncted: locator: %w: nil context", ErrInvalidArgument)
 	}
@@ -564,8 +573,8 @@ func (l *AccessibilityLocator) Matches(ctx context.Context) ([]accessibility.Nod
 }
 
 // Resolve requires exactly one match in a complete fresh snapshot.
-func (l *AccessibilityLocator) Resolve(ctx context.Context) (accessibility.Node, error) {
-	nodes, err := l.Matches(ctx)
+func (l *AccessibilityLocator) resolveContext(ctx context.Context) (accessibility.Node, error) {
+	nodes, err := l.matchesContext(ctx)
 	if err != nil {
 		return accessibility.Node{}, err
 	}
@@ -581,13 +590,13 @@ func (l *AccessibilityLocator) Resolve(ctx context.Context) (accessibility.Node,
 
 // Wait resolves this locator after each authoritative wake or bounded poll.
 // Absence is transient; ambiguity and incomplete provider state fail closed.
-func (l *AccessibilityLocator) Wait(ctx context.Context, options ...WaitOption) (accessibility.Node, WaitEvidence, error) {
+func (l *AccessibilityLocator) waitContext(ctx context.Context, options ...WaitOption) (accessibility.Node, WaitEvidence, error) {
 	return l.waitForState(ctx, AccessibilityWaitPresent, options...)
 }
 
 // InvokeActionAndWait resolves one current target, dispatches one semantic
 // action, and then waits for an independent caller-supplied postcondition.
-func (l *AccessibilityLocator) InvokeActionAndWait(ctx context.Context, actionName string, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // unique resolution, dispatch certainty, and bounded stale handling are explicit safety gates.
+func (l *AccessibilityLocator) invokeActionAndWaitContext(ctx context.Context, actionName string, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // unique resolution, dispatch certainty, and bounded stale handling are explicit safety gates.
 	return l.actionAndWait(ctx, "action", postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
 		receipt, err := l.bundle.invokeSemanticActionOnNode(ctx, node, actionName)
 		retryable := err != nil && sessionaccessibility.LocatorActionMayRetryStale(err) &&
@@ -598,14 +607,14 @@ func (l *AccessibilityLocator) InvokeActionAndWait(ctx context.Context, actionNa
 
 // ClickAndWait invokes the target's accessible default action once and records
 // whether an independent caller-supplied postcondition becomes true.
-func (l *AccessibilityLocator) ClickAndWait(ctx context.Context, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) {
-	return l.InvokeActionAndWait(ctx, "", postcondition, options...)
+func (l *AccessibilityLocator) clickAndWaitContext(ctx context.Context, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) {
+	return l.invokeActionAndWaitContext(ctx, "", postcondition, options...)
 }
 
 // FillAndWait replaces editable text on the uniquely resolved target with one
 // AT-SPI SetTextContents dispatch, then observes an independent postcondition.
 // An uncertain provider result is returned with its receipt and is never retried.
-func (l *AccessibilityLocator) FillAndWait(ctx context.Context, value string, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // one text mutation, bounded stale handling, and independent outcome proof are explicit gates.
+func (l *AccessibilityLocator) fillAndWaitContext(ctx context.Context, value string, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // one text mutation, bounded stale handling, and independent outcome proof are explicit gates.
 	if l == nil || l.bundle == nil || l.bundle.session == nil {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, ErrUnavailable
 	}
@@ -779,7 +788,7 @@ const (
 // matched node as their baseline. WaitEvidence is diagnostic; only a fresh
 // snapshot can satisfy the condition. WaitEvery may override the session's
 // fallback polling interval.
-func (l *AccessibilityLocator) WaitForState(
+func (l *AccessibilityLocator) waitForStateContext(
 	ctx context.Context,
 	state AccessibilityWaitState,
 	timeout time.Duration,

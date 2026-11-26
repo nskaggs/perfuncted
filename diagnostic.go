@@ -630,6 +630,6 @@ func diagnosticOutcome(value accessibility.ActionOutcomeStatus) string {
 // the returned error reports collection failures after the successful files
 // have been written. Its manifest records the effective timeout policy and
 // whether each field came from SessionConfig or the library defaults.
-func (s *Session) CaptureFailureBundle(ctx context.Context, options FailureBundleOptions) (string, error) {
+func (s *Session) captureFailureBundleContext(ctx context.Context, options FailureBundleOptions) (string, error) {
 	return s.coreState().CaptureFailureBundle(ctx, options)
 }

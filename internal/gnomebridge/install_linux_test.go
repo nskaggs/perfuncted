@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 	"github.com/nskaggs/perfuncted/v2/internal/env"
 	"io/fs"
 	"os"
@@ -1108,5 +1109,36 @@ func TestGNOMEAtomicReplacementReportsDisplacedExtensionCleanupDenial(t *testing
 	}
 	if contents, err := os.ReadFile(filepath.Join(stage, "previous")); err != nil || string(contents) != "old" {
 		t.Fatalf("displaced extension lost or altered after cleanup denial: %q %v", contents, err)
+	}
+}
+
+func TestNoninteractiveStartupNeverProvisionsOrRefreshesGNOMEBridge(t *testing.T) {
+	rt := env.FromEnviron([]string{"DBUS_SESSION_BUS_ADDRESS=unix:path=/private-bus"})
+	ctx := contextutil.WithNoninteractiveStartup(context.Background())
+	install := func(context.Context, env.Runtime) (string, error) {
+		t.Fatal("implicit startup attempted to install GNOME extension")
+		return "", nil
+	}
+	for _, failure := range []error{ErrUnavailable, ErrProtocolMismatch} {
+		got, err := connectRuntime(ctx, rt, func(context.Context, string) (*Client, error) {
+			return nil, failure
+		}, install)
+		if got != nil || !errors.Is(err, ErrUnavailable) || !errors.Is(err, failure) {
+			t.Fatalf("implicit startup unexpectedly admitted bridge: %v, %v", got, err)
+		}
+	}
+	obsolete := &Client{extensionVer: "0"}
+	got, err := connectRuntime(ctx, rt, func(context.Context, string) (*Client, error) {
+		return obsolete, nil
+	}, install)
+	if got != nil || !errors.Is(err, ErrUnavailable) || !obsolete.closed {
+		t.Fatalf("obsolete bridge leaked or admitted: %v, %v", got, err)
+	}
+	current := &Client{extensionVer: ExtensionVersion}
+	got, err = connectRuntime(ctx, rt, func(context.Context, string) (*Client, error) {
+		return current, nil
+	}, install)
+	if got != current || err != nil || current.closed {
+		t.Fatalf("working existing bridge rejected: %v, %v", got, err)
 	}
 }

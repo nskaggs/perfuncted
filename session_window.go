@@ -214,7 +214,10 @@ func (a *applicationState) WaitForWindow(
 }
 
 // Window is a detached, non-owning handle to a stable session-bound target.
-type Window struct{ state *windowState }
+type Window struct {
+	state *windowState
+	scope operationScope
+}
 
 func (w *Window) privateState() *windowState {
 	if w == nil {
@@ -223,11 +226,11 @@ func (w *Window) privateState() *windowState {
 	return w.state
 }
 
-func wrapWindow(w *windowState) *Window {
+func wrapWindow(w *windowState, scope operationScope) *Window {
 	if w == nil {
 		return nil
 	}
-	return &Window{state: w}
+	return &Window{state: w, scope: scope}
 }
 
 // ID returns the opaque session-scoped identifier.
@@ -250,19 +253,19 @@ func (w *Window) CachedInfo() window.Info {
 }
 
 // Info refreshes and returns authoritative window state.
-func (w *Window) Info(ctx context.Context) (window.Info, error) {
+func (w *Window) infoContext(ctx context.Context) (window.Info, error) {
 	return w.privateState().Info(ctx)
 }
 
 // Activate focuses the window.
-func (w *Window) Activate(ctx context.Context) error {
+func (w *Window) activateContext(ctx context.Context) error {
 	return w.privateState().Activate(ctx)
 }
 
 // Move positions the window at x and y. Negative coordinates are valid for a
 // monitor left of or above the primary one; a coordinate no backend can carry
 // is rejected with ErrInvalidArgument.
-func (w *Window) Move(ctx context.Context, x int, y int) error {
+func (w *Window) moveContext(ctx context.Context, x int, y int) error {
 	return w.privateState().Move(ctx, x, y)
 }
 
@@ -270,7 +273,7 @@ func (w *Window) Move(ctx context.Context, x int, y int) error {
 // positive and within the geometry range every backend can represent; anything
 // else is rejected with ErrInvalidArgument rather than sent to a compositor that
 // would truncate it.
-func (w *Window) Resize(
+func (w *Window) resizeContext(
 	ctx context.Context,
 	width int,
 	height int,
@@ -279,42 +282,42 @@ func (w *Window) Resize(
 }
 
 // Close requests that the window close.
-func (w *Window) Close(ctx context.Context) error {
+func (w *Window) closeContext(ctx context.Context) error {
 	return w.privateState().Close(ctx)
 }
 
 // Minimize minimizes the window.
-func (w *Window) Minimize(ctx context.Context) error {
+func (w *Window) minimizeContext(ctx context.Context) error {
 	return w.privateState().Minimize(ctx)
 }
 
 // Maximize maximizes the window.
-func (w *Window) Maximize(ctx context.Context) error {
+func (w *Window) maximizeContext(ctx context.Context) error {
 	return w.privateState().Maximize(ctx)
 }
 
 // Fullscreen makes the window occupy the screen.
-func (w *Window) Fullscreen(ctx context.Context) error {
+func (w *Window) fullscreenContext(ctx context.Context) error {
 	return w.privateState().Fullscreen(ctx)
 }
 
 // Unfullscreen restores the window from fullscreen mode.
-func (w *Window) Unfullscreen(ctx context.Context) error {
+func (w *Window) unfullscreenContext(ctx context.Context) error {
 	return w.privateState().Unfullscreen(ctx)
 }
 
 // Restore returns the window to its normal state.
-func (w *Window) Restore(ctx context.Context) error {
+func (w *Window) restoreContext(ctx context.Context) error {
 	return w.privateState().Restore(ctx)
 }
 
 // WaitClosed waits until the authoritative backend no longer reports w.
-func (w *Window) WaitClosed(ctx context.Context) error {
+func (w *Window) waitClosedContext(ctx context.Context) error {
 	return w.privateState().WaitClosed(ctx)
 }
 
 // List returns every window satisfying match.
-func (s WindowBundle) List(
+func (s WindowBundle) listContext(
 	ctx context.Context,
 	match window.Match,
 ) ([]*Window, error) {
@@ -324,26 +327,26 @@ func (s WindowBundle) List(
 	}
 	result := make([]*Window, len(values))
 	for i, v := range values {
-		result[i] = wrapWindow(v)
+		result[i] = wrapWindow(v, s.scope)
 	}
 	return result, err
 }
 
 // Find returns exactly one matching window.
-func (s WindowBundle) Find(
+func (s WindowBundle) findContext(
 	ctx context.Context,
 	match window.Match,
 ) (*Window, error) {
 	v, err := s.state.Find(ctx, match)
-	return wrapWindow(v), err
+	return wrapWindow(v, s.scope), err
 }
 
 // Wait waits for match to identify exactly one window.
-func (s WindowBundle) Wait(
+func (s WindowBundle) waitContext(
 	ctx context.Context,
 	match window.Match,
 	options ...WaitOption,
 ) (*Window, error) {
 	v, err := s.state.Wait(ctx, match, options...)
-	return wrapWindow(v), err
+	return wrapWindow(v, s.scope), err
 }

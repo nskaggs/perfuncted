@@ -554,3 +554,11 @@ func foldMatches(segment, lowerSub string) bool {
 	}
 	return true
 }
+
+// Title matches a window's exact title, ignoring case.
+func Title(title string) Match {
+	if strings.TrimSpace(title) == "" {
+		return Match{}
+	}
+	return Match{TitleExact: title}
+}

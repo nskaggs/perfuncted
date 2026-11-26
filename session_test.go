@@ -27,6 +27,7 @@ import (
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 	"github.com/nskaggs/perfuncted/v2/clipboard"
 	"github.com/nskaggs/perfuncted/v2/input"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 	"github.com/nskaggs/perfuncted/v2/internal/dbusutil"
 	"github.com/nskaggs/perfuncted/v2/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/v2/internal/env"
@@ -3217,7 +3218,7 @@ func TestWindowAndApplicationUnownedHandleOperationsFailClosed(t *testing.T) {
 		t.Fatalf("unowned window Info returned %v", err)
 	}
 	var windows WindowBundle
-	if got, err := windows.Wait(context.Background(), window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
+	if got, err := windows.WithContext(context.Background()).Wait(window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil window bundle wait=%v %v", got, err)
 	}
 	if got, err := (&windowBundleState{}).Wait(context.Background(), window.Match{}); got != nil || !errors.Is(err, ErrNilSession) {
@@ -3495,17 +3496,17 @@ func TestNilFacadesReportNilSession(t *testing.T) {
 	ctx := context.Background()
 
 	var screen ScreenBundle
-	if _, err := screen.Grab(ctx, image.Rectangle{}); !errors.Is(err, ErrNilSession) {
+	if _, err := screen.WithContext(ctx).Grab(image.Rectangle{}); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Screen.Grab() = %v, want ErrNilSession", err)
 	}
 
 	var input InputBundle
-	if err := input.Type(ctx, "x"); !errors.Is(err, ErrNilSession) {
+	if err := input.WithContext(ctx).TypeKeys("x"); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Input.Type() = %v, want ErrNilSession", err)
 	}
 
 	var windows WindowBundle
-	if _, err := windows.List(ctx, window.Match{}); !errors.Is(err, ErrNilSession) {
+	if _, err := windows.WithContext(ctx).List(window.Match{}); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Windows.List() = %v, want ErrNilSession", err)
 	}
 
@@ -4966,5 +4967,141 @@ func requireNoManagedSessionDirs(t *testing.T, root string) {
 		if strings.HasPrefix(entry.Name(), "perfuncted-xdg-") {
 			t.Fatalf("failed startup left managed runtime directory %q", entry.Name())
 		}
+	}
+}
+
+func TestCallerOpenDefaultsAreNoninteractiveAndExplicitSelectionIsExact(t *testing.T) {
+	preserveOpeners(t)
+	var seen []Capability
+	failure := errors.New("synthetic unavailable backend")
+	record := func(ctx context.Context, capability Capability) error {
+		t.Helper()
+		if !contextutil.NoninteractiveStartup(ctx) {
+			t.Fatalf("implicit %s startup was not restricted", capability)
+		}
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatalf("implicit %s startup was unbounded", capability)
+		}
+		seen = append(seen, capability)
+		return failure
+	}
+	openInput = func(ctx context.Context, _ env.Runtime, _, _ int32) (input.Inputter, error) {
+		return nil, record(ctx, CapabilityInput)
+	}
+	openScreen = func(ctx context.Context, _ env.Runtime) (screen.Screenshotter, error) {
+		return nil, record(ctx, CapabilityScreen)
+	}
+	openWindow = func(ctx context.Context, _ env.Runtime) (window.Manager, error) {
+		return nil, record(ctx, CapabilityWindows)
+	}
+	openOutput = func(ctx context.Context, _ env.Runtime) (output.Lister, error) {
+		return nil, record(ctx, CapabilityOutputs)
+	}
+	openClipboard = func(ctx context.Context, _ env.Runtime) (clipboard.Clipboard, error) {
+		return nil, record(ctx, CapabilityClipboard)
+	}
+
+	s, err := Open()
+	if err != nil {
+		t.Fatalf("optional default failure aborted opening: %v", err)
+	}
+	defer s.Close()
+	if len(seen) != 5 {
+		t.Fatalf("default acquisition calls = %v", seen)
+	}
+	for _, status := range s.Capabilities() {
+		switch status.Capability {
+		case CapabilityAccessibility, CapabilityInputObservation:
+			if status.Requested || status.Available || status.Failure != nil {
+				t.Fatalf("permission-sensitive default acquisition: %+v", status)
+			}
+		default:
+			if !status.Requested || status.Required || status.Available || !errors.Is(status.Failure, failure) || !strings.Contains(status.Failure.Error(), "explicitly select") {
+				t.Fatalf("incorrect implicit status: %+v", status)
+			}
+		}
+	}
+
+	seen = nil
+	empty, err := Open(Optional())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer empty.Close()
+	if len(seen) != 0 {
+		t.Fatalf("explicit empty acquired %v", seen)
+	}
+	for _, status := range empty.Capabilities() {
+		if status.Requested || status.Available {
+			t.Fatalf("explicit empty selection published %+v", status)
+		}
+	}
+	openClipboard = func(ctx context.Context, _ env.Runtime) (clipboard.Clipboard, error) {
+		if contextutil.NoninteractiveStartup(ctx) {
+			t.Fatal("explicit selection incorrectly inherited implicit restriction")
+		}
+		seen = append(seen, CapabilityClipboard)
+		return &capabilityClipboard{}, nil
+	}
+	startup, cancel := context.WithCancel(context.Background())
+	explicit, err := Open(WithStartupContext(startup), Require(CapabilityClipboard))
+	cancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer explicit.Close()
+	if !explicit.Has(CapabilityClipboard) || len(seen) != 1 || seen[0] != CapabilityClipboard {
+		t.Fatalf("explicit selection/lifetime changed: %v %v", seen, explicit.Capabilities())
+	}
+	if got, err := Open(WithStartupContext(nil), Optional()); got != nil || !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil startup context was accepted: %v %v", got, err)
+	}
+	if got, err := Open(WithStartupContext(startup), Optional()); got != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled startup context was accepted: %v %v", got, err)
+	}
+}
+
+func TestCallerManagedConfigAllowsOmissionButNotMultipleValues(t *testing.T) {
+	for _, tc := range []struct {
+		option Option
+		target TargetKind
+	}{
+		{WithHeadless(), TargetHeadless},
+		{WithNested(), TargetNested},
+	} {
+		cfg, err := parseOpenOptions([]Option{tc.option})
+		if err != nil || cfg.target.kind != tc.target || cfg.target.config.Resolution != (image.Point{}) {
+			t.Fatalf("default managed config: %+v %v", cfg, err)
+		}
+	}
+	for _, opt := range []Option{WithHeadless(SessionConfig{}, SessionConfig{}), WithNested(SessionConfig{}, SessionConfig{})} {
+		if _, err := parseOpenOptions([]Option{opt}); !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("multiple configs: %v", err)
+		}
+	}
+}
+
+func TestCallerStreamSetupOverrideExpiresOnlyDuringSetup(t *testing.T) {
+	setup, err := (operationScope{timeout: 5 * time.Millisecond}).startStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-setup.ctx.Done()
+	if err := setup.finish(); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("setup deadline: %v", err)
+	}
+	setup.release()
+	setup, err = (operationScope{timeout: 50 * time.Millisecond}).startStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer setup.release()
+	if err := setup.finish(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-setup.ctx.Done():
+		t.Fatal("established stream expired at setup timeout")
+	case <-time.After(100 * time.Millisecond):
 	}
 }

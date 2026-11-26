@@ -317,13 +317,13 @@ func TestNewWithOutputsOwnsOutputDiscoveryFailureAndTeardown(t *testing.T) {
 	backend := &outputFixtureLifetime{infos: want}
 	session := pftest.NewWithOutputs(nil, nil, nil, backend, nil)
 	ctx := context.Background()
-	got, err := session.Outputs().List(ctx)
+	got, err := session.Outputs().WithContext(ctx).List()
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("multi-output fixture lost physical coordinates: %+v %v", got, err)
 	}
 	failure := errors.New("synthetic display disconnected")
 	backend.err = failure
-	if _, err := session.Outputs().List(ctx); !errors.Is(err, failure) {
+	if _, err := session.Outputs().WithContext(ctx).List(); !errors.Is(err, failure) {
 		t.Fatalf("output disconnect masked: %v", err)
 	}
 	if err := session.Close(); err != nil {
@@ -332,7 +332,7 @@ func TestNewWithOutputsOwnsOutputDiscoveryFailureAndTeardown(t *testing.T) {
 	if !backend.closed {
 		t.Fatal("owned output backend was not closed")
 	}
-	if _, err := session.Outputs().List(ctx); err == nil {
+	if _, err := session.Outputs().WithContext(ctx).List(); err == nil {
 		t.Fatal("closed output fixture still allowed discovery")
 	}
 }
@@ -353,13 +353,13 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	pftest.CaptureOnFailure(t, pf, "")
 
 	// Exercise each bundle through the assembled Perfuncted.
-	if _, _, err := pf.Screen().Resolution(context.Background()); err != nil {
+	if _, _, err := pf.Screen().WithContext(context.Background()).Resolution(); err != nil {
 		t.Errorf("Resolution: %v", err)
 	}
-	if err := pf.Input().Type(context.Background(), "{enter}"); err != nil {
+	if err := pf.Input().WithContext(context.Background()).TypeKeys("{enter}"); err != nil {
 		t.Errorf("Type: %v", err)
 	}
-	if got, err := pf.Clipboard().Get(context.Background()); err != nil || got != "hi" {
+	if got, err := pf.Clipboard().WithContext(context.Background()).Get(); err != nil || got != "hi" {
 		t.Errorf("Clipboard.Get: %q, %v", got, err)
 	}
 }
@@ -371,13 +371,13 @@ func TestNewNilBackends(t *testing.T) {
 		return
 	}
 	// All bundles are zero-valued; operations should return errors, not panic.
-	if _, _, err := pf.Screen().Resolution(context.Background()); err == nil {
+	if _, _, err := pf.Screen().WithContext(context.Background()).Resolution(); err == nil {
 		t.Error("expected error for nil screen")
 	}
-	if err := pf.Input().Type(context.Background(), "{ctrl+s}"); err == nil {
+	if err := pf.Input().WithContext(context.Background()).TypeKeys("{ctrl+s}"); err == nil {
 		t.Error("expected error for nil inputter")
 	}
-	if _, err := pf.Clipboard().Get(context.Background()); err == nil {
+	if _, err := pf.Clipboard().WithContext(context.Background()).Get(); err == nil {
 		t.Error("expected error for nil clipboard")
 	}
 }

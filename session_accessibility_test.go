@@ -2141,7 +2141,7 @@ func TestAccessibilityLocatorReadsFreshSnapshotAndVerifiesActionOnce(t *testing.
 		accessibility.SnapshotOptions{},
 	)
 	checks := 0
-	receipt, evidence, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
+	receipt, evidence, err := locator.WithContext(context.Background()).InvokeActionAndWait("press", Predicate("saved", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -2183,7 +2183,7 @@ func TestAccessibilityLocatorFailsClosedWhenEventObservationIsUnavailable(t *tes
 	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
-	if _, err := locator.Matches(context.Background()); !errors.Is(err, accessibility.ErrObservationChanged) || !errors.Is(err, accessibility.ErrUnsupported) {
+	if _, err := locator.WithContext(context.Background()).Matches(); !errors.Is(err, accessibility.ErrObservationChanged) || !errors.Is(err, accessibility.ErrUnsupported) {
 		t.Fatalf("Matches error = %v, want observation-changed and unsupported causes", err)
 	}
 	if fake.snapshotCalls != 0 || fake.freshApplicationFind != 0 {
@@ -2229,7 +2229,7 @@ func TestAccessibilityLocatorCancelsObservationAfterResolutionErrors(t *testing.
 				accessibility.Selector{Role: "button", Name: "Save"},
 				accessibility.SnapshotOptions{},
 			)
-			if _, err := locator.Resolve(context.Background()); !errors.Is(err, test.wantError) {
+			if _, err := locator.WithContext(context.Background()).Resolve(); !errors.Is(err, test.wantError) {
 				t.Fatalf("Resolve error = %v, want %v", err, test.wantError)
 			}
 			_, observationDone, _ := fake.eventObservationState()
@@ -2263,7 +2263,7 @@ func TestAccessibilityLocatorDoesNotActOnObservationChangedSnapshot(t *testing.T
 	defer session.Close()
 	checks := 0
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
-	_, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
+	_, _, err := locator.WithContext(context.Background()).InvokeActionAndWait("press", Predicate("saved", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -2295,7 +2295,7 @@ func TestAccessibilityWindowLocatorUsesFreshWindowCorrelation(t *testing.T) {
 	session := newSessionForTesting(nil, nil, manager, nil, nil, fake)
 	defer session.Close()
 	locator := session.accessibility.LocatorForWindow("managed-window", accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
-	if _, err := locator.Resolve(context.Background()); err != nil {
+	if _, err := locator.WithContext(context.Background()).Resolve(); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if fake.freshWindowResolve == 0 || !fake.snapshotOptions.Fresh {
@@ -2322,7 +2322,7 @@ func TestAccessibilityLocatorClickAndFillVerifySingleDispatch(t *testing.T) { //
 	defer session.Close()
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "text input", Name: "Email"}, accessibility.SnapshotOptions{})
 	checks := 0
-	receipt, evidence, err := locator.FillAndWait(context.Background(), "user@example.test", Predicate("filled", func(context.Context) (bool, error) {
+	receipt, evidence, err := locator.WithContext(context.Background()).FillAndWait("user@example.test", Predicate("filled", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -2338,7 +2338,7 @@ func TestAccessibilityLocatorClickAndFillVerifySingleDispatch(t *testing.T) { //
 
 	spy.calls = nil
 	checks = 0
-	receipt, evidence, err = locator.ClickAndWait(context.Background(), Predicate("activated", func(context.Context) (bool, error) {
+	receipt, evidence, err = locator.WithContext(context.Background()).ClickAndWait(Predicate("activated", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -2402,7 +2402,7 @@ func TestAccessibilityLocatorFillDoesNotRepeatUnknownDispatch(t *testing.T) {
 	defer session.Close()
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Email"}, accessibility.SnapshotOptions{})
 	postconditionChecks := 0
-	receipt, _, err := locator.FillAndWait(context.Background(), "new value", Predicate("filled", func(context.Context) (bool, error) {
+	receipt, _, err := locator.WithContext(context.Background()).FillAndWait("new value", Predicate("filled", func(context.Context) (bool, error) {
 		postconditionChecks++
 		return true, nil
 	}))
@@ -2436,7 +2436,7 @@ func TestAccessibilityLocatorDoesNotRepeatUncertainDispatch(t *testing.T) {
 	defer session.Close()
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 	postconditionChecks := 0
-	receipt, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("done", func(context.Context) (bool, error) {
+	receipt, _, err := locator.WithContext(context.Background()).InvokeActionAndWait("press", Predicate("done", func(context.Context) (bool, error) {
 		postconditionChecks++
 		return true, nil
 	}))
@@ -2471,7 +2471,7 @@ func TestAccessibilityLocatorRetriesOnlyKnownNotSentStaleAction(t *testing.T) {
 	session := newSessionForTesting(nil, nil, nil, nil, nil, fake)
 	defer session.Close()
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
-	receipt, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("done", func(context.Context) (bool, error) { return true, nil }))
+	receipt, _, err := locator.WithContext(context.Background()).InvokeActionAndWait("press", Predicate("done", func(context.Context) (bool, error) { return true, nil }))
 	if err != nil {
 		t.Fatalf("InvokeActionAndWait: %v", err)
 	}
@@ -2506,7 +2506,7 @@ func TestAccessibilityLocatorRejectsStaleActionRetryOnChangedRootPath(t *testing
 	defer session.Close()
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Name: "Save"}, accessibility.SnapshotOptions{})
 	postconditionChecks := 0
-	_, _, err := locator.InvokeActionAndWait(context.Background(), "press", Predicate("saved", func(context.Context) (bool, error) {
+	_, _, err := locator.WithContext(context.Background()).InvokeActionAndWait("press", Predicate("saved", func(context.Context) (bool, error) {
 		postconditionChecks++
 		return true, nil
 	}))
@@ -2796,7 +2796,7 @@ func TestAccessibilityClosedSessionRejectsReadsWithoutBackendDispatch(t *testing
 // underlying provider or accidentally publish a channel with no event owner.
 func TestAccessibilityBundleEventsRejectsUnsupportedAndUnavailableSources(t *testing.T) {
 	var nilBundle AccessibilityBundle
-	if stream, err := nilBundle.Events(context.Background(), accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrNilSession) {
+	if stream, err := nilBundle.WithContext(context.Background()).Events(accessibility.EventOptions{}); stream != nil || !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil bundle admitted events: stream=%v err=%v", stream, err)
 	}
 	unavailable := newSessionForTesting(nil, nil, nil, nil, nil)
@@ -2908,17 +2908,17 @@ func TestNilAccessibilityBundleReadsFailClosed(t *testing.T) {
 		name string
 		call func() (bool, error)
 	}{
-		{"applications", func() (bool, error) { v, e := bundle.Applications(ctx); return len(v) > 0, e }},
+		{"applications", func() (bool, error) { v, e := bundle.WithContext(ctx).Applications(); return len(v) > 0, e }},
 		{"snapshot", func() (bool, error) {
-			v, e := bundle.Snapshot(ctx, root, accessibility.SnapshotOptions{})
+			v, e := bundle.WithContext(ctx).Snapshot(root, accessibility.SnapshotOptions{})
 			return len(v.Nodes) > 0 || v.Root.ID.BusName != "", e
 		}},
 		{"outline", func() (bool, error) {
-			v, e := bundle.Outline(ctx, root, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
+			v, e := bundle.WithContext(ctx).Outline(root, accessibility.SnapshotOptions{}, accessibility.OutlineOptions{})
 			return v.Root.ID.BusName != "", e
 		}},
 		{"window", func() (bool, error) {
-			v, e := bundle.AccessibilityWindow(ctx, accessibility.WindowTarget{ID: "win"})
+			v, e := bundle.WithContext(ctx).AccessibilityWindow(accessibility.WindowTarget{ID: "win"})
 			return v.Root.BusName != "", e
 		}},
 		{"fresh-window", func() (bool, error) {
@@ -2926,28 +2926,28 @@ func TestNilAccessibilityBundleReadsFailClosed(t *testing.T) {
 			return v.Root.BusName != "", e
 		}},
 		{"find", func() (bool, error) {
-			v, e := bundle.Find(ctx, root, query, accessibility.SnapshotOptions{})
+			v, e := bundle.WithContext(ctx).Find(root, query, accessibility.SnapshotOptions{})
 			return len(v) > 0, e
 		}},
 		{"find-one", func() (bool, error) {
-			v, e := bundle.FindOne(ctx, root, query, accessibility.SnapshotOptions{})
+			v, e := bundle.WithContext(ctx).FindOne(root, query, accessibility.SnapshotOptions{})
 			return v.ID.BusName != "", e
 		}},
 		{"find-one-selector", func() (bool, error) {
-			v, e := bundle.FindOneSelector(ctx, root, selector, accessibility.SnapshotOptions{})
+			v, e := bundle.WithContext(ctx).FindOneSelector(root, selector, accessibility.SnapshotOptions{})
 			return v.ID.BusName != "", e
 		}},
 		{"focused", func() (bool, error) {
-			v, e := bundle.Focused(ctx, accessibility.SnapshotOptions{})
+			v, e := bundle.WithContext(ctx).Focused(accessibility.SnapshotOptions{})
 			return v.ID.BusName != "", e
 		}},
-		{"at-point", func() (bool, error) { v, e := bundle.AtPoint(ctx, 1, 2); return v.ID.BusName != "", e }},
+		{"at-point", func() (bool, error) { v, e := bundle.WithContext(ctx).AtPoint(1, 2); return v.ID.BusName != "", e }},
 		{"application", func() (bool, error) {
-			v, e := bundle.FindApplication(ctx, accessibility.ApplicationFilter{Name: "Editor"})
+			v, e := bundle.WithContext(ctx).FindApplication(accessibility.ApplicationFilter{Name: "Editor"})
 			return v.ID.BusName != "", e
 		}},
 		{"fresh-application", func() (bool, error) {
-			v, e := bundle.FindApplicationFresh(ctx, accessibility.ApplicationFilter{Name: "Editor"})
+			v, e := bundle.WithContext(ctx).FindApplicationFresh(accessibility.ApplicationFilter{Name: "Editor"})
 			return v.ID.BusName != "", e
 		}},
 	} {
@@ -2965,7 +2965,7 @@ func TestNilAccessibilityBundleReadsFailClosed(t *testing.T) {
 // capability does not authorize casting an arbitrary backend to its owner.
 func TestAccessibilityBundleReopenRejectsAbsentClosedOrUnownedBackend(t *testing.T) {
 	var nilBundle AccessibilityBundle
-	if err := nilBundle.Reopen(context.Background()); !errors.Is(err, ErrNilSession) {
+	if err := nilBundle.WithContext(context.Background()).Reopen(); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("nil bundle reopened: %v", err)
 	}
 	unavailable := newSessionForTesting(nil, nil, nil, nil, nil)
@@ -3005,7 +3005,7 @@ func TestAccessibilityLocatorActionRejectsAmbiguousTargetWithoutDispatch(t *test
 	locator, fake := newLocatorWaitFixture(t, 2, false)
 	checks := 0
 
-	receipt, evidence, err := locator.ClickAndWait(context.Background(), Predicate("activated", func(context.Context) (bool, error) {
+	receipt, evidence, err := locator.WithContext(context.Background()).ClickAndWait(Predicate("activated", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -3033,7 +3033,7 @@ func TestAccessibilityLocatorActionAfterSessionCloseDoesNotQueryOrDispatch(t *te
 	}
 	checks := 0
 
-	receipt, evidence, err := locator.ClickAndWait(context.Background(), Predicate("activated", func(context.Context) (bool, error) {
+	receipt, evidence, err := locator.WithContext(context.Background()).ClickAndWait(Predicate("activated", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -3070,7 +3070,7 @@ func TestAccessibilityLocatorDoesNotRetryStaleActionWhenScopeRefreshFails(t *tes
 	locator.bundle.backend = backend
 	checks := 0
 
-	receipt, evidence, err := locator.FillAndWait(context.Background(), "replacement", Predicate("updated", func(context.Context) (bool, error) {
+	receipt, evidence, err := locator.WithContext(context.Background()).FillAndWait("replacement", Predicate("updated", func(context.Context) (bool, error) {
 		checks++
 		return true, nil
 	}))
@@ -3095,20 +3095,24 @@ func TestLocatorRejectsInvalidMutationInputsWithoutProviderActivity(t *testing.T
 		call func() (accessibility.ActionReceipt, WaitEvidence, error)
 		want error
 	}{
-		{"fill nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) { return loc.FillAndWait(nil, "text", valid) }, ErrInvalidArgument},
+		{"fill nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) {
+			return loc.WithContext(nil).FillAndWait("text", valid)
+		}, ErrInvalidArgument},
 		{"fill nil condition", func() (accessibility.ActionReceipt, WaitEvidence, error) {
-			return loc.FillAndWait(context.Background(), "text", nil)
+			return loc.WithContext(context.Background()).FillAndWait("text", nil)
 		}, ErrInvalidArgument},
 		{"fill invalid UTF-8", func() (accessibility.ActionReceipt, WaitEvidence, error) {
-			return loc.FillAndWait(context.Background(), "\xff", valid)
+			return loc.WithContext(context.Background()).FillAndWait("\xff", valid)
 		}, ErrInvalidArgument},
 		{"action nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) {
-			return loc.InvokeActionAndWait(nil, "click", valid)
+			return loc.WithContext(nil).InvokeActionAndWait("click", valid)
 		}, ErrInvalidArgument},
 		{"action nil condition", func() (accessibility.ActionReceipt, WaitEvidence, error) {
-			return loc.InvokeActionAndWait(context.Background(), "click", nil)
+			return loc.WithContext(context.Background()).InvokeActionAndWait("click", nil)
 		}, ErrInvalidArgument},
-		{"click nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) { return loc.ClickAndWait(nil, valid) }, ErrInvalidArgument},
+		{"click nil context", func() (accessibility.ActionReceipt, WaitEvidence, error) {
+			return loc.WithContext(nil).ClickAndWait(valid)
+		}, ErrInvalidArgument},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			receipt, evidence, err := tc.call()
@@ -3139,10 +3143,10 @@ func TestLocatorUnownedOperationsDoNotDisclosePrivateTargets(t *testing.T) {
 			if nodes, identity, root, stop, err := tc.locator.find(context.Background()); !errors.Is(err, ErrUnavailable) || len(nodes) != 0 || identity != (sessionaccessibility.LocatorIdentity{}) || root != (accessibility.NodeID{}) || stop != nil {
 				t.Fatalf("unowned find: nodes=%v identity=%+v root=%+v err=%v", nodes, identity, root, err)
 			}
-			if receipt, evidence, err := tc.locator.FillAndWait(context.Background(), "text", postcondition); !errors.Is(err, ErrUnavailable) || receipt.Node.ID.BusName != "" || evidence.Evaluations != 0 {
+			if receipt, evidence, err := tc.locator.WithContext(context.Background()).FillAndWait("text", postcondition); !errors.Is(err, ErrUnavailable) || receipt.Node.ID.BusName != "" || evidence.Evaluations != 0 {
 				t.Fatalf("unowned fill: receipt=%+v evidence=%+v err=%v", receipt, evidence, err)
 			}
-			if receipt, evidence, err := tc.locator.ClickAndWait(context.Background(), postcondition); !errors.Is(err, ErrUnavailable) || receipt.Node.ID.BusName != "" || evidence.Evaluations != 0 {
+			if receipt, evidence, err := tc.locator.WithContext(context.Background()).ClickAndWait(postcondition); !errors.Is(err, ErrUnavailable) || receipt.Node.ID.BusName != "" || evidence.Evaluations != 0 {
 				t.Fatalf("unowned action: receipt=%+v evidence=%+v err=%v", receipt, evidence, err)
 			}
 		})
@@ -3151,7 +3155,7 @@ func TestLocatorUnownedOperationsDoNotDisclosePrivateTargets(t *testing.T) {
 
 func TestLocatorMatchesNilContextIsRejectedBeforeProviderAccess(t *testing.T) {
 	loc, fake := newLocatorWaitFixture(t, 1, false)
-	nodes, err := loc.Matches(nil)
+	nodes, err := loc.WithContext(nil).Matches()
 	if !errors.Is(err, ErrInvalidArgument) || len(nodes) != 0 || fake.snapshotCalls != 0 || fake.eventCalls != 0 {
 		t.Fatalf("nil matches: nodes=%v err=%v snapshots=%d events=%d", nodes, err, fake.snapshotCalls, fake.eventCalls)
 	}
@@ -3167,7 +3171,7 @@ func TestAccessibilityLocatorRejectsScopeReplacementAfterStaleSnapshot(t *testin
 	}
 	fake.freshApps = []accessibility.Application{first, replacement}
 
-	matches, err := locator.Matches(context.Background())
+	matches, err := locator.WithContext(context.Background()).Matches()
 	if !errors.Is(err, accessibility.ErrScope) || len(matches) != 0 {
 		t.Fatalf("scope replacement after stale snapshot returned matches=%+v error=%v, want no matches and ErrScope", matches, err)
 	}
@@ -3250,7 +3254,7 @@ func TestAccessibilityLocatorWaitStopsOnPermanentBackendFailure(t *testing.T) {
 	failure := ErrApplicationExited
 	backend.snapshotErr = failure
 
-	node, evidence, err := locator.Wait(context.Background())
+	node, evidence, err := locator.WithContext(context.Background()).Wait()
 	if !errors.Is(err, failure) {
 		t.Fatalf("locator wait error = %v, want permanent failure %v", err, failure)
 	}
@@ -3290,7 +3294,7 @@ func TestAccessibilityLocatorRejectsLostEventObservation(t *testing.T) {
 			old := locator.bundle.backend
 			locator.bundle.backend = backend
 			t.Cleanup(func() { locator.bundle.backend = old })
-			matches, err := locator.Matches(context.Background())
+			matches, err := locator.WithContext(context.Background()).Matches()
 			if !errors.Is(err, accessibility.ErrObservationChanged) || len(matches) != 0 {
 				t.Fatalf("lost observation at %s exposed %d matches: %v", phase, len(matches), err)
 			}
@@ -3337,7 +3341,7 @@ func TestAccessibilityLocatorFillSuppressesReceiptAfterRevokedAuthority(t *testi
 				backend.after = func() { session.lifecycleMu.Lock(); session.closed = true; session.lifecycleMu.Unlock() }
 			}
 			checks := 0
-			receipt, _, err := locator.FillAndWait(ctx, "private-value", Predicate("verified", func(context.Context) (bool, error) { checks++; return true, nil }))
+			receipt, _, err := locator.WithContext(ctx).FillAndWait("private-value", Predicate("verified", func(context.Context) (bool, error) { checks++; return true, nil }))
 			if !errors.Is(err, want) || receipt.Node.ID.BusName != "" || receipt.Node.Name != "" || backend.writes != 1 || checks != 0 {
 				t.Fatalf("%s leaked fill after revocation: receipt=%+v err=%v writes=%d checks=%d", mode, receipt, err, backend.writes, checks)
 			}
@@ -3419,13 +3423,13 @@ func TestAccessibilityLocatorRejectsSnapshotAfterInternalReadDeadline(t *testing
 			var err error
 			if operation == "matches" {
 				var nodes []accessibility.Node
-				nodes, err = locator.Matches(context.Background())
+				nodes, err = locator.WithContext(context.Background()).Matches()
 				if len(nodes) > 0 {
 					found = nodes[0].Name
 				}
 			} else {
 				var node accessibility.Node
-				node, err = locator.Resolve(context.Background())
+				node, err = locator.WithContext(context.Background()).Resolve()
 				found = node.Name
 			}
 			if !errors.Is(err, context.DeadlineExceeded) || found != "" || !backend.expired || fake.snapshotCalls != 1 {
@@ -3441,14 +3445,14 @@ func TestAccessibilityLocatorDoesNotReadOrDiscloseSnapshotAfterPreCancellation(t
 	loc, fake := newLocatorWaitFixture(t, 1, false)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	matched, err := loc.Matches(ctx)
+	matched, err := loc.WithContext(ctx).Matches()
 	if !errors.Is(err, context.Canceled) || len(matched) != 0 {
 		t.Fatalf("canceled locator disclosed matches=%+v error=%v", matched, err)
 	}
 	if fake.snapshotCalls != 0 {
 		t.Fatalf("canceled request dispatched %d provider snapshot reads", fake.snapshotCalls)
 	}
-	node, err := loc.Resolve(ctx)
+	node, err := loc.WithContext(ctx).Resolve()
 	if !errors.Is(err, context.Canceled) || node.ID.BusName != "" {
 		t.Fatalf("canceled locator disclosed target=%+v error=%v", node, err)
 	}
@@ -3475,7 +3479,7 @@ func TestAccessibilityLocatorRejectsLateCancellationDuringProviderSnapshot(t *te
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loc.bundle.backend = &locatorCancelingSnapshot{snapshotAccessibilityAutomationFake: fake, cancel: cancel}
-	matched, err := loc.Matches(ctx)
+	matched, err := loc.WithContext(ctx).Matches()
 	if !errors.Is(err, context.Canceled) || len(matched) != 0 {
 		t.Fatalf("canceled provider reply disclosed matches=%+v err=%v", matched, err)
 	}
@@ -3500,7 +3504,7 @@ func TestAccessibilityLocatorCancellationDuringEventSubscriptionSkipsProviderSna
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loc.bundle.backend = &locatorCancelingSubscription{snapshotAccessibilityAutomationFake: fake, cancel: cancel}
-	matched, err := loc.Matches(ctx)
+	matched, err := loc.WithContext(ctx).Matches()
 	if !errors.Is(err, context.Canceled) || len(matched) != 0 {
 		t.Fatalf("canceled event subscription disclosed matches=%+v err=%v", matched, err)
 	}
@@ -3525,7 +3529,7 @@ func TestAccessibilityLocatorCancellationDuringScopeResolutionSkipsProviderSnaps
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loc.bundle.backend = &locatorCancelingApplication{snapshotAccessibilityAutomationFake: fake, cancel: cancel}
-	matched, err := loc.Matches(ctx)
+	matched, err := loc.WithContext(ctx).Matches()
 	if !errors.Is(err, context.Canceled) || len(matched) != 0 {
 		t.Fatalf("canceled scope lookup disclosed matches=%+v err=%v", matched, err)
 	}
@@ -3556,7 +3560,7 @@ func TestAccessibilityLocatorRetrySuppressesOldReceiptOnScopeReplacement(t *test
 	fake.textErr = accessibility.ErrStaleGeneration
 	backend := &locatorRetryChangedApplicationBackend{snapshotAccessibilityAutomationFake: fake}
 	locator.bundle.backend = backend
-	receipt, _, err := locator.FillAndWait(context.Background(), "private-value", Predicate("verified", func(context.Context) (bool, error) { return true, nil }))
+	receipt, _, err := locator.WithContext(context.Background()).FillAndWait("private-value", Predicate("verified", func(context.Context) (bool, error) { return true, nil }))
 	if !errors.Is(err, ErrManagedScopeChanged) || receipt.Node.ID.BusName != "" || receipt.Node.Name != "" || backend.refreshes != 2 || fake.textCount != 1 {
 		t.Fatalf("scope replacement exposed stale private target: receipt=%+v err=%v refreshes=%d writes=%d", receipt, err, backend.refreshes, fake.textCount)
 	}
@@ -3600,7 +3604,7 @@ func TestAccessibilityLocatorRetryDoesNotDiscloseReceiptAfterScopeRevocation(t *
 					session.lifecycleMu.Unlock()
 				}
 			}
-			receipt, _, err := locator.FillAndWait(ctx, "redacted", Predicate("done", func(context.Context) (bool, error) { return true, nil }))
+			receipt, _, err := locator.WithContext(ctx).FillAndWait("redacted", Predicate("done", func(context.Context) (bool, error) { return true, nil }))
 			if !errors.Is(err, want) || receipt.Node.ID.BusName != "" || receipt.Action.Name != "" || backend.scopeCalls != 2 || fake.textCount != 1 {
 				t.Fatalf("%s leaked first action receipt after revocation: receipt=%+v err=%v scopeCalls=%d writes=%d", mode, receipt, err, backend.scopeCalls, fake.textCount)
 			}
@@ -3632,7 +3636,7 @@ func TestAccessibilityLocatorRejectsScopeInvalidationBeforeSnapshot(t *testing.T
 	previous := locator.bundle.backend
 	locator.bundle.backend = backend
 	t.Cleanup(func() { locator.bundle.backend = previous })
-	matches, err := locator.Matches(context.Background())
+	matches, err := locator.WithContext(context.Background()).Matches()
 	if !errors.Is(err, accessibility.ErrObservationChanged) || len(matches) != 0 || fake.snapshotCalls != 0 {
 		t.Fatalf("scope invalidation: matches=%+v err=%v snapshots=%d", matches, err, fake.snapshotCalls)
 	}
@@ -3667,13 +3671,13 @@ func TestAccessibilityLocatorRejectsSnapshotAfterSessionClosure(t *testing.T) {
 			var err error
 			if operation == "matches" {
 				var nodes []accessibility.Node
-				nodes, err = locator.Matches(context.Background())
+				nodes, err = locator.WithContext(context.Background()).Matches()
 				if len(nodes) != 0 {
 					found = nodes[0].Name
 				}
 			} else {
 				var node accessibility.Node
-				node, err = locator.Resolve(context.Background())
+				node, err = locator.WithContext(context.Background()).Resolve()
 				found = node.Name
 			}
 			if !errors.Is(err, ErrSessionClosed) || found != "" || fake.snapshotCalls != 1 {
@@ -3703,7 +3707,7 @@ func TestAccessibilityLocatorWaitFindsApplicationAfterInitialAbsence(t *testing.
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	node, evidence, err := locator.Wait(ctx, WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(ctx).Wait(WaitEvery(time.Millisecond))
 	if err != nil || node.Name != "Save" || node.ID.ObjectPath != "/save" {
 		t.Fatalf("wait after scoped application appeared returned node=%+v error=%v", node, err)
 	}
@@ -3721,7 +3725,7 @@ func TestAccessibilityLocatorMatchesPropagatesApplicationProviderError(t *testin
 	}
 	locator.bundle.backend = backend
 
-	matches, err := locator.Matches(context.Background())
+	matches, err := locator.WithContext(context.Background()).Matches()
 	if !errors.Is(err, failure) || len(matches) != 0 {
 		t.Fatalf("provider lookup failure returned matches=%+v error=%v", matches, err)
 	}
@@ -3760,7 +3764,7 @@ func newLocatorWaitFixture(t *testing.T, targets int, truncated bool) (*Accessib
 }
 func TestAccessibilityLocatorWaitResolvesSingleAuthoritativeTargetAndPreservesEvidence(t *testing.T) {
 	locator, fake := newLocatorWaitFixture(t, 1, false)
-	node, evidence, err := locator.Wait(context.Background(), WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(context.Background()).Wait(WaitEvery(time.Millisecond))
 	if err != nil || node.Name != "Save" || node.ID.ObjectPath != "/save" || evidence.Evaluations != 1 || fake.snapshotCalls != 1 || !fake.snapshotOptions.Fresh {
 		t.Fatalf("one verified locator wait: node=%+v evidence=%+v calls=%d fresh=%v err=%v", node, evidence, fake.snapshotCalls, fake.snapshotOptions.Fresh, err)
 	}
@@ -3769,7 +3773,7 @@ func TestAccessibilityLocatorWaitNotFoundPollsUntilCallerCancellation(t *testing
 	locator, fake := newLocatorWaitFixture(t, 0, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
-	node, evidence, err := locator.Wait(ctx, WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(ctx).Wait(WaitEvery(time.Millisecond))
 	if !errors.Is(err, context.DeadlineExceeded) || node.ID.BusName != "" || evidence.Evaluations < 2 || fake.snapshotCalls < 2 {
 		t.Fatalf("transient no match was not polled until caller cancellation: node=%+v evidence=%+v calls=%d err=%v", node, evidence, fake.snapshotCalls, err)
 	}
@@ -3788,7 +3792,7 @@ func TestAccessibilityLocatorWaitFailsClosedOnAmbiguousOrIncompleteSemanticSnaps
 			locator, fake := newLocatorWaitFixture(t, tc.targets, tc.truncated)
 			ctx, cancel := context.WithTimeout(context.Background(), 75*time.Millisecond)
 			defer cancel()
-			node, evidence, err := locator.Wait(ctx, WaitEvery(time.Millisecond))
+			node, evidence, err := locator.WithContext(ctx).Wait(WaitEvery(time.Millisecond))
 			if !errors.Is(err, tc.want) || node.ID.BusName != "" || evidence.Evaluations != 1 || fake.snapshotCalls != 1 {
 				t.Fatalf("unverifiable match should fail on first evaluation: node=%+v evidence=%+v snapshots=%d err=%v want=%v", node, evidence, fake.snapshotCalls, err, tc.want)
 			}
@@ -3809,7 +3813,7 @@ func TestAccessibilityLocatorWaitRejectsInvalidCallersWithoutQueryingDesktop(t *
 		{"invalid wait interval", locator, context.Background, []WaitOption{WaitEvery(-time.Millisecond)}, ErrInvalidArgument},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := tc.loc.Wait(tc.newContext(), tc.option...)
+			_, _, err := tc.loc.WithContext(tc.newContext()).Wait(tc.option...)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("invalid wait input %v: %v", tc.want, err)
 			}
@@ -3906,7 +3910,7 @@ func TestAccessibilityLocatorWaitForStateEnabledAndScopedFocus(t *testing.T) {
 	})
 	locator.selector.States = []string{"disabled"}
 	ctx := context.Background()
-	node, evidence, err := locator.WaitForState(ctx, AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(ctx).WaitForState(AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || !node.Enabled || evidence.Evaluations < 2 || backend.snapshotCalls < 2 || !backend.snapshotOptions.Fresh {
 		t.Fatalf("enabled wait: node=%+v evidence=%+v snapshots=%d fresh=%t err=%v", node, evidence, backend.snapshotCalls, backend.snapshotOptions.Fresh, err)
 	}
@@ -3915,7 +3919,7 @@ func TestAccessibilityLocatorWaitForStateEnabledAndScopedFocus(t *testing.T) {
 		accessibilityWaitFixtureSnapshot(11, waitSaveNode("/save")),
 		accessibilityWaitFixtureSnapshot(11, focused),
 	})
-	node, _, err = locator.WaitForState(ctx, AccessibilityWaitFocused, time.Second, WaitEvery(time.Millisecond))
+	node, _, err = locator.WithContext(ctx).WaitForState(AccessibilityWaitFocused, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || !node.Focused || node.ID.ObjectPath != "/save" {
 		t.Fatalf("focused wait returned a different control or false state: node=%+v err=%v", node, err)
 	}
@@ -3926,19 +3930,19 @@ func TestAccessibilityLocatorWaitForStatePresenceAbsenceAndTimeout(t *testing.T)
 		accessibilityWaitFixtureSnapshot(11),
 		accessibilityWaitFixtureSnapshot(11, waitSaveNode("/save")),
 	})
-	node, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitPresent, time.Second, WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitPresent, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || node.ID.ObjectPath != "/save" || evidence.Evaluations < 2 {
 		t.Fatalf("present wait: node=%+v evidence=%+v err=%v", node, evidence, err)
 	}
 
 	locator, _ = newSequencedAccessibilityWaitFixture(t, []accessibility.Snapshot{accessibilityWaitFixtureSnapshot(11)})
-	node, evidence, err = locator.WaitForState(context.Background(), AccessibilityWaitAbsent, time.Second)
+	node, evidence, err = locator.WithContext(context.Background()).WaitForState(AccessibilityWaitAbsent, time.Second)
 	if err != nil || node.ID.BusName != "" || evidence.Evaluations != 1 {
 		t.Fatalf("complete scoped absence: node=%+v evidence=%+v err=%v", node, evidence, err)
 	}
 
 	locator, _ = newSequencedAccessibilityWaitFixture(t, []accessibility.Snapshot{accessibilityWaitFixtureSnapshot(11, waitSaveNode("/save"))})
-	_, _, err = locator.WaitForState(context.Background(), AccessibilityWaitAbsent, 20*time.Millisecond, WaitEvery(time.Millisecond))
+	_, _, err = locator.WithContext(context.Background()).WaitForState(AccessibilityWaitAbsent, 20*time.Millisecond, WaitEvery(time.Millisecond))
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("persistent target absence wait error = %v, want deadline", err)
 	}
@@ -3956,7 +3960,7 @@ func TestAccessibilityLocatorWaitForStateAbsenceRequiresLiveScope(t *testing.T) 
 	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
-	_, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitAbsent, time.Second, WaitEvery(time.Millisecond))
+	_, evidence, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitAbsent, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrManagedScopeChanged) || !errors.Is(err, accessibility.ErrNotFound) || evidence.Evaluations != 1 || backend.snapshotCalls != 0 {
 		t.Fatalf("missing application incorrectly proved absence: evidence=%+v snapshots=%d err=%v", evidence, backend.snapshotCalls, err)
 	}
@@ -3971,7 +3975,7 @@ func TestAccessibilityLocatorWaitForStateVisibilityAndDisabled(t *testing.T) {
 		accessibilityWaitFixtureSnapshot(11, visible),
 		accessibilityWaitFixtureSnapshot(11, hiddenDisabled),
 	})
-	node, _, err := locator.WaitForState(context.Background(), AccessibilityWaitHidden, time.Second, WaitEvery(time.Millisecond))
+	node, _, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitHidden, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || node.Visible {
 		t.Fatalf("hidden wait: node=%+v err=%v", node, err)
 	}
@@ -3981,7 +3985,7 @@ func TestAccessibilityLocatorWaitForStateVisibilityAndDisabled(t *testing.T) {
 		accessibilityWaitFixtureSnapshot(11, visible),
 		accessibilityWaitFixtureSnapshot(11, hiddenDisabled),
 	})
-	node, _, err = locator.WaitForState(context.Background(), AccessibilityWaitDisabled, time.Second, WaitEvery(time.Millisecond))
+	node, _, err = locator.WithContext(context.Background()).WaitForState(AccessibilityWaitDisabled, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || node.Enabled {
 		t.Fatalf("disabled wait: node=%+v err=%v", node, err)
 	}
@@ -4009,7 +4013,7 @@ func TestAccessibilityLocatorWaitForStateValueChangeUsesStableBaseline(t *testin
 	session := newSessionForTesting(nil, nil, nil, nil, nil, backend)
 	t.Cleanup(func() { _ = session.Close() })
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "status bar", Name: "Status"}, accessibility.SnapshotOptions{})
-	node, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitValueChanged, time.Second, WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitValueChanged, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || node.Text != "Saved" || evidence.Evaluations < 2 {
 		t.Fatalf("value changed wait: node=%+v evidence=%+v err=%v", node, evidence, err)
 	}
@@ -4028,7 +4032,7 @@ func TestAccessibilityLocatorWaitForStateNumericValueChange(t *testing.T) {
 	// stable role/name identity while exercising AT-SPI Value.CurrentValue.
 	locator.selector.Role = "button"
 	locator.selector.Name = "Save"
-	node, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitValueChanged, time.Second, WaitEvery(time.Millisecond))
+	node, evidence, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitValueChanged, time.Second, WaitEvery(time.Millisecond))
 	if err != nil || node.Value == nil || node.Value.Current != 0.75 || evidence.Evaluations < 2 {
 		t.Fatalf("numeric value changed wait: node=%+v evidence=%+v err=%v", node, evidence, err)
 	}
@@ -4067,7 +4071,7 @@ func TestAccessibilityLocatorWaitForStateFailsClosed(t *testing.T) {
 			if tc.name == "unsupported value" {
 				state = AccessibilityWaitValueChanged
 			}
-			_, evidence, err := locator.WaitForState(context.Background(), state, time.Second, WaitEvery(time.Millisecond))
+			_, evidence, err := locator.WithContext(context.Background()).WaitForState(state, time.Second, WaitEvery(time.Millisecond))
 			if !errors.Is(err, tc.want) || evidence.Evaluations != 1 || backend.snapshotCalls != 1 {
 				t.Fatalf("wait should fail closed once: evidence=%+v snapshots=%d err=%v want=%v", evidence, backend.snapshotCalls, err, tc.want)
 			}
@@ -4095,7 +4099,7 @@ func TestAccessibilityLocatorWaitForStateRejectsLostScopeAndTargetReplacement(t 
 	firstSession := session
 	t.Cleanup(func() { _ = firstSession.Close() })
 	locator := session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
-	_, _, err := locator.WaitForState(context.Background(), AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
+	_, _, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrManagedScopeChanged) {
 		t.Fatalf("changed application identity error = %v, want managed scope changed", err)
 	}
@@ -4122,7 +4126,7 @@ func TestAccessibilityLocatorWaitForStateRejectsLostScopeAndTargetReplacement(t 
 	generationSession := session
 	t.Cleanup(func() { _ = generationSession.Close() })
 	locator = session.accessibility.LocatorForApplication(accessibility.ApplicationFilter{Name: "Editor"}, accessibility.Selector{Role: "button", Name: "Save"}, accessibility.SnapshotOptions{})
-	_, _, err = locator.WaitForState(context.Background(), AccessibilityWaitPresent, time.Second, WaitEvery(time.Millisecond))
+	_, _, err = locator.WithContext(context.Background()).WaitForState(AccessibilityWaitPresent, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrManagedScopeChanged) {
 		t.Fatalf("changed application generation error = %v, want managed scope changed", err)
 	}
@@ -4132,7 +4136,7 @@ func TestAccessibilityLocatorWaitForStateRejectsLostScopeAndTargetReplacement(t 
 		accessibilityWaitFixtureSnapshot(11, waitSaveNode("/save")),
 		accessibilityWaitFixtureSnapshot(11, replacement),
 	})
-	_, _, err = locator.WaitForState(context.Background(), AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
+	_, _, err = locator.WithContext(context.Background()).WaitForState(AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, ErrAccessibilityTargetChanged) {
 		t.Fatalf("replaced target error = %v, want accessible target changed", err)
 	}
@@ -4149,7 +4153,7 @@ func TestAccessibilityLocatorWaitForStateValidatesBeforeObservation(t *testing.T
 		{AccessibilityWaitEnabled, 0, ErrInvalidArgument},
 		{AccessibilityWaitEnabled, -time.Second, ErrInvalidArgument},
 	} {
-		_, _, err := locator.WaitForState(context.Background(), tc.state, tc.timeout)
+		_, _, err := locator.WithContext(context.Background()).WaitForState(tc.state, tc.timeout)
 		if !errors.Is(err, tc.want) {
 			t.Errorf("WaitForState(%q, %s) error = %v, want %v", tc.state, tc.timeout, err, tc.want)
 		}
@@ -4166,7 +4170,7 @@ func TestAccessibilityLocatorWaitForStateValidatesBeforeObservation(t *testing.T
 		accessibility.SnapshotOptions{VisibleOnly: true},
 	)
 	for _, state := range []AccessibilityWaitState{AccessibilityWaitAbsent, AccessibilityWaitHidden} {
-		_, _, err := visibleOnlyLocator.WaitForState(context.Background(), state, time.Second)
+		_, _, err := visibleOnlyLocator.WithContext(context.Background()).WaitForState(state, time.Second)
 		if !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("visible-only %s wait error = %v, want invalid argument", state, err)
 		}
@@ -4179,7 +4183,7 @@ func TestAccessibilityLocatorWaitForStateValidatesBeforeObservation(t *testing.T
 func TestAccessibilityLocatorWaitForStateReportsDisconnectedBus(t *testing.T) {
 	locator, backend := newSequencedAccessibilityWaitFixture(t, []accessibility.Snapshot{accessibilityWaitFixtureSnapshot(11, waitSaveNode("/save"))})
 	backend.eventErr = accessibility.ErrDisconnected
-	_, evidence, err := locator.WaitForState(context.Background(), AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
+	_, evidence, err := locator.WithContext(context.Background()).WaitForState(AccessibilityWaitEnabled, time.Second, WaitEvery(time.Millisecond))
 	if !errors.Is(err, accessibility.ErrDisconnected) || evidence.Evaluations != 1 {
 		t.Fatalf("disconnected accessibility bus error = %v with evidence %+v", err, evidence)
 	}

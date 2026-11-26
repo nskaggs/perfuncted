@@ -337,7 +337,9 @@ func writeWaylandCheck(out io.Writer, display, runtimeDir string) error {
 }
 
 func sessionStartCmd() *cobra.Command {
-	return sessionStartCmdWithOpener(perfuncted.Open)
+	return sessionStartCmdWithOpener(func(ctx context.Context, opts ...perfuncted.Option) (*perfuncted.Session, error) {
+		return perfuncted.Open(append([]perfuncted.Option{perfuncted.WithStartupContext(ctx), perfuncted.Optional()}, opts...)...)
+	})
 }
 
 // sessionStartCmdWithOpener shares the real command transaction with an

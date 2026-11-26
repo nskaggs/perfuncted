@@ -292,7 +292,7 @@ func TestScreenBundlePreservesValidPaddedSubimageAndEncodesExpectedPixels(t *tes
 // unavailable session.
 func TestNilScreenBundleCaptureReturnsUnavailable(t *testing.T) {
 	var s ScreenBundle
-	if _, err := s.Capture(context.Background(), image.Rect(0, 0, 10, 10)); !errors.Is(err, ErrNilSession) {
+	if _, err := s.WithContext(context.Background()).Capture(image.Rect(0, 0, 10, 10)); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Capture on a nil bundle = %v, want ErrNilSession", err)
 	}
 }
@@ -304,13 +304,13 @@ func TestNilScreenBundleTracedEntrypointsDoNotPanic(t *testing.T) {
 	ctx := context.Background()
 	rect := image.Rect(0, 0, 10, 10)
 
-	_, _ = s.Grab(ctx, rect)
-	_, _ = s.GetAllPixels(ctx)
-	_ = s.CaptureRegion(ctx, rect, "")
-	_, _ = s.GetPixel(ctx, 0, 0)
-	_, _ = s.GetMultiplePixels(ctx, []image.Point{{}})
-	_, _ = s.WaitForFn(ctx, rect, func(context.Context, image.Image) bool { return true }, time.Millisecond)
-	_, _ = s.Capture(ctx, rect)
+	_, _ = s.WithContext(ctx).Grab(rect)
+	_, _ = s.WithContext(ctx).Grab()
+	_ = s.WithContext(ctx).CaptureRegion(rect, "")
+	_, _ = s.WithContext(ctx).GetPixel(0, 0)
+	_, _ = s.WithContext(ctx).GetMultiplePixels([]image.Point{{}})
+	_, _ = s.WithContext(ctx).WaitForFn(rect, func(context.Context, image.Image) bool { return true }, time.Millisecond)
+	_, _ = s.WithContext(ctx).Capture(rect)
 }
 
 type captureTestScreenshotter struct {

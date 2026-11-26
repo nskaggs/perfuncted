@@ -41,7 +41,7 @@ func TestDoubleClickJoinsPressAndCleanupReleaseErrors(t *testing.T) {
 	backend := &doubleClickDualFailureBackend{pressError: pressError, releaseError: releaseError}
 	session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	err := session.Input().DoubleClick(context.Background(), 5, 7)
+	err := session.Input().WithContext(context.Background()).DoubleClick(5, 7)
 	expected := []string{"move:5,7", "mousedown", "mouseup"}
 	if !errors.Is(err, pressError) || !errors.Is(err, releaseError) || !reflect.DeepEqual(backend.Calls, expected) {
 		t.Fatalf("double-click error=%v calls=%v, expected both errors and %v", err, backend.Calls, expected)
@@ -100,7 +100,7 @@ func TestDoubleClickFailsClosedOnInitialMoveAndFirstPressErrors(t *testing.T) {
 			backend := &doubleClickBoundaryBackend{failAt: tc.name, failure: failure}
 			session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 			t.Cleanup(func() { _ = session.Close() })
-			err := session.Input().DoubleClick(context.Background(), 12, 18)
+			err := session.Input().WithContext(context.Background()).DoubleClick(12, 18)
 			if !errors.Is(err, failure) || !reflect.DeepEqual(backend.Calls, tc.want) {
 				t.Fatalf("gesture failure=%v calls=%v; expected %v calls=%v", err, backend.Calls, failure, tc.want)
 			}
@@ -116,7 +116,7 @@ func TestDoubleClickStopsAfterCancellationAtFirstRelease(t *testing.T) {
 	backend := &doubleClickBoundaryBackend{after: cancel}
 	session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
-	err := session.Input().DoubleClick(ctx, 12, 18)
+	err := session.Input().WithContext(ctx).DoubleClick(12, 18)
 	want := []string{"move:12,18", "mousedown", "mouseup"}
 	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(backend.Calls, want) {
 		t.Fatalf("canceled gesture err=%v calls=%v expected=%v", err, backend.Calls, want)
@@ -165,7 +165,7 @@ func TestDoubleClickRejectsAuthorityLossAtGestureBoundaries(t *testing.T) {
 					wantErr = perfuncted.ErrSessionClosed
 					backend.after = func() { _ = session.Close() }
 				}
-				err := session.Input().DoubleClick(ctx, 14, 23)
+				err := session.Input().WithContext(ctx).DoubleClick(14, 23)
 				want := []string{"move:14,23"}
 				if phase == "final-release" {
 					want = append(want, "mousedown", "mouseup", "mousedown", "mouseup")
@@ -200,7 +200,7 @@ func TestDoubleClickDoesNotStartSecondClickAfterSessionCloses(t *testing.T) {
 	session := perfuncted.NewSessionForTesting(nil, backend, nil, nil, nil)
 	t.Cleanup(func() { _ = session.Close() })
 	backend.after = func() { _ = session.Close() }
-	err := session.Input().DoubleClick(context.Background(), 14, 23)
+	err := session.Input().WithContext(context.Background()).DoubleClick(14, 23)
 	want := []string{"move:14,23", "mousedown", "mouseup"}
 	if !errors.Is(err, perfuncted.ErrSessionClosed) || !reflect.DeepEqual(backend.Calls, want) {
 		t.Fatalf("double click after session closure: err=%v calls=%v want=%v", err, backend.Calls, want)
@@ -239,7 +239,7 @@ func TestDragDoesNotPressAfterFirstPointerMoveLosesAuthority(t *testing.T) {
 				wantErr = perfuncted.ErrSessionClosed
 				backend.after = func() { _ = session.Close() }
 			}
-			err := session.Input().DragAndDrop(ctx, 10, 20, 30, 40)
+			err := session.Input().WithContext(ctx).DragAndDrop(10, 20, 30, 40)
 			wantCalls := []string{"move:10,20"}
 			if !errors.Is(err, wantErr) || !reflect.DeepEqual(backend.Calls, wantCalls) {
 				t.Fatalf("drag after authority loss: err=%v calls=%v, want error %v and calls %v", err, backend.Calls, wantErr, wantCalls)
@@ -292,7 +292,7 @@ func TestDragReportsAuthorityLossDuringHeldGesture(t *testing.T) {
 					expected = perfuncted.ErrSessionClosed
 					backend.after = func() { _ = session.Close() }
 				}
-				err := session.Input().DragAndDrop(ctx, 11, 22, 33, 44)
+				err := session.Input().WithContext(ctx).DragAndDrop(11, 22, 33, 44)
 				want := []string{"move:11,22", "mousedown", "move:33,44", "mouseup"}
 				if !errors.Is(err, expected) || !reflect.DeepEqual(backend.Calls, want) {
 					t.Fatalf("revoked drag: err=%v calls=%v expected error %v, calls %v", err, backend.Calls, expected, want)
@@ -333,7 +333,7 @@ func TestDragRejectsAuthorizationLossAfterDestinationValidation(t *testing.T) {
 				expected = perfuncted.ErrSessionClosed
 				backend.revoke = func() { _ = session.Close() }
 			}
-			err := session.Input().DragAndDrop(ctx, 20, 20, 40, 40)
+			err := session.Input().WithContext(ctx).DragAndDrop(20, 20, 40, 40)
 			if !errors.Is(err, expected) || backend.checked != 2 || len(backend.Calls) != 0 {
 				t.Fatalf("drag after %s: err=%v validations=%d injected=%v", mode, err, backend.checked, backend.Calls)
 			}
@@ -381,18 +381,20 @@ func TestSingleInputActionsRejectAuthorizationLoss(t *testing.T) {
 		name string
 		run  func(*perfuncted.Session, context.Context) error
 	}{
-		{"key-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().KeyDown(c, "a") }},
-		{"key-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().KeyUp(c, "a") }},
-		{"type", func(s *perfuncted.Session, c context.Context) error { return s.Input().Type(c, "hello") }},
-		{"type-literal", func(s *perfuncted.Session, c context.Context) error { return s.Input().TypeLiteral(c, "hello") }},
-		{"mouse-move", func(s *perfuncted.Session, c context.Context) error { return s.Input().MouseMove(c, 1, 2) }},
-		{"mouse-click", func(s *perfuncted.Session, c context.Context) error { return s.Input().MouseClick(c, 1, 2, 1) }},
-		{"mouse-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().MouseDown(c, 1) }},
-		{"mouse-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().MouseUp(c, 1) }},
-		{"scroll-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().ScrollUp(c, 1) }},
-		{"scroll-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().ScrollDown(c, 1) }},
-		{"scroll-left", func(s *perfuncted.Session, c context.Context) error { return s.Input().ScrollLeft(c, 1) }},
-		{"scroll-right", func(s *perfuncted.Session, c context.Context) error { return s.Input().ScrollRight(c, 1) }},
+		{"key-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).KeyDown("a") }},
+		{"key-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).KeyUp("a") }},
+		{"type", func(s *perfuncted.Session, c context.Context) error {
+			return s.Input().WithContext(c).TypeKeys("hello")
+		}},
+		{"type-literal", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).Type("hello") }},
+		{"mouse-move", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).MouseMove(1, 2) }},
+		{"mouse-click", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).Click(1, 2, 1) }},
+		{"mouse-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).MouseDown(1) }},
+		{"mouse-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).MouseUp(1) }},
+		{"scroll-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).ScrollUp(1) }},
+		{"scroll-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).ScrollDown(1) }},
+		{"scroll-left", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).ScrollLeft(1) }},
+		{"scroll-right", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).ScrollRight(1) }},
 	}
 	for _, action := range actions {
 		for _, mode := range []string{"pre-canceled", "late-canceled", "session-closed"} {
@@ -459,7 +461,7 @@ func TestInputSyncRejectsPreflightAndLateAuthorityLoss(t *testing.T) {
 				wantErr = perfuncted.ErrSessionClosed
 				backend.after = func() { _ = session.Close() }
 			}
-			err := session.Input().Sync(ctx)
+			err := session.Input().WithContext(ctx).Sync()
 			wantCalls := 1
 			if mode == "pre-cancel" {
 				wantCalls = 0
@@ -584,7 +586,7 @@ func TestPerfunctedPaste_ClipboardPath(t *testing.T) {
 	ctx := context.Background()
 
 	// Perfuncted.Paste uses clipboard+PasteCombo when a clipboard is available.
-	if err := pf.Paste(ctx, "hello world"); err != nil {
+	if err := pf.WithContext(ctx).Paste("hello world"); err != nil {
 		t.Fatalf("Paste: %v", err)
 	}
 
@@ -605,7 +607,7 @@ func TestPerfunctedPaste_FallbackToType(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Paste(ctx, "abc"); err != nil {
+	if err := pf.WithContext(ctx).Paste("abc"); err != nil {
 		t.Fatalf("Paste: %v", err)
 	}
 
@@ -624,7 +626,7 @@ func TestPerfunctedPaste_FallbackTypesArbitraryTextLiterally(t *testing.T) {
 	ctx := context.Background()
 
 	js := `(function(){const x = a && { b: 1, c: "}" } + "{" ; return x})()`
-	if err := pf.Paste(ctx, js); err != nil {
+	if err := pf.WithContext(ctx).Paste(js); err != nil {
 		t.Fatalf("Paste with braces: %v", err)
 	}
 
@@ -640,7 +642,7 @@ func TestPerfunctedPaste_ClipboardSetFails(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, cb)
 	ctx := context.Background()
 
-	err := pf.Paste(ctx, "fallback")
+	err := pf.WithContext(ctx).Paste("fallback")
 	if err == nil {
 		t.Fatal("expected error when clipboard.Set fails")
 	}
@@ -652,7 +654,7 @@ func TestInputBundleDoubleClick(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().DoubleClick(ctx, 50, 75); err != nil {
+	if err := pf.Input().WithContext(ctx).DoubleClick(50, 75); err != nil {
 		t.Fatalf("DoubleClick: %v", err)
 	}
 
@@ -682,7 +684,7 @@ func TestInputBundleDoubleClickCleansUpAfterSecondMouseDownFailure(t *testing.T)
 	}
 	p := pftest.New(nil, inp, nil, nil)
 
-	err := p.Input().DoubleClick(context.Background(), 1, 2)
+	err := p.Input().WithContext(context.Background()).DoubleClick(1, 2)
 	if !errors.Is(err, pressErr) {
 		t.Fatalf("DoubleClick error = %v, want second press error", err)
 	}
@@ -699,7 +701,7 @@ func TestInputBundleDoubleClickRetriesReleaseAfterReleaseFailure(t *testing.T) {
 	inp := &releaseRetryInput{failAt: 1, releaseErr: releaseErr}
 	p := pftest.New(nil, inp, nil, nil)
 
-	err := p.Input().DoubleClick(context.Background(), 1, 2)
+	err := p.Input().WithContext(context.Background()).DoubleClick(1, 2)
 	if !errors.Is(err, releaseErr) {
 		t.Fatalf("DoubleClick error = %v, want first release error", err)
 	}
@@ -713,7 +715,7 @@ func TestInputBundleDoubleClickRetriesSecondReleaseAfterReleaseFailure(t *testin
 	inp := &releaseRetryInput{failAt: 2, releaseErr: releaseErr}
 	p := pftest.New(nil, inp, nil, nil)
 
-	err := p.Input().DoubleClick(context.Background(), 1, 2)
+	err := p.Input().WithContext(context.Background()).DoubleClick(1, 2)
 	if !errors.Is(err, releaseErr) {
 		t.Fatalf("DoubleClick error = %v, want second release error", err)
 	}
@@ -731,7 +733,7 @@ func TestInputBundleDragAndDropReportsCleanupFailure(t *testing.T) {
 	}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	err := pf.Input().DragAndDrop(context.Background(), 1, 2, 3, 4)
+	err := pf.Input().WithContext(context.Background()).DragAndDrop(1, 2, 3, 4)
 	if !errors.Is(err, moveErr) {
 		t.Fatalf("DragAndDrop error = %v, want move error", err)
 	}
@@ -752,7 +754,7 @@ func TestInputBundleDragAndDropCleansUpAfterMouseDownFailure(t *testing.T) {
 	}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	err := pf.Input().DragAndDrop(context.Background(), 1, 2, 3, 4)
+	err := pf.Input().WithContext(context.Background()).DragAndDrop(1, 2, 3, 4)
 	if !errors.Is(err, downErr) || !errors.Is(err, cleanupErr) {
 		t.Fatalf("DragAndDrop error = %v, want press and cleanup errors", err)
 	}
@@ -766,7 +768,7 @@ func TestInputBundleDragAndDropRetriesReleaseAfterReleaseFailure(t *testing.T) {
 	inp := &releaseRetryInput{failAt: 1, releaseErr: releaseErr}
 	p := pftest.New(nil, inp, nil, nil)
 
-	err := p.Input().DragAndDrop(context.Background(), 1, 2, 3, 4)
+	err := p.Input().WithContext(context.Background()).DragAndDrop(1, 2, 3, 4)
 	if !errors.Is(err, releaseErr) {
 		t.Fatalf("DragAndDrop error = %v, want first release error", err)
 	}
@@ -780,7 +782,7 @@ func TestInputBundleScroll_DxPositive(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().ScrollRight(ctx, 3); err != nil {
+	if err := pf.Input().WithContext(ctx).ScrollRight(3); err != nil {
 		t.Fatalf("ScrollRight: %v", err)
 	}
 
@@ -797,7 +799,7 @@ func TestInputBundleScroll_DxNegative(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().ScrollLeft(ctx, 2); err != nil {
+	if err := pf.Input().WithContext(ctx).ScrollLeft(2); err != nil {
 		t.Fatalf("ScrollLeft: %v", err)
 	}
 
@@ -814,7 +816,7 @@ func TestInputBundleScroll_DyPositive(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().ScrollDown(ctx, 5); err != nil {
+	if err := pf.Input().WithContext(ctx).ScrollDown(5); err != nil {
 		t.Fatalf("ScrollDown: %v", err)
 	}
 
@@ -831,7 +833,7 @@ func TestInputBundleScroll_DyNegative(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().ScrollUp(ctx, 3); err != nil {
+	if err := pf.Input().WithContext(ctx).ScrollUp(3); err != nil {
 		t.Fatalf("ScrollUp: %v", err)
 	}
 
@@ -849,7 +851,7 @@ func TestInputBundleClickCenter(t *testing.T) {
 	ctx := context.Background()
 
 	// Rect from (10,20) to (30,40) → center (20,30)
-	if err := pf.Input().ClickCenter(ctx, image.Rect(10, 20, 30, 40)); err != nil {
+	if err := pf.Input().WithContext(ctx).ClickCenter(image.Rect(10, 20, 30, 40)); err != nil {
 		t.Fatalf("ClickCenter: %v", err)
 	}
 
@@ -864,7 +866,7 @@ func TestInputBundleClickCenter(t *testing.T) {
 func TestInputBundleType_NilCheck(t *testing.T) {
 	// Type with nil Inputter should return error.
 	pf := pftest.New(nil, nil, nil, nil)
-	err := pf.Input().Type(context.Background(), "hello")
+	err := pf.Input().WithContext(context.Background()).TypeKeys("hello")
 	if err == nil {
 		t.Fatal("expected error for nil Inputter")
 	}
@@ -876,7 +878,7 @@ func TestInputBundleDragAndDrop(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().DragAndDrop(ctx, 10, 20, 30, 40); err != nil {
+	if err := pf.Input().WithContext(ctx).DragAndDrop(10, 20, 30, 40); err != nil {
 		t.Fatalf("DragAndDrop: %v", err)
 	}
 
@@ -901,7 +903,7 @@ func TestInputBundleDoubleClickNilContext(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Input().DoubleClick(context.TODO(), 50, 75); err != nil {
+	if err := pf.Input().WithContext(context.TODO()).DoubleClick(50, 75); err != nil {
 		t.Fatalf("DoubleClick(nil): %v", err)
 	}
 }
@@ -911,7 +913,7 @@ func TestInputBundleDragAndDropNilContext(t *testing.T) {
 	inp := &pftest.Inputter{Err: boom}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	err := pf.Input().DragAndDrop(context.TODO(), 10, 20, 30, 40)
+	err := pf.Input().WithContext(context.TODO()).DragAndDrop(10, 20, 30, 40)
 	if !errors.Is(err, boom) {
 		t.Fatalf("DragAndDrop(nil) error = %v, want %v", err, boom)
 	}
@@ -922,20 +924,20 @@ func TestInputBundleMouseMoveDownUpPointerLocationAndSync(t *testing.T) {
 	pf := pftest.New(nil, spy, nil, nil)
 	ctx := context.Background()
 
-	if err := pf.Input().MouseMove(ctx, 10, 20); err != nil {
+	if err := pf.Input().WithContext(ctx).MouseMove(10, 20); err != nil {
 		t.Fatalf("MouseMove: %v", err)
 	}
-	if err := pf.Input().MouseDown(ctx, 1); err != nil {
+	if err := pf.Input().WithContext(ctx).MouseDown(1); err != nil {
 		t.Fatalf("MouseDown: %v", err)
 	}
-	if err := pf.Input().MouseUp(ctx, 1); err != nil {
+	if err := pf.Input().WithContext(ctx).MouseUp(1); err != nil {
 		t.Fatalf("MouseUp: %v", err)
 	}
-	x, y, err := pf.Input().PointerLocation(ctx)
+	x, y, err := pf.Input().WithContext(ctx).PointerLocation()
 	if err != nil {
 		t.Fatalf("PointerLocation: %v", err)
 	}
-	if err := pf.Input().Sync(ctx); err != nil {
+	if err := pf.Input().WithContext(ctx).Sync(); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 
@@ -970,30 +972,29 @@ func TestWindowBundleActiveTitleMoveCloseSyncAndWaiters(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	title, err := pf.Windows().ActiveTitle(ctx)
+	title, err := pf.Windows().WithContext(ctx).ActiveTitle()
 	if err != nil {
 		t.Fatalf("ActiveTitle: %v", err)
 	}
 	if title != "Firefox" {
 		t.Fatalf("ActiveTitle = %q, want Firefox", title)
 	}
-	target, err := pf.Windows().Find(
-		ctx,
+	target, err := pf.Windows().WithContext(ctx).Find(
 		window.Match{TitleContains: "Firefox"},
 	)
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if err := target.WaitClosed(ctx); err != nil {
+	if err := target.WithContext(ctx).WaitClosed(); err != nil {
 		t.Fatalf("WaitForClose: %v", err)
 	}
-	if err := target.Move(ctx, 10, 20); err != nil {
+	if err := target.WithContext(ctx).Move(10, 20); err != nil {
 		t.Fatalf("Move: %v", err)
 	}
-	if err := target.Close(ctx); err != nil {
+	if err := target.WithContext(ctx).Close(); err != nil {
 		t.Fatalf("CloseWindow: %v", err)
 	}
-	if err := pf.Windows().Sync(ctx); err != nil {
+	if err := pf.Windows().WithContext(ctx).Sync(); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 
@@ -1030,9 +1031,9 @@ func TestSmoothRequiresAuthoritativeCoordinateSpace(t *testing.T) {
 			for _, drag := range []bool{false, true} {
 				var err error
 				if drag {
-					err = session.Input().DragAndDropSmooth(context.Background(), a, b, opts)
+					err = session.Input().WithContext(context.Background()).DragAndDropSmooth(a, b, opts)
 				} else {
-					err = session.Input().MouseMoveSmooth(context.Background(), &a, b, opts)
+					err = session.Input().WithContext(context.Background()).MouseMoveSmooth(&a, b, opts)
 				}
 				if err == nil {
 					t.Fatal("unproven coordinate space accepted")
@@ -1042,10 +1043,10 @@ func TestSmoothRequiresAuthoritativeCoordinateSpace(t *testing.T) {
 				}
 			}
 			if tc.name == "missing" {
-				if err := session.Input().MouseMove(context.Background(), 10, 10); err != nil {
+				if err := session.Input().WithContext(context.Background()).MouseMove(10, 10); err != nil {
 					t.Fatal(err)
 				}
-				if err := session.Input().DragAndDrop(context.Background(), 0, 0, 1, 1); err != nil {
+				if err := session.Input().WithContext(context.Background()).DragAndDrop(0, 0, 1, 1); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -1065,13 +1066,13 @@ func TestSmoothRequiresAuthoritativeCoordinateSpace(t *testing.T) {
 	} {
 		spy := &motionSpy{space: space}
 		session := pftest.New(nil, spy, nil, nil)
-		if err := session.Input().MouseMoveSmooth(context.Background(), &a, b, opts); err != nil {
+		if err := session.Input().WithContext(context.Background()).MouseMoveSmooth(&a, b, opts); err != nil {
 			t.Fatal(err)
 		}
 		if spy.Calls[len(spy.Calls)-1] != "move:40,40" {
 			t.Fatal("coordinates scaled without request", spy.Calls)
 		}
-		if err := session.Input().DragAndDropSmooth(context.Background(), a, b, opts); err != nil {
+		if err := session.Input().WithContext(context.Background()).DragAndDropSmooth(a, b, opts); err != nil {
 			t.Fatal(err)
 		}
 		session.Close()
@@ -1084,7 +1085,7 @@ func TestSmoothZeroDistanceDragIsImmediateWithoutRedundantMotion(t *testing.T) {
 	defer session.Close()
 	at := image.Pt(200, 200)
 	start := time.Now()
-	err := session.Input().DragAndDropSmooth(context.Background(), at, at, input.MotionOptions{Duration: 800 * time.Millisecond, Easing: "ease-in-out", Curve: .4, Variation: 16, Seed: 9})
+	err := session.Input().WithContext(context.Background()).DragAndDropSmooth(at, at, input.MotionOptions{Duration: 800 * time.Millisecond, Easing: "ease-in-out", Curve: .4, Variation: 16, Seed: 9})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1114,7 +1115,7 @@ func TestSmoothCurvedIntermediatePreflightRejectsBeforeButton(t *testing.T) {
 	backend := &rejectNegativeCurveInput{motionSpy: spy}
 	session := pftest.New(nil, backend, nil, nil)
 	defer session.Close()
-	err := session.Input().DragAndDropSmooth(context.Background(), image.Pt(0, 0), image.Pt(100, 0), input.MotionOptions{Duration: 80 * time.Millisecond, Curve: -.5})
+	err := session.Input().WithContext(context.Background()).DragAndDropSmooth(image.Pt(0, 0), image.Pt(100, 0), input.MotionOptions{Duration: 80 * time.Millisecond, Curve: -.5})
 	if err == nil {
 		t.Fatal("offscreen curve accepted")
 	}
@@ -1132,7 +1133,7 @@ func TestSmoothZeroDurationPreservesLegacyDrag(t *testing.T) {
 	spy := &motionSpy{spaceErr: input.ErrNotSupported}
 	session := pftest.New(nil, spy, nil, nil)
 	defer session.Close()
-	err := session.Input().DragAndDropSmooth(context.Background(), image.Pt(1, 2), image.Pt(3, 4), input.MotionOptions{})
+	err := session.Input().WithContext(context.Background()).DragAndDropSmooth(image.Pt(1, 2), image.Pt(3, 4), input.MotionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1222,7 +1223,7 @@ func TestMotionOptionsAndEnvelope(t *testing.T) {
 	s := &motionSpy{}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	if err := pf.Input().MouseMoveSmooth(context.Background(), &a, b, opts); err != nil {
+	if err := pf.Input().WithContext(context.Background()).MouseMoveSmooth(&a, b, opts); err != nil {
 		t.Fatal(err)
 	}
 	if s.moves < 3 || s.moves > 121 {
@@ -1246,7 +1247,7 @@ func TestMotionOptionsAndEnvelope(t *testing.T) {
 	r := &motionSpy{}
 	other := pftest.New(nil, r, nil, nil)
 	defer other.Close()
-	if err := other.Input().MouseMoveSmooth(context.Background(), &a, b, opts); err != nil {
+	if err := other.Input().WithContext(context.Background()).MouseMoveSmooth(&a, b, opts); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(s.Inputter.Calls, r.Inputter.Calls) {
@@ -1262,10 +1263,10 @@ func TestMotionValidationBeforeInput(t *testing.T) {
 	for _, o := range invalid {
 		s := &motionSpy{}
 		pf := pftest.New(nil, s, nil, nil)
-		if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(3, 4), o); err == nil {
+		if err := pf.Input().WithContext(context.Background()).MouseMoveSmooth(nil, image.Pt(3, 4), o); err == nil {
 			t.Fatalf("accepted %+v", o)
 		}
-		if err := pf.Input().DragAndDropSmooth(context.Background(), image.Pt(1, 2), image.Pt(3, 4), o); err == nil {
+		if err := pf.Input().WithContext(context.Background()).DragAndDropSmooth(image.Pt(1, 2), image.Pt(3, 4), o); err == nil {
 			t.Fatalf("drag accepted %+v", o)
 		}
 		if s.moves+s.down+s.up+s.validation != 0 {
@@ -1276,7 +1277,7 @@ func TestMotionValidationBeforeInput(t *testing.T) {
 	s := &motionSpy{reject: true}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	err := pf.Input().DragAndDropSmooth(context.Background(), image.Pt(0, 0), image.Pt(10, 10), input.MotionOptions{Duration: 40 * time.Millisecond})
+	err := pf.Input().WithContext(context.Background()).DragAndDropSmooth(image.Pt(0, 0), image.Pt(10, 10), input.MotionOptions{Duration: 40 * time.Millisecond})
 	if err == nil || s.moves != 0 || s.down != 0 || s.up != 0 {
 		t.Fatalf("bounds rejection: %v %+v", err, s)
 	}
@@ -1285,11 +1286,11 @@ func TestMotionUnknownOriginAndImmediate(t *testing.T) {
 	s := &motionSpy{locationErr: input.ErrNotSupported}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(20, 20), input.MotionOptions{Duration: 40 * time.Millisecond})
+	err := pf.Input().WithContext(context.Background()).MouseMoveSmooth(nil, image.Pt(20, 20), input.MotionOptions{Duration: 40 * time.Millisecond})
 	if !errors.Is(err, input.ErrNotSupported) || s.moves != 0 {
 		t.Fatalf("unknown origin: %v %+v", err, s)
 	}
-	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(20, 20), input.MotionOptions{}); err != nil {
+	if err := pf.Input().WithContext(context.Background()).MouseMoveSmooth(nil, image.Pt(20, 20), input.MotionOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if s.moves != 1 || s.up != 0 {
@@ -1316,7 +1317,7 @@ func TestMotionDragCleanup(t *testing.T) {
 			}
 			pf := pftest.New(nil, s, nil, nil)
 			defer pf.Close()
-			err := pf.Input().DragAndDropSmooth(ctx, image.Pt(1, 1), image.Pt(60, 60), o)
+			err := pf.Input().WithContext(ctx).DragAndDropSmooth(image.Pt(1, 1), image.Pt(60, 60), o)
 			if tc.name == "success" && err != nil {
 				t.Fatal(err)
 			}
@@ -1336,7 +1337,7 @@ func TestMotionDragCleanup(t *testing.T) {
 	s := &motionSpy{}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	if err := pf.Input().DragAndDropSmooth(ctx, image.Pt(1, 1), image.Pt(60, 60), o); !errors.Is(err, context.Canceled) {
+	if err := pf.Input().WithContext(ctx).DragAndDropSmooth(image.Pt(1, 1), image.Pt(60, 60), o); !errors.Is(err, context.Canceled) {
 		t.Fatalf("precancel: %v", err)
 	}
 	if s.moves != 0 || s.down != 0 || s.up != 0 {
@@ -1347,13 +1348,13 @@ func TestMotionObservedOriginAndNoop(t *testing.T) {
 	s := &motionSpy{}
 	pf := pftest.New(nil, s, nil, nil)
 	defer pf.Close()
-	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(5, 7), input.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
+	if err := pf.Input().WithContext(context.Background()).MouseMoveSmooth(nil, image.Pt(5, 7), input.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
 	if s.moves != 0 {
 		t.Fatalf("noop moved: %+v", s)
 	}
-	if err := pf.Input().MouseMoveSmooth(context.Background(), nil, image.Pt(9, 12), input.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
+	if err := pf.Input().WithContext(context.Background()).MouseMoveSmooth(nil, image.Pt(9, 12), input.MotionOptions{Duration: 30 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(s.Inputter.Calls[0], "move:5,7") {
@@ -1392,13 +1393,13 @@ func TestMotionAuthorityTransitions(t *testing.T) {
 			}
 			var err error
 			if strings.HasPrefix(stage, "down") || strings.HasPrefix(stage, "move") {
-				err = pf.Input().DragAndDropSmooth(ctx, a, b, opts)
+				err = pf.Input().WithContext(ctx).DragAndDropSmooth(a, b, opts)
 			} else {
 				origin := &a
 				if strings.HasPrefix(stage, "location") {
 					origin = nil
 				}
-				err = pf.Input().MouseMoveSmooth(ctx, origin, b, opts)
+				err = pf.Input().WithContext(ctx).MouseMoveSmooth(origin, b, opts)
 			}
 			if err == nil {
 				t.Fatalf("authority loss ignored: %+v", s)
@@ -1423,7 +1424,7 @@ func TestMotionCancellationInTimedWait(t *testing.T) {
 			cancel()
 		}
 	}
-	err := pf.Input().MouseMoveSmooth(ctx, ptrPoint(image.Pt(0, 0)), image.Pt(50, 50), input.MotionOptions{Duration: 500 * time.Millisecond})
+	err := pf.Input().WithContext(ctx).MouseMoveSmooth(ptrPoint(image.Pt(0, 0)), image.Pt(50, 50), input.MotionOptions{Duration: 500 * time.Millisecond})
 	if !errors.Is(err, context.Canceled) || s.moves != 1 {
 		t.Fatalf("cancellation: %v %+v", err, s)
 	}
@@ -1457,7 +1458,7 @@ func TestDragPreflightsBothTargetsBeforeAnyMouseEvent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &boundedDragInputter{}
 			session := pftest.New(nil, backend, nil, nil)
-			err := session.Input().DragAndDrop(context.Background(), tc.x1, tc.y1, tc.x2, tc.y2)
+			err := session.Input().WithContext(context.Background()).DragAndDrop(tc.x1, tc.y1, tc.x2, tc.y2)
 			if err == nil {
 				t.Errorf("drag with invalid endpoint unexpectedly succeeded")
 			}
@@ -1472,7 +1473,7 @@ func TestDragPreflightsBothTargetsBeforeAnyMouseEvent(t *testing.T) {
 func TestDragWithPreflightedValidTargetsStillExecutes(t *testing.T) {
 	backend := &boundedDragInputter{}
 	session := pftest.New(nil, backend, nil, nil)
-	if err := session.Input().DragAndDrop(context.Background(), 1200, 600, 1800, 900); err != nil {
+	if err := session.Input().WithContext(context.Background()).DragAndDrop(1200, 600, 1800, 900); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"move:1200,600", "mousedown", "move:1800,900", "mouseup"}

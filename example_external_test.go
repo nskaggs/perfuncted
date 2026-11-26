@@ -10,8 +10,8 @@ import (
 	"github.com/nskaggs/perfuncted/v2/accessibility"
 )
 
-func ExampleOpenDefault() {
-	s, err := perfuncted.OpenDefault()
+func ExampleOpen() {
+	s, err := perfuncted.Open(perfuncted.Require(perfuncted.CapabilityInput))
 	if err != nil {
 		return
 	}
@@ -22,7 +22,7 @@ func ExampleOpenDefault() {
 // ExampleWindowTarget_Do compiles the opt-in window-targeted scripting path.
 // A real session requires a managed desktop with observable window identity.
 func ExampleWindowTarget_Do() {
-	s, err := perfuncted.OpenDefault(perfuncted.Require(perfuncted.CapabilityWindows))
+	s, err := perfuncted.Open(perfuncted.Require(perfuncted.CapabilityInput), perfuncted.Require(perfuncted.CapabilityWindows))
 	if err != nil {
 		return
 	}
@@ -43,7 +43,7 @@ func ExampleCapabilityError() {
 	session := perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil)
 	defer session.Close()
 
-	_, err := session.Screen().Grab(context.Background(), imageRect())
+	_, err := session.Screen().WithContext(context.Background()).Grab(imageRect())
 	fmt.Println(errors.Is(err, perfuncted.ErrUnavailable))
 	// Output: true
 }
@@ -54,7 +54,7 @@ func ExampleSession_Wait_cancellation() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := session.Wait(ctx, perfuncted.Predicate("never", func(context.Context) (bool, error) {
+	err := session.WithContext(ctx).Wait(perfuncted.Predicate("never", func(context.Context) (bool, error) {
 		return false, nil
 	}))
 	fmt.Println(errors.Is(err, context.Canceled))
@@ -66,7 +66,7 @@ func ExampleAccessibilityLocator_ClickAndWait() {
 		locator := session.Accessibility().LocatorForWindow(window.ID().String(), accessibility.Selector{
 			Role: "button", Name: "Save",
 		}, accessibility.SnapshotOptions{})
-		receipt, _, err := locator.ClickAndWait(ctx, saved)
+		receipt, _, err := locator.WithContext(ctx).ClickAndWait(saved)
 		if err != nil {
 			return err
 		}

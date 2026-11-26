@@ -1071,7 +1071,7 @@ func WindowClosed(target *Window) Condition { return windowClosed(target.private
 
 // Wait blocks until condition succeeds. Timeout and cancellation follow ctx;
 // persistent observation failures are bounded, and terminal failures abort.
-func (s *Session) Wait(
+func (s *Session) waitContext(
 	ctx context.Context,
 	condition Condition,
 	options ...WaitOption,
@@ -1082,7 +1082,7 @@ func (s *Session) Wait(
 // WaitWithEvidence blocks until condition succeeds and returns bounded
 // diagnostic evidence about the event-backed and polling wakeups observed.
 // Events only wake the wait; the condition remains the authority.
-func (s *Session) WaitWithEvidence(
+func (s *Session) waitWithEvidenceContext(
 	ctx context.Context,
 	condition Condition,
 	options ...WaitOption,

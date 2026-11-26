@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 	"github.com/nskaggs/perfuncted/v2/internal/env"
 	"github.com/nskaggs/perfuncted/v2/internal/executil"
 	"golang.org/x/sys/unix"
@@ -118,6 +119,10 @@ func connectRuntime(
 	if err == nil {
 		if extensionVersionNeedsUpdate(client.ExtensionVersion(), ExtensionVersion) {
 			runningVersion := client.ExtensionVersion()
+			if contextutil.NoninteractiveStartup(ctx) {
+				_ = client.Close()
+				return nil, fmt.Errorf("%w: GNOME bridge extension %q needs explicit capability setup before use", ErrUnavailable, runningVersion)
+			}
 			path, installErr := install(ctx, rt)
 			_ = client.Close()
 			if installErr != nil {
@@ -132,6 +137,9 @@ func connectRuntime(
 	}
 	if address == "" {
 		return nil, err
+	}
+	if contextutil.NoninteractiveStartup(ctx) {
+		return nil, fmt.Errorf("%w: %w; GNOME bridge setup requires explicit capability selection", ErrUnavailable, err)
 	}
 	path, installErr := install(ctx, rt)
 	if installErr != nil {

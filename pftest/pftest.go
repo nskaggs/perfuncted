@@ -511,7 +511,7 @@ func CaptureOnFailure(t testing.TB, session *perfuncted.Session, directory strin
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		path, err := session.CaptureFailureBundle(ctx, perfuncted.FailureBundleOptions{
+		path, err := session.WithContext(ctx).CaptureFailureBundle(perfuncted.FailureBundleOptions{
 			Directory: directory,
 			Operation: "test " + t.Name(),
 		})

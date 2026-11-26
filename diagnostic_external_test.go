@@ -34,16 +34,16 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	defer session.Close()
 
 	for range 40 {
-		if err := session.Input().Type(context.Background(), secret); err != nil {
+		if err := session.Input().WithContext(context.Background()).TypeKeys(secret); err != nil {
 			t.Fatalf("record input receipt: %v", err)
 		}
 	}
 	inputBackend.Err = errors.New("backend failed after dispatch")
-	if err := session.Input().Type(context.Background(), secret); err == nil {
+	if err := session.Input().WithContext(context.Background()).TypeKeys(secret); err == nil {
 		t.Fatal("failed input operation returned nil")
 	}
 	inputBackend.Err = input.ErrNotSupported
-	if err := session.Input().Type(context.Background(), secret); !errors.Is(err, input.ErrNotSupported) {
+	if err := session.Input().WithContext(context.Background()).TypeKeys(secret); !errors.Is(err, input.ErrNotSupported) {
 		t.Fatalf("unsupported input error = %v, want input.ErrNotSupported", err)
 	}
 	inputBackend.Err = nil
@@ -91,7 +91,7 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	}
 
 	directory := filepath.Join(t.TempDir(), "bundle")
-	path, err := session.CaptureFailureBundle(context.Background(), perfuncted.FailureBundleOptions{
+	path, err := session.WithContext(context.Background()).CaptureFailureBundle(perfuncted.FailureBundleOptions{
 		Directory: directory,
 		Accessibility: &perfuncted.AccessibilityFailureEvidence{
 			Locator: locator, Snapshot: snapshot, Events: events, Action: action, Postcondition: postcondition,
@@ -208,7 +208,7 @@ func TestCaptureFailureBundleOmitsSemanticArtifactsUnlessRequested(t *testing.T)
 	)
 	defer session.Close()
 	directory := filepath.Join(t.TempDir(), "bundle")
-	if _, err := session.CaptureFailureBundle(context.Background(), perfuncted.FailureBundleOptions{Directory: directory}); err != nil {
+	if _, err := session.WithContext(context.Background()).CaptureFailureBundle(perfuncted.FailureBundleOptions{Directory: directory}); err != nil {
 		t.Fatalf("CaptureFailureBundle: %v", err)
 	}
 	for _, name := range []string{"accessibility.json", "input-receipts.json"} {
@@ -236,12 +236,12 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	}}}
 	session := pftest.NewWithOutputs(screenshotter, &pftest.Inputter{}, manager, outputs, nil)
 	defer session.Close()
-	if err := session.Input().Type(context.Background(), "{ctrl+s}"); err != nil {
+	if err := session.Input().WithContext(context.Background()).TypeKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("trace setup: %v", err)
 	}
 
 	directory := filepath.Join(t.TempDir(), "bundle")
-	path, err := session.CaptureFailureBundle(context.Background(), perfuncted.FailureBundleOptions{
+	path, err := session.WithContext(context.Background()).CaptureFailureBundle(perfuncted.FailureBundleOptions{
 		Directory: directory,
 		Operation: "save document",
 		Error:     errors.New("document did not appear: " + privateContent),
@@ -333,7 +333,7 @@ func TestCaptureFailureBundleKeepsSuccessfulArtifactsWhenCapabilityFails(t *test
 	defer session.Close()
 
 	directory := filepath.Join(t.TempDir(), "bundle")
-	path, err := session.CaptureFailureBundle(context.Background(), perfuncted.FailureBundleOptions{Directory: directory})
+	path, err := session.WithContext(context.Background()).CaptureFailureBundle(perfuncted.FailureBundleOptions{Directory: directory})
 	if err == nil {
 		t.Fatal("CaptureFailureBundle error = nil, want unavailable-artifact error")
 	}

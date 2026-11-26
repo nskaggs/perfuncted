@@ -27,7 +27,7 @@ func desktopCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			desktops, err := pf.Windows().ListDesktops(cmd.Context())
+			desktops, err := pf.Windows().WithContext(cmd.Context()).ListDesktops()
 			if err != nil {
 				return err
 			}
@@ -54,12 +54,12 @@ func desktopCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			if switchErr := pf.Windows().SwitchDesktop(cmd.Context(), args[0]); switchErr != nil {
+			if switchErr := pf.Windows().WithContext(cmd.Context()).SwitchDesktop(args[0]); switchErr != nil {
 				return switchErr
 			}
 			if verify {
 				err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-					desktops, lookupErr := pf.Windows().ListDesktops(ctx)
+					desktops, lookupErr := pf.Windows().WithContext(ctx).ListDesktops()
 					if lookupErr != nil {
 						return false, lookupErr
 					}
@@ -118,14 +118,14 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 			}
 			defer pf.Close()
 			active := true
-			handles, err := pf.Windows().List(cmd.Context(), window.Match{Active: &active})
+			handles, err := pf.Windows().WithContext(cmd.Context()).List(window.Match{Active: &active})
 			if err != nil {
 				return err
 			}
 			if len(handles) != 1 {
 				return fmt.Errorf("expected one active window, found %d: %w", len(handles), window.ErrWindowNotFound)
 			}
-			info, err := handles[0].Info(cmd.Context())
+			info, err := handles[0].WithContext(cmd.Context()).Info()
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			x, y, err := pf.Windows().CursorPosition(cmd.Context())
+			x, y, err := pf.Windows().WithContext(cmd.Context()).CursorPosition()
 			if err != nil {
 				return err
 			}
@@ -163,12 +163,12 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			id := handle.ID().String()
-			if moveErr := pf.Windows().SetWindowDesktopByID(cmd.Context(), id, args[1]); moveErr != nil {
+			if moveErr := pf.Windows().WithContext(cmd.Context()).SetWindowDesktopByID(id, args[1]); moveErr != nil {
 				return moveErr
 			}
 			if verifySet {
 				err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-					info, lookupErr := handle.Info(ctx)
+					info, lookupErr := handle.WithContext(ctx).Info()
 					if lookupErr != nil {
 						return false, lookupErr
 					}
@@ -216,16 +216,16 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				}
 				id := handle.ID().String()
 				if above {
-					err = pf.Windows().SetKeepAboveByID(cmd.Context(), id, on)
+					err = pf.Windows().WithContext(cmd.Context()).SetKeepAboveByID(id, on)
 				} else {
-					err = pf.Windows().SetKeepBelowByID(cmd.Context(), id, on)
+					err = pf.Windows().WithContext(cmd.Context()).SetKeepBelowByID(id, on)
 				}
 				if err != nil {
 					return err
 				}
 				if verify {
 					err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-						info, lookupErr := handle.Info(ctx)
+						info, lookupErr := handle.WithContext(ctx).Info()
 						if lookupErr != nil {
 							return false, lookupErr
 						}
@@ -265,11 +265,11 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			id := target.ID().String()
-			if err := pf.Windows().SetShadeByID(cmd.Context(), id, on); err != nil {
+			if err := pf.Windows().WithContext(cmd.Context()).SetShadeByID(id, on); err != nil {
 				return err
 			}
 			if err := waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-				info, err := target.Info(ctx)
+				info, err := target.WithContext(ctx).Info()
 				if err != nil {
 					return false, err
 				}
@@ -303,12 +303,12 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			id := handle.ID().String()
-			err = pf.Windows().TileWindowByID(cmd.Context(), id, x, y)
+			err = pf.Windows().WithContext(cmd.Context()).TileWindowByID(id, x, y)
 			if err != nil {
 				return err
 			}
 			if err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-				info, readErr := handle.Info(ctx)
+				info, readErr := handle.WithContext(ctx).Info()
 				if readErr != nil {
 					return false, readErr
 				}
@@ -339,12 +339,12 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			id := handle.ID().String()
-			err = pf.Windows().FloatWindowByID(cmd.Context(), id)
+			err = pf.Windows().WithContext(cmd.Context()).FloatWindowByID(id)
 			if err != nil {
 				return err
 			}
 			if err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-				info, readErr := handle.Info(ctx)
+				info, readErr := handle.WithContext(ctx).Info()
 				if readErr != nil {
 					return false, readErr
 				}

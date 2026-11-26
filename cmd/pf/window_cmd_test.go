@@ -388,7 +388,7 @@ func TestWindowVerificationPropagatesBackendErrors(t *testing.T) {
 	session := pftest.New(nil, nil, manager, nil)
 	t.Cleanup(func() { _ = session.Close() })
 
-	target, err := session.Windows().Find(context.Background(), window.Match{TitleExact: "Editor"})
+	target, err := session.Windows().WithContext(context.Background()).Find(window.Match{TitleExact: "Editor"})
 	if err != nil {
 		t.Fatalf("find verification target: %v", err)
 	}
@@ -1388,7 +1388,7 @@ func TestVerifiedActivationObservesTargetWindowNotJustInputDelivery(t *testing.T
 	m := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}, {{NativeID: "one", Title: "A", Active: true}}}}
 	pf := pftest.New(nil, nil, m, nil)
 	defer pf.Close()
-	w, err := pf.Windows().Find(context.Background(), window.Match{TitleExact: "A"})
+	w, err := pf.Windows().WithContext(context.Background()).Find(window.Match{TitleExact: "A"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1398,7 +1398,7 @@ func TestVerifiedActivationObservesTargetWindowNotJustInputDelivery(t *testing.T
 	m = &pftest.Manager{Lists: [][]window.Info{{{NativeID: "one", Title: "A", Active: false}}}}
 	pf2 := pftest.New(nil, nil, m, nil)
 	defer pf2.Close()
-	w, err = pf2.Windows().Find(context.Background(), window.Match{TitleExact: "A"})
+	w, err = pf2.Windows().WithContext(context.Background()).Find(window.Match{TitleExact: "A"})
 	if err != nil {
 		t.Fatal(err)
 	}

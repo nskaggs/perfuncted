@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/godbus/dbus/v5"
+	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
 	"golang.org/x/sys/unix"
 	"image"
 	"image/color"
@@ -510,5 +511,21 @@ func TestScreenshotPortalURIRejectsDecodedNULAndInvalidUTF8(t *testing.T) {
 		if err != nil || !strings.EqualFold(path, tc.want) {
 			t.Fatalf("valid portal URI incorrectly rejected: path=%q err=%v", path, err)
 		}
+	}
+}
+
+func TestNoninteractiveStartupRejectsPortalBeforeBusConnection(t *testing.T) {
+	ctx := contextutil.WithNoninteractiveStartup(context.Background())
+	b, err := NewPortalDBusBackendForBusContext(ctx, "")
+	if b != nil || err == nil || !strings.Contains(err.Error(), "explicit screen capability selection") {
+		t.Fatalf("implicit portal acquisition: backend=%v err=%v", b, err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if b, err := NewPortalDBusBackendForBusContext(canceled, ""); b != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("implicit canceled portal acquisition: backend=%v err=%v", b, err)
+	}
+	if b, err := NewPortalDBusBackendForBusContext(context.Background(), ""); b != nil || err == nil || !strings.Contains(err.Error(), "D-Bus session unset") {
+		t.Fatalf("explicit portal path changed: backend=%v err=%v", b, err)
 	}
 }

@@ -41,3 +41,19 @@ func ErrorWithCause(ctx context.Context) error {
 	}
 	return errors.Join(err, cause)
 }
+
+// noninteractiveStartupKey carries only a restriction on implicit backend
+// acquisition. It cannot grant access to a provider or alter operation policy.
+type noninteractiveStartupKey struct{}
+
+// WithNoninteractiveStartup forbids provisioning and consent-sensitive
+// fallback during implicit session capability acquisition.
+func WithNoninteractiveStartup(ctx context.Context) context.Context {
+	return context.WithValue(Default(ctx), noninteractiveStartupKey{}, true)
+}
+
+// NoninteractiveStartup reports whether startup is restricted to existing,
+// noninteractive resources.
+func NoninteractiveStartup(ctx context.Context) bool {
+	return ctx != nil && ctx.Value(noninteractiveStartupKey{}) == true
+}

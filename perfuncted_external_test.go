@@ -57,13 +57,13 @@ func TestClipboardBundle(t *testing.T) {
 
 	t.Run("Clipboard", func(t *testing.T) {
 		ctx := context.Background()
-		if err := pf.Clipboard().Set(ctx, "hello"); err != nil {
+		if err := pf.Clipboard().WithContext(ctx).Set("hello"); err != nil {
 			t.Fatal(err)
 		}
-		if got, err := pf.Clipboard().Get(ctx); err != nil || got != "hello" {
+		if got, err := pf.Clipboard().WithContext(ctx).Get(); err != nil || got != "hello" {
 			t.Fatal(err, got)
 		}
-		if err := pf.Paste(ctx, "world"); err != nil {
+		if err := pf.WithContext(ctx).Paste("world"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -73,7 +73,7 @@ func TestPerfunctedPaste(t *testing.T) {
 	inp := &pftest.Inputter{}
 	cb := &pftest.Clipboard{}
 	pf := pftest.New(nil, inp, nil, cb)
-	if err := pf.Paste(context.Background(), "hello"); err != nil {
+	if err := pf.WithContext(context.Background()).Paste("hello"); err != nil {
 		t.Fatal(err)
 	}
 	if cb.Text != "hello" {
@@ -96,7 +96,7 @@ func TestClipboardBundleContextErrorsAndClose(t *testing.T) {
 	cb := &clipboardSpy{closeErr: closeErr}
 	pf := pftest.New(nil, nil, nil, cb)
 
-	if err := pf.Clipboard().Set(ctx, "hello"); err != nil {
+	if err := pf.Clipboard().WithContext(ctx).Set("hello"); err != nil {
 		t.Fatalf("Clipboard.Set: %v", err)
 	}
 	if cb.setCalls != 1 {
@@ -106,7 +106,7 @@ func TestClipboardBundleContextErrorsAndClose(t *testing.T) {
 		t.Fatalf("Set context value = %v, want clipboard-token", cb.ctxValue)
 	}
 
-	got, err := pf.Clipboard().Get(ctx)
+	got, err := pf.Clipboard().WithContext(ctx).Get()
 	if err != nil {
 		t.Fatalf("Clipboard.Get: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestPerfunctedPasteFallsBackToInputWhenClipboardUnavailable(t *testing.T) {
 	inp := &pftest.Inputter{}
 	pf := pftest.New(nil, inp, nil, nil)
 
-	if err := pf.Paste(context.Background(), "typed fallback"); err != nil {
+	if err := pf.WithContext(context.Background()).Paste("typed fallback"); err != nil {
 		t.Fatalf("Paste fallback: %v", err)
 	}
 	if got := inp.Typed(); got != "typed fallback" {
@@ -141,7 +141,7 @@ func TestPerfunctedPasteDoesNotModifyClipboardWithoutInput(t *testing.T) {
 	cb := &pftest.Clipboard{Text: "original"}
 	pf := pftest.New(nil, nil, nil, cb)
 
-	err := pf.Paste(context.Background(), "replacement")
+	err := pf.WithContext(context.Background()).Paste("replacement")
 	if !errors.Is(err, perfuncted.ErrUnavailable) {
 		t.Fatalf("Paste error = %v, want unavailable", err)
 	}
@@ -189,7 +189,7 @@ func TestOutputBundleListAndClose(t *testing.T) {
 
 	pf := pftest.NewWithOutputs(nil, nil, nil, spy, nil)
 
-	got, err := pf.Outputs().List(ctx)
+	got, err := pf.Outputs().WithContext(ctx).List()
 	if err != nil {
 		t.Fatalf("Output.List: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestScreenBundle_GetAllPixels(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	img, err := pf.Screen().GetAllPixels(context.Background())
+	img, err := pf.Screen().WithContext(context.Background()).Grab()
 	if err != nil {
 		t.Fatalf("GetAllPixels: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestScreenBundle_GrabRegion(t *testing.T) {
 	defer pf.Close()
 
 	rect := image.Rect(0, 0, 10, 10)
-	img, err := pf.Screen().GrabRegion(context.Background(), rect)
+	img, err := pf.Screen().WithContext(context.Background()).Grab(rect)
 	if err != nil {
 		t.Fatalf("GrabRegion: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestScreenBundle_GetPixel(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	got, err := pf.Screen().GetPixel(context.Background(), 3, 4)
+	got, err := pf.Screen().WithContext(context.Background()).GetPixel(3, 4)
 	if err != nil {
 		t.Fatalf("GetPixel: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestScreenBundle_GetMultiplePixelsTranslatesBounds(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	got, err := pf.Screen().GetMultiplePixels(context.Background(), []image.Point{
+	got, err := pf.Screen().WithContext(context.Background()).GetMultiplePixels([]image.Point{
 		{X: 11, Y: 22},
 		{X: 16, Y: 26},
 	})
@@ -355,7 +355,7 @@ func TestScreenBundle_GetMultiplePixelsEmpty(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	got, err := pf.Screen().GetMultiplePixels(context.Background(), nil)
+	got, err := pf.Screen().WithContext(context.Background()).GetMultiplePixels(nil)
 	if err != nil {
 		t.Fatalf("GetMultiplePixels(nil): %v", err)
 	}
@@ -372,7 +372,7 @@ func TestScreenBundle_GetPixelRejectsEmptyCapture(t *testing.T) {
 	p := newTestPF(sc)
 	defer p.Close()
 
-	if _, err := p.Screen().GetPixel(context.Background(), 5, 5); err == nil {
+	if _, err := p.Screen().WithContext(context.Background()).GetPixel(5, 5); err == nil {
 		t.Fatal("GetPixel succeeded with an empty capture")
 	}
 }
@@ -385,7 +385,7 @@ func TestScreenBundle_GetMultiplePixelsRejectsMissingPoint(t *testing.T) {
 	p := newTestPF(sc)
 	defer p.Close()
 
-	if _, err := p.Screen().GetMultiplePixels(context.Background(), []image.Point{{X: 5, Y: 5}}); err == nil {
+	if _, err := p.Screen().WithContext(context.Background()).GetMultiplePixels([]image.Point{{X: 5, Y: 5}}); err == nil {
 		t.Fatal("GetMultiplePixels succeeded without a captured requested point")
 	}
 }
@@ -395,7 +395,7 @@ func TestScreenBundle_GetPixelRejectsCoordinateOverflow(t *testing.T) {
 	p := newTestPF(sc)
 	defer p.Close()
 
-	if _, err := p.Screen().GetPixel(context.Background(), math.MaxInt, 0); err == nil {
+	if _, err := p.Screen().WithContext(context.Background()).GetPixel(math.MaxInt, 0); err == nil {
 		t.Fatal("GetPixel succeeded with an overflowing coordinate")
 	}
 }
@@ -405,7 +405,7 @@ func TestScreenBundle_GetMultiplePixelsRejectsCoordinateOverflow(t *testing.T) {
 	p := newTestPF(sc)
 	defer p.Close()
 
-	if _, err := p.Screen().GetMultiplePixels(context.Background(), []image.Point{{X: math.MaxInt, Y: 0}}); err == nil {
+	if _, err := p.Screen().WithContext(context.Background()).GetMultiplePixels([]image.Point{{X: math.MaxInt, Y: 0}}); err == nil {
 		t.Fatal("GetMultiplePixels succeeded with an overflowing coordinate")
 	}
 }
@@ -418,7 +418,7 @@ func TestScreenBundle_CaptureRegion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "capture.png")
 
-	if err := pf.Screen().CaptureRegion(context.Background(), image.Rect(0, 0, 8, 8), path); err != nil {
+	if err := pf.Screen().WithContext(context.Background()).CaptureRegion(image.Rect(0, 0, 8, 8), path); err != nil {
 		t.Fatalf("CaptureRegion: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -432,8 +432,7 @@ func TestScreenBundle_CaptureRegionWrapsFileErrors(t *testing.T) {
 	defer p.Close()
 
 	var operationErr *perfuncted.OperationError
-	err := p.Screen().CaptureRegion(
-		context.Background(),
+	err := p.Screen().WithContext(context.Background()).CaptureRegion(
 		image.Rect(0, 0, 2, 2),
 		t.TempDir(),
 	)
@@ -457,7 +456,7 @@ func TestScreenBundle_CaptureRegionPreservesDestinationOnEncodeFailure(t *testin
 	p := newTestPF(sc)
 	defer p.Close()
 
-	if err := p.Screen().CaptureRegion(context.Background(), image.Rectangle{}, path); err == nil {
+	if err := p.Screen().WithContext(context.Background()).CaptureRegion(image.Rectangle{}, path); err == nil {
 		t.Fatal("CaptureRegion succeeded for an oversized image")
 	}
 	got, err := os.ReadFile(path)
@@ -479,7 +478,7 @@ func TestScreenBundle_WaitForFn(t *testing.T) {
 	defer cancel()
 
 	// Predicate: always true → returns on first grab.
-	img, err := pf.Screen().WaitForFn(ctx, image.Rect(0, 0, 4, 4), func(_ context.Context, _ image.Image) bool {
+	img, err := pf.Screen().WithContext(ctx).WaitForFn(image.Rect(0, 0, 4, 4), func(_ context.Context, _ image.Image) bool {
 		return true
 	}, 10*time.Millisecond)
 	if err != nil {
@@ -500,7 +499,7 @@ func TestScreenBundle_WaitForNoChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen().WaitForNoChange(ctx, image.Rect(0, 0, 4, 4), 2, 10*time.Millisecond)
+	h, err := pf.Screen().WithContext(ctx).WaitForNoChange(image.Rect(0, 0, 4, 4), 2, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("WaitForNoChange: %v", err)
 	}
@@ -522,7 +521,7 @@ func TestScreenBundle_WaitForNoChangeFrom(t *testing.T) {
 	defer cancel()
 
 	// initial=wantHash, stable=1 → immediately satisfied on first grab.
-	h, err := pf.Screen().WaitForNoChangeFrom(ctx, image.Rect(0, 0, 4, 4), wantHash, 1, 10*time.Millisecond)
+	h, err := pf.Screen().WithContext(ctx).WaitForNoChangeFrom(image.Rect(0, 0, 4, 4), wantHash, 1, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("WaitForNoChangeFrom: %v", err)
 	}
@@ -547,7 +546,7 @@ func TestScreenBundle_WaitForSettleNilAction(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen().WaitForSettle(ctx, image.Rect(0, 0, 4, 4), nil, 2, 10*time.Millisecond)
+	h, err := pf.Screen().WithContext(ctx).WaitForSettle(image.Rect(0, 0, 4, 4), nil, 2, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("WaitForSettle(nil): %v", err)
 	}
@@ -564,7 +563,7 @@ func TestScreenBundle_FindColor(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	pt, err := pf.Screen().FindColor(context.Background(), image.Rect(0, 0, 10, 10), color.RGBA{B: 255, A: 255}, 0)
+	pt, err := pf.Screen().WithContext(context.Background()).FindColor(image.Rect(0, 0, 10, 10), color.RGBA{B: 255, A: 255}, 0)
 	if err != nil {
 		t.Fatalf("FindColor: %v", err)
 	}
@@ -591,7 +590,7 @@ func TestScreenBundle_WaitForChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	got, err := pf.Screen().WaitForChange(ctx, image.Rect(0, 0, 4, 4), initial, 10*time.Millisecond)
+	got, err := pf.Screen().WithContext(ctx).WaitForChange(image.Rect(0, 0, 4, 4), initial, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("WaitForChange: %v", err)
 	}
@@ -610,7 +609,7 @@ func TestScreenBundle_WaitFor(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	got, err := pf.Screen().WaitFor(ctx, image.Rect(0, 0, 4, 4), want, 10*time.Millisecond)
+	got, err := pf.Screen().WithContext(ctx).WaitFor(image.Rect(0, 0, 4, 4), want, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("WaitFor: %v", err)
 	}
@@ -637,7 +636,7 @@ func TestScreenBundle_ScanFor(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, err := pf.Screen().ScanFor(ctx, []image.Rectangle{rect}, []uint32{want}, 10*time.Millisecond)
+	result, err := pf.Screen().WithContext(ctx).ScanFor([]image.Rectangle{rect}, []uint32{want}, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("ScanFor: %v", err)
 	}
@@ -651,7 +650,7 @@ func TestScreenBundle_Resolution(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	w, h, err := pf.Screen().Resolution(context.Background())
+	w, h, err := pf.Screen().WithContext(context.Background()).Resolution()
 	if err != nil {
 		t.Fatalf("Resolution: %v", err)
 	}
@@ -683,7 +682,7 @@ func TestScreenBundle_GetMultiplePixelsMapsAcrossOutputScale(t *testing.T) {
 	pf := newTestPF(sc)
 	defer pf.Close()
 
-	got, err := pf.Screen().GetMultiplePixels(context.Background(), points)
+	got, err := pf.Screen().WithContext(context.Background()).GetMultiplePixels(points)
 	if err != nil {
 		t.Fatalf("GetMultiplePixels: %v", err)
 	}
@@ -716,7 +715,7 @@ func TestScreenBundleRejectsAProportionallyClippedCapture(t *testing.T) {
 	defer pf.Close()
 
 	points := []image.Point{{0, 0}, {99, 49}}
-	got, err := pf.Screen().GetMultiplePixels(context.Background(), points)
+	got, err := pf.Screen().WithContext(context.Background()).GetMultiplePixels(points)
 	if err == nil {
 		t.Fatalf("GetMultiplePixels returned %v for a capture smaller than the region", got)
 	}
@@ -737,26 +736,25 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	pf := pftest.New(sc, inp, mgr, cb)
 	defer pf.Close()
 
-	if _, err := pf.Screen().Grab(
-		ctx,
+	if _, err := pf.Screen().WithContext(ctx).Grab(
 		image.Rect(0, 0, 1, 1),
 	); err != nil {
 		t.Errorf("Screen.Grab: %v", err)
 	}
 	// pf.Input uses InputBundle which wraps inp.
-	if err := pf.Input().Type(ctx, "a"); err != nil {
+	if err := pf.Input().WithContext(ctx).TypeKeys("a"); err != nil {
 		t.Errorf("Type: %v", err)
 	}
-	if err := pf.Input().Type(ctx, "^c"); err != nil {
+	if err := pf.Input().WithContext(ctx).TypeKeys("^c"); err != nil {
 		t.Errorf("Type ctrl+c: %v", err)
 	}
-	if _, err := pf.Windows().List(ctx, window.Match{}); err != nil {
+	if _, err := pf.Windows().WithContext(ctx).List(window.Match{}); err != nil {
 		t.Errorf("Windows.List: %v", err)
 	}
-	if err := pf.Clipboard().Set(ctx, "assembled"); err != nil {
+	if err := pf.Clipboard().WithContext(ctx).Set("assembled"); err != nil {
 		t.Errorf("Clipboard.Set: %v", err)
 	}
-	if got, err := pf.Clipboard().Get(ctx); err != nil || got != "assembled" {
+	if got, err := pf.Clipboard().WithContext(ctx).Get(); err != nil || got != "assembled" {
 		t.Errorf("Clipboard.Get = %q, %v", got, err)
 	}
 }
@@ -769,31 +767,31 @@ func TestBundleSmoke(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Input", func(t *testing.T) {
-		if err := pf.Input().KeyDown(ctx, "ctrl"); err != nil {
+		if err := pf.Input().WithContext(ctx).KeyDown("ctrl"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input().KeyUp(ctx, "ctrl"); err != nil {
+		if err := pf.Input().WithContext(ctx).KeyUp("ctrl"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input().Type(ctx, "hello"); err != nil {
+		if err := pf.Input().WithContext(ctx).TypeKeys("hello"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input().MouseClick(ctx, 10, 20, 1); err != nil {
+		if err := pf.Input().WithContext(ctx).Click(10, 20, 1); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input().DoubleClick(ctx, 10, 20); err != nil {
+		if err := pf.Input().WithContext(ctx).DoubleClick(10, 20); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input().DragAndDrop(ctx, 0, 0, 100, 100); err != nil {
+		if err := pf.Input().WithContext(ctx).DragAndDrop(0, 0, 100, 100); err != nil {
 			t.Fatal(err)
 		}
 	})
 
 	t.Run("Screen", func(t *testing.T) {
-		if _, err := pf.Screen().GetPixel(ctx, 5, 5); err != nil {
+		if _, err := pf.Screen().WithContext(ctx).GetPixel(5, 5); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pf.Screen().GetMultiplePixels(ctx, []image.Point{{1, 1}}); err != nil {
+		if _, err := pf.Screen().WithContext(ctx).GetMultiplePixels([]image.Point{{1, 1}}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -804,17 +802,16 @@ func TestBundleSmoke(t *testing.T) {
 			NativeID: "1",
 			Title:    "Firefox",
 		}}}
-		browserWindow, err := pf.Windows().Find(
-			ctx,
+		browserWindow, err := pf.Windows().WithContext(ctx).Find(
 			window.Match{TitleContains: "Firefox"},
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_ = browserWindow.Resize(ctx, 800, 600)
-		_ = browserWindow.Minimize(ctx)
-		_ = browserWindow.Maximize(ctx)
-		_ = browserWindow.Restore(ctx)
+		_ = browserWindow.WithContext(ctx).Resize(800, 600)
+		_ = browserWindow.WithContext(ctx).Minimize()
+		_ = browserWindow.WithContext(ctx).Maximize()
+		_ = browserWindow.WithContext(ctx).Restore()
 	})
 }
 
@@ -909,7 +906,7 @@ func TestInputBundleErrors(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	err := pf.Input().Type(ctx, "a")
+	err := pf.Input().WithContext(ctx).TypeKeys("a")
 	if err == nil || !errors.Is(err, perfuncted.ErrOperationFailed) ||
 		!strings.Contains(err.Error(), "type error") {
 		t.Errorf("expected an operation failure containing 'type error', got %v", err)
@@ -977,19 +974,19 @@ func TestBundleMethodsPropagateContext(t *testing.T) {
 	sc := &contextSpyScreenshotter{}
 	pf := pftest.New(sc, inp, mgr, cb)
 
-	if err := pf.Input().Type(ctx, "hello"); err != nil {
+	if err := pf.Input().WithContext(ctx).TypeKeys("hello"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pf.Windows().List(ctx, window.Match{}); err != nil {
+	if _, err := pf.Windows().WithContext(ctx).List(window.Match{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := pf.Clipboard().Set(ctx, "clipboard"); err != nil {
+	if err := pf.Clipboard().WithContext(ctx).Set("clipboard"); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := pf.Clipboard().Get(ctx); err != nil || got != "clipboard" {
+	if got, err := pf.Clipboard().WithContext(ctx).Get(); err != nil || got != "clipboard" {
 		t.Fatalf("Clipboard.Get = %q, %v", got, err)
 	}
-	if _, err := pf.Screen().GetPixel(ctx, 0, 0); err != nil {
+	if _, err := pf.Screen().WithContext(ctx).GetPixel(0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1037,7 +1034,7 @@ func TestWindowBundle(t *testing.T) {
 	pf := pftest.New(nil, nil, mgr, nil)
 	ctx := context.Background()
 
-	wins, err := pf.Windows().List(ctx, window.Match{})
+	wins, err := pf.Windows().WithContext(ctx).List(window.Match{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1045,7 +1042,7 @@ func TestWindowBundle(t *testing.T) {
 		t.Errorf("unexpected list: %v", wins)
 	}
 
-	if err := wins[0].Activate(ctx); err != nil {
+	if err := wins[0].WithContext(ctx).Activate(); err != nil {
 		t.Fatal(err)
 	}
 	if len(mgr.Activated) != 1 || mgr.Activated[0] != "1" {
@@ -1063,7 +1060,7 @@ func TestScreenBundleHashing(t *testing.T) {
 	ctx := context.Background()
 	want := find.PixelHash(img, nil)
 
-	h1, err := pf.Screen().GrabRegionHash(ctx, image.Rect(0, 0, 10, 10))
+	h1, err := pf.Screen().WithContext(ctx).GrabRegionHash(image.Rect(0, 0, 10, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1071,7 +1068,7 @@ func TestScreenBundleHashing(t *testing.T) {
 		t.Errorf("GrabRegionHash = %08x, want canonical image hash %08x", h1, want)
 	}
 
-	h2, err := pf.Screen().GrabFullHash(ctx)
+	h2, err := pf.Screen().WithContext(ctx).GrabFullHash()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1117,7 +1114,7 @@ func TestWaitForVisibleChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen().WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() error { return nil }, 2, 10*time.Millisecond)
+	h, err := pf.Screen().WithContext(ctx).WaitForSettle(image.Rect(0, 0, 10, 10), func() error { return nil }, 2, 10*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1139,7 +1136,7 @@ func TestWaitForSettle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	h, err := pf.Screen().WaitForSettle(ctx, image.Rect(0, 0, 10, 10), func() error {
+	h, err := pf.Screen().WithContext(ctx).WaitForSettle(image.Rect(0, 0, 10, 10), func() error {
 		return nil
 	}, 3, 10*time.Millisecond)
 
@@ -1209,11 +1206,11 @@ func TestV2CapabilityAndSessionHandleOwnership(t *testing.T) {
 	handle := session.Clipboard()
 	copied := handle
 	handle = second.Clipboard()
-	if got, err := handle.Get(ctx); err != nil || got != "other" {
+	if got, err := handle.WithContext(ctx).Get(); err != nil || got != "other" {
 		t.Fatalf("replacement handle got %q, %v", got, err)
 	}
 	*session = *second
-	if got, err := copied.Get(ctx); err != nil || got != "original" {
+	if got, err := copied.WithContext(ctx).Get(); err != nil || got != "original" {
 		t.Fatalf("original handle redirected: %q, %v", got, err)
 	}
 	if err := retained.Close(); err != nil {
@@ -1225,10 +1222,10 @@ func TestV2CapabilityAndSessionHandleOwnership(t *testing.T) {
 	if backend.closeCalls != 1 || other.closeCalls != 0 {
 		t.Fatalf("wrong close counts: %d/%d", backend.closeCalls, other.closeCalls)
 	}
-	if _, err := copied.Get(ctx); !errors.Is(err, perfuncted.ErrSessionClosed) {
+	if _, err := copied.WithContext(ctx).Get(); !errors.Is(err, perfuncted.ErrSessionClosed) {
 		t.Fatalf("retained handle after close: %v", err)
 	}
-	if got, err := second.Clipboard().Get(ctx); err != nil || got != "other" {
+	if got, err := second.Clipboard().WithContext(ctx).Get(); err != nil || got != "other" {
 		t.Fatalf("other session affected: %q, %v", got, err)
 	}
 }
@@ -1241,17 +1238,17 @@ func TestV2WindowHandleOverwriteCannotRedirectCopies(t *testing.T) {
 	s2 := perfuncted.NewSessionForTesting(nil, nil, second, nil, nil)
 	defer s1.Close()
 	defer s2.Close()
-	a, err := s1.Windows().Find(ctx, window.Match{})
+	a, err := s1.Windows().WithContext(ctx).Find(window.Title("Editor"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s2.Windows().Find(ctx, window.Match{})
+	b, err := s2.Windows().WithContext(ctx).Find(window.Title("Editor"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	saved := *a
 	*a = *b
-	if err := saved.Activate(ctx); err != nil {
+	if err := saved.WithContext(ctx).Activate(); err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Activated) != 1 || first.Activated[0] != "original" || len(second.Activated) != 0 {
@@ -1263,7 +1260,7 @@ func TestV2WindowHandleOverwriteCannotRedirectCopies(t *testing.T) {
 	if err := s1.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := saved.Activate(ctx); !errors.Is(err, perfuncted.ErrSessionClosed) {
+	if err := saved.WithContext(ctx).Activate(); !errors.Is(err, perfuncted.ErrSessionClosed) {
 		t.Fatalf("closed target dispatch: %v", err)
 	}
 }
@@ -1275,11 +1272,11 @@ func TestV2ApplicationHandleOverwriteDoesNotRedirectCleanup(t *testing.T) {
 	second := perfuncted.NewSessionForTesting(nil, nil, nil, nil, nil)
 	defer first.Close()
 	defer second.Close()
-	a, err := first.Launch(ctx, perfuncted.Command{Name: "sleep", Args: []string{"60"}})
+	a, err := first.WithContext(ctx).Launch(perfuncted.Command{Name: "sleep", Args: []string{"60"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := second.Launch(ctx, perfuncted.Command{Name: "sleep", Args: []string{"60"}})
+	b, err := second.WithContext(ctx).Launch(perfuncted.Command{Name: "sleep", Args: []string{"60"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1301,16 +1298,16 @@ func TestV2ApplicationHandleOverwriteDoesNotRedirectCleanup(t *testing.T) {
 	if err := b.Kill(); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Wait(ctx); errors.Is(err, context.DeadlineExceeded) {
+	if err := b.WithContext(ctx).Wait(); errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
 }
 
 func TestV2ZeroSessionCannotLaunch(t *testing.T) {
 	var s perfuncted.Session
-	app, err := s.Launch(context.Background(), perfuncted.Command{Name: "true"})
+	app, err := s.WithContext(context.Background()).Launch(perfuncted.Command{Name: "true"})
 	if app != nil {
-		_ = app.Stop(context.Background())
+		_ = app.WithContext(context.Background()).Stop()
 		t.Fatal("zero Session unexpectedly launched a process")
 	}
 	if !errors.Is(err, perfuncted.ErrSessionClosed) {

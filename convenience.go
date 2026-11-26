@@ -34,44 +34,11 @@ func openDefault(opts ...Option) (*sessionCore, error) {
 	return openSession(ctx, func(dst *openConfig) error { *dst = cfg; return nil })
 }
 
-// SessionView holds immutable operation settings for a Session. It does not
-// own the session; closing the Session cancels operations through the view.
-type SessionView struct {
-	session *sessionCore
-	ctx     context.Context //nolint:containedctx // The view explicitly carries caller context.
-	timeout time.Duration
+func (s *sessionCore) WithContext(ctx context.Context) *Session {
+	return (&Session{core: s}).WithContext(ctx)
 }
-
-// WithContext returns a non-owning view. A nil context is rejected on use.
-func (s *sessionCore) WithContext(ctx context.Context) *SessionView {
-	return &SessionView{session: s, ctx: ctx}
-}
-
-// WithContext returns a copy of the view with the given context.
-func (v *SessionView) WithContext(ctx context.Context) *SessionView {
-	if v == nil {
-		return &SessionView{ctx: ctx}
-	}
-	copy := *v
-	copy.ctx = ctx
-	return &copy
-}
-
-// WithTimeout returns a copy with a batch timeout. Zero adds no batch deadline;
-// individual input operations still use the session policy. Negative values
-// are rejected on use.
-func (v *SessionView) WithTimeout(d time.Duration) *SessionView {
-	if v == nil {
-		return &SessionView{timeout: d}
-	}
-	copy := *v
-	copy.timeout = d
-	return &copy
-}
-
-// WithTimeout returns a non-owning view with a batch timeout.
-func (s *sessionCore) WithTimeout(d time.Duration) *SessionView {
-	return &SessionView{session: s, ctx: context.Background(), timeout: d}
+func (s *sessionCore) WithTimeout(d time.Duration) *Session {
+	return (&Session{core: s}).WithTimeout(d)
 }
 
 // Step is an immutable description of an input operation or delay.
@@ -201,7 +168,7 @@ func validateHotkey(ctx context.Context, chord string) error {
 // preflights known requirements but cannot guarantee application acceptance or
 // atomic focus, and does not retry failed input.
 func (s *sessionCore) Do(steps ...Step) error {
-	return (&SessionView{session: s, ctx: context.Background()}).Do(steps...)
+	return (&Session{core: s}).Do(steps...)
 }
 
 // Type immediately sends literal text to the currently focused application.
@@ -210,50 +177,28 @@ func (s *sessionCore) Type(text string) error { return s.Do(Type(text)) }
 // Key immediately sends one named key to the currently focused application.
 func (s *sessionCore) Key(name string) error { return s.Do(Key(name)) }
 
-// Type immediately sends literal text using the view's context and timeout.
-func (v *SessionView) Type(text string) error { return v.Do(Type(text)) }
-
-// Key immediately sends one named key using the view's context and timeout.
-func (v *SessionView) Key(name string) error { return v.Do(Key(name)) }
-
-// Do executes steps under the view's context, timeout and session lifetime.
-func (v *SessionView) operationContext() (context.Context, func(), error) {
-	if v == nil || v.session == nil {
+// operationContext resolves a whole batch's deadline.
+func (s *Session) operationContext() (context.Context, func(*error), error) {
+	if s == nil || s.core == nil {
 		return nil, nil, ErrNilSession
 	}
-	if err := v.session.ensureOpen(); err != nil {
+	if err := s.core.ensureOpen(); err != nil {
 		return nil, nil, err
 	}
-	if v.ctx == nil || v.timeout < 0 {
-		return nil, nil, ErrInvalidArgument
-	}
-	if err := v.ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	ctx, cancel := context.WithCancel(v.ctx)
-	stop := context.AfterFunc(v.session.ctx, cancel)
-	cleanup := func() { stop(); cancel() }
-	if v.timeout > 0 {
-		bounded, cancelTimeout := context.WithTimeout(ctx, v.timeout)
-		return bounded, func() { cancelTimeout(); cleanup() }, nil
-	}
-	return ctx, cleanup, nil
+	return s.operationScope().begin(scopeBatch, 0)
 }
 
-// Do executes the steps after a single shared capability preflight.
-func (v *SessionView) Do(steps ...Step) error {
-	ctx, cleanup, err := v.operationContext()
+// Do executes steps after a single shared capability preflight.
+func (s *Session) Do(steps ...Step) (result error) {
+	ctx, cleanup, err := s.operationContext()
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-	s := v.session
-	if err := s.preflightSteps(ctx, steps); err != nil {
-		return errors.Join(s.ensureOpen(), err)
+	defer cleanup(&result)
+	if err = s.core.preflightSteps(ctx, steps); err != nil {
+		return errors.Join(s.core.ensureOpen(), err)
 	}
-	// The execution loop checks authority again before each dispatch. Its
-	// session lifetime check is the same one used by the strict input bundle.
-	return s.runSteps(ctx, steps)
+	return s.core.runSteps(ctx, steps)
 }
 
 func (s *sessionCore) preflightSteps(ctx context.Context, steps []Step) error {
@@ -357,19 +302,23 @@ var ErrWindowIdentityChanged = errors.New("perfuncted: selected window identity 
 // WindowTarget is a lazy, non-owning, exact-title window selector.
 // It does not activate anything until Do is invoked.
 type WindowTarget struct {
-	view  *SessionView
+	view  *Session
 	title string
 }
 
 // Window selects a window by exact, case-insensitive title for a targeted batch.
-// Pass Require(CapabilityWindows) to OpenDefault to enable this operation.
+// Pass Require(CapabilityWindows) to Open to enable this operation.
 func (s *sessionCore) Window(title string) *WindowTarget {
-	return (&SessionView{session: s, ctx: context.Background()}).Window(title)
+	return (&Session{core: s}).Window(title)
 }
 
 // Window retains the view's cancellation and timeout configuration.
-func (v *SessionView) Window(title string) *WindowTarget {
-	return &WindowTarget{view: v, title: title}
+func (v *Session) Window(title string) *WindowTarget {
+	if v == nil {
+		return &WindowTarget{title: title}
+	}
+	copy := *v
+	return &WindowTarget{view: &copy, title: title}
 }
 
 func windowTargetIdentity(current, selected window.Info) error {
@@ -393,16 +342,16 @@ func windowTargetIdentity(current, selected window.Info) error {
 // needing stronger guarantees should use the scoped accessibility locator.
 //
 //nolint:gocyclo // All identity, focus, lifecycle and dispatch gates fail closed independently.
-func (t *WindowTarget) Do(steps ...Step) error {
-	if t == nil || t.view == nil || t.view.session == nil {
+func (t *WindowTarget) Do(steps ...Step) (result error) {
+	if t == nil || t.view == nil || t.view.core == nil {
 		return ErrNilSession
 	}
 	ctx, cleanup, err := t.view.operationContext()
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-	s := t.view.session
+	defer cleanup(&result)
+	s := t.view.core
 	if strings.TrimSpace(t.title) == "" {
 		return fmt.Errorf("window target: empty title: %w", ErrInvalidArgument)
 	}
@@ -472,41 +421,42 @@ func (t *WindowTarget) Do(steps ...Step) error {
 	return s.runStepsChecked(ctx, steps, guard)
 }
 
-// OpenDefault opens a session with the default convenience capabilities.
-func OpenDefault(opts ...Option) (*Session, error) {
-	s, err := openDefault(opts...)
-	return wrapSession(s), err
+// Type sends literal text.
+func (s *Session) Type(text string) error { return s.immediate(Type(text)) }
+
+// Key sends a named key.
+func (s *Session) Key(name string) error { return s.immediate(Key(name)) }
+
+// Hotkey sends a chord.
+func (s *Session) Hotkey(keys ...string) error { return s.immediate(Hotkey(keys...)) }
+
+// Click clicks the primary mouse button.
+func (s *Session) Click(x, y int) error { return s.immediate(Click(x, y)) }
+
+// WithContext returns a target with the selected operation context.
+func (t *WindowTarget) WithContext(ctx context.Context) *WindowTarget {
+	if t == nil {
+		return nil
+	}
+	copy := *t
+	copy.view = t.view.WithContext(ctx)
+	return &copy
 }
 
-// WithContext returns a non-owning view. A nil context is rejected on use.
-func (s *Session) WithContext(ctx context.Context) *SessionView {
-	return s.coreState().WithContext(ctx)
+// WithTimeout returns a target with the selected operation timeout.
+func (t *WindowTarget) WithTimeout(d time.Duration) *WindowTarget {
+	if t == nil {
+		return nil
+	}
+	copy := *t
+	copy.view = t.view.WithTimeout(d)
+	return &copy
 }
 
-// WithTimeout returns a non-owning view with a batch timeout.
-func (s *Session) WithTimeout(d time.Duration) *SessionView {
-	return s.coreState().WithTimeout(d)
-}
-
-// Do executes steps in order against the currently focused application. It
-// preflights known requirements but cannot guarantee application acceptance or
-// atomic focus, and does not retry failed input.
-func (s *Session) Do(steps ...Step) error {
-	return s.coreState().Do(steps...)
-}
-
-// Type immediately sends literal text to the currently focused application.
-func (s *Session) Type(text string) error {
-	return s.coreState().Type(text)
-}
-
-// Key immediately sends one named key to the currently focused application.
-func (s *Session) Key(name string) error {
-	return s.coreState().Key(name)
-}
-
-// Window selects a window by exact, case-insensitive title for a targeted batch.
-// Pass Require(CapabilityWindows) to OpenDefault to enable this operation.
-func (s *Session) Window(title string) *WindowTarget {
-	return s.coreState().Window(title)
+// immediate gives single-step shortcuts the same default budget as Input.
+func (s *Session) immediate(step Step) error {
+	if s != nil && s.core != nil && s.scope.timeout == 0 {
+		s = s.WithTimeout(s.core.Timeouts().Short)
+	}
+	return s.Do(step)
 }

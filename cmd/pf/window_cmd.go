@@ -42,13 +42,13 @@ func collectWindowMatches(
 	bundle perfuncted.WindowBundle,
 	match window.Match,
 ) ([]window.Info, error) {
-	handles, err := bundle.List(ctx, match)
+	handles, err := bundle.WithContext(ctx).List(match)
 	if err != nil {
 		return nil, err
 	}
 	matched := make([]window.Info, 0, len(handles))
 	for _, handle := range handles {
-		info, err := handle.Info(ctx)
+		info, err := handle.WithContext(ctx).Info()
 		if err != nil {
 			return nil, err
 		}
@@ -88,11 +88,11 @@ func waitForWindowMatch(
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	handle, err := bundle.Wait(ctx, match, perfuncted.WaitEvery(poll))
+	handle, err := bundle.WithContext(ctx).Wait(match, perfuncted.WaitEvery(poll))
 	if err != nil {
 		return window.Info{}, err
 	}
-	return handle.Info(ctx)
+	return handle.WithContext(ctx).Info()
 }
 
 func waitForWindowCloseMatch(
@@ -104,8 +104,7 @@ func waitForWindowCloseMatch(
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	return session.Wait(
-		ctx,
+	return session.WithContext(ctx).Wait(
 		perfuncted.Not(perfuncted.WindowExists(match)),
 		perfuncted.WaitEvery(poll),
 	)
@@ -116,8 +115,7 @@ func findWindowByTitle(
 	bundle perfuncted.WindowBundle,
 	title string,
 ) (*perfuncted.Window, error) {
-	return bundle.Find(
-		ctx,
+	return bundle.WithContext(ctx).Find(
 		window.Match{TitleContains: title},
 	)
 }
@@ -132,7 +130,7 @@ func resolveWindowID(ctx context.Context, bundle perfuncted.WindowBundle, id str
 	if id == "" {
 		return nil, fmt.Errorf("window ID must be non-empty: %w", window.ErrInvalidArgument)
 	}
-	wins, err := bundle.List(ctx, window.Match{})
+	wins, err := bundle.WithContext(ctx).List(window.Match{})
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +244,7 @@ func activateSelectedWindow(
 	if err != nil {
 		return err
 	}
-	if err := target.Activate(cmd.Context()); err != nil {
+	if err := target.WithContext(cmd.Context()).Activate(); err != nil {
 		return err
 	}
 	if err := syncIf(cmd.Context(), session); err != nil {
@@ -269,7 +267,7 @@ func windowCmd(
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Windows().Sync(ctx)
+			return pf.Windows().WithContext(ctx).Sync()
 		}
 		return nil
 	}
@@ -338,7 +336,7 @@ func windowCmd(
 				return err
 			}
 			defer pf.Close()
-			t, err := pf.Windows().ActiveTitle(cmd.Context())
+			t, err := pf.Windows().WithContext(cmd.Context()).ActiveTitle()
 			if err != nil {
 				return err
 			}
@@ -370,7 +368,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			info, err := target.Info(cmd.Context())
+			info, err := target.WithContext(cmd.Context()).Info()
 			if err != nil {
 				return err
 			}
@@ -380,7 +378,7 @@ func windowCmd(
 			if keepY {
 				y = info.Y
 			}
-			if err := target.Move(cmd.Context(), x, y); err != nil {
+			if err := target.WithContext(cmd.Context()).Move(x, y); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -410,7 +408,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			if err := target.Resize(cmd.Context(), rsW, rsH); err != nil {
+			if err := target.WithContext(cmd.Context()).Resize(rsW, rsH); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -439,7 +437,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			if err := target.Fullscreen(cmd.Context()); err != nil {
+			if err := target.WithContext(cmd.Context()).Fullscreen(); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -465,7 +463,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			if err := target.Unfullscreen(cmd.Context()); err != nil {
+			if err := target.WithContext(cmd.Context()).Unfullscreen(); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -598,7 +596,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			info, err := target.Info(cmd.Context())
+			info, err := target.WithContext(cmd.Context()).Info()
 			if err != nil {
 				return err
 			}
@@ -644,7 +642,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			info, err := target.Info(cmd.Context())
+			info, err := target.WithContext(cmd.Context()).Info()
 			if err != nil {
 				return err
 			}
@@ -762,7 +760,7 @@ func windowCmd(
 		if err != nil {
 			return err
 		}
-		if err := target.Close(cmd.Context()); err != nil {
+		if err := target.WithContext(cmd.Context()).Close(); err != nil {
 			return err
 		}
 		if err := syncIf(cmd.Context(), pf); err != nil {
@@ -804,7 +802,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			if err := target.Close(cmd.Context()); err != nil {
+			if err := target.WithContext(cmd.Context()).Close(); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -829,7 +827,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			if err := target.Minimize(cmd.Context()); err != nil {
+			if err := target.WithContext(cmd.Context()).Minimize(); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -855,7 +853,7 @@ func windowCmd(
 			if err != nil {
 				return err
 			}
-			if err := target.Maximize(cmd.Context()); err != nil {
+			if err := target.WithContext(cmd.Context()).Maximize(); err != nil {
 				return err
 			}
 			if err := syncIf(cmd.Context(), pf); err != nil {
@@ -905,7 +903,7 @@ func waitWindowActive(ctx context.Context, w *perfuncted.Window, timeout, poll t
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	for {
-		info, err := w.Info(ctx)
+		info, err := w.WithContext(ctx).Info()
 		if err == nil && info.Active {
 			return nil
 		}
@@ -935,7 +933,7 @@ func waitWindowGone(ctx context.Context, bundle perfuncted.WindowBundle, id stri
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
 	for {
-		wins, err := bundle.List(ctx, window.Match{})
+		wins, err := bundle.WithContext(ctx).List(window.Match{})
 		if err != nil {
 			return fmt.Errorf("verify window %s disappeared: %w", id, err)
 		}

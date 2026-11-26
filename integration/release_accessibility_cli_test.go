@@ -101,7 +101,7 @@ func certifyReleaseAccessibilityCLI(t *testing.T, s *suite) {
 	// A separate CLI connection must validate its generation and handle.
 	run("a11y", "raw", "--op", "set-caret", "--bus", matches[0].ID.BusName, "--path", matches[0].ID.ObjectPath, "--generation", strconv.FormatUint(matches[0].ID.Generation, 10), "--offset", strconv.Itoa(len([]rune(marker))), "--json")
 	dirty, err := retryChangedSnapshot(ctx, func() (accessibility.Snapshot, error) {
-		return s.pf.Accessibility().Snapshot(ctx, originalScope.Root, certificationSnapshotOptions())
+		return s.pf.Accessibility().WithContext(ctx).Snapshot(originalScope.Root, certificationSnapshotOptions())
 	})
 	if err != nil {
 		t.Fatal(err)

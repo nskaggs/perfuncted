@@ -199,7 +199,7 @@ func TestInputObservationBundleAdmissionRaces(t *testing.T) {
 	backend := &fakeObservationBackend{}
 	session := setupObservationTestSession(backend)
 	var nilBundle InputObservationBundle
-	if _, err := nilBundle.Listen(context.Background(), input.ObservationFilter{Combo: "F8"}); err == nil {
+	if _, err := nilBundle.WithContext(context.Background()).Listen(input.ObservationFilter{Combo: "F8"}); err == nil {
 		t.Fatal("nil facade was accepted")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

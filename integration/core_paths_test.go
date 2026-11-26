@@ -170,7 +170,7 @@ func pollActiveTitle(ctx context.Context, pf *perfuncted.Session, substr string)
 	defer ticker.Stop()
 	var last string
 	for {
-		title, err := pf.Windows().ActiveTitle(ctx)
+		title, err := pf.Windows().WithContext(ctx).ActiveTitle()
 		if err == nil {
 			last = title
 			if strings.Contains(strings.ToLower(title), strings.ToLower(substr)) {
@@ -210,17 +210,17 @@ func TestClipboardRoundTrip_Unicode(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	const text = "Hello 世界 🌍 Ñoño αβγδ ∑∫∂"
-	v.NoError(s.pf.Clipboard().Set(ctx, text), "clipboard set unicode")
+	v.NoError(s.pf.Clipboard().WithContext(ctx).Set(text), "clipboard set unicode")
 	t.Cleanup(func() {
 		cleanCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cleanCtx, "")
+		_ = s.pf.Clipboard().WithContext(cleanCtx).Set("")
 	})
 
-	got, err := s.pf.Clipboard().Get(ctx)
+	got, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "clipboard get unicode")
 	v.Equal(text, got, "clipboard unicode round-trip")
 }
@@ -231,17 +231,17 @@ func TestClipboardRoundTrip_Whitespace(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	const text = "  leading  \t\ttabs\t  nested   trailing  "
-	v.NoError(s.pf.Clipboard().Set(ctx, text), "clipboard set whitespace")
+	v.NoError(s.pf.Clipboard().WithContext(ctx).Set(text), "clipboard set whitespace")
 	t.Cleanup(func() {
 		cleanCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cleanCtx, "")
+		_ = s.pf.Clipboard().WithContext(cleanCtx).Set("")
 	})
 
-	got, err := s.pf.Clipboard().Get(ctx)
+	got, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "clipboard get whitespace")
 	v.Equal(text, got, "clipboard whitespace round-trip")
 }
@@ -252,17 +252,17 @@ func TestClipboardRoundTrip_Newlines(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	const text = "line one\nline two\nline three\nfinal"
-	v.NoError(s.pf.Clipboard().Set(ctx, text), "clipboard set newlines")
+	v.NoError(s.pf.Clipboard().WithContext(ctx).Set(text), "clipboard set newlines")
 	t.Cleanup(func() {
 		cleanCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cleanCtx, "")
+		_ = s.pf.Clipboard().WithContext(cleanCtx).Set("")
 	})
 
-	got, err := s.pf.Clipboard().Get(ctx)
+	got, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "clipboard get newlines")
 	v.Equal(text, got, "clipboard newlines round-trip")
 }
@@ -276,20 +276,20 @@ func TestClipboardRoundTrip_Empty(t *testing.T) {
 	defer cancel()
 
 	// Prime the clipboard so we can confirm that Set("") actually clears it.
-	if err := s.pf.Clipboard().Set(ctx, "prime"); err != nil {
+	if err := s.pf.Clipboard().WithContext(ctx).Set("prime"); err != nil {
 		t.Skipf("clipboard not available: %v", err)
 	}
-	if err := s.pf.Clipboard().Set(ctx, ""); err != nil {
+	if err := s.pf.Clipboard().WithContext(ctx).Set(""); err != nil {
 		// wl-copy and xclip may refuse an empty write.
 		t.Skipf("clipboard backend does not support empty string: %v", err)
 	}
 	t.Cleanup(func() {
 		cleanCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cleanCtx, "")
+		_ = s.pf.Clipboard().WithContext(cleanCtx).Set("")
 	})
 
-	got, err := s.pf.Clipboard().Get(ctx)
+	got, err := s.pf.Clipboard().WithContext(ctx).Get()
 	if err != nil {
 		// Some backends return an error on empty-clipboard Get; that is acceptable.
 		t.Skipf("clipboard get on empty content returned error (backend limitation): %v", err)
@@ -305,25 +305,25 @@ func TestClipboard_NoContamination(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	const first = "first-clipboard-value-abc"
 	const second = "second-clipboard-value-xyz"
 
-	v.NoError(s.pf.Clipboard().Set(ctx, first), "clipboard set first")
-	got1, err := s.pf.Clipboard().Get(ctx)
+	v.NoError(s.pf.Clipboard().WithContext(ctx).Set(first), "clipboard set first")
+	got1, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "clipboard get first")
 	v.Equal(first, got1, "first value round-trip")
 
-	v.NoError(s.pf.Clipboard().Set(ctx, second), "clipboard set second")
-	got2, err := s.pf.Clipboard().Get(ctx)
+	v.NoError(s.pf.Clipboard().WithContext(ctx).Set(second), "clipboard set second")
+	got2, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "clipboard get second")
 	v.Equal(second, got2, "second value fully replaces first")
 
 	t.Cleanup(func() {
 		cleanCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cleanCtx, "")
+		_ = s.pf.Clipboard().WithContext(cleanCtx).Set("")
 	})
 }
 
@@ -338,28 +338,28 @@ func TestTypeFast_SetsClipboard(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	// Establish a known initial clipboard state.
 	const sentinel = "SENTINEL_BEFORE_PASTE"
-	v.NoError(s.pf.Clipboard().Set(ctx, sentinel), "set sentinel")
+	v.NoError(s.pf.Clipboard().WithContext(ctx).Set(sentinel), "set sentinel")
 
-	got0, err := s.pf.Clipboard().Get(ctx)
+	got0, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "get sentinel")
 	v.Equal(sentinel, got0, "sentinel round-trip")
 
 	// pf.Paste must write the pasted text into the clipboard.
 	const pasteText = "PASTE_UPDATES_CLIPBOARD_42"
-	v.NoError(s.pf.Paste(ctx, pasteText), "paste text")
+	v.NoError(s.pf.WithContext(ctx).Paste(pasteText), "paste text")
 
-	got1, err := s.pf.Clipboard().Get(ctx)
+	got1, err := s.pf.Clipboard().WithContext(ctx).Get()
 	v.NoError(err, "get clipboard after paste")
 	v.Equal(pasteText, got1, "clipboard updated by Paste")
 
 	t.Cleanup(func() {
 		cleanCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cleanCtx, "")
+		_ = s.pf.Clipboard().WithContext(cleanCtx).Set("")
 	})
 }
 
@@ -375,7 +375,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	const typeText = "TypeFastMatchesType"
 
@@ -398,9 +398,9 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	defer kbCancel()
 	v.NoError(activateWindow(s.pf, kbCtx, kbDocName), "activate keyboard editor")
 	time.Sleep(500 * time.Millisecond)
-	v.NoError(s.pf.Input().Type(kbCtx, typeText), "type via keyboard")
+	v.NoError(s.pf.Input().WithContext(kbCtx).TypeKeys(typeText), "type via keyboard")
 	time.Sleep(300 * time.Millisecond)
-	v.NoError(s.pf.Input().Type(kbCtx, "{ctrl+s}"), "save keyboard file")
+	v.NoError(s.pf.Input().WithContext(kbCtx).TypeKeys("{ctrl+s}"), "save keyboard file")
 
 	kbContent, err := waitForFileContains(kbCtx, kbFile, typeText, 10*time.Second)
 	v.NoError(err, "wait for keyboard file content")
@@ -426,9 +426,9 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	defer cbCancel()
 	v.NoError(activateWindow(s.pf, cbCtx, cbDocName), "activate clipboard editor")
 	time.Sleep(500 * time.Millisecond)
-	v.NoError(s.pf.Paste(cbCtx, typeText), "paste via clipboard")
+	v.NoError(s.pf.WithContext(cbCtx).Paste(typeText), "paste via clipboard")
 	time.Sleep(300 * time.Millisecond)
-	v.NoError(s.pf.Input().Type(cbCtx, "{ctrl+s}"), "save clipboard file")
+	v.NoError(s.pf.Input().WithContext(cbCtx).TypeKeys("{ctrl+s}"), "save clipboard file")
 
 	cbContent, err := waitForFileContains(cbCtx, cbFile, typeText, 10*time.Second)
 	v.NoError(err, "wait for clipboard file content")
@@ -464,7 +464,7 @@ func TestWindowFocus_SwitchBetweenWindows(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	// ── open window A ─────────────────────────────────────────────────────────
 	fileA := filepath.Join(t.TempDir(), "focusA.txt")
@@ -530,7 +530,7 @@ func TestWindowClose_VerifiedGoneFromList(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	closeFile := filepath.Join(t.TempDir(), "closetest.txt")
 	if err := os.WriteFile(closeFile, nil, 0o644); err != nil {
@@ -575,9 +575,9 @@ func TestScreenCapture_SelfLocate(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
-	screenW, screenH, err := s.pf.Screen().Resolution(ctx)
+	screenW, screenH, err := s.pf.Screen().WithContext(ctx).Resolution()
 	v.NoError(err, "screen resolution")
 	if screenW <= 0 || screenH <= 0 {
 		t.Skipf("screen resolution unavailable (%dx%d)", screenW, screenH)
@@ -594,9 +594,9 @@ func TestScreenCapture_SelfLocate(t *testing.T) {
 	// Wait for the desktop to settle before capturing the reference.
 	settleCtx, settleCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer settleCancel()
-	_, _ = s.pf.Screen().WaitForNoChange(settleCtx, searchArea, 3, 50*time.Millisecond)
+	_, _ = s.pf.Screen().WithContext(settleCtx).WaitForNoChange(searchArea, 3, 50*time.Millisecond)
 
-	ref, err := s.pf.Screen().Grab(ctx, refRect)
+	ref, err := s.pf.Screen().WithContext(ctx).Grab(refRect)
 	v.NoError(err, "grab reference region")
 
 	// The reference must be locatable within the search area that contains it.
@@ -643,9 +643,9 @@ func TestScreenCapture_PixelPresent(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
-	screenW, screenH, err := s.pf.Screen().Resolution(ctx)
+	screenW, screenH, err := s.pf.Screen().WithContext(ctx).Resolution()
 	v.NoError(err, "live screen resolution")
 	if screenW <= 0 || screenH <= 0 {
 		t.Skipf("screen resolution unavailable (%dx%d)", screenW, screenH)
@@ -653,7 +653,7 @@ func TestScreenCapture_PixelPresent(t *testing.T) {
 
 	// Grab the top-left corner, read its pixel, then verify PixelPresent finds it.
 	liveRect := image.Rect(0, 0, min(screenW, 100), min(screenH, 100))
-	liveImg, err := s.pf.Screen().Grab(ctx, liveRect)
+	liveImg, err := s.pf.Screen().WithContext(ctx).Grab(liveRect)
 	v.NoError(err, "grab live region")
 
 	b := liveImg.Bounds()
@@ -723,12 +723,12 @@ func TestErrorPath_NilClipboard(t *testing.T) {
 	ctx := context.Background()
 	pf := &perfuncted.Session{}
 
-	err := pf.Clipboard().Set(ctx, "test")
+	err := pf.Clipboard().WithContext(ctx).Set("test")
 	if err == nil {
 		t.Error("Set on nil ClipboardBundle should return an error")
 	}
 
-	_, err = pf.Clipboard().Get(ctx)
+	_, err = pf.Clipboard().WithContext(ctx).Get()
 	if err == nil {
 		t.Error("Get on nil ClipboardBundle should return an error")
 	}
@@ -740,7 +740,7 @@ func TestErrorPath_NilInput(t *testing.T) {
 	ctx := context.Background()
 	pf := &perfuncted.Session{}
 
-	err := pf.Input().Type(ctx, "hello")
+	err := pf.Input().WithContext(ctx).TypeKeys("hello")
 	if err == nil {
 		t.Error("Type on nil InputBundle should return an error")
 	}
@@ -752,7 +752,7 @@ func TestErrorPath_WindowNotFound(t *testing.T) {
 	s := mustSuite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	v := newChk(t, s.pf.Screen())
+	v := newChk(t, scopedScreenshotter{s.pf.Screen()})
 
 	_, err := findWindowInfo(s.pf, ctx, "xyzzy-nonexistent-window-pfinttest-8675309")
 	if err == nil {
@@ -773,16 +773,16 @@ func TestClipboardRoundTrip_ASCII(t *testing.T) {
 	defer cancel()
 
 	const text = "hello-world-integration-test-42"
-	if err := s.pf.Clipboard().Set(ctx, text); err != nil {
+	if err := s.pf.Clipboard().WithContext(ctx).Set(text); err != nil {
 		t.Fatalf("clipboard set: %v", err)
 	}
 	t.Cleanup(func() {
 		cctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 		defer done()
-		_ = s.pf.Clipboard().Set(cctx, "")
+		_ = s.pf.Clipboard().WithContext(cctx).Set("")
 	})
 
-	got, err := s.pf.Clipboard().Get(ctx)
+	got, err := s.pf.Clipboard().WithContext(ctx).Get()
 	if err != nil {
 		t.Fatalf("clipboard get: %v", err)
 	}
@@ -884,7 +884,7 @@ func TestOutputList_ReportsGeometry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	outs, err := s.pf.Outputs().List(ctx)
+	outs, err := s.pf.Outputs().WithContext(ctx).List()
 	if err != nil {
 		t.Fatalf("Output.List: %v", err)
 	}
@@ -918,7 +918,7 @@ func TestScreenResolution_Sane(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	w, h, err := s.pf.Screen().Resolution(ctx)
+	w, h, err := s.pf.Screen().WithContext(ctx).Resolution()
 	if err != nil {
 		t.Fatalf("Screen.Resolution: %v", err)
 	}
@@ -951,12 +951,12 @@ func TestFind_WaitForChangeDetectsChange(t *testing.T) {
 	defer cancel()
 
 	// Capture the initial screen state before any action.
-	scrW, scrH, err := s.pf.Screen().Resolution(ctx)
+	scrW, scrH, err := s.pf.Screen().WithContext(ctx).Resolution()
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
 	watchRect := image.Rect(0, 0, scrW, scrH)
-	h0, err := s.pf.Screen().GrabRegionHash(ctx, watchRect)
+	h0, err := s.pf.Screen().WithContext(ctx).GrabRegionHash(watchRect)
 	if err != nil {
 		t.Fatalf("initial hash: %v", err)
 	}
@@ -977,7 +977,7 @@ func TestFind_WaitForChangeDetectsChange(t *testing.T) {
 	// WaitForChange should detect the screen update caused by the new window.
 	wfcCtx, wfcCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer wfcCancel()
-	h1, err := s.pf.Screen().WaitForChange(wfcCtx, watchRect, h0, 100*time.Millisecond)
+	h1, err := s.pf.Screen().WithContext(wfcCtx).WaitForChange(watchRect, h0, 100*time.Millisecond)
 	if err != nil {
 		v := Verifier{t: t, pf: s.pf}
 		v.captureFailure("no-screen-change")
@@ -989,4 +989,12 @@ func TestFind_WaitForChangeDetectsChange(t *testing.T) {
 
 	// Leave the desktop clean.
 	_ = closeWindow(s.pf, ctx, filepath.Base(saveFile))
+}
+
+// scopedScreenshotter adapts the high-level handle at the context-aware
+// find package boundary, retaining the caller's cancellation and deadline.
+type scopedScreenshotter struct{ screen perfuncted.ScreenBundle }
+
+func (s scopedScreenshotter) Grab(ctx context.Context, rect image.Rectangle) (image.Image, error) {
+	return s.screen.WithContext(ctx).Grab(rect)
 }

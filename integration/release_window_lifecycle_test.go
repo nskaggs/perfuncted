@@ -19,7 +19,7 @@ import (
 
 func certifyReleaseWindowLifecycle(t *testing.T, ctx context.Context, s *suite, binary string, target *perfuncted.Window) {
 	t.Helper()
-	info, err := target.Info(ctx)
+	info, err := target.WithContext(ctx).Info()
 	if err != nil {
 		t.Fatal(err)
 	}

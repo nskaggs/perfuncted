@@ -29,7 +29,7 @@ func TestWorkflowControlHeadlessWayland(t *testing.T) {
 		t.Fatal(err)
 	}
 	open := func(ctx context.Context) (*perfuncted.Session, error) {
-		return perfuncted.Open(ctx,
+		return perfuncted.Open(perfuncted.WithStartupContext(ctx), perfuncted.Optional(),
 			perfuncted.WithHeadless(perfuncted.SessionConfig{LogDir: filepath.Join(os.TempDir(), "perfuncted-logs", id)}),
 			perfuncted.Require(perfuncted.CapabilityInput),
 			perfuncted.WithTrace(true),

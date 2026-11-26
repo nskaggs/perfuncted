@@ -110,3 +110,21 @@ func TestWithTimeoutFallbackPreservesCallerCancellation(t *testing.T) {
 		t.Fatalf("bounded context error = %v, want context.Canceled", err)
 	}
 }
+
+func TestNoninteractiveStartupRestrictionSurvivesDerivedContext(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if NoninteractiveStartup(parent) || NoninteractiveStartup(nil) {
+		t.Fatal("ordinary callers were restricted")
+	}
+	restricted := WithNoninteractiveStartup(parent)
+	derived, stop := context.WithTimeout(restricted, time.Second)
+	defer stop()
+	if !NoninteractiveStartup(derived) || NoninteractiveStartup(parent) {
+		t.Fatal("restriction was lost or leaked to parent")
+	}
+	cancel()
+	if !errors.Is(derived.Err(), context.Canceled) {
+		t.Fatal("restriction severed parent cancellation")
+	}
+}

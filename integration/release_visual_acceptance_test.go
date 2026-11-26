@@ -78,12 +78,12 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 			}
 		}
 		area := image.Rect(40, 180, 110, 210)
-		match, err := s.pf.Screen().FindTemplate(ctx, area, template, 1)
+		match, err := s.pf.Screen().WithContext(ctx).FindTemplate(area, template, 1)
 		first, second := image.Rect(52, 190, 62, 200), image.Rect(82, 190, 92, 200)
 		if err != nil || match.Rect != first || match.Confidence != 1 {
 			t.Fatalf("best match = %+v, %v; want %v", match, err, first)
 		}
-		matches, err := s.pf.Screen().FindTemplates(ctx, area, template, 1, 4)
+		matches, err := s.pf.Screen().WithContext(ctx).FindTemplates(area, template, 1, 4)
 		if err != nil || len(matches) != 2 || matches[0].Rect != first || matches[1].Rect != second {
 			t.Fatalf("ordered matches = %+v, %v; want %v, %v", matches, err, first, second)
 		}
@@ -132,14 +132,14 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 	t.Run("cross-api-visual-find", func(t *testing.T) { certifyReleaseFindCLIAndGoOCR(t, ctx, s, binary) })
 	t.Run("screen-and-find-command-contracts", func(t *testing.T) { certifyReleaseScreenCommands(t, ctx, s, binary) })
 	t.Run("real-pointer-observation", func(t *testing.T) {
-		if err := s.pf.Input().MouseMove(ctx, 150, 150); err != nil {
+		if err := s.pf.Input().WithContext(ctx).MouseMove(150, 150); err != nil {
 			t.Fatal(err)
 		}
 		want, err := xproto.QueryPointer(conn, root.Root).Reply()
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := s.pf.Input().ObservePointer(ctx)
+		got, err := s.pf.Input().WithContext(ctx).ObservePointer()
 		if err != nil || got.X != int(want.RootX) || got.Y != int(want.RootY) || got.X != 150 || got.Y != 150 ||
 			got.CoordinateSpace.Kind != input.PointerCoordinateSpaceRootPixels || got.Provider != "x11-root" || got.ObservedAt.IsZero() {
 			t.Fatalf("pointer = %+v, %v; native readback = %+v", got, err, want)
@@ -185,15 +185,15 @@ func TestReleaseVisualAcceptanceX11(t *testing.T) {
 	})
 	t.Run("native-input-command-events", func(t *testing.T) { certifyReleaseX11InputCommands(t, ctx, s, binary, conn, win, root.Root) })
 	t.Run("unsupported-timed-motion-fails-before-dispatch", func(t *testing.T) {
-		if err := s.pf.Input().MouseMove(ctx, 150, 150); err != nil {
+		if err := s.pf.Input().WithContext(ctx).MouseMove(150, 150); err != nil {
 			t.Fatal(err)
 		}
 		start, end := image.Pt(150, 150), image.Pt(280, 230)
 		opts := input.MotionOptions{Duration: 300 * time.Millisecond}
-		if err := s.pf.Input().MouseMoveSmooth(ctx, &start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
+		if err := s.pf.Input().WithContext(ctx).MouseMoveSmooth(&start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
 			t.Fatalf("timed X11 move must reject unproved coordinate metadata: %v", err)
 		}
-		if err := s.pf.Input().DragAndDropSmooth(ctx, start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
+		if err := s.pf.Input().WithContext(ctx).DragAndDropSmooth(start, end, opts); !errors.Is(err, perfuncted.ErrUnsupported) {
 			t.Fatalf("timed X11 drag must reject unproved coordinate metadata: %v", err)
 		}
 		got, err := xproto.QueryPointer(conn, root.Root).Reply()

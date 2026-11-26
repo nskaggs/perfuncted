@@ -87,21 +87,30 @@ func openSession(ctx context.Context, opts ...Option) (*sessionCore, error) {
 		return nil, fmt.Errorf("perfuncted: open: %w: nil context", ErrInvalidArgument)
 	}
 
+	cfg, err := parseOpenOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	return openConfiguredSession(ctx, cfg)
+}
+
+func parseOpenOptions(opts []Option) (openConfig, error) {
 	cfg := openConfig{
 		required: make(map[Capability]struct{}),
 		optional: make(map[Capability]struct{}),
-		target: targetSelection{
-			kind: TargetHost,
-		},
+		target:   targetSelection{kind: TargetHost},
 	}
 	for _, option := range opts {
-		if option == nil {
-			continue
-		}
-		if err := option(&cfg); err != nil {
-			return nil, err
+		if option != nil {
+			if err := option(&cfg); err != nil {
+				return openConfig{}, err
+			}
 		}
 	}
+	return cfg, nil
+}
+
+func openConfiguredSession(ctx context.Context, cfg openConfig) (*sessionCore, error) {
 	if cfg.target.kind == TargetHeadless && cfg.target.config.Resolution == (image.Point{}) {
 		cfg.target.config.Resolution = image.Pt(1024, 768)
 	}
@@ -208,6 +217,9 @@ func (s *sessionCore) resolveRuntime(ctx context.Context, target targetSelection
 }
 
 func (s *sessionCore) initializeCapabilities(ctx context.Context, cfg openConfig) error {
+	if cfg.implicitCapabilities {
+		ctx = contextutil.WithNoninteractiveStartup(ctx)
+	}
 	s.screen = newScreenState(s.bundleBase(CapabilityScreen), nil)
 	s.inputAdmission = s.bundleBase(CapabilityInput)
 	s.input = newInputState(&s.inputAdmission, nil)
@@ -250,6 +262,9 @@ func (s *sessionCore) initializeCapabilities(ctx context.Context, cfg openConfig
 		}
 		if err != nil {
 			status.Failure = errors.Join(ErrUnavailable, err)
+			if cfg.implicitCapabilities {
+				status.Failure = fmt.Errorf("%w; use Require or Optional to explicitly select this capability if setup or consent is needed", status.Failure)
+			}
 		}
 		status.Available = err == nil
 		if err == nil {
@@ -678,7 +693,10 @@ func (s *sessionCore) supportsCapabilityOperation(c Capability, operation string
 
 // Session is the lifecycle authority for a privately owned desktop session.
 // Copying the wrapper aliases the same core; Close is shared by all copies.
-type Session struct{ core *sessionCore }
+type Session struct {
+	core  *sessionCore
+	scope operationScope
+}
 
 func (s *Session) coreState() *sessionCore {
 	if s == nil {
@@ -697,9 +715,27 @@ func wrapSession(s *sessionCore) *Session {
 	return &Session{core: s}
 }
 
-// Open resolves the requested backends and optionally starts an isolated desktop.
-func Open(ctx context.Context, opts ...Option) (*Session, error) {
-	s, err := openSession(ctx, opts...)
+// Open opens a desktop session. Without explicit capability selection it
+// attempts common noninteractive capabilities on a best-effort basis.
+// Require and Optional replace that set; observation and accessibility are opt-in.
+func Open(opts ...Option) (*Session, error) {
+	cfg, err := parseOpenOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.capabilitiesSelected {
+		cfg.implicitCapabilities = true
+		for _, cap := range []Capability{CapabilityInput, CapabilityScreen, CapabilityWindows, CapabilityOutputs, CapabilityClipboard} {
+			cfg.optional[cap] = struct{}{}
+		}
+	}
+	parent := contextutil.Default(cfg.startupContext)
+	if err := parent.Err(); err != nil {
+		return nil, contextutil.ErrorWithCause(parent)
+	}
+	ctx, cancel := context.WithTimeout(parent, cfg.target.config.Timeouts.WithDefaults().Startup)
+	defer cancel()
+	s, err := openConfiguredSession(ctx, cfg)
 	return wrapSession(s), err
 }
 
@@ -742,7 +778,7 @@ func (s *Session) Env() []string {
 
 // Paste writes text through the clipboard when available and otherwise types
 // it directly.
-func (s *Session) Paste(ctx context.Context, text string) (result error) {
+func (s *Session) pasteContext(ctx context.Context, text string) (result error) {
 	return s.coreState().Paste(ctx, text)
 }
 
@@ -782,6 +818,9 @@ type bundleBase struct {
 // Long-lived event streams intentionally do not use this helper: their
 // lifetime belongs to the caller's context.
 func (b *bundleBase) backendContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx != nil && ctx.Value(scopeDeadlineKey{}) == true {
+		return ctx, func() {}
+	}
 	ctx = contextutil.Default(ctx)
 	if b == nil || b.session == nil {
 		return ctx, func() {}
@@ -1128,31 +1167,43 @@ func (a accessibilityAdmission) PublishStatus(dynamic sessionaccessibility.Statu
 
 // ScreenBundle is a non-owning session-bound screen handle.
 type ScreenBundle struct {
-	screenHandle
+	scope operationScope
 	state *screenState
 }
 
 // InputBundle is a non-owning session-bound injection handle.
-type InputBundle struct{ inputHandle }
+type InputBundle struct {
+	handle inputHandle
+	scope  operationScope
+}
 
 // InputObservationBundle is a separately authorized observation handle.
-type InputObservationBundle struct{ observationHandle }
+type InputObservationBundle struct {
+	handle observationHandle
+	scope  operationScope
+}
 
 // WindowBundle is a non-owning session-bound discovery/control handle.
 type WindowBundle struct {
-	windowHandle
+	scope operationScope
 	state *windowBundleState
 }
 
 // OutputBundle is a non-owning session-bound output discovery handle.
-type OutputBundle struct{ state *outputState }
+type OutputBundle struct {
+	state *outputState
+	scope operationScope
+}
 
 // ClipboardBundle is a non-owning session-bound clipboard handle.
-type ClipboardBundle struct{ state *clipboardState }
+type ClipboardBundle struct {
+	state *clipboardState
+	scope operationScope
+}
 
 // AccessibilityBundle is a non-owning session-bound semantic automation handle.
 type AccessibilityBundle struct {
-	accessibilityHandle
+	scope operationScope
 	state *accessibilityState
 }
 
@@ -1164,7 +1215,7 @@ func (s *Session) Screen() ScreenBundle {
 	if s.core.screen == nil {
 		return ScreenBundle{}
 	}
-	return ScreenBundle{s.core.screen.screenHandle, s.core.screen}
+	return ScreenBundle{state: s.core.screen, scope: s.operationScope()}
 }
 
 // Input returns the keyboard and pointer injection handle.
@@ -1172,7 +1223,7 @@ func (s *Session) Input() InputBundle {
 	if s == nil || s.core == nil {
 		return InputBundle{}
 	}
-	return InputBundle{s.core.input.Handle()}
+	return InputBundle{handle: s.core.input.Handle(), scope: s.operationScope()}
 }
 
 // InputObservation returns the independent input observation handle.
@@ -1180,7 +1231,7 @@ func (s *Session) InputObservation() InputObservationBundle {
 	if s == nil || s.core == nil {
 		return InputObservationBundle{}
 	}
-	return InputObservationBundle{s.core.inputObservation.Handle()}
+	return InputObservationBundle{handle: s.core.inputObservation.Handle(), scope: s.operationScope()}
 }
 
 // Windows returns the window discovery and control handle.
@@ -1191,7 +1242,7 @@ func (s *Session) Windows() WindowBundle {
 	if s.core.windows == nil {
 		return WindowBundle{}
 	}
-	return WindowBundle{s.core.windows.windowHandle, s.core.windows}
+	return WindowBundle{state: s.core.windows, scope: s.operationScope()}
 }
 
 // Outputs returns the output discovery handle.
@@ -1199,7 +1250,7 @@ func (s *Session) Outputs() OutputBundle {
 	if s == nil || s.core == nil {
 		return OutputBundle{}
 	}
-	return OutputBundle{s.core.outputs}
+	return OutputBundle{state: s.core.outputs, scope: s.operationScope()}
 }
 
 // Clipboard returns the clipboard handle.
@@ -1207,7 +1258,7 @@ func (s *Session) Clipboard() ClipboardBundle {
 	if s == nil || s.core == nil {
 		return ClipboardBundle{}
 	}
-	return ClipboardBundle{s.core.clipboard}
+	return ClipboardBundle{state: s.core.clipboard, scope: s.operationScope()}
 }
 
 // Accessibility returns the semantic accessibility handle.
@@ -1218,14 +1269,18 @@ func (s *Session) Accessibility() AccessibilityBundle {
 	if s.core.accessibility == nil {
 		return AccessibilityBundle{}
 	}
-	return AccessibilityBundle{s.core.accessibility.accessibilityHandle, s.core.accessibility}
+	return AccessibilityBundle{state: s.core.accessibility, scope: s.operationScope()}
 }
 
 // List returns the displays visible to the active output backend.
-func (b OutputBundle) List(ctx context.Context) ([]output.Info, error) { return b.state.List(ctx) }
+func (b OutputBundle) listContext(ctx context.Context) ([]output.Info, error) {
+	return b.state.List(ctx)
+}
 
 // Get returns the current clipboard text.
-func (b ClipboardBundle) Get(ctx context.Context) (string, error) { return b.state.Get(ctx) }
+func (b ClipboardBundle) getContext(ctx context.Context) (string, error) { return b.state.Get(ctx) }
 
 // Set replaces the clipboard text.
-func (b ClipboardBundle) Set(ctx context.Context, text string) error { return b.state.Set(ctx, text) }
+func (b ClipboardBundle) setContext(ctx context.Context, text string) error {
+	return b.state.Set(ctx, text)
+}

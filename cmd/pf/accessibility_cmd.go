@@ -66,7 +66,7 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 	if strings.TrimSpace(o.window) != "" || strings.TrimSpace(o.windowID) != "" {
 		return o.windowRoot(ctx, pf)
 	}
-	app, err := pf.Accessibility().FindApplication(ctx, accessibility.ApplicationFilter{
+	app, err := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{
 		Name:        strings.TrimSpace(o.appName),
 		PID:         o.pid,
 		WindowID:    strings.TrimSpace(o.windowID),
@@ -86,7 +86,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 	// Preserve additional app/PID scope constraints even though the returned
 	// root is the selected window rather than its application.
 	if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-		if _, scopeErr := pf.Accessibility().FindApplication(ctx, accessibility.ApplicationFilter{
+		if _, scopeErr := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{
 			Name:     strings.TrimSpace(o.appName),
 			PID:      o.pid,
 			WindowID: managedWindowID,
@@ -94,7 +94,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 			return accessibility.NodeID{}, scopeErr
 		}
 	}
-	scope, err := pf.Accessibility().WindowRoot(ctx, managedWindowID)
+	scope, err := pf.Accessibility().WithContext(ctx).WindowRoot(managedWindowID)
 	if err != nil {
 		return accessibility.NodeID{}, err
 	}
@@ -104,7 +104,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 func (o accessibilityCLIOptions) managedWindowID(ctx context.Context, pf *perfuncted.Session) (string, error) {
 	managedWindowID := strings.TrimSpace(o.windowID)
 	if strings.TrimSpace(o.window) != "" {
-		managedWindow, err := pf.Windows().Find(ctx, window.Match{TitleExact: strings.TrimSpace(o.window)})
+		managedWindow, err := pf.Windows().WithContext(ctx).Find(window.Match{TitleExact: strings.TrimSpace(o.window)})
 		if err != nil {
 			return "", err
 		}
@@ -126,7 +126,7 @@ func (o accessibilityCLIOptions) locator(ctx context.Context, pf *perfuncted.Ses
 			return nil, err
 		}
 		if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-			if _, err := pf.Accessibility().FindApplication(ctx, accessibility.ApplicationFilter{
+			if _, err := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{
 				Name: strings.TrimSpace(o.appName), PID: o.pid, WindowID: managedWindowID,
 			}); err != nil {
 				return nil, err
@@ -364,7 +364,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		value, err := pf.Accessibility().Applications(c.Context())
+		value, err := pf.Accessibility().WithContext(c.Context()).Applications()
 		if err != nil {
 			return err
 		}
@@ -386,7 +386,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 		if err != nil {
 			return err
 		}
-		snapshot, err := pf.Accessibility().Snapshot(c.Context(), root, treeOpts.snapshot())
+		snapshot, err := pf.Accessibility().WithContext(c.Context()).Snapshot(root, treeOpts.snapshot())
 		if err != nil {
 			return err
 		}
@@ -421,7 +421,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 				return err
 			}
 			findQuery.Attributes = parseAccessibilityAttributes(findAttributes)
-			value, err := pf.Accessibility().Find(c.Context(), root, findQuery, findOpts.snapshot())
+			value, err := pf.Accessibility().WithContext(c.Context()).Find(root, findQuery, findOpts.snapshot())
 			if err != nil {
 				return err
 			}
@@ -478,7 +478,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			if waitPoll > 0 {
 				options = append(options, perfuncted.WaitEvery(waitPoll))
 			}
-			node, evidence, err := locator.WaitForState(c.Context(), state, waitTimeout, options...)
+			node, evidence, err := locator.WithContext(c.Context()).WaitForState(state, waitTimeout, options...)
 			if err != nil {
 				return err
 			}
@@ -504,7 +504,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		value, err := pf.Accessibility().Focused(c.Context(), accessibility.SnapshotOptions{})
+		value, err := pf.Accessibility().WithContext(c.Context()).Focused(accessibility.SnapshotOptions{})
 		if err != nil {
 			return err
 		}
@@ -540,7 +540,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		value, err := pf.Accessibility().AtPoint(c.Context(), pointX, pointY)
+		value, err := pf.Accessibility().WithContext(c.Context()).AtPoint(pointX, pointY)
 		if err != nil {
 			return err
 		}
@@ -560,7 +560,7 @@ func accessibilityCmd(openPF, openWindowPF sessionOpener) *cobra.Command { //nol
 			return err
 		}
 		defer pf.Close()
-		stream, err := pf.Accessibility().Events(c.Context(), accessibility.EventOptions{Buffer: eventBuffer})
+		stream, err := pf.Accessibility().WithContext(c.Context()).Events(accessibility.EventOptions{Buffer: eventBuffer})
 		if err != nil {
 			return err
 		}
@@ -638,7 +638,7 @@ Examples:
 			}
 			actionQuery.Attributes = parseAccessibilityAttributes(actionAttributes)
 			if !verificationRequested {
-				receipt, err := pf.Accessibility().InvokeSemanticAction(c.Context(), root, actionQuery, actionName, actionOpts.snapshot())
+				receipt, err := pf.Accessibility().WithContext(c.Context()).InvokeSemanticAction(root, actionQuery, actionName, actionOpts.snapshot())
 				if err != nil {
 					return err
 				}
@@ -649,7 +649,7 @@ Examples:
 			if c.Flags().Changed("expect-text") {
 				postcondition = perfuncted.AccessibilityTextContains(root, actionExpectText, actionOpts.snapshot())
 			} else {
-				baseline, findErr := pf.Accessibility().FindOne(c.Context(), root, actionQuery, actionOpts.snapshot())
+				baseline, findErr := pf.Accessibility().WithContext(c.Context()).FindOne(root, actionQuery, actionOpts.snapshot())
 				if findErr != nil {
 					result := accessibilityActionCLIResult{Status: "preflight-failed", ErrorCode: "preflight-failed"}
 					if outputErr := accessibilityOutput(c.OutOrStdout(), actionOpts.json, result); outputErr != nil {
@@ -662,8 +662,8 @@ Examples:
 
 			verifyCtx, cancel := context.WithTimeout(c.Context(), actionTimeout)
 			defer cancel()
-			receipt, evidence, actionErr := pf.InvokeAccessibilityActionAndWait(
-				verifyCtx, root, actionQuery, actionName, actionOpts.snapshot(), postcondition,
+			receipt, evidence, actionErr := pf.WithContext(verifyCtx).InvokeAccessibilityActionAndWait(
+				root, actionQuery, actionName, actionOpts.snapshot(), postcondition,
 			)
 			result := accessibilityActionCLIResult{Status: "verified", Receipt: receipt, Evidence: evidence}
 			if actionErr != nil {
@@ -714,11 +714,11 @@ Examples:
 			return err
 		}
 		focusQuery.Attributes = parseAccessibilityAttributes(focusAttributes)
-		node, err := pf.Accessibility().FindOne(c.Context(), root, focusQuery, focusOpts.snapshot())
+		node, err := pf.Accessibility().WithContext(c.Context()).FindOne(root, focusQuery, focusOpts.snapshot())
 		if err != nil {
 			return err
 		}
-		if err := pf.Accessibility().FocusNode(c.Context(), node.ID); err != nil {
+		if err := pf.Accessibility().WithContext(c.Context()).FocusNode(node.ID); err != nil {
 			return err
 		}
 		return accessibilityOutput(c.OutOrStdout(), focusOpts.json, node)
@@ -746,11 +746,11 @@ Examples:
 			return err
 		}
 		textQuery.Attributes = parseAccessibilityAttributes(textAttributes)
-		node, err := pf.Accessibility().FindOne(c.Context(), root, textQuery, textOpts.snapshot())
+		node, err := pf.Accessibility().WithContext(c.Context()).FindOne(root, textQuery, textOpts.snapshot())
 		if err != nil {
 			return err
 		}
-		if err := pf.Accessibility().ReplaceEditableText(c.Context(), node.ID, textValue); err != nil {
+		if err := pf.Accessibility().WithContext(c.Context()).ReplaceEditableText(node.ID, textValue); err != nil {
 			return err
 		}
 		return accessibilityOutput(c.OutOrStdout(), textOpts.json, node)
@@ -800,7 +800,7 @@ Examples:
 		}
 		defer pf.Close()
 		if op == "reopen" {
-			if reopenErr := pf.Accessibility().Reopen(c.Context()); reopenErr != nil {
+			if reopenErr := pf.Accessibility().WithContext(c.Context()).Reopen(); reopenErr != nil {
 				return reopenErr
 			}
 			return accessibilityOutput(c.OutOrStdout(), rawOpts.json, "ok")
@@ -893,90 +893,90 @@ func invokeRawOp(ctx context.Context, bundle perfuncted.AccessibilityBundle, nod
 	switch in.op {
 	case "action":
 		if strings.TrimSpace(in.actionName) != "" {
-			return bundle.InvokeActionByName(ctx, node, in.actionName)
+			return bundle.WithContext(ctx).InvokeActionByName(node, in.actionName)
 		}
 		if in.actionIndex >= 0 {
-			return nil, bundle.InvokeAction(ctx, node, in.actionIndex)
+			return nil, bundle.WithContext(ctx).InvokeAction(node, in.actionIndex)
 		}
-		return bundle.InvokeDefaultAction(ctx, node)
+		return bundle.WithContext(ctx).InvokeDefaultAction(node)
 	case "focus":
-		return nil, bundle.FocusNode(ctx, node)
+		return nil, bundle.WithContext(ctx).FocusNode(node)
 	case "scroll":
 		kind, err := parseAccessibilityScrollType(in.alignment)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.ScrollTo(ctx, node, kind)
+		return nil, bundle.WithContext(ctx).ScrollTo(node, kind)
 	case "scroll-to-point":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.ScrollToPoint(ctx, node, coord, in.x, in.y)
+		return nil, bundle.WithContext(ctx).ScrollToPoint(node, coord, in.x, in.y)
 	case "set-position":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.SetPosition(ctx, node, in.x, in.y, coord)
+		return nil, bundle.WithContext(ctx).SetPosition(node, in.x, in.y, coord)
 	case "set-size":
-		return nil, bundle.SetSize(ctx, node, in.width, in.height)
+		return nil, bundle.WithContext(ctx).SetSize(node, in.width, in.height)
 	case "set-extents":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.SetExtents(ctx, node, in.x, in.y, in.width, in.height, coord)
+		return nil, bundle.WithContext(ctx).SetExtents(node, in.x, in.y, in.width, in.height, coord)
 	case "set-value":
-		return nil, bundle.SetValue(ctx, node, in.value)
+		return nil, bundle.WithContext(ctx).SetValue(node, in.value)
 	case "set-text-contents":
-		return nil, bundle.ReplaceEditableText(ctx, node, in.text)
+		return nil, bundle.WithContext(ctx).ReplaceEditableText(node, in.text)
 	case "insert-text":
 		text := in.rangeText
 		if text == "" {
 			text = in.text
 		}
-		return nil, bundle.InsertText(ctx, node, in.offset, text)
+		return nil, bundle.WithContext(ctx).InsertText(node, in.offset, text)
 	case "delete-text":
-		return nil, bundle.DeleteText(ctx, node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).DeleteText(node, in.start, in.end)
 	case "copy-text":
-		return nil, bundle.CopyText(ctx, node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).CopyText(node, in.start, in.end)
 	case "cut-text":
-		return nil, bundle.CutText(ctx, node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).CutText(node, in.start, in.end)
 	case "paste-text":
-		return nil, bundle.PasteText(ctx, node, in.position)
+		return nil, bundle.WithContext(ctx).PasteText(node, in.position)
 	case "set-caret":
-		return nil, bundle.SetCaretOffset(ctx, node, in.offset)
+		return nil, bundle.WithContext(ctx).SetCaretOffset(node, in.offset)
 	case "set-text-selection":
-		return nil, bundle.SetTextSelection(ctx, node, in.selection, in.start, in.end)
+		return nil, bundle.WithContext(ctx).SetTextSelection(node, in.selection, in.start, in.end)
 	case "add-text-selection":
-		return nil, bundle.AddTextSelection(ctx, node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).AddTextSelection(node, in.start, in.end)
 	case "remove-text-selection":
-		return nil, bundle.RemoveTextSelection(ctx, node, in.selection)
+		return nil, bundle.WithContext(ctx).RemoveTextSelection(node, in.selection)
 	case "set-document-text-selections":
 		var selections []accessibility.DocumentTextSelection
 		if err := json.Unmarshal([]byte(in.selectionsJSON), &selections); err != nil {
 			return nil, fmt.Errorf("invalid --selections JSON: %w", err)
 		}
-		return nil, bundle.SetTextSelections(ctx, node, selections)
+		return nil, bundle.WithContext(ctx).SetTextSelections(node, selections)
 	case "select-child":
-		return nil, bundle.SelectChild(ctx, node, in.index)
+		return nil, bundle.WithContext(ctx).SelectChild(node, in.index)
 	case "deselect-child":
-		return nil, bundle.DeselectChild(ctx, node, in.index)
+		return nil, bundle.WithContext(ctx).DeselectChild(node, in.index)
 	case "select-all":
-		return nil, bundle.SelectAll(ctx, node)
+		return nil, bundle.WithContext(ctx).SelectAll(node)
 	case "clear-selection":
-		return nil, bundle.ClearSelection(ctx, node)
+		return nil, bundle.WithContext(ctx).ClearSelection(node)
 	case "deselect-selected-child":
-		return nil, bundle.DeselectSelectedChild(ctx, node)
+		return nil, bundle.WithContext(ctx).DeselectSelectedChild(node)
 	case "select-row":
-		return nil, bundle.SelectRow(ctx, node, in.index)
+		return nil, bundle.WithContext(ctx).SelectRow(node, in.index)
 	case "deselect-row":
-		return nil, bundle.DeselectRow(ctx, node, in.index)
+		return nil, bundle.WithContext(ctx).DeselectRow(node, in.index)
 	case "select-column":
-		return nil, bundle.SelectColumn(ctx, node, in.index)
+		return nil, bundle.WithContext(ctx).SelectColumn(node, in.index)
 	case "deselect-column":
-		return nil, bundle.DeselectColumn(ctx, node, in.index)
+		return nil, bundle.WithContext(ctx).DeselectColumn(node, in.index)
 	default:
 		return nil, fmt.Errorf("unknown raw op %q", in.op)
 	}

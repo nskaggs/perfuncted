@@ -30,7 +30,7 @@ func singleOutputPhysicalResolution(ctx context.Context, outputs perfuncted.Outp
 	if outputs == (perfuncted.OutputBundle{}) {
 		return 0, 0, false
 	}
-	items, err := outputs.List(ctx)
+	items, err := outputs.WithContext(ctx).List()
 	if err != nil || ctx.Err() != nil || len(items) != 1 {
 		return 0, 0, false
 	}
@@ -101,10 +101,10 @@ func resolveScreenWindow(ctx context.Context, bundle perfuncted.WindowBundle, se
 	case "window-id":
 		return findWindowByStableID(ctx, bundle, selector.id)
 	case "window-title":
-		return bundle.Find(ctx, window.Match{TitleExact: selector.title})
+		return bundle.WithContext(ctx).Find(window.Match{TitleExact: selector.title})
 	case "pid":
 		pid := selector.pid
-		return bundle.Find(ctx, window.Match{PID: &pid})
+		return bundle.WithContext(ctx).Find(window.Match{PID: &pid})
 	default:
 		return nil, fmt.Errorf("%w: unknown screen window selector", perfuncted.ErrInvalidArgument)
 	}
@@ -234,9 +234,9 @@ goes to stderr.`,
 				var capture screen.WindowCapture
 				if out == "-" {
 					if grabBackgroundFlag {
-						capture, err = pf.Screen().CaptureWindowBackground(cmd.Context(), target)
+						capture, err = pf.Screen().WithContext(cmd.Context()).CaptureWindowBackground(target)
 					} else {
-						capture, err = pf.Screen().CaptureWindow(cmd.Context(), target)
+						capture, err = pf.Screen().WithContext(cmd.Context()).CaptureWindow(target)
 					}
 					if err != nil {
 						return err
@@ -246,9 +246,9 @@ goes to stderr.`,
 					}
 				} else {
 					if grabBackgroundFlag {
-						capture, err = pf.Screen().CaptureWindowBackgroundTo(cmd.Context(), target, out)
+						capture, err = pf.Screen().WithContext(cmd.Context()).CaptureWindowBackgroundTo(target, out)
 					} else {
-						capture, err = pf.Screen().CaptureWindowTo(cmd.Context(), target, out)
+						capture, err = pf.Screen().WithContext(cmd.Context()).CaptureWindowTo(target, out)
 					}
 					if err != nil {
 						return err
@@ -276,13 +276,13 @@ goes to stderr.`,
 				return writeCLIMessage(cmd.OutOrStdout(), out)
 			}
 			if out == "-" {
-				img, err := pf.Screen().GrabRegion(cmd.Context(), r)
+				img, err := pf.Screen().WithContext(cmd.Context()).Grab(r)
 				if err != nil {
 					return err
 				}
 				return png.Encode(cmd.OutOrStdout(), img)
 			}
-			if err := pf.Screen().CaptureRegion(cmd.Context(), r, out); err != nil {
+			if err := pf.Screen().WithContext(cmd.Context()).CaptureRegion(r, out); err != nil {
 				return err
 			}
 			if inFlatpak {
@@ -317,7 +317,7 @@ goes to stderr.`,
 				return err
 			}
 			defer pf.Close()
-			h, err := pf.Screen().GrabRegionHash(cmd.Context(), r)
+			h, err := pf.Screen().WithContext(cmd.Context()).GrabRegionHash(r)
 			if err != nil {
 				return err
 			}
@@ -337,7 +337,7 @@ goes to stderr.`,
 				return err
 			}
 			defer pf.Close()
-			c, err := pf.Screen().GetPixel(cmd.Context(), px, py)
+			c, err := pf.Screen().WithContext(cmd.Context()).GetPixel(px, py)
 			if err != nil {
 				return err
 			}
@@ -361,7 +361,7 @@ directly to stdout. Useful for piping into ffmpeg, imagemagick, or other tools.`
 				return err
 			}
 			defer pf.Close()
-			img, err := pf.Screen().GetAllPixels(cmd.Context())
+			img, err := pf.Screen().WithContext(cmd.Context()).Grab()
 			if err != nil {
 				return err
 			}
@@ -394,12 +394,12 @@ Otherwise, it is saved to the specified file.`,
 				// The bundle publishes PNGs atomically after successful encoding.
 				// os.Create would truncate an existing screenshot before an
 				// untrusted capture's encoding failure is even known.
-				if captureErr := pf.Screen().CaptureRegion(cmd.Context(), r, grabRegionOut); captureErr != nil {
+				if captureErr := pf.Screen().WithContext(cmd.Context()).CaptureRegion(r, grabRegionOut); captureErr != nil {
 					return captureErr
 				}
 				return writeCLIMessage(cmd.ErrOrStderr(), grabRegionOut)
 			}
-			img, err := pf.Screen().GrabRegion(cmd.Context(), r)
+			img, err := pf.Screen().WithContext(cmd.Context()).Grab(r)
 			if err != nil {
 				return err
 			}
@@ -481,7 +481,9 @@ Runs until --duration expires or Ctrl+C.`,
 			}
 
 			if watchChanges {
-				return watchScreenChanges(ctx, cmd.OutOrStdout(), r, poll, pf.Screen().Capture, watchIncludePixels)
+				return watchScreenChanges(ctx, cmd.OutOrStdout(), r, poll, func(ctx context.Context, r image.Rectangle) (screen.Capture, error) {
+					return pf.Screen().WithContext(ctx).Capture(r)
+				}, watchIncludePixels)
 			}
 			var last uint32
 			first := true
@@ -497,7 +499,7 @@ Runs until --duration expires or Ctrl+C.`,
 					return nil
 				default:
 				}
-				h, err := pf.Screen().GrabRegionHash(ctx, r)
+				h, err := pf.Screen().WithContext(ctx).GrabRegionHash(r)
 				if err != nil {
 					if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 						return nil
@@ -570,7 +572,7 @@ Runs until --duration expires or Ctrl+C.`,
 			if w, h, ok := singleOutputPhysicalResolution(cmd.Context(), pf.Outputs()); ok {
 				return writeCLIOutput(cmd.OutOrStdout(), "%dx%d\n", w, h)
 			}
-			w, h, err := pf.Screen().Resolution(cmd.Context())
+			w, h, err := pf.Screen().WithContext(cmd.Context()).Resolution()
 			if err != nil {
 				return err
 			}
@@ -612,7 +614,7 @@ check than a raw hash comparison.`,
 			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			img, err := pf.Screen().WaitForFn(ctx, r, pred, poll)
+			img, err := pf.Screen().WithContext(ctx).WaitForFn(r, pred, poll)
 			if err != nil {
 				return err
 			}
@@ -656,7 +658,7 @@ uses a no-op action so it still works as a pure readiness probe.`,
 			defer pf.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			h, err := pf.Screen().WaitForSettle(ctx, r, func() error { return nil }, stable, poll)
+			h, err := pf.Screen().WithContext(ctx).WaitForSettle(r, func() error { return nil }, stable, poll)
 			if err != nil {
 				return err
 			}
@@ -693,7 +695,7 @@ plain format for quick interactive checks.`,
 				return err
 			}
 			defer pf.Close()
-			cols, err := pf.Screen().GetMultiplePixels(cmd.Context(), points)
+			cols, err := pf.Screen().WithContext(cmd.Context()).GetMultiplePixels(points)
 			if err != nil {
 				return err
 			}

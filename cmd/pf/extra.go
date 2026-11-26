@@ -42,7 +42,7 @@ func outputCmd(openPF sessionOpener) *cobra.Command {
 				return err
 			}
 			defer pf.Close()
-			outs, err := pf.Outputs().List(cmd.Context())
+			outs, err := pf.Outputs().WithContext(cmd.Context()).List()
 			if err != nil {
 				return err
 			}
@@ -258,7 +258,7 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		target, err := s.pf.Windows().Find(s.ctx, match)
+		target, err := s.pf.Windows().WithContext(s.ctx).Find(match)
 		if err != nil {
 			return err
 		}
@@ -275,7 +275,7 @@ func (s *scriptRunner) execWindow(
 		}
 		return printWindowListPlain(s.out, wins)
 	case "active":
-		t, err := s.pf.Windows().ActiveTitle(s.ctx)
+		t, err := s.pf.Windows().WithContext(s.ctx).ActiveTitle()
 		if err != nil {
 			return err
 		}
@@ -295,7 +295,7 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		if err := target.Move(s.ctx, x, y); err != nil {
+		if err := target.WithContext(s.ctx).Move(x, y); err != nil {
 			return err
 		}
 		return s.syncWindows()
@@ -308,7 +308,7 @@ func (s *scriptRunner) execWindow(
 		if err != nil {
 			return err
 		}
-		if err := target.Resize(s.ctx, w, h); err != nil {
+		if err := target.WithContext(s.ctx).Resize(w, h); err != nil {
 			return err
 		}
 		return s.syncWindows()
@@ -365,19 +365,19 @@ func (s *scriptRunner) runWindowAction(
 	var err error
 	switch action {
 	case "activate":
-		err = target.Activate(s.ctx)
+		err = target.WithContext(s.ctx).Activate()
 	case "close":
-		err = target.Close(s.ctx)
+		err = target.WithContext(s.ctx).Close()
 	case "minimize":
-		err = target.Minimize(s.ctx)
+		err = target.WithContext(s.ctx).Minimize()
 	case "maximize":
-		err = target.Maximize(s.ctx)
+		err = target.WithContext(s.ctx).Maximize()
 	case "fullscreen":
-		err = target.Fullscreen(s.ctx)
+		err = target.WithContext(s.ctx).Fullscreen()
 	case "unfullscreen":
-		err = target.Unfullscreen(s.ctx)
+		err = target.WithContext(s.ctx).Unfullscreen()
 	case "restore":
-		err = target.Restore(s.ctx)
+		err = target.WithContext(s.ctx).Restore()
 	default:
 		return fmt.Errorf("unknown window action %q", action)
 	}
@@ -478,12 +478,12 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 		if len(toks) != 2 {
 			return fmt.Errorf("script line %d: input type-literal requires exactly one text argument", lineNo)
 		}
-		if err := s.pf.Input().TypeLiteral(s.ctx, toks[1]); err != nil {
+		if err := s.pf.Input().WithContext(s.ctx).Type(toks[1]); err != nil {
 			return err
 		}
 		return s.syncInput()
 	case "location":
-		x, y, err := s.pf.Input().PointerLocation(s.ctx)
+		x, y, err := s.pf.Input().WithContext(s.ctx).PointerLocation()
 		if err != nil {
 			return err
 		}
@@ -523,7 +523,7 @@ func (s *scriptRunner) execInputType(lineNo int, toks []string) error {
 			return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
 		}
 	}
-	if err := s.pf.Input().Type(s.ctx, text); err != nil {
+	if err := s.pf.Input().WithContext(s.ctx).TypeKeys(text); err != nil {
 		return err
 	}
 	return s.syncInput()
@@ -533,14 +533,14 @@ func (s *scriptRunner) syncInput() error {
 	if !s.sync {
 		return nil
 	}
-	return s.pf.Input().Sync(s.ctx)
+	return s.pf.Input().WithContext(s.ctx).Sync()
 }
 
 func (s *scriptRunner) syncWindows() error {
 	if !s.sync {
 		return nil
 	}
-	return s.pf.Windows().Sync(s.ctx)
+	return s.pf.Windows().WithContext(s.ctx).Sync()
 }
 
 func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
@@ -573,7 +573,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		return s.pf.Screen().CaptureRegion(s.ctx, r, out)
+		return s.pf.Screen().WithContext(s.ctx).CaptureRegion(r, out)
 	case "hash":
 		rect := "0,0,1920,1080"
 		for i := 1; i < len(toks); i++ {
@@ -590,7 +590,7 @@ func (s *scriptRunner) execScreen(lineNo int, toks []string) error {
 		if err != nil {
 			return err
 		}
-		h, err := s.pf.Screen().GrabRegionHash(s.ctx, r)
+		h, err := s.pf.Screen().WithContext(s.ctx).GrabRegionHash(r)
 		if err != nil {
 			return err
 		}
@@ -604,7 +604,7 @@ func (s *scriptRunner) execOutput(lineNo int, toks []string) error {
 	if len(toks) == 0 || toks[0] != "list" {
 		return fmt.Errorf("script line %d: unsupported output subcommand", lineNo)
 	}
-	wins, err := s.pf.Outputs().List(s.ctx)
+	wins, err := s.pf.Outputs().WithContext(s.ctx).List()
 	if err != nil {
 		return err
 	}

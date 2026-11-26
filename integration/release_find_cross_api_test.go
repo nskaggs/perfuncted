@@ -63,7 +63,7 @@ func certifyReleaseFindCLIAndGoOCR(t *testing.T, ctx context.Context, s *suite, 
 	}
 	area := image.Rect(40, 40, 460, 180)
 	opts := find.TextOptions{Recognizer: provider, MaxResults: 4}
-	got, err := s.pf.Screen().FindText(ctx, area, "HELLO", opts)
+	got, err := s.pf.Screen().WithContext(ctx).FindText(area, "HELLO", opts)
 	if err != nil || len(got.Matches) != 1 || got.Provider != "tesseract" || got.Language != "eng" || got.SourceRect != area {
 		t.Fatalf("Go OCR result: %+v, %v", got, err)
 	}
@@ -74,7 +74,7 @@ func certifyReleaseFindCLIAndGoOCR(t *testing.T, ctx context.Context, s *suite, 
 	if len(cli.Matches) != 1 || got.Matches[0].Rect != cli.Matches[0].Rect || got.Matches[0].PixelRect != cli.Matches[0].PixelRect || got.Matches[0].Text != cli.Matches[0].Text {
 		t.Fatalf("Go/CLI OCR geometry disagreement: Go=%+v CLI=%+v", got, cli)
 	}
-	noMatch, err := s.pf.Screen().FindText(ctx, area, "NO SUCH WORD", opts)
+	noMatch, err := s.pf.Screen().WithContext(ctx).FindText(area, "NO SUCH WORD", opts)
 	if err != nil || len(noMatch.Matches) != 0 {
 		t.Fatalf("OCR absence is not successful empty match: %+v %v", noMatch, err)
 	}

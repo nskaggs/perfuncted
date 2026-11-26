@@ -49,7 +49,7 @@ func TestBuildInfoReportUsesSessionRuntime(t *testing.T) {
 	t.Setenv("XDG_CURRENT_DESKTOP", "")
 	t.Setenv("SWAYSOCK", "")
 
-	session, err := perfuncted.Open(context.Background(), perfuncted.WithTarget(perfuncted.EnvironmentTarget([]string{
+	session, err := perfuncted.Open(perfuncted.WithStartupContext(context.Background()), perfuncted.Optional(), perfuncted.WithTarget(perfuncted.EnvironmentTarget([]string{
 		"WAYLAND_DISPLAY=/tmp/perfuncted-session-wayland",
 		"XDG_CURRENT_DESKTOP=Sway",
 	})))
@@ -509,10 +509,10 @@ func TestScriptRunnerScreenCaptureFallbackAndInputStdin(t *testing.T) {
 	if err := s.execInput(4, []string{"type-literal", "z"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.pf.Screen().Resolution(context.Background()); err != nil {
+	if _, _, err := s.pf.Screen().WithContext(context.Background()).Resolution(); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.pf.Screen().Grab(context.Background(), image.Rect(0, 0, 1, 1))
+	_, err := s.pf.Screen().WithContext(context.Background()).Grab(image.Rect(0, 0, 1, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

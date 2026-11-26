@@ -52,9 +52,9 @@ func TestReviewChangedActionRequiresCurrentBaseline(t *testing.T) {
 				var err error
 				switch method {
 				case "locator-click":
-					_, _, err = loc.ClickAndWait(ctx, c, WaitEvery(time.Millisecond))
+					_, _, err = loc.WithContext(ctx).ClickAndWait(c, WaitEvery(time.Millisecond))
 				case "locator-fill":
-					_, _, err = loc.FillAndWait(ctx, "new", c, WaitEvery(time.Millisecond))
+					_, _, err = loc.WithContext(ctx).FillAndWait("new", c, WaitEvery(time.Millisecond))
 				case "session":
 					_, _, err = loc.bundle.session.InvokeAccessibilityActionAndWait(ctx, root, accessibility.Query{Name: "Save"}, "press", accessibility.SnapshotOptions{}, c, WaitEvery(time.Millisecond))
 				}

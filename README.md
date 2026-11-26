@@ -105,7 +105,7 @@ go get github.com/nskaggs/perfuncted/v2
 import "github.com/nskaggs/perfuncted/v2"
 
 func enter() error {
-    s, err := perfuncted.OpenDefault()
+    s, err := perfuncted.Open()
     if err != nil { return err }
     defer s.Close()
     return s.Do(perfuncted.Type("Hello"), perfuncted.Key("tab"))

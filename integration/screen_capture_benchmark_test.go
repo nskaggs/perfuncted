@@ -18,7 +18,7 @@ func BenchmarkManagedScreenCapture(b *testing.B) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	w, h, err := s.pf.Screen().Resolution(ctx)
+	w, h, err := s.pf.Screen().WithContext(ctx).Resolution()
 	if err != nil || w <= 0 || h <= 0 {
 		b.Fatalf("resolution %dx%d: %v", w, h, err)
 	}
@@ -27,7 +27,7 @@ func BenchmarkManagedScreenCapture(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			capture, err := s.pf.Screen().Capture(ctx, rect)
+			capture, err := s.pf.Screen().WithContext(ctx).Capture(rect)
 			if err != nil {
 				b.Fatal(err)
 			}

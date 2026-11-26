@@ -305,7 +305,10 @@ func (s *sessionCore) SwaySocket() string {
 }
 
 // Application is a detached, non-owning handle to a session-owned process group.
-type Application struct{ state *applicationState }
+type Application struct {
+	state *applicationState
+	scope operationScope
+}
 
 func (a *Application) privateState() *applicationState {
 	if a == nil {
@@ -314,27 +317,27 @@ func (a *Application) privateState() *applicationState {
 	return a.state
 }
 
-func wrapApplication(a *applicationState) *Application {
+func wrapApplication(a *applicationState, scope operationScope) *Application {
 	if a == nil {
 		return nil
 	}
-	return &Application{state: a}
+	return &Application{state: a, scope: scope}
 }
 
 // Launch starts cmd as a managed process group. ctx governs startup only:
 // cancelling it after Launch returns does not terminate the application.
-func (s *Session) Launch(
+func (s *Session) launchContext(
 	ctx context.Context,
 	command Command,
 ) (*Application, error) {
 	v, err := s.coreState().Launch(ctx, command)
-	return wrapApplication(v), err
+	return wrapApplication(v, s.operationScope()), err
 }
 
 // Wait waits for the process-group leader to exit. It is safe to call
 // repeatedly or concurrently; Stop and Session.Close additionally wait for
 // the entire owned process group.
-func (a *Application) Wait(ctx context.Context) error {
+func (a *Application) waitContext(ctx context.Context) error {
 	return a.privateState().Wait(ctx)
 }
 
@@ -355,7 +358,7 @@ func (a *Application) Exited() bool {
 }
 
 // Stop sends SIGTERM to the application process group and waits for ctx.
-func (a *Application) Stop(ctx context.Context) error {
+func (a *Application) stopContext(ctx context.Context) error {
 	return a.privateState().Stop(ctx)
 }
 
@@ -378,10 +381,10 @@ func (s *Session) SwaySocket() string {
 
 // WaitForWindow waits for a window belonging to the application's process
 // group. When the backend has no PID data, match must identify one window.
-func (a *Application) WaitForWindow(
+func (a *Application) waitForWindowContext(
 	ctx context.Context,
 	match window.Match,
 ) (*Window, error) {
 	v, err := a.privateState().WaitForWindow(ctx, match)
-	return wrapWindow(v), err
+	return wrapWindow(v, a.scope), err
 }

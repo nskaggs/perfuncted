@@ -1631,3 +1631,81 @@ func TestMissingSessionWaitNotificationIsInert(t *testing.T) {
 	t.Cleanup(func() { _ = session.Close() })
 	session.notifyWaiters() // No wait hub exists until an observer subscribes.
 }
+
+type callerScopeWindowEvents struct {
+	*handleWindowManager
+	events chan window.Event
+}
+
+func (m *callerScopeWindowEvents) SupportedOperations() []string {
+	return []string{"events", "discover"}
+}
+func (m *callerScopeWindowEvents) WindowEvents() <-chan window.Event { return m.events }
+
+func TestCallerWindowEventScopeCancelsWithoutClosingProvider(t *testing.T) {
+	manager := &callerScopeWindowEvents{handleWindowManager: newHandleWindowManager(), events: make(chan window.Event, 2)}
+	s := NewSessionForTesting(nil, nil, manager, nil, nil)
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, err := s.Windows().WithContext(ctx).WithTimeout(time.Second).Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.events <- window.Event{ID: "first"}
+	select {
+	case event := <-stream:
+		if event.ID != "first" {
+			t.Fatalf("wrong event: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing event")
+	}
+	cancel()
+	select {
+	case _, ok := <-stream:
+		if ok {
+			t.Fatal("scope still forwarding")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scope cancellation did not close stream")
+	}
+	if _, err := s.Windows().WithContext(ctx).Events(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled setup: %v", err)
+	}
+	if _, err := s.Windows().WithContext(nil).Events(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil context: %v", err)
+	}
+	raw, err := s.Windows().Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.events <- window.Event{ID: "second"}
+	select {
+	case event := <-raw:
+		if event.ID != "second" {
+			t.Fatalf("underlying channel changed: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("underlying stream lost")
+	}
+}
+
+func TestCallerBlankWindowTitleIsNotUnfilteredFind(t *testing.T) {
+	manager := newHandleWindowManager(window.Info{NativeID: "one", Title: "Editor"})
+	s := NewSessionForTesting(nil, nil, manager, nil, nil)
+	defer s.Close()
+	for _, title := range []string{"", "  "} {
+		if w, err := s.Windows().Find(window.Title(title)); w != nil || !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("blank title resolved %v: %v", w, err)
+		}
+		if w, err := s.Windows().Wait(window.Title(title)); w != nil || !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("blank wait resolved %v: %v", w, err)
+		}
+	}
+	if windows, err := s.Windows().List(); len(windows) != 1 || err != nil {
+		t.Fatalf("unfiltered list: %v %v", windows, err)
+	}
+	if w, err := s.Windows().Find(window.Title("editor")); w == nil || err != nil {
+		t.Fatalf("exact title: %v %v", w, err)
+	}
+}

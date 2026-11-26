@@ -200,7 +200,7 @@ func main() {
 		}
 		for _, m := range methods {
 			mn := m.Name()
-			if strings.HasSuffix(mn, "Context") || mn == "Close" {
+			if strings.HasSuffix(mn, "Context") || mn == "WithTimeout" || mn == "Close" {
 				continue
 			}
 			// mapping skip?
@@ -492,7 +492,11 @@ func main() {
 			// build call string
 			recv := "pf"
 			bundleField := map[string]string{"screen": "Screen", "input": "Input", "window": "Windows", "clipboard": "Clipboard"}[grp]
-			callStr := fmt.Sprintf("%s.%s(%s)", recv+"."+bundleField+"()", mn, strings.Join(callParams, ", "))
+			receiver := recv + "." + bundleField + "()"
+			if !hasContextParam {
+				receiver += ".WithContext(cmd.Context())"
+			}
+			callStr := fmt.Sprintf("%s.%s(%s)", receiver, mn, strings.Join(callParams, ", "))
 
 			if produce == "image" {
 				// img, err := pf.Screen.Grab(r)

@@ -244,6 +244,9 @@ func NewPortalDBusBackendForBusContext(ctx context.Context, addr string) (*Porta
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if contextutil.NoninteractiveStartup(ctx) {
+		return nil, fmt.Errorf("screen/portal: explicit screen capability selection required for possible consent")
+	}
 	if addr == "" {
 		return nil, fmt.Errorf("screen/portal: D-Bus session unset")
 	}
