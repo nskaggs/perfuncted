@@ -313,11 +313,11 @@ func (s *sessionCore) Window(title string) *WindowTarget {
 }
 
 // Window retains the view's cancellation and timeout configuration.
-func (v *Session) Window(title string) *WindowTarget {
-	if v == nil {
+func (s *Session) Window(title string) *WindowTarget {
+	if s == nil {
 		return &WindowTarget{title: title}
 	}
-	copy := *v
+	copy := *s
 	return &WindowTarget{view: &copy, title: title}
 }
 

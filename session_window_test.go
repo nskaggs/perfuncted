@@ -6,6 +6,7 @@ import (
 	"image"
 	"iter"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1707,5 +1708,228 @@ func TestCallerBlankWindowTitleIsNotUnfilteredFind(t *testing.T) {
 	}
 	if w, err := s.Windows().Find(window.Title("editor")); w == nil || err != nil {
 		t.Fatalf("exact title: %v %v", w, err)
+	}
+}
+
+func TestCallerUniqueUnfilteredWindowSelection(t *testing.T) {
+	manager := newHandleWindowManager(window.Info{NativeID: "one", Title: "Editor"})
+	s := NewSessionForTesting(nil, nil, manager, nil, nil)
+	defer s.Close()
+	if w, err := s.Windows().Find(window.Match{}); w == nil || err != nil || w.ID().String() != "one" {
+		t.Fatalf("unique unfiltered find: %v %v", w, err)
+	}
+	if w, err := s.Windows().Wait(window.Match{}); w == nil || err != nil || w.ID().String() != "one" {
+		t.Fatalf("unique unfiltered wait: %v %v", w, err)
+	}
+	if list, err := s.Windows().List(window.Title("")); list != nil || !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("blank helper listed arbitrary windows: %v %v", list, err)
+	}
+}
+
+func TestCallerWindowEventsBroadcastAndSessionShutdown(t *testing.T) {
+	manager := &callerScopeWindowEvents{handleWindowManager: newHandleWindowManager(), events: make(chan window.Event, 4)}
+	s := NewSessionForTesting(nil, nil, manager, nil, nil)
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, err := s.Windows().WithContext(ctx).Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Windows().Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Windows().WithTimeout(time.Second).Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receive := func(ch <-chan window.Event, want string) {
+		t.Helper()
+		select {
+		case ev, ok := <-ch:
+			if !ok || ev.ID != want {
+				t.Fatalf("event=%+v open=%v want=%s", ev, ok, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("missing event %s", want)
+		}
+	}
+	manager.events <- window.Event{ID: "both"}
+	for _, ch := range []<-chan window.Event{a, b, c} {
+		receive(ch, "both")
+	}
+	cancel()
+	select {
+	case _, ok := <-a:
+		if ok {
+			t.Fatal("canceled subscriber still open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled subscriber not closed")
+	}
+	manager.events <- window.Event{ID: "remaining"}
+	receive(b, "remaining")
+	receive(c, "remaining")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []<-chan window.Event{b, c} {
+		select {
+		case _, ok := <-ch:
+			if ok {
+				t.Fatal("subscriber remained open after shutdown")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("shutdown did not close subscriber")
+		}
+	}
+}
+
+func TestCallerWindowEventsDiscardQueuedNotificationsOnRevocation(t *testing.T) {
+	manager := &callerScopeWindowEvents{handleWindowManager: newHandleWindowManager(), events: make(chan window.Event, 4)}
+	s := NewSessionForTesting(nil, nil, manager, nil, nil)
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, err := s.Windows().WithContext(ctx).Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Windows().Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitQueued := func(ch <-chan window.Event) {
+		t.Helper()
+		deadline := time.After(time.Second)
+		for len(ch) == 0 {
+			select {
+			case <-deadline:
+				t.Fatal("notification was not queued")
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
+	manager.events <- window.Event{ID: "queued"}
+	waitQueued(a)
+	waitQueued(b)
+	cancel()
+	// Wait for retirement, not merely caller cancellation. A notification
+	// already received by a caller cannot be recalled.
+	fanout := &s.core.windows.events
+	deadline := time.After(time.Second)
+	for {
+		fanout.mu.Lock()
+		remaining := len(fanout.subs)
+		fanout.mu.Unlock()
+		if remaining == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("canceled subscriber was not retired")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if event, ok := <-a; ok {
+		t.Fatalf("retired subscriber exposed unread event: %+v", event)
+	}
+	if event := <-b; event.ID != "queued" {
+		t.Fatalf("retirement drained another subscriber: %+v", event)
+	}
+	manager.events <- window.Event{ID: "shutdown"}
+	waitQueued(b)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if event, ok := <-b; ok {
+		t.Fatalf("closed session exposed unread event: %+v", event)
+	}
+}
+
+func TestCallerWindowEventRegistrationRejectsRevokedAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                string
+		cancelCaller, cancelSession, closeFanout, nilSource bool
+		want                                                error
+	}{
+		{name: "caller", cancelCaller: true, want: context.Canceled},
+		{name: "session", cancelSession: true, want: ErrSessionClosed},
+		{name: "closed fanout", closeFanout: true, want: ErrUnavailable},
+		{name: "no provider stream", nilSource: true, want: ErrUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lifetime, stop := context.WithCancel(context.Background())
+			defer stop()
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			cause := errors.New("caller revoked registration")
+			var fanout windowEventFanout
+			var source <-chan window.Event = make(chan window.Event)
+			if tc.cancelCaller {
+				cancel(cause)
+			}
+			if tc.cancelSession {
+				stop()
+			}
+			if tc.closeFanout {
+				fanout.close()
+			}
+			if tc.nilSource {
+				source = nil
+			}
+			releases := 0
+			stream, err := fanout.subscribe(ctx, lifetime, source, func() { releases++ })
+			if stream != nil || !errors.Is(err, tc.want) || releases != 1 {
+				t.Fatalf("registration stream=%v error=%v releases=%d", stream, err, releases)
+			}
+			if tc.cancelCaller && !errors.Is(err, cause) {
+				t.Fatalf("cancellation cause lost: %v", err)
+			}
+			if len(fanout.subs) != 0 || fanout.started {
+				t.Fatal("failed registration retained subscriber or started reader")
+			}
+		})
+	}
+}
+
+func TestCallerWindowEventsProviderTerminationRetiresSubscribers(t *testing.T) {
+	manager := &callerScopeWindowEvents{handleWindowManager: newHandleWindowManager(), events: make(chan window.Event, 1)}
+	s := NewSessionForTesting(nil, nil, manager, nil, nil)
+	defer s.Close()
+	stream, err := s.Windows().Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(manager.events)
+	select {
+	case _, ok := <-stream:
+		if ok {
+			t.Fatal("unexpected event after provider termination")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("provider termination did not close subscription")
+	}
+	if next, err := s.Windows().Events(); next != nil || !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("terminal provider registration: %v %v", next, err)
+	}
+}
+
+func TestCallerBlankWindowSelectorPreservesValidationDetail(t *testing.T) {
+	s := NewSessionForTesting(nil, nil, newHandleWindowManager(), nil, nil)
+	defer s.Close()
+	selector := window.Title("")
+	for name, call := range map[string]func() error{
+		"find": func() error { _, err := s.Windows().Find(selector); return err },
+		"list": func() error { _, err := s.Windows().List(selector); return err },
+		"wait": func() error { _, err := s.Windows().Wait(selector); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			if !errors.Is(err, ErrInvalidArgument) || !errors.Is(err, window.ErrInvalidArgument) || !strings.Contains(err.Error(), "empty title selector") {
+				t.Fatalf("validation detail lost: %v", err)
+			}
+		})
 	}
 }

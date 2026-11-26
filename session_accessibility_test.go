@@ -4188,3 +4188,97 @@ func TestAccessibilityLocatorWaitForStateReportsDisconnectedBus(t *testing.T) {
 		t.Fatalf("disconnected accessibility bus error = %v with evidence %+v", err, evidence)
 	}
 }
+
+type callerAccessibilityDeadlineProbe struct {
+	*snapshotAccessibilityAutomationFake
+	deadline time.Time
+}
+
+func (b *callerAccessibilityDeadlineProbe) Snapshot(ctx context.Context, root accessibility.NodeID, opts accessibility.SnapshotOptions) (accessibility.Snapshot, error) {
+	b.deadline, _ = ctx.Deadline()
+	return b.snapshotAccessibilityAutomationFake.Snapshot(ctx, root, opts)
+}
+
+func TestCallerVerifiedActionOverrideReachesProvider(t *testing.T) {
+	loc, fake := newLocatorWaitFixture(t, 1, false)
+	core := loc.bundle.session
+	core.config.Timeouts = TimeoutPolicy{Long: 50 * time.Millisecond}
+	b := &callerAccessibilityDeadlineProbe{snapshotAccessibilityAutomationFake: fake}
+	prev := loc.bundle.backend
+	loc.bundle.backend = b
+	t.Cleanup(func() { loc.bundle.backend = prev })
+	before := time.Now()
+	var check time.Time
+	receipt, _, err := loc.WithTimeout(2 * time.Second).ClickAndWait(Predicate("verified", func(ctx context.Context) (bool, error) { check, _ = ctx.Deadline(); return true, nil }))
+	if err != nil || receipt.Outcome.Status != accessibility.ActionOutcomeVerified {
+		t.Fatalf("verified action: %+v %v", receipt, err)
+	}
+	if b.deadline.Before(before.Add(1900*time.Millisecond)) || !check.Equal(b.deadline) {
+		t.Fatalf("ordinary child cap defeated override: snapshot=%v verification=%v", b.deadline.Sub(before), check.Sub(before))
+	}
+	if len(fake.accessibilityAutomationSpy.calls) != 1 {
+		t.Fatalf("unexpected dispatches %v", fake.accessibilityAutomationSpy.calls)
+	}
+}
+
+type callerAccessibilityStreamProbe struct {
+	*bundleAccessibilityFake
+	ctx    context.Context
+	stream chan accessibility.Event
+	block  bool
+}
+
+func (b *callerAccessibilityStreamProbe) Events(ctx context.Context, _ accessibility.EventOptions) (<-chan accessibility.Event, error) {
+	b.ctx = ctx
+	if b.block {
+		<-ctx.Done()
+	}
+	return b.stream, nil
+}
+func TestCallerAccessibilityStreamSetupAndCancellation(t *testing.T) {
+	for _, block := range []bool{true, false} {
+		t.Run(map[bool]string{true: "timed-out-setup", false: "established-stream"}[block], func(t *testing.T) {
+			b := &callerAccessibilityStreamProbe{bundleAccessibilityFake: &bundleAccessibilityFake{gen: 1}, stream: make(chan accessibility.Event, 1), block: block}
+			core := newSessionForTesting(nil, nil, nil, nil, nil, b)
+			prev := core.accessibility.backend
+			core.accessibility.backend = b
+			defer func() { core.accessibility.backend = prev; _ = core.Close() }()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s := wrapSession(core)
+			stream, err := s.WithContext(ctx).Accessibility().WithTimeout(30 * time.Millisecond).Events(accessibility.EventOptions{})
+			if block {
+				if stream != nil || !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("late setup admitted: %v %v", stream, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-b.ctx.Done():
+				t.Fatal("established stream expired")
+			case <-time.After(60 * time.Millisecond):
+			}
+			b.stream <- accessibility.Event{Kind: "test"}
+			select {
+			case ev := <-stream:
+				if ev.Kind != "test" {
+					t.Fatalf("event=%+v", ev)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("missing event")
+			}
+			cancel()
+			select {
+			case _, ok := <-stream:
+				if ok {
+					t.Fatal("stream retained event authority")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("canceled stream remained open")
+			}
+		})
+	}
+}

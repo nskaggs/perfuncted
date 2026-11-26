@@ -270,7 +270,7 @@ type openConfig struct {
 	target               targetSelection
 	selected             bool
 	startupObserver      StartupPhaseObserver
-	startupContext       context.Context
+	startupContext       context.Context //nolint:containedctx // Opening-only option; not retained by the live session.
 	capabilitiesSelected bool
 	implicitCapabilities bool
 

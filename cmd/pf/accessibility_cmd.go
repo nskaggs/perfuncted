@@ -66,7 +66,7 @@ func (o accessibilityCLIOptions) root(ctx context.Context, pf *perfuncted.Sessio
 	if strings.TrimSpace(o.window) != "" || strings.TrimSpace(o.windowID) != "" {
 		return o.windowRoot(ctx, pf)
 	}
-	app, err := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{
+	app, err := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{ //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		Name:        strings.TrimSpace(o.appName),
 		PID:         o.pid,
 		WindowID:    strings.TrimSpace(o.windowID),
@@ -86,7 +86,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 	// Preserve additional app/PID scope constraints even though the returned
 	// root is the selected window rather than its application.
 	if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-		if _, scopeErr := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{
+		if _, scopeErr := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{ //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 			Name:     strings.TrimSpace(o.appName),
 			PID:      o.pid,
 			WindowID: managedWindowID,
@@ -94,7 +94,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 			return accessibility.NodeID{}, scopeErr
 		}
 	}
-	scope, err := pf.Accessibility().WithContext(ctx).WindowRoot(managedWindowID)
+	scope, err := pf.Accessibility().WithContext(ctx).WindowRoot(managedWindowID) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	if err != nil {
 		return accessibility.NodeID{}, err
 	}
@@ -104,7 +104,7 @@ func (o accessibilityCLIOptions) windowRoot(ctx context.Context, pf *perfuncted.
 func (o accessibilityCLIOptions) managedWindowID(ctx context.Context, pf *perfuncted.Session) (string, error) {
 	managedWindowID := strings.TrimSpace(o.windowID)
 	if strings.TrimSpace(o.window) != "" {
-		managedWindow, err := pf.Windows().WithContext(ctx).Find(window.Match{TitleExact: strings.TrimSpace(o.window)})
+		managedWindow, err := pf.Windows().WithContext(ctx).Find(window.Match{TitleExact: strings.TrimSpace(o.window)}) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		if err != nil {
 			return "", err
 		}
@@ -126,7 +126,7 @@ func (o accessibilityCLIOptions) locator(ctx context.Context, pf *perfuncted.Ses
 			return nil, err
 		}
 		if strings.TrimSpace(o.appName) != "" || o.pid != 0 {
-			if _, err := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{
+			if _, err := pf.Accessibility().WithContext(ctx).FindApplication(accessibility.ApplicationFilter{ //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 				Name: strings.TrimSpace(o.appName), PID: o.pid, WindowID: managedWindowID,
 			}); err != nil {
 				return nil, err
@@ -893,90 +893,90 @@ func invokeRawOp(ctx context.Context, bundle perfuncted.AccessibilityBundle, nod
 	switch in.op {
 	case "action":
 		if strings.TrimSpace(in.actionName) != "" {
-			return bundle.WithContext(ctx).InvokeActionByName(node, in.actionName)
+			return bundle.WithContext(ctx).InvokeActionByName(node, in.actionName) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		}
 		if in.actionIndex >= 0 {
-			return nil, bundle.WithContext(ctx).InvokeAction(node, in.actionIndex)
+			return nil, bundle.WithContext(ctx).InvokeAction(node, in.actionIndex) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		}
-		return bundle.WithContext(ctx).InvokeDefaultAction(node)
+		return bundle.WithContext(ctx).InvokeDefaultAction(node) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "focus":
-		return nil, bundle.WithContext(ctx).FocusNode(node)
+		return nil, bundle.WithContext(ctx).FocusNode(node) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "scroll":
 		kind, err := parseAccessibilityScrollType(in.alignment)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.WithContext(ctx).ScrollTo(node, kind)
+		return nil, bundle.WithContext(ctx).ScrollTo(node, kind) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "scroll-to-point":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.WithContext(ctx).ScrollToPoint(node, coord, in.x, in.y)
+		return nil, bundle.WithContext(ctx).ScrollToPoint(node, coord, in.x, in.y) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-position":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.WithContext(ctx).SetPosition(node, in.x, in.y, coord)
+		return nil, bundle.WithContext(ctx).SetPosition(node, in.x, in.y, coord) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-size":
-		return nil, bundle.WithContext(ctx).SetSize(node, in.width, in.height)
+		return nil, bundle.WithContext(ctx).SetSize(node, in.width, in.height) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-extents":
 		coord, err := parseAccessibilityCoordType(in.coord)
 		if err != nil {
 			return nil, err
 		}
-		return nil, bundle.WithContext(ctx).SetExtents(node, in.x, in.y, in.width, in.height, coord)
+		return nil, bundle.WithContext(ctx).SetExtents(node, in.x, in.y, in.width, in.height, coord) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-value":
-		return nil, bundle.WithContext(ctx).SetValue(node, in.value)
+		return nil, bundle.WithContext(ctx).SetValue(node, in.value) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-text-contents":
-		return nil, bundle.WithContext(ctx).ReplaceEditableText(node, in.text)
+		return nil, bundle.WithContext(ctx).ReplaceEditableText(node, in.text) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "insert-text":
 		text := in.rangeText
 		if text == "" {
 			text = in.text
 		}
-		return nil, bundle.WithContext(ctx).InsertText(node, in.offset, text)
+		return nil, bundle.WithContext(ctx).InsertText(node, in.offset, text) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "delete-text":
-		return nil, bundle.WithContext(ctx).DeleteText(node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).DeleteText(node, in.start, in.end) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "copy-text":
-		return nil, bundle.WithContext(ctx).CopyText(node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).CopyText(node, in.start, in.end) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "cut-text":
-		return nil, bundle.WithContext(ctx).CutText(node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).CutText(node, in.start, in.end) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "paste-text":
-		return nil, bundle.WithContext(ctx).PasteText(node, in.position)
+		return nil, bundle.WithContext(ctx).PasteText(node, in.position) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-caret":
-		return nil, bundle.WithContext(ctx).SetCaretOffset(node, in.offset)
+		return nil, bundle.WithContext(ctx).SetCaretOffset(node, in.offset) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-text-selection":
-		return nil, bundle.WithContext(ctx).SetTextSelection(node, in.selection, in.start, in.end)
+		return nil, bundle.WithContext(ctx).SetTextSelection(node, in.selection, in.start, in.end) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "add-text-selection":
-		return nil, bundle.WithContext(ctx).AddTextSelection(node, in.start, in.end)
+		return nil, bundle.WithContext(ctx).AddTextSelection(node, in.start, in.end) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "remove-text-selection":
-		return nil, bundle.WithContext(ctx).RemoveTextSelection(node, in.selection)
+		return nil, bundle.WithContext(ctx).RemoveTextSelection(node, in.selection) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "set-document-text-selections":
 		var selections []accessibility.DocumentTextSelection
 		if err := json.Unmarshal([]byte(in.selectionsJSON), &selections); err != nil {
 			return nil, fmt.Errorf("invalid --selections JSON: %w", err)
 		}
-		return nil, bundle.WithContext(ctx).SetTextSelections(node, selections)
+		return nil, bundle.WithContext(ctx).SetTextSelections(node, selections) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "select-child":
-		return nil, bundle.WithContext(ctx).SelectChild(node, in.index)
+		return nil, bundle.WithContext(ctx).SelectChild(node, in.index) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "deselect-child":
-		return nil, bundle.WithContext(ctx).DeselectChild(node, in.index)
+		return nil, bundle.WithContext(ctx).DeselectChild(node, in.index) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "select-all":
-		return nil, bundle.WithContext(ctx).SelectAll(node)
+		return nil, bundle.WithContext(ctx).SelectAll(node) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "clear-selection":
-		return nil, bundle.WithContext(ctx).ClearSelection(node)
+		return nil, bundle.WithContext(ctx).ClearSelection(node) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "deselect-selected-child":
-		return nil, bundle.WithContext(ctx).DeselectSelectedChild(node)
+		return nil, bundle.WithContext(ctx).DeselectSelectedChild(node) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "select-row":
-		return nil, bundle.WithContext(ctx).SelectRow(node, in.index)
+		return nil, bundle.WithContext(ctx).SelectRow(node, in.index) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "deselect-row":
-		return nil, bundle.WithContext(ctx).DeselectRow(node, in.index)
+		return nil, bundle.WithContext(ctx).DeselectRow(node, in.index) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "select-column":
-		return nil, bundle.WithContext(ctx).SelectColumn(node, in.index)
+		return nil, bundle.WithContext(ctx).SelectColumn(node, in.index) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "deselect-column":
-		return nil, bundle.WithContext(ctx).DeselectColumn(node, in.index)
+		return nil, bundle.WithContext(ctx).DeselectColumn(node, in.index) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	default:
 		return nil, fmt.Errorf("unknown raw op %q", in.op)
 	}

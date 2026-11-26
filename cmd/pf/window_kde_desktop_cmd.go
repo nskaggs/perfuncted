@@ -59,7 +59,7 @@ func desktopCmd(openPF sessionOpener) *cobra.Command {
 			}
 			if verify {
 				err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-					desktops, lookupErr := pf.Windows().WithContext(ctx).ListDesktops()
+					desktops, lookupErr := pf.Windows().WithContext(ctx).ListDesktops() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 					if lookupErr != nil {
 						return false, lookupErr
 					}
@@ -168,7 +168,7 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 			}
 			if verifySet {
 				err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-					info, lookupErr := handle.WithContext(ctx).Info()
+					info, lookupErr := handle.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 					if lookupErr != nil {
 						return false, lookupErr
 					}
@@ -225,7 +225,7 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				}
 				if verify {
 					err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-						info, lookupErr := handle.WithContext(ctx).Info()
+						info, lookupErr := handle.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 						if lookupErr != nil {
 							return false, lookupErr
 						}
@@ -269,7 +269,7 @@ func kdeWindowExtraCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			if err := waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-				info, err := target.WithContext(ctx).Info()
+				info, err := target.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 				if err != nil {
 					return false, err
 				}
@@ -308,7 +308,7 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			if err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-				info, readErr := handle.WithContext(ctx).Info()
+				info, readErr := handle.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 				if readErr != nil {
 					return false, readErr
 				}
@@ -344,7 +344,7 @@ func kdeTileCommands(openPF sessionOpener) []*cobra.Command {
 				return err
 			}
 			if err = waitForKWinState(cmd.Context(), func(ctx context.Context) (bool, error) {
-				info, readErr := handle.WithContext(ctx).Info()
+				info, readErr := handle.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 				if readErr != nil {
 					return false, readErr
 				}

@@ -13,6 +13,7 @@ import (
 //
 // Zero-value fields mean "do not care". Text matches are case-insensitive.
 type Match struct {
+	invalidTitle bool
 	// TitleContains matches a case-insensitive title substring.
 	TitleContains string
 	// TitleExact matches a case-insensitive complete title.
@@ -48,6 +49,7 @@ type Matcher struct {
 }
 
 type matchCacheKey struct {
+	InvalidTitle  bool
 	TitleContains string
 	TitleExact    string
 	AppID         string
@@ -145,6 +147,9 @@ func (m Matcher) Matches(info Info) bool {
 }
 
 func (m Matcher) matches(info Info) bool { //nolint:gocyclo
+	if m.invalidTitle {
+		return false
+	}
 	if m.TitleContains != "" && !containsFoldLower(info.Title, m.titleContainsLower) {
 		return false
 	}
@@ -183,6 +188,7 @@ func (m Matcher) matches(info Info) bool { //nolint:gocyclo
 
 func matchCacheKeyFromMatch(m Match) matchCacheKey {
 	key := matchCacheKey{
+		InvalidTitle:  m.invalidTitle,
 		TitleContains: m.TitleContains,
 		TitleExact:    m.TitleExact,
 		AppID:         m.AppID,
@@ -218,6 +224,9 @@ func matchCacheKeyFromMatch(m Match) matchCacheKey {
 
 // String returns a compact human-readable representation of m.
 func (m Match) String() string {
+	if m.invalidTitle {
+		return "<invalid empty title>"
+	}
 	var parts []string
 	if m.TitleExact != "" {
 		parts = append(parts, "title="+strconv.Quote(m.TitleExact))
@@ -558,7 +567,16 @@ func foldMatches(segment, lowerSub string) bool {
 // Title matches a window's exact title, ignoring case.
 func Title(title string) Match {
 	if strings.TrimSpace(title) == "" {
-		return Match{}
+		return Match{invalidTitle: true}
 	}
 	return Match{TitleExact: title}
+}
+
+// Validate reports invalid selector construction. A zero Match is valid and
+// matches every window; a blank title passed to Title is not a selector.
+func (m Match) Validate() error {
+	if m.invalidTitle {
+		return fmt.Errorf("window: empty title selector: %w", ErrInvalidArgument)
+	}
+	return nil
 }

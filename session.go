@@ -730,7 +730,7 @@ func Open(opts ...Option) (*Session, error) {
 		}
 	}
 	parent := contextutil.Default(cfg.startupContext)
-	if err := parent.Err(); err != nil {
+	if parent.Err() != nil {
 		return nil, contextutil.ErrorWithCause(parent)
 	}
 	ctx, cancel := context.WithTimeout(parent, cfg.target.config.Timeouts.WithDefaults().Startup)
@@ -1085,6 +1085,7 @@ func (s *screenState) savePNG(ctx context.Context, img image.Image, path string)
 
 type windowHandle = sessionwindow.Handle
 type windowBundleState struct {
+	events windowEventFanout
 	windowHandle
 	owner *sessionwindow.Owner
 	bundleBase
@@ -1107,6 +1108,7 @@ func (b *windowBundleState) close() error {
 	if b == nil {
 		return nil
 	}
+	b.events.close()
 	return b.owner.Close()
 }
 func (b *windowBundleState) checkAvailable(operation string) error {

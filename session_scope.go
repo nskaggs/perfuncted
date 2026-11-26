@@ -3,6 +3,8 @@ package perfuncted
 import (
 	"context"
 	"errors"
+	"github.com/nskaggs/perfuncted/v2/window"
+	"sync"
 	"time"
 
 	"github.com/nskaggs/perfuncted/v2/input"
@@ -13,7 +15,7 @@ import (
 // It never owns the underlying session or backend.
 type operationScope struct {
 	core     *sessionCore
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // Immutable caller or subscription scope; never global mutable state.
 	explicit bool
 	timeout  time.Duration
 }
@@ -47,6 +49,26 @@ func (s operationScope) begin(class operationClass, extra time.Duration) (contex
 	if err := contextutil.ErrorWithCause(parent); err != nil {
 		return nil, nil, err
 	}
+	if class == scopeStream {
+		return parent, func(*error) {}, nil
+	}
+	ctx, cancel := context.WithTimeout(parent, s.duration(class, extra))
+	// Composite waits retain bounded individual backend attempts.
+	if class != scopeWait && class != scopeDiagnostic && class != scopeCleanup && (class != scopeBatch || s.timeout > 0) {
+		ctx = context.WithValue(ctx, scopeDeadlineKey{}, true)
+	}
+	ctx, cancel, stop := s.bindLifetime(ctx, cancel, class)
+	return ctx, func(err *error) {
+		if *err != nil {
+			if cause := contextutil.ErrorWithCause(ctx); cause != nil && !errors.Is(*err, cause) {
+				*err = errors.Join(*err, cause)
+			}
+		}
+		stop()
+		cancel()
+	}, nil
+}
+func (s operationScope) duration(class operationClass, extra time.Duration) time.Duration {
 	policy := DefaultTimeoutPolicy
 	if s.core != nil {
 		policy = s.core.Timeouts()
@@ -67,14 +89,10 @@ func (s operationScope) begin(class operationClass, extra time.Duration) (contex
 	if s.timeout > 0 {
 		duration = s.timeout
 	}
-	if class == scopeStream {
-		return parent, func(*error) {}, nil
-	}
-	ctx, cancel := context.WithTimeout(parent, duration)
-	// Composite waits retain bounded individual backend attempts.
-	if class != scopeWait && class != scopeDiagnostic && class != scopeCleanup && (class != scopeBatch || s.timeout > 0) {
-		ctx = context.WithValue(ctx, scopeDeadlineKey{}, true)
-	}
+	return duration
+}
+
+func (s operationScope) bindLifetime(ctx context.Context, cancel context.CancelFunc, class operationClass) (context.Context, context.CancelFunc, func() bool) {
 	stop := func() bool { return false }
 	if s.core != nil && s.core.ctx != nil && class != scopeCleanup && class != scopeDiagnostic {
 		var revoke context.CancelCauseFunc
@@ -86,16 +104,9 @@ func (s operationScope) begin(class operationClass, extra time.Duration) (contex
 		old := cancel
 		cancel = func() { revoke(context.Canceled); old() }
 	}
-	return ctx, func(err *error) {
-		if *err != nil {
-			if cause := contextutil.ErrorWithCause(ctx); cause != nil && !errors.Is(*err, cause) {
-				*err = errors.Join(*err, cause)
-			}
-		}
-		stop()
-		cancel()
-	}, nil
+	return ctx, cancel, stop
 }
+
 func (s *Session) operationScope() operationScope {
 	if s == nil {
 		return operationScope{}
@@ -156,7 +167,7 @@ func (h AccessibilityBundle) backendHandle() accessibilityHandle {
 // streamSetup keeps a caller-owned stream alive after the setup deadline has
 // been disarmed. The session and caller can still revoke it.
 type streamSetup struct {
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx // Immutable caller or subscription scope; never global mutable state.
 	release func()
 	finish  func() error
 }
@@ -198,7 +209,7 @@ func (s operationScope) startStream() (streamSetup, error) {
 	}, nil
 }
 
-// scopedWindowEvents adapts a legacy session-owned stream to a caller's
+// scopedEvents adapts a provider stream to a caller's
 // cancellation without closing the underlying provider channel.
 func scopedEvents[T any](ctx context.Context, source <-chan T, release func()) <-chan T {
 	out := make(chan T)
@@ -234,4 +245,118 @@ type scopedObservation struct {
 func (s scopedObservation) Close() error {
 	defer s.release()
 	return s.ObservationSubscription.Close()
+}
+
+// windowEventFanout is owned by the session's fixed window capability.
+// A single reader distributes bounded, lossy notifications to independent
+// callers. A slow or canceled subscriber cannot drain another's stream.
+type windowEventFanout struct {
+	mu              sync.Mutex
+	started, closed bool
+	subs            map[chan window.Event]windowEventSubscriber
+}
+
+func (f *windowEventFanout) subscribe(ctx, lifetime context.Context, source <-chan window.Event, release func()) (<-chan window.Event, error) {
+	f.mu.Lock()
+	// Admission linearizes under the same lock as subscriber retirement.
+	// Check lifetime first so a closed session retains its public error.
+	var err error
+	switch {
+	case lifetime.Err() != nil:
+		err = errors.Join(ErrSessionClosed, contextutil.ErrorWithCause(ctx))
+	case ctx.Err() != nil:
+		err = contextutil.ErrorWithCause(ctx)
+	case f.closed || source == nil:
+		err = ErrUnavailable
+	}
+	if err != nil {
+		f.mu.Unlock()
+		release()
+		return nil, err
+	}
+	out := make(chan window.Event, 32)
+	if f.subs == nil {
+		f.subs = make(map[chan window.Event]windowEventSubscriber)
+	}
+	f.subs[out] = windowEventSubscriber{ctx, release}
+	if !f.started {
+		f.started = true
+		go f.run(lifetime, source)
+	}
+	f.mu.Unlock()
+	// Remove idle subscribers promptly. Release only the entry we removed,
+	// and do so outside the lock.
+	context.AfterFunc(ctx, func() {
+		f.mu.Lock()
+		sub, ok := f.subs[out]
+		if ok {
+			f.retireLocked(out)
+		}
+		f.mu.Unlock()
+		if ok {
+			sub.release()
+		}
+	})
+	return out, nil
+}
+
+// retireLocked discards unread notifications before closing the subscription.
+// The fan-out lock excludes all writers; concurrent readers can only reduce
+// the buffered count. Notifications already received cannot be recalled.
+func (f *windowEventFanout) retireLocked(ch chan window.Event) {
+	delete(f.subs, ch)
+	for {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+			return
+		}
+	}
+}
+
+// close retires all subscriptions synchronously. It is safe to call from
+// session shutdown and from the provider reader's terminal path.
+func (f *windowEventFanout) close() {
+	f.mu.Lock()
+	f.closed = true
+	releases := make([]func(), 0, len(f.subs))
+	for ch, sub := range f.subs {
+		f.retireLocked(ch)
+		releases = append(releases, sub.release)
+	}
+	f.mu.Unlock()
+	for _, release := range releases {
+		release()
+	}
+}
+
+func (f *windowEventFanout) run(lifetime context.Context, source <-chan window.Event) {
+	defer f.close()
+	for {
+		select {
+		case <-lifetime.Done():
+			return
+		case event, ok := <-source:
+			if !ok || lifetime.Err() != nil {
+				return
+			}
+			f.mu.Lock()
+			for ch, sub := range f.subs {
+				if sub.ctx.Err() != nil || lifetime.Err() != nil {
+					continue
+				}
+				select {
+				case ch <- event:
+				default:
+				}
+			}
+			f.mu.Unlock()
+		}
+	}
+}
+
+type windowEventSubscriber struct {
+	ctx     context.Context //nolint:containedctx // Immutable caller or subscription scope; never global mutable state.
+	release func()
 }

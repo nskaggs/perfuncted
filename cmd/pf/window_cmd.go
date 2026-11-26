@@ -42,13 +42,13 @@ func collectWindowMatches(
 	bundle perfuncted.WindowBundle,
 	match window.Match,
 ) ([]window.Info, error) {
-	handles, err := bundle.WithContext(ctx).List(match)
+	handles, err := bundle.WithContext(ctx).List(match) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	if err != nil {
 		return nil, err
 	}
 	matched := make([]window.Info, 0, len(handles))
 	for _, handle := range handles {
-		info, err := handle.WithContext(ctx).Info()
+		info, err := handle.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		if err != nil {
 			return nil, err
 		}
@@ -88,11 +88,11 @@ func waitForWindowMatch(
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	handle, err := bundle.WithContext(ctx).Wait(match, perfuncted.WaitEvery(poll))
+	handle, err := bundle.WithContext(ctx).Wait(match, perfuncted.WaitEvery(poll)) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	if err != nil {
 		return window.Info{}, err
 	}
-	return handle.WithContext(ctx).Info()
+	return handle.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 }
 
 func waitForWindowCloseMatch(
@@ -104,7 +104,7 @@ func waitForWindowCloseMatch(
 	if poll <= 0 {
 		poll = 100 * time.Millisecond
 	}
-	return session.WithContext(ctx).Wait(
+	return session.WithContext(ctx).Wait( //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		perfuncted.Not(perfuncted.WindowExists(match)),
 		perfuncted.WaitEvery(poll),
 	)
@@ -115,7 +115,7 @@ func findWindowByTitle(
 	bundle perfuncted.WindowBundle,
 	title string,
 ) (*perfuncted.Window, error) {
-	return bundle.WithContext(ctx).Find(
+	return bundle.WithContext(ctx).Find( //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		window.Match{TitleContains: title},
 	)
 }
@@ -130,7 +130,7 @@ func resolveWindowID(ctx context.Context, bundle perfuncted.WindowBundle, id str
 	if id == "" {
 		return nil, fmt.Errorf("window ID must be non-empty: %w", window.ErrInvalidArgument)
 	}
-	wins, err := bundle.WithContext(ctx).List(window.Match{})
+	wins, err := bundle.WithContext(ctx).List(window.Match{}) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func windowCmd(
 	cmd := &cobra.Command{Use: "window", Short: "Window management"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Windows().WithContext(ctx).Sync()
+			return pf.Windows().WithContext(ctx).Sync() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		}
 		return nil
 	}
@@ -903,7 +903,7 @@ func waitWindowActive(ctx context.Context, w *perfuncted.Window, timeout, poll t
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	for {
-		info, err := w.WithContext(ctx).Info()
+		info, err := w.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		if err == nil && info.Active {
 			return nil
 		}
@@ -933,7 +933,7 @@ func waitWindowGone(ctx context.Context, bundle perfuncted.WindowBundle, id stri
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
 	for {
-		wins, err := bundle.WithContext(ctx).List(window.Match{})
+		wins, err := bundle.WithContext(ctx).List(window.Match{}) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		if err != nil {
 			return fmt.Errorf("verify window %s disappeared: %w", id, err)
 		}

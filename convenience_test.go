@@ -1008,3 +1008,33 @@ func TestCallerBatchCancellationRetainsCause(t *testing.T) {
 		t.Fatalf("lost cancellation cause: %v", err)
 	}
 }
+
+func TestCallerPublicShortcutsAndWindowTargetScopes(t *testing.T) {
+	backend := &convenienceInput{}
+	s := wrapSession(convenienceSession(t, backend))
+	if err := s.Hotkey("ctrl", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Click(1, 2); err != nil {
+		t.Fatal(err)
+	}
+	var nilTarget *WindowTarget
+	if nilTarget.WithContext(context.Background()) != nil || nilTarget.WithTimeout(time.Second) != nil {
+		t.Fatal("nil target acquired authority")
+	}
+	var nilSession *Session
+	if target := nilSession.Window("Editor"); target == nil || target.view != nil {
+		t.Fatal("nil session target acquired authority")
+	}
+	target := s.Window("Editor")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	copy := target.WithContext(ctx).WithTimeout(time.Minute)
+	if target.view.scope.explicit || target.view.scope.timeout != 0 || copy.view.scope.ctx != ctx || copy.view.scope.timeout != time.Minute || copy.view.core != s.core {
+		t.Fatal("target scope changed original or lost owner")
+	}
+	cancel()
+	if err := copy.Do(Type("no dispatch")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled target: %v", err)
+	}
+}

@@ -30,7 +30,7 @@ func singleOutputPhysicalResolution(ctx context.Context, outputs perfuncted.Outp
 	if outputs == (perfuncted.OutputBundle{}) {
 		return 0, 0, false
 	}
-	items, err := outputs.WithContext(ctx).List()
+	items, err := outputs.WithContext(ctx).List() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	if err != nil || ctx.Err() != nil || len(items) != 1 {
 		return 0, 0, false
 	}
@@ -101,10 +101,10 @@ func resolveScreenWindow(ctx context.Context, bundle perfuncted.WindowBundle, se
 	case "window-id":
 		return findWindowByStableID(ctx, bundle, selector.id)
 	case "window-title":
-		return bundle.WithContext(ctx).Find(window.Match{TitleExact: selector.title})
+		return bundle.WithContext(ctx).Find(window.Match{TitleExact: selector.title}) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	case "pid":
 		pid := selector.pid
-		return bundle.WithContext(ctx).Find(window.Match{PID: &pid})
+		return bundle.WithContext(ctx).Find(window.Match{PID: &pid}) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	default:
 		return nil, fmt.Errorf("%w: unknown screen window selector", perfuncted.ErrInvalidArgument)
 	}
@@ -482,7 +482,7 @@ Runs until --duration expires or Ctrl+C.`,
 
 			if watchChanges {
 				return watchScreenChanges(ctx, cmd.OutOrStdout(), r, poll, func(ctx context.Context, r image.Rectangle) (screen.Capture, error) {
-					return pf.Screen().WithContext(ctx).Capture(r)
+					return pf.Screen().WithContext(ctx).Capture(r) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 				}, watchIncludePixels)
 			}
 			var last uint32

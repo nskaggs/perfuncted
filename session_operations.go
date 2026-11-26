@@ -12,6 +12,7 @@ import (
 	window "github.com/nskaggs/perfuncted/v2/window"
 	image "image"
 	color "image/color"
+	"sync"
 	time "time"
 )
 
@@ -47,7 +48,7 @@ func (h *Session) CaptureFailureBundle(options FailureBundleOptions) (r0 string,
 
 // InvokeAccessibilityActionAndWait performs the scoped InvokeAccessibilityActionAndWait operation.
 func (h *Session) InvokeAccessibilityActionAndWait(root accessibility.NodeID, query accessibility.Query, actionName string, snapshotOptions accessibility.SnapshotOptions, postcondition Condition, waitOptions ...WaitOption) (r0 accessibility.ActionReceipt, r1 WaitEvidence, err error) {
-	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
+	ctx, finish, err := h.operationScope().begin(scopeBatch, 0)
 	if err != nil {
 		return
 	}
@@ -702,24 +703,22 @@ func (h WindowBundle) Events() (r0 <-chan window.Event, err error) {
 		setup.release()
 		return nil, ErrUnsupported
 	}
-	if !h.scope.explicit && h.scope.timeout == 0 {
-		return stream, nil
-	}
-	// The backend's channel is session-owned. A scoped caller can stop
-	// receiving without closing or canceling that channel.
+	// All public subscribers use the same session-owned reader. The provider
+	// channel is never returned alongside a competing forwarding goroutine.
 	if h.scope.core == nil || h.scope.core.ctx == nil {
 		setup.release()
 		return nil, ErrNilSession
 	}
 	ctx, cancel := context.WithCancel(setup.ctx)
 	stop := context.AfterFunc(h.scope.core.ctx, cancel)
-	return scopedEvents(ctx, stream, func() { stop(); cancel(); setup.release() }), nil
+	release := sync.OnceFunc(func() { stop(); cancel(); setup.release() })
+	return h.state.events.subscribe(ctx, h.scope.core.ctx, stream, release)
 }
 
 // Find performs the scoped Find operation.
 func (h WindowBundle) Find(match window.Match) (r0 *Window, err error) {
-	if h.state != nil && match == (window.Match{}) {
-		return nil, ErrInvalidArgument
+	if validationErr := match.Validate(); validationErr != nil {
+		return nil, errors.Join(ErrInvalidArgument, validationErr)
 	}
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
@@ -748,6 +747,9 @@ func (h WindowBundle) List(match ...window.Match) (r0 []*Window, err error) {
 	var selector window.Match
 	if len(match) == 1 {
 		selector = match[0]
+		if validationErr := selector.Validate(); validationErr != nil {
+			return nil, errors.Join(ErrInvalidArgument, validationErr)
+		}
 	}
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
@@ -839,8 +841,8 @@ func (h WindowBundle) TileWindowByID(id string, x int, y int) (err error) {
 
 // Wait performs the scoped Wait operation.
 func (h WindowBundle) Wait(match window.Match, options ...WaitOption) (r0 *Window, err error) {
-	if h.state != nil && match == (window.Match{}) {
-		return nil, ErrInvalidArgument
+	if validationErr := match.Validate(); validationErr != nil {
+		return nil, errors.Join(ErrInvalidArgument, validationErr)
 	}
 	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
 	if err != nil {
@@ -1618,7 +1620,7 @@ func (h *AccessibilityLocator) WithTimeout(d time.Duration) *AccessibilityLocato
 
 // ClickAndWait performs the scoped ClickAndWait operation.
 func (h *AccessibilityLocator) ClickAndWait(postcondition Condition, options ...WaitOption) (r0 accessibility.ActionReceipt, r1 WaitEvidence, err error) {
-	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
+	ctx, finish, err := h.operationScope().begin(scopeBatch, 0)
 	if err != nil {
 		return
 	}
@@ -1628,7 +1630,7 @@ func (h *AccessibilityLocator) ClickAndWait(postcondition Condition, options ...
 
 // FillAndWait performs the scoped FillAndWait operation.
 func (h *AccessibilityLocator) FillAndWait(value string, postcondition Condition, options ...WaitOption) (r0 accessibility.ActionReceipt, r1 WaitEvidence, err error) {
-	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
+	ctx, finish, err := h.operationScope().begin(scopeBatch, 0)
 	if err != nil {
 		return
 	}
@@ -1638,7 +1640,7 @@ func (h *AccessibilityLocator) FillAndWait(value string, postcondition Condition
 
 // InvokeActionAndWait performs the scoped InvokeActionAndWait operation.
 func (h *AccessibilityLocator) InvokeActionAndWait(actionName string, postcondition Condition, options ...WaitOption) (r0 accessibility.ActionReceipt, r1 WaitEvidence, err error) {
-	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
+	ctx, finish, err := h.operationScope().begin(scopeBatch, 0)
 	if err != nil {
 		return
 	}
@@ -1678,7 +1680,11 @@ func (h *AccessibilityLocator) Wait(options ...WaitOption) (r0 accessibility.Nod
 
 // WaitForState performs the scoped WaitForState operation.
 func (h *AccessibilityLocator) WaitForState(state AccessibilityWaitState, timeout time.Duration, options ...WaitOption) (r0 accessibility.Node, r1 WaitEvidence, err error) {
-	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
+	scope := h.operationScope()
+	if scope.timeout == 0 && timeout > 0 {
+		scope = scope.withTimeout(timeout)
+	}
+	ctx, finish, err := scope.begin(scopeWait, 0)
 	if err != nil {
 		return
 	}

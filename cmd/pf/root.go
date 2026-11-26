@@ -81,7 +81,7 @@ func defaultOpenPFFactory(cfg *cliConfig) sessionOpener {
 		default:
 			return nil, fmt.Errorf("unknown --input-backend %q (supported: auto, remote-desktop)", cfg.inputBackend)
 		}
-		return perfuncted.Open(append([]perfuncted.Option{perfuncted.WithStartupContext(ctx), perfuncted.Optional()}, opts...)...)
+		return perfuncted.Open(append([]perfuncted.Option{perfuncted.WithStartupContext(ctx), perfuncted.Optional()}, opts...)...) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	}
 }
 

@@ -969,3 +969,25 @@ func TestDiagnosticBuildInfoRedactsExplicitGoWorkspacePath(t *testing.T) {
 		})
 	}
 }
+
+type callerDiagnosticDeadlineProbe struct {
+	syntheticMalformedScreenshotter
+	deadline time.Time
+}
+
+func (b *callerDiagnosticDeadlineProbe) Grab(ctx context.Context, _ image.Rectangle) (image.Image, error) {
+	b.deadline, _ = ctx.Deadline()
+	return image.NewRGBA(image.Rect(0, 0, 2, 2)), nil
+}
+func TestCallerDiagnosticArtifactBudgetIsIndependent(t *testing.T) {
+	b := &callerDiagnosticDeadlineProbe{}
+	core := newSessionForTesting(b, nil, nil, nil, nil)
+	defer core.Close()
+	core.config.Timeouts = TimeoutPolicy{Diagnostic: time.Second}
+	s := wrapSession(core)
+	before := time.Now()
+	_, _ = s.WithTimeout(time.Minute).CaptureFailureBundle(FailureBundleOptions{Directory: t.TempDir()})
+	if b.deadline.Before(before.Add(900*time.Millisecond)) || b.deadline.After(time.Now().Add(time.Second)) {
+		t.Fatalf("artifact budget=%v", b.deadline.Sub(before))
+	}
+}

@@ -800,3 +800,53 @@ func TestInputReceiptMechanismOnDiagnosticSnapshot(t *testing.T) {
 		t.Fatal("diagnostic receipt snapshot aliases retained history")
 	}
 }
+
+type scopedObservationBackendProbe struct {
+	fakeObservationBackend
+	ctx   context.Context
+	block bool
+}
+
+func (b *scopedObservationBackendProbe) Listen(ctx context.Context, filter input.ObservationFilter) (input.ObservationSubscription, error) {
+	b.ctx = ctx
+	if b.block {
+		<-ctx.Done()
+	}
+	return b.fakeObservationBackend.Listen(ctx, filter)
+}
+
+func TestCallerObservationSetupDeadlineAndLifetime(t *testing.T) {
+	for _, block := range []bool{true, false} {
+		t.Run(map[bool]string{true: "timed-out-setup", false: "established-subscription"}[block], func(t *testing.T) {
+			b := &scopedObservationBackendProbe{block: block}
+			s := wrapSession(setupObservationTestSession(b))
+			defer s.Close()
+			sub, err := s.InputObservation().WithTimeout(30 * time.Millisecond).Listen(input.ObservationFilter{Combo: "F8"})
+			if block {
+				if sub != nil || !errors.Is(err, context.DeadlineExceeded) || b.sub == nil || !b.sub.closed {
+					t.Fatalf("setup result %v %v backend=%+v", sub, err, b.sub)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-b.ctx.Done():
+				t.Fatal("established subscription expired")
+			case <-time.After(60 * time.Millisecond):
+			}
+			if err := sub.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-b.ctx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("close did not release scoped context")
+			}
+			if !b.sub.closed {
+				t.Fatal("provider subscription leaked")
+			}
+		})
+	}
+}

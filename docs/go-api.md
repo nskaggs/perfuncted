@@ -118,7 +118,7 @@ when its caller context has expired.
 `Input().TypeKeys(sequence)` for interpreted syntax, and `Input().Click(x,y)`
 for a left click (an optional button selects a different button). Use
 `Windows().Find(window.Title("Editor"))` for a unique exact-title target.
-An empty match is invalid for Find and Wait; List() lists all windows.
+An explicit zero-value window.Match{} matches any window; Find and Wait still require exactly one result. A blank window.Title helper is invalid. List() lists all windows.
 Use a rich window.Match for other predicates. No match or ambiguity is an
 error, not permission to act on an arbitrary target.
 
@@ -130,6 +130,13 @@ unsupported error and the caller can use Grab().
 
 Long-lived subscriptions do not inherit a short operation deadline. A
 positive timeout override bounds setup; the established stream is governed
-by its explicit caller context and session lifetime. A scoped window event
-stream consumes the existing session-owned channel, not an independent
-broadcast subscription. Canceling the scope does not close that channel.
+by its explicit caller context and session lifetime. Window events are bounded, lossy notifications distributed by one session-owned reader to independent subscribers. A slow or canceled subscriber does not consume another subscriber's notifications. Canceling a scope closes only its subscription and discards unread notifications when it retires. Session or provider shutdown retires all subscriptions. Notifications already received cannot be recalled. Use fresh List or Info queries for authoritative state.
+
+Verified accessibility transactions use the same overall deadline for target
+resolution, dispatch and independent verification. Explicit state-wait
+durations are not silently capped by the ordinary Long default; an earlier
+explicit scope or parent deadline still applies. Failure bundles use a Long
+overall default (or scoped override) and preserve the separate configured
+Diagnostic budget for each backend artifact, so one stalled provider cannot
+consume the entire collection budget. Diagnostic collection remains best effort,
+including when gathering evidence after a failure.

@@ -338,7 +338,7 @@ func writeWaylandCheck(out io.Writer, display, runtimeDir string) error {
 
 func sessionStartCmd() *cobra.Command {
 	return sessionStartCmdWithOpener(func(ctx context.Context, opts ...perfuncted.Option) (*perfuncted.Session, error) {
-		return perfuncted.Open(append([]perfuncted.Option{perfuncted.WithStartupContext(ctx), perfuncted.Optional()}, opts...)...)
+		return perfuncted.Open(append([]perfuncted.Option{perfuncted.WithStartupContext(ctx), perfuncted.Optional()}, opts...)...) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 	})
 }
 

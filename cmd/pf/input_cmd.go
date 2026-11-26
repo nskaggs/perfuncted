@@ -40,7 +40,7 @@ func inputCmd(
 	cmd := &cobra.Command{Use: "input", Short: "Mouse and keyboard injection"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Input().WithContext(ctx).Sync()
+			return pf.Input().WithContext(ctx).Sync() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		}
 		return nil
 	}
@@ -745,7 +745,7 @@ func scrollCmd(openPF sessionOpener, cfg *cliConfig) *cobra.Command {
 	cmd := &cobra.Command{Use: "scroll", Short: "Scroll the mouse wheel"}
 	syncIf := func(ctx context.Context, pf *perfuncted.Session) error {
 		if cfg != nil && cfg.sync {
-			return pf.Input().WithContext(ctx).Sync()
+			return pf.Input().WithContext(ctx).Sync() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
 		}
 		return nil
 	}
