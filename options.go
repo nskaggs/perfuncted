@@ -3,14 +3,13 @@ package perfuncted
 import (
 	"errors"
 	"fmt"
+	"github.com/nskaggs/perfuncted/input"
+	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 	"image"
 	"io"
 	"log/slog"
 	"slices"
 	"time"
-
-	"github.com/nskaggs/perfuncted/input"
-	capabilityops "github.com/nskaggs/perfuncted/internal/capability"
 )
 
 var (
@@ -414,4 +413,64 @@ func WithLogger(logger *slog.Logger) Option {
 		cfg.logger = logger
 		return nil
 	}
+}
+
+// TimeoutPolicy is the small shared timing policy for managed desktop
+// startup and operations. Callers can override the policy as one unit through
+// SessionConfig; derived waits must use these values instead of introducing a
+// second host-specific timeout.
+type TimeoutPolicy struct {
+	Short      time.Duration `json:"short"`
+	Medium     time.Duration `json:"medium"`
+	Long       time.Duration `json:"long"`
+	Startup    time.Duration `json:"startup"`
+	Diagnostic time.Duration `json:"diagnostic"`
+	Poll       time.Duration `json:"poll"`
+}
+
+// DefaultTimeoutPolicy is the ordinary library policy. Parent contexts still
+// cap every operation, and callers can pass a larger deployment policy through
+// SessionConfig when the host is known to be slow.
+var DefaultTimeoutPolicy = TimeoutPolicy{
+	Short:      5 * time.Second,
+	Medium:     30 * time.Second,
+	Long:       90 * time.Second,
+	Startup:    10 * time.Minute,
+	Diagnostic: 5 * time.Second,
+	Poll:       150 * time.Millisecond,
+}
+
+// WithDefaults fills an incomplete policy from DefaultTimeoutPolicy.
+func (p TimeoutPolicy) WithDefaults() TimeoutPolicy {
+	d := DefaultTimeoutPolicy
+	if p.Short <= 0 {
+		p.Short = d.Short
+	}
+	if p.Medium <= 0 {
+		p.Medium = d.Medium
+	}
+	if p.Long <= 0 {
+		p.Long = d.Long
+	}
+	if p.Startup <= 0 {
+		p.Startup = d.Startup
+	}
+	if p.Diagnostic <= 0 {
+		p.Diagnostic = d.Diagnostic
+	}
+	if p.Poll <= 0 {
+		p.Poll = d.Poll
+	}
+	return p
+}
+
+func startupWaitAttempts(policy TimeoutPolicy) int {
+	policy = policy.WithDefaults()
+	// Ceiling division via quotient and remainder avoids overflowing a
+	// valid positive time.Duration when Startup is near its maximum.
+	attempts := int(policy.Startup / policy.Poll)
+	if policy.Startup%policy.Poll != 0 {
+		attempts++
+	}
+	return attempts
 }

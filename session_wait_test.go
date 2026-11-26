@@ -1011,3 +1011,19 @@ func TestWaitEvaluateFailuresResetEndsStreakNotTotal(t *testing.T) {
 			failures.consecutive, failures.total, failures.since)
 	}
 }
+
+// Cancellation may occur after public wait preflight and before the first
+// condition evaluation. Exercise this boundary without a scheduling race.
+func TestWaitWithEvidenceRejectsCancellationBeforeFirstEvaluation(t *testing.T) {
+	session := NewSessionForTesting(nil, nil, nil, nil, nil)
+	t.Cleanup(func() { _ = session.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	evidence, err := session.waitWithEvidence(ctx, Predicate("not evaluated", func(context.Context) (bool, error) {
+		t.Fatal("canceled wait evaluated its predicate")
+		return false, nil
+	}), waitConfig{interval: time.Millisecond})
+	if !errors.Is(err, context.Canceled) || evidence != (WaitEvidence{}) {
+		t.Fatalf("canceled wait returned evidence=%+v err=%v", evidence, err)
+	}
+}

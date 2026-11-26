@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -284,5 +286,146 @@ func TestRateLimitedSessionCleanupPreservesConcurrentCancellation(t *testing.T) 
 	err := CleanupStaleSessionsContext(ctx, time.Minute)
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, context.Cause(base)) {
 		t.Fatalf("rate-limited cleanup error = %v, want caller cancellation and cause", err)
+	}
+}
+
+// The scanner may finish successfully at the exact instant the caller revokes
+// authorization. The final check must reject that scan and release its retry
+// throttle, rather than reporting cleanup success.
+type cancelOnSecondTopLevelCleanupCheck struct {
+	context.Context
+	cancel context.CancelCauseFunc
+	calls  int
+}
+
+func (c *cancelOnSecondTopLevelCleanupCheck) Err() error {
+	pc, _, _, ok := runtime.Caller(1)
+	if ok {
+		fn := runtime.FuncForPC(pc)
+		if fn != nil && strings.HasSuffix(fn.Name(), ".CleanupStaleSessionsContext") {
+			c.calls++
+			if c.calls == 2 {
+				c.cancel(errors.New("revoked after scan"))
+			}
+		}
+	}
+	return c.Context.Err()
+}
+
+func TestStaleSessionCleanupRejectsCancellationAfterSuccessfulScan(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	cleanupStaleSessionsMu.Lock()
+	priorTime, priorAttempt := lastCleanupTime, cleanupAttempt
+	lastCleanupTime = time.Time{}
+	cleanupStaleSessionsMu.Unlock()
+	t.Cleanup(func() {
+		cleanupStaleSessionsMu.Lock()
+		lastCleanupTime, cleanupAttempt = priorTime, priorAttempt
+		cleanupStaleSessionsMu.Unlock()
+	})
+	base, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	ctx := &cancelOnSecondTopLevelCleanupCheck{Context: base, cancel: cancel}
+	err := CleanupStaleSessionsContext(ctx, time.Hour)
+	if !errors.Is(err, context.Canceled) || ctx.calls != 2 {
+		t.Fatalf("cleanup completed after final revocation: err=%v top-level checks=%d", err, ctx.calls)
+	}
+	cleanupStaleSessionsMu.Lock()
+	released := lastCleanupTime.IsZero()
+	cleanupStaleSessionsMu.Unlock()
+	if !released {
+		t.Fatal("failed cleanup retained stale-scan throttle")
+	}
+}
+
+// Retention scans a caller-supplied parent. Expired private session folders
+// may be removed, but unrelated files, symlinks, and young sessions must not
+// be removed even when their names resemble managed session directories.
+func TestSessionLogRetentionPreservesForeignEntriesAndRecentSessions(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	old := filepath.Join(root, sessionruntime.SessionLogPrefix+"expired")
+	recent := filepath.Join(root, sessionruntime.SessionLogPrefix+"recent")
+	foreign := filepath.Join(root, "caller-owned")
+	externalData := filepath.Join(external, "important")
+	for _, directory := range []string{old, recent, foreign} {
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(externalData, []byte("untouched"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, sessionruntime.SessionLogPrefix+"external-link")
+	if err := os.Symlink(external, alias); err != nil {
+		t.Fatal(err)
+	}
+	matchingFile := filepath.Join(root, sessionruntime.SessionLogPrefix+"ordinary-file")
+	if err := os.WriteFile(matchingFile, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-72 * time.Hour)
+	for _, path := range []string{old, foreign, matchingFile} {
+		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	CleanupSessionLogs(root, 24*time.Hour)
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired managed session remains: %v", err)
+	}
+	for _, path := range []string{recent, foreign, matchingFile, alias, externalData} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("retention touched unrelated or recent entry %q: %v", path, err)
+		}
+	}
+	if bytes, err := os.ReadFile(externalData); err != nil || string(bytes) != "untouched" {
+		t.Fatalf("symlink target modified: %q %v", bytes, err)
+	}
+}
+
+func TestSessionLogRetentionDisabledOrMissingRootNeverRemovesEntries(t *testing.T) {
+	root := t.TempDir()
+	expired := filepath.Join(root, sessionruntime.SessionLogPrefix+"old")
+	if err := os.Mkdir(expired, 0700); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(expired, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		root string
+		age  time.Duration
+	}{{root, 0}, {root, -time.Second}, {"", time.Second}, {filepath.Join(root, "nonexistent"), time.Second}} {
+		CleanupSessionLogs(tc.root, tc.age)
+		if _, err := os.Stat(expired); err != nil {
+			t.Fatalf("disabled/missing root removed existing directory: %v", err)
+		}
+	}
+}
+
+func TestSessionLogRootRejectsSymlinksAndRegularFiles(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "regular")
+	if err := os.WriteFile(file, []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{alias, file} {
+		if dir, err := sessionruntime.CreateSessionLogDir(path); err == nil {
+			_ = os.RemoveAll(dir)
+			t.Fatalf("unsafe log root accepted: %q", path)
+		}
+	}
+	if entries, err := os.ReadDir(real); err != nil || len(entries) != 0 {
+		t.Fatalf("symlink root altered target: %v %v", entries, err)
 	}
 }

@@ -11,7 +11,9 @@ import (
 	"testing"
 )
 
-var requiredFiles = []string{"convenience.go", "convenience_window.go", "keysend.go"}
+const modulePrefix = "github.com/nskaggs/perfuncted/"
+
+var requiredFiles = []string{"convenience.go", "input/keysend.go"}
 
 type totals struct {
 	all     int
@@ -27,7 +29,7 @@ func checkCoverage(r io.Reader) (map[string]totals, error) {
 		line := scanner.Text()
 		var target string
 		for _, name := range requiredFiles {
-			if strings.Contains(line, "/"+name+":") {
+			if strings.HasPrefix(line, modulePrefix+name+":") {
 				target = name
 				break
 			}

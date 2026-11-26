@@ -4,18 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
-	"slices"
-	"sync"
-	"time"
-
 	"github.com/nskaggs/perfuncted/accessibility"
 	"github.com/nskaggs/perfuncted/clipboard"
 	"github.com/nskaggs/perfuncted/input"
 	"github.com/nskaggs/perfuncted/internal/env"
+	"github.com/nskaggs/perfuncted/internal/util"
 	"github.com/nskaggs/perfuncted/output"
 	"github.com/nskaggs/perfuncted/screen"
 	"github.com/nskaggs/perfuncted/window"
+	"image"
+	"slices"
+	"sync"
+	"time"
 )
 
 // Session is the central orchestrator of perfuncted. It owns all backends and
@@ -573,4 +573,90 @@ func (s *Session) X11Display() string {
 		return ""
 	}
 	return s.env.Display()
+}
+
+//nolint:contextcheck // capability setup derives the effective startup policy.
+func openCapabilityBackend[T any](
+	parent context.Context,
+	timeout time.Duration,
+	capability Capability,
+	open func(context.Context) (T, error),
+	configure func(T),
+	install func(T),
+) (T, error) {
+	// Capability setup inherits caller cancellation and also has a bounded
+	// startup policy so direct-call backend fallbacks cannot extend Open forever.
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	// An expired startup must never open an unnecessary desktop connection.
+	if err := ctx.Err(); err != nil {
+		var zero T
+		return zero, err
+	}
+
+	backend, err := open(ctx)
+	// Providers may ignore cancellation and return a successful backend after
+	// permission to start has expired. Preserve the caller's authority and
+	// close any partially acquired resource rather than installing it.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
+	}
+	backend, err = validateBackend(capability, backend, err)
+	if err == nil {
+		if configure != nil {
+			configure(backend)
+		}
+		// Configuration may finish at the same time startup is canceled.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = ctxErr
+		} else {
+			install(backend)
+		}
+	}
+	closeFailedBackend(backend, err)
+	// Cancellation closes the partially acquired resource above. Do not
+	// return a now-closed backend handle to callers as a usable result.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		var zero T
+		return zero, err
+	}
+	return backend, err
+}
+
+func configureScreenBackendTimeout(backend any, timeout time.Duration) {
+	if backend == nil {
+		return
+	}
+	if configurable, ok := backend.(interface{ SetCaptureTimeout(time.Duration) }); ok {
+		configurable.SetCaptureTimeout(timeout)
+	}
+}
+
+func validateBackend[T any](capability Capability, backend T, err error) (T, error) {
+	if err == nil && util.IsNil(backend) {
+		err = nilBackendError(capability)
+	}
+	return backend, err
+}
+
+func nilBackendError(capability Capability) error {
+	return fmt.Errorf("perfuncted: %s backend returned nil: %w", capability, ErrUnavailable)
+}
+
+func closeFailedBackend(backend any, openErr error) {
+	if openErr == nil || util.IsNil(backend) {
+		return
+	}
+	if closer, ok := backend.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+}
+
+func (s *Session) supportsCapabilityOperation(c Capability, operation string) bool {
+	s.capabilitiesMu.RLock()
+	defer s.capabilitiesMu.RUnlock()
+	return s.capabilities[c].Supports(operation)
 }
