@@ -35,6 +35,7 @@ running. Alternatively, download the `linux_amd64` or `linux_arm64` tarball
 directly from [GitHub Releases](https://github.com/nskaggs/perfuncted/releases).
 
 Verify the installation with `pf version` and `pf info`.
+
 ### One-time KDE Wayland setup
 
 For complete desktop capture, including native file pickers, authorize Perfuncted
@@ -114,22 +115,10 @@ KDE Plasma and Sway. Run `pf info` to inspect available capabilities.
 Wayland portals may require explicit consent; the GNOME native bridge may
 require a logout and login.
 
-**KDE Plasma Wayland (one-time setup):** native KWin screen capture includes
-portal file pickers and other visible dialogs that the Screenshot portal can
-omit. After installing the native CLI, review and run the
-[authorization script](scripts/authorize-kwin.sh) once as the desktop owner:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/authorize-kwin.sh | sh
-pf info
-```
-
-Perfuncted automatically prefers native KWin capture once authorized; no
-per-command flag or Spectacle installation is needed. Without authorization
-it may fall back to the portal, which can omit its own dialogs. For an
-alternate installation path, removal, and Go-library integration, see
-[native KWin capture](docs/desktop.md#native-kwin-screen-capture). See also
-[desktop support](docs/desktop.md) and [Flatpak permissions](docs/flatpak.md).
+For complete KDE capture, follow the [one-time KDE Wayland setup](#one-time-kde-wayland-setup).
+Perfuncted automatically prefers authorized native KWin capture; otherwise
+it may fall back to the Screenshot portal, which can omit its own dialogs.
+See [desktop support](docs/desktop.md) and [Flatpak permissions](docs/flatpak.md).
 
 ## Go library
 
