@@ -776,12 +776,6 @@ func (s *Session) Env() []string {
 	return s.coreState().Env()
 }
 
-// Paste writes text through the clipboard when available and otherwise types
-// it directly.
-func (s *Session) pasteContext(ctx context.Context, text string) (result error) {
-	return s.coreState().Paste(ctx, text)
-}
-
 // XDG returns the resolved XDG runtime directory for the session.
 func (s *Session) XDG() string {
 	return s.coreState().XDG()
@@ -1272,17 +1266,4 @@ func (s *Session) Accessibility() AccessibilityBundle {
 		return AccessibilityBundle{}
 	}
 	return AccessibilityBundle{state: s.core.accessibility, scope: s.operationScope()}
-}
-
-// List returns the displays visible to the active output backend.
-func (b OutputBundle) listContext(ctx context.Context) ([]output.Info, error) {
-	return b.state.List(ctx)
-}
-
-// Get returns the current clipboard text.
-func (b ClipboardBundle) getContext(ctx context.Context) (string, error) { return b.state.Get(ctx) }
-
-// Set replaces the clipboard text.
-func (b ClipboardBundle) setContext(ctx context.Context, text string) error {
-	return b.state.Set(ctx, text)
 }

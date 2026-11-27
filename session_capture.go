@@ -284,30 +284,12 @@ func validateWindowCaptureImage(capture screen.Capture) error {
 	return nil
 }
 
-// CaptureWindow captures the current screen rectangle reported by a stable
-// Session-owned window handle. It captures the visible desktop composite in
-// that rectangle, including any windows drawn above the target; it does not
-// retrieve hidden or minimized window contents.
-func (s ScreenBundle) captureWindowContext(ctx context.Context, target *Window) (screen.WindowCapture, error) {
-	return s.state.CaptureWindow(ctx, target.privateState())
-}
-
-// CaptureWindowBackground reads a target-only buffer when the selected screen
-// backend exposes that capability. It never activates the target and never
-// falls back to a visible desktop crop.
-func (s ScreenBundle) captureWindowBackgroundContext(ctx context.Context, target *Window) (screen.WindowCapture, error) {
-	return s.state.CaptureWindowBackground(ctx, target.privateState())
-}
-
-// CaptureWindowBackgroundTo captures one target-only background buffer and
-// atomically publishes it as PNG at path.
-func (s ScreenBundle) captureWindowBackgroundToContext(ctx context.Context, target *Window, path string) (screen.WindowCapture, error) {
-	return s.state.CaptureWindowBackgroundTo(ctx, target.privateState(), path)
-}
-
-// CaptureWindowTo captures one stable window's visible screen rectangle and
-// atomically publishes it as PNG at path. The captured content is the desktop
-// composite, not a background-only buffer.
-func (s ScreenBundle) captureWindowToContext(ctx context.Context, target *Window, path string) (screen.WindowCapture, error) {
-	return s.state.CaptureWindowTo(ctx, target.privateState(), path)
+// Capture captures this window's visible desktop rectangle. Overlapping
+// windows may appear in the image; it does not activate or unocclude the target.
+func (w *Window) Capture() (screen.WindowCapture, error) {
+	if w == nil || w.state == nil || w.state.id.session == nil {
+		return screen.WindowCapture{}, ErrNilSession
+	}
+	s := &Session{core: w.state.id.session, scope: w.scope}
+	return s.Screen().CaptureWindow(w)
 }

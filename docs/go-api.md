@@ -140,3 +140,49 @@ overall default (or scoped override) and preserve the separate configured
 Diagnostic budget for each backend artifact, so one stalled provider cannot
 consume the entire collection budget. Diagnostic collection remains best effort,
 including when gathering evidence after a failure.
+
+A setup timeout rejects results that arrive after the deadline; it cannot
+interrupt a provider method that does not accept a context (including the
+window event source accessor). Canceling a window subscription discards
+unread notifications when retirement completes, not atomically at the
+instant cancellation is requested. Native input observation subscriptions
+release their scoped setup resources when the provider terminates. Call
+Close on every acquired observation subscription; custom providers without
+a separate terminal signal depend on caller cancellation or explicit Close.
+
+## Work with a window you already found
+
+The resolved window retains the original identity. You do not need to search
+for its title again after it changes:
+
+~~~go
+w, err := s.Windows().Find(window.Title("Editor"))
+if err != nil { return err }
+if err := w.Do(perfuncted.Type("Hello"), perfuncted.Key("enter")); err != nil {
+    return err
+}
+capture, err := w.Capture()
+~~~
+
+Import the `window` domain package for selectors. `w.Do` and
+`s.Window("Editor").Do` share the same guarded input implementation.
+`w.WaitActive()` observes focus without requesting activation. These are
+point-in-time checks, not atomic input ownership. `w.Capture()` captures
+the visible desktop rectangle (overlap may appear); it does not imply
+authoritative screenshot-to-input mapping.
+
+For accessibility, explicitly require the accessibility capability when
+opening the session. A resolved window supplies the locator's scope and
+safe default snapshot configuration:
+
+~~~go
+save := w.Locator(accessibility.Selector{Role: "button", Name: "Save"})
+receipt, err := save.Click()
+~~~
+
+Import the `accessibility` domain package for selectors. `Click`, `Fill`
+and `Invoke` return dispatch receipts, not proof of application effect.
+For independent proof use `ClickAndWait`, `FillAndWait` or
+`InvokeActionAndWait` with a caller-supplied condition. The bound locator
+checks the original window identity even if the cached metadata has since
+been refreshed. Uncertain dispatch is never automatically retried.

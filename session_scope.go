@@ -239,13 +239,31 @@ func scopedEvents[T any](ctx context.Context, source <-chan T, release func()) <
 // Close retains the provider's terminal error and releases the setup scope.
 type scopedObservation struct {
 	input.ObservationSubscription
-	release func()
+	close func() error
 }
 
-func (s scopedObservation) Close() error {
-	defer s.release()
-	return s.ObservationSubscription.Close()
+func newScopedObservation(sub input.ObservationSubscription, setup streamSetup) input.ObservationSubscription {
+	release := sync.OnceFunc(setup.release)
+	// A provider may expose a separate terminal signal. Do not consume the
+	// event channel to discover termination or change its overflow semantics.
+	if terminal, ok := sub.(interface{ Done() <-chan struct{} }); ok {
+		if done := terminal.Done(); done != nil {
+			go func() {
+				select {
+				case <-done:
+				case <-setup.ctx.Done():
+				}
+				release()
+			}()
+		}
+	}
+	return scopedObservation{ObservationSubscription: sub, close: sync.OnceValue(func() error {
+		defer release()
+		return sub.Close()
+	})}
 }
+
+func (s scopedObservation) Close() error { return s.close() }
 
 // windowEventFanout is owned by the session's fixed window capability.
 // A single reader distributes bounded, lossy notifications to independent

@@ -2125,3 +2125,29 @@ func TestReviewBackgroundCaptureUnknownVisibilityIsNotForeground(t *testing.T) {
 		t.Fatalf("state=%q err=%v; focus does not prove visibility", got.State, err)
 	}
 }
+
+func TestPlan7CaptureRejectsReplacementAfterRefresh(t *testing.T) {
+	initial := window.Info{NativeID: "reused", Title: "Editor", PID: 41, AppID: "editor", X: 1, Y: 2, W: 20, H: 10}
+	grabs := 0
+	core, mgr := windowCaptureFixture(t, initial, func(_ context.Context, rect image.Rectangle) (image.Image, error) {
+		grabs++
+		return image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy())), nil
+	})
+	w, err := wrapSession(core).Windows().Find(window.Title("Editor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = w.Capture(); err != nil {
+		t.Fatal(err)
+	}
+	mgr.setWindows(false, window.Info{NativeID: "reused", Title: "Editor", PID: 99, AppID: "other", X: 1, Y: 2, W: 20, H: 10})
+	if _, err = w.Info(); !errors.Is(err, ErrWindowIdentityChanged) {
+		t.Fatalf("replacement info: %v", err)
+	}
+	if _, err = w.Capture(); !errors.Is(err, ErrWindowIdentityChanged) {
+		t.Fatalf("replacement capture: %v", err)
+	}
+	if grabs != 1 {
+		t.Fatalf("grabs=%d", grabs)
+	}
+}

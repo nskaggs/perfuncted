@@ -4282,3 +4282,133 @@ func TestCallerAccessibilityStreamSetupAndCancellation(t *testing.T) {
 		})
 	}
 }
+
+func TestPlan6InvalidVerificationConditionNeverDispatches(t *testing.T) {
+	loc, fake := newLocatorWaitFixture(t, 1, false)
+	checks := 0
+	ok := Predicate("true", func(context.Context) (bool, error) { checks++; return true, nil })
+	for _, condition := range []Condition{Not(WindowExists(window.Title(""))), Any(ok, WindowExists(window.Title("")))} {
+		receipt, _, err := loc.ClickAndWait(condition)
+		if !errors.Is(err, ErrInvalidArgument) || !errors.Is(err, window.ErrInvalidArgument) {
+			t.Fatalf("invalid verification: %+v %v", receipt, err)
+		}
+	}
+	if checks != 0 || len(fake.accessibilityAutomationSpy.calls) != 0 {
+		t.Fatalf("verification dispatched: checks=%d calls=%v", checks, fake.accessibilityAutomationSpy.calls)
+	}
+}
+
+func TestPlan7PlainLocatorActionRetainsReceiptAndFailsClosed(t *testing.T) {
+	for _, n := range []int{1, 2} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			loc, fake := newLocatorWaitFixture(t, n, false)
+			receipt, err := loc.Click()
+			if n == 2 {
+				if !errors.Is(err, accessibility.ErrAmbiguous) || len(fake.accessibilityAutomationSpy.calls) != 0 {
+					t.Fatalf("ambiguous: %v %v", receipt, err)
+				}
+				return
+			}
+			if err != nil || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeNotObserved || len(fake.accessibilityAutomationSpy.calls) != 1 {
+				t.Fatalf("receipt=%+v err=%v calls=%v", receipt, err, fake.accessibilityAutomationSpy.calls)
+			}
+			if _, _, err := loc.ClickAndWait(nil); !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("verified nil condition: %v", err)
+			}
+		})
+	}
+}
+func TestPlan7WindowLocatorRejectsRecycledHandle(t *testing.T) {
+	loc, fake := newLocatorWaitFixture(t, 1, false)
+	mgr := newHandleWindowManager(window.Info{NativeID: "one", Title: "Editor", PID: 42, AppID: "editor"})
+	core := newSessionForTesting(nil, nil, mgr, nil, nil, fake)
+	defer core.Close()
+	s := wrapSession(core)
+	w, err := s.Windows().Find(window.Title("Editor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := w.Locator(loc.selector)
+	mgr.mu.Lock()
+	mgr.windows[0].PID = 99
+	mgr.mu.Unlock()
+	if _, err = w.Info(); !errors.Is(err, ErrWindowIdentityChanged) {
+		t.Fatalf("replacement info: %v", err)
+	}
+	if _, err = bound.Click(); !errors.Is(err, ErrWindowIdentityChanged) {
+		t.Fatalf("recycled target err=%v", err)
+	}
+	if len(fake.accessibilityAutomationSpy.calls) != 0 || fake.snapshotCalls != 0 {
+		t.Fatal("stale locator reached provider dispatch or snapshot")
+	}
+}
+
+func TestPlan7PlainFillInvokeAndUncertainDispatch(t *testing.T) {
+	loc, fake := newLocatorWaitFixture(t, 1, false)
+	fake.exactAction = accessibility.Action{Index: 2, Name: "press"}
+	receipt, err := loc.Invoke("press")
+	if err != nil || receipt.Dispatch != accessibility.DispatchAccepted {
+		t.Fatalf("invoke: %+v %v", receipt, err)
+	}
+	receipt, err = loc.Fill("text")
+	if err != nil || receipt.Dispatch != accessibility.DispatchAccepted || receipt.Outcome.Status != accessibility.ActionOutcomeNotObserved {
+		t.Fatalf("fill: %+v %v", receipt, err)
+	}
+	if _, err := loc.Fill("\xff"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("invalid fill: %v", err)
+	}
+	fake.invokeErr = &accessibility.ActionInvocationError{Dispatch: accessibility.DispatchUnknown, Err: errors.New("uncertain")}
+	before := fake.invokeCount
+	receipt, err = loc.Invoke("press")
+	if err == nil || receipt.Dispatch != accessibility.DispatchUnknown || fake.invokeCount != before+1 {
+		t.Fatalf("uncertain: %+v %v count=%d", receipt, err, fake.invokeCount)
+	}
+	var nilLoc *AccessibilityLocator
+	if _, err := nilLoc.Click(); !errors.Is(err, ErrUnavailable) {
+		t.Fatal(err)
+	}
+	var nilWin *Window
+	if _, err := nilWin.Locator(accessibility.Selector{}).Click(); !errors.Is(err, ErrUnavailable) {
+		t.Fatal(err)
+	}
+}
+
+type plan7RetryScopeAfterValidation struct {
+	*snapshotAccessibilityAutomationFake
+	calls int
+}
+
+func (b *plan7RetryScopeAfterValidation) FindApplicationFresh(ctx context.Context, f accessibility.ApplicationFilter) (accessibility.Application, error) {
+	b.calls++
+	app, err := b.snapshotAccessibilityAutomationFake.FindApplicationFresh(ctx, f)
+	if b.calls >= 3 {
+		app.ID.BusName = "org.replacement"
+		app.ID.ObjectPath = "/replacement"
+		b.snapshot.Root = app.Node
+		b.snapshot.Nodes = []accessibility.Node{app.Node, {ID: accessibility.NodeID{BusName: app.ID.BusName, ObjectPath: "/replacement/save", Generation: app.ID.Generation}, Parent: app.ID, Role: "button", Name: "Save"}}
+		b.textErr = nil
+	}
+	return app, err
+}
+func TestPlan7RetryCannotCrossScopeAfterValidation(t *testing.T) {
+	loc, fake := newLocatorWaitFixture(t, 1, false)
+	fake.textErr = accessibility.ErrStaleGeneration
+	b := &plan7RetryScopeAfterValidation{snapshotAccessibilityAutomationFake: fake}
+	loc.bundle.backend = b
+	r, err := loc.Fill("private")
+	if !errors.Is(err, ErrManagedScopeChanged) || fake.textCount != 1 || r.Node.ID.BusName != "" {
+		t.Fatalf("retry crossed scope: %+v %v writes=%d reads=%d", r, err, fake.textCount, b.calls)
+	}
+}
+
+func TestPlan7RevocationRetainsRedactedDispatch(t *testing.T) {
+	loc, fake := newLocatorWaitFixture(t, 1, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b := &revokingLocatorFillBackend{snapshotAccessibilityAutomationFake: fake, after: cancel}
+	loc.bundle.backend = b
+	r, err := loc.WithContext(ctx).Fill("private")
+	if !errors.Is(err, context.Canceled) || r.Dispatch == "" || r.Dispatch == accessibility.DispatchNotSent || r.Node.ID.BusName != "" || r.Action.Name != "" || b.writes != 1 {
+		t.Fatalf("revoked receipt: %+v err=%v writes=%d", r, err, b.writes)
+	}
+}

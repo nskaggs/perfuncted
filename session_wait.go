@@ -501,14 +501,15 @@ func Not(child Condition) Condition {
 
 // WindowExists succeeds when match identifies at least one window.
 func WindowExists(match window.Match) Condition {
-	return sessionCondition(
-		"window exists "+match.String(),
-		func(ctx context.Context, session *sessionCore) (bool, error) {
+	return conditionFunc{
+		name: "window exists " + match.String(),
+		check: func(ctx context.Context, session *sessionCore) (bool, error) {
 			windows, err := session.windows.List(ctx, match)
 			return len(windows) > 0, err
 		},
-		CapabilityWindows,
-	)
+		capabilities: []Capability{CapabilityWindows},
+		preflightErr: validateWindowMatch(match),
+	}
 }
 
 // AccessibilityNodeExists succeeds when a fresh, structurally complete AT-SPI
@@ -1068,24 +1069,3 @@ func waitEpochDone(epoch *waitEpoch) <-chan struct{} {
 // WindowClosed returns a condition bound to the supplied target's current
 // private identity, rather than to a caller-overwritable wrapper.
 func WindowClosed(target *Window) Condition { return windowClosed(target.privateState()) }
-
-// Wait blocks until condition succeeds. Timeout and cancellation follow ctx;
-// persistent observation failures are bounded, and terminal failures abort.
-func (s *Session) waitContext(
-	ctx context.Context,
-	condition Condition,
-	options ...WaitOption,
-) error {
-	return s.coreState().Wait(ctx, condition, options...)
-}
-
-// WaitWithEvidence blocks until condition succeeds and returns bounded
-// diagnostic evidence about the event-backed and polling wakeups observed.
-// Events only wake the wait; the condition remains the authority.
-func (s *Session) waitWithEvidenceContext(
-	ctx context.Context,
-	condition Condition,
-	options ...WaitOption,
-) (WaitEvidence, error) {
-	return s.coreState().WaitWithEvidence(ctx, condition, options...)
-}

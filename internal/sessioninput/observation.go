@@ -49,15 +49,22 @@ func (b *observationState) Listen(ctx context.Context, f input.ObservationFilter
 	}
 	subscription, err := b.backend.Listen(ctx, f)
 	if err != nil {
+		if !util.IsNil(subscription) {
+			err = errors.Join(err, subscription.Close())
+		}
 		return nil, b.gate.OperationError(operation, err)
 	}
+	if util.IsNil(subscription) {
+		return nil, b.gate.OperationError(operation, capability.ErrUnavailable)
+	}
+	if subscription.Events() == nil {
+		return nil, b.gate.OperationError(operation, errors.Join(capability.ErrUnavailable, subscription.Close()))
+	}
 	if err := ctx.Err(); err != nil {
-		_ = subscription.Close()
-		return nil, err
+		return nil, errors.Join(err, subscription.Close())
 	}
 	if err := b.gate.EnsureOpen(); err != nil {
-		_ = subscription.Close()
-		return nil, err
+		return nil, errors.Join(err, subscription.Close())
 	}
 	return subscription, nil
 }

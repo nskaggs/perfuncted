@@ -8,6 +8,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/accessibility"
+	"github.com/nskaggs/perfuncted/v2/window"
 )
 
 func ExampleOpen() {
@@ -82,4 +83,34 @@ func ExampleAccessibilityLocator_ClickAndWait() {
 // imageRect keeps the examples focused on the public session contract.
 func imageRect() (r image.Rectangle) {
 	return image.Rect(0, 0, 1, 1)
+}
+
+// ExampleWindow_Do shows reuse of one discovered window without a title lookup.
+func ExampleWindow_Do() {
+	s, err := perfuncted.Open()
+	if err != nil {
+		return
+	}
+	defer s.Close()
+	w, err := s.Windows().Find(window.Title("Editor"))
+	if err != nil {
+		return
+	}
+	if err := w.Do(perfuncted.Type("Hello"), perfuncted.Key("enter")); err != nil {
+		return
+	}
+	_, _ = w.Capture()
+}
+
+func ExampleWindow_Locator() {
+	s, err := perfuncted.Open(perfuncted.Require(perfuncted.CapabilityWindows, perfuncted.CapabilityAccessibility))
+	if err != nil {
+		return
+	}
+	defer s.Close()
+	w, err := s.Windows().Find(window.Title("Editor"))
+	if err != nil {
+		return
+	}
+	_, _ = w.Locator(accessibility.Selector{Role: "button", Name: "Save"}).Click()
 }

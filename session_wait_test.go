@@ -1251,8 +1251,9 @@ func TestAccessibilityWaitRebindsToReopenedBackendBeforeWaking(t *testing.T) {
 	go func() {
 		evidence, err := session.WaitWithEvidence(ctx, sessionCondition("reopened event", func(context.Context, *sessionCore) (bool, error) {
 			current := count.Add(1)
+			observed := eventObserved.Load()
 			evaluations <- current
-			return eventObserved.Load(), nil
+			return observed, nil
 		}), WaitEvery(time.Hour))
 		waitResult <- struct {
 			evidence WaitEvidence

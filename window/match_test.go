@@ -1283,3 +1283,24 @@ func TestFindByTitleNilManager(t *testing.T) {
 		t.Fatal("expected error for nil manager")
 	}
 }
+
+func TestPlan6ExplicitEmptyTitleIsNotWildcard(t *testing.T) {
+	for _, spec := range []string{`title=""`, `title~=""`, `title="  "`, `title=`, `title~:`} {
+		if _, err := ParseMatchSpec(spec); !errors.Is(err, ErrInvalidArgument) {
+			t.Errorf("%q: %v", spec, err)
+		}
+	}
+	if m, err := ParseMatchSpec(""); err != nil || !m.Matches(Info{Title: "Editor"}) {
+		t.Fatalf("unfiltered: %v %v", m, err)
+	}
+}
+
+func TestPlan6InvalidTitleCannotProveLowLevelAbsence(t *testing.T) {
+	manager := &fakeManager{wins: []Info{{Title: "Editor"}}}
+	if err := WaitForMatchClose(context.Background(), manager, Title(""), time.Millisecond); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("invalid selector proved absence: %v", err)
+	}
+	if _, err := FindByTitle(context.Background(), manager, ""); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("empty substring selected a window: %v", err)
+	}
+}

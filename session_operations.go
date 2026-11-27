@@ -36,24 +36,31 @@ func (h *Session) WithTimeout(d time.Duration) *Session {
 	return &copy
 }
 
-// CaptureFailureBundle performs the scoped CaptureFailureBundle operation.
+// CaptureFailureBundle collects best-effort diagnostic artifacts into a
+// directory and returns its path. Each artifact is attempted independently;
+// the returned error reports collection failures after the successful files
+// have been written. Its manifest records the effective timeout policy and
+// whether each field came from SessionConfig or the library defaults.
 func (h *Session) CaptureFailureBundle(options FailureBundleOptions) (r0 string, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeDiagnostic, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.captureFailureBundleContext(ctx, options)
+	return h.coreState().CaptureFailureBundle(ctx, options)
 }
 
-// InvokeAccessibilityActionAndWait performs the scoped InvokeAccessibilityActionAndWait operation.
+// InvokeAccessibilityActionAndWait invokes one explicitly resolved AT-SPI
+// action and waits for an independent authoritative postcondition. The
+// returned evidence describes only bounded wakeups; callers decide what the
+// postcondition means.
 func (h *Session) InvokeAccessibilityActionAndWait(root accessibility.NodeID, query accessibility.Query, actionName string, snapshotOptions accessibility.SnapshotOptions, postcondition Condition, waitOptions ...WaitOption) (r0 accessibility.ActionReceipt, r1 WaitEvidence, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeBatch, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.invokeAccessibilityActionAndWaitContext(ctx, root, query, actionName, snapshotOptions, postcondition, waitOptions...)
+	return h.coreState().InvokeAccessibilityActionAndWait(ctx, root, query, actionName, snapshotOptions, postcondition, waitOptions...)
 }
 
 // Launch performs the scoped Launch operation.
@@ -66,34 +73,38 @@ func (h *Session) Launch(command Command) (r0 *Application, err error) {
 	return h.launchContext(ctx, command)
 }
 
-// Paste performs the scoped Paste operation.
+// Paste writes text through the clipboard when available and otherwise types
+// it directly.
 func (h *Session) Paste(text string) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.pasteContext(ctx, text)
+	return h.coreState().Paste(ctx, text)
 }
 
-// Wait performs the scoped Wait operation.
+// Wait blocks until condition succeeds. Timeout and cancellation follow ctx;
+// persistent observation failures are bounded, and terminal failures abort.
 func (h *Session) Wait(condition Condition, options ...WaitOption) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.waitContext(ctx, condition, options...)
+	return h.coreState().Wait(ctx, condition, options...)
 }
 
-// WaitWithEvidence performs the scoped WaitWithEvidence operation.
+// WaitWithEvidence blocks until condition succeeds and returns bounded
+// diagnostic evidence about the event-backed and polling wakeups observed.
+// Events only wake the wait; the condition remains the authority.
 func (h *Session) WaitWithEvidence(condition Condition, options ...WaitOption) (r0 WaitEvidence, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.waitWithEvidenceContext(ctx, condition, options...)
+	return h.coreState().WaitWithEvidence(ctx, condition, options...)
 }
 
 // WithContext returns a copy bound to ctx without changing the original.
@@ -360,13 +371,13 @@ func (h InputObservationBundle) Listen(f input.ObservationFilter) (r0 input.Obse
 	}
 	if err != nil {
 		if sub != nil {
-			_ = sub.Close()
+			err = errors.Join(err, sub.Close())
 		}
 		setup.release()
 		return nil, err
 	}
 	if h.scope.timeout > 0 {
-		return scopedObservation{ObservationSubscription: sub, release: setup.release}, nil
+		return newScopedObservation(sub, setup), nil
 	}
 	return sub, nil
 }
@@ -435,44 +446,52 @@ func (h ScreenBundle) CaptureRegion(rect image.Rectangle, path string) (err erro
 	return h.backendHandle().CaptureRegion(ctx, rect, path)
 }
 
-// CaptureWindow performs the scoped CaptureWindow operation.
+// CaptureWindow captures the current screen rectangle reported by a stable
+// Session-owned window handle. It captures the visible desktop composite in
+// that rectangle, including any windows drawn above the target; it does not
+// retrieve hidden or minimized window contents.
 func (h ScreenBundle) CaptureWindow(target *Window) (r0 screen.WindowCapture, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.captureWindowContext(ctx, target)
+	return h.state.CaptureWindow(ctx, target.privateState())
 }
 
-// CaptureWindowBackground performs the scoped CaptureWindowBackground operation.
+// CaptureWindowBackground reads a target-only buffer when the selected screen
+// backend exposes that capability. It never activates the target and never
+// falls back to a visible desktop crop.
 func (h ScreenBundle) CaptureWindowBackground(target *Window) (r0 screen.WindowCapture, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.captureWindowBackgroundContext(ctx, target)
+	return h.state.CaptureWindowBackground(ctx, target.privateState())
 }
 
-// CaptureWindowBackgroundTo performs the scoped CaptureWindowBackgroundTo operation.
+// CaptureWindowBackgroundTo captures one target-only background buffer and
+// atomically publishes it as PNG at path.
 func (h ScreenBundle) CaptureWindowBackgroundTo(target *Window, path string) (r0 screen.WindowCapture, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.captureWindowBackgroundToContext(ctx, target, path)
+	return h.state.CaptureWindowBackgroundTo(ctx, target.privateState(), path)
 }
 
-// CaptureWindowTo performs the scoped CaptureWindowTo operation.
+// CaptureWindowTo captures one stable window's visible screen rectangle and
+// atomically publishes it as PNG at path. The captured content is the desktop
+// composite, not a background-only buffer.
 func (h ScreenBundle) CaptureWindowTo(target *Window, path string) (r0 screen.WindowCapture, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.captureWindowToContext(ctx, target, path)
+	return h.state.CaptureWindowTo(ctx, target.privateState(), path)
 }
 
 // FindColor performs the scoped FindColor operation.
@@ -864,14 +883,14 @@ func (h OutputBundle) WithTimeout(d time.Duration) OutputBundle {
 	return h
 }
 
-// List performs the scoped List operation.
+// List returns the displays visible to the active output backend.
 func (h OutputBundle) List() (r0 []output.Info, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.listContext(ctx)
+	return h.state.List(ctx)
 }
 
 // WithContext returns a copy bound to ctx without changing the original.
@@ -886,24 +905,24 @@ func (h ClipboardBundle) WithTimeout(d time.Duration) ClipboardBundle {
 	return h
 }
 
-// Get performs the scoped Get operation.
+// Get returns the current clipboard text.
 func (h ClipboardBundle) Get() (r0 string, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.getContext(ctx)
+	return h.state.Get(ctx)
 }
 
-// Set performs the scoped Set operation.
+// Set replaces the clipboard text.
 func (h ClipboardBundle) Set(text string) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.setContext(ctx, text)
+	return h.state.Set(ctx, text)
 }
 
 // WithContext returns a copy bound to ctx without changing the original.
@@ -1068,24 +1087,24 @@ func (h AccessibilityBundle) Find(root accessibility.NodeID, query accessibility
 	return h.backendHandle().Find(ctx, root, query, opts)
 }
 
-// FindApplication performs the scoped FindApplication operation.
+// FindApplication resolves a unique application in the owning session.
 func (h AccessibilityBundle) FindApplication(filter accessibility.ApplicationFilter) (r0 accessibility.Application, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeLong, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.findApplicationContext(ctx, filter)
+	return h.state.FindApplication(ctx, filter)
 }
 
-// FindApplicationFresh performs the scoped FindApplicationFresh operation.
+// FindApplicationFresh resolves an application from uncached identity state.
 func (h AccessibilityBundle) FindApplicationFresh(filter accessibility.ApplicationFilter) (r0 accessibility.Application, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeLong, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.findApplicationFreshContext(ctx, filter)
+	return h.state.FindApplicationFresh(ctx, filter)
 }
 
 // FindOne performs the scoped FindOne operation.
@@ -1398,24 +1417,24 @@ func (h AccessibilityBundle) Snapshot(root accessibility.NodeID, opts accessibil
 	return h.backendHandle().Snapshot(ctx, root, opts)
 }
 
-// WindowRoot performs the scoped WindowRoot operation.
+// WindowRoot resolves a managed window's exact accessibility subtree.
 func (h AccessibilityBundle) WindowRoot(id string) (r0 accessibility.WindowScope, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeLong, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.windowRootContext(ctx, id)
+	return h.state.WindowRoot(ctx, id)
 }
 
-// WindowRootFresh performs the scoped WindowRootFresh operation.
+// WindowRootFresh re-correlates a managed window from fresh state.
 func (h AccessibilityBundle) WindowRootFresh(id string) (r0 accessibility.WindowScope, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeLong, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.windowRootFreshContext(ctx, id)
+	return h.state.WindowRootFresh(ctx, id)
 }
 
 // WithContext returns a copy bound to ctx without changing the original.
@@ -1438,114 +1457,119 @@ func (h *Window) WithTimeout(d time.Duration) *Window {
 	return &copy
 }
 
-// Activate performs the scoped Activate operation.
+// Activate focuses the window.
 func (h *Window) Activate() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.activateContext(ctx)
+	return h.privateState().Activate(ctx)
 }
 
-// Close performs the scoped Close operation.
+// Close requests that the window close.
 func (h *Window) Close() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.closeContext(ctx)
+	return h.privateState().Close(ctx)
 }
 
-// Fullscreen performs the scoped Fullscreen operation.
+// Fullscreen makes the window occupy the screen.
 func (h *Window) Fullscreen() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.fullscreenContext(ctx)
+	return h.privateState().Fullscreen(ctx)
 }
 
-// Info performs the scoped Info operation.
+// Info refreshes and returns authoritative window state.
 func (h *Window) Info() (r0 window.Info, err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.infoContext(ctx)
+	return h.privateState().Info(ctx)
 }
 
-// Maximize performs the scoped Maximize operation.
+// Maximize maximizes the window.
 func (h *Window) Maximize() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.maximizeContext(ctx)
+	return h.privateState().Maximize(ctx)
 }
 
-// Minimize performs the scoped Minimize operation.
+// Minimize minimizes the window.
 func (h *Window) Minimize() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.minimizeContext(ctx)
+	return h.privateState().Minimize(ctx)
 }
 
-// Move performs the scoped Move operation.
+// Move positions the window at x and y. Negative coordinates are valid for a
+// monitor left of or above the primary one; a coordinate no backend can carry
+// is rejected with ErrInvalidArgument.
 func (h *Window) Move(x int, y int) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.moveContext(ctx, x, y)
+	return h.privateState().Move(ctx, x, y)
 }
 
-// Resize performs the scoped Resize operation.
+// Resize changes the window size to width by height. Both edges must be
+// positive and within the geometry range every backend can represent; anything
+// else is rejected with ErrInvalidArgument rather than sent to a compositor that
+// would truncate it.
 func (h *Window) Resize(width int, height int) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.resizeContext(ctx, width, height)
+	return h.privateState().Resize(ctx, width, height)
 }
 
-// Restore performs the scoped Restore operation.
+// Restore returns the window to its normal state.
 func (h *Window) Restore() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.restoreContext(ctx)
+	return h.privateState().Restore(ctx)
 }
 
-// Unfullscreen performs the scoped Unfullscreen operation.
+// Unfullscreen restores the window from fullscreen mode.
 func (h *Window) Unfullscreen() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeMedium, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.unfullscreenContext(ctx)
+	return h.privateState().Unfullscreen(ctx)
 }
 
-// WaitClosed performs the scoped WaitClosed operation.
+// WaitClosed waits until the authoritative backend no longer reports w.
 func (h *Window) WaitClosed() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.waitClosedContext(ctx)
+	return h.privateState().WaitClosed(ctx)
 }
 
 // WithContext returns a copy bound to ctx without changing the original.
@@ -1568,14 +1592,14 @@ func (h *Application) WithTimeout(d time.Duration) *Application {
 	return &copy
 }
 
-// Stop performs the scoped Stop operation.
+// Stop sends SIGTERM to the application process group and waits for ctx.
 func (h *Application) Stop() (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeCleanup, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.stopContext(ctx)
+	return h.privateState().Stop(ctx)
 }
 
 // Wait performs the scoped Wait operation.
@@ -1635,7 +1659,7 @@ func (h *AccessibilityLocator) FillAndWait(value string, postcondition Condition
 		return
 	}
 	defer finish(&err)
-	return h.fillAndWaitContext(ctx, value, postcondition, options...)
+	return h.fillContext(ctx, value, true, postcondition, options...)
 }
 
 // InvokeActionAndWait performs the scoped InvokeActionAndWait operation.
@@ -1645,7 +1669,7 @@ func (h *AccessibilityLocator) InvokeActionAndWait(actionName string, postcondit
 		return
 	}
 	defer finish(&err)
-	return h.invokeActionAndWaitContext(ctx, actionName, postcondition, options...)
+	return h.invokeActionContext(ctx, actionName, true, postcondition, options...)
 }
 
 // Matches performs the scoped Matches operation.

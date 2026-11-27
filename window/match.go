@@ -313,6 +313,9 @@ func ParseMatchSpec(spec string) (Match, error) { //nolint:gocyclo
 
 		switch strings.ToLower(strings.TrimSuffix(key, "~")) {
 		case "title":
+			if strings.TrimSpace(val) == "" {
+				return Match{}, fmt.Errorf("window: empty title selector: %w", ErrInvalidArgument)
+			}
 			// key may be "title" (exact) or "title~" (substring). The trailing "~"
 			// is stripped by TrimSuffix before the switch, so case "title~" here
 			// would be unreachable — the HasSuffix check below distinguishes the two.

@@ -3,6 +3,7 @@ package window
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
@@ -44,6 +45,9 @@ func find(ctx context.Context, m Manager, match Matcher, label string) (Info, er
 // FindByTitle returns the first window whose title contains substr
 // (case-insensitive). Error messages are standardized for callers.
 func FindByTitle(ctx context.Context, m Manager, substr string) (Info, error) {
+	if strings.TrimSpace(substr) == "" {
+		return Info{}, fmt.Errorf("window: empty title selector: %w", ErrInvalidArgument)
+	}
 	return find(ctx, m, CompileMatch(Match{TitleContains: substr}), substr)
 }
 
@@ -54,6 +58,9 @@ func FindByID(ctx context.Context, m Manager, id uint64) (Info, error) {
 
 // WaitForMatchClose blocks until no window matches match, or ctx expires.
 func WaitForMatchClose(ctx context.Context, m Manager, match Match, poll time.Duration) error {
+	if err := match.Validate(); err != nil {
+		return err
+	}
 	ctx = contextutil.Default(ctx)
 	if err := util.CheckAvailable("window", m); err != nil {
 		return err

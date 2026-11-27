@@ -71,6 +71,9 @@ func newObservationSubscription(closeFn func()) *observationSubscription {
 	return &observationSubscription{events: make(chan ObservationEvent, observationQueueSize), done: make(chan struct{}), closeFn: closeFn}
 }
 func (s *observationSubscription) Events() <-chan ObservationEvent { return s.events }
+
+// Done closes when the subscription terminates, independently of event consumption.
+func (s *observationSubscription) Done() <-chan struct{} { return s.done }
 func (s *observationSubscription) Err() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

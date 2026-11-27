@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nskaggs/perfuncted/v2/internal/sessionwindow"
 
@@ -128,6 +129,9 @@ func (b *windowBundleState) Wait(
 	if b == nil || b.session == nil {
 		return nil, ErrNilSession
 	}
+	if err := validateWindowMatch(match); err != nil {
+		return nil, err
+	}
 	var matched *windowState
 	condition := sessionCondition(
 		"window "+match.String(),
@@ -159,6 +163,9 @@ func (a *applicationState) WaitForWindow(
 ) (*windowState, error) {
 	if a == nil || a.session == nil {
 		return nil, ErrNilSession
+	}
+	if err := validateWindowMatch(match); err != nil {
+		return nil, err
 	}
 	var matched *windowState
 	condition := sessionCondition(
@@ -252,70 +259,6 @@ func (w *Window) CachedInfo() window.Info {
 	return w.privateState().CachedInfo()
 }
 
-// Info refreshes and returns authoritative window state.
-func (w *Window) infoContext(ctx context.Context) (window.Info, error) {
-	return w.privateState().Info(ctx)
-}
-
-// Activate focuses the window.
-func (w *Window) activateContext(ctx context.Context) error {
-	return w.privateState().Activate(ctx)
-}
-
-// Move positions the window at x and y. Negative coordinates are valid for a
-// monitor left of or above the primary one; a coordinate no backend can carry
-// is rejected with ErrInvalidArgument.
-func (w *Window) moveContext(ctx context.Context, x int, y int) error {
-	return w.privateState().Move(ctx, x, y)
-}
-
-// Resize changes the window size to width by height. Both edges must be
-// positive and within the geometry range every backend can represent; anything
-// else is rejected with ErrInvalidArgument rather than sent to a compositor that
-// would truncate it.
-func (w *Window) resizeContext(
-	ctx context.Context,
-	width int,
-	height int,
-) error {
-	return w.privateState().Resize(ctx, width, height)
-}
-
-// Close requests that the window close.
-func (w *Window) closeContext(ctx context.Context) error {
-	return w.privateState().Close(ctx)
-}
-
-// Minimize minimizes the window.
-func (w *Window) minimizeContext(ctx context.Context) error {
-	return w.privateState().Minimize(ctx)
-}
-
-// Maximize maximizes the window.
-func (w *Window) maximizeContext(ctx context.Context) error {
-	return w.privateState().Maximize(ctx)
-}
-
-// Fullscreen makes the window occupy the screen.
-func (w *Window) fullscreenContext(ctx context.Context) error {
-	return w.privateState().Fullscreen(ctx)
-}
-
-// Unfullscreen restores the window from fullscreen mode.
-func (w *Window) unfullscreenContext(ctx context.Context) error {
-	return w.privateState().Unfullscreen(ctx)
-}
-
-// Restore returns the window to its normal state.
-func (w *Window) restoreContext(ctx context.Context) error {
-	return w.privateState().Restore(ctx)
-}
-
-// WaitClosed waits until the authoritative backend no longer reports w.
-func (w *Window) waitClosedContext(ctx context.Context) error {
-	return w.privateState().WaitClosed(ctx)
-}
-
 // List returns every window satisfying match.
 func (s WindowBundle) listContext(
 	ctx context.Context,
@@ -349,4 +292,55 @@ func (s WindowBundle) waitContext(
 ) (*Window, error) {
 	v, err := s.state.Wait(ctx, match, options...)
 	return wrapWindow(v, s.scope), err
+}
+
+func validateWindowMatch(match window.Match) error {
+	if err := match.Validate(); err != nil {
+		return errors.Join(ErrInvalidArgument, err)
+	}
+	return nil
+}
+
+// WaitActive waits until this window is observed active. It does not activate
+// the window or promise that focus remains held after the observation.
+func (w *Window) WaitActive(options ...WaitOption) (err error) {
+	if w == nil || w.state == nil || w.state.id.session == nil {
+		return ErrNilSession
+	}
+	ctx, finish, err := w.operationScope().begin(scopeShort, 0)
+	if err != nil {
+		return err
+	}
+	defer finish(&err)
+	config := waitConfig{interval: w.state.id.session.Timeouts().Poll}
+	for _, option := range options {
+		if option != nil {
+			if err := option(&config); err != nil {
+				return err
+			}
+		}
+	}
+	return w.state.waitActive(ctx, config.interval)
+}
+
+func (w *windowState) waitActive(ctx context.Context, poll time.Duration) error {
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := w.Info(ctx)
+		if err != nil {
+			return err
+		}
+		if info.Active {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

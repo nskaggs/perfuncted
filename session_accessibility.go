@@ -294,42 +294,6 @@ func (s *sessionCore) InvokeAccessibilityActionAndWait(
 	return receipt, evidence, err
 }
 
-// InvokeAccessibilityActionAndWait invokes one explicitly resolved AT-SPI
-// action and waits for an independent authoritative postcondition. The
-// returned evidence describes only bounded wakeups; callers decide what the
-// postcondition means.
-func (s *Session) invokeAccessibilityActionAndWaitContext(
-	ctx context.Context,
-	root accessibility.NodeID,
-	query accessibility.Query,
-	actionName string,
-	snapshotOptions accessibility.SnapshotOptions,
-	postcondition Condition,
-	waitOptions ...WaitOption,
-) (accessibility.ActionReceipt, WaitEvidence, error) {
-	return s.coreState().InvokeAccessibilityActionAndWait(ctx, root, query, actionName, snapshotOptions, postcondition, waitOptions...)
-}
-
-// WindowRoot resolves a managed window's exact accessibility subtree.
-func (b AccessibilityBundle) windowRootContext(ctx context.Context, id string) (accessibility.WindowScope, error) {
-	return b.state.WindowRoot(ctx, id)
-}
-
-// WindowRootFresh re-correlates a managed window from fresh state.
-func (b AccessibilityBundle) windowRootFreshContext(ctx context.Context, id string) (accessibility.WindowScope, error) {
-	return b.state.WindowRootFresh(ctx, id)
-}
-
-// FindApplication resolves a unique application in the owning session.
-func (b AccessibilityBundle) findApplicationContext(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
-	return b.state.FindApplication(ctx, filter)
-}
-
-// FindApplicationFresh resolves an application from uncached identity state.
-func (b AccessibilityBundle) findApplicationFreshContext(ctx context.Context, filter accessibility.ApplicationFilter) (accessibility.Application, error) {
-	return b.state.FindApplicationFresh(ctx, filter)
-}
-
 // LocatorForWindow scopes a semantic locator to a managed window.
 func (b AccessibilityBundle) LocatorForWindow(id string, selector accessibility.Selector, opts accessibility.SnapshotOptions) *AccessibilityLocator {
 	loc := b.state.LocatorForWindow(id, selector, opts)
@@ -362,6 +326,7 @@ const (
 )
 
 type locatorScope struct {
+	window      *windowState
 	kind        locatorScopeKind
 	windowID    string
 	application accessibility.ApplicationFilter
@@ -407,8 +372,14 @@ func (l *AccessibilityLocator) scopeRoot(ctx context.Context) (accessibility.Nod
 		if l.scope.windowID == "" {
 			return accessibility.NodeID{}, sessionaccessibility.LocatorIdentity{}, fmt.Errorf("perfuncted: %w: locator requires a managed window ID", ErrInvalidArgument)
 		}
+		if err := l.checkBoundWindow(ctx); err != nil {
+			return accessibility.NodeID{}, sessionaccessibility.LocatorIdentity{}, err
+		}
 		scope, err := l.bundle.WindowRootFresh(ctx, l.scope.windowID)
 		if err != nil {
+			return accessibility.NodeID{}, sessionaccessibility.LocatorIdentity{}, err
+		}
+		if err := l.checkBoundWindow(ctx); err != nil {
 			return accessibility.NodeID{}, sessionaccessibility.LocatorIdentity{}, err
 		}
 		return scope.Root, sessionaccessibility.LocatorIdentity{
@@ -596,8 +567,8 @@ func (l *AccessibilityLocator) waitContext(ctx context.Context, options ...WaitO
 
 // InvokeActionAndWait resolves one current target, dispatches one semantic
 // action, and then waits for an independent caller-supplied postcondition.
-func (l *AccessibilityLocator) invokeActionAndWaitContext(ctx context.Context, actionName string, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // unique resolution, dispatch certainty, and bounded stale handling are explicit safety gates.
-	return l.actionAndWait(ctx, "action", postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
+func (l *AccessibilityLocator) invokeActionContext(ctx context.Context, actionName string, verify bool, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // unique resolution, dispatch certainty, and bounded stale handling are explicit safety gates.
+	return l.actionAndWait(ctx, "action", verify, postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
 		receipt, err := l.bundle.invokeSemanticActionOnNode(ctx, node, actionName)
 		retryable := err != nil && sessionaccessibility.LocatorActionMayRetryStale(err) &&
 			(receipt.Dispatch == "" || receipt.Dispatch == accessibility.DispatchNotSent)
@@ -608,26 +579,26 @@ func (l *AccessibilityLocator) invokeActionAndWaitContext(ctx context.Context, a
 // ClickAndWait invokes the target's accessible default action once and records
 // whether an independent caller-supplied postcondition becomes true.
 func (l *AccessibilityLocator) clickAndWaitContext(ctx context.Context, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) {
-	return l.invokeActionAndWaitContext(ctx, "", postcondition, options...)
+	return l.invokeActionContext(ctx, "", true, postcondition, options...)
 }
 
 // FillAndWait replaces editable text on the uniquely resolved target with one
 // AT-SPI SetTextContents dispatch, then observes an independent postcondition.
 // An uncertain provider result is returned with its receipt and is never retried.
-func (l *AccessibilityLocator) fillAndWaitContext(ctx context.Context, value string, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // one text mutation, bounded stale handling, and independent outcome proof are explicit gates.
+func (l *AccessibilityLocator) fillContext(ctx context.Context, value string, verify bool, postcondition Condition, options ...WaitOption) (accessibility.ActionReceipt, WaitEvidence, error) { //nolint:gocyclo // one text mutation, bounded stale handling, and independent outcome proof are explicit gates.
 	if l == nil || l.bundle == nil || l.bundle.session == nil {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, ErrUnavailable
 	}
 	if ctx == nil {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator fill: %w: nil context", ErrInvalidArgument)
 	}
-	if postcondition == nil {
+	if verify && postcondition == nil {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator fill: %w: nil postcondition", ErrInvalidArgument)
 	}
 	if !utf8.ValidString(value) {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator fill: %w: text must be valid UTF-8", ErrInvalidArgument)
 	}
-	return l.actionAndWait(ctx, "fill", postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
+	return l.actionAndWait(ctx, "fill", verify, postcondition, options, func(ctx context.Context, node accessibility.Node) locatorDispatchAttempt {
 		receipt := accessibility.ActionReceipt{
 			Node: node, Operation: "set-text-contents", Mechanism: "at-spi.editable-text",
 			Generation: node.ID.Generation, Dispatch: accessibility.DispatchNotSent,
@@ -661,21 +632,27 @@ func locatorRetryAllowed(attempt locatorDispatchAttempt, attemptNumber int) bool
 }
 
 //nolint:gocyclo // Dispatch, cancellation and independent observation each fail closed.
-func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation string, postcondition Condition, options []WaitOption, dispatch func(context.Context, accessibility.Node) locatorDispatchAttempt) (accessibility.ActionReceipt, WaitEvidence, error) {
+func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation string, verify bool, postcondition Condition, options []WaitOption, dispatch func(context.Context, accessibility.Node) locatorDispatchAttempt) (accessibility.ActionReceipt, WaitEvidence, error) {
 	if l == nil || l.bundle == nil || l.bundle.session == nil {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, ErrUnavailable
 	}
 	if ctx == nil {
 		return accessibility.ActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s: %w: nil context", operation, ErrInvalidArgument)
 	}
-	if postcondition == nil {
-		return accessibility.ActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s: %w: nil postcondition", operation, ErrInvalidArgument)
-	}
-	waitConfig, err := l.bundle.session.prepareWait(ctx, postcondition, options, "accessibility-locator-"+operation+"-verification")
-	if err != nil {
-		return accessibility.ActionReceipt{}, WaitEvidence{}, err
+	var waitConfig waitConfig
+	if verify {
+		if postcondition == nil {
+			return accessibility.ActionReceipt{}, WaitEvidence{}, fmt.Errorf("perfuncted: locator %s: %w: nil postcondition", operation, ErrInvalidArgument)
+		}
+		var err error
+		waitConfig, err = l.bundle.session.prepareWait(ctx, postcondition, options, "accessibility-locator-"+operation+"-verification")
+		if err != nil {
+			return accessibility.ActionReceipt{}, WaitEvidence{}, err
+		}
 	}
 	var receipt accessibility.ActionReceipt
+	var firstIdentity sessionaccessibility.LocatorIdentity
+	var firstRoot accessibility.NodeID
 	for attemptNumber := 0; attemptNumber < locatorResolutionAttempts; attemptNumber++ {
 		matches, identity, root, stopObservation, err := l.find(ctx)
 		if err != nil {
@@ -686,6 +663,13 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 				return accessibility.ActionReceipt{}, WaitEvidence{}, errors.Join(openErr, err)
 			}
 			return receipt, WaitEvidence{}, err
+		}
+		if sessionaccessibility.LocatorIdentityChanged(attemptNumber > 0, firstIdentity, firstRoot, identity, root) {
+			stopObservation()
+			return accessibility.ActionReceipt{}, WaitEvidence{}, ErrManagedScopeChanged
+		}
+		if attemptNumber == 0 {
+			firstIdentity, firstRoot = identity, root
 		}
 		node, err := sessionaccessibility.UniqueLocatorMatch(matches)
 		if err != nil {
@@ -708,19 +692,26 @@ func (l *AccessibilityLocator) actionAndWait(ctx context.Context, operation stri
 				return receipt, WaitEvidence{}, err
 			}
 		}
+		if err := l.checkBoundWindow(ctx); err != nil {
+			stopObservation()
+			return accessibility.ActionReceipt{}, WaitEvidence{}, err
+		}
 		dispatched := dispatch(ctx, node)
 		stopObservation()
 		// A failed provider dispatch can carry the resolved private node in
 		// its receipt even after cancellation or session shutdown. Do not
 		// disclose that metadata once the operation loses authority.
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return accessibility.ActionReceipt{}, WaitEvidence{}, errors.Join(ctxErr, dispatched.err)
+			return redactedDispatch(dispatched), WaitEvidence{}, errors.Join(ctxErr, dispatched.err)
 		}
 		if openErr := l.bundle.session.ensureOpen(); openErr != nil {
-			return accessibility.ActionReceipt{}, WaitEvidence{}, errors.Join(openErr, dispatched.err)
+			return redactedDispatch(dispatched), WaitEvidence{}, errors.Join(openErr, dispatched.err)
 		}
 		receipt = dispatched.receipt
 		if dispatched.err == nil {
+			if !verify {
+				return receipt, WaitEvidence{}, nil
+			}
 			return l.waitForOutcome(ctx, receipt, postcondition, waitConfig)
 		}
 		if !locatorRetryAllowed(dispatched, attemptNumber) {
@@ -1046,4 +1037,71 @@ func nodeHasWarning(node accessibility.Node, prefix string) bool {
 		}
 	}
 	return false
+}
+
+// Locator binds a semantic selector to this original window, with safe default
+// snapshot options. The original identity is checked again before resolution.
+func (w *Window) Locator(selector accessibility.Selector) *AccessibilityLocator {
+	if w == nil || w.state == nil || w.state.id.session == nil {
+		return &AccessibilityLocator{}
+	}
+	loc := w.state.id.session.accessibility.LocatorForWindow(w.ID().String(), selector, accessibility.SnapshotOptions{})
+	loc.operation = w.scope
+	loc.scope.window = w.state
+	return loc
+}
+
+func (l *AccessibilityLocator) checkBoundWindow(ctx context.Context) error {
+	w := l.scope.window
+	if w == nil {
+		return nil
+	}
+	selected := w.InitialInfo()
+	if selected.PID == 0 && selected.AppID == "" && selected.Class == "" {
+		return ErrUnsupported
+	}
+	_, err := w.Info(ctx)
+	return err
+}
+
+// Click invokes the unique control's default action once, returning dispatch
+// evidence. It does not independently verify the resulting application state.
+func (l *AccessibilityLocator) Click() (accessibility.ActionReceipt, error) { return l.Invoke("") }
+
+// Invoke invokes the unique control's named action, without a postcondition.
+func (l *AccessibilityLocator) Invoke(name string) (receipt accessibility.ActionReceipt, err error) {
+	ctx, finish, err := l.operationScope().begin(scopeBatch, 0)
+	if err != nil {
+		return
+	}
+	defer finish(&err)
+	receipt, _, err = l.invokeActionContext(ctx, name, false, nil)
+	return
+}
+
+// Fill replaces editable text once, returning dispatch evidence.
+func (l *AccessibilityLocator) Fill(value string) (receipt accessibility.ActionReceipt, err error) {
+	ctx, finish, err := l.operationScope().begin(scopeBatch, 0)
+	if err != nil {
+		return
+	}
+	defer finish(&err)
+	receipt, _, err = l.fillContext(ctx, value, false, nil)
+	return
+}
+
+// redactedDispatch retains only certainty, never the private target, action
+// metadata, generation, or condition. Unknown is conservative when a lower
+// layer discarded the receipt concurrently with revocation.
+func redactedDispatch(attempt locatorDispatchAttempt) accessibility.ActionReceipt {
+	status := attempt.receipt.Dispatch
+	if status == "" {
+		var invocation *accessibility.ActionInvocationError
+		if errors.As(attempt.err, &invocation) && invocation.Dispatch != "" {
+			status = invocation.Dispatch
+		} else {
+			status = accessibility.DispatchUnknown
+		}
+	}
+	return accessibility.ActionReceipt{Dispatch: status, Outcome: accessibility.ActionOutcomeProof{Status: accessibility.ActionOutcomeNotObserved}}
 }

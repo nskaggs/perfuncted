@@ -357,11 +357,6 @@ func (a *Application) Exited() bool {
 	return a.privateState().Exited()
 }
 
-// Stop sends SIGTERM to the application process group and waits for ctx.
-func (a *Application) stopContext(ctx context.Context) error {
-	return a.privateState().Stop(ctx)
-}
-
 // Kill sends SIGKILL to the application process group.
 func (a *Application) Kill() error {
 	return a.privateState().Kill()

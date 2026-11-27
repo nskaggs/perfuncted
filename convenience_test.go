@@ -1038,3 +1038,63 @@ func TestCallerPublicShortcutsAndWindowTargetScopes(t *testing.T) {
 		t.Fatalf("canceled target: %v", err)
 	}
 }
+
+func TestPlan7ResolvedWindowRejectsReplacementAfterCacheRefresh(t *testing.T) {
+	core, manager, backend := windowConvenienceFixture(t, window.Info{NativeID: "1", Title: "Journal", PID: 42, AppID: "editor"})
+	s := wrapSession(core)
+	w, err := s.Windows().Find(window.Title("Journal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.windows[0].PID = 99
+	manager.mu.Unlock()
+	// Even an ordinary metadata refresh must not reauthorize the target.
+	if _, err := w.Info(); !errors.Is(err, ErrWindowIdentityChanged) {
+		t.Fatalf("replacement info: %v", err)
+	}
+	if w.state.CachedInfo().PID != 42 {
+		t.Fatal("replacement contaminated cache")
+	}
+	err = w.Do(Type("private"))
+	if !errors.Is(err, ErrWindowIdentityChanged) || len(manager.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+		t.Fatalf("replacement err=%v activation=%v input=%v", err, manager.actions, backend.callsSnapshot())
+	}
+}
+
+func TestPlan7ResolvedWindowDoesNotRediscoverByTitle(t *testing.T) {
+	core, manager, backend := windowConvenienceFixture(t, window.Info{NativeID: "1", Title: "Journal", PID: 42, AppID: "editor"})
+	s := wrapSession(core)
+	w, err := s.Windows().Find(window.Title("Journal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.windows[0].Title = "Changed"
+	manager.windows = append(manager.windows, window.Info{NativeID: "2", Title: "Journal", PID: 99, AppID: "editor"})
+	manager.mu.Unlock()
+	if err := w.Do(Type("one"), Key("enter")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.WithTimeout(time.Second).Do(Type("two")); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(manager.actions, []string{"activate:1", "activate:1"}) || !reflect.DeepEqual(backend.callsSnapshot(), []string{"literal:one", "keys:{enter}", "literal:two"}) {
+		t.Fatalf("activation=%v input=%v", manager.actions, backend.callsSnapshot())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := w.WithContext(ctx).Do(Type("never")); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	var nilWindow *Window
+	if err := nilWindow.Do(Type("never")); !errors.Is(err, ErrNilSession) {
+		t.Fatal(err)
+	}
+	if err := w.Do(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Do(Click(1, 2)); !errors.Is(err, ErrUnsupported) {
+		t.Fatal(err)
+	}
+}

@@ -850,3 +850,97 @@ func TestCallerObservationSetupDeadlineAndLifetime(t *testing.T) {
 		})
 	}
 }
+
+type plan6MalformedObserver struct {
+	fakeObservationBackend
+	result  input.ObservationSubscription
+	failure error
+}
+
+func (b *plan6MalformedObserver) Listen(context.Context, input.ObservationFilter) (input.ObservationSubscription, error) {
+	return b.result, b.failure
+}
+
+type plan6MalformedSub struct {
+	events chan input.ObservationEvent
+	closed int
+}
+
+func (s *plan6MalformedSub) Events() <-chan input.ObservationEvent { return s.events }
+func (s *plan6MalformedSub) Err() error                            { return nil }
+func (s *plan6MalformedSub) Close() error                          { s.closed++; return nil }
+
+func TestPlan6MalformedObservationResults(t *testing.T) {
+	var typedNil *plan6MalformedSub
+	failure := errors.New("setup failed")
+	for _, tc := range []struct {
+		name   string
+		sub    input.ObservationSubscription
+		err    error
+		want   error
+		closed int
+	}{
+		{"nil", nil, nil, ErrUnavailable, 0},
+		{"typed nil", typedNil, nil, ErrUnavailable, 0},
+		{"nil events", &plan6MalformedSub{}, nil, ErrUnavailable, 1},
+		{"result plus error", &plan6MalformedSub{events: make(chan input.ObservationEvent)}, failure, failure, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &plan6MalformedObserver{result: tc.sub, failure: tc.err}
+			s := wrapSession(setupObservationTestSession(b))
+			defer s.Close()
+			result, err := s.InputObservation().Listen(input.ObservationFilter{Combo: "F8"})
+			if result != nil || !errors.Is(err, tc.want) {
+				t.Fatalf("result=%v err=%v", result, err)
+			}
+			if sub, ok := tc.sub.(*plan6MalformedSub); ok && sub != nil && sub.closed != tc.closed {
+				t.Fatalf("closed=%d want=%d", sub.closed, tc.closed)
+			}
+		})
+	}
+}
+
+type plan6TerminalSub struct {
+	plan6MalformedSub
+	done chan struct{}
+}
+
+func (s *plan6TerminalSub) Done() <-chan struct{} { return s.done }
+
+func TestPlan6ObservationTerminalReleaseAndRepeatedClose(t *testing.T) {
+	for _, natural := range []bool{true, false} {
+		t.Run(map[bool]string{true: "provider termination", false: "explicit close"}[natural], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sub := &plan6TerminalSub{plan6MalformedSub: plan6MalformedSub{events: make(chan input.ObservationEvent, 1)}, done: make(chan struct{})}
+			wrapped := newScopedObservation(sub, streamSetup{ctx: ctx, release: cancel})
+			// A terminal watcher must not compete with the event consumer.
+			sub.events <- input.ObservationEvent{}
+			if natural {
+				close(sub.done)
+			} else {
+				if err := wrapped.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("scope not released")
+			}
+			select {
+			case <-wrapped.Events():
+			default:
+				t.Fatal("terminal watcher consumed the event")
+			}
+			for range 2 {
+				if err := wrapped.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if sub.closed != 1 {
+				t.Fatalf("provider closed %d times", sub.closed)
+			}
+		})
+	}
+}

@@ -898,27 +898,14 @@ func waitWindowActive(ctx context.Context, w *perfuncted.Window, timeout, poll t
 	if timeout <= 0 || poll <= 0 {
 		return fmt.Errorf("verification durations must be positive")
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	ticker := time.NewTicker(poll)
-	defer ticker.Stop()
-	for {
-		info, err := w.WithContext(ctx).Info() //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
-		if err == nil && info.Active {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("verify activation of window %s: %w", w.ID().String(), err)
-		}
-		select {
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return fmt.Errorf("window %s never reported active: %w", w.ID().String(), errFocusNotVerified)
-			}
-			return ctx.Err()
-		case <-ticker.C:
-		}
+	err := w.WithContext(ctx).WithTimeout(timeout).WaitActive(perfuncted.WaitEvery(poll)) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("window %s never reported active: %w", w.ID().String(), errors.Join(errFocusNotVerified, err))
 	}
+	if err != nil {
+		return fmt.Errorf("verify activation of window %s: %w", w.ID().String(), err)
+	}
+	return nil
 }
 
 // waitWindowGone confirms a dialog or window disappeared, which is stronger

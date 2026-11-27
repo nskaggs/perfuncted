@@ -367,6 +367,9 @@ func (w *Target) Info(ctx context.Context) (window.Info, error) {
 		return window.Info{}, w.owner.gate.OperationError("info", err)
 	}
 	info.NativeID = w.native
+	if !SameIdentity(info, w.initial) {
+		return window.Info{}, ErrIdentityChanged
+	}
 	w.mu.Lock()
 	w.snapshot = info
 	w.mu.Unlock()
@@ -572,16 +575,20 @@ type Target struct {
 	owner    *ownerState
 	native   string
 	mu       sync.RWMutex
+	initial  window.Info
 	snapshot window.Info
 }
 
 func (o *Owner) Target(info window.Info) *Target {
 	native := info.StableID()
 	info.NativeID = native
-	return &Target{owner: o.ownerState, native: native, snapshot: info}
+	return &Target{owner: o.ownerState, native: native, initial: info, snapshot: info}
 }
 
 func (o *Owner) Discover(ctx context.Context, match window.Match) ([]*Target, error) {
+	if err := match.Validate(); err != nil {
+		return nil, errors.Join(capability.ErrInvalidArgument, err)
+	}
 	if err := o.CheckAvailable("discover"); err != nil {
 		return nil, err
 	}
@@ -616,4 +623,20 @@ func (w *Target) Native() string {
 		return ""
 	}
 	return w.native
+}
+
+// InitialInfo returns the immutable discovery evidence for this handle.
+func (w *Target) InitialInfo() window.Info {
+	if w == nil {
+		return window.Info{}
+	}
+	return w.initial
+}
+
+// ErrIdentityChanged is the stable-handle identity failure.
+var ErrIdentityChanged = errors.New("perfuncted: selected window identity changed")
+
+// SameIdentity compares immutable application and native identity evidence.
+func SameIdentity(a, b window.Info) bool {
+	return a.StableID() == b.StableID() && a.PID == b.PID && a.AppID == b.AppID && a.Class == b.Class
 }

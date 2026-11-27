@@ -9,6 +9,7 @@ import (
 
 	"github.com/nskaggs/perfuncted/v2/input"
 	"github.com/nskaggs/perfuncted/v2/internal/keymap"
+	"github.com/nskaggs/perfuncted/v2/internal/sessionwindow"
 	"github.com/nskaggs/perfuncted/v2/window"
 )
 
@@ -297,7 +298,7 @@ var ErrWindowFocusUnverified = errors.New("perfuncted: window focus cannot be ve
 // ErrWindowIdentityChanged means fresh window metadata no longer matches the
 // instance selected for the batch. A batch never re-resolves a different title
 // match after selection.
-var ErrWindowIdentityChanged = errors.New("perfuncted: selected window identity changed")
+var ErrWindowIdentityChanged = sessionwindow.ErrIdentityChanged
 
 // WindowTarget is a lazy, non-owning, exact-title window selector.
 // It does not activate anything until Do is invoked.
@@ -321,13 +322,7 @@ func (s *Session) Window(title string) *WindowTarget {
 	return &WindowTarget{view: &copy, title: title}
 }
 
-func windowTargetIdentity(current, selected window.Info) error {
-	if current.StableID() != selected.StableID() ||
-		current.PID != selected.PID ||
-		current.AppID != selected.AppID ||
-		current.Class != selected.Class {
-		return ErrWindowIdentityChanged
-	}
+func windowTargetIdentity(current window.Info) error {
 	if !current.Active {
 		return ErrWindowFocusUnverified
 	}
@@ -355,15 +350,8 @@ func (t *WindowTarget) Do(steps ...Step) (result error) {
 	if strings.TrimSpace(t.title) == "" {
 		return fmt.Errorf("window target: empty title: %w", ErrInvalidArgument)
 	}
-	// Preflight every input step before discovering or activating the window.
-	if preflightErr := s.preflightSteps(ctx, steps); preflightErr != nil {
+	if preflightErr := s.preflightWindowSteps(ctx, steps); preflightErr != nil {
 		return preflightErr
-	}
-	for i, step := range steps {
-		if step.kind == "click" {
-			return &StepError{Index: i, Operation: step.kind,
-				Err: fmt.Errorf("window-targeted clicks have global coordinates, not a proven window-relative target: %w", ErrUnsupported)}
-		}
 	}
 	if len(steps) == 0 {
 		return nil
@@ -375,7 +363,45 @@ func (t *WindowTarget) Do(steps ...Step) (result error) {
 	if err != nil {
 		return err
 	}
-	selected, err := w.Info(ctx)
+	return s.runWindowSteps(ctx, w, steps, t.view.scope.timeout)
+}
+
+// Do runs the same guarded batch on the originally discovered window.
+func (w *Window) Do(steps ...Step) (result error) {
+	if w == nil || w.state == nil || w.state.id.session == nil {
+		return ErrNilSession
+	}
+	s := w.state.id.session
+	view := &Session{core: s, scope: w.scope}
+	ctx, finish, err := view.operationContext()
+	if err != nil {
+		return err
+	}
+	defer finish(&result)
+	if preflightErr := s.preflightWindowSteps(ctx, steps); preflightErr != nil {
+		return preflightErr
+	}
+	if len(steps) == 0 {
+		return nil
+	}
+	return s.runWindowSteps(ctx, w.state, steps, w.scope.timeout)
+}
+
+func (s *sessionCore) preflightWindowSteps(ctx context.Context, steps []Step) error {
+	if err := s.preflightSteps(ctx, steps); err != nil {
+		return err
+	}
+	for i, step := range steps {
+		if step.kind == "click" {
+			return &StepError{Index: i, Operation: step.kind, Err: fmt.Errorf("window-targeted clicks have global coordinates, not a proven window-relative target: %w", ErrUnsupported)}
+		}
+	}
+	return nil
+}
+
+func (s *sessionCore) runWindowSteps(ctx context.Context, w *windowState, steps []Step, override time.Duration) error {
+	selected := w.InitialInfo()
+	_, err := w.Info(ctx)
 	if err != nil {
 		return err
 	}
@@ -391,25 +417,18 @@ func (t *WindowTarget) Do(steps ...Step) (result error) {
 		if infoErr != nil {
 			return infoErr
 		}
-		return windowTargetIdentity(info, selected)
+		return windowTargetIdentity(info)
 	}
 
 	// Activation is asynchronous on several compositors. Wait for an observed
 	// focus change; never interpret a successful activation request as focus.
-	focusCtx, cancelFocus := context.WithTimeout(ctx, s.Timeouts().Short)
+	focusBudget := s.Timeouts().Short
+	if override > 0 {
+		focusBudget = override
+	}
+	focusCtx, cancelFocus := context.WithTimeout(ctx, focusBudget)
 	defer cancelFocus()
-	err = s.Wait(focusCtx, Predicate("window target active", func(ctx context.Context) (bool, error) {
-		info, infoErr := w.Info(ctx)
-		if infoErr != nil {
-			return false, infoErr
-		}
-		if info.StableID() != selected.StableID() ||
-			info.PID != selected.PID || info.AppID != selected.AppID ||
-			info.Class != selected.Class {
-			return false, ErrWindowIdentityChanged
-		}
-		return info.Active, nil
-	}))
+	err = w.waitActive(focusCtx, s.Timeouts().Poll)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			return fmt.Errorf("window target activation not observed: %w: %w", ErrWindowFocusUnverified, err)

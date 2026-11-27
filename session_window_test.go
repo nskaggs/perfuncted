@@ -1933,3 +1933,33 @@ func TestCallerBlankWindowSelectorPreservesValidationDetail(t *testing.T) {
 		})
 	}
 }
+
+type plan6CountingWindowManager struct {
+	*handleWindowManager
+	reads int
+}
+
+func (m *plan6CountingWindowManager) List(ctx context.Context) ([]window.Info, error) {
+	m.reads++
+	return m.handleWindowManager.List(ctx)
+}
+func TestPlan6InvalidSelectorPreflight(t *testing.T) {
+	m := &plan6CountingWindowManager{handleWindowManager: newHandleWindowManager(window.Info{NativeID: "1", Title: "Editor"})}
+	s := NewSessionForTesting(nil, nil, m, nil, nil)
+	defer s.Close()
+	invalid := window.Title("")
+	predicateCalls := 0
+	ok := Predicate("true", func(context.Context) (bool, error) { predicateCalls++; return true, nil })
+	for _, c := range []Condition{WindowExists(invalid), Not(WindowExists(invalid)), Any(ok, WindowExists(invalid)), All(ok, WindowExists(invalid))} {
+		err := s.WithTimeout(50 * time.Millisecond).Wait(c)
+		if !errors.Is(err, ErrInvalidArgument) || !errors.Is(err, window.ErrInvalidArgument) {
+			t.Fatalf("invalid condition %s: %v", c.describe(), err)
+		}
+	}
+	if m.reads != 0 || predicateCalls != 0 {
+		t.Fatalf("preflight dispatched reads=%d predicates=%d", m.reads, predicateCalls)
+	}
+	if err := s.Wait(WindowExists(window.Match{})); err != nil {
+		t.Fatalf("explicit wildcard: %v", err)
+	}
+}

@@ -273,7 +273,8 @@ func TestBinaryLive(t *testing.T) {
 		// blocks until interrupted — use the Go API to get the env vars and pass
 		// them to subsequent `pf` invocations.
 		sess, err := perfuncted.Open(
-			context.Background(),
+			perfuncted.WithStartupContext(context.Background()),
+			perfuncted.Optional(),
 			perfuncted.WithHeadless(perfuncted.SessionConfig{
 				Resolution: image.Pt(1024, 768),
 			}),
