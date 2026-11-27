@@ -162,10 +162,10 @@ func TestKWinShotPrivateBusCaptureUsesRealFDProtocolAndCanonicalHashes(t *testin
 	provider.mu.Lock()
 	calls := append([]string(nil), provider.captures...)
 	provider.mu.Unlock()
-	if len(calls) != 5 || calls[0] != "area:0:0:1:1" || calls[1] != "workspace:native=true" {
+	if len(calls) != 5 || calls[0] != "workspace:native=true" || calls[1] != "workspace:native=true" {
 		t.Fatalf("incorrect DBus method/capture args: %+v", calls)
 	}
-	for _, call := range calls[1:] {
+	for _, call := range calls {
 		if call != "workspace:native=true" {
 			t.Fatalf("not a native workspace capture: %s", call)
 		}

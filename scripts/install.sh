@@ -44,6 +44,7 @@ if [ "${1:-}" = --remove ]; then
 fi
 bin="${1:-$HOME/.local/bin/pf}"
 case "$bin" in /*) ;; *) echo 'Executable path must be absolute' >&2; exit 1;; esac
+[ ! -L "$bin" ] || die "KWin registration requires a stable, non-symlink pf executable; install pf at its permanent path"
 bin=$(readlink -f -- "$bin")
 # An exact stable path, not a shell command or desktop Exec field expansion.
 case "$bin" in *[!a-zA-Z0-9_./-]*) echo 'Unsupported characters in executable path; install pf at a simple stable path' >&2; exit 1;; esac
@@ -82,6 +83,9 @@ case ${1:-} in
 esac
 
 case ${PF_KWIN_CAPTURE:-ask} in yes|no|ask) ;; *) die "PF_KWIN_CAPTURE must be yes, no or ask";; esac
+if [ "${PF_KWIN_CAPTURE:-ask}" = yes ]; then
+  command -v kbuildsycoca6 >/dev/null || die "KDE application registry unavailable (kbuildsycoca6); no installation attempted"
+fi
 [ "$(uname -s)" = Linux ] || die "only Linux releases are available"
 case "$(uname -m)" in
   x86_64|amd64) arch=amd64 ;;

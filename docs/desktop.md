@@ -262,3 +262,13 @@ A KWin workspace capture requests native resolution; rectangular capture crops
 that image in pixel coordinates, rather than interpreting physical pixels as
 KWin logical coordinates. The single-output fractional-DPI path is supported;
 mixed-scale multi-output pointer alignment needs separate verification.
+
+To reproduce keyboard regressions in a real, owner-authorized, unlocked
+Firefox desktop (not the isolated integration display), use the opt-in test:
+```sh
+PF_LIVE_KEYBOARD_TEST=1 PF_BIN="$(command -v pf)" go test -tags integration ./integration/live -run '^TestLiveFirefoxKeyboardRegression$' -v
+```
+The test creates a disposable window, checks its active identity before input,
+and verifies text delivery through the page title and local URL fragments.
+Do not run it concurrently with other desktop activity. Keyboard pacing is
+bounded and cancellation-aware; it is not a compositor delivery acknowledgement.

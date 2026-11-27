@@ -3293,3 +3293,122 @@ func TestUinputRuntimeSettleAndDrain(t *testing.T) {
 		t.Fatal("device destroyed before drain window")
 	}
 }
+
+// Timestamp actual key submissions rather than relying on total elapsed time.
+type pacedRecordingKeyboard struct {
+	recordingKeyboard
+	presses []time.Time
+}
+
+func (k *pacedRecordingKeyboard) KeyPress(code int) error {
+	k.presses = append(k.presses, time.Now())
+	return k.recordingKeyboard.KeyPress(code)
+}
+
+func TestUinputPacesLongLiteralAndParsedInput(t *testing.T) {
+	const interval = 2 * time.Millisecond
+	for _, literal := range []bool{true, false} {
+		kb := &pacedRecordingKeyboard{}
+		b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap(), keyInterval: interval}
+		payload := strings.Repeat("aB9/", 8)
+		var err error
+		if literal {
+			err = b.TypeLiteral(context.Background(), payload)
+		} else {
+			err = b.Type(context.Background(), payload+"{enter}")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := len(payload)
+		if !literal {
+			want++
+		}
+		if len(kb.presses) != want {
+			t.Fatalf("dispatch count %d want %d", len(kb.presses), want)
+		}
+		for i := 1; i < len(kb.presses); i++ {
+			if d := kb.presses[i].Sub(kb.presses[i-1]); d < interval {
+				t.Fatalf("key %d dispatched after %v, want >= %v", i, d, interval)
+			}
+		}
+	}
+}
+func TestUinputPacingCancellationDoesNotReplayOrStrandShift(t *testing.T) {
+	kb := &pacedRecordingKeyboard{}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap(), keyInterval: time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err := b.TypeLiteral(ctx, "AB")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	if len(kb.presses) != 1 {
+		t.Fatalf("expected one dispatch: %v", kb.events)
+	}
+	want := []string{fmt.Sprintf("down:%d", uinput.KeyLeftshift), fmt.Sprintf("press:%d", uinput.KeyA), fmt.Sprintf("up:%d", uinput.KeyLeftshift)}
+	if !reflect.DeepEqual(kb.events, want) {
+		t.Fatalf("shift not released: %v", kb.events)
+	}
+}
+
+func TestUinputPacingDoesNotDelayFinalKey(t *testing.T) {
+	kb := &pacedRecordingKeyboard{}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap(), keyInterval: time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := b.TypeLiteral(ctx, "A"); err != nil {
+		t.Fatalf("single key delayed past deadline: %v", err)
+	}
+	if len(kb.presses) != 1 {
+		t.Fatal(kb.events)
+	}
+	// A subsequent action remains bounded by its own context.
+	if err := b.Type(ctx, "{enter}"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("next key bypassed pacing: %v", err)
+	}
+	if len(kb.presses) != 1 {
+		t.Fatal("unexpected second dispatch")
+	}
+}
+
+// Observe the entire modifier transition, not just printable KeyPress calls.
+// A chord is one action; pacing belongs between chords and text, not between
+// its temporary modifier down/up transitions.
+type timedChordKeyboard struct {
+	recordingKeyboard
+	times []time.Time
+}
+
+func (k *timedChordKeyboard) KeyDown(code int) error {
+	k.times = append(k.times, time.Now())
+	return k.recordingKeyboard.KeyDown(code)
+}
+func (k *timedChordKeyboard) KeyUp(code int) error {
+	k.times = append(k.times, time.Now())
+	return k.recordingKeyboard.KeyUp(code)
+}
+func (k *timedChordKeyboard) KeyPress(code int) error {
+	k.times = append(k.times, time.Now())
+	return k.recordingKeyboard.KeyPress(code)
+}
+func TestUinputPacingAcrossChordAndLiteral(t *testing.T) {
+	kb := &timedChordKeyboard{}
+	b := &UinputBackend{kb: kb, charToRune: qwertyRuneMap(), keyInterval: 5 * time.Millisecond}
+	if err := b.Type(context.Background(), "{ctrl+a}B{enter}"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		fmt.Sprintf("down:%d", uinput.KeyLeftctrl), fmt.Sprintf("press:%d", uinput.KeyA), fmt.Sprintf("up:%d", uinput.KeyLeftctrl),
+		fmt.Sprintf("down:%d", uinput.KeyLeftshift), fmt.Sprintf("press:%d", uinput.KeyB), fmt.Sprintf("up:%d", uinput.KeyLeftshift),
+		fmt.Sprintf("press:%d", uinput.KeyEnter),
+	}
+	if !reflect.DeepEqual(kb.events, want) {
+		t.Fatalf("wrong events: %v", kb.events)
+	}
+	for _, i := range []int{3, 6} {
+		if kb.times[i].Sub(kb.times[i-1]) < b.keyInterval {
+			t.Fatalf("missing pacing before event %d", i)
+		}
+	}
+}

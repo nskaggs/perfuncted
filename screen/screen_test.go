@@ -924,7 +924,7 @@ type cancelKWinScreenProbe struct {
 	release chan struct{}
 }
 
-func (s *cancelKWinScreenProbe) CaptureArea(_ int32, _ int32, _ uint32, _ uint32, _ map[string]dbus.Variant, fd dbus.UnixFD) (map[string]dbus.Variant, *dbus.Error) {
+func (s *cancelKWinScreenProbe) CaptureWorkspace(_ map[string]dbus.Variant, fd dbus.UnixFD) (map[string]dbus.Variant, *dbus.Error) {
 	file := os.NewFile(uintptr(fd), "kwin-probe")
 	defer file.Close()
 	close(s.started)

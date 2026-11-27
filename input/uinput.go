@@ -45,6 +45,8 @@ type UinputBackend struct {
 	// registered or consumed them. Runtime devices need a bounded settle.
 	readyAt      time.Time
 	lastDispatch time.Time
+	keyInterval  time.Duration
+	nextKeyAt    time.Time
 	kb           uinput.Keyboard
 	touchpad     uinput.TouchPad
 	mouse        uinput.Mouse // lazy-initialised on first scroll
@@ -74,6 +76,10 @@ type UinputBackend struct {
 // consumption time for short-lived devices; never report delivery as verified.
 const uinputSettle = 400 * time.Millisecond
 const uinputDrain = 100 * time.Millisecond
+
+// Keep event bursts small enough for the compositor and application to consume.
+// This is pacing, not an acknowledgement of delivery.
+const uinputKeyInterval = 10 * time.Millisecond
 
 var errUinputBackendClosed = errors.New("input/uinput: backend is closed")
 
@@ -158,7 +164,7 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 		charToRune = qwertyRuneMap()
 	}
 
-	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune, logicalWidth: maxX, logicalHeight: maxY, readyAt: time.Now().Add(uinputSettle)}, nil
+	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune, logicalWidth: maxX, logicalHeight: maxY, readyAt: time.Now().Add(uinputSettle), keyInterval: uinputKeyInterval}, nil
 }
 
 // PointerCoordinateSpace is available only when the runtime established a
@@ -384,9 +390,13 @@ func (b *UinputBackend) typeContext(ctx context.Context, s string) error {
 		if err != nil {
 			return err
 		}
+		if err := b.waitNextKey(ctx); err != nil {
+			return err
+		}
 		if err := b.typeKeyWithMods(ctx, code, a.down, a.up, a.modifiers); err != nil {
 			return err
 		}
+		b.markKeyDispatched()
 	}
 	return nil
 }
@@ -690,6 +700,9 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 		if !ok {
 			return fmt.Errorf("input/uinput: unsupported character %q (not found in kernel keymap)", string(ch))
 		}
+		if err := b.waitNextKey(ctx); err != nil {
+			return err
+		}
 		// A shift the caller is already holding stays held: it is not pressed
 		// again here and must not be released afterwards.
 		pressedShift := kc.shift && !b.modifierHeld(uinput.KeyLeftshift)
@@ -709,6 +722,7 @@ func (b *UinputBackend) typeText(ctx context.Context, s string) error {
 				return err
 			}
 		}
+		b.markKeyDispatched()
 	}
 	return nil
 }
@@ -1212,4 +1226,15 @@ var qwertyRuneTable = sync.OnceValue(func() map[rune]kernelChar {
 // returned map must not be modified.
 func qwertyRuneMap() map[rune]kernelChar {
 	return qwertyRuneTable()
+}
+
+// These are used only under the operation gate. Pace the next action, never
+// delay the completed final key or replay an uncertain dispatch.
+func (b *UinputBackend) waitNextKey(ctx context.Context) error {
+	return sleepContext(ctx, time.Until(b.nextKeyAt))
+}
+func (b *UinputBackend) markKeyDispatched() {
+	if b.keyInterval > 0 {
+		b.nextKeyAt = time.Now().Add(b.keyInterval)
+	}
 }

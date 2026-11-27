@@ -162,6 +162,11 @@ env PATH="$tmp/mockbin:$PATH" sh "$installer" --remove-kwin
 test ! -e "$entry" || fail "registration revocation"
 env PATH="$tmp/mockbin:$PATH" sh "$installer" --authorize-kwin "$tmp/bin/pf"
 test -f "$entry" || fail "existing binary registration"
+mkdir -p "$tmp/link-bin"
+ln -s "$tmp/bin/pf" "$tmp/link-bin/pf"
+cp "$entry" "$tmp/previous-desktop"
+assert_failure "symlinked KWin executable rejected" env PATH="$tmp/mockbin:$PATH" sh "$installer" --authorize-kwin "$tmp/link-bin/pf"
+cmp -s "$entry" "$tmp/previous-desktop" || fail "symlink failure changed registration"
 printf 'PASS: native KWin one-time registration and revocation\n'
 
 printf 'Installer tests passed.\n'

@@ -90,7 +90,7 @@ func NewKWinShotBackendForBusContext(ctx context.Context, addr string) (*KWinSho
 	// Probe grab: verify the process has screenshot authorization.
 	// KDE Plasma checks the calling executable against the installed
 	// desktop application declaration; the compositor decides authorization.
-	if _, err := b.transport.(*kwinDBusTransport).capture(ctx, kwinShotIface+".CaptureArea", image.Rect(0, 0, 1, 1), int32(0), int32(0), uint32(1), uint32(1)); err != nil {
+	if _, err := b.Grab(ctx, image.Rectangle{}); err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("screen/kwin: authorization check failed: %w", err),
 			conn.Close(),

@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/ins
 PF_SCREEN_BACKEND=kwin-shot2 pf info
 ```
 
-KWin decides authorization through its normal application registry. Same-path
+KWin decides authorization through its normal application registry. Stable non-symlink executable paths are required for KWin registration. Same-path
 upgrades retain the registration; no sudo, logout or security-policy change is
 needed on the tested Plasma 6.6 installation. See [desktop permissions](docs/desktop.md#native-kwin-screen-capture) for revocation and Go applications.
 
