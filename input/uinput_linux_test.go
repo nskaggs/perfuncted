@@ -3264,3 +3264,32 @@ func TestUinputBackend_CanceledContextShortCircuitsPointerMethods(t *testing.T) 
 		})
 	}
 }
+
+func TestUinputRuntimeSettleAndDrain(t *testing.T) {
+	b := &UinputBackend{readyAt: time.Now().Add(35 * time.Millisecond)}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	calls := 0
+	if err := b.withOperation(ctx, func(context.Context) error { calls++; return nil }); !errors.Is(err, context.DeadlineExceeded) || calls != 0 {
+		t.Fatalf("premature dispatch: %v calls=%d", err, calls)
+	}
+	if err := b.withOperation(context.Background(), func(context.Context) error {
+		if time.Now().Before(b.readyAt) {
+			t.Fatal("dispatched before readiness window")
+		}
+		calls++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || b.lastDispatch.IsZero() {
+		t.Fatal("missing dispatch timestamp")
+	}
+	dispatched := b.lastDispatch
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if time.Now().Before(dispatched.Add(uinputDrain)) {
+		t.Fatal("device destroyed before drain window")
+	}
+}

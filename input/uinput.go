@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/bendahl/uinput"
@@ -40,10 +41,14 @@ type UinputBackend struct {
 	// Authoritative only for a compositor-reported, single logical output
 	// starting at (0,0). Explicit constructor dimensions are not proof.
 	verifiedSingleLogicalOutput bool
-	kb                          uinput.Keyboard
-	touchpad                    uinput.TouchPad
-	mouse                       uinput.Mouse // lazy-initialised on first scroll
-	charToRune                  map[rune]kernelChar
+	// The kernel accepting events is not proof that the compositor has
+	// registered or consumed them. Runtime devices need a bounded settle.
+	readyAt      time.Time
+	lastDispatch time.Time
+	kb           uinput.Keyboard
+	touchpad     uinput.TouchPad
+	mouse        uinput.Mouse // lazy-initialised on first scroll
+	charToRune   map[rune]kernelChar
 
 	// heldMods records which modifier keys the caller is holding through
 	// KeyDown. Type sends a combination by pressing modifiers around the key and
@@ -64,6 +69,11 @@ type UinputBackend struct {
 	// teardown. It is separate from lifecycleMu to keep lock ordering clear.
 	mouseMu sync.Mutex
 }
+
+// uinput has no compositor acknowledgement. Allow bounded discovery and
+// consumption time for short-lived devices; never report delivery as verified.
+const uinputSettle = 400 * time.Millisecond
+const uinputDrain = 100 * time.Millisecond
 
 var errUinputBackendClosed = errors.New("input/uinput: backend is closed")
 
@@ -148,7 +158,7 @@ func NewUinputBackend(maxX, maxY int32) (*UinputBackend, error) {
 		charToRune = qwertyRuneMap()
 	}
 
-	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune, logicalWidth: maxX, logicalHeight: maxY}, nil
+	return &UinputBackend{kb: kb, touchpad: tp, charToRune: charToRune, logicalWidth: maxX, logicalHeight: maxY, readyAt: time.Now().Add(uinputSettle)}, nil
 }
 
 // PointerCoordinateSpace is available only when the runtime established a
@@ -198,6 +208,12 @@ func (b *UinputBackend) withOperation(ctx context.Context, fn func(context.Conte
 	defer func() { gate <- struct{}{} }()
 	if err := opCtx.Err(); err != nil {
 		return err
+	}
+	if err := sleepContext(opCtx, time.Until(b.readyAt)); err != nil {
+		return err
+	}
+	if !b.readyAt.IsZero() {
+		defer func() { b.lastDispatch = time.Now() }()
 	}
 	// A device can finish its write while the owning request is canceled.
 	// Preserve both the device error and the late cancellation; success
@@ -1009,6 +1025,12 @@ func (b *UinputBackend) Close() error {
 		return nil
 	}
 	return b.operations.Close(func() error {
+		// Drain the final submitted events before destroying the devices.
+		if !b.lastDispatch.IsZero() {
+			if remaining := time.Until(b.lastDispatch.Add(uinputDrain)); remaining > 0 {
+				time.Sleep(remaining)
+			}
+		}
 		var errs []error
 		if b.kb != nil {
 			if err := b.kb.Close(); err != nil {
