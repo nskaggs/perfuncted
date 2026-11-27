@@ -129,7 +129,7 @@ func TestSyntheticScreenProbeDbusFailureBoundaries(t *testing.T) {
 	if r := checkKWinShot(missing, compositor.X11); r.Available || !strings.Contains(r.Reason, "not a KDE") {
 		t.Fatalf("X11 KWin %+v", r)
 	}
-	if r := checkKWinShot(unavailable, compositor.KDE); r.Available || !strings.Contains(r.Reason, "authorization denied") {
+	if r := checkKWinShot(unavailable, compositor.KDE); r.Available || !strings.Contains(r.Reason, "native capture probe failed") {
 		t.Fatalf("unavailable KWin %+v", r)
 	}
 	if r := checkGnomeShellScreenshot(missing, compositor.X11); r.Available || !strings.Contains(r.Reason, "not a GNOME") {

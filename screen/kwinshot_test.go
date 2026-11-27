@@ -60,9 +60,9 @@ func (p *syntheticKWinPipeServer) CaptureArea(x, y int32, w, h uint32, _ map[str
 	}
 	return p.capture(fd, int(w), int(h))
 }
-func (p *syntheticKWinPipeServer) CaptureActiveScreen(_ map[string]dbus.Variant, fd dbus.UnixFD) (map[string]dbus.Variant, *dbus.Error) {
+func (p *syntheticKWinPipeServer) CaptureWorkspace(options map[string]dbus.Variant, fd dbus.UnixFD) (map[string]dbus.Variant, *dbus.Error) {
 	p.mu.Lock()
-	p.captures = append(p.captures, "active")
+	p.captures = append(p.captures, fmt.Sprintf("workspace:native=%v", options["native-resolution"].Value()))
 	fail := p.fail
 	p.mu.Unlock()
 	if fail {
@@ -137,7 +137,7 @@ func TestKWinShotPrivateBusCaptureUsesRealFDProtocolAndCanonicalHashes(t *testin
 	if !b.CanonicalHashing() {
 		t.Fatal("KWin hashing contract missing")
 	}
-	img, err := b.Grab(ctx, image.Rect(-10, 20, -8, 22))
+	img, err := b.Grab(ctx, image.Rect(0, 0, 2, 2))
 	if err != nil || img == nil || img.Bounds().Size() != image.Pt(2, 2) {
 		t.Fatalf("CaptureArea failed: %+v %v", img, err)
 	}
@@ -147,7 +147,7 @@ func TestKWinShotPrivateBusCaptureUsesRealFDProtocolAndCanonicalHashes(t *testin
 		t.Fatalf("BGRA pixel was decoded incorrectly: %v", pixel)
 	}
 	expected := find.PixelHash(img, nil)
-	hash, err := b.GrabRegionHash(ctx, image.Rect(-10, 20, -8, 22))
+	hash, err := b.GrabRegionHash(ctx, image.Rect(0, 0, 2, 2))
 	if err != nil || hash != expected {
 		t.Fatalf("region hash %x expected %x err=%v", hash, expected, err)
 	}
@@ -162,8 +162,19 @@ func TestKWinShotPrivateBusCaptureUsesRealFDProtocolAndCanonicalHashes(t *testin
 	provider.mu.Lock()
 	calls := append([]string(nil), provider.captures...)
 	provider.mu.Unlock()
-	if len(calls) != 5 || calls[0] != "area:0:0:1:1" || calls[1] != "area:-10:20:2:2" {
+	if len(calls) != 5 || calls[0] != "area:0:0:1:1" || calls[1] != "workspace:native=true" {
 		t.Fatalf("incorrect DBus method/capture args: %+v", calls)
+	}
+	for _, call := range calls[1:] {
+		if call != "workspace:native=true" {
+			t.Fatalf("not a native workspace capture: %s", call)
+		}
+	}
+	if _, err := b.Grab(ctx, image.Rect(3, 3, 4, 4)); err == nil {
+		t.Fatal("out of workspace capture succeeded")
+	}
+	if cropped, err := b.Grab(ctx, image.Rect(1, 1, 2, 2)); err != nil || cropped.Bounds().Size() != image.Pt(1, 1) {
+		t.Fatalf("physical crop: %v %v", cropped, err)
 	}
 	if err := b.Close(); err != nil {
 		t.Fatalf("close failed: %v", err)

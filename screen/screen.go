@@ -116,12 +116,18 @@ func OpenRuntimeContext(ctx context.Context, rt env.Runtime) (Screenshotter, err
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if display := rt.Display(); display != "" && rt.SocketPath() == "" {
+	if display := rt.Display(); display != "" && rt.SocketPath() == "" && rt.Get("PF_SCREEN_BACKEND") == "" {
 		return openX11Runtime(display)
 	}
 	compositorKind, detectErr := compositor.DetectRuntimeContext(ctx, rt)
 	if detectErr != nil {
 		return nil, detectErr
+	}
+	if selected := rt.Get("PF_SCREEN_BACKEND"); selected != "" {
+		if selected != "kwin-shot2" || compositorKind != compositor.KDE {
+			return nil, fmt.Errorf("screen: unsupported explicit backend %q for this session", selected)
+		}
+		return NewKWinShotBackendForBusContext(ctx, rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	}
 	switch compositorKind {
 	case compositor.KDE:
@@ -232,6 +238,12 @@ func openX11Runtime(display string) (Screenshotter, error) {
 // ProbeRuntime returns availability details for rt in backend priority order.
 func ProbeRuntime(rt env.Runtime) []probe.Result {
 	kind := compositor.DetectRuntime(rt)
+	if selected := rt.Get("PF_SCREEN_BACKEND"); selected != "" {
+		if selected == "kwin-shot2" {
+			return probe.SelectBest([]probe.Result{checkKWinShot(rt, kind)})
+		}
+		return []probe.Result{{Name: selected, Reason: "unsupported explicit backend"}}
+	}
 	globals := wl.ListGlobals(rt.SocketPath())
 
 	return probe.SelectBest([]probe.Result{
@@ -259,9 +271,7 @@ func checkKWinShot(rt env.Runtime, kind compositor.Session) probe.Result {
 	// KDE Plasma 6 authorization failures (not just D-Bus reachability).
 	b, err := NewKWinShotBackendForBus(rt.Get("DBUS_SESSION_BUS_ADDRESS"))
 	if err != nil {
-		// Strip the nested "screen/kwin: authorization check failed: " prefix
-		// for a cleaner one-line probe reason.
-		r.Reason = "authorization denied (KDE Plasma 6 xdg permission store)"
+		r.Reason = "native capture probe failed: " + err.Error()
 		return r
 	}
 	b.Close()

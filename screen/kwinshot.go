@@ -88,9 +88,9 @@ func NewKWinShotBackendForBusContext(ctx context.Context, addr string) (*KWinSho
 	obj := conn.Object(kwinShotDest, kwinShotPath)
 	b := &KWinShotBackend{transport: &kwinDBusTransport{conn: conn, kwin: obj}}
 	// Probe grab: verify the process has screenshot authorization.
-	// KDE Plasma 6 requires explicit per-process permission via the xdg
-	// permission store; this check allows Open() to fall back to the portal.
-	if _, err := b.Grab(ctx, image.Rect(0, 0, 1, 1)); err != nil {
+	// KDE Plasma checks the calling executable against the installed
+	// desktop application declaration; the compositor decides authorization.
+	if _, err := b.transport.(*kwinDBusTransport).capture(ctx, kwinShotIface+".CaptureArea", image.Rect(0, 0, 1, 1), int32(0), int32(0), uint32(1), uint32(1)); err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("screen/kwin: authorization check failed: %w", err),
 			conn.Close(),
@@ -99,8 +99,8 @@ func NewKWinShotBackendForBusContext(ctx context.Context, addr string) (*KWinSho
 	return b, nil
 }
 
-// Grab captures rect using CaptureArea. An empty rect requests the active
-// screen capture path. KWin writes pixel data to a Unix pipe; the D-Bus reply
+// Grab captures a physical-pixel region. An empty rect requests the full
+// workspace capture path. KWin writes pixel data to a Unix pipe; the D-Bus reply
 // carries format metadata in an a{sv}. We close our write-end copy after the
 // synchronous call returns (KWin has already written + closed its dup'd copy
 // by then), then drain the read end.
@@ -131,7 +131,7 @@ func (b *KWinShotBackend) Grab(ctx context.Context, rect image.Rectangle) (image
 	return requireCapturedImage("screen/kwin", img)
 }
 
-// GrabFullHash returns a fast pixel hash of the active screen.
+// GrabFullHash returns a pixel hash of the native workspace.
 func (b *KWinShotBackend) GrabFullHash(ctx context.Context) (uint32, error) {
 	img, err := b.Grab(ctx, image.Rectangle{})
 	if err != nil {
@@ -163,10 +163,14 @@ func (t *kwinDBusTransport) CaptureArea(ctx context.Context, rect image.Rectangl
 	if err := validateKWinRect(rect); err != nil {
 		return nil, err
 	}
-	return t.capture(ctx, kwinShotIface+".CaptureArea", rect,
-		int32(rect.Min.X), int32(rect.Min.Y),
-		uint32(rect.Dx()), uint32(rect.Dy()),
-	)
+	img, err := t.CaptureActiveScreen(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if rect.Intersect(img.Bounds()).Empty() {
+		return nil, fmt.Errorf("screen/kwin: region outside captured workspace")
+	}
+	return requireCapturedImage("screen/kwin", cropImage(img, rect))
 }
 
 func validateKWinRect(rect image.Rectangle) error {
@@ -186,11 +190,12 @@ func validateKWinRect(rect image.Rectangle) error {
 }
 
 func (t *kwinDBusTransport) CaptureActiveScreen(ctx context.Context) (image.Image, error) {
-	return t.capture(ctx, kwinShotIface+".CaptureActiveScreen", image.Rectangle{})
+	return t.capture(ctx, kwinShotIface+".CaptureWorkspace", image.Rectangle{})
 }
 
 func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect image.Rectangle, args ...any) (image.Image, error) {
-	ctx = contextutil.Default(ctx)
+	ctx, cancel := context.WithTimeout(contextutil.Default(ctx), kwinPipeDrainTimeout)
+	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("screen/kwin: capture canceled: %w", err)
 	}
@@ -200,7 +205,7 @@ func (t *kwinDBusTransport) capture(ctx context.Context, method string, rect ima
 	}
 	defer r.Close()
 
-	callArgs := append(append(make([]any, 0, len(args)+2), args...), map[string]dbus.Variant{}, dbus.UnixFD(w.Fd()))
+	callArgs := append(append(make([]any, 0, len(args)+2), args...), map[string]dbus.Variant{"native-resolution": dbus.MakeVariant(true)}, dbus.UnixFD(w.Fd()))
 	var results map[string]dbus.Variant
 	call := t.kwin.CallWithContext(ctx, method, 0, callArgs...)
 	// Close our copy now; KWin received its own via SCM_RIGHTS and has already
@@ -338,7 +343,7 @@ func kwinImageSize(rect image.Rectangle, results map[string]dbus.Variant) (w, h 
 	return w, h
 }
 
-// Resolution returns the active screen dimensions.
+// Resolution returns the native workspace dimensions.
 func (b *KWinShotBackend) Resolution() (int, int, error) {
 	img, err := b.Grab(context.Background(), image.Rectangle{})
 	if err != nil {

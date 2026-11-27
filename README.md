@@ -35,6 +35,26 @@ running. Alternatively, download the `linux_amd64` or `linux_arm64` tarball
 directly from [GitHub Releases](https://github.com/nskaggs/perfuncted/releases).
 
 Verify the installation with `pf version` and `pf info`.
+### One-time KDE Wayland setup
+
+For complete desktop capture, including native file pickers, authorize Perfuncted
+for KWin screenshots once. The installer offers this on an interactive KDE
+Wayland session. For an unattended installation, explicitly opt in:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/install.sh | PF_KWIN_CAPTURE=yes sh
+```
+
+Already installed using Go or a release archive? Register the existing binary:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/install.sh | sh -s -- --authorize-kwin "$(command -v pf)"
+PF_SCREEN_BACKEND=kwin-shot2 pf info
+```
+
+KWin decides authorization through its normal application registry. Same-path
+upgrades retain the registration; no sudo, logout or security-policy change is
+needed on the tested Plasma 6.6 installation. See [desktop permissions](docs/desktop.md#native-kwin-screen-capture) for revocation and Go applications.
 
 ### Other installation methods
 
@@ -92,8 +112,24 @@ observed postconditions.
 Perfuncted supports X11 and supported Wayland environments, including GNOME,
 KDE Plasma and Sway. Run `pf info` to inspect available capabilities.
 Wayland portals may require explicit consent; the GNOME native bridge may
-require a logout and login. See [desktop support](docs/desktop.md)
-and [Flatpak permissions](docs/flatpak.md).
+require a logout and login.
+
+**KDE Plasma Wayland (one-time setup):** native KWin screen capture includes
+portal file pickers and other visible dialogs that the Screenshot portal can
+omit. After installing the native CLI, review and run the
+[authorization script](scripts/authorize-kwin.sh) once as the desktop owner:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nskaggs/perfuncted/main/scripts/authorize-kwin.sh | sh
+pf info
+```
+
+Perfuncted automatically prefers native KWin capture once authorized; no
+per-command flag or Spectacle installation is needed. Without authorization
+it may fall back to the portal, which can omit its own dialogs. For an
+alternate installation path, removal, and Go-library integration, see
+[native KWin capture](docs/desktop.md#native-kwin-screen-capture). See also
+[desktop support](docs/desktop.md) and [Flatpak permissions](docs/flatpak.md).
 
 ## Go library
 

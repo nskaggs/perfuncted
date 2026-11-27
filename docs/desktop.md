@@ -236,3 +236,29 @@ unchanged and refer to the specified screen rectangle. Use reported logical
 window geometry, physical screenshot pixels and backend-native input
 coordinates only with the corresponding operations; do not assume that
 these spaces coincide on scaled or multi-output desktops.
+
+## Native KWin screen capture
+
+On KDE Plasma Wayland, Perfuncted prefers KWin's restricted
+`org.kde.KWin.ScreenShot2` interface. KWin matches the calling executable to
+the installed desktop application's absolute Exec path and declared restricted
+interface. A CLI installed without an application entry may be denied even
+when the Screenshot portal is available. The portal can omit its own dialogs.
+
+If the desktop owner authorizes Perfuncted for native screen capture, run
+`sh scripts/install.sh --authorize-kwin` after installing the executable to
+`~/.local/bin/pf` (or pass its absolute installed path). This adds only the
+Perfuncted application entry for the current user and refreshes KDE's
+application registry. No permission checks are disabled and no privileged
+helper is used. The permission applies to that executable, not all programs;
+Go applications embedding the library need their own application registration.
+Remove the registration with `sh scripts/install.sh --remove-kwin`.
+
+Use `PF_SCREEN_BACKEND=kwin-shot2 pf info` and inspect the screen capability.
+This explicitly requires native KWin capture and does not silently select a
+portal if KWin denies access. Then run
+`PF_SCREEN_BACKEND=kwin-shot2 pf screen grab --out /absolute/path.png`.
+A KWin workspace capture requests native resolution; rectangular capture crops
+that image in pixel coordinates, rather than interpreting physical pixels as
+KWin logical coordinates. The single-output fractional-DPI path is supported;
+mixed-scale multi-output pointer alignment needs separate verification.

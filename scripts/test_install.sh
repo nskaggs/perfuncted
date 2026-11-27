@@ -6,6 +6,7 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="$repo/scripts/install.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/pf-install-test.XXXXXXXX")"
 trap 'rm -rf -- "$tmp"' EXIT
+export PF_KWIN_CAPTURE=no
 mkdir -p "$tmp/bin" "$tmp/mockbin" "$tmp/releases"
 
 cat > "$tmp/mockbin/uname" <<'EOF'
@@ -143,5 +144,24 @@ if [ "${PF_TEST_REAL_RELEASE:-0}" = 1 ]; then
   [ "$("$live/pf" version | head -n1)" = 'pf 1.3.1' ] || fail "published binary version"
   printf 'PASS: genuine v1.3.1 published release installation\n'
 fi
+
+
+cat > "$tmp/mockbin/kbuildsycoca6" <<'MOCK'
+#!/bin/sh
+[ "$1" = --noincremental ]
+MOCK
+chmod 755 "$tmp/mockbin/kbuildsycoca6"
+export XDG_DATA_HOME="$tmp/kde-data"
+run_installer env PF_VERSION=v1.3.1 PF_KWIN_CAPTURE=yes >"$tmp/stdout"
+entry="$XDG_DATA_HOME/applications/io.github.nskaggs.perfuncted.desktop"
+grep -Fxq "Exec=$tmp/bin/pf" "$entry" || fail "KWin registration executable"
+grep -Fxq 'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2' "$entry" || fail "KWin interface declaration"
+run_installer env PF_VERSION=v1.3.1 PF_KWIN_CAPTURE=no >"$tmp/stdout"
+test -f "$entry" || fail "same-path upgrade removed authorization"
+env PATH="$tmp/mockbin:$PATH" sh "$installer" --remove-kwin
+test ! -e "$entry" || fail "registration revocation"
+env PATH="$tmp/mockbin:$PATH" sh "$installer" --authorize-kwin "$tmp/bin/pf"
+test -f "$entry" || fail "existing binary registration"
+printf 'PASS: native KWin one-time registration and revocation\n'
 
 printf 'Installer tests passed.\n'

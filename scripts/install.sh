@@ -7,10 +7,13 @@ usage() {
 Install pf from official GitHub Releases.
 
 Usage: sh install.sh [--help]
+       sh install.sh --authorize-kwin [ABSOLUTE_PF_PATH]
+       sh install.sh --remove-kwin
 
 Environment:
   PF_VERSION       Release to install (e.g. v1.3.1); defaults to latest stable
   PF_INSTALL_DIR   Destination directory; defaults to $HOME/.local/bin
+  PF_KWIN_CAPTURE  yes/no/ask (default ask on KDE Wayland; unattended no)
 
 Rerun the installer to upgrade. It does not modify shell profiles or use sudo.
 EOF
@@ -21,12 +24,64 @@ die() {
   exit 1
 }
 
+
+register_kwin() (
+[ "$#" -le 1 ] || { usage >&2; exit 2; }
+[ -n "${HOME:-}" ] || { echo 'HOME required' >&2; exit 1; }
+dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+entry="$dir/io.github.nskaggs.perfuncted.desktop"
+[ ! -L "$entry" ] || die "refusing symlink desktop entry"
+case "$dir" in /*) ;; *) echo 'XDG_DATA_HOME must be absolute' >&2; exit 1;; esac
+command -v kbuildsycoca6 >/dev/null || { echo 'KDE application registry unavailable (kbuildsycoca6)' >&2; exit 1; }
+if [ "${1:-}" = --remove ]; then
+  if [ -e "$entry" ]; then
+    grep -Fxq 'Name=Perfuncted' "$entry" && grep -Fxq 'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2' "$entry" ||
+      { echo 'Refusing to remove unrecognized desktop entry' >&2; exit 1; }
+    rm -- "$entry"
+  fi
+  kbuildsycoca6 --noincremental
+  exit 0
+fi
+bin="${1:-$HOME/.local/bin/pf}"
+case "$bin" in /*) ;; *) echo 'Executable path must be absolute' >&2; exit 1;; esac
+bin=$(readlink -f -- "$bin")
+# An exact stable path, not a shell command or desktop Exec field expansion.
+case "$bin" in *[!a-zA-Z0-9_./-]*) echo 'Unsupported characters in executable path; install pf at a simple stable path' >&2; exit 1;; esac
+[ -f "$bin" ] && [ -x "$bin" ] && [ "$(basename "$bin")" = pf ] || { echo 'Installed pf executable required' >&2; exit 1; }
+"$bin" version >/dev/null
+mkdir -p -- "$dir"
+[ ! -L "$entry" ] || { echo 'Refusing symlink desktop entry' >&2; exit 1; }
+if [ -e "$entry" ]; then
+  grep -Fxq 'Name=Perfuncted' "$entry" && grep -Fxq 'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2' "$entry" ||
+    { echo 'Refusing to overwrite unrecognized desktop entry' >&2; exit 1; }
+fi
+tmp=$(mktemp "$dir/.perfuncted.XXXXXXXX")
+trap 'rm -f -- "$tmp"' EXIT HUP INT TERM
+cat > "$tmp" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Perfuncted
+Comment=Owner-authorized desktop automation and screen capture
+Exec=$bin
+NoDisplay=true
+Terminal=true
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+DESKTOP
+chmod 644 "$tmp"
+mv -f -- "$tmp" "$entry"
+kbuildsycoca6 --noincremental
+printf '%s\n' "Registered $bin for native KWin screenshots." 'Verify with PF_SCREEN_BACKEND=kwin-shot2 pf info; remove with install.sh --remove-kwin.'
+
+)
 case ${1:-} in
+  --authorize-kwin) shift; register_kwin "$@"; exit $? ;;
+  --remove-kwin) [ "$#" -eq 1 ] || die "too many arguments"; register_kwin --remove; exit $? ;;
   -h|--help) usage; exit 0 ;;
   '') ;;
   *) die "unknown argument: $1" ;;
 esac
 
+case ${PF_KWIN_CAPTURE:-ask} in yes|no|ask) ;; *) die "PF_KWIN_CAPTURE must be yes, no or ask";; esac
 [ "$(uname -s)" = Linux ] || die "only Linux releases are available"
 case "$(uname -m)" in
   x86_64|amd64) arch=amd64 ;;
@@ -124,3 +179,23 @@ case :${PATH:-}: in
   *:"$install_dir":*) ;;
   *) printf 'Add %s to PATH to run pf directly.\n' "$install_dir" ;;
 esac
+
+# On KDE, offer the one-time capability grant; unattended installs must opt in.
+case ${PF_KWIN_CAPTURE:-ask} in
+  yes) kwin_register=yes ;;
+  no) kwin_register=no ;;
+  ask)
+    kwin_register=no
+    case ${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_TYPE:-} in
+      *KDE*:wayland)
+        if ( : </dev/tty ) 2>/dev/null; then
+          printf '%s' 'Authorize Perfuncted for native KWin screen capture? [y/N] ' >/dev/tty
+          IFS= read -r answer </dev/tty || answer=no
+          case "$answer" in y|Y|yes|YES) kwin_register=yes;; esac
+        fi ;;
+    esac ;;
+  *) die 'PF_KWIN_CAPTURE must be yes, no or ask' ;;
+esac
+if [ "$kwin_register" = yes ]; then
+  register_kwin "$install_dir/pf"
+fi
