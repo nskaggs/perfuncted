@@ -678,17 +678,23 @@ func sortedStateCopy(states []string) []string {
 
 // WindowClosed succeeds when the stable window handle no longer exists.
 func windowClosed(target *windowState) Condition {
+	validate := func(session *sessionCore) error {
+		if target == nil || target.id.session == nil {
+			return ErrNilSession
+		}
+		if target.id.native == "" {
+			return ErrInvalidArgument
+		}
+		if target.id.session != session {
+			return fmt.Errorf("perfuncted: window belongs to another session: %w", ErrInvalidArgument)
+		}
+		return nil
+	}
 	return sessionConditionWithValidation(
 		"window closed",
 		func(ctx context.Context, session *sessionCore) (bool, error) {
-			if target == nil || target.id.session == nil {
-				return false, ErrNilSession
-			}
-			if target.id.session != session {
-				return false, fmt.Errorf(
-					"perfuncted: window belongs to another session: %w",
-					ErrInvalidArgument,
-				)
+			if err := validate(session); err != nil {
+				return false, err
 			}
 			if err := session.windows.checkAvailable("info"); err != nil {
 				// Window capability is fixed for this session. An absent
@@ -726,18 +732,7 @@ func windowClosed(target *windowState) Condition {
 			}
 			return false, session.windows.operationError("info", err)
 		},
-		func(session *sessionCore) error {
-			if target == nil || target.id.session == nil {
-				return ErrNilSession
-			}
-			if target.id.native == "" {
-				return ErrInvalidArgument
-			}
-			if target.id.session != session {
-				return fmt.Errorf("perfuncted: window belongs to another session: %w", ErrInvalidArgument)
-			}
-			return nil
-		},
+		validate,
 		CapabilityWindows,
 	)
 }
