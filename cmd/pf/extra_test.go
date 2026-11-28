@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/nskaggs/perfuncted/v2"
 	diagnostic "github.com/nskaggs/perfuncted/v2/internal/diagnostic"
 	"github.com/nskaggs/perfuncted/v2/internal/workflow"
@@ -14,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -816,5 +818,23 @@ func TestScriptLiteralWindowFlagPrefixIsData(t *testing.T) {
 	}
 	if len(input.Calls) != 1 {
 		t.Fatal("unsupported workflow targeting dispatched")
+	}
+}
+
+func TestScriptLiteralStdinFlagDoesNotConsumeCommands(t *testing.T) {
+	for _, controlled := range []bool{false, true} {
+		t.Run(fmt.Sprint(controlled), func(t *testing.T) {
+			s, inp, _, _ := newScriptFixture(t)
+			s.externalLifecycle = controlled
+			s.scriptFromStdin = !controlled
+			err := s.run(strings.NewReader("input type -- '--stdin'\ninput sendkeys -- '--stdin'\ninput type -- '--'\ninput type 'next command'\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"type-literal:--stdin", "type:--stdin", "type-literal:--", "type-literal:next command"}
+			if !reflect.DeepEqual(inp.Calls, want) {
+				t.Fatalf("calls=%v want=%v", inp.Calls, want)
+			}
+		})
 	}
 }

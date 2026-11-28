@@ -156,4 +156,4 @@ Apache 2.0. See [LICENSE](LICENSE).
 
 ### Keyboard input migration (v2)
 
-`pf input type` always types literal text, including braces. Use `pf input sendkeys '{ctrl+s}'` for interpreted key syntax. Both accept `--stdin`; specify either stdin or one positional argument. The old `type-literal` command is removed. Targeted `sendkeys` checks focus between parser-defined actions, accepts portable named keys, and rejects explicit key holds. Use Go `Window.Do` for a guarded batch. Window activation verifies actual focus by default; `--verify=false` explicitly requests dispatch only.
+`pf input type` always types literal text, including braces. Use `pf input sendkeys '{ctrl+s}'` for interpreted key syntax. Both accept `--stdin`; specify either stdin or one positional argument. In CLI and workflow commands, `input type -- "--stdin"` types the flag literally. The old `type-literal` command is removed. Targeted `sendkeys` checks focus between parser-defined actions, accepts portable named keys, and rejects explicit key holds. Use Go `Window.Do` for a guarded batch. Window activation verifies actual focus by default; `--verify=false` explicitly requests dispatch only.

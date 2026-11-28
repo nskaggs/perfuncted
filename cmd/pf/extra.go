@@ -119,7 +119,7 @@ finish before status becomes paused. Stop cancels the run context and closes
 its Session so owned input cleanup can finish. Stop cannot undo application
 changes that already happened. Controlled runs require a script file, reject
 input type/sendkeys --stdin and explicit key-down/key-up syntax; atomic key chords remain
-available. A crash can make the live state unavailable until the stale private
+available. Use input type -- "--stdin" to type that literal flag. A crash can make the live state unavailable until the stale private
 control record is safely recovered by starting another run with the same ID.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -493,6 +493,8 @@ func (s *scriptRunner) execInputType(lineNo int, toks []string) error {
 	args := toks[1:]
 	if stdin {
 		args = nil
+	} else if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
 	}
 	text, err := readKeyboardText(s.in, args, stdin)
 	if err != nil {
