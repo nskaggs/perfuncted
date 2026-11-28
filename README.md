@@ -62,7 +62,10 @@ needed on the tested Plasma 6.6 installation. See [desktop permissions](docs/des
 **Go developers:**
 
 ```sh
-go install github.com/nskaggs/perfuncted/v2/cmd/pf@latest
+go install github.com/nskaggs/perfuncted/cmd/pf@v1.4.0
+# For an unreleased v2 build, pin an exact commit:
+# In a current Perfuncted checkout, pin the desired commit:
+# go install github.com/nskaggs/perfuncted/v2/cmd/pf@$(git rev-parse HEAD)
 ```
 
 **Flatpak:** Download `perfuncted.flatpak` from [GitHub Releases](https://github.com/nskaggs/perfuncted/releases), then run:
@@ -81,13 +84,12 @@ Open a disposable editor window and run:
 ```sh
 pf info
 pf window list
-pf window activate "Editor" --verify
-pf input type-literal "Hello from Perfuncted"
+pf input type "Hello from Perfuncted" --window "Editor"
 pf screen grab --out screenshot.png
 ```
 
-Replace `Editor` with a matching window title. For duplicate titles, use
-`pf window activate-id` with a stable ID from `pf window list`. Move, resize,
+Replace `Editor` with its exact window title. For duplicate titles, use
+`pf input type "Hello" --window-id ID` with a stable ID from `pf window list`. Move, resize,
 minimize, maximize, fullscreen, unfullscreen and get-geometry also accept
 `--id` instead of a title. Input affects
 the focused application; successful dispatch does not prove the application
@@ -98,7 +100,7 @@ accepted or saved the input.
 | Capability | Example commands |
 | --- | --- |
 | Windows and virtual desktops | `pf window list`, `pf window activate-id`, `pf desktop list` |
-| Keyboard and pointer | `pf input type-literal`, `pf input click-window`, `pf input move` |
+| Keyboard and pointer | `pf input type`, `pf input click-window`, `pf input move` |
 | Screen capture and visual search | `pf screen grab`, `pf find image`, `pf find text` |
 | Accessibility | `pf a11y apps`, `pf a11y wait`, `pf a11y action` |
 | Repeatable workflows | `pf run task.pf`, `pf workflow status` |
@@ -151,3 +153,7 @@ See the [Go library guide](docs/go-api.md) and
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).
+
+### Keyboard input migration (v2)
+
+`pf input type` always types literal text, including braces. Use `pf input sendkeys '{ctrl+s}'` for interpreted key syntax. Both accept `--stdin`; specify either stdin or one positional argument. The old `type-literal` command is removed. Targeted `sendkeys` checks focus between parser-defined actions, accepts portable named keys, and rejects explicit key holds. Use Go `Window.Do` for a guarded batch. Window activation verifies actual focus by default; `--verify=false` explicitly requests dispatch only.

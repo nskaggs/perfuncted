@@ -98,26 +98,26 @@ func TestLiveFirefoxKeyboardRegression(t *testing.T) {
 	expected := ""
 	for i := 1; i <= 20; i++ {
 		s := fmt.Sprintf("aB%dz", i)
-		dispatch("type-literal", s)
+		dispatch("type", s)
 		expected += s
 		expect(token + "-text-" + expected)
 	}
 	long := strings.Repeat("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 3)
-	dispatch("type", "{ctrl+a}")
-	dispatch("type-literal", long)
+	dispatch("sendkeys", "{ctrl+a}")
+	dispatch("type", long)
 	expect(token + "-text-" + long)
 	// The address already contains our local file URL. Preserve its prefix and
 	// append only local fragments so no external navigation is intended.
 	hash := ""
 	for _, part := range []string{"abcdefghijklmnopqrstuvwxyz0123456789", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "runtime-this-firefox-0123456789"} {
-		dispatch("type", "{ctrl+l}")
-		dispatch("type", "{end}")
+		dispatch("sendkeys", "{ctrl+l}")
+		dispatch("sendkeys", "{end}")
 		suffix := part
 		if hash == "" {
 			suffix = "#" + part
 		}
-		dispatch("type-literal", suffix)
-		dispatch("type", "{enter}")
+		dispatch("type", suffix)
+		dispatch("sendkeys", "{enter}")
 		hash += part
 		expect(token + "-hash-" + hash)
 	}

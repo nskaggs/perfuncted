@@ -1,10 +1,10 @@
 ## pf input type
 
-Type a string or send keys (e.g. {enter}, {ctrl+s})
+Type literal text without interpreting key syntax
 
 ### Synopsis
 
-Interpret brace-delimited key sequences in text, including text read with --stdin. Use input type-literal for data that must not be interpreted as keys. Successful dispatch is not proof that the focused application accepted the input.
+Type literal text without interpreting key syntax. Successful dispatch does not prove application acceptance.
 
 ```
 pf input type <text> [flags]
@@ -15,6 +15,8 @@ pf input type <text> [flags]
 ```
   -h, --help[=true|false]    help for type
       --stdin[=true|false]   read text from stdin
+      --window string        target an exact, unique window title
+      --window-id string     target a unique stable window ID
 ```
 
 ### Options inherited from parent commands

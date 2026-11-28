@@ -347,3 +347,24 @@ func TestRemoteDesktopKeycodeMappingsCoverModifiersNavigationAndFunctionKeys(t *
 		t.Fatalf("uppercase function key mapping %d, %v", code, err)
 	}
 }
+
+func TestAtomicKeySequences(t *testing.T) {
+	ctx := context.Background()
+	seq, err := AtomicKeySequences(ctx, "hello{CTRL+ALT+SHIFT+SUPER+a}{enter}tail")
+	if err != nil || strings.Join(seq, "|") != "hello|{ctrl+alt+shift+super+a}|{enter}|tail" {
+		t.Fatalf("sequence=%v err=%v", seq, err)
+	}
+	for _, text := range []string{"{unclosed", "{ctrl down}", "{ctrl up}", "{no-such-key}"} {
+		if _, err := AtomicKeySequences(ctx, text); err == nil {
+			t.Fatalf("accepted %q", text)
+		}
+	}
+}
+
+func TestAtomicKeySequencesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := AtomicKeySequences(ctx, "{enter}"); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}

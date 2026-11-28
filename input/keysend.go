@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/nskaggs/perfuncted/v2/internal/contextutil"
+	"github.com/nskaggs/perfuncted/v2/internal/keymap"
 )
 
 // keySend represents a parsed key-send action produced by parseKeySend.
@@ -231,4 +232,49 @@ func ValidateKeySequence(ctx context.Context, sequence string) error {
 		return errors.New("input: invalid key sequence")
 	}
 	return nil
+}
+
+// AtomicKeySequences preflights a targeted sequence and returns its independent
+// dispatch units. Explicit key holds and nonportable named keys are rejected
+// before any input, so focus can be checked between units without leaving keys held.
+func AtomicKeySequences(ctx context.Context, sequence string) ([]string, error) {
+	ctx = contextutil.Default(ctx)
+	actions, err := parseKeySendContext(ctx, sequence)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("input: invalid key sequence")
+	}
+	result := make([]string, 0, len(actions))
+	for _, action := range actions {
+		if action.down || action.up {
+			return nil, errors.New("input: targeted sendkeys does not support explicit key holds")
+		}
+		if action.key == "" {
+			result = append(result, action.text)
+			continue
+		}
+		if _, ok := keymap.FromString(action.key); !ok {
+			return nil, errors.New("input: targeted sendkeys requires portable named keys")
+		}
+		var chord strings.Builder
+		chord.WriteByte('{')
+		if action.modifiers.ctrl {
+			chord.WriteString("ctrl+")
+		}
+		if action.modifiers.alt {
+			chord.WriteString("alt+")
+		}
+		if action.modifiers.shift {
+			chord.WriteString("shift+")
+		}
+		if action.modifiers.super {
+			chord.WriteString("super+")
+		}
+		chord.WriteString(action.key)
+		chord.WriteByte('}')
+		result = append(result, chord.String())
+	}
+	return result, ctx.Err()
 }

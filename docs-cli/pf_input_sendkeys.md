@@ -1,15 +1,22 @@
-## pf input type-literal
+## pf input sendkeys
 
-Type text literally without interpreting key syntax
+Send interpreted key sequences (e.g. {ctrl+s})
+
+### Synopsis
+
+Send interpreted key sequences (e.g. {ctrl+s}). Successful dispatch does not prove application acceptance.
 
 ```
-pf input type-literal <text> [flags]
+pf input sendkeys <text> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help[=true|false]   help for type-literal
+  -h, --help[=true|false]    help for sendkeys
+      --stdin[=true|false]   read text from stdin
+      --window string        target an exact, unique window title
+      --window-id string     target a unique stable window ID
 ```
 
 ### Options inherited from parent commands

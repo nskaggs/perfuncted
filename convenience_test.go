@@ -105,14 +105,14 @@ func TestConvenienceCoverageStepErrors(t *testing.T) {
 
 func TestConvenienceCoverageStepPreflight(t *testing.T) {
 	ctx := context.Background()
-	good := []Step{Type(""), TypeKeys("{enter}"), Key("tab"), Hotkey("ctrl", "s"), Click(1, 2), Delay(0)}
+	good := []Step{Type(""), SendKeys("{enter}"), Key("tab"), Hotkey("ctrl", "s"), Click(1, 2), Delay(0)}
 	for _, step := range good {
 		if err := step.validate(ctx); err != nil {
 			t.Fatalf("valid step %s: %v", step.kind, err)
 		}
 	}
 	bad := []Step{
-		{}, TypeKeys("{unfinished"), Key("no-such-key"), Hotkey("ctrl"), Hotkey("ctrl", "unknown"),
+		{}, SendKeys("{unfinished"), Key("no-such-key"), Hotkey("ctrl"), Hotkey("ctrl", "unknown"),
 		Hotkey("not-a-modifier", "s"), Hotkey(strings.Repeat("ctrl", 70), "s"),
 		Delay(-time.Second),
 	}
@@ -133,7 +133,7 @@ func TestConvenienceCoverageRunStepKindsAndDelay(t *testing.T) {
 	s := convenienceSession(t, &convenienceInput{})
 	ctx := context.Background()
 	for _, step := range []Step{
-		Type("literal"), TypeKeys("{tab}"), Key("enter"), Hotkey("ctrl", "s"),
+		Type("literal"), SendKeys("{tab}"), Key("enter"), Hotkey("ctrl", "s"),
 		Click(1, 2), Delay(3 * time.Millisecond),
 	} {
 		if err := s.runStep(ctx, step); err != nil {
@@ -330,7 +330,7 @@ func (b *blockingConvenienceInput) TypeLiteral(ctx context.Context, _ string) er
 func TestConvenienceMalformedSequencePreflight(t *testing.T) {
 	backend := &convenienceInput{}
 	s := convenienceSession(t, backend)
-	if err := s.Do(Type("first"), TypeKeys("{unfinished")); !errors.Is(err, ErrInvalidArgument) {
+	if err := s.Do(Type("first"), SendKeys("{unfinished")); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatal(err)
 	}
 	if len(backend.Calls) != 0 {
@@ -519,7 +519,7 @@ func TestConvenienceViewPassesDeadlineToBackend(t *testing.T) {
 func TestConvenienceOversizedKeyPreflightDoesNotDispatch(t *testing.T) {
 	backend := &convenienceInput{}
 	s := convenienceSession(t, backend)
-	err := s.Do(Type("earlier valid input"), TypeKeys("{"+strings.Repeat("x", 2*1024*1024)+"}"))
+	err := s.Do(Type("earlier valid input"), SendKeys("{"+strings.Repeat("x", 2*1024*1024)+"}"))
 	if !errors.Is(err, ErrInvalidArgument) || len(backend.Calls) != 0 {
 		t.Fatalf("oversized key: %v, calls = %d", err, len(backend.Calls))
 	}
@@ -1097,4 +1097,40 @@ func TestPlan7ResolvedWindowDoesNotRediscoverByTitle(t *testing.T) {
 	if err := w.Do(Click(1, 2)); !errors.Is(err, ErrUnsupported) {
 		t.Fatal(err)
 	}
+}
+
+func TestTargetedSendKeysGuardsEachParsedAction(t *testing.T) {
+	info := window.Info{NativeID: "1", Title: "Journal", PID: 42, AppID: "editor"}
+	t.Run("success", func(t *testing.T) {
+		s, _, backend := windowConvenienceFixture(t, info)
+		if err := s.Window("Journal").Do(SendKeys("{ctrl+l}hello{enter}")); err != nil {
+			t.Fatal(err)
+		}
+		if got := backend.callsSnapshot(); !reflect.DeepEqual(got, []string{"keys:{ctrl+l}", "keys:hello", "keys:{enter}"}) {
+			t.Fatal(got)
+		}
+	})
+	t.Run("late invalid preflight", func(t *testing.T) {
+		s, mgr, backend := windowConvenienceFixture(t, info)
+		err := s.Window("Journal").Do(SendKeys("{ctrl+l}{not-a-key}"))
+		if !errors.Is(err, ErrInvalidArgument) || len(mgr.actions) != 0 || len(backend.callsSnapshot()) != 0 {
+			t.Fatalf("err=%v actions=%v input=%v", err, mgr.actions, backend.callsSnapshot())
+		}
+	})
+	t.Run("focus loss", func(t *testing.T) {
+		s, mgr, backend := windowConvenienceFixture(t, info)
+		backend.after = func() { mgr.mu.Lock(); mgr.windows[0].Active = false; mgr.mu.Unlock() }
+		err := s.Window("Journal").Do(SendKeys("{ctrl+l}hello{enter}"))
+		var step *StepError
+		if !errors.Is(err, ErrWindowFocusUnverified) || !errors.As(err, &step) || step.Index != 0 || !step.MayHaveDispatched || len(backend.callsSnapshot()) != 1 {
+			t.Fatalf("err=%v input=%v", err, backend.callsSnapshot())
+		}
+	})
+	t.Run("direct invalid execution", func(t *testing.T) {
+		s, _, _ := windowConvenienceFixture(t, info)
+		err := s.runStepsChecked(context.Background(), []Step{SendKeys("{invalid-key}")}, func(context.Context) error { return nil })
+		if !errors.Is(err, ErrInvalidArgument) {
+			t.Fatal(err)
+		}
+	})
 }

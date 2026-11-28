@@ -18,7 +18,7 @@ Pause takes effect between script commands; a command already in progress may
 finish before status becomes paused. Stop cancels the run context and closes
 its Session so owned input cleanup can finish. Stop cannot undo application
 changes that already happened. Controlled runs require a script file, reject
-input type --stdin and explicit key-down/key-up syntax; atomic key chords remain
+input type/sendkeys --stdin and explicit key-down/key-up syntax; atomic key chords remain
 available. A crash can make the live state unavailable until the stale private
 control record is safely recovered by starting another run with the same ID.
 

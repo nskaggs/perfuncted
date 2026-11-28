@@ -149,7 +149,7 @@ func certifyGTKTextEntryParity(t *testing.T, s *suite) {
 	if err := activateWindow(s.pf, ctx, semanticApp.winMatch); err != nil {
 		t.Fatalf("activate semantic editor for physical save: %v", err)
 	}
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{ctrl+s}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("save semantic text through physical input: %v", err)
 	}
 	semanticContents := requireExactSavedFile(t, ctx, semanticFile, expected+"\n")
@@ -162,10 +162,10 @@ func certifyGTKTextEntryParity(t *testing.T, s *suite) {
 	physicalFile := filepath.Join(t.TempDir(), "physical-parity.txt")
 	physicalApp, physicalCmd := startEditorForParity(t, s, ctx, textEditor, physicalFile)
 	waitForEditorStable(t, s, ctx, physicalApp.winMatch)
-	if err := s.pf.Input().WithContext(ctx).TypeKeys(expected); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys(expected); err != nil {
 		t.Fatalf("enter Unicode parity text through physical keyboard input: %v", err)
 	}
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{ctrl+s}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("save physical parity text: %v", err)
 	}
 	physicalContents := requireExactSavedFile(t, ctx, physicalFile, expected+"\n")
@@ -216,7 +216,7 @@ func certifyKWriteSaveActionParity(t *testing.T, s *suite) {
 	if err := s.pf.WithContext(ctx).Paste(expected); err != nil {
 		t.Fatalf("dirty physical save-action document: %v", err)
 	}
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{ctrl+s}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("save physical save-action document: %v", err)
 	}
 	physicalContents := requireExactSavedFile(t, ctx, physicalFile, expected+"\n")
@@ -584,7 +584,7 @@ func certifyAccessibilityEditor(t *testing.T, s *suite, representative accessibi
 	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate %s for save: %v", representative.name, err)
 	}
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{ctrl+s}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("save %s: %v", representative.name, err)
 	}
 	saved, err := waitForFileContains(ctx, saveFile, expected, 30*time.Second)

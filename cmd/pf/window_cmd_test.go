@@ -224,8 +224,8 @@ func TestWindowCLIPropagatesOutputDisconnection(t *testing.T) {
 		{"find by title first line", []string{"window", "find-by-title", "Editor"}, 1, 1},
 		{"find by title second line", []string{"window", "find-by-title", "Editor"}, 2, 2},
 		{"find by title third line", []string{"window", "find-by-title", "Editor"}, 3, 3},
-		{"activate by title", []string{"window", "activate", "Editor"}, 1, 1},
-		{"activate by ID", []string{"window", "activate-id", "editor-id"}, 1, 1},
+		{"activate by title", []string{"window", "activate", "Editor", "--verify=false"}, 1, 1},
+		{"activate by ID", []string{"window", "activate-id", "editor-id", "--verify=false"}, 1, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := &pftest.Manager{Lists: [][]window.Info{{info}}, Titles: []string{"Editor"}}
@@ -310,7 +310,7 @@ func TestWindowExtendedCLIBehaviorsAndInvalidInputFailClosed(t *testing.T) {
 		{"visible", []string{"window", "is-visible", "Editor"}, []window.Info{info}, nil, "true", true},
 		{"not visible", []string{"window", "is-visible", "Absent"}, []window.Info{info}, nil, "false", true},
 		{"unknown stable ID", []string{"window", "activate-id", "unknown"}, []window.Info{info}, nil, "not found", false},
-		{"activate by stable ID", []string{"window", "activate-id", "id-editor"}, []window.Info{info}, nil, "activation requested", true},
+		{"activate by stable ID", []string{"window", "activate-id", "id-editor", "--verify=false"}, []window.Info{info}, nil, "activation requested", true},
 		{"close by stable ID", []string{"window", "close-id", "id-editor"}, []window.Info{info}, nil, "close requested", true},
 		{"close by title", []string{"window", "close", "Editor"}, []window.Info{info}, nil, "closed: Editor", true},
 		{"minimize by title", []string{"window", "minimize", "Editor"}, []window.Info{info}, nil, "minimized: Editor", true},
@@ -377,7 +377,7 @@ func TestWindowVerificationRejectsInvalidArguments(t *testing.T) {
 	if err := waitWindowActive(context.Background(), nil, 0, time.Millisecond); err == nil {
 		t.Fatal("activation verification accepted a nonpositive timeout")
 	}
-	if err := waitWindowGone(context.Background(), perfuncted.WindowBundle{}, "", time.Second, time.Millisecond); err == nil {
+	if err := waitWindowGone(context.Background(), nil, time.Second, time.Millisecond); err == nil {
 		t.Fatal("disappearance verification accepted an empty ID")
 	}
 }
@@ -397,7 +397,7 @@ func TestWindowVerificationPropagatesBackendErrors(t *testing.T) {
 	if err := waitWindowActive(context.Background(), target, time.Second, time.Millisecond); !errors.Is(err, wantErr) {
 		t.Fatalf("activation verification error = %v, want %v", err, wantErr)
 	}
-	if err := waitWindowGone(context.Background(), session.Windows(), "editor", time.Second, time.Millisecond); !errors.Is(err, wantErr) {
+	if err := waitWindowGone(context.Background(), target, time.Second, time.Millisecond); !errors.Is(err, wantErr) {
 		t.Fatalf("disappearance verification error = %v, want %v", err, wantErr)
 	}
 }
@@ -698,8 +698,8 @@ func TestWindowCLIReportsVerifiedFocusOnlyAfterSelectedWindowBecomesActive(t *te
 		name string
 		args []string
 	}{
-		{"title", []string{"window", "activate", "Editor", "--verify", "--verify-timeout=250ms", "--verify-poll=1ms"}},
-		{"stable ID", []string{"window", "activate-id", "editor", "--verify", "--verify-timeout=250ms", "--verify-poll=1ms"}},
+		{"title", []string{"window", "activate", "Editor", "--verify-timeout=250ms", "--verify-poll=1ms"}},
+		{"stable ID", []string{"window", "activate-id", "editor", "--verify-timeout=250ms", "--verify-poll=1ms"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inactive := window.Info{NativeID: "editor", Title: "Editor", Active: false}
@@ -796,7 +796,7 @@ func TestSyntheticWindowCommandsAcrossLifecycle(t *testing.T) {
 		{"list plain", []string{"window", "list"}, "Editor", ""},
 		{"list json", []string{"window", "list", "--output", "json"}, `"Title":"Editor"`, ""},
 		{"active title", []string{"window", "active"}, "Editor", ""},
-		{"activate", []string{"window", "activate", "Editor"}, "activation requested", "desktop-window"},
+		{"activate", []string{"window", "activate", "Editor"}, "activation verified", "desktop-window"},
 		{"move keep x", []string{"window", "move", "--title", "Editor", "--y", "350"}, "to 100,350", ""},
 		{"move keep y", []string{"window", "move", "--title", "Editor", "--x", "205"}, "to 205,200", ""},
 		{"resize", []string{"window", "resize", "--title", "Editor", "--w", "320", "--h", "180"}, "320x180", ""},
@@ -810,7 +810,7 @@ func TestSyntheticWindowCommandsAcrossLifecycle(t *testing.T) {
 		{"close", []string{"window", "close", "Editor"}, "closed: Editor", ""},
 		{"minimize", []string{"window", "minimize", "Editor"}, "minimized: Editor", ""},
 		{"maximize", []string{"window", "maximize", "Editor"}, "maximized: Editor", ""},
-		{"activate stable ID", []string{"window", "activate-id", "desktop-window"}, "activation requested", "desktop-window"},
+		{"activate stable ID", []string{"window", "activate-id", "desktop-window"}, "activation verified", "desktop-window"},
 		{"close stable ID", []string{"window", "close-id", "desktop-window"}, "close requested", ""},
 	}
 	for _, tc := range cases {
@@ -861,7 +861,7 @@ func TestSyntheticInputCommandsHaveRealSideEffects(t *testing.T) {
 		{"double click", []string{"input", "double-click", "--x", "17", "--y", "24"}, "mousedown"},
 		{"drag", []string{"input", "drag-and-drop", "--x1", "1", "--y1", "2", "--x2", "50", "--y2", "60"}, "move:50,60"},
 		{"center", []string{"input", "click-center", "--rect", "10,20,30,40"}, "click:20,30"},
-		{"type", []string{"input", "type", "literal text"}, "type:literal text"},
+		{"type", []string{"input", "type", "literal text"}, "type-literal:literal text"},
 		{"keydown", []string{"input", "keydown", "a"}, "down:a"},
 		{"keyup", []string{"input", "keyup", "a"}, "up:a"},
 		{"scroll up", []string{"input", "scroll", "up", "--clicks", "2"}, "scroll-up:2"},
@@ -978,7 +978,7 @@ func TestWindowIDCLICommandsWorkWithDuplicateTitles(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"activate-by-id", []string{"window", "activate-id", "uuid-two"}, "activation requested"},
+		{"activate-by-id", []string{"window", "activate-id", "uuid-two", "--verify=false"}, "activation requested"},
 		{"close-by-id", []string{"window", "close-id", "uuid-two"}, "close requested"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1033,13 +1033,21 @@ func TestWaitWindowGoneRequiresConfirmedDisappearance(t *testing.T) {
 	mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-uuid", Title: "File Upload"}}, {{NativeID: "dialog-uuid", Title: "File Upload"}}, {}}}
 	pf := pftest.New(nil, nil, mgr, nil)
 	defer pf.Close()
-	if err := waitWindowGone(context.Background(), pf.Windows(), "dialog-uuid", 100*time.Millisecond, 5*time.Millisecond); err != nil {
+	target, err := findWindowByStableID(context.Background(), pf.Windows(), "dialog-uuid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitWindowGone(context.Background(), target, 100*time.Millisecond, 5*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	stuck := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-uuid", Title: "File Upload"}}}}
 	pf2 := pftest.New(nil, nil, stuck, nil)
 	defer pf2.Close()
-	if err := waitWindowGone(context.Background(), pf2.Windows(), "dialog-uuid", 15*time.Millisecond, 5*time.Millisecond); err == nil {
+	target2, err := findWindowByStableID(context.Background(), pf2.Windows(), "dialog-uuid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitWindowGone(context.Background(), target2, 15*time.Millisecond, 5*time.Millisecond); err == nil {
 		t.Fatal("ignored still open file chooser")
 	}
 }

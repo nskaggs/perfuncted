@@ -398,9 +398,9 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	defer kbCancel()
 	v.NoError(activateWindow(s.pf, kbCtx, kbDocName), "activate keyboard editor")
 	time.Sleep(500 * time.Millisecond)
-	v.NoError(s.pf.Input().WithContext(kbCtx).TypeKeys(typeText), "type via keyboard")
+	v.NoError(s.pf.Input().WithContext(kbCtx).SendKeys(typeText), "type via keyboard")
 	time.Sleep(300 * time.Millisecond)
-	v.NoError(s.pf.Input().WithContext(kbCtx).TypeKeys("{ctrl+s}"), "save keyboard file")
+	v.NoError(s.pf.Input().WithContext(kbCtx).SendKeys("{ctrl+s}"), "save keyboard file")
 
 	kbContent, err := waitForFileContains(kbCtx, kbFile, typeText, 10*time.Second)
 	v.NoError(err, "wait for keyboard file content")
@@ -428,7 +428,7 @@ func TestTypeFast_MatchesType(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	v.NoError(s.pf.WithContext(cbCtx).Paste(typeText), "paste via clipboard")
 	time.Sleep(300 * time.Millisecond)
-	v.NoError(s.pf.Input().WithContext(cbCtx).TypeKeys("{ctrl+s}"), "save clipboard file")
+	v.NoError(s.pf.Input().WithContext(cbCtx).SendKeys("{ctrl+s}"), "save clipboard file")
 
 	cbContent, err := waitForFileContains(cbCtx, cbFile, typeText, 10*time.Second)
 	v.NoError(err, "wait for clipboard file content")
@@ -740,7 +740,7 @@ func TestErrorPath_NilInput(t *testing.T) {
 	ctx := context.Background()
 	pf := &perfuncted.Session{}
 
-	err := pf.Input().WithContext(ctx).TypeKeys("hello")
+	err := pf.Input().WithContext(ctx).SendKeys("hello")
 	if err == nil {
 		t.Error("Type on nil InputBundle should return an error")
 	}

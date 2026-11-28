@@ -10,7 +10,7 @@ pf window activate-id <stable-id> [flags]
 
 ```
   -h, --help[=true|false]         help for activate-id
-      --verify[=true|false]       wait for actual target focus confirmation
+      --verify[=true|false]       wait for actual target focus confirmation (default true)
       --verify-poll duration      focus verification poll interval (default 50ms)
       --verify-timeout duration   maximum wait for target to become active (default 2s)
 ```

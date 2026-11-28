@@ -50,7 +50,7 @@ input select-file	contract:TestFileChooserRestoresClipboardAfterSuccessAndInputF
 input state	x11-live-wayland-rejection:TestReleaseVisualAcceptanceX11/TestReleaseVisualAcceptanceWayland
 input sync	x11:TestReleaseVisualAcceptanceX11
 input type	matrix:TestReleaseCLIWorkflowMatrix
-input type-literal	matrix:TestReleaseCLIWorkflowMatrix
+input sendkeys	matrix:TestReleaseCLIWorkflowMatrix
 output list	packaged-live:TestFlatpakBundleBuildInstallAndRun
 run	matrix:TestReleaseCLIWorkflowMatrix
 screen get-all-pixels	matrix:TestReleaseVisualAcceptanceX11/TestReleaseVisualAcceptanceWayland

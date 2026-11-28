@@ -23,7 +23,7 @@ noninteractively on a best-effort basis. Accessibility and input observation are
 Explicit Require or Optional options replace the default set, including an empty
 selection. Use Require when a capability must be available.
 `Type` sends literal text; `Key` sends a named key, `Hotkey` sends a chord,
-and `TypeKeys` explicitly interprets key syntax. The batch targets the
+and `SendKeys` explicitly interprets key syntax. The batch targets the
 currently focused application and stops at the first error. A successful
 dispatch does not prove the application accepted or saved the input.
 
@@ -59,7 +59,7 @@ See the [Go API reference](https://pkg.go.dev/github.com/nskaggs/perfuncted/v2).
 
 ## Migrating from v1 to v2
 
-The v2 development module deliberately changes Go source compatibility to prevent callers from overwriting session-owned backends and process state. CLI commands, flags, output contracts and workflow formats are unchanged. Existing v1 consumers can remain pinned to `github.com/nskaggs/perfuncted@v1.4.0`. To test unreleased v2 code, pin the desired commit explicitly.
+The v2 development module deliberately changes Go source compatibility to prevent callers from overwriting session-owned backends and process state. The v2 CLI and workflow input commands use type for literal text and sendkeys for interpreted sequences. Existing v1 consumers can remain pinned to `github.com/nskaggs/perfuncted@v1.4.0`. To test unreleased v2 code, pin the desired commit explicitly.
 
 Change the module requirement and all Perfuncted imports (including subpackages) to `github.com/nskaggs/perfuncted/v2`. Replace the seven session capability fields with accessor calls:
 
@@ -73,7 +73,7 @@ Change the module requirement and all Perfuncted imports (including subpackages)
 | `s.Clipboard` | `s.Clipboard()` | `ClipboardBundle` |
 | `s.Accessibility` | `s.Accessibility()` | `AccessibilityBundle` |
 
-For example, `s.Input.Type(ctx, text)` becomes `s.Input().WithContext(ctx).TypeKeys(text)`. Variables and parameters holding pointers to capability bundles should now hold concrete bundle values. Bundles are non-owning handles; they cannot be assigned back into a session. Use `s.Has(capability)` or `s.Capability(capability)` for availability instead of comparing bundles to nil.
+For example, `s.Input.Type(ctx, text)` becomes `s.Input().WithContext(ctx).SendKeys(text)`. Variables and parameters holding pointers to capability bundles should now hold concrete bundle values. Bundles are non-owning handles; they cannot be assigned back into a session. Use `s.Has(capability)` or `s.Capability(capability)` for availability instead of comparing bundles to nil.
 
 `Open` and `NewSessionForTesting` still return `*Session`. Copying a Session value aliases the private session; closing either copy closes the same session. Overwriting a wrapper does not redirect previously issued handles. Retain the original session reference and close it when finished.
 
@@ -93,7 +93,7 @@ Domain types now have one canonical public spelling. Replace the former root ali
 | `AccessibilityActionReceipt` | `accessibility.ActionReceipt` |
 | `ActionOutcomeStatus`, `ActionOutcomeProof`, and `ActionOutcome*` constants | Corresponding `accessibility` names |
 
-The seven capability accessors, session-specific errors, WindowID, Window, Application and wait/convenience contracts retain their root names. These are source changes within unreleased v2; the CLI and serialized data formats remain unchanged.
+The seven capability accessors, session-specific errors, WindowID, Window, Application and wait/convenience contracts retain their root names. These are source changes within unreleased v2; the keyboard CLI changes described above apply; serialized data formats remain unchanged.
 
 To return to v1, restore the original module path, version and capability field calls. Existing v1 tags and installed CLI releases are unchanged.
 
@@ -115,7 +115,7 @@ are invalid. Closing any scoped Session closes the shared desktop, even
 when its caller context has expired.
 
 `Type(text)` on the session or input handle is literal. Use
-`Input().TypeKeys(sequence)` for interpreted syntax, and `Input().Click(x,y)`
+`Input().SendKeys(sequence)` for interpreted syntax, and `Input().Click(x,y)`
 for a left click (an optional button selects a different button). Use
 `Windows().Find(window.Title("Editor"))` for a unique exact-title target.
 An explicit zero-value window.Match{} matches any window; Find and Wait still require exactly one result. A blank window.Title helper is invalid. List() lists all windows.

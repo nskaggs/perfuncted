@@ -356,7 +356,7 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 	if _, _, err := pf.Screen().WithContext(context.Background()).Resolution(); err != nil {
 		t.Errorf("Resolution: %v", err)
 	}
-	if err := pf.Input().WithContext(context.Background()).TypeKeys("{enter}"); err != nil {
+	if err := pf.Input().WithContext(context.Background()).SendKeys("{enter}"); err != nil {
 		t.Errorf("Type: %v", err)
 	}
 	if got, err := pf.Clipboard().WithContext(context.Background()).Get(); err != nil || got != "hi" {
@@ -374,7 +374,7 @@ func TestNewNilBackends(t *testing.T) {
 	if _, _, err := pf.Screen().WithContext(context.Background()).Resolution(); err == nil {
 		t.Error("expected error for nil screen")
 	}
-	if err := pf.Input().WithContext(context.Background()).TypeKeys("{ctrl+s}"); err == nil {
+	if err := pf.Input().WithContext(context.Background()).SendKeys("{ctrl+s}"); err == nil {
 		t.Error("expected error for nil inputter")
 	}
 	if _, err := pf.Clipboard().WithContext(context.Background()).Get(); err == nil {

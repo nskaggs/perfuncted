@@ -3501,7 +3501,7 @@ func TestNilFacadesReportNilSession(t *testing.T) {
 	}
 
 	var input InputBundle
-	if err := input.WithContext(ctx).TypeKeys("x"); !errors.Is(err, ErrNilSession) {
+	if err := input.WithContext(ctx).SendKeys("x"); !errors.Is(err, ErrNilSession) {
 		t.Fatalf("Input.Type() = %v, want ErrNilSession", err)
 	}
 

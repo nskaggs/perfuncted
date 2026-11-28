@@ -34,16 +34,16 @@ func TestCaptureFailureBundleIncludesBoundedSanitizedEvidenceWhenRequested(t *te
 	defer session.Close()
 
 	for range 40 {
-		if err := session.Input().WithContext(context.Background()).TypeKeys(secret); err != nil {
+		if err := session.Input().WithContext(context.Background()).SendKeys(secret); err != nil {
 			t.Fatalf("record input receipt: %v", err)
 		}
 	}
 	inputBackend.Err = errors.New("backend failed after dispatch")
-	if err := session.Input().WithContext(context.Background()).TypeKeys(secret); err == nil {
+	if err := session.Input().WithContext(context.Background()).SendKeys(secret); err == nil {
 		t.Fatal("failed input operation returned nil")
 	}
 	inputBackend.Err = input.ErrNotSupported
-	if err := session.Input().WithContext(context.Background()).TypeKeys(secret); !errors.Is(err, input.ErrNotSupported) {
+	if err := session.Input().WithContext(context.Background()).SendKeys(secret); !errors.Is(err, input.ErrNotSupported) {
 		t.Fatalf("unsupported input error = %v, want input.ErrNotSupported", err)
 	}
 	inputBackend.Err = nil
@@ -236,7 +236,7 @@ func TestCaptureFailureBundleWritesIndependentArtifacts(t *testing.T) {
 	}}}
 	session := pftest.NewWithOutputs(screenshotter, &pftest.Inputter{}, manager, outputs, nil)
 	defer session.Close()
-	if err := session.Input().WithContext(context.Background()).TypeKeys("{ctrl+s}"); err != nil {
+	if err := session.Input().WithContext(context.Background()).SendKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("trace setup: %v", err)
 	}
 

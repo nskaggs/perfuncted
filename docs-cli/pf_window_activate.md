@@ -10,7 +10,7 @@ pf window activate <pattern> [flags]
 
 ```
   -h, --help[=true|false]         help for activate
-      --verify[=true|false]       verify actual window focus
+      --verify[=true|false]       verify actual window focus (default true)
       --verify-poll duration      verification polling interval (default 50ms)
       --verify-timeout duration   maximum time to verify focus (default 2s)
 ```

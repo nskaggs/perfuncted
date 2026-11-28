@@ -42,6 +42,7 @@ const (
 // waitEvaluateFailures tracks condition-evaluation failures so a wait can tell
 // "the condition is not satisfied yet" apart from "the state cannot be read".
 type waitEvaluateFailures struct {
+	failFast    bool
 	consecutive int
 	total       int
 	since       time.Time
@@ -736,6 +737,7 @@ func windowClosed(target *windowState) Condition {
 type WaitOption func(*waitConfig) error
 
 type waitConfig struct {
+	failFast bool
 	interval time.Duration
 }
 
@@ -853,6 +855,7 @@ func (s *sessionCore) waitWithEvidence(
 	ticker := time.NewTicker(config.interval)
 	defer ticker.Stop()
 	var evaluationFailures waitEvaluateFailures
+	evaluationFailures.failFast = config.failFast
 	for {
 		if err := s.waitState(ctx); err != nil {
 			return evidence, err
@@ -898,7 +901,7 @@ func (s *sessionCore) evaluateWaitCondition(ctx context.Context, condition Condi
 	if stateErr := s.waitState(ctx); stateErr != nil {
 		return false, stateErr
 	}
-	if isPermanentWaitError(err) {
+	if failures.failFast || isPermanentWaitError(err) {
 		return false, fmt.Errorf("wait %s: %w", condition.describe(), err)
 	}
 	exhausted, consecutive, total := failures.record()
@@ -1069,3 +1072,12 @@ func waitEpochDone(epoch *waitEpoch) <-chan struct{} {
 // WindowClosed returns a condition bound to the supplied target's current
 // private identity, rather than to a caller-overwritable wrapper.
 func WindowClosed(target *Window) Condition { return windowClosed(target.privateState()) }
+
+// WaitFailFast aborts on the first observation error instead of retrying
+// transient failures. Use when continuous authoritative observation is required.
+func WaitFailFast() WaitOption {
+	return func(config *waitConfig) error {
+		config.failFast = true
+		return nil
+	}
+}

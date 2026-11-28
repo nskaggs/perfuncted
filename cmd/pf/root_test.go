@@ -463,11 +463,11 @@ func TestTypeLiteralUsesCanonicalPositionalArgument(t *testing.T) {
 			return nil, nil
 		}
 	})
-	literal := findCommandPath(root, "input", "type-literal")
+	literal := findCommandPath(root, "input", "type")
 	if literal == nil {
 		t.Fatal("input type-literal command is missing")
 	}
-	if got, want := literal.Use, "type-literal <text>"; got != want {
+	if got, want := literal.Use, "type <text>"; got != want {
 		t.Fatalf("type-literal Use = %q, want %q", got, want)
 	}
 	if literal.Flags().Lookup("text") != nil {
@@ -478,7 +478,7 @@ func TestTypeLiteralUsesCanonicalPositionalArgument(t *testing.T) {
 	text := `literal {ctrl+s} {braces}`
 	stdout, stderr, code := captureRunIO(
 		t,
-		[]string{"input", "type-literal", text},
+		[]string{"input", "type", text},
 		func(*cliConfig) sessionOpener {
 			return func(context.Context) (*perfuncted.Session, error) {
 				return pftest.New(nil, inp, nil, nil), nil
@@ -492,7 +492,7 @@ func TestTypeLiteralUsesCanonicalPositionalArgument(t *testing.T) {
 		t.Fatalf("typed literal = %q, want %q", got, text)
 	}
 
-	_, stderr, code = captureRunIO(t, []string{"input", "type-literal", "--text", text}, func(*cliConfig) sessionOpener {
+	_, stderr, code = captureRunIO(t, []string{"input", "type", "--text", text}, func(*cliConfig) sessionOpener {
 		return func(context.Context) (*perfuncted.Session, error) {
 			t.Fatal("session opener called for removed --text flag")
 			return nil, nil

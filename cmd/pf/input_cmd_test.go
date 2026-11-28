@@ -1209,7 +1209,7 @@ func TestInputCommandsRejectPostMutationSynchronizationFailures(t *testing.T) {
 		{"double click", []string{"double-click"}, "mousedown"},
 		{"drag", []string{"drag-and-drop", "--x1", "1", "--y1", "2", "--x2", "7", "--y2", "8"}, "move:1,2"},
 		{"center", []string{"click-center", "--rect", "0,0,10,10"}, "click:5,5"},
-		{"type", []string{"type", "hello"}, "type:hello"},
+		{"type", []string{"type", "hello"}, "type-literal:hello"},
 		{"keydown", []string{"keydown", "ctrl"}, "down:ctrl"},
 		{"keyup", []string{"keyup", "ctrl"}, "up:ctrl"},
 		{"mousedown", []string{"mousedown", "--button", "2"}, "mousedown"},
@@ -1365,6 +1365,74 @@ func TestRemoteDesktopCLIRejectsInvalidConfigurations(t *testing.T) {
 		_, err := defaultOpenPFFactory(&cfg)(ctx)
 		if err == nil || !strings.Contains(err.Error(), "--") {
 			t.Errorf("config %+v expected argument error, got %v", cfg, err)
+		}
+	}
+}
+
+func TestKeyboardCommandsTargetAndPreflight(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		windows []window.Info
+		want    string
+		valid   bool
+		opened  bool
+	}{
+		{[]string{"type", "{enter}", "--window", "Editor"}, []window.Info{{NativeID: "editor", Title: "Editor", AppID: "editor", Active: true}}, "type-literal:{enter}", true, true},
+		{[]string{"sendkeys", "{ctrl+s}{enter}", "--window-id", "editor"}, []window.Info{{NativeID: "editor", Title: "Editor", AppID: "editor", Active: true}}, "type:{ctrl+s}", true, true},
+		{[]string{"type", "abc", "--window", "Editor"}, []window.Info{{NativeID: "a", Title: "Editor", AppID: "editor"}, {NativeID: "b", Title: "Editor", AppID: "editor"}}, "", false, true},
+		{[]string{"type", "abc", "--window-id", "a"}, []window.Info{{NativeID: "a", Title: "Editor", AppID: "editor"}, {NativeID: "a", Title: "Duplicate", AppID: "editor"}}, "", false, true},
+		{[]string{"type", "abc", "--window", " "}, nil, "", false, false},
+		{[]string{"type", "abc", "--window", "Editor", "--window-id", "a"}, nil, "", false, false},
+		{[]string{"type", "abc", "--stdin"}, nil, "", false, false},
+		{[]string{"sendkeys", "{ctrl+s}{bad-key}", "--window", "Editor"}, nil, "", false, false},
+		{[]string{"sendkeys", "{ctrl down}", "--window", "Editor"}, nil, "", false, false},
+		{[]string{"type", "{enter}"}, nil, "type-literal:{enter}", true, true},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			inp := &pftest.Inputter{}
+			mgr := &pftest.Manager{Lists: [][]window.Info{tc.windows}}
+			opened := 0
+			open := func(context.Context) (*perfuncted.Session, error) {
+				opened++
+				return pftest.New(nil, inp, mgr, nil), nil
+			}
+			root := inputCmd(open, nil, open)
+			root.SetArgs(tc.args)
+			root.SilenceErrors = true
+			root.SilenceUsage = true
+			err := root.ExecuteContext(context.Background())
+			if (err == nil) != tc.valid || (opened == 1) != tc.opened {
+				t.Fatalf("err=%v opens=%d input=%v", err, opened, inp.Calls)
+			}
+			if tc.valid {
+				if len(inp.Calls) == 0 || inp.Calls[0] != tc.want {
+					t.Fatalf("calls=%v want=%q", inp.Calls, tc.want)
+				}
+			} else if len(inp.Calls) != 0 || len(mgr.Activated) != 0 {
+				t.Fatalf("unexpected mutation %v %v", inp.Calls, mgr.Activated)
+			}
+		})
+	}
+}
+
+func TestKeyboardTextReaderRejectsInvalidBeforeDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		args  []string
+		in    string
+		stdin bool
+	}{
+		{nil, "", false},
+		{[]string{"literal"}, "other", true},
+		{[]string{string([]byte{0xff})}, "", false},
+		{nil, strings.Repeat("x", maxKeyboardTextBytes+1), true},
+	} {
+		if _, err := readKeyboardText(strings.NewReader(tc.in), tc.args, tc.stdin); err == nil {
+			t.Fatal("accepted invalid input")
+		}
+	}
+	for _, text := range []string{"", "{ctrl+s}\n"} {
+		if got, err := readKeyboardText(strings.NewReader(text), nil, true); err != nil || got != text {
+			t.Fatalf("got=%q err=%v", got, err)
 		}
 	}
 }

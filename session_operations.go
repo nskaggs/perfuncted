@@ -317,8 +317,8 @@ func (h InputBundle) Sync() (err error) {
 	return h.handle.Sync(ctx)
 }
 
-// TypeKeys performs the scoped Type operation.
-func (h InputBundle) TypeKeys(text string) (err error) {
+// SendKeys performs the scoped Type operation.
+func (h InputBundle) SendKeys(text string) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeShort, 0)
 	if err != nil {
 		return
@@ -1563,13 +1563,13 @@ func (h *Window) Unfullscreen() (err error) {
 }
 
 // WaitClosed waits until the authoritative backend no longer reports w.
-func (h *Window) WaitClosed() (err error) {
+func (h *Window) WaitClosed(options ...WaitOption) (err error) {
 	ctx, finish, err := h.operationScope().begin(scopeWait, 0)
 	if err != nil {
 		return
 	}
 	defer finish(&err)
-	return h.privateState().WaitClosed(ctx)
+	return h.privateState().WaitClosed(ctx, options...)
 }
 
 // WithContext returns a copy bound to ctx without changing the original.

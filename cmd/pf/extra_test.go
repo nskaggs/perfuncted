@@ -95,7 +95,7 @@ func TestScriptRunnerUnmatchedAndMalformedCommandBoundaries(t *testing.T) {
 func TestScriptLiteralInputPreservesQuotedBackslashesEndToEnd(t *testing.T) {
 	s, input, _, _ := newScriptFixture(t)
 	value := `C:\Users\Public\notes.txt`
-	if err := s.run(strings.NewReader("input type-literal '" + value + "'\n")); err != nil {
+	if err := s.run(strings.NewReader("input type '" + value + "'\n")); err != nil {
 		t.Fatal(err)
 	}
 	if len(input.Calls) != 1 || input.Calls[0] != "type-literal:"+value {
@@ -108,7 +108,7 @@ func TestScriptLiteralInputPreservesQuotedBackslashesEndToEnd(t *testing.T) {
 func TestRunScriptStdinPassesUnconsumedBytesToInputType(t *testing.T) {
 	inputter := &pftest.Inputter{}
 	cmd := runCmd(func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, inputter, nil, nil), nil }, nil)
-	cmd.SetIn(strings.NewReader("input type --stdin\nconfidential payload\nsecond line\n"))
+	cmd.SetIn(strings.NewReader("input sendkeys --stdin\nconfidential payload\nsecond line\n"))
 	cmd.SetArgs([]string{"-"})
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
@@ -214,14 +214,14 @@ func TestScriptRunnerBackendFailureStopsFollowingInput(t *testing.T) {
 			}
 			m.Err = failure
 		}},
-		{"input type", "input type private", func(_ *testing.T, _ *scriptRunner, i *pftest.Inputter, _ *pftest.Manager) { i.Err = failure }},
-		{"input type literal", "input type-literal private", func(_ *testing.T, _ *scriptRunner, i *pftest.Inputter, _ *pftest.Manager) { i.Err = failure }},
+		{"input type", "input sendkeys private", func(_ *testing.T, _ *scriptRunner, i *pftest.Inputter, _ *pftest.Manager) { i.Err = failure }},
+		{"input sendkeys literal", "input type private", func(_ *testing.T, _ *scriptRunner, i *pftest.Inputter, _ *pftest.Manager) { i.Err = failure }},
 		{"pointer location", "input location", func(_ *testing.T, _ *scriptRunner, i *pftest.Inputter, _ *pftest.Manager) { i.Err = failure }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner, inputter, manager, _ := newScriptFixture(t)
 			tc.prepare(t, runner, inputter, manager)
-			err := runner.run(strings.NewReader(tc.script + "\ninput type should-not-run\n"))
+			err := runner.run(strings.NewReader(tc.script + "\ninput sendkeys should-not-run\n"))
 			if !errors.Is(err, failure) {
 				t.Fatalf("script continued after backend failure: %v", err)
 			}
@@ -254,7 +254,7 @@ func TestScriptRunnerScreenAndOutputFailuresPreventFollowingInput(t *testing.T) 
 			session := pftest.NewWithOutputs(sc, inp, &pftest.Manager{}, out, nil)
 			defer session.Close()
 			runner := &scriptRunner{ctx: context.Background(), out: &strings.Builder{}, pf: session}
-			err := runner.run(strings.NewReader(tc.script + "\ninput type should-not-run\n"))
+			err := runner.run(strings.NewReader(tc.script + "\ninput sendkeys should-not-run\n"))
 			if !errors.Is(err, failure) {
 				t.Fatalf("failed backend allowed script to continue: %v", err)
 			}
@@ -287,7 +287,7 @@ func TestRunCLIRejectsBadScriptFilesBeforeSessionOpening(t *testing.T) {
 			opens := 0
 			cmd := runCmd(func(context.Context) (*perfuncted.Session, error) { opens++; return nil, failure }, nil)
 			cmd.SetArgs([]string{tc.path})
-			cmd.SetIn(strings.NewReader("input type unauthorized\n"))
+			cmd.SetIn(strings.NewReader("input sendkeys unauthorized\n"))
 			cmd.SilenceUsage = true
 			cmd.SilenceErrors = true
 			err := cmd.Execute()
@@ -383,8 +383,8 @@ func TestScriptRunnerExercisesWindowInputScreenAndOutput(t *testing.T) {
 	script := strings.Join([]string{
 		"# comments and blank lines must be ignored",
 		"",
-		"input type 'hello world'",
-		"input type-literal 'literal {enter}'",
+		"input sendkeys 'hello world'",
+		"input type 'literal {enter}'",
 		"input location",
 		"window list",
 		"window active",
@@ -428,8 +428,8 @@ func TestScriptRunnerErrorsStopBeforeSideEffects(t *testing.T) {
 		script  string
 		message string
 	}{
-		{"unclosed quote", "input type 'oops", "unterminated quote"},
-		{"escape at end", "input type foo\\", "trailing escape"},
+		{"unclosed quote", "input sendkeys 'oops", "unterminated quote"},
+		{"escape at end", "input sendkeys foo\\", "trailing escape"},
 		{"unknown group", "evil command", "unknown command"},
 		{"missing input", "input", "missing input"},
 		{"unknown input", "input execute", "unsupported input"},
@@ -462,7 +462,7 @@ func TestScriptRunnerStoppedOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	s.ctx = ctx
-	if err := s.run(strings.NewReader("input type forbidden")); !errors.Is(err, context.Canceled) {
+	if err := s.run(strings.NewReader("input sendkeys forbidden")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled script: %v", err)
 	}
 	if len(inp.Calls) > 0 {
@@ -494,7 +494,7 @@ func TestScriptRunnerValidatesMoveResizeOptions(t *testing.T) {
 
 func TestScriptRunnerScreenCaptureFallbackAndInputStdin(t *testing.T) {
 	s, inp, _, _ := newScriptFixture(t)
-	if err := s.execInput(1, []string{"type", "--stdin"}); err != nil {
+	if err := s.execInput(1, []string{"sendkeys", "--stdin"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(inp.Calls) != 1 || inp.Calls[0] != "type:stdin payload" {
@@ -503,10 +503,10 @@ func TestScriptRunnerScreenCaptureFallbackAndInputStdin(t *testing.T) {
 	if err := s.execScreen(2, []string{"grab", "--rect", "0,0,2,2", "--out"}); err == nil {
 		t.Fatal("screen grab without out path was accepted")
 	}
-	if err := s.execInput(3, []string{"type-literal", "a", "b"}); err == nil {
+	if err := s.execInput(3, []string{"type", "a", "b"}); err == nil {
 		t.Fatal("literal input accepted multiple arguments")
 	}
-	if err := s.execInput(4, []string{"type-literal", "z"}); err != nil {
+	if err := s.execInput(4, []string{"type", "z"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.pf.Screen().WithContext(context.Background()).Resolution(); err != nil {
@@ -542,7 +542,7 @@ func TestScriptRunnerFailClosedCommandAndOutputBoundaries(t *testing.T) {
 		{"screen grab --out", "requires a value"},
 		{"screen hash --rect", "requires a value"},
 		{"screen unknown", "unsupported screen"},
-		{"input type-literal", "requires exactly one"},
+		{"input type", "requires exactly one"},
 		{"output unknown", "unsupported output"},
 		{"window move --title Missing --x 1 --y 2", "not found"},
 		{"window resize --title Missing --w 1 --h 2", "not found"},
@@ -560,7 +560,7 @@ func TestScriptRunnerFailClosedCommandAndOutputBoundaries(t *testing.T) {
 	if err := s.execWindow(1, []string{"activate"}); err == nil || !strings.Contains(err.Error(), "requires a title") {
 		t.Fatalf("unselected window action accepted: %v", err)
 	}
-	if err := s.run(strings.NewReader("input type-literal ''\n")); err != nil {
+	if err := s.run(strings.NewReader("input type ''\n")); err != nil {
 		t.Fatalf("empty literal should be passed through: %v", err)
 	}
 	if len(inp.Calls) != 1 || inp.Calls[0] != "type-literal:" {
@@ -581,7 +581,7 @@ func TestScriptRunnerScannerFailureAndAdversarialStreams(t *testing.T) {
 		t.Fatal("scanner failure produced input events")
 	}
 	s.in = scriptBrokenReader{}
-	if err := s.execInput(1, []string{"type", "--stdin"}); err == nil || !strings.Contains(err.Error(), "synthetic stdin failure") {
+	if err := s.execInput(1, []string{"sendkeys", "--stdin"}); err == nil || !strings.Contains(err.Error(), "synthetic stdin failure") {
 		t.Fatalf("stdin I/O error lost: %v", err)
 	}
 	s.out = scriptBrokenWriter{}
@@ -599,7 +599,7 @@ func TestScriptRunnerScannerFailureAndAdversarialStreams(t *testing.T) {
 	if err := s.execInput(5, []string{"type", "from script"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(inp.Calls) != 1 || inp.Calls[0] != "type:from script" {
+	if len(inp.Calls) != 1 || inp.Calls[0] != "type-literal:from script" {
 		t.Fatalf("script recovery failed: %v", inp.Calls)
 	}
 }
@@ -622,7 +622,7 @@ func TestScriptRunPropagatesSourceReadFailure(t *testing.T) {
 // coordinates are rejected before any capture destination can be created.
 func TestScriptRunnerMultiwordInputAndInvalidGrabPath(t *testing.T) {
 	runner, backend, _, _ := newScriptFixture(t)
-	if err := runner.run(strings.NewReader("input type alpha beta gamma\n")); err != nil {
+	if err := runner.run(strings.NewReader("input sendkeys \"alpha beta gamma\"\n")); err != nil {
 		t.Fatal(err)
 	}
 	if len(backend.Calls) != 1 || backend.Calls[0] != "type:alpha beta gamma" {
@@ -710,7 +710,7 @@ func TestWorkflowRunnerLifecycle(t *testing.T) {
 			defer session.Close()
 			runner := &scriptRunner{ctx: parent, lifecycle: w, out: io.Discard, pf: session}
 			done := make(chan error, 1)
-			go func() { done <- runner.run(strings.NewReader("input type first\ninput type second\n")) }()
+			go func() { done <- runner.run(strings.NewReader("input sendkeys first\ninput sendkeys second\n")) }()
 			if got := workflowReceive(t, inp.entered); got != "first" {
 				t.Fatal(got)
 			}

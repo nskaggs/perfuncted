@@ -198,7 +198,7 @@ func TestCoreFacadeMethodsFailClosedOnNilReceivers(t *testing.T) {
 	}{
 		{"key-down", func() error { return in.WithContext(ctx).KeyDown("A") }},
 		{"key-up", func() error { return in.WithContext(ctx).KeyUp("A") }},
-		{"type", func() error { return in.WithContext(ctx).TypeKeys("text") }},
+		{"type", func() error { return in.WithContext(ctx).SendKeys("text") }},
 		{"type-literal", func() error { return in.WithContext(ctx).Type("text") }},
 		{"move", func() error { return in.WithContext(ctx).MouseMove(1, 2) }},
 		{"click", func() error { return in.WithContext(ctx).Click(1, 2, 1) }},

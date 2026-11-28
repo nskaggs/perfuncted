@@ -384,7 +384,7 @@ func TestSingleInputActionsRejectAuthorizationLoss(t *testing.T) {
 		{"key-down", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).KeyDown("a") }},
 		{"key-up", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).KeyUp("a") }},
 		{"type", func(s *perfuncted.Session, c context.Context) error {
-			return s.Input().WithContext(c).TypeKeys("hello")
+			return s.Input().WithContext(c).SendKeys("hello")
 		}},
 		{"type-literal", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).Type("hello") }},
 		{"mouse-move", func(s *perfuncted.Session, c context.Context) error { return s.Input().WithContext(c).MouseMove(1, 2) }},
@@ -866,7 +866,7 @@ func TestInputBundleClickCenter(t *testing.T) {
 func TestInputBundleType_NilCheck(t *testing.T) {
 	// Type with nil Inputter should return error.
 	pf := pftest.New(nil, nil, nil, nil)
-	err := pf.Input().WithContext(context.Background()).TypeKeys("hello")
+	err := pf.Input().WithContext(context.Background()).SendKeys("hello")
 	if err == nil {
 		t.Fatal("expected error for nil Inputter")
 	}

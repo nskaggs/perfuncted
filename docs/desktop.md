@@ -220,10 +220,10 @@ postcondition independently before deciding whether to retry.
 
 ## Typing and capture semantics
 
-Use `pf input type-literal` for literal text, including braces and key-like
-strings. `pf input type` interprets brace-delimited key sequences; this
+Use `pf input type` for literal text, including braces and key-like
+strings. `pf input sendkeys` interprets brace-delimited key sequences; this
 also applies to text read through `--stdin`. The Go convenience Type is
-literal, whereas InputBundle.Type interprets key sequences. Input goes to
+literal, whereas InputBundle.SendKeys interprets key sequences. Input goes to
 the relevant focused application; successful dispatch is not acceptance or
 proof of a saved result.
 

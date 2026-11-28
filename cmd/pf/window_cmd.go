@@ -235,6 +235,9 @@ func activateSelectedWindow(
 	verify bool,
 	verifyTimeout, verifyPoll time.Duration,
 ) error {
+	if verify && (verifyTimeout <= 0 || verifyPoll <= 0) {
+		return fmt.Errorf("activation verification requires positive durations")
+	}
 	session, err := openPF(cmd.Context())
 	if err != nil {
 		return err
@@ -322,7 +325,7 @@ func windowCmd(
 		},
 	}
 
-	activate.Flags().BoolVar(&verifyTitle, "verify", false, "verify actual window focus")
+	activate.Flags().BoolVar(&verifyTitle, "verify", true, "verify actual window focus")
 	activate.Flags().DurationVar(&verifyTitleTimeout, "verify-timeout", 2*time.Second, "maximum time to verify focus")
 	activate.Flags().DurationVar(&verifyTitlePoll, "verify-poll", 50*time.Millisecond, "verification polling interval")
 
@@ -767,14 +770,14 @@ func windowCmd(
 			return err
 		}
 		if verifyClose {
-			if err := waitWindowGone(cmd.Context(), pf.Windows(), target.ID().String(), verifyCloseTimeout, verifyClosePoll); err != nil {
+			if err := waitWindowGone(cmd.Context(), target, verifyCloseTimeout, verifyClosePoll); err != nil {
 				return err
 			}
 			return writeCLIOutput(cmd.OutOrStdout(), "close verified: %s\n", args[0])
 		}
 		return writeCLIOutput(cmd.OutOrStdout(), "close requested: %s\n", args[0])
 	}}
-	activateID.Flags().BoolVar(&verifyActivation, "verify", false, "wait for actual target focus confirmation")
+	activateID.Flags().BoolVar(&verifyActivation, "verify", true, "wait for actual target focus confirmation")
 	activateID.Flags().DurationVar(&activationVerifyTimeout, "verify-timeout", 2*time.Second, "maximum wait for target to become active")
 	activateID.Flags().DurationVar(&activationVerifyPoll, "verify-poll", 50*time.Millisecond, "focus verification poll interval")
 	closeID.Flags().BoolVar(&verifyClose, "verify", false, "verify target window disappears")
@@ -911,38 +914,18 @@ func waitWindowActive(ctx context.Context, w *perfuncted.Window, timeout, poll t
 // waitWindowGone confirms a dialog or window disappeared, which is stronger
 // than observing that a close or Enter keystroke was merely sent. It also
 // prevents restoring clipboard contents before an asynchronous paste is read.
-func waitWindowGone(ctx context.Context, bundle perfuncted.WindowBundle, id string, timeout, poll time.Duration) error {
-	if id == "" || timeout <= 0 || poll <= 0 {
+func waitWindowGone(ctx context.Context, target *perfuncted.Window, timeout, poll time.Duration) error {
+	if target == nil || target.ID().String() == "" || timeout <= 0 || poll <= 0 {
 		return fmt.Errorf("window disappearance verification needs an ID and positive durations")
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	tick := time.NewTicker(poll)
-	defer tick.Stop()
-	for {
-		wins, err := bundle.WithContext(ctx).List(window.Match{}) //nolint:contextcheck // The caller context is bound explicitly by the scoped API.
-		if err != nil {
-			return fmt.Errorf("verify window %s disappeared: %w", id, err)
-		}
-		found := false
-		for _, w := range wins {
-			if w.ID().String() == id {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return fmt.Errorf("window %s remains open: %w", id, errWindowNotGone)
-			}
-			return ctx.Err()
-		case <-tick.C:
-		}
+	err := target.WithContext(ctx).WithTimeout(timeout).WaitClosed(perfuncted.WaitEvery(poll), perfuncted.WaitFailFast()) //nolint:contextcheck // The scoped handle binds ctx explicitly.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("window %s remains open: %w", target.ID().String(), errors.Join(errWindowNotGone, err))
 	}
+	if err != nil {
+		return fmt.Errorf("verify window %s disappeared: %w", target.ID().String(), err)
+	}
+	return nil
 }
 
 var errWindowNotGone = errors.New("window disappearance not verified")

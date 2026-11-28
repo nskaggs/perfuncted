@@ -116,8 +116,8 @@ var manualCLIAPIMethods = map[string]map[string]string{
 	},
 	"input": {
 		"move-relative": "MouseMove",
-		"type":          "TypeKeys",
-		"type-literal":  "Type",
+		"sendkeys":      "SendKeys",
+		"type":          "Type",
 		"location":      "ObservePointer",
 	},
 }

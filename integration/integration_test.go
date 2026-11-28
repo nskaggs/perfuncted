@@ -458,7 +458,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 	// Give the editor a moment to fully focus before typing.
 	time.Sleep(1 * time.Second)
-	if err := session.Input().WithContext(context.Background()).TypeKeys("session test"); err != nil {
+	if err := session.Input().WithContext(context.Background()).SendKeys("session test"); err != nil {
 		t.Fatalf("type: %v", err)
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -733,7 +733,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	defer cancelFocus()
 	verify.VerifyStableRegion(ctxFocus, "post-focus", typingRect)
 
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("Integration"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("Integration"); err != nil {
 		t.Fatalf("text entry: %v", err)
 	}
 	// XTEST types only symbols in the active X keymap. Test literal shortcut
@@ -800,7 +800,7 @@ func runEditorScenario(t *testing.T, s *suite, app appSpec) {
 	if err := activateWindow(s.pf, ctx, app.winMatch); err != nil {
 		t.Fatalf("activate before save: %v", err)
 	}
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{ctrl+s}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{ctrl+s}"); err != nil {
 		t.Fatalf("ctrl+s: %v", err)
 	}
 	savedText, err := waitForFileContains(context.Background(), saveFile, "Integration", 10*time.Second)
@@ -979,13 +979,13 @@ func runBrowserScenario(t *testing.T, s *suite, app appSpec) {
 		t.Fatalf("activate browser: %v", err)
 	}
 
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{ctrl+l}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{ctrl+l}"); err != nil {
 		t.Fatalf("ctrl+l: %v", err)
 	}
 	if err := s.pf.WithContext(ctx).Paste("about:support"); err != nil {
 		t.Fatalf("type address: %v", err)
 	}
-	if err := s.pf.Input().WithContext(ctx).TypeKeys("{enter}"); err != nil {
+	if err := s.pf.Input().WithContext(ctx).SendKeys("{enter}"); err != nil {
 		t.Fatalf("return: %v", err)
 	}
 

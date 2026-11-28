@@ -742,10 +742,10 @@ func TestNewAssemblesAllBackends(t *testing.T) {
 		t.Errorf("Screen.Grab: %v", err)
 	}
 	// pf.Input uses InputBundle which wraps inp.
-	if err := pf.Input().WithContext(ctx).TypeKeys("a"); err != nil {
+	if err := pf.Input().WithContext(ctx).SendKeys("a"); err != nil {
 		t.Errorf("Type: %v", err)
 	}
-	if err := pf.Input().WithContext(ctx).TypeKeys("^c"); err != nil {
+	if err := pf.Input().WithContext(ctx).SendKeys("^c"); err != nil {
 		t.Errorf("Type ctrl+c: %v", err)
 	}
 	if _, err := pf.Windows().WithContext(ctx).List(window.Match{}); err != nil {
@@ -773,7 +773,7 @@ func TestBundleSmoke(t *testing.T) {
 		if err := pf.Input().WithContext(ctx).KeyUp("ctrl"); err != nil {
 			t.Fatal(err)
 		}
-		if err := pf.Input().WithContext(ctx).TypeKeys("hello"); err != nil {
+		if err := pf.Input().WithContext(ctx).SendKeys("hello"); err != nil {
 			t.Fatal(err)
 		}
 		if err := pf.Input().WithContext(ctx).Click(10, 20, 1); err != nil {
@@ -906,7 +906,7 @@ func TestInputBundleErrors(t *testing.T) {
 	pf := pftest.New(nil, inp, nil, nil)
 	ctx := context.Background()
 
-	err := pf.Input().WithContext(ctx).TypeKeys("a")
+	err := pf.Input().WithContext(ctx).SendKeys("a")
 	if err == nil || !errors.Is(err, perfuncted.ErrOperationFailed) ||
 		!strings.Contains(err.Error(), "type error") {
 		t.Errorf("expected an operation failure containing 'type error', got %v", err)
@@ -974,7 +974,7 @@ func TestBundleMethodsPropagateContext(t *testing.T) {
 	sc := &contextSpyScreenshotter{}
 	pf := pftest.New(sc, inp, mgr, cb)
 
-	if err := pf.Input().WithContext(ctx).TypeKeys("hello"); err != nil {
+	if err := pf.Input().WithContext(ctx).SendKeys("hello"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pf.Windows().WithContext(ctx).List(window.Match{}); err != nil {

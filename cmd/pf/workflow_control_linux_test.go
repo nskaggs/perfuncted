@@ -25,7 +25,7 @@ import (
 func TestWorkflowCLIStopCancelsAndPersistsStatus(t *testing.T) {
 	id := "wf-" + workflow.New(context.Background(), "").ID()[:24]
 	script := filepath.Join(t.TempDir(), "task.pf")
-	if err := os.WriteFile(script, []byte("input type first\ninput type second\n"), 0600); err != nil {
+	if err := os.WriteFile(script, []byte("input sendkeys first\ninput sendkeys second\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	in := &workflowTestInput{entered: make(chan string, 2), proceed: make(chan struct{}), cleaned: make(chan struct{})}
@@ -106,7 +106,7 @@ func TestWorkflowControlWaitsForCancellationCleanup(t *testing.T) {
 	defer session.Close()
 	runner := &scriptRunner{ctx: context.Background(), lifecycle: w, out: &bytes.Buffer{}, pf: session}
 	done := make(chan error, 1)
-	go func() { done <- runner.run(strings.NewReader("input type first\n")) }()
+	go func() { done <- runner.run(strings.NewReader("input sendkeys first\n")) }()
 	workflowReceive(t, input.entered)
 	w.Stop()
 	if err := workflowReceive(t, done); !errors.Is(err, context.Canceled) {
@@ -124,13 +124,13 @@ func TestControlledWorkflowRejectsHeldKeyBeforeInput(t *testing.T) {
 	session := pftest.New(&pftest.Screenshotter{}, inputter, &pftest.Manager{}, nil)
 	defer session.Close()
 	runner := &scriptRunner{ctx: context.Background(), externalLifecycle: true, out: io.Discard, pf: session}
-	if err := runner.run(strings.NewReader("input type '{ctrl down}'\n")); err == nil {
+	if err := runner.run(strings.NewReader("input sendkeys '{ctrl down}'\n")); err == nil {
 		t.Fatal("accepted a held key across the workflow safe point")
 	}
 	if len(inputter.Calls) != 0 {
 		t.Fatalf("invalid held-key sequence dispatched input: %v", inputter.Calls)
 	}
-	if err := runner.run(strings.NewReader("input type '{ctrl+s}'\n")); err != nil {
+	if err := runner.run(strings.NewReader("input sendkeys '{ctrl+s}'\n")); err != nil {
 		t.Fatalf("atomic key chord failed: %v", err)
 	}
 	if len(inputter.Calls) != 1 || inputter.Calls[0] != "type:{ctrl+s}" {

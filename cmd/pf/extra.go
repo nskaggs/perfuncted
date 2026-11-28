@@ -118,7 +118,7 @@ Pause takes effect between script commands; a command already in progress may
 finish before status becomes paused. Stop cancels the run context and closes
 its Session so owned input cleanup can finish. Stop cannot undo application
 changes that already happened. Controlled runs require a script file, reject
-input type --stdin and explicit key-down/key-up syntax; atomic key chords remain
+input type/sendkeys --stdin and explicit key-down/key-up syntax; atomic key chords remain
 available. A crash can make the live state unavailable until the stale private
 control record is safely recovered by starting another run with the same ID.`,
 		Args: cobra.ExactArgs(1),
@@ -472,16 +472,8 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 		return fmt.Errorf("script line %d: missing input subcommand", lineNo)
 	}
 	switch toks[0] {
-	case "type":
+	case "type", "sendkeys":
 		return s.execInputType(lineNo, toks)
-	case "type-literal":
-		if len(toks) != 2 {
-			return fmt.Errorf("script line %d: input type-literal requires exactly one text argument", lineNo)
-		}
-		if err := s.pf.Input().WithContext(s.ctx).Type(toks[1]); err != nil {
-			return err
-		}
-		return s.syncInput()
 	case "location":
 		x, y, err := s.pf.Input().WithContext(s.ctx).PointerLocation()
 		if err != nil {
@@ -494,36 +486,31 @@ func (s *scriptRunner) execInput(lineNo int, toks []string) error {
 }
 
 func (s *scriptRunner) execInputType(lineNo int, toks []string) error {
-	var stdin bool
-	var text string
-	for i := 1; i < len(toks); i++ {
-		switch toks[i] {
-		case "--stdin":
-			stdin = true
-		default:
-			if text == "" {
-				text = toks[i]
-			} else {
-				text += " " + toks[i]
+	stdin := len(toks) == 2 && toks[1] == "--stdin"
+	if stdin && s.externalLifecycle {
+		return errors.New("input --stdin is not available with workflow controls because stream reads cannot be interrupted")
+	}
+	args := toks[1:]
+	if stdin {
+		args = nil
+	}
+	if len(args) == 1 && strings.HasPrefix(args[0], "--window") {
+		return fmt.Errorf("script line %d: targeted input flags are not supported in workflows", lineNo)
+	}
+	text, err := readKeyboardText(s.in, args, stdin)
+	if err != nil {
+		return fmt.Errorf("script line %d: input requires exactly one text argument or --stdin: %w", lineNo, err)
+	}
+	if toks[0] == "sendkeys" {
+		if s.externalLifecycle {
+			if err := input.ValidateWorkflowKeySend(s.ctx, text); err != nil {
+				return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
 			}
 		}
-	}
-	if stdin {
-		if s.externalLifecycle {
-			return errors.New("input type --stdin is not available with workflow controls because stream reads cannot be interrupted")
-		}
-		b, err := io.ReadAll(s.in)
-		if err != nil {
+		if err := s.pf.Input().WithContext(s.ctx).SendKeys(text); err != nil {
 			return err
 		}
-		text = string(b)
-	}
-	if s.externalLifecycle {
-		if err := input.ValidateWorkflowKeySend(s.ctx, text); err != nil {
-			return fmt.Errorf("script line %d: workflow input is not safe for interruption: %w", lineNo, err)
-		}
-	}
-	if err := s.pf.Input().WithContext(s.ctx).TypeKeys(text); err != nil {
+	} else if err := s.pf.Input().WithContext(s.ctx).Type(text); err != nil {
 		return err
 	}
 	return s.syncInput()

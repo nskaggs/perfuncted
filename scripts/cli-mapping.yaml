@@ -65,13 +65,10 @@ input:
     skip: true
   Sync:
     skip: true
-  TypeKeys:
+  SendKeys:
     skip: true
   Type:
-    name: type-literal
-    # Canonical contract: pf input type-literal <text>
-    positional: true
-    short: "Type text literally without interpreting key syntax"
+    skip: true
   TypeWithDelay:
     skip: true
 

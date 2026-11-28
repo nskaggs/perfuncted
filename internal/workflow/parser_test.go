@@ -84,10 +84,10 @@ func TestScriptSingleQuotedBackslashesRemainLiteral(t *testing.T) {
 		name, line string
 		want       []string
 	}{
-		{"path", `input type-literal 'C:\Users\Public\notes.txt'`, []string{"input", "type-literal", `C:\Users\Public\notes.txt`}},
-		{"regex", `input type-literal '^\w+\s+\d+$'`, []string{"input", "type-literal", `^\w+\s+\d+$`}},
-		{"escaped outside", `input type-literal one\ two`, []string{"input", "type-literal", "one two"}},
-		{"literal trailing slash", `input type-literal 'tail\'`, []string{"input", "type-literal", `tail\`}},
+		{"path", `input type 'C:\Users\Public\notes.txt'`, []string{"input", "type", `C:\Users\Public\notes.txt`}},
+		{"regex", `input type '^\w+\s+\d+$'`, []string{"input", "type", `^\w+\s+\d+$`}},
+		{"escaped outside", `input type one\ two`, []string{"input", "type", "one two"}},
+		{"literal trailing slash", `input type 'tail\'`, []string{"input", "type", `tail\`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := SplitShell(tc.line)

@@ -86,11 +86,11 @@ func (b *windowBundleState) window(info window.Info) *windowState {
 }
 
 // WaitClosed waits until the authoritative backend no longer reports w.
-func (w *windowState) WaitClosed(ctx context.Context) error {
+func (w *windowState) WaitClosed(ctx context.Context, options ...WaitOption) error {
 	if w == nil || w.id.session == nil {
 		return ErrNilSession
 	}
-	return w.id.session.Wait(ctx, windowClosed(w))
+	return w.id.session.Wait(ctx, windowClosed(w), options...)
 }
 
 // Find returns exactly one matching window.

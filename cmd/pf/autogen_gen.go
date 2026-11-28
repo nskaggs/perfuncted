@@ -120,30 +120,3 @@ func autogenScreenCommands(openPF sessionOpener) []*cobra.Command {
 	cmds = append(cmds, cmd_screen_wait_for_no_change_from)
 	return cmds
 }
-func autogenInputCommands(openPF sessionOpener) []*cobra.Command {
-	cmds := []*cobra.Command{}
-
-	// type-literal: wrapper for perfuncted.Type
-
-	cmd_input_type_literal := &cobra.Command{
-		Use:   "type-literal <text>",
-		Short: "Type text literally without interpreting key syntax",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			var cmd_input_type_literal_text string
-			cmd_input_type_literal_text = args[0]
-			if err := pf.Input().WithContext(cmd.Context()).Type(cmd_input_type_literal_text); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-
-	cmds = append(cmds, cmd_input_type_literal)
-	return cmds
-}

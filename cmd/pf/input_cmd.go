@@ -10,7 +10,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nskaggs/perfuncted/v2"
 	"github.com/nskaggs/perfuncted/v2/input"
@@ -46,7 +48,6 @@ func inputCmd(
 	}
 
 	var mx, my, button int
-	var typeStdin bool
 	var motionDuration, motionEasing string
 	var motionCurve float64
 	var motionVariation int
@@ -314,40 +315,6 @@ func inputCmd(
 		},
 	}
 	clickCenter.Flags().StringVar(&crRect, "rect", "0,0,100,100", "x0,y0,x1,y1")
-
-	typeCmd := &cobra.Command{
-		Use:   "type <text>",
-		Short: "Type a string or send keys (e.g. {enter}, {ctrl+s})",
-		Long:  "Interpret brace-delimited key sequences in text, including text read with --stdin. Use input type-literal for data that must not be interpreted as keys. Successful dispatch is not proof that the focused application accepted the input.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// Missing text cannot require desktop access. Validate first;
-			// stdin reads also precede session opening.
-			text := ""
-			switch {
-			case typeStdin:
-				b, err := io.ReadAll(cmd.InOrStdin())
-				if err != nil {
-					return err
-				}
-				text = string(b)
-			case len(args) == 1:
-				text = args[0]
-			default:
-				return fmt.Errorf("type requires text or --stdin")
-			}
-			pf, err := openPF(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer pf.Close()
-			if err := pf.Input().WithContext(cmd.Context()).TypeKeys(text); err != nil {
-				return err
-			}
-			return syncIf(cmd.Context(), pf)
-		},
-	}
-	typeCmd.Flags().BoolVar(&typeStdin, "stdin", false, "read text from stdin")
 
 	keydown := &cobra.Command{
 		Use:   "keydown <key>",
@@ -671,19 +638,19 @@ func inputCmd(
 				}
 			}
 		}()
-		if err := pf.Input().WithContext(cmd.Context()).TypeKeys("{ctrl+l}{ctrl+v}{enter}"); err != nil {
+		if err := pf.Input().WithContext(cmd.Context()).SendKeys("{ctrl+l}{ctrl+v}{enter}"); err != nil {
 			return err
 		}
 		if confirmFile {
 			// KDE and other choosers may first navigate into a directory and
 			// select the filename. The final Enter accepts the selected file.
-			if err := pf.Input().WithContext(cmd.Context()).TypeKeys("{enter}"); err != nil {
+			if err := pf.Input().WithContext(cmd.Context()).SendKeys("{enter}"); err != nil {
 				return err
 			}
 		}
 		// Only restore clipboard after the chooser disappears: event dispatch
 		// alone does not prove that Ctrl+V has been processed.
-		if err := waitWindowGone(cmd.Context(), pf.Windows(), target.ID().String(), 10*time.Second, 75*time.Millisecond); err != nil {
+		if err := waitWindowGone(cmd.Context(), target, 10*time.Second, 75*time.Millisecond); err != nil {
 			return err
 		}
 		// A successful chooser operation also promises that the caller's
@@ -703,7 +670,7 @@ func inputCmd(
 	cmd.AddCommand(selectFile)
 
 	cmd.AddCommand(move, click, doubleClick, drag, clickCenter,
-		typeCmd, keydown, keyup, mousedown, mouseup, location, coordinateSpace, scrollCmd(openPF, cfg))
+		keyboardTextCmd(openPF, openInputWindow, syncIf, false), keyboardTextCmd(openPF, openInputWindow, syncIf, true), keydown, keyup, mousedown, mouseup, location, coordinateSpace, scrollCmd(openPF, cfg))
 
 	sync := &cobra.Command{
 		Use:   "sync",
@@ -723,17 +690,6 @@ func inputCmd(
 	if openInputObserver != nil {
 		cmd.AddCommand(inputStateCmd(openInputObserver))
 		cmd.AddCommand(inputHotkeyCmd(openInputObserver))
-	}
-
-	// append auto-generated input commands (avoid duplicates)
-	existing := map[string]bool{}
-	for _, c := range cmd.Commands() {
-		existing[c.Name()] = true
-	}
-	for _, ac := range autogenInputCommands(openPF) {
-		if !existing[ac.Name()] {
-			cmd.AddCommand(ac)
-		}
 	}
 
 	return cmd
@@ -927,4 +883,116 @@ func streamInputObservation(ctx context.Context, sub input.ObservationSubscripti
 			}
 		}
 	}
+}
+
+// keyboardTextCmd shares validation, targeting, stdin and synchronization.
+func keyboardTextCmd(open, openWindow sessionOpener, syncIf func(context.Context, *perfuncted.Session) error, keys bool) *cobra.Command {
+	name, short := "type", "Type literal text without interpreting key syntax"
+	if keys {
+		name, short = "sendkeys", "Send interpreted key sequences (e.g. {ctrl+s})"
+		// Targeted sequences are preflighted and guarded at parser-defined boundaries.
+	}
+	var stdin bool
+	var title, id string
+	cmd := &cobra.Command{
+		Use:   name + " <text>",
+		Short: short,
+		Long:  short + ". Successful dispatch does not prove application acceptance.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targeted, err := keyboardTarget(cmd, title, id)
+			if err != nil {
+				return err
+			}
+			text, err := readKeyboardText(cmd.InOrStdin(), args, stdin)
+			if err != nil {
+				return err
+			}
+			if keys {
+				if targeted {
+					if _, validationErr := input.AtomicKeySequences(cmd.Context(), text); validationErr != nil {
+						return validationErr
+					}
+				} else if validationErr := input.ValidateKeySequence(cmd.Context(), text); validationErr != nil {
+					return validationErr
+				}
+			}
+			opener := open
+			if targeted {
+				if openWindow == nil {
+					return fmt.Errorf("targeted input requires window capability")
+				}
+				opener = openWindow
+			}
+			pf, err := opener(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pf.Close()
+			if dispatchErr := dispatchKeyboardText(cmd.Context(), pf, title, id, text, keys); dispatchErr != nil {
+				return dispatchErr
+			}
+			return syncIf(cmd.Context(), pf)
+		},
+	}
+	cmd.Flags().BoolVar(&stdin, "stdin", false, "read text from stdin")
+	cmd.Flags().StringVar(&title, "window", "", "target an exact, unique window title")
+	cmd.Flags().StringVar(&id, "window-id", "", "target a unique stable window ID")
+	return cmd
+}
+
+const maxKeyboardTextBytes = 4 * 1024 * 1024
+
+func readKeyboardText(in io.Reader, args []string, stdin bool) (string, error) {
+	var text string
+	switch {
+	case stdin && len(args) != 0:
+		return "", fmt.Errorf("choose either text or --stdin")
+	case stdin:
+		b, err := io.ReadAll(io.LimitReader(in, maxKeyboardTextBytes+1))
+		if err != nil {
+			return "", err
+		}
+		text = string(b)
+	case len(args) == 1:
+		text = args[0]
+	default:
+		return "", fmt.Errorf("input requires text or --stdin")
+	}
+	if len(text) > maxKeyboardTextBytes {
+		return "", fmt.Errorf("input text exceeds %d bytes", maxKeyboardTextBytes)
+	}
+	if !utf8.ValidString(text) {
+		return "", fmt.Errorf("input text must be valid UTF-8")
+	}
+	return text, nil
+}
+
+func keyboardTarget(cmd *cobra.Command, title, id string) (bool, error) {
+	byTitle, byID := cmd.Flags().Changed("window"), cmd.Flags().Changed("window-id")
+	if byTitle && byID || byTitle && strings.TrimSpace(title) == "" || byID && strings.TrimSpace(id) == "" {
+		return false, fmt.Errorf("choose one nonempty --window or --window-id")
+	}
+	return byTitle || byID, nil
+}
+
+func dispatchKeyboardText(ctx context.Context, pf *perfuncted.Session, title, id, text string, keys bool) error {
+	if title == "" && id == "" {
+		if keys {
+			return pf.Input().WithContext(ctx).SendKeys(text) //nolint:contextcheck // Scoped context is bound explicitly.
+		}
+		return pf.Input().WithContext(ctx).Type(text) //nolint:contextcheck // Scoped context is bound explicitly.
+	}
+	step := perfuncted.Type(text)
+	if keys {
+		step = perfuncted.SendKeys(text)
+	}
+	if id == "" {
+		return pf.WithContext(ctx).Window(title).Do(step) //nolint:contextcheck // Scoped context is bound explicitly.
+	}
+	target, err := resolveWindowID(ctx, pf.Windows(), id, true)
+	if err != nil {
+		return err
+	}
+	return target.WithContext(ctx).Do(step) //nolint:contextcheck // Scoped context is bound explicitly.
 }

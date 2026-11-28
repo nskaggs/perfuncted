@@ -54,14 +54,14 @@ type Step struct {
 func Type(text string) Step { return Step{kind: "type-literal", text: text} }
 
 // Key constructs a single named-key step using the portable key vocabulary.
-// TypeKeys is available for backend-specific key names.
+// SendKeys is available for backend-specific key names.
 func Key(name string) Step { return Step{kind: "key", text: name} }
 
 // Hotkey constructs a chord with modifiers followed by a key.
 func Hotkey(keys ...string) Step { return Step{kind: "hotkey", text: strings.Join(keys, "+")} }
 
-// TypeKeys constructs a step using the input backend's explicit key syntax.
-func TypeKeys(sequence string) Step { return Step{kind: "type-keys", text: sequence} }
+// SendKeys constructs a step using the input backend's explicit key syntax.
+func SendKeys(sequence string) Step { return Step{kind: "type-keys", text: sequence} }
 
 // Click constructs a primary-button click at desktop coordinates.
 func Click(x, y int) Step { return Step{kind: "click", x: x, y: y} }
@@ -239,6 +239,12 @@ func (s *sessionCore) runSteps(ctx context.Context, steps []Step) error {
 // A failed guard is never an input dispatch and must not trigger a retry.
 func (s *sessionCore) runStepsChecked(ctx context.Context, steps []Step, guard func(context.Context) error) error {
 	for i, step := range steps {
+		if guard != nil && step.kind == "type-keys" {
+			if err := s.runGuardedKeys(ctx, step, i, guard); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := s.ensureOpen(); err != nil {
 			return &StepError{Index: i, Operation: step.kind, Err: err}
 		}
@@ -268,7 +274,7 @@ func (s *sessionCore) runStep(ctx context.Context, step Step) error {
 	switch step.kind {
 	case "type-literal":
 		err = s.input.TypeLiteral(ctx, step.text)
-	case "type-keys":
+	case "type-keys", "atomic-keys":
 		err = s.input.Type(ctx, step.text)
 	case "key", "hotkey":
 		err = s.input.Type(ctx, "{"+step.text+"}")
@@ -392,6 +398,11 @@ func (s *sessionCore) preflightWindowSteps(ctx context.Context, steps []Step) er
 		return err
 	}
 	for i, step := range steps {
+		if step.kind == "type-keys" {
+			if _, err := input.AtomicKeySequences(ctx, step.text); err != nil {
+				return &StepError{Index: i, Operation: step.kind, Err: errors.Join(ErrInvalidArgument, err)}
+			}
+		}
 		if step.kind == "click" {
 			return &StepError{Index: i, Operation: step.kind, Err: fmt.Errorf("window-targeted clicks have global coordinates, not a proven window-relative target: %w", ErrUnsupported)}
 		}
@@ -478,4 +489,23 @@ func (s *Session) immediate(step Step) error {
 		s = s.WithTimeout(s.core.Timeouts().Short)
 	}
 	return s.Do(step)
+}
+
+// runGuardedKeys checks focus between parser-defined actions, not characters.
+// A failed later guard preserves certainty that the original step partly ran.
+func (s *sessionCore) runGuardedKeys(ctx context.Context, step Step, index int, guard func(context.Context) error) error {
+	units, err := input.AtomicKeySequences(ctx, step.text)
+	if err != nil {
+		return &StepError{Index: index, Operation: step.kind, Err: errors.Join(ErrInvalidArgument, err, ctx.Err())}
+	}
+	atomic := make([]Step, 0, len(units))
+	for _, unit := range units {
+		atomic = append(atomic, Step{kind: "atomic-keys", text: unit})
+	}
+	if err := s.runStepsChecked(ctx, atomic, guard); err != nil {
+		var sub *StepError
+		errors.As(err, &sub)
+		return &StepError{Index: index, Operation: step.kind, Err: sub.Err, MayHaveDispatched: sub.Index > 0 || sub.MayHaveDispatched}
+	}
+	return nil
 }

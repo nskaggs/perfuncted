@@ -25,7 +25,7 @@ func TestWorkflowControlHeadlessWayland(t *testing.T) {
 	id := "wf-integration-" + workflow.New(context.Background(), "").ID()[:12]
 	script := filepath.Join(t.TempDir(), "workflow.pf")
 	longInput := strings.Repeat("a", 2000)
-	if err := os.WriteFile(script, []byte("input type first\ninput type "+longInput+"\ninput type must-not-run\n"), 0600); err != nil {
+	if err := os.WriteFile(script, []byte("input sendkeys first\ninput sendkeys "+longInput+"\ninput sendkeys must-not-run\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	open := func(ctx context.Context) (*perfuncted.Session, error) {
